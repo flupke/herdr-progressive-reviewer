@@ -12,8 +12,24 @@ pub enum ReviewStatus {
     Reviewed,
     /// The path changed after its review baseline.
     ChangedSinceReview,
+}
+
+/// A non-fatal warning found while deriving review state.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReviewWarning {
     /// The stored record uses an unknown schema.
     UnknownSchema,
+    /// The stored baseline commit no longer exists.
+    BaselineExpired,
+}
+
+/// Derived state and its optional storage warning.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ReviewState {
+    /// The path review state.
+    pub status: ReviewStatus,
+    /// A non-fatal warning that the UI must show.
+    pub warning: Option<ReviewWarning>,
 }
 
 /// The result of a request to mark one path as reviewed.
@@ -53,12 +69,22 @@ impl ReviewTracker {
     }
 
     /// Derive the current review state of one changed path.
-    pub fn status(&self, snapshot: &Snapshot, file: &ChangedFile) -> eyre::Result<ReviewStatus> {
+    pub fn status(&self, snapshot: &Snapshot, file: &ChangedFile) -> eyre::Result<ReviewState> {
         let change_id = snapshot.identity.change_id.as_str();
         let path = file.review_path().as_bytes();
         let record = match self.store.load(change_id, path)? {
-            LoadResult::Unreviewed => return Ok(ReviewStatus::Unreviewed),
-            LoadResult::UnknownSchema => return Ok(ReviewStatus::UnknownSchema),
+            LoadResult::Unreviewed => {
+                return Ok(ReviewState {
+                    status: ReviewStatus::Unreviewed,
+                    warning: None,
+                });
+            }
+            LoadResult::UnknownSchema => {
+                return Ok(ReviewState {
+                    status: ReviewStatus::Unreviewed,
+                    warning: Some(ReviewWarning::UnknownSchema),
+                });
+            }
             LoadResult::Reviewed(record) => record,
         };
 
@@ -68,10 +94,19 @@ impl ReviewTracker {
         {
             Interdiff::MissingBaseline => {
                 self.store.unreview(change_id, path)?;
-                Ok(ReviewStatus::Unreviewed)
+                Ok(ReviewState {
+                    status: ReviewStatus::Unreviewed,
+                    warning: Some(ReviewWarning::BaselineExpired),
+                })
             }
-            Interdiff::Diff(diff) if diff.is_empty() => Ok(ReviewStatus::Reviewed),
-            Interdiff::Diff(_) => Ok(ReviewStatus::ChangedSinceReview),
+            Interdiff::Diff(diff) if diff.is_empty() => Ok(ReviewState {
+                status: ReviewStatus::Reviewed,
+                warning: None,
+            }),
+            Interdiff::Diff(_) => Ok(ReviewState {
+                status: ReviewStatus::ChangedSinceReview,
+                warning: None,
+            }),
         }
     }
 

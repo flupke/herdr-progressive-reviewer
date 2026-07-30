@@ -31,7 +31,10 @@ fn baselines_follow_content_not_commit_or_path_identity() {
         MarkResult::Marked
     );
     assert_eq!(
-        tracker.status(&original, &original.files[0]).unwrap(),
+        tracker
+            .status(&original, &original.files[0])
+            .unwrap()
+            .status,
         ReviewStatus::Reviewed
     );
 
@@ -52,14 +55,14 @@ fn baselines_follow_content_not_commit_or_path_identity() {
 
     let rebased = snapshot(&repository);
     assert_eq!(
-        tracker.status(&rebased, &rebased.files[0]).unwrap(),
+        tracker.status(&rebased, &rebased.files[0]).unwrap().status,
         ReviewStatus::Reviewed
     );
 
     jj.write("reviewed.txt", b"changed again\n");
     let edited = snapshot(&repository);
     assert_eq!(
-        tracker.status(&edited, &edited.files[0]).unwrap(),
+        tracker.status(&edited, &edited.files[0]).unwrap().status,
         ReviewStatus::ChangedSinceReview
     );
 
@@ -67,7 +70,7 @@ fn baselines_follow_content_not_commit_or_path_identity() {
     jj.rename("reviewed.txt", "renamed.txt");
     let renamed = snapshot(&repository);
     assert_eq!(
-        tracker.status(&renamed, &renamed.files[0]).unwrap(),
+        tracker.status(&renamed, &renamed.files[0]).unwrap().status,
         ReviewStatus::Unreviewed
     );
 
@@ -75,7 +78,7 @@ fn baselines_follow_content_not_commit_or_path_identity() {
     jj.remove("reviewed.txt");
     let deleted = snapshot(&repository);
     assert_eq!(
-        tracker.status(&deleted, &deleted.files[0]).unwrap(),
+        tracker.status(&deleted, &deleted.files[0]).unwrap().status,
         ReviewStatus::ChangedSinceReview
     );
 
@@ -89,9 +92,11 @@ fn baselines_follow_content_not_commit_or_path_identity() {
             "1111111111111111111111111111111111111111",
         )
         .unwrap();
+    let expired = tracker.status(&restored, &restored.files[0]).unwrap();
+    assert_eq!(expired.status, ReviewStatus::Unreviewed);
     assert_eq!(
-        tracker.status(&restored, &restored.files[0]).unwrap(),
-        ReviewStatus::Unreviewed
+        expired.warning,
+        Some(pr_app::review::ReviewWarning::BaselineExpired)
     );
     assert_eq!(
         direct_store

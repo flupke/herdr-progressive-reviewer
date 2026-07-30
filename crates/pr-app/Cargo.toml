@@ -9,6 +9,7 @@ license.workspace = true
 eyre.workspace = true
 pr-core = { path = "../pr-core" }
 pr-state = { path = "../pr-state" }
+ratatui.workspace = true
 
 [dev-dependencies]
 pr-tests = { path = "../pr-tests" }
