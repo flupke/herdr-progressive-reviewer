@@ -32,6 +32,13 @@ pub enum Error {
         code: Option<i32>,
     },
 
+    /// A directory is not in a jj workspace.
+    #[error("{path} is not in a jj workspace")]
+    NotJjRepository {
+        /// The directory where repository discovery started.
+        path: PathBuf,
+    },
+
     /// A tool did not return its name followed by a semantic version.
     #[error("{tool} returned an invalid version")]
     InvalidVersion {
@@ -48,18 +55,6 @@ pub enum Error {
         minimum: semver::Version,
         /// The installed version.
         found: semver::Version,
-    },
-
-    /// A file-system operation failed for a known path.
-    #[error("{operation} failed for {path}: {source}")]
-    Path {
-        /// The operation that failed.
-        operation: String,
-        /// The path that was in use.
-        path: PathBuf,
-        /// The operating-system error.
-        #[source]
-        source: std::io::Error,
     },
 
     /// An external protocol response was not valid.

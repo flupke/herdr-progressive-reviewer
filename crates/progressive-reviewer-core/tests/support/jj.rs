@@ -1,7 +1,7 @@
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output};
 
 /// The repository layout for a jj integration fixture.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -55,21 +55,6 @@ impl JjFixture {
         &self.root
     }
 
-    /// Ask jj for the canonical fixture root.
-    pub fn jj_root(&self) -> PathBuf {
-        let output = Command::new("jj")
-            .args(["--color=never", "--no-pager", "root"])
-            .current_dir(&self.root)
-            .output()
-            .unwrap();
-        assert!(output.status.success(), "jj root must succeed");
-        PathBuf::from(
-            std::str::from_utf8(&output.stdout)
-                .unwrap()
-                .trim_end_matches(['\r', '\n']),
-        )
-    }
-
     /// Write one repository-relative fixture file.
     pub fn write(&self, relative_path: impl AsRef<Path>, contents: &[u8]) {
         let relative_path = relative_path.as_ref();
@@ -83,5 +68,52 @@ impl JjFixture {
         let path = self.root.join(relative_path);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(path, contents).unwrap();
+    }
+
+    /// Delete one repository-relative fixture file.
+    pub fn remove(&self, relative_path: impl AsRef<Path>) {
+        fs::remove_file(self.root.join(relative_path)).unwrap();
+    }
+
+    /// Rename one repository-relative fixture file.
+    pub fn rename(&self, from: impl AsRef<Path>, to: impl AsRef<Path>) {
+        fs::rename(self.root.join(from), self.root.join(to)).unwrap();
+    }
+
+    /// Create one repository-relative symbolic link.
+    pub fn symlink(&self, target: impl AsRef<Path>, link: impl AsRef<Path>) {
+        std::os::unix::fs::symlink(target, self.root.join(link)).unwrap();
+    }
+
+    /// Start a new jj change with the current change as its parent.
+    pub fn new_change(&self, description: &str) {
+        self.jj(["new", "-m", description]);
+    }
+
+    /// Edit an existing jj change.
+    pub fn edit(&self, revision: &str) {
+        self.jj(["edit", revision]);
+    }
+
+    /// Get the full stable change ID for the working copy.
+    pub fn change_id(&self) -> String {
+        let output = self.jj(["log", "--no-graph", "-r", "@", "-T", r#"change_id ++ "\n""#]);
+        String::from_utf8(output.stdout).unwrap().trim().to_owned()
+    }
+
+    /// Run a jj command in the fixture and require success.
+    pub fn jj<'a>(&self, arguments: impl IntoIterator<Item = &'a str>) -> Output {
+        let output = Command::new("jj")
+            .args(["--color=never", "--no-pager"])
+            .args(arguments)
+            .current_dir(&self.root)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "jj fixture command failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        output
     }
 }

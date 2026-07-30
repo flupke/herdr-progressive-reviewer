@@ -3,7 +3,6 @@
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use crate::Result;
 
@@ -51,12 +50,6 @@ pub struct EntrypointId(pub String);
 pub enum PanePlacement {
     /// Open the pane as a split.
     Split,
-}
-
-/// A low-level Herdr request transport.
-pub trait HerdrTransport: Send + Sync {
-    /// Send one method call and return its result value.
-    fn request(&self, method: &str, parameters: Value) -> Result<Value>;
 }
 
 /// Read operations needed by the reviewer.

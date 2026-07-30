@@ -101,7 +101,6 @@ name = "progressive-reviewer"
 version = "0.1.0"
 dependencies = [
  "eyre",
- "progressive-reviewer-core",
 ]
 
 [[package]]
@@ -109,7 +108,6 @@ name = "progressive-reviewer-control"
 version = "0.1.0"
 dependencies = [
  "eyre",
- "progressive-reviewer-core",
 ]
 
 [[package]]

@@ -91,7 +91,6 @@ fn parse_version(tool: &'static str, output: &[u8]) -> Result<Version> {
 }
 
 /// Get the default Herdr executable from the plugin environment.
-#[must_use]
 pub fn herdr_program_from_environment() -> OsString {
     std::env::var_os("HERDR_BIN_PATH").unwrap_or_else(|| OsStr::new("herdr").to_owned())
 }
