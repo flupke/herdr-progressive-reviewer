@@ -69,6 +69,11 @@ impl HerdrWriter for FakeHerdr {
         Ok(())
     }
 
+    fn focus_agent(&self, pane_id: &PaneId) -> Result<()> {
+        self.focused.lock().unwrap().push(pane_id.clone());
+        Ok(())
+    }
+
     fn close_plugin_pane(&self, pane_id: &PaneId) -> Result<()> {
         self.closed.lock().unwrap().push(pane_id.clone());
         self.panes
@@ -162,6 +167,10 @@ fn insertion_rechecks_the_last_focused_agent_workspace() {
     assert_eq!(
         client.sent.lock().unwrap().as_slice(),
         [(PaneId("agent-1".to_owned()), "diff text".to_owned())]
+    );
+    assert_eq!(
+        client.focused.lock().unwrap().as_slice(),
+        [PaneId("agent-1".to_owned())]
     );
 
     target.observe_agent_focus(&agent("other-agent", "other", None));

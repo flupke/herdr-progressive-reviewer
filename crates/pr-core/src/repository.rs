@@ -1,9 +1,14 @@
 //! Stable snapshots of one jj working-copy change.
 
 use std::ffi::{OsStr, OsString};
+use std::io::Read;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::thread;
+use std::time::Duration;
 
 use crate::{Error, Result};
 
@@ -13,6 +18,27 @@ const FILE_TEMPLATE: &str = concat!(
     r#"source.file_type() ++ "\0" ++ target.file_type() ++ "\0" ++ "#,
     r#"status ++ "\0""#,
 );
+const COMMAND_OUTPUT_LIMIT: usize = 256 * 1024 * 1024;
+
+#[derive(Clone, Copy, Debug)]
+struct JjProcess<'a> {
+    cwd: &'a Path,
+    operation: &'static str,
+    cancellation: &'a Cancellation,
+}
+
+#[derive(Clone, Debug, Default)]
+struct Cancellation(Arc<AtomicBool>);
+
+impl Cancellation {
+    fn cancel(&self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+
+    fn is_cancelled(&self) -> bool {
+        self.0.load(Ordering::Relaxed)
+    }
+}
 
 /// A full stable jj change identifier.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -288,25 +314,19 @@ pub enum Interdiff {
 }
 
 /// A discovered jj workspace.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct Repository {
     root: PathBuf,
+    cancellation: Cancellation,
 }
 
 impl Repository {
     /// Find the canonical jj workspace root for a directory.
     pub fn discover(start: impl AsRef<Path>) -> Result<Self> {
         let start = start.as_ref();
-        let output = Command::new("jj")
-            .args(["--color=never", "--no-pager", "root"])
-            .current_dir(start)
-            .output()
-            .map_err(|source| Error::Spawn {
-                operation: "discover jj repository".to_owned(),
-                program: OsString::from("jj"),
-                current_dir: Some(start.to_owned()),
-                source,
-            })?;
+        let cancellation = Cancellation::default();
+        let output =
+            JjProcess::new(start, "discover jj repository", &cancellation).output(["root"])?;
         if !output.status.success() {
             return Err(Error::NotJjRepository {
                 path: start.to_owned(),
@@ -323,7 +343,18 @@ impl Repository {
 
         Ok(Self {
             root: PathBuf::from(OsString::from_vec(root.to_vec())),
+            cancellation,
         })
+    }
+
+    /// Get the canonical workspace root.
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// Cancel the active repository command during shutdown.
+    pub fn cancel(&self) {
+        self.cancellation.cancel();
     }
 
     /// Build one complete snapshot or reject a mixed poll.
@@ -440,17 +471,130 @@ impl Repository {
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
     {
-        Command::new("jj")
+        JjProcess::new(&self.root, "read jj repository", &self.cancellation).output(arguments)
+    }
+}
+
+impl<'a> JjProcess<'a> {
+    fn new(cwd: &'a Path, operation: &'static str, cancellation: &'a Cancellation) -> Self {
+        Self {
+            cwd,
+            operation,
+            cancellation,
+        }
+    }
+
+    fn output<I, S>(self, arguments: I) -> Result<Output>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
+        let mut child = Command::new("jj")
             .args(["--color=never", "--no-pager"])
             .args(arguments)
-            .current_dir(&self.root)
-            .output()
+            .current_dir(self.cwd)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
             .map_err(|source| Error::Spawn {
-                operation: "read jj repository".to_owned(),
+                operation: self.operation.to_owned(),
                 program: OsString::from("jj"),
-                current_dir: Some(self.root.clone()),
+                current_dir: Some(self.cwd.to_owned()),
                 source,
-            })
+            })?;
+        let bytes = Arc::new(AtomicUsize::new(0));
+        let exceeded = Arc::new(AtomicBool::new(false));
+        let stdout = Self::capture(
+            child.stdout.take().expect("stdout is piped"),
+            Arc::clone(&bytes),
+            Arc::clone(&exceeded),
+        );
+        let stderr = Self::capture(
+            child.stderr.take().expect("stderr is piped"),
+            bytes,
+            Arc::clone(&exceeded),
+        );
+        let mut cancelled = false;
+        let status = loop {
+            if exceeded.load(Ordering::Relaxed) {
+                let _ = child.kill();
+                break child.wait();
+            }
+            if self.cancellation.is_cancelled() {
+                cancelled = true;
+                let _ = child.kill();
+                break child.wait();
+            }
+            match child.try_wait() {
+                Ok(Some(status)) => break Ok(status),
+                Ok(None) => thread::sleep(Duration::from_millis(10)),
+                Err(error) => break Err(error),
+            }
+        }
+        .map_err(|source| Error::Spawn {
+            operation: self.operation.to_owned(),
+            program: OsString::from("jj"),
+            current_dir: Some(self.cwd.to_owned()),
+            source,
+        })?;
+        let stdout = stdout
+            .join()
+            .expect("output reader did not panic")
+            .map_err(|source| Error::Spawn {
+                operation: self.operation.to_owned(),
+                program: OsString::from("jj"),
+                current_dir: Some(self.cwd.to_owned()),
+                source,
+            })?;
+        let stderr = stderr
+            .join()
+            .expect("output reader did not panic")
+            .map_err(|source| Error::Spawn {
+                operation: self.operation.to_owned(),
+                program: OsString::from("jj"),
+                current_dir: Some(self.cwd.to_owned()),
+                source,
+            })?;
+        if cancelled {
+            return Err(Error::CommandCancelled {
+                operation: self.operation.to_owned(),
+                path: self.cwd.to_owned(),
+            });
+        }
+        if exceeded.load(Ordering::Relaxed) {
+            return Err(Error::CommandOutputTooLarge {
+                operation: self.operation.to_owned(),
+                path: self.cwd.to_owned(),
+            });
+        }
+        Ok(Output {
+            status,
+            stdout,
+            stderr,
+        })
+    }
+
+    fn capture(
+        mut pipe: impl Read + Send + 'static,
+        bytes: Arc<AtomicUsize>,
+        exceeded: Arc<AtomicBool>,
+    ) -> thread::JoinHandle<std::io::Result<Vec<u8>>> {
+        thread::spawn(move || {
+            let mut output = Vec::new();
+            let mut buffer = [0; 8192];
+            loop {
+                let count = pipe.read(&mut buffer)?;
+                if count == 0 {
+                    return Ok(output);
+                }
+                let previous = bytes.fetch_add(count, Ordering::Relaxed);
+                if previous.saturating_add(count) > COMMAND_OUTPUT_LIMIT {
+                    exceeded.store(true, Ordering::Relaxed);
+                    return Ok(output);
+                }
+                output.extend_from_slice(&buffer[..count]);
+            }
+        })
     }
 }
 
@@ -463,7 +607,10 @@ fn trim_line_ending(bytes: &[u8]) -> &[u8] {
 
 #[cfg(test)]
 mod tests {
-    use super::RepoPath;
+    use std::path::Path;
+
+    use super::{Cancellation, JjProcess, RepoPath};
+    use crate::Error;
 
     #[test]
     fn repository_paths_preserve_non_utf8_bytes() {
@@ -471,5 +618,17 @@ mod tests {
 
         assert_eq!(path.0, b"invalid-\xff.txt");
         assert_eq!(path.display(), r"invalid-\xff.txt");
+    }
+
+    #[test]
+    fn cancellation_stops_a_child_command() {
+        let cancellation = Cancellation::default();
+        cancellation.cancel();
+
+        let error = JjProcess::new(Path::new("."), "test jj cancellation", &cancellation)
+            .output(["version"])
+            .unwrap_err();
+
+        assert!(matches!(error, Error::CommandCancelled { .. }));
     }
 }

@@ -1,9 +1,7 @@
 //! Progressive reviewer pane process.
 
-#[allow(
-    clippy::unnecessary_wraps,
-    reason = "later startup steps will return errors through this entry point"
-)]
+use pr_app::runtime::Runtime;
+
 fn main() -> eyre::Result<()> {
-    Ok(())
+    Runtime::from_env()?.run()
 }

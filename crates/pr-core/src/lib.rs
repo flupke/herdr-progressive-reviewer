@@ -4,6 +4,7 @@ pub mod diff;
 pub mod error;
 pub mod excerpt;
 pub mod herdr;
+pub mod herdr_client;
 pub mod repository;
 pub mod version;
 

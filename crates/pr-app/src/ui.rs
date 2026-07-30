@@ -6,7 +6,7 @@ use pr_core::diff::{DiffRow, NoticeKind};
 use pr_core::excerpt::DiffExcerpt;
 use pr_core::herdr::InsertResult;
 use ratatui::buffer::Buffer;
-use ratatui::layout::Rect;
+use ratatui::layout::{Alignment, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Widget};
@@ -53,7 +53,6 @@ pub struct ReviewFile {
     rows: Vec<DiffRow>,
     cursor: usize,
     scroll: usize,
-    visited: bool,
     loading: bool,
 }
 
@@ -66,7 +65,6 @@ impl ReviewFile {
             rows: Vec::new(),
             cursor: 0,
             scroll: 0,
-            visited: false,
             loading: false,
         }
     }
@@ -75,13 +73,6 @@ impl ReviewFile {
         self.rows
             .iter()
             .any(|row| matches!(row, DiffRow::Notice { .. }))
-    }
-
-    fn first_hunk(&self) -> usize {
-        self.rows
-            .iter()
-            .position(|row| matches!(row, DiffRow::Hunk { .. }))
-            .unwrap_or(0)
     }
 
     fn marker(&self) -> &'static str {
@@ -94,6 +85,11 @@ impl ReviewFile {
                 ReviewStatus::ChangedSinceReview => "●",
             }
         }
+    }
+
+    fn scroll_by(&mut self, delta: isize, page: usize) {
+        let last = self.rows.len().saturating_sub(page);
+        self.scroll = self.scroll.saturating_add_signed(delta).min(last);
     }
 }
 
@@ -129,7 +125,15 @@ pub enum Message {
     /// A repository poll failed.
     PollFailed(String),
     /// The terminal size changed.
-    Resize { height: u16 },
+    Resize { width: u16, height: u16 },
+    /// The mouse wheel moved over one pane.
+    MouseScroll { column: u16, row: u16, delta: isize },
+    /// A mouse button was pressed over one pane.
+    MouseClick {
+        column: u16,
+        row: u16,
+        insert_path: bool,
+    },
     /// One keyboard input.
     Key(Key),
 }
@@ -174,6 +178,7 @@ pub struct ReviewApp {
     selection: Option<Selection>,
     notice: Option<String>,
     review_in_flight: Option<bool>,
+    width: u16,
     height: u16,
 }
 
@@ -189,6 +194,7 @@ impl Default for ReviewApp {
             selection: None,
             notice: None,
             review_in_flight: None,
+            width: 80,
             height: 24,
         }
     }
@@ -223,10 +229,7 @@ impl ReviewApp {
                 change_id,
                 path,
                 result,
-            } => {
-                self.finish_review(&change_id, &path, result);
-                Action::None
-            }
+            } => self.finish_review(&change_id, &path, result),
             Message::InsertFinished(result) => {
                 match result {
                     Ok(InsertResult::Inserted { agent_name }) => {
@@ -245,11 +248,20 @@ impl ReviewApp {
                 self.notice = Some(message);
                 Action::None
             }
-            Message::Resize { height } => {
-                self.height = height;
-                self.keep_visible();
+            Message::Resize { width, height } => {
+                if (self.width, self.height) != (width, height) {
+                    self.width = width;
+                    self.height = height;
+                    self.keep_visible();
+                }
                 Action::None
             }
+            Message::MouseScroll { column, row, delta } => self.mouse_scroll(column, row, delta),
+            Message::MouseClick {
+                column,
+                row,
+                insert_path,
+            } => self.mouse_click(column, row, insert_path),
             Message::Key(key) => self.key(key),
         }
     }
@@ -275,7 +287,6 @@ impl ReviewApp {
                 if let Some(old) = self.files.iter().find(|old| old.path == file.path) {
                     file.cursor = old.cursor;
                     file.scroll = old.scroll;
-                    file.visited = old.visited;
                     if same_snapshot {
                         file.rows.clone_from(&old.rows);
                         file.loading = old.loading;
@@ -302,8 +313,7 @@ impl ReviewApp {
         if selected_file.is_none() {
             self.selection = None;
         }
-        self.visit_selected();
-        self.keep_visible();
+        self.keep_file_visible();
         self.load_selected_action()
     }
 
@@ -323,7 +333,6 @@ impl ReviewApp {
             .is_some_and(|selected| selected.path == path)
         {
             self.selection = None;
-            self.visit_selected();
             self.keep_visible();
         }
     }
@@ -338,9 +347,14 @@ impl ReviewApp {
         }
     }
 
-    fn finish_review(&mut self, change_id: &str, path: &str, result: Result<ReviewState, String>) {
+    fn finish_review(
+        &mut self,
+        change_id: &str,
+        path: &str,
+        result: Result<ReviewState, String>,
+    ) -> Action {
         if self.change_id != change_id {
-            return;
+            return Action::None;
         }
         self.review_in_flight = None;
         match result {
@@ -349,9 +363,17 @@ impl ReviewApp {
                     file.status = state.status;
                 }
                 self.notice = state.warning.map(Self::warning_text);
+                if state.status != ReviewStatus::Reviewed
+                    && self
+                        .selected()
+                        .is_some_and(|selected| selected.path == path)
+                {
+                    return self.load_selected_action();
+                }
             }
             Err(message) => self.notice = Some(message),
         }
+        Action::None
     }
 
     fn warning_text(warning: ReviewWarning) -> String {
@@ -381,8 +403,9 @@ impl ReviewApp {
                 Action::None
             }
             Key::Enter if self.focus == Focus::Files => {
-                self.focus = Focus::Diff;
-                Action::None
+                self.selected().map_or(Action::None, |file| Action::Insert {
+                    text: file.path.clone(),
+                })
             }
             Key::Enter => self.insert(),
             Key::Space => self.toggle_review(),
@@ -492,7 +515,6 @@ impl ReviewApp {
                 if target != self.selected_file {
                     self.selected_file = target;
                     self.selection = None;
-                    self.visit_selected();
                     selected_changed = true;
                 }
             }
@@ -516,15 +538,62 @@ impl ReviewApp {
         }
     }
 
-    fn visit_selected(&mut self) {
-        let Some(file) = self.files.get_mut(self.selected_file) else {
-            return;
+    fn mouse_scroll(&mut self, column: u16, row: u16, delta: isize) -> Action {
+        let Some(hovered) = self.hovered_focus(column, row) else {
+            return Action::None;
         };
-        if !file.visited && !file.rows.is_empty() {
-            file.cursor = file.first_hunk();
-            file.scroll = file.cursor;
-            file.visited = true;
+        if hovered == Focus::Diff {
+            let page = self.page_rows();
+            if let Some(file) = self.files.get_mut(self.selected_file) {
+                file.scroll_by(delta, page);
+            }
+            return Action::None;
         }
+        let focused = self.focus;
+        self.focus = hovered;
+        let action = self.navigate(delta);
+        self.focus = focused;
+        action
+    }
+
+    fn mouse_click(&mut self, column: u16, row: u16, insert_path: bool) -> Action {
+        let Some(focus) = self.hovered_focus(column, row) else {
+            return Action::None;
+        };
+        self.focus = focus;
+        let footer_height = if self.height < 10 { 1 } else { 2 };
+        if focus != Focus::Files || row < 2 || row >= self.height.saturating_sub(footer_height + 1)
+        {
+            return Action::None;
+        }
+        let target = self.file_scroll + usize::from(row - 2);
+        if target >= self.files.len() {
+            return Action::None;
+        }
+        self.selected_file = target;
+        self.selection = None;
+        if insert_path {
+            return Action::Insert {
+                text: self.files[target].path.clone(),
+            };
+        }
+        self.load_selected_action()
+    }
+
+    fn hovered_focus(&self, column: u16, row: u16) -> Option<Focus> {
+        let footer_height = if self.height < 10 { 1 } else { 2 };
+        if row == 0 || row >= self.height.saturating_sub(footer_height) || column >= self.width {
+            return None;
+        }
+        if self.width < NARROW_WIDTH {
+            return Some(self.focus);
+        }
+        let file_width = (self.width * 30 / 100).clamp(24, 48);
+        Some(if column < file_width {
+            Focus::Files
+        } else {
+            Focus::Diff
+        })
     }
 
     fn load_selected_action(&mut self) -> Action {
@@ -543,12 +612,8 @@ impl ReviewApp {
     }
 
     fn keep_visible(&mut self) {
+        self.keep_file_visible();
         let page = self.page_rows();
-        if self.selected_file < self.file_scroll {
-            self.file_scroll = self.selected_file;
-        } else if self.selected_file >= self.file_scroll + page {
-            self.file_scroll = self.selected_file + 1 - page;
-        }
         let Some(file) = self.files.get_mut(self.selected_file) else {
             return;
         };
@@ -556,6 +621,15 @@ impl ReviewApp {
             file.scroll = file.cursor;
         } else if file.cursor >= file.scroll + page {
             file.scroll = file.cursor + 1 - page;
+        }
+    }
+
+    fn keep_file_visible(&mut self) {
+        let page = self.page_rows();
+        if self.selected_file < self.file_scroll {
+            self.file_scroll = self.selected_file;
+        } else if self.selected_file >= self.file_scroll + page {
+            self.file_scroll = self.selected_file + 1 - page;
         }
     }
 
@@ -685,6 +759,13 @@ impl ReviewView<'_> {
         let Some(file) = self.0.selected() else {
             return;
         };
+        if file.status == ReviewStatus::Reviewed {
+            let center = Rect::new(inner.x, inner.y + inner.height / 2, inner.width, 1);
+            Paragraph::new("No changes")
+                .alignment(Alignment::Center)
+                .render(center, buffer);
+            return;
+        }
         let selection = self.0.selection.map(Selection::range);
         let lines = file
             .rows

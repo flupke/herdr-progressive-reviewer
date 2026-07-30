@@ -2,6 +2,8 @@
 
 use crate::repository::{ChangedFile, FileKind, RepoPath};
 
+const MAX_LINE_BYTES: usize = 16 * 1024 * 1024;
+
 /// One parsed row in a unified diff.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DiffRow {
@@ -91,6 +93,15 @@ struct ActiveHunk {
 
 impl DiffParser {
     fn parse(output: &[u8]) -> Vec<DiffRow> {
+        if output
+            .split(|byte| *byte == b'\n')
+            .any(|line| line.len() > MAX_LINE_BYTES)
+        {
+            return vec![DiffRow::Notice {
+                kind: NoticeKind::Unsupported,
+                text: "Diff line exceeded 16 MiB; text diff is unavailable".to_owned(),
+            }];
+        }
         let Ok(text) = std::str::from_utf8(output) else {
             return vec![DiffRow::Notice {
                 kind: NoticeKind::Binary,
@@ -311,4 +322,22 @@ pub fn parse_file_diff(output: &[u8], file: &ChangedFile) -> Vec<DiffRow> {
         }
     }
     rows
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DiffParser, DiffRow, MAX_LINE_BYTES, NoticeKind};
+
+    #[test]
+    fn rejects_a_line_above_the_parse_limit() {
+        let rows = DiffParser::parse(&vec![b'x'; MAX_LINE_BYTES + 1]);
+
+        assert!(matches!(
+            rows.as_slice(),
+            [DiffRow::Notice {
+                kind: NoticeKind::Unsupported,
+                ..
+            }]
+        ));
+    }
 }

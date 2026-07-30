@@ -17,6 +17,10 @@ pub mod method {
     pub const AGENT_LIST: &str = "agent.list";
     /// Resolve one live agent.
     pub const AGENT_GET: &str = "agent.get";
+    /// Focus one live agent.
+    pub const AGENT_FOCUS: &str = "agent.focus";
+    /// Resolve one live pane.
+    pub const PANE_GET: &str = "pane.get";
     /// Open one plugin-owned pane.
     pub const PLUGIN_PANE_OPEN: &str = "plugin.pane.open";
     /// Focus one plugin-owned pane.
@@ -78,6 +82,9 @@ pub trait HerdrWriter: Send + Sync {
     /// Focus a plugin-owned pane.
     fn focus_plugin_pane(&self, pane_id: &PaneId) -> Result<()>;
 
+    /// Focus an agent pane.
+    fn focus_agent(&self, pane_id: &PaneId) -> Result<()>;
+
     /// Close a plugin-owned pane.
     fn close_plugin_pane(&self, pane_id: &PaneId) -> Result<()>;
 
@@ -134,7 +141,7 @@ pub struct Agent {
 }
 
 /// A pane owned by this plugin.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct PluginPane {
     /// The Herdr pane ID.
     pub pane_id: PaneId,
@@ -349,6 +356,7 @@ impl AgentTarget {
         }
 
         client.send_text(&agent.pane_id, text)?;
+        client.focus_agent(&agent.pane_id)?;
         Ok(InsertResult::Inserted {
             agent_name: agent
                 .name

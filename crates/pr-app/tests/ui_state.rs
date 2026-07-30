@@ -88,7 +88,10 @@ fn state_machine_keeps_selection_until_insert_succeeds() {
         rows: rows(),
     });
 
-    app.update(Message::Key(Key::Enter));
+    app.update(Message::Key(Key::Tab));
+    app.update(Message::Key(Key::Down));
+    app.update(Message::Key(Key::Down));
+    app.update(Message::Key(Key::Down));
     app.update(Message::Key(Key::Down));
     app.update(Message::Key(Key::Visual));
     app.update(Message::Key(Key::Down));
@@ -154,6 +157,185 @@ fn state_machine_keeps_selection_until_insert_succeeds() {
             .join("\n")
             .contains("Review baseline expired; file reset to unreviewed")
     );
+}
+
+#[test]
+fn reviewed_file_hides_its_diff() {
+    let mut app = ReviewApp::default();
+    app.update(Message::FilesLoaded {
+        change_id: "qpvuntsm".to_owned(),
+        commit_id: "11111111".to_owned(),
+        files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Reviewed)],
+    });
+    app.update(Message::DiffLoaded {
+        commit_id: "11111111".to_owned(),
+        path: "src/lib.rs".to_owned(),
+        rows: rows(),
+    });
+
+    let screen = screen(&app, 80, 12);
+    assert!(screen[5].contains("No changes"));
+    assert!(!screen.join("\n").contains("old();"));
+}
+
+#[test]
+fn removing_a_review_mark_loads_the_full_diff() {
+    let mut app = ReviewApp::default();
+    app.update(Message::FilesLoaded {
+        change_id: "qpvuntsm".to_owned(),
+        commit_id: "11111111".to_owned(),
+        files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Reviewed)],
+    });
+    app.update(Message::DiffLoaded {
+        commit_id: "11111111".to_owned(),
+        path: "src/lib.rs".to_owned(),
+        rows: Vec::new(),
+    });
+
+    assert_eq!(
+        app.update(Message::ReviewFinished {
+            change_id: "qpvuntsm".to_owned(),
+            path: "src/lib.rs".to_owned(),
+            result: Ok(ReviewState {
+                status: ReviewStatus::Unreviewed,
+                warning: None,
+            }),
+        }),
+        Action::LoadDiff {
+            commit_id: "11111111".to_owned(),
+            path: "src/lib.rs".to_owned(),
+        }
+    );
+}
+
+#[test]
+fn mouse_targets_the_hovered_pane_and_click_changes_focus() {
+    let mut app = ReviewApp::default();
+    app.update(Message::FilesLoaded {
+        change_id: "qpvuntsm".to_owned(),
+        commit_id: "11111111".to_owned(),
+        files: vec![
+            ReviewFile::new("first.rs", ReviewStatus::Unreviewed),
+            ReviewFile::new("second.rs", ReviewStatus::Unreviewed),
+        ],
+    });
+    app.update(Message::Resize {
+        width: 80,
+        height: 12,
+    });
+
+    assert_eq!(
+        app.update(Message::MouseScroll {
+            column: 1,
+            row: 2,
+            delta: 1,
+        }),
+        Action::LoadDiff {
+            commit_id: "11111111".to_owned(),
+            path: "second.rs".to_owned(),
+        }
+    );
+    app.update(Message::MouseClick {
+        column: 70,
+        row: 2,
+        insert_path: false,
+    });
+    assert!(
+        screen(&app, 80, 12)
+            .join("\n")
+            .contains("Diff · second.rs (focus)")
+    );
+    app.update(Message::MouseScroll {
+        column: 1,
+        row: 2,
+        delta: -1,
+    });
+    assert!(
+        screen(&app, 80, 12)
+            .join("\n")
+            .contains("Diff · first.rs (focus)")
+    );
+    app.update(Message::MouseClick {
+        column: 1,
+        row: 3,
+        insert_path: false,
+    });
+    assert!(screen(&app, 80, 12).join("\n").contains("Diff · second.rs"));
+    assert_eq!(
+        app.update(Message::Key(Key::Enter)),
+        Action::Insert {
+            text: "second.rs".to_owned(),
+        }
+    );
+    assert_eq!(
+        app.update(Message::MouseClick {
+            column: 1,
+            row: 2,
+            insert_path: true,
+        }),
+        Action::Insert {
+            text: "first.rs".to_owned(),
+        }
+    );
+}
+
+#[test]
+fn mouse_wheel_scrolls_the_diff_viewport_regardless_of_focus() {
+    let mut app = ReviewApp::default();
+    app.update(Message::FilesLoaded {
+        change_id: "qpvuntsm".to_owned(),
+        commit_id: "11111111".to_owned(),
+        files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed)],
+    });
+    app.update(Message::DiffLoaded {
+        commit_id: "11111111".to_owned(),
+        path: "src/lib.rs".to_owned(),
+        rows: (0..10)
+            .map(|index| DiffRow::Context {
+                old_line: index + 1,
+                new_line: index + 1,
+                text: format!(" line-{index}"),
+            })
+            .collect(),
+    });
+    app.update(Message::Resize {
+        width: 80,
+        height: 8,
+    });
+    let initial = screen(&app, 80, 8).join("\n");
+    assert!(initial.contains("line-0"));
+    assert!(!initial.contains("line-9"));
+
+    app.update(Message::MouseScroll {
+        column: 70,
+        row: 2,
+        delta: 2,
+    });
+    assert!(!screen(&app, 80, 8).join("\n").contains("line-0"));
+    app.update(Message::FilesLoaded {
+        change_id: "qpvuntsm".to_owned(),
+        commit_id: "11111111".to_owned(),
+        files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed)],
+    });
+    app.update(Message::Resize {
+        width: 80,
+        height: 8,
+    });
+    assert!(!screen(&app, 80, 8).join("\n").contains("line-0"));
+
+    app.update(Message::MouseClick {
+        column: 70,
+        row: 2,
+        insert_path: false,
+    });
+    app.update(Message::MouseScroll {
+        column: 70,
+        row: 2,
+        delta: 2,
+    });
+    let screen = screen(&app, 80, 8).join("\n");
+    assert!(!screen.contains("line-2"));
+    assert!(screen.contains("Diff · src/lib.rs (focus)"));
 }
 
 #[test]
@@ -224,7 +406,7 @@ fn test_backend_renders_wide_narrow_and_minimum_layouts() {
 
     app.update(Message::Key(Key::Tab));
     app.update(Message::Key(Key::Down));
-    app.update(Message::Key(Key::Enter));
+    app.update(Message::Key(Key::Tab));
     app.update(Message::Key(Key::Visual));
     assert!(
         screen(&app, 80, 10)

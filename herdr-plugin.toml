@@ -25,5 +25,5 @@ command = ["bin/pr-control", "toggle"]
 [[panes]]
 id = "review"
 title = "Progressive review"
-command = ["bin/pr-app"]
+command = ["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/bin/pr-app\""]
 placement = "split"
