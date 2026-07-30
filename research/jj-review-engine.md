@@ -67,7 +67,7 @@ struct ChangedFile {
 }
 
 enum ChangeKind { Added, Modified, Deleted, Renamed, TypeChanged, Conflict }
-enum FileKind { Absent, File, Symlink, Submodule, Conflict }
+enum FileKind { Absent, File, Symlink, Conflict }
 ```
 
 Paths are repository-relative byte strings. The UI uses escaped display text.
@@ -99,7 +99,7 @@ enum DiffRow {
     Notice { kind: NoticeKind, text: String },
 }
 
-enum NoticeKind { Binary, Conflict, Submodule, Unsupported }
+enum NoticeKind { Binary, Conflict, Unsupported }
 ```
 
 Keep the raw line text for excerpt output. Validate each hunk row count. If the
@@ -159,7 +159,7 @@ reviewed.
 | Deletion | Old path is the state path; full deletion diff is visible. |
 | Rename in current change | One display row when jj reports a rename. |
 | Rename after baseline | Old path becomes changed/deleted; new path is unreviewed. |
-| Symlink or submodule | Metadata notice; never decode the target as file text. |
+| Symlink | Metadata notice; never decode the target as file text. |
 | Invalid UTF-8 path | Lossless internal bytes and escaped UI text. |
 | Command timeout | Keep last good model and show a stale/error marker. |
 | Missing baseline | Delete record and reset to unreviewed. |

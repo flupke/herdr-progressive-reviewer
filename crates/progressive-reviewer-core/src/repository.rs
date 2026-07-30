@@ -59,10 +59,23 @@ pub enum FileKind {
     File,
     /// A symbolic link exists.
     Symlink,
-    /// A Git submodule exists.
-    Submodule,
     /// The entry contains a merge conflict.
     Conflict,
+}
+
+impl FileKind {
+    fn parse(value: &[u8]) -> Result<Self> {
+        match value {
+            b"" => Ok(Self::Absent),
+            b"file" => Ok(Self::File),
+            b"symlink" => Ok(Self::Symlink),
+            b"conflict" => Ok(Self::Conflict),
+            _ => Err(Error::Protocol {
+                operation: "read jj changed files".to_owned(),
+                detail: "jj returned an unknown file type",
+            }),
+        }
+    }
 }
 
 /// The normalized change for one file row.
@@ -100,6 +113,81 @@ pub struct ChangedFile {
 }
 
 impl ChangedFile {
+    fn parse_all(output: &[u8]) -> Result<Vec<Self>> {
+        if output.is_empty() {
+            return Ok(Vec::new());
+        }
+        let fields: Vec<_> = output.split(|byte| *byte == 0).collect();
+        if fields.last() != Some(&&[][..]) || (fields.len() - 1) % 5 != 0 {
+            return Err(Error::Protocol {
+                operation: "read jj changed files".to_owned(),
+                detail: "jj returned an invalid file record",
+            });
+        }
+
+        let mut files = Vec::with_capacity((fields.len() - 1) / 5);
+        for fields in fields[..fields.len() - 1].chunks_exact(5) {
+            files.push(Self::parse(fields)?);
+        }
+        files.sort_by(|left, right| left.display_path.cmp(&right.display_path));
+        Ok(files)
+    }
+
+    fn parse(fields: &[&[u8]]) -> Result<Self> {
+        let old_kind = FileKind::parse(fields[2])?;
+        let new_kind = FileKind::parse(fields[3])?;
+        let old_path = (old_kind != FileKind::Absent).then(|| RepoPath::from_bytes(fields[0]));
+        let new_path = (new_kind != FileKind::Absent).then(|| RepoPath::from_bytes(fields[1]));
+        let status = std::str::from_utf8(fields[4]).map_err(|_| Error::Protocol {
+            operation: "read jj changed files".to_owned(),
+            detail: "jj returned a non-UTF-8 file status",
+        })?;
+
+        let change = if old_kind == FileKind::Conflict || new_kind == FileKind::Conflict {
+            ChangeKind::Conflict
+        } else if old_kind != FileKind::Absent
+            && new_kind != FileKind::Absent
+            && old_kind != new_kind
+        {
+            ChangeKind::TypeChanged
+        } else {
+            match status {
+                "added" | "copied" => ChangeKind::Added,
+                "modified" => ChangeKind::Modified,
+                "removed" => ChangeKind::Deleted,
+                "renamed" => ChangeKind::Renamed,
+                _ => {
+                    return Err(Error::Protocol {
+                        operation: "read jj changed files".to_owned(),
+                        detail: "jj returned an unknown file status",
+                    });
+                }
+            }
+        };
+
+        let display_path = match (&old_path, &new_path) {
+            (Some(old), Some(new)) if old != new => {
+                format!("{} => {}", old.display(), new.display())
+            }
+            (Some(path), _) | (_, Some(path)) => path.display(),
+            (None, None) => {
+                return Err(Error::Protocol {
+                    operation: "read jj changed files".to_owned(),
+                    detail: "jj returned a changed file without a path",
+                });
+            }
+        };
+
+        Ok(Self {
+            old_path,
+            new_path,
+            old_kind,
+            new_kind,
+            change,
+            display_path,
+        })
+    }
+
     fn diff_paths(&self) -> impl Iterator<Item = &RepoPath> {
         self.old_path.iter().chain(
             self.new_path
@@ -116,6 +204,35 @@ pub struct SnapshotIdentity {
     pub change_id: ChangeId,
     /// The exact commit identifier for this snapshot.
     pub commit_id: CommitId,
+}
+
+impl SnapshotIdentity {
+    fn parse(output: &[u8]) -> Result<Self> {
+        let fields: Vec<_> = output.split(|byte| *byte == 0).collect();
+        if fields.len() != 3
+            || fields[0].is_empty()
+            || fields[1].is_empty()
+            || !fields[2].is_empty()
+        {
+            return Err(Error::Protocol {
+                operation: "read jj snapshot identity".to_owned(),
+                detail: "jj returned an invalid identity record",
+            });
+        }
+        let change_id = std::str::from_utf8(fields[0]).map_err(|_| Error::Protocol {
+            operation: "read jj snapshot identity".to_owned(),
+            detail: "jj returned a non-UTF-8 change ID",
+        })?;
+        let commit_id = std::str::from_utf8(fields[1]).map_err(|_| Error::Protocol {
+            operation: "read jj snapshot identity".to_owned(),
+            detail: "jj returned a non-UTF-8 commit ID",
+        })?;
+
+        Ok(Self {
+            change_id: ChangeId(change_id.to_owned()),
+            commit_id: CommitId(commit_id.to_owned()),
+        })
+    }
 }
 
 /// A complete file-list snapshot.
@@ -215,7 +332,7 @@ impl Repository {
             OsString::from("-T"),
             OsString::from(IDENTITY_TEMPLATE),
         ]);
-        parse_identity(&self.run(arguments)?.stdout)
+        SnapshotIdentity::parse(&self.run(arguments)?.stdout)
     }
 
     fn read_files(&self, commit_id: &CommitId) -> Result<Vec<ChangedFile>> {
@@ -226,7 +343,7 @@ impl Repository {
             OsString::from("-T"),
             OsString::from(FILE_TEMPLATE),
         ])?;
-        parse_files(&output.stdout)
+        ChangedFile::parse_all(&output.stdout)
     }
 
     fn run<I, S>(&self, arguments: I) -> Result<Output>
@@ -252,115 +369,6 @@ impl Repository {
             });
         }
         Ok(output)
-    }
-}
-
-fn parse_identity(output: &[u8]) -> Result<SnapshotIdentity> {
-    let fields: Vec<_> = output.split(|byte| *byte == 0).collect();
-    if fields.len() != 3 || fields[0].is_empty() || fields[1].is_empty() || !fields[2].is_empty() {
-        return Err(Error::Protocol {
-            operation: "read jj snapshot identity".to_owned(),
-            detail: "jj returned an invalid identity record",
-        });
-    }
-    let change_id = std::str::from_utf8(fields[0]).map_err(|_| Error::Protocol {
-        operation: "read jj snapshot identity".to_owned(),
-        detail: "jj returned a non-UTF-8 change ID",
-    })?;
-    let commit_id = std::str::from_utf8(fields[1]).map_err(|_| Error::Protocol {
-        operation: "read jj snapshot identity".to_owned(),
-        detail: "jj returned a non-UTF-8 commit ID",
-    })?;
-
-    Ok(SnapshotIdentity {
-        change_id: ChangeId(change_id.to_owned()),
-        commit_id: CommitId(commit_id.to_owned()),
-    })
-}
-
-fn parse_files(output: &[u8]) -> Result<Vec<ChangedFile>> {
-    if output.is_empty() {
-        return Ok(Vec::new());
-    }
-    let fields: Vec<_> = output.split(|byte| *byte == 0).collect();
-    if fields.last() != Some(&&[][..]) || (fields.len() - 1) % 5 != 0 {
-        return Err(Error::Protocol {
-            operation: "read jj changed files".to_owned(),
-            detail: "jj returned an invalid file record",
-        });
-    }
-
-    let mut files = Vec::with_capacity((fields.len() - 1) / 5);
-    for fields in fields[..fields.len() - 1].chunks_exact(5) {
-        files.push(parse_file(fields)?);
-    }
-    files.sort_by(|left, right| left.display_path.cmp(&right.display_path));
-    Ok(files)
-}
-
-fn parse_file(fields: &[&[u8]]) -> Result<ChangedFile> {
-    let old_kind = parse_file_kind(fields[2])?;
-    let new_kind = parse_file_kind(fields[3])?;
-    let old_path = (old_kind != FileKind::Absent).then(|| RepoPath::from_bytes(fields[0]));
-    let new_path = (new_kind != FileKind::Absent).then(|| RepoPath::from_bytes(fields[1]));
-    let status = std::str::from_utf8(fields[4]).map_err(|_| Error::Protocol {
-        operation: "read jj changed files".to_owned(),
-        detail: "jj returned a non-UTF-8 file status",
-    })?;
-
-    let change = if old_kind == FileKind::Conflict || new_kind == FileKind::Conflict {
-        ChangeKind::Conflict
-    } else if old_kind != FileKind::Absent && new_kind != FileKind::Absent && old_kind != new_kind {
-        ChangeKind::TypeChanged
-    } else {
-        match status {
-            "added" | "copied" => ChangeKind::Added,
-            "modified" => ChangeKind::Modified,
-            "removed" => ChangeKind::Deleted,
-            "renamed" => ChangeKind::Renamed,
-            _ => {
-                return Err(Error::Protocol {
-                    operation: "read jj changed files".to_owned(),
-                    detail: "jj returned an unknown file status",
-                });
-            }
-        }
-    };
-
-    let display_path = match (&old_path, &new_path) {
-        (Some(old), Some(new)) if old != new => {
-            format!("{} => {}", old.display(), new.display())
-        }
-        (Some(path), _) | (_, Some(path)) => path.display(),
-        (None, None) => {
-            return Err(Error::Protocol {
-                operation: "read jj changed files".to_owned(),
-                detail: "jj returned a changed file without a path",
-            });
-        }
-    };
-
-    Ok(ChangedFile {
-        old_path,
-        new_path,
-        old_kind,
-        new_kind,
-        change,
-        display_path,
-    })
-}
-
-fn parse_file_kind(value: &[u8]) -> Result<FileKind> {
-    match value {
-        b"" => Ok(FileKind::Absent),
-        b"file" => Ok(FileKind::File),
-        b"symlink" => Ok(FileKind::Symlink),
-        b"git-submodule" => Ok(FileKind::Submodule),
-        b"conflict" => Ok(FileKind::Conflict),
-        _ => Err(Error::Protocol {
-            operation: "read jj changed files".to_owned(),
-            detail: "jj returned an unknown file type",
-        }),
     }
 }
 
