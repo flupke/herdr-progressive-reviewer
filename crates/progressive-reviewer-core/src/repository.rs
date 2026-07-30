@@ -18,12 +18,20 @@ const FILE_TEMPLATE: &str = concat!(
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ChangeId(String);
 
+impl ChangeId {
+    /// Get the identifier text.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 /// A full jj commit identifier.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct CommitId(String);
 
 impl CommitId {
-    fn as_str(&self) -> &str {
+    /// Get the identifier text.
+    pub fn as_str(&self) -> &str {
         &self.0
     }
 }
@@ -35,6 +43,11 @@ pub struct RepoPath(Vec<u8>);
 impl RepoPath {
     pub(crate) fn from_bytes(bytes: impl Into<Vec<u8>>) -> Self {
         Self(bytes.into())
+    }
+
+    /// Get the lossless path bytes.
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
     }
 
     fn as_os_str(&self) -> &OsStr {
@@ -113,6 +126,18 @@ pub struct ChangedFile {
 }
 
 impl ChangedFile {
+    /// Get the path used for review state.
+    ///
+    /// # Panics
+    ///
+    /// Panics if both path fields are `None`.
+    pub fn review_path(&self) -> &RepoPath {
+        self.new_path
+            .as_ref()
+            .or(self.old_path.as_ref())
+            .expect("a changed file always has a path")
+    }
+
     fn parse_all(output: &[u8]) -> Result<Vec<Self>> {
         if output.is_empty() {
             return Ok(Vec::new());
@@ -253,6 +278,15 @@ pub enum PollResult {
     ChangedDuringPoll,
 }
 
+/// The difference from a stored review baseline.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Interdiff {
+    /// The stored commit no longer exists.
+    MissingBaseline,
+    /// The Git-style difference from the stored commit.
+    Diff(Vec<u8>),
+}
+
 /// A discovered jj workspace.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Repository {
@@ -306,6 +340,12 @@ impl Repository {
         Ok(PollResult::Complete(Snapshot { identity, files }))
     }
 
+    /// Snapshot and read the current change identity.
+    pub fn current_identity(&self) -> Result<SnapshotIdentity> {
+        self.run(["status"])?;
+        self.read_identity(false)
+    }
+
     /// Read and parse the full Git-style diff for one changed file.
     pub fn diff(&self, snapshot: &Snapshot, file: &ChangedFile) -> Result<Vec<u8>> {
         let mut arguments = vec![
@@ -317,6 +357,40 @@ impl Repository {
         ];
         arguments.extend(file.diff_paths().map(|path| path.as_os_str().to_owned()));
         Ok(self.run(arguments)?.stdout)
+    }
+
+    /// Compare one path between a stored baseline and an exact snapshot.
+    pub fn interdiff(
+        &self,
+        baseline_commit_id: &str,
+        snapshot: &Snapshot,
+        path: &RepoPath,
+    ) -> Result<Interdiff> {
+        let baseline = self.output([
+            OsString::from("--ignore-working-copy"),
+            OsString::from("log"),
+            OsString::from("--no-graph"),
+            OsString::from("-r"),
+            OsString::from(baseline_commit_id),
+            OsString::from("-T"),
+            OsString::from(r#"commit_id ++ "\n""#),
+        ])?;
+        if !baseline.status.success() {
+            return Ok(Interdiff::MissingBaseline);
+        }
+
+        let output = self.run([
+            OsString::from("--ignore-working-copy"),
+            OsString::from("interdiff"),
+            OsString::from("--from"),
+            OsString::from(baseline_commit_id),
+            OsString::from("--to"),
+            OsString::from(snapshot.identity.commit_id.as_str()),
+            OsString::from("--git"),
+            OsString::from("--"),
+            path.as_os_str().to_owned(),
+        ])?;
+        Ok(Interdiff::Diff(output.stdout))
     }
 
     fn read_identity(&self, ignore_working_copy: bool) -> Result<SnapshotIdentity> {
@@ -351,7 +425,22 @@ impl Repository {
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
     {
-        let output = Command::new("jj")
+        let output = self.output(arguments)?;
+        if !output.status.success() {
+            return Err(Error::CommandFailed {
+                operation: "read jj repository".to_owned(),
+                code: output.status.code(),
+            });
+        }
+        Ok(output)
+    }
+
+    fn output<I, S>(&self, arguments: I) -> Result<Output>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
+        Command::new("jj")
             .args(["--color=never", "--no-pager"])
             .args(arguments)
             .current_dir(&self.root)
@@ -361,14 +450,7 @@ impl Repository {
                 program: OsString::from("jj"),
                 current_dir: Some(self.root.clone()),
                 source,
-            })?;
-        if !output.status.success() {
-            return Err(Error::CommandFailed {
-                operation: "read jj repository".to_owned(),
-                code: output.status.code(),
-            });
-        }
-        Ok(output)
+            })
     }
 }
 

@@ -7,6 +7,11 @@ license.workspace = true
 
 [dependencies]
 eyre.workspace = true
+progressive-reviewer-core = { path = "../progressive-reviewer-core" }
+progressive-reviewer-state = { path = "../progressive-reviewer-state" }
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [lints]
 workspace = true

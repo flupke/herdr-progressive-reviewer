@@ -188,6 +188,9 @@ name = "progressive-reviewer"
 version = "0.1.0"
 dependencies = [
  "eyre",
+ "progressive-reviewer-core",
+ "progressive-reviewer-state",
+ "tempfile",
 ]
 
 [[package]]
