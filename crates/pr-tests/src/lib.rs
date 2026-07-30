@@ -1,3 +1,10 @@
+//! Shared integration-test fixtures.
+
+#![allow(
+    clippy::missing_panics_doc,
+    reason = "test fixture methods fail fast by design"
+)]
+
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};

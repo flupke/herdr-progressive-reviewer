@@ -1,7 +1,7 @@
 //! Review state derived from stored baselines and jj interdiffs.
 
-use progressive_reviewer_core::repository::{ChangedFile, Interdiff, Repository, Snapshot};
-use progressive_reviewer_state::{LoadResult, ReviewStore};
+use pr_core::repository::{ChangedFile, Interdiff, Repository, Snapshot};
+use pr_state::{LoadResult, ReviewStore};
 
 /// The review state of one changed path.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

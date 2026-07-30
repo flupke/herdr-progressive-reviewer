@@ -33,12 +33,12 @@ documents in the list take priority.
 Use one Rust workspace with these packages or modules:
 
 ```text
-progressive-reviewer-core
+pr-core
   repository identity, jj argv protocol, diff parser, state schema,
   atomic storage, excerpt builder, application state machine
-progressive-reviewer
+pr-app
   Ratatui process, poll worker, Herdr socket client
-progressive-reviewer-control
+pr-control
   open, close, and toggle action process
 ```
 

@@ -8,22 +8,22 @@ platforms = ["linux", "macos"]
 id = "open"
 title = "Open progressive reviewer"
 contexts = ["workspace"]
-command = ["bin/progressive-reviewer-control", "open"]
+command = ["bin/pr-control", "open"]
 
 [[actions]]
 id = "close"
 title = "Close progressive reviewer"
 contexts = ["workspace"]
-command = ["bin/progressive-reviewer-control", "close"]
+command = ["bin/pr-control", "close"]
 
 [[actions]]
 id = "toggle"
 title = "Toggle progressive reviewer"
 contexts = ["workspace"]
-command = ["bin/progressive-reviewer-control", "toggle"]
+command = ["bin/pr-control", "toggle"]
 
 [[panes]]
 id = "review"
 title = "Progressive review"
-command = ["bin/progressive-reviewer"]
+command = ["bin/pr-app"]
 placement = "split"

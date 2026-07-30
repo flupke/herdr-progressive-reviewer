@@ -1,11 +1,7 @@
-#[path = "../../progressive-reviewer-core/tests/support/jj.rs"]
-#[allow(dead_code)]
-mod jj;
-
-use jj::{JjFixture, JjLayout};
-use progressive_reviewer::review::{MarkResult, ReviewStatus, ReviewTracker};
-use progressive_reviewer_core::repository::{PollResult, Repository, Snapshot};
-use progressive_reviewer_state::{LoadResult, ReviewStore};
+use pr_app::review::{MarkResult, ReviewStatus, ReviewTracker};
+use pr_core::repository::{PollResult, Repository, Snapshot};
+use pr_state::{LoadResult, ReviewStore};
+use pr_tests::{JjFixture, JjLayout};
 
 fn snapshot(repository: &Repository) -> Snapshot {
     match repository.poll().unwrap() {

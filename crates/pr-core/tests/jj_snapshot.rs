@@ -1,13 +1,7 @@
-#[path = "support/jj.rs"]
-mod support;
-
-use progressive_reviewer_core::Error;
-use progressive_reviewer_core::diff::{DiffRow, NoticeKind, parse_file_diff};
-use progressive_reviewer_core::repository::{
-    ChangeKind, FileKind, PollResult, Repository, Snapshot,
-};
-
-use support::{JjFixture, JjLayout};
+use pr_core::Error;
+use pr_core::diff::{DiffRow, NoticeKind, parse_file_diff};
+use pr_core::repository::{ChangeKind, FileKind, PollResult, Repository, Snapshot};
+use pr_tests::{JjFixture, JjLayout};
 
 fn complete_snapshot(repository: &Repository) -> Snapshot {
     match repository.poll().unwrap() {

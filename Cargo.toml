@@ -1,9 +1,10 @@
 [workspace]
 members = [
-    "crates/progressive-reviewer",
-    "crates/progressive-reviewer-control",
-    "crates/progressive-reviewer-core",
-    "crates/progressive-reviewer-state",
+    "crates/pr-app",
+    "crates/pr-control",
+    "crates/pr-core",
+    "crates/pr-state",
+    "crates/pr-tests",
 ]
 resolver = "3"
 

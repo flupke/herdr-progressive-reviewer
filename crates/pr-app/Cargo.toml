@@ -1,5 +1,5 @@
 [package]
-name = "progressive-reviewer"
+name = "pr-app"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -7,10 +7,11 @@ license.workspace = true
 
 [dependencies]
 eyre.workspace = true
-progressive-reviewer-core = { path = "../progressive-reviewer-core" }
-progressive-reviewer-state = { path = "../progressive-reviewer-state" }
+pr-core = { path = "../pr-core" }
+pr-state = { path = "../pr-state" }
 
 [dev-dependencies]
+pr-tests = { path = "../pr-tests" }
 tempfile.workspace = true
 
 [lints]

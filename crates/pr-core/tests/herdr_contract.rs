@@ -1,4 +1,4 @@
-use progressive_reviewer_core::herdr::PluginContext;
+use pr_core::herdr::PluginContext;
 
 #[test]
 fn plugin_context_accepts_unknown_herdr_fields() {
