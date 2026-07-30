@@ -1,6 +1,7 @@
 use pr_app::review::{ReviewState, ReviewStatus, ReviewWarning};
 use pr_app::ui::{Action, Key, Message, ReviewApp, ReviewFile};
 use pr_core::diff::{DiffRow, NoticeKind};
+use pr_core::herdr::InsertResult;
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 
@@ -112,7 +113,24 @@ fn state_machine_keeps_selection_until_insert_succeeds() {
         app.update(Message::Key(Key::Enter)),
         Action::Insert { .. }
     ));
-    app.update(Message::InsertFinished(Ok(())));
+    app.update(Message::InsertFinished(Ok(InsertResult::NoAgent)));
+    assert!(
+        screen(&app, 80, 12)
+            .join("\n")
+            .contains("No agent chat is available in this workspace")
+    );
+    assert!(matches!(
+        app.update(Message::Key(Key::Enter)),
+        Action::Insert { .. }
+    ));
+    app.update(Message::InsertFinished(Ok(InsertResult::Inserted {
+        agent_name: "Codex".to_owned(),
+    })));
+    assert!(
+        screen(&app, 80, 12)
+            .join("\n")
+            .contains("Inserted into Codex")
+    );
     assert_eq!(app.update(Message::Key(Key::Enter)), Action::None);
 
     assert_eq!(

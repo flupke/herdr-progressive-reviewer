@@ -4,6 +4,7 @@ use std::ops::RangeInclusive;
 
 use pr_core::diff::{DiffRow, NoticeKind};
 use pr_core::excerpt::DiffExcerpt;
+use pr_core::herdr::InsertResult;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
@@ -124,7 +125,7 @@ pub enum Message {
         result: Result<ReviewState, String>,
     },
     /// An excerpt insertion result.
-    InsertFinished(Result<(), String>),
+    InsertFinished(Result<InsertResult, String>),
     /// A repository poll failed.
     PollFailed(String),
     /// The terminal size changed.
@@ -228,7 +229,14 @@ impl ReviewApp {
             }
             Message::InsertFinished(result) => {
                 match result {
-                    Ok(()) => self.selection = None,
+                    Ok(InsertResult::Inserted { agent_name }) => {
+                        self.selection = None;
+                        self.notice = Some(format!("Inserted into {agent_name}"));
+                    }
+                    Ok(InsertResult::NoAgent) => {
+                        self.notice =
+                            Some("No agent chat is available in this workspace".to_owned());
+                    }
                     Err(message) => self.notice = Some(message),
                 }
                 Action::None
