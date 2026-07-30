@@ -6,6 +6,19 @@ pane without submission.
 
 It requires Herdr 0.7.5 or later and jj 0.43.0 or later.
 
+Diffs use syntax highlighting and the `catppuccin` palette by default. To
+select another palette, create
+`~/.config/herdr/plugins/config/herdr.progressive-reviewer/config.toml`:
+
+```toml
+theme = "gruvbox"
+```
+
+Available themes are `catppuccin`, `catppuccin-latte`,
+`catppuccin-frappe`, `catppuccin-macchiato`, `dracula`, `nord`, `gruvbox`,
+`gruvbox-light`, `one-dark`, `one-light`, `solarized`,
+`solarized-light`, `github-light`, and `monokai`.
+
 ## Development install
 
 Build both programs and link this directory:

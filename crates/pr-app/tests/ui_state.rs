@@ -80,12 +80,16 @@ fn state_machine_keeps_selection_until_insert_succeeds() {
         rows: vec![DiffRow::Meta {
             text: "stale result".to_owned(),
         }],
+        old_content: None,
+        new_content: None,
     });
     assert!(!screen(&app, 80, 12).join("\n").contains("stale result"));
     app.update(Message::DiffLoaded {
         commit_id: "11111111".to_owned(),
         path: "src/lib.rs".to_owned(),
         rows: rows(),
+        old_content: None,
+        new_content: None,
     });
 
     app.update(Message::Key(Key::Tab));
@@ -171,11 +175,61 @@ fn reviewed_file_hides_its_diff() {
         commit_id: "11111111".to_owned(),
         path: "src/lib.rs".to_owned(),
         rows: rows(),
+        old_content: None,
+        new_content: None,
     });
 
     let screen = screen(&app, 80, 12);
     assert!(screen[5].contains("No changes"));
     assert!(!screen.join("\n").contains("old();"));
+}
+
+#[test]
+fn added_file_renders_as_plain_file_content() {
+    let mut app = ReviewApp::default();
+    app.update(Message::FilesLoaded {
+        change_id: "qpvuntsm".to_owned(),
+        commit_id: "11111111".to_owned(),
+        files: vec![ReviewFile::new("src/main.rs", ReviewStatus::Unreviewed)],
+    });
+    app.update(Message::DiffLoaded {
+        commit_id: "11111111".to_owned(),
+        path: "src/main.rs".to_owned(),
+        rows: vec![
+            DiffRow::FileHeader {
+                old_path: None,
+                new_path: None,
+                text: "diff --git a/src/main.rs b/src/main.rs".to_owned(),
+            },
+            DiffRow::Meta {
+                text: "new file mode 100644".to_owned(),
+            },
+            DiffRow::Meta {
+                text: "--- /dev/null".to_owned(),
+            },
+            DiffRow::Meta {
+                text: "+++ b/src/main.rs".to_owned(),
+            },
+            DiffRow::Hunk {
+                old_start: 0,
+                old_count: 0,
+                new_start: 1,
+                new_count: 1,
+            },
+            DiffRow::Add {
+                new_line: 1,
+                text: "+fn main() {}".to_owned(),
+            },
+        ],
+        old_content: None,
+        new_content: Some(b"fn main() {}\n".to_vec()),
+    });
+
+    let screen = screen(&app, 80, 12).join("\n");
+    assert!(screen.contains("fn main() {}"));
+    assert!(!screen.contains("new file mode"));
+    assert!(!screen.contains("@@"));
+    assert!(!screen.contains("+fn main() {}"));
 }
 
 #[test]
@@ -190,6 +244,8 @@ fn removing_a_review_mark_loads_the_full_diff() {
         commit_id: "11111111".to_owned(),
         path: "src/lib.rs".to_owned(),
         rows: Vec::new(),
+        old_content: None,
+        new_content: None,
     });
 
     assert_eq!(
@@ -297,6 +353,8 @@ fn mouse_wheel_scrolls_the_diff_viewport_regardless_of_focus() {
                 text: format!(" line-{index}"),
             })
             .collect(),
+        old_content: None,
+        new_content: None,
     });
     app.update(Message::Resize {
         width: 80,
@@ -364,6 +422,8 @@ fn test_backend_renders_wide_narrow_and_minimum_layouts() {
             kind: NoticeKind::Binary,
             text: "Binary file; text diff is unavailable".to_owned(),
         }],
+        old_content: None,
+        new_content: None,
     });
     let mut large_diff = rows();
     large_diff.extend((3..9_995).map(|line| DiffRow::Context {
@@ -375,6 +435,8 @@ fn test_backend_renders_wide_narrow_and_minimum_layouts() {
         commit_id: "11111111".to_owned(),
         path: "src/a/very/long/directory/that/must/keep/file.rs".to_owned(),
         rows: large_diff,
+        old_content: None,
+        new_content: None,
     });
 
     let wide = screen(&app, 120, 30).join("\n");

@@ -390,6 +390,21 @@ impl Repository {
         Ok(self.run(arguments)?.stdout)
     }
 
+    /// Read one file at an exact revision.
+    pub fn file_at(&self, revision: &str, path: &RepoPath) -> Result<Vec<u8>> {
+        Ok(self
+            .run([
+                OsString::from("--ignore-working-copy"),
+                OsString::from("file"),
+                OsString::from("show"),
+                OsString::from("-r"),
+                OsString::from(revision),
+                OsString::from("--"),
+                path.as_os_str().to_owned(),
+            ])?
+            .stdout)
+    }
+
     /// Compare one path between a stored baseline and an exact snapshot.
     pub fn interdiff(
         &self,

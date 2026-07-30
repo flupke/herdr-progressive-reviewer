@@ -3,15 +3,18 @@
 use std::ops::RangeInclusive;
 
 use pr_core::diff::{DiffRow, NoticeKind};
-use pr_core::excerpt::DiffExcerpt;
 use pr_core::herdr::InsertResult;
+use pr_core::repository::{ChangeKind, ChangedFile};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Alignment, Rect};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 
+use crate::highlight::{DiffHighlighter, Token};
+use crate::presentation::{DiffPresentation, RowDisplay};
 use crate::review::{ReviewState, ReviewStatus, ReviewWarning};
+use crate::theme::{Palette, Theme};
 
 const MIN_WIDTH: u16 = 40;
 const MIN_HEIGHT: u16 = 6;
@@ -50,7 +53,8 @@ pub struct ReviewFile {
     pub path: String,
     /// Current review state.
     pub status: ReviewStatus,
-    rows: Vec<DiffRow>,
+    change: ChangeKind,
+    diff: DiffPresentation,
     cursor: usize,
     scroll: usize,
     loading: bool,
@@ -62,17 +66,23 @@ impl ReviewFile {
         Self {
             path: path.into(),
             status,
-            rows: Vec::new(),
+            change: ChangeKind::Modified,
+            diff: DiffPresentation::default(),
             cursor: 0,
             scroll: 0,
             loading: false,
         }
     }
 
+    pub(crate) fn from_changed(file: &ChangedFile, status: ReviewStatus) -> Self {
+        Self {
+            change: file.change,
+            ..Self::new(&file.display_path, status)
+        }
+    }
+
     fn has_notice(&self) -> bool {
-        self.rows
-            .iter()
-            .any(|row| matches!(row, DiffRow::Notice { .. }))
+        self.diff.has_notice()
     }
 
     fn marker(&self) -> &'static str {
@@ -88,7 +98,7 @@ impl ReviewFile {
     }
 
     fn scroll_by(&mut self, delta: isize, page: usize) {
-        let last = self.rows.len().saturating_sub(page);
+        let last = self.diff.len().saturating_sub(page);
         self.scroll = self.scroll.saturating_add_signed(delta).min(last);
     }
 }
@@ -107,6 +117,8 @@ pub enum Message {
         commit_id: String,
         path: String,
         rows: Vec<DiffRow>,
+        old_content: Option<Vec<u8>>,
+        new_content: Option<Vec<u8>>,
     },
     /// A diff command failed.
     DiffFailed {
@@ -178,12 +190,20 @@ pub struct ReviewApp {
     selection: Option<Selection>,
     notice: Option<String>,
     review_in_flight: Option<bool>,
+    highlighter: DiffHighlighter,
+    palette: Palette,
     width: u16,
     height: u16,
 }
 
 impl Default for ReviewApp {
     fn default() -> Self {
+        Self::with_theme(Theme::default())
+    }
+}
+
+impl ReviewApp {
+    pub(crate) fn with_theme(theme: Theme) -> Self {
         Self {
             change_id: String::new(),
             commit_id: String::new(),
@@ -194,13 +214,13 @@ impl Default for ReviewApp {
             selection: None,
             notice: None,
             review_in_flight: None,
+            highlighter: DiffHighlighter::new(theme),
+            palette: theme.palette,
             width: 80,
             height: 24,
         }
     }
-}
 
-impl ReviewApp {
     /// Apply one input and return any work for the I/O layer.
     pub fn update(&mut self, message: Message) -> Action {
         match message {
@@ -213,8 +233,16 @@ impl ReviewApp {
                 commit_id,
                 path,
                 rows,
+                old_content,
+                new_content,
             } => {
-                self.load_diff(&commit_id, &path, rows);
+                self.load_diff(
+                    &commit_id,
+                    &path,
+                    rows,
+                    old_content.as_deref(),
+                    new_content.as_deref(),
+                );
                 Action::None
             }
             Message::DiffFailed {
@@ -288,7 +316,7 @@ impl ReviewApp {
                     file.cursor = old.cursor;
                     file.scroll = old.scroll;
                     if same_snapshot {
-                        file.rows.clone_from(&old.rows);
+                        file.diff.clone_from(&old.diff);
                         file.loading = old.loading;
                     }
                 }
@@ -317,16 +345,26 @@ impl ReviewApp {
         self.load_selected_action()
     }
 
-    fn load_diff(&mut self, commit_id: &str, path: &str, rows: Vec<DiffRow>) {
+    fn load_diff(
+        &mut self,
+        commit_id: &str,
+        path: &str,
+        rows: Vec<DiffRow>,
+        old_content: Option<&[u8]>,
+        new_content: Option<&[u8]>,
+    ) {
         if self.commit_id != commit_id {
             return;
         }
+        let rows = self
+            .highlighter
+            .highlight(path, rows, old_content, new_content);
         let Some(file) = self.files.iter_mut().find(|file| file.path == path) else {
             return;
         };
-        file.rows = rows;
+        file.diff = DiffPresentation::new(rows);
         file.loading = false;
-        file.cursor = file.cursor.min(file.rows.len().saturating_sub(1));
+        file.cursor = file.cursor.min(file.diff.len().saturating_sub(1));
         file.scroll = file.scroll.min(file.cursor);
         if self
             .selected()
@@ -449,14 +487,11 @@ impl ReviewApp {
             return Action::None;
         };
         let range = selection.range();
-        if !range
-            .clone()
-            .any(|index| file.rows.get(index).is_some_and(Self::is_selectable_row))
-        {
+        if !range.clone().any(|index| file.diff.is_selectable(index)) {
             self.notice = Some("Select context, added, or deleted lines".to_owned());
             return Action::None;
         }
-        match DiffExcerpt::build(&file.rows, range) {
+        match file.diff.excerpt(range) {
             Ok(excerpt) => Action::Insert {
                 text: excerpt.into_string(),
             },
@@ -471,11 +506,7 @@ impl ReviewApp {
         let Some(file) = self.selected() else {
             return;
         };
-        if !file
-            .rows
-            .get(file.cursor)
-            .is_some_and(Self::is_selectable_row)
-        {
+        if !file.diff.is_selectable(file.cursor) {
             self.notice = Some("This diff row cannot be selected".to_owned());
             return;
         }
@@ -490,13 +521,6 @@ impl ReviewApp {
                 fixed: false,
             }),
         };
-    }
-
-    fn is_selectable_row(row: &DiffRow) -> bool {
-        matches!(
-            row,
-            DiffRow::Context { .. } | DiffRow::Delete { .. } | DiffRow::Add { .. }
-        )
     }
 
     fn navigate(&mut self, delta: isize) -> Action {
@@ -522,7 +546,7 @@ impl ReviewApp {
                 let Some(file) = self.files.get_mut(self.selected_file) else {
                     return Action::None;
                 };
-                file.cursor = target.min(file.rows.len().saturating_sub(1));
+                file.cursor = target.min(file.diff.len().saturating_sub(1));
                 if let Some(selection) = &mut self.selection
                     && !selection.fixed
                 {
@@ -601,7 +625,7 @@ impl ReviewApp {
         let Some(file) = self.files.get_mut(self.selected_file) else {
             return Action::None;
         };
-        if !file.rows.is_empty() || file.loading {
+        if !file.diff.is_empty() || file.loading {
             return Action::None;
         }
         file.loading = true;
@@ -647,7 +671,7 @@ impl ReviewApp {
     fn focus_len(&self) -> usize {
         match self.focus {
             Focus::Files => self.files.len(),
-            Focus::Diff => self.selected().map_or(0, |file| file.rows.len()),
+            Focus::Diff => self.selected().map_or(0, |file| file.diff.len()),
         }
     }
 
@@ -704,6 +728,23 @@ impl Widget for ReviewView<'_> {
 }
 
 impl ReviewView<'_> {
+    fn file_style(&self, file: &ReviewFile, selected: bool) -> Style {
+        let color = match file.change {
+            ChangeKind::Added => self.0.palette.insertion,
+            ChangeKind::Deleted => self.0.palette.deletion,
+            ChangeKind::Modified => self.0.palette.focus,
+            ChangeKind::Renamed | ChangeKind::TypeChanged | ChangeKind::Conflict => {
+                self.0.palette.warning
+            }
+        };
+        let style = Style::default().fg(color);
+        if selected {
+            style.bg(self.0.palette.cursor)
+        } else {
+            style
+        }
+    }
+
     fn render_header(&self, area: Rect, buffer: &mut Buffer) {
         let reviewed = self
             .0
@@ -716,12 +757,13 @@ impl ReviewView<'_> {
             " Progressive review · change {change} · {reviewed}/{} reviewed",
             self.0.files.len()
         ))
+        .style(Style::default().fg(self.0.palette.text))
         .render(area, buffer);
     }
 
     fn render_files(&self, area: Rect, buffer: &mut Buffer) {
         let focused = self.0.focus == Focus::Files;
-        let block = Self::block("Files", focused);
+        let block = self.block("Files", focused);
         let inner = block.inner(area);
         block.render(area, buffer);
         let width = usize::from(inner.width.saturating_sub(3));
@@ -733,14 +775,9 @@ impl ReviewView<'_> {
             .skip(self.0.file_scroll)
             .take(usize::from(inner.height))
             .map(|(index, file)| {
-                let style = if index == self.0.selected_file {
-                    Style::default().add_modifier(Modifier::REVERSED)
-                } else {
-                    Style::default()
-                };
                 Line::styled(
                     format!("{} {}", file.marker(), Self::shorten(&file.path, width)),
-                    style,
+                    self.file_style(file, index == self.0.selected_file),
                 )
             })
             .collect::<Vec<_>>();
@@ -753,7 +790,7 @@ impl ReviewView<'_> {
             .0
             .selected()
             .map_or_else(|| "Diff".to_owned(), |file| format!("Diff · {}", file.path));
-        let block = Self::block(&title, focused);
+        let block = self.block(&title, focused);
         let inner = block.inner(area);
         block.render(area, buffer);
         let Some(file) = self.0.selected() else {
@@ -762,29 +799,33 @@ impl ReviewView<'_> {
         if file.status == ReviewStatus::Reviewed {
             let center = Rect::new(inner.x, inner.y + inner.height / 2, inner.width, 1);
             Paragraph::new("No changes")
+                .style(Style::default().fg(self.0.palette.dim))
                 .alignment(Alignment::Center)
                 .render(center, buffer);
             return;
         }
         let selection = self.0.selection.map(Selection::range);
         let lines = file
+            .diff
             .rows
             .iter()
             .enumerate()
             .skip(file.scroll)
             .take(usize::from(inner.height))
-            .map(|(index, row)| {
-                let mut style = Self::row_style(row);
+            .map(|(index, presented)| {
+                let row = file.diff.row(presented);
+                let mut style = self.row_style(row, presented.display);
                 if selection
                     .as_ref()
                     .is_some_and(|selection| selection.contains(&index))
                 {
-                    style = style.bg(Color::DarkGray);
+                    style = style.bg(self.0.palette.selection);
                 }
                 if focused && index == file.cursor {
-                    style = style.add_modifier(Modifier::REVERSED);
+                    style = style.bg(self.0.palette.cursor);
                 }
-                Line::styled(Self::row_text(row, &file.path), style)
+                self.row_line(row, &file.path, &presented.tokens, presented.display)
+                    .style(style)
             })
             .collect::<Vec<_>>();
         Paragraph::new(lines).render(inner, buffer);
@@ -806,14 +847,16 @@ impl ReviewView<'_> {
         } else {
             vec![Line::raw(controls), Line::raw(status)]
         };
-        Paragraph::new(lines).render(area, buffer);
+        Paragraph::new(lines)
+            .style(Style::default().fg(self.0.palette.text))
+            .render(area, buffer);
     }
 
-    fn block(title: &str, focused: bool) -> Block<'_> {
+    fn block(&self, title: &str, focused: bool) -> Block<'_> {
         let style = if focused {
-            Style::default().fg(Color::Yellow)
+            Style::default().fg(self.0.palette.focus)
         } else {
-            Style::default()
+            Style::default().fg(self.0.palette.dim)
         };
         let suffix = if focused { " (focus)" } else { "" };
         Block::default()
@@ -839,22 +882,64 @@ impl ReviewView<'_> {
         }
     }
 
-    fn row_style(row: &DiffRow) -> Style {
-        let color = match row {
-            DiffRow::Add { .. } => Color::Green,
-            DiffRow::Delete { .. } => Color::Red,
-            DiffRow::Hunk { .. } => Color::Cyan,
+    fn row_line(
+        &self,
+        row: &DiffRow,
+        path: &str,
+        tokens: &[Token],
+        display: RowDisplay,
+    ) -> Line<'static> {
+        if display == RowDisplay::FileContent {
+            return Line::from(
+                tokens
+                    .iter()
+                    .map(|token| Span::styled(token.text.clone(), Style::default().fg(token.color)))
+                    .collect::<Vec<_>>(),
+            );
+        }
+        let marker = match row {
+            DiffRow::Add { .. } => Some(("+", self.0.palette.insertion)),
+            DiffRow::Delete { .. } => Some(("-", self.0.palette.deletion)),
+            DiffRow::Context { .. } => Some((" ", self.0.palette.dim)),
+            _ => None,
+        };
+        let Some((marker, color)) = marker else {
+            return Line::raw(Self::row_text(row, path));
+        };
+        let mut spans = vec![Span::styled(marker, Style::default().fg(color))];
+        spans.extend(
+            tokens
+                .iter()
+                .map(|token| Span::styled(token.text.clone(), Style::default().fg(token.color))),
+        );
+        Line::from(spans)
+    }
+
+    fn row_style(&self, row: &DiffRow, display: RowDisplay) -> Style {
+        if display == RowDisplay::FileContent {
+            return Style::default().fg(self.0.palette.text);
+        }
+        match row {
+            DiffRow::Add { .. } => Style::default()
+                .fg(self.0.palette.insertion)
+                .bg(self.0.palette.insertion_bg),
+            DiffRow::Delete { .. } => Style::default()
+                .fg(self.0.palette.deletion)
+                .bg(self.0.palette.deletion_bg),
+            DiffRow::Hunk { .. }
+            | DiffRow::Notice {
+                kind: NoticeKind::Binary,
+                ..
+            } => Style::default().fg(self.0.palette.focus),
             DiffRow::Notice {
                 kind: NoticeKind::Conflict | NoticeKind::Unsupported,
                 ..
-            } => Color::Yellow,
-            DiffRow::Notice {
-                kind: NoticeKind::Binary,
-                ..
-            } => Color::Magenta,
-            _ => Color::Reset,
-        };
-        Style::default().fg(color)
+            } => Style::default().fg(self.0.palette.warning),
+            DiffRow::Meta { .. } | DiffRow::FileHeader { .. } => {
+                Style::default().fg(self.0.palette.dim)
+            }
+            DiffRow::Context { .. } => Style::default().fg(self.0.palette.text),
+        }
     }
 
     fn shorten(value: &str, width: usize) -> String {

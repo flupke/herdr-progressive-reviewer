@@ -13,6 +13,9 @@ pr-state = { path = "../pr-state" }
 ratatui = { workspace = true, features = ["crossterm"] }
 signal-hook.workspace = true
 serde_json.workspace = true
+syntect.workspace = true
+toml.workspace = true
+two-face.workspace = true
 
 [dev-dependencies]
 pr-tests = { path = "../pr-tests" }

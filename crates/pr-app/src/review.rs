@@ -1,6 +1,6 @@
 //! Review state derived from stored baselines and jj interdiffs.
 
-use pr_core::repository::{ChangedFile, Interdiff, Repository, Snapshot};
+use pr_core::repository::{ChangedFile, FileKind, Interdiff, RepoPath, Repository, Snapshot};
 use pr_state::{LoadResult, ReviewStore};
 
 /// The review state of one changed path.
@@ -32,6 +32,14 @@ pub struct ReviewState {
     pub warning: Option<ReviewWarning>,
 }
 
+/// A unified diff and the complete files on both sides.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ReviewDiff {
+    pub(crate) unified: Vec<u8>,
+    pub(crate) old_content: Option<Vec<u8>>,
+    pub(crate) new_content: Option<Vec<u8>>,
+}
+
 /// The result of a request to mark one path as reviewed.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MarkResult {
@@ -44,7 +52,10 @@ pub enum MarkResult {
 #[derive(Debug, Eq, PartialEq)]
 enum ReviewComparison {
     Unreviewed(Option<ReviewWarning>),
-    Compared(Vec<u8>),
+    Compared {
+        baseline_commit_id: String,
+        diff: Vec<u8>,
+    },
 }
 
 impl ReviewComparison {
@@ -54,7 +65,7 @@ impl ReviewComparison {
                 status: ReviewStatus::Unreviewed,
                 warning: *warning,
             },
-            Self::Compared(diff) => ReviewState {
+            Self::Compared { diff, .. } => ReviewState {
                 status: if diff.is_empty() {
                     ReviewStatus::Reviewed
                 } else {
@@ -98,11 +109,62 @@ impl ReviewTracker {
         Ok(self.compare(snapshot, file)?.state())
     }
 
-    pub(crate) fn diff(&self, snapshot: &Snapshot, file: &ChangedFile) -> eyre::Result<Vec<u8>> {
+    pub(crate) fn diff(&self, snapshot: &Snapshot, file: &ChangedFile) -> eyre::Result<ReviewDiff> {
         match self.compare(snapshot, file)? {
-            ReviewComparison::Unreviewed(_) => Ok(self.repository.diff(snapshot, file)?),
-            ReviewComparison::Compared(diff) => Ok(diff),
+            ReviewComparison::Unreviewed(_) => {
+                let commit_id = snapshot.identity.commit_id.as_str();
+                Ok(ReviewDiff {
+                    unified: self.repository.diff(snapshot, file)?,
+                    old_content: self.file_content(
+                        &format!("{commit_id}-"),
+                        file.old_path.as_ref(),
+                        file.old_kind,
+                    )?,
+                    new_content: self.file_content(
+                        commit_id,
+                        file.new_path.as_ref(),
+                        file.new_kind,
+                    )?,
+                })
+            }
+            ReviewComparison::Compared {
+                baseline_commit_id,
+                diff,
+            } => {
+                let kind = if file.old_kind == FileKind::File {
+                    file.old_kind
+                } else {
+                    file.new_kind
+                };
+                Ok(ReviewDiff {
+                    unified: diff,
+                    old_content: self.file_content(
+                        &baseline_commit_id,
+                        Some(file.review_path()),
+                        kind,
+                    )?,
+                    new_content: self.file_content(
+                        snapshot.identity.commit_id.as_str(),
+                        file.new_path.as_ref(),
+                        file.new_kind,
+                    )?,
+                })
+            }
         }
+    }
+
+    fn file_content(
+        &self,
+        revision: &str,
+        path: Option<&RepoPath>,
+        kind: FileKind,
+    ) -> eyre::Result<Option<Vec<u8>>> {
+        if kind != FileKind::File {
+            return Ok(None);
+        }
+        path.map(|path| self.repository.file_at(revision, path))
+            .transpose()
+            .map_err(Into::into)
     }
 
     fn compare(&self, snapshot: &Snapshot, file: &ChangedFile) -> eyre::Result<ReviewComparison> {
@@ -128,7 +190,10 @@ impl ReviewTracker {
                     ReviewWarning::BaselineExpired,
                 )))
             }
-            Interdiff::Diff(diff) => Ok(ReviewComparison::Compared(diff)),
+            Interdiff::Diff(diff) => Ok(ReviewComparison::Compared {
+                baseline_commit_id: record.baseline_commit_id,
+                diff,
+            }),
         }
     }
 
@@ -169,13 +234,19 @@ mod tests {
             ReviewStore::open(state.path(), jj.root()).unwrap(),
         );
         let reviewed = snapshot(&repository);
+        let initial = tracker.diff(&reviewed, &reviewed.files[0]).unwrap();
+        assert_eq!(initial.old_content.as_deref(), Some(&b"before\n"[..]));
+        assert_eq!(initial.new_content.as_deref(), Some(&b"after\n"[..]));
         tracker.mark(&reviewed, &reviewed.files[0]).unwrap();
 
         jj.write("reviewed.txt", b"after\nfoo\n");
         let changed = snapshot(&repository);
-        let diff = String::from_utf8(tracker.diff(&changed, &changed.files[0]).unwrap()).unwrap();
+        let loaded = tracker.diff(&changed, &changed.files[0]).unwrap();
+        let diff = String::from_utf8(loaded.unified).unwrap();
 
         assert!(diff.contains("+foo"));
         assert!(!diff.contains("+after"));
+        assert_eq!(loaded.old_content.as_deref(), Some(&b"after\n"[..]));
+        assert_eq!(loaded.new_content.as_deref(), Some(&b"after\nfoo\n"[..]));
     }
 }

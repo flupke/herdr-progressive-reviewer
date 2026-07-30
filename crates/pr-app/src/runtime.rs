@@ -28,6 +28,7 @@ use signal_hook::consts::signal::{SIGHUP, SIGINT, SIGTERM};
 use signal_hook::flag;
 
 use crate::review::{MarkResult, ReviewTracker, ReviewWarning};
+use crate::theme::Theme;
 use crate::ui::{Action, Key, Message, ReviewApp, ReviewFile};
 
 const POLL_INTERVAL: Duration = Duration::from_secs(2);
@@ -41,6 +42,7 @@ pub struct Runtime {
     workspace_id: WorkspaceId,
     initial_agent: Option<PaneId>,
     client: HerdrClient,
+    theme: Theme,
 }
 
 #[derive(Debug)]
@@ -85,6 +87,7 @@ impl Runtime {
             ),
             initial_agent: context.focused_pane_id,
             client: HerdrClient::from_env()?,
+            theme: Theme::from_env()?,
         })
     }
 
@@ -103,7 +106,7 @@ impl Runtime {
         });
 
         let mut terminal = TerminalGuard::new()?;
-        let mut app = ReviewApp::default();
+        let mut app = ReviewApp::with_theme(self.theme);
         commands.send(WorkerCommand::Poll)?;
         let mut next_poll = Instant::now() + POLL_INTERVAL;
         let result = loop {
@@ -268,7 +271,7 @@ impl Worker {
                 .files
                 .iter()
                 .zip(states)
-                .map(|(file, state)| ReviewFile::new(&file.display_path, state.status))
+                .map(|(file, state)| ReviewFile::from_changed(file, state.status))
                 .collect::<Vec<_>>()
         });
         match files {
@@ -301,14 +304,20 @@ impl Worker {
         let result = self
             .find_file(&commit_id, &path)
             .and_then(|(snapshot, file)| {
-                let output = self.tracker.diff(snapshot, file)?;
-                Ok(parse_file_diff(&output, file))
+                let diff = self.tracker.diff(snapshot, file)?;
+                Ok((
+                    parse_file_diff(&diff.unified, file),
+                    diff.old_content,
+                    diff.new_content,
+                ))
             });
         let message = match result {
-            Ok(rows) => Message::DiffLoaded {
+            Ok((rows, old_content, new_content)) => Message::DiffLoaded {
                 commit_id,
                 path,
                 rows,
+                old_content,
+                new_content,
             },
             Err(error) => Message::DiffFailed {
                 commit_id,
