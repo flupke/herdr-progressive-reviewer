@@ -1,0 +1,13 @@
+[package]
+name = "progressive-reviewer-control"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+eyre.workspace = true
+progressive-reviewer-core = { path = "../progressive-reviewer-core" }
+
+[lints]
+workspace = true

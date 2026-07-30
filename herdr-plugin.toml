@@ -1,0 +1,29 @@
+id = "herdr.progressive-reviewer"
+name = "Progressive reviewer"
+version = "0.1.0"
+min_herdr_version = "0.7.5"
+platforms = ["linux", "macos"]
+
+[[actions]]
+id = "open"
+title = "Open progressive reviewer"
+contexts = ["workspace"]
+command = ["bin/progressive-reviewer-control", "open"]
+
+[[actions]]
+id = "close"
+title = "Close progressive reviewer"
+contexts = ["workspace"]
+command = ["bin/progressive-reviewer-control", "close"]
+
+[[actions]]
+id = "toggle"
+title = "Toggle progressive reviewer"
+contexts = ["workspace"]
+command = ["bin/progressive-reviewer-control", "toggle"]
+
+[[panes]]
+id = "review"
+title = "Progressive review"
+command = ["bin/progressive-reviewer"]
+placement = "split"
