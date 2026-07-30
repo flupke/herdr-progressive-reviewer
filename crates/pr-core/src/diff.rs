@@ -11,6 +11,8 @@ pub enum DiffRow {
         old_path: Option<RepoPath>,
         /// The current-side path, when present.
         new_path: Option<RepoPath>,
+        /// The complete original row.
+        text: String,
     },
     /// A file header or other known Git metadata row.
     Meta {
@@ -113,6 +115,7 @@ impl DiffParser {
             self.rows.push(DiffRow::FileHeader {
                 old_path: None,
                 new_path: None,
+                text: line.to_owned(),
             });
         } else if let Some(hunk) = ActiveHunk::parse(line) {
             self.finish_hunk();
@@ -279,7 +282,10 @@ pub fn parse_file_diff(output: &[u8], file: &ChangedFile) -> Vec<DiffRow> {
 
     let mut rows = DiffParser::parse(output);
     for row in &mut rows {
-        if let DiffRow::FileHeader { old_path, new_path } = row {
+        if let DiffRow::FileHeader {
+            old_path, new_path, ..
+        } = row
+        {
             old_path.clone_from(&file.old_path);
             new_path.clone_from(&file.new_path);
         }

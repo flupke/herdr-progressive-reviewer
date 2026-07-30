@@ -70,6 +70,7 @@ fn detects_file_changes_in_real_jj_repositories() {
             DiffRow::FileHeader {
                 old_path: Some(old_path),
                 new_path: Some(new_path),
+                ..
             } if Some(old_path) == renamed.old_path.as_ref()
                 && Some(new_path) == renamed.new_path.as_ref()
         )));

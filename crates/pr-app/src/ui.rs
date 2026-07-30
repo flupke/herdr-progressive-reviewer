@@ -3,6 +3,7 @@
 use std::ops::RangeInclusive;
 
 use pr_core::diff::{DiffRow, NoticeKind};
+use pr_core::excerpt::DiffExcerpt;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
@@ -141,11 +142,8 @@ pub enum Action {
     LoadDiff { commit_id: String, path: String },
     /// Set the selected path review state.
     SetReviewed { path: String, reviewed: bool },
-    /// Insert the selected inclusive diff-row range.
-    Insert {
-        path: String,
-        rows: RangeInclusive<usize>,
-    },
+    /// Insert one valid unified-diff excerpt.
+    Insert { text: String },
     /// Stop the application.
     Quit,
 }
@@ -427,9 +425,14 @@ impl ReviewApp {
             self.notice = Some("Select context, added, or deleted lines".to_owned());
             return Action::None;
         }
-        Action::Insert {
-            path: file.path.clone(),
-            rows: range,
+        match DiffExcerpt::build(&file.rows, range) {
+            Ok(excerpt) => Action::Insert {
+                text: excerpt.into_string(),
+            },
+            Err(error) => {
+                self.notice = Some(error.to_string());
+                Action::None
+            }
         }
     }
 

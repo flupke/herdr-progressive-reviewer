@@ -6,8 +6,16 @@ use ratatui::backend::TestBackend;
 
 fn rows() -> Vec<DiffRow> {
     vec![
+        DiffRow::FileHeader {
+            old_path: None,
+            new_path: None,
+            text: "diff --git a/src/lib.rs b/src/lib.rs".to_owned(),
+        },
         DiffRow::Meta {
             text: "--- a/src/lib.rs".to_owned(),
+        },
+        DiffRow::Meta {
+            text: "+++ b/src/lib.rs".to_owned(),
         },
         DiffRow::Hunk {
             old_start: 1,
@@ -87,8 +95,15 @@ fn state_machine_keeps_selection_until_insert_succeeds() {
     assert_eq!(
         app.update(Message::Key(Key::Enter)),
         Action::Insert {
-            path: "src/lib.rs".to_owned(),
-            rows: 2..=3,
+            text: concat!(
+                "diff --git a/src/lib.rs b/src/lib.rs\n",
+                "--- a/src/lib.rs\n",
+                "+++ b/src/lib.rs\n",
+                "@@ -1,2 +1,1 @@\n",
+                " fn run() {\n",
+                "-    old();"
+            )
+            .to_owned(),
         }
     );
 
@@ -151,7 +166,7 @@ fn test_backend_renders_wide_narrow_and_minimum_layouts() {
         }],
     });
     let mut large_diff = rows();
-    large_diff.extend((3..9_998).map(|line| DiffRow::Context {
+    large_diff.extend((3..9_995).map(|line| DiffRow::Context {
         old_line: line,
         new_line: line,
         text: format!(" line {line}"),
