@@ -3,6 +3,7 @@ members = [
     "crates/progressive-reviewer",
     "crates/progressive-reviewer-control",
     "crates/progressive-reviewer-core",
+    "crates/progressive-reviewer-state",
 ]
 resolver = "3"
 
@@ -13,12 +14,17 @@ rust-version = "1.85"
 license = "MIT"
 
 [workspace.dependencies]
+base64 = "0.22"
 eyre = "0.6"
+getrandom = "0.3"
+libc = "0.2"
 semver = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+sha2 = "0.10"
 tempfile = "3.20"
 thiserror = "2.0"
+time = { version = "0.3", features = ["formatting"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

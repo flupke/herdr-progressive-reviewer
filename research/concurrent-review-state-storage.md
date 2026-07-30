@@ -9,14 +9,11 @@ use `${XDG_STATE_HOME:-$HOME/.local/state}/herdr/progressive-reviewer`.
 
 ```text
 <state>/
-  v1/
-    repositories/
-      <repository-key>/
-        repository.json
-        changes/
-          <full-change-id>/
-            paths/
-              <path-key>.json
+  <repository-key>/
+    changes/
+      <full-change-id>/
+        paths/
+          <path-key>.json
 ```
 
 `repository-key` is lowercase SHA-256 of the canonical UTF-8 bytes from
@@ -31,22 +28,6 @@ path and detects a hash collision.
 Full jj change IDs and commit IDs are lowercase hexadecimal values. Reject
 other text before it becomes a directory or command argument.
 
-## Repository metadata
-
-`repository.json` is diagnostic metadata:
-
-```json
-{
-  "schema_version": 1,
-  "canonical_root": "/home/me/project",
-  "repository_key": "<64 hex>",
-  "updated_at": "2026-07-30T20:00:00Z"
-}
-```
-
-The repository key, not this file, selects state. The file can be replaced
-when the root spelling changes.
-
 ## Path record
 
 Each reviewed path has one file:
@@ -54,13 +35,11 @@ Each reviewed path has one file:
 ```json
 {
   "schema_version": 1,
-  "repository_key": "<64 hex>",
   "change_id": "<full jj change id>",
   "path_encoding": "utf8",
   "path": "src/lib.rs",
   "baseline_commit_id": "<full jj commit id>",
-  "reviewed_at": "2026-07-30T20:00:00.000000000Z",
-  "writer_id": "<random 128-bit hex>"
+  "reviewed_at": "2026-07-30T20:00:00.000000000Z"
 }
 ```
 
@@ -77,9 +56,9 @@ Hash the original bytes in both cases. Normalize neither Unicode nor path
 case. Reject absolute paths, empty components, `.` components, and `..`
 components.
 
-`reviewed_at` is for diagnostics. It does not decide write order.
-`writer_id` identifies one process for logs. Shared last-write-wins means the
-record from the last successful rename is the complete value.
+`reviewed_at` is for diagnostics. It does not decide write order. Shared
+last-write-wins means the record from the last successful rename is the
+complete value.
 
 No file means `unreviewed`. A valid file plus an empty interdiff means
 `reviewed`. A valid file plus a non-empty interdiff means
