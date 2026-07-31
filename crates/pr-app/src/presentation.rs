@@ -57,8 +57,8 @@ impl DiffPresentation {
                 ..
             } = &highlighted_row.diff
             {
-                if let Some(start) = previous_hunk_end
-                    && *new_start > start
+                let start = previous_hunk_end.unwrap_or(1);
+                if *new_start > start
                     && let Some(lines) =
                         Self::gap_lines(highlighted.new_lines.as_deref(), start, *new_start)
                 {
@@ -73,6 +73,17 @@ impl DiffPresentation {
                     tokens: highlighted_row.tokens,
                 });
             }
+        }
+        if let Some(start) = previous_hunk_end
+            && let Some(end) = highlighted
+                .new_lines
+                .as_ref()
+                .and_then(|lines| u32::try_from(lines.len()).ok())
+                .map(|last| last.saturating_add(1))
+            && end > start
+            && let Some(lines) = Self::gap_lines(highlighted.new_lines.as_deref(), start, end)
+        {
+            rows.push(PresentedRow::Gap { start, lines });
         }
         Self {
             source,
@@ -214,7 +225,7 @@ mod tests {
     }
 
     #[test]
-    fn hides_headers_and_expands_the_gap_between_hunks() {
+    fn hides_headers_and_expands_gaps_at_each_file_boundary() {
         let row = |diff| HighlightedRow {
             diff,
             tokens: Vec::new(),
@@ -227,26 +238,26 @@ mod tests {
                     text: "diff --git a/file b/file".to_owned(),
                 }),
                 row(DiffRow::Hunk {
-                    old_start: 1,
+                    old_start: 2,
                     old_count: 1,
-                    new_start: 1,
+                    new_start: 2,
                     new_count: 1,
                 }),
                 row(DiffRow::Context {
-                    old_line: 1,
-                    new_line: 1,
-                    text: " first".to_owned(),
+                    old_line: 2,
+                    new_line: 2,
+                    text: " second".to_owned(),
                 }),
                 row(DiffRow::Hunk {
-                    old_start: 5,
+                    old_start: 4,
                     old_count: 1,
-                    new_start: 5,
+                    new_start: 4,
                     new_count: 1,
                 }),
                 row(DiffRow::Context {
-                    old_line: 5,
-                    new_line: 5,
-                    text: " fifth".to_owned(),
+                    old_line: 4,
+                    new_line: 4,
+                    text: " fourth".to_owned(),
                 }),
             ],
             new_lines: Some(
@@ -261,12 +272,14 @@ mod tests {
             ),
         });
 
-        assert!(matches!(presentation.rows[1], PresentedRow::Gap { .. }));
-        assert!(presentation.expand(1));
+        assert!(matches!(presentation.rows[0], PresentedRow::Gap { .. }));
+        assert!(matches!(presentation.rows[2], PresentedRow::Gap { .. }));
+        assert!(matches!(presentation.rows[4], PresentedRow::Gap { .. }));
+        assert!(presentation.expand(0));
         assert_eq!(presentation.rows.len(), 5);
         assert!(matches!(
-            presentation.rows[1],
-            PresentedRow::Expanded { line: 2, .. }
+            presentation.rows[0],
+            PresentedRow::Expanded { line: 1, .. }
         ));
     }
 }
