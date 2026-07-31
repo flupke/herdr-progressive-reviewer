@@ -187,7 +187,7 @@ fn commit_title_opens_the_full_message() {
 
     let header = screen(&app, 80, 12).join("\n");
     assert!(header.contains("Commit title"));
-    assert!(header.contains("0/0 reviewed"));
+    assert!(header.contains("+0 -0 - 0/0 reviewed"));
     assert!(!header.contains("Progressive review"));
     assert!(!header.contains("change qpvuntsm"));
 
