@@ -1,5 +1,6 @@
 //! Stable snapshots of one jj working-copy change.
 
+use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::io::Read;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
@@ -17,6 +18,10 @@ const FILE_TEMPLATE: &str = concat!(
     r#"source.path() ++ "\0" ++ target.path() ++ "\0" ++ "#,
     r#"source.file_type() ++ "\0" ++ target.file_type() ++ "\0" ++ "#,
     r#"status ++ "\0""#,
+);
+const STATS_TEMPLATE: &str = concat!(
+    r#"diff.stat().files().map(|entry| entry.path() ++ "\0" ++ "#,
+    r#"entry.lines_added() ++ "\0" ++ entry.lines_removed() ++ "\0").join("")"#,
 );
 const COMMAND_OUTPUT_LIMIT: usize = 256 * 1024 * 1024;
 
@@ -80,7 +85,8 @@ impl RepoPath {
         OsStr::from_bytes(&self.0)
     }
 
-    fn display(&self) -> String {
+    /// Return escaped repository-relative text for display.
+    pub fn display(&self) -> String {
         self.0
             .iter()
             .flat_map(|byte| std::ascii::escape_default(*byte))
@@ -149,6 +155,10 @@ pub struct ChangedFile {
     pub change: ChangeKind,
     /// Escaped text for the file list.
     pub display_path: String,
+    /// Number of added text lines.
+    pub lines_added: u64,
+    /// Number of removed text lines.
+    pub lines_removed: u64,
 }
 
 impl ChangedFile {
@@ -180,7 +190,11 @@ impl ChangedFile {
         for fields in fields[..fields.len() - 1].chunks_exact(5) {
             files.push(Self::parse(fields)?);
         }
-        files.sort_by(|left, right| left.display_path.cmp(&right.display_path));
+        files.sort_by(|left, right| {
+            left.review_path()
+                .as_bytes()
+                .cmp(right.review_path().as_bytes())
+        });
         Ok(files)
     }
 
@@ -236,7 +250,42 @@ impl ChangedFile {
             new_kind,
             change,
             display_path,
+            lines_added: 0,
+            lines_removed: 0,
         })
+    }
+
+    fn add_stats(files: &mut [Self], output: &[u8]) -> Result<()> {
+        if output.is_empty() {
+            return Ok(());
+        }
+        let fields: Vec<_> = output.split(|byte| *byte == 0).collect();
+        if fields.last() != Some(&&[][..]) || (fields.len() - 1) % 3 != 0 {
+            return Err(Error::Protocol {
+                operation: "read jj diff statistics".to_owned(),
+                detail: "jj returned an invalid diff-stat record",
+            });
+        }
+        let mut stats = HashMap::with_capacity((fields.len() - 1) / 3);
+        for fields in fields[..fields.len() - 1].chunks_exact(3) {
+            let parse = |value: &[u8]| {
+                std::str::from_utf8(value)
+                    .ok()
+                    .and_then(|value| value.parse::<u64>().ok())
+                    .ok_or_else(|| Error::Protocol {
+                        operation: "read jj diff statistics".to_owned(),
+                        detail: "jj returned an invalid line count",
+                    })
+            };
+            stats.insert(fields[0], (parse(fields[1])?, parse(fields[2])?));
+        }
+        for file in files {
+            if let Some(&(added, removed)) = stats.get(file.review_path().as_bytes()) {
+                file.lines_added = added;
+                file.lines_removed = removed;
+            }
+        }
+        Ok(())
     }
 
     fn diff_paths(&self) -> impl Iterator<Item = &RepoPath> {
@@ -361,7 +410,8 @@ impl Repository {
     pub fn poll(&self) -> Result<PollResult> {
         self.run(["status"])?;
         let identity = self.read_identity(false)?;
-        let files = self.read_files(&identity.commit_id)?;
+        let mut files = self.read_files(&identity.commit_id)?;
+        self.read_stats(&identity.commit_id, &mut files)?;
         let verified = self.read_identity(true)?;
 
         if identity.commit_id != verified.commit_id {
@@ -464,6 +514,19 @@ impl Repository {
             OsString::from(FILE_TEMPLATE),
         ])?;
         ChangedFile::parse_all(&output.stdout)
+    }
+
+    fn read_stats(&self, commit_id: &CommitId, files: &mut [ChangedFile]) -> Result<()> {
+        let output = self.run([
+            OsString::from("--ignore-working-copy"),
+            OsString::from("log"),
+            OsString::from("--no-graph"),
+            OsString::from("-r"),
+            OsString::from(commit_id.as_str()),
+            OsString::from("-T"),
+            OsString::from(STATS_TEMPLATE),
+        ])?;
+        ChangedFile::add_stats(files, &output.stdout)
     }
 
     fn run<I, S>(&self, arguments: I) -> Result<Output>

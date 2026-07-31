@@ -52,6 +52,14 @@ fn detects_file_changes_in_real_jj_repositories() {
         assert_eq!(snapshot.files[2].new_kind, FileKind::Absent);
         assert!(snapshot.files[2].old_path.is_some());
         assert!(snapshot.files[2].new_path.is_none());
+        assert_eq!(
+            snapshot
+                .files
+                .iter()
+                .map(|file| (file.lines_added, file.lines_removed))
+                .collect::<Vec<_>>(),
+            [(1, 0), (0, 0), (0, 1), (1, 1), (0, 0)]
+        );
 
         let deleted_rows = parse_file_diff(
             &repository.diff(&snapshot, &snapshot.files[2]).unwrap(),

@@ -336,6 +336,32 @@ fn mouse_targets_the_hovered_pane_and_click_changes_focus() {
 }
 
 #[test]
+fn dragging_the_separator_resizes_the_file_pane() {
+    let mut app = ReviewApp::default();
+    app.update(Message::FilesLoaded {
+        change_id: "qpvuntsm".to_owned(),
+        commit_id: "11111111".to_owned(),
+        files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed)],
+    });
+    app.update(Message::Resize {
+        width: 80,
+        height: 12,
+    });
+    let before = screen(&app, 80, 12)[1].find("Diff").unwrap();
+
+    app.update(Message::MouseClick {
+        column: 24,
+        row: 5,
+        insert_path: false,
+    });
+    app.update(Message::MouseDrag { column: 40, row: 5 });
+    app.update(Message::MouseRelease);
+
+    let after = screen(&app, 80, 12)[1].find("Diff").unwrap();
+    assert!(after > before);
+}
+
+#[test]
 fn mouse_wheel_scrolls_the_diff_viewport_regardless_of_focus() {
     let mut app = ReviewApp::default();
     app.update(Message::FilesLoaded {
@@ -449,6 +475,10 @@ fn test_backend_renders_wide_narrow_and_minimum_layouts() {
     assert!(threshold.contains("Files (focus)"));
     assert!(threshold.contains("Diff ·"));
 
+    app.update(Message::Resize {
+        width: 60,
+        height: 10,
+    });
     let narrow_files = screen(&app, 60, 10).join("\n");
     assert!(narrow_files.contains("Files (focus)"));
     assert!(!narrow_files.contains("Diff ·"));

@@ -446,6 +446,8 @@ fn normalize_mouse(mouse: MouseEvent) -> Option<Message> {
             row,
             insert_path: true,
         }),
+        MouseEventKind::Drag(MouseButton::Left) => Some(Message::MouseDrag { column, row }),
+        MouseEventKind::Up(MouseButton::Left) => Some(Message::MouseRelease),
         _ => None,
     }
 }
@@ -534,5 +536,23 @@ mod tests {
                 })
             );
         }
+        assert_eq!(
+            normalize_mouse(MouseEvent {
+                kind: MouseEventKind::Drag(MouseButton::Left),
+                column: 40,
+                row: 5,
+                modifiers: KeyModifiers::NONE,
+            }),
+            Some(Message::MouseDrag { column: 40, row: 5 })
+        );
+        assert_eq!(
+            normalize_mouse(MouseEvent {
+                kind: MouseEventKind::Up(MouseButton::Left),
+                column: 40,
+                row: 5,
+                modifiers: KeyModifiers::NONE,
+            }),
+            Some(Message::MouseRelease)
+        );
     }
 }

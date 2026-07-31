@@ -1,24 +1,23 @@
-//! Pure review navigation and Ratatui rendering.
+//! Pure review state and navigation.
 
 use std::ops::RangeInclusive;
 
-use pr_core::diff::{DiffRow, NoticeKind};
+use pr_core::diff::DiffRow;
 use pr_core::herdr::InsertResult;
 use pr_core::repository::{ChangeKind, ChangedFile};
-use ratatui::buffer::Buffer;
-use ratatui::layout::{Alignment, Rect};
-use ratatui::style::Style;
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 
-use crate::highlight::{DiffHighlighter, Token};
-use crate::presentation::{DiffPresentation, RowDisplay};
+use crate::file_tree::FileTree;
+use crate::highlight::DiffHighlighter;
+use crate::presentation::DiffPresentation;
 use crate::review::{ReviewState, ReviewStatus, ReviewWarning};
 use crate::theme::{Palette, Theme};
 
-const MIN_WIDTH: u16 = 40;
-const MIN_HEIGHT: u16 = 6;
 const NARROW_WIDTH: u16 = 72;
+const MIN_PANE_WIDTH: u16 = 16;
+
+mod view;
+
+pub use view::ReviewView;
 
 /// The pane that receives navigation keys.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -49,11 +48,15 @@ pub enum Key {
 /// One file presented by the review state machine.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReviewFile {
-    /// Escaped repository-relative display path.
+    /// Escaped repository-relative path used by review operations.
     pub path: String,
+    /// Escaped text shown to the user.
+    display_path: String,
     /// Current review state.
     pub status: ReviewStatus,
     change: ChangeKind,
+    lines_added: u64,
+    lines_removed: u64,
     diff: DiffPresentation,
     cursor: usize,
     scroll: usize,
@@ -63,10 +66,14 @@ pub struct ReviewFile {
 impl ReviewFile {
     /// Create one file summary before its diff arrives.
     pub fn new(path: impl Into<String>, status: ReviewStatus) -> Self {
+        let path = path.into();
         Self {
-            path: path.into(),
+            display_path: path.clone(),
+            path,
             status,
             change: ChangeKind::Modified,
+            lines_added: 0,
+            lines_removed: 0,
             diff: DiffPresentation::default(),
             cursor: 0,
             scroll: 0,
@@ -76,8 +83,11 @@ impl ReviewFile {
 
     pub(crate) fn from_changed(file: &ChangedFile, status: ReviewStatus) -> Self {
         Self {
+            display_path: file.display_path.clone(),
             change: file.change,
-            ..Self::new(&file.display_path, status)
+            lines_added: file.lines_added,
+            lines_removed: file.lines_removed,
+            ..Self::new(file.review_path().display(), status)
         }
     }
 
@@ -146,6 +156,10 @@ pub enum Message {
         row: u16,
         insert_path: bool,
     },
+    /// The left mouse button dragged over the pane.
+    MouseDrag { column: u16, row: u16 },
+    /// The left mouse button was released.
+    MouseRelease,
     /// One keyboard input.
     Key(Key),
 }
@@ -178,14 +192,79 @@ impl Selection {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct PaneLayout {
+    width: u16,
+    height: u16,
+    footer_height: u16,
+    file_width: u16,
+}
+
+impl PaneLayout {
+    fn new(width: u16, height: u16, file_width: Option<u16>) -> Self {
+        let file_width = if width >= NARROW_WIDTH {
+            file_width
+                .unwrap_or(width * 30 / 100)
+                .clamp(MIN_PANE_WIDTH, width - MIN_PANE_WIDTH)
+        } else {
+            width
+        };
+        Self {
+            width,
+            height,
+            footer_height: if height < 10 { 1 } else { 2 },
+            file_width,
+        }
+    }
+
+    fn is_wide(self) -> bool {
+        self.width >= NARROW_WIDTH
+    }
+
+    fn body_height(self) -> u16 {
+        self.height.saturating_sub(1 + self.footer_height)
+    }
+
+    fn contains_body(self, column: u16, row: u16) -> bool {
+        column < self.width && row > 0 && row < self.height.saturating_sub(self.footer_height)
+    }
+
+    fn contains_pane_content(self, row: u16) -> bool {
+        row >= 2 && row < self.height.saturating_sub(self.footer_height + 1)
+    }
+
+    fn focus_at(self, current: Focus, column: u16, row: u16) -> Option<Focus> {
+        self.contains_body(column, row).then(|| {
+            if !self.is_wide() {
+                current
+            } else if column < self.file_width {
+                Focus::Files
+            } else {
+                Focus::Diff
+            }
+        })
+    }
+
+    fn is_separator(self, column: u16, row: u16) -> bool {
+        self.is_wide() && self.contains_body(column, row) && column.abs_diff(self.file_width) <= 1
+    }
+
+    fn page_rows(self) -> usize {
+        usize::from(self.body_height().saturating_sub(2).max(1))
+    }
+}
+
 /// The complete pure review UI state.
 #[derive(Debug)]
 pub struct ReviewApp {
     change_id: String,
     commit_id: String,
     files: Vec<ReviewFile>,
+    file_tree: FileTree,
     selected_file: usize,
     file_scroll: usize,
+    file_width: Option<u16>,
+    resizing: bool,
     focus: Focus,
     selection: Option<Selection>,
     notice: Option<String>,
@@ -208,8 +287,11 @@ impl ReviewApp {
             change_id: String::new(),
             commit_id: String::new(),
             files: Vec::new(),
+            file_tree: FileTree::default(),
             selected_file: 0,
             file_scroll: 0,
+            file_width: None,
+            resizing: false,
             focus: Focus::Files,
             selection: None,
             notice: None,
@@ -290,6 +372,14 @@ impl ReviewApp {
                 row,
                 insert_path,
             } => self.mouse_click(column, row, insert_path),
+            Message::MouseDrag { column, row } => {
+                self.mouse_drag(column, row);
+                Action::None
+            }
+            Message::MouseRelease => {
+                self.resizing = false;
+                Action::None
+            }
             Message::Key(key) => self.key(key),
         }
     }
@@ -331,6 +421,11 @@ impl ReviewApp {
         self.change_id = change_id;
         self.commit_id = commit_id;
         self.files = files;
+        self.file_tree = FileTree::new(
+            self.files
+                .iter()
+                .map(|file| (file.path.as_str(), file.display_path.as_str())),
+        );
         let selected_file = selected_path
             .as_deref()
             .and_then(|path| self.files.iter().position(|file| file.path == path));
@@ -581,19 +676,22 @@ impl ReviewApp {
     }
 
     fn mouse_click(&mut self, column: u16, row: u16, insert_path: bool) -> Action {
-        let Some(focus) = self.hovered_focus(column, row) else {
+        let layout = self.layout();
+        self.resizing = layout.is_separator(column, row);
+        if self.resizing {
+            return Action::None;
+        }
+        let Some(focus) = layout.focus_at(self.focus, column, row) else {
             return Action::None;
         };
         self.focus = focus;
-        let footer_height = if self.height < 10 { 1 } else { 2 };
-        if focus != Focus::Files || row < 2 || row >= self.height.saturating_sub(footer_height + 1)
-        {
+        if focus != Focus::Files || !layout.contains_pane_content(row) {
             return Action::None;
         }
-        let target = self.file_scroll + usize::from(row - 2);
-        if target >= self.files.len() {
+        let row = self.file_scroll + usize::from(row - 2);
+        let Some(target) = self.file_tree.file_at(row) else {
             return Action::None;
-        }
+        };
         self.selected_file = target;
         self.selection = None;
         if insert_path {
@@ -604,20 +702,21 @@ impl ReviewApp {
         self.load_selected_action()
     }
 
+    fn mouse_drag(&mut self, column: u16, row: u16) {
+        let layout = self.layout();
+        if !self.resizing || !layout.is_wide() || !layout.contains_body(column, row) {
+            return;
+        }
+        self.file_width = Some(column.clamp(MIN_PANE_WIDTH, self.width - MIN_PANE_WIDTH));
+        self.keep_visible();
+    }
+
+    fn layout(&self) -> PaneLayout {
+        PaneLayout::new(self.width, self.height, self.file_width)
+    }
+
     fn hovered_focus(&self, column: u16, row: u16) -> Option<Focus> {
-        let footer_height = if self.height < 10 { 1 } else { 2 };
-        if row == 0 || row >= self.height.saturating_sub(footer_height) || column >= self.width {
-            return None;
-        }
-        if self.width < NARROW_WIDTH {
-            return Some(self.focus);
-        }
-        let file_width = (self.width * 30 / 100).clamp(24, 48);
-        Some(if column < file_width {
-            Focus::Files
-        } else {
-            Focus::Diff
-        })
+        self.layout().focus_at(self.focus, column, row)
     }
 
     fn load_selected_action(&mut self) -> Action {
@@ -650,18 +749,19 @@ impl ReviewApp {
 
     fn keep_file_visible(&mut self) {
         let page = self.page_rows();
-        if self.selected_file < self.file_scroll {
-            self.file_scroll = self.selected_file;
-        } else if self.selected_file >= self.file_scroll + page {
-            self.file_scroll = self.selected_file + 1 - page;
+        let Some(row) = self.file_tree.row_for_file(self.selected_file) else {
+            self.file_scroll = 0;
+            return;
+        };
+        if row < self.file_scroll {
+            self.file_scroll = row;
+        } else if row >= self.file_scroll + page {
+            self.file_scroll = row + 1 - page;
         }
     }
 
     fn page_rows(&self) -> usize {
-        let footer = usize::from(if self.height < 10 { 1_u16 } else { 2_u16 });
-        usize::from(self.height)
-            .saturating_sub(1 + footer + 2)
-            .max(1)
+        self.layout().page_rows()
     }
 
     fn half_page_rows(&self) -> isize {
@@ -677,285 +777,5 @@ impl ReviewApp {
 
     fn selected(&self) -> Option<&ReviewFile> {
         self.files.get(self.selected_file)
-    }
-}
-
-/// A side-effect-free view of [`ReviewApp`].
-pub struct ReviewView<'a>(&'a ReviewApp);
-
-impl Widget for ReviewView<'_> {
-    fn render(self, area: Rect, buffer: &mut Buffer) {
-        if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
-            Paragraph::new("Terminal is too small\nMinimum: 40x6\nq quit").render(area, buffer);
-            return;
-        }
-
-        let footer_height = if area.height < 10 { 1 } else { 2 };
-        let header = Rect::new(area.x, area.y, area.width, 1);
-        let body = Rect::new(
-            area.x,
-            area.y + 1,
-            area.width,
-            area.height - 1 - footer_height,
-        );
-        let footer = Rect::new(
-            area.x,
-            area.bottom() - footer_height,
-            area.width,
-            footer_height,
-        );
-        self.render_header(header, buffer);
-        if area.width < NARROW_WIDTH {
-            match self.0.focus {
-                Focus::Files => self.render_files(body, buffer),
-                Focus::Diff => self.render_diff(body, buffer),
-            }
-        } else {
-            let file_width = (area.width * 30 / 100).clamp(24, 48);
-            self.render_files(Rect::new(body.x, body.y, file_width, body.height), buffer);
-            self.render_diff(
-                Rect::new(
-                    body.x + file_width,
-                    body.y,
-                    body.width - file_width,
-                    body.height,
-                ),
-                buffer,
-            );
-        }
-        self.render_footer(footer, buffer);
-    }
-}
-
-impl ReviewView<'_> {
-    fn file_style(&self, file: &ReviewFile, selected: bool) -> Style {
-        let color = match file.change {
-            ChangeKind::Added => self.0.palette.insertion,
-            ChangeKind::Deleted => self.0.palette.deletion,
-            ChangeKind::Modified => self.0.palette.focus,
-            ChangeKind::Renamed | ChangeKind::TypeChanged | ChangeKind::Conflict => {
-                self.0.palette.warning
-            }
-        };
-        let style = Style::default().fg(color);
-        if selected {
-            style.bg(self.0.palette.cursor)
-        } else {
-            style
-        }
-    }
-
-    fn render_header(&self, area: Rect, buffer: &mut Buffer) {
-        let reviewed = self
-            .0
-            .files
-            .iter()
-            .filter(|file| file.status == ReviewStatus::Reviewed)
-            .count();
-        let change = self.0.change_id.chars().take(8).collect::<String>();
-        Paragraph::new(format!(
-            " Progressive review · change {change} · {reviewed}/{} reviewed",
-            self.0.files.len()
-        ))
-        .style(Style::default().fg(self.0.palette.text))
-        .render(area, buffer);
-    }
-
-    fn render_files(&self, area: Rect, buffer: &mut Buffer) {
-        let focused = self.0.focus == Focus::Files;
-        let block = self.block("Files", focused);
-        let inner = block.inner(area);
-        block.render(area, buffer);
-        let width = usize::from(inner.width.saturating_sub(3));
-        let lines = self
-            .0
-            .files
-            .iter()
-            .enumerate()
-            .skip(self.0.file_scroll)
-            .take(usize::from(inner.height))
-            .map(|(index, file)| {
-                Line::styled(
-                    format!("{} {}", file.marker(), Self::shorten(&file.path, width)),
-                    self.file_style(file, index == self.0.selected_file),
-                )
-            })
-            .collect::<Vec<_>>();
-        Paragraph::new(lines).render(inner, buffer);
-    }
-
-    fn render_diff(&self, area: Rect, buffer: &mut Buffer) {
-        let focused = self.0.focus == Focus::Diff;
-        let title = self
-            .0
-            .selected()
-            .map_or_else(|| "Diff".to_owned(), |file| format!("Diff · {}", file.path));
-        let block = self.block(&title, focused);
-        let inner = block.inner(area);
-        block.render(area, buffer);
-        let Some(file) = self.0.selected() else {
-            return;
-        };
-        if file.status == ReviewStatus::Reviewed {
-            let center = Rect::new(inner.x, inner.y + inner.height / 2, inner.width, 1);
-            Paragraph::new("No changes")
-                .style(Style::default().fg(self.0.palette.dim))
-                .alignment(Alignment::Center)
-                .render(center, buffer);
-            return;
-        }
-        let selection = self.0.selection.map(Selection::range);
-        let lines = file
-            .diff
-            .rows
-            .iter()
-            .enumerate()
-            .skip(file.scroll)
-            .take(usize::from(inner.height))
-            .map(|(index, presented)| {
-                let row = file.diff.row(presented);
-                let mut style = self.row_style(row, presented.display);
-                if selection
-                    .as_ref()
-                    .is_some_and(|selection| selection.contains(&index))
-                {
-                    style = style.bg(self.0.palette.selection);
-                }
-                if focused && index == file.cursor {
-                    style = style.bg(self.0.palette.cursor);
-                }
-                self.row_line(row, &file.path, &presented.tokens, presented.display)
-                    .style(style)
-            })
-            .collect::<Vec<_>>();
-        Paragraph::new(lines).render(inner, buffer);
-    }
-
-    fn render_footer(&self, area: Rect, buffer: &mut Buffer) {
-        let controls = "Tab focus · j/k move · v select · Enter insert · Space review · q quit";
-        let status = match self.0.review_in_flight {
-            Some(true) => "Marking reviewed…",
-            Some(false) => "Removing review mark…",
-            None => self.0.notice.as_deref().unwrap_or(""),
-        };
-        let lines = if area.height == 1 {
-            vec![Line::from(vec![Span::raw(if status.is_empty() {
-                controls
-            } else {
-                status
-            })])]
-        } else {
-            vec![Line::raw(controls), Line::raw(status)]
-        };
-        Paragraph::new(lines)
-            .style(Style::default().fg(self.0.palette.text))
-            .render(area, buffer);
-    }
-
-    fn block(&self, title: &str, focused: bool) -> Block<'_> {
-        let style = if focused {
-            Style::default().fg(self.0.palette.focus)
-        } else {
-            Style::default().fg(self.0.palette.dim)
-        };
-        let suffix = if focused { " (focus)" } else { "" };
-        Block::default()
-            .borders(Borders::ALL)
-            .title(format!(" {title}{suffix} "))
-            .border_style(style)
-    }
-
-    fn row_text(row: &DiffRow, path: &str) -> String {
-        match row {
-            DiffRow::FileHeader { .. } => format!("diff --git {path}"),
-            DiffRow::Meta { text }
-            | DiffRow::Context { text, .. }
-            | DiffRow::Delete { text, .. }
-            | DiffRow::Add { text, .. }
-            | DiffRow::Notice { text, .. } => text.clone(),
-            DiffRow::Hunk {
-                old_start,
-                old_count,
-                new_start,
-                new_count,
-            } => format!("@@ -{old_start},{old_count} +{new_start},{new_count} @@"),
-        }
-    }
-
-    fn row_line(
-        &self,
-        row: &DiffRow,
-        path: &str,
-        tokens: &[Token],
-        display: RowDisplay,
-    ) -> Line<'static> {
-        if display == RowDisplay::FileContent {
-            return Line::from(
-                tokens
-                    .iter()
-                    .map(|token| Span::styled(token.text.clone(), Style::default().fg(token.color)))
-                    .collect::<Vec<_>>(),
-            );
-        }
-        let marker = match row {
-            DiffRow::Add { .. } => Some(("+", self.0.palette.insertion)),
-            DiffRow::Delete { .. } => Some(("-", self.0.palette.deletion)),
-            DiffRow::Context { .. } => Some((" ", self.0.palette.dim)),
-            _ => None,
-        };
-        let Some((marker, color)) = marker else {
-            return Line::raw(Self::row_text(row, path));
-        };
-        let mut spans = vec![Span::styled(marker, Style::default().fg(color))];
-        spans.extend(
-            tokens
-                .iter()
-                .map(|token| Span::styled(token.text.clone(), Style::default().fg(token.color))),
-        );
-        Line::from(spans)
-    }
-
-    fn row_style(&self, row: &DiffRow, display: RowDisplay) -> Style {
-        if display == RowDisplay::FileContent {
-            return Style::default().fg(self.0.palette.text);
-        }
-        match row {
-            DiffRow::Add { .. } => Style::default()
-                .fg(self.0.palette.insertion)
-                .bg(self.0.palette.insertion_bg),
-            DiffRow::Delete { .. } => Style::default()
-                .fg(self.0.palette.deletion)
-                .bg(self.0.palette.deletion_bg),
-            DiffRow::Hunk { .. }
-            | DiffRow::Notice {
-                kind: NoticeKind::Binary,
-                ..
-            } => Style::default().fg(self.0.palette.focus),
-            DiffRow::Notice {
-                kind: NoticeKind::Conflict | NoticeKind::Unsupported,
-                ..
-            } => Style::default().fg(self.0.palette.warning),
-            DiffRow::Meta { .. } | DiffRow::FileHeader { .. } => {
-                Style::default().fg(self.0.palette.dim)
-            }
-            DiffRow::Context { .. } => Style::default().fg(self.0.palette.text),
-        }
-    }
-
-    fn shorten(value: &str, width: usize) -> String {
-        let length = value.chars().count();
-        if length <= width {
-            return value.to_owned();
-        }
-        if width <= 3 {
-            return ".".repeat(width);
-        }
-        let left = (width - 1) / 2;
-        let right = width - left - 1;
-        format!(
-            "{}…{}",
-            value.chars().take(left).collect::<String>(),
-            value.chars().skip(length - right).collect::<String>()
-        )
     }
 }
