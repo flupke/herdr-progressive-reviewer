@@ -182,6 +182,39 @@ fn reviewed_file_hides_its_diff() {
 }
 
 #[test]
+fn marking_a_file_reviewed_selects_and_loads_the_next_file() {
+    let mut app = ReviewApp::default();
+    app.update(Message::FilesLoaded {
+        change_id: "qpvuntsm".to_owned(),
+        commit_id: "11111111".to_owned(),
+        files: vec![
+            ReviewFile::new("first.rs", ReviewStatus::Unreviewed),
+            ReviewFile::new("second.rs", ReviewStatus::Unreviewed),
+        ],
+    });
+
+    assert!(matches!(
+        app.update(Message::Key(Key::Space)),
+        Action::SetReviewed { reviewed: true, .. }
+    ));
+    assert_eq!(
+        app.update(Message::ReviewFinished {
+            change_id: "qpvuntsm".to_owned(),
+            path: "first.rs".to_owned(),
+            result: Ok(ReviewState {
+                status: ReviewStatus::Reviewed,
+                warning: None,
+            }),
+        }),
+        Action::LoadDiff {
+            commit_id: "11111111".to_owned(),
+            path: "second.rs".to_owned(),
+        }
+    );
+    assert!(screen(&app, 80, 12).join("\n").contains("Diff · second.rs"));
+}
+
+#[test]
 fn added_file_renders_as_plain_file_content() {
     let mut app = ReviewApp::default();
     app.update(Message::FilesLoaded {

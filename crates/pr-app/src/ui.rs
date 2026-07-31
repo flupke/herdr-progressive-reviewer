@@ -538,6 +538,7 @@ impl ReviewApp {
         if self.change_id != change_id {
             return Action::None;
         }
+        let marking_reviewed = self.review_in_flight == Some(true);
         self.review_in_flight = None;
         match result {
             Ok(state) => {
@@ -548,6 +549,18 @@ impl ReviewApp {
                     }
                 }
                 self.notice = state.warning.map(Self::warning_text);
+                if marking_reviewed
+                    && state.status == ReviewStatus::Reviewed
+                    && self
+                        .selected()
+                        .is_some_and(|selected| selected.path == path)
+                    && self.selected_file + 1 < self.files.len()
+                {
+                    self.selected_file += 1;
+                    self.selection = None;
+                    self.keep_visible();
+                    return self.load_selected_action();
+                }
                 if state.status != ReviewStatus::Reviewed
                     && self
                         .selected()
