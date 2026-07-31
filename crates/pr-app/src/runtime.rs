@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crossterm::event::{
     self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
@@ -30,8 +30,8 @@ use signal_hook::flag;
 use crate::review::{MarkResult, ReviewTracker};
 use crate::theme::Theme;
 use crate::ui::{Action, Key, Message, ReviewApp, ReviewFile};
+use crate::watcher::RepositoryWatcher;
 
-const POLL_INTERVAL: Duration = Duration::from_secs(2);
 const EVENT_WAIT: Duration = Duration::from_millis(50);
 
 /// The running review pane.
@@ -107,8 +107,8 @@ impl Runtime {
 
         let mut terminal = TerminalGuard::new()?;
         let mut app = ReviewApp::with_theme(self.theme);
+        let mut watcher = RepositoryWatcher::new(self.repository.root());
         commands.send(WorkerCommand::Poll)?;
-        let mut next_poll = Instant::now() + POLL_INTERVAL;
         let result = loop {
             Self::drain_focus(&commands, &focus_events);
             if Self::drain_messages(&commands, &messages, &mut app)? {
@@ -117,9 +117,8 @@ impl Runtime {
             if stopped.load(Ordering::Relaxed) {
                 break Ok(());
             }
-            if Instant::now() >= next_poll {
+            if watcher.poll_due(std::time::Instant::now()) {
                 commands.send(WorkerCommand::Poll)?;
-                next_poll = Instant::now() + POLL_INTERVAL;
             }
             let area = terminal.terminal.size()?;
             let _ = app.update(Message::Resize {

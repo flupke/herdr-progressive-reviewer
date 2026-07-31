@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 crossterm.workspace = true
 eyre.workspace = true
+notify.workspace = true
 pr-core = { path = "../pr-core" }
 pr-state = { path = "../pr-state" }
 ratatui = { workspace = true, features = ["crossterm"] }

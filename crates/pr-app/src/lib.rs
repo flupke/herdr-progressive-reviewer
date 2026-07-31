@@ -8,3 +8,4 @@ mod file_tree;
 mod highlight;
 mod presentation;
 mod theme;
+mod watcher;
