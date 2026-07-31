@@ -27,7 +27,7 @@ use ratatui::backend::CrosstermBackend;
 use signal_hook::consts::signal::{SIGHUP, SIGINT, SIGTERM};
 use signal_hook::flag;
 
-use crate::review::{MarkResult, ReviewTracker, ReviewWarning};
+use crate::review::{MarkResult, ReviewTracker};
 use crate::theme::Theme;
 use crate::ui::{Action, Key, Message, ReviewApp, ReviewFile};
 
@@ -229,10 +229,7 @@ impl Worker {
                     true
                 }
                 WorkerCommand::Insert(text) => {
-                    let result = self
-                        .target
-                        .insert(&self.client, &text)
-                        .map_err(|error| error.to_string());
+                    let result = self.target.insert(&self.client, &text).map_err(|_| ());
                     let _ = messages.send(Message::InsertFinished(result));
                     true
                 }
@@ -252,53 +249,29 @@ impl Worker {
         let snapshot = match self.repository.poll() {
             Ok(PollResult::Complete(snapshot)) => snapshot,
             Ok(PollResult::ChangedDuringPoll) => return,
-            Err(error) => {
-                let _ = messages.send(Message::PollFailed(error.to_string()));
-                return;
-            }
+            Err(_) => return,
         };
-        let states = snapshot
+        let Ok(states) = snapshot
             .files
             .iter()
             .map(|file| self.tracker.status(&snapshot, file))
-            .collect::<eyre::Result<Vec<_>>>();
-        let warning = states
-            .as_ref()
-            .ok()
-            .and_then(|states| states.iter().find_map(|state| state.warning));
-        let files = states.map(|states| {
-            snapshot
-                .files
-                .iter()
-                .zip(states)
-                .map(|(file, state)| ReviewFile::from_changed(file, state.status))
-                .collect::<Vec<_>>()
+            .collect::<eyre::Result<Vec<_>>>()
+        else {
+            return;
+        };
+        let files = snapshot
+            .files
+            .iter()
+            .zip(states)
+            .map(|(file, state)| ReviewFile::from_changed(file, state.status))
+            .collect();
+        let _ = messages.send(Message::FilesLoaded {
+            change_id: snapshot.identity.change_id.as_str().to_owned(),
+            commit_id: snapshot.identity.commit_id.as_str().to_owned(),
+            description: snapshot.identity.description.clone(),
+            files,
         });
-        match files {
-            Ok(files) => {
-                let _ = messages.send(Message::FilesLoaded {
-                    change_id: snapshot.identity.change_id.as_str().to_owned(),
-                    commit_id: snapshot.identity.commit_id.as_str().to_owned(),
-                    description: snapshot.identity.description.clone(),
-                    files,
-                });
-                if let Some(warning) = warning {
-                    let text = match warning {
-                        ReviewWarning::UnknownSchema => {
-                            "Review state uses an unknown schema; file is unreviewed"
-                        }
-                        ReviewWarning::BaselineExpired => {
-                            "Review baseline expired; file reset to unreviewed"
-                        }
-                    };
-                    let _ = messages.send(Message::PollFailed(text.to_owned()));
-                }
-                self.snapshot = Some(snapshot);
-            }
-            Err(error) => {
-                let _ = messages.send(Message::PollFailed(error.to_string()));
-            }
-        }
+        self.snapshot = Some(snapshot);
     }
 
     fn load_diff(&self, messages: &Sender<Message>, commit_id: String, path: String) {
@@ -320,11 +293,7 @@ impl Worker {
                 old_content,
                 new_content,
             },
-            Err(error) => Message::DiffFailed {
-                commit_id,
-                path,
-                message: error.to_string(),
-            },
+            Err(_) => Message::DiffFailed { commit_id, path },
         };
         let _ = messages.send(message);
     }
@@ -352,7 +321,7 @@ impl Worker {
                     self.tracker.status(snapshot, file)
                 }
             })
-            .map_err(|error| error.to_string());
+            .map_err(|_| ());
         let _ = messages.send(Message::ReviewFinished {
             change_id,
             path,

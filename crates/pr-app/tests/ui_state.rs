@@ -113,17 +113,15 @@ fn state_machine_keeps_selection_until_insert_succeeds() {
         }
     );
 
-    app.update(Message::InsertFinished(Err("agent unavailable".to_owned())));
+    app.update(Message::InsertFinished(Err(())));
     assert!(matches!(
         app.update(Message::Key(Key::Enter)),
         Action::Insert { .. }
     ));
     app.update(Message::InsertFinished(Ok(InsertResult::NoAgent)));
-    assert!(
-        screen(&app, 80, 12)
-            .join("\n")
-            .contains("No agent chat is available in this workspace")
-    );
+    let rendered = screen(&app, 80, 12);
+    assert!(rendered.last().unwrap().contains("Tab focus"));
+    assert!(!rendered.join("\n").contains("No agent chat"));
     assert!(matches!(
         app.update(Message::Key(Key::Enter)),
         Action::Insert { .. }
@@ -131,11 +129,7 @@ fn state_machine_keeps_selection_until_insert_succeeds() {
     app.update(Message::InsertFinished(Ok(InsertResult::Inserted {
         agent_name: "Codex".to_owned(),
     })));
-    assert!(
-        screen(&app, 80, 12)
-            .join("\n")
-            .contains("Inserted into Codex")
-    );
+    assert!(!screen(&app, 80, 12).join("\n").contains("Inserted into"));
     assert_eq!(app.update(Message::Key(Key::Enter)), Action::None);
 
     assert_eq!(
@@ -154,11 +148,9 @@ fn state_machine_keeps_selection_until_insert_succeeds() {
             warning: Some(ReviewWarning::BaselineExpired),
         }),
     });
-    assert!(
-        screen(&app, 80, 12)
-            .join("\n")
-            .contains("Review baseline expired; file reset to unreviewed")
-    );
+    let rendered = screen(&app, 80, 12);
+    assert!(rendered.last().unwrap().contains("Tab focus"));
+    assert!(!rendered.join("\n").contains("Review baseline expired"));
 }
 
 #[test]
@@ -179,7 +171,7 @@ fn reviewed_file_hides_its_diff() {
     });
 
     let screen = screen(&app, 80, 12);
-    assert!(screen[5].contains("No changes"));
+    assert!(screen.join("\n").contains("No changes"));
     assert!(!screen.join("\n").contains("old();"));
 }
 
@@ -838,9 +830,5 @@ fn test_backend_renders_wide_narrow_and_minimum_layouts() {
     app.update(Message::Key(Key::Down));
     app.update(Message::Key(Key::Tab));
     app.update(Message::Key(Key::Visual));
-    assert!(
-        screen(&app, 80, 10)
-            .join("\n")
-            .contains("This diff row cannot be selected")
-    );
+    assert!(screen(&app, 80, 10).last().unwrap().contains("Tab focus"));
 }

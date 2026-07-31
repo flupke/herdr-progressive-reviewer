@@ -10,7 +10,7 @@ use unicode_width::UnicodeWidthStr;
 use crate::file_tree::FileTree;
 use crate::highlight::DiffHighlighter;
 use crate::presentation::DiffPresentation;
-use crate::review::{ReviewState, ReviewStatus, ReviewWarning};
+use crate::review::{ReviewState, ReviewStatus};
 use crate::theme::{Palette, Theme};
 
 const NARROW_WIDTH: u16 = 72;
@@ -139,21 +139,15 @@ pub enum Message {
         new_content: Option<Vec<u8>>,
     },
     /// A diff command failed.
-    DiffFailed {
-        commit_id: String,
-        path: String,
-        message: String,
-    },
+    DiffFailed { commit_id: String, path: String },
     /// A review-state write result.
     ReviewFinished {
         change_id: String,
         path: String,
-        result: Result<ReviewState, String>,
+        result: Result<ReviewState, ()>,
     },
     /// An excerpt insertion result.
-    InsertFinished(Result<InsertResult, String>),
-    /// A repository poll failed.
-    PollFailed(String),
+    InsertFinished(Result<InsertResult, ()>),
     /// The terminal size changed.
     Resize { width: u16, height: u16 },
     /// The mouse wheel moved over one pane.
@@ -256,7 +250,7 @@ impl PaneLayout {
         Self {
             width,
             height,
-            footer_height: if height < 10 { 1 } else { 2 },
+            footer_height: 1,
             file_width,
         }
     }
@@ -326,7 +320,6 @@ pub struct ReviewApp {
     drag: DragState,
     focus: Focus,
     selection: Option<Selection>,
-    notice: Option<String>,
     review_in_flight: Option<bool>,
     highlighter: DiffHighlighter,
     palette: Palette,
@@ -355,7 +348,6 @@ impl ReviewApp {
             drag: DragState::None,
             focus: Focus::Files,
             selection: None,
-            notice: None,
             review_in_flight: None,
             highlighter: DiffHighlighter::new(theme),
             palette: theme.palette,
@@ -390,11 +382,9 @@ impl ReviewApp {
                 Action::None
             }
             Message::DiffFailed {
-                commit_id,
-                path,
-                message,
+                commit_id, path, ..
             } => {
-                self.fail_diff(&commit_id, &path, message);
+                self.fail_diff(&commit_id, &path);
                 Action::None
             }
             Message::ReviewFinished {
@@ -403,21 +393,9 @@ impl ReviewApp {
                 result,
             } => self.finish_review(&change_id, &path, result),
             Message::InsertFinished(result) => {
-                match result {
-                    Ok(InsertResult::Inserted { agent_name }) => {
-                        self.selection = None;
-                        self.notice = Some(format!("Inserted into {agent_name}"));
-                    }
-                    Ok(InsertResult::NoAgent) => {
-                        self.notice =
-                            Some("No agent chat is available in this workspace".to_owned());
-                    }
-                    Err(message) => self.notice = Some(message),
+                if matches!(result, Ok(InsertResult::Inserted { .. })) {
+                    self.selection = None;
                 }
-                Action::None
-            }
-            Message::PollFailed(message) => {
-                self.notice = Some(message);
                 Action::None
             }
             Message::Resize { width, height } => {
@@ -470,7 +448,6 @@ impl ReviewApp {
             }
         } else {
             self.selection = None;
-            self.notice = None;
             self.show_commit_message = false;
             self.file_scroll = 0;
             self.focus = Focus::Files;
@@ -529,13 +506,12 @@ impl ReviewApp {
         }
     }
 
-    fn fail_diff(&mut self, commit_id: &str, path: &str, message: String) {
+    fn fail_diff(&mut self, commit_id: &str, path: &str) {
         if self.commit_id != commit_id {
             return;
         }
         if let Some(file) = self.files.iter_mut().find(|file| file.path == path) {
             file.loading = false;
-            self.notice = Some(message);
         }
     }
 
@@ -543,7 +519,7 @@ impl ReviewApp {
         &mut self,
         change_id: &str,
         path: &str,
-        result: Result<ReviewState, String>,
+        result: Result<ReviewState, ()>,
     ) -> Action {
         if self.change_id != change_id {
             return Action::None;
@@ -558,7 +534,6 @@ impl ReviewApp {
                         file.diff = DiffPresentation::default();
                     }
                 }
-                self.notice = state.warning.map(Self::warning_text);
                 if marking_reviewed
                     && state.status == ReviewStatus::Reviewed
                     && self
@@ -579,20 +554,9 @@ impl ReviewApp {
                     return self.load_selected_action();
                 }
             }
-            Err(message) => self.notice = Some(message),
+            Err(_) => {}
         }
         Action::None
-    }
-
-    fn warning_text(warning: ReviewWarning) -> String {
-        match warning {
-            ReviewWarning::UnknownSchema => {
-                "Review state uses an unknown schema; file is unreviewed".to_owned()
-            }
-            ReviewWarning::BaselineExpired => {
-                "Review baseline expired; file reset to unreviewed".to_owned()
-            }
-        }
     }
 
     fn key(&mut self, key: Key) -> Action {
@@ -612,7 +576,6 @@ impl ReviewApp {
             Key::Escape => {
                 self.show_commit_message = false;
                 self.selection = None;
-                self.notice = None;
                 Action::None
             }
             Key::Enter if self.focus == Focus::Files => {
@@ -662,22 +625,17 @@ impl ReviewApp {
             return Action::None;
         };
         let Some(selection) = self.selection else {
-            self.notice = Some("Select diff lines with v before insertion".to_owned());
             return Action::None;
         };
         let range = selection.range();
         if !range.clone().any(|index| file.diff.is_selectable(index)) {
-            self.notice = Some("Select context, added, or deleted lines".to_owned());
             return Action::None;
         }
         match file.diff.excerpt(range) {
             Ok(excerpt) => Action::Insert {
                 text: excerpt.into_string(),
             },
-            Err(error) => {
-                self.notice = Some(error.to_string());
-                Action::None
-            }
+            Err(_) => Action::None,
         }
     }
 
@@ -686,7 +644,6 @@ impl ReviewApp {
             return;
         };
         if !file.diff.is_selectable(file.cursor) {
-            self.notice = Some("This diff row cannot be selected".to_owned());
             return;
         }
         self.selection = match self.selection {
