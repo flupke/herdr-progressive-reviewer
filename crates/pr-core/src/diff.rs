@@ -291,6 +291,13 @@ pub fn parse_file_diff(output: &[u8], file: &ChangedFile) -> Vec<DiffRow> {
         }];
     }
 
+    if file.old_kind == FileKind::Gitlink || file.new_kind == FileKind::Gitlink {
+        return vec![DiffRow::Notice {
+            kind: NoticeKind::Unsupported,
+            text: "Git submodule changed; text diff is unavailable".to_owned(),
+        }];
+    }
+
     let mut rows = DiffParser::parse(output);
     for row in &mut rows {
         if let DiffRow::FileHeader {

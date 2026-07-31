@@ -1,4 +1,4 @@
-//! Review state derived from stored baselines and jj interdiffs.
+//! Review state derived from stored repository baselines.
 
 use pr_core::repository::{ChangedFile, FileKind, Interdiff, RepoPath, Repository, Snapshot};
 use pr_state::{LoadResult, ReviewStore};
@@ -93,13 +93,13 @@ impl ReviewTracker {
     /// Mark one path at the current exact commit.
     pub fn mark(&self, snapshot: &Snapshot, file: &ChangedFile) -> eyre::Result<MarkResult> {
         let identity = self.repository.current_identity()?;
-        if identity.change_id != snapshot.identity.change_id {
+        if identity.review_id() != snapshot.identity.review_id() {
             return Ok(MarkResult::ChangeChanged);
         }
         self.store.mark(
-            identity.change_id.as_str(),
+            identity.review_id(),
             file.review_path().as_bytes(),
-            identity.commit_id.as_str(),
+            identity.snapshot_id(),
         )?;
         Ok(MarkResult::Marked)
     }
@@ -112,11 +112,11 @@ impl ReviewTracker {
     pub(crate) fn diff(&self, snapshot: &Snapshot, file: &ChangedFile) -> eyre::Result<ReviewDiff> {
         match self.compare(snapshot, file)? {
             ReviewComparison::Unreviewed(_) => {
-                let commit_id = snapshot.identity.commit_id.as_str();
+                let commit_id = snapshot.identity.snapshot_id();
                 Ok(ReviewDiff {
                     unified: self.repository.diff(snapshot, file)?,
-                    old_content: self.file_content(
-                        &format!("{commit_id}-"),
+                    old_content: self.base_file_content(
+                        snapshot,
                         file.old_path.as_ref(),
                         file.old_kind,
                     )?,
@@ -144,7 +144,7 @@ impl ReviewTracker {
                         kind,
                     )?,
                     new_content: self.file_content(
-                        snapshot.identity.commit_id.as_str(),
+                        snapshot.identity.snapshot_id(),
                         file.new_path.as_ref(),
                         file.new_kind,
                     )?,
@@ -167,8 +167,22 @@ impl ReviewTracker {
             .map_err(Into::into)
     }
 
+    fn base_file_content(
+        &self,
+        snapshot: &Snapshot,
+        path: Option<&RepoPath>,
+        kind: FileKind,
+    ) -> eyre::Result<Option<Vec<u8>>> {
+        if kind != FileKind::File {
+            return Ok(None);
+        }
+        path.map(|path| self.repository.base_file_at(snapshot, path))
+            .transpose()
+            .map_err(Into::into)
+    }
+
     fn compare(&self, snapshot: &Snapshot, file: &ChangedFile) -> eyre::Result<ReviewComparison> {
-        let change_id = snapshot.identity.change_id.as_str();
+        let change_id = snapshot.identity.review_id();
         let path = file.review_path().as_bytes();
         let record = match self.store.load(change_id, path)? {
             LoadResult::Unreviewed => return Ok(ReviewComparison::Unreviewed(None)),
@@ -199,10 +213,8 @@ impl ReviewTracker {
 
     /// Remove the review mark for one path.
     pub fn unreview(&self, snapshot: &Snapshot, file: &ChangedFile) -> eyre::Result<()> {
-        self.store.unreview(
-            snapshot.identity.change_id.as_str(),
-            file.review_path().as_bytes(),
-        )?;
+        self.store
+            .unreview(snapshot.identity.review_id(), file.review_path().as_bytes())?;
         Ok(())
     }
 }

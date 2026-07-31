@@ -26,6 +26,63 @@ pub struct JjFixture {
     root: PathBuf,
 }
 
+/// A temporary Git repository for integration tests.
+#[derive(Debug)]
+pub struct GitFixture {
+    _directory: tempfile::TempDir,
+    root: PathBuf,
+}
+
+impl GitFixture {
+    /// Create an empty Git repository with one base commit.
+    pub fn new() -> Self {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("repository");
+        fs::create_dir(&root).unwrap();
+        let fixture = Self {
+            _directory: directory,
+            root,
+        };
+        fixture.git(["init", "--quiet"]);
+        fixture.git(["config", "user.name", "Reviewer Test"]);
+        fixture.git(["config", "user.email", "reviewer@example.invalid"]);
+        fixture.git(["commit", "--quiet", "--allow-empty", "-m", "base"]);
+        fixture
+    }
+
+    /// Get the temporary repository root.
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// Add all worktree changes and commit them.
+    pub fn commit_all(&self, message: &str) {
+        self.git(["add", "-A"]);
+        self.git(["commit", "--quiet", "-m", message]);
+    }
+
+    /// Run a Git command in the fixture and require success.
+    pub fn git<'a>(&self, arguments: impl IntoIterator<Item = &'a str>) -> Output {
+        let output = Command::new("git")
+            .args(arguments)
+            .current_dir(&self.root)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "Git fixture command failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        output
+    }
+}
+
+impl Default for GitFixture {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl JjFixture {
     /// Create an empty repository with the selected layout.
     pub fn new(layout: JjLayout) -> Self {

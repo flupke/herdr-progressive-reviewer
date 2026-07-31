@@ -1,4 +1,4 @@
-//! Stable snapshots of one jj working-copy change.
+//! Stable snapshots of one jj change or Git working tree.
 
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
@@ -13,23 +13,18 @@ use std::time::Duration;
 
 use crate::{Error, Result};
 
-const IDENTITY_TEMPLATE: &str = r#"change_id ++ "\0" ++ commit_id ++ "\0" ++ description ++ "\0""#;
-const FILE_TEMPLATE: &str = concat!(
-    r#"source.path() ++ "\0" ++ target.path() ++ "\0" ++ "#,
-    r#"source.file_type() ++ "\0" ++ target.file_type() ++ "\0" ++ "#,
-    r#"status ++ "\0""#,
-);
-const STATS_TEMPLATE: &str = concat!(
-    r#"diff.stat().files().map(|entry| entry.path() ++ "\0" ++ "#,
-    r#"entry.lines_added() ++ "\0" ++ entry.lines_removed() ++ "\0").join("")"#,
-);
+mod git;
+mod jj;
+
 const COMMAND_OUTPUT_LIMIT: usize = 256 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug)]
-struct JjProcess<'a> {
+struct RepositoryProcess<'a> {
+    program: &'static str,
     cwd: &'a Path,
     operation: &'static str,
     cancellation: &'a Cancellation,
+    environment: &'a [(OsString, OsString)],
 }
 
 #[derive(Clone, Debug, Default)]
@@ -106,6 +101,8 @@ pub enum FileKind {
     Symlink,
     /// The entry contains a merge conflict.
     Conflict,
+    /// The entry is a Git submodule.
+    Gitlink,
 }
 
 impl FileKind {
@@ -118,6 +115,19 @@ impl FileKind {
             _ => Err(Error::Protocol {
                 operation: "read jj changed files".to_owned(),
                 detail: "jj returned an unknown file type",
+            }),
+        }
+    }
+
+    fn parse_git_mode(value: &[u8]) -> Result<Self> {
+        match value {
+            b"000000" => Ok(Self::Absent),
+            b"100644" | b"100755" => Ok(Self::File),
+            b"120000" => Ok(Self::Symlink),
+            b"160000" => Ok(Self::Gitlink),
+            _ => Err(Error::Protocol {
+                operation: "read Git changed files".to_owned(),
+                detail: "Git returned an unknown file mode",
             }),
         }
     }
@@ -140,7 +150,7 @@ pub enum ChangeKind {
     Conflict,
 }
 
-/// One changed path in the current jj change.
+/// One changed path in the current review.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ChangedFile {
     /// The path on the parent side.
@@ -288,6 +298,159 @@ impl ChangedFile {
         Ok(())
     }
 
+    fn parse_git(output: &[u8]) -> Result<Vec<Self>> {
+        if output.is_empty() {
+            return Ok(Vec::new());
+        }
+        let fields: Vec<_> = output.split(|byte| *byte == 0).collect();
+        if fields.last() != Some(&&[][..]) {
+            return Err(Error::Protocol {
+                operation: "read Git changed files".to_owned(),
+                detail: "Git returned an invalid raw diff",
+            });
+        }
+
+        let mut files = Vec::new();
+        let mut fields = fields[..fields.len() - 1].iter().copied();
+        while let Some(metadata) = fields.next() {
+            let mut metadata = metadata.split(|byte| *byte == b' ');
+            let old_mode = metadata.next().and_then(|value| value.strip_prefix(b":"));
+            let new_mode = metadata.next();
+            let _old_object = metadata.next();
+            let _new_object = metadata.next();
+            let status = metadata.next();
+            if metadata.next().is_some() {
+                return Err(Error::Protocol {
+                    operation: "read Git changed files".to_owned(),
+                    detail: "Git returned invalid raw diff metadata",
+                });
+            }
+            let (Some(old_mode), Some(new_mode), Some(status)) = (old_mode, new_mode, status)
+            else {
+                return Err(Error::Protocol {
+                    operation: "read Git changed files".to_owned(),
+                    detail: "Git returned incomplete raw diff metadata",
+                });
+            };
+            let old_kind = FileKind::parse_git_mode(old_mode)?;
+            let new_kind = FileKind::parse_git_mode(new_mode)?;
+            let first_path = fields.next().ok_or_else(|| Error::Protocol {
+                operation: "read Git changed files".to_owned(),
+                detail: "Git returned a changed file without a path",
+            })?;
+            let renamed = matches!(status.first(), Some(b'R' | b'C'));
+            let second_path = if renamed {
+                Some(fields.next().ok_or_else(|| Error::Protocol {
+                    operation: "read Git changed files".to_owned(),
+                    detail: "Git returned a rename without its new path",
+                })?)
+            } else {
+                None
+            };
+            let old_path = (old_kind != FileKind::Absent).then(|| RepoPath::from_bytes(first_path));
+            let new_path = (new_kind != FileKind::Absent)
+                .then(|| RepoPath::from_bytes(second_path.unwrap_or(first_path)));
+            let change = if status.first() == Some(&b'U') {
+                ChangeKind::Conflict
+            } else if old_kind != FileKind::Absent
+                && new_kind != FileKind::Absent
+                && old_kind != new_kind
+            {
+                ChangeKind::TypeChanged
+            } else {
+                match status.first() {
+                    Some(b'A' | b'C') => ChangeKind::Added,
+                    Some(b'M') => ChangeKind::Modified,
+                    Some(b'D') => ChangeKind::Deleted,
+                    Some(b'R') => ChangeKind::Renamed,
+                    Some(b'T') => ChangeKind::TypeChanged,
+                    _ => {
+                        return Err(Error::Protocol {
+                            operation: "read Git changed files".to_owned(),
+                            detail: "Git returned an unknown file status",
+                        });
+                    }
+                }
+            };
+            let display_path = match (&old_path, &new_path) {
+                (Some(old), Some(new)) if old != new => {
+                    format!("{} => {}", old.display(), new.display())
+                }
+                (Some(path), _) | (_, Some(path)) => path.display(),
+                (None, None) => unreachable!("Git raw changes always have a path"),
+            };
+            files.push(Self {
+                old_path,
+                new_path,
+                old_kind,
+                new_kind,
+                change,
+                display_path,
+                lines_added: 0,
+                lines_removed: 0,
+            });
+        }
+        files.sort_by(|left, right| {
+            left.review_path()
+                .as_bytes()
+                .cmp(right.review_path().as_bytes())
+        });
+        Ok(files)
+    }
+
+    fn add_git_stats(files: &mut [Self], output: &[u8]) -> Result<()> {
+        let fields: Vec<_> = output.split(|byte| *byte == 0).collect();
+        if fields.last() != Some(&&[][..]) {
+            return Err(Error::Protocol {
+                operation: "read Git diff statistics".to_owned(),
+                detail: "Git returned invalid diff statistics",
+            });
+        }
+        let mut stats = HashMap::new();
+        let mut fields = fields[..fields.len() - 1].iter().copied();
+        while let Some(record) = fields.next() {
+            let mut values = record.splitn(3, |byte| *byte == b'\t');
+            let added = values.next();
+            let removed = values.next();
+            let path = values.next();
+            let (Some(added), Some(removed), Some(path)) = (added, removed, path) else {
+                return Err(Error::Protocol {
+                    operation: "read Git diff statistics".to_owned(),
+                    detail: "Git returned incomplete diff statistics",
+                });
+            };
+            let path = if path.is_empty() {
+                let _old_path = fields.next();
+                fields.next().ok_or_else(|| Error::Protocol {
+                    operation: "read Git diff statistics".to_owned(),
+                    detail: "Git returned an incomplete rename statistic",
+                })?
+            } else {
+                path
+            };
+            let parse = |value: &[u8]| {
+                if value == b"-" {
+                    return Ok(0);
+                }
+                std::str::from_utf8(value)
+                    .ok()
+                    .and_then(|value| value.parse::<u64>().ok())
+                    .ok_or_else(|| Error::Protocol {
+                        operation: "read Git diff statistics".to_owned(),
+                        detail: "Git returned an invalid line count",
+                    })
+            };
+            stats.insert(path, (parse(added)?, parse(removed)?));
+        }
+        for file in files {
+            if let Some(&(added, removed)) = stats.get(file.review_path().as_bytes()) {
+                file.lines_added = added;
+                file.lines_removed = removed;
+            }
+        }
+        Ok(())
+    }
+
     fn diff_paths(&self) -> impl Iterator<Item = &RepoPath> {
         self.old_path.iter().chain(
             self.new_path
@@ -297,15 +460,25 @@ impl ChangedFile {
     }
 }
 
-/// The exact identity of one jj working-copy snapshot.
+/// The exact identity of one repository snapshot.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SnapshotIdentity {
-    /// The stable change identifier.
-    pub change_id: ChangeId,
-    /// The exact commit identifier for this snapshot.
-    pub commit_id: CommitId,
-    /// The full commit description.
-    pub description: String,
+pub enum SnapshotIdentity {
+    /// A jj working-copy snapshot.
+    Jj {
+        /// The stable jj change ID.
+        change_id: ChangeId,
+        /// The exact jj commit ID.
+        commit_id: CommitId,
+        /// The full commit description.
+        description: String,
+    },
+    /// A Git working-tree snapshot.
+    Git {
+        /// The tree at `HEAD` that defines the review scope.
+        base_tree: String,
+        /// The exact captured working-tree state.
+        snapshot_tree: String,
+    },
 }
 
 impl SnapshotIdentity {
@@ -334,11 +507,35 @@ impl SnapshotIdentity {
             detail: "jj returned a non-UTF-8 commit description",
         })?;
 
-        Ok(Self {
+        Ok(Self::Jj {
             change_id: ChangeId(change_id.to_owned()),
             commit_id: CommitId(commit_id.to_owned()),
             description: description.to_owned(),
         })
+    }
+
+    /// Get the stable identifier used to group review marks.
+    pub fn review_id(&self) -> &str {
+        match self {
+            Self::Jj { change_id, .. } => change_id.as_str(),
+            Self::Git { base_tree, .. } => base_tree,
+        }
+    }
+
+    /// Get the exact identifier for the captured repository state.
+    pub fn snapshot_id(&self) -> &str {
+        match self {
+            Self::Jj { commit_id, .. } => commit_id.as_str(),
+            Self::Git { snapshot_tree, .. } => snapshot_tree,
+        }
+    }
+
+    /// Get the text shown in the review header.
+    pub fn description(&self) -> &str {
+        match self {
+            Self::Jj { description, .. } => description,
+            Self::Git { .. } => "Git working tree\n",
+        }
     }
 }
 
@@ -369,38 +566,140 @@ pub enum Interdiff {
     Diff(Vec<u8>),
 }
 
-/// A discovered jj workspace.
+trait RepositoryBackend: std::fmt::Debug + Send + Sync {
+    fn set_state_root(&self, repository_root: &Path, state_root: &Path);
+    fn current_identity(&self, repository: &Repository) -> Result<SnapshotIdentity>;
+    fn read_files(
+        &self,
+        repository: &Repository,
+        identity: &SnapshotIdentity,
+    ) -> Result<Vec<ChangedFile>>;
+    fn read_stats(
+        &self,
+        repository: &Repository,
+        identity: &SnapshotIdentity,
+        files: &mut [ChangedFile],
+    ) -> Result<()>;
+    fn diff(
+        &self,
+        repository: &Repository,
+        snapshot: &Snapshot,
+        file: &ChangedFile,
+    ) -> Result<Vec<u8>>;
+    fn file_at(&self, repository: &Repository, revision: &str, path: &RepoPath) -> Result<Vec<u8>>;
+    fn base_file_at(
+        &self,
+        repository: &Repository,
+        snapshot: &Snapshot,
+        path: &RepoPath,
+    ) -> Result<Vec<u8>>;
+    fn interdiff(
+        &self,
+        repository: &Repository,
+        baseline_snapshot_id: &str,
+        snapshot: &Snapshot,
+        path: &RepoPath,
+    ) -> Result<Interdiff>;
+}
+
+/// A discovered jj or Git workspace.
 #[derive(Clone, Debug)]
 pub struct Repository {
     root: PathBuf,
+    backend: Arc<dyn RepositoryBackend>,
     cancellation: Cancellation,
 }
 
 impl Repository {
-    /// Find the canonical jj workspace root for a directory.
+    /// Find the canonical jj or Git workspace root for a directory.
     pub fn discover(start: impl AsRef<Path>) -> Result<Self> {
         let start = start.as_ref();
         let cancellation = Cancellation::default();
-        let output =
-            JjProcess::new(start, "discover jj repository", &cancellation).output(["root"])?;
-        if !output.status.success() {
-            return Err(Error::NotJjRepository {
-                path: start.to_owned(),
+        let jj_root = if let Ok(output) =
+            RepositoryProcess::new("jj", start, "discover jj repository", &cancellation)
+                .output(["root"])
+            && output.status.success()
+        {
+            let root = trim_line_ending(&output.stdout);
+            if root.is_empty() {
+                return Err(Error::Protocol {
+                    operation: "discover jj repository".to_owned(),
+                    detail: "jj root returned an empty path",
+                });
+            }
+            Some(PathBuf::from(OsString::from_vec(root.to_vec())))
+        } else {
+            None
+        };
+
+        let output = RepositoryProcess::new("git", start, "discover Git repository", &cancellation)
+            .output(["rev-parse", "--show-toplevel"])?;
+        let git_root = if output.status.success() {
+            let root = trim_line_ending(&output.stdout);
+            if root.is_empty() {
+                return Err(Error::Protocol {
+                    operation: "discover Git repository".to_owned(),
+                    detail: "git rev-parse returned an empty path",
+                });
+            }
+            Some(PathBuf::from(OsString::from_vec(root.to_vec())))
+        } else {
+            None
+        };
+
+        if let Some(root) = jj_root.as_ref()
+            && git_root
+                .as_ref()
+                .is_none_or(|git_root| root.components().count() >= git_root.components().count())
+        {
+            return Ok(Self {
+                root: root.clone(),
+                backend: Arc::new(jj::JjBackend),
+                cancellation,
             });
         }
 
-        let root = trim_line_ending(&output.stdout);
-        if root.is_empty() {
+        let Some(root) = git_root else {
+            return Err(Error::NotRepository {
+                path: start.to_owned(),
+            });
+        };
+        let objects =
+            RepositoryProcess::new("git", &root, "discover Git object directory", &cancellation)
+                .output([
+                    "rev-parse",
+                    "--path-format=absolute",
+                    "--git-path",
+                    "objects",
+                ])?;
+        if !objects.status.success() {
+            return Err(Error::CommandFailed {
+                operation: "discover Git object directory".to_owned(),
+                code: objects.status.code(),
+            });
+        }
+        let repository_objects = trim_line_ending(&objects.stdout);
+        if repository_objects.is_empty() {
             return Err(Error::Protocol {
-                operation: "discover jj repository".to_owned(),
-                detail: "jj root returned an empty path",
+                operation: "discover Git object directory".to_owned(),
+                detail: "git rev-parse returned an empty object path",
             });
         }
 
         Ok(Self {
-            root: PathBuf::from(OsString::from_vec(root.to_vec())),
+            root,
+            backend: Arc::new(git::GitBackend::new(PathBuf::from(OsString::from_vec(
+                repository_objects.to_vec(),
+            )))),
             cancellation,
         })
+    }
+
+    /// Set the plugin state directory used for Git snapshot objects.
+    #[must_use]
+    pub fn with_state_root(self, state_root: impl AsRef<Path>) -> Self {
+        self.backend.set_state_root(&self.root, state_root.as_ref());
+        self
     }
 
     /// Get the canonical workspace root.
@@ -415,13 +714,12 @@ impl Repository {
 
     /// Build one complete snapshot or reject a mixed poll.
     pub fn poll(&self) -> Result<PollResult> {
-        self.run(["status"])?;
-        let identity = self.read_identity(false)?;
-        let mut files = self.read_files(&identity.commit_id)?;
-        self.read_stats(&identity.commit_id, &mut files)?;
-        let verified = self.read_identity(true)?;
+        let identity = self.current_identity()?;
+        let mut files = self.backend.read_files(self, &identity)?;
+        self.backend.read_stats(self, &identity, &mut files)?;
+        let verified = self.current_identity()?;
 
-        if identity.commit_id != verified.commit_id {
+        if identity != verified {
             return Ok(PollResult::ChangedDuringPoll);
         }
 
@@ -430,73 +728,36 @@ impl Repository {
 
     /// Snapshot and read the current change identity.
     pub fn current_identity(&self) -> Result<SnapshotIdentity> {
-        self.run(["status"])?;
-        self.read_identity(false)
+        self.backend.current_identity(self)
     }
 
     /// Read and parse the full Git-style diff for one changed file.
     pub fn diff(&self, snapshot: &Snapshot, file: &ChangedFile) -> Result<Vec<u8>> {
-        let mut arguments = vec![
-            OsString::from("diff"),
-            OsString::from("-r"),
-            OsString::from(snapshot.identity.commit_id.as_str()),
-            OsString::from("--git"),
-            OsString::from("--"),
-        ];
-        arguments.extend(file.diff_paths().map(|path| path.as_os_str().to_owned()));
-        Ok(self.run(arguments)?.stdout)
+        self.backend.diff(self, snapshot, file)
     }
 
     /// Read one file at an exact revision.
     pub fn file_at(&self, revision: &str, path: &RepoPath) -> Result<Vec<u8>> {
-        Ok(self
-            .run([
-                OsString::from("--ignore-working-copy"),
-                OsString::from("file"),
-                OsString::from("show"),
-                OsString::from("-r"),
-                OsString::from(revision),
-                OsString::from("--"),
-                path.as_os_str().to_owned(),
-            ])?
-            .stdout)
+        self.backend.file_at(self, revision, path)
+    }
+
+    /// Read one file from the base of an exact snapshot.
+    pub fn base_file_at(&self, snapshot: &Snapshot, path: &RepoPath) -> Result<Vec<u8>> {
+        self.backend.base_file_at(self, snapshot, path)
     }
 
     /// Compare one path between a stored baseline and an exact snapshot.
     pub fn interdiff(
         &self,
-        baseline_commit_id: &str,
+        baseline_snapshot_id: &str,
         snapshot: &Snapshot,
         path: &RepoPath,
     ) -> Result<Interdiff> {
-        let baseline = self.output([
-            OsString::from("--ignore-working-copy"),
-            OsString::from("log"),
-            OsString::from("--no-graph"),
-            OsString::from("-r"),
-            OsString::from(baseline_commit_id),
-            OsString::from("-T"),
-            OsString::from(r#"commit_id ++ "\n""#),
-        ])?;
-        if !baseline.status.success() {
-            return Ok(Interdiff::MissingBaseline);
-        }
-
-        let output = self.run([
-            OsString::from("--ignore-working-copy"),
-            OsString::from("interdiff"),
-            OsString::from("--from"),
-            OsString::from(baseline_commit_id),
-            OsString::from("--to"),
-            OsString::from(snapshot.identity.commit_id.as_str()),
-            OsString::from("--git"),
-            OsString::from("--"),
-            path.as_os_str().to_owned(),
-        ])?;
-        Ok(Interdiff::Diff(output.stdout))
+        self.backend
+            .interdiff(self, baseline_snapshot_id, snapshot, path)
     }
 
-    fn read_identity(&self, ignore_working_copy: bool) -> Result<SnapshotIdentity> {
+    fn read_jj_identity(&self, ignore_working_copy: bool) -> Result<SnapshotIdentity> {
         let mut arguments = Vec::new();
         if ignore_working_copy {
             arguments.push(OsString::from("--ignore-working-copy"));
@@ -507,41 +768,17 @@ impl Repository {
             OsString::from("-r"),
             OsString::from("@"),
             OsString::from("-T"),
-            OsString::from(IDENTITY_TEMPLATE),
+            OsString::from(jj::IDENTITY_TEMPLATE),
         ]);
-        SnapshotIdentity::parse(&self.run(arguments)?.stdout)
+        SnapshotIdentity::parse(&self.run_jj(arguments)?.stdout)
     }
 
-    fn read_files(&self, commit_id: &CommitId) -> Result<Vec<ChangedFile>> {
-        let output = self.run([
-            OsString::from("diff"),
-            OsString::from("-r"),
-            OsString::from(commit_id.as_str()),
-            OsString::from("-T"),
-            OsString::from(FILE_TEMPLATE),
-        ])?;
-        ChangedFile::parse_all(&output.stdout)
-    }
-
-    fn read_stats(&self, commit_id: &CommitId, files: &mut [ChangedFile]) -> Result<()> {
-        let output = self.run([
-            OsString::from("--ignore-working-copy"),
-            OsString::from("log"),
-            OsString::from("--no-graph"),
-            OsString::from("-r"),
-            OsString::from(commit_id.as_str()),
-            OsString::from("-T"),
-            OsString::from(STATS_TEMPLATE),
-        ])?;
-        ChangedFile::add_stats(files, &output.stdout)
-    }
-
-    fn run<I, S>(&self, arguments: I) -> Result<Output>
+    fn run_jj<I, S>(&self, arguments: I) -> Result<Output>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
     {
-        let output = self.output(arguments)?;
+        let output = self.output_jj(arguments)?;
         if !output.status.success() {
             return Err(Error::CommandFailed {
                 operation: "read jj repository".to_owned(),
@@ -551,22 +788,35 @@ impl Repository {
         Ok(output)
     }
 
-    fn output<I, S>(&self, arguments: I) -> Result<Output>
+    fn output_jj<I, S>(&self, arguments: I) -> Result<Output>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
     {
-        JjProcess::new(&self.root, "read jj repository", &self.cancellation).output(arguments)
+        RepositoryProcess::new("jj", &self.root, "read jj repository", &self.cancellation)
+            .output(arguments)
     }
 }
 
-impl<'a> JjProcess<'a> {
-    fn new(cwd: &'a Path, operation: &'static str, cancellation: &'a Cancellation) -> Self {
+impl<'a> RepositoryProcess<'a> {
+    fn new(
+        program: &'static str,
+        cwd: &'a Path,
+        operation: &'static str,
+        cancellation: &'a Cancellation,
+    ) -> Self {
         Self {
+            program,
             cwd,
             operation,
             cancellation,
+            environment: &[],
         }
+    }
+
+    fn with_environment(mut self, environment: &'a [(OsString, OsString)]) -> Self {
+        self.environment = environment;
+        self
     }
 
     fn output<I, S>(self, arguments: I) -> Result<Output>
@@ -574,16 +824,23 @@ impl<'a> JjProcess<'a> {
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
     {
-        let mut child = Command::new("jj")
-            .args(["--color=never", "--no-pager"])
+        let mut command = Command::new(self.program);
+        if self.program == "jj" {
+            command.args(["--color=never", "--no-pager"]);
+        } else {
+            command.args(["--no-pager", "-c", "color.ui=false"]);
+        }
+        let mut child = command
             .args(arguments)
+            .envs(self.environment.iter().cloned())
             .current_dir(self.cwd)
+            .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
             .map_err(|source| Error::Spawn {
                 operation: self.operation.to_owned(),
-                program: OsString::from("jj"),
+                program: OsString::from(self.program),
                 current_dir: Some(self.cwd.to_owned()),
                 source,
             })?;
@@ -627,7 +884,7 @@ impl<'a> JjProcess<'a> {
             .expect("output reader did not panic")
             .map_err(|source| Error::Spawn {
                 operation: self.operation.to_owned(),
-                program: OsString::from("jj"),
+                program: OsString::from(self.program),
                 current_dir: Some(self.cwd.to_owned()),
                 source,
             })?;
@@ -636,7 +893,7 @@ impl<'a> JjProcess<'a> {
             .expect("output reader did not panic")
             .map_err(|source| Error::Spawn {
                 operation: self.operation.to_owned(),
-                program: OsString::from("jj"),
+                program: OsString::from(self.program),
                 current_dir: Some(self.cwd.to_owned()),
                 source,
             })?;
@@ -694,7 +951,7 @@ fn trim_line_ending(bytes: &[u8]) -> &[u8] {
 mod tests {
     use std::path::Path;
 
-    use super::{Cancellation, JjProcess, RepoPath};
+    use super::{Cancellation, RepoPath, RepositoryProcess};
     use crate::Error;
 
     #[test]
@@ -710,9 +967,10 @@ mod tests {
         let cancellation = Cancellation::default();
         cancellation.cancel();
 
-        let error = JjProcess::new(Path::new("."), "test jj cancellation", &cancellation)
-            .output(["version"])
-            .unwrap_err();
+        let error =
+            RepositoryProcess::new("jj", Path::new("."), "test jj cancellation", &cancellation)
+                .output(["version"])
+                .unwrap_err();
 
         assert!(matches!(error, Error::CommandCancelled { .. }));
     }

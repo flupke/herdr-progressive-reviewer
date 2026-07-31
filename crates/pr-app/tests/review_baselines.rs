@@ -87,7 +87,7 @@ fn baselines_follow_content_not_commit_or_path_identity() {
     let path = restored.files[0].review_path().as_bytes();
     direct_store
         .mark(
-            restored.identity.change_id.as_str(),
+            restored.identity.review_id(),
             path,
             "1111111111111111111111111111111111111111",
         )
@@ -100,7 +100,7 @@ fn baselines_follow_content_not_commit_or_path_identity() {
     );
     assert_eq!(
         direct_store
-            .load(restored.identity.change_id.as_str(), path)
+            .load(restored.identity.review_id(), path)
             .unwrap(),
         LoadResult::Unreviewed
     );

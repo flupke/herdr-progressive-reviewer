@@ -88,9 +88,9 @@ pub enum Error {
         path: PathBuf,
     },
 
-    /// A directory is not in a jj workspace.
-    #[error("{path} is not in a jj workspace")]
-    NotJjRepository {
+    /// A directory is not in a supported repository.
+    #[error("{path} is not in a jj or Git repository")]
+    NotRepository {
         /// The directory where repository discovery started.
         path: PathBuf,
     },

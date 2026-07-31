@@ -71,16 +71,17 @@ struct TerminalGuard {
 impl Runtime {
     /// Read the pane context supplied by Herdr.
     pub fn from_env() -> eyre::Result<Self> {
-        let repository = Repository::discover(env::current_dir()?)?;
+        let state_dir = env::var_os("HERDR_PLUGIN_STATE_DIR")
+            .map(PathBuf::from)
+            .ok_or_else(|| eyre::eyre!("HERDR_PLUGIN_STATE_DIR is not set"))?;
+        let repository = Repository::discover(env::current_dir()?)?.with_state_root(&state_dir);
         let context: PluginContext = serde_json::from_str(
             &env::var("HERDR_PLUGIN_CONTEXT_JSON")
                 .map_err(|_| eyre::eyre!("HERDR_PLUGIN_CONTEXT_JSON is not set"))?,
         )?;
         Ok(Self {
             repository,
-            state_dir: env::var_os("HERDR_PLUGIN_STATE_DIR")
-                .map(PathBuf::from)
-                .ok_or_else(|| eyre::eyre!("HERDR_PLUGIN_STATE_DIR is not set"))?,
+            state_dir,
             workspace_id: WorkspaceId(
                 env::var("HERDR_WORKSPACE_ID")
                     .map_err(|_| eyre::eyre!("HERDR_WORKSPACE_ID is not set"))?,
@@ -276,9 +277,9 @@ impl Worker {
             .map(|(file, state)| ReviewFile::from_changed(file, state.status))
             .collect();
         let _ = messages.send(Message::FilesLoaded {
-            change_id: snapshot.identity.change_id.as_str().to_owned(),
-            commit_id: snapshot.identity.commit_id.as_str().to_owned(),
-            description: snapshot.identity.description.clone(),
+            change_id: snapshot.identity.review_id().to_owned(),
+            commit_id: snapshot.identity.snapshot_id().to_owned(),
+            description: snapshot.identity.description().to_owned(),
             files,
         });
         self.snapshot = Some(snapshot);
@@ -312,7 +313,7 @@ impl Worker {
         let Some(snapshot) = self.snapshot.as_ref() else {
             return;
         };
-        let change_id = snapshot.identity.change_id.as_str().to_owned();
+        let change_id = snapshot.identity.review_id().to_owned();
         let result = snapshot
             .files
             .iter()
@@ -347,7 +348,7 @@ impl Worker {
         let snapshot = self
             .snapshot
             .as_ref()
-            .filter(|snapshot| snapshot.identity.commit_id.as_str() == commit_id)
+            .filter(|snapshot| snapshot.identity.snapshot_id() == commit_id)
             .ok_or_else(|| eyre::eyre!("the diff snapshot is no longer current"))?;
         let file = snapshot
             .files

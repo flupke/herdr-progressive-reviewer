@@ -1,4 +1,3 @@
-use pr_core::Error;
 use pr_core::diff::{DiffRow, NoticeKind, parse_file_diff};
 use pr_core::repository::{ChangeKind, FileKind, PollResult, Repository, Snapshot};
 use pr_tests::{JjFixture, JjLayout};
@@ -33,7 +32,7 @@ fn detects_file_changes_in_real_jj_repositories() {
         fixture.rename("old-name.txt", "new-name.txt");
 
         let snapshot = complete_snapshot(repository);
-        assert_eq!(snapshot.identity.description, "working change\n");
+        assert_eq!(snapshot.identity.description(), "working change\n");
         let changes: Vec<_> = snapshot
             .files
             .iter()
@@ -87,7 +86,7 @@ fn detects_file_changes_in_real_jj_repositories() {
 }
 
 #[test]
-fn rejects_a_git_only_repository() {
+fn discovers_a_git_only_repository() {
     let directory = tempfile::tempdir().unwrap();
     let output = std::process::Command::new("git")
         .arg("init")
@@ -96,9 +95,21 @@ fn rejects_a_git_only_repository() {
         .unwrap();
     assert!(output.status.success());
 
-    let error = Repository::discover(directory.path()).unwrap_err();
+    assert!(Repository::discover(directory.path()).is_ok());
+}
 
-    assert!(matches!(error, Error::NotJjRepository { .. }));
+#[test]
+fn discovers_a_nested_git_repository_before_an_enclosing_jj_repository() {
+    let fixture = JjFixture::new(JjLayout::NonColocated);
+    let nested = fixture.root().join("nested");
+    let output = std::process::Command::new("git")
+        .arg("init")
+        .arg(&nested)
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+
+    assert_eq!(Repository::discover(&nested).unwrap().root(), nested);
 }
 
 #[test]
@@ -200,12 +211,12 @@ fn reports_empty_changes_and_stable_change_switches() {
         fixture.new_change("second change");
         fixture.write("second.txt", b"second\n");
         let second = complete_snapshot(repository);
-        assert_ne!(second.identity.change_id, first.identity.change_id);
+        assert_ne!(second.identity.review_id(), first.identity.review_id());
 
         fixture.edit(&first_change);
         let returned = complete_snapshot(repository);
-        assert_eq!(returned.identity.change_id, first.identity.change_id);
-        assert_ne!(returned.identity.change_id, second.identity.change_id);
+        assert_eq!(returned.identity.review_id(), first.identity.review_id());
+        assert_ne!(returned.identity.review_id(), second.identity.review_id());
     });
 }
 

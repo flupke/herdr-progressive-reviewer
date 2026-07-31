@@ -1,12 +1,13 @@
 # Progressive reviewer
 
-This Herdr plugin reviews the current jj change one file at a time. It stores
-review marks on disk and inserts selected diff text into the last focused agent
-pane without submission.
+This Herdr plugin reviews the current jj change or Git working tree one file at
+a time. It stores review marks on disk and inserts selected diff text into the
+last focused agent pane without submission.
 
 ![Progressive reviewer](docs/screenshot.png)
 
-It requires Herdr 0.7.5 or later and jj 0.43.0 or later.
+It requires Herdr 0.7.5 or later. Use jj 0.43.0 or later for jj workspaces, or
+Git for Git workspaces.
 
 Diffs use syntax highlighting and the `catppuccin` palette by default. To
 select another palette, create
@@ -33,10 +34,10 @@ The Herdr action list then contains `open`, `close`, and `toggle`.
 
 ## Use
 
-Run the `Open progressive reviewer` action from a jj workspace. Use `Tab` to
-change focus, `j` and `k` to move, `Space` to change the file review state,
-and `v` plus `Enter` to insert selected diff lines. The plugin does not submit
-the agent prompt.
+Run the `Open progressive reviewer` action from a jj or Git workspace. Use
+`Tab` to change focus, `j` and `k` to move, `Space` to change the file review
+state, and `v` plus `Enter` to insert selected diff lines. The plugin does not
+submit the agent prompt.
 
 ## Release package
 
@@ -59,5 +60,4 @@ Before release, test each supported agent TUI:
 3. Select diff lines and insert them into the last focused agent.
 4. Confirm that insertion does not submit the prompt.
 5. Confirm that you can add a comment after the inserted diff.
-6. Repeat in pure jj and colocated jj/Git workspaces.
-7. Confirm that a Git-only directory is rejected.
+6. Repeat in pure jj, colocated jj/Git, and Git-only workspaces.
