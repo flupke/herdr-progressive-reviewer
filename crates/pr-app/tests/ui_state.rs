@@ -363,6 +363,76 @@ fn diff_uses_bars_line_numbers_and_expandable_gaps() {
 }
 
 #[test]
+fn diff_controls_expand_and_contract_all_gaps() {
+    let mut app = ReviewApp::default();
+    let path = "src/a/very/long/path/that/must/leave/room/for/the/buttons/lib.rs";
+    app.update(Message::FilesLoaded {
+        change_id: "qpvuntsm".to_owned(),
+        commit_id: "11111111".to_owned(),
+        files: vec![ReviewFile::new(path, ReviewStatus::Unreviewed)],
+    });
+    app.update(Message::DiffLoaded {
+        commit_id: "11111111".to_owned(),
+        path: path.to_owned(),
+        rows: vec![
+            DiffRow::Hunk {
+                old_start: 1,
+                old_count: 1,
+                new_start: 1,
+                new_count: 1,
+            },
+            DiffRow::Context {
+                old_line: 1,
+                new_line: 1,
+                text: " first".to_owned(),
+            },
+            DiffRow::Hunk {
+                old_start: 3,
+                old_count: 1,
+                new_start: 3,
+                new_count: 1,
+            },
+            DiffRow::Context {
+                old_line: 3,
+                new_line: 3,
+                text: " last".to_owned(),
+            },
+        ],
+        old_content: Some(b"first\nmiddle\nlast\n".to_vec()),
+        new_content: Some(b"first\nmiddle\nlast\n".to_vec()),
+    });
+    app.update(Message::Resize {
+        width: 100,
+        height: 14,
+    });
+
+    let collapsed = screen(&app, 100, 14).join("\n");
+    assert!(collapsed.contains("←→"));
+    assert!(collapsed.contains("→←"));
+    assert!(collapsed.contains("1 unmodified lines"));
+    app.update(Message::MouseClick {
+        column: 92,
+        row: 1,
+        insert_path: false,
+    });
+    assert!(
+        !screen(&app, 100, 14)
+            .join("\n")
+            .contains("unmodified lines")
+    );
+    app.update(Message::MouseClick {
+        column: 96,
+        row: 1,
+        insert_path: false,
+    });
+    assert!(
+        screen(&app, 100, 14)
+            .join("\n")
+            .contains("1 unmodified lines")
+    );
+}
+
+#[test]
 fn removing_a_changed_review_mark_loads_the_full_diff() {
     let mut app = ReviewApp::default();
     app.update(Message::FilesLoaded {

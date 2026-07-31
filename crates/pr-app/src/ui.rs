@@ -5,6 +5,7 @@ use std::ops::RangeInclusive;
 use pr_core::diff::DiffRow;
 use pr_core::herdr::InsertResult;
 use pr_core::repository::{ChangeKind, ChangedFile};
+use unicode_width::UnicodeWidthStr;
 
 use crate::file_tree::FileTree;
 use crate::highlight::DiffHighlighter;
@@ -14,6 +15,10 @@ use crate::theme::{Palette, Theme};
 
 const NARROW_WIDTH: u16 = 72;
 const MIN_PANE_WIDTH: u16 = 16;
+const DIFF_CONTROLS_TITLE: &str = "[←→] [→←]";
+const EXPAND_ALL_LABEL: &str = "[←→]";
+const CONTRACT_ALL_LABEL: &str = "[→←]";
+const MIN_DIFF_CONTROLS_WIDTH: u16 = 32;
 
 mod view;
 
@@ -205,6 +210,31 @@ enum DragState {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DiffControl {
+    ExpandAll,
+    ContractAll,
+}
+
+impl DiffControl {
+    fn at(width: u16, column: u16) -> Option<Self> {
+        let title_width = u16::try_from(DIFF_CONTROLS_TITLE.width()).ok()?;
+        let left = width.saturating_sub(title_width.saturating_add(1));
+        let offset = column.checked_sub(left)?;
+        let expand_start = 0;
+        let contract_start = expand_start + u16::try_from(EXPAND_ALL_LABEL.width()).ok()? + 1;
+        if offset >= expand_start && offset < contract_start - 1 {
+            Some(Self::ExpandAll)
+        } else if offset >= contract_start
+            && offset < contract_start + u16::try_from(CONTRACT_ALL_LABEL.width()).ok()?
+        {
+            Some(Self::ContractAll)
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct PaneLayout {
     width: u16,
     height: u16,
@@ -259,6 +289,19 @@ impl PaneLayout {
 
     fn is_separator(self, column: u16, row: u16) -> bool {
         self.is_wide() && self.contains_body(column, row) && column.abs_diff(self.file_width) <= 1
+    }
+
+    fn diff_control_at(self, current: Focus, column: u16, row: u16) -> Option<DiffControl> {
+        let diff_width = if self.is_wide() {
+            self.width.saturating_sub(self.file_width)
+        } else {
+            self.width
+        };
+        (row == 1
+            && diff_width >= MIN_DIFF_CONTROLS_WIDTH
+            && self.focus_at(current, column, row) == Some(Focus::Diff))
+        .then(|| DiffControl::at(self.width, column))
+        .flatten()
     }
 
     fn page_rows(self) -> usize {
@@ -700,6 +743,23 @@ impl ReviewApp {
 
     fn mouse_click(&mut self, column: u16, row: u16, insert_path: bool) -> Action {
         let layout = self.layout();
+        if let Some(control) = layout.diff_control_at(self.focus, column, row) {
+            self.focus = Focus::Diff;
+            let Some(file) = self.files.get_mut(self.selected_file) else {
+                return Action::None;
+            };
+            let changed = match control {
+                DiffControl::ExpandAll => file.diff.expand_all(),
+                DiffControl::ContractAll => file.diff.contract_all(),
+            };
+            if changed {
+                self.selection = None;
+                file.cursor = file.cursor.min(file.diff.len().saturating_sub(1));
+                file.scroll = file.scroll.min(file.cursor);
+                self.keep_visible();
+            }
+            return Action::None;
+        }
         self.drag = if layout.is_separator(column, row) {
             DragState::Resize
         } else {

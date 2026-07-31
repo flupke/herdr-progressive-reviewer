@@ -7,8 +7,12 @@ use ratatui::layout::{Alignment, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Widget};
+use unicode_width::UnicodeWidthStr;
 
-use super::{Focus, PaneLayout, ReviewApp, ReviewFile, Selection};
+use super::{
+    DIFF_CONTROLS_TITLE, Focus, MIN_DIFF_CONTROLS_WIDTH, PaneLayout, ReviewApp, ReviewFile,
+    Selection,
+};
 use crate::file_tree::FileTreeRow;
 use crate::highlight::Token;
 use crate::presentation::PresentedRow;
@@ -165,7 +169,27 @@ impl ReviewView<'_> {
             || "Diff".to_owned(),
             |file| format!("Diff · {}", file.display_path),
         );
-        let block = self.block(&title, focused);
+        let show_controls = area.width >= MIN_DIFF_CONTROLS_WIDTH;
+        let title = if show_controls {
+            Self::shorten(
+                &title,
+                usize::from(area.width).saturating_sub(
+                    DIFF_CONTROLS_TITLE.width() + 5 + if focused { " (focus)".len() } else { 0 },
+                ),
+            )
+        } else {
+            title
+        };
+        let mut block = self.block(&title, focused);
+        if show_controls {
+            block = block.title(
+                Line::styled(
+                    DIFF_CONTROLS_TITLE,
+                    Style::default().fg(self.0.palette.focus),
+                )
+                .alignment(Alignment::Right),
+            );
+        }
         let inner = block.inner(area);
         block.render(area, buffer);
         let Some(file) = self.0.selected() else {

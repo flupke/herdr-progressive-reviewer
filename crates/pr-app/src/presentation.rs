@@ -147,6 +147,45 @@ impl DiffPresentation {
         true
     }
 
+    pub(crate) fn expand_all(&mut self) -> bool {
+        let mut changed = false;
+        let mut index = 0;
+        while index < self.rows.len() {
+            changed |= self.expand(index);
+            index += 1;
+        }
+        changed
+    }
+
+    pub(crate) fn contract_all(&mut self) -> bool {
+        if !self
+            .rows
+            .iter()
+            .any(|row| matches!(row, PresentedRow::Expanded { .. }))
+        {
+            return false;
+        }
+        let mut rows = Vec::with_capacity(self.rows.len());
+        for row in std::mem::take(&mut self.rows) {
+            let PresentedRow::Expanded { line, tokens } = row else {
+                rows.push(row);
+                continue;
+            };
+            if let Some(PresentedRow::Gap { start, lines }) = rows.last_mut()
+                && start.saturating_add(u32::try_from(lines.len()).unwrap_or(u32::MAX)) == line
+            {
+                lines.push(tokens);
+            } else {
+                rows.push(PresentedRow::Gap {
+                    start: line,
+                    lines: vec![tokens],
+                });
+            }
+        }
+        self.rows = rows;
+        true
+    }
+
     pub(crate) fn line_number_width(&self) -> usize {
         self.source
             .iter()
@@ -281,5 +320,22 @@ mod tests {
             presentation.rows[0],
             PresentedRow::Expanded { line: 1, .. }
         ));
+
+        assert!(presentation.expand_all());
+        assert!(
+            presentation
+                .rows
+                .iter()
+                .all(|row| !matches!(row, PresentedRow::Gap { .. }))
+        );
+        assert!(presentation.contract_all());
+        assert_eq!(
+            presentation
+                .rows
+                .iter()
+                .filter(|row| matches!(row, PresentedRow::Gap { .. }))
+                .count(),
+            3
+        );
     }
 }
