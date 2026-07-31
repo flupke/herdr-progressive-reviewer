@@ -623,7 +623,7 @@ impl ReviewApp {
             return Action::None;
         };
         let path = file.path.clone();
-        let reviewed = file.status == ReviewStatus::Unreviewed;
+        let reviewed = file.status != ReviewStatus::Reviewed;
         let action = Action::SetReviewed { path, reviewed };
         self.review_in_flight = Some(reviewed);
         action

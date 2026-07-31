@@ -433,7 +433,7 @@ fn diff_controls_expand_and_contract_all_gaps() {
 }
 
 #[test]
-fn removing_a_changed_review_mark_loads_the_full_diff() {
+fn marking_a_changed_file_reviewed_replaces_its_baseline() {
     let mut app = ReviewApp::default();
     app.update(Message::FilesLoaded {
         change_id: "qpvuntsm".to_owned(),
@@ -455,7 +455,7 @@ fn removing_a_changed_review_mark_loads_the_full_diff() {
         app.update(Message::Key(Key::Space)),
         Action::SetReviewed {
             path: "src/lib.rs".to_owned(),
-            reviewed: false,
+            reviewed: true,
         }
     );
     assert_eq!(
@@ -463,15 +463,13 @@ fn removing_a_changed_review_mark_loads_the_full_diff() {
             change_id: "qpvuntsm".to_owned(),
             path: "src/lib.rs".to_owned(),
             result: Ok(ReviewState {
-                status: ReviewStatus::Unreviewed,
+                status: ReviewStatus::Reviewed,
                 warning: None,
             }),
         }),
-        Action::LoadDiff {
-            commit_id: "11111111".to_owned(),
-            path: "src/lib.rs".to_owned(),
-        }
+        Action::None
     );
+    assert!(screen(&app, 80, 12).join("\n").contains("No changes"));
 }
 
 #[test]
