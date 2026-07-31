@@ -31,6 +31,8 @@ pub mod method {
     pub const PLUGIN_PANE_CLOSE: &str = "plugin.pane.close";
     /// Insert literal text into a terminal pane.
     pub const PANE_SEND_TEXT: &str = "pane.send_text";
+    /// Send key presses to a terminal pane.
+    pub const PANE_SEND_KEYS: &str = "pane.send_keys";
 }
 
 /// A Herdr terminal pane ID.
@@ -95,6 +97,9 @@ pub trait HerdrWriter: Send + Sync {
 
     /// Insert text without a submit key.
     fn send_text(&self, pane_id: &PaneId, text: &str) -> Result<()>;
+
+    /// Send key presses to a pane.
+    fn send_keys(&self, pane_id: &PaneId, keys: &[&str]) -> Result<()>;
 }
 
 /// The immutable action context supplied by Herdr.
@@ -315,14 +320,6 @@ impl AgentInputMode {
             Self::Other
         }
     }
-
-    fn prepare(self, text: &str) -> String {
-        let prefix = match self {
-            Self::VimNormal => "i",
-            Self::Other => "",
-        };
-        format!("{prefix}{text}\n\n")
-    }
 }
 
 /// The last focused agent target for one Herdr workspace.
@@ -385,8 +382,10 @@ impl AgentTarget {
         }
 
         let screen = client.read_agent_screen(&agent.pane_id)?;
-        let text = AgentInputMode::detect(&screen).prepare(text);
-        client.send_text(&agent.pane_id, &text)?;
+        if AgentInputMode::detect(&screen) == AgentInputMode::VimNormal {
+            client.send_keys(&agent.pane_id, &["i"])?;
+        }
+        client.send_text(&agent.pane_id, &format!("{text}\n\n"))?;
         client.focus_agent(&agent.pane_id)?;
         Ok(InsertResult::Inserted {
             agent_name: agent

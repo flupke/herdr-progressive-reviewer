@@ -388,6 +388,14 @@ impl HerdrWriter for HerdrClient {
         )?;
         Ok(())
     }
+
+    fn send_keys(&self, pane_id: &PaneId, keys: &[&str]) -> Result<()> {
+        self.request(
+            method::PANE_SEND_KEYS,
+            &json!({"pane_id": pane_id.0, "keys": keys}),
+        )?;
+        Ok(())
+    }
 }
 
 fn required_path(name: &'static str) -> Result<PathBuf> {

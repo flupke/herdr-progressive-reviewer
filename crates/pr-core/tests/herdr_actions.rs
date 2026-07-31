@@ -18,6 +18,7 @@ struct FakeHerdr {
     focused: Mutex<Vec<PaneId>>,
     closed: Mutex<Vec<PaneId>>,
     sent: Mutex<Vec<(PaneId, String)>>,
+    sent_keys: Mutex<Vec<(PaneId, Vec<String>)>>,
     race_on_open: Mutex<bool>,
     fail_send: Mutex<bool>,
 }
@@ -101,6 +102,14 @@ impl HerdrWriter for FakeHerdr {
             .push((pane_id.clone(), text.to_owned()));
         Ok(())
     }
+
+    fn send_keys(&self, pane_id: &PaneId, keys: &[&str]) -> Result<()> {
+        self.sent_keys.lock().unwrap().push((
+            pane_id.clone(),
+            keys.iter().map(|key| (*key).to_owned()).collect(),
+        ));
+        Ok(())
+    }
 }
 
 #[test]
@@ -171,8 +180,12 @@ fn insertion_rechecks_the_last_focused_agent_workspace() {
         }
     );
     assert_eq!(
+        client.sent_keys.lock().unwrap().as_slice(),
+        [(PaneId("agent-1".to_owned()), vec!["i".to_owned()])]
+    );
+    assert_eq!(
         client.sent.lock().unwrap().as_slice(),
-        [(PaneId("agent-1".to_owned()), "idiff text\n\n".to_owned())]
+        [(PaneId("agent-1".to_owned()), "diff text\n\n".to_owned())]
     );
     assert_eq!(
         client.focused.lock().unwrap().as_slice(),
@@ -189,6 +202,7 @@ fn insertion_rechecks_the_last_focused_agent_workspace() {
         client.sent.lock().unwrap()[1],
         (PaneId("agent-1".to_owned()), "same target\n\n".to_owned())
     );
+    assert_eq!(client.sent_keys.lock().unwrap().len(), 1);
     client.agents.lock().unwrap()[0].workspace_id = WorkspaceId("other".to_owned());
     assert_eq!(
         target.insert(&client, "must not send").unwrap(),
