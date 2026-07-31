@@ -172,7 +172,7 @@ fn insertion_rechecks_the_last_focused_agent_workspace() {
     );
     assert_eq!(
         client.sent.lock().unwrap().as_slice(),
-        [(PaneId("agent-1".to_owned()), "idiff text".to_owned())]
+        [(PaneId("agent-1".to_owned()), "idiff text\n\n".to_owned())]
     );
     assert_eq!(
         client.focused.lock().unwrap().as_slice(),
@@ -185,6 +185,10 @@ fn insertion_rechecks_the_last_focused_agent_workspace() {
         target.insert(&client, "same target").unwrap(),
         InsertResult::Inserted { .. }
     ));
+    assert_eq!(
+        client.sent.lock().unwrap()[1],
+        (PaneId("agent-1".to_owned()), "same target\n\n".to_owned())
+    );
     client.agents.lock().unwrap()[0].workspace_id = WorkspaceId("other".to_owned());
     assert_eq!(
         target.insert(&client, "must not send").unwrap(),

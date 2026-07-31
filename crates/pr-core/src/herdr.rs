@@ -1,6 +1,5 @@
 //! Herdr protocol boundaries used by the application and control processes.
 
-use std::borrow::Cow;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -317,11 +316,12 @@ impl AgentInputMode {
         }
     }
 
-    fn prepare(self, text: &str) -> Cow<'_, str> {
-        match self {
-            Self::VimNormal => Cow::Owned(format!("i{text}")),
-            Self::Other => Cow::Borrowed(text),
-        }
+    fn prepare(self, text: &str) -> String {
+        let prefix = match self {
+            Self::VimNormal => "i",
+            Self::Other => "",
+        };
+        format!("{prefix}{text}\n\n")
     }
 }
 
