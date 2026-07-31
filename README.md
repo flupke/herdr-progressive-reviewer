@@ -24,10 +24,7 @@ Available themes are `catppuccin`, `catppuccin-latte`,
 Build both programs and link this directory:
 
 ```sh
-cargo build --release --locked --bins
-mkdir -p bin
-cp target/release/pr-app target/release/pr-control bin/
-herdr plugin link --enabled .
+make install
 ```
 
 The Herdr action list then contains `open`, `close`, and `toggle`.

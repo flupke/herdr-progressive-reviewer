@@ -19,5 +19,6 @@ For each small feature:
    review until it passes. Follow the skill's repair-loop limit and report any
    findings that remain when the limit is reached.
 4. After the review passes, run `$describe-commit` for the change.
-5. Keep later user-feedback fixes in the same change. Create another change
+5. Run `make install`.
+6. Keep later user-feedback fixes in the same change. Create another change
    only when the user requests the next feature.
