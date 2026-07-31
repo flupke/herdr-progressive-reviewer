@@ -42,6 +42,9 @@ fn excerpts_apply_for_each_selection_shape() {
             assert_patch_applies(excerpt.as_str());
         }
 
+        let addition = DiffExcerpt::build(&rows, added[0]..=added[0]).unwrap();
+        assert!(!addition.as_str().contains("\n 3"));
+
         let across_hunks = DiffExcerpt::build(&rows, deleted[0]..=added[1]).unwrap();
         assert_eq!(across_hunks.as_str().matches("@@ -").count(), 2);
     }

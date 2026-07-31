@@ -464,6 +464,59 @@ fn dragging_the_separator_resizes_the_file_pane() {
 }
 
 #[test]
+fn dragging_diff_lines_inserts_them_on_release() {
+    let mut app = ReviewApp::default();
+    app.update(Message::FilesLoaded {
+        change_id: "qpvuntsm".to_owned(),
+        commit_id: "11111111".to_owned(),
+        files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed)],
+    });
+    app.update(Message::DiffLoaded {
+        commit_id: "11111111".to_owned(),
+        path: "src/lib.rs".to_owned(),
+        rows: rows(),
+        old_content: None,
+        new_content: None,
+    });
+    app.update(Message::Resize {
+        width: 80,
+        height: 12,
+    });
+
+    app.update(Message::MouseClick {
+        column: 70,
+        row: 2,
+        insert_path: false,
+    });
+    assert_eq!(app.update(Message::MouseRelease), Action::None);
+
+    app.update(Message::MouseClick {
+        column: 70,
+        row: 2,
+        insert_path: false,
+    });
+    assert_eq!(
+        app.update(Message::MouseDrag { column: 70, row: 4 }),
+        Action::None
+    );
+    assert_eq!(
+        app.update(Message::MouseRelease),
+        Action::Insert {
+            text: concat!(
+                "diff --git a/src/lib.rs b/src/lib.rs\n",
+                "--- a/src/lib.rs\n",
+                "+++ b/src/lib.rs\n",
+                "@@ -1,2 +1,2 @@\n",
+                " fn run() {\n",
+                "-    old();\n",
+                "+    new();"
+            )
+            .to_owned(),
+        }
+    );
+}
+
+#[test]
 fn mouse_wheel_scrolls_the_diff_viewport_regardless_of_focus() {
     let mut app = ReviewApp::default();
     app.update(Message::FilesLoaded {

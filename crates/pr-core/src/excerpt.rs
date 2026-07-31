@@ -137,10 +137,6 @@ struct HunkRow<'a> {
 }
 
 impl HunkRow<'_> {
-    fn is_context(&self) -> bool {
-        matches!(self.row, DiffRow::Context { .. })
-    }
-
     fn old_count(&self) -> u32 {
         u32::from(matches!(
             self.row,
@@ -213,38 +209,8 @@ impl ExcerptHunk {
             }
         }
 
-        let first_selected = content.iter().position(|row| row.selected)?;
-        let last_selected = content.iter().rposition(|row| row.selected)?;
-        let old_count: u32 = content
-            .iter()
-            .filter(|row| row.selected)
-            .map(HunkRow::old_count)
-            .sum();
-        let new_count: u32 = content
-            .iter()
-            .filter(|row| row.selected)
-            .map(HunkRow::new_count)
-            .sum();
-        let context_index = (old_count == 0 || new_count == 0)
-            .then(|| {
-                content[last_selected + 1..]
-                    .iter()
-                    .position(HunkRow::is_context)
-                    .map(|index| last_selected + 1 + index)
-                    .or_else(|| {
-                        content[..first_selected]
-                            .iter()
-                            .rposition(HunkRow::is_context)
-                    })
-            })
-            .flatten();
-        let included: Vec<_> = content
-            .iter()
-            .enumerate()
-            .filter(|(index, row)| row.selected || context_index == Some(*index))
-            .map(|(_, row)| row)
-            .collect();
-        let first = included[0];
+        let included: Vec<_> = content.iter().filter(|row| row.selected).collect();
+        let first = *included.first()?;
         let old_count = included.iter().map(|row| row.old_count()).sum();
         let new_count = included.iter().map(|row| row.new_count()).sum();
         let mut lines = Vec::new();

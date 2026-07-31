@@ -193,6 +193,17 @@ impl Selection {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+enum DragState {
+    #[default]
+    None,
+    Resize,
+    Select {
+        anchor: usize,
+        moved: bool,
+    },
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct PaneLayout {
     width: u16,
@@ -265,7 +276,7 @@ pub struct ReviewApp {
     selected_file: usize,
     file_scroll: usize,
     file_width: Option<u16>,
-    resizing: bool,
+    drag: DragState,
     focus: Focus,
     selection: Option<Selection>,
     notice: Option<String>,
@@ -292,7 +303,7 @@ impl ReviewApp {
             selected_file: 0,
             file_scroll: 0,
             file_width: None,
-            resizing: false,
+            drag: DragState::None,
             focus: Focus::Files,
             selection: None,
             notice: None,
@@ -373,14 +384,8 @@ impl ReviewApp {
                 row,
                 insert_path,
             } => self.mouse_click(column, row, insert_path),
-            Message::MouseDrag { column, row } => {
-                self.mouse_drag(column, row);
-                Action::None
-            }
-            Message::MouseRelease => {
-                self.resizing = false;
-                Action::None
-            }
+            Message::MouseDrag { column, row } => self.mouse_drag(column, row),
+            Message::MouseRelease => self.mouse_release(),
             Message::Key(key) => self.key(key),
         }
     }
@@ -695,8 +700,12 @@ impl ReviewApp {
 
     fn mouse_click(&mut self, column: u16, row: u16, insert_path: bool) -> Action {
         let layout = self.layout();
-        self.resizing = layout.is_separator(column, row);
-        if self.resizing {
+        self.drag = if layout.is_separator(column, row) {
+            DragState::Resize
+        } else {
+            DragState::None
+        };
+        if self.drag == DragState::Resize {
             return Action::None;
         }
         let Some(focus) = layout.focus_at(self.focus, column, row) else {
@@ -711,6 +720,11 @@ impl ReviewApp {
             file.cursor = (file.scroll + page_row).min(file.diff.len().saturating_sub(1));
             if file.diff.expand(file.cursor) {
                 self.selection = None;
+            } else if file.diff.is_selectable(file.cursor) {
+                self.drag = DragState::Select {
+                    anchor: file.cursor,
+                    moved: false,
+                };
             }
             self.keep_visible();
             return Action::None;
@@ -732,13 +746,42 @@ impl ReviewApp {
         self.load_selected_action()
     }
 
-    fn mouse_drag(&mut self, column: u16, row: u16) {
+    fn mouse_drag(&mut self, column: u16, row: u16) -> Action {
         let layout = self.layout();
-        if !self.resizing || !layout.is_wide() || !layout.contains_body(column, row) {
-            return;
+        match self.drag {
+            DragState::Resize if layout.is_wide() && layout.contains_body(column, row) => {
+                self.file_width = Some(column.clamp(MIN_PANE_WIDTH, self.width - MIN_PANE_WIDTH));
+                self.keep_visible();
+            }
+            DragState::Select { anchor, .. }
+                if layout.focus_at(self.focus, column, row) == Some(Focus::Diff)
+                    && layout.contains_pane_content(row) =>
+            {
+                let Some(file) = self.files.get_mut(self.selected_file) else {
+                    return Action::None;
+                };
+                file.cursor =
+                    (file.scroll + usize::from(row - 2)).min(file.diff.len().saturating_sub(1));
+                self.selection = Some(Selection {
+                    anchor,
+                    cursor: file.cursor,
+                    fixed: true,
+                });
+                self.drag = DragState::Select {
+                    anchor,
+                    moved: true,
+                };
+                self.keep_visible();
+            }
+            DragState::None | DragState::Resize | DragState::Select { .. } => {}
         }
-        self.file_width = Some(column.clamp(MIN_PANE_WIDTH, self.width - MIN_PANE_WIDTH));
-        self.keep_visible();
+        Action::None
+    }
+
+    fn mouse_release(&mut self) -> Action {
+        let insert = matches!(self.drag, DragState::Select { moved: true, .. });
+        self.drag = DragState::None;
+        if insert { self.insert() } else { Action::None }
     }
 
     fn layout(&self) -> PaneLayout {
