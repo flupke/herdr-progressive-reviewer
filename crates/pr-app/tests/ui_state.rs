@@ -325,21 +325,31 @@ fn diff_uses_bars_line_numbers_and_expandable_gaps() {
 }
 
 #[test]
-fn removing_a_review_mark_loads_the_full_diff() {
+fn removing_a_changed_review_mark_loads_the_full_diff() {
     let mut app = ReviewApp::default();
     app.update(Message::FilesLoaded {
         change_id: "qpvuntsm".to_owned(),
         commit_id: "11111111".to_owned(),
-        files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Reviewed)],
+        files: vec![ReviewFile::new(
+            "src/lib.rs",
+            ReviewStatus::ChangedSinceReview,
+        )],
     });
     app.update(Message::DiffLoaded {
         commit_id: "11111111".to_owned(),
         path: "src/lib.rs".to_owned(),
-        rows: Vec::new(),
+        rows: rows(),
         old_content: None,
         new_content: None,
     });
 
+    assert_eq!(
+        app.update(Message::Key(Key::Space)),
+        Action::SetReviewed {
+            path: "src/lib.rs".to_owned(),
+            reviewed: false,
+        }
+    );
     assert_eq!(
         app.update(Message::ReviewFinished {
             change_id: "qpvuntsm".to_owned(),

@@ -669,6 +669,8 @@ mod tests {
         );
         assert!(target.exists());
         store.unreview(&fixture.change, &path).unwrap();
+        assert!(!target.exists());
+        store.unreview(&fixture.change, &path).unwrap();
     }
 
     #[test]

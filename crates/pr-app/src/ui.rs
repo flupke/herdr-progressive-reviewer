@@ -495,6 +495,9 @@ impl ReviewApp {
             Ok(state) => {
                 if let Some(file) = self.files.iter_mut().find(|file| file.path == path) {
                     file.status = state.status;
+                    if state.status == ReviewStatus::Unreviewed {
+                        file.diff = DiffPresentation::default();
+                    }
                 }
                 self.notice = state.warning.map(Self::warning_text);
                 if state.status != ReviewStatus::Reviewed
@@ -572,7 +575,7 @@ impl ReviewApp {
             return Action::None;
         };
         let path = file.path.clone();
-        let reviewed = file.status != ReviewStatus::Reviewed;
+        let reviewed = file.status == ReviewStatus::Unreviewed;
         let action = Action::SetReviewed { path, reviewed };
         self.review_in_flight = Some(reviewed);
         action
