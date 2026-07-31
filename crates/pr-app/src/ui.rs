@@ -451,6 +451,7 @@ impl ReviewApp {
             self.show_commit_message = false;
             self.file_scroll = 0;
             self.focus = Focus::Files;
+            self.review_in_flight = None;
         }
 
         self.change_id = change_id;
@@ -468,7 +469,6 @@ impl ReviewApp {
         self.selected_file = selected_file
             .unwrap_or(0)
             .min(self.files.len().saturating_sub(1));
-        self.review_in_flight = None;
         if selected_file.is_none() {
             self.selection = None;
         }

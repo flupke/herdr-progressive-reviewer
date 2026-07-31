@@ -222,6 +222,15 @@ fn marking_a_file_reviewed_selects_and_loads_the_next_file() {
         app.update(Message::Key(Key::Space)),
         Action::SetReviewed { reviewed: true, .. }
     ));
+    app.update(Message::FilesLoaded {
+        change_id: "qpvuntsm".to_owned(),
+        commit_id: "11111111".to_owned(),
+        description: "Commit title\n\nCommit body\n".to_owned(),
+        files: vec![
+            ReviewFile::new("first.rs", ReviewStatus::Unreviewed),
+            ReviewFile::new("second.rs", ReviewStatus::Unreviewed),
+        ],
+    });
     assert_eq!(
         app.update(Message::ReviewFinished {
             change_id: "qpvuntsm".to_owned(),
