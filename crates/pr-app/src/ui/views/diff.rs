@@ -1,0 +1,192 @@
+use pr_core::diff::{DiffRow, NoticeKind};
+use ratatui::buffer::Buffer;
+use ratatui::layout::{Alignment, Rect};
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Paragraph, Widget};
+use unicode_width::UnicodeWidthStr;
+
+use super::{pane_block, shorten};
+use crate::highlight::Token;
+use crate::presentation::PresentedRow;
+use crate::review::ReviewStatus;
+use crate::ui::{DIFF_CONTROLS_TITLE, Focus, MIN_DIFF_CONTROLS_WIDTH, ReviewApp, Selection};
+
+pub(super) struct DiffView<'a>(pub(super) &'a ReviewApp);
+
+impl Widget for DiffView<'_> {
+    fn render(self, area: Rect, buffer: &mut Buffer) {
+        let focused = self.0.focus == Focus::Diff;
+        let title = self.0.selected().map_or_else(
+            || "Diff".to_owned(),
+            |file| format!("Diff · {}", file.display_path),
+        );
+        let show_controls = area.width >= MIN_DIFF_CONTROLS_WIDTH;
+        let title = if show_controls {
+            shorten(
+                &title,
+                usize::from(area.width).saturating_sub(
+                    DIFF_CONTROLS_TITLE.width() + 5 + if focused { " (focus)".len() } else { 0 },
+                ),
+            )
+        } else {
+            title
+        };
+        let mut block = pane_block(self.0, &title, focused);
+        if show_controls {
+            block = block.title(
+                Line::styled(
+                    DIFF_CONTROLS_TITLE,
+                    Style::default().fg(self.0.palette.focus),
+                )
+                .alignment(Alignment::Right),
+            );
+        }
+        let inner = block.inner(area);
+        block.render(area, buffer);
+        let Some(file) = self.0.selected() else {
+            return;
+        };
+        if file.status == ReviewStatus::Reviewed {
+            let center = Rect::new(inner.x, inner.y + inner.height / 2, inner.width, 1);
+            Paragraph::new("No changes")
+                .style(Style::default().fg(self.0.palette.dim))
+                .alignment(Alignment::Center)
+                .render(center, buffer);
+            return;
+        }
+        let selection = self.0.selection.map(Selection::range);
+        let line_number_width = file.diff.line_number_width();
+        let show_markers = !file.diff.shows_whole_file();
+        let lines = file
+            .diff
+            .rows
+            .iter()
+            .enumerate()
+            .skip(file.scroll)
+            .take(usize::from(inner.height))
+            .map(|(index, presented)| {
+                let (line, mut style) = match presented {
+                    PresentedRow::Diff { source, tokens } => {
+                        let row = file.diff.source_row(*source);
+                        (
+                            self.diff_line(row, tokens, line_number_width, show_markers),
+                            self.row_style(row, show_markers),
+                        )
+                    }
+                    PresentedRow::Gap { lines, .. } => (
+                        Self::gap_line(lines.len(), line_number_width, usize::from(inner.width)),
+                        Style::default()
+                            .fg(self.0.palette.text)
+                            .bg(self.0.palette.selection),
+                    ),
+                    PresentedRow::Expanded { line, tokens } => (
+                        self.code_line(Some(*line), None, tokens, line_number_width),
+                        Style::default().fg(self.0.palette.text),
+                    ),
+                };
+                if selection
+                    .as_ref()
+                    .is_some_and(|selection| selection.contains(&index))
+                {
+                    style = style.bg(self.0.palette.selection);
+                }
+                if focused && index == file.cursor {
+                    style = style.bg(self.0.palette.cursor);
+                }
+                line.style(style)
+            })
+            .collect::<Vec<_>>();
+        Paragraph::new(lines).render(inner, buffer);
+    }
+}
+
+impl DiffView<'_> {
+    fn diff_line(
+        &self,
+        row: &DiffRow,
+        tokens: &[Token],
+        number_width: usize,
+        show_markers: bool,
+    ) -> Line<'static> {
+        let (line, bar) = match row {
+            DiffRow::Add { new_line, .. } => (
+                Some(*new_line),
+                show_markers.then_some(self.0.palette.insertion),
+            ),
+            DiffRow::Delete { old_line, .. } => (
+                Some(*old_line),
+                show_markers.then_some(self.0.palette.deletion),
+            ),
+            DiffRow::Context { new_line, .. } => (Some(*new_line), None),
+            DiffRow::Notice { text, .. } => return Line::raw(text.clone()),
+            DiffRow::FileHeader { .. } | DiffRow::Meta { .. } | DiffRow::Hunk { .. } => {
+                return Line::default();
+            }
+        };
+        self.code_line(line, bar, tokens, number_width)
+    }
+
+    fn code_line(
+        &self,
+        line: Option<u32>,
+        bar: Option<Color>,
+        tokens: &[Token],
+        number_width: usize,
+    ) -> Line<'static> {
+        let mut spans = vec![bar.map_or_else(
+            || Span::raw("  "),
+            |color| {
+                Span::styled(
+                    "▌ ",
+                    Style::default().fg(color).add_modifier(Modifier::BOLD),
+                )
+            },
+        )];
+        spans.push(Span::styled(
+            line.map_or_else(
+                || " ".repeat(number_width + 1),
+                |line| format!("{line:>number_width$} "),
+            ),
+            Style::default().fg(self.0.palette.dim),
+        ));
+        spans.extend(
+            tokens
+                .iter()
+                .map(|token| Span::styled(token.text.clone(), Style::default().fg(token.color))),
+        );
+        Line::from(spans)
+    }
+
+    fn gap_line(count: usize, number_width: usize, width: usize) -> Line<'static> {
+        let mut text = format!("  {:>number_width$} {count} unmodified lines", "…");
+        text.push_str(&" ".repeat(width.saturating_sub(text.chars().count())));
+        Line::raw(text)
+    }
+
+    fn row_style(&self, row: &DiffRow, show_markers: bool) -> Style {
+        if !show_markers {
+            return Style::default().fg(self.0.palette.text);
+        }
+        match row {
+            DiffRow::Add { .. } => Style::default()
+                .fg(self.0.palette.insertion)
+                .bg(self.0.palette.insertion_bg),
+            DiffRow::Delete { .. } => Style::default()
+                .fg(self.0.palette.deletion)
+                .bg(self.0.palette.deletion_bg),
+            DiffRow::Notice {
+                kind: NoticeKind::Binary,
+                ..
+            } => Style::default().fg(self.0.palette.focus),
+            DiffRow::Notice {
+                kind: NoticeKind::Conflict | NoticeKind::Unsupported,
+                ..
+            } => Style::default().fg(self.0.palette.warning),
+            DiffRow::Meta { .. } | DiffRow::FileHeader { .. } | DiffRow::Hunk { .. } => {
+                Style::default().fg(self.0.palette.dim)
+            }
+            DiffRow::Context { .. } => Style::default().fg(self.0.palette.text),
+        }
+    }
+}

@@ -20,9 +20,9 @@ const EXPAND_ALL_LABEL: &str = "[←→]";
 const CONTRACT_ALL_LABEL: &str = "[→←]";
 const MIN_DIFF_CONTROLS_WIDTH: u16 = 32;
 
-mod view;
+mod views;
 
-pub use view::ReviewView;
+pub use views::ReviewView;
 
 /// The pane that receives navigation keys.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
