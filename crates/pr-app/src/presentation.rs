@@ -14,34 +14,42 @@ pub(crate) enum PresentedRow {
     Expanded { line: u32, tokens: Vec<Token> },
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum WholeFile {
+    Added,
+    Deleted,
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct DiffPresentation {
     source: Vec<DiffRow>,
     pub(crate) rows: Vec<PresentedRow>,
+    whole_file: Option<WholeFile>,
 }
 
 impl DiffPresentation {
     pub(crate) fn new(highlighted: HighlightedDiff) -> Self {
-        let added = highlighted.rows.iter().any(|row| {
-            matches!(
-                &row.diff,
-                DiffRow::Meta { text } if text.starts_with("new file mode ")
-            )
+        let whole_file = highlighted.rows.iter().find_map(|row| match &row.diff {
+            DiffRow::Meta { text } if text.starts_with("new file mode ") => Some(WholeFile::Added),
+            DiffRow::Meta { text } if text.starts_with("deleted file mode ") => {
+                Some(WholeFile::Deleted)
+            }
+            _ => None,
         });
         let mut source = Vec::with_capacity(highlighted.rows.len());
         let mut rows = Vec::with_capacity(highlighted.rows.len());
         let mut previous_hunk_end = None;
         for highlighted_row in highlighted.rows {
-            let visible = if added {
-                matches!(highlighted_row.diff, DiffRow::Add { .. })
-            } else {
-                matches!(
+            let visible = match whole_file {
+                Some(WholeFile::Added) => matches!(highlighted_row.diff, DiffRow::Add { .. }),
+                Some(WholeFile::Deleted) => matches!(highlighted_row.diff, DiffRow::Delete { .. }),
+                None => matches!(
                     highlighted_row.diff,
                     DiffRow::Context { .. }
                         | DiffRow::Delete { .. }
                         | DiffRow::Add { .. }
                         | DiffRow::Notice { .. }
-                )
+                ),
             };
             if let DiffRow::Hunk {
                 new_start,
@@ -66,7 +74,11 @@ impl DiffPresentation {
                 });
             }
         }
-        Self { source, rows }
+        Self {
+            source,
+            rows,
+            whole_file,
+        }
     }
 
     fn gap_lines(lines: Option<&[Vec<Token>]>, start: u32, end: u32) -> Option<Vec<Vec<Token>>> {
@@ -87,6 +99,10 @@ impl DiffPresentation {
 
     pub(crate) fn is_empty(&self) -> bool {
         self.source.is_empty()
+    }
+
+    pub(crate) fn shows_whole_file(&self) -> bool {
+        self.whole_file.is_some()
     }
 
     pub(crate) fn len(&self) -> usize {

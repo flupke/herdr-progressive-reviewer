@@ -228,7 +228,45 @@ fn added_file_renders_as_plain_file_content() {
     assert!(!screen.contains("diff --git"));
     assert!(!screen.contains("@@"));
     assert!(!screen.contains("+fn main() {}"));
-    assert!(screen.contains("▌ 1 fn main() {}"));
+    assert!(!screen.contains('▌'));
+    assert!(screen.contains("1 fn main() {}"));
+}
+
+#[test]
+fn deleted_file_renders_as_plain_file_content() {
+    let mut app = ReviewApp::default();
+    app.update(Message::FilesLoaded {
+        change_id: "qpvuntsm".to_owned(),
+        commit_id: "11111111".to_owned(),
+        files: vec![ReviewFile::new("src/main.rs", ReviewStatus::Unreviewed)],
+    });
+    app.update(Message::DiffLoaded {
+        commit_id: "11111111".to_owned(),
+        path: "src/main.rs".to_owned(),
+        rows: vec![
+            DiffRow::Meta {
+                text: "deleted file mode 100644".to_owned(),
+            },
+            DiffRow::Hunk {
+                old_start: 1,
+                old_count: 1,
+                new_start: 0,
+                new_count: 0,
+            },
+            DiffRow::Delete {
+                old_line: 1,
+                text: "-fn main() {}".to_owned(),
+            },
+        ],
+        old_content: Some(b"fn main() {}\n".to_vec()),
+        new_content: None,
+    });
+
+    let screen = screen(&app, 80, 12).join("\n");
+    assert!(!screen.contains("deleted file mode"));
+    assert!(!screen.contains("-fn main() {}"));
+    assert!(!screen.contains('▌'));
+    assert!(screen.contains("1 fn main() {}"));
 }
 
 #[test]

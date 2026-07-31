@@ -181,6 +181,7 @@ impl ReviewView<'_> {
         }
         let selection = self.0.selection.map(Selection::range);
         let line_number_width = file.diff.line_number_width();
+        let show_markers = !file.diff.shows_whole_file();
         let lines = file
             .diff
             .rows
@@ -193,8 +194,8 @@ impl ReviewView<'_> {
                     PresentedRow::Diff { source, tokens } => {
                         let row = file.diff.source_row(*source);
                         (
-                            self.diff_line(row, tokens, line_number_width),
-                            self.row_style(row),
+                            self.diff_line(row, tokens, line_number_width, show_markers),
+                            self.row_style(row, show_markers),
                         )
                     }
                     PresentedRow::Gap { lines, .. } => (
@@ -258,10 +259,22 @@ impl ReviewView<'_> {
             .border_style(style)
     }
 
-    fn diff_line(&self, row: &DiffRow, tokens: &[Token], number_width: usize) -> Line<'static> {
+    fn diff_line(
+        &self,
+        row: &DiffRow,
+        tokens: &[Token],
+        number_width: usize,
+        show_markers: bool,
+    ) -> Line<'static> {
         let (line, bar) = match row {
-            DiffRow::Add { new_line, .. } => (Some(*new_line), Some(self.0.palette.insertion)),
-            DiffRow::Delete { old_line, .. } => (Some(*old_line), Some(self.0.palette.deletion)),
+            DiffRow::Add { new_line, .. } => (
+                Some(*new_line),
+                show_markers.then_some(self.0.palette.insertion),
+            ),
+            DiffRow::Delete { old_line, .. } => (
+                Some(*old_line),
+                show_markers.then_some(self.0.palette.deletion),
+            ),
             DiffRow::Context { new_line, .. } => (Some(*new_line), None),
             DiffRow::Notice { text, .. } => return Line::raw(text.clone()),
             DiffRow::FileHeader { .. } | DiffRow::Meta { .. } | DiffRow::Hunk { .. } => {
@@ -308,7 +321,10 @@ impl ReviewView<'_> {
         Line::raw(text)
     }
 
-    fn row_style(&self, row: &DiffRow) -> Style {
+    fn row_style(&self, row: &DiffRow, show_markers: bool) -> Style {
+        if !show_markers {
+            return Style::default().fg(self.0.palette.text);
+        }
         match row {
             DiffRow::Add { .. } => Style::default()
                 .fg(self.0.palette.insertion)
