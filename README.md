@@ -4,6 +4,8 @@ This Herdr plugin reviews the current jj change one file at a time. It stores
 review marks on disk and inserts selected diff text into the last focused agent
 pane without submission.
 
+![Progressive reviewer](docs/screenshot.png)
+
 It requires Herdr 0.7.5 or later and jj 0.43.0 or later.
 
 Diffs use syntax highlighting and the `catppuccin` palette by default. To
