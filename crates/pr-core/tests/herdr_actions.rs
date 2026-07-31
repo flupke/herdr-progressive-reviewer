@@ -12,6 +12,7 @@ use pr_tests::{JjFixture, JjLayout};
 struct FakeHerdr {
     session: Mutex<SessionSnapshot>,
     agents: Mutex<Vec<Agent>>,
+    agent_screen: Mutex<String>,
     panes: Mutex<Vec<PluginPane>>,
     opened: Mutex<Vec<OpenPluginPane>>,
     focused: Mutex<Vec<PaneId>>,
@@ -38,6 +39,10 @@ impl HerdrReader for FakeHerdr {
             .iter()
             .find(|agent| agent.pane_id == *pane_id)
             .cloned())
+    }
+
+    fn read_agent_screen(&self, _pane_id: &PaneId) -> Result<String> {
+        Ok(self.agent_screen.lock().unwrap().clone())
     }
 
     fn list_plugin_panes(&self, workspace_id: &WorkspaceId) -> Result<Vec<PluginPane>> {
@@ -155,6 +160,7 @@ fn insertion_rechecks_the_last_focused_agent_workspace() {
         focused_pane_id: Some(first_agent.pane_id.clone()),
     };
     client.agents.lock().unwrap().push(first_agent);
+    *client.agent_screen.lock().unwrap() = "prompt\nVim: Normal\n".to_owned();
     let mut target = AgentTarget::new(workspace);
     target.initialize(&client).unwrap();
 
@@ -166,7 +172,7 @@ fn insertion_rechecks_the_last_focused_agent_workspace() {
     );
     assert_eq!(
         client.sent.lock().unwrap().as_slice(),
-        [(PaneId("agent-1".to_owned()), "diff text".to_owned())]
+        [(PaneId("agent-1".to_owned()), "idiff text".to_owned())]
     );
     assert_eq!(
         client.focused.lock().unwrap().as_slice(),
@@ -174,6 +180,7 @@ fn insertion_rechecks_the_last_focused_agent_workspace() {
     );
 
     target.observe_agent_focus(&agent("other-agent", "other", None));
+    *client.agent_screen.lock().unwrap() = "prompt\nVim: Insert\n".to_owned();
     assert!(matches!(
         target.insert(&client, "same target").unwrap(),
         InsertResult::Inserted { .. }

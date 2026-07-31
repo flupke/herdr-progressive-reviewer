@@ -71,6 +71,11 @@ struct PluginPaneWire {
     pane: PaneWire,
 }
 
+#[derive(Debug, Deserialize)]
+struct PaneReadWire {
+    text: String,
+}
+
 impl HerdrClient {
     /// Build a client from the values injected into a plugin process.
     pub fn from_env() -> Result<Self> {
@@ -303,6 +308,20 @@ impl HerdrReader for HerdrClient {
                 message: error.message,
             }),
         }
+    }
+
+    fn read_agent_screen(&self, pane_id: &PaneId) -> Result<String> {
+        let result = self.request(
+            method::AGENT_READ,
+            &json!({
+                "target": pane_id.0,
+                "source": "visible",
+                "format": "text",
+                "strip_ansi": true,
+            }),
+        )?;
+        let read: PaneReadWire = Self::parse(&result, "read", method::AGENT_READ)?;
+        Ok(read.text)
     }
 
     fn list_plugin_panes(&self, workspace_id: &WorkspaceId) -> Result<Vec<PluginPane>> {

@@ -1,5 +1,6 @@
 //! Herdr protocol boundaries used by the application and control processes.
 
+use std::borrow::Cow;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -17,6 +18,8 @@ pub mod method {
     pub const AGENT_LIST: &str = "agent.list";
     /// Resolve one live agent.
     pub const AGENT_GET: &str = "agent.get";
+    /// Read the visible contents of one live agent.
+    pub const AGENT_READ: &str = "agent.read";
     /// Focus one live agent.
     pub const AGENT_FOCUS: &str = "agent.focus";
     /// Resolve one live pane.
@@ -69,6 +72,9 @@ pub trait HerdrReader: Send + Sync {
 
     /// Resolve a live agent by pane ID.
     fn get_agent(&self, pane_id: &PaneId) -> Result<Option<Agent>>;
+
+    /// Read the visible text in an agent pane.
+    fn read_agent_screen(&self, pane_id: &PaneId) -> Result<String>;
 
     /// List plugin-owned panes in one workspace.
     fn list_plugin_panes(&self, workspace_id: &WorkspaceId) -> Result<Vec<PluginPane>>;
@@ -296,6 +302,29 @@ pub enum InsertResult {
     NoAgent,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum AgentInputMode {
+    VimNormal,
+    Other,
+}
+
+impl AgentInputMode {
+    fn detect(screen: &str) -> Self {
+        if screen.contains("Vim: Normal") {
+            Self::VimNormal
+        } else {
+            Self::Other
+        }
+    }
+
+    fn prepare(self, text: &str) -> Cow<'_, str> {
+        match self {
+            Self::VimNormal => Cow::Owned(format!("i{text}")),
+            Self::Other => Cow::Borrowed(text),
+        }
+    }
+}
+
 /// The last focused agent target for one Herdr workspace.
 #[derive(Debug)]
 pub struct AgentTarget {
@@ -355,7 +384,9 @@ impl AgentTarget {
             return Ok(InsertResult::NoAgent);
         }
 
-        client.send_text(&agent.pane_id, text)?;
+        let screen = client.read_agent_screen(&agent.pane_id)?;
+        let text = AgentInputMode::detect(&screen).prepare(text);
+        client.send_text(&agent.pane_id, &text)?;
         client.focus_agent(&agent.pane_id)?;
         Ok(InsertResult::Inserted {
             agent_name: agent
