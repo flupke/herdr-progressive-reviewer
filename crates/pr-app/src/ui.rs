@@ -45,6 +45,7 @@ pub enum Key {
     HalfPageUp,
     Visual,
     Expand,
+    CommitMessage,
     Escape,
     Enter,
     Space,
@@ -126,6 +127,7 @@ pub enum Message {
     FilesLoaded {
         change_id: String,
         commit_id: String,
+        description: String,
         files: Vec<ReviewFile>,
     },
     /// A diff result for an exact change and path.
@@ -314,6 +316,8 @@ impl PaneLayout {
 pub struct ReviewApp {
     change_id: String,
     commit_id: String,
+    description: String,
+    show_commit_message: bool,
     files: Vec<ReviewFile>,
     file_tree: FileTree,
     selected_file: usize,
@@ -341,6 +345,8 @@ impl ReviewApp {
         Self {
             change_id: String::new(),
             commit_id: String::new(),
+            description: String::new(),
+            show_commit_message: false,
             files: Vec::new(),
             file_tree: FileTree::default(),
             selected_file: 0,
@@ -364,8 +370,9 @@ impl ReviewApp {
             Message::FilesLoaded {
                 change_id,
                 commit_id,
+                description,
                 files,
-            } => self.load_files(change_id, commit_id, files),
+            } => self.load_files(change_id, commit_id, description, files),
             Message::DiffLoaded {
                 commit_id,
                 path,
@@ -442,6 +449,7 @@ impl ReviewApp {
         &mut self,
         change_id: String,
         commit_id: String,
+        description: String,
         mut files: Vec<ReviewFile>,
     ) -> Action {
         let same_change = self.change_id == change_id;
@@ -463,12 +471,14 @@ impl ReviewApp {
         } else {
             self.selection = None;
             self.notice = None;
+            self.show_commit_message = false;
             self.file_scroll = 0;
             self.focus = Focus::Files;
         }
 
         self.change_id = change_id;
         self.commit_id = commit_id;
+        self.description = description;
         self.files = files;
         self.file_tree = FileTree::new(
             self.files
@@ -588,6 +598,10 @@ impl ReviewApp {
     fn key(&mut self, key: Key) -> Action {
         match key {
             Key::Quit => Action::Quit,
+            Key::CommitMessage => {
+                self.show_commit_message = !self.show_commit_message;
+                Action::None
+            }
             Key::Tab => {
                 self.focus = match self.focus {
                     Focus::Files => Focus::Diff,
@@ -596,6 +610,7 @@ impl ReviewApp {
                 Action::None
             }
             Key::Escape => {
+                self.show_commit_message = false;
                 self.selection = None;
                 self.notice = None;
                 Action::None
@@ -756,6 +771,10 @@ impl ReviewApp {
 
     fn mouse_click(&mut self, column: u16, row: u16, insert_path: bool) -> Action {
         let layout = self.layout();
+        if self.commit_title_at(column, row) {
+            self.show_commit_message = !self.show_commit_message;
+            return Action::None;
+        }
         if let Some(control) = layout.diff_control_at(self.focus, column, row) {
             self.focus = Focus::Diff;
             let Some(file) = self.files.get_mut(self.selected_file) else {
@@ -923,5 +942,17 @@ impl ReviewApp {
 
     fn selected(&self) -> Option<&ReviewFile> {
         self.files.get(self.selected_file)
+    }
+
+    fn commit_title(&self) -> &str {
+        self.description
+            .lines()
+            .next()
+            .filter(|title| !title.is_empty())
+            .unwrap_or("(no description set)")
+    }
+
+    fn commit_title_at(&self, column: u16, row: u16) -> bool {
+        row == 0 && column > 0 && usize::from(column) <= self.commit_title().width()
     }
 }

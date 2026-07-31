@@ -33,6 +33,7 @@ fn detects_file_changes_in_real_jj_repositories() {
         fixture.rename("old-name.txt", "new-name.txt");
 
         let snapshot = complete_snapshot(repository);
+        assert_eq!(snapshot.identity.description, "working change\n");
         let changes: Vec<_> = snapshot
             .files
             .iter()

@@ -6,7 +6,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::{Alignment, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Widget};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph, Widget, Wrap};
 use unicode_width::UnicodeWidthStr;
 
 use super::{
@@ -60,6 +60,9 @@ impl Widget for ReviewView<'_> {
             }
         }
         self.render_footer(footer, buffer);
+        if self.0.show_commit_message {
+            self.render_commit_message(area, buffer);
+        }
     }
 }
 
@@ -82,13 +85,33 @@ impl ReviewView<'_> {
             .iter()
             .filter(|file| file.status == ReviewStatus::Reviewed)
             .count();
-        let change = self.0.change_id.chars().take(8).collect::<String>();
-        Paragraph::new(format!(
-            " Progressive review · change {change} · {reviewed}/{} reviewed",
-            self.0.files.len()
-        ))
-        .style(Style::default().fg(self.0.palette.text))
-        .render(area, buffer);
+        Paragraph::new(format!(" {}", self.0.commit_title()))
+            .style(Style::default().fg(self.0.palette.text))
+            .render(area, buffer);
+        Paragraph::new(format!("{reviewed}/{} reviewed ", self.0.files.len()))
+            .alignment(Alignment::Right)
+            .style(Style::default().fg(self.0.palette.text))
+            .render(area, buffer);
+    }
+
+    fn render_commit_message(&self, area: Rect, buffer: &mut Buffer) {
+        let width = area.width.saturating_mul(4) / 5;
+        let height = area.height.saturating_mul(4) / 5;
+        let popup = Rect::new(
+            area.x + (area.width - width) / 2,
+            area.y + (area.height - height) / 2,
+            width,
+            height,
+        );
+        Clear.render(popup, buffer);
+        Paragraph::new(if self.0.description.is_empty() {
+            "(no description set)"
+        } else {
+            &self.0.description
+        })
+        .block(self.block("Commit message", true))
+        .wrap(Wrap { trim: false })
+        .render(popup, buffer);
     }
 
     fn render_files(&self, area: Rect, buffer: &mut Buffer) {
@@ -249,8 +272,7 @@ impl ReviewView<'_> {
     }
 
     fn render_footer(&self, area: Rect, buffer: &mut Buffer) {
-        let controls =
-            "Tab focus · j/k move · l expand · v select · Enter insert · Space review · q quit";
+        let controls = "Tab focus · j/k move · l expand · v select · c message · Enter insert · Space review · q quit";
         let status = match self.0.review_in_flight {
             Some(true) => "Marking reviewed…",
             Some(false) => "Removing review mark…",

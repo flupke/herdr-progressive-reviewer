@@ -279,6 +279,7 @@ impl Worker {
                 let _ = messages.send(Message::FilesLoaded {
                     change_id: snapshot.identity.change_id.as_str().to_owned(),
                     commit_id: snapshot.identity.commit_id.as_str().to_owned(),
+                    description: snapshot.identity.description.clone(),
                     files,
                 });
                 if let Some(warning) = warning {
@@ -468,6 +469,7 @@ fn normalize_key(key: KeyEvent) -> Option<Key> {
         KeyCode::End | KeyCode::Char('G') => Some(Key::Last),
         KeyCode::Char('v' | 'V') => Some(Key::Visual),
         KeyCode::Char('l') => Some(Key::Expand),
+        KeyCode::Char('c') => Some(Key::CommitMessage),
         KeyCode::Esc => Some(Key::Escape),
         KeyCode::Enter => Some(Key::Enter),
         KeyCode::Char(' ') => Some(Key::Space),
@@ -489,6 +491,10 @@ mod tests {
         assert_eq!(
             normalize_key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE)),
             Some(Key::Expand)
+        );
+        assert_eq!(
+            normalize_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE)),
+            Some(Key::CommitMessage)
         );
         assert_eq!(
             normalize_mouse(MouseEvent {
