@@ -9,13 +9,14 @@ use std::time::Duration;
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use time::OffsetDateTime;
 use time::format_description::well_known::Rfc3339;
 
 const SCHEMA_VERSION: u8 = 1;
-const MAX_RECORD_BYTES: u64 = 1024 * 1024;
+const MAX_STATE_FILE_BYTES: u64 = 1024 * 1024;
 
 /// A result from review-state storage.
 pub type Result<T> = std::result::Result<T, Error>;
@@ -79,6 +80,13 @@ pub enum LoadResult {
     Reviewed(ReviewRecord),
     /// A record was ignored because its schema version is unknown.
     UnknownSchema,
+}
+
+/// Persistent global reviewer settings.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(default)]
+struct Settings {
+    file_pane_width: Option<u16>,
 }
 
 /// Review state for one canonical repository.
@@ -199,6 +207,22 @@ impl ReviewStore {
         }
     }
 
+    /// Get the saved file-pane width in terminal columns.
+    pub fn file_pane_width(&self) -> Result<Option<u16>> {
+        Ok(self.settings()?.file_pane_width)
+    }
+
+    fn settings(&self) -> Result<Settings> {
+        Ok(Self::read_json(&self.settings_path(), "read settings")?.unwrap_or_default())
+    }
+
+    /// Save the file-pane width in terminal columns.
+    pub fn save_file_pane_width(&self, columns: u16) -> Result<()> {
+        let mut settings = self.settings()?;
+        settings.file_pane_width = Some(columns);
+        self.atomic_json(&self.settings_path(), &settings, "write settings")
+    }
+
     fn write_record(&self, change_id: &str, record: &ReviewRecord) -> Result<()> {
         let directory = self
             .repository_dir
@@ -226,6 +250,10 @@ impl ReviewStore {
     }
 
     fn read_stored(target: &Path) -> Result<Option<StoredRecord>> {
+        Self::read_json(target, "read review record")
+    }
+
+    fn read_json<T: DeserializeOwned>(target: &Path, operation: &'static str) -> Result<Option<T>> {
         let mut file = match OpenOptions::new()
             .read(true)
             .custom_flags(libc::O_NOFOLLOW)
@@ -235,7 +263,7 @@ impl ReviewStore {
             Err(source) if source.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(source) => {
                 return Err(Error::StateIo {
-                    operation: "open review record",
+                    operation,
                     path: target.to_owned(),
                     source,
                 });
@@ -243,14 +271,14 @@ impl ReviewStore {
         };
         let mut bytes = Vec::new();
         Read::by_ref(&mut file)
-            .take(MAX_RECORD_BYTES + 1)
+            .take(MAX_STATE_FILE_BYTES + 1)
             .read_to_end(&mut bytes)
             .map_err(|source| Error::StateIo {
-                operation: "read review record",
+                operation,
                 path: target.to_owned(),
                 source,
             })?;
-        if bytes.len() as u64 > MAX_RECORD_BYTES {
+        if bytes.len() as u64 > MAX_STATE_FILE_BYTES {
             return Ok(None);
         }
         if let Ok(record) = serde_json::from_slice(&bytes) {
@@ -320,6 +348,10 @@ impl ReviewStore {
             .join(format!("{}.json", StateKey::hash(path).0))
     }
 
+    fn settings_path(&self) -> PathBuf {
+        self.state_root.join("settings.json")
+    }
+
     fn create_dir(&self, path: &Path) -> Result<()> {
         fs::create_dir_all(&self.state_root).map_err(|source| Error::StateIo {
             operation: "create review state directory",
@@ -373,7 +405,7 @@ impl ReviewStore {
 
     fn remove_old_temporary_files(&self, directory: &Path) -> Result<()> {
         directory
-            .strip_prefix(&self.repository_dir)
+            .strip_prefix(&self.state_root)
             .map_err(|_| Error::InvalidStateKey {
                 field: "temporary directory",
             })?;
@@ -601,6 +633,22 @@ mod tests {
             first.load(&fixture.change, &right).unwrap(),
             LoadResult::Reviewed(_)
         ));
+    }
+
+    #[test]
+    fn file_pane_width_is_shared_between_repositories() {
+        let fixture = Fixture::new();
+        let other_repository = fixture.temporary.path().join("other");
+        fs::create_dir(&other_repository).unwrap();
+        fixture.store().save_file_pane_width(42).unwrap();
+
+        assert_eq!(
+            ReviewStore::open(&fixture.state, other_repository)
+                .unwrap()
+                .file_pane_width()
+                .unwrap(),
+            Some(42)
+        );
     }
 
     #[test]

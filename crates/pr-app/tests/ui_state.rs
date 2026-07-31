@@ -637,7 +637,10 @@ fn dragging_the_separator_resizes_the_file_pane() {
         insert_path: false,
     });
     app.update(Message::MouseDrag { column: 40, row: 5 });
-    app.update(Message::MouseRelease);
+    assert_eq!(
+        app.update(Message::MouseRelease),
+        Action::SaveFilePaneWidth(40)
+    );
 
     let after = screen(&app, 80, 12)[1].find("Diff").unwrap();
     assert!(after > before);

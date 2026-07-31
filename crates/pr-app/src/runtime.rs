@@ -98,6 +98,8 @@ impl Runtime {
             flag::register(signal, Arc::clone(&stopped))?;
         }
 
+        let settings = ReviewStore::open(&self.state_dir, self.repository.root())?;
+        let file_pane_width = settings.file_pane_width()?;
         let (commands, messages, worker) = self.start_worker()?;
         let (focus_sender, focus_events) = mpsc::channel();
         let event_client = self.client.clone();
@@ -106,12 +108,12 @@ impl Runtime {
         });
 
         let mut terminal = TerminalGuard::new()?;
-        let mut app = ReviewApp::with_theme(self.theme);
+        let mut app = ReviewApp::new(self.theme, file_pane_width);
         let mut watcher = RepositoryWatcher::new(self.repository.root());
         commands.send(WorkerCommand::Poll)?;
         let result = loop {
             Self::drain_focus(&commands, &focus_events);
-            if Self::drain_messages(&commands, &messages, &mut app)? {
+            if Self::drain_messages(&commands, &messages, &settings, &mut app)? {
                 break Ok(());
             }
             if stopped.load(Ordering::Relaxed) {
@@ -135,7 +137,7 @@ impl Runtime {
                     _ => None,
                 };
                 if let Some(message) = message
-                    && Self::dispatch(&commands, app.update(message))?
+                    && Self::dispatch(&commands, &settings, app.update(message))?
                 {
                     break Ok(());
                 }
@@ -181,12 +183,13 @@ impl Runtime {
     fn drain_messages(
         commands: &Sender<WorkerCommand>,
         messages: &Receiver<Message>,
+        settings: &ReviewStore,
         app: &mut ReviewApp,
     ) -> eyre::Result<bool> {
         loop {
             match messages.try_recv() {
                 Ok(message) => {
-                    if Self::dispatch(commands, app.update(message))? {
+                    if Self::dispatch(commands, settings, app.update(message))? {
                         return Ok(true);
                     }
                 }
@@ -198,10 +201,18 @@ impl Runtime {
         }
     }
 
-    fn dispatch(commands: &Sender<WorkerCommand>, action: Action) -> eyre::Result<bool> {
+    fn dispatch(
+        commands: &Sender<WorkerCommand>,
+        settings: &ReviewStore,
+        action: Action,
+    ) -> eyre::Result<bool> {
         let command = match action {
             Action::None => return Ok(false),
             Action::Quit => return Ok(true),
+            Action::SaveFilePaneWidth(columns) => {
+                settings.save_file_pane_width(columns)?;
+                return Ok(false);
+            }
             Action::LoadDiff { commit_id, path } => WorkerCommand::LoadDiff { commit_id, path },
             Action::SetReviewed { path, reviewed } => WorkerCommand::SetReviewed { path, reviewed },
             Action::Insert { text } => WorkerCommand::Insert(text),

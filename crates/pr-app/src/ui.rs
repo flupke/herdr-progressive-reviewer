@@ -177,6 +177,8 @@ pub enum Action {
     SetReviewed { path: String, reviewed: bool },
     /// Insert one valid unified-diff excerpt.
     Insert { text: String },
+    /// Save the file-pane width in terminal columns.
+    SaveFilePaneWidth(u16),
     /// Stop the application.
     Quit,
 }
@@ -198,7 +200,9 @@ impl Selection {
 enum DragState {
     #[default]
     None,
-    Resize,
+    Resize {
+        moved: bool,
+    },
     Select {
         anchor: usize,
         moved: bool,
@@ -329,12 +333,12 @@ pub struct ReviewApp {
 
 impl Default for ReviewApp {
     fn default() -> Self {
-        Self::with_theme(Theme::default())
+        Self::new(Theme::default(), None)
     }
 }
 
 impl ReviewApp {
-    pub(crate) fn with_theme(theme: Theme) -> Self {
+    pub(crate) fn new(theme: Theme, file_width: Option<u16>) -> Self {
         Self {
             change_id: String::new(),
             commit_id: String::new(),
@@ -344,7 +348,7 @@ impl ReviewApp {
             file_tree: FileTree::default(),
             selected_file: 0,
             file_scroll: 0,
-            file_width: None,
+            file_width,
             drag: DragState::None,
             focus: Focus::Files,
             selection: None,
@@ -750,11 +754,11 @@ impl ReviewApp {
             return Action::None;
         }
         self.drag = if layout.is_separator(column, row) {
-            DragState::Resize
+            DragState::Resize { moved: false }
         } else {
             DragState::None
         };
-        if self.drag == DragState::Resize {
+        if matches!(self.drag, DragState::Resize { .. }) {
             return Action::None;
         }
         let Some(focus) = layout.focus_at(self.focus, column, row) else {
@@ -798,8 +802,9 @@ impl ReviewApp {
     fn mouse_drag(&mut self, column: u16, row: u16) -> Action {
         let layout = self.layout();
         match self.drag {
-            DragState::Resize if layout.is_wide() && layout.contains_body(column, row) => {
+            DragState::Resize { .. } if layout.is_wide() && layout.contains_body(column, row) => {
                 self.file_width = Some(column.clamp(MIN_PANE_WIDTH, self.width - MIN_PANE_WIDTH));
+                self.drag = DragState::Resize { moved: true };
                 self.keep_visible();
             }
             DragState::Select { anchor, .. }
@@ -822,15 +827,21 @@ impl ReviewApp {
                 };
                 self.keep_visible();
             }
-            DragState::None | DragState::Resize | DragState::Select { .. } => {}
+            DragState::None | DragState::Resize { .. } | DragState::Select { .. } => {}
         }
         Action::None
     }
 
     fn mouse_release(&mut self) -> Action {
-        let insert = matches!(self.drag, DragState::Select { moved: true, .. });
+        let action = match self.drag {
+            DragState::Resize { moved: true } => self
+                .file_width
+                .map_or(Action::None, Action::SaveFilePaneWidth),
+            DragState::Select { moved: true, .. } => self.insert(),
+            DragState::None | DragState::Resize { .. } | DragState::Select { .. } => Action::None,
+        };
         self.drag = DragState::None;
-        if insert { self.insert() } else { Action::None }
+        action
     }
 
     fn layout(&self) -> PaneLayout {
