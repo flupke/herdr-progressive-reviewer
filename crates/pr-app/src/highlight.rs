@@ -17,6 +17,15 @@ pub(crate) struct Token {
     pub(crate) color: Color,
 }
 
+impl Token {
+    fn new(text: &str, color: Color) -> Self {
+        Self {
+            text: text.replace('\t', "    "),
+            color,
+        }
+    }
+}
+
 /// One diff row and its syntax-colored code.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct HighlightedRow {
@@ -112,12 +121,7 @@ impl DiffHighlighter {
         let Some(syntax) = Self::syntax(path) else {
             return Some(
                 LinesWithEndings::from(content)
-                    .map(|line| {
-                        vec![Token {
-                            text: line.trim_end_matches(['\r', '\n']).to_owned(),
-                            color: self.plain,
-                        }]
-                    })
+                    .map(|line| vec![Token::new(line.trim_end_matches(['\r', '\n']), self.plain)])
                     .collect(),
             );
         };
@@ -135,13 +139,11 @@ impl DiffHighlighter {
                 .into_iter()
                 .filter_map(|(style, text)| {
                     let text = text.trim_end_matches(['\r', '\n']);
-                    (!text.is_empty()).then(|| Token {
-                        text: text.to_owned(),
-                        color: Color::Rgb(
-                            style.foreground.r,
-                            style.foreground.g,
-                            style.foreground.b,
-                        ),
+                    (!text.is_empty()).then(|| {
+                        Token::new(
+                            text,
+                            Color::Rgb(style.foreground.r, style.foreground.g, style.foreground.b),
+                        )
                     })
                 })
                 .collect(),
@@ -154,13 +156,10 @@ impl DiffHighlighter {
     }
 
     fn plain_diff_line(&self, text: &str) -> Vec<Token> {
-        vec![Token {
-            text: text
-                .strip_prefix([' ', '-', '+'])
-                .unwrap_or(text)
-                .to_owned(),
-            color: self.plain,
-        }]
+        vec![Token::new(
+            text.strip_prefix([' ', '-', '+']).unwrap_or(text),
+            self.plain,
+        )]
     }
 }
 
@@ -193,5 +192,27 @@ mod tests {
             "let answer = 42;"
         );
         assert_eq!(highlighted.rows[0].tokens.len(), 1);
+    }
+
+    #[test]
+    fn expands_tabs_before_rendering() {
+        let highlighted = DiffHighlighter::new(Theme::default()).highlight(
+            "Makefile",
+            vec![DiffRow::Add {
+                new_line: 1,
+                text: "+\tcargo build".to_owned(),
+            }],
+            None,
+            Some(b"\tcargo build\n"),
+        );
+
+        assert_eq!(
+            highlighted.rows[0]
+                .tokens
+                .iter()
+                .map(|token| token.text.as_str())
+                .collect::<String>(),
+            "    cargo build"
+        );
     }
 }
