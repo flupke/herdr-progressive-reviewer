@@ -4,6 +4,7 @@ use pr_core::diff::{DiffRow, NoticeKind};
 use pr_core::herdr::InsertResult;
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
+use ratatui::style::Color;
 
 fn rows() -> Vec<DiffRow> {
     vec![
@@ -93,10 +94,6 @@ fn state_machine_keeps_selection_until_insert_succeeds() {
     });
 
     app.update(Message::Key(Key::Tab));
-    app.update(Message::Key(Key::Down));
-    app.update(Message::Key(Key::Down));
-    app.update(Message::Key(Key::Down));
-    app.update(Message::Key(Key::Down));
     app.update(Message::Key(Key::Visual));
     app.update(Message::Key(Key::Down));
     app.update(Message::Key(Key::Visual));
@@ -228,8 +225,103 @@ fn added_file_renders_as_plain_file_content() {
     let screen = screen(&app, 80, 12).join("\n");
     assert!(screen.contains("fn main() {}"));
     assert!(!screen.contains("new file mode"));
+    assert!(!screen.contains("diff --git"));
     assert!(!screen.contains("@@"));
     assert!(!screen.contains("+fn main() {}"));
+    assert!(screen.contains("▌ 1 fn main() {}"));
+}
+
+#[test]
+fn diff_uses_bars_line_numbers_and_expandable_gaps() {
+    let mut app = ReviewApp::default();
+    app.update(Message::FilesLoaded {
+        change_id: "qpvuntsm".to_owned(),
+        commit_id: "11111111".to_owned(),
+        files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed)],
+    });
+    let rows = vec![
+        DiffRow::FileHeader {
+            old_path: None,
+            new_path: None,
+            text: "diff --git a/src/lib.rs b/src/lib.rs".to_owned(),
+        },
+        DiffRow::Meta {
+            text: "--- a/src/lib.rs".to_owned(),
+        },
+        DiffRow::Hunk {
+            old_start: 1,
+            old_count: 2,
+            new_start: 1,
+            new_count: 2,
+        },
+        DiffRow::Context {
+            old_line: 1,
+            new_line: 1,
+            text: " first".to_owned(),
+        },
+        DiffRow::Delete {
+            old_line: 2,
+            text: "-old".to_owned(),
+        },
+        DiffRow::Add {
+            new_line: 2,
+            text: "+new".to_owned(),
+        },
+        DiffRow::Hunk {
+            old_start: 6,
+            old_count: 1,
+            new_start: 6,
+            new_count: 1,
+        },
+        DiffRow::Context {
+            old_line: 6,
+            new_line: 6,
+            text: " sixth".to_owned(),
+        },
+    ];
+    let load = |app: &mut ReviewApp| {
+        app.update(Message::DiffLoaded {
+            commit_id: "11111111".to_owned(),
+            path: "src/lib.rs".to_owned(),
+            rows: rows.clone(),
+            old_content: Some(b"first\nold\nthird\nfourth\nfifth\nsixth\n".to_vec()),
+            new_content: Some(b"first\nnew\nthird\nfourth\nfifth\nsixth\n".to_vec()),
+        });
+    };
+    load(&mut app);
+
+    let collapsed_rows = screen(&app, 100, 14);
+    let collapsed = collapsed_rows.join("\n");
+    assert_eq!(collapsed.matches('▌').count(), 2);
+    assert!(collapsed.contains("▌ 2 old"));
+    assert!(collapsed.contains("▌ 2 new"));
+    assert!(collapsed.contains("  … 3 unmodified lines"));
+    assert!(!collapsed.contains("diff --git"));
+    assert!(!collapsed.contains("@@"));
+    let mut terminal = Terminal::new(TestBackend::new(100, 14)).unwrap();
+    terminal
+        .draw(|frame| frame.render_widget(app.view(), frame.area()))
+        .unwrap();
+    let buffer = terminal.backend().buffer();
+    assert_ne!(buffer[(31, 5)].bg, Color::Reset);
+    assert_eq!(buffer[(31, 5)].bg, buffer[(98, 5)].bg);
+
+    app.update(Message::Key(Key::Tab));
+    for _ in 0..3 {
+        app.update(Message::Key(Key::Down));
+    }
+    app.update(Message::Key(Key::Expand));
+    let expanded = screen(&app, 100, 14).join("\n");
+    assert!(expanded.contains("3 third"));
+    assert!(!expanded.contains("… 3 unmodified lines"));
+
+    load(&mut app);
+    app.update(Message::MouseClick {
+        column: 70,
+        row: 5,
+        insert_path: false,
+    });
+    assert!(screen(&app, 100, 14).join("\n").contains("3 third"));
 }
 
 #[test]

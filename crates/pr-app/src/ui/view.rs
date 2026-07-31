@@ -11,7 +11,7 @@ use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 use super::{Focus, PaneLayout, ReviewApp, ReviewFile, Selection};
 use crate::file_tree::FileTreeRow;
 use crate::highlight::Token;
-use crate::presentation::RowDisplay;
+use crate::presentation::PresentedRow;
 use crate::review::ReviewStatus;
 
 const MIN_WIDTH: u16 = 40;
@@ -180,6 +180,7 @@ impl ReviewView<'_> {
             return;
         }
         let selection = self.0.selection.map(Selection::range);
+        let line_number_width = file.diff.line_number_width();
         let lines = file
             .diff
             .rows
@@ -188,8 +189,25 @@ impl ReviewView<'_> {
             .skip(file.scroll)
             .take(usize::from(inner.height))
             .map(|(index, presented)| {
-                let row = file.diff.row(presented);
-                let mut style = self.row_style(row, presented.display);
+                let (line, mut style) = match presented {
+                    PresentedRow::Diff { source, tokens } => {
+                        let row = file.diff.source_row(*source);
+                        (
+                            self.diff_line(row, tokens, line_number_width),
+                            self.row_style(row),
+                        )
+                    }
+                    PresentedRow::Gap { lines, .. } => (
+                        Self::gap_line(lines.len(), line_number_width, usize::from(inner.width)),
+                        Style::default()
+                            .fg(self.0.palette.text)
+                            .bg(self.0.palette.selection),
+                    ),
+                    PresentedRow::Expanded { line, tokens } => (
+                        self.code_line(Some(*line), None, tokens, line_number_width),
+                        Style::default().fg(self.0.palette.text),
+                    ),
+                };
                 if selection
                     .as_ref()
                     .is_some_and(|selection| selection.contains(&index))
@@ -199,15 +217,15 @@ impl ReviewView<'_> {
                 if focused && index == file.cursor {
                     style = style.bg(self.0.palette.cursor);
                 }
-                self.row_line(row, &file.path, &presented.tokens, presented.display)
-                    .style(style)
+                line.style(style)
             })
             .collect::<Vec<_>>();
         Paragraph::new(lines).render(inner, buffer);
     }
 
     fn render_footer(&self, area: Rect, buffer: &mut Buffer) {
-        let controls = "Tab focus · j/k move · v select · Enter insert · Space review · q quit";
+        let controls =
+            "Tab focus · j/k move · l expand · v select · Enter insert · Space review · q quit";
         let status = match self.0.review_in_flight {
             Some(true) => "Marking reviewed…",
             Some(false) => "Removing review mark…",
@@ -240,48 +258,42 @@ impl ReviewView<'_> {
             .border_style(style)
     }
 
-    fn row_text(row: &DiffRow, path: &str) -> String {
-        match row {
-            DiffRow::FileHeader { .. } => format!("diff --git {path}"),
-            DiffRow::Meta { text }
-            | DiffRow::Context { text, .. }
-            | DiffRow::Delete { text, .. }
-            | DiffRow::Add { text, .. }
-            | DiffRow::Notice { text, .. } => text.clone(),
-            DiffRow::Hunk {
-                old_start,
-                old_count,
-                new_start,
-                new_count,
-            } => format!("@@ -{old_start},{old_count} +{new_start},{new_count} @@"),
-        }
+    fn diff_line(&self, row: &DiffRow, tokens: &[Token], number_width: usize) -> Line<'static> {
+        let (line, bar) = match row {
+            DiffRow::Add { new_line, .. } => (Some(*new_line), Some(self.0.palette.insertion)),
+            DiffRow::Delete { old_line, .. } => (Some(*old_line), Some(self.0.palette.deletion)),
+            DiffRow::Context { new_line, .. } => (Some(*new_line), None),
+            DiffRow::Notice { text, .. } => return Line::raw(text.clone()),
+            DiffRow::FileHeader { .. } | DiffRow::Meta { .. } | DiffRow::Hunk { .. } => {
+                return Line::default();
+            }
+        };
+        self.code_line(line, bar, tokens, number_width)
     }
 
-    fn row_line(
+    fn code_line(
         &self,
-        row: &DiffRow,
-        path: &str,
+        line: Option<u32>,
+        bar: Option<Color>,
         tokens: &[Token],
-        display: RowDisplay,
+        number_width: usize,
     ) -> Line<'static> {
-        if display == RowDisplay::FileContent {
-            return Line::from(
-                tokens
-                    .iter()
-                    .map(|token| Span::styled(token.text.clone(), Style::default().fg(token.color)))
-                    .collect::<Vec<_>>(),
-            );
-        }
-        let marker = match row {
-            DiffRow::Add { .. } => Some(("+", self.0.palette.insertion)),
-            DiffRow::Delete { .. } => Some(("-", self.0.palette.deletion)),
-            DiffRow::Context { .. } => Some((" ", self.0.palette.dim)),
-            _ => None,
-        };
-        let Some((marker, color)) = marker else {
-            return Line::raw(Self::row_text(row, path));
-        };
-        let mut spans = vec![Span::styled(marker, Style::default().fg(color))];
+        let mut spans = vec![bar.map_or_else(
+            || Span::raw("  "),
+            |color| {
+                Span::styled(
+                    "▌ ",
+                    Style::default().fg(color).add_modifier(Modifier::BOLD),
+                )
+            },
+        )];
+        spans.push(Span::styled(
+            line.map_or_else(
+                || " ".repeat(number_width + 1),
+                |line| format!("{line:>number_width$} "),
+            ),
+            Style::default().fg(self.0.palette.dim),
+        ));
         spans.extend(
             tokens
                 .iter()
@@ -290,10 +302,13 @@ impl ReviewView<'_> {
         Line::from(spans)
     }
 
-    fn row_style(&self, row: &DiffRow, display: RowDisplay) -> Style {
-        if display == RowDisplay::FileContent {
-            return Style::default().fg(self.0.palette.text);
-        }
+    fn gap_line(count: usize, number_width: usize, width: usize) -> Line<'static> {
+        let mut text = format!("  {:>number_width$} {count} unmodified lines", "…");
+        text.push_str(&" ".repeat(width.saturating_sub(text.chars().count())));
+        Line::raw(text)
+    }
+
+    fn row_style(&self, row: &DiffRow) -> Style {
         match row {
             DiffRow::Add { .. } => Style::default()
                 .fg(self.0.palette.insertion)
@@ -301,8 +316,7 @@ impl ReviewView<'_> {
             DiffRow::Delete { .. } => Style::default()
                 .fg(self.0.palette.deletion)
                 .bg(self.0.palette.deletion_bg),
-            DiffRow::Hunk { .. }
-            | DiffRow::Notice {
+            DiffRow::Notice {
                 kind: NoticeKind::Binary,
                 ..
             } => Style::default().fg(self.0.palette.focus),
@@ -310,7 +324,7 @@ impl ReviewView<'_> {
                 kind: NoticeKind::Conflict | NoticeKind::Unsupported,
                 ..
             } => Style::default().fg(self.0.palette.warning),
-            DiffRow::Meta { .. } | DiffRow::FileHeader { .. } => {
+            DiffRow::Meta { .. } | DiffRow::FileHeader { .. } | DiffRow::Hunk { .. } => {
                 Style::default().fg(self.0.palette.dim)
             }
             DiffRow::Context { .. } => Style::default().fg(self.0.palette.text),

@@ -39,6 +39,7 @@ pub enum Key {
     HalfPageDown,
     HalfPageUp,
     Visual,
+    Expand,
     Escape,
     Enter,
     Space,
@@ -546,7 +547,11 @@ impl ReviewApp {
                 self.visual();
                 Action::None
             }
-            Key::Visual => Action::None,
+            Key::Expand if self.focus == Focus::Diff => {
+                self.expand_gap();
+                Action::None
+            }
+            Key::Visual | Key::Expand => Action::None,
             Key::Down => self.navigate(1),
             Key::Up => self.navigate(-1),
             Key::First => self.navigate_to(0),
@@ -618,6 +623,16 @@ impl ReviewApp {
         };
     }
 
+    fn expand_gap(&mut self) {
+        let Some(file) = self.files.get_mut(self.selected_file) else {
+            return;
+        };
+        if file.diff.expand(file.cursor) {
+            self.selection = None;
+            self.keep_visible();
+        }
+    }
+
     fn navigate(&mut self, delta: isize) -> Action {
         let current = match self.focus {
             Focus::Files => self.selected_file,
@@ -685,6 +700,18 @@ impl ReviewApp {
             return Action::None;
         };
         self.focus = focus;
+        if focus == Focus::Diff && layout.contains_pane_content(row) {
+            let page_row = usize::from(row - 2);
+            let Some(file) = self.files.get_mut(self.selected_file) else {
+                return Action::None;
+            };
+            file.cursor = (file.scroll + page_row).min(file.diff.len().saturating_sub(1));
+            if file.diff.expand(file.cursor) {
+                self.selection = None;
+            }
+            self.keep_visible();
+            return Action::None;
+        }
         if focus != Focus::Files || !layout.contains_pane_content(row) {
             return Action::None;
         }

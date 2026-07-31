@@ -24,6 +24,12 @@ pub(crate) struct HighlightedRow {
     pub(crate) tokens: Vec<Token>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct HighlightedDiff {
+    pub(crate) rows: Vec<HighlightedRow>,
+    pub(crate) new_lines: Option<Vec<Vec<Token>>>,
+}
+
 /// Highlights diff rows from complete old and new file contents.
 pub(crate) struct DiffHighlighter {
     theme: Theme,
@@ -52,10 +58,11 @@ impl DiffHighlighter {
         rows: Vec<DiffRow>,
         old_content: Option<&[u8]>,
         new_content: Option<&[u8]>,
-    ) -> Vec<HighlightedRow> {
+    ) -> HighlightedDiff {
         let old = self.highlight_file(path, old_content);
         let new = self.highlight_file(path, new_content);
-        rows.into_iter()
+        let rows = rows
+            .into_iter()
             .map(|diff| {
                 let tokens = match &diff {
                     DiffRow::Context { new_line, text, .. } | DiffRow::Add { new_line, text } => {
@@ -70,7 +77,11 @@ impl DiffHighlighter {
                 };
                 HighlightedRow { diff, tokens }
             })
-            .collect()
+            .collect();
+        HighlightedDiff {
+            rows,
+            new_lines: new,
+        }
     }
 
     fn syntaxes() -> &'static SyntaxSet {
@@ -98,7 +109,18 @@ impl DiffHighlighter {
 
     fn highlight_file(&self, path: &str, content: Option<&[u8]>) -> Option<Vec<Vec<Token>>> {
         let content = std::str::from_utf8(content?).ok()?;
-        let syntax = Self::syntax(path)?;
+        let Some(syntax) = Self::syntax(path) else {
+            return Some(
+                LinesWithEndings::from(content)
+                    .map(|line| {
+                        vec![Token {
+                            text: line.trim_end_matches(['\r', '\n']).to_owned(),
+                            color: self.plain,
+                        }]
+                    })
+                    .collect(),
+            );
+        };
         let mut highlighter = HighlightLines::new(syntax, &self.theme);
         LinesWithEndings::from(content)
             .map(|line| Self::highlight_line(&mut highlighter, line))
@@ -163,13 +185,13 @@ mod tests {
         );
 
         assert_eq!(
-            highlighted[0]
+            highlighted.rows[0]
                 .tokens
                 .iter()
                 .map(|token| token.text.as_str())
                 .collect::<String>(),
             "let answer = 42;"
         );
-        assert_eq!(highlighted[0].tokens.len(), 1);
+        assert_eq!(highlighted.rows[0].tokens.len(), 1);
     }
 }

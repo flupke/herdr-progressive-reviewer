@@ -336,7 +336,7 @@ impl Worker {
         let result = snapshot
             .files
             .iter()
-            .find(|file| file.display_path == path)
+            .find(|file| file.review_path().display() == path)
             .ok_or_else(|| eyre::eyre!("the selected file is no longer in the current change"))
             .and_then(|file| {
                 if reviewed {
@@ -372,7 +372,7 @@ impl Worker {
         let file = snapshot
             .files
             .iter()
-            .find(|file| file.display_path == path)
+            .find(|file| file.review_path().display() == path)
             .ok_or_else(|| eyre::eyre!("the selected file is no longer in the current change"))?;
         Ok((snapshot, file))
     }
@@ -467,6 +467,7 @@ fn normalize_key(key: KeyEvent) -> Option<Key> {
         KeyCode::Home | KeyCode::Char('g') => Some(Key::First),
         KeyCode::End | KeyCode::Char('G') => Some(Key::Last),
         KeyCode::Char('v' | 'V') => Some(Key::Visual),
+        KeyCode::Char('l') => Some(Key::Expand),
         KeyCode::Esc => Some(Key::Escape),
         KeyCode::Enter => Some(Key::Enter),
         KeyCode::Char(' ') => Some(Key::Space),
@@ -484,6 +485,10 @@ mod tests {
         assert_eq!(
             normalize_key(KeyEvent::new(KeyCode::Char('V'), KeyModifiers::SHIFT)),
             Some(Key::Visual)
+        );
+        assert_eq!(
+            normalize_key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE)),
+            Some(Key::Expand)
         );
         assert_eq!(
             normalize_mouse(MouseEvent {
