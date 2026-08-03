@@ -617,6 +617,68 @@ fn mouse_targets_the_hovered_pane_and_click_changes_focus() {
 }
 
 #[test]
+fn clicking_a_directory_collapses_its_descendants_across_refreshes() {
+    let mut app = ReviewApp::default();
+    let files = || {
+        vec![
+            ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed),
+            ReviewFile::new("src/main.rs", ReviewStatus::Unreviewed),
+            ReviewFile::new("tests/test.rs", ReviewStatus::Unreviewed),
+        ]
+    };
+    app.update(Message::FilesLoaded {
+        change_id: "qpvuntsm".to_owned(),
+        commit_id: "11111111".to_owned(),
+        description: "Commit title".to_owned(),
+        files: files(),
+    });
+
+    assert_eq!(
+        app.update(Message::MouseClick {
+            column: 4,
+            row: 2,
+            insert_path: false,
+        }),
+        Action::None
+    );
+    assert!(screen(&app, 80, 12).join("\n").contains("lib.rs"));
+
+    assert_eq!(
+        app.update(Message::MouseClick {
+            column: 1,
+            row: 2,
+            insert_path: false,
+        }),
+        Action::LoadDiff {
+            commit_id: "11111111".to_owned(),
+            path: "tests/test.rs".to_owned(),
+        }
+    );
+    let collapsed = screen(&app, 80, 12).join("\n");
+    assert!(collapsed.contains("▸ src/"));
+    assert!(!collapsed.contains("lib.rs"));
+    assert!(!collapsed.contains("main.rs"));
+
+    app.update(Message::FilesLoaded {
+        change_id: "qpvuntsm".to_owned(),
+        commit_id: "22222222".to_owned(),
+        description: "Commit title".to_owned(),
+        files: files(),
+    });
+    assert!(screen(&app, 80, 12).join("\n").contains("▸ src/"));
+
+    app.update(Message::MouseClick {
+        column: 1,
+        row: 2,
+        insert_path: false,
+    });
+    let expanded = screen(&app, 80, 12).join("\n");
+    assert!(expanded.contains("▾ src/"));
+    assert!(expanded.contains("lib.rs"));
+    assert!(expanded.contains("main.rs"));
+}
+
+#[test]
 fn dragging_the_separator_resizes_the_file_pane() {
     let mut app = ReviewApp::default();
     app.update(Message::FilesLoaded {

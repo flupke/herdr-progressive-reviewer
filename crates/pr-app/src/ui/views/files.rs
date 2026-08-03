@@ -25,8 +25,17 @@ impl Widget for FilesView<'_> {
             .skip(self.0.file_scroll)
             .take(usize::from(inner.height))
             .map(|row| match row {
-                FileTreeRow::Directory { depth, name } => Line::styled(
-                    format!("{}▾ {name}/", "  ".repeat(*depth)),
+                FileTreeRow::Directory {
+                    depth,
+                    name,
+                    collapsed,
+                    ..
+                } => Line::styled(
+                    format!(
+                        "{}{} {name}/",
+                        "  ".repeat(*depth),
+                        if *collapsed { '▸' } else { '▾' }
+                    ),
                     Style::default()
                         .fg(self.0.palette.dim)
                         .add_modifier(Modifier::BOLD),

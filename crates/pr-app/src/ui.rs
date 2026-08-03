@@ -1,5 +1,6 @@
 //! Pure review state and navigation.
 
+use std::collections::HashSet;
 use std::ops::RangeInclusive;
 
 use pr_core::diff::DiffRow;
@@ -318,6 +319,7 @@ pub struct ReviewApp {
     show_commit_message: bool,
     files: Vec<ReviewFile>,
     file_tree: FileTree,
+    collapsed_directories: HashSet<String>,
     selected_file: usize,
     file_scroll: usize,
     file_width: Option<u16>,
@@ -346,6 +348,7 @@ impl ReviewApp {
             show_commit_message: false,
             files: Vec::new(),
             file_tree: FileTree::default(),
+            collapsed_directories: HashSet::new(),
             selected_file: 0,
             file_scroll: 0,
             file_width,
@@ -456,23 +459,21 @@ impl ReviewApp {
             self.file_scroll = 0;
             self.focus = Focus::Files;
             self.review_in_flight = None;
+            self.collapsed_directories.clear();
         }
 
         self.change_id = change_id;
         self.commit_id = commit_id;
         self.description = description;
         self.files = files;
-        self.file_tree = FileTree::new(
-            self.files
-                .iter()
-                .map(|file| (file.path.as_str(), file.display_path.as_str())),
-        );
+        self.rebuild_file_tree();
         let selected_file = selected_path
             .as_deref()
             .and_then(|path| self.files.iter().position(|file| file.path == path));
         self.selected_file = selected_file
             .unwrap_or(0)
             .min(self.files.len().saturating_sub(1));
+        self.ensure_selected_file_visible();
         if selected_file.is_none() {
             self.selection = None;
         }
@@ -543,9 +544,9 @@ impl ReviewApp {
                     && self
                         .selected()
                         .is_some_and(|selected| selected.path == path)
-                    && self.selected_file + 1 < self.files.len()
+                    && let Some(next_file) = self.file_tree.next_visible_file(self.selected_file)
                 {
-                    self.selected_file += 1;
+                    self.selected_file = next_file;
                     self.selection = None;
                     self.keep_visible();
                     return self.load_selected_action();
@@ -675,7 +676,10 @@ impl ReviewApp {
 
     fn navigate(&mut self, delta: isize) -> Action {
         let current = match self.focus {
-            Focus::Files => self.selected_file,
+            Focus::Files => self
+                .file_tree
+                .visible_file_position(self.selected_file)
+                .unwrap_or(0),
             Focus::Diff => self.selected().map_or(0, |file| file.cursor),
         };
         self.navigate_to(current.saturating_add_signed(delta))
@@ -685,7 +689,10 @@ impl ReviewApp {
         let mut selected_changed = false;
         match self.focus {
             Focus::Files => {
-                let target = target.min(self.files.len().saturating_sub(1));
+                let target = target.min(self.file_tree.visible_file_count().saturating_sub(1));
+                let Some(target) = self.file_tree.visible_file_at(target) else {
+                    return Action::None;
+                };
                 if target != self.selected_file {
                     self.selected_file = target;
                     self.selection = None;
@@ -786,6 +793,22 @@ impl ReviewApp {
             return Action::None;
         }
         let row = self.file_scroll + usize::from(row - 2);
+        if let Some(directory) = self
+            .file_tree
+            .directory_at(row)
+            .filter(|(_, depth)| {
+                column == 1 + u16::try_from(depth.saturating_mul(2)).unwrap_or(u16::MAX)
+            })
+            .map(|(path, _)| path.to_owned())
+        {
+            if !self.collapsed_directories.remove(&directory) {
+                self.collapsed_directories.insert(directory);
+            }
+            self.rebuild_file_tree();
+            self.ensure_selected_file_visible();
+            self.keep_file_visible();
+            return self.load_selected_action();
+        }
         let Some(target) = self.file_tree.file_at(row) else {
             return Action::None;
         };
@@ -903,13 +926,31 @@ impl ReviewApp {
 
     fn focus_len(&self) -> usize {
         match self.focus {
-            Focus::Files => self.files.len(),
+            Focus::Files => self.file_tree.visible_file_count(),
             Focus::Diff => self.selected().map_or(0, |file| file.diff.len()),
         }
     }
 
     fn selected(&self) -> Option<&ReviewFile> {
         self.files.get(self.selected_file)
+    }
+
+    fn rebuild_file_tree(&mut self) {
+        self.file_tree = FileTree::new(
+            self.files
+                .iter()
+                .map(|file| (file.path.as_str(), file.display_path.as_str())),
+            &self.collapsed_directories,
+        );
+    }
+
+    fn ensure_selected_file_visible(&mut self) {
+        if self.file_tree.row_for_file(self.selected_file).is_none()
+            && let Some(file) = self.file_tree.nearest_visible_file(self.selected_file)
+        {
+            self.selected_file = file;
+            self.selection = None;
+        }
     }
 
     fn commit_title(&self) -> &str {
