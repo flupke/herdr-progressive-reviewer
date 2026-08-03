@@ -131,6 +131,12 @@ impl ReviewFile {
     }
 }
 
+impl ReviewStatus {
+    fn needs_parent_expansion(self, previous: Self) -> bool {
+        self != previous && self != Self::Reviewed
+    }
+}
+
 /// A typed result from keyboard input or asynchronous work.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Message {
@@ -467,9 +473,13 @@ impl ReviewApp {
         let selected_path = same_change
             .then(|| self.selected().map(|file| file.path.clone()))
             .flatten();
+        let mut expand = Vec::new();
         if same_change {
             for file in &mut files {
                 if let Some(old) = self.files.iter().find(|old| old.path == file.path) {
+                    if file.status.needs_parent_expansion(old.status) {
+                        expand.push(file.path.clone());
+                    }
                     file.cursor = old.cursor;
                     file.scroll = old.scroll;
                     if same_snapshot {
@@ -486,6 +496,9 @@ impl ReviewApp {
             self.focus = Focus::Files;
             self.review_in_flight = None;
             self.collapsed_directories.clear();
+        }
+        for path in expand {
+            self.expand_file_parents(&path);
         }
 
         self.change_id = change_id;
@@ -565,11 +578,16 @@ impl ReviewApp {
         self.review_in_flight = None;
         match result {
             Ok(state) => {
+                let mut expand = false;
                 if let Some(file) = self.files.iter_mut().find(|file| file.path == path) {
+                    expand = state.status.needs_parent_expansion(file.status);
                     file.status = state.status;
                     if state.status == ReviewStatus::Unreviewed {
                         file.diff = DiffPresentation::default();
                     }
+                }
+                if expand && self.expand_file_parents(path) {
+                    self.rebuild_file_tree();
                 }
                 let next_unreviewed = self
                     .file_tree
@@ -1141,6 +1159,14 @@ impl ReviewApp {
                 .map(|file| (file.path.as_str(), file.display_path.as_str())),
             &self.collapsed_directories,
         );
+    }
+
+    fn expand_file_parents(&mut self, path: &str) -> bool {
+        path.match_indices('/')
+            .map(|(index, _)| &path[..index])
+            .fold(false, |changed, parent| {
+                self.collapsed_directories.remove(parent) || changed
+            })
     }
 
     fn ensure_selected_file_visible(&mut self) {

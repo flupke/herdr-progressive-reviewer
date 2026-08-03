@@ -683,6 +683,61 @@ fn clicking_a_directory_collapses_its_descendants_across_refreshes() {
 }
 
 #[test]
+fn files_that_need_review_expand_their_parent_directories() {
+    let mut app = ReviewApp::default();
+    let files = |status| {
+        vec![
+            ReviewFile::new("src/deep/lib.rs", status),
+            ReviewFile::new("tests/test.rs", ReviewStatus::Reviewed),
+        ]
+    };
+    app.update(Message::FilesLoaded {
+        change_id: "qpvuntsm".to_owned(),
+        commit_id: "11111111".to_owned(),
+        description: String::new(),
+        files: files(ReviewStatus::Reviewed),
+    });
+    app.update(Message::MouseClick {
+        column: 1,
+        row: 2,
+        insert_path: false,
+    });
+
+    app.update(Message::FilesLoaded {
+        change_id: "qpvuntsm".to_owned(),
+        commit_id: "22222222".to_owned(),
+        description: String::new(),
+        files: files(ReviewStatus::ChangedSinceReview),
+    });
+    assert!(screen(&app, 80, 12).join("\n").contains("▾ src/"));
+    assert!(screen(&app, 80, 12).join("\n").contains("lib.rs"));
+
+    app.update(Message::FilesLoaded {
+        change_id: "qpvuntsm".to_owned(),
+        commit_id: "33333333".to_owned(),
+        description: String::new(),
+        files: files(ReviewStatus::Reviewed),
+    });
+    app.update(Message::MouseClick {
+        column: 1,
+        row: 2,
+        insert_path: false,
+    });
+    app.update(Message::ReviewFinished {
+        change_id: "qpvuntsm".to_owned(),
+        path: "src/deep/lib.rs".to_owned(),
+        result: Ok(ReviewState {
+            status: ReviewStatus::Unreviewed,
+            warning: None,
+        }),
+    });
+    let rendered = screen(&app, 80, 12).join("\n");
+    assert!(rendered.contains("▾ src/"));
+    assert!(rendered.contains("▾ deep/"));
+    assert!(rendered.contains("lib.rs"));
+}
+
+#[test]
 fn dragging_the_separator_resizes_the_file_pane() {
     let mut app = ReviewApp::default();
     app.update(Message::FilesLoaded {
