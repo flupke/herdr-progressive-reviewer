@@ -87,11 +87,14 @@ impl FilesView<'_> {
                 Style::default().fg(self.0.palette.deletion),
             ));
         }
-        let style = if index == self.0.selected_file {
+        let mut style = if index == self.0.selected_file {
             Style::default().bg(self.0.palette.cursor)
         } else {
             Style::default()
         };
+        if self.0.file_matches_search(index) {
+            style = style.add_modifier(Modifier::BOLD);
+        }
         Line::from(spans).style(style)
     }
 

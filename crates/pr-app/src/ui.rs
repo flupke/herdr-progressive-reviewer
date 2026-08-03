@@ -10,7 +10,7 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::file_tree::FileTree;
 use crate::highlight::DiffHighlighter;
-use crate::presentation::DiffPresentation;
+use crate::presentation::{DiffPresentation, SearchDirection};
 use crate::review::{ReviewState, ReviewStatus};
 use crate::theme::{Palette, Theme};
 
@@ -37,6 +37,8 @@ pub enum Focus {
 /// One normalized keyboard input.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Key {
+    Char(char),
+    Backspace,
     Tab,
     Down,
     Up,
@@ -119,6 +121,14 @@ impl ReviewFile {
         let last = self.diff.len().saturating_sub(page);
         self.scroll = self.scroll.saturating_add_signed(delta).min(last);
     }
+
+    fn start_diff_load(&mut self) -> Option<String> {
+        if !self.diff.is_empty() || self.loading {
+            return None;
+        }
+        self.loading = true;
+        Some(self.path.clone())
+    }
 }
 
 /// A typed result from keyboard input or asynchronous work.
@@ -174,6 +184,11 @@ pub enum Action {
     None,
     /// Load one path diff for the exact current snapshot.
     LoadDiff { commit_id: String, path: String },
+    /// Load every unopened path diff for the exact current snapshot.
+    LoadDiffs {
+        commit_id: String,
+        paths: Vec<String>,
+    },
     /// Set the selected path review state.
     SetReviewed { path: String, reviewed: bool },
     /// Insert one valid unified-diff excerpt.
@@ -189,6 +204,14 @@ struct Selection {
     anchor: usize,
     cursor: usize,
     fixed: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct Search {
+    query: String,
+    origin: usize,
+    editing: bool,
+    pending: Vec<SearchDirection>,
 }
 
 impl Selection {
@@ -326,6 +349,7 @@ pub struct ReviewApp {
     drag: DragState,
     focus: Focus,
     selection: Option<Selection>,
+    search: Option<Search>,
     review_in_flight: Option<bool>,
     highlighter: DiffHighlighter,
     palette: Palette,
@@ -355,6 +379,7 @@ impl ReviewApp {
             drag: DragState::None,
             focus: Focus::Files,
             selection: None,
+            search: None,
             review_in_flight: None,
             highlighter: DiffHighlighter::new(theme),
             palette: theme.palette,
@@ -455,6 +480,7 @@ impl ReviewApp {
             }
         } else {
             self.selection = None;
+            self.search = None;
             self.show_commit_message = false;
             self.file_scroll = 0;
             self.focus = Focus::Files;
@@ -507,8 +533,13 @@ impl ReviewApp {
             .is_some_and(|selected| selected.path == path)
         {
             self.selection = None;
-            self.keep_visible();
+            if self.search.as_ref().is_some_and(|search| search.editing) {
+                self.update_search_match();
+            } else {
+                self.keep_visible();
+            }
         }
+        self.finish_pending_search();
     }
 
     fn fail_diff(&mut self, commit_id: &str, path: &str) {
@@ -518,6 +549,7 @@ impl ReviewApp {
         if let Some(file) = self.files.iter_mut().find(|file| file.path == path) {
             file.loading = false;
         }
+        self.finish_pending_search();
     }
 
     fn finish_review(
@@ -571,9 +603,31 @@ impl ReviewApp {
     }
 
     fn key(&mut self, key: Key) -> Action {
+        if self.search.as_ref().is_some_and(|search| search.editing) {
+            return self.search_key(key);
+        }
         match key {
-            Key::Quit => Action::Quit,
-            Key::CommitMessage => {
+            Key::Char('/') => {
+                self.focus = Focus::Diff;
+                self.selection = None;
+                self.search = Some(Search {
+                    query: String::new(),
+                    origin: self.selected().map_or(0, |file| file.cursor),
+                    editing: true,
+                    pending: Vec::new(),
+                });
+                self.load_all_diffs_action()
+            }
+            Key::Char('n') => {
+                self.repeat_search(SearchDirection::Forward);
+                Action::None
+            }
+            Key::Char('p') => {
+                self.repeat_search(SearchDirection::Backward);
+                Action::None
+            }
+            Key::Quit | Key::Char('q') => Action::Quit,
+            Key::CommitMessage | Key::Char('c') => {
                 self.show_commit_message = !self.show_commit_message;
                 Action::None
             }
@@ -587,6 +641,7 @@ impl ReviewApp {
             Key::Escape => {
                 self.show_commit_message = false;
                 self.selection = None;
+                self.search = None;
                 Action::None
             }
             Key::Enter if self.focus == Focus::Files => {
@@ -595,26 +650,140 @@ impl ReviewApp {
                 })
             }
             Key::Enter => self.insert(),
-            Key::Space => self.toggle_review(),
-            Key::Visual if self.focus == Focus::Diff => {
+            Key::Space | Key::Char(' ') => self.toggle_review(),
+            Key::Visual | Key::Char('v' | 'V') if self.focus == Focus::Diff => {
                 self.visual();
                 Action::None
             }
-            Key::Expand if self.focus == Focus::Diff => {
+            Key::Expand | Key::Char('l') if self.focus == Focus::Diff => {
                 self.expand_gap();
                 Action::None
             }
-            Key::Visual | Key::Expand => Action::None,
-            Key::Down => self.navigate(1),
-            Key::Up => self.navigate(-1),
-            Key::First => self.navigate_to(0),
-            Key::Last => {
+            Key::Down | Key::Char('j') => self.navigate(1),
+            Key::Up | Key::Char('k') => self.navigate(-1),
+            Key::First | Key::Char('g') => self.navigate_to(0),
+            Key::Last | Key::Char('G') => {
                 let last = self.focus_len().saturating_sub(1);
                 self.navigate_to(last)
             }
             Key::HalfPageDown => self.navigate(self.half_page_rows()),
             Key::HalfPageUp => self.navigate(-self.half_page_rows()),
+            Key::Char(_) | Key::Backspace | Key::Visual | Key::Expand => Action::None,
         }
+    }
+
+    fn search_key(&mut self, key: Key) -> Action {
+        match key {
+            Key::Char(character) => {
+                if let Some(search) = &mut self.search {
+                    search.query.push(character);
+                }
+                self.update_search_match();
+            }
+            Key::Backspace => {
+                if let Some(search) = &mut self.search {
+                    search.query.pop();
+                }
+                self.update_search_match();
+            }
+            Key::Enter => {
+                if let Some(search) = &mut self.search {
+                    search.editing = false;
+                }
+            }
+            Key::Escape => {
+                self.search = None;
+            }
+            _ => {}
+        }
+        Action::None
+    }
+
+    fn update_search_match(&mut self) {
+        let Some(search) = &self.search else {
+            return;
+        };
+        if search.query.is_empty() {
+            if let Some(file) = self.files.get_mut(self.selected_file) {
+                file.cursor = search.origin.min(file.diff.len().saturating_sub(1));
+            }
+            self.keep_visible();
+            return;
+        }
+        let target = self.selected().and_then(|file| {
+            file.diff
+                .find_matching_row(&search.query, search.origin, SearchDirection::Forward)
+        });
+        self.move_diff_cursor(target);
+    }
+
+    fn repeat_search(&mut self, direction: SearchDirection) {
+        let Some(search) = self.search.as_ref().filter(|search| !search.editing) else {
+            return;
+        };
+        if self.files.iter().any(|file| file.loading) {
+            if let Some(search) = &mut self.search {
+                search.pending.push(direction);
+            }
+            return;
+        }
+        let current = (
+            self.selected_file,
+            self.selected().map_or(0, |file| file.cursor),
+        );
+        let matches = self
+            .files
+            .iter()
+            .enumerate()
+            .flat_map(|(file, review_file)| {
+                review_file
+                    .diff
+                    .matching_rows(&search.query)
+                    .map(move |row| (file, row))
+            })
+            .collect::<Vec<_>>();
+        let target = match direction {
+            SearchDirection::Backward => matches
+                .iter()
+                .rev()
+                .copied()
+                .find(|target| *target < current)
+                .or_else(|| matches.last().copied()),
+            SearchDirection::Forward => matches
+                .iter()
+                .copied()
+                .find(|target| *target > current)
+                .or_else(|| matches.first().copied()),
+        };
+        if let Some((file, row)) = target {
+            self.selected_file = file;
+            self.move_diff_cursor(Some(row));
+        }
+    }
+
+    fn finish_pending_search(&mut self) {
+        if self.files.iter().any(|file| file.loading) {
+            return;
+        }
+        let pending = self
+            .search
+            .as_mut()
+            .map(|search| std::mem::take(&mut search.pending))
+            .unwrap_or_default();
+        for direction in pending {
+            self.repeat_search(direction);
+        }
+    }
+
+    fn move_diff_cursor(&mut self, target: Option<usize>) {
+        let Some(target) = target else {
+            return;
+        };
+        if let Some(file) = self.files.get_mut(self.selected_file) {
+            file.cursor = target;
+        }
+        self.selection = None;
+        self.keep_visible();
     }
 
     fn toggle_review(&mut self) -> Action {
@@ -886,13 +1055,23 @@ impl ReviewApp {
         let Some(file) = self.files.get_mut(self.selected_file) else {
             return Action::None;
         };
-        if !file.diff.is_empty() || file.loading {
-            return Action::None;
-        }
-        file.loading = true;
-        Action::LoadDiff {
-            commit_id,
-            path: file.path.clone(),
+        file.start_diff_load()
+            .map_or(Action::None, |path| Action::LoadDiff { commit_id, path })
+    }
+
+    fn load_all_diffs_action(&mut self) -> Action {
+        let paths = self
+            .files
+            .iter_mut()
+            .filter_map(ReviewFile::start_diff_load)
+            .collect::<Vec<_>>();
+        if paths.is_empty() {
+            Action::None
+        } else {
+            Action::LoadDiffs {
+                commit_id: self.commit_id.clone(),
+                paths,
+            }
         }
     }
 
@@ -941,6 +1120,20 @@ impl ReviewApp {
         self.files.get(self.selected_file)
     }
 
+    fn file_matches_search(&self, index: usize) -> bool {
+        let Some(search) = self
+            .search
+            .as_ref()
+            .filter(|search| !search.query.is_empty())
+        else {
+            return false;
+        };
+        // ponytail: cache matches if rescanning loaded diffs makes large reviews stutter.
+        self.files
+            .get(index)
+            .is_some_and(|file| file.diff.matching_rows(&search.query).next().is_some())
+    }
+
     fn rebuild_file_tree(&mut self) {
         self.file_tree = FileTree::new(
             self.files
@@ -969,5 +1162,141 @@ impl ReviewApp {
 
     fn commit_title_at(&self, column: u16, row: u16) -> bool {
         row == 0 && column > 0 && usize::from(column) <= self.commit_title().width()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pr_core::diff::DiffRow;
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+
+    use super::{Key, Message, ReviewApp, ReviewFile};
+    use crate::review::ReviewStatus;
+
+    #[test]
+    fn interactive_search_moves_and_repeats_from_the_diff_cursor() {
+        let mut app = ReviewApp::default();
+        app.update(Message::FilesLoaded {
+            change_id: "change".to_owned(),
+            commit_id: "commit".to_owned(),
+            description: String::new(),
+            files: vec![
+                ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed),
+                ReviewFile::new("src/other.rs", ReviewStatus::Reviewed),
+                ReviewFile::new("src/unopened.rs", ReviewStatus::Unreviewed),
+            ],
+        });
+        app.update(Message::DiffLoaded {
+            commit_id: "commit".to_owned(),
+            path: "src/lib.rs".to_owned(),
+            rows: [
+                "start",
+                "noise",
+                "filler",
+                "Needle one",
+                "more",
+                "needle two",
+            ]
+            .into_iter()
+            .enumerate()
+            .map(|(index, text)| DiffRow::Context {
+                old_line: u32::try_from(index + 1).unwrap(),
+                new_line: u32::try_from(index + 1).unwrap(),
+                text: format!(" {text}"),
+            })
+            .collect(),
+            old_content: None,
+            new_content: None,
+        });
+        app.update(Message::DiffLoaded {
+            commit_id: "commit".to_owned(),
+            path: "src/other.rs".to_owned(),
+            rows: vec![
+                DiffRow::Context {
+                    old_line: 1,
+                    new_line: 1,
+                    text: " no match".to_owned(),
+                },
+                DiffRow::Context {
+                    old_line: 2,
+                    new_line: 2,
+                    text: " needle in another file".to_owned(),
+                },
+            ],
+            old_content: None,
+            new_content: None,
+        });
+
+        assert_eq!(
+            app.update(Message::Key(Key::Char('/'))),
+            super::Action::LoadDiffs {
+                commit_id: "commit".to_owned(),
+                paths: vec!["src/unopened.rs".to_owned()],
+            }
+        );
+        app.update(Message::Key(Key::Char('n')));
+        assert_eq!(app.selected().unwrap().cursor, 1);
+        app.update(Message::Key(Key::Char('e')));
+        assert_eq!(app.selected().unwrap().cursor, 3);
+        for character in "edle".chars() {
+            app.update(Message::Key(Key::Char(character)));
+        }
+        assert!(app.file_matches_search(0));
+        assert!(app.file_matches_search(1));
+        assert!(!app.file_matches_search(2));
+        let mut terminal = Terminal::new(TestBackend::new(80, 12)).unwrap();
+        terminal
+            .draw(|frame| frame.render_widget(app.view(), frame.area()))
+            .unwrap();
+        assert!((0..12).any(|row| {
+            (0..80).any(|column| {
+                let cell = &terminal.backend().buffer()[(column, row)];
+                cell.fg == app.palette.deletion
+                    && cell.bg == app.palette.warning
+                    && cell.modifier.contains(ratatui::style::Modifier::BOLD)
+            })
+        }));
+        app.update(Message::Key(Key::Enter));
+        app.update(Message::Key(Key::Char('n')));
+        app.update(Message::Key(Key::Char('n')));
+        assert_eq!(app.selected().unwrap().cursor, 3);
+        app.update(Message::DiffLoaded {
+            commit_id: "commit".to_owned(),
+            path: "src/unopened.rs".to_owned(),
+            rows: vec![DiffRow::Context {
+                old_line: 1,
+                new_line: 1,
+                text: " needle in the unopened file".to_owned(),
+            }],
+            old_content: None,
+            new_content: None,
+        });
+        assert_eq!((app.selected_file, app.selected().unwrap().cursor), (1, 1));
+        terminal
+            .draw(|frame| frame.render_widget(app.view(), frame.area()))
+            .unwrap();
+        assert!((0..12).any(|row| {
+            (0..80).any(|column| {
+                let cell = &terminal.backend().buffer()[(column, row)];
+                cell.fg == app.palette.deletion
+                    && cell.bg == app.palette.warning
+                    && cell.modifier.contains(ratatui::style::Modifier::BOLD)
+            })
+        }));
+        app.update(Message::Key(Key::Char('p')));
+        assert_eq!((app.selected_file, app.selected().unwrap().cursor), (0, 5));
+        app.update(Message::Key(Key::Escape));
+        app.update(Message::Key(Key::Char('n')));
+        assert_eq!(app.selected().unwrap().cursor, 5);
+
+        app.files[0].cursor = 0;
+        app.update(Message::Key(Key::Char('/')));
+        app.update(Message::Key(Key::Char('T')));
+        assert_eq!(app.selected().unwrap().cursor, 0);
+        app.update(Message::Key(Key::Escape));
+        app.update(Message::Key(Key::Char('/')));
+        app.update(Message::Key(Key::Char('t')));
+        assert_eq!(app.selected().unwrap().cursor, 5);
     }
 }

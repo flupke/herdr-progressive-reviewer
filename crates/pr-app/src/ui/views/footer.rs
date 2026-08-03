@@ -12,7 +12,17 @@ pub(super) struct FooterView<'a>(pub(super) &'a ReviewApp);
 
 impl Widget for FooterView<'_> {
     fn render(self, area: Rect, buffer: &mut Buffer) {
-        Paragraph::new(CONTROLS)
+        let text = self.0.search.as_ref().map_or_else(
+            || CONTROLS.to_owned(),
+            |search| {
+                if search.editing {
+                    format!("/{} · Enter confirm · Esc clear", search.query)
+                } else {
+                    format!("/{} · n next · p previous · Esc clear", search.query)
+                }
+            },
+        );
+        Paragraph::new(text)
             .style(Style::default().fg(self.0.palette.text))
             .render(area, buffer);
     }

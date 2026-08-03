@@ -215,6 +215,15 @@ impl Runtime {
                 return Ok(false);
             }
             Action::LoadDiff { commit_id, path } => WorkerCommand::LoadDiff { commit_id, path },
+            Action::LoadDiffs { commit_id, paths } => {
+                for path in paths {
+                    commands.send(WorkerCommand::LoadDiff {
+                        commit_id: commit_id.clone(),
+                        path,
+                    })?;
+                }
+                return Ok(false);
+            }
             Action::SetReviewed { path, reviewed } => WorkerCommand::SetReviewed { path, reviewed },
             Action::Insert { text } => WorkerCommand::Insert(text),
         };
@@ -443,17 +452,14 @@ fn normalize_key(key: KeyEvent) -> Option<Key> {
     }
     match key.code {
         KeyCode::Tab => Some(Key::Tab),
-        KeyCode::Down | KeyCode::Char('j') => Some(Key::Down),
-        KeyCode::Up | KeyCode::Char('k') => Some(Key::Up),
-        KeyCode::Home | KeyCode::Char('g') => Some(Key::First),
-        KeyCode::End | KeyCode::Char('G') => Some(Key::Last),
-        KeyCode::Char('v' | 'V') => Some(Key::Visual),
-        KeyCode::Char('l') => Some(Key::Expand),
-        KeyCode::Char('c') => Some(Key::CommitMessage),
+        KeyCode::Down => Some(Key::Down),
+        KeyCode::Up => Some(Key::Up),
+        KeyCode::Home => Some(Key::First),
+        KeyCode::End => Some(Key::Last),
         KeyCode::Esc => Some(Key::Escape),
         KeyCode::Enter => Some(Key::Enter),
-        KeyCode::Char(' ') => Some(Key::Space),
-        KeyCode::Char('q') => Some(Key::Quit),
+        KeyCode::Backspace => Some(Key::Backspace),
+        KeyCode::Char(character) => Some(Key::Char(character)),
         _ => None,
     }
 }
@@ -466,15 +472,15 @@ mod tests {
     fn modified_mouse_inputs_reuse_existing_actions() {
         assert_eq!(
             normalize_key(KeyEvent::new(KeyCode::Char('V'), KeyModifiers::SHIFT)),
-            Some(Key::Visual)
+            Some(Key::Char('V'))
         );
         assert_eq!(
             normalize_key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE)),
-            Some(Key::Expand)
+            Some(Key::Char('l'))
         );
         assert_eq!(
             normalize_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE)),
-            Some(Key::CommitMessage)
+            Some(Key::Char('c'))
         );
         assert_eq!(
             normalize_mouse(MouseEvent {

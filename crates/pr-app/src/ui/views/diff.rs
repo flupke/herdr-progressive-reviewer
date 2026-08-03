@@ -8,7 +8,7 @@ use unicode_width::UnicodeWidthStr;
 
 use super::{pane_block, shorten};
 use crate::highlight::Token;
-use crate::presentation::PresentedRow;
+use crate::presentation::{PresentedRow, matching_ranges};
 use crate::review::ReviewStatus;
 use crate::ui::{DIFF_CONTROLS_TITLE, Focus, MIN_DIFF_CONTROLS_WIDTH, ReviewApp, Selection};
 
@@ -47,7 +47,7 @@ impl Widget for DiffView<'_> {
         let Some(file) = self.0.selected() else {
             return;
         };
-        if file.status == ReviewStatus::Reviewed {
+        if file.status == ReviewStatus::Reviewed && self.0.search.is_none() {
             let center = Rect::new(inner.x, inner.y + inner.height / 2, inner.width, 1);
             Paragraph::new("No changes")
                 .style(Style::default().fg(self.0.palette.dim))
@@ -150,12 +150,56 @@ impl DiffView<'_> {
             ),
             Style::default().fg(self.0.palette.dim),
         ));
-        spans.extend(
-            tokens
-                .iter()
-                .map(|token| Span::styled(token.text.clone(), Style::default().fg(token.color))),
-        );
+        spans.extend(self.code_spans(tokens));
         Line::from(spans)
+    }
+
+    fn code_spans(&self, tokens: &[Token]) -> Vec<Span<'static>> {
+        let query = self
+            .0
+            .search
+            .as_ref()
+            .map_or("", |search| search.query.as_str());
+        let text = tokens
+            .iter()
+            .map(|token| token.text.as_str())
+            .collect::<String>();
+        let matches = matching_ranges(&text, query);
+        let mut spans = Vec::new();
+        let mut token_start = 0;
+        for token in tokens {
+            let token_end = token_start + token.text.len();
+            let mut cursor = token_start;
+            for range in matches
+                .iter()
+                .filter(|range| range.start < token_end && range.end > token_start)
+            {
+                let start = range.start.max(token_start);
+                let end = range.end.min(token_end);
+                if cursor < start {
+                    spans.push(Span::styled(
+                        token.text[cursor - token_start..start - token_start].to_owned(),
+                        Style::default().fg(token.color),
+                    ));
+                }
+                spans.push(Span::styled(
+                    token.text[start - token_start..end - token_start].to_owned(),
+                    Style::default()
+                        .fg(self.0.palette.deletion)
+                        .bg(self.0.palette.warning)
+                        .add_modifier(Modifier::BOLD),
+                ));
+                cursor = end;
+            }
+            if cursor < token_end {
+                spans.push(Span::styled(
+                    token.text[cursor - token_start..].to_owned(),
+                    Style::default().fg(token.color),
+                ));
+            }
+            token_start = token_end;
+        }
+        spans
     }
 
     fn gap_line(count: usize, number_width: usize, width: usize) -> Line<'static> {

@@ -1,5 +1,6 @@
 //! Visible rows derived from a parsed unified diff.
 
+use std::ops::Range;
 use std::ops::RangeInclusive;
 
 use pr_core::diff::DiffRow;
@@ -12,6 +13,12 @@ pub(crate) enum PresentedRow {
     Diff { source: usize, tokens: Vec<Token> },
     Gap { start: u32, lines: Vec<Vec<Token>> },
     Expanded { line: u32, tokens: Vec<Token> },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SearchDirection {
+    Forward,
+    Backward,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -130,6 +137,52 @@ impl DiffPresentation {
         })
     }
 
+    pub(crate) fn find_matching_row(
+        &self,
+        query: &str,
+        from: usize,
+        direction: SearchDirection,
+    ) -> Option<usize> {
+        let len = self.rows.len();
+        if query.is_empty() || len == 0 {
+            return None;
+        }
+        let from = from.min(len - 1);
+        match direction {
+            SearchDirection::Backward => self
+                .matching_rows(query)
+                .rev()
+                .find(|index| *index < from)
+                .or_else(|| self.matching_rows(query).rev().find(|index| *index >= from)),
+            SearchDirection::Forward => self
+                .matching_rows(query)
+                .find(|index| *index > from)
+                .or_else(|| self.matching_rows(query).find(|index| *index <= from)),
+        }
+    }
+
+    pub(crate) fn matching_rows<'a>(
+        &'a self,
+        query: &'a str,
+    ) -> impl DoubleEndedIterator<Item = usize> + 'a {
+        self.rows
+            .iter()
+            .enumerate()
+            .filter_map(move |(index, _)| self.row_contains(index, query).then_some(index))
+    }
+
+    fn row_contains(&self, index: usize, query: &str) -> bool {
+        let tokens = match &self.rows[index] {
+            PresentedRow::Diff { tokens, .. } | PresentedRow::Expanded { tokens, .. } => tokens,
+            PresentedRow::Gap { .. } => return false,
+        };
+        let text = tokens
+            .iter()
+            .map(|token| token.text.as_str())
+            .collect::<String>();
+        !matching_ranges(&text, query).is_empty()
+    }
+
     pub(crate) fn expand(&mut self, index: usize) -> bool {
         let Some(PresentedRow::Gap { start, lines }) = self.rows.get(index).cloned() else {
             return false;
@@ -214,6 +267,52 @@ impl DiffPresentation {
         let end = sources.next_back().unwrap_or(start);
         DiffExcerpt::build(&self.source, start..=end)
     }
+}
+
+pub(crate) fn matching_ranges(text: &str, query: &str) -> Vec<Range<usize>> {
+    if query.is_empty() {
+        return Vec::new();
+    }
+    if query.chars().any(char::is_uppercase) {
+        return text
+            .match_indices(query)
+            .map(|(start, found)| start..start + found.len())
+            .collect();
+    }
+    if text.is_ascii() && query.is_ascii() {
+        let mut matches = Vec::new();
+        let mut start = 0;
+        while start + query.len() <= text.len() {
+            if text.as_bytes()[start..start + query.len()].eq_ignore_ascii_case(query.as_bytes()) {
+                matches.push(start..start + query.len());
+                start += query.len();
+            } else {
+                start += 1;
+            }
+        }
+        return matches;
+    }
+
+    let query = query.to_lowercase();
+    let boundaries = text
+        .char_indices()
+        .map(|(index, _)| index)
+        .chain(std::iter::once(text.len()))
+        .collect::<Vec<_>>();
+    let mut matches = Vec::new();
+    let mut start = 0;
+    // ponytail: this is quadratic for non-ASCII text; replace it if long Unicode lines stutter.
+    while start + 1 < boundaries.len() {
+        let Some(end) = (start + 1..boundaries.len())
+            .find(|end| text[boundaries[start]..boundaries[*end]].to_lowercase() == query)
+        else {
+            start += 1;
+            continue;
+        };
+        matches.push(boundaries[start]..boundaries[end]);
+        start = end;
+    }
+    matches
 }
 
 #[cfg(test)]
