@@ -206,7 +206,7 @@ fn commit_title_opens_the_full_message() {
 }
 
 #[test]
-fn marking_a_file_reviewed_selects_and_loads_the_next_file() {
+fn marking_a_file_reviewed_selects_and_loads_the_next_unreviewed_file() {
     let mut app = ReviewApp::default();
     app.update(Message::FilesLoaded {
         change_id: "qpvuntsm".to_owned(),
@@ -214,7 +214,9 @@ fn marking_a_file_reviewed_selects_and_loads_the_next_file() {
         description: "Commit title\n\nCommit body\n".to_owned(),
         files: vec![
             ReviewFile::new("first.rs", ReviewStatus::Unreviewed),
-            ReviewFile::new("second.rs", ReviewStatus::Unreviewed),
+            ReviewFile::new("second.rs", ReviewStatus::Reviewed),
+            ReviewFile::new("third.rs", ReviewStatus::ChangedSinceReview),
+            ReviewFile::new("fourth.rs", ReviewStatus::Unreviewed),
         ],
     });
 
@@ -228,7 +230,9 @@ fn marking_a_file_reviewed_selects_and_loads_the_next_file() {
         description: "Commit title\n\nCommit body\n".to_owned(),
         files: vec![
             ReviewFile::new("first.rs", ReviewStatus::Unreviewed),
-            ReviewFile::new("second.rs", ReviewStatus::Unreviewed),
+            ReviewFile::new("second.rs", ReviewStatus::Reviewed),
+            ReviewFile::new("third.rs", ReviewStatus::ChangedSinceReview),
+            ReviewFile::new("fourth.rs", ReviewStatus::Unreviewed),
         ],
     });
     assert_eq!(
@@ -242,10 +246,10 @@ fn marking_a_file_reviewed_selects_and_loads_the_next_file() {
         }),
         Action::LoadDiff {
             commit_id: "11111111".to_owned(),
-            path: "second.rs".to_owned(),
+            path: "fourth.rs".to_owned(),
         }
     );
-    assert!(screen(&app, 80, 12).join("\n").contains("Diff · second.rs"));
+    assert!(screen(&app, 80, 12).join("\n").contains("Diff · fourth.rs"));
 }
 
 #[test]

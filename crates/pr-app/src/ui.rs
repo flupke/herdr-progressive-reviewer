@@ -539,12 +539,18 @@ impl ReviewApp {
                         file.diff = DiffPresentation::default();
                     }
                 }
+                let next_unreviewed = self
+                    .file_tree
+                    .visible_files()
+                    .skip_while(|file| *file != self.selected_file)
+                    .skip(1)
+                    .find(|file| self.files[*file].status == ReviewStatus::Unreviewed);
                 if marking_reviewed
                     && state.status == ReviewStatus::Reviewed
                     && self
                         .selected()
                         .is_some_and(|selected| selected.path == path)
-                    && let Some(next_file) = self.file_tree.next_visible_file(self.selected_file)
+                    && let Some(next_file) = next_unreviewed
                 {
                     self.selected_file = next_file;
                     self.selection = None;

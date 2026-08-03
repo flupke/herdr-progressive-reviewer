@@ -101,12 +101,6 @@ impl FileTree {
         self.visible_files().count()
     }
 
-    pub(crate) fn next_visible_file(&self, file_index: usize) -> Option<usize> {
-        self.visible_files()
-            .skip_while(|candidate| *candidate != file_index)
-            .nth(1)
-    }
-
     pub(crate) fn nearest_visible_file(&self, file_index: usize) -> Option<usize> {
         let mut previous = None;
         for candidate in self.visible_files() {
@@ -118,7 +112,7 @@ impl FileTree {
         previous
     }
 
-    fn visible_files(&self) -> impl Iterator<Item = usize> + '_ {
+    pub(crate) fn visible_files(&self) -> impl Iterator<Item = usize> + '_ {
         self.rows.iter().filter_map(|row| match row {
             FileTreeRow::File { file, .. } => Some(*file),
             FileTreeRow::Directory { .. } => None,
