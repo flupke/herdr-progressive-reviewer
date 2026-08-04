@@ -692,6 +692,62 @@ fn mouse_targets_the_hovered_pane_and_click_changes_focus() {
 }
 
 #[test]
+fn double_clicking_a_file_marks_it_reviewed() {
+    let mut app = ReviewApp::default();
+    app.update(Message::FilesLoaded {
+        change_id: "qpvuntsm".to_owned(),
+        commit_id: "11111111".to_owned(),
+        description: "Commit title\n".to_owned(),
+        files: vec![
+            ReviewFile::new("first.rs", ReviewStatus::Unreviewed),
+            ReviewFile::new("second.rs", ReviewStatus::Unreviewed),
+        ],
+    });
+    app.update(Message::Resize {
+        width: 80,
+        height: 12,
+    });
+
+    app.update(Message::MouseClick {
+        column: 1,
+        row: 2,
+        insert_path: false,
+    });
+    assert_eq!(
+        app.update(Message::MouseDoubleClick { column: 1, row: 2 }),
+        Action::SetReviewed {
+            path: "first.rs".to_owned(),
+            reviewed: true,
+        }
+    );
+    assert!(screen(&app, 80, 12).join("\n").contains("Diff · second.rs"));
+}
+
+#[test]
+fn double_clicking_a_reviewed_file_marks_it_unreviewed() {
+    let mut app = ReviewApp::default();
+    app.update(Message::FilesLoaded {
+        change_id: "qpvuntsm".to_owned(),
+        commit_id: "11111111".to_owned(),
+        description: "Commit title\n".to_owned(),
+        files: vec![ReviewFile::new("reviewed.rs", ReviewStatus::Reviewed)],
+    });
+
+    app.update(Message::MouseClick {
+        column: 1,
+        row: 2,
+        insert_path: false,
+    });
+    assert_eq!(
+        app.update(Message::MouseDoubleClick { column: 1, row: 2 }),
+        Action::SetReviewed {
+            path: "reviewed.rs".to_owned(),
+            reviewed: false,
+        }
+    );
+}
+
+#[test]
 fn clicking_a_directory_collapses_its_descendants_across_refreshes() {
     let mut app = ReviewApp::default();
     let files = || {

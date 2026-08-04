@@ -175,6 +175,8 @@ pub enum Message {
         row: u16,
         insert_path: bool,
     },
+    /// The left mouse button was pressed twice at one position.
+    MouseDoubleClick { column: u16, row: u16 },
     /// The left mouse button dragged over the pane.
     MouseDrag { column: u16, row: u16 },
     /// The left mouse button was released.
@@ -463,6 +465,7 @@ impl ReviewApp {
                 row,
                 insert_path,
             } => self.mouse_click(column, row, insert_path),
+            Message::MouseDoubleClick { column, row } => self.mouse_double_click(column, row),
             Message::MouseDrag { column, row } => self.mouse_drag(column, row),
             Message::MouseRelease => self.mouse_release(),
             Message::Key(key) => self.key(key),
@@ -1087,6 +1090,20 @@ impl ReviewApp {
             return self.output(self.files[target].path.clone());
         }
         self.load_selected_action()
+    }
+
+    fn mouse_double_click(&mut self, column: u16, row: u16) -> Action {
+        let layout = self.layout();
+        if layout.focus_at(self.focus, column, row) != Some(Focus::Files)
+            || !layout.contains_pane_content(row)
+        {
+            return Action::None;
+        }
+        let row = self.file_scroll + usize::from(row - 2);
+        if self.file_tree.file_at(row) != Some(self.selected_file) {
+            return Action::None;
+        }
+        self.toggle_review()
     }
 
     fn mouse_drag(&mut self, column: u16, row: u16) -> Action {

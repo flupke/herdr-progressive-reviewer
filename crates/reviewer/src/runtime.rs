@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crossterm::event::{
     self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
@@ -33,6 +33,7 @@ use signal_hook::flag;
 use crate::watcher::RepositoryWatcher;
 
 const EVENT_WAIT: Duration = Duration::from_millis(50);
+const DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(400);
 
 /// The running review pane.
 #[derive(Debug)]
@@ -66,6 +67,11 @@ enum WorkerCommand {
 
 struct TerminalGuard {
     terminal: Terminal<CrosstermBackend<io::Stdout>>,
+}
+
+#[derive(Default)]
+struct MouseClicks {
+    previous: Option<(u16, u16, Instant)>,
 }
 
 impl Runtime {
@@ -112,6 +118,7 @@ impl Runtime {
         let mut terminal = TerminalGuard::new()?;
         let mut app = ReviewApp::new(self.theme, file_pane_width, output_target);
         let mut watcher = RepositoryWatcher::new(self.repository.root());
+        let mut mouse_clicks = MouseClicks::default();
         commands.send(WorkerCommand::Poll)?;
         let result = loop {
             Self::drain_focus(&commands, &focus_events);
@@ -135,7 +142,7 @@ impl Runtime {
             if event::poll(EVENT_WAIT)? {
                 let message = match event::read()? {
                     Event::Key(key) => normalize_key(key).map(Message::Key),
-                    Event::Mouse(mouse) => normalize_mouse(mouse),
+                    Event::Mouse(mouse) => mouse_clicks.normalize(mouse),
                     _ => None,
                 };
                 if let Some(message) = message
@@ -461,6 +468,32 @@ fn normalize_mouse(mouse: MouseEvent) -> Option<Message> {
     }
 }
 
+impl MouseClicks {
+    fn normalize(&mut self, mouse: MouseEvent) -> Option<Message> {
+        self.normalize_at(mouse, Instant::now())
+    }
+
+    fn normalize_at(&mut self, mouse: MouseEvent, now: Instant) -> Option<Message> {
+        if mouse.kind == MouseEventKind::Down(MouseButton::Left) && mouse.modifiers.is_empty() {
+            let double = self.previous.take().is_some_and(|(column, row, previous)| {
+                column.abs_diff(mouse.column) <= 1
+                    && row == mouse.row
+                    && now.saturating_duration_since(previous) <= DOUBLE_CLICK_INTERVAL
+            });
+            if double {
+                return Some(Message::MouseDoubleClick {
+                    column: mouse.column,
+                    row: mouse.row,
+                });
+            }
+            self.previous = Some((mouse.column, mouse.row, now));
+        } else if matches!(mouse.kind, MouseEventKind::Down(_)) {
+            self.previous = None;
+        }
+        normalize_mouse(mouse)
+    }
+}
+
 fn normalize_key(key: KeyEvent) -> Option<Key> {
     if key.modifiers.contains(KeyModifiers::CONTROL) {
         return match key.code {
@@ -570,5 +603,40 @@ mod tests {
             }),
             Some(Message::MouseRelease)
         );
+    }
+
+    #[test]
+    fn consecutive_plain_clicks_at_one_position_become_a_double_click() {
+        let click = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 4,
+            row: 5,
+            modifiers: KeyModifiers::NONE,
+        };
+        let start = Instant::now();
+        let mut clicks = MouseClicks::default();
+
+        assert!(matches!(
+            clicks.normalize_at(click, start),
+            Some(Message::MouseClick { .. })
+        ));
+        let adjacent = MouseEvent { column: 5, ..click };
+        assert_eq!(
+            clicks.normalize_at(adjacent, start + Duration::from_millis(400)),
+            Some(Message::MouseDoubleClick { column: 5, row: 5 })
+        );
+        assert!(matches!(
+            clicks.normalize_at(click, start + Duration::from_millis(450)),
+            Some(Message::MouseClick { .. })
+        ));
+        let modified = MouseEvent {
+            modifiers: KeyModifiers::CONTROL,
+            ..click
+        };
+        clicks.normalize_at(modified, start + Duration::from_millis(460));
+        assert!(matches!(
+            clicks.normalize_at(click, start + Duration::from_millis(470)),
+            Some(Message::MouseClick { .. })
+        ));
     }
 }
