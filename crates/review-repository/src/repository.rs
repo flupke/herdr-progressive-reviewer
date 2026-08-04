@@ -602,10 +602,20 @@ trait RepositoryBackend: std::fmt::Debug + Send + Sync {
     ) -> Result<Interdiff>;
 }
 
+/// The repository implementation selected during discovery.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RepoType {
+    /// A Git working tree.
+    Git,
+    /// A Jujutsu workspace.
+    Jj,
+}
+
 /// A discovered jj or Git workspace.
 #[derive(Clone, Debug)]
 pub struct Repository {
     root: PathBuf,
+    repo_type: RepoType,
     backend: Arc<dyn RepositoryBackend>,
     cancellation: Cancellation,
 }
@@ -654,6 +664,7 @@ impl Repository {
         {
             return Ok(Self {
                 root: root.clone(),
+                repo_type: RepoType::Jj,
                 backend: Arc::new(jj::JjBackend),
                 cancellation,
             });
@@ -688,6 +699,7 @@ impl Repository {
 
         Ok(Self {
             root,
+            repo_type: RepoType::Git,
             backend: Arc::new(git::GitBackend::new(PathBuf::from(OsString::from_vec(
                 repository_objects.to_vec(),
             )))),
@@ -705,6 +717,11 @@ impl Repository {
     /// Get the canonical workspace root.
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    /// Get the repository type selected during discovery.
+    pub fn repo_type(&self) -> RepoType {
+        self.repo_type
     }
 
     /// Cancel the active repository command during shutdown.

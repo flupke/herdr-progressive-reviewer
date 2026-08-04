@@ -11,6 +11,7 @@ crossterm.workspace = true
 eyre.workspace = true
 fs2.workspace = true
 herdr-client = { path = "../herdr-client" }
+ignore.workspace = true
 notify.workspace = true
 ratatui = { workspace = true, features = ["crossterm"] }
 review-repository = { path = "../review-repository" }

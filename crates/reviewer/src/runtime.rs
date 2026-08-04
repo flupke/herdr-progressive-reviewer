@@ -117,7 +117,8 @@ impl Runtime {
 
         let mut terminal = TerminalGuard::new()?;
         let mut app = ReviewApp::new(self.theme, file_pane_width, output_target);
-        let mut watcher = RepositoryWatcher::new(self.repository.root());
+        let mut watcher =
+            RepositoryWatcher::new(self.repository.root(), self.repository.repo_type());
         let mut mouse_clicks = MouseClicks::default();
         commands.send(WorkerCommand::Poll)?;
         let result = loop {

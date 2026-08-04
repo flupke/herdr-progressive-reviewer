@@ -1,6 +1,6 @@
 use review_repository::diff::{DiffRow, NoticeKind, parse_file_diff};
 use review_repository::repository::{
-    ChangeKind, FileKind, Interdiff, PollResult, Repository, Snapshot,
+    ChangeKind, FileKind, Interdiff, PollResult, RepoType, Repository, Snapshot,
 };
 use review_test_support::{JjFixture, JjLayout};
 
@@ -15,6 +15,7 @@ fn for_each_layout(mut test: impl FnMut(&JjFixture, &Repository)) {
     for layout in [JjLayout::NonColocated, JjLayout::Colocated] {
         let fixture = JjFixture::new(layout);
         let repository = Repository::discover(fixture.root()).unwrap();
+        assert_eq!(repository.repo_type(), RepoType::Jj);
         test(&fixture, &repository);
     }
 }
@@ -97,7 +98,10 @@ fn discovers_a_git_only_repository() {
         .unwrap();
     assert!(output.status.success());
 
-    assert!(Repository::discover(directory.path()).is_ok());
+    assert_eq!(
+        Repository::discover(directory.path()).unwrap().repo_type(),
+        RepoType::Git
+    );
 }
 
 #[test]
