@@ -6,6 +6,7 @@ use std::ops::RangeInclusive;
 use pr_core::diff::DiffRow;
 use pr_core::herdr::InsertResult;
 use pr_core::repository::{ChangeKind, ChangedFile};
+use ratatui::layout::{Position, Rect};
 use unicode_width::UnicodeWidthStr;
 
 use crate::file_tree::FileTree;
@@ -931,6 +932,13 @@ impl ReviewApp {
     }
 
     fn mouse_click(&mut self, column: u16, row: u16, insert_path: bool) -> Action {
+        if self.show_commit_message {
+            let area = views::CommitMessageView::area(Rect::new(0, 0, self.width, self.height));
+            if !area.contains(Position::new(column, row)) {
+                self.show_commit_message = false;
+            }
+            return Action::None;
+        }
         let layout = self.layout();
         if self.commit_title_at(column, row) {
             self.show_commit_message = !self.show_commit_message;

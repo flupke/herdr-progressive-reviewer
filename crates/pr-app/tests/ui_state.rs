@@ -176,7 +176,7 @@ fn reviewed_file_hides_its_diff() {
 }
 
 #[test]
-fn commit_title_opens_the_full_message() {
+fn commit_message_opens_and_closes_from_mouse_or_keyboard() {
     let mut app = ReviewApp::default();
     app.update(Message::FilesLoaded {
         change_id: "qpvuntsm".to_owned(),
@@ -192,11 +192,28 @@ fn commit_title_opens_the_full_message() {
     assert!(!header.contains("change qpvuntsm"));
 
     app.update(Message::Key(Key::CommitMessage));
+    app.update(Message::Resize {
+        width: 80,
+        height: 12,
+    });
     let popup = screen(&app, 80, 12).join("\n");
     assert!(popup.contains("Commit message"));
     assert!(popup.contains("Commit body"));
 
-    app.update(Message::Key(Key::CommitMessage));
+    app.update(Message::MouseClick {
+        column: 40,
+        row: 6,
+        insert_path: false,
+    });
+    assert!(screen(&app, 80, 12).join("\n").contains("Commit body"));
+
+    app.update(Message::MouseClick {
+        column: 0,
+        row: 11,
+        insert_path: false,
+    });
+    assert!(!screen(&app, 80, 12).join("\n").contains("Commit body"));
+
     app.update(Message::MouseClick {
         column: 2,
         row: 0,

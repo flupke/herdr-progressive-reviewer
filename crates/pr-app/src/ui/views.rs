@@ -6,7 +6,7 @@ use ratatui::style::Style;
 use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 
 use super::{Focus, PaneLayout, ReviewApp};
-use commit_message::CommitMessageView;
+pub(super) use commit_message::CommitMessageView;
 use diff::DiffView;
 use files::FilesView;
 use footer::FooterView;
