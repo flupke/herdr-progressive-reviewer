@@ -5,7 +5,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Widget};
 use unicode_width::UnicodeWidthStr;
 
-use crate::ui::ReviewApp;
+use crate::ReviewApp;
 use review_store::OutputTarget;
 
 const CONTROLS: &str =
@@ -14,10 +14,10 @@ const OUTPUT_PREFIX: &str = "Output: ";
 const AGENT_LABEL: &str = "[Active agent]";
 const CLIPBOARD_LABEL: &str = "[Clipboard]";
 
-pub(in crate::ui) struct FooterView<'a>(pub(super) &'a ReviewApp);
+pub(super) struct FooterView<'a>(pub(super) &'a ReviewApp);
 
 impl FooterView<'_> {
-    pub(in crate::ui) fn output_target_at(column: u16) -> Option<OutputTarget> {
+    pub(super) fn output_target_at(column: u16) -> Option<OutputTarget> {
         let agent_start = u16::try_from(OUTPUT_PREFIX.width()).ok()?;
         let agent_end = agent_start + u16::try_from(AGENT_LABEL.width()).ok()?;
         let clipboard_start = agent_end + 1;

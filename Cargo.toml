@@ -1,12 +1,14 @@
 [workspace]
 members = [
     "crates/herdr-client",
+    "crates/review-lsp",
     "crates/review-repository",
     "crates/review-state",
     "crates/review-store",
     "crates/review-test-support",
     "crates/review-ui",
     "crates/reviewer",
+    "crates/toasts",
 ]
 resolver = "3"
 
@@ -20,17 +22,22 @@ license = "MIT"
 arboard = { version = "3.6.1", default-features = false, features = ["wayland-data-control"] }
 base64 = "0.22"
 crossterm = "0.28"
+crossbeam-channel = "0.5"
 eyre = "0.6"
 fs2 = "0.4"
 getrandom = "0.3"
 ignore = "0.4.23"
 libc = "0.2"
+lsp-server = "0.10"
+lsp-types = "0.97"
 notify = "8.2"
 ratatui = { version = "0.29", default-features = false }
+ratatui-markdown = { version = "=0.3.6", default-features = false, features = ["markdown"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"
 signal-hook = "0.3"
+strum = { version = "0.26", features = ["derive"] }
 syntect = { version = "5.3", default-features = false, features = ["parsing", "regex-fancy", "dump-load"] }
 tempfile = "3.20"
 thiserror = "2.0"
@@ -38,6 +45,8 @@ time = { version = "0.3", features = ["formatting"] }
 toml = "0.9"
 two-face = { version = "0.5", default-features = false, features = ["syntect-fancy"] }
 unicode-width = "0.2"
+url = "2.5"
+uuid = { version = "1.24", features = ["v4"] }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"
@@ -48,3 +57,6 @@ pedantic = { level = "warn", priority = -1 }
 missing_errors_doc = "allow"
 module_name_repetitions = "allow"
 must_use_candidate = "allow"
+
+[profile.release]
+panic = "unwind"

@@ -191,6 +191,73 @@ impl DiffPresentation {
         })
     }
 
+    pub(crate) fn source_position(&self, index: usize) -> Option<(u32, String)> {
+        let (line, tokens) = match self.rows.get(index)? {
+            PresentedRow::Diff { source, tokens } => match self.source_row(*source) {
+                DiffRow::Context { new_line, .. } | DiffRow::Add { new_line, .. } => {
+                    (new_line.checked_sub(1)?, tokens)
+                }
+                DiffRow::Delete { .. }
+                | DiffRow::Notice { .. }
+                | DiffRow::FileHeader { .. }
+                | DiffRow::Meta { .. }
+                | DiffRow::Hunk { .. } => return None,
+            },
+            PresentedRow::Expanded { line, tokens }
+                if self.whole_file != Some(WholeFile::Deleted) =>
+            {
+                (line.checked_sub(1)?, tokens)
+            }
+            PresentedRow::Gap { .. } | PresentedRow::Expanded { .. } => return None,
+        };
+        Some((
+            line,
+            tokens.iter().map(|token| token.text.as_str()).collect(),
+        ))
+    }
+
+    pub(crate) fn reveal_line(&mut self, line: u32) -> Option<usize> {
+        if let Some(index) = self.reveal_diff_line(line) {
+            return Some(index);
+        }
+        let display_line = line.saturating_add(1);
+        if self.show_file() {
+            return self.rows.iter().position(
+                |row| matches!(row, PresentedRow::Expanded { line, .. } if *line == display_line),
+            );
+        }
+        None
+    }
+
+    pub(crate) fn reveal_diff_line(&mut self, line: u32) -> Option<usize> {
+        let display_line = line.saturating_add(1);
+        if let Some(index) = self.rows.iter().position(|row| match row {
+            PresentedRow::Diff { source, .. } => matches!(
+                self.source_row(*source),
+                DiffRow::Context { new_line, .. } | DiffRow::Add { new_line, .. }
+                    if *new_line == display_line
+            ),
+            PresentedRow::Expanded { line, .. } => *line == display_line,
+            PresentedRow::Gap { .. } => false,
+        }) {
+            return Some(index);
+        }
+        if let Some(index) = self.rows.iter().position(|row| match row {
+            PresentedRow::Gap { start, lines } => {
+                display_line >= *start
+                    && display_line
+                        < start.saturating_add(u32::try_from(lines.len()).unwrap_or(u32::MAX))
+            }
+            PresentedRow::Diff { .. } | PresentedRow::Expanded { .. } => false,
+        }) {
+            self.expand(index);
+            return self.rows.iter().position(
+                |row| matches!(row, PresentedRow::Expanded { line, .. } if *line == display_line),
+            );
+        }
+        None
+    }
+
     pub(crate) fn find_matching_row(
         &self,
         query: &str,

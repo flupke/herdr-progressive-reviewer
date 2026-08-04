@@ -8,10 +8,13 @@ license.workspace = true
 [dependencies]
 eyre.workspace = true
 ratatui = { workspace = true, features = ["crossterm"] }
+ratatui-markdown.workspace = true
+review-lsp = { path = "../review-lsp" }
 review-repository = { path = "../review-repository" }
 review-state = { path = "../review-state" }
 review-store = { path = "../review-store" }
 syntect.workspace = true
+toasts = { path = "../toasts" }
 toml.workspace = true
 two-face.workspace = true
 unicode-width.workspace = true

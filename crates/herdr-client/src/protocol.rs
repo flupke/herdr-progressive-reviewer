@@ -205,38 +205,47 @@ impl AgentInputMode {
 pub struct AgentTarget {
     workspace_id: WorkspaceId,
     last_agent_pane_id: Option<PaneId>,
+    pending_pane_ids: Vec<PaneId>,
 }
 
 impl AgentTarget {
-    /// Create an empty target for one workspace.
-    pub fn new(workspace_id: WorkspaceId) -> Self {
+    /// Create a target from the pane that opened the reviewer.
+    pub fn new(workspace_id: WorkspaceId, focused_pane_id: Option<PaneId>) -> Self {
         Self {
             workspace_id,
             last_agent_pane_id: None,
+            pending_pane_ids: focused_pane_id.into_iter().collect(),
         }
     }
 
     /// Seed the target from the current session focus.
-    pub fn initialize(&mut self, reader: &impl HerdrReader) -> Result<()> {
+    fn initialize(&mut self, reader: &impl HerdrReader) -> Result<()> {
         let snapshot = reader.session_snapshot()?;
         if snapshot.focused_workspace_id.as_ref() == Some(&self.workspace_id)
             && let Some(pane_id) = snapshot.focused_pane_id
         {
-            self.observe_focus(reader, &pane_id)?;
+            self.pending_pane_ids.push(pane_id);
+            self.resolve_pending_focus(reader)?;
         }
         Ok(())
     }
 
-    /// Record a focused pane if it is a same-workspace agent.
-    pub fn observe_focus(&mut self, reader: &impl HerdrReader, pane_id: &PaneId) -> Result<()> {
-        if let Some(agent) = reader.get_agent(pane_id)? {
-            self.observe_agent_focus(&agent);
+    /// Record a pane focus for validation before the next insertion.
+    pub fn observe_focus(&mut self, pane_id: &PaneId) {
+        self.pending_pane_ids.push(pane_id.clone());
+    }
+
+    fn resolve_pending_focus(&mut self, reader: &impl HerdrReader) -> Result<()> {
+        for pane_id in std::mem::take(&mut self.pending_pane_ids) {
+            if let Some(agent) = reader.get_agent(&pane_id)? {
+                self.observe_agent_focus(&agent);
+            }
         }
         Ok(())
     }
 
     /// Record a focused agent event from this workspace.
-    pub fn observe_agent_focus(&mut self, agent: &Agent) {
+    fn observe_agent_focus(&mut self, agent: &Agent) {
         if agent.workspace_id == self.workspace_id {
             self.last_agent_pane_id = Some(agent.pane_id.clone());
         }
@@ -247,6 +256,10 @@ impl AgentTarget {
     where
         C: HerdrReader + HerdrWriter,
     {
+        self.resolve_pending_focus(client)?;
+        if self.last_agent_pane_id.is_none() {
+            self.initialize(client)?;
+        }
         let Some(pane_id) = self.last_agent_pane_id.as_ref() else {
             return Ok(InsertResult::NoAgent);
         };

@@ -4,7 +4,7 @@ use ratatui::style::Color;
 use review_repository::diff::{DiffRow, NoticeKind};
 use review_state::{ReviewState, ReviewStatus, ReviewWarning};
 use review_store::OutputTarget;
-use review_ui::ui::{Action, Key, Message, ReviewApp, ReviewFile};
+use review_ui::{Action, Key, Message, ReviewApp, ReviewFile};
 
 fn rows() -> Vec<DiffRow> {
     vec![

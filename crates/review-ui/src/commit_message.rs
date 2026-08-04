@@ -2,13 +2,13 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::widgets::{Clear, Paragraph, Widget, Wrap};
 
-use super::pane_block;
-use crate::ui::ReviewApp;
+use crate::ReviewApp;
+use crate::render::pane_block;
 
-pub(in crate::ui) struct CommitMessageView<'a>(pub(super) &'a ReviewApp);
+pub(super) struct CommitMessageView<'a>(pub(super) &'a ReviewApp);
 
 impl CommitMessageView<'_> {
-    pub(in crate::ui) fn area(area: Rect) -> Rect {
+    pub(super) fn area(area: Rect) -> Rect {
         let width = area.width.saturating_mul(4) / 5;
         let height = area.height.saturating_mul(4) / 5;
         Rect::new(

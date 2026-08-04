@@ -3,13 +3,14 @@ use ratatui::layout::{Alignment, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Widget};
+use review_lsp::SourceLocation;
 use review_repository::diff::{DiffRow, NoticeKind};
 use unicode_width::UnicodeWidthStr;
 
-use super::{pane_block, shorten};
+use crate::app::{DiffControl, Focus, ReviewApp, Selection};
 use crate::highlight::Token;
 use crate::presentation::{PresentedRow, matching_ranges};
-use crate::ui::{DiffControl, Focus, ReviewApp, Selection};
+use crate::render::{pane_block, shorten};
 use review_state::ReviewStatus;
 
 pub(super) struct DiffView<'a>(pub(super) &'a ReviewApp);
@@ -17,7 +18,7 @@ pub(super) struct DiffView<'a>(pub(super) &'a ReviewApp);
 impl Widget for DiffView<'_> {
     fn render(self, area: Rect, buffer: &mut Buffer) {
         let focused = self.0.focus == Focus::Diff;
-        let file = self.0.selected();
+        let file = self.0.displayed();
         let title = file.map_or_else(
             || "Diff".to_owned(),
             |file| {
@@ -55,6 +56,7 @@ impl Widget for DiffView<'_> {
         };
         if file.status == ReviewStatus::Reviewed
             && self.0.search.is_none()
+            && file.source_location.is_none()
             && !file.diff.is_file_view()
         {
             let center = Rect::new(inner.x, inner.y + inner.height / 2, inner.width, 1);
@@ -75,11 +77,20 @@ impl Widget for DiffView<'_> {
             .skip(file.scroll)
             .take(usize::from(inner.height))
             .map(|(index, presented)| {
+                let source_line = file.diff.source_position(index).map(|(line, _)| line);
                 let (line, mut style) = match presented {
                     PresentedRow::Diff { source, tokens } => {
                         let row = file.diff.source_row(*source);
                         (
-                            self.diff_line(row, tokens, line_number_width, show_markers),
+                            self.diff_line(
+                                row,
+                                tokens,
+                                line_number_width,
+                                (focused && index == file.cursor).then_some(file.column),
+                                source_line,
+                                file.source_location.as_ref(),
+                                show_markers,
+                            ),
                             self.row_style(row, show_markers),
                         )
                     }
@@ -90,7 +101,15 @@ impl Widget for DiffView<'_> {
                             .bg(self.0.palette.selection),
                     ),
                     PresentedRow::Expanded { line, tokens } => (
-                        self.code_line(Some(*line), None, tokens, line_number_width),
+                        self.code_line(
+                            Some(*line),
+                            None,
+                            tokens,
+                            line_number_width,
+                            (focused && index == file.cursor).then_some(file.column),
+                            source_line,
+                            file.source_location.as_ref(),
+                        ),
                         Style::default().fg(self.0.palette.text),
                     ),
                 };
@@ -106,7 +125,9 @@ impl Widget for DiffView<'_> {
                 line.style(style)
             })
             .collect::<Vec<_>>();
-        Paragraph::new(lines).render(inner, buffer);
+        Paragraph::new(lines)
+            .scroll((0, u16::try_from(file.horizontal_scroll).unwrap_or(u16::MAX)))
+            .render(inner, buffer);
     }
 }
 
@@ -116,6 +137,9 @@ impl DiffView<'_> {
         row: &DiffRow,
         tokens: &[Token],
         number_width: usize,
+        cursor: Option<usize>,
+        source_line: Option<u32>,
+        source_location: Option<&SourceLocation>,
         show_markers: bool,
     ) -> Line<'static> {
         let (line, bar) = match row {
@@ -133,7 +157,15 @@ impl DiffView<'_> {
                 return Line::default();
             }
         };
-        self.code_line(line, bar, tokens, number_width)
+        self.code_line(
+            line,
+            bar,
+            tokens,
+            number_width,
+            cursor,
+            source_line,
+            source_location,
+        )
     }
 
     fn code_line(
@@ -142,6 +174,9 @@ impl DiffView<'_> {
         bar: Option<Color>,
         tokens: &[Token],
         number_width: usize,
+        cursor: Option<usize>,
+        source_line: Option<u32>,
+        source_location: Option<&SourceLocation>,
     ) -> Line<'static> {
         let mut spans = vec![bar.map_or_else(
             || Span::raw("  "),
@@ -159,11 +194,17 @@ impl DiffView<'_> {
             ),
             Style::default().fg(self.0.palette.dim),
         ));
-        spans.extend(self.code_spans(tokens));
+        spans.extend(self.code_spans(tokens, cursor, source_line, source_location));
         Line::from(spans)
     }
 
-    fn code_spans(&self, tokens: &[Token]) -> Vec<Span<'static>> {
+    fn code_spans(
+        &self,
+        tokens: &[Token],
+        cursor_column: Option<usize>,
+        source_line: Option<u32>,
+        source_location: Option<&SourceLocation>,
+    ) -> Vec<Span<'static>> {
         let query = self
             .0
             .search
@@ -173,40 +214,65 @@ impl DiffView<'_> {
             .iter()
             .map(|token| token.text.as_str())
             .collect::<String>();
+        let source_selection = source_line
+            .zip(source_location)
+            .and_then(|(line, location)| location.range_in_line(line, text.len()));
         let matches = matching_ranges(&text, query);
         let mut spans = Vec::new();
         let mut token_start = 0;
         for token in tokens {
             let token_end = token_start + token.text.len();
-            let mut cursor = token_start;
+            let mut boundaries = vec![token_start, token_end];
             for range in matches
                 .iter()
                 .filter(|range| range.start < token_end && range.end > token_start)
             {
-                let start = range.start.max(token_start);
-                let end = range.end.min(token_end);
-                if cursor < start {
-                    spans.push(Span::styled(
-                        token.text[cursor - token_start..start - token_start].to_owned(),
-                        Style::default().fg(token.color),
-                    ));
+                boundaries.push(range.start.max(token_start));
+                boundaries.push(range.end.min(token_end));
+            }
+            if let Some(range) = source_selection
+                .as_ref()
+                .filter(|range| range.start < token_end && range.end > token_start)
+            {
+                boundaries.push(range.start.max(token_start));
+                boundaries.push(range.end.min(token_end));
+            }
+            if let Some(column) = cursor_column.filter(|column| {
+                *column >= token_start && *column < token_end && text.is_char_boundary(*column)
+            }) {
+                boundaries.push(column);
+                boundaries.push(column + text[column..].chars().next().map_or(0, char::len_utf8));
+            }
+            boundaries.sort_unstable();
+            boundaries.dedup();
+            for pair in boundaries.windows(2) {
+                let start = pair[0];
+                let end = pair[1];
+                let mut style = Style::default().fg(token.color);
+                if matches
+                    .iter()
+                    .any(|range| range.start <= start && range.end >= end)
+                    || source_selection
+                        .as_ref()
+                        .is_some_and(|range| range.start <= start && range.end >= end)
+                {
+                    style = style.add_modifier(Modifier::REVERSED);
+                }
+                if cursor_column == Some(start) {
+                    style = style.add_modifier(Modifier::REVERSED | Modifier::BOLD);
                 }
                 spans.push(Span::styled(
-                    token.text[start - token_start..end - token_start].to_owned(),
-                    Style::default()
-                        .fg(self.0.palette.deletion)
-                        .bg(self.0.palette.warning)
-                        .add_modifier(Modifier::BOLD),
-                ));
-                cursor = end;
-            }
-            if cursor < token_end {
-                spans.push(Span::styled(
-                    token.text[cursor - token_start..].to_owned(),
-                    Style::default().fg(token.color),
+                    token.text[start - token_start..end - token_start].replace('\t', "    "),
+                    style,
                 ));
             }
             token_start = token_end;
+        }
+        if cursor_column == Some(text.len()) {
+            spans.push(Span::styled(
+                " ",
+                Style::default().add_modifier(Modifier::REVERSED | Modifier::BOLD),
+            ));
         }
         spans
     }

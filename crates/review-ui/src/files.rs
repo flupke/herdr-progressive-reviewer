@@ -5,17 +5,50 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Widget};
 use review_repository::repository::ChangeKind;
 
-use super::{pane_block, shorten};
+use crate::app::{Focus, ReviewApp, ReviewFile};
 use crate::file_tree::FileTreeRow;
-use crate::ui::{Focus, ReviewApp, ReviewFile};
+use crate::render::{pane_block, shorten};
 
 pub(super) struct FilesView<'a>(pub(super) &'a ReviewApp);
 
 impl Widget for FilesView<'_> {
     fn render(self, area: Rect, buffer: &mut Buffer) {
-        let block = pane_block(self.0, "Files", self.0.focus == Focus::Files);
+        let title = self
+            .0
+            .locations
+            .as_ref()
+            .map_or("Files", |list| list.operation.title());
+        let block = pane_block(self.0, title, self.0.focus == Focus::Files);
         let inner = block.inner(area);
         block.render(area, buffer);
+        if let Some(list) = &self.0.locations {
+            let lines = list
+                .locations
+                .iter()
+                .enumerate()
+                .skip(list.scroll)
+                .take(usize::from(inner.height))
+                .map(|(index, location)| {
+                    let text = format!(
+                        "{}:{}:{}",
+                        location.display_path(&self.0.repository_root),
+                        location.line.saturating_add(1),
+                        location.byte_column.saturating_add(1)
+                    );
+                    let style = Style::default()
+                        .fg(self.0.palette.focus)
+                        .add_modifier(Modifier::BOLD)
+                        .bg(if index == list.selected {
+                            self.0.palette.cursor
+                        } else {
+                            Color::Reset
+                        });
+                    Line::styled(shorten(&text, usize::from(inner.width)), style)
+                })
+                .collect::<Vec<_>>();
+            Paragraph::new(lines).render(inner, buffer);
+            return;
+        }
         let width = usize::from(inner.width);
         let lines = self
             .0
@@ -52,6 +85,11 @@ impl Widget for FilesView<'_> {
 impl FilesView<'_> {
     fn file_line(&self, depth: usize, name: &str, index: usize, width: usize) -> Line<'static> {
         let file = &self.0.files[index];
+        let name = if file.temporary && file.path != file.display_path {
+            &file.display_path
+        } else {
+            name
+        };
         let prefix = format!("{}{} ", "  ".repeat(depth), file.marker());
         let added = (file.lines_added > 0).then(|| format!("+{}", file.lines_added));
         let removed = (file.lines_removed > 0).then(|| format!("-{}", file.lines_removed));
@@ -99,6 +137,9 @@ impl FilesView<'_> {
     }
 
     fn file_color(&self, file: &ReviewFile) -> Color {
+        if file.temporary {
+            return self.0.palette.dim;
+        }
         match file.change {
             ChangeKind::Added => self.0.palette.insertion,
             ChangeKind::Deleted => self.0.palette.deletion,

@@ -4,7 +4,7 @@ use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Widget};
 
-use crate::ui::ReviewApp;
+use crate::ReviewApp;
 use review_state::ReviewStatus;
 
 pub(super) struct HeaderView<'a>(pub(super) &'a ReviewApp);
@@ -53,7 +53,7 @@ impl Widget for HeaderView<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::ReviewFile;
+    use crate::ReviewFile;
 
     #[test]
     fn totals_file_stats_in_the_header() {

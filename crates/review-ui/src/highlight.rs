@@ -1,4 +1,4 @@
-//! Syntax colors for unified diff code.
+//! Syntax colors for source code and unified diffs.
 
 use std::path::Path;
 use std::sync::OnceLock;
@@ -10,7 +10,7 @@ use syntect::highlighting::Theme;
 use syntect::parsing::{SyntaxReference, SyntaxSet};
 use syntect::util::LinesWithEndings;
 
-/// One syntax-colored part of a diff row.
+/// One syntax-colored part of a source line.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Token {
     pub(crate) text: String,
@@ -20,7 +20,7 @@ pub(crate) struct Token {
 impl Token {
     fn new(text: &str, color: Color) -> Self {
         Self {
-            text: text.replace('\t', "    "),
+            text: text.to_owned(),
             color,
         }
     }
@@ -60,21 +60,22 @@ pub(crate) struct HighlightedDiff {
     pub(crate) file: Option<HighlightedFile>,
 }
 
-/// Highlights diff rows from complete old and new file contents.
-pub(crate) struct DiffHighlighter {
+/// Applies the configured syntax colors to source code and diff rows.
+#[derive(Clone)]
+pub(crate) struct SyntaxHighlighter {
     theme: Theme,
     plain: Color,
 }
 
-impl std::fmt::Debug for DiffHighlighter {
+impl std::fmt::Debug for SyntaxHighlighter {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
-            .debug_struct("DiffHighlighter")
+            .debug_struct("SyntaxHighlighter")
             .finish_non_exhaustive()
     }
 }
 
-impl DiffHighlighter {
+impl SyntaxHighlighter {
     pub(crate) fn new(theme: crate::theme::Theme) -> Self {
         Self {
             theme: Self::themes().get(theme.syntax).clone(),
@@ -114,6 +115,11 @@ impl DiffHighlighter {
             old.map(HighlightedFile::BeforeChange)
         };
         HighlightedDiff { rows, file }
+    }
+
+    pub(crate) fn highlight_snippet(&self, language: &str, content: &str) -> Vec<Vec<Token>> {
+        self.highlight_file(language, Some(content.as_bytes()))
+            .expect("a string is valid UTF-8")
     }
 
     fn syntaxes() -> &'static SyntaxSet {
@@ -190,7 +196,7 @@ impl DiffHighlighter {
 mod tests {
     use review_repository::diff::DiffRow;
 
-    use super::DiffHighlighter;
+    use super::SyntaxHighlighter;
     use crate::theme::Theme;
 
     #[test]
@@ -199,7 +205,7 @@ mod tests {
             new_line: 2,
             text: "+let answer = 42;".to_owned(),
         }];
-        let highlighted = DiffHighlighter::new(Theme::default()).highlight(
+        let highlighted = SyntaxHighlighter::new(Theme::default()).highlight(
             "src/lib.rs",
             rows,
             None,
@@ -218,8 +224,8 @@ mod tests {
     }
 
     #[test]
-    fn expands_tabs_before_rendering() {
-        let highlighted = DiffHighlighter::new(Theme::default()).highlight(
+    fn preserves_tabs_for_source_coordinates() {
+        let highlighted = SyntaxHighlighter::new(Theme::default()).highlight(
             "Makefile",
             vec![DiffRow::Add {
                 new_line: 1,
@@ -235,13 +241,13 @@ mod tests {
                 .iter()
                 .map(|token| token.text.as_str())
                 .collect::<String>(),
-            "    cargo build"
+            "\tcargo build"
         );
     }
 
     #[test]
     fn does_not_show_before_change_contents_when_after_change_content_is_binary() {
-        let highlighted = DiffHighlighter::new(Theme::default()).highlight(
+        let highlighted = SyntaxHighlighter::new(Theme::default()).highlight(
             "src/lib.rs",
             Vec::new(),
             Some(b"old contents\n"),

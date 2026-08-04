@@ -160,7 +160,7 @@ fn pane_actions_are_idempotent_and_remove_a_racing_duplicate() {
 }
 
 #[test]
-fn insertion_rechecks_the_last_focused_agent_workspace() {
+fn insertion_lazily_finds_and_rechecks_the_last_focused_agent_workspace() {
     let client = FakeHerdr::default();
     let workspace = WorkspaceId("workspace".to_owned());
     let first_agent = agent("agent-1", "workspace", Some("Codex"));
@@ -170,8 +170,7 @@ fn insertion_rechecks_the_last_focused_agent_workspace() {
     };
     client.agents.lock().unwrap().push(first_agent);
     *client.agent_screen.lock().unwrap() = "prompt\nVim: Normal\n".to_owned();
-    let mut target = AgentTarget::new(workspace);
-    target.initialize(&client).unwrap();
+    let mut target = AgentTarget::new(workspace, None);
 
     assert_eq!(
         target.insert(&client, "diff text").unwrap(),
@@ -192,7 +191,9 @@ fn insertion_rechecks_the_last_focused_agent_workspace() {
         [PaneId("agent-1".to_owned())]
     );
 
-    target.observe_agent_focus(&agent("other-agent", "other", None));
+    let other_agent = agent("other-agent", "other", None);
+    client.agents.lock().unwrap().push(other_agent.clone());
+    target.observe_focus(&other_agent.pane_id);
     *client.agent_screen.lock().unwrap() = "prompt\nVim: Insert\n".to_owned();
     assert!(matches!(
         target.insert(&client, "same target").unwrap(),
@@ -203,16 +204,21 @@ fn insertion_rechecks_the_last_focused_agent_workspace() {
         (PaneId("agent-1".to_owned()), "same target\n\n".to_owned())
     );
     assert_eq!(client.sent_keys.lock().unwrap().len(), 1);
+    target.observe_focus(&PaneId("review-pane".to_owned()));
+    assert!(matches!(
+        target.insert(&client, "keep agent target").unwrap(),
+        InsertResult::Inserted { .. }
+    ));
     client.agents.lock().unwrap()[0].workspace_id = WorkspaceId("other".to_owned());
     assert_eq!(
         target.insert(&client, "must not send").unwrap(),
         InsertResult::NoAgent
     );
-    assert_eq!(client.sent.lock().unwrap().len(), 2);
+    assert_eq!(client.sent.lock().unwrap().len(), 3);
 
     let agent = agent("agent-2", "workspace", None);
     client.agents.lock().unwrap().push(agent.clone());
-    target.observe_agent_focus(&agent);
+    target.observe_focus(&agent.pane_id);
     *client.fail_send.lock().unwrap() = true;
     assert!(target.insert(&client, "retry").is_err());
     *client.fail_send.lock().unwrap() = false;
@@ -222,6 +228,26 @@ fn insertion_rechecks_the_last_focused_agent_workspace() {
             agent_name: "agent-2".to_owned(),
         }
     );
+}
+
+#[test]
+fn insertion_keeps_the_initial_agent_when_the_reviewer_takes_focus() {
+    let client = FakeHerdr::default();
+    let workspace = WorkspaceId("workspace".to_owned());
+    let agent = agent("agent", "workspace", None);
+    client.agents.lock().unwrap().push(agent.clone());
+    let review_pane = PaneId("review-pane".to_owned());
+    *client.session.lock().unwrap() = SessionSnapshot {
+        focused_workspace_id: Some(workspace.clone()),
+        focused_pane_id: Some(review_pane.clone()),
+    };
+    let mut target = AgentTarget::new(workspace, Some(agent.pane_id));
+    target.observe_focus(&review_pane);
+
+    assert!(matches!(
+        target.insert(&client, "diff text").unwrap(),
+        InsertResult::Inserted { .. }
+    ));
 }
 
 fn review_pane(id: &str) -> PluginPane {

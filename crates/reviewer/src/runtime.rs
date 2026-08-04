@@ -21,12 +21,12 @@ use herdr_client::client::HerdrClient;
 use herdr_client::protocol::{AgentTarget, InsertResult, PaneId, PluginContext, WorkspaceId};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
+use review_lsp::SourceLocation;
 use review_repository::diff::parse_file_diff;
 use review_repository::repository::{ChangedFile, PollResult, Repository, Snapshot};
 use review_state::{MarkResult, ReviewTracker};
 use review_store::{OutputTarget, ReviewStore};
-use review_ui::Theme;
-use review_ui::ui::{Action, Key, Message, ReviewApp, ReviewFile};
+use review_ui::{Action, Key, Message, ReviewApp, ReviewFile, SourceLoadMode, Theme};
 use signal_hook::consts::signal::{SIGHUP, SIGINT, SIGTERM};
 use signal_hook::flag;
 
@@ -58,9 +58,23 @@ struct Worker {
 #[derive(Debug)]
 enum WorkerCommand {
     Poll,
-    LoadDiff { commit_id: String, path: String },
-    SetReviewed { path: String, reviewed: bool },
-    Output { target: OutputTarget, text: String },
+    LoadDiff {
+        commit_id: String,
+        path: String,
+    },
+    LoadSource {
+        snapshot_id: String,
+        location: SourceLocation,
+        mode: SourceLoadMode,
+    },
+    SetReviewed {
+        path: String,
+        reviewed: bool,
+    },
+    Output {
+        target: OutputTarget,
+        text: String,
+    },
     Focus(PaneId),
     Quit,
 }
@@ -108,22 +122,43 @@ impl Runtime {
         let settings = ReviewStore::open(&self.state_dir, self.repository.root())?;
         let file_pane_width = settings.file_pane_width()?;
         let output_target = settings.output_target()?;
+        let root = self.repository.root().to_owned();
+        let mut terminal = TerminalGuard::new()?;
+        let mut app = ReviewApp::new(self.theme, file_pane_width, output_target, root.clone());
+        let area = terminal.terminal.size()?;
+        let _ = app.update(Message::Resize {
+            width: area.width,
+            height: area.height,
+        });
+        terminal
+            .terminal
+            .draw(|frame| frame.render_widget(app.view(), frame.area()))?;
+
         let (commands, messages, worker) = self.start_worker()?;
         let (focus_sender, focus_events) = mpsc::channel();
         let event_client = self.client.clone();
         thread::spawn(move || {
             let _ = event_client.forward_focus_events(&focus_sender);
         });
-
-        let mut terminal = TerminalGuard::new()?;
-        let mut app = ReviewApp::new(self.theme, file_pane_width, output_target);
+        let lsp_root = rust_project_root(&root);
+        let lsp = review_lsp::Worker::start(lsp_root.as_ref().unwrap_or(&root).clone());
+        if lsp_root.is_some() {
+            let _ = lsp.initialize();
+        }
         let mut watcher =
             RepositoryWatcher::new(self.repository.root(), self.repository.repo_type());
         let mut mouse_clicks = MouseClicks::default();
         commands.send(WorkerCommand::Poll)?;
         let result = loop {
             Self::drain_focus(&commands, &focus_events);
-            if Self::drain_messages(&commands, &messages, &settings, &mut app)? {
+            if Self::drain_lsp(
+                &lsp,
+                lsp_root.as_deref().unwrap_or(&root),
+                &mut app,
+                &commands,
+                &settings,
+            )? || Self::drain_messages(&commands, &messages, &settings, &mut app, &root, &lsp)?
+            {
                 break Ok(());
             }
             if stopped.load(Ordering::Relaxed) {
@@ -137,6 +172,7 @@ impl Runtime {
                 width: area.width,
                 height: area.height,
             });
+            let _ = app.update(Message::Tick(Instant::now()));
             terminal
                 .terminal
                 .draw(|frame| frame.render_widget(app.view(), frame.area()))?;
@@ -147,7 +183,7 @@ impl Runtime {
                     _ => None,
                 };
                 if let Some(message) = message
-                    && Self::dispatch(&commands, &settings, app.update(message))?
+                    && Self::dispatch(&commands, &settings, app.update(message), &root, &lsp)?
                 {
                     break Ok(());
                 }
@@ -165,17 +201,11 @@ impl Runtime {
     ) -> eyre::Result<(Sender<WorkerCommand>, Receiver<Message>, JoinHandle<()>)> {
         let store = ReviewStore::open(&self.state_dir, self.repository.root())?;
         let tracker = ReviewTracker::new(self.repository.clone(), store);
-        let mut target = AgentTarget::new(self.workspace_id.clone());
-        if let Some(pane_id) = &self.initial_agent {
-            target.observe_focus(&self.client, pane_id)?;
-        } else {
-            target.initialize(&self.client)?;
-        }
         let mut worker = Worker {
             repository: self.repository.clone(),
             tracker,
             client: self.client.clone(),
-            target,
+            target: AgentTarget::new(self.workspace_id.clone(), self.initial_agent.clone()),
             snapshot: None,
         };
         let (command_sender, command_receiver) = mpsc::channel();
@@ -190,16 +220,53 @@ impl Runtime {
         }
     }
 
+    fn drain_lsp(
+        lsp: &review_lsp::Worker,
+        root: &std::path::Path,
+        app: &mut ReviewApp,
+        commands: &Sender<WorkerCommand>,
+        settings: &ReviewStore,
+    ) -> eyre::Result<bool> {
+        while let Some(event) = lsp.try_recv() {
+            let event = match event {
+                review_lsp::Event::Locations {
+                    toast_id,
+                    operation,
+                    snapshot_id,
+                    locations,
+                } => review_lsp::Event::Locations {
+                    toast_id,
+                    operation,
+                    snapshot_id,
+                    locations: operation.filter_locations(root, locations),
+                },
+                event => event,
+            };
+            if Self::dispatch(
+                commands,
+                settings,
+                app.update(Message::Lsp(event)),
+                root,
+                lsp,
+            )? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     fn drain_messages(
         commands: &Sender<WorkerCommand>,
         messages: &Receiver<Message>,
         settings: &ReviewStore,
         app: &mut ReviewApp,
+        root: &std::path::Path,
+        lsp: &review_lsp::Worker,
     ) -> eyre::Result<bool> {
         loop {
             match messages.try_recv() {
                 Ok(message) => {
-                    if Self::dispatch(commands, settings, app.update(message))? {
+                    if Self::dispatch(commands, settings, app.update(message), root, lsp)? {
                         return Ok(true);
                     }
                 }
@@ -215,6 +282,8 @@ impl Runtime {
         commands: &Sender<WorkerCommand>,
         settings: &ReviewStore,
         action: Action,
+        root: &std::path::Path,
+        lsp: &review_lsp::Worker,
     ) -> eyre::Result<bool> {
         let command = match action {
             Action::None => return Ok(false),
@@ -227,9 +296,13 @@ impl Runtime {
                 settings.save_output_target(target)?;
                 return Ok(false);
             }
-            Action::LoadDiff { commit_id, path } => WorkerCommand::LoadDiff { commit_id, path },
+            Action::LoadDiff { commit_id, path } => {
+                open_rust_document(root, lsp, &path);
+                WorkerCommand::LoadDiff { commit_id, path }
+            }
             Action::LoadDiffs { commit_id, paths } => {
                 for path in paths {
+                    open_rust_document(root, lsp, &path);
                     commands.send(WorkerCommand::LoadDiff {
                         commit_id: commit_id.clone(),
                         path,
@@ -239,6 +312,32 @@ impl Runtime {
             }
             Action::SetReviewed { path, reviewed } => WorkerCommand::SetReviewed { path, reviewed },
             Action::Output { target, text } => WorkerCommand::Output { target, text },
+            Action::Lsp {
+                operation,
+                mut query,
+            } => {
+                query.path = if query.path.is_absolute() {
+                    query.path
+                } else {
+                    root.join(query.path)
+                };
+                lsp.request(operation, query).map_err(eyre::Report::msg)?;
+                return Ok(false);
+            }
+            Action::LoadSource {
+                snapshot_id,
+                mut location,
+                mode,
+            } => {
+                if location.path.is_relative() {
+                    location.path = root.join(&location.path);
+                }
+                WorkerCommand::LoadSource {
+                    snapshot_id,
+                    location,
+                    mode,
+                }
+            }
         };
         commands.send(command)?;
         Ok(false)
@@ -256,6 +355,26 @@ impl Worker {
                 }
                 WorkerCommand::LoadDiff { commit_id, path } => {
                     self.load_diff(messages, commit_id, path);
+                    true
+                }
+                WorkerCommand::LoadSource {
+                    snapshot_id,
+                    location,
+                    mode,
+                } => {
+                    let message = match std::fs::read(&location.path) {
+                        Err(error) => Message::SourceFailed {
+                            snapshot_id: snapshot_id.clone(),
+                            message: format!("could not read {}: {error}", location.path.display()),
+                        },
+                        Ok(content) => Message::SourceLoaded {
+                            snapshot_id,
+                            location,
+                            content,
+                            mode,
+                        },
+                    };
+                    let _ = messages.send(message);
                     true
                 }
                 WorkerCommand::SetReviewed { path, reviewed } => {
@@ -281,7 +400,7 @@ impl Worker {
                     true
                 }
                 WorkerCommand::Focus(pane_id) => {
-                    let _ = self.target.observe_focus(&self.client, &pane_id);
+                    self.target.observe_focus(&pane_id);
                     true
                 }
                 WorkerCommand::Quit => false,
@@ -452,20 +571,50 @@ fn normalize_mouse(mouse: MouseEvent) -> Option<Message> {
             row,
             delta: step,
         }),
+        MouseEventKind::Down(MouseButton::Left)
+            if mouse.modifiers.contains(KeyModifiers::CONTROL) =>
+        {
+            Some(Message::MouseControlClick { column, row })
+        }
         MouseEventKind::Down(MouseButton::Left) => Some(Message::MouseClick {
             column,
             row,
-            insert_path: mouse.modifiers.contains(KeyModifiers::SHIFT)
-                || mouse.modifiers.contains(KeyModifiers::CONTROL),
+            insert_path: mouse.modifiers.contains(KeyModifiers::SHIFT),
         }),
         MouseEventKind::Down(MouseButton::Middle) => Some(Message::MouseClick {
             column,
             row,
             insert_path: true,
         }),
+        MouseEventKind::Down(MouseButton::Right) => Some(Message::MouseRightClick { column, row }),
         MouseEventKind::Drag(MouseButton::Left) => Some(Message::MouseDrag { column, row }),
         MouseEventKind::Up(MouseButton::Left) => Some(Message::MouseRelease),
         _ => None,
+    }
+}
+
+fn open_rust_document(root: &std::path::Path, lsp: &review_lsp::Worker, path: &str) {
+    if let Some(path) = rust_document_path(root, path) {
+        let _ = lsp.open_document(path);
+    }
+}
+
+fn rust_project_root(root: &std::path::Path) -> Option<PathBuf> {
+    [root.to_owned(), root.join("crates")]
+        .into_iter()
+        .find(|path| path.join("Cargo.toml").is_file())
+}
+
+fn rust_document_path(root: &std::path::Path, path: &str) -> Option<PathBuf> {
+    let path = std::path::Path::new(path);
+    if review_ui::is_rust_path(path) {
+        Some(if path.is_absolute() {
+            path.to_owned()
+        } else {
+            root.join(path)
+        })
+    } else {
+        None
     }
 }
 
@@ -522,6 +671,53 @@ mod tests {
     use super::*;
 
     #[test]
+    fn finds_a_nested_rust_workspace() {
+        let directory = tempfile::tempdir().unwrap();
+        let crates = directory.path().join("crates");
+        std::fs::create_dir(&crates).unwrap();
+        std::fs::write(crates.join("Cargo.toml"), "[workspace]\n").unwrap();
+
+        assert_eq!(rust_project_root(directory.path()), Some(crates));
+    }
+
+    #[test]
+    fn only_rust_documents_are_opened_for_lsp() {
+        assert_eq!(
+            rust_document_path(std::path::Path::new("/repo"), "src/lib.rs"),
+            Some(PathBuf::from("/repo/src/lib.rs"))
+        );
+        assert_eq!(
+            rust_document_path(std::path::Path::new("/repo"), "README.md"),
+            None
+        );
+    }
+
+    #[test]
+    fn references_are_restricted_to_the_rust_project() {
+        let location = |path| review_lsp::SourceLocation {
+            path: PathBuf::from(path),
+            line: 0,
+            byte_column: 0,
+            end_line: 0,
+            end_byte_column: 1,
+        };
+        let locations = vec![
+            location("/repo/crates/src/lib.rs"),
+            location("/repo/src/lib.rs"),
+            location("/dependency/src/lib.rs"),
+        ];
+
+        assert_eq!(
+            review_lsp::Operation::References
+                .filter_locations(std::path::Path::new("/repo/crates"), locations)
+                .into_iter()
+                .map(|location| location.path)
+                .collect::<Vec<_>>(),
+            vec![PathBuf::from("/repo/crates/src/lib.rs")]
+        );
+    }
+
+    #[test]
     fn modified_mouse_inputs_reuse_existing_actions() {
         assert_eq!(
             normalize_key(KeyEvent::new(KeyCode::Char('V'), KeyModifiers::SHIFT)),
@@ -564,10 +760,6 @@ mod tests {
         for (kind, modifiers) in [
             (MouseEventKind::Down(MouseButton::Left), KeyModifiers::SHIFT),
             (
-                MouseEventKind::Down(MouseButton::Left),
-                KeyModifiers::CONTROL,
-            ),
-            (
                 MouseEventKind::Down(MouseButton::Middle),
                 KeyModifiers::NONE,
             ),
@@ -586,6 +778,15 @@ mod tests {
                 })
             );
         }
+        assert_eq!(
+            normalize_mouse(MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: 4,
+                row: 5,
+                modifiers: KeyModifiers::CONTROL,
+            }),
+            Some(Message::MouseControlClick { column: 4, row: 5 })
+        );
         assert_eq!(
             normalize_mouse(MouseEvent {
                 kind: MouseEventKind::Drag(MouseButton::Left),

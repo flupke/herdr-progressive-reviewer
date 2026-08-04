@@ -1,22 +1,17 @@
-//! Ratatui rendering for the review state.
+//! Ratatui rendering for the complete review state.
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::Style;
-use ratatui::widgets::{Block, Borders, Paragraph, Widget};
+use ratatui::widgets::{Paragraph, Widget};
 
-use super::{Focus, PaneLayout, ReviewApp};
-pub(super) use commit_message::CommitMessageView;
-use diff::DiffView;
-use files::FilesView;
-pub(super) use footer::FooterView;
-use header::HeaderView;
-
-mod commit_message;
-mod diff;
-mod files;
-mod footer;
-mod header;
+use crate::app::{Focus, PaneLayout, ReviewApp};
+use crate::commit_message::CommitMessageView;
+use crate::context_menu::ContextMenuView;
+use crate::diff::DiffView;
+use crate::files::FilesView;
+use crate::footer::FooterView;
+use crate::header::HeaderView;
+use crate::hover::HoverView;
 
 const MIN_WIDTH: u16 = 40;
 const MIN_HEIGHT: u16 = 6;
@@ -60,38 +55,17 @@ impl Widget for ReviewView<'_> {
             }
         }
         FooterView(self.0).render(footer, buffer);
+        if let Some(markdown) = &self.0.hover {
+            HoverView(self.0, markdown).render(area, buffer);
+        }
+        if let Some(menu) = &self.0.context_menu {
+            ContextMenuView(self.0, menu).render(area, buffer);
+        }
+        self.0
+            .toasts
+            .render(area, buffer, self.0.palette.focus, self.0.palette.deletion);
         if self.0.show_commit_message {
             CommitMessageView(self.0).render(area, buffer);
         }
     }
-}
-
-fn pane_block<'a>(app: &ReviewApp, title: &'a str, focused: bool) -> Block<'a> {
-    let style = if focused {
-        Style::default().fg(app.palette.focus)
-    } else {
-        Style::default().fg(app.palette.dim)
-    };
-    let suffix = if focused { " (focus)" } else { "" };
-    Block::default()
-        .borders(Borders::ALL)
-        .title(format!(" {title}{suffix} "))
-        .border_style(style)
-}
-
-fn shorten(value: &str, width: usize) -> String {
-    let length = value.chars().count();
-    if length <= width {
-        return value.to_owned();
-    }
-    if width <= 3 {
-        return ".".repeat(width);
-    }
-    let left = (width - 1) / 2;
-    let right = width - left - 1;
-    format!(
-        "{}…{}",
-        value.chars().take(left).collect::<String>(),
-        value.chars().skip(length - right).collect::<String>()
-    )
 }
