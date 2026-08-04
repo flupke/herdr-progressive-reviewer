@@ -17,7 +17,9 @@ use crate::theme::{Palette, Theme};
 
 const NARROW_WIDTH: u16 = 72;
 const MIN_PANE_WIDTH: u16 = 16;
-const DIFF_CONTROLS_TITLE: &str = "[←→] [→←]";
+const DIFF_CONTROLS_TITLE: &str = "[←→] [→←] [👁 ]";
+const BASIC_DIFF_CONTROLS_TITLE: &str = "[←→] [→←]";
+const FILE_CONTROL_TITLE: &str = "[x]";
 const EXPAND_ALL_LABEL: &str = "[←→]";
 const CONTRACT_ALL_LABEL: &str = "[→←]";
 const MIN_DIFF_CONTROLS_WIDTH: u16 = 32;
@@ -255,21 +257,50 @@ enum DragState {
 enum DiffControl {
     ExpandAll,
     ContractAll,
+    ShowFile,
+    CloseFile,
 }
 
 impl DiffControl {
-    fn at(width: u16, column: u16) -> Option<Self> {
-        let title_width = u16::try_from(DIFF_CONTROLS_TITLE.width()).ok()?;
+    fn title(file: Option<&ReviewFile>) -> &'static str {
+        match file {
+            Some(file) if file.diff.is_file_view() => FILE_CONTROL_TITLE,
+            Some(file) if file.diff.can_show_file() => DIFF_CONTROLS_TITLE,
+            _ => BASIC_DIFF_CONTROLS_TITLE,
+        }
+    }
+
+    fn visible(width: u16, file: Option<&ReviewFile>) -> bool {
+        let minimum = if file.is_some_and(|file| file.diff.is_file_view()) {
+            u16::try_from(FILE_CONTROL_TITLE.width() + 2).unwrap_or(u16::MAX)
+        } else {
+            MIN_DIFF_CONTROLS_WIDTH
+        };
+        width >= minimum
+    }
+
+    fn at(width: u16, column: u16, file: Option<&ReviewFile>) -> Option<Self> {
+        let title = Self::title(file);
+        let title_width = u16::try_from(title.width()).ok()?;
         let left = width.saturating_sub(title_width.saturating_add(1));
         let offset = column.checked_sub(left)?;
+        if file.is_some_and(|file| file.diff.is_file_view()) {
+            return (offset < title_width).then_some(Self::CloseFile);
+        }
         let expand_start = 0;
         let contract_start = expand_start + u16::try_from(EXPAND_ALL_LABEL.width()).ok()? + 1;
+        let show_file_start = contract_start + u16::try_from(CONTRACT_ALL_LABEL.width()).ok()? + 1;
         if offset >= expand_start && offset < contract_start - 1 {
             Some(Self::ExpandAll)
         } else if offset >= contract_start
             && offset < contract_start + u16::try_from(CONTRACT_ALL_LABEL.width()).ok()?
         {
             Some(Self::ContractAll)
+        } else if file.is_some_and(|file| file.diff.can_show_file())
+            && offset >= show_file_start
+            && offset < title_width
+        {
+            Some(Self::ShowFile)
         } else {
             None
         }
@@ -333,16 +364,22 @@ impl PaneLayout {
         self.is_wide() && self.contains_body(column, row) && column.abs_diff(self.file_width) <= 1
     }
 
-    fn diff_control_at(self, current: Focus, column: u16, row: u16) -> Option<DiffControl> {
+    fn diff_control_at(
+        self,
+        current: Focus,
+        column: u16,
+        row: u16,
+        file: Option<&ReviewFile>,
+    ) -> Option<DiffControl> {
         let diff_width = if self.is_wide() {
             self.width.saturating_sub(self.file_width)
         } else {
             self.width
         };
         (row == 1
-            && diff_width >= MIN_DIFF_CONTROLS_WIDTH
+            && DiffControl::visible(diff_width, file)
             && self.focus_at(current, column, row) == Some(Focus::Diff))
-        .then(|| DiffControl::at(self.width, column))
+        .then(|| DiffControl::at(self.width, column, file))
         .flatten()
     }
 
@@ -1015,7 +1052,7 @@ impl ReviewApp {
         {
             return self.set_output_target(target);
         }
-        if let Some(control) = layout.diff_control_at(self.focus, column, row) {
+        if let Some(control) = layout.diff_control_at(self.focus, column, row, self.selected()) {
             self.focus = Focus::Diff;
             let Some(file) = self.files.get_mut(self.selected_file) else {
                 return Action::None;
@@ -1023,11 +1060,13 @@ impl ReviewApp {
             let changed = match control {
                 DiffControl::ExpandAll => file.diff.expand_all(),
                 DiffControl::ContractAll => file.diff.contract_all(),
+                DiffControl::ShowFile => file.diff.show_file(),
+                DiffControl::CloseFile => file.diff.show_diff(),
             };
             if changed {
                 self.selection = None;
-                file.cursor = file.cursor.min(file.diff.len().saturating_sub(1));
-                file.scroll = file.scroll.min(file.cursor);
+                file.cursor = 0;
+                file.scroll = 0;
                 self.keep_visible();
             }
             return Action::None;

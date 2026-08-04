@@ -538,9 +538,10 @@ fn diff_controls_expand_and_contract_all_gaps() {
     let collapsed = screen(&app, 100, 14).join("\n");
     assert!(collapsed.contains("←→"));
     assert!(collapsed.contains("→←"));
+    assert!(collapsed.contains('👁'));
     assert!(collapsed.contains("1 unmodified lines"));
     app.update(Message::MouseClick {
-        column: 92,
+        column: 87,
         row: 1,
         insert_path: false,
     });
@@ -550,7 +551,7 @@ fn diff_controls_expand_and_contract_all_gaps() {
             .contains("unmodified lines")
     );
     app.update(Message::MouseClick {
-        column: 96,
+        column: 92,
         row: 1,
         insert_path: false,
     });
@@ -559,6 +560,30 @@ fn diff_controls_expand_and_contract_all_gaps() {
             .join("\n")
             .contains("1 unmodified lines")
     );
+
+    app.update(Message::MouseClick {
+        column: 96,
+        row: 1,
+        insert_path: false,
+    });
+    let file = screen(&app, 100, 14).join("\n");
+    assert!(file.contains("File ·"));
+    assert!(file.contains("[x]"));
+    assert!(!file.contains("←→"));
+    assert!(!file.contains("→←"));
+    assert!(file.contains("2 middle"));
+    assert!(!file.contains("unmodified lines"));
+
+    app.update(Message::MouseClick {
+        column: 97,
+        row: 1,
+        insert_path: false,
+    });
+    let diff = screen(&app, 100, 14).join("\n");
+    assert!(diff.contains("Diff ·"));
+    assert!(diff.contains("←→"));
+    assert!(diff.contains("→←"));
+    assert!(diff.contains("1 unmodified lines"));
 }
 
 #[test]

@@ -9,7 +9,7 @@ use unicode_width::UnicodeWidthStr;
 use super::{pane_block, shorten};
 use crate::highlight::Token;
 use crate::presentation::{PresentedRow, matching_ranges};
-use crate::ui::{DIFF_CONTROLS_TITLE, Focus, MIN_DIFF_CONTROLS_WIDTH, ReviewApp, Selection};
+use crate::ui::{DiffControl, Focus, ReviewApp, Selection};
 use review_state::ReviewStatus;
 
 pub(super) struct DiffView<'a>(pub(super) &'a ReviewApp);
@@ -17,16 +17,25 @@ pub(super) struct DiffView<'a>(pub(super) &'a ReviewApp);
 impl Widget for DiffView<'_> {
     fn render(self, area: Rect, buffer: &mut Buffer) {
         let focused = self.0.focus == Focus::Diff;
-        let title = self.0.selected().map_or_else(
+        let file = self.0.selected();
+        let title = file.map_or_else(
             || "Diff".to_owned(),
-            |file| format!("Diff · {}", file.display_path),
+            |file| {
+                let kind = if file.diff.is_file_view() {
+                    "File"
+                } else {
+                    "Diff"
+                };
+                format!("{kind} · {}", file.display_path)
+            },
         );
-        let show_controls = area.width >= MIN_DIFF_CONTROLS_WIDTH;
+        let controls = DiffControl::title(file);
+        let show_controls = DiffControl::visible(area.width, file);
         let title = if show_controls {
             shorten(
                 &title,
                 usize::from(area.width).saturating_sub(
-                    DIFF_CONTROLS_TITLE.width() + 5 + if focused { " (focus)".len() } else { 0 },
+                    controls.width() + 5 + if focused { " (focus)".len() } else { 0 },
                 ),
             )
         } else {
@@ -35,19 +44,19 @@ impl Widget for DiffView<'_> {
         let mut block = pane_block(self.0, &title, focused);
         if show_controls {
             block = block.title(
-                Line::styled(
-                    DIFF_CONTROLS_TITLE,
-                    Style::default().fg(self.0.palette.focus),
-                )
-                .alignment(Alignment::Right),
+                Line::styled(controls, Style::default().fg(self.0.palette.focus))
+                    .alignment(Alignment::Right),
             );
         }
         let inner = block.inner(area);
         block.render(area, buffer);
-        let Some(file) = self.0.selected() else {
+        let Some(file) = file else {
             return;
         };
-        if file.status == ReviewStatus::Reviewed && self.0.search.is_none() {
+        if file.status == ReviewStatus::Reviewed
+            && self.0.search.is_none()
+            && !file.diff.is_file_view()
+        {
             let center = Rect::new(inner.x, inner.y + inner.height / 2, inner.width, 1);
             Paragraph::new("No changes")
                 .style(Style::default().fg(self.0.palette.dim))

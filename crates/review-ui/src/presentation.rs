@@ -6,7 +6,7 @@ use std::ops::RangeInclusive;
 use review_repository::diff::DiffRow;
 use review_repository::excerpt::{DiffExcerpt, ExcerptError};
 
-use crate::highlight::{HighlightedDiff, Token};
+use crate::highlight::{HighlightedDiff, HighlightedFile, Token};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum PresentedRow {
@@ -28,25 +28,41 @@ enum WholeFile {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
+enum PresentationView {
+    #[default]
+    Diff,
+    File {
+        diff_rows: Vec<PresentedRow>,
+    },
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct DiffPresentation {
     source: Vec<DiffRow>,
     pub(crate) rows: Vec<PresentedRow>,
     whole_file: Option<WholeFile>,
+    file_rows: Option<Vec<PresentedRow>>,
+    view: PresentationView,
 }
 
 impl DiffPresentation {
     pub(crate) fn new(highlighted: HighlightedDiff) -> Self {
-        let whole_file = highlighted.rows.iter().find_map(|row| match &row.diff {
+        let HighlightedDiff {
+            rows: highlighted_rows,
+            file,
+        } = highlighted;
+        let after_change_lines = file.as_ref().and_then(HighlightedFile::after_change_lines);
+        let whole_file = highlighted_rows.iter().find_map(|row| match &row.diff {
             DiffRow::Meta { text } if text.starts_with("new file mode ") => Some(WholeFile::Added),
             DiffRow::Meta { text } if text.starts_with("deleted file mode ") => {
                 Some(WholeFile::Deleted)
             }
             _ => None,
         });
-        let mut source = Vec::with_capacity(highlighted.rows.len());
-        let mut rows = Vec::with_capacity(highlighted.rows.len());
+        let mut source = Vec::with_capacity(highlighted_rows.len());
+        let mut rows = Vec::with_capacity(highlighted_rows.len());
         let mut previous_hunk_end = None;
-        for highlighted_row in highlighted.rows {
+        for highlighted_row in highlighted_rows {
             let visible = match whole_file {
                 Some(WholeFile::Added) => matches!(highlighted_row.diff, DiffRow::Add { .. }),
                 Some(WholeFile::Deleted) => matches!(highlighted_row.diff, DiffRow::Delete { .. }),
@@ -66,8 +82,7 @@ impl DiffPresentation {
             {
                 let start = previous_hunk_end.unwrap_or(1);
                 if *new_start > start
-                    && let Some(lines) =
-                        Self::gap_lines(highlighted.new_lines.as_deref(), start, *new_start)
+                    && let Some(lines) = Self::gap_lines(after_change_lines, start, *new_start)
                 {
                     rows.push(PresentedRow::Gap { start, lines });
                 }
@@ -82,20 +97,30 @@ impl DiffPresentation {
             }
         }
         if let Some(start) = previous_hunk_end
-            && let Some(end) = highlighted
-                .new_lines
-                .as_ref()
+            && let Some(end) = after_change_lines
                 .and_then(|lines| u32::try_from(lines.len()).ok())
                 .map(|last| last.saturating_add(1))
             && end > start
-            && let Some(lines) = Self::gap_lines(highlighted.new_lines.as_deref(), start, end)
+            && let Some(lines) = Self::gap_lines(after_change_lines, start, end)
         {
             rows.push(PresentedRow::Gap { start, lines });
         }
+        let file_rows = file.map(HighlightedFile::into_lines).map(|lines| {
+            lines
+                .into_iter()
+                .enumerate()
+                .map(|(index, tokens)| PresentedRow::Expanded {
+                    line: u32::try_from(index + 1).unwrap_or(u32::MAX),
+                    tokens,
+                })
+                .collect()
+        });
         Self {
             source,
             rows,
             whole_file,
+            file_rows,
+            view: PresentationView::Diff,
         }
     }
 
@@ -120,7 +145,36 @@ impl DiffPresentation {
     }
 
     pub(crate) fn shows_whole_file(&self) -> bool {
-        self.whole_file.is_some()
+        self.whole_file.is_some() || self.is_file_view()
+    }
+
+    pub(crate) fn can_show_file(&self) -> bool {
+        self.file_rows.is_some() || self.is_file_view()
+    }
+
+    pub(crate) fn is_file_view(&self) -> bool {
+        matches!(self.view, PresentationView::File { .. })
+    }
+
+    pub(crate) fn show_file(&mut self) -> bool {
+        if self.is_file_view() {
+            return false;
+        }
+        let Some(rows) = self.file_rows.take() else {
+            return false;
+        };
+        self.view = PresentationView::File {
+            diff_rows: std::mem::replace(&mut self.rows, rows),
+        };
+        true
+    }
+
+    pub(crate) fn show_diff(&mut self) -> bool {
+        let PresentationView::File { diff_rows } = std::mem::take(&mut self.view) else {
+            return false;
+        };
+        self.file_rows = Some(std::mem::replace(&mut self.rows, diff_rows));
+        true
     }
 
     pub(crate) fn len(&self) -> usize {
@@ -240,7 +294,8 @@ impl DiffPresentation {
     }
 
     pub(crate) fn line_number_width(&self) -> usize {
-        self.source
+        let source_line = self
+            .source
             .iter()
             .filter_map(|row| match row {
                 DiffRow::Context { new_line, .. } | DiffRow::Add { new_line, .. } => {
@@ -250,7 +305,16 @@ impl DiffPresentation {
                 _ => None,
             })
             .max()
-            .unwrap_or(0)
+            .unwrap_or(0);
+        self.rows
+            .iter()
+            .filter_map(|row| match row {
+                PresentedRow::Expanded { line, .. } => Some(*line),
+                PresentedRow::Diff { .. } | PresentedRow::Gap { .. } => None,
+            })
+            .max()
+            .unwrap_or(source_line)
+            .max(source_line)
             .to_string()
             .len()
     }
@@ -321,7 +385,7 @@ mod tests {
     use review_repository::diff::DiffRow;
 
     use super::{DiffPresentation, PresentedRow};
-    use crate::highlight::{HighlightedDiff, HighlightedRow, Token};
+    use crate::highlight::{HighlightedDiff, HighlightedFile, HighlightedRow, Token};
 
     #[test]
     fn added_file_shows_only_file_contents() {
@@ -353,7 +417,7 @@ mod tests {
                     }],
                 },
             ],
-            new_lines: None,
+            file: None,
         };
 
         let presentation = DiffPresentation::new(highlighted);
@@ -398,7 +462,7 @@ mod tests {
                     text: " fourth".to_owned(),
                 }),
             ],
-            new_lines: Some(
+            file: Some(HighlightedFile::AfterChange(
                 (1..=5)
                     .map(|line| {
                         vec![Token {
@@ -407,7 +471,7 @@ mod tests {
                         }]
                     })
                     .collect(),
-            ),
+            )),
         });
 
         assert!(matches!(presentation.rows[0], PresentedRow::Gap { .. }));
@@ -436,5 +500,33 @@ mod tests {
                 .count(),
             3
         );
+    }
+
+    #[test]
+    fn file_view_restores_the_diff_rows() {
+        let diff_row = PresentedRow::Gap {
+            start: 1,
+            lines: Vec::new(),
+        };
+        let mut presentation = DiffPresentation {
+            rows: vec![diff_row.clone()],
+            file_rows: Some(vec![PresentedRow::Expanded {
+                line: 1,
+                tokens: vec![Token {
+                    text: "fn main() {}".to_owned(),
+                    color: Color::Blue,
+                }],
+            }]),
+            ..DiffPresentation::default()
+        };
+
+        assert!(presentation.show_file());
+        assert!(presentation.is_file_view());
+        assert!(matches!(
+            presentation.rows[0],
+            PresentedRow::Expanded { line: 1, .. }
+        ));
+        assert!(presentation.show_diff());
+        assert_eq!(presentation.rows, vec![diff_row]);
     }
 }

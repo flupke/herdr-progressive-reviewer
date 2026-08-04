@@ -34,9 +34,30 @@ pub(crate) struct HighlightedRow {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum HighlightedFile {
+    AfterChange(Vec<Vec<Token>>),
+    BeforeChange(Vec<Vec<Token>>),
+}
+
+impl HighlightedFile {
+    pub(crate) fn after_change_lines(&self) -> Option<&[Vec<Token>]> {
+        match self {
+            Self::AfterChange(lines) => Some(lines),
+            Self::BeforeChange(_) => None,
+        }
+    }
+
+    pub(crate) fn into_lines(self) -> Vec<Vec<Token>> {
+        match self {
+            Self::AfterChange(lines) | Self::BeforeChange(lines) => lines,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct HighlightedDiff {
     pub(crate) rows: Vec<HighlightedRow>,
-    pub(crate) new_lines: Option<Vec<Vec<Token>>>,
+    pub(crate) file: Option<HighlightedFile>,
 }
 
 /// Highlights diff rows from complete old and new file contents.
@@ -87,10 +108,12 @@ impl DiffHighlighter {
                 HighlightedRow { diff, tokens }
             })
             .collect();
-        HighlightedDiff {
-            rows,
-            new_lines: new,
-        }
+        let file = if new_content.is_some() {
+            new.map(HighlightedFile::AfterChange)
+        } else {
+            old.map(HighlightedFile::BeforeChange)
+        };
+        HighlightedDiff { rows, file }
     }
 
     fn syntaxes() -> &'static SyntaxSet {
@@ -214,5 +237,17 @@ mod tests {
                 .collect::<String>(),
             "    cargo build"
         );
+    }
+
+    #[test]
+    fn does_not_show_before_change_contents_when_after_change_content_is_binary() {
+        let highlighted = DiffHighlighter::new(Theme::default()).highlight(
+            "src/lib.rs",
+            Vec::new(),
+            Some(b"old contents\n"),
+            Some(b"\xff"),
+        );
+
+        assert!(highlighted.file.is_none());
     }
 }
