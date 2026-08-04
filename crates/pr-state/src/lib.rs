@@ -87,6 +87,18 @@ pub enum LoadResult {
 #[serde(default)]
 struct Settings {
     file_pane_width: Option<u16>,
+    output_target: OutputTarget,
+}
+
+/// Where selected review text is sent.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutputTarget {
+    /// Insert text into the active Herdr agent.
+    #[default]
+    ActiveAgent,
+    /// Copy text to the system clipboard.
+    Clipboard,
 }
 
 /// Review state for one canonical repository.
@@ -220,6 +232,18 @@ impl ReviewStore {
     pub fn save_file_pane_width(&self, columns: u16) -> Result<()> {
         let mut settings = self.settings()?;
         settings.file_pane_width = Some(columns);
+        self.atomic_json(&self.settings_path(), &settings, "write settings")
+    }
+
+    /// Get the selected text output target.
+    pub fn output_target(&self) -> Result<OutputTarget> {
+        Ok(self.settings()?.output_target)
+    }
+
+    /// Save the selected text output target.
+    pub fn save_output_target(&self, target: OutputTarget) -> Result<()> {
+        let mut settings = self.settings()?;
+        settings.output_target = target;
         self.atomic_json(&self.settings_path(), &settings, "write settings")
     }
 
@@ -558,7 +582,7 @@ mod tests {
 
     use tempfile::TempDir;
 
-    use super::{LoadResult, ReviewStore, StateKey};
+    use super::{LoadResult, OutputTarget, ReviewStore, StateKey};
 
     struct Fixture {
         temporary: TempDir,
@@ -636,19 +660,19 @@ mod tests {
     }
 
     #[test]
-    fn file_pane_width_is_shared_between_repositories() {
+    fn settings_are_shared_between_repositories() {
         let fixture = Fixture::new();
         let other_repository = fixture.temporary.path().join("other");
         fs::create_dir(&other_repository).unwrap();
         fixture.store().save_file_pane_width(42).unwrap();
+        fixture
+            .store()
+            .save_output_target(OutputTarget::Clipboard)
+            .unwrap();
 
-        assert_eq!(
-            ReviewStore::open(&fixture.state, other_repository)
-                .unwrap()
-                .file_pane_width()
-                .unwrap(),
-            Some(42)
-        );
+        let settings = ReviewStore::open(&fixture.state, other_repository).unwrap();
+        assert_eq!(settings.file_pane_width().unwrap(), Some(42));
+        assert_eq!(settings.output_target().unwrap(), OutputTarget::Clipboard);
     }
 
     #[test]

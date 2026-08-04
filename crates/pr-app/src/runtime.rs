@@ -18,10 +18,10 @@ use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
 use pr_core::diff::parse_file_diff;
-use pr_core::herdr::{AgentTarget, PaneId, PluginContext, WorkspaceId};
+use pr_core::herdr::{AgentTarget, InsertResult, PaneId, PluginContext, WorkspaceId};
 use pr_core::herdr_client::HerdrClient;
 use pr_core::repository::{ChangedFile, PollResult, Repository, Snapshot};
-use pr_state::ReviewStore;
+use pr_state::{OutputTarget, ReviewStore};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use signal_hook::consts::signal::{SIGHUP, SIGINT, SIGTERM};
@@ -59,7 +59,7 @@ enum WorkerCommand {
     Poll,
     LoadDiff { commit_id: String, path: String },
     SetReviewed { path: String, reviewed: bool },
-    Insert(String),
+    Output { target: OutputTarget, text: String },
     Focus(PaneId),
     Quit,
 }
@@ -101,6 +101,7 @@ impl Runtime {
 
         let settings = ReviewStore::open(&self.state_dir, self.repository.root())?;
         let file_pane_width = settings.file_pane_width()?;
+        let output_target = settings.output_target()?;
         let (commands, messages, worker) = self.start_worker()?;
         let (focus_sender, focus_events) = mpsc::channel();
         let event_client = self.client.clone();
@@ -109,7 +110,7 @@ impl Runtime {
         });
 
         let mut terminal = TerminalGuard::new()?;
-        let mut app = ReviewApp::new(self.theme, file_pane_width);
+        let mut app = ReviewApp::new(self.theme, file_pane_width, output_target);
         let mut watcher = RepositoryWatcher::new(self.repository.root());
         commands.send(WorkerCommand::Poll)?;
         let result = loop {
@@ -214,6 +215,10 @@ impl Runtime {
                 settings.save_file_pane_width(columns)?;
                 return Ok(false);
             }
+            Action::SaveOutputTarget(target) => {
+                settings.save_output_target(target)?;
+                return Ok(false);
+            }
             Action::LoadDiff { commit_id, path } => WorkerCommand::LoadDiff { commit_id, path },
             Action::LoadDiffs { commit_id, paths } => {
                 for path in paths {
@@ -225,7 +230,7 @@ impl Runtime {
                 return Ok(false);
             }
             Action::SetReviewed { path, reviewed } => WorkerCommand::SetReviewed { path, reviewed },
-            Action::Insert { text } => WorkerCommand::Insert(text),
+            Action::Output { target, text } => WorkerCommand::Output { target, text },
         };
         commands.send(command)?;
         Ok(false)
@@ -234,6 +239,7 @@ impl Runtime {
 
 impl Worker {
     fn run(&mut self, commands: &Receiver<WorkerCommand>, messages: &Sender<Message>) {
+        let mut clipboard = None;
         while let Ok(command) = commands.recv() {
             let keep_running = match command {
                 WorkerCommand::Poll => {
@@ -248,9 +254,22 @@ impl Worker {
                     self.set_reviewed(messages, path, reviewed);
                     true
                 }
-                WorkerCommand::Insert(text) => {
-                    let result = self.target.insert(&self.client, &text).map_err(|_| ());
-                    let _ = messages.send(Message::InsertFinished(result));
+                WorkerCommand::Output { target, text } => {
+                    let delivered = match target {
+                        OutputTarget::ActiveAgent => matches!(
+                            self.target.insert(&self.client, &text),
+                            Ok(InsertResult::Inserted { .. })
+                        ),
+                        OutputTarget::Clipboard => {
+                            if clipboard.is_none() {
+                                clipboard = arboard::Clipboard::new().ok();
+                            }
+                            clipboard
+                                .as_mut()
+                                .is_some_and(|clipboard| clipboard.set_text(text).is_ok())
+                        }
+                    };
+                    let _ = messages.send(Message::OutputFinished { delivered });
                     true
                 }
                 WorkerCommand::Focus(pane_id) => {

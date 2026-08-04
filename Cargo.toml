@@ -15,6 +15,7 @@ rust-version = "1.85"
 license = "MIT"
 
 [workspace.dependencies]
+arboard = { version = "3.6.1", default-features = false, features = ["wayland-data-control"] }
 base64 = "0.22"
 crossterm = "0.28"
 eyre = "0.6"

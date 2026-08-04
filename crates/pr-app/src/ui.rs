@@ -4,8 +4,8 @@ use std::collections::HashSet;
 use std::ops::RangeInclusive;
 
 use pr_core::diff::DiffRow;
-use pr_core::herdr::InsertResult;
 use pr_core::repository::{ChangeKind, ChangedFile};
+use pr_state::OutputTarget;
 use ratatui::layout::{Position, Rect};
 use unicode_width::UnicodeWidthStr;
 
@@ -164,8 +164,8 @@ pub enum Message {
         path: String,
         result: Result<ReviewState, ()>,
     },
-    /// An excerpt insertion result.
-    InsertFinished(Result<InsertResult, ()>),
+    /// Whether selected text reached its output target.
+    OutputFinished { delivered: bool },
     /// The terminal size changed.
     Resize { width: u16, height: u16 },
     /// The mouse wheel moved over one pane.
@@ -198,10 +198,12 @@ pub enum Action {
     },
     /// Set the selected path review state.
     SetReviewed { path: String, reviewed: bool },
-    /// Insert one valid unified-diff excerpt.
-    Insert { text: String },
+    /// Send selected text to the configured output target.
+    Output { target: OutputTarget, text: String },
     /// Save the file-pane width in terminal columns.
     SaveFilePaneWidth(u16),
+    /// Save the selected text output target.
+    SaveOutputTarget(OutputTarget),
     /// Stop the application.
     Quit,
 }
@@ -293,7 +295,7 @@ impl PaneLayout {
         Self {
             width,
             height,
-            footer_height: 1,
+            footer_height: 2,
             file_width,
         }
     }
@@ -361,6 +363,7 @@ pub struct ReviewApp {
     selected_file: usize,
     file_scroll: usize,
     file_width: Option<u16>,
+    output_target: OutputTarget,
     drag: DragState,
     focus: Focus,
     selection: Option<Selection>,
@@ -374,12 +377,12 @@ pub struct ReviewApp {
 
 impl Default for ReviewApp {
     fn default() -> Self {
-        Self::new(Theme::default(), None)
+        Self::new(Theme::default(), None, OutputTarget::default())
     }
 }
 
 impl ReviewApp {
-    pub(crate) fn new(theme: Theme, file_width: Option<u16>) -> Self {
+    pub(crate) fn new(theme: Theme, file_width: Option<u16>, output_target: OutputTarget) -> Self {
         Self {
             change_id: String::new(),
             commit_id: String::new(),
@@ -391,6 +394,7 @@ impl ReviewApp {
             selected_file: 0,
             file_scroll: 0,
             file_width,
+            output_target,
             drag: DragState::None,
             focus: Focus::Files,
             selection: None,
@@ -439,8 +443,8 @@ impl ReviewApp {
                 path,
                 result,
             } => self.finish_review(&change_id, &path, result),
-            Message::InsertFinished(result) => {
-                if matches!(result, Ok(InsertResult::Inserted { .. })) {
+            Message::OutputFinished { delivered } => {
+                if delivered {
                     self.selection = None;
                 }
                 Action::None
@@ -681,12 +685,14 @@ impl ReviewApp {
                 self.search = None;
                 Action::None
             }
-            Key::Enter if self.focus == Focus::Files => {
-                self.selected().map_or(Action::None, |file| Action::Insert {
-                    text: file.path.clone(),
-                })
-            }
+            Key::Enter if self.focus == Focus::Files => self
+                .selected()
+                .map_or(Action::None, |file| self.output(file.path.clone())),
             Key::Enter => self.insert(),
+            Key::Char('o') => self.set_output_target(match self.output_target {
+                OutputTarget::ActiveAgent => OutputTarget::Clipboard,
+                OutputTarget::Clipboard => OutputTarget::ActiveAgent,
+            }),
             Key::Space | Key::Char(' ') => self.toggle_review(),
             Key::Visual | Key::Char('v' | 'V') if self.focus == Focus::Diff => {
                 self.visual();
@@ -875,11 +881,24 @@ impl ReviewApp {
             return Action::None;
         }
         match file.diff.excerpt(range) {
-            Ok(excerpt) => Action::Insert {
-                text: excerpt.into_string(),
-            },
+            Ok(excerpt) => self.output(excerpt.into_string()),
             Err(_) => Action::None,
         }
+    }
+
+    fn output(&self, text: String) -> Action {
+        Action::Output {
+            target: self.output_target,
+            text,
+        }
+    }
+
+    fn set_output_target(&mut self, target: OutputTarget) -> Action {
+        if self.output_target == target {
+            return Action::None;
+        }
+        self.output_target = target;
+        Action::SaveOutputTarget(target)
     }
 
     fn visual(&mut self) {
@@ -988,6 +1007,11 @@ impl ReviewApp {
             self.show_commit_message = !self.show_commit_message;
             return Action::None;
         }
+        if row == self.height.saturating_sub(2)
+            && let Some(target) = views::FooterView::output_target_at(column)
+        {
+            return self.set_output_target(target);
+        }
         if let Some(control) = layout.diff_control_at(self.focus, column, row) {
             self.focus = Focus::Diff;
             let Some(file) = self.files.get_mut(self.selected_file) else {
@@ -1060,9 +1084,7 @@ impl ReviewApp {
         self.selected_file = target;
         self.selection = None;
         if insert_path {
-            return Action::Insert {
-                text: self.files[target].path.clone(),
-            };
+            return self.output(self.files[target].path.clone());
         }
         self.load_selected_action()
     }

@@ -1,7 +1,7 @@
 use pr_app::review::{ReviewState, ReviewStatus, ReviewWarning};
 use pr_app::ui::{Action, Key, Message, ReviewApp, ReviewFile};
 use pr_core::diff::{DiffRow, NoticeKind};
-use pr_core::herdr::InsertResult;
+use pr_state::OutputTarget;
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use ratatui::style::Color;
@@ -100,7 +100,8 @@ fn state_machine_keeps_selection_until_insert_succeeds() {
     app.update(Message::Key(Key::Visual));
     assert_eq!(
         app.update(Message::Key(Key::Enter)),
-        Action::Insert {
+        Action::Output {
+            target: OutputTarget::ActiveAgent,
             text: concat!(
                 "diff --git a/src/lib.rs b/src/lib.rs\n",
                 "--- a/src/lib.rs\n",
@@ -113,22 +114,20 @@ fn state_machine_keeps_selection_until_insert_succeeds() {
         }
     );
 
-    app.update(Message::InsertFinished(Err(())));
+    app.update(Message::OutputFinished { delivered: false });
     assert!(matches!(
         app.update(Message::Key(Key::Enter)),
-        Action::Insert { .. }
+        Action::Output { .. }
     ));
-    app.update(Message::InsertFinished(Ok(InsertResult::NoAgent)));
+    app.update(Message::OutputFinished { delivered: false });
     let rendered = screen(&app, 80, 12);
     assert!(rendered.last().unwrap().contains("Tab focus"));
     assert!(!rendered.join("\n").contains("No agent chat"));
     assert!(matches!(
         app.update(Message::Key(Key::Enter)),
-        Action::Insert { .. }
+        Action::Output { .. }
     ));
-    app.update(Message::InsertFinished(Ok(InsertResult::Inserted {
-        agent_name: "Codex".to_owned(),
-    })));
+    app.update(Message::OutputFinished { delivered: true });
     assert!(!screen(&app, 80, 12).join("\n").contains("Inserted into"));
     assert_eq!(app.update(Message::Key(Key::Enter)), Action::None);
 
@@ -152,6 +151,42 @@ fn state_machine_keeps_selection_until_insert_succeeds() {
     let rendered = screen(&app, 80, 12);
     assert!(rendered.last().unwrap().contains("Tab focus"));
     assert!(!rendered.join("\n").contains("Review baseline expired"));
+}
+
+#[test]
+fn output_panel_selects_the_target_for_paths_and_diffs() {
+    let mut app = ReviewApp::default();
+    app.update(Message::Resize {
+        width: 80,
+        height: 12,
+    });
+    app.update(Message::FilesLoaded {
+        change_id: "qpvuntsm".to_owned(),
+        commit_id: "11111111".to_owned(),
+        description: "Commit title\n".to_owned(),
+        files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed)],
+    });
+
+    assert!(screen(&app, 80, 12)[10].contains("Output: [Active agent] [Clipboard]"));
+    assert_eq!(
+        app.update(Message::Key(Key::Char('o'))),
+        Action::SaveOutputTarget(OutputTarget::Clipboard)
+    );
+    assert_eq!(
+        app.update(Message::Key(Key::Enter)),
+        Action::Output {
+            target: OutputTarget::Clipboard,
+            text: "src/lib.rs".to_owned(),
+        }
+    );
+    assert_eq!(
+        app.update(Message::MouseClick {
+            column: 9,
+            row: 10,
+            insert_path: false,
+        }),
+        Action::SaveOutputTarget(OutputTarget::ActiveAgent)
+    );
 }
 
 #[test]
@@ -638,7 +673,8 @@ fn mouse_targets_the_hovered_pane_and_click_changes_focus() {
     assert!(screen(&app, 80, 12).join("\n").contains("Diff · second.rs"));
     assert_eq!(
         app.update(Message::Key(Key::Enter)),
-        Action::Insert {
+        Action::Output {
+            target: OutputTarget::ActiveAgent,
             text: "second.rs".to_owned(),
         }
     );
@@ -648,7 +684,8 @@ fn mouse_targets_the_hovered_pane_and_click_changes_focus() {
             row: 2,
             insert_path: true,
         }),
-        Action::Insert {
+        Action::Output {
+            target: OutputTarget::ActiveAgent,
             text: "first.rs".to_owned(),
         }
     );
@@ -804,6 +841,10 @@ fn dragging_the_separator_resizes_the_file_pane() {
 #[test]
 fn dragging_diff_lines_inserts_them_on_release() {
     let mut app = ReviewApp::default();
+    assert_eq!(
+        app.update(Message::Key(Key::Char('o'))),
+        Action::SaveOutputTarget(OutputTarget::Clipboard)
+    );
     app.update(Message::FilesLoaded {
         change_id: "qpvuntsm".to_owned(),
         commit_id: "11111111".to_owned(),
@@ -840,7 +881,8 @@ fn dragging_diff_lines_inserts_them_on_release() {
     );
     assert_eq!(
         app.update(Message::MouseRelease),
-        Action::Insert {
+        Action::Output {
+            target: OutputTarget::Clipboard,
             text: concat!(
                 "diff --git a/src/lib.rs b/src/lib.rs\n",
                 "--- a/src/lib.rs\n",

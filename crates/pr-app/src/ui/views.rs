@@ -9,7 +9,7 @@ use super::{Focus, PaneLayout, ReviewApp};
 pub(super) use commit_message::CommitMessageView;
 use diff::DiffView;
 use files::FilesView;
-use footer::FooterView;
+pub(super) use footer::FooterView;
 use header::HeaderView;
 
 mod commit_message;

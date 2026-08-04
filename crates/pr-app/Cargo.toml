@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+arboard.workspace = true
 crossterm.workspace = true
 eyre.workspace = true
 notify.workspace = true
