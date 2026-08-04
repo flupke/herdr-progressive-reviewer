@@ -19,6 +19,10 @@ const STATS_TEMPLATE: &str = concat!(
     r#"diff.stat().files().map(|entry| entry.path() ++ "\0" ++ "#,
     r#"entry.lines_added() ++ "\0" ++ entry.lines_removed() ++ "\0").join("")"#,
 );
+const DESCRIPTION_DIFF_HEADER: &[u8] =
+    b"diff --git a/JJ-COMMIT-DESCRIPTION b/JJ-COMMIT-DESCRIPTION\n";
+const DESCRIPTION_DIFF_PATHS: &[u8] = b"--- JJ-COMMIT-DESCRIPTION\n+++ JJ-COMMIT-DESCRIPTION\n";
+const NEXT_DIFF_HEADER: &[u8] = b"\ndiff --git ";
 
 #[derive(Debug)]
 pub(super) struct JjBackend;
@@ -134,7 +138,7 @@ impl RepositoryBackend for JjBackend {
         if !baseline.status.success() {
             return Ok(Interdiff::MissingBaseline);
         }
-        Ok(Interdiff::Diff(
+        Ok(Interdiff::Diff(strip_description_diff(
             repository
                 .run_jj([
                     OsString::from("--ignore-working-copy"),
@@ -148,6 +152,26 @@ impl RepositoryBackend for JjBackend {
                     path.as_os_str().to_owned(),
                 ])?
                 .stdout,
-        ))
+        )))
     }
+}
+
+fn strip_description_diff(mut diff: Vec<u8>) -> Vec<u8> {
+    if !diff.starts_with(DESCRIPTION_DIFF_HEADER) {
+        return diff;
+    }
+
+    let block_end = diff[DESCRIPTION_DIFF_HEADER.len()..]
+        .windows(NEXT_DIFF_HEADER.len())
+        .position(|window| window == NEXT_DIFF_HEADER)
+        .map_or(diff.len(), |index| {
+            index + DESCRIPTION_DIFF_HEADER.len() + 1
+        });
+    if diff[..block_end]
+        .windows(DESCRIPTION_DIFF_PATHS.len())
+        .any(|window| window == DESCRIPTION_DIFF_PATHS)
+    {
+        diff.drain(..block_end);
+    }
+    diff
 }

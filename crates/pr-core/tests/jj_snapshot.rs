@@ -1,5 +1,5 @@
 use pr_core::diff::{DiffRow, NoticeKind, parse_file_diff};
-use pr_core::repository::{ChangeKind, FileKind, PollResult, Repository, Snapshot};
+use pr_core::repository::{ChangeKind, FileKind, Interdiff, PollResult, Repository, Snapshot};
 use pr_tests::{JjFixture, JjLayout};
 
 fn complete_snapshot(repository: &Repository) -> Snapshot {
@@ -217,6 +217,53 @@ fn reports_empty_changes_and_stable_change_switches() {
         let returned = complete_snapshot(repository);
         assert_eq!(returned.identity.review_id(), first.identity.review_id());
         assert_ne!(returned.identity.review_id(), second.identity.review_id());
+    });
+}
+
+#[test]
+fn excludes_change_descriptions_from_file_interdiffs() {
+    for_each_layout(|fixture, repository| {
+        fixture.write("reviewed.txt", b"base\n");
+        fixture.write("changed.txt", b"base\n");
+        fixture.new_change("initial description");
+        fixture.write("reviewed.txt", b"reviewed\n");
+        fixture.write("changed.txt", b"first\n");
+        let baseline = complete_snapshot(repository);
+
+        fixture.jj([
+            "describe",
+            "-m",
+            "new description\ndiff --git still description",
+        ]);
+        fixture.write("changed.txt", b"second\n");
+        let current = complete_snapshot(repository);
+        let interdiff = |path| {
+            repository
+                .interdiff(baseline.identity.snapshot_id(), &current, path)
+                .unwrap()
+        };
+        let reviewed = current
+            .files
+            .iter()
+            .find(|file| file.display_path == "reviewed.txt")
+            .unwrap();
+        assert_eq!(
+            interdiff(reviewed.review_path()),
+            Interdiff::Diff(Vec::new())
+        );
+
+        let changed = current
+            .files
+            .iter()
+            .find(|file| file.display_path == "changed.txt")
+            .unwrap();
+        let Interdiff::Diff(diff) = interdiff(changed.review_path()) else {
+            panic!("review snapshot disappeared");
+        };
+        let diff = String::from_utf8(diff).unwrap();
+        assert!(diff.contains("-first"));
+        assert!(diff.contains("+second"));
+        assert!(!diff.contains("JJ-COMMIT-DESCRIPTION"));
     });
 }
 
