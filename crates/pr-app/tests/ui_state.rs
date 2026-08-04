@@ -139,6 +139,7 @@ fn state_machine_keeps_selection_until_insert_succeeds() {
             reviewed: true,
         }
     );
+    assert!(screen(&app, 80, 12).join("\n").contains("No changes"));
     assert_eq!(app.update(Message::Key(Key::Space)), Action::None);
     app.update(Message::ReviewFinished {
         change_id: "qpvuntsm".to_owned(),
@@ -223,7 +224,7 @@ fn commit_message_opens_and_closes_from_mouse_or_keyboard() {
 }
 
 #[test]
-fn marking_a_file_reviewed_selects_and_loads_the_next_file_needing_review() {
+fn optimistic_selection_stays_on_the_next_file_when_review_fails() {
     let mut app = ReviewApp::default();
     app.update(Message::FilesLoaded {
         change_id: "qpvuntsm".to_owned(),
@@ -241,30 +242,31 @@ fn marking_a_file_reviewed_selects_and_loads_the_next_file_needing_review() {
         app.update(Message::Key(Key::Space)),
         Action::SetReviewed { reviewed: true, .. }
     ));
-    app.update(Message::FilesLoaded {
-        change_id: "qpvuntsm".to_owned(),
-        commit_id: "11111111".to_owned(),
-        description: "Commit title\n\nCommit body\n".to_owned(),
-        files: vec![
-            ReviewFile::new("first.rs", ReviewStatus::Unreviewed),
-            ReviewFile::new("second.rs", ReviewStatus::Reviewed),
-            ReviewFile::new("third.rs", ReviewStatus::ChangedSinceReview),
-            ReviewFile::new("fourth.rs", ReviewStatus::Unreviewed),
-        ],
-    });
+    assert!(screen(&app, 80, 12).join("\n").contains("Diff · third.rs"));
     assert_eq!(
-        app.update(Message::ReviewFinished {
+        app.update(Message::FilesLoaded {
             change_id: "qpvuntsm".to_owned(),
-            path: "first.rs".to_owned(),
-            result: Ok(ReviewState {
-                status: ReviewStatus::Reviewed,
-                warning: None,
-            }),
+            commit_id: "11111111".to_owned(),
+            description: "Commit title\n\nCommit body\n".to_owned(),
+            files: vec![
+                ReviewFile::new("first.rs", ReviewStatus::Unreviewed),
+                ReviewFile::new("second.rs", ReviewStatus::Reviewed),
+                ReviewFile::new("third.rs", ReviewStatus::ChangedSinceReview),
+                ReviewFile::new("fourth.rs", ReviewStatus::Unreviewed),
+            ],
         }),
         Action::LoadDiff {
             commit_id: "11111111".to_owned(),
             path: "third.rs".to_owned(),
         }
+    );
+    assert_eq!(
+        app.update(Message::ReviewFinished {
+            change_id: "qpvuntsm".to_owned(),
+            path: "first.rs".to_owned(),
+            result: Err(()),
+        }),
+        Action::None
     );
     assert!(screen(&app, 80, 12).join("\n").contains("Diff · third.rs"));
 }
@@ -551,6 +553,21 @@ fn marking_a_changed_file_reviewed_replaces_its_baseline() {
             reviewed: true,
         }
     );
+    assert!(screen(&app, 80, 12).join("\n").contains("No changes"));
+    assert_eq!(
+        app.update(Message::ReviewFinished {
+            change_id: "qpvuntsm".to_owned(),
+            path: "src/lib.rs".to_owned(),
+            result: Err(()),
+        }),
+        Action::None
+    );
+    assert!(screen(&app, 80, 12).join("\n").contains("old();"));
+
+    assert!(matches!(
+        app.update(Message::Key(Key::Space)),
+        Action::SetReviewed { reviewed: true, .. }
+    ));
     assert_eq!(
         app.update(Message::ReviewFinished {
             change_id: "qpvuntsm".to_owned(),

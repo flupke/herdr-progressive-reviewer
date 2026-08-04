@@ -221,6 +221,14 @@ struct Search {
     pending: Vec<SearchDirection>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct PendingReview {
+    path: String,
+    previous_status: ReviewStatus,
+    optimistic_status: ReviewStatus,
+    next_path: Option<String>,
+}
+
 impl Selection {
     fn range(self) -> RangeInclusive<usize> {
         self.anchor.min(self.cursor)..=self.anchor.max(self.cursor)
@@ -357,7 +365,7 @@ pub struct ReviewApp {
     focus: Focus,
     selection: Option<Selection>,
     search: Option<Search>,
-    review_in_flight: Option<bool>,
+    review_in_flight: Option<PendingReview>,
     highlighter: DiffHighlighter,
     palette: Palette,
     width: u16,
@@ -477,6 +485,13 @@ impl ReviewApp {
         let mut expand = Vec::new();
         if same_change {
             for file in &mut files {
+                if let Some(pending) = self
+                    .review_in_flight
+                    .as_ref()
+                    .filter(|pending| pending.path == file.path)
+                {
+                    file.status = pending.optimistic_status;
+                }
                 if let Some(old) = self.files.iter().find(|old| old.path == file.path) {
                     if file.status.needs_parent_expansion(old.status) {
                         expand.push(file.path.clone());
@@ -575,8 +590,11 @@ impl ReviewApp {
         if self.change_id != change_id {
             return Action::None;
         }
-        let marking_reviewed = self.review_in_flight == Some(true);
-        self.review_in_flight = None;
+        let pending = match self.review_in_flight.as_ref() {
+            Some(pending) if pending.path == path => self.review_in_flight.take(),
+            Some(_) => return Action::None,
+            None => None,
+        };
         match result {
             Ok(state) => {
                 let mut expand = false;
@@ -590,22 +608,11 @@ impl ReviewApp {
                 if expand && self.expand_file_parents(path) {
                     self.rebuild_file_tree();
                 }
-                let next_needing_review = self
-                    .file_tree
-                    .visible_files()
-                    .skip_while(|file| *file != self.selected_file)
-                    .skip(1)
-                    .find(|file| self.files[*file].status.needs_review());
-                if marking_reviewed
+                if let Some(pending) = &pending
+                    && pending.optimistic_status == ReviewStatus::Reviewed
                     && state.status == ReviewStatus::Reviewed
-                    && self
-                        .selected()
-                        .is_some_and(|selected| selected.path == path)
-                    && let Some(next_file) = next_needing_review
+                    && self.selected_is_pending_next(pending)
                 {
-                    self.selected_file = next_file;
-                    self.selection = None;
-                    self.keep_visible();
                     return self.load_selected_action();
                 }
                 if state.status.needs_review()
@@ -616,9 +623,20 @@ impl ReviewApp {
                     return self.load_selected_action();
                 }
             }
-            Err(_) => {}
+            Err(_) => {
+                if let Some(pending) = pending {
+                    if let Some(file) = self.files.iter_mut().find(|file| file.path == path) {
+                        file.status = pending.previous_status;
+                    }
+                }
+            }
         }
         Action::None
+    }
+
+    fn selected_is_pending_next(&self, pending: &PendingReview) -> bool {
+        self.selected()
+            .is_some_and(|selected| Some(selected.path.as_str()) == pending.next_path.as_deref())
     }
 
     fn key(&mut self, key: Key) -> Action {
@@ -809,14 +827,40 @@ impl ReviewApp {
         if self.review_in_flight.is_some() {
             return Action::None;
         }
-        let Some(file) = self.selected() else {
+        let Some(file) = self.files.get_mut(self.selected_file) else {
             return Action::None;
         };
         let path = file.path.clone();
-        let reviewed = file.status.needs_review();
-        let action = Action::SetReviewed { path, reviewed };
-        self.review_in_flight = Some(reviewed);
-        action
+        let previous_status = file.status;
+        let reviewed = previous_status.needs_review();
+        let optimistic_status = if reviewed {
+            ReviewStatus::Reviewed
+        } else {
+            ReviewStatus::Unreviewed
+        };
+        file.status = optimistic_status;
+        let next_file = reviewed
+            .then(|| {
+                self.file_tree
+                    .visible_files()
+                    .skip_while(|file| *file != self.selected_file)
+                    .skip(1)
+                    .find(|file| self.files[*file].status.needs_review())
+            })
+            .flatten();
+        let next_path = next_file.map(|file| self.files[file].path.clone());
+        if let Some(next_file) = next_file {
+            self.selected_file = next_file;
+            self.selection = None;
+            self.keep_visible();
+        }
+        self.review_in_flight = Some(PendingReview {
+            path: path.clone(),
+            previous_status,
+            optimistic_status,
+            next_path,
+        });
+        Action::SetReviewed { path, reviewed }
     }
 
     fn insert(&mut self) -> Action {
