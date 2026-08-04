@@ -14,6 +14,12 @@ pub enum ReviewStatus {
     ChangedSinceReview,
 }
 
+impl ReviewStatus {
+    pub(crate) fn needs_review(self) -> bool {
+        self != Self::Reviewed
+    }
+}
+
 /// A non-fatal warning found while deriving review state.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ReviewWarning {

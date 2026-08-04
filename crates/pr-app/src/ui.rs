@@ -589,25 +589,25 @@ impl ReviewApp {
                 if expand && self.expand_file_parents(path) {
                     self.rebuild_file_tree();
                 }
-                let next_unreviewed = self
+                let next_needing_review = self
                     .file_tree
                     .visible_files()
                     .skip_while(|file| *file != self.selected_file)
                     .skip(1)
-                    .find(|file| self.files[*file].status == ReviewStatus::Unreviewed);
+                    .find(|file| self.files[*file].status.needs_review());
                 if marking_reviewed
                     && state.status == ReviewStatus::Reviewed
                     && self
                         .selected()
                         .is_some_and(|selected| selected.path == path)
-                    && let Some(next_file) = next_unreviewed
+                    && let Some(next_file) = next_needing_review
                 {
                     self.selected_file = next_file;
                     self.selection = None;
                     self.keep_visible();
                     return self.load_selected_action();
                 }
-                if state.status != ReviewStatus::Reviewed
+                if state.status.needs_review()
                     && self
                         .selected()
                         .is_some_and(|selected| selected.path == path)
@@ -812,7 +812,7 @@ impl ReviewApp {
             return Action::None;
         };
         let path = file.path.clone();
-        let reviewed = file.status != ReviewStatus::Reviewed;
+        let reviewed = file.status.needs_review();
         let action = Action::SetReviewed { path, reviewed };
         self.review_in_flight = Some(reviewed);
         action

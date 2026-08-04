@@ -206,7 +206,7 @@ fn commit_title_opens_the_full_message() {
 }
 
 #[test]
-fn marking_a_file_reviewed_selects_and_loads_the_next_unreviewed_file() {
+fn marking_a_file_reviewed_selects_and_loads_the_next_file_needing_review() {
     let mut app = ReviewApp::default();
     app.update(Message::FilesLoaded {
         change_id: "qpvuntsm".to_owned(),
@@ -246,10 +246,10 @@ fn marking_a_file_reviewed_selects_and_loads_the_next_unreviewed_file() {
         }),
         Action::LoadDiff {
             commit_id: "11111111".to_owned(),
-            path: "fourth.rs".to_owned(),
+            path: "third.rs".to_owned(),
         }
     );
-    assert!(screen(&app, 80, 12).join("\n").contains("Diff · fourth.rs"));
+    assert!(screen(&app, 80, 12).join("\n").contains("Diff · third.rs"));
 }
 
 #[test]
