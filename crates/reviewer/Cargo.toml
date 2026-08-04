@@ -1,0 +1,36 @@
+[package]
+name = "reviewer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+arboard.workspace = true
+crossterm.workspace = true
+eyre.workspace = true
+fs2.workspace = true
+herdr-client = { path = "../herdr-client" }
+notify.workspace = true
+ratatui = { workspace = true, features = ["crossterm"] }
+review-repository = { path = "../review-repository" }
+review-state = { path = "../review-state" }
+review-store = { path = "../review-store" }
+review-ui = { path = "../review-ui" }
+serde_json.workspace = true
+signal-hook.workspace = true
+
+[dev-dependencies]
+review-test-support = { path = "../review-test-support" }
+tempfile.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "reviewer"
+path = "src/main.rs"
+
+[[bin]]
+name = "reviewer-control"
+path = "src/bin/reviewer-control.rs"

@@ -3,8 +3,8 @@
 install:
 	cargo build --release --locked --bins
 	mkdir -p bin
-	cp target/release/pr-app bin/pr-app.new
-	mv bin/pr-app.new bin/pr-app
-	cp target/release/pr-control bin/pr-control.new
-	mv bin/pr-control.new bin/pr-control
+	cp target/release/reviewer bin/reviewer.new
+	mv bin/reviewer.new bin/reviewer
+	cp target/release/reviewer-control bin/reviewer-control.new
+	mv bin/reviewer-control.new bin/reviewer-control
 	herdr plugin link . --enabled

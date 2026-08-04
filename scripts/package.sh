@@ -12,6 +12,6 @@ package="dist/${name}"
 
 mkdir -p "${package}/bin"
 cp herdr-plugin.toml README.md RELEASE_NOTES.md "${package}/"
-cp target/release/pr-app target/release/pr-control "${package}/bin/"
+cp target/release/reviewer target/release/reviewer-control "${package}/bin/"
 tar -C dist -czf "dist/${name}.tar.gz" "${name}"
 printf '%s\n' "dist/${name}.tar.gz"

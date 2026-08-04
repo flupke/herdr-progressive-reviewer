@@ -1,10 +1,12 @@
 [workspace]
 members = [
-    "crates/pr-app",
-    "crates/pr-control",
-    "crates/pr-core",
-    "crates/pr-state",
-    "crates/pr-tests",
+    "crates/herdr-client",
+    "crates/review-repository",
+    "crates/review-state",
+    "crates/review-store",
+    "crates/review-test-support",
+    "crates/review-ui",
+    "crates/reviewer",
 ]
 resolver = "3"
 
@@ -24,7 +26,6 @@ getrandom = "0.3"
 libc = "0.2"
 notify = "8.2"
 ratatui = { version = "0.29", default-features = false }
-semver = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"

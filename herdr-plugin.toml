@@ -8,22 +8,22 @@ platforms = ["linux", "macos"]
 id = "open"
 title = "Open progressive reviewer"
 contexts = ["workspace"]
-command = ["bin/pr-control", "open"]
+command = ["bin/reviewer-control", "open"]
 
 [[actions]]
 id = "close"
 title = "Close progressive reviewer"
 contexts = ["workspace"]
-command = ["bin/pr-control", "close"]
+command = ["bin/reviewer-control", "close"]
 
 [[actions]]
 id = "toggle"
 title = "Toggle progressive reviewer"
 contexts = ["workspace"]
-command = ["bin/pr-control", "toggle"]
+command = ["bin/reviewer-control", "toggle"]
 
 [[panes]]
 id = "review"
 title = "Progressive review"
-command = ["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/bin/pr-app\""]
+command = ["sh", "-c", "exec \"$HERDR_PLUGIN_ROOT/bin/reviewer\""]
 placement = "split"

@@ -1,0 +1,18 @@
+[package]
+name = "review-state"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+eyre.workspace = true
+review-repository = { path = "../review-repository" }
+review-store = { path = "../review-store" }
+
+[dev-dependencies]
+review-test-support = { path = "../review-test-support" }
+tempfile.workspace = true
+
+[lints]
+workspace = true
