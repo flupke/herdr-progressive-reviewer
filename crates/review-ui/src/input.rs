@@ -1,4 +1,7 @@
-use crate::app::*;
+use crate::app::{
+    Action, ContextMenu, DiffControl, DragState, Focus, Key, MIN_PANE_WIDTH, PaneLayout,
+    PendingReview, ReviewApp, Search, Selection, display_column_to_byte,
+};
 use crate::presentation::SearchDirection;
 use crate::{commit_message, footer};
 use ratatui::layout::{Position, Rect};
@@ -39,6 +42,10 @@ impl ReviewApp {
                 _ => Action::None,
             };
         }
+        self.main_view_key(key)
+    }
+
+    fn main_view_key(&mut self, key: Key) -> Action {
         match key {
             Key::Char('/') => {
                 self.focus = Focus::Diff;
@@ -433,15 +440,7 @@ impl ReviewApp {
 
     pub(super) fn mouse_click(&mut self, column: u16, row: u16, insert_path: bool) -> Action {
         if let Some(menu) = self.context_menu.take() {
-            let area = menu.area(Rect::new(0, 0, self.width, self.height));
-            let item = row.checked_sub(area.y.saturating_add(1)).map(usize::from);
-            if area.contains(Position::new(column, row))
-                && menu.enabled
-                && let Some(operation) = item.and_then(Operation::from_repr)
-            {
-                return self.lsp(operation);
-            }
-            return Action::None;
+            return self.context_menu_click(&menu, column, row);
         }
         if self.locations.is_some()
             && self.layout().focus_at(self.focus, column, row) == Some(Focus::Files)
@@ -469,24 +468,7 @@ impl ReviewApp {
             return self.set_output_target(target);
         }
         if let Some(control) = layout.diff_control_at(self.focus, column, row, self.selected()) {
-            self.focus = Focus::Diff;
-            let Some(file) = self.files.get_mut(self.selected_file) else {
-                return Action::None;
-            };
-            let changed = match control {
-                DiffControl::ExpandAll => file.diff.expand_all(),
-                DiffControl::ContractAll => file.diff.contract_all(),
-                DiffControl::ShowFile => file.diff.show_file(),
-                DiffControl::CloseFile => file.diff.show_diff(),
-            };
-            if changed {
-                self.selection = None;
-                file.cursor = 0;
-                file.scroll = 0;
-                file.clear_source_location();
-                self.keep_visible();
-            }
-            return Action::None;
+            return self.diff_control_click(control);
         }
         self.drag = if layout.is_separator(column, row) {
             DragState::Resize { moved: false }
@@ -516,7 +498,20 @@ impl ReviewApp {
             self.keep_visible();
             return Action::None;
         }
-        if focus != Focus::Files || !layout.contains_pane_content(row) {
+        if focus != Focus::Files {
+            return Action::None;
+        }
+        self.file_click(layout, column, row, insert_path)
+    }
+
+    fn file_click(
+        &mut self,
+        layout: PaneLayout,
+        column: u16,
+        row: u16,
+        insert_path: bool,
+    ) -> Action {
+        if !layout.contains_pane_content(row) {
             return Action::None;
         }
         let row = self.file_scroll + usize::from(row - 2);
@@ -558,6 +553,39 @@ impl ReviewApp {
             return self.output(self.files[target].path.clone());
         }
         self.load_selected_action()
+    }
+
+    fn context_menu_click(&mut self, menu: &ContextMenu, column: u16, row: u16) -> Action {
+        let area = menu.area(Rect::new(0, 0, self.width, self.height));
+        let item = row.checked_sub(area.y.saturating_add(1)).map(usize::from);
+        if area.contains(Position::new(column, row))
+            && menu.enabled
+            && let Some(operation) = item.and_then(Operation::from_repr)
+        {
+            return self.lsp(operation);
+        }
+        Action::None
+    }
+
+    fn diff_control_click(&mut self, control: DiffControl) -> Action {
+        self.focus = Focus::Diff;
+        let Some(file) = self.files.get_mut(self.selected_file) else {
+            return Action::None;
+        };
+        let changed = match control {
+            DiffControl::ExpandAll => file.diff.expand_all(),
+            DiffControl::ContractAll => file.diff.contract_all(),
+            DiffControl::ShowFile => file.diff.show_file(),
+            DiffControl::CloseFile => file.diff.show_diff(),
+        };
+        if changed {
+            self.selection = None;
+            file.cursor = 0;
+            file.scroll = 0;
+            file.clear_source_location();
+            self.keep_visible();
+        }
+        Action::None
     }
 
     fn position_diff_cursor(&mut self, layout: PaneLayout, column: u16, row: u16) {

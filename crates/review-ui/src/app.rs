@@ -135,17 +135,13 @@ impl ReviewFile {
                 |name| name.to_string_lossy().into_owned(),
             )
         } else {
-            review_path
-                .map(str::to_owned)
-                .unwrap_or_else(|| location.path.display().to_string())
+            review_path.map_or_else(|| location.path.display().to_string(), str::to_owned)
         };
         let mut file = Self::new(tree_path, ReviewStatus::Unreviewed);
         file.display_path = if external {
             location.path.display().to_string()
         } else {
-            review_path
-                .map(str::to_owned)
-                .unwrap_or_else(|| location.path.display().to_string())
+            review_path.map_or_else(|| location.path.display().to_string(), str::to_owned)
         };
         file.diff = diff;
         file.temporary = true;
@@ -724,31 +720,7 @@ impl ReviewApp {
                 }
                 Action::None
             }
-            Message::Lsp(Event::Initializing) => {
-                self.finish_lsp_initialization();
-                self.lsp_initialization_toast =
-                    Some(self.toasts.start_long_toast("Starting rust-analyzer..."));
-                Action::None
-            }
-            Message::Lsp(Event::Ready) => {
-                self.finish_lsp_initialization();
-                self.toasts.push("rust-analyzer ready", ToastKind::Info);
-                Action::None
-            }
-            Message::Lsp(Event::Failed {
-                toast_id,
-                snapshot_id,
-                message,
-            }) => {
-                self.finish_lsp_initialization();
-                if let Some(toast_id) = toast_id {
-                    self.toasts.finish_toast(toast_id);
-                }
-                if snapshot_id.is_none_or(|snapshot_id| snapshot_id == self.commit_id) {
-                    self.toasts.push(message, ToastKind::Error);
-                }
-                Action::None
-            }
+            Message::Lsp(event) => self.update_from_lsp_event(event),
             Message::SourceFailed {
                 snapshot_id,
                 message,
@@ -757,30 +729,6 @@ impl ReviewApp {
                     self.toasts.push(message, ToastKind::Error);
                 }
                 Action::None
-            }
-            Message::Lsp(Event::Hover {
-                toast_id,
-                snapshot_id,
-                markdown,
-            }) => {
-                self.toasts.finish_toast(toast_id);
-                if snapshot_id == self.commit_id {
-                    self.hover = markdown;
-                    self.hover_scroll = 0;
-                    if self.hover.is_none() {
-                        self.toasts.push("No documentation found", ToastKind::Info);
-                    }
-                }
-                Action::None
-            }
-            Message::Lsp(Event::Locations {
-                toast_id,
-                operation,
-                snapshot_id,
-                locations,
-            }) => {
-                self.toasts.finish_toast(toast_id);
-                self.load_locations(operation, &snapshot_id, locations)
             }
             Message::SourceLoaded {
                 snapshot_id,
@@ -812,6 +760,60 @@ impl ReviewApp {
             Message::MouseDrag { column, row } => self.mouse_drag(column, row),
             Message::MouseRelease => self.mouse_release(),
             Message::Key(key) => self.key(key),
+        }
+    }
+
+    fn update_from_lsp_event(&mut self, event: Event) -> Action {
+        match event {
+            Event::Initializing => {
+                self.finish_lsp_initialization();
+                self.lsp_initialization_toast =
+                    Some(self.toasts.start_long_toast("Starting rust-analyzer..."));
+                Action::None
+            }
+            Event::Ready => {
+                self.finish_lsp_initialization();
+                self.toasts.push("rust-analyzer ready", ToastKind::Info);
+                Action::None
+            }
+            Event::Failed {
+                toast_id,
+                snapshot_id,
+                message,
+            } => {
+                self.finish_lsp_initialization();
+                if let Some(toast_id) = toast_id {
+                    self.toasts.finish_toast(toast_id);
+                }
+                if snapshot_id.is_none_or(|snapshot_id| snapshot_id == self.commit_id) {
+                    self.toasts.push(message, ToastKind::Error);
+                }
+                Action::None
+            }
+            Event::Hover {
+                toast_id,
+                snapshot_id,
+                markdown,
+            } => {
+                self.toasts.finish_toast(toast_id);
+                if snapshot_id == self.commit_id {
+                    self.hover = markdown;
+                    self.hover_scroll = 0;
+                    if self.hover.is_none() {
+                        self.toasts.push("No documentation found", ToastKind::Info);
+                    }
+                }
+                Action::None
+            }
+            Event::Locations {
+                toast_id,
+                operation,
+                snapshot_id,
+                locations,
+            } => {
+                self.toasts.finish_toast(toast_id);
+                self.load_locations(operation, &snapshot_id, locations)
+            }
         }
     }
 

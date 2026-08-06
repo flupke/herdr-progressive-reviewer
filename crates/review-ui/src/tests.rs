@@ -1,4 +1,5 @@
-use std::path::PathBuf;
+use std::fmt::Write;
+use std::path::{Path, PathBuf};
 
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
@@ -13,57 +14,7 @@ use review_state::ReviewStatus;
 
 #[test]
 fn interactive_search_moves_and_repeats_from_the_diff_cursor() {
-    let mut app = ReviewApp::default();
-    app.update(Message::FilesLoaded {
-        change_id: "change".to_owned(),
-        commit_id: "commit".to_owned(),
-        description: String::new(),
-        files: vec![
-            ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed),
-            ReviewFile::new("src/other.rs", ReviewStatus::Reviewed),
-            ReviewFile::new("src/unopened.rs", ReviewStatus::Unreviewed),
-        ],
-    });
-    app.update(Message::DiffLoaded {
-        commit_id: "commit".to_owned(),
-        path: "src/lib.rs".to_owned(),
-        rows: [
-            "start",
-            "noise",
-            "filler",
-            "Needle one",
-            "more",
-            "needle two",
-        ]
-        .into_iter()
-        .enumerate()
-        .map(|(index, text)| DiffRow::Context {
-            old_line: u32::try_from(index + 1).unwrap(),
-            new_line: u32::try_from(index + 1).unwrap(),
-            text: format!(" {text}"),
-        })
-        .collect(),
-        old_content: None,
-        new_content: None,
-    });
-    app.update(Message::DiffLoaded {
-        commit_id: "commit".to_owned(),
-        path: "src/other.rs".to_owned(),
-        rows: vec![
-            DiffRow::Context {
-                old_line: 1,
-                new_line: 1,
-                text: " no match".to_owned(),
-            },
-            DiffRow::Context {
-                old_line: 2,
-                new_line: 2,
-                text: " needle in another file".to_owned(),
-            },
-        ],
-        old_content: None,
-        new_content: None,
-    });
+    let mut app = search_test_app();
 
     assert_eq!(
         app.update(Message::Key(Key::Char('/'))),
@@ -83,17 +34,7 @@ fn interactive_search_moves_and_repeats_from_the_diff_cursor() {
     assert!(app.file_matches_search(1));
     assert!(!app.file_matches_search(2));
     let mut terminal = Terminal::new(TestBackend::new(80, 12)).unwrap();
-    terminal
-        .draw(|frame| frame.render_widget(app.view(), frame.area()))
-        .unwrap();
-    assert!((0..12).any(|row| {
-        (0..80).any(|column| {
-            let cell = &terminal.backend().buffer()[(column, row)];
-            cell.modifier.contains(ratatui::style::Modifier::REVERSED)
-                && cell.fg != app.palette.deletion
-                && cell.bg != app.palette.warning
-        })
-    }));
+    assert_search_highlighted(&mut terminal, &app);
     app.update(Message::Key(Key::Enter));
     app.update(Message::Key(Key::Char('n')));
     app.update(Message::Key(Key::Char('n')));
@@ -110,17 +51,7 @@ fn interactive_search_moves_and_repeats_from_the_diff_cursor() {
         new_content: None,
     });
     assert_eq!((app.selected_file, app.selected().unwrap().cursor), (1, 1));
-    terminal
-        .draw(|frame| frame.render_widget(app.view(), frame.area()))
-        .unwrap();
-    assert!((0..12).any(|row| {
-        (0..80).any(|column| {
-            let cell = &terminal.backend().buffer()[(column, row)];
-            cell.modifier.contains(ratatui::style::Modifier::REVERSED)
-                && cell.fg != app.palette.deletion
-                && cell.bg != app.palette.warning
-        })
-    }));
+    assert_search_highlighted(&mut terminal, &app);
     app.update(Message::Key(Key::Char('p')));
     assert_eq!((app.selected_file, app.selected().unwrap().cursor), (0, 5));
     app.update(Message::Key(Key::Escape));
@@ -221,7 +152,7 @@ fn lsp_keys_use_the_visible_current_source() {
                 ..
             },
         }
-        if path == PathBuf::from("src/lib.rs")
+        if path == Path::new("src/lib.rs")
             && expected_line == "fn target() {}"
             && snapshot_id == "commit"
     ));
@@ -491,9 +422,7 @@ fn location_results_preview_and_accept_disk_source() {
     });
     let first = source_location("src/first.rs", 20);
     let second = source_location("src/second.rs", 38);
-    let content = (0..40)
-        .map(|line| format!("line {line}\n"))
-        .collect::<String>();
+    let content = numbered_lines(40);
     assert_eq!(
         app.update(Message::Lsp(Event::Locations {
             toast_id: ToastId::generate(),
@@ -518,15 +447,7 @@ fn location_results_preview_and_accept_disk_source() {
     );
     let preview = app.displayed().unwrap();
     assert_eq!(preview.cursor - preview.scroll, app.page_rows() / 2);
-    let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, 24)).unwrap();
-    terminal
-        .draw(|frame| frame.render_widget(app.view(), frame.area()))
-        .unwrap();
-    assert!(terminal.backend().buffer().content().iter().any(|cell| {
-        cell.modifier.contains(ratatui::style::Modifier::REVERSED)
-            && cell.fg != app.palette.deletion
-            && cell.bg != app.palette.warning
-    }));
+    assert_source_location_highlighted(&app);
     assert_eq!(
         app.update(Message::Key(Key::Down)),
         Action::LoadSource {
@@ -789,12 +710,7 @@ fn empty_review_diff_previews_its_full_source_after_loading() {
             path: "tests/ui_state.rs".to_owned(),
             rows: Vec::new(),
             old_content: None,
-            new_content: Some(
-                (0..30)
-                    .map(|line| format!("line {line}\n"))
-                    .collect::<String>()
-                    .into_bytes(),
-            ),
+            new_content: Some(numbered_lines(30).into_bytes()),
         }),
         Action::None
     );
@@ -809,4 +725,92 @@ fn source_location(path: &str, line: u32) -> SourceLocation {
         end_line: line,
         end_byte_column: 1,
     }
+}
+
+fn numbered_lines(count: usize) -> String {
+    (0..count).fold(String::new(), |mut content, line| {
+        writeln!(content, "line {line}").unwrap();
+        content
+    })
+}
+
+fn search_test_app() -> ReviewApp {
+    let mut app = ReviewApp::default();
+    app.update(Message::FilesLoaded {
+        change_id: "change".to_owned(),
+        commit_id: "commit".to_owned(),
+        description: String::new(),
+        files: vec![
+            ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed),
+            ReviewFile::new("src/other.rs", ReviewStatus::Reviewed),
+            ReviewFile::new("src/unopened.rs", ReviewStatus::Unreviewed),
+        ],
+    });
+    app.update(Message::DiffLoaded {
+        commit_id: "commit".to_owned(),
+        path: "src/lib.rs".to_owned(),
+        rows: [
+            "start",
+            "noise",
+            "filler",
+            "Needle one",
+            "more",
+            "needle two",
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(index, text)| DiffRow::Context {
+            old_line: u32::try_from(index + 1).unwrap(),
+            new_line: u32::try_from(index + 1).unwrap(),
+            text: format!(" {text}"),
+        })
+        .collect(),
+        old_content: None,
+        new_content: None,
+    });
+    app.update(Message::DiffLoaded {
+        commit_id: "commit".to_owned(),
+        path: "src/other.rs".to_owned(),
+        rows: vec![
+            DiffRow::Context {
+                old_line: 1,
+                new_line: 1,
+                text: " no match".to_owned(),
+            },
+            DiffRow::Context {
+                old_line: 2,
+                new_line: 2,
+                text: " needle in another file".to_owned(),
+            },
+        ],
+        old_content: None,
+        new_content: None,
+    });
+    app
+}
+
+fn assert_search_highlighted(terminal: &mut Terminal<TestBackend>, app: &ReviewApp) {
+    terminal
+        .draw(|frame| frame.render_widget(app.view(), frame.area()))
+        .unwrap();
+    assert!((0..12).any(|row| {
+        (0..80).any(|column| {
+            let cell = &terminal.backend().buffer()[(column, row)];
+            cell.modifier.contains(ratatui::style::Modifier::REVERSED)
+                && cell.fg != app.palette.deletion
+                && cell.bg != app.palette.warning
+        })
+    }));
+}
+
+fn assert_source_location_highlighted(app: &ReviewApp) {
+    let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    terminal
+        .draw(|frame| frame.render_widget(app.view(), frame.area()))
+        .unwrap();
+    assert!(terminal.backend().buffer().content().iter().any(|cell| {
+        cell.modifier.contains(ratatui::style::Modifier::REVERSED)
+            && cell.fg != app.palette.deletion
+            && cell.bg != app.palette.warning
+    }));
 }

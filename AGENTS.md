@@ -16,7 +16,7 @@ For each small feature:
 
 1. Create a fresh jj change before implementation. Use the previous change as
    the fixed point for this feature.
-2. Implement and validate the feature.
+2. Implement and validate the feature with `make check`.
 3. Run `$code-review` against the fixed point. Fix its findings and repeat the
    review until it passes. Follow the skill's repair-loop limit and report any
    findings that remain when the limit is reached.

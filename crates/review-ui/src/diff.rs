@@ -7,7 +7,7 @@ use review_lsp::SourceLocation;
 use review_repository::diff::{DiffRow, NoticeKind};
 use unicode_width::UnicodeWidthStr;
 
-use crate::app::{DiffControl, Focus, ReviewApp, Selection};
+use crate::app::{DiffControl, Focus, ReviewApp, ReviewFile, Selection};
 use crate::highlight::Token;
 use crate::presentation::{PresentedRow, matching_ranges};
 use crate::render::{pane_block, shorten};
@@ -15,10 +15,41 @@ use review_state::ReviewStatus;
 
 pub(super) struct DiffView<'a>(pub(super) &'a ReviewApp);
 
+#[derive(Clone, Copy)]
+struct CodeRenderContext<'a> {
+    tokens: &'a [Token],
+    number_width: usize,
+    cursor: Option<usize>,
+    source_line: Option<u32>,
+    source_location: Option<&'a SourceLocation>,
+}
+
 impl Widget for DiffView<'_> {
     fn render(self, area: Rect, buffer: &mut Buffer) {
         let focused = self.0.focus == Focus::Diff;
         let file = self.0.displayed();
+        let inner = self.render_pane(area, buffer, focused, file);
+        let Some(file) = file else {
+            return;
+        };
+        if self.render_empty_review(file, inner, buffer) {
+            return;
+        }
+        let lines = self.render_lines(file, inner, focused);
+        Paragraph::new(lines)
+            .scroll((0, u16::try_from(file.horizontal_scroll).unwrap_or(u16::MAX)))
+            .render(inner, buffer);
+    }
+}
+
+impl DiffView<'_> {
+    fn render_pane(
+        &self,
+        area: Rect,
+        buffer: &mut Buffer,
+        focused: bool,
+        file: Option<&ReviewFile>,
+    ) -> Rect {
         let title = file.map_or_else(
             || "Diff".to_owned(),
             |file| {
@@ -51,65 +82,60 @@ impl Widget for DiffView<'_> {
         }
         let inner = block.inner(area);
         block.render(area, buffer);
-        let Some(file) = file else {
-            return;
-        };
+        inner
+    }
+
+    fn render_empty_review(&self, file: &ReviewFile, area: Rect, buffer: &mut Buffer) -> bool {
         if file.status == ReviewStatus::Reviewed
             && self.0.search.is_none()
             && file.source_location.is_none()
             && !file.diff.is_file_view()
         {
-            let center = Rect::new(inner.x, inner.y + inner.height / 2, inner.width, 1);
+            let center = Rect::new(area.x, area.y + area.height / 2, area.width, 1);
             Paragraph::new("No changes")
                 .style(Style::default().fg(self.0.palette.dim))
                 .alignment(Alignment::Center)
                 .render(center, buffer);
-            return;
+            return true;
         }
+        false
+    }
+
+    fn render_lines(&self, file: &ReviewFile, area: Rect, focused: bool) -> Vec<Line<'static>> {
         let selection = self.0.selection.map(Selection::range);
         let line_number_width = file.diff.line_number_width();
         let show_markers = !file.diff.shows_whole_file();
-        let lines = file
-            .diff
+        file.diff
             .rows
             .iter()
             .enumerate()
             .skip(file.scroll)
-            .take(usize::from(inner.height))
+            .take(usize::from(area.height))
             .map(|(index, presented)| {
                 let source_line = file.diff.source_position(index).map(|(line, _)| line);
+                let context = |tokens| CodeRenderContext {
+                    tokens,
+                    number_width: line_number_width,
+                    cursor: (focused && index == file.cursor).then_some(file.column),
+                    source_line,
+                    source_location: file.source_location.as_ref(),
+                };
                 let (line, mut style) = match presented {
                     PresentedRow::Diff { source, tokens } => {
                         let row = file.diff.source_row(*source);
                         (
-                            self.diff_line(
-                                row,
-                                tokens,
-                                line_number_width,
-                                (focused && index == file.cursor).then_some(file.column),
-                                source_line,
-                                file.source_location.as_ref(),
-                                show_markers,
-                            ),
+                            self.diff_line(row, context(tokens), show_markers),
                             self.row_style(row, show_markers),
                         )
                     }
                     PresentedRow::Gap { lines, .. } => (
-                        Self::gap_line(lines.len(), line_number_width, usize::from(inner.width)),
+                        Self::gap_line(lines.len(), line_number_width, usize::from(area.width)),
                         Style::default()
                             .fg(self.0.palette.text)
                             .bg(self.0.palette.selection),
                     ),
                     PresentedRow::Expanded { line, tokens } => (
-                        self.code_line(
-                            Some(*line),
-                            None,
-                            tokens,
-                            line_number_width,
-                            (focused && index == file.cursor).then_some(file.column),
-                            source_line,
-                            file.source_location.as_ref(),
-                        ),
+                        self.code_line(Some(*line), None, context(tokens)),
                         Style::default().fg(self.0.palette.text),
                     ),
                 };
@@ -124,22 +150,13 @@ impl Widget for DiffView<'_> {
                 }
                 line.style(style)
             })
-            .collect::<Vec<_>>();
-        Paragraph::new(lines)
-            .scroll((0, u16::try_from(file.horizontal_scroll).unwrap_or(u16::MAX)))
-            .render(inner, buffer);
+            .collect()
     }
-}
 
-impl DiffView<'_> {
     fn diff_line(
         &self,
         row: &DiffRow,
-        tokens: &[Token],
-        number_width: usize,
-        cursor: Option<usize>,
-        source_line: Option<u32>,
-        source_location: Option<&SourceLocation>,
+        context: CodeRenderContext<'_>,
         show_markers: bool,
     ) -> Line<'static> {
         let (line, bar) = match row {
@@ -157,26 +174,14 @@ impl DiffView<'_> {
                 return Line::default();
             }
         };
-        self.code_line(
-            line,
-            bar,
-            tokens,
-            number_width,
-            cursor,
-            source_line,
-            source_location,
-        )
+        self.code_line(line, bar, context)
     }
 
     fn code_line(
         &self,
         line: Option<u32>,
         bar: Option<Color>,
-        tokens: &[Token],
-        number_width: usize,
-        cursor: Option<usize>,
-        source_line: Option<u32>,
-        source_location: Option<&SourceLocation>,
+        context: CodeRenderContext<'_>,
     ) -> Line<'static> {
         let mut spans = vec![bar.map_or_else(
             || Span::raw("  "),
@@ -189,12 +194,17 @@ impl DiffView<'_> {
         )];
         spans.push(Span::styled(
             line.map_or_else(
-                || " ".repeat(number_width + 1),
-                |line| format!("{line:>number_width$} "),
+                || " ".repeat(context.number_width + 1),
+                |line| format!("{line:>width$} ", width = context.number_width),
             ),
             Style::default().fg(self.0.palette.dim),
         ));
-        spans.extend(self.code_spans(tokens, cursor, source_line, source_location));
+        spans.extend(self.code_spans(
+            context.tokens,
+            context.cursor,
+            context.source_line,
+            context.source_location,
+        ));
         Line::from(spans)
     }
 

@@ -1,4 +1,11 @@
-.PHONY: install
+.PHONY: check install
+
+check: export RUSTFLAGS = -Dwarnings
+check:
+	cargo fmt --all --check
+	cargo check --workspace
+	cargo clippy --workspace --all-targets
+	cargo test --workspace
 
 install:
 	cargo build --release --locked --bins

@@ -414,8 +414,7 @@ impl Worker {
     fn poll(&mut self, messages: &Sender<Message>) {
         let snapshot = match self.repository.poll() {
             Ok(PollResult::Complete(snapshot)) => snapshot,
-            Ok(PollResult::ChangedDuringPoll) => return,
-            Err(_) => return,
+            Ok(PollResult::ChangedDuringPoll) | Err(_) => return,
         };
         let Ok(states) = snapshot
             .files

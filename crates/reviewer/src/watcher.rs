@@ -216,7 +216,7 @@ impl RepositoryWatcher {
                 match command {
                     WatchCommand::Event(event) => {
                         if let Some(active) = watcher.as_mut()
-                            && active.update(event, &thread_state).is_err()
+                            && active.update(&event, &thread_state).is_err()
                         {
                             watcher = None;
                             thread_state.watching.store(false, Ordering::Relaxed);
@@ -319,7 +319,7 @@ impl ActiveWatcher {
         }
     }
 
-    fn update(&mut self, event: Event, state: &WatchState) -> notify::Result<()> {
+    fn update(&mut self, event: &Event, state: &WatchState) -> notify::Result<()> {
         if event.need_rescan() {
             return Err(notify::Error::generic("filesystem events were lost"));
         }
@@ -329,7 +329,7 @@ impl ActiveWatcher {
                 .iter()
                 .any(|external| external == path || external.starts_with(path))
         });
-        if self.metadata.includes(&event) && !changes_external_rules {
+        if self.metadata.includes(event) && !changes_external_rules {
             state.notified.store(true, Ordering::Relaxed);
             return Ok(());
         }
@@ -337,7 +337,7 @@ impl ActiveWatcher {
             .paths
             .iter()
             .any(|path| path.file_name().is_some_and(|name| name == ".gitignore"));
-        if !changes_external_rules && !changes_ignore_rules && !self.rules.includes_event(&event) {
+        if !changes_external_rules && !changes_ignore_rules && !self.rules.includes_event(event) {
             return Ok(());
         }
         state.notified.store(true, Ordering::Relaxed);
@@ -383,11 +383,10 @@ impl ActiveWatcher {
     }
 
     fn refresh_subtree(&mut self, subtree: &Path) -> notify::Result<()> {
-        let removed = self
-            .rules
-            .directories
-            .extract_if(.., |directory| directory.starts_with(subtree))
-            .collect::<Vec<_>>();
+        let (removed, retained) = std::mem::take(&mut self.rules.directories)
+            .into_iter()
+            .partition(|directory| directory.starts_with(subtree));
+        self.rules.directories = retained;
         for directory in removed {
             let _ = self.watcher.unwatch(&directory);
         }
@@ -709,7 +708,7 @@ mod tests {
         fs::write(&exclude, "ignored/\n").unwrap();
         let mut event = Event::new(EventKind::Create(CreateKind::Folder));
         event.paths.push(root.join(".git/info"));
-        watcher.update(event, &state).unwrap();
+        watcher.update(&event, &state).unwrap();
 
         assert!(!watcher.rules.directories.contains(&ignored));
         assert!(
@@ -735,7 +734,7 @@ mod tests {
         fs::write(&gitignore, "").unwrap();
         let mut event = Event::new(EventKind::Modify(ModifyKind::Any));
         event.paths.push(gitignore);
-        watcher.update(event, &state).unwrap();
+        watcher.update(&event, &state).unwrap();
 
         assert!(watcher.rules.directories.contains(&ignored));
     }

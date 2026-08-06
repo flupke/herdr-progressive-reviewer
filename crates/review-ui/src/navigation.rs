@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::app::*;
+use crate::app::{Action, Focus, Key, LocationList, ReviewApp, ReviewFile, SourceLoadMode};
 use crate::presentation::DiffPresentation;
 use review_lsp::{Operation, Query, SourceLocation};
 use toasts::ToastKind;
