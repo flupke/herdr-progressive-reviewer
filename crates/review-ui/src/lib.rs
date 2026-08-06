@@ -18,6 +18,7 @@ mod presentation;
 mod render;
 mod review_view;
 #[cfg(test)]
+#[path = "lib.tests.rs"]
 mod tests;
 mod theme;
 
