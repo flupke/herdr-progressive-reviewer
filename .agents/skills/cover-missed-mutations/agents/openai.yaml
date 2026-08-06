@@ -1,0 +1,6 @@
+interface:
+  display_name: "Cover Missed Mutations"
+  short_description: "Add focused tests for missed Rust mutants"
+  default_prompt: "Use $cover-missed-mutations crates/review-state/src/review.rs"
+policy:
+  allow_implicit_invocation: false
