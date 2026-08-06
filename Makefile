@@ -1,11 +1,15 @@
-.PHONY: check install
+.PHONY: check install mutants
 
 check: export RUSTFLAGS = -Dwarnings
 check:
 	cargo fmt --all --check
 	cargo check --workspace
 	cargo clippy --workspace --all-targets
-	cargo test --workspace
+	cargo test --workspace --doc
+	cargo nextest run --workspace
+
+mutants:
+	cargo mutants --workspace --test-workspace=true --test-tool=nextest
 
 install:
 	cargo build --release --locked --bins
