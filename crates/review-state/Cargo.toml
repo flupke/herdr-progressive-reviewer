@@ -12,7 +12,9 @@ review-store = { path = "../review-store" }
 
 [dev-dependencies]
 review-test-support = { path = "../review-test-support" }
+strum.workspace = true
 tempfile.workspace = true
+test-case.workspace = true
 
 [lints]
 workspace = true
