@@ -1,26 +1,15 @@
 # Progressive reviewer
 
-This Herdr plugin reviews the current jj change or Git working tree one file at
-a time. It stores review marks on disk and inserts selected diff text into the
-last focused agent pane without submission.
+https://github.com/user-attachments/assets/4f0c949d-3eb2-4dd4-bbcc-948ae47b0c41
 
-![Progressive reviewer](docs/screenshot.png)
+Main features:
 
-It requires Herdr 0.7.5 or later. Use jj 0.43.0 or later for jj workspaces, or
-Git for Git workspaces.
-
-Diffs use syntax highlighting and the `catppuccin` palette by default. To
-select another palette, create
-`~/.config/herdr/plugins/config/herdr.progressive-reviewer/config.toml`:
-
-```toml
-theme = "gruvbox"
-```
-
-Available themes are `catppuccin`, `catppuccin-latte`,
-`catppuccin-frappe`, `catppuccin-macchiato`, `dracula`, `nord`, `gruvbox`,
-`gruvbox-light`, `one-dark`, `one-light`, `solarized`,
-`solarized-light`, `github-light`, and `monokai`.
+- Per-file turn-based reviews: send feedback to the LLM on a diff range, mark
+  file as reviewed, see new diff since your last pass.
+- LSP navigation.
+- Full mouse support.
+- Syntax highlighting.
+- Vim movements.
 
 ## Development install
 
@@ -34,30 +23,12 @@ The Herdr action list then contains `open`, `close`, and `toggle`.
 
 ## Use
 
-Run the `Open progressive reviewer` action from a jj or Git workspace. Use
-`Tab` to change focus, `j` and `k` to move, `Space` to change the file review
-state, and `v` plus `Enter` to insert selected diff lines. The plugin does not
-submit the agent prompt.
+Example configuration, to put in `~/.config/herdr/config.toml`:
 
-## Release package
-
-Run:
-
-```sh
-scripts/package.sh
+```toml
+[[keys.command]]
+key = "prefix+d"
+type = "plugin_action"
+command = "herdr.progressive-reviewer.toggle"
+description = "toggle progressive reviewer"
 ```
-
-The script builds native release programs and writes a `.tar.gz` file to
-`dist/`. Extract that file and link the extracted directory with
-`herdr plugin link --enabled PATH`.
-
-## Manual release checks
-
-Before release, test each supported agent TUI:
-
-1. Open, reopen, toggle, and close the review pane.
-2. Mark a file, edit it, and confirm that its marker changes.
-3. Select diff lines and insert them into the last focused agent.
-4. Confirm that insertion does not submit the prompt.
-5. Confirm that you can add a comment after the inserted diff.
-6. Repeat in pure jj, colocated jj/Git, and Git-only workspaces.
