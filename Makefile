@@ -1,4 +1,4 @@
-.PHONY: check install mutants
+.PHONY: check install mutants uninstall
 
 check: export RUSTFLAGS = -Dwarnings
 check:
@@ -19,3 +19,6 @@ install:
 	cp target/release/reviewer-control bin/reviewer-control.new
 	mv bin/reviewer-control.new bin/reviewer-control
 	herdr plugin link . --enabled
+
+uninstall:
+	herdr plugin unlink herdr.progressive-reviewer
