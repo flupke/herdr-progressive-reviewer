@@ -4,7 +4,6 @@ use crate::app::{Action, Focus, Key, LocationList, ReviewApp, ReviewFile, Source
 use crate::presentation::DiffPresentation;
 use review_lsp::{Operation, Query, SourceLocation};
 use toasts::ToastKind;
-use unicode_width::UnicodeWidthStr;
 
 impl ReviewApp {
     pub(super) fn load_locations(
@@ -114,6 +113,7 @@ impl ReviewApp {
             .is_some_and(|list| list.locations.get(list.selected) == Some(location))
         {
             self.preview = Some(file);
+            self.keep_visible();
         }
         Action::None
     }
@@ -125,7 +125,7 @@ impl ReviewApp {
             .get_mut(self.selected_file)
             .is_some_and(|file| file.reveal_location(location, page))
         {
-            self.keep_file_visible();
+            self.keep_visible();
         }
     }
 
@@ -208,6 +208,7 @@ impl ReviewApp {
         preview.disk_path = Some(location.path.clone());
         let _ = preview.reveal_location(&location, self.page_rows());
         self.preview = Some(preview);
+        self.keep_visible();
         Action::None
     }
 
@@ -292,21 +293,11 @@ impl ReviewApp {
         while !line.is_char_boundary(column) {
             column = column.saturating_sub(1);
         }
-        let pane_width = usize::from(self.layout().diff_width());
-        let number_width = self
-            .selected()
-            .map_or(0, |file| file.diff.line_number_width());
         if let Some(file) = self.files.get_mut(self.selected_file) {
             file.column = column;
             file.clear_source_location();
-            let line_width = line[..column].width();
-            let code_width = pane_width.saturating_sub(number_width + 5).max(1);
-            if line_width < file.horizontal_scroll {
-                file.horizontal_scroll = line_width;
-            } else if line_width >= file.horizontal_scroll + code_width {
-                file.horizontal_scroll = line_width + 1 - code_width;
-            }
         }
+        self.keep_visible();
         Action::None
     }
 

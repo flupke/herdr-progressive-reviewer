@@ -5,13 +5,16 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Widget};
 use review_lsp::SourceLocation;
 use review_repository::diff::{DiffRow, NoticeKind};
+use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
-use crate::app::{DiffControl, Focus, ReviewApp, ReviewFile, Selection};
+use crate::app::{DiffControl, Focus, ReviewApp, ReviewFile, Selection, text_display_width};
 use crate::highlight::Token;
 use crate::presentation::{PresentedRow, matching_ranges};
 use crate::render::{pane_block, shorten};
 use review_state::ReviewStatus;
+
+pub(super) const TAB_DISPLAY_WIDTH: usize = 4;
 
 pub(super) struct DiffView<'a>(pub(super) &'a ReviewApp);
 
@@ -22,6 +25,89 @@ struct CodeRenderContext<'a> {
     cursor: Option<usize>,
     source_line: Option<u32>,
     source_location: Option<&'a SourceLocation>,
+}
+
+pub(super) struct DiffViewport {
+    rows: Vec<WrappedDiffRow>,
+}
+
+struct WrappedDiffRow {
+    line: Line<'static>,
+    source_row: usize,
+    source_display_offset: usize,
+}
+
+impl DiffViewport {
+    pub(super) fn scroll(&self, file: &ReviewFile, height: usize) -> usize {
+        file.scroll.min(self.rows.len().saturating_sub(height))
+    }
+
+    pub(super) fn scroll_with_cursor_visible(&self, file: &ReviewFile, height: usize) -> usize {
+        let last = self.rows.len().saturating_sub(height);
+        let mut scroll = file.scroll.min(last);
+        let cursor = self.cursor_visual_row(file);
+        if cursor < scroll {
+            scroll = cursor;
+        } else if cursor >= scroll.saturating_add(height) {
+            scroll = cursor + 1 - height;
+        }
+        scroll
+    }
+
+    pub(super) fn source_row_at(&self, visual_row: usize) -> Option<usize> {
+        self.rows.get(visual_row).map(|row| row.source_row)
+    }
+
+    pub(super) fn source_column_at(
+        &self,
+        visual_row: usize,
+        pane_column: usize,
+        number_width: usize,
+    ) -> Option<usize> {
+        let row = self.rows.get(visual_row)?;
+        Some(
+            row.source_display_offset
+                .saturating_add(pane_column.saturating_sub(number_width + 3)),
+        )
+    }
+
+    pub(super) fn source_position_after_visual_delta(
+        &self,
+        file: &ReviewFile,
+        delta: isize,
+    ) -> Option<(usize, usize)> {
+        let visual_row = self
+            .cursor_visual_row(file)
+            .saturating_add_signed(delta)
+            .min(self.rows.len().saturating_sub(1));
+        let row = self.rows.get(visual_row)?;
+        Some((row.source_row, row.source_display_offset))
+    }
+
+    pub(super) fn len(&self) -> usize {
+        self.rows.len()
+    }
+
+    fn cursor_visual_row(&self, file: &ReviewFile) -> usize {
+        let source_display_column = file
+            .diff
+            .source_position(file.cursor)
+            .map_or(0, |(_, line)| source_display_width(&line, file.column));
+        self.rows
+            .iter()
+            .enumerate()
+            .filter(|(_, row)| {
+                row.source_row == file.cursor && row.source_display_offset <= source_display_column
+            })
+            .map(|(index, _)| index)
+            .next_back()
+            .or_else(|| {
+                self.rows
+                    .iter()
+                    .position(|row| row.source_row == file.cursor)
+            })
+            .unwrap_or(0)
+    }
 }
 
 impl Widget for DiffView<'_> {
@@ -35,10 +121,16 @@ impl Widget for DiffView<'_> {
         if self.render_empty_review(file, inner, buffer) {
             return;
         }
-        let lines = self.render_lines(file, inner, focused);
-        Paragraph::new(lines)
-            .scroll((0, u16::try_from(file.horizontal_scroll).unwrap_or(u16::MAX)))
-            .render(inner, buffer);
+        let viewport = self.viewport(file, inner.width, focused);
+        let scroll = viewport.scroll(file, usize::from(inner.height));
+        let lines = viewport
+            .rows
+            .into_iter()
+            .skip(scroll)
+            .take(usize::from(inner.height))
+            .map(|row| row.line)
+            .collect::<Vec<_>>();
+        Paragraph::new(lines).render(inner, buffer);
     }
 }
 
@@ -101,17 +193,16 @@ impl DiffView<'_> {
         false
     }
 
-    fn render_lines(&self, file: &ReviewFile, area: Rect, focused: bool) -> Vec<Line<'static>> {
+    pub(super) fn viewport(&self, file: &ReviewFile, width: u16, focused: bool) -> DiffViewport {
         let selection = self.0.selection.map(Selection::range);
         let line_number_width = file.diff.line_number_width();
         let show_markers = !file.diff.shows_whole_file();
-        file.diff
+        let rows = file
+            .diff
             .rows
             .iter()
             .enumerate()
-            .skip(file.scroll)
-            .take(usize::from(area.height))
-            .map(|(index, presented)| {
+            .flat_map(|(index, presented)| {
                 let source_line = file.diff.source_position(index).map(|(line, _)| line);
                 let context = |tokens| CodeRenderContext {
                     tokens,
@@ -129,7 +220,7 @@ impl DiffView<'_> {
                         )
                     }
                     PresentedRow::Gap { lines, .. } => (
-                        Self::gap_line(lines.len(), line_number_width, usize::from(area.width)),
+                        Self::gap_line(lines.len(), line_number_width, usize::from(width)),
                         Style::default()
                             .fg(self.0.palette.text)
                             .bg(self.0.palette.selection),
@@ -148,9 +239,17 @@ impl DiffView<'_> {
                 if focused && index == file.cursor {
                     style = style.bg(self.0.palette.cursor);
                 }
-                line.style(style)
+                let styled_line = line.style(style);
+                wrap_line(&styled_line, width, line_number_width + 3)
+                    .into_iter()
+                    .map(move |(line, source_display_offset)| WrappedDiffRow {
+                        line,
+                        source_row: index,
+                        source_display_offset,
+                    })
             })
-            .collect()
+            .collect();
+        DiffViewport { rows }
     }
 
     fn diff_line(
@@ -228,6 +327,7 @@ impl DiffView<'_> {
             .zip(source_location)
             .and_then(|(line, location)| location.range_in_line(line, text.len()));
         let matches = matching_ranges(&text, query);
+        let tab_display = " ".repeat(TAB_DISPLAY_WIDTH);
         let mut spans = Vec::new();
         let mut token_start = 0;
         for token in tokens {
@@ -272,7 +372,7 @@ impl DiffView<'_> {
                     style = style.add_modifier(Modifier::REVERSED | Modifier::BOLD);
                 }
                 spans.push(Span::styled(
-                    token.text[start - token_start..end - token_start].replace('\t', "    "),
+                    token.text[start - token_start..end - token_start].replace('\t', &tab_display),
                     style,
                 ));
             }
@@ -318,4 +418,139 @@ impl DiffView<'_> {
             DiffRow::Context { .. } => Style::default().fg(self.0.palette.text),
         }
     }
+}
+
+#[derive(Clone)]
+struct WrapGrapheme {
+    span: Span<'static>,
+    display_width: usize,
+    is_whitespace: bool,
+}
+
+fn wrap_graphemes(line: &Line<'static>) -> Vec<WrapGrapheme> {
+    line.styled_graphemes(Style::default())
+        .map(|grapheme| {
+            let symbol = grapheme.symbol.to_owned();
+            WrapGrapheme {
+                display_width: symbol.width(),
+                is_whitespace: symbol == " " || symbol == "\t",
+                span: Span::styled(symbol, grapheme.style),
+            }
+        })
+        .collect()
+}
+
+fn find_wrap_end(
+    graphemes: &[WrapGrapheme],
+    start: usize,
+    available_width: usize,
+    consumed_width: usize,
+    continuation_indent: usize,
+) -> (usize, usize) {
+    let mut end = start;
+    let mut content_width = 0usize;
+    let mut last_word_boundary = None;
+    let mut saw_non_whitespace = false;
+    while end < graphemes.len() {
+        let grapheme = &graphemes[end];
+        if end > start && content_width.saturating_add(grapheme.display_width) > available_width {
+            break;
+        }
+        let grapheme_source_start = consumed_width.saturating_add(content_width);
+        content_width = content_width.saturating_add(grapheme.display_width);
+        end += 1;
+        if grapheme_source_start >= continuation_indent {
+            if grapheme.is_whitespace && saw_non_whitespace {
+                last_word_boundary = Some(end);
+            } else if !grapheme.is_whitespace {
+                saw_non_whitespace = true;
+            }
+        }
+    }
+    if end < graphemes.len()
+        && let Some(word_boundary) = last_word_boundary
+    {
+        end = word_boundary;
+        content_width = graphemes[start..end]
+            .iter()
+            .map(|grapheme| grapheme.display_width)
+            .sum();
+    }
+    (end, content_width)
+}
+
+fn continuation_prefix(
+    graphemes: &[WrapGrapheme],
+    start: usize,
+    visible_indent: usize,
+) -> Vec<Span<'static>> {
+    if visible_indent == 0 {
+        return Vec::new();
+    }
+    let marker = graphemes
+        .first()
+        .filter(|grapheme| grapheme.span.content == "▌");
+    let mut spans = marker
+        .map(|grapheme| vec![grapheme.span.clone()])
+        .unwrap_or_default();
+    let blank_width = visible_indent.saturating_sub(spans.len());
+    if blank_width > 0 {
+        spans.push(Span::styled(
+            " ".repeat(blank_width),
+            graphemes[start].span.style,
+        ));
+    }
+    spans
+}
+
+fn wrap_line(
+    line: &Line<'static>,
+    width: u16,
+    continuation_indent: usize,
+) -> Vec<(Line<'static>, usize)> {
+    let width = usize::from(width.max(1));
+    let graphemes = wrap_graphemes(line);
+    if graphemes.is_empty() {
+        return vec![(Line::default(), 0)];
+    }
+    let mut wrapped = Vec::new();
+    let mut start = 0;
+    let mut consumed_width = 0usize;
+    while start < graphemes.len() {
+        let first_grapheme_width = graphemes[start].display_width;
+        let visible_indent = if wrapped.is_empty() {
+            0
+        } else {
+            continuation_indent.min(width.saturating_sub(first_grapheme_width))
+        };
+        let (end, content_width) = find_wrap_end(
+            &graphemes,
+            start,
+            width.saturating_sub(visible_indent),
+            consumed_width,
+            continuation_indent,
+        );
+        let source_display_offset = consumed_width.saturating_sub(continuation_indent);
+        let mut spans = continuation_prefix(&graphemes, start, visible_indent);
+        spans.extend(
+            graphemes[start..end]
+                .iter()
+                .map(|grapheme| grapheme.span.clone()),
+        );
+        wrapped.push((Line::from(spans), source_display_offset));
+        consumed_width = consumed_width.saturating_add(content_width);
+        start = end;
+    }
+    wrapped
+}
+
+#[cfg(test)]
+#[path = "diff.tests.rs"]
+mod tests;
+
+fn source_display_width(line: &str, byte_column: usize) -> usize {
+    line.grapheme_indices(true)
+        .take_while(|(byte, grapheme)| byte.saturating_add(grapheme.len()) <= byte_column)
+        .map(|(_, grapheme)| text_display_width(grapheme))
+        .sum()
 }

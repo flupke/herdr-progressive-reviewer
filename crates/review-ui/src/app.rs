@@ -12,8 +12,10 @@ use review_repository::repository::{ChangeKind, ChangedFile};
 use review_state::{ReviewState, ReviewStatus};
 use review_store::OutputTarget;
 use toasts::{ToastId, ToastKind, ToastState};
-use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
+use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::UnicodeWidthStr;
 
+use crate::diff::{DiffView, TAB_DISPLAY_WIDTH};
 use crate::file_tree::FileTree;
 use crate::highlight::SyntaxHighlighter;
 use crate::presentation::{DiffPresentation, SearchDirection};
@@ -91,7 +93,6 @@ pub struct ReviewFile {
     pub(super) cursor: usize,
     pub(super) scroll: usize,
     pub(super) column: usize,
-    pub(super) horizontal_scroll: usize,
     pub(super) source_location: Option<SourceLocation>,
     pub(super) loading: bool,
     pub(super) temporary: bool,
@@ -114,7 +115,6 @@ impl ReviewFile {
             cursor: 0,
             scroll: 0,
             column: 0,
-            horizontal_scroll: 0,
             source_location: None,
             loading: false,
             temporary: false,
@@ -210,11 +210,6 @@ impl ReviewFile {
                 ReviewStatus::ChangedSinceReview => "●",
             }
         }
-    }
-
-    pub(super) fn scroll_by(&mut self, delta: isize, page: usize) {
-        let last = self.diff.len().saturating_sub(page);
-        self.scroll = self.scroll.saturating_add_signed(delta).min(last);
     }
 
     pub(super) fn start_diff_load(&mut self) -> Option<String> {
@@ -543,45 +538,42 @@ impl PaneLayout {
         usize::from(self.body_height().saturating_sub(2).max(1))
     }
 
-    pub(super) fn diff_width(self) -> u16 {
-        if self.is_wide() {
+    pub(super) fn diff_content_width(self) -> u16 {
+        let pane_width = if self.is_wide() {
             self.width.saturating_sub(self.file_width)
         } else {
             self.width
-        }
+        };
+        pane_width.saturating_sub(2).max(1)
     }
 
-    pub(super) fn source_column(
-        self,
-        terminal_column: u16,
-        file: Option<&ReviewFile>,
-    ) -> Option<usize> {
-        let pane_x = if self.is_wide() { self.file_width } else { 0 };
-        let file = file?;
-        let number_width = file.diff.line_number_width();
-        let code_x = usize::from(pane_x.saturating_add(1)) + 2 + number_width + 1;
-        Some(
-            usize::from(terminal_column)
-                .saturating_sub(code_x)
-                .saturating_add(file.horizontal_scroll),
-        )
+    pub(super) fn diff_content_start_column(self) -> u16 {
+        if self.is_wide() {
+            self.file_width.saturating_add(1)
+        } else {
+            1
+        }
     }
 }
 
 pub(super) fn display_column_to_byte(line: &str, display_column: usize) -> usize {
     let mut display: usize = 0;
-    for (byte, character) in line.char_indices() {
-        let width = if character == '\t' {
-            4
-        } else {
-            character.width().unwrap_or(0)
-        };
+    for (byte, grapheme) in line.grapheme_indices(true) {
+        let width = text_display_width(grapheme);
         if display.saturating_add(width) > display_column {
             return byte;
         }
         display += width;
     }
     line.len()
+}
+
+pub(super) fn text_display_width(text: &str) -> usize {
+    if text == "\t" {
+        TAB_DISPLAY_WIDTH
+    } else {
+        text.width()
+    }
 }
 
 /// The complete pure review UI state.
@@ -857,7 +849,6 @@ impl ReviewApp {
                     file.cursor = old.cursor;
                     file.scroll = old.scroll;
                     file.column = old.column;
-                    file.horizontal_scroll = old.horizontal_scroll;
                     if same_snapshot {
                         file.source_location.clone_from(&old.source_location);
                         file.diff.clone_from(&old.diff);
@@ -1087,15 +1078,17 @@ impl ReviewApp {
 
     pub(super) fn keep_visible(&mut self) {
         self.keep_file_visible();
-        let page = self.page_rows();
-        let Some(file) = self.files.get_mut(self.selected_file) else {
+        let layout = self.layout();
+        let page = layout.page_rows();
+        let scroll = self.displayed().map(|file| {
+            DiffView(self)
+                .viewport(file, layout.diff_content_width(), false)
+                .scroll_with_cursor_visible(file, page)
+        });
+        let Some(file) = self.displayed_mut() else {
             return;
         };
-        if file.cursor < file.scroll {
-            file.scroll = file.cursor;
-        } else if file.cursor >= file.scroll + page {
-            file.scroll = file.cursor + 1 - page;
-        }
+        file.scroll = scroll.unwrap_or(0);
     }
 
     pub(super) fn keep_file_visible(&mut self) {
@@ -1141,6 +1134,14 @@ impl ReviewApp {
 
     pub(super) fn displayed(&self) -> Option<&ReviewFile> {
         self.preview.as_ref().or_else(|| self.selected())
+    }
+
+    pub(super) fn displayed_mut(&mut self) -> Option<&mut ReviewFile> {
+        if self.preview.is_some() {
+            self.preview.as_mut()
+        } else {
+            self.files.get_mut(self.selected_file)
+        }
     }
 
     pub(super) fn file_matches_search(&self, index: usize) -> bool {

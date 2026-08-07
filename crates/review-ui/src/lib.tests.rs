@@ -446,7 +446,7 @@ fn location_results_preview_and_accept_disk_source() {
         Action::None
     );
     let preview = app.displayed().unwrap();
-    assert_eq!(preview.cursor - preview.scroll, app.page_rows() / 2);
+    assert!((preview.scroll..preview.scroll + app.page_rows()).contains(&preview.cursor));
     assert_source_location_highlighted(&app);
     assert_eq!(
         app.update(Message::Key(Key::Down)),
@@ -481,7 +481,7 @@ fn location_results_preview_and_accept_disk_source() {
         Some(second.path.as_path())
     );
     let preview = app.preview.as_ref().unwrap();
-    assert_eq!(preview.cursor - preview.scroll, app.page_rows() / 2);
+    assert!((preview.scroll..preview.scroll + app.page_rows()).contains(&preview.cursor));
     assert_eq!(
         app.update(Message::Key(Key::Up)),
         Action::LoadSource {
@@ -568,6 +568,66 @@ fn review_location_preview_keeps_diff_markers_and_escape_restores_diff_focus() {
     assert_eq!(app.focus, Focus::Diff);
     assert!(app.locations.is_none());
     assert!(app.preview.is_none());
+}
+
+#[test]
+fn wrapped_location_preview_keeps_the_target_visible() {
+    let mut app = ReviewApp::default();
+    app.update(Message::Resize {
+        width: 80,
+        height: 8,
+    });
+    app.update(Message::FilesLoaded {
+        change_id: "change".to_owned(),
+        commit_id: "commit".to_owned(),
+        description: String::new(),
+        files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed)],
+    });
+    let source = format!("start-{}-visible-tail\n", "middle".repeat(30));
+    let mut target = source_location("src/first.rs", 0);
+    target.byte_column = source.trim_end().len();
+    target.end_byte_column = target.byte_column;
+    let other = source_location("src/second.rs", 0);
+    app.update(Message::Lsp(Event::Locations {
+        toast_id: ToastId::generate(),
+        operation: Operation::References,
+        snapshot_id: "commit".to_owned(),
+        locations: vec![target.clone(), other],
+    }));
+    app.update(Message::SourceLoaded {
+        snapshot_id: "commit".to_owned(),
+        location: target,
+        content: source.into_bytes(),
+        mode: SourceLoadMode::Preview,
+    });
+
+    let mut terminal = Terminal::new(TestBackend::new(80, 8)).unwrap();
+    terminal
+        .draw(|frame| frame.render_widget(app.view(), frame.area()))
+        .unwrap();
+    let rendered = terminal
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(ratatui::buffer::Cell::symbol)
+        .collect::<String>();
+    assert!(rendered.contains("visible-tail"), "{rendered:?}");
+    let hidden_cursor = app.selected().unwrap().cursor;
+    app.update(Message::MouseClick {
+        column: 65,
+        row: 1,
+        insert_path: false,
+    });
+    app.update(Message::MouseClick {
+        column: 50,
+        row: 3,
+        insert_path: false,
+    });
+    app.update(Message::MouseRightClick { column: 50, row: 3 });
+    assert_eq!(app.selected().unwrap().cursor, hidden_cursor);
+    assert_eq!(app.focus, Focus::Files);
+    assert!(app.context_menu.is_none());
 }
 
 #[test]

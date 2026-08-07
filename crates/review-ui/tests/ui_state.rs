@@ -58,6 +58,152 @@ fn screen(app: &ReviewApp, width: u16, height: u16) -> Vec<String> {
         .collect()
 }
 
+fn wrapped_diff_app(rows: Vec<DiffRow>, width: u16, height: u16) -> ReviewApp {
+    let mut app = ReviewApp::default();
+    app.update(Message::FilesLoaded {
+        change_id: "qpvuntsm".to_owned(),
+        commit_id: "11111111".to_owned(),
+        description: String::new(),
+        files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed)],
+    });
+    app.update(Message::DiffLoaded {
+        commit_id: "11111111".to_owned(),
+        path: "src/lib.rs".to_owned(),
+        rows,
+        old_content: None,
+        new_content: None,
+    });
+    app.update(Message::Resize { width, height });
+    app.update(Message::Key(Key::Tab));
+    app
+}
+
+#[test]
+fn long_diff_lines_wrap_without_horizontal_scrolling() {
+    let source = format!("start-{}-visible-tail", "middle".repeat(30));
+    let mut app = wrapped_diff_app(
+        vec![DiffRow::Context {
+            old_line: 1,
+            new_line: 1,
+            text: format!(" {source}"),
+        }],
+        40,
+        8,
+    );
+
+    let rendered = screen(&app, 40, 8);
+    assert!(rendered.join("\n").contains("start-"));
+    assert!(rendered[3].starts_with("│    "));
+    app.update(Message::Key(Key::Char('$')));
+
+    assert!(screen(&app, 40, 8).join("\n").contains("visible-tail"));
+}
+
+#[test]
+fn wrapped_continuation_mouse_targets_its_source_position() {
+    let source = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    let mut app = wrapped_diff_app(
+        vec![
+            DiffRow::Context {
+                old_line: 1,
+                new_line: 1,
+                text: format!(" {source}"),
+            },
+            DiffRow::Context {
+                old_line: 2,
+                new_line: 2,
+                text: " second logical line".to_owned(),
+            },
+        ],
+        40,
+        8,
+    );
+    app.update(Message::MouseClick {
+        column: 10,
+        row: 3,
+        insert_path: false,
+    });
+
+    let Action::Lsp { query, .. } = app.update(Message::Key(Key::Char('K'))) else {
+        panic!("wrapped source position must support LSP navigation");
+    };
+    assert_eq!(query.line, 0);
+    assert_eq!(query.byte_column, 39);
+}
+
+#[test]
+fn mouse_wheel_scrolls_through_wrapped_continuations() {
+    let source = format!("first-visible-{}-last-visible", "middle".repeat(26));
+    let mut app = wrapped_diff_app(
+        vec![DiffRow::Context {
+            old_line: 1,
+            new_line: 1,
+            text: format!(" {source}"),
+        }],
+        40,
+        6,
+    );
+    assert!(screen(&app, 40, 6).join("\n").contains("first-visible"));
+
+    app.update(Message::MouseScroll {
+        column: 6,
+        row: 2,
+        delta: 100,
+    });
+
+    let rendered = screen(&app, 40, 6).join("\n");
+    assert!(!rendered.contains("first-visible"));
+    assert!(rendered.contains("last-visible"));
+}
+
+#[test]
+fn half_page_keys_move_through_wrapped_continuations() {
+    let source = format!("first-visible-{}-last-visible", "middle".repeat(30));
+    let mut app = wrapped_diff_app(
+        vec![DiffRow::Context {
+            old_line: 1,
+            new_line: 1,
+            text: format!(" {source}"),
+        }],
+        40,
+        6,
+    );
+
+    app.update(Message::Key(Key::HalfPageDown));
+    app.update(Message::Key(Key::HalfPageDown));
+
+    let rendered = screen(&app, 40, 6).join("\n");
+    assert!(!rendered.contains("first-visible"));
+    app.update(Message::Key(Key::HalfPageUp));
+    app.update(Message::Key(Key::HalfPageUp));
+    assert!(screen(&app, 40, 6).join("\n").contains("first-visible"));
+}
+
+#[test]
+fn wrapped_grapheme_mouse_position_uses_its_terminal_width() {
+    let joined_emoji = "👨‍👩‍👧‍👦";
+    let source = format!("{}{joined_emoji}tail", "a".repeat(34));
+    let mut app = wrapped_diff_app(
+        vec![DiffRow::Context {
+            old_line: 1,
+            new_line: 1,
+            text: format!(" {source}"),
+        }],
+        40,
+        8,
+    );
+    app.update(Message::MouseClick {
+        column: 7,
+        row: 3,
+        insert_path: false,
+    });
+
+    let Action::Lsp { query, .. } = app.update(Message::Key(Key::Char('K'))) else {
+        panic!("wrapped grapheme position must support LSP navigation");
+    };
+    assert_eq!(query.byte_column, 34 + joined_emoji.len());
+}
+
 #[test]
 fn state_machine_keeps_selection_until_insert_succeeds() {
     let mut app = ReviewApp::default();
