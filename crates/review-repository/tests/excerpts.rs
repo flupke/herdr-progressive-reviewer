@@ -3,51 +3,52 @@ use std::process::{Command, Stdio};
 
 use review_repository::diff::{DiffRow, parse_file_diff};
 use review_repository::excerpt::DiffExcerpt;
-use review_repository::repository::{PollResult, Repository};
-use review_test_support::{JjFixture, JjLayout};
+use review_repository::repository::{RepoType, Repository};
+use review_test_support::{complete_repository_snapshot, repository_fixture};
+use test_case::test_case;
 
-#[test]
-fn excerpts_apply_for_each_selection_shape() {
-    for layout in [JjLayout::NonColocated, JjLayout::Colocated] {
-        let fixture = JjFixture::new(layout);
-        fixture.write("sample.txt", base());
-        fixture.new_change("edit two distant lines");
-        fixture.write("sample.txt", current());
+#[test_case(RepoType::Git; "git")]
+#[test_case(RepoType::Jj; "jj")]
+fn excerpts_apply_for_each_selection_shape(repository_type: RepoType) {
+    let fixture = repository_fixture(repository_type);
+    fixture.write("sample.txt", base());
+    fixture.new_change("edit two distant lines");
+    fixture.write("sample.txt", current());
 
-        let repository = Repository::discover(fixture.root()).unwrap();
-        let PollResult::Complete(snapshot) = repository.poll().unwrap() else {
-            panic!("synchronous fixture poll changed");
-        };
-        let file = &snapshot.files[0];
-        let rows = parse_file_diff(&repository.diff(&snapshot, file).unwrap(), file);
-        let deleted: Vec<_> = rows
-            .iter()
-            .enumerate()
-            .filter_map(|(index, row)| matches!(row, DiffRow::Delete { .. }).then_some(index))
-            .collect();
-        let added: Vec<_> = rows
-            .iter()
-            .enumerate()
-            .filter_map(|(index, row)| matches!(row, DiffRow::Add { .. }).then_some(index))
-            .collect();
+    let state = tempfile::tempdir().unwrap();
+    let repository = Repository::discover(fixture.root())
+        .unwrap()
+        .with_state_root(state.path());
+    let snapshot = complete_repository_snapshot(&repository);
+    let file = &snapshot.files[0];
+    let rows = parse_file_diff(&repository.diff(&snapshot, file).unwrap(), file);
+    let deleted: Vec<_> = rows
+        .iter()
+        .enumerate()
+        .filter_map(|(index, row)| matches!(row, DiffRow::Delete { .. }).then_some(index))
+        .collect();
+    let added: Vec<_> = rows
+        .iter()
+        .enumerate()
+        .filter_map(|(index, row)| matches!(row, DiffRow::Add { .. }).then_some(index))
+        .collect();
 
-        for selection in [
-            added[0]..=added[0],
-            deleted[0]..=deleted[0],
-            deleted[0]..=added[0],
-            deleted[0]..=added[1],
-        ] {
-            let excerpt = DiffExcerpt::build(&rows, selection).unwrap();
-            assert!(!excerpt.as_str().ends_with('\n'));
-            assert_patch_applies(excerpt.as_str());
-        }
-
-        let addition = DiffExcerpt::build(&rows, added[0]..=added[0]).unwrap();
-        assert!(!addition.as_str().contains("\n 3"));
-
-        let across_hunks = DiffExcerpt::build(&rows, deleted[0]..=added[1]).unwrap();
-        assert_eq!(across_hunks.as_str().matches("@@ -").count(), 2);
+    for selection in [
+        added[0]..=added[0],
+        deleted[0]..=deleted[0],
+        deleted[0]..=added[0],
+        deleted[0]..=added[1],
+    ] {
+        let excerpt = DiffExcerpt::build(&rows, selection).unwrap();
+        assert!(!excerpt.as_str().ends_with('\n'));
+        assert_patch_applies(excerpt.as_str());
     }
+
+    let addition = DiffExcerpt::build(&rows, added[0]..=added[0]).unwrap();
+    assert!(!addition.as_str().contains("\n 3"));
+
+    let across_hunks = DiffExcerpt::build(&rows, deleted[0]..=added[1]).unwrap();
+    assert_eq!(across_hunks.as_str().matches("@@ -").count(), 2);
 }
 
 fn assert_patch_applies(excerpt: &str) {

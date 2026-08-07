@@ -603,7 +603,8 @@ trait RepositoryBackend: std::fmt::Debug + Send + Sync {
 }
 
 /// The repository implementation selected during discovery.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, strum::Display, strum::EnumString)]
+#[strum(serialize_all = "lowercase")]
 pub enum RepoType {
     /// A Git working tree.
     Git,

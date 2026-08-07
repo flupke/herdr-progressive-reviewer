@@ -1220,7 +1220,9 @@ dependencies = [
  "review-test-support",
  "serde",
  "sha2",
+ "strum",
  "tempfile",
+ "test-case",
  "thiserror",
 ]
 
@@ -1232,7 +1234,6 @@ dependencies = [
  "review-repository",
  "review-store",
  "review-test-support",
- "strum",
  "tempfile",
  "test-case",
 ]
@@ -1256,6 +1257,7 @@ dependencies = [
 name = "review-test-support"
 version = "0.1.0"
 dependencies = [
+ "review-repository",
  "tempfile",
 ]
 
@@ -1299,6 +1301,7 @@ dependencies = [
  "serde_json",
  "signal-hook",
  "tempfile",
+ "test-case",
 ]
 
 [[package]]

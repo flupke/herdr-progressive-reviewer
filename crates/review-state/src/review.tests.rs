@@ -1,15 +1,10 @@
-use review_repository::repository::PollResult;
-use review_test_support::{GitFixture, JjFixture, JjLayout};
+use review_repository::repository::RepoType;
+use review_test_support::{
+    ReviewRepositoryFixture, complete_repository_snapshot, repository_fixture,
+};
 use test_case::test_case;
 
 use super::*;
-
-fn snapshot(repository: &Repository) -> Snapshot {
-    match repository.poll().unwrap() {
-        PollResult::Complete(snapshot) => snapshot,
-        PollResult::ChangedDuringPoll => panic!("test repository changed during a poll"),
-    }
-}
 
 struct ReviewFixture {
     repository_files: Box<dyn ReviewRepositoryFixture>,
@@ -19,64 +14,11 @@ struct ReviewFixture {
     reviewed: Snapshot,
 }
 
-#[derive(Clone, Copy, Debug, strum::Display, strum::EnumString)]
-#[strum(serialize_all = "lowercase")]
-enum RepositoryKind {
-    Git,
-    Jj,
-}
-
-trait ReviewRepositoryFixture {
-    fn root(&self) -> &std::path::Path;
-    fn write(&self, contents: &[u8]);
-    fn remove(&self);
-    fn start_review(&self);
-}
-
-impl ReviewRepositoryFixture for GitFixture {
-    fn root(&self) -> &std::path::Path {
-        self.root()
-    }
-
-    fn write(&self, contents: &[u8]) {
-        std::fs::write(self.root().join("reviewed.txt"), contents).unwrap();
-    }
-
-    fn remove(&self) {
-        std::fs::remove_file(self.root().join("reviewed.txt")).unwrap();
-    }
-
-    fn start_review(&self) {
-        self.commit_all("base");
-    }
-}
-
-impl ReviewRepositoryFixture for JjFixture {
-    fn root(&self) -> &std::path::Path {
-        self.root()
-    }
-
-    fn write(&self, contents: &[u8]) {
-        self.write("reviewed.txt", contents);
-    }
-
-    fn remove(&self) {
-        self.remove("reviewed.txt");
-    }
-
-    fn start_review(&self) {
-        self.new_change("review");
-    }
-}
-
-fn review_fixture(repository_kind: RepositoryKind, reviewed_content: &[u8]) -> ReviewFixture {
-    let repository_files: Box<dyn ReviewRepositoryFixture> = match repository_kind {
-        RepositoryKind::Git => Box::new(GitFixture::new()),
-        RepositoryKind::Jj => Box::new(JjFixture::new(JjLayout::NonColocated)),
-    };
-    repository_files.write(b"before\n");
-    repository_files.start_review();
-    repository_files.write(reviewed_content);
+fn review_fixture(repository_type: RepoType, reviewed_content: &[u8]) -> ReviewFixture {
+    let repository_files = repository_fixture(repository_type);
+    repository_files.write("reviewed.txt", b"before\n");
+    repository_files.new_change("review");
+    repository_files.write("reviewed.txt", reviewed_content);
     let state_directory = tempfile::tempdir().unwrap();
     let repository = Repository::discover(repository_files.root())
         .unwrap()
@@ -85,7 +27,7 @@ fn review_fixture(repository_kind: RepositoryKind, reviewed_content: &[u8]) -> R
         repository.clone(),
         ReviewStore::open(state_directory.path(), repository_files.root()).unwrap(),
     );
-    let reviewed = snapshot(&repository);
+    let reviewed = complete_repository_snapshot(&repository);
     ReviewFixture {
         repository_files,
         repository,
@@ -95,10 +37,10 @@ fn review_fixture(repository_kind: RepositoryKind, reviewed_content: &[u8]) -> R
     }
 }
 
-#[test_case(RepositoryKind::Git; "git")]
-#[test_case(RepositoryKind::Jj; "jj")]
-fn diff_uses_the_review_baseline(repository_kind: RepositoryKind) {
-    let fixture = review_fixture(repository_kind, b"after\n");
+#[test_case(RepoType::Git; "git")]
+#[test_case(RepoType::Jj; "jj")]
+fn diff_uses_the_review_baseline(repository_type: RepoType) {
+    let fixture = review_fixture(repository_type, b"after\n");
     let initial = fixture
         .tracker
         .diff(&fixture.reviewed, &fixture.reviewed.files[0])
@@ -110,8 +52,10 @@ fn diff_uses_the_review_baseline(repository_kind: RepositoryKind) {
         .mark(&fixture.reviewed, &fixture.reviewed.files[0])
         .unwrap();
 
-    fixture.repository_files.write(b"after\nfoo\n");
-    let changed = snapshot(&fixture.repository);
+    fixture
+        .repository_files
+        .write("reviewed.txt", b"after\nfoo\n");
+    let changed = complete_repository_snapshot(&fixture.repository);
     let loaded = fixture.tracker.diff(&changed, &changed.files[0]).unwrap();
     let diff = String::from_utf8(loaded.unified).unwrap();
 
@@ -121,17 +65,17 @@ fn diff_uses_the_review_baseline(repository_kind: RepositoryKind) {
     assert_eq!(loaded.new_content.as_deref(), Some(&b"after\nfoo\n"[..]));
 }
 
-#[test_case(RepositoryKind::Git; "git")]
-#[test_case(RepositoryKind::Jj; "jj")]
-fn deleted_file_diff_includes_the_reviewed_content(repository_kind: RepositoryKind) {
-    let fixture = review_fixture(repository_kind, b"reviewed content\n");
+#[test_case(RepoType::Git; "git")]
+#[test_case(RepoType::Jj; "jj")]
+fn deleted_file_diff_includes_the_reviewed_content(repository_type: RepoType) {
+    let fixture = review_fixture(repository_type, b"reviewed content\n");
     fixture
         .tracker
         .mark(&fixture.reviewed, &fixture.reviewed.files[0])
         .unwrap();
 
-    fixture.repository_files.remove();
-    let deleted = snapshot(&fixture.repository);
+    fixture.repository_files.remove("reviewed.txt");
+    let deleted = complete_repository_snapshot(&fixture.repository);
     let loaded = fixture.tracker.diff(&deleted, &deleted.files[0]).unwrap();
 
     assert_eq!(
@@ -141,10 +85,10 @@ fn deleted_file_diff_includes_the_reviewed_content(repository_kind: RepositoryKi
     assert_eq!(loaded.new_content, None);
 }
 
-#[test_case(RepositoryKind::Git; "git")]
-#[test_case(RepositoryKind::Jj; "jj")]
-fn unreview_removes_the_stored_review_mark(repository_kind: RepositoryKind) {
-    let fixture = review_fixture(repository_kind, b"after\n");
+#[test_case(RepoType::Git; "git")]
+#[test_case(RepoType::Jj; "jj")]
+fn unreview_removes_the_stored_review_mark(repository_type: RepoType) {
+    let fixture = review_fixture(repository_type, b"after\n");
     fixture
         .tracker
         .mark(&fixture.reviewed, &fixture.reviewed.files[0])

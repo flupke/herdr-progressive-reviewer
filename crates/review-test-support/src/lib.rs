@@ -10,6 +10,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+use review_repository::repository::{PollResult, RepoType, Repository, Snapshot};
+
 /// The repository layout for a jj integration fixture.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum JjLayout {
@@ -17,6 +19,44 @@ pub enum JjLayout {
     NonColocated,
     /// A repository with `.jj` and `.git` at its root.
     Colocated,
+}
+
+/// Create a temporary repository for one backend.
+pub fn repository_fixture(repository_type: RepoType) -> Box<dyn ReviewRepositoryFixture> {
+    match repository_type {
+        RepoType::Git => Box::new(GitFixture::new()),
+        RepoType::Jj => Box::new(JjFixture::new(JjLayout::NonColocated)),
+    }
+}
+
+/// Poll one stable snapshot from a synchronous test repository.
+pub fn complete_repository_snapshot(repository: &Repository) -> Snapshot {
+    match repository.poll().unwrap() {
+        PollResult::Complete(snapshot) => snapshot,
+        PollResult::ChangedDuringPoll => panic!("fixture changed during a synchronous poll"),
+    }
+}
+
+/// Common repository operations used by backend-neutral integration tests.
+pub trait ReviewRepositoryFixture {
+    /// Get the temporary repository root.
+    fn root(&self) -> &Path;
+    /// Write one repository-relative file.
+    fn write(&self, relative_path: &str, contents: &[u8]);
+    /// Delete one repository-relative file.
+    fn remove(&self, relative_path: &str);
+    /// Rename one repository-relative file.
+    fn rename(&self, from: &str, to: &str);
+    /// Create one repository-relative symbolic link.
+    fn symlink(&self, target: &str, link: &str);
+    /// Get the revision that identifies the current review context.
+    fn revision_id(&self) -> String;
+    /// Start a new review context after the current worktree state.
+    fn new_change(&self, description: &str);
+    /// Return to an earlier review context.
+    fn edit(&self, revision: &str);
+    /// Rewrite repository history without changing the reviewed file.
+    fn rewrite_base_without_reviewed_file_change(&self);
 }
 
 /// A temporary jj repository for integration tests.
@@ -80,6 +120,49 @@ impl GitFixture {
 impl Default for GitFixture {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl ReviewRepositoryFixture for GitFixture {
+    fn root(&self) -> &Path {
+        self.root()
+    }
+
+    fn write(&self, relative_path: &str, contents: &[u8]) {
+        let path = self.root().join(relative_path);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, contents).unwrap();
+    }
+
+    fn remove(&self, relative_path: &str) {
+        fs::remove_file(self.root().join(relative_path)).unwrap();
+    }
+
+    fn rename(&self, from: &str, to: &str) {
+        fs::rename(self.root().join(from), self.root().join(to)).unwrap();
+    }
+
+    fn symlink(&self, target: &str, link: &str) {
+        std::os::unix::fs::symlink(target, self.root().join(link)).unwrap();
+    }
+
+    fn revision_id(&self) -> String {
+        String::from_utf8(self.git(["rev-parse", "HEAD"]).stdout)
+            .unwrap()
+            .trim()
+            .to_owned()
+    }
+
+    fn new_change(&self, description: &str) {
+        self.commit_all(description);
+    }
+
+    fn edit(&self, revision: &str) {
+        self.git(["reset", "--quiet", "--mixed", revision]);
+    }
+
+    fn rewrite_base_without_reviewed_file_change(&self) {
+        self.git(["commit", "--quiet", "--amend", "-m", "rewritten base"]);
     }
 }
 
@@ -179,5 +262,49 @@ impl JjFixture {
             String::from_utf8_lossy(&output.stderr)
         );
         output
+    }
+}
+
+impl ReviewRepositoryFixture for JjFixture {
+    fn root(&self) -> &Path {
+        self.root()
+    }
+
+    fn write(&self, relative_path: &str, contents: &[u8]) {
+        JjFixture::write(self, relative_path, contents);
+    }
+
+    fn remove(&self, relative_path: &str) {
+        JjFixture::remove(self, relative_path);
+    }
+
+    fn rename(&self, from: &str, to: &str) {
+        JjFixture::rename(self, from, to);
+    }
+
+    fn symlink(&self, target: &str, link: &str) {
+        JjFixture::symlink(self, target, link);
+    }
+
+    fn revision_id(&self) -> String {
+        self.change_id()
+    }
+
+    fn new_change(&self, description: &str) {
+        JjFixture::new_change(self, description);
+    }
+
+    fn edit(&self, revision: &str) {
+        JjFixture::edit(self, revision);
+    }
+
+    fn rewrite_base_without_reviewed_file_change(&self) {
+        let reviewed_change = self.change_id();
+        let old_parent = format!("{reviewed_change}-");
+        self.jj(["new", &old_parent, "-m", "new parent"]);
+        self.write("unrelated.txt", b"new parent\n");
+        let new_parent = self.change_id();
+        self.jj(["rebase", "-r", &reviewed_change, "-d", &new_parent]);
+        self.edit(&reviewed_change);
     }
 }

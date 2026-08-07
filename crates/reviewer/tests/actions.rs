@@ -5,8 +5,10 @@ use herdr_client::protocol::{
     PaneId, PanePlacement, PluginContext, PluginPane, SessionSnapshot, TabId, WorkspaceId,
 };
 use herdr_client::{Error, Result};
-use review_test_support::{JjFixture, JjLayout};
+use review_repository::repository::RepoType;
+use review_test_support::repository_fixture;
 use reviewer::control::{PaneAction, PaneActionResult, PaneActions};
+use test_case::test_case;
 
 #[derive(Debug, Default)]
 struct FakeHerdr {
@@ -112,16 +114,17 @@ impl HerdrWriter for FakeHerdr {
     }
 }
 
-#[test]
-fn pane_actions_are_idempotent_and_remove_a_racing_duplicate() {
-    let fixture = JjFixture::new(JjLayout::NonColocated);
+#[test_case(RepoType::Git; "git")]
+#[test_case(RepoType::Jj; "jj")]
+fn pane_actions_are_idempotent_and_remove_a_racing_duplicate(repository_type: RepoType) {
+    let repository = repository_fixture(repository_type);
     let client = FakeHerdr::default();
     *client.race_on_open.lock().unwrap() = true;
     let context = PluginContext {
         workspace_id: Some(WorkspaceId("workspace".to_owned())),
         tab_id: Some(TabId("tab".to_owned())),
         focused_pane_id: Some(PaneId("agent".to_owned())),
-        focused_pane_cwd: Some(fixture.root().to_owned()),
+        focused_pane_cwd: Some(repository.root().to_owned()),
     };
     let actions = PaneActions::new(&client);
 
@@ -135,7 +138,7 @@ fn pane_actions_are_idempotent_and_remove_a_racing_duplicate() {
             entrypoint: EntrypointId("review".to_owned()),
             placement: PanePlacement::Split,
             target_pane_id: PaneId("agent".to_owned()),
-            cwd: fixture.root().to_owned(),
+            cwd: repository.root().to_owned(),
             focus: true,
         }]
     );

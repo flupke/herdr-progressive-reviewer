@@ -1,18 +1,12 @@
 use std::fs;
 
 use review_repository::diff::{DiffRow, parse_file_diff};
-use review_repository::repository::{ChangeKind, Interdiff, PollResult, Repository, Snapshot};
-use review_test_support::GitFixture;
-
-fn snapshot(repository: &Repository) -> Snapshot {
-    match repository.poll().unwrap() {
-        PollResult::Complete(snapshot) => snapshot,
-        PollResult::ChangedDuringPoll => panic!("fixture changed during a synchronous poll"),
-    }
-}
+use review_repository::repository::{ChangeKind, Repository};
+use review_test_support::{GitFixture, complete_repository_snapshot};
 
 #[test]
 fn snapshots_git_worktrees_without_changing_the_real_index() {
+    // This test uses GitFixture directly because it checks the real Git index.
     let git = GitFixture::new();
     fs::write(git.root().join("modified.txt"), b"before\n").unwrap();
     fs::write(git.root().join("deleted.txt"), b"deleted\n").unwrap();
@@ -32,7 +26,7 @@ fn snapshots_git_worktrees_without_changing_the_real_index() {
         .unwrap()
         .with_state_root(state.path());
 
-    let snapshot = snapshot(&repository);
+    let snapshot = complete_repository_snapshot(&repository);
     assert_eq!(snapshot.identity.description(), "Git working tree\n");
     assert_eq!(
         snapshot
@@ -66,33 +60,4 @@ fn snapshots_git_worktrees_without_changing_the_real_index() {
             .any(|row| matches!(row, DiffRow::Add { text, .. } if text == "+after"))
     );
     assert!(git.git(["diff", "--cached", "--quiet"]).status.success());
-}
-
-#[test]
-fn compares_git_snapshot_trees_after_review() {
-    let git = GitFixture::new();
-    fs::write(git.root().join("reviewed.txt"), b"before\n").unwrap();
-    git.commit_all("file");
-    fs::write(git.root().join("reviewed.txt"), b"after\n").unwrap();
-    let state = tempfile::tempdir().unwrap();
-    let repository = Repository::discover(git.root())
-        .unwrap()
-        .with_state_root(state.path());
-    let reviewed = snapshot(&repository);
-
-    fs::write(git.root().join("reviewed.txt"), b"after\nagain\n").unwrap();
-    let changed = snapshot(&repository);
-    let Interdiff::Diff(diff) = repository
-        .interdiff(
-            reviewed.identity.snapshot_id(),
-            &changed,
-            changed.files[0].review_path(),
-        )
-        .unwrap()
-    else {
-        panic!("review tree disappeared");
-    };
-    let diff = String::from_utf8(diff).unwrap();
-    assert!(diff.contains("+again"));
-    assert!(!diff.contains("+after"));
 }

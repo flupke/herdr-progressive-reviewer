@@ -1,31 +1,28 @@
-use review_repository::repository::{PollResult, Repository, Snapshot};
+use review_repository::repository::{RepoType, Repository};
 use review_state::{MarkResult, ReviewStatus, ReviewTracker};
 use review_store::{LoadResult, ReviewStore};
-use review_test_support::{JjFixture, JjLayout};
+use review_test_support::{complete_repository_snapshot, repository_fixture};
+use test_case::test_case;
 
-fn snapshot(repository: &Repository) -> Snapshot {
-    match repository.poll().unwrap() {
-        PollResult::Complete(snapshot) => snapshot,
-        PollResult::ChangedDuringPoll => panic!("test repository changed during a poll"),
-    }
-}
+#[test_case(RepoType::Git; "git")]
+#[test_case(RepoType::Jj; "jj")]
+fn baselines_follow_content_not_commit_or_path_identity(repository_type: RepoType) {
+    let repository_files = repository_fixture(repository_type);
+    repository_files.write("reviewed.txt", b"before\n");
+    repository_files.new_change("review");
+    repository_files.write("reviewed.txt", b"after\n");
 
-#[test]
-fn baselines_follow_content_not_commit_or_path_identity() {
-    let jj = JjFixture::new(JjLayout::NonColocated);
-    jj.write("reviewed.txt", b"before\n");
-    jj.new_change("review");
-    jj.write("reviewed.txt", b"after\n");
-
-    let repository = Repository::discover(jj.root()).unwrap();
     let state = tempfile::tempdir().unwrap();
-    let direct_store = ReviewStore::open(state.path(), jj.root()).unwrap();
+    let repository = Repository::discover(repository_files.root())
+        .unwrap()
+        .with_state_root(state.path());
+    let direct_store = ReviewStore::open(state.path(), repository_files.root()).unwrap();
     let tracker = ReviewTracker::new(
         repository.clone(),
-        ReviewStore::open(state.path(), jj.root()).unwrap(),
+        ReviewStore::open(state.path(), repository_files.root()).unwrap(),
     );
 
-    let original = snapshot(&repository);
+    let original = complete_repository_snapshot(&repository);
     assert_eq!(
         tracker.mark(&original, &original.files[0]).unwrap(),
         MarkResult::Marked
@@ -38,52 +35,47 @@ fn baselines_follow_content_not_commit_or_path_identity() {
         ReviewStatus::Reviewed
     );
 
-    let reviewed_change = jj.change_id();
-    jj.new_change("different change");
+    let reviewed_change = repository_files.revision_id();
+    repository_files.new_change("different change");
     assert_eq!(
         tracker.mark(&original, &original.files[0]).unwrap(),
         MarkResult::ChangeChanged
     );
-    jj.edit(&reviewed_change);
+    repository_files.edit(&reviewed_change);
 
-    let old_parent = format!("{reviewed_change}-");
-    jj.jj(["new", &old_parent, "-m", "new parent"]);
-    jj.write("unrelated.txt", b"new parent\n");
-    let new_parent = jj.change_id();
-    jj.jj(["rebase", "-r", &reviewed_change, "-d", &new_parent]);
-    jj.edit(&reviewed_change);
+    repository_files.rewrite_base_without_reviewed_file_change();
 
-    let rebased = snapshot(&repository);
+    let rebased = complete_repository_snapshot(&repository);
     assert_eq!(
         tracker.status(&rebased, &rebased.files[0]).unwrap().status,
         ReviewStatus::Reviewed
     );
 
-    jj.write("reviewed.txt", b"changed again\n");
-    let edited = snapshot(&repository);
+    repository_files.write("reviewed.txt", b"changed again\n");
+    let edited = complete_repository_snapshot(&repository);
     assert_eq!(
         tracker.status(&edited, &edited.files[0]).unwrap().status,
         ReviewStatus::ChangedSinceReview
     );
 
-    jj.write("reviewed.txt", b"after\n");
-    jj.rename("reviewed.txt", "renamed.txt");
-    let renamed = snapshot(&repository);
+    repository_files.write("reviewed.txt", b"after\n");
+    repository_files.rename("reviewed.txt", "renamed.txt");
+    let renamed = complete_repository_snapshot(&repository);
     assert_eq!(
         tracker.status(&renamed, &renamed.files[0]).unwrap().status,
         ReviewStatus::Unreviewed
     );
 
-    jj.rename("renamed.txt", "reviewed.txt");
-    jj.remove("reviewed.txt");
-    let deleted = snapshot(&repository);
+    repository_files.rename("renamed.txt", "reviewed.txt");
+    repository_files.remove("reviewed.txt");
+    let deleted = complete_repository_snapshot(&repository);
     assert_eq!(
         tracker.status(&deleted, &deleted.files[0]).unwrap().status,
         ReviewStatus::ChangedSinceReview
     );
 
-    jj.write("reviewed.txt", b"after\n");
-    let restored = snapshot(&repository);
+    repository_files.write("reviewed.txt", b"after\n");
+    let restored = complete_repository_snapshot(&repository);
     let path = restored.files[0].review_path().as_bytes();
     direct_store
         .mark(

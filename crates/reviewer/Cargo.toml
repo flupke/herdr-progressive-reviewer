@@ -24,6 +24,7 @@ signal-hook.workspace = true
 
 [dev-dependencies]
 review-test-support = { path = "../review-test-support" }
+test-case.workspace = true
 tempfile.workspace = true
 
 [lints]
