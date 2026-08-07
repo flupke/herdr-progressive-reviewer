@@ -1,4 +1,12 @@
-.PHONY: check install mutants uninstall
+.PHONY: build check install mutants uninstall
+
+build:
+	cargo build --release --locked --bins
+	mkdir -p bin
+	for binary in reviewer reviewer-control; do \
+		cp "target/release/$$binary" "bin/$$binary.new"; \
+		mv -f "bin/$$binary.new" "bin/$$binary"; \
+	done
 
 check: export RUSTFLAGS = -Dwarnings
 check:
@@ -11,13 +19,7 @@ check:
 mutants:
 	cargo mutants --workspace --test-workspace=true --test-tool=nextest
 
-install:
-	cargo build --release --locked --bins
-	mkdir -p bin
-	cp target/release/reviewer bin/reviewer.new
-	mv bin/reviewer.new bin/reviewer
-	cp target/release/reviewer-control bin/reviewer-control.new
-	mv bin/reviewer-control.new bin/reviewer-control
+install: build
 	herdr plugin link . --enabled
 
 uninstall:

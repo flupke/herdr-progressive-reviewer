@@ -4,6 +4,9 @@ version = "0.1.0"
 min_herdr_version = "0.7.5"
 platforms = ["linux", "macos"]
 
+[[build]]
+command = ["make", "build"]
+
 [[actions]]
 id = "open"
 title = "Open progressive reviewer"
