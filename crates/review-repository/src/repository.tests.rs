@@ -13,6 +13,27 @@ fn repository_type_converts_to_and_from_lowercase_text() {
 }
 
 #[test]
+fn repository_paths_display_valid_utf8() {
+    let path = RepoPath::from_bytes("Каталог/файл.md".as_bytes());
+
+    assert_eq!(path.display(), "Каталог/файл.md");
+}
+
+#[test]
+fn repository_paths_escape_control_characters() {
+    let path = RepoPath::from_bytes("Каталог/\nфайл.md".as_bytes());
+
+    assert_eq!(path.display(), r"Каталог/\nфайл.md");
+}
+
+#[test]
+fn repository_paths_preserve_ascii_escaping() {
+    let path = RepoPath::from_bytes(b"quote-\"-\\-\n.txt");
+
+    assert_eq!(path.display(), r#"quote-\"-\\-\n.txt"#);
+}
+
+#[test]
 fn repository_paths_preserve_non_utf8_bytes() {
     let path = RepoPath::from_bytes(b"invalid-\xff.txt");
 
