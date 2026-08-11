@@ -80,13 +80,29 @@ impl RepoPath {
         OsStr::from_bytes(&self.0)
     }
 
-    /// Return escaped repository-relative text for display.
+    /// Return readable UTF-8 while preserving escaped ASCII, controls, and invalid bytes.
     pub fn display(&self) -> String {
-        self.0
-            .iter()
-            .flat_map(|byte| std::ascii::escape_default(*byte))
-            .map(char::from)
-            .collect()
+        match std::str::from_utf8(&self.0) {
+            Ok(path) => {
+                let mut display = String::with_capacity(path.len());
+                for character in path.chars() {
+                    if character.is_ascii() {
+                        display.extend(std::ascii::escape_default(character as u8).map(char::from));
+                    } else if character.is_control() {
+                        display.extend(character.escape_default());
+                    } else {
+                        display.push(character);
+                    }
+                }
+                display
+            }
+            Err(_) => self
+                .0
+                .iter()
+                .flat_map(|byte| std::ascii::escape_default(*byte))
+                .map(char::from)
+                .collect(),
+        }
     }
 }
 
