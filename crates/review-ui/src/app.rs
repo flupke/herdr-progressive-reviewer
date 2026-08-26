@@ -311,6 +311,8 @@ pub enum Action {
     },
     /// Run one LSP request at a visible disk position.
     Lsp { operation: Operation, query: Query },
+    /// Restart the language server.
+    RestartLsp,
     /// Load complete disk source for a target location.
     LoadSource {
         snapshot_id: String,

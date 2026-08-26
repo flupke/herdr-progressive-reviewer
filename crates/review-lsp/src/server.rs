@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{BTreeSet, VecDeque};
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -12,6 +12,7 @@ pub(super) struct Server {
     events: Sender<Event>,
     session: Option<Session>,
     pending: VecDeque<Command>,
+    open_documents: BTreeSet<PathBuf>,
     stopping: bool,
 }
 
@@ -22,6 +23,7 @@ impl Server {
             events,
             session: None,
             pending: VecDeque::new(),
+            open_documents: BTreeSet::new(),
             stopping: false,
         }
     }
@@ -76,26 +78,72 @@ impl Server {
             }
             return false;
         }
+        if command == Command::Restart {
+            self.restart();
+            return true;
+        }
+        if let Command::OpenDocument(path) = &command {
+            self.open_documents.insert(path.clone());
+        }
         if self.session.is_none() {
-            let _ = self.events.send(Event::Initializing);
-            match Session::start(&self.root, Instant::now()) {
-                Ok(session) => self.session = Some(session),
-                Err(message) => {
-                    let request = match &command {
-                        Command::Request { query, .. } => {
-                            (Some(query.toast_id), Some(query.snapshot_id.clone()))
-                        }
-                        _ => (None, None),
-                    };
-                    self.fail(request.0, request.1, message);
-                    return true;
-                }
+            if let Err(message) = self.start_session() {
+                let request = match &command {
+                    Command::Request { query, .. } => {
+                        (Some(query.toast_id), Some(query.snapshot_id.clone()))
+                    }
+                    _ => (None, None),
+                };
+                self.fail(request.0, request.1, message);
+                return true;
             }
         }
         if command != Command::Initialize {
             self.pending.push_back(command);
         }
         true
+    }
+
+    fn restart(&mut self) {
+        let _ = self.fail_requests("rust-analyzer restarted");
+        self.pending = self
+            .open_documents
+            .iter()
+            .cloned()
+            .map(Command::OpenDocument)
+            .collect();
+        self.session = None;
+        if let Err(message) = self.start_session() {
+            self.fail(None, None, message);
+        }
+    }
+
+    fn start_session(&mut self) -> Result<(), String> {
+        let _ = self.events.send(Event::Initializing);
+        self.session = Some(Session::start(&self.root, Instant::now())?);
+        Ok(())
+    }
+
+    fn fail_requests(&self, message: &str) -> bool {
+        let mut failed_request = false;
+        if let Some(query) = self.session.as_ref().and_then(Session::active_query) {
+            self.fail(
+                Some(query.toast_id),
+                Some(query.snapshot_id.clone()),
+                message.to_owned(),
+            );
+            failed_request = true;
+        }
+        for command in &self.pending {
+            if let Command::Request { query, .. } = command {
+                self.fail(
+                    Some(query.toast_id),
+                    Some(query.snapshot_id.clone()),
+                    message.to_owned(),
+                );
+                failed_request = true;
+            }
+        }
+        failed_request
     }
 
     fn message(&mut self, message: crate::session::Inbound) {
@@ -146,7 +194,7 @@ impl Server {
                     .as_mut()
                     .expect("session exists")
                     .request(operation, query, Instant::now()),
-                Command::Initialize | Command::Shutdown => Ok(()),
+                Command::Initialize | Command::Restart | Command::Shutdown => Ok(()),
             };
             if let Err(message) = result {
                 self.fail(request.0, request.1, message);
@@ -159,24 +207,11 @@ impl Server {
             self.session = None;
             return;
         }
-        let request = self
-            .session
-            .as_ref()
-            .and_then(Session::active_query)
-            .map_or((None, None), |query| {
-                (Some(query.toast_id), Some(query.snapshot_id.clone()))
-            });
-        self.session = None;
-        self.fail(request.0, request.1, message.to_owned());
-        while let Some(command) = self.pending.pop_front() {
-            if let Command::Request { query, .. } = command {
-                self.fail(
-                    Some(query.toast_id),
-                    Some(query.snapshot_id),
-                    message.to_owned(),
-                );
-            }
+        if !self.fail_requests(message) {
+            self.fail(None, None, message.to_owned());
         }
+        self.session = None;
+        self.pending.clear();
     }
 
     fn fail(

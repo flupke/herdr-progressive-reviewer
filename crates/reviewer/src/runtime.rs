@@ -324,6 +324,10 @@ impl Runtime {
                 lsp.request(operation, query).map_err(eyre::Report::msg)?;
                 return Ok(false);
             }
+            Action::RestartLsp => {
+                lsp.restart().map_err(eyre::Report::msg)?;
+                return Ok(false);
+            }
             Action::LoadSource {
                 snapshot_id,
                 mut location,

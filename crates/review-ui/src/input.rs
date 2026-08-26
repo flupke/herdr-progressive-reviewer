@@ -40,6 +40,7 @@ impl ReviewApp {
                 Key::Char('g') => self.navigate_to(0),
                 Key::Char('d') => self.lsp(Operation::Definition),
                 Key::Char('r') => self.lsp(Operation::References),
+                Key::Char('R') => Action::RestartLsp,
                 _ => Action::None,
             };
         }

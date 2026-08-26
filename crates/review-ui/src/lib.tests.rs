@@ -164,6 +164,8 @@ fn lsp_keys_use_the_visible_current_source() {
             ..
         }
     ));
+    assert_eq!(app.update(Message::Key(Key::Char('g'))), Action::None);
+    assert_eq!(app.update(Message::Key(Key::Char('R'))), Action::RestartLsp);
 
     app.files[0].column = 0;
     app.move_word(true);

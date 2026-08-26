@@ -123,6 +123,8 @@ pub(crate) enum Command {
     OpenDocument(PathBuf),
     /// Run one LSP request.
     Request { operation: Operation, query: Query },
+    /// Restart rust-analyzer and reopen known documents.
+    Restart,
     /// Stop the server and worker.
     Shutdown,
 }

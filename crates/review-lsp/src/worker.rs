@@ -43,6 +43,11 @@ impl Worker {
         self.send(Command::Request { operation, query })
     }
 
+    /// Restart rust-analyzer and reopen known documents.
+    pub fn restart(&self) -> Result<(), String> {
+        self.send(Command::Restart)
+    }
+
     /// Return the next available event without waiting.
     pub fn try_recv(&self) -> Option<Event> {
         self.events.try_recv().ok()
