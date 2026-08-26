@@ -4,6 +4,8 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Widget};
 use review_repository::repository::ChangeKind;
+use review_state::ReviewStatus;
+use unicode_width::UnicodeWidthStr;
 
 use crate::app::{Focus, ReviewApp, ReviewFile};
 use crate::file_tree::FileTreeRow;
@@ -91,6 +93,13 @@ impl FilesView<'_> {
             name
         };
         let prefix = format!("{}{} ", "  ".repeat(depth), file.marker());
+        let comment_marker = (file.status != ReviewStatus::Reviewed
+            && self
+                .0
+                .guide_items
+                .iter()
+                .any(|item| item.target.path() == file.path))
+        .then_some(" 💬");
         let added = (file.lines_added > 0).then(|| format!("+{}", file.lines_added));
         let removed = (file.lines_removed > 0).then(|| format!("-{}", file.lines_removed));
         let has_added = added.is_some();
@@ -98,18 +107,30 @@ impl FilesView<'_> {
             + removed.as_ref().map_or(0, String::len)
             + usize::from(added.is_some() && removed.is_some());
         let gap = usize::from(stats_width > 0);
+        let prefix_width = UnicodeWidthStr::width(prefix.as_str());
+        let comment_marker_width = comment_marker.map_or(0, UnicodeWidthStr::width);
         let name = shorten(
             name,
-            width.saturating_sub(prefix.chars().count() + stats_width + gap),
+            width.saturating_sub(prefix_width + comment_marker_width + stats_width + gap),
         );
-        let padding =
-            width.saturating_sub(prefix.chars().count() + name.chars().count() + stats_width);
+        let padding = width.saturating_sub(
+            prefix_width
+                + UnicodeWidthStr::width(name.as_str())
+                + comment_marker_width
+                + stats_width,
+        );
         let color = self.file_color(file);
         let mut spans = vec![
             Span::styled(prefix, Style::default().fg(color)),
             Span::styled(name, Style::default().fg(color)),
-            Span::raw(" ".repeat(padding)),
         ];
+        if let Some(comment_marker) = comment_marker {
+            spans.push(Span::styled(
+                comment_marker,
+                Style::default().fg(self.0.palette.guide),
+            ));
+        }
+        spans.push(Span::raw(" ".repeat(padding)));
         if let Some(added) = added {
             spans.push(Span::styled(
                 added,

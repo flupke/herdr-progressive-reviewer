@@ -1,5 +1,5 @@
 [package]
-name = "review-store"
+name = "review-guide-runner"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -7,19 +7,15 @@ license.workspace = true
 
 [dependencies]
 herdr-client = { path = "../herdr-client" }
-base64.workspace = true
-getrandom.workspace = true
 libc.workspace = true
 review-guide = { path = "../review-guide" }
+rustix.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-sha2.workspace = true
-thiserror.workspace = true
-time.workspace = true
-zstd.workspace = true
-
-[dev-dependencies]
 tempfile.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+zstd.workspace = true
 
 [lints]
 workspace = true

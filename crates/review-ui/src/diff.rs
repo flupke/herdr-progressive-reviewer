@@ -14,6 +14,11 @@ use crate::presentation::{PresentedRow, matching_ranges};
 use crate::render::{pane_block, shorten};
 use review_state::ReviewStatus;
 
+mod guide;
+
+use guide::GuideBorderCell;
+pub(super) use guide::GuideTargetPosition;
+
 pub(super) const TAB_DISPLAY_WIDTH: usize = 4;
 
 pub(super) struct DiffView<'a>(pub(super) &'a ReviewApp);
@@ -33,13 +38,15 @@ pub(super) struct DiffViewport {
 
 struct WrappedDiffRow {
     line: Line<'static>,
+    guide_border_cells: Vec<GuideBorderCell>,
     source_row: usize,
     source_display_offset: usize,
+    is_source_row: bool,
 }
 
 impl DiffViewport {
-    pub(super) fn scroll(&self, file: &ReviewFile, height: usize) -> usize {
-        file.scroll.min(self.rows.len().saturating_sub(height))
+    pub(super) fn scroll(&self, file: &ReviewFile) -> usize {
+        file.scroll.min(self.rows.len().saturating_sub(1))
     }
 
     pub(super) fn scroll_with_cursor_visible(&self, file: &ReviewFile, height: usize) -> usize {
@@ -97,7 +104,9 @@ impl DiffViewport {
             .iter()
             .enumerate()
             .filter(|(_, row)| {
-                row.source_row == file.cursor && row.source_display_offset <= source_display_column
+                row.is_source_row
+                    && row.source_row == file.cursor
+                    && row.source_display_offset <= source_display_column
             })
             .map(|(index, _)| index)
             .next_back()
@@ -122,15 +131,35 @@ impl Widget for DiffView<'_> {
             return;
         }
         let viewport = self.viewport(file, inner.width, focused);
-        let scroll = viewport.scroll(file, usize::from(inner.height));
-        let lines = viewport
+        let scroll = viewport.scroll(file);
+        let visible_rows = viewport
             .rows
-            .into_iter()
+            .iter()
             .skip(scroll)
             .take(usize::from(inner.height))
-            .map(|row| row.line)
+            .collect::<Vec<_>>();
+        let lines = visible_rows
+            .iter()
+            .map(|row| row.line.clone())
             .collect::<Vec<_>>();
         Paragraph::new(lines).render(inner, buffer);
+        for (row_offset, row) in visible_rows.into_iter().enumerate() {
+            for border_cell in &row.guide_border_cells {
+                let Ok(column) = u16::try_from(border_cell.column) else {
+                    continue;
+                };
+                let Some(cell) = buffer.cell_mut((
+                    inner.x.saturating_add(column),
+                    inner
+                        .y
+                        .saturating_add(u16::try_from(row_offset).unwrap_or(u16::MAX)),
+                )) else {
+                    continue;
+                };
+                cell.set_char(border_cell.symbol)
+                    .set_style(self.guide_style(border_cell.status));
+            }
+        }
     }
 }
 
@@ -197,12 +226,18 @@ impl DiffView<'_> {
         let selection = self.0.selection.map(Selection::range);
         let line_number_width = file.diff.line_number_width();
         let show_markers = !file.diff.shows_whole_file();
+        let guide_rows = self.guide_rows(file);
         let rows = file
             .diff
             .rows
             .iter()
             .enumerate()
             .flat_map(|(index, presented)| {
+                let mut wrapped = Vec::new();
+                let guide_row = &guide_rows[index];
+                for guide in guide_row.starts.iter().copied() {
+                    guide.append(self, &mut wrapped, width, line_number_width);
+                }
                 let source_line = file.diff.source_position(index).map(|(line, _)| line);
                 let context = |tokens| CodeRenderContext {
                     tokens,
@@ -240,13 +275,41 @@ impl DiffView<'_> {
                     style = style.bg(self.0.palette.cursor);
                 }
                 let styled_line = line.style(style);
-                wrap_line(&styled_line, width, line_number_width + 3)
+                let enclosed = guide_row.enclosing_status.is_some();
+                wrapped.extend(
+                    wrap_line(
+                        &styled_line,
+                        if enclosed {
+                            width.saturating_sub(1)
+                        } else {
+                            width
+                        },
+                        line_number_width + 3,
+                    )
                     .into_iter()
-                    .map(move |(line, source_display_offset)| WrappedDiffRow {
-                        line,
-                        source_row: index,
-                        source_display_offset,
-                    })
+                    .map(move |(mut line, source_display_offset)| {
+                        let guide_border_cells =
+                            guide_row.enclosing_status.map_or_else(Vec::new, |status| {
+                                Self::reserve_guide_edges(
+                                    &mut line,
+                                    width,
+                                    line_number_width,
+                                    status,
+                                )
+                            });
+                        WrappedDiffRow {
+                            line,
+                            guide_border_cells,
+                            source_row: index,
+                            source_display_offset,
+                            is_source_row: true,
+                        }
+                    }),
+                );
+                for guide in guide_row.ends.iter().copied() {
+                    guide.append(&mut wrapped, width, line_number_width);
+                }
+                wrapped
             })
             .collect();
         DiffViewport { rows }

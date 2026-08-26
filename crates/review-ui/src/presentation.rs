@@ -3,6 +3,7 @@
 use std::ops::Range;
 use std::ops::RangeInclusive;
 
+use review_guide::GuideLineRange;
 use review_repository::diff::DiffRow;
 use review_repository::excerpt::{DiffExcerpt, ExcerptError};
 
@@ -140,6 +141,68 @@ impl DiffPresentation {
 
     pub(crate) fn source_row(&self, source: usize) -> &DiffRow {
         &self.source[source]
+    }
+
+    fn hunk_number(&self, index: usize) -> Option<usize> {
+        let PresentedRow::Diff { source, .. } = self.rows.get(index)? else {
+            return None;
+        };
+        let count = self.source[..=*source]
+            .iter()
+            .filter(|row| matches!(row, DiffRow::Hunk { .. }))
+            .count();
+        (count > 0).then_some(count)
+    }
+
+    pub(crate) fn changed_rows_for_hunks(
+        &self,
+        first_hunk: usize,
+        last_hunk: usize,
+    ) -> Option<(usize, usize)> {
+        let mut changed_rows = self.rows.iter().enumerate().filter_map(|(index, row)| {
+            let PresentedRow::Diff { source, .. } = row else {
+                return None;
+            };
+            let hunk = self.hunk_number(index)?;
+            (first_hunk <= hunk
+                && hunk <= last_hunk
+                && matches!(
+                    self.source_row(*source),
+                    DiffRow::Delete { .. } | DiffRow::Add { .. }
+                ))
+            .then_some(index)
+        });
+        let first = changed_rows.next()?;
+        Some((first, changed_rows.next_back().unwrap_or(first)))
+    }
+
+    pub(crate) fn rows_for_line_target(
+        &self,
+        old: Option<&GuideLineRange>,
+        new: Option<&GuideLineRange>,
+    ) -> Option<(usize, usize)> {
+        let matches = |line: u32, range: Option<&GuideLineRange>| {
+            range.is_some_and(|range| (range.first_line..=range.last_line).contains(&line))
+        };
+        let mut rows = self.rows.iter().enumerate().filter_map(|(index, row)| {
+            let PresentedRow::Diff { source, .. } = row else {
+                return None;
+            };
+            let targeted = match self.source_row(*source) {
+                DiffRow::Context {
+                    old_line, new_line, ..
+                } => matches(*old_line, old) || matches(*new_line, new),
+                DiffRow::Delete { old_line, .. } => matches(*old_line, old),
+                DiffRow::Add { new_line, .. } => matches(*new_line, new),
+                DiffRow::FileHeader { .. }
+                | DiffRow::Meta { .. }
+                | DiffRow::Hunk { .. }
+                | DiffRow::Notice { .. } => false,
+            };
+            targeted.then_some(index)
+        });
+        let first = rows.next()?;
+        Some((first, rows.next_back().unwrap_or(first)))
     }
 
     pub(crate) fn has_notice(&self) -> bool {

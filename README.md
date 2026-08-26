@@ -6,6 +6,7 @@ Main features:
 
 - Per-file turn-based reviews: send feedback to the LLM on a diff range, mark
   file as reviewed, see new diff since your last pass.
+- AI-generated inline review guides.
 - LSP navigation.
 - Full mouse support.
 - Syntax highlighting.

@@ -15,11 +15,14 @@ ignore.workspace = true
 notify.workspace = true
 ratatui = { workspace = true, features = ["crossterm"] }
 review-repository = { path = "../review-repository" }
+review-guide = { path = "../review-guide" }
+review-guide-runner = { path = "../review-guide-runner" }
 review-lsp = { path = "../review-lsp" }
 review-state = { path = "../review-state" }
 review-store = { path = "../review-store" }
 review-ui = { path = "../review-ui" }
 serde_json.workspace = true
+sha2.workspace = true
 signal-hook.workspace = true
 
 [dev-dependencies]

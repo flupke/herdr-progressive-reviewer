@@ -1,14 +1,23 @@
 use crate::app::{
     Action, ContextMenu, DiffControl, DragState, Focus, Key, MIN_PANE_WIDTH, PaneLayout,
-    PendingReview, ReviewApp, Search, Selection, display_column_to_byte,
+    PendingGuideJump, PendingReview, ReviewApp, Search, Selection, display_column_to_byte,
 };
-use crate::diff::DiffView;
+use crate::diff::{DiffView, GuideTargetPosition};
 use crate::presentation::SearchDirection;
 use crate::{commit_message, footer};
 use ratatui::layout::{Position, Rect};
+use review_guide::GuideTarget;
 use review_lsp::Operation;
 use review_state::ReviewStatus;
 use review_store::OutputTarget;
+use toasts::ToastKind;
+
+#[derive(Clone, Debug)]
+struct GuideCommentTarget {
+    file_index: usize,
+    target: GuideTarget,
+    row: Option<usize>,
+}
 
 impl ReviewApp {
     pub(super) fn key(&mut self, key: Key) -> Action {
@@ -43,6 +52,37 @@ impl ReviewApp {
                 Key::Char('R') => Action::RestartLsp,
                 _ => Action::None,
             };
+        }
+        if let Some(direction) = self.pending_guide_navigation_prefix.take() {
+            return match key {
+                Key::Char('r') => self.jump_to_guide_comment(direction),
+                _ => Action::None,
+            };
+        }
+        if self.awaiting_review_command {
+            self.awaiting_review_command = false;
+            let action = match key {
+                Key::Char('f') => {
+                    self.selected()
+                        .map_or(Action::None, |file| Action::GenerateReviewGuide {
+                            scope: review_guide::GuideScope::File {
+                                path: file.path.clone(),
+                            },
+                        })
+                }
+                Key::Char('a') => Action::GenerateReviewGuide {
+                    scope: review_guide::GuideScope::All,
+                },
+                _ => Action::None,
+            };
+            if self.guide_spinner_frame.is_some()
+                && matches!(action, Action::GenerateReviewGuide { .. })
+            {
+                self.toasts
+                    .push("A guide update is already in progress", ToastKind::Info);
+                return Action::None;
+            }
+            return action;
         }
         self.main_view_key(key)
     }
@@ -105,6 +145,18 @@ impl ReviewApp {
             Key::Char('K') if self.focus == Focus::Diff => self.lsp(Operation::Hover),
             Key::Char('g') => {
                 self.awaiting_g_command = true;
+                Action::None
+            }
+            Key::Char('r') => {
+                self.awaiting_review_command = true;
+                Action::None
+            }
+            Key::Char('[') => {
+                self.pending_guide_navigation_prefix = Some(SearchDirection::Backward);
+                Action::None
+            }
+            Key::Char(']') => {
+                self.pending_guide_navigation_prefix = Some(SearchDirection::Forward);
                 Action::None
             }
             Key::Char('h') if self.focus == Focus::Diff => self.move_source_column(-1),
@@ -245,6 +297,127 @@ impl ReviewApp {
         }
     }
 
+    fn jump_to_guide_comment(&mut self, direction: SearchDirection) -> Action {
+        let targets = self.guide_comment_targets();
+        let current = (
+            self.selected_file,
+            self.selected().map_or(0, |file| file.cursor),
+        );
+        let target = match direction {
+            SearchDirection::Forward => targets
+                .iter()
+                .find(|target| {
+                    target.file_index > current.0
+                        || (target.file_index == current.0
+                            && target.row.is_some_and(|row| row > current.1))
+                })
+                .or_else(|| targets.first()),
+            SearchDirection::Backward => targets
+                .iter()
+                .rev()
+                .find(|target| {
+                    target.file_index < current.0
+                        || (target.file_index == current.0
+                            && target.row.is_some_and(|row| row < current.1))
+                })
+                .or_else(|| targets.last()),
+        }
+        .cloned();
+        target.map_or(Action::None, |target| self.jump_to_guide_target(target))
+    }
+
+    fn guide_comment_targets(&self) -> Vec<GuideCommentTarget> {
+        let mut targets = Vec::new();
+        for (file_index, file) in self.files.iter().enumerate() {
+            if !file.status.needs_review() {
+                continue;
+            }
+            let start = targets.len();
+            targets.extend(
+                self.guide_items
+                    .iter()
+                    .filter(|item| item.target.path() == file.path)
+                    .filter_map(|item| {
+                        let row = match DiffView::guide_target_position(file, &item.target)? {
+                            GuideTargetPosition::Unloaded => None,
+                            GuideTargetPosition::Rows { first } => Some(first),
+                        };
+                        Some(GuideCommentTarget {
+                            file_index,
+                            row,
+                            target: item.target.clone(),
+                        })
+                    }),
+            );
+            targets[start..].sort_by_key(|target| target.row.unwrap_or(usize::MAX));
+        }
+        targets
+    }
+
+    fn jump_to_guide_target(&mut self, target: GuideCommentTarget) -> Action {
+        if let Some(row) = target.row {
+            let action = self.jump(|app| {
+                app.select_file(target.file_index);
+                app.focus = Focus::Diff;
+                app.move_diff_cursor(Some(row));
+                Action::None
+            });
+            self.position_guide_at_top(row);
+            return action;
+        }
+        let origin = self.current_review_location();
+        self.select_file(target.file_index);
+        self.focus = Focus::Diff;
+        self.selection = None;
+        self.pending_guide_jump = Some(PendingGuideJump {
+            target: target.target,
+            origin,
+        });
+        let action = self.load_selected_action();
+        if action == Action::None {
+            self.pending_guide_jump = None;
+            self.toasts
+                .push("Guide comment is not available", ToastKind::Info);
+        }
+        action
+    }
+
+    pub(super) fn finish_pending_guide_jump(&mut self, path: &str) {
+        let Some(pending) = self
+            .pending_guide_jump
+            .take_if(|pending| pending.target.path() == path)
+        else {
+            return;
+        };
+        let target = self.selected().and_then(|file| {
+            (file.path == path)
+                .then(|| DiffView::guide_target_rows(file, &pending.target))
+                .flatten()
+                .map(|(first, _)| first)
+        });
+        let Some(target) = target else {
+            self.toasts
+                .push("Guide comment is not available", ToastKind::Info);
+            return;
+        };
+        self.move_diff_cursor(Some(target));
+        self.record_location_change(pending.origin);
+        self.position_guide_at_top(target);
+    }
+
+    fn position_guide_at_top(&mut self, target: usize) {
+        let layout = self.layout();
+        let scroll = self.selected().and_then(|file| {
+            DiffView(self)
+                .viewport(file, layout.diff_content_width(), false)
+                .guide_start_visual_row(target)
+        });
+        if let (Some(scroll), Some(file)) = (scroll, self.files.get_mut(self.selected_file)) {
+            file.scroll = scroll;
+        }
+        self.keep_file_visible();
+    }
+
     pub(super) fn finish_pending_search(&mut self) {
         if self.files.iter().any(|file| file.loading) {
             return;
@@ -291,6 +464,7 @@ impl ReviewApp {
             ReviewStatus::Unreviewed
         };
         file.status = optimistic_status;
+        self.rebuild_guide_item_counters();
         let next_file = reviewed
             .then(|| {
                 self.file_tree
@@ -462,6 +636,9 @@ impl ReviewApp {
                     return Action::None;
                 };
                 file.cursor = target.min(file.diff.len().saturating_sub(1));
+                if target == 0 {
+                    file.scroll = 0;
+                }
                 file.clear_source_location();
                 if let Some(selection) = &mut self.selection
                     && !selection.fixed
@@ -492,7 +669,7 @@ impl ReviewApp {
             let scroll = self.displayed().map(|file| {
                 let viewport = DiffView(self).viewport(file, layout.diff_content_width(), false);
                 viewport
-                    .scroll(file, page)
+                    .scroll(file)
                     .saturating_add_signed(delta)
                     .min(viewport.len().saturating_sub(page))
             });
@@ -702,7 +879,7 @@ impl ReviewApp {
         let file = self.selected()?;
         let viewport = DiffView(self).viewport(file, layout.diff_content_width(), false);
         let visual_row = viewport
-            .scroll(file, layout.page_rows())
+            .scroll(file)
             .saturating_add(usize::from(row.saturating_sub(2)));
         let source_row = viewport.source_row_at(visual_row)?;
         let pane_column = usize::from(column.saturating_sub(layout.diff_content_start_column()));

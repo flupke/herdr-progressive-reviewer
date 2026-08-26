@@ -24,3 +24,17 @@ For each small feature:
 5. Run `make install`.
 6. Keep later user-feedback fixes in the same change. Create another change
    only when the user requests the next feature.
+
+# Sandbox E2E Tests
+
+Herdr E2E tests start an isolated background server with private socket,
+config, state, workspace, and agent paths. Never use, restart, or modify the
+user's live Herdr server or panes during tests.
+
+The Codex Linux sandbox blocks Unix-domain socket bind and connect operations.
+Run tests in the normal sandbox first. If an E2E test fails with `EPERM` while
+it creates or connects to its private socket, retry the same exact command
+with sandbox escalation.
+
+Do not enable project-wide network access. Do not replace the real Herdr
+server with a mock only to avoid the sandbox restriction.

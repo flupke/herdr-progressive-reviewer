@@ -32,6 +32,7 @@ impl Widget for HeaderView<'_> {
         Paragraph::new(format!(" {}", self.0.commit_title()))
             .style(Style::default().fg(self.0.palette.text))
             .render(area, buffer);
+        let summary = format!(" - {reviewed}/{} reviewed ", self.0.files.len());
         Paragraph::new(Line::from(vec![
             Span::styled(
                 format!("+{added}"),
@@ -42,7 +43,7 @@ impl Widget for HeaderView<'_> {
                 format!("-{removed}"),
                 Style::default().fg(self.0.palette.deletion),
             ),
-            Span::raw(format!(" - {reviewed}/{} reviewed ", self.0.files.len())),
+            Span::raw(summary),
         ]))
         .alignment(Alignment::Right)
         .style(Style::default().fg(self.0.palette.text))

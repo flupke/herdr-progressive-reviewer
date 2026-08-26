@@ -10,6 +10,7 @@ eyre.workspace = true
 ratatui = { workspace = true, features = ["crossterm"] }
 ratatui-markdown.workspace = true
 review-lsp = { path = "../review-lsp" }
+review-guide = { path = "../review-guide" }
 review-repository = { path = "../review-repository" }
 review-state = { path = "../review-state" }
 review-store = { path = "../review-store" }

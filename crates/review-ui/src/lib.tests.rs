@@ -5,12 +5,112 @@ use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use ratatui::layout::Rect;
 use ratatui::style::Color;
+use review_guide::{GuideItem, GuideItemStatus, GuideScope, GuideTarget, ReviewCheckpoint};
 use review_lsp::{Event, Operation, SourceLocation};
 use review_repository::diff::DiffRow;
 use toasts::ToastId;
 
 use crate::app::{Action, ContextMenu, Focus, Key, Message, ReviewApp, ReviewFile, SourceLoadMode};
 use review_state::ReviewStatus;
+
+#[test]
+fn review_guide_shortcuts_select_file_and_all_scopes() {
+    let mut app = ReviewApp {
+        files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed)],
+        ..ReviewApp::default()
+    };
+
+    assert_eq!(app.update(Message::Key(Key::Char('r'))), Action::None);
+    assert_eq!(
+        app.update(Message::Key(Key::Char('f'))),
+        Action::GenerateReviewGuide {
+            scope: GuideScope::File {
+                path: "src/lib.rs".to_owned()
+            }
+        }
+    );
+    assert_eq!(app.update(Message::Key(Key::Char('r'))), Action::None);
+    assert_eq!(
+        app.update(Message::Key(Key::Char('a'))),
+        Action::GenerateReviewGuide {
+            scope: GuideScope::All
+        }
+    );
+
+    app.guide_spinner_frame = Some(0);
+    assert_eq!(app.update(Message::Key(Key::Char('r'))), Action::None);
+    assert!(app.awaiting_review_command);
+    assert_eq!(app.update(Message::Key(Key::Char('a'))), Action::None);
+    assert!(!app.awaiting_review_command);
+}
+
+#[test]
+fn review_guide_comment_shortcuts_wrap_between_files() {
+    let mut app = ReviewApp::default();
+    app.update(Message::FilesLoaded {
+        change_id: "change".to_owned(),
+        commit_id: "commit".to_owned(),
+        description: String::new(),
+        files: vec![
+            ReviewFile::new("src/first.rs", ReviewStatus::Unreviewed),
+            ReviewFile::new("src/second.rs", ReviewStatus::Unreviewed),
+        ],
+    });
+    for path in ["src/first.rs", "src/second.rs"] {
+        app.update(Message::DiffLoaded {
+            commit_id: "commit".to_owned(),
+            path: path.to_owned(),
+            rows: vec![
+                DiffRow::Hunk {
+                    old_start: 0,
+                    old_count: 0,
+                    new_start: 1,
+                    new_count: 1,
+                },
+                DiffRow::Add {
+                    new_line: 1,
+                    text: "+changed".to_owned(),
+                },
+            ],
+            old_content: None,
+            new_content: None,
+        });
+    }
+    app.update(Message::ReviewGuideLoaded {
+        review_checkpoint: ReviewCheckpoint::new("change", "commit"),
+        items: ["src/first.rs", "src/second.rs"]
+            .into_iter()
+            .map(|path| GuideItem {
+                target: GuideTarget::Hunks {
+                    path: path.to_owned(),
+                    first_hunk: 1,
+                    last_hunk: 1,
+                },
+                text: "Comment".to_owned(),
+                status: GuideItemStatus::Matched,
+            })
+            .chain(std::iter::once(GuideItem {
+                target: GuideTarget::Hunks {
+                    path: "src/first.rs".to_owned(),
+                    first_hunk: 2,
+                    last_hunk: 2,
+                },
+                text: "Unmapped comment".to_owned(),
+                status: GuideItemStatus::Stale,
+            }))
+            .collect(),
+    });
+    app.focus = Focus::Diff;
+    app.files[0].cursor = 1;
+
+    assert_eq!(app.update(Message::Key(Key::Char(']'))), Action::None);
+    assert_eq!(app.update(Message::Key(Key::Char('r'))), Action::None);
+    assert_eq!((app.selected_file, app.files[1].cursor), (1, 0));
+
+    assert_eq!(app.update(Message::Key(Key::Char('['))), Action::None);
+    assert_eq!(app.update(Message::Key(Key::Char('r'))), Action::None);
+    assert_eq!((app.selected_file, app.files[0].cursor), (0, 0));
+}
 
 #[test]
 fn interactive_search_moves_and_repeats_from_the_diff_cursor() {

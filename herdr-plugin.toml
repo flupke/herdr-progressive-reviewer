@@ -1,6 +1,6 @@
 id = "herdr.progressive-reviewer"
 name = "Progressive reviewer"
-version = "0.1.0"
+version = "0.2.0"
 min_herdr_version = "0.7.5"
 platforms = ["linux", "macos"]
 

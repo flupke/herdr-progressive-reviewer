@@ -1,5 +1,7 @@
 //! Terminal and worker integration for the review pane.
 
+mod guide;
+
 use std::env;
 use std::io::{self, stdout};
 use std::path::PathBuf;
@@ -18,16 +20,24 @@ use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
-use herdr_client::client::HerdrClient;
-use herdr_client::protocol::{AgentTarget, InsertResult, PaneId, PluginContext, WorkspaceId};
+use herdr_client::client::{EventStreamEnd, HerdrClient};
+use herdr_client::protocol::{
+    Agent, AgentStatus, AgentTarget, HerdrEvent, HerdrReader, InsertResult, PaneId, PluginContext,
+    WorkspaceId,
+};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
+use review_guide::{FrozenFile, FrozenHunk, GuideRequestId, GuideScope, ReviewCheckpoint};
+use review_guide_runner::{
+    GuideCancellation, GuideRequest, GuideResult, GuideRunner, PreparedGuide,
+};
 use review_lsp::SourceLocation;
 use review_repository::diff::parse_file_diff;
-use review_repository::repository::{ChangedFile, PollResult, Repository, Snapshot};
-use review_state::{MarkResult, ReviewTracker};
-use review_store::{OutputTarget, ReviewStore};
+use review_repository::repository::{ChangedFile, PollResult, RepoPath, Repository, Snapshot};
+use review_state::{MarkResult, ReviewStatus, ReviewTracker};
+use review_store::{GuideRequestRecord, GuideRequestState, OutputTarget, ReviewStore};
 use review_ui::{Action, Key, Message, ReviewApp, ReviewFile, SourceLoadMode, Theme};
+use sha2::{Digest, Sha256};
 use signal_hook::consts::signal::{SIGHUP, SIGINT, SIGTERM};
 use signal_hook::flag;
 
@@ -35,6 +45,7 @@ use crate::watcher::RepositoryWatcher;
 
 const EVENT_WAIT: Duration = Duration::from_millis(50);
 const DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(400);
+const HERDR_EVENT_RECONNECT_DELAY: Duration = Duration::from_secs(1);
 
 /// The running review pane.
 #[derive(Debug)]
@@ -51,9 +62,12 @@ pub struct Runtime {
 struct Worker {
     repository: Repository,
     tracker: ReviewTracker,
+    guide_store: ReviewStore,
     client: HerdrClient,
     target: AgentTarget,
     snapshot: Option<Snapshot>,
+    commands: Sender<WorkerCommand>,
+    guide: guide::GuideRequestCoordinator,
 }
 
 #[derive(Debug)]
@@ -76,6 +90,12 @@ enum WorkerCommand {
         target: OutputTarget,
         text: String,
     },
+    GenerateReviewGuide(GuideScope),
+    GuideSubmitted {
+        request_id: GuideRequestId,
+    },
+    GuideFinished(guide::FinishedGuide),
+    HerdrEvent(HerdrEvent),
     Focus(PaneId),
     Quit,
 }
@@ -136,10 +156,28 @@ impl Runtime {
             .draw(|frame| frame.render_widget(app.view(), frame.area()))?;
 
         let (commands, messages, worker) = self.start_worker()?;
-        let (focus_sender, focus_events) = mpsc::channel();
+        let (herdr_event_sender, herdr_events) = mpsc::channel();
         let event_client = self.client.clone();
         thread::spawn(move || {
-            let _ = event_client.forward_focus_events(&focus_sender);
+            let mut agent_panes = Vec::new();
+            loop {
+                let Ok(agents) = event_client.list_agents() else {
+                    thread::sleep(HERDR_EVENT_RECONNECT_DELAY);
+                    continue;
+                };
+                for agent in agents {
+                    if !agent_panes.contains(&agent.pane_id) {
+                        agent_panes.push(agent.pane_id);
+                    }
+                }
+                match event_client.forward_events(&herdr_event_sender, &agent_panes) {
+                    Ok(EventStreamEnd::ReceiverDisconnected) => return,
+                    Ok(EventStreamEnd::AgentPanesChanged(pane_id)) => {
+                        agent_panes.push(pane_id);
+                    }
+                    Err(_) => thread::sleep(HERDR_EVENT_RECONNECT_DELAY),
+                }
+            }
         });
         let lsp_root = rust_project_root(&root);
         let lsp = review_lsp::Worker::start(lsp_root.as_ref().unwrap_or(&root).clone());
@@ -151,7 +189,7 @@ impl Runtime {
         let mut mouse_clicks = MouseClicks::default();
         commands.send(WorkerCommand::Poll)?;
         let result = loop {
-            Self::drain_focus(&commands, &focus_events);
+            Self::drain_herdr_events(&commands, &herdr_events);
             if Self::drain_lsp(
                 &lsp,
                 lsp_root.as_deref().unwrap_or(&root),
@@ -201,23 +239,39 @@ impl Runtime {
         &self,
     ) -> eyre::Result<(Sender<WorkerCommand>, Receiver<Message>, JoinHandle<()>)> {
         let store = ReviewStore::open(&self.state_dir, self.repository.root())?;
+        let guide_store = ReviewStore::open(&self.state_dir, self.repository.root())?;
+        let protected_transports = guide_store.active_guide_transport_directories()?;
+        review_guide_runner::cleanup_abandoned_transports(
+            self.repository.root(),
+            &protected_transports,
+        )?;
         let tracker = ReviewTracker::new(self.repository.clone(), store);
+        let (command_sender, command_receiver) = mpsc::channel();
         let mut worker = Worker {
             repository: self.repository.clone(),
             tracker,
+            guide_store,
             client: self.client.clone(),
             target: AgentTarget::new(self.workspace_id.clone(), self.initial_agent.clone()),
             snapshot: None,
+            commands: command_sender.clone(),
+            guide: guide::GuideRequestCoordinator::default(),
         };
-        let (command_sender, command_receiver) = mpsc::channel();
         let (message_sender, message_receiver) = mpsc::channel();
         let handle = thread::spawn(move || worker.run(&command_receiver, &message_sender));
         Ok((command_sender, message_receiver, handle))
     }
 
-    fn drain_focus(commands: &Sender<WorkerCommand>, events: &Receiver<PaneId>) {
-        while let Ok(pane_id) = events.try_recv() {
-            let _ = commands.send(WorkerCommand::Focus(pane_id));
+    fn drain_herdr_events(commands: &Sender<WorkerCommand>, events: &Receiver<HerdrEvent>) {
+        while let Ok(event) = events.try_recv() {
+            match event {
+                HerdrEvent::PaneFocused(pane_id) => {
+                    let _ = commands.send(WorkerCommand::Focus(pane_id));
+                }
+                event => {
+                    let _ = commands.send(WorkerCommand::HerdrEvent(event));
+                }
+            }
         }
     }
 
@@ -313,6 +367,7 @@ impl Runtime {
             }
             Action::SetReviewed { path, reviewed } => WorkerCommand::SetReviewed { path, reviewed },
             Action::Output { target, text } => WorkerCommand::Output { target, text },
+            Action::GenerateReviewGuide { scope } => WorkerCommand::GenerateReviewGuide(scope),
             Action::Lsp {
                 operation,
                 mut query,
@@ -350,6 +405,35 @@ impl Runtime {
 }
 
 impl Worker {
+    fn guide_operation<Result>(
+        &mut self,
+        operation: impl FnOnce(
+            &mut guide::GuideRequestCoordinator,
+            &mut guide::GuideOperationContext<'_>,
+        ) -> Result,
+    ) -> Result {
+        let Self {
+            repository,
+            tracker,
+            guide_store,
+            client,
+            target,
+            snapshot,
+            commands,
+            guide,
+        } = self;
+        let mut context = guide::GuideOperationContext::new(
+            repository,
+            tracker,
+            guide_store,
+            client,
+            target,
+            snapshot.as_ref(),
+            commands,
+        );
+        operation(guide, &mut context)
+    }
+
     fn run(&mut self, commands: &Receiver<WorkerCommand>, messages: &Sender<Message>) {
         let mut clipboard = None;
         while let Ok(command) = commands.recv() {
@@ -367,19 +451,7 @@ impl Worker {
                     location,
                     mode,
                 } => {
-                    let message = match std::fs::read(&location.path) {
-                        Err(error) => Message::SourceFailed {
-                            snapshot_id: snapshot_id.clone(),
-                            message: format!("could not read {}: {error}", location.path.display()),
-                        },
-                        Ok(content) => Message::SourceLoaded {
-                            snapshot_id,
-                            location,
-                            content,
-                            mode,
-                        },
-                    };
-                    let _ = messages.send(message);
+                    Self::load_source(messages, snapshot_id, location, mode);
                     true
                 }
                 WorkerCommand::SetReviewed { path, reviewed } => {
@@ -387,33 +459,89 @@ impl Worker {
                     true
                 }
                 WorkerCommand::Output { target, text } => {
-                    let delivered = match target {
-                        OutputTarget::ActiveAgent => matches!(
-                            self.target.insert(&self.client, &text),
-                            Ok(InsertResult::Inserted { .. })
-                        ),
-                        OutputTarget::Clipboard => {
-                            if clipboard.is_none() {
-                                clipboard = arboard::Clipboard::new().ok();
-                            }
-                            clipboard
-                                .as_mut()
-                                .is_some_and(|clipboard| clipboard.set_text(text).is_ok())
-                        }
-                    };
-                    let _ = messages.send(Message::OutputFinished { delivered });
+                    self.output(messages, &mut clipboard, target, &text);
+                    true
+                }
+                WorkerCommand::GenerateReviewGuide(scope) => {
+                    self.guide_operation(|guide, context| {
+                        guide.generate_review_guide(context, messages, &scope);
+                    });
+                    true
+                }
+                WorkerCommand::GuideSubmitted { request_id } => {
+                    self.guide_operation(|guide, context| {
+                        guide.mark_submitted(context, &request_id);
+                    });
+                    true
+                }
+                WorkerCommand::GuideFinished(finished) => {
+                    self.guide_operation(|guide, context| {
+                        guide.finish_review_guide(context, messages, finished);
+                    });
+                    true
+                }
+                WorkerCommand::HerdrEvent(event) => {
+                    self.guide.observe_guide_event(&event);
                     true
                 }
                 WorkerCommand::Focus(pane_id) => {
                     self.target.observe_focus(&pane_id);
                     true
                 }
-                WorkerCommand::Quit => false,
+                WorkerCommand::Quit => {
+                    self.guide_operation(|guide, context| guide.stop(context));
+                    false
+                }
             };
             if !keep_running {
                 return;
             }
         }
+    }
+
+    fn load_source(
+        messages: &Sender<Message>,
+        snapshot_id: String,
+        location: SourceLocation,
+        mode: SourceLoadMode,
+    ) {
+        let message = match std::fs::read(&location.path) {
+            Err(error) => Message::SourceFailed {
+                snapshot_id: snapshot_id.clone(),
+                message: format!("could not read {}: {error}", location.path.display()),
+            },
+            Ok(content) => Message::SourceLoaded {
+                snapshot_id,
+                location,
+                content,
+                mode,
+            },
+        };
+        let _ = messages.send(message);
+    }
+
+    fn output(
+        &mut self,
+        messages: &Sender<Message>,
+        clipboard: &mut Option<arboard::Clipboard>,
+        target: OutputTarget,
+        text: &str,
+    ) {
+        let delivered = match target {
+            OutputTarget::ActiveAgent => matches!(
+                self.target.insert(&self.client, text),
+                Ok(InsertResult::Inserted { .. })
+            ),
+            OutputTarget::Clipboard => {
+                if clipboard.is_none() {
+                    *clipboard = arboard::Clipboard::new().ok();
+                }
+                clipboard
+                    .as_mut()
+                    .is_some_and(|clipboard| clipboard.set_text(text).is_ok())
+            }
+        };
+        let _ = messages.send(Message::OutputFinished { delivered });
     }
 
     fn poll(&mut self, messages: &Sender<Message>) {
@@ -441,7 +569,44 @@ impl Worker {
             description: snapshot.identity.description().to_owned(),
             files,
         });
+        if let Ok(Some(guide)) = self.guide_store.load_guide(snapshot.identity.review_id()) {
+            let items = if guide.review_checkpoint.checkpoint == snapshot.identity.snapshot_id() {
+                guide.items
+            } else {
+                let unreviewed_files = snapshot
+                    .files
+                    .iter()
+                    .filter(|file| {
+                        self.tracker
+                            .status(&snapshot, file)
+                            .is_ok_and(|state| state.status != ReviewStatus::Reviewed)
+                    })
+                    .collect::<Vec<_>>();
+                let current_files = unreviewed_files
+                    .into_iter()
+                    .filter_map(|file| {
+                        self.guide_operation(|_guide, context| {
+                            guide::GuideRequestCoordinator::frozen_file(context, &snapshot, file)
+                                .ok()
+                                .map(|value| value.0)
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                review_guide::map_anchored_items(&guide.anchored_items, &current_files)
+            };
+            let _ = messages.send(Message::ReviewGuideLoaded {
+                review_checkpoint: ReviewCheckpoint::new(
+                    snapshot.identity.review_id(),
+                    snapshot.identity.snapshot_id(),
+                ),
+                items,
+            });
+        }
+        let review_unit = snapshot.identity.review_id().to_owned();
         self.snapshot = Some(snapshot);
+        self.guide_operation(|guide, context| {
+            guide.reconcile_incomplete_guides(context, messages, &review_unit);
+        });
     }
 
     fn load_diff(&self, messages: &Sender<Message>, commit_id: String, path: String) {

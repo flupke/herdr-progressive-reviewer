@@ -18,6 +18,8 @@ pub mod method {
     pub const AGENT_READ: &str = "agent.read";
     /// Focus one live agent.
     pub const AGENT_FOCUS: &str = "agent.focus";
+    /// Submit one prompt to a live agent.
+    pub const AGENT_PROMPT: &str = "agent.prompt";
     /// Resolve one live pane.
     pub const PANE_GET: &str = "pane.get";
     /// Open one plugin-owned pane.
@@ -99,6 +101,12 @@ pub trait HerdrWriter: Send + Sync {
     fn send_keys(&self, pane_id: &PaneId, keys: &[&str]) -> Result<()>;
 }
 
+/// Agent-aware prompt submission needed by review-guide generation.
+pub trait AgentPrompter: Send + Sync {
+    /// Submit one complete prompt through Herdr's agent-aware boundary.
+    fn prompt_agent(&self, pane_id: &PaneId, text: &str) -> Result<()>;
+}
+
 /// The immutable action context supplied by Herdr.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct PluginContext {
@@ -128,7 +136,7 @@ pub struct SessionSnapshot {
 }
 
 /// A live Herdr agent.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct Agent {
     /// The terminal pane that owns the agent.
     pub pane_id: PaneId,
@@ -142,9 +150,60 @@ pub struct Agent {
     /// The optional agent implementation name.
     #[serde(default)]
     pub display_agent: Option<String>,
+    /// The canonical agent implementation name.
+    #[serde(default)]
+    pub agent: Option<String>,
+    /// The current lifecycle state.
+    pub agent_status: AgentStatus,
+    /// The native session identity, when Herdr reports it.
+    #[serde(default)]
+    pub agent_session: Option<AgentSession>,
     /// The agent working directory.
     #[serde(default)]
     pub cwd: Option<PathBuf>,
+}
+
+/// A Herdr agent lifecycle state.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentStatus {
+    Idle,
+    Working,
+    Blocked,
+    Done,
+    #[default]
+    Unknown,
+}
+
+/// A native agent session identity reported by Herdr.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct AgentSession {
+    pub source: String,
+    pub agent: String,
+    pub kind: String,
+    pub value: String,
+}
+
+/// One typed event from Herdr that is relevant to the reviewer.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum HerdrEvent {
+    /// The user focused a pane.
+    PaneFocused(PaneId),
+    /// Herdr detected or released an agent process in a pane.
+    AgentDetected {
+        pane_id: PaneId,
+        workspace_id: WorkspaceId,
+        agent: Option<String>,
+        released: bool,
+        final_status: Option<AgentStatus>,
+    },
+    /// The lifecycle status of an agent changed.
+    AgentStatusChanged {
+        pane_id: PaneId,
+        workspace_id: WorkspaceId,
+        agent: Option<String>,
+        status: AgentStatus,
+    },
 }
 
 /// A pane owned by this plugin.
@@ -242,6 +301,26 @@ impl AgentTarget {
             }
         }
         Ok(())
+    }
+
+    /// Resolve the current same-workspace implementation agent.
+    pub fn resolve(&mut self, reader: &impl HerdrReader) -> Result<Option<Agent>> {
+        self.resolve_pending_focus(reader)?;
+        if self.last_agent_pane_id.is_none() {
+            self.initialize(reader)?;
+        }
+        let Some(pane_id) = self.last_agent_pane_id.as_ref() else {
+            return Ok(None);
+        };
+        let Some(agent) = reader.get_agent(pane_id)? else {
+            self.last_agent_pane_id = None;
+            return Ok(None);
+        };
+        if agent.workspace_id != self.workspace_id {
+            self.last_agent_pane_id = None;
+            return Ok(None);
+        }
+        Ok(Some(agent))
     }
 
     /// Record a focused agent event from this workspace.

@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use ratatui::layout::Rect;
+use review_guide::{GuideItem, GuideScope, GuideTarget, ReviewCheckpoint};
 use review_lsp::{Event, Operation, Query, SourceLocation};
 use review_repository::diff::DiffRow;
 use review_repository::repository::{ChangeKind, ChangedFile};
@@ -15,7 +16,7 @@ use toasts::{ToastId, ToastKind, ToastState};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
-use crate::diff::{DiffView, TAB_DISPLAY_WIDTH};
+use crate::diff::{DiffView, GuideTargetPosition, TAB_DISPLAY_WIDTH};
 use crate::file_tree::FileTree;
 use crate::highlight::SyntaxHighlighter;
 use crate::navigation::{LocationHistory, ReviewLocation};
@@ -274,6 +275,17 @@ pub enum Message {
     },
     /// Whether selected text reached its output target.
     OutputFinished { delivered: bool },
+    /// Whether an exact guide request is generating.
+    ReviewGuideStatus {
+        review_checkpoint: ReviewCheckpoint,
+        generating: bool,
+        message: Option<String>,
+    },
+    /// One complete guide for an exact repository checkpoint.
+    ReviewGuideLoaded {
+        review_checkpoint: ReviewCheckpoint,
+        items: Vec<GuideItem>,
+    },
     /// One language-server event.
     Lsp(Event),
     /// Complete disk source arrived for navigation or preview.
@@ -340,6 +352,8 @@ pub enum Action {
     SetReviewed { path: String, reviewed: bool },
     /// Send selected text to the configured output target.
     Output { target: OutputTarget, text: String },
+    /// Generate a guide through the active implementation agent.
+    GenerateReviewGuide { scope: GuideScope },
     /// Save the file-pane width in terminal columns.
     SaveFilePaneWidth(u16),
     /// Save the selected text output target.
@@ -362,6 +376,12 @@ pub(super) struct Search {
     pub(super) origin_location: Option<ReviewLocation>,
     pub(super) editing: bool,
     pub(super) pending: Vec<SearchDirection>,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct PendingGuideJump {
+    pub(super) target: GuideTarget,
+    pub(super) origin: Option<ReviewLocation>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -596,6 +616,12 @@ pub(super) fn text_display_width(text: &str) -> usize {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct GuideCounter {
+    pub(super) number: usize,
+    pub(super) total: usize,
+}
+
 /// The complete pure review UI state.
 #[derive(Debug)]
 pub struct ReviewApp {
@@ -625,6 +651,12 @@ pub struct ReviewApp {
     pub(super) toasts: ToastState,
     pub(super) lsp_initialization_toast: Option<ToastId>,
     pub(super) awaiting_g_command: bool,
+    pub(super) awaiting_review_command: bool,
+    pub(super) pending_guide_navigation_prefix: Option<SearchDirection>,
+    pub(super) guide_spinner_frame: Option<usize>,
+    pub(super) guide_items: Vec<GuideItem>,
+    pub(super) guide_item_counters: Vec<Option<GuideCounter>>,
+    pub(super) pending_guide_jump: Option<PendingGuideJump>,
     pub(super) highlighter: SyntaxHighlighter,
     pub(super) palette: Palette,
     pub(super) width: u16,
@@ -683,6 +715,12 @@ impl ReviewApp {
             toasts: ToastState::default(),
             lsp_initialization_toast: None,
             awaiting_g_command: false,
+            awaiting_review_command: false,
+            pending_guide_navigation_prefix: None,
+            guide_spinner_frame: None,
+            guide_items: Vec::new(),
+            guide_item_counters: Vec::new(),
+            pending_guide_jump: None,
             highlighter: SyntaxHighlighter::new(theme),
             palette: theme.palette,
             width: 80,
@@ -734,6 +772,24 @@ impl ReviewApp {
                 }
                 Action::None
             }
+            Message::ReviewGuideStatus {
+                review_checkpoint,
+                generating,
+                message,
+            } => self.update_guide_status(
+                &review_checkpoint.review_unit,
+                &review_checkpoint.checkpoint,
+                generating,
+                message,
+            ),
+            Message::ReviewGuideLoaded {
+                review_checkpoint,
+                items,
+            } => self.load_guide(
+                &review_checkpoint.review_unit,
+                &review_checkpoint.checkpoint,
+                items,
+            ),
             Message::Lsp(event) => self.update_from_lsp_event(event),
             Message::SourceFailed {
                 snapshot_id,
@@ -752,6 +808,9 @@ impl ReviewApp {
             } => self.load_source(&snapshot_id, &location, &content, mode),
             Message::Tick(now) => {
                 self.toasts.expire(now);
+                if let Some(frame) = &mut self.guide_spinner_frame {
+                    *frame = frame.saturating_add(1);
+                }
                 Action::None
             }
             Message::Resize { width, height } => {
@@ -775,6 +834,31 @@ impl ReviewApp {
             Message::MouseRelease => self.mouse_release(),
             Message::Key(key) => self.key(key),
         }
+    }
+
+    fn update_guide_status(
+        &mut self,
+        review_unit: &str,
+        checkpoint: &str,
+        generating: bool,
+        message: Option<String>,
+    ) -> Action {
+        if review_unit == self.change_id && checkpoint == self.commit_id {
+            self.guide_spinner_frame = generating.then_some(0);
+            if let Some(message) = message {
+                self.toasts.push(message, ToastKind::Error);
+            }
+        }
+        Action::None
+    }
+
+    fn load_guide(&mut self, review_unit: &str, checkpoint: &str, items: Vec<GuideItem>) -> Action {
+        if review_unit == self.change_id && checkpoint == self.commit_id {
+            self.guide_items = items;
+            self.rebuild_guide_item_counters();
+            self.guide_spinner_frame = None;
+        }
+        Action::None
     }
 
     fn update_from_lsp_event(&mut self, event: Event) -> Action {
@@ -848,6 +932,12 @@ impl ReviewApp {
         }
         let same_change = self.change_id == change_id;
         let same_snapshot = self.commit_id == commit_id;
+        if !same_snapshot {
+            self.guide_items.clear();
+            self.guide_item_counters.clear();
+            self.guide_spinner_frame = None;
+            self.pending_guide_jump = None;
+        }
         let refreshed_cursor = (same_change && !same_snapshot)
             .then(|| self.selected().and_then(ReviewFile::cursor_location))
             .flatten();
@@ -906,6 +996,7 @@ impl ReviewApp {
         self.commit_id = commit_id;
         self.description = description;
         self.files = files;
+        self.rebuild_guide_item_counters();
         self.rebuild_file_tree();
         let selected_file = selected_path
             .as_deref()
@@ -958,6 +1049,7 @@ impl ReviewApp {
         file.loading = false;
         file.cursor = file.cursor.min(file.diff.len().saturating_sub(1));
         file.scroll = file.scroll.min(file.cursor);
+        self.rebuild_guide_item_counters();
         if self
             .selected()
             .is_some_and(|selected| selected.path == path)
@@ -977,6 +1069,7 @@ impl ReviewApp {
             self.reveal_location(&location);
         }
         self.finish_pending_search();
+        self.finish_pending_guide_jump(path);
         let preview_location = self.locations.as_ref().and_then(|list| {
             list.locations
                 .get(list.selected)
@@ -997,6 +1090,13 @@ impl ReviewApp {
         }
         if let Some(file) = self.files.iter_mut().find(|file| file.path == path) {
             file.loading = false;
+        }
+        if self
+            .pending_guide_jump
+            .as_ref()
+            .is_some_and(|pending| pending.target.path() == path)
+        {
+            self.pending_guide_jump = None;
         }
         self.finish_pending_search();
     }
@@ -1033,6 +1133,7 @@ impl ReviewApp {
                     && state.status == ReviewStatus::Reviewed
                     && self.selected_is_pending_next(pending)
                 {
+                    self.rebuild_guide_item_counters();
                     return self.load_selected_action();
                 }
                 if state.status.needs_review()
@@ -1040,6 +1141,7 @@ impl ReviewApp {
                         .selected()
                         .is_some_and(|selected| selected.path == path)
                 {
+                    self.rebuild_guide_item_counters();
                     return self.load_selected_action();
                 }
             }
@@ -1051,6 +1153,7 @@ impl ReviewApp {
                 }
             }
         }
+        self.rebuild_guide_item_counters();
         Action::None
     }
 
@@ -1061,8 +1164,41 @@ impl ReviewApp {
 
     pub(super) fn remove_temporary_files(&mut self) {
         self.files.retain(|file| !file.temporary);
+        self.rebuild_guide_item_counters();
         self.selected_file = self.selected_file.min(self.files.len().saturating_sub(1));
         self.rebuild_file_tree();
+    }
+
+    pub(super) fn rebuild_guide_item_counters(&mut self) {
+        let mut ordered_items = Vec::new();
+        for file in &self.files {
+            if !file.status.needs_review() {
+                continue;
+            }
+            let file_start = ordered_items.len();
+            ordered_items.extend(self.guide_items.iter().enumerate().filter_map(
+                |(item_index, item)| {
+                    if item.target.path() != file.path {
+                        return None;
+                    }
+                    match DiffView::guide_target_position(file, &item.target)? {
+                        GuideTargetPosition::Unloaded => Some((item_index, item_index)),
+                        GuideTargetPosition::Rows { first } => Some((item_index, first)),
+                    }
+                },
+            ));
+            ordered_items[file_start..].sort_by_key(|(_, row)| *row);
+        }
+
+        let total = ordered_items.len();
+        let mut counters = vec![None; self.guide_items.len()];
+        for (offset, (item_index, _)) in ordered_items.into_iter().enumerate() {
+            counters[item_index] = Some(GuideCounter {
+                number: offset.saturating_add(1),
+                total,
+            });
+        }
+        self.guide_item_counters = counters;
     }
 
     pub(super) fn layout(&self) -> PaneLayout {

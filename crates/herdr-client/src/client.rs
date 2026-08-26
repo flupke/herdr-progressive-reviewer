@@ -6,6 +6,7 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::Sender;
 use std::time::Duration;
 
@@ -13,13 +14,14 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::protocol::{
-    Agent, EntrypointId, HerdrReader, HerdrWriter, OpenPluginPane, PaneId, PluginPane,
-    SessionSnapshot, TabId, WorkspaceId, method,
+    Agent, AgentPrompter, AgentStatus, EntrypointId, HerdrEvent, HerdrReader, HerdrWriter,
+    OpenPluginPane, PaneId, PluginPane, SessionSnapshot, TabId, WorkspaceId, method,
 };
 use crate::{Error, Result};
 
 const RESPONSE_LIMIT: u64 = 16 * 1024 * 1024;
 const SOCKET_TIMEOUT: Duration = Duration::from_secs(5);
+static EVENT_REQUEST_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 /// A synchronous client for the local Herdr socket.
 #[derive(Clone, Debug)]
@@ -56,6 +58,27 @@ struct FocusEvent {
 }
 
 #[derive(Debug, Deserialize)]
+struct AgentDetectedEvent {
+    pane_id: PaneId,
+    workspace_id: WorkspaceId,
+    #[serde(default)]
+    agent: Option<String>,
+    #[serde(default)]
+    released: bool,
+    #[serde(default)]
+    final_status: Option<AgentStatus>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AgentStatusChangedEvent {
+    pane_id: PaneId,
+    workspace_id: WorkspaceId,
+    #[serde(default)]
+    agent: Option<String>,
+    agent_status: AgentStatus,
+}
+
+#[derive(Debug, Deserialize)]
 struct PaneWire {
     #[serde(rename = "pane_id")]
     pane: PaneId,
@@ -76,48 +99,142 @@ struct PaneReadWire {
     text: String,
 }
 
-impl HerdrClient {
-    /// Build a client from the values injected into a plugin process.
-    pub fn from_env() -> Result<Self> {
-        Ok(Self {
-            socket_path: required_path("HERDR_SOCKET_PATH")?,
-            plugin_id: required_string("HERDR_PLUGIN_ID")?,
-            state_dir: required_path("HERDR_PLUGIN_STATE_DIR")?,
-        })
-    }
+/// The reason that a Herdr event stream ended normally.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum EventStreamEnd {
+    /// The event receiver disconnected.
+    ReceiverDisconnected,
+    /// A newly detected agent needs an additional status subscription.
+    AgentPanesChanged(PaneId),
+}
 
-    /// Stream pane-focus events until Herdr closes the connection.
-    pub fn forward_focus_events(&self, sender: &Sender<PaneId>) -> Result<()> {
-        let mut socket = self.connect(None)?;
-        let request = json!({
-            "id": "progressive-reviewer-events",
-            "method": "events.subscribe",
-            "params": {"subscriptions": [{"type": "pane.focused"}]}
-        });
-        write_json_line(&mut socket, &request, "subscribe to Herdr events")?;
-        let mut reader = BufReader::new(socket);
-        let _ = read_line(&mut reader, "subscribe to Herdr events")?;
+#[derive(Debug)]
+struct HerdrEventStream {
+    reader: BufReader<UnixStream>,
+    agent_panes: Vec<PaneId>,
+}
+
+impl HerdrEventStream {
+    fn forward(mut self, sender: &Sender<HerdrEvent>) -> Result<EventStreamEnd> {
         loop {
-            let line = read_line(&mut reader, "read Herdr event")?;
+            let line = read_line(&mut self.reader, "read Herdr event")?;
             if line.is_empty() {
-                return Ok(());
+                return Err(Error::Protocol {
+                    operation: "read Herdr event".to_owned(),
+                    detail: "Herdr closed the event stream",
+                });
             }
             let event: EventEnvelope =
                 serde_json::from_slice(&line).map_err(|source| Error::Json {
                     operation: "read Herdr event",
                     source,
                 })?;
-            if event.event == "pane_focused" {
-                let focus: FocusEvent =
-                    serde_json::from_value(event.data).map_err(|source| Error::Json {
-                        operation: "read Herdr focus event",
-                        source,
-                    })?;
-                if sender.send(focus.pane_id).is_err() {
-                    return Ok(());
+            let event = match event.event.as_str() {
+                "pane_focused" => {
+                    let value: FocusEvent = parse_event(event.data, "read Herdr focus event")?;
+                    HerdrEvent::PaneFocused(value.pane_id)
                 }
+                "pane_agent_detected" => {
+                    let value: AgentDetectedEvent =
+                        parse_event(event.data, "read Herdr agent detection event")?;
+                    HerdrEvent::AgentDetected {
+                        pane_id: value.pane_id,
+                        workspace_id: value.workspace_id,
+                        agent: value.agent,
+                        released: value.released,
+                        final_status: value.final_status,
+                    }
+                }
+                "pane_agent_status_changed" => {
+                    let value: AgentStatusChangedEvent =
+                        parse_event(event.data, "read Herdr agent status event")?;
+                    HerdrEvent::AgentStatusChanged {
+                        pane_id: value.pane_id,
+                        workspace_id: value.workspace_id,
+                        agent: value.agent,
+                        status: value.agent_status,
+                    }
+                }
+                _ => continue,
+            };
+            let new_agent_pane = match &event {
+                HerdrEvent::AgentDetected {
+                    pane_id, released, ..
+                } => {
+                    let pane_was_subscribed = self.agent_panes.contains(pane_id);
+                    (!released && !pane_was_subscribed).then(|| pane_id.clone())
+                }
+                _ => None,
+            };
+            if sender.send(event).is_err() {
+                return Ok(EventStreamEnd::ReceiverDisconnected);
+            }
+            if let Some(pane_id) = new_agent_pane {
+                return Ok(EventStreamEnd::AgentPanesChanged(pane_id));
             }
         }
+    }
+}
+
+impl HerdrClient {
+    /// Build a client for an explicitly configured Herdr connection.
+    pub fn new(socket_path: PathBuf, plugin_id: String, state_dir: PathBuf) -> Self {
+        Self {
+            socket_path,
+            plugin_id,
+            state_dir,
+        }
+    }
+
+    /// Build a client from the values injected into a plugin process.
+    pub fn from_env() -> Result<Self> {
+        Ok(Self::new(
+            required_path("HERDR_SOCKET_PATH")?,
+            required_string("HERDR_PLUGIN_ID")?,
+            required_path("HERDR_PLUGIN_STATE_DIR")?,
+        ))
+    }
+
+    /// Stream reviewer-relevant events until the event receiver disconnects.
+    pub fn forward_events(
+        &self,
+        sender: &Sender<HerdrEvent>,
+        agent_panes: &[PaneId],
+    ) -> Result<EventStreamEnd> {
+        self.subscribe_events(agent_panes)?.forward(sender)
+    }
+
+    fn subscribe_events(&self, agent_panes: &[PaneId]) -> Result<HerdrEventStream> {
+        let mut socket = self.connect(None)?;
+        let request_id = format!(
+            "progressive-reviewer-events-{}-{}",
+            std::process::id(),
+            EVENT_REQUEST_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        );
+        let request = json!({
+            "id": &request_id,
+            "method": "events.subscribe",
+            "params": {"subscriptions": event_subscriptions(agent_panes)}
+        });
+        write_json_line(&mut socket, &request, "subscribe to Herdr events")?;
+        let mut reader = BufReader::new(socket);
+        let response: Response =
+            serde_json::from_slice(&read_line(&mut reader, "subscribe to Herdr events")?).map_err(
+                |source| Error::Json {
+                    operation: "subscribe to Herdr events",
+                    source,
+                },
+            )?;
+        if let Err(error) = validate_response(response, &request_id, "subscribe to Herdr events")? {
+            return Err(Error::Herdr {
+                operation: "subscribe to Herdr events",
+                message: error.message,
+            });
+        }
+        Ok(HerdrEventStream {
+            reader,
+            agent_panes: agent_panes.to_vec(),
+        })
     }
 
     fn request(&self, operation: &'static str, params: &Value) -> Result<Value> {
@@ -145,20 +262,7 @@ impl HerdrClient {
         let response: Response =
             serde_json::from_slice(&read_line(&mut BufReader::new(socket), operation)?)
                 .map_err(|source| Error::Json { operation, source })?;
-        if response.id != "progressive-reviewer" {
-            return Err(Error::Protocol {
-                operation: operation.to_owned(),
-                detail: "Herdr returned a response with the wrong request ID",
-            });
-        }
-        match (response.result, response.error) {
-            (Some(result), None) => Ok(Ok(result)),
-            (None, Some(error)) => Ok(Err(error)),
-            _ => Err(Error::Protocol {
-                operation: operation.to_owned(),
-                detail: "Herdr returned neither one result nor one error",
-            }),
-        }
+        validate_response(response, "progressive-reviewer", operation)
     }
 
     fn connect(&self, timeout: Option<Duration>) -> Result<UnixStream> {
@@ -288,6 +392,45 @@ impl HerdrClient {
     }
 }
 
+fn parse_event<T: for<'de> Deserialize<'de>>(data: Value, operation: &'static str) -> Result<T> {
+    serde_json::from_value(data).map_err(|source| Error::Json { operation, source })
+}
+
+fn event_subscriptions(agent_panes: &[PaneId]) -> Vec<Value> {
+    let mut subscriptions = vec![
+        json!({"type": "pane.focused"}),
+        json!({"type": "pane.agent_detected"}),
+    ];
+    subscriptions.extend(agent_panes.iter().map(|pane_id| {
+        json!({
+            "type": "pane.agent_status_changed",
+            "pane_id": pane_id.0,
+        })
+    }));
+    subscriptions
+}
+
+fn validate_response(
+    response: Response,
+    expected_id: &str,
+    operation: &'static str,
+) -> Result<std::result::Result<Value, ApiError>> {
+    if response.id != expected_id {
+        return Err(Error::Protocol {
+            operation: operation.to_owned(),
+            detail: "Herdr returned a response with the wrong request ID",
+        });
+    }
+    match (response.result, response.error) {
+        (Some(result), None) => Ok(Ok(result)),
+        (None, Some(error)) => Ok(Err(error)),
+        _ => Err(Error::Protocol {
+            operation: operation.to_owned(),
+            detail: "Herdr returned neither one result nor one error",
+        }),
+    }
+}
+
 impl HerdrReader for HerdrClient {
     fn session_snapshot(&self) -> Result<SessionSnapshot> {
         let result = self.request(method::SESSION_SNAPSHOT, &json!({}))?;
@@ -393,6 +536,16 @@ impl HerdrWriter for HerdrClient {
         self.request(
             method::PANE_SEND_KEYS,
             &json!({"pane_id": pane_id.0, "keys": keys}),
+        )?;
+        Ok(())
+    }
+}
+
+impl AgentPrompter for HerdrClient {
+    fn prompt_agent(&self, pane_id: &PaneId, text: &str) -> Result<()> {
+        self.request(
+            method::AGENT_PROMPT,
+            &json!({"target": pane_id.0, "text": text}),
         )?;
         Ok(())
     }

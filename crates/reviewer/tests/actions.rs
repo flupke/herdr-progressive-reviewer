@@ -269,6 +269,9 @@ fn agent(id: &str, workspace: &str, name: Option<&str>) -> Agent {
         workspace_id: WorkspaceId(workspace.to_owned()),
         name: name.map(str::to_owned),
         display_agent: None,
+        agent: None,
+        agent_status: herdr_client::protocol::AgentStatus::Idle,
+        agent_session: None,
         cwd: None,
     }
 }
