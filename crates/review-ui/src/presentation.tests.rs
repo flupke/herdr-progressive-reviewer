@@ -1,7 +1,7 @@
 use ratatui::style::Color;
 use review_repository::diff::DiffRow;
 
-use super::{DiffPresentation, PresentedRow};
+use super::{DiffPresentation, PresentationLocation, PresentedRow};
 use crate::highlight::{HighlightedDiff, HighlightedFile, HighlightedRow, Token};
 
 #[test]
@@ -91,6 +91,7 @@ fn hides_headers_and_expands_gaps_at_each_file_boundary() {
         )),
     });
 
+    let first_gap_location = presentation.presentation_location(0).unwrap();
     assert!(matches!(presentation.rows[0], PresentedRow::Gap { .. }));
     assert!(matches!(presentation.rows[2], PresentedRow::Gap { .. }));
     assert!(matches!(presentation.rows[4], PresentedRow::Gap { .. }));
@@ -117,6 +118,37 @@ fn hides_headers_and_expands_gaps_at_each_file_boundary() {
             .count(),
         3
     );
+    assert_eq!(
+        presentation.reveal_presentation_location(first_gap_location),
+        Some(0)
+    );
+}
+
+#[test]
+fn deleted_line_location_restores_the_diff_view() {
+    let mut presentation = DiffPresentation::new(HighlightedDiff {
+        rows: vec![HighlightedRow {
+            diff: DiffRow::Delete {
+                old_line: 2,
+                text: "-removed".to_owned(),
+            },
+            tokens: vec![Token {
+                text: "removed".to_owned(),
+                color: Color::Red,
+            }],
+        }],
+        file: Some(HighlightedFile::AfterChange(vec![vec![Token {
+            text: "remaining".to_owned(),
+            color: Color::White,
+        }]])),
+    });
+    let location = presentation.presentation_location(0).unwrap();
+    assert_eq!(location, PresentationLocation::OldLine(1));
+    assert!(presentation.show_file());
+
+    assert_eq!(presentation.reveal_presentation_location(location), Some(0));
+    assert!(!presentation.is_file_view());
+    assert!(matches!(presentation.rows[0], PresentedRow::Diff { .. }));
 }
 
 #[test]

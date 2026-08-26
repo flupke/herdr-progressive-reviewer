@@ -18,7 +18,8 @@ use unicode_width::UnicodeWidthStr;
 use crate::diff::{DiffView, TAB_DISPLAY_WIDTH};
 use crate::file_tree::FileTree;
 use crate::highlight::SyntaxHighlighter;
-use crate::presentation::{DiffPresentation, SearchDirection};
+use crate::navigation::{LocationHistory, ReviewLocation};
+use crate::presentation::{DiffPresentation, PresentationLocation, SearchDirection};
 use crate::theme::{Palette, Theme};
 
 const NARROW_WIDTH: u16 = 72;
@@ -67,6 +68,8 @@ pub enum Key {
     Last,
     HalfPageDown,
     HalfPageUp,
+    PreviousLocation,
+    NextLocation,
     Visual,
     Expand,
     CommitMessage,
@@ -176,12 +179,26 @@ impl ReviewFile {
         true
     }
 
+    pub(super) fn restore_presentation_location(
+        &mut self,
+        location: Option<PresentationLocation>,
+        fallback_row: usize,
+        column: usize,
+    ) {
+        let row = location
+            .and_then(|location| self.diff.reveal_presentation_location(location))
+            .unwrap_or_else(|| fallback_row.min(self.diff.len().saturating_sub(1)));
+        self.column = column;
+        self.clear_source_location();
+        self.cursor = row;
+    }
+
     pub(super) fn jump_to_row(&mut self, row: usize, page: usize) {
         self.cursor = row;
         self.scroll = self.cursor.saturating_sub(page / 2);
     }
 
-    fn cursor_location(&self) -> Option<SourceLocation> {
+    pub(super) fn cursor_location(&self) -> Option<SourceLocation> {
         self.diff.source_position(self.cursor).map_or_else(
             || self.source_location.clone(),
             |(line, _)| {
@@ -342,6 +359,7 @@ pub(super) struct Selection {
 pub(super) struct Search {
     pub(super) query: String,
     pub(super) origin: usize,
+    pub(super) origin_location: Option<ReviewLocation>,
     pub(super) editing: bool,
     pub(super) pending: Vec<SearchDirection>,
 }
@@ -599,6 +617,7 @@ pub struct ReviewApp {
     pub(super) search: Option<Search>,
     pub(super) review_in_flight: Option<PendingReview>,
     pub(super) locations: Option<LocationList>,
+    pub(super) location_history: LocationHistory,
     pub(super) preview: Option<ReviewFile>,
     pub(super) hover: Option<String>,
     pub(super) hover_scroll: u16,
@@ -656,6 +675,7 @@ impl ReviewApp {
             search: None,
             review_in_flight: None,
             locations: None,
+            location_history: LocationHistory::default(),
             preview: None,
             hover: None,
             hover_scroll: 0,

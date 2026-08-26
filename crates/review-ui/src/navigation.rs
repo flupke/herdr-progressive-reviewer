@@ -1,11 +1,172 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::app::{Action, Focus, Key, LocationList, ReviewApp, ReviewFile, SourceLoadMode};
 use crate::presentation::DiffPresentation;
 use review_lsp::{Operation, Query, SourceLocation};
 use toasts::ToastKind;
 
+use crate::presentation::PresentationLocation;
+
+const MAXIMUM_JUMP_COUNT: usize = 100;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(super) enum ReviewLocation {
+    ReviewFile {
+        path: String,
+        cursor: usize,
+        presentation_location: Option<PresentationLocation>,
+        column: usize,
+    },
+    Source(SourceLocation),
+}
+
+#[derive(Debug, Default)]
+pub(super) struct LocationHistory {
+    older: Vec<ReviewLocation>,
+    newer: Vec<ReviewLocation>,
+}
+
+impl LocationHistory {
+    fn record_jump(&mut self, origin: ReviewLocation, target: &ReviewLocation) -> bool {
+        if origin.same_line(target) {
+            return false;
+        }
+        self.older.extend(self.newer.drain(..).rev());
+        self.older.retain(|location| !location.same_line(&origin));
+        self.older.push(origin);
+        if self.older.len() > MAXIMUM_JUMP_COUNT {
+            self.older.remove(0);
+        }
+        true
+    }
+
+    fn previous(
+        &mut self,
+        current: ReviewLocation,
+        is_restorable: impl Fn(&ReviewLocation) -> bool,
+    ) -> Option<ReviewLocation> {
+        Self::traverse(&mut self.older, &mut self.newer, current, is_restorable)
+    }
+
+    fn next(
+        &mut self,
+        current: ReviewLocation,
+        is_restorable: impl Fn(&ReviewLocation) -> bool,
+    ) -> Option<ReviewLocation> {
+        Self::traverse(&mut self.newer, &mut self.older, current, is_restorable)
+    }
+
+    fn traverse(
+        source: &mut Vec<ReviewLocation>,
+        destination: &mut Vec<ReviewLocation>,
+        current: ReviewLocation,
+        is_restorable: impl Fn(&ReviewLocation) -> bool,
+    ) -> Option<ReviewLocation> {
+        while let Some(target) = source.pop() {
+            if is_restorable(&target) {
+                if is_restorable(&current) {
+                    destination.push(current);
+                }
+                return Some(target);
+            }
+        }
+        None
+    }
+}
+
+impl ReviewLocation {
+    fn is_restorable(&self, files: &[ReviewFile], repository_root: &Path) -> bool {
+        match self {
+            Self::ReviewFile { path, .. } => files
+                .iter()
+                .any(|file| file.path == *path && file.status.needs_review()),
+            Self::Source(location) => location
+                .review_path(repository_root)
+                .and_then(|path| files.iter().find(|file| file.path == path))
+                .is_none_or(|file| file.status.needs_review()),
+        }
+    }
+
+    fn same_line(&self, other: &Self) -> bool {
+        match (self, other) {
+            (
+                Self::ReviewFile {
+                    path,
+                    cursor,
+                    presentation_location,
+                    ..
+                },
+                Self::ReviewFile {
+                    path: other_path,
+                    cursor: other_cursor,
+                    presentation_location: other_presentation_location,
+                    ..
+                },
+            ) => {
+                path == other_path
+                    && match (presentation_location, other_presentation_location) {
+                        (Some(location), Some(other_location)) => location == other_location,
+                        (None, None) => cursor == other_cursor,
+                        (Some(_), None) | (None, Some(_)) => false,
+                    }
+            }
+            (Self::Source(location), Self::Source(other_location)) => {
+                location.path == other_location.path && location.line == other_location.line
+            }
+            (Self::ReviewFile { .. }, Self::Source(_))
+            | (Self::Source(_), Self::ReviewFile { .. }) => false,
+        }
+    }
+}
+
 impl ReviewApp {
+    pub(super) fn current_review_location(&self) -> Option<ReviewLocation> {
+        let file = self.selected()?;
+        if file.temporary {
+            return file.cursor_location().map(ReviewLocation::Source);
+        }
+        Some(ReviewLocation::ReviewFile {
+            path: file.path.clone(),
+            cursor: file.cursor,
+            presentation_location: file.diff.presentation_location(file.cursor),
+            column: file.column,
+        })
+    }
+
+    pub(super) fn record_location_change(&mut self, origin: Option<ReviewLocation>) -> bool {
+        let Some(target) = self.current_review_location() else {
+            return false;
+        };
+        self.record_jump(origin, &target)
+    }
+
+    fn record_jump(&mut self, origin: Option<ReviewLocation>, target: &ReviewLocation) -> bool {
+        let Some(origin) = origin else {
+            return false;
+        };
+        if !origin.is_restorable(&self.files, &self.repository_root) {
+            return false;
+        }
+        self.location_history.record_jump(origin, target)
+    }
+
+    pub(super) fn jump(&mut self, navigate: impl FnOnce(&mut Self) -> Action) -> Action {
+        let origin = self.current_review_location();
+        let action = navigate(self);
+        if self.record_location_change(origin) {
+            self.center_selected_location();
+        }
+        action
+    }
+
+    pub(super) fn center_selected_location(&mut self) {
+        let page = self.page_rows();
+        if let Some(file) = self.files.get_mut(self.selected_file) {
+            file.jump_to_row(file.cursor, page);
+        }
+        self.keep_visible();
+    }
+
     pub(super) fn load_locations(
         &mut self,
         operation: Operation,
@@ -40,6 +201,17 @@ impl ReviewApp {
     }
 
     pub(super) fn accept_location(&mut self, location: SourceLocation) -> Action {
+        let origin = self.current_review_location();
+        let action = self.show_source_location(location.clone());
+        if matches!(action, Action::LoadSource { .. }) {
+            let _ = self.record_jump(origin, &ReviewLocation::Source(location));
+        } else {
+            let _ = self.record_location_change(origin);
+        }
+        action
+    }
+
+    fn show_source_location(&mut self, location: SourceLocation) -> Action {
         self.locations = None;
         self.preview = None;
         if let Some(index) = self.location_file_index(&location) {
@@ -66,6 +238,59 @@ impl ReviewApp {
             location,
             mode: SourceLoadMode::External,
         }
+    }
+
+    pub(super) fn previous_location(&mut self) -> Action {
+        let Some(current) = self.current_review_location() else {
+            return Action::None;
+        };
+        let files = &self.files;
+        let repository_root = &self.repository_root;
+        let Some(location) = self.location_history.previous(current, |location| {
+            location.is_restorable(files, repository_root)
+        }) else {
+            return Action::None;
+        };
+        self.show_review_location(location)
+    }
+
+    pub(super) fn next_location(&mut self) -> Action {
+        let Some(current) = self.current_review_location() else {
+            return Action::None;
+        };
+        let files = &self.files;
+        let repository_root = &self.repository_root;
+        let Some(location) = self.location_history.next(current, |location| {
+            location.is_restorable(files, repository_root)
+        }) else {
+            return Action::None;
+        };
+        self.show_review_location(location)
+    }
+
+    fn show_review_location(&mut self, location: ReviewLocation) -> Action {
+        let (path, cursor, presentation_location, column) = match location {
+            ReviewLocation::ReviewFile {
+                path,
+                cursor,
+                presentation_location,
+                column,
+            } => (path, cursor, presentation_location, column),
+            ReviewLocation::Source(location) => return self.show_source_location(location),
+        };
+        self.locations = None;
+        self.preview = None;
+        self.remove_temporary_files();
+        let Some(target) = self.files.iter().position(|file| file.path == path) else {
+            return Action::None;
+        };
+        self.select_file(target);
+        self.focus = Focus::Diff;
+        self.files[target].restore_presentation_location(presentation_location, cursor, column);
+        self.expand_file_parents(&path);
+        self.rebuild_file_tree();
+        self.center_selected_location();
+        self.load_selected_action()
     }
 
     pub(super) fn load_source(

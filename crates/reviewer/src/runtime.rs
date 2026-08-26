@@ -11,7 +11,8 @@ use std::time::{Duration, Instant};
 
 use crossterm::event::{
     self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
-    MouseButton, MouseEvent, MouseEventKind,
+    KeyboardEnhancementFlags, MouseButton, MouseEvent, MouseEventKind, PopKeyboardEnhancementFlags,
+    PushKeyboardEnhancementFlags,
 };
 use crossterm::execute;
 use crossterm::terminal::{
@@ -530,12 +531,14 @@ impl TerminalGuard {
         if let Err(error) = execute!(
             terminal.backend_mut(),
             EnterAlternateScreen,
-            EnableMouseCapture
+            EnableMouseCapture,
+            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
         ) {
             let _ = disable_raw_mode();
             let _ = execute!(
                 terminal.backend_mut(),
                 DisableMouseCapture,
+                PopKeyboardEnhancementFlags,
                 LeaveAlternateScreen
             );
             return Err(error.into());
@@ -550,6 +553,7 @@ impl Drop for TerminalGuard {
         let _ = execute!(
             self.terminal.backend_mut(),
             DisableMouseCapture,
+            PopKeyboardEnhancementFlags,
             LeaveAlternateScreen
         );
         let _ = self.terminal.show_cursor();
@@ -652,6 +656,8 @@ fn normalize_key(key: KeyEvent) -> Option<Key> {
         return match key.code {
             KeyCode::Char('d') => Some(Key::HalfPageDown),
             KeyCode::Char('u') => Some(Key::HalfPageUp),
+            KeyCode::Char('o') => Some(Key::PreviousLocation),
+            KeyCode::Char('i') => Some(Key::NextLocation),
             _ => None,
         };
     }

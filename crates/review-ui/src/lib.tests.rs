@@ -246,6 +246,290 @@ fn definition_target_is_centered() {
 }
 
 #[test]
+fn location_history_moves_in_both_directions_and_keeps_later_jumps() {
+    let mut app = location_history_app(["a", "b", "c"], |name| {
+        vec![DiffRow::Context {
+            old_line: 1,
+            new_line: 1,
+            text: format!(" fn {name}() {{}}"),
+        }]
+    });
+
+    let location = |name| source_location(&format!("/repo/src/{name}.rs"), 0);
+    assert_eq!(app.accept_location(location("b")), Action::None);
+    assert_eq!(app.accept_location(location("c")), Action::None);
+    assert_eq!(app.selected().unwrap().path, "src/c.rs");
+
+    assert_eq!(
+        app.update(Message::Key(Key::PreviousLocation)),
+        Action::None
+    );
+    assert_eq!(app.selected().unwrap().path, "src/b.rs");
+    assert_eq!(
+        app.update(Message::Key(Key::PreviousLocation)),
+        Action::None
+    );
+    assert_eq!(app.selected().unwrap().path, "src/a.rs");
+    assert_eq!(app.update(Message::Key(Key::NextLocation)), Action::None);
+    assert_eq!(app.selected().unwrap().path, "src/b.rs");
+
+    assert_eq!(
+        app.update(Message::Key(Key::PreviousLocation)),
+        Action::None
+    );
+    assert_eq!(app.accept_location(location("a")), Action::None);
+    assert_eq!(app.update(Message::Key(Key::NextLocation)), Action::None);
+    assert_eq!(app.selected().unwrap().path, "src/b.rs");
+
+    assert_eq!(app.accept_location(location("a")), Action::None);
+    assert_eq!(app.update(Message::Key(Key::NextLocation)), Action::None);
+    assert_eq!(app.selected().unwrap().path, "src/a.rs");
+    assert_eq!(
+        app.update(Message::Key(Key::PreviousLocation)),
+        Action::None
+    );
+    assert_eq!(app.selected().unwrap().path, "src/b.rs");
+    assert_eq!(
+        app.update(Message::Key(Key::PreviousLocation)),
+        Action::None
+    );
+    assert_eq!(app.selected().unwrap().path, "src/c.rs");
+}
+
+#[test]
+fn location_history_skips_reviewed_files() {
+    let mut app = location_history_app(["a", "b", "c"], |name| {
+        vec![DiffRow::Context {
+            old_line: 1,
+            new_line: 1,
+            text: format!(" fn {name}() {{}}"),
+        }]
+    });
+    let location = |name| source_location(&format!("/repo/src/{name}.rs"), 0);
+    assert_eq!(app.accept_location(location("b")), Action::None);
+    assert_eq!(app.accept_location(location("c")), Action::None);
+    app.files[1].status = ReviewStatus::Reviewed;
+
+    assert_eq!(
+        app.update(Message::Key(Key::PreviousLocation)),
+        Action::None
+    );
+    assert_eq!(app.selected().unwrap().path, "src/a.rs");
+    assert_eq!(app.update(Message::Key(Key::NextLocation)), Action::None);
+    assert_eq!(app.selected().unwrap().path, "src/c.rs");
+}
+
+#[test]
+fn external_jump_does_not_record_a_reviewed_origin() {
+    let mut app = location_history_app(["a"], |_| {
+        vec![DiffRow::Context {
+            old_line: 1,
+            new_line: 1,
+            text: " reviewed".to_owned(),
+        }]
+    });
+    app.files[0].status = ReviewStatus::Reviewed;
+    let external = source_location("/outside.rs", 0);
+    assert_eq!(
+        app.accept_location(external.clone()),
+        Action::LoadSource {
+            snapshot_id: "commit".to_owned(),
+            location: external.clone(),
+            mode: SourceLoadMode::External,
+        }
+    );
+    assert_eq!(
+        app.update(Message::SourceLoaded {
+            snapshot_id: "commit".to_owned(),
+            location: external,
+            content: b"outside\n".to_vec(),
+            mode: SourceLoadMode::External,
+        }),
+        Action::None
+    );
+    assert!(app.selected().unwrap().temporary);
+
+    assert_eq!(
+        app.update(Message::Key(Key::PreviousLocation)),
+        Action::None
+    );
+    assert!(app.selected().unwrap().temporary);
+}
+
+#[test]
+fn location_history_skips_a_source_that_becomes_a_reviewed_file() {
+    let mut app = location_history_app(["a"], |_| {
+        vec![DiffRow::Context {
+            old_line: 1,
+            new_line: 1,
+            text: " current".to_owned(),
+        }]
+    });
+    let future_file = source_location("/repo/src/future.rs", 0);
+    assert!(matches!(
+        app.accept_location(future_file.clone()),
+        Action::LoadSource { .. }
+    ));
+    assert_eq!(
+        app.update(Message::SourceLoaded {
+            snapshot_id: "commit".to_owned(),
+            location: future_file,
+            content: b"future\n".to_vec(),
+            mode: SourceLoadMode::External,
+        }),
+        Action::None
+    );
+    assert_eq!(
+        app.accept_location(source_location("/repo/src/a.rs", 0)),
+        Action::None
+    );
+    app.files
+        .push(ReviewFile::new("src/future.rs", ReviewStatus::Reviewed));
+    app.rebuild_file_tree();
+
+    assert_eq!(
+        app.update(Message::Key(Key::PreviousLocation)),
+        Action::None
+    );
+    assert_eq!(app.selected().unwrap().path, "src/a.rs");
+}
+
+#[test]
+fn location_history_includes_file_cursor_and_search_jumps() {
+    let mut app = location_history_app(["a", "b"], |name| {
+        (1..=3)
+            .map(|line| DiffRow::Context {
+                old_line: line,
+                new_line: line,
+                text: if name == "b" && line == 2 {
+                    " needle".to_owned()
+                } else {
+                    format!(" line {line}")
+                },
+            })
+            .collect()
+    });
+
+    assert_eq!(app.update(Message::Key(Key::Down)), Action::None);
+    assert_eq!(app.selected().unwrap().path, "src/b.rs");
+    assert_eq!(app.update(Message::Key(Key::Tab)), Action::None);
+    assert_eq!(app.update(Message::Key(Key::Last)), Action::None);
+    assert_eq!(app.selected().unwrap().cursor, 2);
+    assert_eq!(app.update(Message::Key(Key::Up)), Action::None);
+    assert_eq!(app.selected().unwrap().cursor, 1);
+
+    assert_eq!(
+        app.update(Message::Key(Key::PreviousLocation)),
+        Action::None
+    );
+    assert_eq!(
+        (
+            app.selected().unwrap().path.as_str(),
+            app.selected().unwrap().cursor
+        ),
+        ("src/b.rs", 0)
+    );
+    assert_eq!(
+        app.update(Message::Key(Key::PreviousLocation)),
+        Action::None
+    );
+    assert_eq!(app.selected().unwrap().path, "src/a.rs");
+    assert_eq!(app.update(Message::Key(Key::NextLocation)), Action::None);
+    assert_eq!(app.selected().unwrap().path, "src/b.rs");
+
+    assert_eq!(app.update(Message::Key(Key::Char('/'))), Action::None);
+    for character in "needle".chars() {
+        assert_eq!(app.update(Message::Key(Key::Char(character))), Action::None);
+    }
+    assert_eq!(app.update(Message::Key(Key::Enter)), Action::None);
+    assert_eq!(app.selected().unwrap().cursor, 1);
+    assert_eq!(
+        app.update(Message::Key(Key::PreviousLocation)),
+        Action::None
+    );
+    assert_eq!(app.selected().unwrap().cursor, 0);
+}
+
+#[test]
+fn jumps_center_the_cursor_when_the_viewport_has_space() {
+    let mut app = location_history_app(["a"], |_| {
+        (1..=40)
+            .map(|line| DiffRow::Context {
+                old_line: line,
+                new_line: line,
+                text: format!(" line {line}"),
+            })
+            .collect()
+    });
+    assert_eq!(app.update(Message::Key(Key::Tab)), Action::None);
+    assert_eq!(app.update(Message::Key(Key::Char('/'))), Action::None);
+    for character in "line 20".chars() {
+        assert_eq!(app.update(Message::Key(Key::Char(character))), Action::None);
+    }
+    assert_eq!(app.update(Message::Key(Key::Enter)), Action::None);
+
+    let file = app.selected().unwrap();
+    assert_eq!(file.cursor - file.scroll, app.page_rows() / 2);
+}
+
+#[test]
+fn abandoned_search_restores_its_origin_without_recording_a_jump() {
+    let mut app = location_history_app(["a"], |_| {
+        (1..=20)
+            .map(|line| DiffRow::Context {
+                old_line: line,
+                new_line: line,
+                text: format!(" line {line}"),
+            })
+            .collect()
+    });
+    assert_eq!(app.update(Message::Key(Key::Tab)), Action::None);
+    assert_eq!(app.update(Message::Key(Key::Char('/'))), Action::None);
+    for character in "line 10".chars() {
+        assert_eq!(app.update(Message::Key(Key::Char(character))), Action::None);
+    }
+    assert_eq!(app.selected().unwrap().cursor, 9);
+
+    assert_eq!(app.update(Message::Key(Key::Escape)), Action::None);
+    assert_eq!(app.selected().unwrap().cursor, 0);
+    assert_eq!(
+        app.update(Message::Key(Key::PreviousLocation)),
+        Action::None
+    );
+    assert_eq!(app.selected().unwrap().cursor, 0);
+}
+
+fn location_history_app<const FILE_COUNT: usize>(
+    names: [&str; FILE_COUNT],
+    rows: impl Fn(&str) -> Vec<DiffRow>,
+) -> ReviewApp {
+    let mut app = ReviewApp::new(
+        crate::Theme::default(),
+        None,
+        review_store::OutputTarget::default(),
+        PathBuf::from("/repo"),
+    );
+    app.update(Message::FilesLoaded {
+        change_id: "change".to_owned(),
+        commit_id: "commit".to_owned(),
+        description: String::new(),
+        files: names
+            .map(|name| ReviewFile::new(format!("src/{name}.rs"), ReviewStatus::Unreviewed))
+            .to_vec(),
+    });
+    for name in names {
+        app.update(Message::DiffLoaded {
+            commit_id: "commit".to_owned(),
+            path: format!("src/{name}.rs"),
+            rows: rows(name),
+            old_content: None,
+            new_content: None,
+        });
+    }
+    app
+}
+
+#[test]
 fn current_cursor_becomes_external_when_its_file_leaves_the_diff() {
     let mut app = ReviewApp::default();
     app.update(Message::FilesLoaded {

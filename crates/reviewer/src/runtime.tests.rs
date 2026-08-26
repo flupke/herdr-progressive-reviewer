@@ -138,6 +138,18 @@ fn modified_mouse_inputs_reuse_existing_actions() {
 }
 
 #[test]
+fn control_location_keys_use_location_history_actions() {
+    assert_eq!(
+        normalize_key(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL)),
+        Some(Key::PreviousLocation)
+    );
+    assert_eq!(
+        normalize_key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::CONTROL)),
+        Some(Key::NextLocation)
+    );
+}
+
+#[test]
 fn consecutive_plain_clicks_at_one_position_become_a_double_click() {
     let click = MouseEvent {
         kind: MouseEventKind::Down(MouseButton::Left),

@@ -37,7 +37,7 @@ impl ReviewApp {
         if self.awaiting_g_command {
             self.awaiting_g_command = false;
             return match key {
-                Key::Char('g') => self.navigate_to(0),
+                Key::Char('g') => self.jump_to(0),
                 Key::Char('d') => self.lsp(Operation::Definition),
                 Key::Char('r') => self.lsp(Operation::References),
                 Key::Char('R') => Action::RestartLsp,
@@ -52,9 +52,11 @@ impl ReviewApp {
             Key::Char('/') => {
                 self.focus = Focus::Diff;
                 self.selection = None;
+                let origin_location = self.current_review_location();
                 self.search = Some(Search {
                     query: String::new(),
                     origin: self.selected().map_or(0, |file| file.cursor),
+                    origin_location,
                     editing: true,
                     pending: Vec::new(),
                 });
@@ -123,13 +125,15 @@ impl ReviewApp {
             }
             Key::Down | Key::Char('j') => self.navigate(1),
             Key::Up | Key::Char('k') => self.navigate(-1),
-            Key::First => self.navigate_to(0),
+            Key::First => self.jump_to(0),
             Key::Last | Key::Char('G') => {
                 let last = self.focus_len().saturating_sub(1);
-                self.navigate_to(last)
+                self.jump_to(last)
             }
             Key::HalfPageDown => self.navigate_half_page(self.half_page_rows()),
             Key::HalfPageUp => self.navigate_half_page(-self.half_page_rows()),
+            Key::PreviousLocation => self.previous_location(),
+            Key::NextLocation => self.next_location(),
             Key::Char(_) | Key::Backspace | Key::Visual | Key::Expand => Action::None,
         }
     }
@@ -149,12 +153,26 @@ impl ReviewApp {
                 self.update_search_match();
             }
             Key::Enter => {
+                let origin = self
+                    .search
+                    .as_ref()
+                    .and_then(|search| search.origin_location.clone());
                 if let Some(search) = &mut self.search {
                     search.editing = false;
                 }
+                if self.record_location_change(origin) {
+                    self.center_selected_location();
+                }
             }
             Key::Escape => {
+                let origin = self.search.as_ref().map(|search| search.origin);
                 self.search = None;
+                if let (Some(origin), Some(file)) = (origin, self.files.get_mut(self.selected_file))
+                {
+                    file.cursor = origin.min(file.diff.len().saturating_sub(1));
+                    file.clear_source_location();
+                }
+                self.keep_visible();
             }
             _ => {}
         }
@@ -219,8 +237,11 @@ impl ReviewApp {
                 .or_else(|| matches.first().copied()),
         };
         if let Some((file, row)) = target {
-            self.select_file(file);
-            self.move_diff_cursor(Some(row));
+            let _ = self.jump(|app| {
+                app.select_file(file);
+                app.move_diff_cursor(Some(row));
+                Action::None
+            });
         }
     }
 
@@ -281,9 +302,12 @@ impl ReviewApp {
             .flatten();
         let next_path = next_file.map(|file| self.files[file].path.clone());
         if let Some(next_file) = next_file {
-            self.select_file(next_file);
-            self.selection = None;
-            self.keep_visible();
+            let _ = self.jump(|app| {
+                app.select_file(next_file);
+                app.selection = None;
+                app.keep_visible();
+                Action::None
+            });
         }
         self.review_in_flight = Some(PendingReview {
             path: path.clone(),
@@ -364,7 +388,12 @@ impl ReviewApp {
                 .unwrap_or(0),
             Focus::Diff => self.selected().map_or(0, |file| file.cursor),
         };
-        self.navigate_to(current.saturating_add_signed(delta))
+        let target = current.saturating_add_signed(delta);
+        if self.focus == Focus::Files {
+            self.jump(|app| app.navigate_to(target))
+        } else {
+            self.navigate_to(target)
+        }
     }
 
     fn navigate_half_page(&mut self, delta: isize) -> Action {
@@ -395,6 +424,10 @@ impl ReviewApp {
         }
         self.keep_visible();
         Action::None
+    }
+
+    fn jump_to(&mut self, target: usize) -> Action {
+        self.jump(|app| app.navigate_to(target))
     }
 
     fn navigate_to(&mut self, target: usize) -> Action {
@@ -551,6 +584,16 @@ impl ReviewApp {
     }
 
     fn file_click(
+        &mut self,
+        layout: PaneLayout,
+        column: u16,
+        row: u16,
+        insert_path: bool,
+    ) -> Action {
+        self.jump(|app| app.file_click_without_history(layout, column, row, insert_path))
+    }
+
+    fn file_click_without_history(
         &mut self,
         layout: PaneLayout,
         column: u16,

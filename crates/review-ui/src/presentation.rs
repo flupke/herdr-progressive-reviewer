@@ -16,6 +16,14 @@ pub(crate) enum PresentedRow {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum PresentationLocation {
+    NewLine(u32),
+    OldLine(u32),
+    SourceRow(usize),
+    GapStart(u32),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum SearchDirection {
     Forward,
     Backward,
@@ -214,6 +222,65 @@ impl DiffPresentation {
             line,
             tokens.iter().map(|token| token.text.as_str()).collect(),
         ))
+    }
+
+    pub(crate) fn presentation_location(&self, index: usize) -> Option<PresentationLocation> {
+        match self.rows.get(index)? {
+            PresentedRow::Diff { source, .. } => Some(match self.source_row(*source) {
+                DiffRow::Context { new_line, .. } | DiffRow::Add { new_line, .. } => {
+                    PresentationLocation::NewLine(new_line.saturating_sub(1))
+                }
+                DiffRow::Delete { old_line, .. } => {
+                    PresentationLocation::OldLine(old_line.saturating_sub(1))
+                }
+                DiffRow::Notice { .. }
+                | DiffRow::FileHeader { .. }
+                | DiffRow::Meta { .. }
+                | DiffRow::Hunk { .. } => PresentationLocation::SourceRow(*source),
+            }),
+            PresentedRow::Expanded { line, .. } => {
+                Some(if self.whole_file == Some(WholeFile::Deleted) {
+                    PresentationLocation::OldLine(line.saturating_sub(1))
+                } else {
+                    PresentationLocation::NewLine(line.saturating_sub(1))
+                })
+            }
+            PresentedRow::Gap { start, .. } => Some(PresentationLocation::GapStart(*start)),
+        }
+    }
+
+    pub(crate) fn reveal_presentation_location(
+        &mut self,
+        location: PresentationLocation,
+    ) -> Option<usize> {
+        match location {
+            PresentationLocation::NewLine(line) => self.reveal_line(line),
+            PresentationLocation::OldLine(line) => {
+                let _ = self.show_diff();
+                let display_line = line.saturating_add(1);
+                self.rows.iter().position(|row| match row {
+                    PresentedRow::Diff { source, .. } => matches!(
+                        self.source_row(*source),
+                        DiffRow::Delete { old_line, .. } if *old_line == display_line
+                    ),
+                    PresentedRow::Gap { .. } | PresentedRow::Expanded { .. } => false,
+                })
+            }
+            PresentationLocation::SourceRow(target_source) => {
+                let _ = self.show_diff();
+                self.rows.iter().position(|row| {
+                    matches!(row, PresentedRow::Diff { source, .. } if *source == target_source)
+                })
+            }
+            PresentationLocation::GapStart(target_start) => {
+                let _ = self.show_diff();
+                self.rows.iter().position(|row| match row {
+                    PresentedRow::Gap { start, .. } => *start == target_start,
+                    PresentedRow::Expanded { line, .. } => *line == target_start,
+                    PresentedRow::Diff { .. } => false,
+                })
+            }
+        }
     }
 
     pub(crate) fn reveal_line(&mut self, line: u32) -> Option<usize> {
