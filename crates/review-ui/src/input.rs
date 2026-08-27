@@ -28,66 +28,98 @@ impl ReviewApp {
             return self.location_list_key(key);
         }
         if self.hover.is_some() {
-            match key {
-                Key::Escape => self.hover = None,
-                Key::Down | Key::Char('j') => {
-                    self.hover_scroll = self.hover_scroll.saturating_add(1);
-                }
-                Key::Up | Key::Char('k') => {
-                    self.hover_scroll = self.hover_scroll.saturating_sub(1);
-                }
-                _ => {}
-            }
-            return Action::None;
+            return self.hover_key(key);
         }
         if self.search.as_ref().is_some_and(|search| search.editing) {
             return self.search_key(key);
         }
         if self.awaiting_g_command {
-            self.awaiting_g_command = false;
-            return match key {
-                Key::Char('g') => self.jump_to(0),
-                Key::Char('d') => self.lsp(Operation::Definition),
-                Key::Char('r') => self.lsp(Operation::References),
-                Key::Char('R') => Action::RestartLsp,
-                _ => Action::None,
-            };
+            return self.g_command_key(key);
         }
         if let Some(direction) = self.pending_guide_navigation_prefix.take() {
-            return match key {
-                Key::Char('r') => self.jump_to_guide_comment(direction),
-                _ => Action::None,
-            };
+            return self.guide_navigation_key(key, direction);
         }
         if self.awaiting_review_command {
-            self.awaiting_review_command = false;
-            let action = match key {
-                Key::Char('f') => {
-                    self.selected()
-                        .map_or(Action::None, |file| Action::GenerateReviewGuide {
-                            scope: review_guide::GuideScope::File {
-                                path: file.path.clone(),
-                            },
-                        })
-                }
-                Key::Char('a') => Action::GenerateReviewGuide {
-                    scope: review_guide::GuideScope::All,
-                },
-                _ => Action::None,
-            };
-            if self.guide_spinner_frame.is_some()
-                && matches!(action, Action::GenerateReviewGuide { .. })
-            {
-                self.toasts
-                    .push("A guide update is already in progress", ToastKind::Info);
-                return Action::None;
-            }
-            return action;
+            return self.review_command_key(key);
         }
         self.main_view_key(key)
     }
 
+    fn hover_key(&mut self, key: Key) -> Action {
+        match key {
+            Key::Escape => self.hover = None,
+            Key::Down | Key::Char('j') => {
+                self.hover_scroll = self.hover_scroll.saturating_add(1);
+            }
+            Key::Up | Key::Char('k') => {
+                self.hover_scroll = self.hover_scroll.saturating_sub(1);
+            }
+            _ => {}
+        }
+        Action::None
+    }
+
+    fn g_command_key(&mut self, key: Key) -> Action {
+        self.awaiting_g_command = false;
+        match key {
+            Key::Char('g') => self.jump_to(0),
+            Key::Char('d') => self.lsp(Operation::Definition),
+            Key::Char('r') => self.lsp(Operation::References),
+            Key::Char('R') => Action::RestartLsp,
+            _ => Action::None,
+        }
+    }
+
+    fn guide_navigation_key(&mut self, key: Key, direction: SearchDirection) -> Action {
+        match key {
+            Key::Char('r') => self.jump_to_guide_comment(direction),
+            _ => Action::None,
+        }
+    }
+
+    fn review_command_key(&mut self, key: Key) -> Action {
+        self.awaiting_review_command = false;
+        let action = match key {
+            Key::Char('f') => {
+                self.selected()
+                    .map_or(Action::None, |file| Action::GenerateReviewGuide {
+                        scope: review_guide::GuideScope::File {
+                            path: file.path.clone(),
+                        },
+                    })
+            }
+            Key::Char('a') => Action::GenerateReviewGuide {
+                scope: review_guide::GuideScope::All,
+            },
+            _ => Action::None,
+        };
+        if self.guide_spinner_frame.is_some()
+            && matches!(action, Action::GenerateReviewGuide { .. })
+        {
+            self.toasts
+                .push("A guide update is already in progress", ToastKind::Info);
+            return Action::None;
+        }
+        action
+    }
+
     fn main_view_key(&mut self, key: Key) -> Action {
+        if let Some(action) = self.general_key(key) {
+            return action;
+        }
+        if let Some(action) = self.interaction_key(key) {
+            return action;
+        }
+        if let Some(action) = self.command_prefix_key(key) {
+            return action;
+        }
+        if let Some(action) = self.source_key(key) {
+            return action;
+        }
+        self.navigation_key(key)
+    }
+
+    fn general_key(&mut self, key: Key) -> Option<Action> {
         match key {
             Key::Char('/') => {
                 self.focus = Focus::Diff;
@@ -100,65 +132,85 @@ impl ReviewApp {
                     editing: true,
                     pending: Vec::new(),
                 });
-                self.load_all_diffs_action()
+                Some(self.load_all_diffs_action())
             }
             Key::Char('n') => {
                 self.repeat_search(SearchDirection::Forward);
-                Action::None
+                Some(Action::None)
             }
             Key::Char('p') => {
                 self.repeat_search(SearchDirection::Backward);
-                Action::None
+                Some(Action::None)
             }
-            Key::Quit | Key::Char('q') => Action::Quit,
+            Key::Quit | Key::Char('q') => Some(Action::Quit),
             Key::CommitMessage | Key::Char('c') => {
                 self.show_commit_message = !self.show_commit_message;
-                Action::None
+                Some(Action::None)
             }
             Key::Tab => {
                 self.focus = match self.focus {
                     Focus::Files => Focus::Diff,
                     Focus::Diff => Focus::Files,
                 };
-                Action::None
+                Some(Action::None)
             }
             Key::Escape => {
                 self.show_commit_message = false;
                 self.selection = None;
                 self.search = None;
                 self.context_menu = None;
-                Action::None
+                Some(Action::None)
             }
-            Key::Enter if self.focus == Focus::Files => self
-                .selected()
-                .map_or(Action::None, |file| self.output(file.path.clone())),
-            Key::Enter => self.insert(),
-            Key::Char('o') => self.set_output_target(match self.output_target {
+            _ => None,
+        }
+    }
+
+    fn interaction_key(&mut self, key: Key) -> Option<Action> {
+        match key {
+            Key::Enter if self.focus == Focus::Files => {
+                self.selected().map_or(Some(Action::None), |file| {
+                    Some(self.output(file.path.clone()))
+                })
+            }
+            Key::Enter => Some(self.insert()),
+            Key::Char('o') => Some(self.set_output_target(match self.output_target {
                 OutputTarget::ActiveAgent => OutputTarget::Clipboard,
                 OutputTarget::Clipboard => OutputTarget::ActiveAgent,
-            }),
-            Key::Space | Key::Char(' ') => self.toggle_review(),
+            })),
+            Key::Space | Key::Char(' ') => Some(self.toggle_review()),
             Key::Visual | Key::Char('v' | 'V') if self.focus == Focus::Diff => {
                 self.visual();
-                Action::None
+                Some(Action::None)
             }
-            Key::Char('K') if self.focus == Focus::Diff => self.lsp(Operation::Hover),
+            Key::Char('K') if self.focus == Focus::Diff => Some(self.lsp(Operation::Hover)),
+            _ => None,
+        }
+    }
+
+    fn command_prefix_key(&mut self, key: Key) -> Option<Action> {
+        match key {
             Key::Char('g') => {
                 self.awaiting_g_command = true;
-                Action::None
+                Some(Action::None)
             }
             Key::Char('r') => {
                 self.awaiting_review_command = true;
-                Action::None
+                Some(Action::None)
             }
             Key::Char('[') => {
                 self.pending_guide_navigation_prefix = Some(SearchDirection::Backward);
-                Action::None
+                Some(Action::None)
             }
             Key::Char(']') => {
                 self.pending_guide_navigation_prefix = Some(SearchDirection::Forward);
-                Action::None
+                Some(Action::None)
             }
+            _ => None,
+        }
+    }
+
+    fn source_key(&mut self, key: Key) -> Option<Action> {
+        match key {
             Key::Char('h') if self.focus == Focus::Diff => self.move_source_column(-1),
             Key::Expand | Key::Char('l') if self.focus == Focus::Diff => {
                 if self.current_source().is_some() {
@@ -175,18 +227,38 @@ impl ReviewApp {
                 let end = self.current_source().map_or(0, |(_, line)| line.len());
                 self.set_source_column(end)
             }
-            Key::Down | Key::Char('j') => self.navigate(1),
-            Key::Up | Key::Char('k') => self.navigate(-1),
-            Key::First => self.jump_to(0),
+            _ => return None,
+        }
+        .into()
+    }
+
+    fn navigation_key(&mut self, key: Key) -> Action {
+        if let Some(action) = self.cursor_navigation_key(key) {
+            return action;
+        }
+        self.page_navigation_key(key).unwrap_or(Action::None)
+    }
+
+    fn cursor_navigation_key(&mut self, key: Key) -> Option<Action> {
+        match key {
+            Key::Down | Key::Char('j') => Some(self.navigate(1)),
+            Key::Up | Key::Char('k') => Some(self.navigate(-1)),
+            Key::First => Some(self.jump_to(0)),
             Key::Last | Key::Char('G') => {
                 let last = self.focus_len().saturating_sub(1);
-                self.jump_to(last)
+                Some(self.jump_to(last))
             }
-            Key::HalfPageDown => self.navigate_half_page(self.half_page_rows()),
-            Key::HalfPageUp => self.navigate_half_page(-self.half_page_rows()),
-            Key::PreviousLocation => self.previous_location(),
-            Key::NextLocation => self.next_location(),
-            Key::Char(_) | Key::Backspace | Key::Visual | Key::Expand => Action::None,
+            _ => None,
+        }
+    }
+
+    fn page_navigation_key(&mut self, key: Key) -> Option<Action> {
+        match key {
+            Key::HalfPageDown => Some(self.navigate_half_page(self.half_page_rows())),
+            Key::HalfPageUp => Some(self.navigate_half_page(-self.half_page_rows())),
+            Key::PreviousLocation => Some(self.previous_location()),
+            Key::NextLocation => Some(self.next_location()),
+            _ => None,
         }
     }
 
@@ -689,15 +761,26 @@ impl ReviewApp {
     }
 
     pub(super) fn mouse_click(&mut self, column: u16, row: u16, insert_path: bool) -> Action {
+        if let Some(action) = self.overlay_mouse_click(column, row) {
+            return action;
+        }
+        let layout = self.layout();
+        if let Some(action) = self.chrome_mouse_click(layout, column, row) {
+            return action;
+        }
+        self.pane_mouse_click(layout, column, row, insert_path)
+    }
+
+    fn overlay_mouse_click(&mut self, column: u16, row: u16) -> Option<Action> {
         if let Some(menu) = self.context_menu.take() {
-            return self.context_menu_click(&menu, column, row);
+            return Some(self.context_menu_click(&menu, column, row));
         }
         if self.locations.is_some()
             && self.layout().focus_at(self.focus, column, row) == Some(Focus::Files)
             && self.layout().contains_pane_content(row)
         {
             let scroll = self.locations.as_ref().map_or(0, |list| list.scroll);
-            return self.move_location_to(scroll + usize::from(row - 2));
+            return Some(self.move_location_to(scroll + usize::from(row - 2)));
         }
         if self.show_commit_message {
             let area =
@@ -705,26 +788,29 @@ impl ReviewApp {
             if !area.contains(Position::new(column, row)) {
                 self.show_commit_message = false;
             }
-            return Action::None;
+            return Some(Action::None);
         }
-        let layout = self.layout();
+        None
+    }
+
+    fn chrome_mouse_click(&mut self, layout: PaneLayout, column: u16, row: u16) -> Option<Action> {
         if self.commit_title_at(column, row) {
             self.show_commit_message = !self.show_commit_message;
-            return Action::None;
+            return Some(Action::None);
         }
         if row == self.height.saturating_sub(2)
             && let Some(target) = footer::FooterView::output_target_at(column)
         {
-            return self.set_output_target(target);
+            return Some(self.set_output_target(target));
         }
         if self.preview.is_some()
             && !layout.is_separator(column, row)
             && layout.focus_at(self.focus, column, row) == Some(Focus::Diff)
         {
-            return Action::None;
+            return Some(Action::None);
         }
         if let Some(control) = layout.diff_control_at(self.focus, column, row, self.selected()) {
-            return self.diff_control_click(control);
+            return Some(self.diff_control_click(control));
         }
         self.drag = if layout.is_separator(column, row) {
             DragState::Resize { moved: false }
@@ -732,8 +818,18 @@ impl ReviewApp {
             DragState::None
         };
         if matches!(self.drag, DragState::Resize { .. }) {
-            return Action::None;
+            return Some(Action::None);
         }
+        None
+    }
+
+    fn pane_mouse_click(
+        &mut self,
+        layout: PaneLayout,
+        column: u16,
+        row: u16,
+        insert_path: bool,
+    ) -> Action {
         let Some(focus) = layout.focus_at(self.focus, column, row) else {
             return Action::None;
         };

@@ -4,7 +4,7 @@ mod guide;
 
 use std::env;
 use std::io::{self, stdout};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
@@ -104,6 +104,21 @@ struct TerminalGuard {
     terminal: Terminal<CrosstermBackend<io::Stdout>>,
 }
 
+struct RuntimeEventLoop<'a> {
+    terminal: &'a mut TerminalGuard,
+    app: &'a mut ReviewApp,
+    commands: &'a Sender<WorkerCommand>,
+    messages: &'a Receiver<Message>,
+    herdr_events: &'a Receiver<HerdrEvent>,
+    lsp: &'a review_lsp::Worker,
+    lsp_root: &'a Path,
+    repository_root: &'a Path,
+    settings: &'a ReviewStore,
+    watcher: RepositoryWatcher,
+    mouse_clicks: MouseClicks,
+    stopped: &'a AtomicBool,
+}
+
 #[derive(Default)]
 struct MouseClicks {
     previous: Option<(u16, u16, Instant)>,
@@ -136,9 +151,7 @@ impl Runtime {
     /// Run until the user quits or Herdr stops the pane.
     pub fn run(self) -> eyre::Result<()> {
         let stopped = Arc::new(AtomicBool::new(false));
-        for signal in [SIGINT, SIGTERM, SIGHUP] {
-            flag::register(signal, Arc::clone(&stopped))?;
-        }
+        Self::register_stop_signals(&stopped)?;
 
         let settings = ReviewStore::open(&self.state_dir, self.repository.root())?;
         let file_pane_width = settings.file_pane_width()?;
@@ -156,8 +169,44 @@ impl Runtime {
             .draw(|frame| frame.render_widget(app.view(), frame.area()))?;
 
         let (commands, messages, worker) = self.start_worker()?;
+        let herdr_events = Self::start_herdr_events(self.client.clone());
+        let lsp_root = rust_project_root(&root);
+        let lsp = review_lsp::Worker::start(lsp_root.as_ref().unwrap_or(&root).clone());
+        if lsp_root.is_some() {
+            let _ = lsp.initialize();
+        }
+        commands.send(WorkerCommand::Poll)?;
+        let result = RuntimeEventLoop {
+            terminal: &mut terminal,
+            app: &mut app,
+            commands: &commands,
+            messages: &messages,
+            herdr_events: &herdr_events,
+            lsp: &lsp,
+            lsp_root: lsp_root.as_deref().unwrap_or(&root),
+            repository_root: &root,
+            settings: &settings,
+            watcher: RepositoryWatcher::new(self.repository.root(), self.repository.repo_type()),
+            mouse_clicks: MouseClicks::default(),
+            stopped: &stopped,
+        }
+        .run();
+        self.repository.cancel();
+        drop(terminal);
+        let _ = commands.send(WorkerCommand::Quit);
+        let _ = worker.join();
+        result
+    }
+
+    fn register_stop_signals(stopped: &Arc<AtomicBool>) -> eyre::Result<()> {
+        for signal in [SIGINT, SIGTERM, SIGHUP] {
+            flag::register(signal, Arc::clone(stopped))?;
+        }
+        Ok(())
+    }
+
+    fn start_herdr_events(event_client: HerdrClient) -> Receiver<HerdrEvent> {
         let (herdr_event_sender, herdr_events) = mpsc::channel();
-        let event_client = self.client.clone();
         thread::spawn(move || {
             let mut agent_panes = Vec::new();
             loop {
@@ -179,60 +228,7 @@ impl Runtime {
                 }
             }
         });
-        let lsp_root = rust_project_root(&root);
-        let lsp = review_lsp::Worker::start(lsp_root.as_ref().unwrap_or(&root).clone());
-        if lsp_root.is_some() {
-            let _ = lsp.initialize();
-        }
-        let mut watcher =
-            RepositoryWatcher::new(self.repository.root(), self.repository.repo_type());
-        let mut mouse_clicks = MouseClicks::default();
-        commands.send(WorkerCommand::Poll)?;
-        let result = loop {
-            Self::drain_herdr_events(&commands, &herdr_events);
-            if Self::drain_lsp(
-                &lsp,
-                lsp_root.as_deref().unwrap_or(&root),
-                &mut app,
-                &commands,
-                &settings,
-            )? || Self::drain_messages(&commands, &messages, &settings, &mut app, &root, &lsp)?
-            {
-                break Ok(());
-            }
-            if stopped.load(Ordering::Relaxed) {
-                break Ok(());
-            }
-            if watcher.poll_due(std::time::Instant::now()) {
-                commands.send(WorkerCommand::Poll)?;
-            }
-            let area = terminal.terminal.size()?;
-            let _ = app.update(Message::Resize {
-                width: area.width,
-                height: area.height,
-            });
-            let _ = app.update(Message::Tick(Instant::now()));
-            terminal
-                .terminal
-                .draw(|frame| frame.render_widget(app.view(), frame.area()))?;
-            if event::poll(EVENT_WAIT)? {
-                let message = match event::read()? {
-                    Event::Key(key) => normalize_key(key).map(Message::Key),
-                    Event::Mouse(mouse) => mouse_clicks.normalize(mouse),
-                    _ => None,
-                };
-                if let Some(message) = message
-                    && Self::dispatch(&commands, &settings, app.update(message), &root, &lsp)?
-                {
-                    break Ok(());
-                }
-            }
-        };
-        self.repository.cancel();
-        drop(terminal);
-        let _ = commands.send(WorkerCommand::Quit);
-        let _ = worker.join();
-        result
+        herdr_events
     }
 
     fn start_worker(
@@ -340,7 +336,7 @@ impl Runtime {
         root: &std::path::Path,
         lsp: &review_lsp::Worker,
     ) -> eyre::Result<bool> {
-        let command = match action {
+        let action = match action {
             Action::None => return Ok(false),
             Action::Quit => return Ok(true),
             Action::SaveFilePaneWidth(columns) => {
@@ -351,23 +347,6 @@ impl Runtime {
                 settings.save_output_target(target)?;
                 return Ok(false);
             }
-            Action::LoadDiff { commit_id, path } => {
-                open_rust_document(root, lsp, &path);
-                WorkerCommand::LoadDiff { commit_id, path }
-            }
-            Action::LoadDiffs { commit_id, paths } => {
-                for path in paths {
-                    open_rust_document(root, lsp, &path);
-                    commands.send(WorkerCommand::LoadDiff {
-                        commit_id: commit_id.clone(),
-                        path,
-                    })?;
-                }
-                return Ok(false);
-            }
-            Action::SetReviewed { path, reviewed } => WorkerCommand::SetReviewed { path, reviewed },
-            Action::Output { target, text } => WorkerCommand::Output { target, text },
-            Action::GenerateReviewGuide { scope } => WorkerCommand::GenerateReviewGuide(scope),
             Action::Lsp {
                 operation,
                 mut query,
@@ -384,6 +363,38 @@ impl Runtime {
                 lsp.restart().map_err(eyre::Report::msg)?;
                 return Ok(false);
             }
+            action => action,
+        };
+        if let Some(command) = Self::worker_command(commands, root, lsp, action)? {
+            commands.send(command)?;
+        }
+        Ok(false)
+    }
+
+    fn worker_command(
+        commands: &Sender<WorkerCommand>,
+        root: &std::path::Path,
+        lsp: &review_lsp::Worker,
+        action: Action,
+    ) -> eyre::Result<Option<WorkerCommand>> {
+        Ok(Some(match action {
+            Action::LoadDiff { commit_id, path } => {
+                open_rust_document(root, lsp, &path);
+                WorkerCommand::LoadDiff { commit_id, path }
+            }
+            Action::LoadDiffs { commit_id, paths } => {
+                for path in paths {
+                    open_rust_document(root, lsp, &path);
+                    commands.send(WorkerCommand::LoadDiff {
+                        commit_id: commit_id.clone(),
+                        path,
+                    })?;
+                }
+                return Ok(None);
+            }
+            Action::SetReviewed { path, reviewed } => WorkerCommand::SetReviewed { path, reviewed },
+            Action::Output { target, text } => WorkerCommand::Output { target, text },
+            Action::GenerateReviewGuide { scope } => WorkerCommand::GenerateReviewGuide(scope),
             Action::LoadSource {
                 snapshot_id,
                 mut location,
@@ -398,9 +409,82 @@ impl Runtime {
                     mode,
                 }
             }
+            Action::None
+            | Action::Quit
+            | Action::SaveFilePaneWidth(_)
+            | Action::SaveOutputTarget(_)
+            | Action::Lsp { .. }
+            | Action::RestartLsp => unreachable!("local actions are handled before conversion"),
+        }))
+    }
+}
+
+impl RuntimeEventLoop<'_> {
+    fn run(&mut self) -> eyre::Result<()> {
+        while !self.cycle()? {}
+        Ok(())
+    }
+
+    fn cycle(&mut self) -> eyre::Result<bool> {
+        Runtime::drain_herdr_events(self.commands, self.herdr_events);
+        if Runtime::drain_lsp(
+            self.lsp,
+            self.lsp_root,
+            self.app,
+            self.commands,
+            self.settings,
+        )? || Runtime::drain_messages(
+            self.commands,
+            self.messages,
+            self.settings,
+            self.app,
+            self.repository_root,
+            self.lsp,
+        )? {
+            return Ok(true);
+        }
+        if self.stopped.load(Ordering::Relaxed) {
+            return Ok(true);
+        }
+        if self.watcher.poll_due(std::time::Instant::now()) {
+            self.commands.send(WorkerCommand::Poll)?;
+        }
+        self.redraw()?;
+        self.poll_input()
+    }
+
+    fn redraw(&mut self) -> eyre::Result<()> {
+        let area = self.terminal.terminal.size()?;
+        let _ = self.app.update(Message::Resize {
+            width: area.width,
+            height: area.height,
+        });
+        let _ = self.app.update(Message::Tick(Instant::now()));
+        self.terminal
+            .terminal
+            .draw(|frame| frame.render_widget(self.app.view(), frame.area()))?;
+        Ok(())
+    }
+
+    fn poll_input(&mut self) -> eyre::Result<bool> {
+        if !event::poll(EVENT_WAIT)? {
+            return Ok(false);
+        }
+        let message = match event::read()? {
+            Event::Key(key) => normalize_key(key).map(Message::Key),
+            Event::Mouse(mouse) => self.mouse_clicks.normalize(mouse),
+            _ => None,
         };
-        commands.send(command)?;
-        Ok(false)
+        let Some(message) = message else {
+            return Ok(false);
+        };
+        Runtime::dispatch(
+            self.commands,
+            self.settings,
+            self.app.update(message),
+            self.repository_root,
+            self.lsp,
+        )
     }
 }
 
@@ -437,66 +521,81 @@ impl Worker {
     fn run(&mut self, commands: &Receiver<WorkerCommand>, messages: &Sender<Message>) {
         let mut clipboard = None;
         while let Ok(command) = commands.recv() {
-            let keep_running = match command {
-                WorkerCommand::Poll => {
-                    self.poll(messages);
-                    true
-                }
-                WorkerCommand::LoadDiff { commit_id, path } => {
-                    self.load_diff(messages, commit_id, path);
-                    true
-                }
-                WorkerCommand::LoadSource {
-                    snapshot_id,
-                    location,
-                    mode,
-                } => {
-                    Self::load_source(messages, snapshot_id, location, mode);
-                    true
-                }
-                WorkerCommand::SetReviewed { path, reviewed } => {
-                    self.set_reviewed(messages, path, reviewed);
-                    true
-                }
-                WorkerCommand::Output { target, text } => {
-                    self.output(messages, &mut clipboard, target, &text);
-                    true
-                }
-                WorkerCommand::GenerateReviewGuide(scope) => {
-                    self.guide_operation(|guide, context| {
-                        guide.generate_review_guide(context, messages, &scope);
-                    });
-                    true
-                }
-                WorkerCommand::GuideSubmitted { request_id } => {
-                    self.guide_operation(|guide, context| {
-                        guide.mark_submitted(context, &request_id);
-                    });
-                    true
-                }
-                WorkerCommand::GuideFinished(finished) => {
-                    self.guide_operation(|guide, context| {
-                        guide.finish_review_guide(context, messages, finished);
-                    });
-                    true
-                }
-                WorkerCommand::HerdrEvent(event) => {
-                    self.guide.observe_guide_event(&event);
-                    true
-                }
-                WorkerCommand::Focus(pane_id) => {
-                    self.target.observe_focus(&pane_id);
-                    true
-                }
-                WorkerCommand::Quit => {
-                    self.guide_operation(|guide, context| guide.stop(context));
-                    false
-                }
-            };
-            if !keep_running {
+            if !self.handle_command(command, messages, &mut clipboard) {
                 return;
             }
         }
+    }
+
+    fn handle_command(
+        &mut self,
+        command: WorkerCommand,
+        messages: &Sender<Message>,
+        clipboard: &mut Option<arboard::Clipboard>,
+    ) -> bool {
+        match command {
+            WorkerCommand::Poll => {
+                self.poll(messages);
+                true
+            }
+            WorkerCommand::LoadDiff { commit_id, path } => {
+                self.load_diff(messages, commit_id, path);
+                true
+            }
+            WorkerCommand::LoadSource {
+                snapshot_id,
+                location,
+                mode,
+            } => {
+                Self::load_source(messages, snapshot_id, location, mode);
+                true
+            }
+            WorkerCommand::SetReviewed { path, reviewed } => {
+                self.set_reviewed(messages, path, reviewed);
+                true
+            }
+            WorkerCommand::Output { target, text } => {
+                self.output(messages, clipboard, target, &text);
+                true
+            }
+            command @ (WorkerCommand::GenerateReviewGuide(_)
+            | WorkerCommand::GuideSubmitted { .. }
+            | WorkerCommand::GuideFinished(_)) => self.handle_guide_command(command, messages),
+            WorkerCommand::HerdrEvent(event) => {
+                self.guide.observe_guide_event(&event);
+                true
+            }
+            WorkerCommand::Focus(pane_id) => {
+                self.target.observe_focus(&pane_id);
+                true
+            }
+            WorkerCommand::Quit => {
+                self.guide_operation(|guide, context| guide.stop(context));
+                false
+            }
+        }
+    }
+
+    fn handle_guide_command(&mut self, command: WorkerCommand, messages: &Sender<Message>) -> bool {
+        match command {
+            WorkerCommand::GenerateReviewGuide(scope) => {
+                self.guide_operation(|guide, context| {
+                    guide.generate_review_guide(context, messages, &scope);
+                });
+            }
+            WorkerCommand::GuideSubmitted { request_id } => {
+                self.guide_operation(|guide, context| {
+                    guide.mark_submitted(context, &request_id);
+                });
+            }
+            WorkerCommand::GuideFinished(finished) => {
+                self.guide_operation(|guide, context| {
+                    guide.finish_review_guide(context, messages, finished);
+                });
+            }
+            _ => unreachable!("only guide commands are delegated here"),
+        }
+        true
     }
 
     fn load_source(
@@ -818,15 +917,23 @@ impl MouseClicks {
 
 fn normalize_key(key: KeyEvent) -> Option<Key> {
     if key.modifiers.contains(KeyModifiers::CONTROL) {
-        return match key.code {
-            KeyCode::Char('d') => Some(Key::HalfPageDown),
-            KeyCode::Char('u') => Some(Key::HalfPageUp),
-            KeyCode::Char('o') => Some(Key::PreviousLocation),
-            KeyCode::Char('i') => Some(Key::NextLocation),
-            _ => None,
-        };
+        return normalize_control_key(key.code);
     }
-    match key.code {
+    normalize_plain_key(key.code)
+}
+
+fn normalize_control_key(code: KeyCode) -> Option<Key> {
+    match code {
+        KeyCode::Char('d') => Some(Key::HalfPageDown),
+        KeyCode::Char('u') => Some(Key::HalfPageUp),
+        KeyCode::Char('o') => Some(Key::PreviousLocation),
+        KeyCode::Char('i') => Some(Key::NextLocation),
+        _ => None,
+    }
+}
+
+fn normalize_plain_key(code: KeyCode) -> Option<Key> {
+    match code {
         KeyCode::Tab => Some(Key::Tab),
         KeyCode::Down => Some(Key::Down),
         KeyCode::Up => Some(Key::Up),

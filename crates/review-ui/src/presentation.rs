@@ -7,7 +7,7 @@ use review_guide::GuideLineRange;
 use review_repository::diff::DiffRow;
 use review_repository::excerpt::{DiffExcerpt, ExcerptError};
 
-use crate::highlight::{HighlightedDiff, HighlightedFile, Token};
+use crate::highlight::{HighlightedDiff, HighlightedFile, HighlightedRow, Token};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum PresentedRow {
@@ -54,6 +54,14 @@ pub(crate) struct DiffPresentation {
     view: PresentationView,
 }
 
+struct PresentationRows<'a> {
+    source: Vec<DiffRow>,
+    rows: Vec<PresentedRow>,
+    whole_file: Option<WholeFile>,
+    after_change_lines: Option<&'a [Vec<Token>]>,
+    previous_hunk_end: Option<u32>,
+}
+
 impl DiffPresentation {
     pub(crate) fn new(highlighted: HighlightedDiff) -> Self {
         let HighlightedDiff {
@@ -61,59 +69,14 @@ impl DiffPresentation {
             file,
         } = highlighted;
         let after_change_lines = file.as_ref().and_then(HighlightedFile::after_change_lines);
-        let whole_file = highlighted_rows.iter().find_map(|row| match &row.diff {
-            DiffRow::Meta { text } if text.starts_with("new file mode ") => Some(WholeFile::Added),
-            DiffRow::Meta { text } if text.starts_with("deleted file mode ") => {
-                Some(WholeFile::Deleted)
-            }
-            _ => None,
-        });
-        let mut source = Vec::with_capacity(highlighted_rows.len());
-        let mut rows = Vec::with_capacity(highlighted_rows.len());
-        let mut previous_hunk_end = None;
+        let whole_file = WholeFile::detect(&highlighted_rows);
+        let mut presentation_rows =
+            PresentationRows::new(highlighted_rows.len(), whole_file, after_change_lines);
         for highlighted_row in highlighted_rows {
-            let visible = match whole_file {
-                Some(WholeFile::Added) => matches!(highlighted_row.diff, DiffRow::Add { .. }),
-                Some(WholeFile::Deleted) => matches!(highlighted_row.diff, DiffRow::Delete { .. }),
-                None => matches!(
-                    highlighted_row.diff,
-                    DiffRow::Context { .. }
-                        | DiffRow::Delete { .. }
-                        | DiffRow::Add { .. }
-                        | DiffRow::Notice { .. }
-                ),
-            };
-            if let DiffRow::Hunk {
-                new_start,
-                new_count,
-                ..
-            } = &highlighted_row.diff
-            {
-                let start = previous_hunk_end.unwrap_or(1);
-                if *new_start > start
-                    && let Some(lines) = Self::gap_lines(after_change_lines, start, *new_start)
-                {
-                    rows.push(PresentedRow::Gap { start, lines });
-                }
-                previous_hunk_end = Some(new_start.saturating_add(*new_count));
-            }
-            source.push(highlighted_row.diff);
-            if visible {
-                rows.push(PresentedRow::Diff {
-                    source: source.len() - 1,
-                    tokens: highlighted_row.tokens,
-                });
-            }
+            presentation_rows.push(highlighted_row);
         }
-        if let Some(start) = previous_hunk_end
-            && let Some(end) = after_change_lines
-                .and_then(|lines| u32::try_from(lines.len()).ok())
-                .map(|last| last.saturating_add(1))
-            && end > start
-            && let Some(lines) = Self::gap_lines(after_change_lines, start, end)
-        {
-            rows.push(PresentedRow::Gap { start, lines });
-        }
+        presentation_rows.finish();
+        let PresentationRows { source, rows, .. } = presentation_rows;
         let file_rows = file.map(HighlightedFile::into_lines).map(|lines| {
             lines
                 .into_iter()
@@ -527,6 +490,99 @@ impl DiffPresentation {
         let start = sources.next().ok_or(ExcerptError::NoContent)?;
         let end = sources.next_back().unwrap_or(start);
         DiffExcerpt::build(&self.source, start..=end)
+    }
+}
+
+impl WholeFile {
+    fn detect(rows: &[HighlightedRow]) -> Option<Self> {
+        rows.iter().find_map(|row| match &row.diff {
+            DiffRow::Meta { text } if text.starts_with("new file mode ") => Some(Self::Added),
+            DiffRow::Meta { text } if text.starts_with("deleted file mode ") => Some(Self::Deleted),
+            _ => None,
+        })
+    }
+
+    fn includes(self, row: &DiffRow) -> bool {
+        match self {
+            Self::Added => matches!(row, DiffRow::Add { .. }),
+            Self::Deleted => matches!(row, DiffRow::Delete { .. }),
+        }
+    }
+}
+
+impl<'a> PresentationRows<'a> {
+    fn new(
+        capacity: usize,
+        whole_file: Option<WholeFile>,
+        after_change_lines: Option<&'a [Vec<Token>]>,
+    ) -> Self {
+        Self {
+            source: Vec::with_capacity(capacity),
+            rows: Vec::with_capacity(capacity),
+            whole_file,
+            after_change_lines,
+            previous_hunk_end: None,
+        }
+    }
+
+    fn push(&mut self, highlighted: HighlightedRow) {
+        let visible = self.whole_file.map_or_else(
+            || {
+                matches!(
+                    highlighted.diff,
+                    DiffRow::Context { .. }
+                        | DiffRow::Delete { .. }
+                        | DiffRow::Add { .. }
+                        | DiffRow::Notice { .. }
+                )
+            },
+            |whole_file| whole_file.includes(&highlighted.diff),
+        );
+        self.push_gap_before(&highlighted.diff);
+        self.source.push(highlighted.diff);
+        if visible {
+            self.rows.push(PresentedRow::Diff {
+                source: self.source.len() - 1,
+                tokens: highlighted.tokens,
+            });
+        }
+    }
+
+    fn push_gap_before(&mut self, row: &DiffRow) {
+        let DiffRow::Hunk {
+            new_start,
+            new_count,
+            ..
+        } = row
+        else {
+            return;
+        };
+        let start = self.previous_hunk_end.unwrap_or(1);
+        if *new_start > start
+            && let Some(lines) =
+                DiffPresentation::gap_lines(self.after_change_lines, start, *new_start)
+        {
+            self.rows.push(PresentedRow::Gap { start, lines });
+        }
+        self.previous_hunk_end = Some(new_start.saturating_add(*new_count));
+    }
+
+    fn finish(&mut self) {
+        let Some(start) = self.previous_hunk_end else {
+            return;
+        };
+        let Some(end) = self
+            .after_change_lines
+            .and_then(|lines| u32::try_from(lines.len()).ok())
+            .map(|last| last.saturating_add(1))
+        else {
+            return;
+        };
+        if end > start
+            && let Some(lines) = DiffPresentation::gap_lines(self.after_change_lines, start, end)
+        {
+            self.rows.push(PresentedRow::Gap { start, lines });
+        }
     }
 }
 

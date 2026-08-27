@@ -9,7 +9,7 @@ build:
 	done
 
 check: export RUSTFLAGS = -Dwarnings
-check:
+check: complexity
 	cargo fmt --all --check
 	cargo check --workspace
 	cargo clippy --workspace --all-targets
@@ -17,7 +17,8 @@ check:
 	cargo nextest run --workspace
 
 complexity:
-	cccc --lang rust crates | jq -r '[.files[] | .path as $$path | .functions[] | recurse(.children[]?) | select(.cyclomatic > 10 or .cognitive > 15) | { path: $$path, line, name, cognitive, cyclomatic }] | sort_by([-.cyclomatic, -.cognitive, .path, .line]) | ("Cognitive\tCyclomatic\tFunction", (.[] | "\(.cognitive)\t\(.cyclomatic)\t\(.path):\(.line) \(.name)"))'
+	@report="$$(cccc --lang rust crates | jq -r '[.files[] | .path as $$path | .functions[] | recurse(.children[]?) | select(.cyclomatic > 10 or .cognitive > 15) | { path: $$path, line, name, cognitive, cyclomatic }] | sort_by([-.cyclomatic, -.cognitive, .path, .line]) | if length == 0 then empty else ("Cognitive\tCyclomatic\tFunction", (.[] | "\(.cognitive)\t\(.cyclomatic)\t\(.path):\(.line) \(.name)")) end')" || exit; \
+	if [ -n "$$report" ]; then printf '%s\n' "$$report"; exit 1; fi
 
 mutants:
 	cargo mutants --workspace --test-workspace=true --test-tool=nextest

@@ -395,45 +395,23 @@ impl DiffView<'_> {
         let mut token_start = 0;
         for token in tokens {
             let token_end = token_start + token.text.len();
-            let mut boundaries = vec![token_start, token_end];
-            for range in matches
-                .iter()
-                .filter(|range| range.start < token_end && range.end > token_start)
-            {
-                boundaries.push(range.start.max(token_start));
-                boundaries.push(range.end.min(token_end));
-            }
-            if let Some(range) = source_selection
-                .as_ref()
-                .filter(|range| range.start < token_end && range.end > token_start)
-            {
-                boundaries.push(range.start.max(token_start));
-                boundaries.push(range.end.min(token_end));
-            }
-            if let Some(column) = cursor_column.filter(|column| {
-                *column >= token_start && *column < token_end && text.is_char_boundary(*column)
-            }) {
-                boundaries.push(column);
-                boundaries.push(column + text[column..].chars().next().map_or(0, char::len_utf8));
-            }
-            boundaries.sort_unstable();
-            boundaries.dedup();
+            let boundaries = token_boundaries(
+                token_start..token_end,
+                &matches,
+                source_selection.as_ref(),
+                cursor_column,
+                &text,
+            );
             for pair in boundaries.windows(2) {
                 let start = pair[0];
                 let end = pair[1];
-                let mut style = Style::default().fg(token.color);
-                if matches
-                    .iter()
-                    .any(|range| range.start <= start && range.end >= end)
-                    || source_selection
-                        .as_ref()
-                        .is_some_and(|range| range.start <= start && range.end >= end)
-                {
-                    style = style.add_modifier(Modifier::REVERSED);
-                }
-                if cursor_column == Some(start) {
-                    style = style.add_modifier(Modifier::REVERSED | Modifier::BOLD);
-                }
+                let style = code_span_style(
+                    token.color,
+                    start..end,
+                    &matches,
+                    source_selection.as_ref(),
+                    cursor_column,
+                );
                 spans.push(Span::styled(
                     token.text[start - token_start..end - token_start].replace('\t', &tab_display),
                     style,
@@ -481,6 +459,59 @@ impl DiffView<'_> {
             DiffRow::Context { .. } => Style::default().fg(self.0.palette.text),
         }
     }
+}
+
+fn token_boundaries(
+    token: Range<usize>,
+    matches: &[Range<usize>],
+    source_selection: Option<&Range<usize>>,
+    cursor_column: Option<usize>,
+    text: &str,
+) -> Vec<usize> {
+    let mut boundaries = vec![token.start, token.end];
+    for range in matches
+        .iter()
+        .filter(|range| range.start < token.end && range.end > token.start)
+    {
+        boundaries.push(range.start.max(token.start));
+        boundaries.push(range.end.min(token.end));
+    }
+    if let Some(range) =
+        source_selection.filter(|range| range.start < token.end && range.end > token.start)
+    {
+        boundaries.push(range.start.max(token.start));
+        boundaries.push(range.end.min(token.end));
+    }
+    if let Some(column) = cursor_column.filter(|column| {
+        *column >= token.start && *column < token.end && text.is_char_boundary(*column)
+    }) {
+        boundaries.push(column);
+        boundaries.push(column + text[column..].chars().next().map_or(0, char::len_utf8));
+    }
+    boundaries.sort_unstable();
+    boundaries.dedup();
+    boundaries
+}
+
+fn code_span_style(
+    color: Color,
+    span: Range<usize>,
+    matches: &[Range<usize>],
+    source_selection: Option<&Range<usize>>,
+    cursor_column: Option<usize>,
+) -> Style {
+    let selected = matches
+        .iter()
+        .any(|range| range.start <= span.start && range.end >= span.end)
+        || source_selection.is_some_and(|range| range.start <= span.start && range.end >= span.end);
+    let mut style = Style::default().fg(color);
+    if selected {
+        style = style.add_modifier(Modifier::REVERSED);
+    }
+    if cursor_column == Some(span.start) {
+        style = style.add_modifier(Modifier::REVERSED | Modifier::BOLD);
+    }
+    style
 }
 
 #[derive(Clone)]
@@ -617,3 +648,4 @@ fn source_display_width(line: &str, byte_column: usize) -> usize {
         .map(|(_, grapheme)| text_display_width(grapheme))
         .sum()
 }
+use std::ops::Range;

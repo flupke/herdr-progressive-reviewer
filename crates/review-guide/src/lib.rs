@@ -239,61 +239,13 @@ impl GuideResponse {
         if self.request_id != request_id {
             return Err(ValidationError::Request);
         }
-        let files = files
-            .iter()
-            .map(|file| (file.path.as_str(), file))
-            .collect::<HashMap<_, _>>();
-        let mut ranges: HashMap<String, Vec<TargetRanges>> = HashMap::new();
+        let mut validator = ResponseValidator::new(files);
         let mut accepted = Vec::new();
         let mut rejected_items = 0;
         for mut item in self.items {
             item.text = item.text.split_whitespace().collect::<Vec<_>>().join(" ");
             item.status = GuideItemStatus::Matched;
-            let valid = !item.text.is_empty()
-                && match &item.target {
-                    GuideTarget::Hunks {
-                        path,
-                        first_hunk,
-                        last_hunk,
-                    } => {
-                        let Some(file) = files.get(path.as_str()).copied() else {
-                            rejected_items += 1;
-                            continue;
-                        };
-                        if *first_hunk == 0
-                            || first_hunk > last_hunk
-                            || *last_hunk > file.hunk_count
-                        {
-                            false
-                        } else {
-                            let selected = &file.hunks[first_hunk - 1..*last_hunk];
-                            accept_non_overlapping(
-                                &mut ranges,
-                                path,
-                                TargetRanges {
-                                    old: enclosing_range(
-                                        selected.iter().filter_map(|hunk| hunk.old.clone()),
-                                    ),
-                                    new: enclosing_range(
-                                        selected.iter().filter_map(|hunk| hunk.new.clone()),
-                                    ),
-                                },
-                            )
-                        }
-                    }
-                    GuideTarget::Lines { path, old, new } => {
-                        let Some(file) = files.get(path.as_str()).copied() else {
-                            rejected_items += 1;
-                            continue;
-                        };
-                        line_target_ranges(file, old.as_ref(), new.as_ref())
-                            .is_some_and(|target| accept_non_overlapping(&mut ranges, path, target))
-                    }
-                    GuideTarget::File { path } => files
-                        .get(path.as_str())
-                        .is_some_and(|file| file.hunk_count == 0),
-                };
-            if valid {
+            if !item.text.is_empty() && validator.accept(&item.target) {
                 accepted.push(item);
             } else {
                 rejected_items += 1;
@@ -310,6 +262,70 @@ impl GuideResponse {
 struct TargetRanges {
     old: Option<Range<u32>>,
     new: Option<Range<u32>>,
+}
+
+struct ResponseValidator<'a> {
+    files: HashMap<&'a str, &'a FrozenFile>,
+    ranges: HashMap<String, Vec<TargetRanges>>,
+}
+
+impl<'a> ResponseValidator<'a> {
+    fn new(files: &'a [FrozenFile]) -> Self {
+        Self {
+            files: files
+                .iter()
+                .map(|file| (file.path.as_str(), file))
+                .collect(),
+            ranges: HashMap::new(),
+        }
+    }
+
+    fn accept(&mut self, target: &GuideTarget) -> bool {
+        match target {
+            GuideTarget::Hunks {
+                path,
+                first_hunk,
+                last_hunk,
+            } => self.accept_hunks(path, *first_hunk, *last_hunk),
+            GuideTarget::Lines { path, old, new } => {
+                self.accept_lines(path, old.as_ref(), new.as_ref())
+            }
+            GuideTarget::File { path } => self
+                .files
+                .get(path.as_str())
+                .is_some_and(|file| file.hunk_count == 0),
+        }
+    }
+
+    fn accept_hunks(&mut self, path: &str, first_hunk: usize, last_hunk: usize) -> bool {
+        let Some(file) = self.files.get(path).copied() else {
+            return false;
+        };
+        if first_hunk == 0 || first_hunk > last_hunk || last_hunk > file.hunk_count {
+            return false;
+        }
+        let selected = &file.hunks[first_hunk - 1..last_hunk];
+        accept_non_overlapping(
+            &mut self.ranges,
+            path,
+            TargetRanges {
+                old: enclosing_range(selected.iter().filter_map(|hunk| hunk.old.clone())),
+                new: enclosing_range(selected.iter().filter_map(|hunk| hunk.new.clone())),
+            },
+        )
+    }
+
+    fn accept_lines(
+        &mut self,
+        path: &str,
+        old: Option<&GuideLineRange>,
+        new: Option<&GuideLineRange>,
+    ) -> bool {
+        self.files
+            .get(path)
+            .and_then(|file| line_target_ranges(file, old, new))
+            .is_some_and(|target| accept_non_overlapping(&mut self.ranges, path, target))
+    }
 }
 
 fn accept_non_overlapping(
@@ -571,37 +587,54 @@ fn map_anchored_item(item: &AnchoredGuideItem, current: &FrozenFile) -> Option<G
     )
     .ok()?;
     if item.anchor.target_kind == GuideAnchorKind::Lines {
-        let old_hunks = covered_hunks(
-            old_lines.as_ref(),
-            current.hunks.iter().map(|hunk| hunk.old.as_ref()),
-        )?;
-        let new_hunks = covered_hunks(
-            new_lines.as_ref(),
-            current.hunks.iter().map(|hunk| hunk.new.as_ref()),
-        )?;
-        if old_hunks != CoveredHunks::NotRequested
-            && new_hunks != CoveredHunks::NotRequested
-            && old_hunks != new_hunks
-        {
-            return None;
-        }
-        return Some(GuideItem {
-            target: GuideTarget::Lines {
-                path: current.path.clone(),
-                old: old_lines.map(GuideLineRange::from_half_open),
-                new: new_lines.map(GuideLineRange::from_half_open),
-            },
-            text: item.text.clone(),
-            status: GuideItemStatus::Stale,
-        });
+        return map_line_item(item, current, old_lines, new_lines);
     }
+    map_hunk_item(item, current, old_lines.as_ref(), new_lines.as_ref())
+}
+
+fn map_line_item(
+    item: &AnchoredGuideItem,
+    current: &FrozenFile,
+    old_lines: Option<Range<u32>>,
+    new_lines: Option<Range<u32>>,
+) -> Option<GuideItem> {
+    let old_hunks = covered_hunks(
+        old_lines.as_ref(),
+        current.hunks.iter().map(|hunk| hunk.old.as_ref()),
+    )?;
+    let new_hunks = covered_hunks(
+        new_lines.as_ref(),
+        current.hunks.iter().map(|hunk| hunk.new.as_ref()),
+    )?;
+    let both_requested =
+        old_hunks != CoveredHunks::NotRequested && new_hunks != CoveredHunks::NotRequested;
+    if both_requested && old_hunks != new_hunks {
+        return None;
+    }
+    Some(GuideItem {
+        target: GuideTarget::Lines {
+            path: current.path.clone(),
+            old: old_lines.map(GuideLineRange::from_half_open),
+            new: new_lines.map(GuideLineRange::from_half_open),
+        },
+        text: item.text.clone(),
+        status: GuideItemStatus::Stale,
+    })
+}
+
+fn map_hunk_item(
+    item: &AnchoredGuideItem,
+    current: &FrozenFile,
+    old_lines: Option<&Range<u32>>,
+    new_lines: Option<&Range<u32>>,
+) -> Option<GuideItem> {
     let matching = current
         .hunks
         .iter()
         .enumerate()
         .filter(|(_, hunk)| {
-            ranges_overlap(hunk.old.as_ref(), old_lines.as_ref())
-                || ranges_overlap(hunk.new.as_ref(), new_lines.as_ref())
+            ranges_overlap(hunk.old.as_ref(), old_lines)
+                || ranges_overlap(hunk.new.as_ref(), new_lines)
         })
         .map(|(index, _)| index)
         .collect::<Vec<_>>();
@@ -611,8 +644,9 @@ fn map_anchored_item(item: &AnchoredGuideItem, current: &FrozenFile) -> Option<G
         return None;
     }
     let selected = &current.hunks[first..=last];
-    if enclosing_range(selected.iter().filter_map(|hunk| hunk.old.clone())) != old_lines
-        || enclosing_range(selected.iter().filter_map(|hunk| hunk.new.clone())) != new_lines
+    if enclosing_range(selected.iter().filter_map(|hunk| hunk.old.clone())).as_ref() != old_lines
+        || enclosing_range(selected.iter().filter_map(|hunk| hunk.new.clone())).as_ref()
+            != new_lines
     {
         return None;
     }

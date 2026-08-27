@@ -167,17 +167,19 @@ impl DiffParser {
     }
 
     fn is_metadata(line: &str) -> bool {
-        line.starts_with("index ")
-            || line.starts_with("--- ")
-            || line.starts_with("+++ ")
-            || line.starts_with("old mode ")
-            || line.starts_with("new mode ")
-            || line.starts_with("new file mode ")
-            || line.starts_with("deleted file mode ")
-            || line.starts_with("similarity index ")
-            || line.starts_with("rename from ")
-            || line.starts_with("rename to ")
-            || line.is_empty()
+        const PREFIXES: [&str; 10] = [
+            "index ",
+            "--- ",
+            "+++ ",
+            "old mode ",
+            "new mode ",
+            "new file mode ",
+            "deleted file mode ",
+            "similarity index ",
+            "rename from ",
+            "rename to ",
+        ];
+        line.is_empty() || PREFIXES.iter().any(|prefix| line.starts_with(prefix))
     }
 }
 

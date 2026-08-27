@@ -51,6 +51,14 @@ struct Anchors {
     focus: Color,
 }
 
+#[derive(Clone, Copy)]
+struct ThemeDefinition {
+    name: &'static str,
+    appearance: Appearance,
+    syntax: EmbeddedThemeName,
+    anchors: Anchors,
+}
+
 impl Theme {
     /// Read the optional theme from the Herdr plugin configuration.
     pub fn from_env() -> eyre::Result<Self> {
@@ -81,27 +89,96 @@ impl Theme {
     fn resolve(name: &str) -> Option<Self> {
         use Appearance::{Dark, Light};
         use EmbeddedThemeName as Syntax;
-
-        let (appearance, syntax, anchors) = match name {
-            "catppuccin" => (Dark, Syntax::CatppuccinMocha, CATPPUCCIN),
-            "catppuccin-latte" => (Light, Syntax::CatppuccinLatte, CATPPUCCIN_LATTE),
-            "catppuccin-frappe" => (Dark, Syntax::CatppuccinFrappe, CATPPUCCIN_FRAPPE),
-            "catppuccin-macchiato" => (Dark, Syntax::CatppuccinMacchiato, CATPPUCCIN_MACCHIATO),
-            "dracula" => (Dark, Syntax::Dracula, DRACULA),
-            "nord" => (Dark, Syntax::Nord, NORD),
-            "gruvbox" => (Dark, Syntax::GruvboxDark, GRUVBOX),
-            "gruvbox-light" => (Light, Syntax::GruvboxLight, GRUVBOX_LIGHT),
-            "one-dark" => (Dark, Syntax::TwoDark, ONE_DARK),
-            "one-light" => (Light, Syntax::OneHalfLight, ONE_LIGHT),
-            "solarized" => (Dark, Syntax::SolarizedDark, SOLARIZED),
-            "solarized-light" => (Light, Syntax::SolarizedLight, SOLARIZED_LIGHT),
-            "github-light" => (Light, Syntax::Github, GITHUB_LIGHT),
-            "monokai" => (Dark, Syntax::MonokaiExtended, MONOKAI),
-            _ => return None,
-        };
+        const DEFINITIONS: &[ThemeDefinition] = &[
+            ThemeDefinition {
+                name: "catppuccin",
+                appearance: Dark,
+                syntax: Syntax::CatppuccinMocha,
+                anchors: CATPPUCCIN,
+            },
+            ThemeDefinition {
+                name: "catppuccin-latte",
+                appearance: Light,
+                syntax: Syntax::CatppuccinLatte,
+                anchors: CATPPUCCIN_LATTE,
+            },
+            ThemeDefinition {
+                name: "catppuccin-frappe",
+                appearance: Dark,
+                syntax: Syntax::CatppuccinFrappe,
+                anchors: CATPPUCCIN_FRAPPE,
+            },
+            ThemeDefinition {
+                name: "catppuccin-macchiato",
+                appearance: Dark,
+                syntax: Syntax::CatppuccinMacchiato,
+                anchors: CATPPUCCIN_MACCHIATO,
+            },
+            ThemeDefinition {
+                name: "dracula",
+                appearance: Dark,
+                syntax: Syntax::Dracula,
+                anchors: DRACULA,
+            },
+            ThemeDefinition {
+                name: "nord",
+                appearance: Dark,
+                syntax: Syntax::Nord,
+                anchors: NORD,
+            },
+            ThemeDefinition {
+                name: "gruvbox",
+                appearance: Dark,
+                syntax: Syntax::GruvboxDark,
+                anchors: GRUVBOX,
+            },
+            ThemeDefinition {
+                name: "gruvbox-light",
+                appearance: Light,
+                syntax: Syntax::GruvboxLight,
+                anchors: GRUVBOX_LIGHT,
+            },
+            ThemeDefinition {
+                name: "one-dark",
+                appearance: Dark,
+                syntax: Syntax::TwoDark,
+                anchors: ONE_DARK,
+            },
+            ThemeDefinition {
+                name: "one-light",
+                appearance: Light,
+                syntax: Syntax::OneHalfLight,
+                anchors: ONE_LIGHT,
+            },
+            ThemeDefinition {
+                name: "solarized",
+                appearance: Dark,
+                syntax: Syntax::SolarizedDark,
+                anchors: SOLARIZED,
+            },
+            ThemeDefinition {
+                name: "solarized-light",
+                appearance: Light,
+                syntax: Syntax::SolarizedLight,
+                anchors: SOLARIZED_LIGHT,
+            },
+            ThemeDefinition {
+                name: "github-light",
+                appearance: Light,
+                syntax: Syntax::Github,
+                anchors: GITHUB_LIGHT,
+            },
+            ThemeDefinition {
+                name: "monokai",
+                appearance: Dark,
+                syntax: Syntax::MonokaiExtended,
+                anchors: MONOKAI,
+            },
+        ];
+        let definition = DEFINITIONS.iter().find(|theme| theme.name == name)?;
         Some(Self {
-            palette: Palette::from_anchors(anchors, appearance),
-            syntax,
+            palette: Palette::from_anchors(definition.anchors, definition.appearance),
+            syntax: definition.syntax,
         })
     }
 }

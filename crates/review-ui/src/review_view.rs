@@ -36,6 +36,14 @@ impl Widget for ReviewView<'_> {
             layout.footer_height,
         );
         HeaderView(self.0).render(header, buffer);
+        self.render_body(layout, body, buffer);
+        FooterView(self.0).render(footer, buffer);
+        self.render_overlays(area, buffer);
+    }
+}
+
+impl ReviewView<'_> {
+    fn render_body(&self, layout: PaneLayout, body: Rect, buffer: &mut Buffer) {
         if layout.is_wide() {
             let file_width = layout.file_width;
             FilesView(self.0).render(Rect::new(body.x, body.y, file_width, body.height), buffer);
@@ -54,7 +62,9 @@ impl Widget for ReviewView<'_> {
                 Focus::Diff => DiffView(self.0).render(body, buffer),
             }
         }
-        FooterView(self.0).render(footer, buffer);
+    }
+
+    fn render_overlays(&self, area: Rect, buffer: &mut Buffer) {
         if let Some(markdown) = &self.0.hover {
             HoverView(self.0, markdown).render(area, buffer);
         }

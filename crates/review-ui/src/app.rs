@@ -736,6 +736,31 @@ impl ReviewApp {
     /// Apply one input and return any work for the I/O layer.
     pub fn update(&mut self, message: Message) -> Action {
         match message {
+            message @ (Message::FilesLoaded { .. }
+            | Message::DiffLoaded { .. }
+            | Message::DiffFailed { .. }
+            | Message::ReviewFinished { .. }
+            | Message::OutputFinished { .. }) => self.update_repository(message),
+            message @ (Message::ReviewGuideStatus { .. } | Message::ReviewGuideLoaded { .. }) => {
+                self.update_review_guide(message)
+            }
+            message @ (Message::Lsp(_)
+            | Message::SourceFailed { .. }
+            | Message::SourceLoaded { .. }) => self.update_source(message),
+            message @ (Message::Tick(_) | Message::Resize { .. }) => self.update_view(&message),
+            message @ (Message::MouseScroll { .. }
+            | Message::MouseClick { .. }
+            | Message::MouseControlClick { .. }
+            | Message::MouseDoubleClick { .. }
+            | Message::MouseRightClick { .. }
+            | Message::MouseDrag { .. }
+            | Message::MouseRelease) => self.update_mouse(&message),
+            Message::Key(key) => self.key(key),
+        }
+    }
+
+    fn update_repository(&mut self, message: Message) -> Action {
+        match message {
             Message::FilesLoaded {
                 change_id,
                 commit_id,
@@ -772,6 +797,12 @@ impl ReviewApp {
                 }
                 Action::None
             }
+            _ => unreachable!("repository message group accepts only repository messages"),
+        }
+    }
+
+    fn update_review_guide(&mut self, message: Message) -> Action {
+        match message {
             Message::ReviewGuideStatus {
                 review_checkpoint,
                 generating,
@@ -790,6 +821,12 @@ impl ReviewApp {
                 &review_checkpoint.checkpoint,
                 items,
             ),
+            _ => unreachable!("guide message group accepts only guide messages"),
+        }
+    }
+
+    fn update_source(&mut self, message: Message) -> Action {
+        match message {
             Message::Lsp(event) => self.update_from_lsp_event(event),
             Message::SourceFailed {
                 snapshot_id,
@@ -806,33 +843,44 @@ impl ReviewApp {
                 content,
                 mode,
             } => self.load_source(&snapshot_id, &location, &content, mode),
+            _ => unreachable!("source message group accepts only source messages"),
+        }
+    }
+
+    fn update_view(&mut self, message: &Message) -> Action {
+        match message {
             Message::Tick(now) => {
-                self.toasts.expire(now);
+                self.toasts.expire(*now);
                 if let Some(frame) = &mut self.guide_spinner_frame {
                     *frame = frame.saturating_add(1);
                 }
-                Action::None
             }
             Message::Resize { width, height } => {
-                if (self.width, self.height) != (width, height) {
-                    self.width = width;
-                    self.height = height;
+                if (self.width, self.height) != (*width, *height) {
+                    self.width = *width;
+                    self.height = *height;
                     self.keep_visible();
                 }
-                Action::None
             }
-            Message::MouseScroll { column, row, delta } => self.mouse_scroll(column, row, delta),
+            _ => unreachable!("view message group accepts only view messages"),
+        }
+        Action::None
+    }
+
+    fn update_mouse(&mut self, message: &Message) -> Action {
+        match message {
+            Message::MouseScroll { column, row, delta } => self.mouse_scroll(*column, *row, *delta),
             Message::MouseClick {
                 column,
                 row,
                 insert_path,
-            } => self.mouse_click(column, row, insert_path),
-            Message::MouseControlClick { column, row } => self.mouse_control_click(column, row),
-            Message::MouseDoubleClick { column, row } => self.mouse_double_click(column, row),
-            Message::MouseRightClick { column, row } => self.mouse_right_click(column, row),
-            Message::MouseDrag { column, row } => self.mouse_drag(column, row),
+            } => self.mouse_click(*column, *row, *insert_path),
+            Message::MouseControlClick { column, row } => self.mouse_control_click(*column, *row),
+            Message::MouseDoubleClick { column, row } => self.mouse_double_click(*column, *row),
+            Message::MouseRightClick { column, row } => self.mouse_right_click(*column, *row),
+            Message::MouseDrag { column, row } => self.mouse_drag(*column, *row),
             Message::MouseRelease => self.mouse_release(),
-            Message::Key(key) => self.key(key),
+            _ => unreachable!("mouse message group accepts only mouse messages"),
         }
     }
 
@@ -927,16 +975,11 @@ impl ReviewApp {
         description: String,
         mut files: Vec<ReviewFile>,
     ) -> Action {
-        for file in &mut files {
-            file.disk_path = Some(self.repository_root.join(&file.path));
-        }
+        self.set_file_disk_paths(&mut files);
         let same_change = self.change_id == change_id;
         let same_snapshot = self.commit_id == commit_id;
         if !same_snapshot {
-            self.guide_items.clear();
-            self.guide_item_counters.clear();
-            self.guide_spinner_frame = None;
-            self.pending_guide_jump = None;
+            self.clear_checkpoint_guide_state();
         }
         let refreshed_cursor = (same_change && !same_snapshot)
             .then(|| self.selected().and_then(ReviewFile::cursor_location))
@@ -944,51 +987,12 @@ impl ReviewApp {
         let selected_path = same_change
             .then(|| self.selected().map(|file| file.path.clone()))
             .flatten();
-        let mut expand = Vec::new();
-        if same_change {
-            for file in &mut files {
-                if let Some(pending) = self
-                    .review_in_flight
-                    .as_ref()
-                    .filter(|pending| pending.path == file.path)
-                {
-                    file.status = pending.optimistic_status;
-                }
-                if let Some(old) = self.files.iter().find(|old| old.path == file.path) {
-                    if needs_parent_expansion(file.status, old.status) {
-                        expand.push(file.path.clone());
-                    }
-                    file.cursor = old.cursor;
-                    file.scroll = old.scroll;
-                    file.column = old.column;
-                    if same_snapshot {
-                        file.source_location.clone_from(&old.source_location);
-                        file.diff.clone_from(&old.diff);
-                        file.loading = old.loading;
-                    }
-                }
-            }
-            if same_snapshot {
-                files.extend(self.files.iter().filter(|file| file.temporary).cloned());
-            } else {
-                self.locations = None;
-                self.preview = None;
-                self.hover = None;
-                self.context_menu = None;
-            }
+        let expand = if same_change {
+            self.refresh_files(&mut files, same_snapshot)
         } else {
-            self.selection = None;
-            self.search = None;
-            self.show_commit_message = false;
-            self.file_scroll = 0;
-            self.focus = Focus::Files;
-            self.review_in_flight = None;
-            self.locations = None;
-            self.preview = None;
-            self.hover = None;
-            self.context_menu = None;
-            self.collapsed_directories.clear();
-        }
+            self.reset_for_new_change();
+            Vec::new()
+        };
         for path in expand {
             self.expand_file_parents(&path);
         }
@@ -1009,21 +1013,93 @@ impl ReviewApp {
             self.selection = None;
         }
         self.keep_file_visible();
-        if let Some(location) = refreshed_cursor {
-            if let Some(index) = self.location_file_index(&location) {
-                self.selected_file = index;
-                self.focus = Focus::Diff;
-                let path = self.files[index].path.clone();
-                self.files[index].disk_path = Some(location.path.clone());
-                let page = self.page_rows();
-                let _ = self.files[index].reveal_location(&location, page);
-                self.expand_file_parents(&path);
-                self.rebuild_file_tree();
-                self.keep_visible();
-                return self.load_selected_action();
-            }
-            return self.load_external_location(location);
+        match refreshed_cursor {
+            Some(location) => self.restore_refreshed_cursor(location),
+            None => self.load_selected_action(),
         }
+    }
+
+    fn set_file_disk_paths(&self, files: &mut [ReviewFile]) {
+        for file in files {
+            file.disk_path = Some(self.repository_root.join(&file.path));
+        }
+    }
+
+    fn clear_checkpoint_guide_state(&mut self) {
+        self.guide_items.clear();
+        self.guide_item_counters.clear();
+        self.guide_spinner_frame = None;
+        self.pending_guide_jump = None;
+    }
+
+    fn refresh_files(&mut self, files: &mut Vec<ReviewFile>, same_snapshot: bool) -> Vec<String> {
+        let mut expand = Vec::new();
+        for file in &mut *files {
+            self.refresh_file(file, same_snapshot, &mut expand);
+        }
+        if same_snapshot {
+            files.extend(self.files.iter().filter(|file| file.temporary).cloned());
+        } else {
+            self.clear_transient_views();
+        }
+        expand
+    }
+
+    fn refresh_file(&self, file: &mut ReviewFile, same_snapshot: bool, expand: &mut Vec<String>) {
+        if let Some(pending) = self
+            .review_in_flight
+            .as_ref()
+            .filter(|pending| pending.path == file.path)
+        {
+            file.status = pending.optimistic_status;
+        }
+        let Some(old) = self.files.iter().find(|old| old.path == file.path) else {
+            return;
+        };
+        if needs_parent_expansion(file.status, old.status) {
+            expand.push(file.path.clone());
+        }
+        file.cursor = old.cursor;
+        file.scroll = old.scroll;
+        file.column = old.column;
+        if same_snapshot {
+            file.source_location.clone_from(&old.source_location);
+            file.diff.clone_from(&old.diff);
+            file.loading = old.loading;
+        }
+    }
+
+    fn clear_transient_views(&mut self) {
+        self.locations = None;
+        self.preview = None;
+        self.hover = None;
+        self.context_menu = None;
+    }
+
+    fn reset_for_new_change(&mut self) {
+        self.selection = None;
+        self.search = None;
+        self.show_commit_message = false;
+        self.file_scroll = 0;
+        self.focus = Focus::Files;
+        self.review_in_flight = None;
+        self.clear_transient_views();
+        self.collapsed_directories.clear();
+    }
+
+    fn restore_refreshed_cursor(&mut self, location: SourceLocation) -> Action {
+        let Some(index) = self.location_file_index(&location) else {
+            return self.load_external_location(location);
+        };
+        self.selected_file = index;
+        self.focus = Focus::Diff;
+        let path = self.files[index].path.clone();
+        self.files[index].disk_path = Some(location.path.clone());
+        let page = self.page_rows();
+        let _ = self.files[index].reveal_location(&location, page);
+        self.expand_file_parents(&path);
+        self.rebuild_file_tree();
+        self.keep_visible();
         self.load_selected_action()
     }
 
@@ -1115,46 +1191,55 @@ impl ReviewApp {
             Some(_) => return Action::None,
             None => None,
         };
-        match result {
-            Ok(state) => {
-                let mut expand = false;
-                if let Some(file) = self.files.iter_mut().find(|file| file.path == path) {
-                    expand = needs_parent_expansion(state.status, file.status);
-                    file.status = state.status;
-                    if state.status == ReviewStatus::Unreviewed {
-                        file.diff = DiffPresentation::default();
-                    }
-                }
-                if expand && self.expand_file_parents(path) {
-                    self.rebuild_file_tree();
-                }
-                if let Some(pending) = &pending
-                    && pending.optimistic_status == ReviewStatus::Reviewed
-                    && state.status == ReviewStatus::Reviewed
-                    && self.selected_is_pending_next(pending)
-                {
-                    self.rebuild_guide_item_counters();
-                    return self.load_selected_action();
-                }
-                if state.status.needs_review()
-                    && self
-                        .selected()
-                        .is_some_and(|selected| selected.path == path)
-                {
-                    self.rebuild_guide_item_counters();
-                    return self.load_selected_action();
-                }
-            }
-            Err(()) => {
-                if let Some(pending) = pending {
-                    if let Some(file) = self.files.iter_mut().find(|file| file.path == path) {
-                        file.status = pending.previous_status;
-                    }
-                }
+        let action = if let Ok(state) = result {
+            self.finish_successful_review(path, state, pending.as_ref())
+        } else {
+            self.restore_failed_review(path, pending.as_ref());
+            Action::None
+        };
+        self.rebuild_guide_item_counters();
+        action
+    }
+
+    fn finish_successful_review(
+        &mut self,
+        path: &str,
+        state: ReviewState,
+        pending: Option<&PendingReview>,
+    ) -> Action {
+        let mut expand = false;
+        if let Some(file) = self.files.iter_mut().find(|file| file.path == path) {
+            expand = needs_parent_expansion(state.status, file.status);
+            file.status = state.status;
+            if state.status == ReviewStatus::Unreviewed {
+                file.diff = DiffPresentation::default();
             }
         }
-        self.rebuild_guide_item_counters();
+        if expand && self.expand_file_parents(path) {
+            self.rebuild_file_tree();
+        }
+        let selected_pending_next = pending.is_some_and(|pending| {
+            pending.optimistic_status == ReviewStatus::Reviewed
+                && state.status == ReviewStatus::Reviewed
+                && self.selected_is_pending_next(pending)
+        });
+        let selected_review_file = state.status.needs_review()
+            && self
+                .selected()
+                .is_some_and(|selected| selected.path == path);
+        if selected_pending_next || selected_review_file {
+            return self.load_selected_action();
+        }
         Action::None
+    }
+
+    fn restore_failed_review(&mut self, path: &str, pending: Option<&PendingReview>) {
+        let Some(pending) = pending else {
+            return;
+        };
+        if let Some(file) = self.files.iter_mut().find(|file| file.path == path) {
+            file.status = pending.previous_status;
+        }
     }
 
     fn selected_is_pending_next(&self, pending: &PendingReview) -> bool {

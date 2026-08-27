@@ -13,6 +13,39 @@ use crate::render::{pane_block, shorten};
 
 pub(super) struct FilesView<'a>(pub(super) &'a ReviewApp);
 
+struct FileStatistics {
+    added: Option<String>,
+    removed: Option<String>,
+}
+
+impl FileStatistics {
+    fn new(file: &ReviewFile) -> Self {
+        Self {
+            added: (file.lines_added > 0).then(|| format!("+{}", file.lines_added)),
+            removed: (file.lines_removed > 0).then(|| format!("-{}", file.lines_removed)),
+        }
+    }
+
+    fn width(&self) -> usize {
+        self.added.as_ref().map_or(0, String::len)
+            + self.removed.as_ref().map_or(0, String::len)
+            + usize::from(self.added.is_some() && self.removed.is_some())
+    }
+
+    fn append(self, spans: &mut Vec<Span<'static>>, insertion: Color, deletion: Color) {
+        let has_added = self.added.is_some();
+        if let Some(added) = self.added {
+            spans.push(Span::styled(added, Style::default().fg(insertion)));
+        }
+        if let Some(removed) = self.removed {
+            if has_added {
+                spans.push(Span::raw(" "));
+            }
+            spans.push(Span::styled(removed, Style::default().fg(deletion)));
+        }
+    }
+}
+
 impl Widget for FilesView<'_> {
     fn render(self, area: Rect, buffer: &mut Buffer) {
         let title = self
@@ -93,19 +126,9 @@ impl FilesView<'_> {
             name
         };
         let prefix = format!("{}{} ", "  ".repeat(depth), file.marker());
-        let comment_marker = (file.status != ReviewStatus::Reviewed
-            && self
-                .0
-                .guide_items
-                .iter()
-                .any(|item| item.target.path() == file.path))
-        .then_some(" 💬");
-        let added = (file.lines_added > 0).then(|| format!("+{}", file.lines_added));
-        let removed = (file.lines_removed > 0).then(|| format!("-{}", file.lines_removed));
-        let has_added = added.is_some();
-        let stats_width = added.as_ref().map_or(0, String::len)
-            + removed.as_ref().map_or(0, String::len)
-            + usize::from(added.is_some() && removed.is_some());
+        let comment_marker = self.comment_marker(file);
+        let statistics = FileStatistics::new(file);
+        let stats_width = statistics.width();
         let gap = usize::from(stats_width > 0);
         let prefix_width = UnicodeWidthStr::width(prefix.as_str());
         let comment_marker_width = comment_marker.map_or(0, UnicodeWidthStr::width);
@@ -131,21 +154,11 @@ impl FilesView<'_> {
             ));
         }
         spans.push(Span::raw(" ".repeat(padding)));
-        if let Some(added) = added {
-            spans.push(Span::styled(
-                added,
-                Style::default().fg(self.0.palette.insertion),
-            ));
-        }
-        if let Some(removed) = removed {
-            if has_added {
-                spans.push(Span::raw(" "));
-            }
-            spans.push(Span::styled(
-                removed,
-                Style::default().fg(self.0.palette.deletion),
-            ));
-        }
+        statistics.append(
+            &mut spans,
+            self.0.palette.insertion,
+            self.0.palette.deletion,
+        );
         let mut style = if index == self.0.selected_file {
             Style::default().bg(self.0.palette.cursor)
         } else {
@@ -155,6 +168,16 @@ impl FilesView<'_> {
             style = style.add_modifier(Modifier::BOLD);
         }
         Line::from(spans).style(style)
+    }
+
+    fn comment_marker(&self, file: &ReviewFile) -> Option<&'static str> {
+        (file.status != ReviewStatus::Reviewed
+            && self
+                .0
+                .guide_items
+                .iter()
+                .any(|item| item.target.path() == file.path))
+        .then_some(" 💬")
     }
 
     fn file_color(&self, file: &ReviewFile) -> Color {

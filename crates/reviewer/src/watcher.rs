@@ -323,12 +323,7 @@ impl ActiveWatcher {
         if event.need_rescan() {
             return Err(notify::Error::generic("filesystem events were lost"));
         }
-        let changes_external_rules = event.paths.iter().any(|path| {
-            self.rules
-                .external_files
-                .iter()
-                .any(|external| external == path || external.starts_with(path))
-        });
+        let changes_external_rules = self.changes_external_rules(event);
         if self.metadata.includes(event) && !changes_external_rules {
             state.notified.store(true, Ordering::Relaxed);
             return Ok(());
@@ -343,18 +338,38 @@ impl ActiveWatcher {
         state.notified.store(true, Ordering::Relaxed);
 
         if changes_external_rules {
-            let root = self.rules.root.clone();
-            self.refresh_subtree(&root)?;
-            for directory in self.rules.external_watch_directories() {
-                if !self.external_directories.contains(&directory) {
-                    self.watcher
-                        .watch(&directory, RecursiveMode::NonRecursive)?;
-                    self.external_directories.push(directory);
-                }
-            }
+            self.refresh_external_rules()?;
             return Ok(());
         }
+        self.refresh_changed_ignore_rules(event)?;
+        self.refresh_changed_directories(event)?;
+        Ok(())
+    }
 
+    fn changes_external_rules(&self, event: &Event) -> bool {
+        event.paths.iter().any(|path| {
+            self.rules
+                .external_files
+                .iter()
+                .any(|external| external == path || external.starts_with(path))
+        })
+    }
+
+    fn refresh_external_rules(&mut self) -> notify::Result<()> {
+        let root = self.rules.root.clone();
+        self.refresh_subtree(&root)?;
+        for directory in self.rules.external_watch_directories() {
+            if self.external_directories.contains(&directory) {
+                continue;
+            }
+            self.watcher
+                .watch(&directory, RecursiveMode::NonRecursive)?;
+            self.external_directories.push(directory);
+        }
+        Ok(())
+    }
+
+    fn refresh_changed_ignore_rules(&mut self, event: &Event) -> notify::Result<()> {
         for path in &event.paths {
             if path.file_name().is_some_and(|name| name == ".gitignore")
                 && let Some(parent) = path.parent()
@@ -362,21 +377,25 @@ impl ActiveWatcher {
                 self.refresh_subtree(parent)?;
             }
         }
+        Ok(())
+    }
 
-        if matches!(
+    fn refresh_changed_directories(&mut self, event: &Event) -> notify::Result<()> {
+        let changes_directory_tree = matches!(
             event.kind,
             EventKind::Create(_) | EventKind::Remove(_) | EventKind::Modify(ModifyKind::Name(_))
-        ) {
-            for path in &event.paths {
-                if path.is_dir()
-                    || self
-                        .rules
-                        .directories
-                        .iter()
-                        .any(|directory| directory.starts_with(path))
-                {
-                    self.refresh_subtree(path)?;
-                }
+        );
+        if !changes_directory_tree {
+            return Ok(());
+        }
+        for path in &event.paths {
+            let contains_watched_directory = self
+                .rules
+                .directories
+                .iter()
+                .any(|directory| directory.starts_with(path));
+            if path.is_dir() || contains_watched_directory {
+                self.refresh_subtree(path)?;
             }
         }
         Ok(())
