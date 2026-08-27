@@ -245,3 +245,6 @@ fn compares_snapshot_trees_after_review(repository_type: RepoType) {
     assert!(diff.contains("+again"));
     assert!(!diff.contains("+after"));
 }
+
+#[path = "repository_snapshot/repository_snapshot.tests.rs"]
+mod repository_snapshot_tests;

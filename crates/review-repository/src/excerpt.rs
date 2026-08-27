@@ -232,3 +232,7 @@ impl ExcerptHunk {
         })
     }
 }
+
+#[cfg(test)]
+#[path = "excerpt.tests.rs"]
+mod tests;

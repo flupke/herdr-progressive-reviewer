@@ -5,7 +5,7 @@ use std::sync::{Arc, Barrier};
 use std::thread;
 
 use super::Fixture;
-use crate::{LoadResult, ReviewStore, StateKey};
+use crate::{Error, LoadResult, ReviewStore, StateKey};
 
 #[test]
 fn paths_round_trip_and_keys_are_stable() {
@@ -160,4 +160,113 @@ fn records_and_directories_are_user_only() {
             & 0o777,
         0o700
     );
+}
+
+#[test]
+fn checkpoint_keys_and_paths_reject_unsafe_values() {
+    let fixture = Fixture::new();
+    let store = fixture.store();
+    let valid_commit = "b".repeat(64);
+
+    for change_id in ["", "UPPER", "change-id"] {
+        assert!(matches!(
+            store.mark(change_id, b"src/lib.rs", &valid_commit),
+            Err(Error::InvalidStateKey { field: "change ID" })
+        ));
+    }
+    for commit_id in ["", "ABCDEF", "not-hex"] {
+        assert!(matches!(
+            store.mark(&fixture.change, b"src/lib.rs", commit_id),
+            Err(Error::InvalidStateKey { field: "commit ID" })
+        ));
+    }
+    for path in [
+        &b""[..],
+        &b"/absolute"[..],
+        &b"src//lib.rs"[..],
+        &b"src/./lib.rs"[..],
+        &b"src/../lib.rs"[..],
+    ] {
+        assert!(matches!(
+            store.mark(&fixture.change, path, &valid_commit),
+            Err(Error::InvalidStateKey { field: "path" })
+        ));
+        assert!(matches!(
+            store.load(&fixture.change, path),
+            Err(Error::InvalidStateKey { field: "path" })
+        ));
+        assert!(matches!(
+            store.unreview(&fixture.change, path),
+            Err(Error::InvalidStateKey { field: "path" })
+        ));
+    }
+}
+
+#[test]
+fn stored_checkpoint_identity_must_match_the_requested_record() {
+    let fixture = Fixture::new();
+    let store = fixture.store();
+    let path = b"src/lib.rs";
+    store.mark(&fixture.change, path, &"b".repeat(64)).unwrap();
+    let target = store.record_path(&fixture.change, path);
+    let original: serde_json::Value = serde_json::from_slice(&fs::read(&target).unwrap()).unwrap();
+
+    for (field, value) in [
+        ("change_id", serde_json::json!("c".repeat(64))),
+        ("path", serde_json::json!("other.rs")),
+        ("baseline_commit_id", serde_json::json!("ABCDEF")),
+    ] {
+        let mut altered = original.clone();
+        altered[field] = value;
+        fs::write(&target, serde_json::to_vec(&altered).unwrap()).unwrap();
+        assert_eq!(
+            store.load(&fixture.change, path).unwrap(),
+            LoadResult::Unreviewed,
+            "field {field}"
+        );
+    }
+}
+
+#[test]
+fn writing_a_record_rejects_a_hash_collision_with_another_path() {
+    let fixture = Fixture::new();
+    let store = fixture.store();
+    let path = b"src/lib.rs";
+    store.mark(&fixture.change, path, &"b".repeat(64)).unwrap();
+    let target = store.record_path(&fixture.change, path);
+    let mut stored: serde_json::Value =
+        serde_json::from_slice(&fs::read(&target).unwrap()).unwrap();
+    stored["path"] = serde_json::json!("src/other.rs");
+    fs::write(&target, serde_json::to_vec(&stored).unwrap()).unwrap();
+
+    assert!(matches!(
+        store.mark(&fixture.change, path, &"c".repeat(64)),
+        Err(Error::StateCollision { path: collision }) if collision == target
+    ));
+}
+
+#[test]
+fn review_timestamp_is_an_rfc3339_value() {
+    let fixture = Fixture::new();
+    let record = fixture
+        .store()
+        .mark(&fixture.change, b"src/lib.rs", &"b".repeat(64))
+        .unwrap();
+
+    assert!(record.reviewed_at.contains('T'));
+    assert!(record.reviewed_at.ends_with('Z'));
+}
+
+#[test]
+fn unreview_reports_a_non_file_target() {
+    let fixture = Fixture::new();
+    let store = fixture.store();
+    let path = b"src/lib.rs";
+    let target = store.record_path(&fixture.change, path);
+    fs::create_dir_all(&target).unwrap();
+
+    assert!(matches!(
+        store.unreview(&fixture.change, path),
+        Err(Error::StateIo { .. })
+    ));
 }

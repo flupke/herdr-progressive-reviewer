@@ -5,13 +5,84 @@ use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use ratatui::layout::Rect;
 use ratatui::style::Color;
-use review_guide::{GuideItem, GuideItemStatus, GuideScope, GuideTarget, ReviewCheckpoint};
+use review_guide::{
+    GuideItem, GuideItemStatus, GuideLineRange, GuideScope, GuideTarget, ReviewCheckpoint,
+};
 use review_lsp::{Event, Operation, SourceLocation};
 use review_repository::diff::DiffRow;
 use toasts::ToastId;
 
-use crate::app::{Action, ContextMenu, Focus, Key, Message, ReviewApp, ReviewFile, SourceLoadMode};
-use review_state::ReviewStatus;
+use crate::app::{
+    Action, ContextMenu, DiffControl, DragState, Focus, Key, Message, PaneLayout, PendingReview,
+    ReviewApp, ReviewFile, SourceLoadMode,
+};
+use review_state::{ReviewState, ReviewStatus};
+
+#[test]
+fn pane_layout_defines_all_visible_and_interactive_boundaries() {
+    let wide = PaneLayout::new(100, 20, Some(30));
+    assert!(wide.is_wide());
+    assert_eq!(wide.file_width, 30);
+    assert_eq!(wide.body_height(), 17);
+    assert_eq!(wide.page_rows(), 15);
+    assert_eq!(wide.diff_content_width(), 68);
+    assert_eq!(wide.diff_content_start_column(), 31);
+
+    assert!(wide.contains_body(0, 1));
+    assert!(wide.contains_body(99, 17));
+    assert!(!wide.contains_body(100, 1));
+    assert!(!wide.contains_body(0, 0));
+    assert!(!wide.contains_body(0, 18));
+    assert!(!wide.contains_pane_content(1));
+    assert!(wide.contains_pane_content(2));
+    assert!(wide.contains_pane_content(16));
+    assert!(!wide.contains_pane_content(17));
+
+    assert_eq!(wide.focus_at(Focus::Diff, 29, 1), Some(Focus::Files));
+    assert_eq!(wide.focus_at(Focus::Files, 30, 1), Some(Focus::Diff));
+    assert_eq!(wide.focus_at(Focus::Files, 30, 0), None);
+    assert!(!wide.is_separator(28, 1));
+    assert!(wide.is_separator(29, 1));
+    assert!(wide.is_separator(30, 1));
+    assert!(wide.is_separator(31, 1));
+    assert!(!wide.is_separator(30, 0));
+
+    let narrow = PaneLayout::new(60, 10, Some(30));
+    assert!(!narrow.is_wide());
+    assert_eq!(narrow.file_width, 60);
+    assert_eq!(narrow.diff_content_width(), 58);
+    assert_eq!(narrow.diff_content_start_column(), 1);
+    assert_eq!(narrow.focus_at(Focus::Files, 59, 1), Some(Focus::Files));
+    assert_eq!(narrow.focus_at(Focus::Diff, 59, 1), Some(Focus::Diff));
+}
+
+#[test]
+fn diff_controls_have_exact_click_targets() {
+    assert!(!DiffControl::visible(31, None));
+    assert!(DiffControl::visible(32, None));
+
+    let width = 80;
+    let controls = (0..width)
+        .filter_map(|column| DiffControl::at(width, column, None).map(|control| (column, control)))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        controls,
+        vec![
+            (70, DiffControl::ExpandAll),
+            (71, DiffControl::ExpandAll),
+            (72, DiffControl::ExpandAll),
+            (73, DiffControl::ExpandAll),
+            (75, DiffControl::ContractAll),
+            (76, DiffControl::ContractAll),
+            (77, DiffControl::ContractAll),
+            (78, DiffControl::ContractAll),
+        ]
+    );
+
+    let mut temporary = ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed);
+    temporary.temporary = true;
+    assert!(!DiffControl::visible(width, Some(&temporary)));
+}
 
 #[test]
 fn review_guide_shortcuts_select_file_and_all_scopes() {
@@ -71,7 +142,26 @@ fn review_guide_comment_shortcuts_wrap_between_files() {
                     new_line: 1,
                     text: "+changed".to_owned(),
                 },
-            ],
+            ]
+            .into_iter()
+            .chain(
+                (path == "src/first.rs")
+                    .then_some([
+                        DiffRow::Hunk {
+                            old_start: 1,
+                            old_count: 0,
+                            new_start: 10,
+                            new_count: 1,
+                        },
+                        DiffRow::Add {
+                            new_line: 10,
+                            text: "+later".to_owned(),
+                        },
+                    ])
+                    .into_iter()
+                    .flatten(),
+            )
+            .collect(),
             old_content: None,
             new_content: None,
         });
@@ -89,19 +179,34 @@ fn review_guide_comment_shortcuts_wrap_between_files() {
                 text: "Comment".to_owned(),
                 status: GuideItemStatus::Matched,
             })
-            .chain(std::iter::once(GuideItem {
-                target: GuideTarget::Hunks {
-                    path: "src/first.rs".to_owned(),
-                    first_hunk: 2,
-                    last_hunk: 2,
+            .chain([
+                GuideItem {
+                    target: GuideTarget::Hunks {
+                        path: "src/first.rs".to_owned(),
+                        first_hunk: 2,
+                        last_hunk: 2,
+                    },
+                    text: "Later comment".to_owned(),
+                    status: GuideItemStatus::Matched,
                 },
-                text: "Unmapped comment".to_owned(),
-                status: GuideItemStatus::Stale,
-            }))
+                GuideItem {
+                    target: GuideTarget::Hunks {
+                        path: "src/first.rs".to_owned(),
+                        first_hunk: 3,
+                        last_hunk: 3,
+                    },
+                    text: "Unmapped comment".to_owned(),
+                    status: GuideItemStatus::Stale,
+                },
+            ])
             .collect(),
     });
     app.focus = Focus::Diff;
-    app.files[0].cursor = 1;
+    app.files[0].cursor = 0;
+
+    assert_eq!(app.update(Message::Key(Key::Char(']'))), Action::None);
+    assert_eq!(app.update(Message::Key(Key::Char('r'))), Action::None);
+    assert_eq!((app.selected_file, app.files[0].cursor), (0, 1));
 
     assert_eq!(app.update(Message::Key(Key::Char(']'))), Action::None);
     assert_eq!(app.update(Message::Key(Key::Char('r'))), Action::None);
@@ -109,7 +214,91 @@ fn review_guide_comment_shortcuts_wrap_between_files() {
 
     assert_eq!(app.update(Message::Key(Key::Char('['))), Action::None);
     assert_eq!(app.update(Message::Key(Key::Char('r'))), Action::None);
-    assert_eq!((app.selected_file, app.files[0].cursor), (0, 0));
+    assert_eq!((app.selected_file, app.files[0].cursor), (0, 1));
+}
+
+#[test]
+fn guide_jump_waits_for_the_target_file_and_finishes_after_it_loads() {
+    let mut app = ReviewApp::default();
+    app.update(Message::FilesLoaded {
+        change_id: "change".to_owned(),
+        commit_id: "commit".to_owned(),
+        description: String::new(),
+        files: vec![
+            ReviewFile::new("src/first.rs", ReviewStatus::Unreviewed),
+            ReviewFile::new("src/second.rs", ReviewStatus::Unreviewed),
+        ],
+    });
+    app.update(Message::ReviewGuideLoaded {
+        review_checkpoint: ReviewCheckpoint::new("change", "commit"),
+        items: vec![GuideItem {
+            target: GuideTarget::Lines {
+                path: "src/second.rs".to_owned(),
+                old: None,
+                new: Some(GuideLineRange {
+                    first_line: 10,
+                    last_line: 10,
+                }),
+            },
+            text: "Comment".to_owned(),
+            status: GuideItemStatus::Matched,
+        }],
+    });
+
+    app.update(Message::Key(Key::Char(']')));
+    assert_eq!(
+        app.update(Message::Key(Key::Char('r'))),
+        Action::LoadDiff {
+            commit_id: "commit".to_owned(),
+            path: "src/second.rs".to_owned(),
+        }
+    );
+    assert!(app.pending_guide_jump.is_some());
+    app.finish_pending_guide_jump("src/wrong.rs");
+    assert!(app.pending_guide_jump.is_some());
+
+    app.update(Message::DiffLoaded {
+        commit_id: "commit".to_owned(),
+        path: "src/second.rs".to_owned(),
+        rows: vec![
+            DiffRow::Hunk {
+                old_start: 1,
+                old_count: 0,
+                new_start: 10,
+                new_count: 1,
+            },
+            DiffRow::Add {
+                new_line: 10,
+                text: "+target".to_owned(),
+            },
+        ],
+        old_content: None,
+        new_content: None,
+    });
+    assert!(app.pending_guide_jump.is_none());
+    assert_eq!(app.selected_file, 1);
+    assert_eq!(app.selected().unwrap().cursor, 0);
+    assert_eq!(app.selected().unwrap().scroll, 0);
+}
+
+#[test]
+fn unavailable_unloaded_guide_target_does_not_leave_a_pending_jump() {
+    let mut app = ReviewApp {
+        files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed)],
+        guide_items: vec![GuideItem {
+            target: GuideTarget::File {
+                path: "src/lib.rs".to_owned(),
+            },
+            text: "Comment".to_owned(),
+            status: GuideItemStatus::Matched,
+        }],
+        ..ReviewApp::default()
+    };
+    app.files[0].loading = true;
+
+    app.update(Message::Key(Key::Char(']')));
+    assert_eq!(app.update(Message::Key(Key::Char('r'))), Action::None);
+    assert!(app.pending_guide_jump.is_none());
 }
 
 #[test]
@@ -200,6 +389,8 @@ fn repeated_search_centers_each_match() {
         Key::Char('a'),
         Key::Char('t'),
         Key::Char('c'),
+        Key::Char('x'),
+        Key::Backspace,
         Key::Char('h'),
         Key::Enter,
         Key::Char('n'),
@@ -215,10 +406,12 @@ fn repeated_search_centers_each_match() {
     let file = app.selected().unwrap();
     assert_eq!(file.cursor, 10);
     assert_eq!(file.scroll, 10_usize.saturating_sub(page / 2));
+
+    app.update(Message::Key(Key::First));
+    assert_eq!(app.selected().unwrap().cursor, 0);
 }
 
-#[test]
-fn lsp_keys_use_the_visible_current_source() {
+fn app_with_visible_current_source() -> ReviewApp {
     let mut app = ReviewApp::default();
     app.update(Message::FilesLoaded {
         change_id: "change".to_owned(),
@@ -238,7 +431,12 @@ fn lsp_keys_use_the_visible_current_source() {
         new_content: Some(b"fn target() {}\n".to_vec()),
     });
     app.focus = Focus::Diff;
+    app
+}
 
+#[test]
+fn lsp_keys_use_the_visible_current_source() {
+    let mut app = app_with_visible_current_source();
     assert!(matches!(
         app.update(Message::Key(Key::Char('K'))),
         Action::Lsp {
@@ -266,7 +464,19 @@ fn lsp_keys_use_the_visible_current_source() {
     ));
     assert_eq!(app.update(Message::Key(Key::Char('g'))), Action::None);
     assert_eq!(app.update(Message::Key(Key::Char('R'))), Action::RestartLsp);
+    assert_eq!(app.update(Message::Key(Key::Char('g'))), Action::None);
+    assert!(matches!(
+        app.update(Message::Key(Key::Char('r'))),
+        Action::Lsp {
+            operation: Operation::References,
+            ..
+        }
+    ));
+}
 
+#[test]
+fn source_word_motion_only_changes_the_diff_column() {
+    let mut app = app_with_visible_current_source();
     app.files[0].column = 0;
     app.move_word(true);
     assert_eq!(app.files[0].column, 3);
@@ -274,6 +484,40 @@ fn lsp_keys_use_the_visible_current_source() {
     app.move_word(false);
     assert_eq!(app.files[0].column, 3);
 
+    app.focus = Focus::Files;
+    app.files[0].column = 5;
+    for key in [
+        Key::Char('h'),
+        Key::Char('l'),
+        Key::Char('w'),
+        Key::Char('b'),
+        Key::Char('0'),
+        Key::Char('$'),
+    ] {
+        assert_eq!(app.update(Message::Key(key)), Action::None);
+        assert_eq!(app.files[0].column, 5);
+    }
+
+    app.focus = Focus::Diff;
+    assert_eq!(app.update(Message::Key(Key::Char('h'))), Action::None);
+    assert_eq!(app.files[0].column, 4);
+    assert_eq!(app.update(Message::Key(Key::Char('l'))), Action::None);
+    assert_eq!(app.files[0].column, 5);
+    assert_eq!(app.update(Message::Key(Key::Char('0'))), Action::None);
+    assert_eq!(app.files[0].column, 0);
+    assert_eq!(app.update(Message::Key(Key::Char('$'))), Action::None);
+    assert_eq!(app.files[0].column, "fn target() {}".len());
+    app.files[0].column = 0;
+    assert_eq!(app.update(Message::Key(Key::Char('w'))), Action::None);
+    assert_eq!(app.files[0].column, 3);
+    app.files[0].column = 5;
+    assert_eq!(app.update(Message::Key(Key::Char('b'))), Action::None);
+    assert_eq!(app.files[0].column, 3);
+}
+
+#[test]
+fn source_mouse_actions_use_the_visible_current_source() {
+    let mut app = app_with_visible_current_source();
     assert_eq!(
         app.update(Message::MouseControlClick { column: 30, row: 2 }),
         Action::None
@@ -284,6 +528,346 @@ fn lsp_keys_use_the_visible_current_source() {
         app.update(Message::MouseControlClick { column: 3, row: 3 }),
         Action::Output { text, .. } if text == "src/lib.rs"
     ));
+    assert_eq!(app.mouse_double_click(30, 3), Action::None);
+    assert!(matches!(
+        app.mouse_double_click(3, 3),
+        Action::SetReviewed {
+            path,
+            reviewed: true,
+        } if path == "src/lib.rs"
+    ));
+}
+
+#[test]
+fn hover_keys_scroll_in_both_directions_and_close_the_hover() {
+    let mut app = ReviewApp {
+        hover: Some("documentation".to_owned()),
+        hover_scroll: 2,
+        ..ReviewApp::default()
+    };
+
+    assert_eq!(app.update(Message::Key(Key::Up)), Action::None);
+    assert_eq!(app.hover_scroll, 1);
+    assert_eq!(app.update(Message::Key(Key::Down)), Action::None);
+    assert_eq!(app.hover_scroll, 2);
+    assert_eq!(app.update(Message::Key(Key::Char('j'))), Action::None);
+    assert_eq!(app.hover_scroll, 3);
+    assert_eq!(app.update(Message::Key(Key::Char('k'))), Action::None);
+    assert_eq!(app.hover_scroll, 2);
+    assert_eq!(app.update(Message::Key(Key::Escape)), Action::None);
+    assert!(app.hover.is_none());
+}
+
+#[test]
+fn visual_mode_only_starts_in_the_diff_pane() {
+    let mut app = ReviewApp::default();
+    app.update(Message::FilesLoaded {
+        change_id: "change".to_owned(),
+        commit_id: "commit".to_owned(),
+        description: String::new(),
+        files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed)],
+    });
+    app.update(Message::DiffLoaded {
+        commit_id: "commit".to_owned(),
+        path: "src/lib.rs".to_owned(),
+        rows: (1..=40)
+            .map(|line| DiffRow::Context {
+                old_line: line,
+                new_line: line,
+                text: format!(" line {line}"),
+            })
+            .collect(),
+        old_content: Some(b"fn target() {}\n".to_vec()),
+        new_content: Some(b"fn target() {}\n".to_vec()),
+    });
+    app.focus = Focus::Files;
+
+    assert_eq!(app.update(Message::Key(Key::Char('v'))), Action::None);
+    assert!(app.selection.is_none());
+    assert_eq!(app.update(Message::Key(Key::Char('K'))), Action::None);
+
+    app.focus = Focus::Diff;
+    app.update(Message::Key(Key::Char('v')));
+    assert_eq!(app.selection.unwrap().range(), 0..=0);
+    assert!(!app.selection.unwrap().fixed);
+    app.update(Message::Key(Key::Down));
+    assert_eq!(app.selection.unwrap().range(), 0..=1);
+    app.update(Message::Key(Key::Char('v')));
+    assert!(app.selection.unwrap().fixed);
+    app.update(Message::Key(Key::Down));
+    assert_eq!(app.selection.unwrap().range(), 0..=1);
+    app.update(Message::Key(Key::Char('v')));
+    assert_eq!(app.selection.unwrap().range(), 2..=2);
+    assert!(!app.selection.unwrap().fixed);
+    app.update(Message::Key(Key::HalfPageDown));
+    assert!(app.selection.unwrap().cursor > 2);
+
+    app.width = 100;
+    app.height = 20;
+    app.file_width = Some(30);
+    app.drag = DragState::Resize { moved: false };
+    app.mouse_drag(40, 3);
+    assert_eq!(app.file_width, Some(40));
+    assert_eq!(app.drag, DragState::Resize { moved: true });
+    app.mouse_drag(5, 0);
+    assert_eq!(app.file_width, Some(40));
+
+    app.file_width = Some(30);
+    app.files[0].cursor = 0;
+    app.drag = DragState::Select {
+        anchor: 0,
+        moved: false,
+    };
+    app.mouse_drag(40, 4);
+    assert_eq!(app.files[0].cursor, 2);
+    assert_eq!(app.selection.unwrap().range(), 0..=2);
+    assert_eq!(
+        app.drag,
+        DragState::Select {
+            anchor: 0,
+            moved: true,
+        }
+    );
+    app.mouse_drag(5, 5);
+    assert_eq!(app.files[0].cursor, 2);
+}
+
+#[test]
+fn repository_refresh_updates_paths_and_clears_checkpoint_state() {
+    let mut app = ReviewApp {
+        repository_root: PathBuf::from("/repository"),
+        ..ReviewApp::default()
+    };
+    app.update(Message::FilesLoaded {
+        change_id: "change".to_owned(),
+        commit_id: "first".to_owned(),
+        description: String::new(),
+        files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed)],
+    });
+    app.guide_items.push(GuideItem {
+        target: GuideTarget::File {
+            path: "src/lib.rs".to_owned(),
+        },
+        text: "Guide".to_owned(),
+        status: GuideItemStatus::Matched,
+    });
+    app.guide_spinner_frame = Some(2);
+    app.hover = Some("hover".to_owned());
+
+    app.update(Message::FilesLoaded {
+        change_id: "change".to_owned(),
+        commit_id: "second".to_owned(),
+        description: String::new(),
+        files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed)],
+    });
+
+    assert_eq!(
+        app.files[0].disk_path.as_deref(),
+        Some(Path::new("/repository/src/lib.rs"))
+    );
+    assert!(app.guide_items.is_empty());
+    assert!(app.guide_spinner_frame.is_none());
+    assert!(app.hover.is_none());
+}
+
+#[test]
+fn new_review_unit_resets_transient_review_state() {
+    let mut app = ReviewApp {
+        change_id: "old".to_owned(),
+        commit_id: "old".to_owned(),
+        show_commit_message: true,
+        file_scroll: 4,
+        focus: Focus::Diff,
+        hover: Some("hover".to_owned()),
+        review_in_flight: Some(PendingReview {
+            path: "old.rs".to_owned(),
+            previous_status: ReviewStatus::Unreviewed,
+            optimistic_status: ReviewStatus::Reviewed,
+            next_path: None,
+        }),
+        ..ReviewApp::default()
+    };
+
+    app.update(Message::FilesLoaded {
+        change_id: "new".to_owned(),
+        commit_id: "new".to_owned(),
+        description: String::new(),
+        files: vec![ReviewFile::new("new.rs", ReviewStatus::Unreviewed)],
+    });
+
+    assert!(!app.show_commit_message);
+    assert_eq!(app.file_scroll, 0);
+    assert_eq!(app.focus, Focus::Files);
+    assert!(app.hover.is_none());
+    assert!(app.review_in_flight.is_none());
+}
+
+#[test]
+fn refresh_applies_an_optimistic_status_only_to_its_pending_file() {
+    let mut app = ReviewApp {
+        change_id: "change".to_owned(),
+        commit_id: "commit".to_owned(),
+        files: vec![
+            ReviewFile::new("pending.rs", ReviewStatus::Unreviewed),
+            ReviewFile::new("other.rs", ReviewStatus::Unreviewed),
+        ],
+        review_in_flight: Some(PendingReview {
+            path: "pending.rs".to_owned(),
+            previous_status: ReviewStatus::Unreviewed,
+            optimistic_status: ReviewStatus::Reviewed,
+            next_path: Some("other.rs".to_owned()),
+        }),
+        ..ReviewApp::default()
+    };
+
+    app.update(Message::FilesLoaded {
+        change_id: "change".to_owned(),
+        commit_id: "commit".to_owned(),
+        description: String::new(),
+        files: vec![
+            ReviewFile::new("pending.rs", ReviewStatus::Unreviewed),
+            ReviewFile::new("other.rs", ReviewStatus::Unreviewed),
+        ],
+    });
+
+    assert_eq!(app.files[0].status, ReviewStatus::Reviewed);
+    assert_eq!(app.files[1].status, ReviewStatus::Unreviewed);
+}
+
+#[test]
+fn successful_review_updates_only_the_named_file_and_reloads_it_when_selected() {
+    let mut app = ReviewApp {
+        change_id: "change".to_owned(),
+        commit_id: "commit".to_owned(),
+        files: vec![
+            ReviewFile::new("other.rs", ReviewStatus::Reviewed),
+            ReviewFile::new("target.rs", ReviewStatus::Reviewed),
+        ],
+        selected_file: 0,
+        ..ReviewApp::default()
+    };
+
+    assert_eq!(
+        app.update(Message::ReviewFinished {
+            change_id: "change".to_owned(),
+            path: "target.rs".to_owned(),
+            result: Ok(ReviewState {
+                status: ReviewStatus::Unreviewed,
+                warning: None,
+            }),
+        }),
+        Action::None
+    );
+    assert_eq!(app.files[0].status, ReviewStatus::Reviewed);
+    assert_eq!(app.files[1].status, ReviewStatus::Unreviewed);
+
+    app.selected_file = 1;
+    assert_eq!(
+        app.update(Message::ReviewFinished {
+            change_id: "change".to_owned(),
+            path: "target.rs".to_owned(),
+            result: Ok(ReviewState {
+                status: ReviewStatus::ChangedSinceReview,
+                warning: None,
+            }),
+        }),
+        Action::LoadDiff {
+            commit_id: "commit".to_owned(),
+            path: "target.rs".to_owned(),
+        }
+    );
+}
+
+#[test]
+fn completed_optimistic_review_reloads_the_selected_next_file() {
+    let pending = |optimistic_status, next_path: Option<&str>| PendingReview {
+        path: "reviewed.rs".to_owned(),
+        previous_status: ReviewStatus::Unreviewed,
+        optimistic_status,
+        next_path: next_path.map(str::to_owned),
+    };
+    let app = |pending_review| ReviewApp {
+        change_id: "change".to_owned(),
+        commit_id: "commit".to_owned(),
+        files: vec![
+            ReviewFile::new("reviewed.rs", ReviewStatus::Reviewed),
+            ReviewFile::new("next.rs", ReviewStatus::Unreviewed),
+        ],
+        selected_file: 1,
+        review_in_flight: Some(pending_review),
+        ..ReviewApp::default()
+    };
+    let finish = |app: &mut ReviewApp, status| {
+        app.update(Message::ReviewFinished {
+            change_id: "change".to_owned(),
+            path: "reviewed.rs".to_owned(),
+            result: Ok(ReviewState {
+                status,
+                warning: None,
+            }),
+        })
+    };
+
+    let mut successful = app(pending(ReviewStatus::Reviewed, Some("next.rs")));
+    assert_eq!(
+        finish(&mut successful, ReviewStatus::Reviewed),
+        Action::LoadDiff {
+            commit_id: "commit".to_owned(),
+            path: "next.rs".to_owned(),
+        }
+    );
+
+    for (optimistic_status, result_status, next_path) in [
+        (
+            ReviewStatus::Unreviewed,
+            ReviewStatus::Reviewed,
+            Some("next.rs"),
+        ),
+        (
+            ReviewStatus::Reviewed,
+            ReviewStatus::Unreviewed,
+            Some("next.rs"),
+        ),
+        (
+            ReviewStatus::Reviewed,
+            ReviewStatus::Reviewed,
+            Some("other.rs"),
+        ),
+        (ReviewStatus::Reviewed, ReviewStatus::Reviewed, None),
+    ] {
+        let mut app = app(pending(optimistic_status, next_path));
+        assert_eq!(finish(&mut app, result_status), Action::None);
+    }
+}
+
+#[test]
+fn location_overlay_click_uses_the_scrolled_screen_row() {
+    let mut app = ReviewApp {
+        width: 80,
+        height: 20,
+        focus: Focus::Files,
+        commit_id: "commit".to_owned(),
+        ..ReviewApp::default()
+    };
+    let locations = (0..6)
+        .map(|line| source_location("src/lib.rs", line))
+        .collect();
+    app.update(Message::Lsp(Event::Locations {
+        toast_id: ToastId::generate(),
+        operation: Operation::References,
+        snapshot_id: "commit".to_owned(),
+        locations,
+    }));
+    app.locations.as_mut().unwrap().scroll = 1;
+
+    let action = app.update(Message::MouseClick {
+        column: 2,
+        row: 5,
+        insert_path: false,
+    });
+
+    assert_eq!(app.locations.as_ref().unwrap().selected, 4);
+    assert!(matches!(action, Action::LoadSource { .. }));
 }
 
 #[test]
@@ -798,7 +1382,37 @@ fn context_menu_hit_area_is_clamped_to_the_terminal() {
 }
 
 #[test]
-fn location_results_preview_and_accept_disk_source() {
+fn context_menu_keys_move_within_bounds_and_escape() {
+    let mut app = ReviewApp {
+        context_menu: Some(ContextMenu {
+            column: 10,
+            row: 5,
+            selected: 0,
+            enabled: false,
+        }),
+        ..ReviewApp::default()
+    };
+
+    app.update(Message::Key(Key::Up));
+    assert_eq!(app.context_menu.as_ref().unwrap().selected, 0);
+    for _ in 0..4 {
+        app.update(Message::Key(Key::Down));
+    }
+    assert_eq!(app.context_menu.as_ref().unwrap().selected, 2);
+    assert_eq!(app.update(Message::Key(Key::Enter)), Action::None);
+    assert!(app.context_menu.is_none());
+
+    app.context_menu = Some(ContextMenu {
+        column: 10,
+        row: 5,
+        selected: 1,
+        enabled: false,
+    });
+    app.update(Message::Key(Key::Escape));
+    assert!(app.context_menu.is_none());
+}
+
+fn app_with_location_results() -> (ReviewApp, SourceLocation, SourceLocation, String) {
     let mut app = ReviewApp::default();
     app.update(Message::FilesLoaded {
         change_id: "change".to_owned(),
@@ -822,6 +1436,12 @@ fn location_results_preview_and_accept_disk_source() {
             mode: SourceLoadMode::Preview,
         }
     );
+    (app, first, second, content)
+}
+
+#[test]
+fn location_results_preview_disk_sources() {
+    let (mut app, first, second, content) = app_with_location_results();
     assert_eq!(
         app.update(Message::SourceLoaded {
             snapshot_id: "commit".to_owned(),
@@ -834,6 +1454,22 @@ fn location_results_preview_and_accept_disk_source() {
     let preview = app.displayed().unwrap();
     assert!((preview.scroll..preview.scroll + app.page_rows()).contains(&preview.cursor));
     assert_source_location_highlighted(&app);
+    assert_eq!(
+        app.update(Message::Key(Key::Last)),
+        Action::LoadSource {
+            snapshot_id: "commit".to_owned(),
+            location: second.clone(),
+            mode: SourceLoadMode::Preview,
+        }
+    );
+    assert_eq!(
+        app.update(Message::Key(Key::First)),
+        Action::LoadSource {
+            snapshot_id: "commit".to_owned(),
+            location: first.clone(),
+            mode: SourceLoadMode::Preview,
+        }
+    );
     assert_eq!(
         app.update(Message::Key(Key::Down)),
         Action::LoadSource {
@@ -868,6 +1504,17 @@ fn location_results_preview_and_accept_disk_source() {
     );
     let preview = app.preview.as_ref().unwrap();
     assert!((preview.scroll..preview.scroll + app.page_rows()).contains(&preview.cursor));
+}
+
+#[test]
+fn location_results_accept_a_disk_source() {
+    let (mut app, first, _second, content) = app_with_location_results();
+    app.update(Message::SourceLoaded {
+        snapshot_id: "commit".to_owned(),
+        location: first.clone(),
+        content: content.as_bytes().to_vec(),
+        mode: SourceLoadMode::Preview,
+    });
     assert_eq!(
         app.update(Message::Key(Key::Up)),
         Action::LoadSource {

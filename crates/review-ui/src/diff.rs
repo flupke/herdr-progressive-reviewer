@@ -638,10 +638,6 @@ fn wrap_line(
     wrapped
 }
 
-#[cfg(test)]
-#[path = "diff.tests.rs"]
-mod tests;
-
 fn source_display_width(line: &str, byte_column: usize) -> usize {
     line.grapheme_indices(true)
         .take_while(|(byte, grapheme)| byte.saturating_add(grapheme.len()) <= byte_column)
@@ -649,3 +645,7 @@ fn source_display_width(line: &str, byte_column: usize) -> usize {
         .sum()
 }
 use std::ops::Range;
+
+#[cfg(test)]
+#[path = "diff.tests.rs"]
+mod tests;

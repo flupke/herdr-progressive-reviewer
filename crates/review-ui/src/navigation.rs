@@ -585,3 +585,7 @@ impl ReviewApp {
         self.set_source_column(target)
     }
 }
+
+#[cfg(test)]
+#[path = "navigation.tests.rs"]
+mod tests;

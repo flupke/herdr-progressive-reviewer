@@ -708,9 +708,6 @@ impl ReviewApp {
                     return Action::None;
                 };
                 file.cursor = target.min(file.diff.len().saturating_sub(1));
-                if target == 0 {
-                    file.scroll = 0;
-                }
                 file.clear_source_location();
                 if let Some(selection) = &mut self.selection
                     && !selection.fixed
@@ -912,7 +909,7 @@ impl ReviewApp {
                 .unwrap_or(0);
         }
         if insert_path {
-            return self.output(self.files[target].path.clone());
+            return self.output(target_path);
         }
         self.load_selected_action()
     }
@@ -1092,3 +1089,7 @@ impl ReviewApp {
         action
     }
 }
+
+#[cfg(test)]
+#[path = "input.tests.rs"]
+mod tests;

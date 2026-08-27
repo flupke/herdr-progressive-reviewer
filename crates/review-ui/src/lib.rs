@@ -17,9 +17,6 @@ mod navigation;
 mod presentation;
 mod render;
 mod review_view;
-#[cfg(test)]
-#[path = "lib.tests.rs"]
-mod tests;
 mod theme;
 
 pub use app::{Action, Key, Message, ReviewApp, ReviewFile, SourceLoadMode};
@@ -31,3 +28,7 @@ pub fn is_rust_path(path: &Path) -> bool {
     path.extension()
         .is_some_and(|extension| extension.eq_ignore_ascii_case("rs"))
 }
+
+#[cfg(test)]
+#[path = "lib.tests.rs"]
+mod tests;

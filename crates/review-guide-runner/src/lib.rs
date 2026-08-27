@@ -268,7 +268,7 @@ where
 /// Schedule safe cleanup for one recorded transport directory.
 pub fn abandon_transport(path: PathBuf) -> Result<(), Error> {
     validate_transport_directory(&path)?;
-    retain_abandoned_transport(path);
+    let _ = retain_transport_for(path, ABANDONED_TRANSPORT_GRACE);
     Ok(())
 }
 
@@ -352,7 +352,7 @@ impl TransportCleanup {
 
     fn retain(&mut self) {
         if let Some(path) = self.path.take() {
-            retain_abandoned_transport(path);
+            let _ = retain_transport_for(path, ABANDONED_TRANSPORT_GRACE);
         }
     }
 
@@ -369,11 +369,11 @@ impl Drop for TransportCleanup {
     }
 }
 
-fn retain_abandoned_transport(path: PathBuf) {
+fn retain_transport_for(path: PathBuf, retention: Duration) -> thread::JoinHandle<()> {
     thread::spawn(move || {
-        thread::sleep(ABANDONED_TRANSPORT_GRACE);
+        thread::sleep(retention);
         let _ = fs::remove_dir_all(path);
-    });
+    })
 }
 
 fn private_transport_directory() -> Result<PathBuf, Error> {
@@ -543,280 +543,5 @@ fn operation(operation: &'static str, error: impl std::fmt::Display) -> Error {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::sync::Mutex;
-
-    use herdr_client::Result;
-    use herdr_client::protocol::{
-        AgentPrompter, AgentSession, HerdrReader, PaneId, PluginPane, SessionSnapshot, TabId,
-        WorkspaceId,
-    };
-    use review_guide::{FrozenHunk, GuideTarget};
-
-    use super::*;
-
-    struct FakeHerdr {
-        agent: Mutex<Agent>,
-        transport_directory: Mutex<Option<PathBuf>>,
-        saw_private_transport: Mutex<bool>,
-        saw_delegated_prompt: Mutex<bool>,
-    }
-
-    impl FakeHerdr {
-        fn new(agent: Agent) -> Self {
-            Self {
-                agent: Mutex::new(agent),
-                transport_directory: Mutex::new(None),
-                saw_private_transport: Mutex::new(false),
-                saw_delegated_prompt: Mutex::new(false),
-            }
-        }
-    }
-
-    impl HerdrReader for FakeHerdr {
-        fn session_snapshot(&self) -> Result<SessionSnapshot> {
-            Ok(SessionSnapshot::default())
-        }
-
-        fn list_agents(&self) -> Result<Vec<Agent>> {
-            Ok(vec![self.agent.lock().unwrap().clone()])
-        }
-
-        fn get_agent(&self, pane_id: &PaneId) -> Result<Option<Agent>> {
-            let agent = self.agent.lock().unwrap();
-            Ok((agent.pane_id == *pane_id).then(|| agent.clone()))
-        }
-
-        fn read_agent_screen(&self, _pane_id: &PaneId) -> Result<String> {
-            Ok(String::new())
-        }
-
-        fn list_plugin_panes(&self, _workspace_id: &WorkspaceId) -> Result<Vec<PluginPane>> {
-            Ok(Vec::new())
-        }
-    }
-
-    impl AgentPrompter for FakeHerdr {
-        fn prompt_agent(&self, pane_id: &PaneId, prompt: &str) -> Result<()> {
-            assert_eq!(*pane_id, self.agent.lock().unwrap().pane_id);
-            *self.saw_delegated_prompt.lock().unwrap() = prompt
-                .contains("inherits the complete current conversation")
-                && prompt.contains("If your agent runtime cannot start a subagent")
-                && prompt.contains("invoke `$handoff`")
-                && prompt.contains("## Review-guide task for the subagent")
-                && prompt.contains("diff in its own context");
-            let value = |label: &str| {
-                prompt
-                    .lines()
-                    .find_map(|line| line.strip_prefix(label))
-                    .unwrap()
-                    .trim_matches('`')
-                    .to_owned()
-            };
-            let diff_path = PathBuf::from(value("- Frozen checkpoint diff: "));
-            let request_id = value("- Request ID: ");
-            let temporary_path = PathBuf::from(value("- Temporary response: "));
-            let response_path = PathBuf::from(value("- Final response: "));
-            let directory = response_path.parent().unwrap().to_owned();
-            let repository_marker = directory.join("repository");
-            *self.saw_private_transport.lock().unwrap() =
-                fs::metadata(&directory).unwrap().permissions().mode() & 0o777 == 0o700
-                    && fs::metadata(&diff_path).unwrap().permissions().mode() & 0o777 == 0o600
-                    && fs::metadata(&repository_marker)
-                        .unwrap()
-                        .permissions()
-                        .mode()
-                        & 0o777
-                        == 0o600
-                    && fs::read(repository_marker).unwrap() == b"/repository"
-                    && fs::read_to_string(diff_path)
-                        .unwrap()
-                        .contains("=== HUNK 1 ===");
-            fs::write(
-                &temporary_path,
-                serde_json::json!({
-                    "schema_version": 1,
-                    "request_id": request_id,
-                    "items": [{
-                        "target": {
-                            "kind": "hunks",
-                            "path": "src/lib.rs",
-                            "first_hunk": 1,
-                            "last_hunk": 1
-                        },
-                        "text": "The central idea."
-                    }]
-                })
-                .to_string(),
-            )
-            .unwrap();
-            fs::rename(temporary_path, response_path).unwrap();
-            *self.transport_directory.lock().unwrap() = Some(directory);
-            Ok(())
-        }
-    }
-
-    fn agent() -> Agent {
-        Agent {
-            pane_id: PaneId("pane".to_owned()),
-            tab_id: TabId("tab".to_owned()),
-            workspace_id: WorkspaceId("workspace".to_owned()),
-            name: None,
-            display_agent: Some("Codex".to_owned()),
-            agent: Some("codex".to_owned()),
-            agent_status: AgentStatus::Idle,
-            agent_session: Some(AgentSession {
-                source: "native".to_owned(),
-                agent: "codex".to_owned(),
-                kind: "thread".to_owned(),
-                value: "session".to_owned(),
-            }),
-            cwd: None,
-        }
-    }
-
-    #[test]
-    fn agent_identity_requires_all_stable_fields_to_match() {
-        let original = agent();
-        assert!(same_agent(&original, &original));
-
-        let mut changed = original.clone();
-        changed.pane_id = PaneId("other-pane".to_owned());
-        assert!(!same_agent(&original, &changed));
-
-        let mut changed = original.clone();
-        changed.tab_id = TabId("other-tab".to_owned());
-        assert!(!same_agent(&original, &changed));
-
-        let mut changed = original.clone();
-        changed.workspace_id = WorkspaceId("other-workspace".to_owned());
-        assert!(!same_agent(&original, &changed));
-
-        let mut changed = original.clone();
-        changed.agent = Some("claude".to_owned());
-        assert!(!same_agent(&original, &changed));
-
-        let mut changed = original.clone();
-        changed.cwd = Some(PathBuf::from("/other/repository"));
-        assert!(!same_agent(&original, &changed));
-
-        let mut changed = original.clone();
-        changed.agent_session.as_mut().unwrap().value = "other-session".to_owned();
-        assert!(!same_agent(&original, &changed));
-
-        let mut without_session = original.clone();
-        without_session.agent_session = None;
-        assert!(same_agent(&without_session, &without_session));
-        assert!(!same_agent(&original, &without_session));
-    }
-
-    #[test]
-    fn transport_directory_must_be_a_private_direct_child_of_the_temporary_root() {
-        let valid = tempfile::Builder::new()
-            .prefix("herdr-review-guide-")
-            .tempdir_in(std::env::temp_dir())
-            .unwrap();
-        fs::set_permissions(valid.path(), fs::Permissions::from_mode(0o700)).unwrap();
-        assert!(validate_transport_directory(valid.path()).is_ok());
-
-        let invalid_name = tempfile::Builder::new()
-            .prefix("other-")
-            .tempdir_in(std::env::temp_dir())
-            .unwrap();
-        fs::set_permissions(invalid_name.path(), fs::Permissions::from_mode(0o700)).unwrap();
-        assert!(validate_transport_directory(invalid_name.path()).is_err());
-
-        let parent = tempfile::tempdir_in(std::env::temp_dir()).unwrap();
-        let nested = parent.path().join("herdr-review-guide-nested");
-        fs::create_dir(&nested).unwrap();
-        fs::set_permissions(&nested, fs::Permissions::from_mode(0o700)).unwrap();
-        assert!(validate_transport_directory(&nested).is_err());
-
-        let loose = tempfile::Builder::new()
-            .prefix("herdr-review-guide-")
-            .tempdir_in(std::env::temp_dir())
-            .unwrap();
-        fs::set_permissions(loose.path(), fs::Permissions::from_mode(0o755)).unwrap();
-        assert!(validate_transport_directory(loose.path()).is_err());
-
-        let file = tempfile::Builder::new()
-            .prefix("herdr-review-guide-")
-            .tempfile_in(std::env::temp_dir())
-            .unwrap();
-        fs::set_permissions(file.path(), fs::Permissions::from_mode(0o600)).unwrap();
-        assert!(validate_transport_directory(file.path()).is_err());
-    }
-
-    #[test]
-    fn submission_marker_must_be_a_private_regular_file() {
-        let valid = tempfile::NamedTempFile::new().unwrap();
-        fs::set_permissions(valid.path(), fs::Permissions::from_mode(0o600)).unwrap();
-        assert!(validate_submission_marker(valid.path()).is_ok());
-
-        let owner_only = tempfile::NamedTempFile::new().unwrap();
-        fs::set_permissions(owner_only.path(), fs::Permissions::from_mode(0o700)).unwrap();
-        assert!(validate_submission_marker(owner_only.path()).is_ok());
-
-        let loose = tempfile::NamedTempFile::new().unwrap();
-        fs::set_permissions(loose.path(), fs::Permissions::from_mode(0o644)).unwrap();
-        assert!(validate_submission_marker(loose.path()).is_err());
-
-        let directory = tempfile::tempdir().unwrap();
-        fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o700)).unwrap();
-        assert!(validate_submission_marker(directory.path()).is_err());
-    }
-
-    #[test]
-    fn published_response_is_accepted_while_the_agent_is_working() {
-        let mut agent = agent();
-        agent.agent_status = AgentStatus::Working;
-        let client = FakeHerdr::new(agent.clone());
-        let result = GuideRunner::new(&client)
-            .run(
-                &agent,
-                GuideRequest {
-                    repository_root: PathBuf::from("/repository"),
-                    review_checkpoint: ReviewCheckpoint::new("unit", "checkpoint"),
-                    scope: GuideScope::All,
-                    frozen_diff: "=== FILE src/lib.rs ===\n=== HUNK 1 ===\n@@ -1 +1 @@\n"
-                        .to_owned(),
-                    files: vec![FrozenFile {
-                        path: "src/lib.rs".to_owned(),
-                        hunk_count: 1,
-                        old_path: Some("src/lib.rs".to_owned()),
-                        new_path: Some("src/lib.rs".to_owned()),
-                        old_content: Some(b"old\n".to_vec()),
-                        new_content: Some(b"new\n".to_vec()),
-                        hunks: vec![FrozenHunk {
-                            old: Some(0..1),
-                            new: Some(0..1),
-                        }],
-                        diff_hash: "diff".to_owned(),
-                    }],
-                    previous_items: Vec::new(),
-                    previous_anchored_items: Vec::new(),
-                },
-            )
-            .unwrap();
-
-        assert!(*client.saw_private_transport.lock().unwrap());
-        assert!(*client.saw_delegated_prompt.lock().unwrap());
-        assert!(
-            !client
-                .transport_directory
-                .lock()
-                .unwrap()
-                .as_ref()
-                .unwrap()
-                .exists()
-        );
-        assert_eq!(
-            result.guide.items[0].target,
-            GuideTarget::Hunks {
-                path: "src/lib.rs".to_owned(),
-                first_hunk: 1,
-                last_hunk: 1,
-            }
-        );
-    }
-}
+#[path = "lib.tests.rs"]
+mod tests;

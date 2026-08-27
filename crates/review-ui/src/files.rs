@@ -194,3 +194,7 @@ impl FilesView<'_> {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "files.tests.rs"]
+mod tests;

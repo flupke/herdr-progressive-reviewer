@@ -4,7 +4,7 @@ use std::fs;
 use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command as ProcessCommand, Stdio};
-use std::thread::{self, JoinHandle};
+use std::thread;
 use std::time::{Duration, Instant};
 
 use crossbeam_channel::{Receiver, unbounded};
@@ -69,10 +69,9 @@ enum State {
 }
 
 pub(super) struct Session {
-    process: AnalyzerProcess,
+    _analyzer_process_guard: AnalyzerProcess,
     input: BufWriter<ChildStdin>,
     inbound: Receiver<Inbound>,
-    reader: Option<JoinHandle<()>>,
     next_id: i32,
     encoding: PositionEncodingKind,
     documents: HashMap<PathBuf, (String, i32)>,
@@ -115,7 +114,7 @@ impl Session {
             .take()
             .ok_or_else(|| "rust-analyzer stdout is unavailable".to_owned())?;
         let (sender, inbound) = unbounded();
-        let reader = thread::spawn(move || {
+        thread::spawn(move || {
             let mut output = BufReader::new(output);
             loop {
                 match Message::read(&mut output) {
@@ -136,10 +135,9 @@ impl Session {
             }
         });
         let mut session = Self {
-            process,
+            _analyzer_process_guard: process,
             input: BufWriter::new(input),
             inbound,
-            reader: Some(reader),
             next_id: 1,
             encoding: PositionEncodingKind::UTF16,
             documents: HashMap::new(),
@@ -595,17 +593,6 @@ impl Session {
     }
 }
 
-impl Drop for Session {
-    fn drop(&mut self) {
-        if self.process.0.try_wait().ok().flatten().is_none() {
-            let _ = self.process.0.kill();
-        }
-        if let Some(reader) = self.reader.take() {
-            let _ = reader.join();
-        }
-    }
-}
-
 fn response_value<R: serde::de::DeserializeOwned>(response: Response) -> Result<R, String> {
     match response.response_result {
         Ok(value) => serde_json::from_value(value).map_err(|error| error.to_string()),
@@ -615,4 +602,4 @@ fn response_value<R: serde::de::DeserializeOwned>(response: Response) -> Result<
 
 #[cfg(all(test, unix))]
 #[path = "session.tests.rs"]
-mod tests;
+pub(super) mod tests;

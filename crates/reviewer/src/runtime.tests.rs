@@ -3,6 +3,8 @@ use std::fs::{self, File};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 
+use ratatui::layout::Rect;
+use ratatui::{TerminalOptions, Viewport};
 use review_repository::repository::RepoType;
 use review_test_support::{ReviewRepositoryFixture, repository_fixture};
 
@@ -780,6 +782,14 @@ fn modified_mouse_inputs_reuse_existing_actions() {
 #[test]
 fn control_location_keys_use_location_history_actions() {
     assert_eq!(
+        normalize_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL)),
+        Some(Key::HalfPageDown)
+    );
+    assert_eq!(
+        normalize_key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL)),
+        Some(Key::HalfPageUp)
+    );
+    assert_eq!(
         normalize_key(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL)),
         Some(Key::PreviousLocation)
     );
@@ -822,4 +832,89 @@ fn consecutive_plain_clicks_at_one_position_become_a_double_click() {
         clicks.normalize_at(click, start + Duration::from_millis(470)),
         Some(Message::MouseClick { .. })
     ));
+}
+
+#[test]
+fn dispatch_reports_that_quit_stops_the_runtime() {
+    let repository = tempfile::tempdir().unwrap();
+    let state = tempfile::tempdir().unwrap();
+    let settings = ReviewStore::open(state.path(), repository.path()).unwrap();
+    let lsp = review_lsp::Worker::start(repository.path().to_owned());
+    let (commands, _command_receiver) = mpsc::channel();
+
+    assert!(
+        Runtime::dispatch(&commands, &settings, Action::Quit, repository.path(), &lsp,).unwrap()
+    );
+}
+
+#[test]
+fn worker_command_preserves_output_actions() {
+    let repository = tempfile::tempdir().unwrap();
+    let lsp = review_lsp::Worker::start(repository.path().to_owned());
+    let (commands, _command_receiver) = mpsc::channel();
+
+    let command = Runtime::worker_command(
+        &commands,
+        repository.path(),
+        &lsp,
+        Action::Output {
+            target: OutputTarget::Clipboard,
+            text: "selected code".to_owned(),
+        },
+    )
+    .unwrap()
+    .unwrap();
+
+    assert!(matches!(
+        command,
+        WorkerCommand::Output {
+            target: OutputTarget::Clipboard,
+            text,
+        } if text == "selected code"
+    ));
+}
+
+#[test]
+fn event_loop_runs_messages_until_quit_without_an_extra_cycle() {
+    let repository = tempfile::tempdir().unwrap();
+    let state = tempfile::tempdir().unwrap();
+    let settings = ReviewStore::open(state.path(), repository.path()).unwrap();
+    let lsp = review_lsp::Worker::start(repository.path().to_owned());
+    let mut terminal = TerminalGuard {
+        terminal: Terminal::with_options(
+            CrosstermBackend::new(stdout()),
+            TerminalOptions {
+                viewport: Viewport::Fixed(Rect::new(0, 0, 80, 20)),
+            },
+        )
+        .unwrap(),
+    };
+    let mut app = ReviewApp::default();
+    let (commands, _command_receiver) = mpsc::channel();
+    let (message_sender, messages) = mpsc::channel();
+    let (_herdr_event_sender, herdr_events) = mpsc::channel();
+    let stopped = AtomicBool::new(false);
+    message_sender.send(Message::Key(Key::Char('o'))).unwrap();
+    message_sender.send(Message::Key(Key::Quit)).unwrap();
+    drop(message_sender);
+
+    RuntimeEventLoop {
+        terminal: &mut terminal,
+        app: &mut app,
+        commands: &commands,
+        messages: &messages,
+        herdr_events: &herdr_events,
+        lsp: &lsp,
+        lsp_root: repository.path(),
+        repository_root: repository.path(),
+        settings: &settings,
+        watcher: RepositoryWatcher::new(repository.path(), RepoType::Jj),
+        mouse_clicks: MouseClicks::default(),
+        stopped: &stopped,
+    }
+    .run()
+    .unwrap();
+
+    assert_eq!(settings.output_target().unwrap(), OutputTarget::Clipboard);
+    std::mem::forget(terminal);
 }

@@ -1,7 +1,7 @@
 use ratatui::style::Color;
 use review_repository::diff::DiffRow;
 
-use super::{DiffPresentation, PresentationLocation, PresentedRow};
+use super::{DiffPresentation, PresentationLocation, PresentationRows, PresentedRow};
 use crate::highlight::{HighlightedDiff, HighlightedFile, HighlightedRow, Token};
 
 #[test]
@@ -177,4 +177,18 @@ fn file_view_restores_the_diff_rows() {
     ));
     assert!(presentation.show_diff());
     assert_eq!(presentation.rows, vec![diff_row]);
+}
+
+#[test]
+fn finish_does_not_add_an_empty_gap_after_the_last_source_line() {
+    let lines = vec![vec![Token {
+        text: "only line".to_owned(),
+        color: Color::White,
+    }]];
+    let mut rows = PresentationRows::new(0, None, Some(&lines));
+    rows.previous_hunk_end = Some(2);
+
+    rows.finish();
+
+    assert!(rows.rows.is_empty());
 }

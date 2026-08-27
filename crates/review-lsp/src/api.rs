@@ -166,3 +166,7 @@ pub enum Event {
         message: String,
     },
 }
+
+#[cfg(test)]
+#[path = "api.tests.rs"]
+mod tests;

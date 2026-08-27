@@ -212,6 +212,58 @@ fn external_ignore_change_refreshes_watches() {
 }
 
 #[test]
+fn unrelated_paths_do_not_change_external_ignore_rules() {
+    let directory = tempdir().unwrap();
+    let root = directory.path();
+    fs::create_dir_all(root.join(".git/info")).unwrap();
+    let state = Arc::new(WatchState::default());
+    let (commands, _events) = mpsc::channel();
+    let watcher = ActiveWatcher::start(root, RepoType::Git, &state, &commands).unwrap();
+    let mut event = Event::new(EventKind::Modify(ModifyKind::Any));
+    event.paths.push(root.join("source.rs"));
+
+    assert!(!watcher.changes_external_rules(&event));
+}
+
+#[test]
+fn directory_create_events_refresh_the_changed_subtree_only() {
+    let directory = tempdir().unwrap();
+    let root = directory.path();
+    let parent = root.join("parent");
+    fs::create_dir(&parent).unwrap();
+    let state = Arc::new(WatchState::default());
+    let (commands, _events) = mpsc::channel();
+    let mut watcher = ActiveWatcher::start(root, RepoType::Jj, &state, &commands).unwrap();
+    let child = parent.join("child");
+    fs::create_dir(&child).unwrap();
+    let mut event = Event::new(EventKind::Create(CreateKind::Folder));
+    event.paths.push(child.clone());
+
+    watcher.refresh_changed_directories(&event).unwrap();
+
+    assert!(watcher.rules.directories.contains(&child));
+}
+
+#[test]
+fn content_modify_events_do_not_refresh_directory_rules() {
+    let directory = tempdir().unwrap();
+    let root = directory.path();
+    let state = Arc::new(WatchState::default());
+    let (commands, _events) = mpsc::channel();
+    let mut watcher = ActiveWatcher::start(root, RepoType::Jj, &state, &commands).unwrap();
+    let absent = root.join("absent");
+    watcher.rules.directories.push(absent.clone());
+    let mut event = Event::new(EventKind::Modify(ModifyKind::Data(
+        notify::event::DataChange::Any,
+    )));
+    event.paths.push(absent.clone());
+
+    watcher.refresh_changed_directories(&event).unwrap();
+
+    assert!(watcher.rules.directories.contains(&absent));
+}
+
+#[test]
 fn ignored_gitignore_changes_refresh_its_subtree() {
     let directory = tempdir().unwrap();
     let root = directory.path();

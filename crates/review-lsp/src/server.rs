@@ -227,3 +227,7 @@ impl Server {
         });
     }
 }
+
+#[cfg(test)]
+#[path = "server.tests.rs"]
+mod tests;
