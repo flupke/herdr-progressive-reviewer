@@ -1,4 +1,4 @@
-.PHONY: build check install mutants uninstall
+.PHONY: build check complexity install mutants uninstall
 
 build:
 	cargo build --release --locked --bins
@@ -15,6 +15,9 @@ check:
 	cargo clippy --workspace --all-targets
 	cargo test --workspace --doc
 	cargo nextest run --workspace
+
+complexity:
+	cccc --lang rust crates | jq -r '[.files[] | .path as $$path | .functions[] | recurse(.children[]?) | select(.cyclomatic > 10 or .cognitive > 15) | { path: $$path, line, name, cognitive, cyclomatic }] | sort_by([-.cyclomatic, -.cognitive, .path, .line]) | ("Cognitive\tCyclomatic\tFunction", (.[] | "\(.cognitive)\t\(.cyclomatic)\t\(.path):\(.line) \(.name)"))'
 
 mutants:
 	cargo mutants --workspace --test-workspace=true --test-tool=nextest
