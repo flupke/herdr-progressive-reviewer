@@ -209,12 +209,18 @@ fn reports_stable_review_context_switches(repository_type: RepoType) {
     context.repository_files.write("second.txt", b"second\n");
     context.repository_files.new_change("second change");
     let second = complete_repository_snapshot(&context.repository);
-    assert_ne!(second.identity.review_id(), first.identity.review_id());
+    assert_ne!(second.identity.review_unit(), first.identity.review_unit());
 
     context.repository_files.edit(&first_revision);
     let returned = complete_repository_snapshot(&context.repository);
-    assert_eq!(returned.identity.review_id(), first.identity.review_id());
-    assert_ne!(returned.identity.review_id(), second.identity.review_id());
+    assert_eq!(
+        returned.identity.review_unit(),
+        first.identity.review_unit()
+    );
+    assert_ne!(
+        returned.identity.review_unit(),
+        second.identity.review_unit()
+    );
 }
 
 #[test_case(RepoType::Git; "git")]

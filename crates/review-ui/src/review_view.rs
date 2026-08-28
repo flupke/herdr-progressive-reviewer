@@ -13,6 +13,7 @@ use crate::footer::FooterView;
 use crate::header::HeaderView;
 use crate::help::ShortcutHelpView;
 use crate::hover::HoverView;
+use crate::revision_navigation::RevisionSelectorView;
 
 const MIN_WIDTH: u16 = 40;
 const MIN_HEIGHT: u16 = 6;
@@ -77,6 +78,9 @@ impl ReviewView<'_> {
             .render(area, buffer, self.0.palette.focus, self.0.palette.deletion);
         match self.0.active_popup {
             Some(ActivePopup::CommitMessage) => CommitMessageView(self.0).render(area, buffer),
+            Some(ActivePopup::RevisionSelector) => {
+                RevisionSelectorView(self.0).render(area, buffer);
+            }
             Some(ActivePopup::ShortcutHelp) => ShortcutHelpView(self.0).render(area, buffer),
             None => {}
         }

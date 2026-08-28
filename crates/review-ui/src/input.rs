@@ -26,6 +26,9 @@ struct GuideCommentTarget {
 
 impl ReviewApp {
     pub(super) fn key(&mut self, key: Key) -> Action {
+        if self.active_popup == Some(ActivePopup::RevisionSelector) {
+            return self.revision_selector_key(key);
+        }
         if self.active_popup == Some(ActivePopup::ShortcutHelp) {
             return self.shortcut_help_key(key);
         }
@@ -220,6 +223,12 @@ impl ReviewApp {
             NavigationShortcut::MoveHalfPageUp => self.navigate_half_page(-self.half_page_rows()),
             NavigationShortcut::GoToPreviousLocation => self.previous_location(),
             NavigationShortcut::GoToNextLocation => self.next_location(),
+            NavigationShortcut::GoToParentRevision => self.start_revision_navigation(
+                review_repository::repository::RevisionDirection::Parents,
+            ),
+            NavigationShortcut::GoToChildRevision => self.start_revision_navigation(
+                review_repository::repository::RevisionDirection::Children,
+            ),
         }
     }
 

@@ -3,10 +3,12 @@ use super::*;
 #[test]
 fn checkpoint_identity_requires_the_review_unit_and_checkpoint() {
     let checkpoint = ReviewCheckpoint::new("review-unit", "checkpoint");
+    let review_unit = ReviewUnit::from("review-unit");
+    let other_unit = ReviewUnit::from("other-unit");
 
-    assert!(checkpoint.matches("review-unit", "checkpoint"));
-    assert!(!checkpoint.matches("other-unit", "checkpoint"));
-    assert!(!checkpoint.matches("review-unit", "other-checkpoint"));
+    assert!(checkpoint.matches(&review_unit, "checkpoint"));
+    assert!(!checkpoint.matches(&other_unit, "checkpoint"));
+    assert!(!checkpoint.matches(&review_unit, "other-checkpoint"));
 }
 
 #[test]

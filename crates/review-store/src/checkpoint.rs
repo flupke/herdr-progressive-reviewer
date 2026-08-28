@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
+use review_types::ReviewUnit;
 use serde::{Deserialize, Serialize};
 
 use super::{Error, Result, ReviewStore, StateKey};
@@ -34,7 +35,8 @@ pub enum LoadResult {
 #[derive(Debug, Deserialize, Serialize)]
 struct StoredRecord {
     schema_version: u8,
-    change_id: String,
+    #[serde(alias = "change_id")]
+    review_unit: ReviewUnit,
     path_encoding: PathEncoding,
     path: String,
     baseline_commit_id: String,
@@ -48,7 +50,7 @@ enum PathEncoding {
     Base64,
 }
 
-struct ChangeKey;
+struct ReviewUnitKey;
 
 struct CommitKey;
 
@@ -58,11 +60,11 @@ impl ReviewStore {
     /// Store one complete review mark.
     pub fn mark(
         &self,
-        change_id: &str,
+        review_unit: &ReviewUnit,
         path: &[u8],
         baseline_commit_id: &str,
     ) -> Result<ReviewRecord> {
-        ChangeKey::validate(change_id)?;
+        ReviewUnitKey::validate(review_unit)?;
         CommitKey::validate(baseline_commit_id)?;
         StatePath::validate(path)?;
         let record = ReviewRecord {
@@ -70,15 +72,15 @@ impl ReviewStore {
             baseline_commit_id: baseline_commit_id.to_owned(),
             reviewed_at: Self::timestamp("review timestamp")?,
         };
-        self.write_record(change_id, &record)?;
+        self.write_record(review_unit, &record)?;
         Ok(record)
     }
 
     /// Load and validate one review mark.
-    pub fn load(&self, change_id: &str, path: &[u8]) -> Result<LoadResult> {
-        ChangeKey::validate(change_id)?;
+    pub fn load(&self, review_unit: &ReviewUnit, path: &[u8]) -> Result<LoadResult> {
+        ReviewUnitKey::validate(review_unit)?;
         StatePath::validate(path)?;
-        let target = self.record_path(change_id, path);
+        let target = self.record_path(review_unit, path);
         let Some(stored) = Self::read_stored(&target)? else {
             return Ok(LoadResult::Unreviewed);
         };
@@ -88,7 +90,7 @@ impl ReviewStore {
         let Some(decoded_path) = stored.decode_path() else {
             return Ok(LoadResult::Unreviewed);
         };
-        let valid = stored.change_id == change_id
+        let valid = &stored.review_unit == review_unit
             && decoded_path == path
             && CommitKey::is_valid(&stored.baseline_commit_id);
         if !valid {
@@ -102,10 +104,10 @@ impl ReviewStore {
     }
 
     /// Remove one review mark. A missing record is success.
-    pub fn unreview(&self, change_id: &str, path: &[u8]) -> Result<()> {
-        ChangeKey::validate(change_id)?;
+    pub fn unreview(&self, review_unit: &ReviewUnit, path: &[u8]) -> Result<()> {
+        ReviewUnitKey::validate(review_unit)?;
         StatePath::validate(path)?;
-        let target = self.record_path(change_id, path);
+        let target = self.record_path(review_unit, path);
         match fs::remove_file(&target) {
             Ok(()) => self.sync_parent(&target),
             Err(source) if source.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -117,11 +119,11 @@ impl ReviewStore {
         }
     }
 
-    fn write_record(&self, change_id: &str, record: &ReviewRecord) -> Result<()> {
+    fn write_record(&self, review_unit: &ReviewUnit, record: &ReviewRecord) -> Result<()> {
         let directory = self
             .repository_dir
             .join("changes")
-            .join(change_id)
+            .join(review_unit.as_str())
             .join("paths");
         self.create_dir(&directory)?;
         let target = directory.join(format!("{}.json", StateKey::hash(&record.path).0));
@@ -134,7 +136,7 @@ impl ReviewStore {
         let (path_encoding, path) = PathEncoding::encode(&record.path);
         let stored = StoredRecord {
             schema_version: SCHEMA_VERSION,
-            change_id: change_id.to_owned(),
+            review_unit: review_unit.clone(),
             path_encoding,
             path,
             baseline_commit_id: record.baseline_commit_id.clone(),
@@ -147,10 +149,10 @@ impl ReviewStore {
         Self::read_json(target, "read review record")
     }
 
-    pub(super) fn record_path(&self, change_id: &str, path: &[u8]) -> PathBuf {
+    pub(super) fn record_path(&self, review_unit: &ReviewUnit, path: &[u8]) -> PathBuf {
         self.repository_dir
             .join("changes")
-            .join(change_id)
+            .join(review_unit.as_str())
             .join("paths")
             .join(format!("{}.json", StateKey::hash(path).0))
     }
@@ -174,8 +176,9 @@ impl PathEncoding {
     }
 }
 
-impl ChangeKey {
-    fn validate(value: &str) -> Result<()> {
+impl ReviewUnitKey {
+    fn validate(value: &ReviewUnit) -> Result<()> {
+        let value = value.as_str();
         if !value.is_empty()
             && value
                 .bytes()
@@ -183,7 +186,9 @@ impl ChangeKey {
         {
             Ok(())
         } else {
-            Err(Error::InvalidStateKey { field: "change ID" })
+            Err(Error::InvalidStateKey {
+                field: "review unit",
+            })
         }
     }
 }

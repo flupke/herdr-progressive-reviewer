@@ -147,7 +147,7 @@ impl GitBackend {
             "Git returned a non-UTF-8 snapshot tree ID",
         )?;
         Ok(SnapshotIdentity::Git {
-            base_tree,
+            base_tree: base_tree.into(),
             snapshot_tree,
         })
     }
@@ -188,7 +188,7 @@ impl RepositoryBackend for GitBackend {
                         "--raw",
                         "-z",
                         "--find-renames",
-                        identity.review_id(),
+                        identity.review_unit().as_str(),
                         identity.snapshot_id(),
                     ],
                 )?
@@ -212,7 +212,7 @@ impl RepositoryBackend for GitBackend {
                         "--numstat",
                         "-z",
                         "--find-renames",
-                        identity.review_id(),
+                        identity.review_unit().as_str(),
                         identity.snapshot_id(),
                     ],
                 )?
@@ -231,7 +231,7 @@ impl RepositoryBackend for GitBackend {
             OsString::from("--no-ext-diff"),
             OsString::from("--no-textconv"),
             OsString::from("--find-renames"),
-            OsString::from(snapshot.identity.review_id()),
+            OsString::from(snapshot.identity.review_unit().as_str()),
             OsString::from(snapshot.identity.snapshot_id()),
             OsString::from("--"),
         ];
@@ -254,7 +254,7 @@ impl RepositoryBackend for GitBackend {
         snapshot: &Snapshot,
         path: &RepoPath,
     ) -> Result<Vec<u8>> {
-        self.file_at(repository, snapshot.identity.review_id(), path)
+        self.file_at(repository, snapshot.identity.review_unit().as_str(), path)
     }
 
     fn interdiff(

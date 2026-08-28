@@ -1,8 +1,9 @@
-use super::{LocationHistory, ReviewLocation};
+use super::{LocationHistory, LocationHistoryDirection, ReviewLocation};
 use crate::presentation::PresentationLocation;
 
 fn review_location(path: &str, cursor: usize) -> ReviewLocation {
     ReviewLocation::ReviewFile {
+        review_unit: "change".into(),
         path: path.to_owned(),
         cursor,
         presentation_location: None,
@@ -23,12 +24,14 @@ fn same_line_uses_the_stable_presentation_location_when_available() {
     assert!(!plain.same_line(&review_location("src/other.rs", 3)));
 
     let stable = ReviewLocation::ReviewFile {
+        review_unit: "change".into(),
         path: "src/lib.rs".to_owned(),
         cursor: 3,
         presentation_location: Some(PresentationLocation::NewLine(10)),
         column: 0,
     };
     let moved = ReviewLocation::ReviewFile {
+        review_unit: "change".into(),
         path: "src/lib.rs".to_owned(),
         cursor: 50,
         presentation_location: Some(PresentationLocation::NewLine(10)),
@@ -36,6 +39,13 @@ fn same_line_uses_the_stable_presentation_location_when_available() {
     };
     assert!(stable.same_line(&moved));
     assert!(!stable.same_line(&plain));
+    assert!(!stable.same_line(&ReviewLocation::ReviewFile {
+        review_unit: "other-change".into(),
+        path: "src/lib.rs".to_owned(),
+        cursor: 50,
+        presentation_location: Some(PresentationLocation::NewLine(10)),
+        column: 8,
+    }));
 }
 
 #[test]
@@ -68,11 +78,16 @@ fn history_traversal_skips_unrestorable_locations_and_supports_forward_navigatio
     history.older = vec![first.clone(), skipped];
 
     assert_eq!(
-        history.previous(current.clone(), |location| {
-            location != &review_location("skip.rs", 2)
-        }),
+        history.location(
+            LocationHistoryDirection::Previous,
+            current.clone(),
+            |location| location != &review_location("skip.rs", 2),
+        ),
         Some(first.clone())
     );
     assert_eq!(history.newer, vec![current.clone()]);
-    assert_eq!(history.next(first, |_| true), Some(current));
+    assert_eq!(
+        history.location(LocationHistoryDirection::Next, first, |_| true),
+        Some(current)
+    );
 }

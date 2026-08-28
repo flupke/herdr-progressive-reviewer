@@ -33,9 +33,12 @@ use review_guide_runner::{
 };
 use review_lsp::SourceLocation;
 use review_repository::diff::parse_file_diff;
-use review_repository::repository::{ChangedFile, PollResult, RepoPath, Repository, Snapshot};
+use review_repository::repository::{
+    ChangeId, ChangedFile, PollResult, RepoPath, Repository, RevisionDirection, Snapshot,
+};
 use review_state::{MarkResult, ReviewStatus, ReviewTracker};
 use review_store::{OutputTarget, ReviewStore};
+use review_types::ReviewUnit;
 use review_ui::{Action, Key, Message, ReviewApp, ReviewFile, SourceLoadMode, Theme};
 use sha2::{Digest, Sha256};
 use signal_hook::consts::signal::{SIGHUP, SIGINT, SIGTERM};
@@ -73,6 +76,8 @@ struct Worker {
 #[derive(Debug)]
 enum WorkerCommand {
     Poll,
+    LoadRevisionCandidates(RevisionDirection),
+    EditRevision(ChangeId),
     LoadDiff {
         commit_id: String,
         path: String,
@@ -93,7 +98,7 @@ enum WorkerCommand {
     GenerateReviewGuide(GuideScope),
     GuideFinished(guide::FinishedGuide),
     ImportReviewGuide {
-        review_unit: String,
+        review_unit: ReviewUnit,
         wait_token: u64,
     },
     Focus(PaneId),
@@ -175,6 +180,7 @@ impl Runtime {
         if lsp_root.is_some() {
             let _ = lsp.initialize();
         }
+        let _ = app.update(Message::RepositoryRefreshStarted);
         commands.send(WorkerCommand::Poll)?;
         let result = RuntimeEventLoop {
             terminal: &mut terminal,
@@ -372,6 +378,10 @@ impl Runtime {
                 open_rust_document(root, lsp, &path);
                 WorkerCommand::LoadDiff { commit_id, path }
             }
+            Action::LoadRevisionCandidates(direction) => {
+                WorkerCommand::LoadRevisionCandidates(direction)
+            }
+            Action::EditRevision { change_id } => WorkerCommand::EditRevision(change_id),
             Action::LoadDiffs { commit_id, paths } => {
                 for path in paths {
                     open_rust_document(root, lsp, &path);
@@ -437,6 +447,7 @@ impl RuntimeEventLoop<'_> {
             return Ok(true);
         }
         if self.watcher.poll_due(std::time::Instant::now()) {
+            let _ = self.app.update(Message::RepositoryRefreshStarted);
             self.commands.send(WorkerCommand::Poll)?;
         }
         self.redraw()?;
@@ -525,7 +536,35 @@ impl Worker {
     ) -> bool {
         match command {
             WorkerCommand::Poll => {
-                self.poll(messages);
+                let _ = self.poll(messages);
+                let _ = messages.send(Message::RepositoryRefreshFinished);
+                true
+            }
+            WorkerCommand::LoadRevisionCandidates(direction) => {
+                let result = self
+                    .repository
+                    .revision_candidates(direction)
+                    .map_err(|error| error.to_string());
+                let _ = messages.send(Message::RevisionCandidates { direction, result });
+                true
+            }
+            WorkerCommand::EditRevision(change_id) => {
+                match self.repository.edit_revision(&change_id) {
+                    Ok(true) if !self.poll(messages) => {
+                        let _ = messages.send(Message::RevisionEditFailed {
+                            message: Some("could not load the selected revision".to_owned()),
+                        });
+                    }
+                    Ok(true) => {}
+                    Ok(false) => {
+                        let _ = messages.send(Message::RevisionEditFailed { message: None });
+                    }
+                    Err(error) => {
+                        let _ = messages.send(Message::RevisionEditFailed {
+                            message: Some(error.to_string()),
+                        });
+                    }
+                }
                 true
             }
             WorkerCommand::LoadDiff { commit_id, path } => {
@@ -631,10 +670,10 @@ impl Worker {
         let _ = messages.send(Message::OutputFinished { delivered });
     }
 
-    fn poll(&mut self, messages: &Sender<Message>) {
+    fn poll(&mut self, messages: &Sender<Message>) -> bool {
         let snapshot = match self.repository.poll() {
             Ok(PollResult::Complete(snapshot)) => snapshot,
-            Ok(PollResult::ChangedDuringPoll) | Err(_) => return,
+            Ok(PollResult::ChangedDuringPoll) | Err(_) => return false,
         };
         let Ok(states) = snapshot
             .files
@@ -642,7 +681,7 @@ impl Worker {
             .map(|file| self.tracker.status(&snapshot, file))
             .collect::<eyre::Result<Vec<_>>>()
         else {
-            return;
+            return false;
         };
         let files = snapshot
             .files
@@ -651,12 +690,12 @@ impl Worker {
             .map(|(file, state)| ReviewFile::from_changed(file, state.status))
             .collect();
         let _ = messages.send(Message::FilesLoaded {
-            change_id: snapshot.identity.review_id().to_owned(),
+            review_unit: snapshot.identity.review_unit().clone(),
             commit_id: snapshot.identity.snapshot_id().to_owned(),
             description: snapshot.identity.description().to_owned(),
             files,
         });
-        if let Ok(Some(guide)) = self.guide_store.load_guide(snapshot.identity.review_id()) {
+        if let Ok(Some(guide)) = self.guide_store.load_guide(snapshot.identity.review_unit()) {
             let items = if guide.review_checkpoint.checkpoint == snapshot.identity.snapshot_id() {
                 guide.items
             } else {
@@ -683,17 +722,18 @@ impl Worker {
             };
             let _ = messages.send(Message::ReviewGuideLoaded {
                 review_checkpoint: ReviewCheckpoint::new(
-                    snapshot.identity.review_id(),
+                    snapshot.identity.review_unit().clone(),
                     snapshot.identity.snapshot_id(),
                 ),
                 items,
             });
         }
-        let review_unit = snapshot.identity.review_id().to_owned();
+        let review_unit = snapshot.identity.review_unit().clone();
         self.snapshot = Some(snapshot);
         self.guide_operation(|guide, context| {
             guide.import_completed_guide(context, messages, &review_unit);
         });
+        true
     }
 
     fn load_diff(&self, messages: &Sender<Message>, commit_id: String, path: String) {
@@ -724,7 +764,7 @@ impl Worker {
         let Some(snapshot) = self.snapshot.as_ref() else {
             return;
         };
-        let change_id = snapshot.identity.review_id().to_owned();
+        let review_unit = snapshot.identity.review_unit().clone();
         let result = snapshot
             .files
             .iter()
@@ -745,7 +785,7 @@ impl Worker {
             })
             .map_err(|_| ());
         let _ = messages.send(Message::ReviewFinished {
-            change_id,
+            review_unit,
             path,
             result,
         });

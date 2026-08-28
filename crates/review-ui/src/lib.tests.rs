@@ -146,7 +146,7 @@ fn escape_closes_shortcut_help_and_clears_transient_state() {
 fn review_guide_comment_shortcuts_wrap_between_files() {
     let mut app = ReviewApp::default();
     app.update(Message::FilesLoaded {
-        change_id: "change".to_owned(),
+        review_unit: "change".into(),
         commit_id: "commit".to_owned(),
         description: String::new(),
         files: vec![
@@ -248,7 +248,7 @@ fn review_guide_comment_shortcuts_wrap_between_files() {
 fn guide_jump_waits_for_the_target_file_and_finishes_after_it_loads() {
     let mut app = ReviewApp::default();
     app.update(Message::FilesLoaded {
-        change_id: "change".to_owned(),
+        review_unit: "change".into(),
         commit_id: "commit".to_owned(),
         description: String::new(),
         files: vec![
@@ -388,7 +388,7 @@ fn interactive_search_moves_and_repeats_from_the_diff_cursor() {
 fn repeated_search_centers_each_match() {
     let mut app = ReviewApp::default();
     app.update(Message::FilesLoaded {
-        change_id: "change".to_owned(),
+        review_unit: "change".into(),
         commit_id: "commit".to_owned(),
         description: String::new(),
         files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed)],
@@ -441,7 +441,7 @@ fn repeated_search_centers_each_match() {
 fn app_with_visible_current_source() -> ReviewApp {
     let mut app = ReviewApp::default();
     app.update(Message::FilesLoaded {
-        change_id: "change".to_owned(),
+        review_unit: "change".into(),
         commit_id: "commit".to_owned(),
         description: String::new(),
         files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed)],
@@ -589,7 +589,7 @@ fn hover_keys_scroll_in_both_directions_and_close_the_hover() {
 fn visual_mode_only_starts_in_the_diff_pane() {
     let mut app = ReviewApp::default();
     app.update(Message::FilesLoaded {
-        change_id: "change".to_owned(),
+        review_unit: "change".into(),
         commit_id: "commit".to_owned(),
         description: String::new(),
         files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed)],
@@ -666,7 +666,7 @@ fn repository_refresh_updates_paths_and_clears_checkpoint_state() {
         ..ReviewApp::default()
     };
     app.update(Message::FilesLoaded {
-        change_id: "change".to_owned(),
+        review_unit: "change".into(),
         commit_id: "first".to_owned(),
         description: String::new(),
         files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed)],
@@ -682,7 +682,7 @@ fn repository_refresh_updates_paths_and_clears_checkpoint_state() {
     app.hover = Some("hover".to_owned());
 
     app.update(Message::FilesLoaded {
-        change_id: "change".to_owned(),
+        review_unit: "change".into(),
         commit_id: "second".to_owned(),
         description: String::new(),
         files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed)],
@@ -700,7 +700,7 @@ fn repository_refresh_updates_paths_and_clears_checkpoint_state() {
 #[test]
 fn new_review_unit_resets_transient_review_state() {
     let mut app = ReviewApp {
-        change_id: "old".to_owned(),
+        review_unit: "old".into(),
         commit_id: "old".to_owned(),
         active_popup: Some(ActivePopup::CommitMessage),
         file_scroll: 4,
@@ -716,7 +716,7 @@ fn new_review_unit_resets_transient_review_state() {
     };
 
     app.update(Message::FilesLoaded {
-        change_id: "new".to_owned(),
+        review_unit: "new".into(),
         commit_id: "new".to_owned(),
         description: String::new(),
         files: vec![ReviewFile::new("new.rs", ReviewStatus::Unreviewed)],
@@ -732,7 +732,7 @@ fn new_review_unit_resets_transient_review_state() {
 #[test]
 fn refresh_applies_an_optimistic_status_only_to_its_pending_file() {
     let mut app = ReviewApp {
-        change_id: "change".to_owned(),
+        review_unit: "change".into(),
         commit_id: "commit".to_owned(),
         files: vec![
             ReviewFile::new("pending.rs", ReviewStatus::Unreviewed),
@@ -748,7 +748,7 @@ fn refresh_applies_an_optimistic_status_only_to_its_pending_file() {
     };
 
     app.update(Message::FilesLoaded {
-        change_id: "change".to_owned(),
+        review_unit: "change".into(),
         commit_id: "commit".to_owned(),
         description: String::new(),
         files: vec![
@@ -764,7 +764,7 @@ fn refresh_applies_an_optimistic_status_only_to_its_pending_file() {
 #[test]
 fn successful_review_updates_only_the_named_file_and_reloads_it_when_selected() {
     let mut app = ReviewApp {
-        change_id: "change".to_owned(),
+        review_unit: "change".into(),
         commit_id: "commit".to_owned(),
         files: vec![
             ReviewFile::new("other.rs", ReviewStatus::Reviewed),
@@ -776,7 +776,7 @@ fn successful_review_updates_only_the_named_file_and_reloads_it_when_selected() 
 
     assert_eq!(
         app.update(Message::ReviewFinished {
-            change_id: "change".to_owned(),
+            review_unit: "change".into(),
             path: "target.rs".to_owned(),
             result: Ok(ReviewState {
                 status: ReviewStatus::Unreviewed,
@@ -791,7 +791,7 @@ fn successful_review_updates_only_the_named_file_and_reloads_it_when_selected() 
     app.selected_file = 1;
     assert_eq!(
         app.update(Message::ReviewFinished {
-            change_id: "change".to_owned(),
+            review_unit: "change".into(),
             path: "target.rs".to_owned(),
             result: Ok(ReviewState {
                 status: ReviewStatus::ChangedSinceReview,
@@ -814,7 +814,7 @@ fn completed_optimistic_review_reloads_the_selected_next_file() {
         next_path: next_path.map(str::to_owned),
     };
     let app = |pending_review| ReviewApp {
-        change_id: "change".to_owned(),
+        review_unit: "change".into(),
         commit_id: "commit".to_owned(),
         files: vec![
             ReviewFile::new("reviewed.rs", ReviewStatus::Reviewed),
@@ -826,7 +826,7 @@ fn completed_optimistic_review_reloads_the_selected_next_file() {
     };
     let finish = |app: &mut ReviewApp, status| {
         app.update(Message::ReviewFinished {
-            change_id: "change".to_owned(),
+            review_unit: "change".into(),
             path: "reviewed.rs".to_owned(),
             result: Ok(ReviewState {
                 status,
@@ -930,7 +930,7 @@ fn definition_target_is_centered() {
         PathBuf::from("/repo"),
     );
     app.update(Message::FilesLoaded {
-        change_id: "change".to_owned(),
+        review_unit: "change".into(),
         commit_id: "commit".to_owned(),
         description: String::new(),
         files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed)],
@@ -1221,7 +1221,7 @@ fn location_history_app<const FILE_COUNT: usize>(
         PathBuf::from("/repo"),
     );
     app.update(Message::FilesLoaded {
-        change_id: "change".to_owned(),
+        review_unit: "change".into(),
         commit_id: "commit".to_owned(),
         description: String::new(),
         files: names
@@ -1244,7 +1244,7 @@ fn location_history_app<const FILE_COUNT: usize>(
 fn current_cursor_becomes_external_when_its_file_leaves_the_diff() {
     let mut app = ReviewApp::default();
     app.update(Message::FilesLoaded {
-        change_id: "change".to_owned(),
+        review_unit: "change".into(),
         commit_id: "first".to_owned(),
         description: String::new(),
         files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed)],
@@ -1272,7 +1272,7 @@ fn current_cursor_becomes_external_when_its_file_leaves_the_diff() {
     };
     assert_eq!(
         app.update(Message::FilesLoaded {
-            change_id: "change".to_owned(),
+            review_unit: "change".into(),
             commit_id: "second".to_owned(),
             description: String::new(),
             files: vec![ReviewFile::new("README.md", ReviewStatus::Unreviewed)],
@@ -1292,7 +1292,7 @@ fn current_cursor_becomes_external_when_its_file_leaves_the_diff() {
     app.collapsed_directories.insert("src".to_owned());
     assert_eq!(
         app.update(Message::FilesLoaded {
-            change_id: "change".to_owned(),
+            review_unit: "change".into(),
             commit_id: "third".to_owned(),
             description: String::new(),
             files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed)],
@@ -1309,7 +1309,7 @@ fn current_cursor_becomes_external_when_its_file_leaves_the_diff() {
 fn current_cursor_is_rendered_from_the_refreshed_diff() {
     let mut app = ReviewApp::default();
     app.update(Message::FilesLoaded {
-        change_id: "change".to_owned(),
+        review_unit: "change".into(),
         commit_id: "first".to_owned(),
         description: String::new(),
         files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed)],
@@ -1329,7 +1329,7 @@ fn current_cursor_is_rendered_from_the_refreshed_diff() {
     assert_eq!(app.accept_location(location), Action::None);
     assert_eq!(
         app.update(Message::FilesLoaded {
-            change_id: "change".to_owned(),
+            review_unit: "change".into(),
             commit_id: "second".to_owned(),
             description: String::new(),
             files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed)],
@@ -1442,7 +1442,7 @@ fn context_menu_keys_move_within_bounds_and_escape() {
 fn app_with_location_results() -> (ReviewApp, SourceLocation, SourceLocation, String) {
     let mut app = ReviewApp::default();
     app.update(Message::FilesLoaded {
-        change_id: "change".to_owned(),
+        review_unit: "change".into(),
         commit_id: "commit".to_owned(),
         description: String::new(),
         files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed)],
@@ -1578,7 +1578,7 @@ fn location_results_accept_a_disk_source() {
 fn review_location_preview_keeps_diff_markers_and_escape_restores_diff_focus() {
     let mut app = ReviewApp::default();
     app.update(Message::FilesLoaded {
-        change_id: "change".to_owned(),
+        review_unit: "change".into(),
         commit_id: "commit".to_owned(),
         description: String::new(),
         files: vec![
@@ -1638,7 +1638,7 @@ fn wrapped_location_preview_keeps_the_target_visible() {
         height: 8,
     });
     app.update(Message::FilesLoaded {
-        change_id: "change".to_owned(),
+        review_unit: "change".into(),
         commit_id: "commit".to_owned(),
         description: String::new(),
         files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed)],
@@ -1694,7 +1694,7 @@ fn wrapped_location_preview_keeps_the_target_visible() {
 fn reviewed_file_reference_preview_shows_each_target() {
     let mut app = ReviewApp::default();
     app.update(Message::FilesLoaded {
-        change_id: "change".to_owned(),
+        review_unit: "change".into(),
         commit_id: "commit".to_owned(),
         description: String::new(),
         files: vec![ReviewFile::new("src/navigation.rs", ReviewStatus::Reviewed)],
@@ -1749,7 +1749,7 @@ fn reviewed_file_reference_preview_shows_each_target() {
 fn reviewed_lsp_target_hides_after_visiting_another_file() {
     let mut app = ReviewApp::default();
     app.update(Message::FilesLoaded {
-        change_id: "change".to_owned(),
+        review_unit: "change".into(),
         commit_id: "commit".to_owned(),
         description: String::new(),
         files: vec![
@@ -1802,7 +1802,7 @@ fn reviewed_lsp_target_hides_after_visiting_another_file() {
 fn empty_review_diff_previews_its_full_source_after_loading() {
     let mut app = ReviewApp::default();
     app.update(Message::FilesLoaded {
-        change_id: "change".to_owned(),
+        review_unit: "change".into(),
         commit_id: "commit".to_owned(),
         description: String::new(),
         files: vec![
@@ -1857,7 +1857,7 @@ fn numbered_lines(count: usize) -> String {
 fn search_test_app() -> ReviewApp {
     let mut app = ReviewApp::default();
     app.update(Message::FilesLoaded {
-        change_id: "change".to_owned(),
+        review_unit: "change".into(),
         commit_id: "commit".to_owned(),
         description: String::new(),
         files: vec![

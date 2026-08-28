@@ -8,6 +8,7 @@ members = [
     "crates/review-state",
     "crates/review-store",
     "crates/review-test-support",
+    "crates/review-types",
     "crates/review-ui",
     "crates/reviewer",
     "crates/toasts",

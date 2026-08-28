@@ -78,7 +78,7 @@ impl GuideCoordinatorFixture {
 
     fn checkpoint(&self) -> ReviewCheckpoint {
         ReviewCheckpoint::new(
-            self.snapshot.identity.review_id(),
+            self.snapshot.identity.review_unit().clone(),
             self.snapshot.identity.snapshot_id(),
         )
     }

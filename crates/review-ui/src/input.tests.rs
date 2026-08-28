@@ -17,7 +17,7 @@ fn app_with_loaded_diff(lines: usize) -> ReviewApp {
         ..ReviewApp::default()
     };
     app.update(Message::FilesLoaded {
-        change_id: "change".to_owned(),
+        review_unit: "change".into(),
         commit_id: "commit".to_owned(),
         description: String::new(),
         files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed)],

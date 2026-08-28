@@ -19,6 +19,7 @@ mod popup;
 mod presentation;
 mod render;
 mod review_view;
+mod revision_navigation;
 mod shortcuts;
 mod theme;
 

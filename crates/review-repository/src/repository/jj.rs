@@ -4,9 +4,10 @@ use std::ffi::OsString;
 use std::path::Path;
 
 use super::{
-    ChangedFile, Interdiff, RepoPath, Repository, RepositoryBackend, Snapshot, SnapshotIdentity,
+    ChangeId, ChangedFile, Interdiff, RepoPath, Repository, RepositoryBackend, RevisionCandidate,
+    RevisionDirection, Snapshot, SnapshotIdentity,
 };
-use crate::Result;
+use crate::{Error, Result};
 
 pub(super) const IDENTITY_TEMPLATE: &str =
     r#"change_id ++ "\0" ++ commit_id ++ "\0" ++ description ++ "\0""#;
@@ -23,6 +24,10 @@ const DESCRIPTION_DIFF_HEADER: &[u8] =
     b"diff --git a/JJ-COMMIT-DESCRIPTION b/JJ-COMMIT-DESCRIPTION\n";
 const DESCRIPTION_DIFF_PATHS: &[u8] = b"--- JJ-COMMIT-DESCRIPTION\n+++ JJ-COMMIT-DESCRIPTION\n";
 const NEXT_DIFF_HEADER: &[u8] = b"\ndiff --git ";
+const REVISION_CANDIDATE_TEMPLATE: &str = concat!(
+    r#"change_id ++ "\0" ++ change_id.shortest(8) ++ "\0" ++ "#,
+    r#"description.first_line() ++ "\0""#,
+);
 
 #[derive(Debug)]
 pub(super) struct JjBackend;
@@ -175,3 +180,58 @@ fn strip_description_diff(mut diff: Vec<u8>) -> Vec<u8> {
     }
     diff
 }
+
+pub(super) fn revision_candidates(
+    repository: &Repository,
+    direction: RevisionDirection,
+) -> Result<Vec<RevisionCandidate>> {
+    let revset = match direction {
+        RevisionDirection::Parents => "parents(@) & mutable()",
+        RevisionDirection::Children => "children(@) & mutable()",
+    };
+    let output = repository.run_jj([
+        "--ignore-working-copy",
+        "log",
+        "--no-graph",
+        "-r",
+        revset,
+        "-T",
+        REVISION_CANDIDATE_TEMPLATE,
+    ])?;
+    parse_revision_candidates(&output.stdout)
+}
+
+fn parse_revision_candidates(output: &[u8]) -> Result<Vec<RevisionCandidate>> {
+    if output.is_empty() {
+        return Ok(Vec::new());
+    }
+    let fields = output.split(|byte| *byte == 0).collect::<Vec<_>>();
+    if fields.last() != Some(&&[][..]) || (fields.len() - 1) % 3 != 0 {
+        return Err(Error::Protocol {
+            operation: "read jj revision candidates".to_owned(),
+            detail: "jj returned an invalid revision candidate record",
+        });
+    }
+    fields[..fields.len() - 1]
+        .chunks_exact(3)
+        .map(|fields| {
+            let parse = |value: &[u8]| {
+                std::str::from_utf8(value)
+                    .map(str::to_owned)
+                    .map_err(|_| Error::Protocol {
+                        operation: "read jj revision candidates".to_owned(),
+                        detail: "jj returned non-UTF-8 revision candidate text",
+                    })
+            };
+            Ok(RevisionCandidate {
+                change_id: ChangeId::from(parse(fields[0])?),
+                short_change_id: parse(fields[1])?,
+                description: parse(fields[2])?,
+            })
+        })
+        .collect()
+}
+
+#[cfg(test)]
+#[path = "jj.tests.rs"]
+mod tests;

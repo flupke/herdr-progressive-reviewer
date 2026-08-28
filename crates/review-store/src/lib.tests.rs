@@ -2,6 +2,7 @@ use std::fs;
 use std::os::unix::fs::symlink;
 use std::time::{Duration, SystemTime};
 
+use review_types::ReviewUnit;
 use tempfile::TempDir;
 
 use super::{Error, MAX_STATE_FILE_BYTES, OutputTarget, ReviewStore};
@@ -10,7 +11,7 @@ struct Fixture {
     temporary: TempDir,
     state: std::path::PathBuf,
     repository: std::path::PathBuf,
-    change: String,
+    change: ReviewUnit,
 }
 
 impl Fixture {
@@ -23,7 +24,7 @@ impl Fixture {
             temporary,
             state,
             repository,
-            change: "a".repeat(64),
+            change: "a".repeat(64).into(),
         }
     }
 

@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use review_guide::{GuideSnapshot, ReviewCheckpoint};
+use review_types::ReviewUnit;
 use serde::{Deserialize, Serialize};
 
 use super::{Error, Result, ReviewStore, StateKey};
@@ -80,7 +81,7 @@ impl StoredGuideSnapshot {
 impl ReviewStore {
     /// Store one complete guide and make it the latest guide for its review unit.
     pub fn save_guide(&self, guide: &GuideSnapshot) -> Result<()> {
-        StateKeyValue::validate(&guide.review_checkpoint.review_unit, "review unit")?;
+        StateKeyValue::validate(guide.review_checkpoint.review_unit.as_str(), "review unit")?;
         StateKeyValue::validate(&guide.review_checkpoint.checkpoint, "checkpoint")?;
         let snapshot = self.guide_snapshot_path(&guide.review_checkpoint);
         let stored = StoredGuideSnapshot::from_guide(guide);
@@ -97,8 +98,8 @@ impl ReviewStore {
     }
 
     /// Load the latest valid guide for one review unit.
-    pub fn load_guide(&self, review_unit: &str) -> Result<Option<GuideSnapshot>> {
-        StateKeyValue::validate(review_unit, "review unit")?;
+    pub fn load_guide(&self, review_unit: &ReviewUnit) -> Result<Option<GuideSnapshot>> {
+        StateKeyValue::validate(review_unit.as_str(), "review unit")?;
         let target = self.guide_state_path(review_unit);
         let Some(bytes) = Self::read_bytes(&target, "read latest review guide pointer", None)?
         else {
@@ -113,31 +114,31 @@ impl ReviewStore {
             return Ok(None);
         }
         let snapshot = self.guide_snapshot_path(&ReviewCheckpoint::new(
-            review_unit,
+            review_unit.clone(),
             state.latest_checkpoint_id,
         ));
         let guide = Self::read_bytes(&snapshot, "read review guide", None)?
             .and_then(|snapshot| Self::decode_guide_snapshot(&snapshot));
         Ok(guide.filter(|guide| {
-            guide.schema_version == 1 && guide.review_checkpoint.review_unit == review_unit
+            guide.schema_version == 1 && &guide.review_checkpoint.review_unit == review_unit
         }))
     }
 
     /// Return the durable mailbox for one review unit.
-    pub fn guide_mailbox_directory(&self, review_unit: &str) -> Result<PathBuf> {
-        StateKeyValue::validate(review_unit, "review unit")?;
+    pub fn guide_mailbox_directory(&self, review_unit: &ReviewUnit) -> Result<PathBuf> {
+        StateKeyValue::validate(review_unit.as_str(), "review unit")?;
         let directory = self.guide_unit_directory(review_unit).join("mailbox");
         self.create_dir(&directory)?;
         Ok(directory)
     }
 
-    fn guide_unit_directory(&self, review_unit: &str) -> PathBuf {
+    fn guide_unit_directory(&self, review_unit: &ReviewUnit) -> PathBuf {
         self.repository_dir
             .join("guides")
-            .join(StateKey::hash(review_unit.as_bytes()).0)
+            .join(StateKey::hash(review_unit.as_str().as_bytes()).0)
     }
 
-    pub(super) fn guide_state_path(&self, review_unit: &str) -> PathBuf {
+    pub(super) fn guide_state_path(&self, review_unit: &ReviewUnit) -> PathBuf {
         self.guide_unit_directory(review_unit).join("state.json")
     }
 

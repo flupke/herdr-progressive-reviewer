@@ -20,6 +20,7 @@ review-guide-runner = { path = "../review-guide-runner" }
 review-lsp = { path = "../review-lsp" }
 review-state = { path = "../review-state" }
 review-store = { path = "../review-store" }
+review-types = { path = "../review-types" }
 review-ui = { path = "../review-ui" }
 serde_json.workspace = true
 sha2.workspace = true

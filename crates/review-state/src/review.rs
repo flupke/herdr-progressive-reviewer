@@ -105,11 +105,11 @@ impl ReviewTracker {
     /// Mark one path at the current exact commit.
     pub fn mark(&self, snapshot: &Snapshot, file: &ChangedFile) -> eyre::Result<MarkResult> {
         let identity = self.repository.current_identity()?;
-        if identity.review_id() != snapshot.identity.review_id() {
+        if identity.review_unit() != snapshot.identity.review_unit() {
             return Ok(MarkResult::ChangeChanged);
         }
         self.store.mark(
-            identity.review_id(),
+            identity.review_unit(),
             file.review_path().as_bytes(),
             identity.snapshot_id(),
         )?;
@@ -195,9 +195,9 @@ impl ReviewTracker {
     }
 
     fn compare(&self, snapshot: &Snapshot, file: &ChangedFile) -> eyre::Result<ReviewComparison> {
-        let change_id = snapshot.identity.review_id();
+        let review_unit = snapshot.identity.review_unit();
         let path = file.review_path().as_bytes();
-        let record = match self.store.load(change_id, path)? {
+        let record = match self.store.load(review_unit, path)? {
             LoadResult::Unreviewed => return Ok(ReviewComparison::Unreviewed(None)),
             LoadResult::UnknownSchema => {
                 return Ok(ReviewComparison::Unreviewed(Some(
@@ -212,7 +212,7 @@ impl ReviewTracker {
             .interdiff(&record.baseline_commit_id, snapshot, file.review_path())?
         {
             Interdiff::MissingBaseline => {
-                self.store.unreview(change_id, path)?;
+                self.store.unreview(review_unit, path)?;
                 Ok(ReviewComparison::Unreviewed(Some(
                     ReviewWarning::BaselineExpired,
                 )))
@@ -226,8 +226,10 @@ impl ReviewTracker {
 
     /// Remove the review mark for one path.
     pub fn unreview(&self, snapshot: &Snapshot, file: &ChangedFile) -> eyre::Result<()> {
-        self.store
-            .unreview(snapshot.identity.review_id(), file.review_path().as_bytes())?;
+        self.store.unreview(
+            snapshot.identity.review_unit(),
+            file.review_path().as_bytes(),
+        )?;
         Ok(())
     }
 }

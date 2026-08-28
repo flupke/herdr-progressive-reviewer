@@ -4,25 +4,26 @@ use std::collections::HashMap;
 use std::ops::Range;
 
 use gix_imara_diff::{Algorithm, Diff, InternedInput};
+use review_types::ReviewUnit;
 use serde::{Deserialize, Serialize};
 
 /// The repository identity for which one guide was generated.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ReviewCheckpoint {
-    pub review_unit: String,
+    pub review_unit: ReviewUnit,
     pub checkpoint: String,
 }
 
 impl ReviewCheckpoint {
-    pub fn new(review_unit: impl Into<String>, checkpoint: impl Into<String>) -> Self {
+    pub fn new(review_unit: impl Into<ReviewUnit>, checkpoint: impl Into<String>) -> Self {
         Self {
             review_unit: review_unit.into(),
             checkpoint: checkpoint.into(),
         }
     }
 
-    pub fn matches(&self, review_unit: &str, checkpoint: &str) -> bool {
-        self.review_unit == review_unit && self.checkpoint == checkpoint
+    pub fn matches(&self, review_unit: &ReviewUnit, checkpoint: &str) -> bool {
+        &self.review_unit == review_unit && self.checkpoint == checkpoint
     }
 }
 

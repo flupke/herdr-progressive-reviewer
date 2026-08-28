@@ -5,6 +5,7 @@ use review_guide::{
     AnchoredGuideItem, DiffRangeAnchor, GuideAnchorKind, GuideItem, GuideItemStatus, GuideScope,
     GuideSnapshot, GuideTarget, ReviewCheckpoint,
 };
+use review_types::ReviewUnit;
 
 use super::Fixture;
 use crate::{Error, StateKey};
@@ -25,6 +26,10 @@ fn guide(checkpoint: &str, text: &str) -> GuideSnapshot {
         }],
         anchored_items: Vec::new(),
     }
+}
+
+fn review_unit() -> ReviewUnit {
+    "review-unit".into()
 }
 
 fn guide_with_repeated_anchor_contents() -> GuideSnapshot {
@@ -62,7 +67,7 @@ fn latest_guide_changes_without_removing_checkpoint_history() {
     store.save_guide(&replacement).unwrap();
     store.save_guide(&second).unwrap();
 
-    assert_eq!(store.load_guide("review-unit").unwrap(), Some(second));
+    assert_eq!(store.load_guide(&review_unit()).unwrap(), Some(second));
     let snapshots = store
         .repository_dir
         .join("guides")
@@ -89,7 +94,7 @@ fn guide_snapshots_are_deduplicated_and_zstd_compressed() {
         stored["anchor_content_indices"],
         serde_json::json!([0, 0, 0])
     );
-    assert_eq!(store.load_guide("review-unit").unwrap(), Some(guide));
+    assert_eq!(store.load_guide(&review_unit()).unwrap(), Some(guide));
 }
 
 #[test]
@@ -99,11 +104,11 @@ fn missing_or_malformed_latest_guide_is_ignored() {
     let guide = guide("checkpoint", "text");
     store.save_guide(&guide).unwrap();
     fs::remove_file(store.guide_snapshot_path(&guide.review_checkpoint)).unwrap();
-    assert_eq!(store.load_guide("review-unit").unwrap(), None);
+    assert_eq!(store.load_guide(&review_unit()).unwrap(), None);
 
     store.save_guide(&guide).unwrap();
-    fs::write(store.guide_state_path("review-unit"), b"{invalid").unwrap();
-    assert_eq!(store.load_guide("review-unit").unwrap(), None);
+    fs::write(store.guide_state_path(&review_unit()), b"{invalid").unwrap();
+    assert_eq!(store.load_guide(&review_unit()).unwrap(), None);
 }
 
 #[test]
@@ -112,14 +117,18 @@ fn guide_keys_reject_empty_long_or_unsafe_values() {
     let store = fixture.store();
     for review_unit in ["", "unsafe/path", &"x".repeat(257)] {
         let mut invalid = guide("checkpoint", "text");
-        invalid.review_checkpoint.review_unit = review_unit.to_owned();
+        invalid.review_checkpoint.review_unit = review_unit.into();
         assert!(matches!(
             store.save_guide(&invalid),
             Err(Error::InvalidStateKey {
                 field: "review unit"
             })
         ));
-        assert!(store.guide_mailbox_directory(review_unit).is_err());
+        assert!(
+            store
+                .guide_mailbox_directory(&ReviewUnit::from(review_unit))
+                .is_err()
+        );
     }
     for checkpoint in ["", "unsafe/path", &"x".repeat(257)] {
         let invalid = guide(checkpoint, "text");
@@ -137,8 +146,8 @@ fn mailbox_path_is_stable_and_private() {
     let fixture = Fixture::new();
     let store = fixture.store();
 
-    let first = store.guide_mailbox_directory("review-unit").unwrap();
-    let second = store.guide_mailbox_directory("review-unit").unwrap();
+    let first = store.guide_mailbox_directory(&review_unit()).unwrap();
+    let second = store.guide_mailbox_directory(&review_unit()).unwrap();
 
     assert_eq!(first, second);
     assert_eq!(fs::metadata(first).unwrap().permissions().mode() & 0o077, 0);
@@ -163,6 +172,6 @@ fn stored_guide_envelope_requires_the_current_version_and_anchor_count() {
         let compressed =
             zstd::stream::encode_all(serde_json::to_vec(&altered).unwrap().as_slice(), 3).unwrap();
         fs::write(&snapshot_path, compressed).unwrap();
-        assert_eq!(store.load_guide("review-unit").unwrap(), None, "{field}");
+        assert_eq!(store.load_guide(&review_unit()).unwrap(), None, "{field}");
     }
 }

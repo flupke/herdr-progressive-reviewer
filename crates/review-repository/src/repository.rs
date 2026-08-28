@@ -12,6 +12,7 @@ use std::thread;
 use std::time::Duration;
 
 use crate::{Error, Result};
+use review_types::ReviewUnit;
 
 mod git;
 mod jj;
@@ -42,12 +43,29 @@ impl Cancellation {
 
 /// A full stable jj change identifier.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct ChangeId(String);
+pub struct ChangeId(ReviewUnit);
 
 impl ChangeId {
     /// Get the identifier text.
     pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+
+    /// Get the review unit identified by this jj change.
+    pub fn review_unit(&self) -> &ReviewUnit {
         &self.0
+    }
+}
+
+impl From<String> for ChangeId {
+    fn from(value: String) -> Self {
+        Self(value.into())
+    }
+}
+
+impl From<&ReviewUnit> for ChangeId {
+    fn from(value: &ReviewUnit) -> Self {
+        Self(value.clone())
     }
 }
 
@@ -500,7 +518,7 @@ pub enum SnapshotIdentity {
     /// A Git working-tree snapshot.
     Git {
         /// The tree at `HEAD` that defines the review scope.
-        base_tree: String,
+        base_tree: ReviewUnit,
         /// The exact captured working-tree state.
         snapshot_tree: String,
     },
@@ -533,16 +551,16 @@ impl SnapshotIdentity {
         })?;
 
         Ok(Self::Jj {
-            change_id: ChangeId(change_id.to_owned()),
+            change_id: ChangeId(change_id.into()),
             commit_id: CommitId(commit_id.to_owned()),
             description: description.to_owned(),
         })
     }
 
     /// Get the stable identifier used to group review marks.
-    pub fn review_id(&self) -> &str {
+    pub fn review_unit(&self) -> &ReviewUnit {
         match self {
-            Self::Jj { change_id, .. } => change_id.as_str(),
+            Self::Jj { change_id, .. } => &change_id.0,
             Self::Git { base_tree, .. } => base_tree,
         }
     }
@@ -635,6 +653,26 @@ pub enum RepoType {
     Git,
     /// A Jujutsu workspace.
     Jj,
+}
+
+/// A direction from the current jj working-copy commit.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RevisionDirection {
+    /// Direct parent commits.
+    Parents,
+    /// Direct child commits.
+    Children,
+}
+
+/// One mutable jj commit that the reviewer can open.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RevisionCandidate {
+    /// The full stable jj change identifier used by `jj edit`.
+    pub change_id: ChangeId,
+    /// The short change identifier shown in the selector.
+    pub short_change_id: String,
+    /// The first line of the commit description.
+    pub description: String,
 }
 
 /// A discovered jj or Git workspace.
@@ -748,6 +786,40 @@ impl Repository {
     /// Get the repository type selected during discovery.
     pub fn repo_type(&self) -> RepoType {
         self.repo_type
+    }
+
+    /// List visible mutable commits next to the current jj commit.
+    pub fn revision_candidates(
+        &self,
+        direction: RevisionDirection,
+    ) -> Result<Vec<RevisionCandidate>> {
+        if self.repo_type != RepoType::Jj {
+            return Ok(Vec::new());
+        }
+        jj::revision_candidates(self, direction)
+    }
+
+    /// Make one mutable jj change the working-copy commit.
+    pub fn edit_revision(&self, change_id: &ChangeId) -> Result<bool> {
+        if self.repo_type != RepoType::Jj {
+            return Ok(false);
+        }
+        let revset = format!("{} & mutable()", change_id.as_str());
+        let editable = self
+            .run_jj([
+                "--ignore-working-copy",
+                "log",
+                "--no-graph",
+                "-r",
+                &revset,
+                "-T",
+                r#"change_id ++ "\n""#,
+            ])?
+            .stdout;
+        if editable.is_empty() {
+            return Ok(false);
+        }
+        self.run_jj(["edit", change_id.as_str()]).map(|_| true)
     }
 
     /// Cancel the active repository command during shutdown.

@@ -168,10 +168,12 @@ fn checkpoint_keys_and_paths_reject_unsafe_values() {
     let store = fixture.store();
     let valid_commit = "b".repeat(64);
 
-    for change_id in ["", "UPPER", "change-id"] {
+    for review_unit in ["", "UPPER", "change-id"] {
         assert!(matches!(
-            store.mark(change_id, b"src/lib.rs", &valid_commit),
-            Err(Error::InvalidStateKey { field: "change ID" })
+            store.mark(&review_unit.into(), b"src/lib.rs", &valid_commit),
+            Err(Error::InvalidStateKey {
+                field: "review unit"
+            })
         ));
     }
     for commit_id in ["", "ABCDEF", "not-hex"] {
@@ -212,7 +214,7 @@ fn stored_checkpoint_identity_must_match_the_requested_record() {
     let original: serde_json::Value = serde_json::from_slice(&fs::read(&target).unwrap()).unwrap();
 
     for (field, value) in [
-        ("change_id", serde_json::json!("c".repeat(64))),
+        ("review_unit", serde_json::json!("c".repeat(64))),
         ("path", serde_json::json!("other.rs")),
         ("baseline_commit_id", serde_json::json!("ABCDEF")),
     ] {
@@ -225,6 +227,29 @@ fn stored_checkpoint_identity_must_match_the_requested_record() {
             "field {field}"
         );
     }
+}
+
+#[test]
+fn checkpoint_records_write_review_units_and_read_the_previous_field_name() {
+    let fixture = Fixture::new();
+    let store = fixture.store();
+    let path = b"src/lib.rs";
+    store.mark(&fixture.change, path, &"b".repeat(64)).unwrap();
+    let target = store.record_path(&fixture.change, path);
+    let mut stored: serde_json::Value =
+        serde_json::from_slice(&fs::read(&target).unwrap()).unwrap();
+
+    assert_eq!(stored["review_unit"], fixture.change.as_str());
+    assert!(stored.get("change_id").is_none());
+
+    stored["change_id"] = stored["review_unit"].take();
+    stored.as_object_mut().unwrap().remove("review_unit");
+    fs::write(&target, serde_json::to_vec(&stored).unwrap()).unwrap();
+
+    assert!(matches!(
+        store.load(&fixture.change, path).unwrap(),
+        LoadResult::Reviewed(_)
+    ));
 }
 
 #[test]

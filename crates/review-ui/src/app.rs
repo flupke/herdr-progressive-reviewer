@@ -9,9 +9,12 @@ use ratatui::layout::Rect;
 use review_guide::{GuideItem, GuideScope, GuideTarget, ReviewCheckpoint};
 use review_lsp::{Event, Operation, Query, SourceLocation};
 use review_repository::diff::DiffRow;
-use review_repository::repository::{ChangeKind, ChangedFile};
+use review_repository::repository::{
+    ChangeId, ChangeKind, ChangedFile, RevisionCandidate, RevisionDirection,
+};
 use review_state::{ReviewState, ReviewStatus};
 use review_store::OutputTarget;
+use review_types::ReviewUnit;
 use toasts::{ToastId, ToastKind, ToastState};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
@@ -251,13 +254,24 @@ fn needs_parent_expansion(status: ReviewStatus, previous: ReviewStatus) -> bool 
 /// A typed result from keyboard input or asynchronous work.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Message {
+    /// A repository refresh started in the I/O layer.
+    RepositoryRefreshStarted,
+    /// A repository refresh finished without a new snapshot.
+    RepositoryRefreshFinished,
     /// A complete repository poll.
     FilesLoaded {
-        change_id: String,
+        review_unit: ReviewUnit,
         commit_id: String,
         description: String,
         files: Vec<ReviewFile>,
     },
+    /// Mutable jj commits next to the current commit.
+    RevisionCandidates {
+        direction: RevisionDirection,
+        result: Result<Vec<RevisionCandidate>, String>,
+    },
+    /// A jj revision edit did not produce a refreshed working copy.
+    RevisionEditFailed { message: Option<String> },
     /// A diff result for an exact change and path.
     DiffLoaded {
         commit_id: String,
@@ -270,7 +284,7 @@ pub enum Message {
     DiffFailed { commit_id: String, path: String },
     /// A review-state write result.
     ReviewFinished {
-        change_id: String,
+        review_unit: ReviewUnit,
         path: String,
         result: Result<ReviewState, ()>,
     },
@@ -339,6 +353,10 @@ pub enum Action {
         commit_id: String,
         paths: Vec<String>,
     },
+    /// Find mutable jj commits next to the working-copy commit.
+    LoadRevisionCandidates(RevisionDirection),
+    /// Make one jj change the working-copy commit.
+    EditRevision { change_id: ChangeId },
     /// Run one LSP request at a visible disk position.
     Lsp { operation: Operation, query: Query },
     /// Restart the language server.
@@ -626,14 +644,39 @@ pub(super) struct GuideCounter {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum ActivePopup {
     CommitMessage,
+    RevisionSelector,
     ShortcutHelp,
+}
+
+#[derive(Clone, Debug)]
+pub(super) enum RevisionNavigationCompletion {
+    RecordJump { origin: ReviewLocation },
+    RestoreHistory { history_before: LocationHistory },
+}
+
+#[derive(Clone, Debug)]
+pub(super) enum RevisionNavigationState {
+    LoadingCandidates {
+        direction: RevisionDirection,
+        origin: ReviewLocation,
+    },
+    Selecting {
+        candidates: Vec<RevisionCandidate>,
+        selected: usize,
+        origin: ReviewLocation,
+    },
+    Editing {
+        target_change_id: ChangeId,
+        destination: ReviewLocation,
+        completion: RevisionNavigationCompletion,
+    },
 }
 
 /// The complete pure review UI state.
 #[derive(Debug)]
 pub struct ReviewApp {
     pub(super) repository_root: PathBuf,
-    pub(super) change_id: String,
+    pub(super) review_unit: ReviewUnit,
     pub(super) commit_id: String,
     pub(super) description: String,
     pub(super) active_popup: Option<ActivePopup>,
@@ -651,6 +694,8 @@ pub struct ReviewApp {
     pub(super) review_in_flight: Option<PendingReview>,
     pub(super) locations: Option<LocationList>,
     pub(super) location_history: LocationHistory,
+    pub(super) revision_navigation: Option<RevisionNavigationState>,
+    pub(super) pending_repository_refreshes: usize,
     pub(super) preview: Option<ReviewFile>,
     pub(super) hover: Option<String>,
     pub(super) hover_scroll: u16,
@@ -696,7 +741,7 @@ impl ReviewApp {
     ) -> Self {
         Self {
             repository_root,
-            change_id: String::new(),
+            review_unit: ReviewUnit::default(),
             commit_id: String::new(),
             description: String::new(),
             active_popup: None,
@@ -714,6 +759,8 @@ impl ReviewApp {
             review_in_flight: None,
             locations: None,
             location_history: LocationHistory::default(),
+            revision_navigation: None,
+            pending_repository_refreshes: 0,
             preview: None,
             hover: None,
             hover_scroll: 0,
@@ -741,7 +788,11 @@ impl ReviewApp {
     /// Apply one input and return any work for the I/O layer.
     pub fn update(&mut self, message: Message) -> Action {
         match message {
-            message @ (Message::FilesLoaded { .. }
+            message @ (Message::RepositoryRefreshStarted
+            | Message::RepositoryRefreshFinished
+            | Message::FilesLoaded { .. }
+            | Message::RevisionCandidates { .. }
+            | Message::RevisionEditFailed { .. }
             | Message::DiffLoaded { .. }
             | Message::DiffFailed { .. }
             | Message::ReviewFinished { .. }
@@ -766,12 +817,26 @@ impl ReviewApp {
 
     fn update_repository(&mut self, message: Message) -> Action {
         match message {
+            Message::RepositoryRefreshStarted => {
+                self.pending_repository_refreshes =
+                    self.pending_repository_refreshes.saturating_add(1);
+                Action::None
+            }
+            Message::RepositoryRefreshFinished => {
+                self.pending_repository_refreshes =
+                    self.pending_repository_refreshes.saturating_sub(1);
+                Action::None
+            }
             Message::FilesLoaded {
-                change_id,
+                review_unit,
                 commit_id,
                 description,
                 files,
-            } => self.load_files(change_id, commit_id, description, files),
+            } => self.load_files(review_unit, commit_id, description, files),
+            Message::RevisionCandidates { direction, result } => {
+                self.load_revision_candidates(direction, result)
+            }
+            Message::RevisionEditFailed { message } => self.fail_revision_edit(message),
             Message::DiffLoaded {
                 commit_id,
                 path,
@@ -788,14 +853,19 @@ impl ReviewApp {
             Message::DiffFailed {
                 commit_id, path, ..
             } => {
+                let restoring_revision_location =
+                    self.revision_location_waits_for(&commit_id, &path);
                 self.fail_diff(&commit_id, &path);
+                if restoring_revision_location {
+                    self.finish_revision_location_restore();
+                }
                 Action::None
             }
             Message::ReviewFinished {
-                change_id,
+                review_unit,
                 path,
                 result,
-            } => self.finish_review(&change_id, &path, result),
+            } => self.finish_review(&review_unit, &path, result),
             Message::OutputFinished { delivered } => {
                 if delivered {
                     self.selection = None;
@@ -837,8 +907,13 @@ impl ReviewApp {
                 snapshot_id,
                 message,
             } => {
+                let restoring_revision_location =
+                    self.revision_source_restore_is_pending(&snapshot_id);
                 if snapshot_id == self.commit_id {
                     self.toasts.push(message, ToastKind::Error);
+                }
+                if restoring_revision_location {
+                    self.finish_revision_location_restore();
                 }
                 Action::None
             }
@@ -891,12 +966,12 @@ impl ReviewApp {
 
     fn update_guide_status(
         &mut self,
-        review_unit: &str,
+        review_unit: &ReviewUnit,
         checkpoint: &str,
         generating: bool,
         message: Option<String>,
     ) -> Action {
-        if review_unit == self.change_id && checkpoint == self.commit_id {
+        if review_unit == &self.review_unit && checkpoint == self.commit_id {
             self.guide_spinner_frame = generating.then_some(0);
             if let Some(message) = message {
                 self.toasts.push(message, ToastKind::Error);
@@ -905,8 +980,13 @@ impl ReviewApp {
         Action::None
     }
 
-    fn load_guide(&mut self, review_unit: &str, checkpoint: &str, items: Vec<GuideItem>) -> Action {
-        if review_unit == self.change_id && checkpoint == self.commit_id {
+    fn load_guide(
+        &mut self,
+        review_unit: &ReviewUnit,
+        checkpoint: &str,
+        items: Vec<GuideItem>,
+    ) -> Action {
+        if review_unit == &self.review_unit && checkpoint == self.commit_id {
             self.guide_items = items;
             self.rebuild_guide_item_counters();
             self.guide_spinner_frame = None;
@@ -975,13 +1055,13 @@ impl ReviewApp {
 
     fn load_files(
         &mut self,
-        change_id: String,
+        review_unit: ReviewUnit,
         commit_id: String,
         description: String,
         mut files: Vec<ReviewFile>,
     ) -> Action {
         self.set_file_disk_paths(&mut files);
-        let same_change = self.change_id == change_id;
+        let same_change = self.review_unit == review_unit;
         let same_snapshot = self.commit_id == commit_id;
         if !same_snapshot {
             self.clear_checkpoint_guide_state();
@@ -1001,7 +1081,7 @@ impl ReviewApp {
         for path in expand {
             self.expand_file_parents(&path);
         }
-        self.change_id = change_id;
+        self.review_unit = review_unit;
         self.commit_id = commit_id;
         self.description = description;
         self.files = files;
@@ -1018,6 +1098,9 @@ impl ReviewApp {
             self.selection = None;
         }
         self.keep_file_visible();
+        if !same_change && self.revision_navigation.is_some() {
+            return self.complete_revision_edit();
+        }
         match refreshed_cursor {
             Some(location) => self.restore_refreshed_cursor(location),
             None => self.load_selected_action(),
@@ -1127,6 +1210,7 @@ impl ReviewApp {
         };
         let cursor = file.cursor_location();
         file.diff = DiffPresentation::new(rows);
+        let empty_without_file_content = file.diff.is_empty() && !file.diff.can_show_file();
         file.loading = false;
         file.cursor = file.cursor.min(file.diff.len().saturating_sub(1));
         file.scroll = file.scroll.min(file.cursor);
@@ -1162,6 +1246,13 @@ impl ReviewApp {
         if let Some(location) = preview_location {
             let _ = self.preview_location(location);
         }
+        if self.revision_location_waits_for(commit_id, path) {
+            if empty_without_file_content {
+                self.finish_revision_location_restore();
+                return Action::None;
+            }
+            return self.complete_revision_edit();
+        }
         Action::None
     }
 
@@ -1184,11 +1275,11 @@ impl ReviewApp {
 
     fn finish_review(
         &mut self,
-        change_id: &str,
+        review_unit: &ReviewUnit,
         path: &str,
         result: Result<ReviewState, ()>,
     ) -> Action {
-        if self.change_id != change_id {
+        if self.review_unit != *review_unit {
             return Action::None;
         }
         let pending = match self.review_in_flight.as_ref() {

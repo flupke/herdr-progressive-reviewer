@@ -1235,6 +1235,7 @@ name = "review-guide"
 version = "0.2.0"
 dependencies = [
  "gix-imara-diff",
+ "review-types",
  "serde",
  "thiserror",
 ]
@@ -1275,6 +1276,7 @@ name = "review-repository"
 version = "0.2.0"
 dependencies = [
  "review-test-support",
+ "review-types",
  "serde",
  "sha2",
  "strum",
@@ -1303,6 +1305,7 @@ dependencies = [
  "getrandom 0.3.4",
  "libc",
  "review-guide",
+ "review-types",
  "serde",
  "serde_json",
  "sha2",
@@ -1321,6 +1324,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "review-types"
+version = "0.2.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "review-ui"
 version = "0.2.0"
 dependencies = [
@@ -1332,6 +1342,7 @@ dependencies = [
  "review-repository",
  "review-state",
  "review-store",
+ "review-types",
  "syntect",
  "tempfile",
  "toasts",
@@ -1360,6 +1371,7 @@ dependencies = [
  "review-state",
  "review-store",
  "review-test-support",
+ "review-types",
  "review-ui",
  "serde_json",
  "sha2",

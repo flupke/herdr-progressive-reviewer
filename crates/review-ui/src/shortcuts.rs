@@ -44,6 +44,8 @@ pub(super) enum NavigationShortcut {
     GoToFirst,
     GoToLast,
     GoToNextLocation,
+    GoToChildRevision,
+    GoToParentRevision,
     GoToPreviousLocation,
     MoveDown,
     MoveHalfPageDown,
@@ -263,6 +265,21 @@ pub(super) const SHORTCUTS: &[ShortcutDefinition] = &[
             ShortcutBinding::one(
                 Key::NextLocation,
                 navigation(NavigationShortcut::GoToNextLocation),
+            ),
+        ],
+    },
+    ShortcutDefinition {
+        description: Some("Go to a parent / child revision"),
+        bindings: &[
+            ShortcutBinding::two(
+                Key::Char('['),
+                Key::Char('g'),
+                navigation(NavigationShortcut::GoToParentRevision),
+            ),
+            ShortcutBinding::two(
+                Key::Char(']'),
+                Key::Char('g'),
+                navigation(NavigationShortcut::GoToChildRevision),
             ),
         ],
     },

@@ -2,8 +2,8 @@ use super::{
     Agent, AgentTarget, ChangedFile, Digest, FrozenFile, FrozenHunk, GuideMailbox,
     GuideRepositorySnapshot, GuideResponseVersion, GuideResponseWaitOutcome,
     GuideResponseWatchCancellation, GuideResult, GuideRunner, GuideScope, HerdrClient, Message,
-    RepoPath, Repository, ReviewCheckpoint, ReviewStatus, ReviewStore, ReviewTracker, Sender,
-    Sha256, Snapshot, WorkerCommand, parse_file_diff, thread,
+    RepoPath, Repository, ReviewCheckpoint, ReviewStatus, ReviewStore, ReviewTracker, ReviewUnit,
+    Sender, Sha256, Snapshot, WorkerCommand, parse_file_diff, thread,
 };
 
 #[derive(Debug, Default)]
@@ -16,13 +16,13 @@ pub(super) struct GuideRequestCoordinator {
 
 #[derive(Debug)]
 struct ObservedResponse {
-    review_unit: String,
+    review_unit: ReviewUnit,
     version: GuideResponseVersion,
 }
 
 #[derive(Debug)]
 struct ResponseWait {
-    review_unit: String,
+    review_unit: ReviewUnit,
     token: u64,
     cancellation: GuideResponseWatchCancellation,
 }
@@ -35,7 +35,7 @@ impl Drop for ResponseWait {
 
 #[derive(Debug)]
 struct GenerationWait {
-    review_unit: String,
+    review_unit: ReviewUnit,
     cancellation: GuideResponseWatchCancellation,
 }
 
@@ -95,7 +95,7 @@ impl GuideRequestCoordinator {
             return;
         };
         let review_checkpoint = ReviewCheckpoint::new(
-            snapshot.identity.review_id(),
+            snapshot.identity.review_unit().clone(),
             snapshot.identity.snapshot_id(),
         );
         Self::updating_status(messages, &review_checkpoint);
@@ -202,7 +202,7 @@ impl GuideRequestCoordinator {
         &mut self,
         context: &GuideOperationContext<'_>,
         messages: &Sender<Message>,
-        review_unit: &str,
+        review_unit: &ReviewUnit,
     ) {
         self.cancel_waits_for_other_review_units(review_unit);
         let Ok(directory) = context.guide_store.guide_mailbox_directory(review_unit) else {
@@ -236,7 +236,7 @@ impl GuideRequestCoordinator {
                 };
                 Self::guide_error(
                     messages,
-                    &ReviewCheckpoint::new(review_unit, snapshot.identity.snapshot_id()),
+                    &ReviewCheckpoint::new(review_unit.clone(), snapshot.identity.snapshot_id()),
                     format!("could not import the completed review guide: {error}"),
                 );
             }
@@ -247,13 +247,13 @@ impl GuideRequestCoordinator {
         &mut self,
         context: &GuideOperationContext<'_>,
         messages: &Sender<Message>,
-        review_unit: &str,
+        review_unit: &ReviewUnit,
         wait_token: u64,
     ) {
         if !self
             .response_wait
             .as_ref()
-            .is_some_and(|wait| wait.review_unit == review_unit && wait.token == wait_token)
+            .is_some_and(|wait| &wait.review_unit == review_unit && wait.token == wait_token)
         {
             return;
         }
@@ -268,7 +268,7 @@ impl GuideRequestCoordinator {
         finished: FinishedGuide,
     ) {
         if !context.snapshot.is_some_and(|snapshot| {
-            snapshot.identity.review_id() == finished.review_checkpoint.review_unit
+            snapshot.identity.review_unit() == &finished.review_checkpoint.review_unit
         }) {
             return;
         }
@@ -326,14 +326,14 @@ impl GuideRequestCoordinator {
     fn start_response_wait(
         &mut self,
         context: &GuideOperationContext<'_>,
-        review_unit: &str,
+        review_unit: &ReviewUnit,
         mailbox: &GuideMailbox,
         previous: Option<GuideResponseVersion>,
     ) {
         if self
             .response_wait
             .as_ref()
-            .is_some_and(|wait| wait.review_unit == review_unit)
+            .is_some_and(|wait| &wait.review_unit == review_unit)
         {
             return;
         }
@@ -343,12 +343,12 @@ impl GuideRequestCoordinator {
         self.next_response_wait_token = self.next_response_wait_token.wrapping_add(1);
         let wait_token = self.next_response_wait_token;
         self.response_wait = Some(ResponseWait {
-            review_unit: review_unit.to_owned(),
+            review_unit: review_unit.clone(),
             token: wait_token,
             cancellation,
         });
         let commands = context.commands.clone();
-        let review_unit = review_unit.to_owned();
+        let review_unit = review_unit.clone();
         thread::spawn(move || {
             if matches!(watch.wait(), Ok(GuideResponseWaitOutcome::ResponseChanged)) {
                 let _ = commands.send(WorkerCommand::ImportReviewGuide {
@@ -359,32 +359,36 @@ impl GuideRequestCoordinator {
         });
     }
 
-    fn cancel_waits_for_other_review_units(&mut self, review_unit: &str) {
+    fn cancel_waits_for_other_review_units(&mut self, review_unit: &ReviewUnit) {
         if self
             .response_wait
             .as_ref()
-            .is_some_and(|wait| wait.review_unit != review_unit)
+            .is_some_and(|wait| &wait.review_unit != review_unit)
         {
             self.response_wait = None;
         }
         if self
             .generation_wait
             .as_ref()
-            .is_some_and(|wait| wait.review_unit != review_unit)
+            .is_some_and(|wait| &wait.review_unit != review_unit)
         {
             self.generation_wait = None;
         }
     }
 
-    fn has_observed_response(&self, review_unit: &str, version: GuideResponseVersion) -> bool {
+    fn has_observed_response(
+        &self,
+        review_unit: &ReviewUnit,
+        version: GuideResponseVersion,
+    ) -> bool {
         self.observed_response.as_ref().is_some_and(|observed| {
-            observed.review_unit == review_unit && observed.version == version
+            &observed.review_unit == review_unit && observed.version == version
         })
     }
 
-    fn observe_response(&mut self, review_unit: &str, version: GuideResponseVersion) {
+    fn observe_response(&mut self, review_unit: &ReviewUnit, version: GuideResponseVersion) {
         self.observed_response = Some(ObservedResponse {
-            review_unit: review_unit.to_owned(),
+            review_unit: review_unit.clone(),
             version,
         });
     }
@@ -424,11 +428,11 @@ impl GuideRequestCoordinator {
         let Some(snapshot) = context.snapshot else {
             return;
         };
-        if guide.review_checkpoint.review_unit != snapshot.identity.review_id() {
+        if &guide.review_checkpoint.review_unit != snapshot.identity.review_unit() {
             return;
         }
         let review_checkpoint = ReviewCheckpoint::new(
-            snapshot.identity.review_id(),
+            snapshot.identity.review_unit().clone(),
             snapshot.identity.snapshot_id(),
         );
         let items = if guide.review_checkpoint == review_checkpoint {

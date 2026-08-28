@@ -322,7 +322,7 @@ fn respond_to_delivered_guide(
 
 fn receive_guide(
     messages: &Receiver<Message>,
-    expected_review_unit: &str,
+    expected_review_unit: &ReviewUnit,
     expected_checkpoint: &str,
     expected_text: &str,
 ) {
@@ -465,7 +465,7 @@ struct GuideFlowFixture {
     messages: Receiver<Message>,
     worker_thread: JoinHandle<()>,
     events: Receiver<HerdrEvent>,
-    review_unit: String,
+    review_unit: ReviewUnit,
     checkpoint: String,
     prompt_length: u64,
 }
@@ -499,12 +499,12 @@ impl GuideFlowFixture {
         commands.send(WorkerCommand::Poll).unwrap();
         let (review_unit, checkpoint) = loop {
             if let Message::FilesLoaded {
-                change_id,
+                review_unit,
                 commit_id,
                 ..
             } = messages.recv_timeout(Duration::from_secs(5)).unwrap()
             {
-                break (change_id, commit_id);
+                break (review_unit, commit_id);
             }
         };
         let events = subscribe_to_agent_events(&herdr);

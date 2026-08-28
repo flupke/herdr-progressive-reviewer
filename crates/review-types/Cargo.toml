@@ -1,15 +1,12 @@
 [package]
-name = "review-guide"
+name = "review-types"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-gix-imara-diff.workspace = true
-review-types = { path = "../review-types" }
 serde.workspace = true
-thiserror.workspace = true
 
 [lints]
 workspace = true
