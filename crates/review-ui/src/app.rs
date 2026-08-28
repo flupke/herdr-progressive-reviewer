@@ -21,6 +21,7 @@ use crate::file_tree::FileTree;
 use crate::highlight::SyntaxHighlighter;
 use crate::navigation::{LocationHistory, ReviewLocation};
 use crate::presentation::{DiffPresentation, PresentationLocation, SearchDirection};
+use crate::shortcuts::ShortcutPrefix;
 use crate::theme::{Palette, Theme};
 
 const NARROW_WIDTH: u16 = 72;
@@ -518,7 +519,7 @@ impl PaneLayout {
         Self {
             width,
             height,
-            footer_height: 2,
+            footer_height: 1,
             file_width,
         }
     }
@@ -622,6 +623,12 @@ pub(super) struct GuideCounter {
     pub(super) total: usize,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum ActivePopup {
+    CommitMessage,
+    ShortcutHelp,
+}
+
 /// The complete pure review UI state.
 #[derive(Debug)]
 pub struct ReviewApp {
@@ -629,7 +636,7 @@ pub struct ReviewApp {
     pub(super) change_id: String,
     pub(super) commit_id: String,
     pub(super) description: String,
-    pub(super) show_commit_message: bool,
+    pub(super) active_popup: Option<ActivePopup>,
     pub(super) files: Vec<ReviewFile>,
     pub(super) file_tree: FileTree,
     pub(super) collapsed_directories: HashSet<String>,
@@ -650,9 +657,8 @@ pub struct ReviewApp {
     pub(super) context_menu: Option<ContextMenu>,
     pub(super) toasts: ToastState,
     pub(super) lsp_initialization_toast: Option<ToastId>,
-    pub(super) awaiting_g_command: bool,
-    pub(super) awaiting_review_command: bool,
-    pub(super) pending_guide_navigation_prefix: Option<SearchDirection>,
+    pub(super) pending_shortcut_prefix: Option<ShortcutPrefix>,
+    pub(super) shortcut_help_scroll: u16,
     pub(super) guide_spinner_frame: Option<usize>,
     pub(super) guide_items: Vec<GuideItem>,
     pub(super) guide_item_counters: Vec<Option<GuideCounter>>,
@@ -693,7 +699,7 @@ impl ReviewApp {
             change_id: String::new(),
             commit_id: String::new(),
             description: String::new(),
-            show_commit_message: false,
+            active_popup: None,
             files: Vec::new(),
             file_tree: FileTree::default(),
             collapsed_directories: HashSet::new(),
@@ -714,9 +720,8 @@ impl ReviewApp {
             context_menu: None,
             toasts: ToastState::default(),
             lsp_initialization_toast: None,
-            awaiting_g_command: false,
-            awaiting_review_command: false,
-            pending_guide_navigation_prefix: None,
+            pending_shortcut_prefix: None,
+            shortcut_help_scroll: 0,
             guide_spinner_frame: None,
             guide_items: Vec::new(),
             guide_item_counters: Vec::new(),
@@ -1079,7 +1084,7 @@ impl ReviewApp {
     fn reset_for_new_change(&mut self) {
         self.selection = None;
         self.search = None;
-        self.show_commit_message = false;
+        self.active_popup = None;
         self.file_scroll = 0;
         self.focus = Focus::Files;
         self.review_in_flight = None;

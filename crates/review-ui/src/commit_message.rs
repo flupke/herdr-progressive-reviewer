@@ -1,9 +1,9 @@
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::widgets::{Clear, Paragraph, Widget, Wrap};
+use ratatui::widgets::Widget;
 
 use crate::ReviewApp;
-use crate::render::pane_block;
+use crate::popup::PopupView;
 
 pub(super) struct CommitMessageView<'a>(pub(super) &'a ReviewApp);
 
@@ -23,14 +23,13 @@ impl CommitMessageView<'_> {
 impl Widget for CommitMessageView<'_> {
     fn render(self, area: Rect, buffer: &mut Buffer) {
         let popup = Self::area(area);
-        Clear.render(popup, buffer);
-        Paragraph::new(if self.0.description.is_empty() {
+        let content = if self.0.description.is_empty() {
             "(no description set)"
         } else {
             &self.0.description
-        })
-        .block(pane_block(self.0, "Commit message", true))
-        .wrap(Wrap { trim: false })
-        .render(popup, buffer);
+        };
+        PopupView::new(self.0, "Commit message", content)
+            .wrap()
+            .render(popup, buffer);
     }
 }

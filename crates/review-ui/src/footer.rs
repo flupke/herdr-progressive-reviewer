@@ -8,7 +8,6 @@ use unicode_width::UnicodeWidthStr;
 use crate::ReviewApp;
 use review_store::OutputTarget;
 
-const CONTROLS: &str = "Tab focus · j/k move · l expand · v select · c message · Enter insert · rf file guide · ra all guide · [r/]r comments · Space review · q quit";
 const GUIDE_SPINNER: &[char] = &['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 const OUTPUT_PREFIX: &str = "Output: ";
 const AGENT_LABEL: &str = "[Active agent]";
@@ -53,24 +52,36 @@ impl Widget for FooterView<'_> {
         let status_width = guide_status
             .as_deref()
             .map_or(0, |status| status.width().saturating_add(1));
-        Paragraph::new(Line::from(vec![
-            Span::raw(OUTPUT_PREFIX),
-            Span::styled(AGENT_LABEL, self.target_style(OutputTarget::ActiveAgent)),
-            Span::raw(" "),
-            Span::styled(CLIPBOARD_LABEL, self.target_style(OutputTarget::Clipboard)),
-            Span::raw(" · o toggle"),
-        ]))
-        .style(Style::default().fg(self.0.palette.text))
-        .render(
-            Rect::new(
-                area.x,
-                area.y,
-                area.width
-                    .saturating_sub(u16::try_from(status_width).unwrap_or(u16::MAX)),
-                1,
-            ),
-            buffer,
+        let status = self.0.search.as_ref().map_or_else(
+            || {
+                Line::from(vec![
+                    Span::raw(OUTPUT_PREFIX),
+                    Span::styled(AGENT_LABEL, self.target_style(OutputTarget::ActiveAgent)),
+                    Span::raw(" "),
+                    Span::styled(CLIPBOARD_LABEL, self.target_style(OutputTarget::Clipboard)),
+                    Span::raw(" · o toggle · ? help"),
+                ])
+            },
+            |search| {
+                Line::raw(if search.editing {
+                    format!("/{} · Enter confirm · Esc clear", search.query)
+                } else {
+                    format!("/{} · n next · p previous · Esc clear", search.query)
+                })
+            },
         );
+        Paragraph::new(status)
+            .style(Style::default().fg(self.0.palette.text))
+            .render(
+                Rect::new(
+                    area.x,
+                    area.y,
+                    area.width
+                        .saturating_sub(u16::try_from(status_width).unwrap_or(u16::MAX)),
+                    1,
+                ),
+                buffer,
+            );
         if let Some(guide_status) = guide_status {
             Paragraph::new(Span::styled(
                 guide_status,
@@ -79,21 +90,5 @@ impl Widget for FooterView<'_> {
             .alignment(ratatui::layout::Alignment::Right)
             .render(Rect::new(area.x, area.y, area.width, 1), buffer);
         }
-        let text = self.0.search.as_ref().map_or_else(
-            || CONTROLS.to_owned(),
-            |search| {
-                if search.editing {
-                    format!("/{} · Enter confirm · Esc clear", search.query)
-                } else {
-                    format!("/{} · n next · p previous · Esc clear", search.query)
-                }
-            },
-        );
-        Paragraph::new(text)
-            .style(Style::default().fg(self.0.palette.text))
-            .render(
-                Rect::new(area.x, area.y.saturating_add(1), area.width, 1),
-                buffer,
-            );
     }
 }

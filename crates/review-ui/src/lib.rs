@@ -10,13 +10,16 @@ mod file_tree;
 mod files;
 mod footer;
 mod header;
+mod help;
 mod highlight;
 mod hover;
 mod input;
 mod navigation;
+mod popup;
 mod presentation;
 mod render;
 mod review_view;
+mod shortcuts;
 mod theme;
 
 pub use app::{Action, Key, Message, ReviewApp, ReviewFile, SourceLoadMode};

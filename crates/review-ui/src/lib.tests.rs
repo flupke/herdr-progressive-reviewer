@@ -13,8 +13,8 @@ use review_repository::diff::DiffRow;
 use toasts::ToastId;
 
 use crate::app::{
-    Action, ContextMenu, DiffControl, DragState, Focus, Key, Message, PaneLayout, PendingReview,
-    ReviewApp, ReviewFile, SourceLoadMode,
+    Action, ActivePopup, ContextMenu, DiffControl, DragState, Focus, Key, Message, PaneLayout,
+    PendingReview, ReviewApp, ReviewFile, Search, Selection, SourceLoadMode,
 };
 use review_state::{ReviewState, ReviewStatus};
 
@@ -23,8 +23,8 @@ fn pane_layout_defines_all_visible_and_interactive_boundaries() {
     let wide = PaneLayout::new(100, 20, Some(30));
     assert!(wide.is_wide());
     assert_eq!(wide.file_width, 30);
-    assert_eq!(wide.body_height(), 17);
-    assert_eq!(wide.page_rows(), 15);
+    assert_eq!(wide.body_height(), 18);
+    assert_eq!(wide.page_rows(), 16);
     assert_eq!(wide.diff_content_width(), 68);
     assert_eq!(wide.diff_content_start_column(), 31);
 
@@ -32,11 +32,13 @@ fn pane_layout_defines_all_visible_and_interactive_boundaries() {
     assert!(wide.contains_body(99, 17));
     assert!(!wide.contains_body(100, 1));
     assert!(!wide.contains_body(0, 0));
-    assert!(!wide.contains_body(0, 18));
+    assert!(wide.contains_body(0, 18));
+    assert!(!wide.contains_body(0, 19));
     assert!(!wide.contains_pane_content(1));
     assert!(wide.contains_pane_content(2));
     assert!(wide.contains_pane_content(16));
-    assert!(!wide.contains_pane_content(17));
+    assert!(wide.contains_pane_content(17));
+    assert!(!wide.contains_pane_content(18));
 
     assert_eq!(wide.focus_at(Focus::Diff, 29, 1), Some(Focus::Files));
     assert_eq!(wide.focus_at(Focus::Files, 30, 1), Some(Focus::Diff));
@@ -110,9 +112,34 @@ fn review_guide_shortcuts_select_file_and_all_scopes() {
 
     app.guide_spinner_frame = Some(0);
     assert_eq!(app.update(Message::Key(Key::Char('r'))), Action::None);
-    assert!(app.awaiting_review_command);
+    assert!(app.pending_shortcut_prefix.is_some());
     assert_eq!(app.update(Message::Key(Key::Char('a'))), Action::None);
-    assert!(!app.awaiting_review_command);
+    assert_eq!(app.pending_shortcut_prefix, None);
+}
+
+#[test]
+fn escape_closes_shortcut_help_and_clears_transient_state() {
+    let mut app = ReviewApp {
+        active_popup: Some(ActivePopup::ShortcutHelp),
+        selection: Some(Selection {
+            anchor: 1,
+            cursor: 2,
+            fixed: false,
+        }),
+        search: Some(Search {
+            query: "term".to_owned(),
+            origin: 0,
+            origin_location: None,
+            editing: false,
+            pending: Vec::new(),
+        }),
+        ..ReviewApp::default()
+    };
+
+    assert_eq!(app.update(Message::Key(Key::Escape)), Action::None);
+    assert!(app.active_popup.is_none());
+    assert!(app.selection.is_none());
+    assert!(app.search.is_none());
 }
 
 #[test]
@@ -675,7 +702,7 @@ fn new_review_unit_resets_transient_review_state() {
     let mut app = ReviewApp {
         change_id: "old".to_owned(),
         commit_id: "old".to_owned(),
-        show_commit_message: true,
+        active_popup: Some(ActivePopup::CommitMessage),
         file_scroll: 4,
         focus: Focus::Diff,
         hover: Some("hover".to_owned()),
@@ -695,7 +722,7 @@ fn new_review_unit_resets_transient_review_state() {
         files: vec![ReviewFile::new("new.rs", ReviewStatus::Unreviewed)],
     });
 
-    assert!(!app.show_commit_message);
+    assert!(app.active_popup.is_none());
     assert_eq!(app.file_scroll, 0);
     assert_eq!(app.focus, Focus::Files);
     assert!(app.hover.is_none());

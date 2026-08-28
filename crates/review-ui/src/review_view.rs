@@ -4,13 +4,14 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::widgets::{Paragraph, Widget};
 
-use crate::app::{Focus, PaneLayout, ReviewApp};
+use crate::app::{ActivePopup, Focus, PaneLayout, ReviewApp};
 use crate::commit_message::CommitMessageView;
 use crate::context_menu::ContextMenuView;
 use crate::diff::DiffView;
 use crate::files::FilesView;
 use crate::footer::FooterView;
 use crate::header::HeaderView;
+use crate::help::ShortcutHelpView;
 use crate::hover::HoverView;
 
 const MIN_WIDTH: u16 = 40;
@@ -74,8 +75,10 @@ impl ReviewView<'_> {
         self.0
             .toasts
             .render(area, buffer, self.0.palette.focus, self.0.palette.deletion);
-        if self.0.show_commit_message {
-            CommitMessageView(self.0).render(area, buffer);
+        match self.0.active_popup {
+            Some(ActivePopup::CommitMessage) => CommitMessageView(self.0).render(area, buffer),
+            Some(ActivePopup::ShortcutHelp) => ShortcutHelpView(self.0).render(area, buffer),
+            None => {}
         }
     }
 }
