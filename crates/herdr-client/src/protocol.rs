@@ -263,8 +263,7 @@ impl AgentInputMode {
 #[derive(Debug)]
 pub struct AgentTarget {
     workspace_id: WorkspaceId,
-    last_agent_pane_id: Option<PaneId>,
-    pending_pane_ids: Vec<PaneId>,
+    focused_pane_ids: Vec<PaneId>,
 }
 
 impl AgentTarget {
@@ -272,8 +271,7 @@ impl AgentTarget {
     pub fn new(workspace_id: WorkspaceId, focused_pane_id: Option<PaneId>) -> Self {
         Self {
             workspace_id,
-            last_agent_pane_id: None,
-            pending_pane_ids: focused_pane_id.into_iter().collect(),
+            focused_pane_ids: focused_pane_id.into_iter().collect(),
         }
     }
 
@@ -283,51 +281,42 @@ impl AgentTarget {
         if snapshot.focused_workspace_id.as_ref() == Some(&self.workspace_id)
             && let Some(pane_id) = snapshot.focused_pane_id
         {
-            self.pending_pane_ids.push(pane_id);
-            self.resolve_pending_focus(reader)?;
+            self.observe_focus(&pane_id);
         }
         Ok(())
     }
 
     /// Record a pane focus for validation before the next insertion.
     pub fn observe_focus(&mut self, pane_id: &PaneId) {
-        self.pending_pane_ids.push(pane_id.clone());
-    }
-
-    fn resolve_pending_focus(&mut self, reader: &impl HerdrReader) -> Result<()> {
-        for pane_id in std::mem::take(&mut self.pending_pane_ids) {
-            if let Some(agent) = reader.get_agent(&pane_id)? {
-                self.observe_agent_focus(&agent);
-            }
-        }
-        Ok(())
+        self.focused_pane_ids.retain(|focused| focused != pane_id);
+        self.focused_pane_ids.push(pane_id.clone());
     }
 
     /// Resolve the current same-workspace implementation agent.
     pub fn resolve(&mut self, reader: &impl HerdrReader) -> Result<Option<Agent>> {
-        self.resolve_pending_focus(reader)?;
-        if self.last_agent_pane_id.is_none() {
-            self.initialize(reader)?;
+        let agents = reader.list_agents()?;
+        self.initialize(reader)?;
+        if let Some(agent) = self.current_agent(&agents) {
+            return Ok(Some(agent));
         }
-        let Some(pane_id) = self.last_agent_pane_id.as_ref() else {
-            return Ok(None);
-        };
-        let Some(agent) = reader.get_agent(pane_id)? else {
-            self.last_agent_pane_id = None;
-            return Ok(None);
-        };
-        if agent.workspace_id != self.workspace_id {
-            self.last_agent_pane_id = None;
+
+        let mut same_workspace_agents = agents
+            .into_iter()
+            .filter(|agent| agent.workspace_id == self.workspace_id);
+        let only_agent = same_workspace_agents.next();
+        if same_workspace_agents.next().is_some() {
             return Ok(None);
         }
-        Ok(Some(agent))
+        Ok(only_agent)
     }
 
-    /// Record a focused agent event from this workspace.
-    fn observe_agent_focus(&mut self, agent: &Agent) {
-        if agent.workspace_id == self.workspace_id {
-            self.last_agent_pane_id = Some(agent.pane_id.clone());
-        }
+    fn current_agent(&self, agents: &[Agent]) -> Option<Agent> {
+        self.focused_pane_ids.iter().rev().find_map(|pane_id| {
+            agents
+                .iter()
+                .find(|agent| agent.pane_id == *pane_id && agent.workspace_id == self.workspace_id)
+                .cloned()
+        })
     }
 
     /// Resolve the target again and insert text without submission.
@@ -335,21 +324,9 @@ impl AgentTarget {
     where
         C: HerdrReader + HerdrWriter,
     {
-        self.resolve_pending_focus(client)?;
-        if self.last_agent_pane_id.is_none() {
-            self.initialize(client)?;
-        }
-        let Some(pane_id) = self.last_agent_pane_id.as_ref() else {
+        let Some(agent) = self.resolve(client)? else {
             return Ok(InsertResult::NoAgent);
         };
-        let Some(agent) = client.get_agent(pane_id)? else {
-            self.last_agent_pane_id = None;
-            return Ok(InsertResult::NoAgent);
-        };
-        if agent.workspace_id != self.workspace_id {
-            self.last_agent_pane_id = None;
-            return Ok(InsertResult::NoAgent);
-        }
 
         let screen = client.read_agent_screen(&agent.pane_id)?;
         if AgentInputMode::detect(&screen) == AgentInputMode::VimNormal {
@@ -365,3 +342,7 @@ impl AgentTarget {
         })
     }
 }
+
+#[cfg(test)]
+#[path = "protocol.tests.rs"]
+mod tests;

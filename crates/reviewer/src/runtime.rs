@@ -22,20 +22,20 @@ use crossterm::terminal::{
 };
 use herdr_client::client::{EventStreamEnd, HerdrClient};
 use herdr_client::protocol::{
-    Agent, AgentStatus, AgentTarget, HerdrEvent, HerdrReader, InsertResult, PaneId, PluginContext,
-    WorkspaceId,
+    Agent, AgentTarget, HerdrEvent, HerdrReader, InsertResult, PaneId, PluginContext, WorkspaceId,
 };
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
-use review_guide::{FrozenFile, FrozenHunk, GuideRequestId, GuideScope, ReviewCheckpoint};
+use review_guide::{FrozenFile, FrozenHunk, GuideScope, ReviewCheckpoint};
 use review_guide_runner::{
-    GuideCancellation, GuideRequest, GuideResult, GuideRunner, PreparedGuide,
+    GuideMailbox, GuideRepositorySnapshot, GuideResponseVersion, GuideResponseWaitOutcome,
+    GuideResponseWatchCancellation, GuideResult, GuideRunner,
 };
 use review_lsp::SourceLocation;
 use review_repository::diff::parse_file_diff;
 use review_repository::repository::{ChangedFile, PollResult, RepoPath, Repository, Snapshot};
 use review_state::{MarkResult, ReviewStatus, ReviewTracker};
-use review_store::{GuideRequestRecord, GuideRequestState, OutputTarget, ReviewStore};
+use review_store::{OutputTarget, ReviewStore};
 use review_ui::{Action, Key, Message, ReviewApp, ReviewFile, SourceLoadMode, Theme};
 use sha2::{Digest, Sha256};
 use signal_hook::consts::signal::{SIGHUP, SIGINT, SIGTERM};
@@ -91,11 +91,11 @@ enum WorkerCommand {
         text: String,
     },
     GenerateReviewGuide(GuideScope),
-    GuideSubmitted {
-        request_id: GuideRequestId,
-    },
     GuideFinished(guide::FinishedGuide),
-    HerdrEvent(HerdrEvent),
+    ImportReviewGuide {
+        review_unit: String,
+        wait_token: u64,
+    },
     Focus(PaneId),
     Quit,
 }
@@ -236,11 +236,6 @@ impl Runtime {
     ) -> eyre::Result<(Sender<WorkerCommand>, Receiver<Message>, JoinHandle<()>)> {
         let store = ReviewStore::open(&self.state_dir, self.repository.root())?;
         let guide_store = ReviewStore::open(&self.state_dir, self.repository.root())?;
-        let protected_transports = guide_store.active_guide_transport_directories()?;
-        review_guide_runner::cleanup_abandoned_transports(
-            self.repository.root(),
-            &protected_transports,
-        )?;
         let tracker = ReviewTracker::new(self.repository.clone(), store);
         let (command_sender, command_receiver) = mpsc::channel();
         let mut worker = Worker {
@@ -260,13 +255,8 @@ impl Runtime {
 
     fn drain_herdr_events(commands: &Sender<WorkerCommand>, events: &Receiver<HerdrEvent>) {
         while let Ok(event) = events.try_recv() {
-            match event {
-                HerdrEvent::PaneFocused(pane_id) => {
-                    let _ = commands.send(WorkerCommand::Focus(pane_id));
-                }
-                event => {
-                    let _ = commands.send(WorkerCommand::HerdrEvent(event));
-                }
+            if let HerdrEvent::PaneFocused(pane_id) = event {
+                let _ = commands.send(WorkerCommand::Focus(pane_id));
             }
         }
     }
@@ -559,20 +549,15 @@ impl Worker {
                 true
             }
             command @ (WorkerCommand::GenerateReviewGuide(_)
-            | WorkerCommand::GuideSubmitted { .. }
-            | WorkerCommand::GuideFinished(_)) => self.handle_guide_command(command, messages),
-            WorkerCommand::HerdrEvent(event) => {
-                self.guide.observe_guide_event(&event);
-                true
+            | WorkerCommand::GuideFinished(_)
+            | WorkerCommand::ImportReviewGuide { .. }) => {
+                self.handle_guide_command(command, messages)
             }
             WorkerCommand::Focus(pane_id) => {
                 self.target.observe_focus(&pane_id);
                 true
             }
-            WorkerCommand::Quit => {
-                self.guide_operation(|guide, context| guide.stop(context));
-                false
-            }
+            WorkerCommand::Quit => false,
         }
     }
 
@@ -583,14 +568,17 @@ impl Worker {
                     guide.generate_review_guide(context, messages, &scope);
                 });
             }
-            WorkerCommand::GuideSubmitted { request_id } => {
-                self.guide_operation(|guide, context| {
-                    guide.mark_submitted(context, &request_id);
-                });
-            }
             WorkerCommand::GuideFinished(finished) => {
                 self.guide_operation(|guide, context| {
                     guide.finish_review_guide(context, messages, finished);
+                });
+            }
+            WorkerCommand::ImportReviewGuide {
+                review_unit,
+                wait_token,
+            } => {
+                self.guide_operation(|guide, context| {
+                    guide.response_ready(context, messages, &review_unit, wait_token);
                 });
             }
             _ => unreachable!("only guide commands are delegated here"),
@@ -704,7 +692,7 @@ impl Worker {
         let review_unit = snapshot.identity.review_id().to_owned();
         self.snapshot = Some(snapshot);
         self.guide_operation(|guide, context| {
-            guide.reconcile_incomplete_guides(context, messages, &review_unit);
+            guide.import_completed_guide(context, messages, &review_unit);
         });
     }
 

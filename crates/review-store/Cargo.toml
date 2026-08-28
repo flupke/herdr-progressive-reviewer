@@ -6,7 +6,6 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-herdr-client = { path = "../herdr-client" }
 base64.workspace = true
 getrandom.workspace = true
 libc.workspace = true

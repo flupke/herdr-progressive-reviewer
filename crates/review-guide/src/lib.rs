@@ -26,35 +26,6 @@ impl ReviewCheckpoint {
     }
 }
 
-/// The stable identifier for one guide request.
-#[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
-#[serde(transparent)]
-pub struct GuideRequestId(String);
-
-impl GuideRequestId {
-    pub fn new(value: impl Into<String>) -> Self {
-        Self(value.into())
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-
-    pub fn as_bytes(&self) -> &[u8] {
-        self.0.as_bytes()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-}
-
-impl std::fmt::Display for GuideRequestId {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(formatter)
-    }
-}
-
 /// The files included in one guide request.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case", tag = "kind")]
@@ -141,7 +112,6 @@ pub struct GuideSnapshot {
     pub schema_version: u8,
     #[serde(flatten)]
     pub review_checkpoint: ReviewCheckpoint,
-    pub request_id: GuideRequestId,
     pub scope: GuideScope,
     pub items: Vec<GuideItem>,
     #[serde(default)]
@@ -206,7 +176,6 @@ pub enum GuideAnchorKind {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
 pub struct GuideResponse {
     pub schema_version: u8,
-    pub request_id: String,
     pub items: Vec<GuideItem>,
 }
 
@@ -215,8 +184,6 @@ pub struct GuideResponse {
 pub enum ValidationError {
     #[error("the guide response uses an unsupported schema version")]
     Schema,
-    #[error("the guide response has the wrong request ID")]
-    Request,
 }
 
 /// A valid response and the number of rejected individual items.
@@ -228,16 +195,9 @@ pub struct ValidatedResponse {
 
 impl GuideResponse {
     /// Validate an agent response against its exact frozen request.
-    pub fn validate(
-        self,
-        request_id: &str,
-        files: &[FrozenFile],
-    ) -> Result<ValidatedResponse, ValidationError> {
+    pub fn validate(self, files: &[FrozenFile]) -> Result<ValidatedResponse, ValidationError> {
         if self.schema_version != 1 {
             return Err(ValidationError::Schema);
-        }
-        if self.request_id != request_id {
-            return Err(ValidationError::Request);
         }
         let mut validator = ResponseValidator::new(files);
         let mut accepted = Vec::new();

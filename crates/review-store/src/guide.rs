@@ -1,8 +1,6 @@
-use std::fs;
 use std::path::{Path, PathBuf};
 
-use herdr_client::protocol::Agent;
-use review_guide::{GuideRequestId, GuideScope, GuideSnapshot, ReviewCheckpoint};
+use review_guide::{GuideSnapshot, ReviewCheckpoint};
 use serde::{Deserialize, Serialize};
 
 use super::{Error, Result, ReviewStore, StateKey};
@@ -28,34 +26,6 @@ struct StoredGuideSnapshot {
 struct StoredGuideState {
     storage_version: u8,
     latest_checkpoint_id: String,
-    latest_request_id: GuideRequestId,
-}
-
-/// The persisted lifecycle state of one manual guide request.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum GuideRequestState {
-    Preparing,
-    Submitted,
-    Incomplete,
-    Completed,
-    Failed,
-}
-
-/// Durable metadata for one guide request.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct GuideRequestRecord {
-    pub schema_version: u8,
-    #[serde(flatten)]
-    pub review_checkpoint: ReviewCheckpoint,
-    pub request_id: GuideRequestId,
-    pub scope: GuideScope,
-    pub agent: Agent,
-    pub state: GuideRequestState,
-    pub created_at: String,
-    pub updated_at: String,
-    pub transport_directory: Option<PathBuf>,
-    pub error: Option<String>,
 }
 
 impl StoredGuideSnapshot {
@@ -112,14 +82,12 @@ impl ReviewStore {
     pub fn save_guide(&self, guide: &GuideSnapshot) -> Result<()> {
         StateKeyValue::validate(&guide.review_checkpoint.review_unit, "review unit")?;
         StateKeyValue::validate(&guide.review_checkpoint.checkpoint, "checkpoint")?;
-        StateKeyValue::validate(guide.request_id.as_str(), "request ID")?;
-        let snapshot = self.guide_snapshot_path(&guide.review_checkpoint, &guide.request_id);
+        let snapshot = self.guide_snapshot_path(&guide.review_checkpoint);
         let stored = StoredGuideSnapshot::from_guide(guide);
         self.atomic_compressed_json(&snapshot, &stored, "write review guide")?;
         let state = StoredGuideState {
             storage_version: GUIDE_STORAGE_VERSION,
             latest_checkpoint_id: guide.review_checkpoint.checkpoint.clone(),
-            latest_request_id: guide.request_id.clone(),
         };
         self.atomic_json(
             &self.guide_state_path(&guide.review_checkpoint.review_unit),
@@ -141,14 +109,13 @@ impl ReviewStore {
         };
         if state.storage_version != GUIDE_STORAGE_VERSION
             || StateKeyValue::validate(&state.latest_checkpoint_id, "checkpoint").is_err()
-            || StateKeyValue::validate(state.latest_request_id.as_str(), "request ID").is_err()
         {
             return Ok(None);
         }
-        let snapshot = self.guide_snapshot_path(
-            &ReviewCheckpoint::new(review_unit, state.latest_checkpoint_id),
-            &state.latest_request_id,
-        );
+        let snapshot = self.guide_snapshot_path(&ReviewCheckpoint::new(
+            review_unit,
+            state.latest_checkpoint_id,
+        ));
         let guide = Self::read_bytes(&snapshot, "read review guide", None)?
             .and_then(|snapshot| Self::decode_guide_snapshot(&snapshot));
         Ok(guide.filter(|guide| {
@@ -156,94 +123,12 @@ impl ReviewStore {
         }))
     }
 
-    /// Store the current state of one guide request and keep its history.
-    pub fn save_guide_request(&self, request: &mut GuideRequestRecord) -> Result<()> {
-        StateKeyValue::validate(&request.review_checkpoint.review_unit, "review unit")?;
-        StateKeyValue::validate(&request.review_checkpoint.checkpoint, "checkpoint")?;
-        StateKeyValue::validate(request.request_id.as_str(), "request ID")?;
-        let now = Self::timestamp("guide request timestamp")?;
-        if request.created_at.is_empty() {
-            request.created_at.clone_from(&now);
-        }
-        request.updated_at = now;
-        let target = self
-            .guide_unit_directory(&request.review_checkpoint.review_unit)
-            .join("requests")
-            .join(format!(
-                "{}.json",
-                StateKey::hash(request.request_id.as_bytes()).0
-            ));
-        self.atomic_json(&target, request, "write review guide request")
-    }
-
-    /// Load every valid request record for one review unit.
-    pub fn load_guide_requests(&self, review_unit: &str) -> Result<Vec<GuideRequestRecord>> {
+    /// Return the durable mailbox for one review unit.
+    pub fn guide_mailbox_directory(&self, review_unit: &str) -> Result<PathBuf> {
         StateKeyValue::validate(review_unit, "review unit")?;
-        let directory = self.guide_unit_directory(review_unit).join("requests");
-        let entries = match fs::read_dir(&directory) {
-            Ok(entries) => entries,
-            Err(source) if source.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-            Err(source) => {
-                return Err(Error::StateIo {
-                    operation: "scan review guide requests",
-                    path: directory,
-                    source,
-                });
-            }
-        };
-        let mut requests = Vec::new();
-        for entry in entries.flatten() {
-            let Some(request): Option<GuideRequestRecord> =
-                Self::read_json(&entry.path(), "read review guide request")?
-            else {
-                continue;
-            };
-            if request.schema_version == 1 && request.review_checkpoint.review_unit == review_unit {
-                requests.push(request);
-            }
-        }
-        requests.sort_by(|left, right| left.created_at.cmp(&right.created_at));
-        Ok(requests)
-    }
-
-    /// List transports that a durable request can still use.
-    pub fn active_guide_transport_directories(&self) -> Result<Vec<PathBuf>> {
-        let guides = self.repository_dir.join("guides");
-        let units = match fs::read_dir(&guides) {
-            Ok(units) => units,
-            Err(source) if source.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-            Err(source) => {
-                return Err(Error::StateIo {
-                    operation: "scan review guide units",
-                    path: guides,
-                    source,
-                });
-            }
-        };
-        let mut transports = Vec::new();
-        for unit in units.flatten() {
-            let requests = unit.path().join("requests");
-            let Ok(entries) = fs::read_dir(requests) else {
-                continue;
-            };
-            for entry in entries.flatten() {
-                let Some(request): Option<GuideRequestRecord> =
-                    Self::read_json(&entry.path(), "read review guide request")?
-                else {
-                    continue;
-                };
-                if matches!(
-                    request.state,
-                    GuideRequestState::Preparing
-                        | GuideRequestState::Submitted
-                        | GuideRequestState::Incomplete
-                ) && let Some(path) = request.transport_directory
-                {
-                    transports.push(path);
-                }
-            }
-        }
-        Ok(transports)
+        let directory = self.guide_unit_directory(review_unit).join("mailbox");
+        self.create_dir(&directory)?;
+        Ok(directory)
     }
 
     fn guide_unit_directory(&self, review_unit: &str) -> PathBuf {
@@ -256,17 +141,12 @@ impl ReviewStore {
         self.guide_unit_directory(review_unit).join("state.json")
     }
 
-    pub(super) fn guide_snapshot_path(
-        &self,
-        review_checkpoint: &ReviewCheckpoint,
-        request_id: &GuideRequestId,
-    ) -> PathBuf {
+    pub(super) fn guide_snapshot_path(&self, review_checkpoint: &ReviewCheckpoint) -> PathBuf {
         self.guide_unit_directory(&review_checkpoint.review_unit)
             .join("snapshots")
-            .join(StateKey::hash(review_checkpoint.checkpoint.as_bytes()).0)
             .join(format!(
                 "{}.json.zst",
-                StateKey::hash(request_id.as_bytes()).0
+                StateKey::hash(review_checkpoint.checkpoint.as_bytes()).0
             ))
     }
 

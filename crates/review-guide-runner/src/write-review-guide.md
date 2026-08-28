@@ -23,7 +23,6 @@ prompt gives you:
 - the repository root;
 - the exact frozen checkpoint diff to explain;
 - the requested scope;
-- a request ID; and
 - temporary and final response paths.
 
 Use the inherited conversation, or the fallback handoff, to understand the
@@ -85,7 +84,6 @@ Write one JSON document with this shape:
 ```json
 {
   "schema_version": 1,
-  "request_id": "{{REQUEST_ID}}",
   "items": [
     {
       "target": {
@@ -119,16 +117,14 @@ Write one JSON document with this shape:
 }
 ```
 
-The request ID must match exactly. Write the complete document to
-`{{RESPONSE_TEMPORARY_PATH}}`. After the write succeeds, atomically rename it
-to `{{RESPONSE_PATH}}`. Do not write the final path directly. Do not write any
-other output file.
+Write the complete document to `{{RESPONSE_TEMPORARY_PATH}}`. After the write
+succeeds, atomically rename it to `{{RESPONSE_PATH}}`. Do not write the final
+path directly. Do not write any other output file.
 
 ## Request
 
 - Repository root: `{{REPOSITORY_ROOT}}`
 - Scope: `{{REVIEW_SCOPE}}`
 - Frozen checkpoint diff: `{{DIFF_PATH}}`
-- Request ID: `{{REQUEST_ID}}`
 - Temporary response: `{{RESPONSE_TEMPORARY_PATH}}`
 - Final response: `{{RESPONSE_PATH}}`

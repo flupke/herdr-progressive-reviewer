@@ -1245,13 +1245,13 @@ version = "0.2.0"
 dependencies = [
  "herdr-client",
  "libc",
+ "notify",
  "review-guide",
- "rustix 1.1.4",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "thiserror",
- "uuid",
  "zstd",
 ]
 
@@ -1301,7 +1301,6 @@ version = "0.2.0"
 dependencies = [
  "base64",
  "getrandom 0.3.4",
- "herdr-client",
  "libc",
  "review-guide",
  "serde",

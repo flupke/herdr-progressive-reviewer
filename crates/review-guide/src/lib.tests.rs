@@ -10,17 +10,6 @@ fn checkpoint_identity_requires_the_review_unit_and_checkpoint() {
 }
 
 #[test]
-fn request_id_preserves_its_exact_value() {
-    let request_id = GuideRequestId::new("request-123");
-
-    assert_eq!(request_id.as_str(), "request-123");
-    assert_eq!(request_id.as_bytes(), b"request-123");
-    assert_eq!(request_id.to_string(), "request-123");
-    assert!(!request_id.is_empty());
-    assert!(GuideRequestId::new("").is_empty());
-}
-
-#[test]
 fn edits_before_an_interval_shift_it() {
     assert_eq!(
         transform_interval(10..14, &[(2..2, 2..5), (20..21, 20..20)]),
@@ -45,7 +34,6 @@ fn histogram_edits_preserve_missing_final_newlines() {
 fn valid_items_are_normalized_and_overlaps_are_rejected() {
     let response = GuideResponse {
         schema_version: 1,
-        request_id: "request".to_owned(),
         items: vec![
             GuideItem {
                 target: GuideTarget::Hunks {
@@ -68,28 +56,25 @@ fn valid_items_are_normalized_and_overlaps_are_rejected() {
         ],
     };
     let validated = response
-        .validate(
-            "request",
-            &[FrozenFile {
-                path: "src/lib.rs".to_owned(),
-                hunk_count: 2,
-                old_path: None,
-                new_path: None,
-                old_content: None,
-                new_content: None,
-                hunks: vec![
-                    FrozenHunk {
-                        old: Some(0..1),
-                        new: Some(0..1),
-                    },
-                    FrozenHunk {
-                        old: Some(2..3),
-                        new: Some(2..3),
-                    },
-                ],
-                diff_hash: String::new(),
-            }],
-        )
+        .validate(&[FrozenFile {
+            path: "src/lib.rs".to_owned(),
+            hunk_count: 2,
+            old_path: None,
+            new_path: None,
+            old_content: None,
+            new_content: None,
+            hunks: vec![
+                FrozenHunk {
+                    old: Some(0..1),
+                    new: Some(0..1),
+                },
+                FrozenHunk {
+                    old: Some(2..3),
+                    new: Some(2..3),
+                },
+            ],
+            diff_hash: String::new(),
+        }])
         .unwrap();
     assert_eq!(validated.items.len(), 1);
     assert_eq!(validated.items[0].text, "central idea");
@@ -110,7 +95,6 @@ fn invalid_hunk_ranges_are_rejected() {
     };
     let response = GuideResponse {
         schema_version: 1,
-        request_id: "request".to_owned(),
         items: vec![hunk_item(0, 1), hunk_item(2, 1), hunk_item(1, 3)],
     };
     let file = FrozenFile {
@@ -124,7 +108,7 @@ fn invalid_hunk_ranges_are_rejected() {
         diff_hash: String::new(),
     };
 
-    let validated = response.validate("request", &[file]).unwrap();
+    let validated = response.validate(&[file]).unwrap();
 
     assert!(validated.items.is_empty());
     assert_eq!(validated.rejected_items, 3);
@@ -143,7 +127,6 @@ fn one_complete_hunk_is_a_valid_target() {
     };
     let response = GuideResponse {
         schema_version: 1,
-        request_id: "request".to_owned(),
         items: vec![item.clone()],
     };
     let file = FrozenFile {
@@ -160,7 +143,7 @@ fn one_complete_hunk_is_a_valid_target() {
         diff_hash: String::new(),
     };
 
-    let validated = response.validate("request", &[file]).unwrap();
+    let validated = response.validate(&[file]).unwrap();
 
     assert_eq!(validated.items, vec![item]);
     assert_eq!(validated.rejected_items, 0);
@@ -187,12 +170,11 @@ fn file_targets_are_only_accepted_for_files_without_text_hunks() {
     };
     let response = GuideResponse {
         schema_version: 1,
-        request_id: "request".to_owned(),
         items: vec![item("binary.bin"), item("source.rs")],
     };
 
     let validated = response
-        .validate("request", &[file("binary.bin", 0), file("source.rs", 1)])
+        .validate(&[file("binary.bin", 0), file("source.rs", 1)])
         .unwrap();
 
     assert_eq!(validated.items, vec![item("binary.bin")]);
@@ -215,7 +197,6 @@ fn separate_line_targets_are_allowed_in_one_new_file_hunk() {
     };
     let response = GuideResponse {
         schema_version: 1,
-        request_id: "request".to_owned(),
         items: vec![
             line_target(1, 10, "first idea"),
             line_target(20, 30, "second idea"),
@@ -236,7 +217,7 @@ fn separate_line_targets_are_allowed_in_one_new_file_hunk() {
         diff_hash: "diff".to_owned(),
     };
 
-    let validated = response.validate("request", &[file]).unwrap();
+    let validated = response.validate(&[file]).unwrap();
 
     assert_eq!(validated.items.len(), 2);
     assert_eq!(validated.rejected_items, 1);
@@ -258,7 +239,6 @@ fn line_targets_require_one_based_ordered_ranges() {
     };
     let response = GuideResponse {
         schema_version: 1,
-        request_id: "request".to_owned(),
         items: vec![line_item(1, 1), line_item(0, 1), line_item(2, 1)],
     };
     let file = FrozenFile {
@@ -275,7 +255,7 @@ fn line_targets_require_one_based_ordered_ranges() {
         diff_hash: String::new(),
     };
 
-    let validated = response.validate("request", &[file]).unwrap();
+    let validated = response.validate(&[file]).unwrap();
 
     assert_eq!(validated.items, vec![line_item(1, 1)]);
     assert_eq!(validated.rejected_items, 2);
@@ -297,7 +277,6 @@ fn adjacent_line_targets_are_accepted_in_either_order() {
     };
     let response = GuideResponse {
         schema_version: 1,
-        request_id: "request".to_owned(),
         items: vec![
             line_item("ascending.rs", 1, 10),
             line_item("ascending.rs", 11, 20),
@@ -320,7 +299,7 @@ fn adjacent_line_targets_are_accepted_in_either_order() {
     };
 
     let validated = response
-        .validate("request", &[file("ascending.rs"), file("descending.rs")])
+        .validate(&[file("ascending.rs"), file("descending.rs")])
         .unwrap();
 
     assert_eq!(validated.items.len(), 4);
@@ -331,7 +310,6 @@ fn adjacent_line_targets_are_accepted_in_either_order() {
 fn old_and_new_line_ranges_must_cover_the_same_hunks() {
     let response = GuideResponse {
         schema_version: 1,
-        request_id: "request".to_owned(),
         items: vec![GuideItem {
             target: GuideTarget::Lines {
                 path: "src/lib.rs".to_owned(),
@@ -368,7 +346,7 @@ fn old_and_new_line_ranges_must_cover_the_same_hunks() {
         diff_hash: String::new(),
     };
 
-    let validated = response.validate("request", &[file]).unwrap();
+    let validated = response.validate(&[file]).unwrap();
 
     assert!(validated.items.is_empty());
     assert_eq!(validated.rejected_items, 1);

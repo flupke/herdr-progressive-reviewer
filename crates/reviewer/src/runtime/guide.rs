@@ -1,34 +1,52 @@
 use super::{
-    Agent, AgentStatus, AgentTarget, Arc, ChangedFile, Digest, FrozenFile, FrozenHunk,
-    GuideCancellation, GuideRequest, GuideRequestId, GuideRequestRecord, GuideRequestState,
-    GuideResult, GuideRunner, GuideScope, HerdrClient, HerdrEvent, Message, PreparedGuide,
+    Agent, AgentTarget, ChangedFile, Digest, FrozenFile, FrozenHunk, GuideMailbox,
+    GuideRepositorySnapshot, GuideResponseVersion, GuideResponseWaitOutcome,
+    GuideResponseWatchCancellation, GuideResult, GuideRunner, GuideScope, HerdrClient, Message,
     RepoPath, Repository, ReviewCheckpoint, ReviewStatus, ReviewStore, ReviewTracker, Sender,
     Sha256, Snapshot, WorkerCommand, parse_file_diff, thread,
 };
 
 #[derive(Debug, Default)]
 pub(super) struct GuideRequestCoordinator {
-    active: Option<ActiveGuide>,
-    reconciled_review_unit: Option<String>,
+    observed_response: Option<ObservedResponse>,
+    response_wait: Option<ResponseWait>,
+    generation_wait: Option<GenerationWait>,
+    next_response_wait_token: u64,
 }
 
 #[derive(Debug)]
-struct ActiveGuide {
-    request_id: GuideRequestId,
-    agent: Agent,
-    cancellation: Arc<GuideCancellation>,
-    record: GuideRequestRecord,
+struct ObservedResponse {
+    review_unit: String,
+    version: GuideResponseVersion,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum GuideAgentEvent {
-    Ignore,
-    Block,
+#[derive(Debug)]
+struct ResponseWait {
+    review_unit: String,
+    token: u64,
+    cancellation: GuideResponseWatchCancellation,
+}
+
+impl Drop for ResponseWait {
+    fn drop(&mut self) {
+        self.cancellation.cancel();
+    }
+}
+
+#[derive(Debug)]
+struct GenerationWait {
+    review_unit: String,
+    cancellation: GuideResponseWatchCancellation,
+}
+
+impl Drop for GenerationWait {
+    fn drop(&mut self) {
+        self.cancellation.cancel();
+    }
 }
 
 #[derive(Debug)]
 pub(super) struct FinishedGuide {
-    request_id: GuideRequestId,
     review_checkpoint: ReviewCheckpoint,
     agent_name: String,
     result: Result<GuideResult, review_guide_runner::Error>,
@@ -67,138 +85,28 @@ impl<'a> GuideOperationContext<'a> {
 }
 
 impl GuideRequestCoordinator {
-    pub(super) fn mark_submitted(
-        &mut self,
-        context: &GuideOperationContext<'_>,
-        request_id: &GuideRequestId,
-    ) {
-        if let Some(active) = &mut self.active
-            && &active.request_id == request_id
-        {
-            active.record.state = GuideRequestState::Submitted;
-            let _ = context.guide_store.save_guide_request(&mut active.record);
-        }
-    }
-
-    pub(super) fn stop(&mut self, context: &GuideOperationContext<'_>) {
-        if let Some(active) = &mut self.active {
-            active.cancellation.cancel();
-            active.record.state = GuideRequestState::Incomplete;
-            active.record.error = None;
-            let _ = context.guide_store.save_guide_request(&mut active.record);
-        }
-    }
-
-    pub(super) fn reconcile_incomplete_guides(
-        &mut self,
-        context: &mut GuideOperationContext<'_>,
-        messages: &Sender<Message>,
-        review_unit: &str,
-    ) {
-        if self.reconciled_review_unit.as_deref() == Some(review_unit) {
-            return;
-        }
-        let mut records = match context.guide_store.load_guide_requests(review_unit) {
-            Ok(records) => records,
-            Err(error) => {
-                if let Some(snapshot) = context.snapshot {
-                    Self::guide_error(
-                        messages,
-                        &ReviewCheckpoint::new(review_unit, snapshot.identity.snapshot_id()),
-                        format!("could not load incomplete review guide requests: {error}"),
-                    );
-                }
-                return;
-            }
-        };
-        self.reconciled_review_unit = Some(review_unit.to_owned());
-        records.reverse();
-        let mut resumed = false;
-        for mut record in records.into_iter().filter(|record| {
-            matches!(
-                record.state,
-                GuideRequestState::Preparing
-                    | GuideRequestState::Submitted
-                    | GuideRequestState::Incomplete
-            )
-        }) {
-            if resumed
-                || self.active.is_some()
-                || !self.resume_request(context, messages, &mut record)
-            {
-                if let Some(path) = record.transport_directory.take() {
-                    let _ = review_guide_runner::abandon_transport(path);
-                }
-                record.state = GuideRequestState::Failed;
-                record.error = Some("incomplete request could not be resumed".to_owned());
-                let _ = context.guide_store.save_guide_request(&mut record);
-            } else {
-                resumed = true;
-            }
-        }
-    }
-
-    fn resume_request(
-        &mut self,
-        context: &mut GuideOperationContext<'_>,
-        messages: &Sender<Message>,
-        record: &mut GuideRequestRecord,
-    ) -> bool {
-        let Some(path) = record.transport_directory.clone() else {
-            return false;
-        };
-        let Ok(prepared) = PreparedGuide::resume(record.request_id.clone(), path) else {
-            return false;
-        };
-        Self::updating_status(messages, &record.review_checkpoint, None);
-        self.start_guide_thread(
-            context,
-            record.agent.clone(),
-            prepared,
-            record.clone(),
-            true,
-        );
-        true
-    }
-
     pub(super) fn generate_review_guide(
         &mut self,
         context: &mut GuideOperationContext<'_>,
         messages: &Sender<Message>,
         scope: &GuideScope,
     ) {
-        if self.active.is_some() {
-            let Some(snapshot) = context.snapshot else {
-                return;
-            };
-            Self::updating_status(
-                messages,
-                &ReviewCheckpoint::new(
-                    snapshot.identity.review_id(),
-                    snapshot.identity.snapshot_id(),
-                ),
-                Some("A guide update is already in progress".to_owned()),
-            );
-            return;
-        }
         let Some(snapshot) = context.snapshot else {
             return;
         };
-        let review_unit = snapshot.identity.review_id().to_owned();
-        let checkpoint = snapshot.identity.snapshot_id().to_owned();
-        let review_checkpoint = ReviewCheckpoint::new(&review_unit, &checkpoint);
-        let _ = messages.send(Message::ReviewGuideStatus {
-            review_checkpoint: review_checkpoint.clone(),
-            generating: true,
-            message: None,
-        });
-        let request = match Self::freeze_guide_request(context, scope.clone(), &review_checkpoint) {
-            Ok(request) => request,
-            Err(error) => {
-                Self::guide_error(messages, &review_checkpoint, error.to_string());
-                return;
-            }
-        };
+        let review_checkpoint = ReviewCheckpoint::new(
+            snapshot.identity.review_id(),
+            snapshot.identity.snapshot_id(),
+        );
+        Self::updating_status(messages, &review_checkpoint);
+        let repository_snapshot =
+            match Self::freeze_repository_snapshot(context, scope.clone(), &review_checkpoint) {
+                Ok(repository_snapshot) => repository_snapshot,
+                Err(error) => {
+                    Self::guide_error(messages, &review_checkpoint, error.to_string());
+                    return;
+                }
+            };
         let agent = match context.target.resolve(context.client) {
             Ok(Some(agent)) => agent,
             Ok(None) => {
@@ -215,9 +123,11 @@ impl GuideRequestCoordinator {
             }
         };
         let agent_name = display_agent_name(&agent);
-        Self::updating_status(messages, &review_checkpoint, None);
-        let prepared = match GuideRunner::<HerdrClient>::prepare(request) {
-            Ok(prepared) => prepared,
+        let mailbox_directory = match context
+            .guide_store
+            .guide_mailbox_directory(&review_checkpoint.review_unit)
+        {
+            Ok(directory) => directory,
             Err(error) => {
                 Self::guide_error(
                     messages,
@@ -227,117 +137,10 @@ impl GuideRequestCoordinator {
                 return;
             }
         };
-        let request_id = prepared.request_id().to_owned();
-        let mut record =
-            Self::preparing_record(review_checkpoint, request_id, scope, &agent, &prepared);
-        if let Err(error) = context.guide_store.save_guide_request(&mut record) {
-            let _ =
-                review_guide_runner::abandon_transport(prepared.transport_directory().to_owned());
-            Self::guide_error(
-                messages,
-                &record.review_checkpoint,
-                format!("guide request for agent {agent_name} failed: {error}"),
-            );
-            return;
-        }
-        self.start_guide_thread(context, agent, prepared, record, false);
-    }
-
-    fn preparing_record(
-        review_checkpoint: ReviewCheckpoint,
-        request_id: GuideRequestId,
-        scope: &GuideScope,
-        agent: &Agent,
-        prepared: &PreparedGuide,
-    ) -> GuideRequestRecord {
-        GuideRequestRecord {
-            schema_version: 1,
-            review_checkpoint,
-            request_id,
-            scope: scope.clone(),
-            agent: agent.clone(),
-            state: GuideRequestState::Preparing,
-            created_at: String::new(),
-            updated_at: String::new(),
-            transport_directory: Some(prepared.transport_directory().to_owned()),
-            error: None,
-        }
-    }
-
-    fn start_guide_thread(
-        &mut self,
-        context: &mut GuideOperationContext<'_>,
-        agent: Agent,
-        prepared: PreparedGuide,
-        record: GuideRequestRecord,
-        resume: bool,
-    ) {
-        let request_id = record.request_id.clone();
-        let review_checkpoint = record.review_checkpoint.clone();
-        let cancellation = Arc::new(GuideCancellation::default());
-        self.active = Some(ActiveGuide {
-            request_id: request_id.clone(),
-            agent: agent.clone(),
-            cancellation: Arc::clone(&cancellation),
-            record,
-        });
-        let commands = context.commands.clone();
-        let client = context.client.clone();
-        let agent_name = display_agent_name(&agent);
-        thread::spawn(move || {
-            let runner = GuideRunner::new(&client);
-            let result = if resume {
-                runner.finish_prepared(&agent, prepared, cancellation.as_ref())
-            } else {
-                match runner.submit_prepared(&agent, &prepared, cancellation.as_ref()) {
-                    Ok(()) => {
-                        let _ = commands.send(WorkerCommand::GuideSubmitted {
-                            request_id: request_id.clone(),
-                        });
-                        runner.finish_prepared(&agent, prepared, cancellation.as_ref())
-                    }
-                    Err(error) => {
-                        let _ = review_guide_runner::abandon_transport(
-                            prepared.transport_directory().to_owned(),
-                        );
-                        Err(error)
-                    }
-                }
-            };
-            let _ = commands.send(WorkerCommand::GuideFinished(FinishedGuide {
-                request_id,
-                review_checkpoint,
-                agent_name,
-                result,
-            }));
-        });
-    }
-
-    pub(super) fn finish_review_guide(
-        &mut self,
-        context: &mut GuideOperationContext<'_>,
-        messages: &Sender<Message>,
-        finished: FinishedGuide,
-    ) {
-        let FinishedGuide {
-            request_id,
-            review_checkpoint,
-            agent_name,
-            result,
-        } = finished;
-        if self.active.as_ref().map(|guide| &guide.request_id) != Some(&request_id) {
-            return;
-        }
-        let mut active = self.active.take().expect("the active request ID matched");
-        match result {
-            Ok(result) => {
-                if let Err(error) = context.guide_store.save_guide(&result.guide) {
-                    let _ = Self::complete_request_record(
-                        context,
-                        &mut active.record,
-                        GuideRequestState::Failed,
-                        Some("could not store the accepted review guide".to_owned()),
-                    );
+        let prepared =
+            match GuideRunner::<HerdrClient>::prepare(repository_snapshot, mailbox_directory) {
+                Ok(prepared) => prepared,
+                Err(error) => {
                     Self::guide_error(
                         messages,
                         &review_checkpoint,
@@ -345,47 +148,272 @@ impl GuideRequestCoordinator {
                     );
                     return;
                 }
-                Self::show_guide_for_current_checkpoint(context, messages, &result.guide);
-                if let Err(error) = Self::complete_request_record(
-                    context,
-                    &mut active.record,
-                    GuideRequestState::Completed,
-                    None,
-                ) {
-                    Self::guide_error(
-                        messages,
-                        &result.guide.review_checkpoint,
-                        format!(
-                            "guide request for agent {agent_name} succeeded, but its completion state could not be stored: {error}"
-                        ),
-                    );
-                    return;
-                }
-                if result.rejected_items > 0 {
-                    let _ = messages.send(Message::ReviewGuideStatus {
-                        review_checkpoint: result.guide.review_checkpoint,
-                        generating: false,
-                        message: Some(format!(
-                            "invalid review guide items ignored: {}",
-                            result.rejected_items
-                        )),
-                    });
-                }
-            }
+            };
+        let (response_watch, cancellation) = match prepared.watch_response() {
+            Ok(watch) => watch,
             Err(error) => {
-                let _ = Self::complete_request_record(
-                    context,
-                    &mut active.record,
-                    GuideRequestState::Failed,
-                    Some(error.to_string()),
-                );
                 Self::guide_error(
                     messages,
                     &review_checkpoint,
                     format!("guide request for agent {agent_name} failed: {error}"),
                 );
+                return;
+            }
+        };
+        self.observed_response = None;
+        self.generation_wait = Some(GenerationWait {
+            review_unit: review_checkpoint.review_unit.clone(),
+            cancellation,
+        });
+        Self::start_guide_thread(
+            context,
+            agent,
+            prepared,
+            response_watch,
+            review_checkpoint,
+            agent_name,
+        );
+    }
+
+    fn start_guide_thread(
+        context: &GuideOperationContext<'_>,
+        agent: Agent,
+        prepared: review_guide_runner::PreparedGuide,
+        response_watch: review_guide_runner::GuideResponseWatch,
+        review_checkpoint: ReviewCheckpoint,
+        agent_name: String,
+    ) {
+        let commands = context.commands.clone();
+        let client = context.client.clone();
+        thread::spawn(move || {
+            let runner = GuideRunner::new(&client);
+            let result = runner
+                .submit_prepared(&agent, &prepared)
+                .and_then(|()| runner.finish_prepared_with_watch(&prepared, response_watch));
+            let _ = commands.send(WorkerCommand::GuideFinished(FinishedGuide {
+                review_checkpoint,
+                agent_name,
+                result,
+            }));
+        });
+    }
+
+    pub(super) fn import_completed_guide(
+        &mut self,
+        context: &GuideOperationContext<'_>,
+        messages: &Sender<Message>,
+        review_unit: &str,
+    ) {
+        self.cancel_waits_for_other_review_units(review_unit);
+        let Ok(directory) = context.guide_store.guide_mailbox_directory(review_unit) else {
+            return;
+        };
+        let Ok(mailbox) = GuideMailbox::open(directory) else {
+            return;
+        };
+        match mailbox.response_version() {
+            Ok(Some(version)) if !self.has_observed_response(review_unit, version) => {}
+            Ok(Some(version)) => {
+                self.start_response_wait(context, review_unit, &mailbox, Some(version));
+                return;
+            }
+            Ok(None) if mailbox.is_prepared() => {
+                self.start_response_wait(context, review_unit, &mailbox, None);
+                return;
+            }
+            Ok(None) | Err(_) => return,
+        }
+        match mailbox.load_completed_guide() {
+            Ok(result) => {
+                let response_version = result.response_version;
+                self.observe_response(review_unit, response_version);
+                Self::accept_guide(context, messages, result);
+                self.start_response_wait(context, review_unit, &mailbox, Some(response_version));
+            }
+            Err(error) => {
+                let Some(snapshot) = context.snapshot else {
+                    return;
+                };
+                Self::guide_error(
+                    messages,
+                    &ReviewCheckpoint::new(review_unit, snapshot.identity.snapshot_id()),
+                    format!("could not import the completed review guide: {error}"),
+                );
             }
         }
+    }
+
+    pub(super) fn response_ready(
+        &mut self,
+        context: &GuideOperationContext<'_>,
+        messages: &Sender<Message>,
+        review_unit: &str,
+        wait_token: u64,
+    ) {
+        if !self
+            .response_wait
+            .as_ref()
+            .is_some_and(|wait| wait.review_unit == review_unit && wait.token == wait_token)
+        {
+            return;
+        }
+        self.response_wait = None;
+        self.import_completed_guide(context, messages, review_unit);
+    }
+
+    pub(super) fn finish_review_guide(
+        &mut self,
+        context: &GuideOperationContext<'_>,
+        messages: &Sender<Message>,
+        finished: FinishedGuide,
+    ) {
+        if !context.snapshot.is_some_and(|snapshot| {
+            snapshot.identity.review_id() == finished.review_checkpoint.review_unit
+        }) {
+            return;
+        }
+        match finished.result {
+            Ok(result) => {
+                let response_version = result.response_version;
+                let review_unit = result.guide.review_checkpoint.review_unit.clone();
+                let mailbox = context
+                    .guide_store
+                    .guide_mailbox_directory(&review_unit)
+                    .ok()
+                    .and_then(|directory| GuideMailbox::open(directory).ok());
+                let current_response = mailbox
+                    .as_ref()
+                    .and_then(|mailbox| mailbox.response_version().ok())
+                    .flatten();
+                if current_response != Some(response_version) {
+                    self.import_completed_guide(context, messages, &review_unit);
+                    return;
+                }
+                if self.has_observed_response(&review_unit, response_version) {
+                    if let Some(mailbox) = mailbox {
+                        self.start_response_wait(
+                            context,
+                            &review_unit,
+                            &mailbox,
+                            Some(response_version),
+                        );
+                    }
+                    return;
+                }
+                self.observe_response(&review_unit, response_version);
+                Self::accept_guide(context, messages, result);
+                if let Some(mailbox) = mailbox {
+                    self.start_response_wait(
+                        context,
+                        &review_unit,
+                        &mailbox,
+                        Some(response_version),
+                    );
+                }
+            }
+            Err(review_guide_runner::Error::ResponseWaitCancelled) => {}
+            Err(error) => Self::guide_error(
+                messages,
+                &finished.review_checkpoint,
+                format!(
+                    "guide request for agent {} failed: {error}",
+                    finished.agent_name
+                ),
+            ),
+        }
+    }
+
+    fn start_response_wait(
+        &mut self,
+        context: &GuideOperationContext<'_>,
+        review_unit: &str,
+        mailbox: &GuideMailbox,
+        previous: Option<GuideResponseVersion>,
+    ) {
+        if self
+            .response_wait
+            .as_ref()
+            .is_some_and(|wait| wait.review_unit == review_unit)
+        {
+            return;
+        }
+        let Ok((watch, cancellation)) = mailbox.watch_response_after(previous) else {
+            return;
+        };
+        self.next_response_wait_token = self.next_response_wait_token.wrapping_add(1);
+        let wait_token = self.next_response_wait_token;
+        self.response_wait = Some(ResponseWait {
+            review_unit: review_unit.to_owned(),
+            token: wait_token,
+            cancellation,
+        });
+        let commands = context.commands.clone();
+        let review_unit = review_unit.to_owned();
+        thread::spawn(move || {
+            if matches!(watch.wait(), Ok(GuideResponseWaitOutcome::ResponseChanged)) {
+                let _ = commands.send(WorkerCommand::ImportReviewGuide {
+                    review_unit,
+                    wait_token,
+                });
+            }
+        });
+    }
+
+    fn cancel_waits_for_other_review_units(&mut self, review_unit: &str) {
+        if self
+            .response_wait
+            .as_ref()
+            .is_some_and(|wait| wait.review_unit != review_unit)
+        {
+            self.response_wait = None;
+        }
+        if self
+            .generation_wait
+            .as_ref()
+            .is_some_and(|wait| wait.review_unit != review_unit)
+        {
+            self.generation_wait = None;
+        }
+    }
+
+    fn has_observed_response(&self, review_unit: &str, version: GuideResponseVersion) -> bool {
+        self.observed_response.as_ref().is_some_and(|observed| {
+            observed.review_unit == review_unit && observed.version == version
+        })
+    }
+
+    fn observe_response(&mut self, review_unit: &str, version: GuideResponseVersion) {
+        self.observed_response = Some(ObservedResponse {
+            review_unit: review_unit.to_owned(),
+            version,
+        });
+    }
+
+    fn accept_guide(
+        context: &GuideOperationContext<'_>,
+        messages: &Sender<Message>,
+        result: GuideResult,
+    ) {
+        if let Err(error) = context.guide_store.save_guide(&result.guide) {
+            Self::guide_error(
+                messages,
+                &result.guide.review_checkpoint,
+                format!("could not store the accepted review guide: {error}"),
+            );
+            return;
+        }
+        Self::show_guide_for_current_checkpoint(context, messages, &result.guide);
+        let message = (result.rejected_items > 0).then(|| {
+            format!(
+                "invalid review guide items ignored: {}",
+                result.rejected_items
+            )
+        });
+        let _ = messages.send(Message::ReviewGuideStatus {
+            review_checkpoint: result.guide.review_checkpoint,
+            generating: false,
+            message,
+        });
     }
 
     fn show_guide_for_current_checkpoint(
@@ -429,33 +457,11 @@ impl GuideRequestCoordinator {
         });
     }
 
-    fn complete_request_record(
-        context: &GuideOperationContext<'_>,
-        record: &mut GuideRequestRecord,
-        state: GuideRequestState,
-        error: Option<String>,
-    ) -> Result<(), review_store::Error> {
-        record.state = state;
-        record.transport_directory = None;
-        record.error = error.map(|error| error.chars().take(512).collect());
-        context.guide_store.save_guide_request(record)
-    }
-
-    pub(super) fn observe_guide_event(&mut self, event: &HerdrEvent) {
-        let Some(active) = &self.active else {
-            return;
-        };
-        match classify_guide_agent_event(&active.agent, event) {
-            GuideAgentEvent::Ignore => {}
-            GuideAgentEvent::Block => active.cancellation.block(),
-        }
-    }
-
-    fn freeze_guide_request(
+    fn freeze_repository_snapshot(
         context: &GuideOperationContext<'_>,
         scope: GuideScope,
         review_checkpoint: &ReviewCheckpoint,
-    ) -> eyre::Result<GuideRequest> {
+    ) -> eyre::Result<GuideRepositorySnapshot> {
         use std::fmt::Write as _;
 
         let snapshot = context
@@ -520,7 +526,7 @@ impl GuideRequestCoordinator {
             }
             None => (Vec::new(), Vec::new()),
         };
-        Ok(GuideRequest {
+        Ok(GuideRepositorySnapshot {
             repository_root: context.repository.root().to_owned(),
             review_checkpoint: review_checkpoint.clone(),
             scope,
@@ -587,15 +593,11 @@ impl GuideRequestCoordinator {
         });
     }
 
-    fn updating_status(
-        messages: &Sender<Message>,
-        review_checkpoint: &ReviewCheckpoint,
-        message: Option<String>,
-    ) {
+    fn updating_status(messages: &Sender<Message>, review_checkpoint: &ReviewCheckpoint) {
         let _ = messages.send(Message::ReviewGuideStatus {
             review_checkpoint: review_checkpoint.clone(),
             generating: true,
-            message,
+            message: None,
         });
     }
 }
@@ -606,26 +608,6 @@ fn display_agent_name(agent: &Agent) -> String {
         .clone()
         .or_else(|| agent.display_agent.clone())
         .unwrap_or_else(|| agent.pane_id.0.clone())
-}
-
-fn classify_guide_agent_event(active_agent: &Agent, event: &HerdrEvent) -> GuideAgentEvent {
-    match event {
-        HerdrEvent::AgentStatusChanged {
-            pane_id,
-            workspace_id,
-            status,
-            ..
-        } => {
-            if pane_id == &active_agent.pane_id
-                && workspace_id == &active_agent.workspace_id
-                && *status == AgentStatus::Blocked
-            {
-                return GuideAgentEvent::Block;
-            }
-        }
-        HerdrEvent::PaneFocused(_) | HerdrEvent::AgentDetected { .. } => {}
-    }
-    GuideAgentEvent::Ignore
 }
 
 #[cfg(test)]

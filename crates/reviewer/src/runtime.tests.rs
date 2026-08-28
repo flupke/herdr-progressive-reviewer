@@ -269,14 +269,12 @@ fn prompt_field(prompt: &str, label: &str) -> String {
 }
 
 fn write_guide_response(prompt: &str, text: &str) {
-    let request_id = prompt_field(prompt, "- Request ID: ");
     let temporary_path = PathBuf::from(prompt_field(prompt, "- Temporary response: "));
     let response_path = PathBuf::from(prompt_field(prompt, "- Final response: "));
     std::fs::write(
         &temporary_path,
         serde_json::to_vec(&serde_json::json!({
             "schema_version": 1,
-            "request_id": request_id,
             "items": [{
                 "target": {
                     "kind": "lines",
@@ -311,15 +309,6 @@ fn respond_to_delivered_guide(
                 && let Some(prompt) = all_prompts.get(prompt_offset..)
                 && prompt.contains("- Final response: `")
             {
-                let response_path = PathBuf::from(prompt_field(prompt, "- Final response: "));
-                let submitted_path = response_path.parent().unwrap().join("submitted");
-                while Instant::now() < deadline && !submitted_path.exists() {
-                    thread::sleep(Duration::from_millis(25));
-                }
-                assert!(
-                    submitted_path.exists(),
-                    "the guide prompt was delivered but not recorded as submitted"
-                );
                 delivered.send(()).unwrap();
                 write_response.recv().unwrap();
                 write_guide_response(prompt, &response_text);
@@ -442,41 +431,29 @@ fn subscribe_to_agent_events(herdr: &IsolatedHerdrServer) -> Receiver<HerdrEvent
     event_receiver
 }
 
-fn forward_until_agent_detection(
-    events: &Receiver<HerdrEvent>,
-    commands: &Sender<WorkerCommand>,
-    expected_released: bool,
-) {
+fn forward_until_agent_detection(events: &Receiver<HerdrEvent>, expected_released: bool) {
     loop {
         let event = events.recv_timeout(Duration::from_secs(5)).unwrap();
         let is_expected = matches!(
             event,
             HerdrEvent::AgentDetected { released, .. } if released == expected_released
         );
-        commands.send(WorkerCommand::HerdrEvent(event)).unwrap();
         if is_expected {
             return;
         }
     }
 }
 
-fn confirm_agent_event_subscription(
-    events: &Receiver<HerdrEvent>,
-    commands: &Sender<WorkerCommand>,
-) {
+fn confirm_agent_event_subscription(events: &Receiver<HerdrEvent>) {
     // Herdr replays the current detected agent after it accepts the subscription.
-    forward_until_agent_detection(events, commands, false);
+    forward_until_agent_detection(events, false);
 }
 
-fn churn_agent_lifecycle(
-    herdr: &IsolatedHerdrServer,
-    events: &Receiver<HerdrEvent>,
-    commands: &Sender<WorkerCommand>,
-) {
+fn churn_agent_lifecycle(herdr: &IsolatedHerdrServer, events: &Receiver<HerdrEvent>) {
     herdr.release_agent();
     herdr.report_agent("idle");
-    forward_until_agent_detection(events, commands, true);
-    forward_until_agent_detection(events, commands, false);
+    forward_until_agent_detection(events, true);
+    forward_until_agent_detection(events, false);
 }
 
 struct GuideFlowFixture {
@@ -531,7 +508,7 @@ impl GuideFlowFixture {
             }
         };
         let events = subscribe_to_agent_events(&herdr);
-        confirm_agent_event_subscription(&events, &commands);
+        confirm_agent_event_subscription(&events);
 
         Self {
             repository_files,
@@ -550,7 +527,7 @@ impl GuideFlowFixture {
 
     fn request_first_guide_after_agent_churn(&mut self) {
         self.request_guide("First explanation", |fixture| {
-            churn_agent_lifecycle(&fixture.herdr, &fixture.events, &fixture.commands);
+            churn_agent_lifecycle(&fixture.herdr, &fixture.events);
         });
     }
 
@@ -627,7 +604,6 @@ impl GuideFlowFixture {
         assert_eq!(stored.review_checkpoint.checkpoint, checkpoint);
         assert_eq!(stored.items.len(), 1);
         assert_eq!(stored.items[0].text, "Replacement explanation");
-        assert!(!stored.request_id.is_empty());
         drop((herdr, repository_files));
     }
 }

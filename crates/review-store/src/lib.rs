@@ -19,7 +19,6 @@ mod checkpoint;
 mod guide;
 
 pub use checkpoint::{LoadResult, ReviewRecord};
-pub use guide::{GuideRequestRecord, GuideRequestState};
 
 /// A result from review storage.
 pub type Result<T> = std::result::Result<T, Error>;
