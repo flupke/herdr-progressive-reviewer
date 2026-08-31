@@ -92,7 +92,6 @@ fn review_guide_shortcuts_select_file_and_all_scopes() {
         files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed)],
         ..ReviewApp::default()
     };
-
     assert_eq!(app.update(Message::Key(Key::Char('r'))), Action::None);
     assert_eq!(
         app.update(Message::Key(Key::Char('f'))),
@@ -660,7 +659,7 @@ fn visual_mode_only_starts_in_the_diff_pane() {
 }
 
 #[test]
-fn repository_refresh_updates_paths_and_clears_checkpoint_state() {
+fn repository_refresh_updates_paths_and_retains_the_guide_until_its_replacement() {
     let mut app = ReviewApp {
         repository_root: PathBuf::from("/repository"),
         ..ReviewApp::default()
@@ -692,9 +691,146 @@ fn repository_refresh_updates_paths_and_clears_checkpoint_state() {
         app.files[0].disk_path.as_deref(),
         Some(Path::new("/repository/src/lib.rs"))
     );
-    assert!(app.guide_items.is_empty());
+    assert_eq!(app.guide_items.len(), 1);
     assert!(app.guide_spinner_frame.is_none());
     assert!(app.hover.is_none());
+
+    app.update(Message::ReviewGuideLoaded {
+        review_checkpoint: ReviewCheckpoint::new("change", "second"),
+        items: Vec::new(),
+    });
+
+    assert!(app.guide_items.is_empty());
+}
+
+#[test]
+fn repository_refresh_keeps_the_selected_diff_until_its_replacement_arrives() {
+    let mut app = ReviewApp::default();
+    app.update(Message::FilesLoaded {
+        review_unit: "change".into(),
+        commit_id: "first".to_owned(),
+        description: String::new(),
+        files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed)],
+    });
+    app.update(Message::DiffLoaded {
+        commit_id: "first".to_owned(),
+        path: "src/lib.rs".to_owned(),
+        rows: vec![DiffRow::Context {
+            old_line: 1,
+            new_line: 1,
+            text: "old source".to_owned(),
+        }],
+        old_content: None,
+        new_content: None,
+    });
+
+    let mut changed_file = ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed);
+    changed_file.lines_added = 1;
+    let action = app.update(Message::FilesLoaded {
+        review_unit: "change".into(),
+        commit_id: "second".to_owned(),
+        description: String::new(),
+        files: vec![changed_file],
+    });
+
+    assert_eq!(
+        action,
+        Action::LoadDiff {
+            commit_id: "second".to_owned(),
+            path: "src/lib.rs".to_owned(),
+        }
+    );
+    assert_eq!(
+        app.files[0].diff.source_position(0),
+        Some((0, "old source".to_owned()))
+    );
+    assert!(app.files[0].loading);
+
+    app.update(Message::DiffLoaded {
+        commit_id: "second".to_owned(),
+        path: "src/lib.rs".to_owned(),
+        rows: vec![DiffRow::Context {
+            old_line: 1,
+            new_line: 1,
+            text: "new source".to_owned(),
+        }],
+        old_content: None,
+        new_content: None,
+    });
+
+    assert_eq!(
+        app.files[0].diff.source_position(0),
+        Some((0, "new source".to_owned()))
+    );
+    assert!(!app.files[0].loading);
+}
+
+#[test]
+fn repository_refresh_retains_the_selected_diff_and_guide_when_another_file_changes() {
+    let mut app = ReviewApp::default();
+    app.update(Message::FilesLoaded {
+        review_unit: "change".into(),
+        commit_id: "first".to_owned(),
+        description: String::new(),
+        files: vec![
+            ReviewFile::new("src/selected.rs", ReviewStatus::Unreviewed),
+            ReviewFile::new("src/other.rs", ReviewStatus::Unreviewed),
+        ],
+    });
+    app.update(Message::DiffLoaded {
+        commit_id: "first".to_owned(),
+        path: "src/selected.rs".to_owned(),
+        rows: vec![DiffRow::Context {
+            old_line: 1,
+            new_line: 1,
+            text: "visible source".to_owned(),
+        }],
+        old_content: None,
+        new_content: None,
+    });
+    app.update(Message::ReviewGuideLoaded {
+        review_checkpoint: ReviewCheckpoint::new("change", "first"),
+        items: vec![GuideItem {
+            target: GuideTarget::Hunks {
+                path: "src/selected.rs".to_owned(),
+                first_hunk: 1,
+                last_hunk: 1,
+            },
+            text: "Existing guide".to_owned(),
+            status: GuideItemStatus::Matched,
+        }],
+    });
+    let selected_file = ReviewFile::new("src/selected.rs", ReviewStatus::Unreviewed);
+    let mut changed_other_file = ReviewFile::new("src/other.rs", ReviewStatus::Unreviewed);
+    changed_other_file.lines_added = 1;
+
+    let action = app.update(Message::FilesLoaded {
+        review_unit: "change".into(),
+        commit_id: "second".to_owned(),
+        description: String::new(),
+        files: vec![selected_file, changed_other_file],
+    });
+
+    assert_eq!(
+        action,
+        Action::LoadDiff {
+            commit_id: "second".to_owned(),
+            path: "src/selected.rs".to_owned(),
+        }
+    );
+    assert_eq!(
+        app.files[0].diff.source_position(0),
+        Some((0, "visible source".to_owned()))
+    );
+    assert!(app.files[0].loading);
+    assert_eq!(app.guide_items.len(), 1);
+
+    app.update(Message::ReviewGuideLoaded {
+        review_checkpoint: ReviewCheckpoint::new("change", "second"),
+        items: Vec::new(),
+    });
+
+    assert!(app.guide_items.is_empty());
 }
 
 #[test]
@@ -714,6 +850,13 @@ fn new_review_unit_resets_transient_review_state() {
         }),
         ..ReviewApp::default()
     };
+    app.guide_items.push(GuideItem {
+        target: GuideTarget::File {
+            path: "old.rs".to_owned(),
+        },
+        text: "Old guide".to_owned(),
+        status: GuideItemStatus::Matched,
+    });
 
     app.update(Message::FilesLoaded {
         review_unit: "new".into(),
@@ -727,6 +870,7 @@ fn new_review_unit_resets_transient_review_state() {
     assert_eq!(app.focus, Focus::Files);
     assert!(app.hover.is_none());
     assert!(app.review_in_flight.is_none());
+    assert!(app.guide_items.is_empty());
 }
 
 #[test]

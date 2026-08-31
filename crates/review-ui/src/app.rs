@@ -1064,10 +1064,21 @@ impl ReviewApp {
         let same_change = self.review_unit == review_unit;
         let same_snapshot = self.commit_id == commit_id;
         if !same_snapshot {
-            self.clear_checkpoint_guide_state();
+            self.clear_checkpoint_guide_activity();
         }
         let refreshed_cursor = (same_change && !same_snapshot)
             .then(|| self.selected().and_then(ReviewFile::cursor_location))
+            .flatten();
+        let visible_diff = (same_change && !same_snapshot)
+            .then(|| {
+                self.files.get_mut(self.selected_file).map(|file| {
+                    (
+                        file.path.clone(),
+                        std::mem::take(&mut file.diff),
+                        file.source_location.take(),
+                    )
+                })
+            })
             .flatten();
         let selected_path = same_change
             .then(|| self.selected().map(|file| file.path.clone()))
@@ -1093,6 +1104,18 @@ impl ReviewApp {
         self.selected_file = selected_file
             .unwrap_or(0)
             .min(self.files.len().saturating_sub(1));
+        let refresh_visible_diff = visible_diff.and_then(|(path, diff, source_location)| {
+            let file = self.files.get_mut(self.selected_file)?;
+            (file.path == path).then(|| {
+                file.diff = diff;
+                file.source_location = source_location;
+                file.loading = true;
+                Action::LoadDiff {
+                    commit_id: self.commit_id.clone(),
+                    path: file.path.clone(),
+                }
+            })
+        });
         self.ensure_selected_file_visible();
         if selected_file.is_none() {
             self.selection = None;
@@ -1100,6 +1123,9 @@ impl ReviewApp {
         self.keep_file_visible();
         if !same_change && self.revision_navigation.is_some() {
             return self.complete_revision_edit();
+        }
+        if let Some(action) = refresh_visible_diff {
+            return action;
         }
         match refreshed_cursor {
             Some(location) => self.restore_refreshed_cursor(location),
@@ -1113,11 +1139,15 @@ impl ReviewApp {
         }
     }
 
+    fn clear_checkpoint_guide_activity(&mut self) {
+        self.guide_spinner_frame = None;
+        self.pending_guide_jump = None;
+    }
+
     fn clear_checkpoint_guide_state(&mut self) {
         self.guide_items.clear();
         self.guide_item_counters.clear();
-        self.guide_spinner_frame = None;
-        self.pending_guide_jump = None;
+        self.clear_checkpoint_guide_activity();
     }
 
     fn refresh_files(&mut self, files: &mut Vec<ReviewFile>, same_snapshot: bool) -> Vec<String> {
@@ -1167,6 +1197,7 @@ impl ReviewApp {
     fn reset_for_new_change(&mut self) {
         self.selection = None;
         self.search = None;
+        self.clear_checkpoint_guide_state();
         self.active_popup = None;
         self.file_scroll = 0;
         self.focus = Focus::Files;
