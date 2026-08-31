@@ -36,6 +36,12 @@ pub(super) struct DiffViewport {
     rows: Vec<WrappedDiffRow>,
 }
 
+#[derive(Clone, Copy)]
+pub(super) enum DiffViewportPosition {
+    Cursor { screen_row: usize },
+    Scroll { visual_row: usize },
+}
+
 struct WrappedDiffRow {
     line: Line<'static>,
     guide_border_cells: Vec<GuideBorderCell>,
@@ -45,6 +51,34 @@ struct WrappedDiffRow {
 }
 
 impl DiffViewport {
+    pub(super) fn position(&self, file: &ReviewFile, height: usize) -> DiffViewportPosition {
+        let scroll = self.scroll(file);
+        let cursor = self.cursor_visual_row(file);
+        if (scroll..scroll.saturating_add(height)).contains(&cursor) {
+            DiffViewportPosition::Cursor {
+                screen_row: cursor - scroll,
+            }
+        } else {
+            DiffViewportPosition::Scroll { visual_row: scroll }
+        }
+    }
+
+    pub(super) fn restore_scroll(
+        &self,
+        file: &ReviewFile,
+        position: DiffViewportPosition,
+        height: usize,
+    ) -> usize {
+        let last_scroll = self.rows.len().saturating_sub(height);
+        match position {
+            DiffViewportPosition::Cursor { screen_row } => self
+                .cursor_visual_row(file)
+                .saturating_sub(screen_row)
+                .min(last_scroll),
+            DiffViewportPosition::Scroll { visual_row } => visual_row.min(last_scroll),
+        }
+    }
+
     pub(super) fn scroll(&self, file: &ReviewFile) -> usize {
         file.scroll.min(self.rows.len().saturating_sub(1))
     }

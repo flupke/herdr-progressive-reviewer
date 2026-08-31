@@ -1236,33 +1236,45 @@ impl ReviewApp {
         let rows = self
             .highlighter
             .highlight(path, rows, old_content, new_content);
-        let Some(file) = self.files.iter_mut().find(|file| file.path == path) else {
+        let Some(file_index) = self.files.iter().position(|file| file.path == path) else {
             return Action::None;
         };
-        let cursor = file.cursor_location();
+        let selected_file_is_loading = self.selected_file == file_index;
+        let layout = self.layout();
+        let viewport_position = selected_file_is_loading.then(|| {
+            let file = &self.files[file_index];
+            DiffView(self)
+                .viewport(file, layout.diff_content_width(), self.focus == Focus::Diff)
+                .position(file, layout.page_rows())
+        });
+        let file = &mut self.files[file_index];
+        let presentation_location = file.diff.presentation_location(file.cursor);
+        let fallback_cursor = file.cursor;
+        let column = file.column;
+        let source_location = file.source_location.clone();
         file.diff = DiffPresentation::new(rows);
         let empty_without_file_content = file.diff.is_empty() && !file.diff.can_show_file();
         file.loading = false;
-        file.cursor = file.cursor.min(file.diff.len().saturating_sub(1));
-        file.scroll = file.scroll.min(file.cursor);
+        file.restore_presentation_location(presentation_location, fallback_cursor, column);
+        file.source_location = source_location;
         self.rebuild_guide_item_counters();
-        if self
-            .selected()
-            .is_some_and(|selected| selected.path == path)
-        {
+        if selected_file_is_loading {
             self.selection = None;
             if self.search.as_ref().is_some_and(|search| search.editing) {
                 self.update_search_match();
+            } else if let Some(position) = viewport_position {
+                let layout = self.layout();
+                let scroll = DiffView(self)
+                    .viewport(
+                        &self.files[file_index],
+                        layout.diff_content_width(),
+                        self.focus == Focus::Diff,
+                    )
+                    .restore_scroll(&self.files[file_index], position, layout.page_rows());
+                self.files[file_index].scroll = scroll;
             } else {
                 self.keep_visible();
             }
-        }
-        if self
-            .selected()
-            .is_some_and(|selected| selected.path == path)
-            && let Some(location) = cursor
-        {
-            self.reveal_location(&location);
         }
         self.finish_pending_search();
         self.finish_pending_guide_jump(path);

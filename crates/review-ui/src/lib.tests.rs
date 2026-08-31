@@ -766,6 +766,92 @@ fn repository_refresh_keeps_the_selected_diff_until_its_replacement_arrives() {
 }
 
 #[test]
+fn repository_refresh_preserves_the_cursor_and_viewport_position() {
+    let mut app = ReviewApp::default();
+    app.update(Message::FilesLoaded {
+        review_unit: "change".into(),
+        commit_id: "first".to_owned(),
+        description: String::new(),
+        files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed)],
+    });
+    app.update(Message::DiffLoaded {
+        commit_id: "first".to_owned(),
+        path: "src/lib.rs".to_owned(),
+        rows: context_rows(60),
+        old_content: None,
+        new_content: None,
+    });
+    app.files[0].cursor = 30;
+    app.files[0].scroll = 24;
+    app.files[0].column = 5;
+
+    app.update(Message::FilesLoaded {
+        review_unit: "change".into(),
+        commit_id: "second".to_owned(),
+        description: String::new(),
+        files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed)],
+    });
+    app.update(Message::DiffLoaded {
+        commit_id: "second".to_owned(),
+        path: "src/lib.rs".to_owned(),
+        rows: context_rows(60),
+        old_content: None,
+        new_content: None,
+    });
+
+    let file = &app.files[0];
+    assert_eq!(file.cursor, 30);
+    assert_eq!(file.scroll, 24);
+    assert_eq!(file.column, 5);
+}
+
+#[test]
+fn repository_refresh_preserves_a_mouse_scrolled_viewport_below_the_cursor() {
+    let mut app = ReviewApp::default();
+    app.update(Message::Resize {
+        width: 80,
+        height: 8,
+    });
+    app.update(Message::FilesLoaded {
+        review_unit: "change".into(),
+        commit_id: "first".to_owned(),
+        description: String::new(),
+        files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed)],
+    });
+    app.update(Message::DiffLoaded {
+        commit_id: "first".to_owned(),
+        path: "src/lib.rs".to_owned(),
+        rows: context_rows(60),
+        old_content: None,
+        new_content: None,
+    });
+    app.update(Message::MouseScroll {
+        column: 70,
+        row: 2,
+        delta: 20,
+    });
+    assert_eq!(app.files[0].cursor, 0);
+    assert_eq!(app.files[0].scroll, 20);
+
+    app.update(Message::FilesLoaded {
+        review_unit: "change".into(),
+        commit_id: "second".to_owned(),
+        description: String::new(),
+        files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed)],
+    });
+    app.update(Message::DiffLoaded {
+        commit_id: "second".to_owned(),
+        path: "src/lib.rs".to_owned(),
+        rows: context_rows(60),
+        old_content: None,
+        new_content: None,
+    });
+
+    assert_eq!(app.files[0].cursor, 0);
+    assert_eq!(app.files[0].scroll, 20);
+}
+
+#[test]
 fn repository_refresh_retains_the_selected_diff_and_guide_when_another_file_changes() {
     let mut app = ReviewApp::default();
     app.update(Message::FilesLoaded {
@@ -2077,4 +2163,14 @@ fn assert_source_location_highlighted(app: &ReviewApp) {
             && cell.fg != app.palette.deletion
             && cell.bg != app.palette.warning
     }));
+}
+
+fn context_rows(count: u32) -> Vec<DiffRow> {
+    (0..count)
+        .map(|line| DiffRow::Context {
+            old_line: line + 1,
+            new_line: line + 1,
+            text: format!("line {line}"),
+        })
+        .collect()
 }
