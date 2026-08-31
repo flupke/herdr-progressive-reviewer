@@ -354,6 +354,7 @@ fn interactive_search_moves_and_repeats_from_the_diff_cursor() {
     app.update(Message::Key(Key::Char('n')));
     app.update(Message::Key(Key::Char('n')));
     assert_eq!(app.selected().unwrap().cursor, 3);
+    assert_eq!(app.selected().unwrap().column, 7);
     app.update(Message::DiffLoaded {
         commit_id: "commit".to_owned(),
         path: "src/unopened.rs".to_owned(),
@@ -369,6 +370,7 @@ fn interactive_search_moves_and_repeats_from_the_diff_cursor() {
     assert_search_highlighted(&mut terminal, &app);
     app.update(Message::Key(Key::Char('p')));
     assert_eq!((app.selected_file, app.selected().unwrap().cursor), (0, 5));
+    assert_eq!(app.selected().unwrap().column, 0);
     app.update(Message::Key(Key::Escape));
     app.update(Message::Key(Key::Char('n')));
     assert_eq!(app.selected().unwrap().cursor, 5);
@@ -381,6 +383,40 @@ fn interactive_search_moves_and_repeats_from_the_diff_cursor() {
     app.update(Message::Key(Key::Char('/')));
     app.update(Message::Key(Key::Char('t')));
     assert_eq!(app.selected().unwrap().cursor, 5);
+}
+
+#[test]
+fn word_under_cursor_search_moves_to_the_next_match() {
+    let mut app = search_test_app();
+    app.focus = Focus::Diff;
+    app.files[0].cursor = 5;
+    app.files[0].column = 2;
+
+    app.update(Message::Key(Key::Char('*')));
+
+    assert!(matches!(
+        app.search,
+        Some(Search {
+            ref query,
+            editing: false,
+            ..
+        }) if query == "needle"
+    ));
+    assert_eq!(app.files[0].cursor, 3);
+    assert_eq!(app.files[0].column, 7);
+}
+
+#[test]
+fn word_under_cursor_search_does_nothing_on_punctuation() {
+    let mut app = search_test_app();
+    app.focus = Focus::Diff;
+    app.files[0].cursor = 3;
+    app.files[0].column = 6;
+
+    assert_eq!(app.update(Message::Key(Key::Char('*'))), Action::None);
+
+    assert!(app.search.is_none());
+    assert_eq!(app.files[0].cursor, 3);
 }
 
 #[test]
@@ -2103,7 +2139,7 @@ fn search_test_app() -> ReviewApp {
             "start",
             "noise",
             "filler",
-            "Needle one",
+            "prefix Needle one",
             "more",
             "needle two",
         ]

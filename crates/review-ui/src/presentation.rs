@@ -385,16 +385,35 @@ impl DiffPresentation {
             .filter_map(move |(index, _)| self.row_contains(index, query).then_some(index))
     }
 
-    fn row_contains(&self, index: usize, query: &str) -> bool {
+    pub(super) fn matching_column(
+        &self,
+        index: usize,
+        query: &str,
+        direction: SearchDirection,
+    ) -> Option<usize> {
+        let matches = self.row_matching_ranges(index, query)?;
+        match direction {
+            SearchDirection::Forward => matches.first(),
+            SearchDirection::Backward => matches.last(),
+        }
+        .map(|range| range.start)
+    }
+
+    fn row_matching_ranges(&self, index: usize, query: &str) -> Option<Vec<Range<usize>>> {
         let tokens = match &self.rows[index] {
             PresentedRow::Diff { tokens, .. } | PresentedRow::Expanded { tokens, .. } => tokens,
-            PresentedRow::Gap { .. } => return false,
+            PresentedRow::Gap { .. } => return None,
         };
         let text = tokens
             .iter()
             .map(|token| token.text.as_str())
             .collect::<String>();
-        !matching_ranges(&text, query).is_empty()
+        Some(matching_ranges(&text, query))
+    }
+
+    fn row_contains(&self, index: usize, query: &str) -> bool {
+        self.row_matching_ranges(index, query)
+            .is_some_and(|matches| !matches.is_empty())
     }
 
     pub(crate) fn expand(&mut self, index: usize) -> bool {

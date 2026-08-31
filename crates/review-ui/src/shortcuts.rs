@@ -58,6 +58,7 @@ pub(super) enum SearchShortcut {
     Begin,
     NextMatch,
     PreviousMatch,
+    WordUnderCursor,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -343,9 +344,10 @@ pub(super) const SHORTCUTS: &[ShortcutDefinition] = &[
         ],
     },
     ShortcutDefinition {
-        description: Some("Search, next match, previous match"),
+        description: Some("Search / word, next match, previous match"),
         bindings: &[
             ShortcutBinding::one(Key::Char('/'), search(SearchShortcut::Begin)),
+            ShortcutBinding::one(Key::Char('*'), search(SearchShortcut::WordUnderCursor)),
             ShortcutBinding::one(Key::Char('n'), search(SearchShortcut::NextMatch)),
             ShortcutBinding::one(Key::Char('p'), search(SearchShortcut::PreviousMatch)),
         ],

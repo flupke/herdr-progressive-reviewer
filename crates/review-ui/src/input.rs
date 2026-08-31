@@ -123,6 +123,7 @@ impl ReviewApp {
     fn run_search_shortcut(&mut self, command: SearchShortcut) -> Action {
         match command {
             SearchShortcut::Begin => self.start_search(),
+            SearchShortcut::WordUnderCursor => self.search_word_under_cursor(),
             SearchShortcut::NextMatch => {
                 self.repeat_search(SearchDirection::Forward);
                 Action::None
@@ -246,6 +247,29 @@ impl ReviewApp {
         self.load_all_diffs_action()
     }
 
+    fn search_word_under_cursor(&mut self) -> Action {
+        if self.focus != Focus::Diff {
+            return Action::None;
+        }
+        let Some(query) = self.current_word() else {
+            return Action::None;
+        };
+        self.selection = None;
+        let origin_location = self.current_review_location();
+        self.search = Some(Search {
+            query,
+            origin: self.selected().map_or(0, |file| file.cursor),
+            origin_location: origin_location.clone(),
+            editing: false,
+            pending: Vec::new(),
+        });
+        self.update_search_match();
+        if self.record_location_change(origin_location) {
+            self.center_selected_location();
+        }
+        self.load_all_diffs_action()
+    }
+
     fn run_source_shortcut(&mut self, command: SourceShortcut) -> Action {
         if self.focus != Focus::Diff {
             return Action::None;
@@ -327,7 +351,7 @@ impl ReviewApp {
             file.diff
                 .find_matching_row(&search.query, search.origin, SearchDirection::Forward)
         });
-        self.move_diff_cursor(target);
+        self.move_search_cursor(target, SearchDirection::Forward);
     }
 
     fn repeat_search(&mut self, direction: SearchDirection) {
@@ -371,7 +395,7 @@ impl ReviewApp {
         if let Some((file, row)) = target {
             let _ = self.jump(|app| {
                 app.select_file(file);
-                app.move_diff_cursor(Some(row));
+                app.move_search_cursor(Some(row), direction);
                 Action::None
             });
         }
@@ -523,6 +547,21 @@ impl ReviewApp {
         }
         self.selection = None;
         self.keep_visible();
+    }
+
+    fn move_search_cursor(&mut self, target: Option<usize>, direction: SearchDirection) {
+        let Some(target) = target else {
+            return;
+        };
+        let column = self.search.as_ref().and_then(|search| {
+            self.selected()?
+                .diff
+                .matching_column(target, &search.query, direction)
+        });
+        self.move_diff_cursor(Some(target));
+        if let (Some(column), Some(file)) = (column, self.files.get_mut(self.selected_file)) {
+            file.column = column;
+        }
     }
 
     fn toggle_review(&mut self) -> Action {
