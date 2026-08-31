@@ -7,6 +7,12 @@ use crossbeam_channel::{Receiver, Sender, after, never, select};
 use crate::api::{Command, Event};
 use crate::session::Session;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ServerLoopControl {
+    Continue,
+    Stop,
+}
+
 pub(super) struct Server {
     root: PathBuf,
     events: Sender<Event>,
@@ -44,7 +50,7 @@ impl Server {
             select! {
                 recv(commands) -> command => match command {
                     Ok(command) => {
-                        if !self.command(command) {
+                        if self.command(command) == ServerLoopControl::Stop {
                             return;
                         }
                     }
@@ -66,26 +72,41 @@ impl Server {
         }
     }
 
-    fn command(&mut self, command: Command) -> bool {
-        if command == Command::Shutdown {
-            self.stopping = true;
-            self.pending.clear();
-            if let Some(session) = &mut self.session {
-                if session.begin_shutdown(Instant::now()).is_err() {
-                    return false;
-                }
-                return true;
+    fn command(&mut self, command: Command) -> ServerLoopControl {
+        match command {
+            Command::Shutdown => self.shutdown(),
+            Command::Restart => {
+                self.restart();
+                ServerLoopControl::Continue
             }
-            return false;
+            command => {
+                self.queue(command);
+                ServerLoopControl::Continue
+            }
         }
-        if command == Command::Restart {
-            self.restart();
-            return true;
+    }
+
+    fn shutdown(&mut self) -> ServerLoopControl {
+        self.stopping = true;
+        self.pending.clear();
+        let Some(session) = &mut self.session else {
+            return ServerLoopControl::Stop;
+        };
+        if session.begin_shutdown(Instant::now()).is_ok() {
+            ServerLoopControl::Continue
+        } else {
+            ServerLoopControl::Stop
         }
-        if let Command::OpenDocument(path) = &command {
+    }
+
+    fn queue(&mut self, command: Command) {
+        let opens_document = if let Command::OpenDocument(path) = &command {
             self.open_documents.insert(path.clone());
-        }
-        if self.session.is_none() {
+            true
+        } else {
+            false
+        };
+        if self.session.is_none() && opens_document {
             if let Err(message) = self.start_session() {
                 let request = match &command {
                     Command::Request { query, .. } => {
@@ -94,13 +115,10 @@ impl Server {
                     _ => (None, None),
                 };
                 self.fail(request.0, request.1, message);
-                return true;
+                return;
             }
         }
-        if command != Command::Initialize {
-            self.pending.push_back(command);
-        }
-        true
+        self.pending.push_back(command);
     }
 
     fn restart(&mut self) {
@@ -112,6 +130,9 @@ impl Server {
             .map(Command::OpenDocument)
             .collect();
         self.session = None;
+        if self.open_documents.is_empty() {
+            return;
+        }
         if let Err(message) = self.start_session() {
             self.fail(None, None, message);
         }
@@ -194,7 +215,7 @@ impl Server {
                     .as_mut()
                     .expect("session exists")
                     .request(operation, query, Instant::now()),
-                Command::Initialize | Command::Restart | Command::Shutdown => Ok(()),
+                Command::Restart | Command::Shutdown => Ok(()),
             };
             if let Err(message) = result {
                 self.fail(request.0, request.1, message);

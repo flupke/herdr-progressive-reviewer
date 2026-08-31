@@ -2,37 +2,20 @@
 
 use std::path::Path;
 
-mod app;
-mod commit_message;
-mod context_menu;
-mod diff;
-mod file_tree;
-mod files;
-mod footer;
-mod header;
-mod help;
-mod highlight;
-mod hover;
-mod input;
-mod navigation;
-mod popup;
-mod presentation;
-mod render;
-mod review_view;
-mod revision_navigation;
-mod shortcuts;
-mod theme;
+mod application;
+mod application_frame;
+mod layout;
+mod message;
 
-pub use app::{Action, Key, Message, ReviewApp, ReviewFile, SourceLoadMode};
-pub use review_view::ReviewView;
-pub use theme::Theme;
+pub use application::ReviewApplication;
+pub use application_frame::ApplicationFrame;
+pub use message::UserInput;
+pub use ui_actions::{Action, SourceLoadMode};
+pub use ui_shortcuts::Key;
+pub use ui_theme::Theme;
 
 /// Return true when a path names a Rust source file.
 pub fn is_rust_path(path: &Path) -> bool {
     path.extension()
         .is_some_and(|extension| extension.eq_ignore_ascii_case("rs"))
 }
-
-#[cfg(test)]
-#[path = "lib.tests.rs"]
-mod tests;

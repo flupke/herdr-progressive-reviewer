@@ -28,12 +28,7 @@ impl Worker {
         }
     }
 
-    /// Start rust-analyzer before the first request.
-    pub fn initialize(&self) -> Result<(), String> {
-        self.send(Command::Initialize)
-    }
-
-    /// Tell rust-analyzer about one open document.
+    /// Tell rust-analyzer about one open document, starting it when necessary.
     pub fn open_document(&self, path: PathBuf) -> Result<(), String> {
         self.send(Command::OpenDocument(path))
     }
@@ -51,6 +46,11 @@ impl Worker {
     /// Return the next available event without waiting.
     pub fn try_recv(&self) -> Option<Event> {
         self.events.try_recv().ok()
+    }
+
+    /// Return a receiver that can forward worker events to an application channel.
+    pub fn event_receiver(&self) -> Receiver<Event> {
+        self.events.clone()
     }
 
     fn send(&self, command: Command) -> Result<(), String> {

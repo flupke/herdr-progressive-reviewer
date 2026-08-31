@@ -1,0 +1,24 @@
+[package]
+name = "overlay-component"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+component-core = { path = "../../component-core" }
+ratatui.workspace = true
+ratatui-markdown.workspace = true
+review-lsp = { path = "../../review-lsp" }
+syntax-highlighting = { path = "../../syntax-highlighting" }
+toasts = { path = "../../toasts" }
+ui-actions = { path = "../../ui-actions" }
+ui-events = { path = "../../ui-events" }
+ui-shortcuts = { path = "../../ui-shortcuts" }
+ui-theme = { path = "../../ui-theme" }
+
+[dev-dependencies]
+review-guide = { path = "../../review-guide" }
+
+[lints]
+workspace = true

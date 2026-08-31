@@ -1,0 +1,22 @@
+[package]
+name = "guide-component"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+component-core = { path = "../../component-core" }
+guide-rendering = { path = "../../guide-rendering" }
+ratatui.workspace = true
+review-guide = { path = "../../review-guide" }
+review-types = { path = "../../review-types" }
+ui-actions = { path = "../../ui-actions" }
+ui-events = { path = "../../ui-events" }
+ui-shortcuts = { path = "../../ui-shortcuts" }
+
+[dev-dependencies]
+review-store = { path = "../../review-store" }
+
+[lints]
+workspace = true

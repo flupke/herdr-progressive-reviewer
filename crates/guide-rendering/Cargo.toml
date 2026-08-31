@@ -1,0 +1,15 @@
+[package]
+name = "guide-rendering"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+ratatui.workspace = true
+review-guide = { path = "../review-guide" }
+ui-events = { path = "../ui-events" }
+unicode-width.workspace = true
+
+[lints]
+workspace = true

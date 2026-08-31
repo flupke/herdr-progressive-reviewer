@@ -1,0 +1,23 @@
+[package]
+name = "revision-component"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+component-core = { path = "../../component-core" }
+ratatui.workspace = true
+review-repository = { path = "../../review-repository" }
+toasts = { path = "../../toasts" }
+ui-actions = { path = "../../ui-actions" }
+ui-events = { path = "../../ui-events" }
+ui-shortcuts = { path = "../../ui-shortcuts" }
+ui-theme = { path = "../../ui-theme" }
+
+[dev-dependencies]
+review-guide = { path = "../../review-guide" }
+review-types = { path = "../../review-types" }
+
+[lints]
+workspace = true

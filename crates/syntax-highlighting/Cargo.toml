@@ -1,0 +1,15 @@
+[package]
+name = "syntax-highlighting"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+ratatui.workspace = true
+review-repository = { path = "../review-repository" }
+syntect.workspace = true
+two-face.workspace = true
+
+[lints]
+workspace = true

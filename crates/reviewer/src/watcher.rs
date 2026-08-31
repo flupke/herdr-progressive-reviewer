@@ -250,11 +250,14 @@ impl RepositoryWatcher {
             // ponytail: Fall back to polling; restart only if transient failures matter.
             self.poll_interval = FAILED_WATCHER_POLL_INTERVAL;
             self.next_poll = now;
-        } else if notified {
-            self.next_poll = now + DEBOUNCE;
-        } else if watching && self.poll_interval == FAILED_WATCHER_POLL_INTERVAL {
-            self.poll_interval = FALLBACK_POLL_INTERVAL;
-            self.next_poll = now + FALLBACK_POLL_INTERVAL;
+        } else {
+            if watching && self.poll_interval == FAILED_WATCHER_POLL_INTERVAL {
+                self.poll_interval = FALLBACK_POLL_INTERVAL;
+                self.next_poll = now + FALLBACK_POLL_INTERVAL;
+            }
+            if notified {
+                self.next_poll = now + DEBOUNCE;
+            }
         }
 
         if now < self.next_poll {

@@ -6,6 +6,14 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+component-core = { path = "../component-core" }
+diff-component = { path = "../components/diff" }
+files-component = { path = "../components/files" }
+guide-component = { path = "../components/guide" }
+locations-component = { path = "../components/locations" }
+overlay-component = { path = "../components/overlay" }
+revision-component = { path = "../components/revision" }
+status-component = { path = "../components/status" }
 eyre.workspace = true
 ratatui = { workspace = true, features = ["crossterm"] }
 ratatui-markdown.workspace = true
@@ -17,6 +25,10 @@ review-store = { path = "../review-store" }
 review-types = { path = "../review-types" }
 syntect.workspace = true
 toasts = { path = "../toasts" }
+ui-actions = { path = "../ui-actions" }
+ui-events = { path = "../ui-events" }
+ui-shortcuts = { path = "../ui-shortcuts" }
+ui-theme = { path = "../ui-theme" }
 toml.workspace = true
 two-face.workspace = true
 unicode-segmentation.workspace = true

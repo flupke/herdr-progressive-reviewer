@@ -1,0 +1,22 @@
+[package]
+name = "status-component"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+component-core = { path = "../../component-core" }
+ratatui.workspace = true
+review-store = { path = "../../review-store" }
+ui-actions = { path = "../../ui-actions" }
+ui-events = { path = "../../ui-events" }
+ui-shortcuts = { path = "../../ui-shortcuts" }
+ui-theme = { path = "../../ui-theme" }
+unicode-width.workspace = true
+
+[dev-dependencies]
+review-guide = { path = "../../review-guide" }
+
+[lints]
+workspace = true

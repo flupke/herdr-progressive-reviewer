@@ -8,6 +8,8 @@ license.workspace = true
 [dependencies]
 arboard.workspace = true
 crossterm.workspace = true
+crossbeam-channel.workspace = true
+component-core = { path = "../component-core" }
 eyre.workspace = true
 fs2.workspace = true
 herdr-client = { path = "../herdr-client" }
@@ -22,6 +24,7 @@ review-state = { path = "../review-state" }
 review-store = { path = "../review-store" }
 review-types = { path = "../review-types" }
 review-ui = { path = "../review-ui" }
+ui-events = { path = "../ui-events" }
 serde_json.workspace = true
 sha2.workspace = true
 signal-hook.workspace = true

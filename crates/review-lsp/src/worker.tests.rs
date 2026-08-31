@@ -35,12 +35,6 @@ fn query() -> Query {
 #[test]
 fn public_commands_are_forwarded_to_the_server_channel() {
     let (worker, commands, _events) = disconnected_worker();
-    worker.initialize().unwrap();
-    assert_eq!(
-        commands.recv_timeout(Duration::from_secs(1)).unwrap(),
-        crate::api::Command::Initialize
-    );
-
     worker.open_document("source.rs".into()).unwrap();
     assert_eq!(
         commands.recv_timeout(Duration::from_secs(1)).unwrap(),
@@ -74,7 +68,10 @@ fn events_and_stopped_command_channels_are_reported() {
     assert_eq!(worker.try_recv(), None);
 
     drop(commands);
-    assert_eq!(worker.initialize().unwrap_err(), "LSP worker stopped");
+    assert_eq!(
+        worker.open_document("source.rs".into()).unwrap_err(),
+        "LSP worker stopped"
+    );
 }
 
 #[test]
@@ -103,7 +100,17 @@ fn dropping_a_worker_sends_shutdown_and_joins_its_thread() {
 }
 
 #[test]
-#[ignore = "requires rust-analyzer on PATH"]
+fn worker_waits_for_an_open_document_before_starting_rust_analyzer() {
+    let directory = tempfile::tempdir().unwrap();
+    let worker = Worker::start(directory.path().to_owned());
+
+    assert_eq!(
+        worker.events.recv_timeout(Duration::from_millis(100)),
+        Err(crossbeam_channel::RecvTimeoutError::Timeout)
+    );
+}
+
+#[test]
 fn rust_analyzer_finds_a_definition() {
     let directory = tempfile::tempdir().unwrap();
     fs::create_dir(directory.path().join("src")).unwrap();
@@ -120,7 +127,7 @@ fn rust_analyzer_finds_a_definition() {
     .unwrap();
     let timeout = Duration::from_secs(30);
     let worker = Worker::start(directory.path().to_owned());
-    worker.initialize().unwrap();
+    worker.open_document(source.clone()).unwrap();
     assert!(matches!(
         worker.events.recv_timeout(timeout),
         Ok(Event::Initializing)
@@ -129,7 +136,6 @@ fn rust_analyzer_finds_a_definition() {
         worker.events.recv_timeout(timeout),
         Ok(Event::Ready)
     ));
-    worker.open_document(source.clone()).unwrap();
     thread::sleep(Duration::from_millis(500));
     worker
         .request(

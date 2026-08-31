@@ -1,10 +1,11 @@
 use super::{
-    Agent, AgentTarget, ChangedFile, Digest, FrozenFile, FrozenHunk, GuideMailbox,
-    GuideRepositorySnapshot, GuideResponseVersion, GuideResponseWaitOutcome,
-    GuideResponseWatchCancellation, GuideResult, GuideRunner, GuideScope, HerdrClient, Message,
-    RepoPath, Repository, ReviewCheckpoint, ReviewStatus, ReviewStore, ReviewTracker, ReviewUnit,
-    Sender, Sha256, Snapshot, WorkerCommand, parse_file_diff, thread,
+    Agent, AgentTarget, ApplicationMessageSender, ChangedFile, Digest, FrozenFile, FrozenHunk,
+    GuideMailbox, GuideRepositorySnapshot, GuideResponseVersion, GuideResponseWaitOutcome,
+    GuideResponseWatchCancellation, GuideResult, GuideRunner, GuideScope, HerdrClient, RepoPath,
+    Repository, ReviewCheckpoint, ReviewStatus, ReviewStore, ReviewTracker, ReviewUnit, Sender,
+    Sha256, Snapshot, WorkerCommand, parse_file_diff, thread,
 };
+use ui_events::{ReviewGuideChanged, ReviewGuideStatusChanged};
 
 #[derive(Debug, Default)]
 pub(super) struct GuideRequestCoordinator {
@@ -36,6 +37,14 @@ impl Drop for ResponseWait {
 #[derive(Debug)]
 struct GenerationWait {
     review_unit: ReviewUnit,
+    cancellation: GuideResponseWatchCancellation,
+}
+
+struct PreparedGeneration {
+    agent: Agent,
+    agent_name: String,
+    prepared: review_guide_runner::PreparedGuide,
+    response_watch: review_guide_runner::GuideResponseWatch,
     cancellation: GuideResponseWatchCancellation,
 }
 
@@ -88,7 +97,7 @@ impl GuideRequestCoordinator {
     pub(super) fn generate_review_guide(
         &mut self,
         context: &mut GuideOperationContext<'_>,
-        messages: &Sender<Message>,
+        messages: &ApplicationMessageSender,
         scope: &GuideScope,
     ) {
         let Some(snapshot) = context.snapshot else {
@@ -99,80 +108,58 @@ impl GuideRequestCoordinator {
             snapshot.identity.snapshot_id(),
         );
         Self::updating_status(messages, &review_checkpoint);
-        let repository_snapshot =
-            match Self::freeze_repository_snapshot(context, scope.clone(), &review_checkpoint) {
-                Ok(repository_snapshot) => repository_snapshot,
-                Err(error) => {
-                    Self::guide_error(messages, &review_checkpoint, error.to_string());
-                    return;
-                }
-            };
-        let agent = match context.target.resolve(context.client) {
-            Ok(Some(agent)) => agent,
-            Ok(None) => {
-                Self::guide_error(
-                    messages,
-                    &review_checkpoint,
-                    "no active implementation agent is available".to_owned(),
-                );
-                return;
-            }
+        let generation = match Self::prepare_generation(context, scope, &review_checkpoint) {
+            Ok(generation) => generation,
             Err(error) => {
-                Self::guide_error(messages, &review_checkpoint, error.to_string());
-                return;
-            }
-        };
-        let agent_name = display_agent_name(&agent);
-        let mailbox_directory = match context
-            .guide_store
-            .guide_mailbox_directory(&review_checkpoint.review_unit)
-        {
-            Ok(directory) => directory,
-            Err(error) => {
-                Self::guide_error(
-                    messages,
-                    &review_checkpoint,
-                    format!("guide request for agent {agent_name} failed: {error}"),
-                );
-                return;
-            }
-        };
-        let prepared =
-            match GuideRunner::<HerdrClient>::prepare(repository_snapshot, mailbox_directory) {
-                Ok(prepared) => prepared,
-                Err(error) => {
-                    Self::guide_error(
-                        messages,
-                        &review_checkpoint,
-                        format!("guide request for agent {agent_name} failed: {error}"),
-                    );
-                    return;
-                }
-            };
-        let (response_watch, cancellation) = match prepared.watch_response() {
-            Ok(watch) => watch,
-            Err(error) => {
-                Self::guide_error(
-                    messages,
-                    &review_checkpoint,
-                    format!("guide request for agent {agent_name} failed: {error}"),
-                );
+                Self::guide_error(messages, &review_checkpoint, error);
                 return;
             }
         };
         self.observed_response = None;
         self.generation_wait = Some(GenerationWait {
             review_unit: review_checkpoint.review_unit.clone(),
-            cancellation,
+            cancellation: generation.cancellation,
         });
         Self::start_guide_thread(
             context,
+            generation.agent,
+            generation.prepared,
+            generation.response_watch,
+            review_checkpoint,
+            generation.agent_name,
+        );
+    }
+
+    fn prepare_generation(
+        context: &mut GuideOperationContext<'_>,
+        scope: &GuideScope,
+        review_checkpoint: &ReviewCheckpoint,
+    ) -> Result<PreparedGeneration, String> {
+        let repository_snapshot =
+            Self::freeze_repository_snapshot(context, scope.clone(), review_checkpoint)
+                .map_err(|error| error.to_string())?;
+        let agent = context
+            .target
+            .resolve(context.client)
+            .map_err(|error| error.to_string())?
+            .ok_or_else(|| "no active implementation agent is available".to_owned())?;
+        let agent_name = display_agent_name(&agent);
+        let mailbox_directory = context
+            .guide_store
+            .guide_mailbox_directory(&review_checkpoint.review_unit)
+            .map_err(|error| guide_request_error(&agent_name, &error))?;
+        let prepared = GuideRunner::<HerdrClient>::prepare(repository_snapshot, mailbox_directory)
+            .map_err(|error| guide_request_error(&agent_name, &error))?;
+        let (response_watch, cancellation) = prepared
+            .watch_response()
+            .map_err(|error| guide_request_error(&agent_name, &error))?;
+        Ok(PreparedGeneration {
             agent,
+            agent_name,
             prepared,
             response_watch,
-            review_checkpoint,
-            agent_name,
-        );
+            cancellation,
+        })
     }
 
     fn start_guide_thread(
@@ -201,7 +188,7 @@ impl GuideRequestCoordinator {
     pub(super) fn import_completed_guide(
         &mut self,
         context: &GuideOperationContext<'_>,
-        messages: &Sender<Message>,
+        messages: &ApplicationMessageSender,
         review_unit: &ReviewUnit,
     ) {
         self.cancel_waits_for_other_review_units(review_unit);
@@ -246,7 +233,7 @@ impl GuideRequestCoordinator {
     pub(super) fn response_ready(
         &mut self,
         context: &GuideOperationContext<'_>,
-        messages: &Sender<Message>,
+        messages: &ApplicationMessageSender,
         review_unit: &ReviewUnit,
         wait_token: u64,
     ) {
@@ -264,7 +251,7 @@ impl GuideRequestCoordinator {
     pub(super) fn finish_review_guide(
         &mut self,
         context: &GuideOperationContext<'_>,
-        messages: &Sender<Message>,
+        messages: &ApplicationMessageSender,
         finished: FinishedGuide,
     ) {
         if !context.snapshot.is_some_and(|snapshot| {
@@ -395,7 +382,7 @@ impl GuideRequestCoordinator {
 
     fn accept_guide(
         context: &GuideOperationContext<'_>,
-        messages: &Sender<Message>,
+        messages: &ApplicationMessageSender,
         result: GuideResult,
     ) {
         if let Err(error) = context.guide_store.save_guide(&result.guide) {
@@ -413,7 +400,7 @@ impl GuideRequestCoordinator {
                 result.rejected_items
             )
         });
-        let _ = messages.send(Message::ReviewGuideStatus {
+        let _ = messages.send(ReviewGuideStatusChanged {
             review_checkpoint: result.guide.review_checkpoint,
             generating: false,
             message,
@@ -422,7 +409,7 @@ impl GuideRequestCoordinator {
 
     fn show_guide_for_current_checkpoint(
         context: &GuideOperationContext<'_>,
-        messages: &Sender<Message>,
+        messages: &ApplicationMessageSender,
         guide: &review_guide::GuideSnapshot,
     ) {
         let Some(snapshot) = context.snapshot else {
@@ -455,7 +442,7 @@ impl GuideRequestCoordinator {
                 .collect::<Vec<_>>();
             review_guide::map_anchored_items(&guide.anchored_items, &current_files)
         };
-        let _ = messages.send(Message::ReviewGuideLoaded {
+        let _ = messages.send(ReviewGuideChanged {
             review_checkpoint,
             items,
         });
@@ -586,19 +573,19 @@ impl GuideRequestCoordinator {
     }
 
     fn guide_error(
-        messages: &Sender<Message>,
+        messages: &ApplicationMessageSender,
         review_checkpoint: &ReviewCheckpoint,
         message: String,
     ) {
-        let _ = messages.send(Message::ReviewGuideStatus {
+        let _ = messages.send(ReviewGuideStatusChanged {
             review_checkpoint: review_checkpoint.clone(),
             generating: false,
             message: Some(message),
         });
     }
 
-    fn updating_status(messages: &Sender<Message>, review_checkpoint: &ReviewCheckpoint) {
-        let _ = messages.send(Message::ReviewGuideStatus {
+    fn updating_status(messages: &ApplicationMessageSender, review_checkpoint: &ReviewCheckpoint) {
+        let _ = messages.send(ReviewGuideStatusChanged {
             review_checkpoint: review_checkpoint.clone(),
             generating: true,
             message: None,
@@ -612,6 +599,10 @@ fn display_agent_name(agent: &Agent) -> String {
         .clone()
         .or_else(|| agent.display_agent.clone())
         .unwrap_or_else(|| agent.pane_id.0.clone())
+}
+
+fn guide_request_error(agent_name: &str, error: &impl std::fmt::Display) -> String {
+    format!("guide request for agent {agent_name} failed: {error}")
 }
 
 #[cfg(test)]

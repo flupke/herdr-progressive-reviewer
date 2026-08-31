@@ -4,7 +4,7 @@ use crossbeam_channel::unbounded;
 
 use crate::api::{Command, Event, Operation, Query};
 
-use super::Server;
+use super::{Server, ServerLoopControl};
 
 fn query(snapshot_id: &str) -> Query {
     Query {
@@ -21,7 +21,7 @@ fn query(snapshot_id: &str) -> Query {
 fn shutdown_without_a_session_stops_the_command_loop() {
     let (event_sender, _events) = unbounded();
     let mut server = Server::new(PathBuf::from("/repository"), event_sender);
-    assert!(!server.command(Command::Shutdown));
+    assert_eq!(server.command(Command::Shutdown), ServerLoopControl::Stop);
     assert!(server.stopping);
 
     let (commands, command_receiver) = unbounded();
@@ -30,17 +30,56 @@ fn shutdown_without_a_session_stops_the_command_loop() {
 }
 
 #[test]
-fn initialize_is_not_queued_after_it_starts_a_session() {
+fn open_document_is_queued_until_the_session_is_ready() {
     let (event_sender, _events) = unbounded();
     let mut server = Server::new(PathBuf::from("/repository"), event_sender);
     server.session = Some(crate::session::tests::ready_session());
 
-    assert!(server.command(Command::Initialize));
-    assert!(server.pending.is_empty());
-
     let document = PathBuf::from("source.rs");
-    assert!(server.command(Command::OpenDocument(document.clone())));
+    assert_eq!(
+        server.command(Command::OpenDocument(document.clone())),
+        ServerLoopControl::Continue
+    );
     assert_eq!(server.pending, [Command::OpenDocument(document)]);
+}
+
+#[test]
+fn requests_wait_for_the_first_open_document() {
+    let (event_sender, events) = unbounded();
+    let mut server = Server::new(PathBuf::from("/repository"), event_sender);
+    let request = query("snapshot");
+
+    assert_eq!(
+        server.command(Command::Request {
+            operation: Operation::Definition,
+            query: request.clone(),
+        }),
+        ServerLoopControl::Continue
+    );
+
+    assert!(server.session.is_none());
+    assert!(events.is_empty());
+    assert_eq!(
+        server.pending,
+        [Command::Request {
+            operation: Operation::Definition,
+            query: request,
+        }]
+    );
+}
+
+#[test]
+fn restart_without_an_open_document_does_not_start_a_session() {
+    let (event_sender, events) = unbounded();
+    let mut server = Server::new(PathBuf::from("/repository"), event_sender);
+
+    assert_eq!(
+        server.command(Command::Restart),
+        ServerLoopControl::Continue
+    );
+
+    assert!(server.session.is_none());
+    assert!(events.is_empty());
 }
 
 #[test]

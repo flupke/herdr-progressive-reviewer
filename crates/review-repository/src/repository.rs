@@ -255,6 +255,21 @@ impl<'a> GitChangeMetadata<'a> {
 }
 
 impl ChangedFile {
+    /// Create metadata for a modified repository-relative path.
+    pub fn modified(path: impl AsRef<OsStr>) -> Self {
+        let path = RepoPath::from_bytes(path.as_ref().as_bytes());
+        Self {
+            old_path: Some(path.clone()),
+            new_path: Some(path.clone()),
+            old_kind: FileKind::File,
+            new_kind: FileKind::File,
+            change: ChangeKind::Modified,
+            display_path: path.display(),
+            lines_added: 0,
+            lines_removed: 0,
+        }
+    }
+
     /// Get the path used for review state.
     ///
     /// # Panics

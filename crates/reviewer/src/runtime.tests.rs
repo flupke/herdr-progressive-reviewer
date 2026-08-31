@@ -4,12 +4,76 @@ use std::path::Path;
 use std::process::{Child, Command, Stdio};
 
 use ratatui::layout::Rect;
-use ratatui::{TerminalOptions, Viewport};
+use ratatui::{TerminalOptions, Viewport, backend::TestBackend};
 use review_repository::repository::RepoType;
-use review_test_support::{ReviewRepositoryFixture, repository_fixture};
+use review_test_support::{
+    ReviewRepositoryFixture, complete_repository_snapshot, repository_fixture,
+};
 
 const GUIDE_E2E_AGENT_SOURCE: &str = "progressive-reviewer-e2e";
 const GUIDE_E2E_AGENT_SESSION_SOURCE: &str = "herdr:codex";
+
+#[test]
+fn source_loading_prefers_frozen_content_when_a_deleted_path_is_recreated() {
+    let repository_files = repository_fixture(RepoType::Git);
+    let deleted_content = b"fn deleted_from_worktree() {}\n";
+    repository_files.write("deleted.rs", deleted_content);
+    repository_files.new_change("add the file that the next change deletes");
+    repository_files.remove("deleted.rs");
+    let state_directory = tempfile::tempdir().unwrap();
+    let repository = Repository::discover(repository_files.root())
+        .unwrap()
+        .with_state_root(state_directory.path());
+    let snapshot = complete_repository_snapshot(&repository);
+    let tracker = ReviewTracker::new(
+        repository.clone(),
+        ReviewStore::open(state_directory.path(), repository.root()).unwrap(),
+    );
+    let location = SourceLocation {
+        path: repository.root().join("deleted.rs"),
+        line: 0,
+        byte_column: 0,
+        end_line: 0,
+        end_byte_column: 0,
+    };
+    let (commands, _command_receiver) = mpsc::channel();
+    let worker = Worker {
+        repository: repository.clone(),
+        tracker,
+        guide_store: ReviewStore::open(state_directory.path(), repository.root()).unwrap(),
+        client: HerdrClient::new(
+            state_directory.path().join("unused.sock"),
+            "progressive-reviewer-test".to_owned(),
+            state_directory.path().to_owned(),
+        ),
+        target: AgentTarget::new(WorkspaceId("test-workspace".to_owned()), None),
+        snapshot: Some(snapshot.clone()),
+        commands,
+        guide: guide::GuideRequestCoordinator::default(),
+    };
+    std::fs::write(&location.path, "fn recreated_after_snapshot() {}\n").unwrap();
+    let (message_sender, messages) = application_message_channel();
+
+    worker.load_source(
+        &message_sender,
+        snapshot.identity.snapshot_id().to_owned(),
+        location.clone(),
+        SourceLoadMode::External,
+    );
+
+    let event = messages.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert!(matches!(
+        event.downcast_ref::<SourceContentLoaded>(),
+        Some(SourceContentLoaded {
+            snapshot_id,
+            location: loaded_location,
+            content,
+            mode: SourceLoadMode::External,
+        }) if snapshot_id == snapshot.identity.snapshot_id()
+            && *loaded_location == location
+            && content == deleted_content
+    ));
+}
 
 struct IsolatedHerdrServer {
     directory: tempfile::TempDir,
@@ -321,28 +385,28 @@ fn respond_to_delivered_guide(
 }
 
 fn receive_guide(
-    messages: &Receiver<Message>,
+    messages: &ApplicationMessageReceiver,
     expected_review_unit: &ReviewUnit,
     expected_checkpoint: &str,
     expected_text: &str,
 ) {
     loop {
-        match messages.recv_timeout(Duration::from_secs(5)).unwrap() {
-            Message::ReviewGuideLoaded {
-                review_checkpoint,
-                items,
-            } => {
-                assert!(review_checkpoint.matches(expected_review_unit, expected_checkpoint));
-                assert_eq!(items.len(), 1);
-                assert_eq!(items[0].text, expected_text);
-                return;
-            }
-            Message::ReviewGuideStatus {
-                generating: false,
-                message,
-                ..
-            } if message.is_some() => panic!("guide request failed: {message:?}"),
-            _ => {}
+        let envelope = messages.recv_timeout(Duration::from_secs(5)).unwrap();
+        if let Some(event) = envelope.downcast_ref::<ReviewGuideChanged>() {
+            assert!(
+                event
+                    .review_checkpoint
+                    .matches(expected_review_unit, expected_checkpoint)
+            );
+            assert_eq!(event.items.len(), 1);
+            assert_eq!(event.items[0].text, expected_text);
+            return;
+        }
+        if let Some(event) = envelope.downcast_ref::<ui_events::ReviewGuideStatusChanged>()
+            && !event.generating
+            && event.message.is_some()
+        {
+            panic!("guide request failed: {:?}", event.message)
         }
     }
 }
@@ -412,6 +476,32 @@ fn simultaneous_herdr_event_subscribers_stay_connected() {
     confirm_multiple_event_subscribers(&herdr);
 }
 
+#[test]
+fn herdr_event_subscription_stops_without_a_new_server_event() {
+    let repository = tempfile::tempdir().unwrap();
+    let herdr = IsolatedHerdrServer::start(repository.path());
+    let client = herdr.client();
+    let pane_id = herdr.pane_id.clone();
+    let continue_streaming = Arc::new(AtomicBool::new(true));
+    let thread_continue_streaming = Arc::clone(&continue_streaming);
+    let (event_sender, events) = mpsc::channel();
+    let thread = thread::spawn(move || {
+        client.forward_events_while(
+            std::slice::from_ref(&pane_id),
+            || thread_continue_streaming.load(Ordering::Relaxed),
+            |event| event_sender.send(event).is_ok(),
+        )
+    });
+    receive_current_agent(&events);
+
+    continue_streaming.store(false, Ordering::Relaxed);
+
+    assert_eq!(
+        thread.join().unwrap().unwrap(),
+        EventStreamEnd::ReceiverDisconnected
+    );
+}
+
 fn subscribe_to_agent_events(herdr: &IsolatedHerdrServer) -> Receiver<HerdrEvent> {
     let event_client = herdr.client();
     let event_pane_id = herdr.pane_id.clone();
@@ -462,7 +552,7 @@ struct GuideFlowFixture {
     repository: Repository,
     herdr: IsolatedHerdrServer,
     commands: Sender<WorkerCommand>,
-    messages: Receiver<Message>,
+    messages: ApplicationMessageReceiver,
     worker_thread: JoinHandle<()>,
     events: Receiver<HerdrEvent>,
     review_unit: ReviewUnit,
@@ -493,18 +583,20 @@ impl GuideFlowFixture {
             commands: commands.clone(),
             guide: guide::GuideRequestCoordinator::default(),
         };
-        let (message_sender, messages) = mpsc::channel();
+        let (message_sender, messages) = application_message_channel();
         let worker_thread = thread::spawn(move || worker.run(&command_receiver, &message_sender));
 
         commands.send(WorkerCommand::Poll).unwrap();
         let (review_unit, checkpoint) = loop {
-            if let Message::FilesLoaded {
-                review_unit,
-                commit_id,
-                ..
-            } = messages.recv_timeout(Duration::from_secs(5)).unwrap()
+            let envelope = messages.recv_timeout(Duration::from_secs(5)).unwrap();
+            if let Some(RepositoryMetadataChanged {
+                review_checkpoint, ..
+            }) = envelope.downcast_ref::<RepositoryMetadataChanged>()
             {
-                break (review_unit, commit_id);
+                break (
+                    review_checkpoint.review_unit.clone(),
+                    review_checkpoint.checkpoint.clone(),
+                );
             }
         };
         let events = subscribe_to_agent_events(&herdr);
@@ -618,6 +710,96 @@ fn guide_flow_survives_agent_churn_and_replaces_results(repository_type: RepoTyp
     fixture.assert_replacement_is_stored();
 }
 
+#[test_case::test_case(RepoType::Git; "git")]
+#[test_case::test_case(RepoType::Jj; "jj")]
+fn disk_content_changes_replace_the_visible_diff(repository_type: RepoType) {
+    let repository_files = repository_fixture(repository_type);
+    repository_files.write("src/lib.rs", b"pub fn before_refresh() {}\n");
+    let state_directory = tempfile::tempdir().unwrap();
+    let repository = Repository::discover(repository_files.root())
+        .unwrap()
+        .with_state_root(state_directory.path());
+    let store = ReviewStore::open(state_directory.path(), repository.root()).unwrap();
+    let tracker = ReviewTracker::new(repository.clone(), store);
+    let (commands, _command_receiver) = mpsc::channel();
+    let mut worker = Worker {
+        repository: repository.clone(),
+        tracker,
+        guide_store: ReviewStore::open(state_directory.path(), repository.root()).unwrap(),
+        client: HerdrClient::new(
+            state_directory.path().join("unused.sock"),
+            "progressive-reviewer-test".to_owned(),
+            state_directory.path().to_owned(),
+        ),
+        target: AgentTarget::new(WorkspaceId("test-workspace".to_owned()), None),
+        snapshot: None,
+        commands,
+        guide: guide::GuideRequestCoordinator::default(),
+    };
+    let (message_sender, messages) = application_message_channel();
+    let mut application = ReviewApplication::default();
+
+    assert!(worker.poll(&message_sender));
+    let initial_actions = publish_pending_worker_events(&mut application, &messages);
+    load_requested_diffs(&worker, &message_sender, initial_actions);
+    publish_pending_worker_events(&mut application, &messages);
+    assert!(rendered_review_application(&application).contains("before_refresh"));
+
+    repository_files.write("src/lib.rs", b"pub fn after_refresh() {}\n");
+    assert!(worker.poll(&message_sender));
+    let refresh_actions = publish_pending_worker_events(&mut application, &messages);
+    assert!(matches!(
+        refresh_actions.as_slice(),
+        [Action::LoadDiff { .. }]
+    ));
+    load_requested_diffs(&worker, &message_sender, refresh_actions);
+    publish_pending_worker_events(&mut application, &messages);
+
+    let rendered = rendered_review_application(&application);
+    assert!(rendered.contains("after_refresh"), "{rendered}");
+    assert!(!rendered.contains("before_refresh"), "{rendered}");
+}
+
+fn publish_pending_worker_events(
+    application: &mut ReviewApplication,
+    messages: &ApplicationMessageReceiver,
+) -> Vec<Action> {
+    messages
+        .try_iter()
+        .flat_map(|event| application.publish_envelope(&event))
+        .collect()
+}
+
+fn load_requested_diffs(
+    worker: &Worker,
+    messages: &ApplicationMessageSender,
+    actions: Vec<Action>,
+) {
+    for action in actions {
+        if let Action::LoadDiff {
+            review_checkpoint,
+            path,
+        } = action
+        {
+            worker.load_diff(messages, review_checkpoint, path);
+        }
+    }
+}
+
+fn rendered_review_application(application: &ReviewApplication) -> String {
+    let mut terminal = Terminal::new(TestBackend::new(80, 20)).unwrap();
+    terminal
+        .draw(|frame| frame.render_widget(application.frame(), frame.area()))
+        .unwrap();
+    terminal
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(ratatui::buffer::Cell::symbol)
+        .collect()
+}
+
 #[test]
 fn finds_a_nested_rust_workspace() {
     let directory = tempfile::tempdir().unwrap();
@@ -629,15 +811,21 @@ fn finds_a_nested_rust_workspace() {
 }
 
 #[test]
-fn only_rust_documents_are_opened_for_lsp() {
+fn only_existing_rust_documents_are_opened_for_lsp() {
+    let repository = tempfile::tempdir().unwrap();
+    let source_directory = repository.path().join("src");
+    std::fs::create_dir(&source_directory).unwrap();
+    std::fs::write(source_directory.join("lib.rs"), "fn present() {}\n").unwrap();
+
     assert_eq!(
-        rust_document_path(std::path::Path::new("/repo"), "src/lib.rs"),
-        Some(PathBuf::from("/repo/src/lib.rs"))
+        rust_document_path(repository.path(), "src/lib.rs"),
+        Some(source_directory.join("lib.rs"))
     );
     assert_eq!(
-        rust_document_path(std::path::Path::new("/repo"), "README.md"),
+        rust_document_path(repository.path(), "src/deleted.rs"),
         None
     );
+    assert_eq!(rust_document_path(repository.path(), "README.md"), None);
 }
 
 #[test]
@@ -686,7 +874,7 @@ fn modified_mouse_inputs_reuse_existing_actions() {
             row: 5,
             modifiers: KeyModifiers::SHIFT,
         }),
-        Some(Message::MouseScroll {
+        Some(UserInput::MouseScroll {
             column: 4,
             row: 5,
             delta: 6,
@@ -699,7 +887,7 @@ fn modified_mouse_inputs_reuse_existing_actions() {
             row: 5,
             modifiers: KeyModifiers::NONE,
         }),
-        Some(Message::MouseScroll {
+        Some(UserInput::MouseScroll {
             column: 4,
             row: 5,
             delta: 3,
@@ -719,7 +907,7 @@ fn modified_mouse_inputs_reuse_existing_actions() {
                 row: 5,
                 modifiers,
             }),
-            Some(Message::MouseClick {
+            Some(UserInput::MouseClick {
                 column: 4,
                 row: 5,
                 insert_path: true,
@@ -733,7 +921,7 @@ fn modified_mouse_inputs_reuse_existing_actions() {
             row: 5,
             modifiers: KeyModifiers::CONTROL,
         }),
-        Some(Message::MouseControlClick { column: 4, row: 5 })
+        Some(UserInput::MouseControlClick { column: 4, row: 5 })
     );
     assert_eq!(
         normalize_mouse(MouseEvent {
@@ -742,7 +930,7 @@ fn modified_mouse_inputs_reuse_existing_actions() {
             row: 5,
             modifiers: KeyModifiers::NONE,
         }),
-        Some(Message::MouseDrag { column: 40, row: 5 })
+        Some(UserInput::MouseDrag { column: 40, row: 5 })
     );
     assert_eq!(
         normalize_mouse(MouseEvent {
@@ -751,7 +939,7 @@ fn modified_mouse_inputs_reuse_existing_actions() {
             row: 5,
             modifiers: KeyModifiers::NONE,
         }),
-        Some(Message::MouseRelease)
+        Some(UserInput::MouseRelease)
     );
 }
 
@@ -788,16 +976,16 @@ fn consecutive_plain_clicks_at_one_position_become_a_double_click() {
 
     assert!(matches!(
         clicks.normalize_at(click, start),
-        Some(Message::MouseClick { .. })
+        Some(UserInput::MouseClick { .. })
     ));
     let adjacent = MouseEvent { column: 5, ..click };
     assert_eq!(
         clicks.normalize_at(adjacent, start + Duration::from_millis(400)),
-        Some(Message::MouseDoubleClick { column: 5, row: 5 })
+        Some(UserInput::MouseDoubleClick { column: 5, row: 5 })
     );
     assert!(matches!(
         clicks.normalize_at(click, start + Duration::from_millis(450)),
-        Some(Message::MouseClick { .. })
+        Some(UserInput::MouseClick { .. })
     ));
     let modified = MouseEvent {
         modifiers: KeyModifiers::CONTROL,
@@ -806,7 +994,7 @@ fn consecutive_plain_clicks_at_one_position_become_a_double_click() {
     clicks.normalize_at(modified, start + Duration::from_millis(460));
     assert!(matches!(
         clicks.normalize_at(click, start + Duration::from_millis(470)),
-        Some(Message::MouseClick { .. })
+        Some(UserInput::MouseClick { .. })
     ));
 }
 
@@ -818,9 +1006,40 @@ fn dispatch_reports_that_quit_stops_the_runtime() {
     let lsp = review_lsp::Worker::start(repository.path().to_owned());
     let (commands, _command_receiver) = mpsc::channel();
 
+    let dispatcher = RuntimeActionDispatcher {
+        commands: &commands,
+        settings: &settings,
+        repository_root: repository.path(),
+        lsp: &lsp,
+    };
+
+    assert!(dispatcher.dispatch(Action::Quit).unwrap());
+}
+
+#[test]
+fn dispatch_all_executes_earlier_actions_before_quit() {
+    let repository = tempfile::tempdir().unwrap();
+    let state = tempfile::tempdir().unwrap();
+    let settings = ReviewStore::open(state.path(), repository.path()).unwrap();
+    let lsp = review_lsp::Worker::start(repository.path().to_owned());
+    let (commands, _command_receiver) = mpsc::channel();
+
+    let dispatcher = RuntimeActionDispatcher {
+        commands: &commands,
+        settings: &settings,
+        repository_root: repository.path(),
+        lsp: &lsp,
+    };
+
     assert!(
-        Runtime::dispatch(&commands, &settings, Action::Quit, repository.path(), &lsp,).unwrap()
+        dispatcher
+            .dispatch_all(vec![
+                Action::SaveOutputTarget(OutputTarget::Clipboard),
+                Action::Quit,
+            ])
+            .unwrap()
     );
+    assert_eq!(settings.output_target().unwrap(), OutputTarget::Clipboard);
 }
 
 #[test]
@@ -829,17 +1048,22 @@ fn worker_command_preserves_output_actions() {
     let lsp = review_lsp::Worker::start(repository.path().to_owned());
     let (commands, _command_receiver) = mpsc::channel();
 
-    let command = Runtime::worker_command(
-        &commands,
-        repository.path(),
-        &lsp,
-        Action::Output {
+    let settings_directory = tempfile::tempdir().unwrap();
+    let settings = ReviewStore::open(settings_directory.path(), repository.path()).unwrap();
+    let dispatcher = RuntimeActionDispatcher {
+        commands: &commands,
+        settings: &settings,
+        repository_root: repository.path(),
+        lsp: &lsp,
+    };
+
+    let command = dispatcher
+        .worker_command(Action::Output {
             target: OutputTarget::Clipboard,
             text: "selected code".to_owned(),
-        },
-    )
-    .unwrap()
-    .unwrap();
+        })
+        .unwrap()
+        .unwrap();
 
     assert!(matches!(
         command,
@@ -865,32 +1089,128 @@ fn event_loop_runs_messages_until_quit_without_an_extra_cycle() {
         )
         .unwrap(),
     };
-    let mut app = ReviewApp::default();
+    let mut app = ReviewApplication::default();
     let (commands, _command_receiver) = mpsc::channel();
-    let (message_sender, messages) = mpsc::channel();
-    let (_herdr_event_sender, herdr_events) = mpsc::channel();
-    let stopped = AtomicBool::new(false);
-    message_sender.send(Message::Key(Key::Char('o'))).unwrap();
-    message_sender.send(Message::Key(Key::Quit)).unwrap();
-    drop(message_sender);
+    let (event_sender, events) = unbounded();
+    event_sender
+        .send(EventEnvelope::new(UserInput::Key(Key::Char('o'))))
+        .unwrap();
+    event_sender
+        .send(EventEnvelope::new(UserInput::Key(Key::Quit)))
+        .unwrap();
+    drop(event_sender);
 
     RuntimeEventLoop {
         terminal: &mut terminal,
         app: &mut app,
         commands: &commands,
-        messages: &messages,
-        herdr_events: &herdr_events,
+        events,
         lsp: &lsp,
         lsp_root: repository.path(),
         repository_root: repository.path(),
         settings: &settings,
-        watcher: RepositoryWatcher::new(repository.path(), RepoType::Jj),
-        mouse_clicks: MouseClicks::default(),
-        stopped: &stopped,
     }
     .run()
     .unwrap();
 
     assert_eq!(settings.output_target().unwrap(), OutputTarget::Clipboard);
     std::mem::forget(terminal);
+}
+
+#[test]
+fn event_loop_routes_external_events_from_the_central_channel() {
+    let repository = tempfile::tempdir().unwrap();
+    let state = tempfile::tempdir().unwrap();
+    let settings = ReviewStore::open(state.path(), repository.path()).unwrap();
+    let lsp = review_lsp::Worker::start(repository.path().to_owned());
+    let mut terminal = TerminalGuard {
+        terminal: Terminal::with_options(
+            CrosstermBackend::new(stdout()),
+            TerminalOptions {
+                viewport: Viewport::Fixed(Rect::new(0, 0, 80, 20)),
+            },
+        )
+        .unwrap(),
+    };
+    let mut app = ReviewApplication::default();
+    let (commands, command_receiver) = mpsc::channel();
+    let (event_sender, events) = unbounded();
+    let focused_pane = PaneId("focused-agent".to_owned());
+    event_sender
+        .send(EventEnvelope::new(HerdrEvent::PaneFocused(
+            focused_pane.clone(),
+        )))
+        .unwrap();
+    event_sender
+        .send(EventEnvelope::new(RepositoryPollDue))
+        .unwrap();
+    event_sender
+        .send(EventEnvelope::new(ApplicationTick(Instant::now())))
+        .unwrap();
+    event_sender
+        .send(EventEnvelope::new(StopRequested))
+        .unwrap();
+
+    RuntimeEventLoop {
+        terminal: &mut terminal,
+        app: &mut app,
+        commands: &commands,
+        events,
+        lsp: &lsp,
+        lsp_root: repository.path(),
+        repository_root: repository.path(),
+        settings: &settings,
+    }
+    .run()
+    .unwrap();
+
+    let commands = command_receiver.try_iter().collect::<Vec<_>>();
+    assert!(matches!(
+        commands.as_slice(),
+        [WorkerCommand::Focus(pane_id), WorkerCommand::Poll] if pane_id == &focused_pane
+    ));
+    std::mem::forget(terminal);
+}
+
+#[test]
+fn runtime_event_producers_join_active_lsp_adapter() {
+    let repository = tempfile::tempdir().unwrap();
+    let lsp = review_lsp::Worker::start(repository.path().to_owned());
+    let (event_sender, events) = unbounded();
+    let stop_requested = Arc::new(AtomicBool::new(false));
+    let mut producers = RuntimeEventProducers::new(Arc::clone(&stop_requested));
+    producers.push(Runtime::start_lsp_events(
+        &lsp,
+        event_sender.clone(),
+        stop_requested,
+    ));
+    drop(event_sender);
+
+    producers.stop();
+
+    assert!(matches!(
+        events.try_recv(),
+        Err(crossbeam_channel::TryRecvError::Disconnected)
+    ));
+}
+
+#[test]
+fn terminal_event_producer_stops_while_waiting_for_input() {
+    let (event_sender, events) = unbounded();
+    let (reader_started_sender, reader_started_receiver) = mpsc::channel();
+    let producer = TerminalEventProducer::start_with_reader(event_sender, move |timeout| {
+        let _ = reader_started_sender.send(());
+        thread::sleep(timeout);
+        Ok(None)
+    });
+    reader_started_receiver
+        .recv_timeout(Duration::from_secs(1))
+        .expect("the terminal reader must start");
+
+    producer.stop();
+
+    assert!(matches!(
+        events.try_recv(),
+        Err(crossbeam_channel::TryRecvError::Disconnected)
+    ));
 }

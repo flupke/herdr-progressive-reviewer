@@ -26,6 +26,53 @@ fn notification_debounces_before_poll() {
 }
 
 #[test]
+fn notification_during_watcher_start_keeps_its_debounce_deadline() {
+    let now = Instant::now();
+    let state = Arc::new(WatchState::default());
+    let (commands, _command_receiver) = mpsc::channel();
+    let mut watcher = RepositoryWatcher {
+        commands,
+        state: Arc::clone(&state),
+        next_poll: now + FAILED_WATCHER_POLL_INTERVAL,
+        poll_interval: FAILED_WATCHER_POLL_INTERVAL,
+    };
+    state.notified.store(true, Ordering::Relaxed);
+    state.watching.store(true, Ordering::Relaxed);
+
+    assert!(!watcher.poll_due(now));
+    assert!(!watcher.poll_due(now + DEBOUNCE / 2));
+    assert!(watcher.poll_due(now + DEBOUNCE));
+}
+
+#[test]
+fn disk_content_change_schedules_a_repository_poll() {
+    let directory = tempdir().unwrap();
+    let root = directory.path();
+    let path = root.join("source.rs");
+    fs::write(&path, "fn before() {}\n").unwrap();
+    let mut watcher = RepositoryWatcher::new(root, RepoType::Jj);
+    let ready_deadline = Instant::now() + Duration::from_secs(1);
+    while !watcher.state.watching.load(Ordering::Relaxed) {
+        assert!(Instant::now() < ready_deadline, "watcher did not start");
+        thread::sleep(Duration::from_millis(10));
+    }
+
+    fs::write(path, "fn after() {}\n").unwrap();
+
+    let poll_deadline = Instant::now() + Duration::from_secs(1);
+    loop {
+        if watcher.poll_due(Instant::now()) {
+            break;
+        }
+        assert!(
+            Instant::now() < poll_deadline,
+            "content change did not schedule a poll"
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[test]
 fn access_events_do_not_refresh_the_repository() {
     assert!(!should_process(&Event::new(EventKind::Access(
         notify::event::AccessKind::Any,

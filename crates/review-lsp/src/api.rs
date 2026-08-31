@@ -117,8 +117,6 @@ impl SourceLocation {
 /// Work sent to the LSP thread.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum Command {
-    /// Start rust-analyzer if it is not running.
-    Initialize,
     /// Tell rust-analyzer about one open Rust document.
     OpenDocument(PathBuf),
     /// Run one LSP request.

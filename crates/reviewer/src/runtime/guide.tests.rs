@@ -253,7 +253,7 @@ fn completed_mailbox_response_is_imported_once() {
         .unwrap();
     GuideRunner::<HerdrClient>::prepare(repository_snapshot, mailbox.clone()).unwrap();
     write_mailbox_response(&mailbox, "Explanation");
-    let (messages, received) = mpsc::channel();
+    let (messages, received) = super::super::application_message_channel();
     let mut coordinator = GuideRequestCoordinator::default();
 
     coordinator.import_completed_guide(&fixture.context(), &messages, &checkpoint.review_unit);
@@ -272,7 +272,7 @@ fn completed_mailbox_response_is_imported_once() {
     assert_eq!(
         received
             .try_iter()
-            .filter(|message| matches!(message, Message::ReviewGuideLoaded { .. }))
+            .filter(|event| event.downcast_ref::<ReviewGuideChanged>().is_some())
             .count(),
         1
     );
@@ -310,7 +310,7 @@ fn identical_responses_from_different_review_units_are_each_imported() {
     GuideRunner::<HerdrClient>::prepare(repository_snapshot, other_mailbox.clone()).unwrap();
     write_mailbox_response(&current_mailbox, "Same explanation");
     write_mailbox_response(&other_mailbox, "Same explanation");
-    let (messages, _received) = mpsc::channel();
+    let (messages, _received) = super::super::application_message_channel();
     let mut coordinator = GuideRequestCoordinator::default();
 
     coordinator.import_completed_guide(
@@ -355,7 +355,7 @@ fn response_that_lands_after_the_reviewer_opens_is_imported() {
         .guide_mailbox_directory(&checkpoint.review_unit)
         .unwrap();
     GuideRunner::<HerdrClient>::prepare(repository_snapshot, mailbox.clone()).unwrap();
-    let (messages, _received) = mpsc::channel();
+    let (messages, _received) = super::super::application_message_channel();
     let mut coordinator = GuideRequestCoordinator::default();
 
     coordinator.import_completed_guide(&fixture.context(), &messages, &checkpoint.review_unit);
@@ -407,7 +407,7 @@ fn stale_completion_imports_the_last_response_that_landed() {
         .load_completed_guide()
         .unwrap();
     write_mailbox_response(&mailbox_directory, "Newest response");
-    let (messages, _received) = mpsc::channel();
+    let (messages, _received) = super::super::application_message_channel();
     let mut coordinator = GuideRequestCoordinator::default();
 
     coordinator.finish_review_guide(
@@ -443,7 +443,7 @@ fn exact_checkpoint_guide_is_shown() {
         items: vec![guide_item("changed.rs", "Explanation")],
         anchored_items: Vec::new(),
     };
-    let (messages, received) = mpsc::channel();
+    let (messages, received) = super::super::application_message_channel();
 
     GuideRequestCoordinator::show_guide_for_current_checkpoint(
         &fixture.context(),
@@ -451,9 +451,9 @@ fn exact_checkpoint_guide_is_shown() {
         &guide,
     );
 
+    let envelope = received.recv_timeout(Duration::from_secs(1)).unwrap();
     assert!(matches!(
-        received.recv_timeout(Duration::from_secs(1)).unwrap(),
-        Message::ReviewGuideLoaded { review_checkpoint, items }
-            if review_checkpoint == checkpoint && items == guide.items
+        envelope.downcast_ref::<ReviewGuideChanged>(),
+        Some(event) if event.review_checkpoint == checkpoint && event.items == guide.items
     ));
 }
