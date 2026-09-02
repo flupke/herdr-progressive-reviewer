@@ -946,18 +946,13 @@ impl Worker {
             Ok(PollResult::Complete(snapshot)) => snapshot,
             Ok(PollResult::ChangedDuringPoll) | Err(_) => return false,
         };
-        let Ok(states) = snapshot
-            .files
-            .iter()
-            .map(|file| self.tracker.status(&snapshot, file))
-            .collect::<eyre::Result<Vec<_>>>()
-        else {
+        let Ok(states) = self.tracker.statuses(&snapshot) else {
             return false;
         };
         let files = snapshot
             .files
             .iter()
-            .zip(states)
+            .zip(&states)
             .map(|(file, state)| FileSummary::from_changed(file, state.status))
             .collect();
         let review_checkpoint = ReviewCheckpoint::new(
@@ -979,11 +974,9 @@ impl Worker {
                 let unreviewed_files = snapshot
                     .files
                     .iter()
-                    .filter(|file| {
-                        self.tracker
-                            .status(&snapshot, file)
-                            .is_ok_and(|state| state.status != ReviewStatus::Reviewed)
-                    })
+                    .zip(&states)
+                    .filter(|(_, state)| state.status != ReviewStatus::Reviewed)
+                    .map(|(file, _)| file)
                     .collect::<Vec<_>>();
                 let current_files = unreviewed_files
                     .into_iter()

@@ -1,7 +1,8 @@
 //! Review state derived from stored repository baselines.
 
 use review_repository::repository::{
-    ChangedFile, FileKind, Interdiff, RepoPath, Repository, Snapshot,
+    BaselineComparison, BaselineComparisonPlan, ChangedFile, FileKind, Interdiff, RepoPath,
+    Repository, Snapshot, SnapshotId,
 };
 use review_store::{LoadResult, ReviewStore};
 
@@ -70,6 +71,11 @@ enum ReviewComparison {
     },
 }
 
+enum PlannedReviewState {
+    Resolved(ReviewState),
+    Compare { baseline_snapshot_id: SnapshotId },
+}
+
 impl ReviewComparison {
     fn state(&self) -> ReviewState {
         match self {
@@ -119,6 +125,65 @@ impl ReviewTracker {
     /// Derive the current review state of one changed path.
     pub fn status(&self, snapshot: &Snapshot, file: &ChangedFile) -> eyre::Result<ReviewState> {
         Ok(self.compare(snapshot, file)?.state())
+    }
+
+    /// Derive all path states with comparisons grouped by stored baseline.
+    pub fn statuses(&self, snapshot: &Snapshot) -> eyre::Result<Vec<ReviewState>> {
+        let review_unit = snapshot.identity.review_unit();
+        let mut plan = BaselineComparisonPlan::default();
+        let mut planned_states = Vec::with_capacity(snapshot.files.len());
+        for file in &snapshot.files {
+            let path = file.review_path().as_bytes();
+            let planned_state = match self.store.load(review_unit, path)? {
+                LoadResult::Unreviewed => PlannedReviewState::Resolved(ReviewState {
+                    status: ReviewStatus::Unreviewed,
+                    warning: None,
+                }),
+                LoadResult::UnknownSchema => PlannedReviewState::Resolved(ReviewState {
+                    status: ReviewStatus::Unreviewed,
+                    warning: Some(ReviewWarning::UnknownSchema),
+                }),
+                LoadResult::Reviewed(record) => {
+                    let baseline_snapshot_id = SnapshotId::from(record.baseline_commit_id);
+                    plan.add(baseline_snapshot_id.clone(), file.review_path().clone());
+                    PlannedReviewState::Compare {
+                        baseline_snapshot_id,
+                    }
+                }
+            };
+            planned_states.push(planned_state);
+        }
+
+        let results = self.repository.compare_baselines(snapshot, &plan)?;
+        snapshot
+            .files
+            .iter()
+            .zip(planned_states)
+            .map(|(file, planned_state)| match planned_state {
+                PlannedReviewState::Resolved(state) => Ok(state),
+                PlannedReviewState::Compare {
+                    baseline_snapshot_id,
+                } => match results.get(&baseline_snapshot_id) {
+                    Some(BaselineComparison::Missing) => {
+                        self.store
+                            .unreview(review_unit, file.review_path().as_bytes())?;
+                        Ok(ReviewState {
+                            status: ReviewStatus::Unreviewed,
+                            warning: Some(ReviewWarning::BaselineExpired),
+                        })
+                    }
+                    Some(BaselineComparison::Compared { changed_paths }) => Ok(ReviewState {
+                        status: if changed_paths.contains(file.review_path()) {
+                            ReviewStatus::ChangedSinceReview
+                        } else {
+                            ReviewStatus::Reviewed
+                        },
+                        warning: None,
+                    }),
+                    None => eyre::bail!("comparison plan omitted a stored baseline"),
+                },
+            })
+            .collect()
     }
 
     /// Load the diff and both complete file versions for one changed path.

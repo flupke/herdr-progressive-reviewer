@@ -1,11 +1,14 @@
 //! Jujutsu change snapshots.
 
 use std::ffi::OsString;
+use std::os::unix::ffi::OsStringExt;
 use std::path::Path;
 
+use super::jj_git_diff::{DESCRIPTION_DIFF_PATHS, JjGitDiffParser};
 use super::{
-    ChangeId, ChangedFile, Interdiff, RepoPath, Repository, RepositoryBackend, RevisionCandidate,
-    RevisionDirection, RevisionHistoryLine, Snapshot, SnapshotIdentity,
+    BaselineComparison, BaselineComparisonPlan, BaselineComparisonResults, ChangeId, ChangedFile,
+    Interdiff, RepoPath, Repository, RepositoryBackend, RevisionCandidate, RevisionDirection,
+    RevisionHistoryLine, Snapshot, SnapshotIdentity,
 };
 use crate::{Error, Result};
 
@@ -22,7 +25,6 @@ const STATS_TEMPLATE: &str = concat!(
 );
 const DESCRIPTION_DIFF_HEADER: &[u8] =
     b"diff --git a/JJ-COMMIT-DESCRIPTION b/JJ-COMMIT-DESCRIPTION\n";
-const DESCRIPTION_DIFF_PATHS: &[u8] = b"--- JJ-COMMIT-DESCRIPTION\n+++ JJ-COMMIT-DESCRIPTION\n";
 const NEXT_DIFF_HEADER: &[u8] = b"\ndiff --git ";
 const REVISION_CANDIDATE_TEMPLATE: &str = concat!(
     r#"change_id ++ "\0" ++ change_id.shortest(8) ++ "\0" ++ "#,
@@ -43,7 +45,6 @@ impl RepositoryBackend for JjBackend {
     fn set_state_root(&self, _repository_root: &Path, _state_root: &Path) {}
 
     fn current_identity(&self, repository: &Repository) -> Result<SnapshotIdentity> {
-        repository.run_jj(["status"])?;
         repository.read_jj_identity(false)
     }
 
@@ -166,6 +167,82 @@ impl RepositoryBackend for JjBackend {
                 .stdout,
         )))
     }
+
+    fn compare_baselines(
+        &self,
+        repository: &Repository,
+        snapshot: &Snapshot,
+        plan: &BaselineComparisonPlan,
+    ) -> Result<BaselineComparisonResults> {
+        let mut results = BaselineComparisonResults::default();
+        for (baseline, paths) in plan.baselines() {
+            let mut arguments = vec![
+                OsString::from("--ignore-working-copy"),
+                OsString::from("interdiff"),
+                OsString::from("--from"),
+                OsString::from(baseline.as_str()),
+                OsString::from("--to"),
+                OsString::from(snapshot.identity.snapshot_id()),
+                OsString::from("--git"),
+                OsString::from("--"),
+            ];
+            arguments.extend(paths.iter().map(jj_exact_fileset));
+            let output = repository.output_jj(arguments)?;
+            if !output.status.success() {
+                if !baseline_exists(repository, baseline.as_str())? {
+                    results.insert(baseline.clone(), BaselineComparison::Missing);
+                    continue;
+                }
+                return Err(Error::CommandFailed {
+                    operation: "read jj repository".to_owned(),
+                    code: output.status.code(),
+                });
+            }
+
+            let changed_paths = JjGitDiffParser::new(&output.stdout, paths).parse()?;
+            results.insert(
+                baseline.clone(),
+                BaselineComparison::Compared { changed_paths },
+            );
+        }
+        Ok(results)
+    }
+}
+
+fn baseline_exists(repository: &Repository, baseline: &str) -> Result<bool> {
+    Ok(repository
+        .output_jj([
+            "--ignore-working-copy",
+            "log",
+            "--no-graph",
+            "-r",
+            baseline,
+            "-T",
+            r#"commit_id ++ "\n""#,
+        ])?
+        .status
+        .success())
+}
+
+fn jj_exact_fileset(path: &RepoPath) -> OsString {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+
+    let mut fileset = b"root-file:\"".to_vec();
+    for byte in path.as_bytes() {
+        match byte {
+            b'"' => fileset.extend_from_slice(br#"\""#),
+            b'\\' => fileset.extend_from_slice(br"\\"),
+            b' '..=b'~' => fileset.push(*byte),
+            _ => fileset.extend_from_slice(&[
+                b'\\',
+                b'x',
+                HEX[usize::from(byte >> 4)],
+                HEX[usize::from(byte & 0x0f)],
+            ]),
+        }
+    }
+    fileset.push(b'"');
+    OsString::from_vec(fileset)
 }
 
 fn strip_description_diff(mut diff: Vec<u8>) -> Vec<u8> {

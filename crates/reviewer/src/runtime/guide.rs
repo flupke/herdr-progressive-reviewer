@@ -425,15 +425,11 @@ impl GuideRequestCoordinator {
         let items = if guide.review_checkpoint == review_checkpoint {
             guide.items.clone()
         } else {
-            let current_files = snapshot
-                .files
-                .iter()
-                .filter(|file| {
-                    context
-                        .tracker
-                        .status(snapshot, file)
-                        .is_ok_and(|state| state.status != ReviewStatus::Reviewed)
-                })
+            let Ok(unreviewed_files) = Self::unreviewed_files(context, snapshot) else {
+                return;
+            };
+            let current_files = unreviewed_files
+                .into_iter()
                 .filter_map(|file| {
                     Self::frozen_file(context, snapshot, file)
                         .ok()
@@ -459,16 +455,10 @@ impl GuideRequestCoordinator {
             .snapshot
             .as_ref()
             .ok_or_else(|| eyre::eyre!("the repository snapshot is not ready"))?;
-        let selected = snapshot.files.iter().filter(|file| match &scope {
-            GuideScope::File { path } => file.review_path().display() == *path,
-            GuideScope::All => context
-                .tracker
-                .status(snapshot, file)
-                .is_ok_and(|state| state.status != ReviewStatus::Reviewed),
-        });
+        let (selected_files, unreviewed_files) = Self::files_for_scope(context, snapshot, &scope)?;
         let mut frozen_diff = String::new();
         let mut files = Vec::new();
-        for file in selected {
+        for file in selected_files {
             let (frozen_file, unified) = Self::frozen_file(context, snapshot, file)?;
             let path = frozen_file.path.clone();
             writeln!(frozen_diff, "\n=== FILE {path} ===")?;
@@ -488,35 +478,8 @@ impl GuideRequestCoordinator {
         if files.is_empty() {
             eyre::bail!("the requested guide scope has no visible unreviewed file");
         }
-        let (previous_items, previous_anchored_items) = match context
-            .guide_store
-            .load_guide(&review_checkpoint.review_unit)?
-        {
-            Some(guide) if guide.review_checkpoint.checkpoint == review_checkpoint.checkpoint => {
-                (guide.items, guide.anchored_items)
-            }
-            Some(guide) => {
-                let current_files = snapshot
-                    .files
-                    .iter()
-                    .filter(|file| {
-                        context
-                            .tracker
-                            .status(snapshot, file)
-                            .is_ok_and(|state| state.status != ReviewStatus::Reviewed)
-                    })
-                    .filter_map(|file| {
-                        Self::frozen_file(context, snapshot, file)
-                            .ok()
-                            .map(|value| value.0)
-                    })
-                    .collect::<Vec<_>>();
-                let mapped_items =
-                    review_guide::map_anchored_items(&guide.anchored_items, &current_files);
-                (mapped_items, guide.anchored_items)
-            }
-            None => (Vec::new(), Vec::new()),
-        };
+        let (previous_items, previous_anchored_items) =
+            Self::previous_guide_items(context, snapshot, review_checkpoint, unreviewed_files)?;
         Ok(GuideRepositorySnapshot {
             repository_root: context.repository.root().to_owned(),
             review_checkpoint: review_checkpoint.clone(),
@@ -526,6 +489,75 @@ impl GuideRequestCoordinator {
             previous_items,
             previous_anchored_items,
         })
+    }
+
+    fn files_for_scope<'a>(
+        context: &GuideOperationContext<'_>,
+        snapshot: &'a Snapshot,
+        scope: &GuideScope,
+    ) -> eyre::Result<(Vec<&'a ChangedFile>, Option<Vec<&'a ChangedFile>>)> {
+        match scope {
+            GuideScope::File { path } => Ok((
+                snapshot
+                    .files
+                    .iter()
+                    .filter(|file| file.review_path().display() == *path)
+                    .collect(),
+                None,
+            )),
+            GuideScope::All => {
+                let unreviewed_files = Self::unreviewed_files(context, snapshot)?;
+                Ok((unreviewed_files.clone(), Some(unreviewed_files)))
+            }
+        }
+    }
+
+    fn previous_guide_items(
+        context: &GuideOperationContext<'_>,
+        snapshot: &Snapshot,
+        review_checkpoint: &ReviewCheckpoint,
+        unreviewed_files: Option<Vec<&ChangedFile>>,
+    ) -> eyre::Result<(
+        Vec<review_guide::GuideItem>,
+        Vec<review_guide::AnchoredGuideItem>,
+    )> {
+        let Some(guide) = context
+            .guide_store
+            .load_guide(&review_checkpoint.review_unit)?
+        else {
+            return Ok((Vec::new(), Vec::new()));
+        };
+        if guide.review_checkpoint.checkpoint == review_checkpoint.checkpoint {
+            return Ok((guide.items, guide.anchored_items));
+        }
+
+        let unreviewed_files = match unreviewed_files {
+            Some(files) => files,
+            None => Self::unreviewed_files(context, snapshot)?,
+        };
+        let current_files = unreviewed_files
+            .into_iter()
+            .filter_map(|file| {
+                Self::frozen_file(context, snapshot, file)
+                    .ok()
+                    .map(|value| value.0)
+            })
+            .collect::<Vec<_>>();
+        let mapped_items = review_guide::map_anchored_items(&guide.anchored_items, &current_files);
+        Ok((mapped_items, guide.anchored_items))
+    }
+
+    fn unreviewed_files<'a>(
+        context: &GuideOperationContext<'_>,
+        snapshot: &'a Snapshot,
+    ) -> eyre::Result<Vec<&'a ChangedFile>> {
+        let states = context.tracker.statuses(snapshot)?;
+        Ok(snapshot
+            .files
+            .iter()
+            .zip(states)
+            .filter_map(|(file, state)| (state.status != ReviewStatus::Reviewed).then_some(file))
+            .collect())
     }
 
     pub(super) fn frozen_file(

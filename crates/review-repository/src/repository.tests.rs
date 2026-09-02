@@ -124,7 +124,7 @@ fn jj_snapshot_identity_requires_two_nonempty_ids_and_a_terminator() {
         SnapshotIdentity::parse(b"change\0commit\0description\0").unwrap(),
         SnapshotIdentity::Jj {
             change_id: super::ChangeId("change".into()),
-            commit_id: super::CommitId("commit".to_owned()),
+            snapshot_id: super::SnapshotId("commit".to_owned()),
             description: "description".to_owned(),
         }
     );

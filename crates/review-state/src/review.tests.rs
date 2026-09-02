@@ -108,3 +108,97 @@ fn unreview_removes_the_stored_review_mark(repository_type: RepoType) {
         ReviewStatus::Unreviewed
     );
 }
+
+#[test_case(RepoType::Git; "git")]
+#[test_case(RepoType::Jj; "jj")]
+fn statuses_compare_all_paths_from_one_baseline(repository_type: RepoType) {
+    let repository_files = repository_fixture(repository_type);
+    repository_files.write("first.txt", b"before\n");
+    repository_files.write("second.txt", b"before\n");
+    repository_files.new_change("review");
+    repository_files.write("first.txt", b"reviewed\n");
+    repository_files.write("second.txt", b"reviewed\n");
+    let state_directory = tempfile::tempdir().unwrap();
+    let repository = Repository::discover(repository_files.root())
+        .unwrap()
+        .with_state_root(state_directory.path());
+    let tracker = ReviewTracker::new(
+        repository.clone(),
+        ReviewStore::open(state_directory.path(), repository_files.root()).unwrap(),
+    );
+    let reviewed = complete_repository_snapshot(&repository);
+    for file in &reviewed.files {
+        tracker.mark(&reviewed, file).unwrap();
+    }
+
+    repository_files.write("first.txt", b"reviewed\nchanged\n");
+    let changed = complete_repository_snapshot(&repository);
+    let states = tracker.statuses(&changed).unwrap();
+    let statuses = changed
+        .files
+        .iter()
+        .zip(states)
+        .map(|(file, state)| (file.review_path().display(), state.status))
+        .collect::<std::collections::BTreeMap<_, _>>();
+
+    assert_eq!(
+        statuses.get("first.txt"),
+        Some(&ReviewStatus::ChangedSinceReview)
+    );
+    assert_eq!(statuses.get("second.txt"), Some(&ReviewStatus::Reviewed));
+}
+
+#[test_case(RepoType::Git; "git")]
+#[test_case(RepoType::Jj; "jj")]
+fn grouped_statuses_treat_repository_paths_as_literal(repository_type: RepoType) {
+    let special_path = r#":(glob)foo*|bar".txt"#;
+    let repository_files = repository_fixture(repository_type);
+    repository_files.write(special_path, b"before\n");
+    repository_files.new_change("review");
+    repository_files.write(special_path, b"reviewed\n");
+    let state_directory = tempfile::tempdir().unwrap();
+    let repository = Repository::discover(repository_files.root())
+        .unwrap()
+        .with_state_root(state_directory.path());
+    let tracker = ReviewTracker::new(
+        repository.clone(),
+        ReviewStore::open(state_directory.path(), repository_files.root()).unwrap(),
+    );
+    let reviewed = complete_repository_snapshot(&repository);
+    tracker.mark(&reviewed, &reviewed.files[0]).unwrap();
+
+    repository_files.write(special_path, b"reviewed\nchanged\n");
+    let changed = complete_repository_snapshot(&repository);
+
+    assert_eq!(
+        tracker.statuses(&changed).unwrap()[0].status,
+        ReviewStatus::ChangedSinceReview
+    );
+}
+
+#[test]
+fn grouped_jj_status_distinguishes_a_real_description_named_file() {
+    let special_path = "JJ-COMMIT-DESCRIPTION";
+    let repository_files = repository_fixture(RepoType::Jj);
+    repository_files.write(special_path, b"before\n");
+    repository_files.new_change("review");
+    repository_files.write(special_path, b"reviewed\n");
+    let state_directory = tempfile::tempdir().unwrap();
+    let repository = Repository::discover(repository_files.root())
+        .unwrap()
+        .with_state_root(state_directory.path());
+    let tracker = ReviewTracker::new(
+        repository.clone(),
+        ReviewStore::open(state_directory.path(), repository_files.root()).unwrap(),
+    );
+    let reviewed = complete_repository_snapshot(&repository);
+    tracker.mark(&reviewed, &reviewed.files[0]).unwrap();
+
+    repository_files.write(special_path, b"reviewed\nchanged\n");
+    let changed = complete_repository_snapshot(&repository);
+
+    assert_eq!(
+        tracker.statuses(&changed).unwrap()[0].status,
+        ReviewStatus::ChangedSinceReview
+    );
+}

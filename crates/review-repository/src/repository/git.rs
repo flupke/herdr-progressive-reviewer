@@ -1,8 +1,9 @@
 //! Git working-tree snapshots backed by a private index and object store.
 
+use std::collections::BTreeSet;
 use std::ffi::{OsStr, OsString};
 use std::fmt::Write as _;
-use std::os::unix::ffi::OsStrExt;
+use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 use std::process::Output;
 use std::sync::{Arc, Mutex};
@@ -10,8 +11,9 @@ use std::sync::{Arc, Mutex};
 use sha2::{Digest, Sha256};
 
 use super::{
-    ChangedFile, Interdiff, RepoPath, Repository, RepositoryBackend, RepositoryProcess, Snapshot,
-    SnapshotIdentity, trim_line_ending,
+    BaselineComparison, BaselineComparisonPlan, BaselineComparisonResults, ChangedFile, Interdiff,
+    RepoPath, Repository, RepositoryBackend, RepositoryProcess, Snapshot, SnapshotIdentity,
+    trim_line_ending,
 };
 use crate::{Error, Result};
 
@@ -148,7 +150,7 @@ impl GitBackend {
         )?;
         Ok(SnapshotIdentity::Git {
             base_tree: base_tree.into(),
-            snapshot_tree,
+            snapshot_id: snapshot_tree.into(),
         })
     }
 }
@@ -291,6 +293,69 @@ impl RepositoryBackend for GitBackend {
             .stdout,
         ))
     }
+
+    fn compare_baselines(
+        &self,
+        repository: &Repository,
+        snapshot: &Snapshot,
+        plan: &BaselineComparisonPlan,
+    ) -> Result<BaselineComparisonResults> {
+        let mut results = BaselineComparisonResults::default();
+        for (baseline, paths) in plan.baselines() {
+            let mut arguments = vec![
+                OsString::from("diff"),
+                OsString::from("--name-only"),
+                OsString::from("-z"),
+                OsString::from("--no-ext-diff"),
+                OsString::from("--no-textconv"),
+                OsString::from("--find-renames"),
+                OsString::from(baseline.as_str()),
+                OsString::from(snapshot.identity.snapshot_id()),
+                OsString::from("--"),
+            ];
+            arguments.extend(paths.iter().map(git_literal_pathspec));
+            let output = self.output(repository, arguments)?;
+            if !output.status.success() {
+                if !self.baseline_exists(repository, baseline.as_str())? {
+                    results.insert(baseline.clone(), BaselineComparison::Missing);
+                    continue;
+                }
+                return Err(Error::CommandFailed {
+                    operation: "read Git repository".to_owned(),
+                    code: output.status.code(),
+                });
+            }
+            let changed_paths = output
+                .stdout
+                .split(|byte| *byte == 0)
+                .filter(|path| !path.is_empty())
+                .map(|path| RepoPath::from_bytes(path.to_vec()))
+                .collect::<BTreeSet<_>>();
+            results.insert(
+                baseline.clone(),
+                BaselineComparison::Compared { changed_paths },
+            );
+        }
+        Ok(results)
+    }
+}
+
+impl GitBackend {
+    fn baseline_exists(&self, repository: &Repository, baseline: &str) -> Result<bool> {
+        Ok(self
+            .output(
+                repository,
+                ["cat-file", "-e", &format!("{baseline}^{{tree}}")],
+            )?
+            .status
+            .success())
+    }
+}
+
+fn git_literal_pathspec(path: &RepoPath) -> OsString {
+    let mut pathspec = b":(top,literal)".to_vec();
+    pathspec.extend_from_slice(path.as_bytes());
+    OsString::from_vec(pathspec)
 }
 
 fn parse_tree_id(output: &[u8], detail: &'static str) -> Result<String> {

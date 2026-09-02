@@ -14,8 +14,12 @@ use std::time::Duration;
 use crate::{Error, Result};
 use review_types::ReviewUnit;
 
+mod comparison_plan;
 mod git;
 mod jj;
+mod jj_git_diff;
+
+pub use comparison_plan::{BaselineComparison, BaselineComparisonPlan, BaselineComparisonResults};
 
 const COMMAND_OUTPUT_LIMIT: usize = 256 * 1024 * 1024;
 
@@ -69,14 +73,20 @@ impl From<&ReviewUnit> for ChangeId {
     }
 }
 
-/// A full jj commit identifier.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct CommitId(String);
+/// An exact repository snapshot identifier.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct SnapshotId(String);
 
-impl CommitId {
+impl SnapshotId {
     /// Get the identifier text.
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+}
+
+impl From<String> for SnapshotId {
+    fn from(value: String) -> Self {
+        Self(value)
     }
 }
 
@@ -526,7 +536,7 @@ pub enum SnapshotIdentity {
         /// The stable jj change ID.
         change_id: ChangeId,
         /// The exact jj commit ID.
-        commit_id: CommitId,
+        snapshot_id: SnapshotId,
         /// The full commit description.
         description: String,
     },
@@ -535,7 +545,7 @@ pub enum SnapshotIdentity {
         /// The tree at `HEAD` that defines the review scope.
         base_tree: ReviewUnit,
         /// The exact captured working-tree state.
-        snapshot_tree: String,
+        snapshot_id: SnapshotId,
     },
 }
 
@@ -567,7 +577,7 @@ impl SnapshotIdentity {
 
         Ok(Self::Jj {
             change_id: ChangeId(change_id.into()),
-            commit_id: CommitId(commit_id.to_owned()),
+            snapshot_id: SnapshotId(commit_id.to_owned()),
             description: description.to_owned(),
         })
     }
@@ -583,8 +593,7 @@ impl SnapshotIdentity {
     /// Get the exact identifier for the captured repository state.
     pub fn snapshot_id(&self) -> &str {
         match self {
-            Self::Jj { commit_id, .. } => commit_id.as_str(),
-            Self::Git { snapshot_tree, .. } => snapshot_tree,
+            Self::Jj { snapshot_id, .. } | Self::Git { snapshot_id, .. } => snapshot_id.as_str(),
         }
     }
 
@@ -658,6 +667,12 @@ trait RepositoryBackend: std::fmt::Debug + Send + Sync {
         snapshot: &Snapshot,
         path: &RepoPath,
     ) -> Result<Interdiff>;
+    fn compare_baselines(
+        &self,
+        repository: &Repository,
+        snapshot: &Snapshot,
+        plan: &BaselineComparisonPlan,
+    ) -> Result<BaselineComparisonResults>;
 }
 
 /// The repository implementation selected during discovery.
@@ -910,6 +925,15 @@ impl Repository {
     ) -> Result<Interdiff> {
         self.backend
             .interdiff(self, baseline_snapshot_id, snapshot, path)
+    }
+
+    /// Execute all stored-baseline comparisons in one backend plan.
+    pub fn compare_baselines(
+        &self,
+        snapshot: &Snapshot,
+        plan: &BaselineComparisonPlan,
+    ) -> Result<BaselineComparisonResults> {
+        self.backend.compare_baselines(self, snapshot, plan)
     }
 
     fn read_jj_identity(&self, ignore_working_copy: bool) -> Result<SnapshotIdentity> {
