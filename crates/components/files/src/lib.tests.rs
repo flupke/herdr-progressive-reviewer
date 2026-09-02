@@ -72,6 +72,40 @@ fn repository_and_keyboard_inputs_publish_the_selected_file() {
 }
 
 #[test]
+fn moving_back_to_the_first_file_reveals_its_parent_directory() {
+    let mut registry = ComponentEventBus::<Action>::new();
+    let target = registry.mount(FilesComponent::new);
+    registry
+        .publish_envelope(EventEnvelope::new(RepositoryFilesChanged {
+            review_checkpoint: ReviewCheckpoint::new("change", "commit"),
+            files: vec![
+                FileSummary::new("parent/first.rs", ReviewStatus::Unreviewed),
+                FileSummary::new("second.rs", ReviewStatus::Unreviewed),
+            ],
+        }))
+        .expect("repository event must dispatch");
+    registry
+        .publish_envelope(EventEnvelope::new(FilesViewportChanged { rows: 2 }))
+        .expect("viewport event must dispatch");
+
+    for delta in [1, -1] {
+        registry
+            .dispatch_hovered_input(
+                &EventEnvelope::new(PointerInput {
+                    kind: PointerInputKind::Scroll(delta),
+                    position: None,
+                }),
+                target,
+            )
+            .expect("pointer input must dispatch");
+    }
+
+    let rendered = rendered_files(&registry, target);
+    assert!(rendered.contains("parent/"), "{rendered:?}");
+    assert!(rendered.contains("first.rs"), "{rendered:?}");
+}
+
+#[test]
 fn rendering_shows_review_state_and_line_statistics() {
     let mut registry = ComponentEventBus::<Action>::new();
     let target = registry.mount(FilesComponent::new);
@@ -242,9 +276,9 @@ fn pointer_input_can_insert_a_path_without_loading_its_diff() {
                 kind: PointerInputKind::ControlClick,
                 position: Some(PointerPosition {
                     terminal_column: 2,
-                    terminal_row: 1,
+                    terminal_row: 2,
                     component_column: 2,
-                    component_row: 0,
+                    component_row: 1,
                 }),
             }),
             target,

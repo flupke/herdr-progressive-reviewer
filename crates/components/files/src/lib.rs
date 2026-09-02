@@ -574,6 +574,10 @@ impl FilesComponent {
             self.scroll = 0;
             return;
         };
+        if self.tree.visible_files().next() == Some(self.selected) {
+            self.scroll = row.saturating_add(1).saturating_sub(self.page_rows);
+            return;
+        }
         if row < self.scroll {
             self.scroll = row;
         } else if row >= self.scroll.saturating_add(self.page_rows) {
