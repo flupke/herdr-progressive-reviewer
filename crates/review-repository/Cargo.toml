@@ -9,6 +9,7 @@ license.workspace = true
 review-types = { path = "../review-types" }
 serde.workspace = true
 sha2.workspace = true
+strip-ansi-escapes.workspace = true
 strum.workspace = true
 thiserror.workspace = true
 

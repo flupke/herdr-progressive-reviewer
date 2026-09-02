@@ -49,7 +49,8 @@ use ui_events::{
     AnimationTick, DiffContentLoadFailed, DiffContentLoaded, FileSummary, OutputDeliveryFinished,
     RepositoryFilesChanged, RepositoryMetadataChanged, RepositoryRefreshFinished,
     RepositoryRefreshStarted, ReviewGuideChanged, ReviewStateSaved, RevisionCandidatesLoaded,
-    RevisionEditFailed, SourceContentLoadFailed, SourceContentLoaded, ToastExpirationTick,
+    RevisionEditFailed, RevisionHistoryLoadId, RevisionHistoryLoaded, SourceContentLoadFailed,
+    SourceContentLoaded, ToastExpirationTick,
 };
 
 use crate::watcher::RepositoryWatcher;
@@ -136,6 +137,7 @@ impl FrozenSourceLoader<'_> {
 enum WorkerCommand {
     Poll,
     LoadRevisionCandidates(RevisionDirection),
+    LoadRevisionHistory(RevisionHistoryLoadId),
     EditRevision(ChangeId),
     LoadDiff {
         review_checkpoint: ReviewCheckpoint,
@@ -514,9 +516,9 @@ impl RuntimeActionDispatcher<'_> {
             action @ (Action::LoadDiff { .. } | Action::LoadDiffs { .. }) => {
                 self.diff_worker_command(action)
             }
-            action @ (Action::LoadRevisionCandidates(_) | Action::EditRevision { .. }) => {
-                Ok(Some(Self::revision_worker_command(action)))
-            }
+            action @ (Action::LoadRevisionCandidates(_)
+            | Action::LoadRevisionHistory { .. }
+            | Action::EditRevision { .. }) => Ok(Some(Self::revision_worker_command(action))),
             Action::LoadSource {
                 snapshot_id,
                 mut location,
@@ -573,6 +575,7 @@ impl RuntimeActionDispatcher<'_> {
             Action::LoadRevisionCandidates(direction) => {
                 WorkerCommand::LoadRevisionCandidates(direction)
             }
+            Action::LoadRevisionHistory { load_id } => WorkerCommand::LoadRevisionHistory(load_id),
             Action::EditRevision { change_id } => WorkerCommand::EditRevision(change_id),
             _ => unreachable!("revision conversion accepts only revision actions"),
         }
@@ -747,6 +750,7 @@ impl Worker {
         match command {
             command @ (WorkerCommand::Poll
             | WorkerCommand::LoadRevisionCandidates(_)
+            | WorkerCommand::LoadRevisionHistory(_)
             | WorkerCommand::EditRevision(_)) => self.handle_repository_command(command, messages),
             command @ (WorkerCommand::LoadDiff { .. } | WorkerCommand::LoadSource { .. }) => {
                 self.handle_document_command(command, messages)
@@ -784,6 +788,13 @@ impl Worker {
                     .map_err(|error| error.to_string());
                 let _ = messages.send(RevisionCandidatesLoaded { direction, result });
             }
+            WorkerCommand::LoadRevisionHistory(load_id) => {
+                let result = self
+                    .repository
+                    .revision_history()
+                    .map_err(|error| error.to_string());
+                let _ = messages.send(RevisionHistoryLoaded { load_id, result });
+            }
             WorkerCommand::EditRevision(change_id) => self.edit_revision(messages, &change_id),
             _ => unreachable!("repository commands accept only repository work"),
         }
@@ -796,7 +807,7 @@ impl Worker {
                 Some("could not load the selected revision".to_owned())
             }
             Ok(true) => return,
-            Ok(false) => None,
+            Ok(false) => Some("selected revision is immutable or unavailable".to_owned()),
             Err(error) => Some(error.to_string()),
         };
         let _ = messages.send(RevisionEditFailed { message: failure });

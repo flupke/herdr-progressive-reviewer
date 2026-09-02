@@ -5,7 +5,7 @@ use std::path::Path;
 
 use super::{
     ChangeId, ChangedFile, Interdiff, RepoPath, Repository, RepositoryBackend, RevisionCandidate,
-    RevisionDirection, Snapshot, SnapshotIdentity,
+    RevisionDirection, RevisionHistoryLine, Snapshot, SnapshotIdentity,
 };
 use crate::{Error, Result};
 
@@ -27,6 +27,13 @@ const NEXT_DIFF_HEADER: &[u8] = b"\ndiff --git ";
 const REVISION_CANDIDATE_TEMPLATE: &str = concat!(
     r#"change_id ++ "\0" ++ change_id.shortest(8) ++ "\0" ++ "#,
     r#"description.first_line() ++ "\0""#,
+);
+const REVISION_HISTORY_REVSET: &str = "(descendants(heads(ancestors(@) & immutable())) & mutable())
+    | heads(ancestors(@) & immutable())
+    | (children(heads(ancestors(@) & immutable())) & immutable())";
+const REVISION_HISTORY_TEMPLATE: &str = concat!(
+    r#""\x1e" ++ change_id ++ ":" ++ change_id.shortest(8) ++ ":" ++ if(current_working_copy, "1", "0") ++ ":" ++ if(immutable, "1", "0") ++ "\x1f" ++ "\x1d" ++ "#,
+    r#"change_id.shortest(8) ++ " " ++ description.first_line() ++ "\n""#,
 );
 
 #[derive(Debug)]
@@ -199,6 +206,125 @@ pub(super) fn revision_candidates(
         REVISION_CANDIDATE_TEMPLATE,
     ])?;
     parse_revision_candidates(&output.stdout)
+}
+
+pub(super) fn revision_history(repository: &Repository) -> Result<Vec<RevisionHistoryLine>> {
+    let output = repository.run_jj([
+        "--ignore-working-copy",
+        "--color=always",
+        "log",
+        "-r",
+        REVISION_HISTORY_REVSET,
+        "-T",
+        REVISION_HISTORY_TEMPLATE,
+    ])?;
+    parse_revision_history(&output.stdout)
+}
+
+fn parse_revision_history(output: &[u8]) -> Result<Vec<RevisionHistoryLine>> {
+    output
+        .split(|byte| *byte == b'\n')
+        .filter(|line| !line.is_empty())
+        .map(parse_revision_history_line)
+        .collect()
+}
+
+fn parse_revision_history_line(line: &[u8]) -> Result<RevisionHistoryLine> {
+    let record_start = line.iter().position(|byte| *byte == 0x1e);
+    let record_end = record_start.and_then(|start| {
+        line[start + 1..]
+            .iter()
+            .position(|byte| *byte == 0x1f)
+            .map(|offset| start + offset + 1)
+    });
+    let display_start = record_end.and_then(|end| {
+        line[end + 1..]
+            .iter()
+            .position(|byte| *byte == 0x1d)
+            .map(|offset| end + offset + 2)
+    });
+    let (text, short_change_id, change_id, is_current, is_immutable) =
+        match (record_start, record_end, display_start) {
+            (Some(start), Some(end), Some(display_start)) => {
+                let metadata = strip_ansi_escapes::strip(&line[start + 1..end]);
+                let mut fields = metadata.rsplitn(4, |byte| *byte == b':');
+                let immutable_marker = fields.next();
+                let current_marker = fields.next();
+                let short_change_id = fields.next();
+                let change_id = fields.next();
+                let (
+                    Some(immutable_marker),
+                    Some(current_marker),
+                    Some(short_change_id),
+                    Some(change_id),
+                ) = (immutable_marker, current_marker, short_change_id, change_id)
+                else {
+                    return Err(Error::Protocol {
+                        operation: "read jj revision history".to_owned(),
+                        detail: "jj returned incomplete revision history metadata",
+                    });
+                };
+                let change_id = std::str::from_utf8(change_id).map_err(|_| Error::Protocol {
+                    operation: "read jj revision history".to_owned(),
+                    detail: "jj returned a non-UTF-8 revision identifier",
+                })?;
+                let short_change_id =
+                    std::str::from_utf8(short_change_id).map_err(|_| Error::Protocol {
+                        operation: "read jj revision history".to_owned(),
+                        detail: "jj returned a non-UTF-8 short revision identifier",
+                    })?;
+                let is_current = parse_revision_history_marker(
+                    current_marker,
+                    "jj returned an invalid current revision marker",
+                )?;
+                let is_immutable = parse_revision_history_marker(
+                    immutable_marker,
+                    "jj returned an invalid immutable revision marker",
+                )?;
+                let mut text = line[..start].to_vec();
+                text.extend_from_slice(&line[display_start..]);
+                (
+                    text,
+                    Some(short_change_id.to_owned()),
+                    Some(ChangeId::from(change_id.to_owned())),
+                    is_current,
+                    is_immutable,
+                )
+            }
+            (None, None, None) => (line.to_vec(), None, None, false, false),
+            _ => {
+                return Err(Error::Protocol {
+                    operation: "read jj revision history".to_owned(),
+                    detail: "jj returned an incomplete revision history record",
+                });
+            }
+        };
+    let plain_text = strip_ansi_escapes::strip(&text);
+    Ok(RevisionHistoryLine {
+        text: String::from_utf8(text).map_err(|_| Error::Protocol {
+            operation: "read jj revision history".to_owned(),
+            detail: "jj returned non-UTF-8 revision history text",
+        })?,
+        plain_text: String::from_utf8(plain_text).map_err(|_| Error::Protocol {
+            operation: "read jj revision history".to_owned(),
+            detail: "jj returned non-UTF-8 plain revision history text",
+        })?,
+        short_change_id,
+        change_id,
+        is_current,
+        is_immutable,
+    })
+}
+
+fn parse_revision_history_marker(marker: &[u8], invalid_detail: &'static str) -> Result<bool> {
+    match marker {
+        b"0" => Ok(false),
+        b"1" => Ok(true),
+        _ => Err(Error::Protocol {
+            operation: "read jj revision history".to_owned(),
+            detail: invalid_detail,
+        }),
+    }
 }
 
 fn parse_revision_candidates(output: &[u8]) -> Result<Vec<RevisionCandidate>> {

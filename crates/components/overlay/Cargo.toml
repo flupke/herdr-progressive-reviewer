@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 component-core = { path = "../../component-core" }
+component-modal = { path = "../../component-modal" }
 ratatui.workspace = true
 ratatui-markdown.workspace = true
 review-lsp = { path = "../../review-lsp" }

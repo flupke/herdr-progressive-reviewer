@@ -7,16 +7,17 @@ mod popup;
 mod shortcut_help;
 
 use component_core::{AnyInput, Component, ComponentSubscriptions, InputScope};
+use component_modal::{ModalComponent, ModalPointerInput, ModalPointerInputMatcher};
 use ratatui::buffer::Buffer;
-use ratatui::layout::{Position, Rect};
+use ratatui::layout::Rect;
 use review_lsp::{Event as LspEvent, Operation, Query};
 use syntax_highlighting::SyntaxHighlighter;
 use toasts::{ToastId, ToastKind, ToastState};
 use ui_actions::Action;
 use ui_events::{
     CommitMessageToggleRequested, ContextMenuRequested, LspQueryContext, LspQueryRequested,
-    PointerInput, PointerInputKind, RepositoryMetadataChanged, ReviewGuideStatusChanged,
-    ToastExpirationTick, ToastRequested, ViewportChanged,
+    PointerInputKind, RepositoryMetadataChanged, ReviewGuideStatusChanged, ToastExpirationTick,
+    ToastRequested, ViewportChanged,
 };
 use ui_shortcuts::{ApplicationShortcut, Key, ShortcutCommand, ShortcutMatcher, ShortcutSet};
 use ui_theme::{Palette, Theme};
@@ -63,7 +64,7 @@ impl OverlayComponent {
     }
 
     pub fn is_modal(&self) -> bool {
-        self.active_modal.is_some() || self.hover.is_open() || self.source_context_menu.is_some()
+        self.modal_area().is_some()
     }
 
     pub fn render(&self, area: Rect, buffer: &mut Buffer) {
@@ -221,35 +222,45 @@ impl OverlayComponent {
         }
     }
 
-    fn pointer_input(&mut self, input: PointerInput) -> Vec<Action> {
+    fn pointer_input(&mut self, input: ModalPointerInput) -> Vec<Action> {
+        let ModalPointerInput::Deliver(input) = input else {
+            self.dismiss_modal();
+            return Vec::new();
+        };
         if !matches!(input.kind, PointerInputKind::Click { .. }) {
             return Vec::new();
         }
         let Some(position) = input.position else {
             return Vec::new();
         };
-        let column = position.terminal_column;
         let row = position.terminal_row;
         if let Some(menu) = self.source_context_menu.take() {
             let area = menu.area(self.viewport);
-            if area.contains(Position::new(column, row))
-                && let Some((operation, query)) = menu.query_at_row(row, area)
-            {
+            if let Some((operation, query)) = menu.query_at_row(row, area) {
                 return vec![self.start_lsp_query(operation, query)];
             }
-            return Vec::new();
-        }
-        let popup = match self.active_modal {
-            Some(ModalOverlay::CommitMessage) => CommitMessageOverlay::area(self.viewport),
-            Some(ModalOverlay::ShortcutHelp) => ShortcutHelpOverlay::area(self.viewport),
-            None if self.hover.is_open() => HoverOverlay::area(self.viewport),
-            None => return Vec::new(),
-        };
-        if !popup.contains(Position::new(column, row)) {
-            self.active_modal = None;
-            self.hover.close();
         }
         Vec::new()
+    }
+
+    fn dismiss_modal(&mut self) {
+        if self.source_context_menu.take().is_some() {
+            return;
+        }
+        self.active_modal = None;
+        self.hover.close();
+    }
+
+    fn active_modal_area(&self) -> Option<Rect> {
+        if let Some(menu) = &self.source_context_menu {
+            return Some(menu.area(self.viewport));
+        }
+        match self.active_modal {
+            Some(ModalOverlay::CommitMessage) => Some(CommitMessageOverlay::area(self.viewport)),
+            Some(ModalOverlay::ShortcutHelp) => Some(ShortcutHelpOverlay::area(self.viewport)),
+            None if self.hover.is_open() => Some(HoverOverlay::area(self.viewport)),
+            None => None,
+        }
     }
 
     fn source_context_menu_key(&mut self, key: Key) -> Vec<Action> {
@@ -327,7 +338,17 @@ impl Component<Action> for OverlayComponent {
             ShortcutMatcher::new(ShortcutSet::Overlay),
             Self::open_overlay,
         );
-        subscriptions.subscribe_input(InputScope::Hovered, AnyInput, Self::pointer_input);
+        subscriptions.subscribe_input(
+            InputScope::Hovered,
+            ModalPointerInputMatcher,
+            Self::pointer_input,
+        );
+    }
+}
+
+impl ModalComponent for OverlayComponent {
+    fn modal_area(&self) -> Option<Rect> {
+        self.active_modal_area()
     }
 }
 

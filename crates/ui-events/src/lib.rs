@@ -369,6 +369,24 @@ pub struct RevisionCandidatesLoaded {
     pub result: Result<Vec<review_repository::repository::RevisionCandidate>, String>,
 }
 
+/// Identity of one revision-history load requested by the UI.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RevisionHistoryLoadId(u64);
+
+impl RevisionHistoryLoadId {
+    /// Create an identity from the component-local sequence number.
+    pub const fn new(value: u64) -> Self {
+        Self(value)
+    }
+}
+
+/// Terminal-rendered revision history returned from repository work.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RevisionHistoryLoaded {
+    pub load_id: RevisionHistoryLoadId,
+    pub result: Result<Vec<review_repository::repository::RevisionHistoryLine>, String>,
+}
+
 /// A requested revision edit did not produce a new repository snapshot.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RevisionEditFailed {

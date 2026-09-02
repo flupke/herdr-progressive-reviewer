@@ -2,8 +2,8 @@ use std::path::PathBuf;
 use std::time::Instant;
 use ui_events::{
     AnimationTick, FileSummary, RepositoryFilesChanged, RepositoryMetadataChanged,
-    ReviewGuideChanged, RevisionCandidatesLoaded, RevisionEditFailed, SourceContentLoaded,
-    ToastExpirationTick,
+    ReviewGuideChanged, RevisionCandidatesLoaded, RevisionEditFailed, RevisionHistoryLoadId,
+    RevisionHistoryLoaded, SourceContentLoaded, ToastExpirationTick,
 };
 
 use ratatui::Terminal;
@@ -13,7 +13,9 @@ use review_guide::{
 };
 use review_lsp::{Event as LspEvent, Operation, SourceLocation};
 use review_repository::diff::DiffRow;
-use review_repository::repository::{ChangeId, RevisionCandidate, RevisionDirection};
+use review_repository::repository::{
+    ChangeId, RevisionCandidate, RevisionDirection, RevisionHistoryLine,
+};
 use review_state::ReviewStatus;
 use review_store::OutputTarget;
 use review_types::ReviewUnit;
@@ -148,7 +150,7 @@ fn guide_prefixes_do_not_block_revision_navigation() {
             .is_empty()
     );
     assert_eq!(
-        parent_application.update(UserInput::Key(Key::Char('g'))),
+        parent_application.update(UserInput::Key(Key::Char('v'))),
         vec![Action::LoadRevisionCandidates(RevisionDirection::Parents)]
     );
 
@@ -170,7 +172,7 @@ fn guide_prefixes_do_not_block_revision_navigation() {
             .is_empty()
     );
     assert_eq!(
-        child_application.update(UserInput::Key(Key::Char('g'))),
+        child_application.update(UserInput::Key(Key::Char('v'))),
         vec![Action::LoadRevisionCandidates(RevisionDirection::Children)]
     );
 }
@@ -204,7 +206,7 @@ fn completed_guide_shortcuts_do_not_leave_stale_revision_prefixes() {
             .is_empty()
     );
     assert_eq!(
-        application.update(UserInput::Key(Key::Char('g'))),
+        application.update(UserInput::Key(Key::Char('v'))),
         [Action::LoadRevisionCandidates(RevisionDirection::Parents)]
     );
 }
@@ -235,7 +237,7 @@ fn completed_guide_navigation_does_not_block_the_next_revision_shortcut() {
             .is_empty()
     );
     assert_eq!(
-        application.update(UserInput::Key(Key::Char('g'))),
+        application.update(UserInput::Key(Key::Char('v'))),
         [Action::LoadRevisionCandidates(RevisionDirection::Children)]
     );
 }
@@ -255,11 +257,111 @@ fn revision_navigation_works_while_the_files_pane_has_focus() {
             .update(UserInput::Key(Key::Char('[')))
             .is_empty()
     );
-    let actions = application.update(UserInput::Key(Key::Char('g')));
+    let actions = application.update(UserInput::Key(Key::Char('v')));
     assert_eq!(
         actions,
         vec![Action::LoadRevisionCandidates(RevisionDirection::Parents)]
     );
+}
+
+#[test]
+fn revision_selector_requests_rendered_history() {
+    let mut application = application();
+    publish_repository(
+        &mut application,
+        ReviewCheckpoint::new(ReviewUnit::from("change"), "commit".to_owned()),
+        String::new(),
+        vec![FileSummary::new("src/lib.rs", ReviewStatus::Unreviewed)],
+    );
+
+    assert!(
+        application
+            .update(UserInput::Key(Key::Char('v')))
+            .is_empty()
+    );
+    assert_eq!(
+        application.update(UserInput::Key(Key::Char('v'))),
+        [Action::LoadRevisionHistory {
+            load_id: RevisionHistoryLoadId::new(0),
+        }]
+    );
+}
+
+#[test]
+fn lsp_startup_does_not_close_the_revision_selector() {
+    let mut application = application();
+    publish_repository(
+        &mut application,
+        ReviewCheckpoint::new(ReviewUnit::from("change"), "commit".to_owned()),
+        String::new(),
+        vec![FileSummary::new("src/lib.rs", ReviewStatus::Unreviewed)],
+    );
+    application.update(UserInput::Key(Key::Char('v')));
+    application.update(UserInput::Key(Key::Char('v')));
+    application.publish(RevisionHistoryLoaded {
+        load_id: RevisionHistoryLoadId::new(0),
+        result: Ok(vec![RevisionHistoryLine {
+            text: "change current revision".to_owned(),
+            plain_text: "change current revision".to_owned(),
+            short_change_id: Some("change".to_owned()),
+            change_id: Some(ChangeId::from("change".to_owned())),
+            is_current: true,
+            is_immutable: false,
+        }]),
+    });
+
+    application.publish(LspEvent::Initializing);
+
+    assert!(rendered_application(&application).contains("Select revision"));
+    assert!(rendered_application(&application).contains("current revision"));
+}
+
+#[test]
+fn clicking_outside_the_revision_selector_closes_it() {
+    let mut application = application();
+    publish_repository(
+        &mut application,
+        ReviewCheckpoint::new(ReviewUnit::from("change"), "commit".to_owned()),
+        String::new(),
+        vec![FileSummary::new("src/lib.rs", ReviewStatus::Unreviewed)],
+    );
+    application.update(UserInput::Key(Key::Char('v')));
+    application.update(UserInput::Key(Key::Char('v')));
+    application.publish(RevisionHistoryLoaded {
+        load_id: RevisionHistoryLoadId::new(0),
+        result: Ok(vec![RevisionHistoryLine {
+            text: "change current revision".to_owned(),
+            plain_text: "change current revision".to_owned(),
+            short_change_id: Some("change".to_owned()),
+            change_id: Some(ChangeId::from("change".to_owned())),
+            is_current: true,
+            is_immutable: false,
+        }]),
+    });
+    assert!(rendered_application(&application).contains("Select revision"));
+
+    application.update(UserInput::MouseClick {
+        column: 0,
+        row: 0,
+        insert_path: false,
+    });
+
+    assert!(!rendered_application(&application).contains("Select revision"));
+}
+
+#[test]
+fn clicking_outside_the_help_popup_closes_it() {
+    let mut application = application();
+    application.update(UserInput::Key(Key::Char('?')));
+    assert!(rendered_application(&application).contains("Keyboard shortcuts"));
+
+    application.update(UserInput::MouseClick {
+        column: 0,
+        row: 0,
+        insert_path: false,
+    });
+
+    assert!(!rendered_application(&application).contains("Keyboard shortcuts"));
 }
 
 #[test]
@@ -631,7 +733,7 @@ fn revision_navigation_restores_the_file_after_the_new_files_arrive() {
     );
 
     application.update(UserInput::Key(Key::Char('[')));
-    application.update(UserInput::Key(Key::Char('g')));
+    application.update(UserInput::Key(Key::Char('v')));
     assert_eq!(
         application.publish(RevisionCandidatesLoaded {
             direction: RevisionDirection::Parents,
@@ -670,7 +772,7 @@ fn failed_history_revision_edit_keeps_the_previous_location_available() {
         vec![FileSummary::new("src/lib.rs", ReviewStatus::Unreviewed)],
     );
     application.update(UserInput::Key(Key::Char('[')));
-    application.update(UserInput::Key(Key::Char('g')));
+    application.update(UserInput::Key(Key::Char('v')));
     application.publish(RevisionCandidatesLoaded {
         direction: RevisionDirection::Parents,
         result: Ok(vec![RevisionCandidate {

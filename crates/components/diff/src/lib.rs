@@ -602,7 +602,8 @@ impl DiffComponent {
             NavigationShortcut::GoToNextLocation
             | NavigationShortcut::GoToPreviousLocation
             | NavigationShortcut::GoToChildRevision
-            | NavigationShortcut::GoToParentRevision => return,
+            | NavigationShortcut::GoToParentRevision
+            | NavigationShortcut::OpenRevisionSelector => return,
         };
         let target_row = target_row.min(last_row);
         if matches!(

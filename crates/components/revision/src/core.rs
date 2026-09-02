@@ -1,0 +1,463 @@
+//! Revision component state and event handling.
+
+use crate::ui::{RevisionHistoryInputResult, RevisionHistorySelection, SelectableRevision};
+use component_core::{
+    Component, ComponentSubscriptions, EventPublisher, InputMatcher, InputResolution, InputScope,
+};
+use component_modal::{ModalComponent, ModalPointerInput, ModalPointerInputMatcher};
+use ratatui::buffer::Buffer;
+use ratatui::layout::Rect;
+use review_repository::repository::{
+    ChangeId, RevisionCandidate, RevisionDirection, RevisionHistoryLine,
+};
+use ui_actions::Action;
+use ui_events::{
+    CurrentReviewLocationChanged, RepositoryFilesChanged, RepositoryRefreshFinished,
+    RepositoryRefreshStarted, ReviewLocation, ReviewLocationJumped, ReviewLocationRestoreRequested,
+    RevisionCandidatesLoaded, RevisionEditFailed, RevisionHistoryLoadId, RevisionHistoryLoaded,
+    ToastRequested, ViewportChanged,
+};
+use ui_shortcuts::{Key, NavigationShortcut, ShortcutCommand, ShortcutMatcher, ShortcutSet};
+use ui_theme::Palette;
+
+fn revision_history_origin(lines: &[RevisionHistoryLine]) -> Option<ReviewLocation> {
+    lines
+        .iter()
+        .find(|line| line.is_current)
+        .and_then(|line| line.change_id.as_ref())
+        .map(|change_id| ReviewLocation::Revision {
+            review_unit: change_id.review_unit().clone(),
+        })
+}
+
+enum RevisionNavigationState {
+    LoadingCandidates {
+        direction: RevisionDirection,
+        origin: ReviewLocation,
+    },
+    LoadingHistory {
+        load_id: RevisionHistoryLoadId,
+        origin: Option<ReviewLocation>,
+    },
+    Selecting {
+        candidates: Vec<SelectableRevision>,
+        selected: usize,
+        origin: ReviewLocation,
+    },
+    SelectingHistory {
+        selection: RevisionHistorySelection,
+        origin: ReviewLocation,
+    },
+    Editing {
+        target_change_id: ChangeId,
+        destination: ReviewLocation,
+    },
+}
+
+/// Revision navigation state, input, and repository event handling.
+pub struct RevisionComponent {
+    events: EventPublisher,
+    palette: Palette,
+    current_location: Option<ReviewLocation>,
+    pending_repository_refreshes: usize,
+    next_history_load_id: u64,
+    state: Option<RevisionNavigationState>,
+    viewport: Rect,
+}
+
+impl RevisionComponent {
+    pub fn new(events: EventPublisher, palette: Palette) -> Self {
+        Self {
+            events,
+            palette,
+            current_location: None,
+            pending_repository_refreshes: 0,
+            next_history_load_id: 0,
+            state: None,
+            viewport: Rect::new(0, 0, 80, 24),
+        }
+    }
+
+    pub fn is_modal(&self) -> bool {
+        self.modal_area().is_some()
+    }
+
+    pub fn render(&self, area: Rect, buffer: &mut Buffer) {
+        match &self.state {
+            Some(RevisionNavigationState::Selecting {
+                candidates,
+                selected,
+                ..
+            }) => crate::ui::render_candidates(area, buffer, &self.palette, candidates, *selected),
+            Some(RevisionNavigationState::SelectingHistory { selection, .. }) => {
+                crate::ui::render_history(area, buffer, &self.palette, selection);
+            }
+            Some(RevisionNavigationState::LoadingHistory { .. }) => {
+                crate::ui::render_loading(area, buffer, &self.palette);
+            }
+            _ => {}
+        }
+    }
+
+    fn current_location_changed(&mut self, event: &CurrentReviewLocationChanged) {
+        self.current_location.clone_from(&event.location);
+    }
+
+    #[allow(clippy::trivially_copy_pass_by_ref)]
+    fn viewport_changed(&mut self, event: &ViewportChanged) {
+        self.viewport = Rect::new(0, 0, event.width, event.height);
+    }
+
+    fn pointer_input(&mut self, input: ModalPointerInput) {
+        if input == ModalPointerInput::Dismiss {
+            self.state = None;
+        }
+    }
+
+    #[allow(clippy::trivially_copy_pass_by_ref)]
+    fn refresh_started(&mut self, _event: &RepositoryRefreshStarted) {
+        self.pending_repository_refreshes = self.pending_repository_refreshes.saturating_add(1);
+    }
+
+    #[allow(clippy::trivially_copy_pass_by_ref)]
+    fn refresh_finished(&mut self, _event: &RepositoryRefreshFinished) {
+        self.pending_repository_refreshes = self.pending_repository_refreshes.saturating_sub(1);
+    }
+
+    fn repository_changed(&mut self, event: &RepositoryFilesChanged) {
+        let Some(state) = self.state.take() else {
+            return;
+        };
+        match state {
+            RevisionNavigationState::Editing {
+                target_change_id,
+                destination,
+            } if target_change_id.review_unit() == &event.review_checkpoint.review_unit => {
+                self.events.publish(ReviewLocationRestoreRequested {
+                    location: destination,
+                });
+            }
+            state => self.state = Some(state),
+        }
+    }
+
+    fn candidates_loaded(&mut self, event: &RevisionCandidatesLoaded) -> Vec<Action> {
+        let Some(state) = self.state.take() else {
+            return Vec::new();
+        };
+        match state {
+            RevisionNavigationState::LoadingCandidates { direction, origin } => {
+                if direction != event.direction {
+                    self.state =
+                        Some(RevisionNavigationState::LoadingCandidates { direction, origin });
+                    return Vec::new();
+                }
+                let Some(candidates) = self.loaded_candidates(event) else {
+                    return Vec::new();
+                };
+                self.open_direction_candidates(direction, candidates, origin)
+            }
+            state => {
+                self.state = Some(state);
+                Vec::new()
+            }
+        }
+    }
+
+    fn history_loaded(&mut self, event: &RevisionHistoryLoaded) {
+        let Some(state) = self.state.take() else {
+            return;
+        };
+        let origin = match state {
+            RevisionNavigationState::LoadingHistory { load_id, origin }
+                if load_id == event.load_id =>
+            {
+                origin
+            }
+            state => {
+                self.state = Some(state);
+                return;
+            }
+        };
+        match &event.result {
+            Ok(lines) => {
+                let Some(origin) = origin
+                    .or_else(|| self.current_location.clone())
+                    .or_else(|| revision_history_origin(lines))
+                else {
+                    self.events.publish(ToastRequested {
+                        text: "could not identify the current revision".to_owned(),
+                        kind: toasts::ToastKind::Error,
+                    });
+                    return;
+                };
+                self.state = Some(RevisionNavigationState::SelectingHistory {
+                    selection: RevisionHistorySelection::new(lines.clone()),
+                    origin,
+                });
+            }
+            Err(message) => {
+                self.events.publish(ToastRequested {
+                    text: message.clone(),
+                    kind: toasts::ToastKind::Error,
+                });
+            }
+        }
+    }
+
+    fn loaded_candidates(
+        &mut self,
+        event: &RevisionCandidatesLoaded,
+    ) -> Option<Vec<RevisionCandidate>> {
+        match &event.result {
+            Ok(candidates) => Some(candidates.clone()),
+            Err(message) => {
+                self.events.publish(ToastRequested {
+                    text: message.clone(),
+                    kind: toasts::ToastKind::Error,
+                });
+                None
+            }
+        }
+    }
+
+    fn open_direction_candidates(
+        &mut self,
+        direction: RevisionDirection,
+        candidates: Vec<RevisionCandidate>,
+        origin: ReviewLocation,
+    ) -> Vec<Action> {
+        match candidates.as_slice() {
+            [] => Vec::new(),
+            [candidate] => vec![self.begin_edit(candidate.clone(), origin)],
+            _ => {
+                self.state = Some(RevisionNavigationState::Selecting {
+                    candidates: candidates
+                        .into_iter()
+                        .map(|candidate| SelectableRevision::new(direction, candidate))
+                        .collect(),
+                    selected: 0,
+                    origin,
+                });
+                Vec::new()
+            }
+        }
+    }
+
+    fn edit_failed(&mut self, event: &RevisionEditFailed) {
+        if !matches!(self.state, Some(RevisionNavigationState::Editing { .. })) {
+            return;
+        }
+        self.state = None;
+        if let Some(message) = &event.message {
+            self.events.publish(ToastRequested {
+                text: message.clone(),
+                kind: toasts::ToastKind::Error,
+            });
+        }
+    }
+
+    fn keyboard_input(&mut self, input: RevisionInput) -> Vec<Action> {
+        let direction = match input {
+            RevisionInput::Selector(key) => return self.selector_key(key),
+            RevisionInput::Navigate(direction) => direction,
+            RevisionInput::OpenSelector => {
+                if self.state.is_some() {
+                    return Vec::new();
+                }
+                let load_id = RevisionHistoryLoadId::new(self.next_history_load_id);
+                self.next_history_load_id = self.next_history_load_id.wrapping_add(1);
+                self.state = Some(RevisionNavigationState::LoadingHistory {
+                    load_id,
+                    origin: self.current_location.clone(),
+                });
+                return vec![Action::LoadRevisionHistory { load_id }];
+            }
+        };
+        let Some(origin) = self.current_location.clone() else {
+            return Vec::new();
+        };
+        if self.state.is_some() || self.pending_repository_refreshes > 0 {
+            return Vec::new();
+        }
+        self.state = Some(RevisionNavigationState::LoadingCandidates { direction, origin });
+        vec![Action::LoadRevisionCandidates(direction)]
+    }
+
+    fn selector_key(&mut self, key: Key) -> Vec<Action> {
+        if matches!(
+            self.state,
+            Some(RevisionNavigationState::LoadingHistory { .. })
+        ) {
+            if matches!(key, Key::Escape | Key::Char('q') | Key::Quit) {
+                self.state = None;
+            }
+            return Vec::new();
+        }
+        if matches!(
+            self.state,
+            Some(RevisionNavigationState::SelectingHistory { .. })
+        ) {
+            return self.history_key(key);
+        }
+        let Some(RevisionNavigationState::Selecting {
+            candidates,
+            selected,
+            origin,
+        }) = &mut self.state
+        else {
+            return Vec::new();
+        };
+        match key {
+            Key::Char('j') | Key::Down => {
+                *selected = selected
+                    .saturating_add(1)
+                    .min(candidates.len().saturating_sub(1));
+                Vec::new()
+            }
+            Key::Char('k') | Key::Up => {
+                *selected = selected.saturating_sub(1);
+                Vec::new()
+            }
+            Key::Escape | Key::Char('q') | Key::Quit => {
+                self.state = None;
+                Vec::new()
+            }
+            Key::Enter => {
+                let Some(candidate) = candidates.get(*selected) else {
+                    return Vec::new();
+                };
+                let candidate = candidate.candidate().clone();
+                let origin = origin.clone();
+                vec![self.begin_edit(candidate, origin)]
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    fn history_key(&mut self, key: Key) -> Vec<Action> {
+        let Some(RevisionNavigationState::SelectingHistory { selection, origin }) = &mut self.state
+        else {
+            return Vec::new();
+        };
+        match selection.handle_key(key) {
+            RevisionHistoryInputResult::None => Vec::new(),
+            RevisionHistoryInputResult::Close => {
+                self.state = None;
+                Vec::new()
+            }
+            RevisionHistoryInputResult::Edit(change_id) => {
+                let origin = origin.clone();
+                vec![self.begin_edit_change_id(change_id, &origin)]
+            }
+        }
+    }
+
+    // Ownership ends the borrow of the active navigation state before this method mutates it.
+    #[allow(clippy::needless_pass_by_value)]
+    fn begin_edit(&mut self, candidate: RevisionCandidate, origin: ReviewLocation) -> Action {
+        self.begin_edit_change_id(candidate.change_id, &origin)
+    }
+
+    fn begin_edit_change_id(&mut self, change_id: ChangeId, origin: &ReviewLocation) -> Action {
+        let destination = origin.for_review_unit(change_id.review_unit().clone());
+        self.events.publish(ReviewLocationJumped {
+            origin: origin.clone(),
+            target: destination.clone(),
+        });
+        self.state = Some(RevisionNavigationState::Editing {
+            target_change_id: change_id.clone(),
+            destination,
+        });
+        Action::EditRevision { change_id }
+    }
+}
+
+impl Component<Action> for RevisionComponent {
+    fn register_subscriptions(subscriptions: &mut ComponentSubscriptions<'_, Self, Action>) {
+        subscriptions.subscribe(Self::current_location_changed);
+        subscriptions.subscribe(Self::viewport_changed);
+        subscriptions.subscribe(Self::refresh_started);
+        subscriptions.subscribe(Self::refresh_finished);
+        subscriptions.subscribe(Self::repository_changed);
+        subscriptions.subscribe(Self::candidates_loaded);
+        subscriptions.subscribe(Self::history_loaded);
+        subscriptions.subscribe(Self::edit_failed);
+        subscriptions.subscribe_input(
+            InputScope::Focused,
+            RevisionInputMatcher::new(),
+            Self::keyboard_input,
+        );
+        subscriptions.subscribe_input(
+            InputScope::Global,
+            RevisionInputMatcher::new(),
+            Self::keyboard_input,
+        );
+        subscriptions.subscribe_input(
+            InputScope::Hovered,
+            ModalPointerInputMatcher,
+            Self::pointer_input,
+        );
+    }
+}
+
+impl ModalComponent for RevisionComponent {
+    fn modal_area(&self) -> Option<Rect> {
+        let row_count = match &self.state {
+            Some(RevisionNavigationState::LoadingHistory { .. }) => 1,
+            Some(RevisionNavigationState::Selecting { candidates, .. }) => candidates.len(),
+            Some(RevisionNavigationState::SelectingHistory { selection, .. }) => {
+                selection.row_count()
+            }
+            _ => return None,
+        };
+        Some(crate::ui::selector_area(self.viewport, row_count))
+    }
+}
+
+#[derive(Clone, Copy)]
+enum RevisionInput {
+    Selector(Key),
+    Navigate(RevisionDirection),
+    OpenSelector,
+}
+
+struct RevisionInputMatcher {
+    shortcuts: ShortcutMatcher,
+}
+
+impl RevisionInputMatcher {
+    const fn new() -> Self {
+        Self {
+            shortcuts: ShortcutMatcher::new(ShortcutSet::Revision),
+        }
+    }
+}
+
+impl InputMatcher<RevisionComponent, Key> for RevisionInputMatcher {
+    type Output = RevisionInput;
+
+    fn resolve(
+        &mut self,
+        component: &RevisionComponent,
+        key: &Key,
+    ) -> InputResolution<Self::Output> {
+        if component.is_modal() {
+            return InputResolution::Matched(RevisionInput::Selector(*key));
+        }
+        match self.shortcuts.resolve_key(*key) {
+            InputResolution::NoMatch => InputResolution::NoMatch,
+            InputResolution::AwaitingMoreInput => InputResolution::AwaitingMoreInput,
+            InputResolution::Matched(ShortcutCommand::Navigation(
+                NavigationShortcut::GoToParentRevision,
+            )) => InputResolution::Matched(RevisionInput::Navigate(RevisionDirection::Parents)),
+            InputResolution::Matched(ShortcutCommand::Navigation(
+                NavigationShortcut::GoToChildRevision,
+            )) => InputResolution::Matched(RevisionInput::Navigate(RevisionDirection::Children)),
+            InputResolution::Matched(ShortcutCommand::Navigation(
+                NavigationShortcut::OpenRevisionSelector,
+            )) => InputResolution::Matched(RevisionInput::OpenSelector),
+            InputResolution::Matched(_) => unreachable!("revision shortcut set is exact"),
+        }
+    }
+}

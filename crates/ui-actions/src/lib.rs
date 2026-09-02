@@ -5,7 +5,7 @@ use review_lsp::{Operation, Query, SourceLocation};
 use review_repository::repository::{ChangeId, RevisionDirection};
 use review_store::OutputTarget;
 
-pub use ui_events::SourceLoadMode;
+pub use ui_events::{RevisionHistoryLoadId, SourceLoadMode};
 
 /// Work that the I/O layer must perform after a UI update.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -24,6 +24,8 @@ pub enum Action {
     },
     /// Find mutable jj commits next to the working-copy commit.
     LoadRevisionCandidates(RevisionDirection),
+    /// Render mutable jj history through its first immutable parent.
+    LoadRevisionHistory { load_id: RevisionHistoryLoadId },
     /// Make one jj change the working-copy commit.
     EditRevision { change_id: ChangeId },
     /// Run one LSP request at a visible disk position.

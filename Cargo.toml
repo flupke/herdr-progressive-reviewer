@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/component-core",
+    "crates/component-modal",
     "crates/components/diff",
     "crates/components/files",
     "crates/components/guide",
@@ -36,6 +37,7 @@ rust-version = "1.85"
 license = "MIT"
 
 [workspace.dependencies]
+ansi-to-tui = "7.0"
 arboard = { version = "3.6.1", default-features = false, features = ["wayland-data-control"] }
 base64 = "0.22"
 crossterm = "0.28"
@@ -55,6 +57,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"
 signal-hook = "0.3"
+strip-ansi-escapes = "0.2"
 strum = { version = "0.26", features = ["derive"] }
 syntect = { version = "5.3", default-features = false, features = ["parsing", "regex-fancy", "dump-load"] }
 tempfile = "3.20"

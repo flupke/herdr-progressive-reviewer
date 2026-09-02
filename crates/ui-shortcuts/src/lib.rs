@@ -76,6 +76,7 @@ pub enum NavigationShortcut {
     MoveHalfPageDown,
     MoveHalfPageUp,
     MoveUp,
+    OpenRevisionSelector,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -408,16 +409,21 @@ const SHORTCUTS: &[ShortcutDefinition] = &[
         ],
     },
     ShortcutDefinition {
-        description: Some("Go to a parent / child revision"),
+        description: Some("Select revisions / go to a parent / child revision"),
         bindings: &[
             ShortcutBinding::two(
+                Key::Char('v'),
+                Key::Char('v'),
+                navigation(NavigationShortcut::OpenRevisionSelector),
+            ),
+            ShortcutBinding::two(
                 Key::Char('['),
-                Key::Char('g'),
+                Key::Char('v'),
                 navigation(NavigationShortcut::GoToParentRevision),
             ),
             ShortcutBinding::two(
                 Key::Char(']'),
-                Key::Char('g'),
+                Key::Char('v'),
                 navigation(NavigationShortcut::GoToChildRevision),
             ),
         ],
@@ -452,10 +458,6 @@ const SHORTCUTS: &[ShortcutDefinition] = &[
         bindings: &[
             ShortcutBinding::alias(
                 Key::Visual,
-                application(ApplicationShortcut::StartSelection),
-            ),
-            ShortcutBinding::one(
-                Key::Char('v'),
                 application(ApplicationShortcut::StartSelection),
             ),
             ShortcutBinding::alias(
@@ -622,7 +624,9 @@ const fn is_revision_shortcut(command: ShortcutCommand) -> bool {
     matches!(
         command,
         ShortcutCommand::Navigation(
-            NavigationShortcut::GoToParentRevision | NavigationShortcut::GoToChildRevision
+            NavigationShortcut::GoToParentRevision
+                | NavigationShortcut::GoToChildRevision
+                | NavigationShortcut::OpenRevisionSelector
         )
     )
 }
@@ -632,7 +636,9 @@ const fn is_component_global_shortcut(command: ShortcutCommand) -> bool {
         command,
         ShortcutCommand::Guide(_)
             | ShortcutCommand::Navigation(
-                NavigationShortcut::GoToParentRevision | NavigationShortcut::GoToChildRevision
+                NavigationShortcut::GoToParentRevision
+                    | NavigationShortcut::GoToChildRevision
+                    | NavigationShortcut::OpenRevisionSelector
             )
             | ShortcutCommand::Application(
                 ApplicationShortcut::ShowCommitMessage
@@ -691,7 +697,7 @@ const NAMED_KEY_LABELS: &[(Key, &str)] = &[
     (Key::HalfPageUp, "Ctrl-u"),
     (Key::PreviousLocation, "Ctrl-o"),
     (Key::NextLocation, "Ctrl-i"),
-    (Key::Visual, "v"),
+    (Key::Visual, "V"),
     (Key::Expand, "l"),
     (Key::CommitMessage, "c"),
     (Key::Escape, "Esc"),

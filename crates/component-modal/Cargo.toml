@@ -1,0 +1,14 @@
+[package]
+name = "component-modal"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+component-core = { path = "../component-core" }
+ratatui.workspace = true
+ui-events = { path = "../ui-events" }
+
+[lints]
+workspace = true

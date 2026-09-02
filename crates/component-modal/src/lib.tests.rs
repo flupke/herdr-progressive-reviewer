@@ -1,0 +1,47 @@
+use component_core::{InputMatcher, InputResolution};
+use ratatui::layout::Rect;
+use ui_events::{PointerInput, PointerInputKind, PointerPosition};
+
+use super::{ModalComponent, ModalPointerInput, ModalPointerInputMatcher};
+
+struct TestModal(Option<Rect>);
+
+impl ModalComponent for TestModal {
+    fn modal_area(&self) -> Option<Rect> {
+        self.0
+    }
+}
+
+#[test]
+fn primary_click_outside_the_modal_requests_dismissal() {
+    let modal = TestModal(Some(Rect::new(10, 5, 20, 10)));
+    let input = pointer_click(4, 3);
+
+    assert_eq!(
+        ModalPointerInputMatcher.resolve(&modal, &input),
+        InputResolution::Matched(ModalPointerInput::Dismiss)
+    );
+}
+
+#[test]
+fn primary_click_inside_the_modal_stays_inside() {
+    let modal = TestModal(Some(Rect::new(10, 5, 20, 10)));
+    let input = pointer_click(12, 8);
+
+    assert_eq!(
+        ModalPointerInputMatcher.resolve(&modal, &input),
+        InputResolution::Matched(ModalPointerInput::Deliver(input))
+    );
+}
+
+fn pointer_click(column: u16, row: u16) -> PointerInput {
+    PointerInput {
+        kind: PointerInputKind::Click { insert: false },
+        position: Some(PointerPosition {
+            terminal_column: column,
+            terminal_row: row,
+            component_column: column,
+            component_row: row,
+        }),
+    }
+}

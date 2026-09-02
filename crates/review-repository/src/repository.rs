@@ -690,6 +690,23 @@ pub struct RevisionCandidate {
     pub description: String,
 }
 
+/// One terminal-rendered row in the revision history.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RevisionHistoryLine {
+    /// ANSI-colored text produced by `jj log`.
+    pub text: String,
+    /// Text without terminal control sequences, used if ANSI parsing fails.
+    pub plain_text: String,
+    /// The short change identifier shown in the terminal-rendered text.
+    pub short_change_id: Option<String>,
+    /// The full change identifier when this row represents a commit.
+    pub change_id: Option<ChangeId>,
+    /// Whether this row represents the current working-copy commit.
+    pub is_current: bool,
+    /// Whether this row is immutable context that cannot be selected.
+    pub is_immutable: bool,
+}
+
 /// A discovered jj or Git workspace.
 #[derive(Clone, Debug)]
 pub struct Repository {
@@ -812,6 +829,14 @@ impl Repository {
             return Ok(Vec::new());
         }
         jj::revision_candidates(self, direction)
+    }
+
+    /// Render the mutable graph above the immutable base and its immutable children with `jj log`.
+    pub fn revision_history(&self) -> Result<Vec<RevisionHistoryLine>> {
+        if self.repo_type != RepoType::Jj {
+            return Ok(Vec::new());
+        }
+        jj::revision_history(self)
     }
 
     /// Make one mutable jj change the working-copy commit.
