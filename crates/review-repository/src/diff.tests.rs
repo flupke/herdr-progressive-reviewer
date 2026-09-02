@@ -180,6 +180,26 @@ fn conflict_kind_adds_one_notice_only_when_markers_are_absent() {
 }
 
 #[test]
+fn resolved_conflict_markers_are_normal_diff_rows() {
+    let file = changed_file(FileKind::Conflict, FileKind::File);
+    let rows = parse_file_diff(
+        b"@@ -1,2 +1,1 @@\n-<<<<<<< conflict 1 of 1\n-old\n+resolved\n",
+        &file,
+    );
+
+    assert!(matches!(rows[1], DiffRow::Delete { old_line: 1, .. }));
+    assert!(matches!(rows[2], DiffRow::Delete { old_line: 2, .. }));
+    assert!(matches!(rows[3], DiffRow::Add { new_line: 1, .. }));
+    assert!(!rows.iter().any(|row| matches!(
+        row,
+        DiffRow::Notice {
+            kind: NoticeKind::Conflict,
+            ..
+        }
+    )));
+}
+
+#[test]
 fn reports_unknown_lines_outside_hunks_as_unsupported() {
     let rows = DiffParser::parse(b"unexpected diff output\n");
 

@@ -80,6 +80,16 @@ fn jj_file_records_require_complete_groups_and_terminators() {
 }
 
 #[test]
+fn resolved_jj_conflict_is_a_modified_file() {
+    let file = ChangedFile::parse_all(b"file\0file\0conflict\0file\0modified\0")
+        .unwrap()
+        .pop()
+        .unwrap();
+
+    assert_eq!(file.change, ChangeKind::Modified);
+}
+
+#[test]
 fn jj_statistics_require_complete_groups_and_update_matching_files() {
     let mut files = ChangedFile::parse_all(b"file\0file\0file\0file\0modified\0").unwrap();
 

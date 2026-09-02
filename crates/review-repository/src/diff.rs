@@ -81,6 +81,12 @@ struct DiffParser {
     hunk: Option<ActiveHunk>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ConflictMarkerMode {
+    HistoricalDiffRows,
+    CurrentConflictNotices,
+}
+
 #[derive(Clone, Copy, Debug)]
 struct ActiveHunk {
     old_start: u32,
@@ -92,7 +98,15 @@ struct ActiveHunk {
 }
 
 impl DiffParser {
+    #[cfg(test)]
     fn parse(output: &[u8]) -> Vec<DiffRow> {
+        Self::parse_with_conflict_markers(output, ConflictMarkerMode::CurrentConflictNotices)
+    }
+
+    fn parse_with_conflict_markers(
+        output: &[u8],
+        conflict_marker_mode: ConflictMarkerMode,
+    ) -> Vec<DiffRow> {
         if output
             .split(|byte| *byte == b'\n')
             .any(|line| line.len() > MAX_LINE_BYTES)
@@ -114,13 +128,13 @@ impl DiffParser {
             hunk: None,
         };
         for line in text.lines() {
-            parser.push(line);
+            parser.push(line, conflict_marker_mode);
         }
         parser.finish_hunk();
         parser.rows
     }
 
-    fn push(&mut self, line: &str) {
+    fn push(&mut self, line: &str, conflict_marker_mode: ConflictMarkerMode) {
         if line.starts_with("diff --git ") {
             self.finish_hunk();
             self.rows.push(DiffRow::FileHeader {
@@ -133,7 +147,7 @@ impl DiffParser {
             self.rows.push(hunk.header());
             self.hunk = Some(hunk);
         } else if let Some(hunk) = self.hunk.as_mut() {
-            hunk.push(line, &mut self.rows);
+            hunk.push(line, conflict_marker_mode, &mut self.rows);
         } else {
             self.rows.push(Self::metadata(line));
         }
@@ -216,12 +230,19 @@ impl ActiveHunk {
         }
     }
 
-    fn push(&mut self, line: &str, rows: &mut Vec<DiffRow>) {
+    fn push(
+        &mut self,
+        line: &str,
+        conflict_marker_mode: ConflictMarkerMode,
+        rows: &mut Vec<DiffRow>,
+    ) {
         if line.starts_with("\\ No newline at end of file") {
             rows.push(DiffRow::Meta {
                 text: line.to_owned(),
             });
-        } else if Self::is_conflict_marker(line) {
+        } else if conflict_marker_mode == ConflictMarkerMode::CurrentConflictNotices
+            && Self::is_conflict_marker(line)
+        {
             rows.push(DiffRow::Notice {
                 kind: NoticeKind::Conflict,
                 text: line.to_owned(),
@@ -300,7 +321,12 @@ pub fn parse_file_diff(output: &[u8], file: &ChangedFile) -> Vec<DiffRow> {
         }];
     }
 
-    let mut rows = DiffParser::parse(output);
+    let conflict_marker_mode = if file.new_kind == FileKind::Conflict {
+        ConflictMarkerMode::CurrentConflictNotices
+    } else {
+        ConflictMarkerMode::HistoricalDiffRows
+    };
+    let mut rows = DiffParser::parse_with_conflict_markers(output, conflict_marker_mode);
     for row in &mut rows {
         if let DiffRow::FileHeader {
             old_path, new_path, ..
@@ -310,7 +336,7 @@ pub fn parse_file_diff(output: &[u8], file: &ChangedFile) -> Vec<DiffRow> {
             new_path.clone_from(&file.new_path);
         }
     }
-    if file.old_kind == FileKind::Conflict || file.new_kind == FileKind::Conflict {
+    if conflict_marker_mode == ConflictMarkerMode::CurrentConflictNotices {
         let has_notice = rows.iter().any(|row| {
             matches!(
                 row,

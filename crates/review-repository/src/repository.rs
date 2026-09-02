@@ -358,10 +358,10 @@ impl ChangedFile {
     }
 
     fn jj_change(old_kind: FileKind, new_kind: FileKind, status: &str) -> Result<ChangeKind> {
-        if old_kind == FileKind::Conflict || new_kind == FileKind::Conflict {
+        if new_kind == FileKind::Conflict {
             return Ok(ChangeKind::Conflict);
         }
-        if Self::entry_type_changed(old_kind, new_kind) {
+        if old_kind != FileKind::Conflict && Self::entry_type_changed(old_kind, new_kind) {
             return Ok(ChangeKind::TypeChanged);
         }
         match status {
