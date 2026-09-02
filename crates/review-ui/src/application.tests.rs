@@ -130,6 +130,39 @@ fn publish_tick(application: &mut ReviewApplication, now: Instant) -> Vec<Action
 }
 
 #[test]
+fn making_the_selected_reviewed_file_unreviewed_loads_its_diff() {
+    let mut application = application();
+    let review_checkpoint = ReviewCheckpoint::new("change", "checkpoint");
+    let initial_actions = publish_repository(
+        &mut application,
+        review_checkpoint.clone(),
+        String::new(),
+        vec![FileSummary::new("src/lib.rs", ReviewStatus::Reviewed)],
+    );
+    assert!(
+        !initial_actions
+            .iter()
+            .any(|action| matches!(action, Action::LoadDiff { .. }))
+    );
+
+    let actions = application.update(UserInput::Key(Key::Space));
+
+    assert_eq!(
+        actions,
+        vec![
+            Action::SetReviewed {
+                path: "src/lib.rs".to_owned(),
+                reviewed: false,
+            },
+            Action::LoadDiff {
+                review_checkpoint,
+                path: "src/lib.rs".to_owned(),
+            },
+        ]
+    );
+}
+
+#[test]
 fn guide_prefixes_do_not_block_revision_navigation() {
     let mut parent_application = application();
     publish_repository(

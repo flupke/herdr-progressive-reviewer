@@ -1413,10 +1413,16 @@ fn double_clicking_a_reviewed_file_marks_it_unreviewed() {
     });
     assert_eq!(
         app.update(UserInput::MouseDoubleClick { column: 1, row: 2 }),
-        vec![Action::SetReviewed {
-            path: "reviewed.rs".to_owned(),
-            reviewed: false,
-        }]
+        vec![
+            Action::SetReviewed {
+                path: "reviewed.rs".to_owned(),
+                reviewed: false,
+            },
+            Action::LoadDiff {
+                review_checkpoint: ReviewCheckpoint::new("qpvuntsm", "11111111"),
+                path: "reviewed.rs".to_owned(),
+            },
+        ]
     );
 }
 

@@ -1174,6 +1174,9 @@ impl DiffComponent {
     fn selected_load_action(&mut self) -> Option<Action> {
         let review_checkpoint = self.review_checkpoint.clone()?;
         let selected_path = self.selected_path.as_deref()?;
+        if !self.reviewable_files.contains(selected_path) {
+            return None;
+        }
         let document = self
             .documents
             .iter_mut()
@@ -1605,8 +1608,9 @@ impl DiffComponent {
     }
 
     #[allow(clippy::trivially_copy_pass_by_ref)]
-    fn reviewable_files_changed(&mut self, _event: &ReviewableFilesChanged) {
+    fn reviewable_files_changed(&mut self, _event: &ReviewableFilesChanged) -> Vec<Action> {
         self.publish_viewports();
+        self.selected_load_action().into_iter().collect()
     }
 
     fn publish_viewports(&self) {
