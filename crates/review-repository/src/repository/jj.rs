@@ -199,10 +199,10 @@ impl RepositoryBackend for JjBackend {
                 });
             }
 
-            let changed_paths = JjGitDiffParser::new(&output.stdout, paths).parse()?;
+            let path_statistics = JjGitDiffParser::new(&output.stdout, paths).parse()?;
             results.insert(
                 baseline.clone(),
-                BaselineComparison::Compared { changed_paths },
+                BaselineComparison::Compared { path_statistics },
             );
         }
         Ok(results)

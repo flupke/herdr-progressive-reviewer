@@ -1,7 +1,7 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::JjGitDiffParser;
-use crate::repository::RepoPath;
+use crate::repository::{DiffStatistics, RepoPath};
 
 #[test]
 fn paths_decode_jj_quoted_bytes() {
@@ -24,7 +24,22 @@ fn parser_ignores_only_the_synthetic_description() {
 
     assert_eq!(
         JjGitDiffParser::new(output, &planned).parse().unwrap(),
-        BTreeSet::from([changed, description_file])
+        BTreeMap::from([
+            (
+                changed,
+                DiffStatistics {
+                    lines_added: 1,
+                    lines_removed: 1,
+                },
+            ),
+            (
+                description_file,
+                DiffStatistics {
+                    lines_added: 1,
+                    lines_removed: 1,
+                },
+            ),
+        ])
     );
     assert!(
         JjGitDiffParser::new(
@@ -45,7 +60,7 @@ fn parser_matches_mode_only_changes_with_spaces() {
 
     assert_eq!(
         JjGitDiffParser::new(output, &planned).parse().unwrap(),
-        BTreeSet::from([changed])
+        BTreeMap::from([(changed, DiffStatistics::default())])
     );
 }
 
@@ -57,7 +72,7 @@ fn parser_matches_mode_only_changes_with_quoted_bytes() {
 
     assert_eq!(
         JjGitDiffParser::new(output, &planned).parse().unwrap(),
-        BTreeSet::from([changed])
+        BTreeMap::from([(changed, DiffStatistics::default())])
     );
 }
 

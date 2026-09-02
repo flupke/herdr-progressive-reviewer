@@ -953,7 +953,7 @@ impl Worker {
             .files
             .iter()
             .zip(&states)
-            .map(|(file, state)| FileSummary::from_changed(file, state.status))
+            .map(|(file, state)| FileSummary::from_review_state(file, *state))
             .collect();
         let review_checkpoint = ReviewCheckpoint::new(
             snapshot.identity.review_unit().clone(),

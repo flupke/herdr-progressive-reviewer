@@ -1,6 +1,6 @@
 //! Stable snapshots of one jj change or Git working tree.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::ffi::{OsStr, OsString};
 use std::io::Read;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
@@ -193,10 +193,37 @@ pub struct ChangedFile {
     pub change: ChangeKind,
     /// Escaped text for the file list.
     pub display_path: String,
+    /// Statistics for the complete change under review.
+    pub statistics: DiffStatistics,
+}
+
+/// Added and removed text lines in one diff.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct DiffStatistics {
     /// Number of added text lines.
     pub lines_added: u64,
     /// Number of removed text lines.
     pub lines_removed: u64,
+}
+
+impl DiffStatistics {
+    /// Count changed text lines in a unified diff.
+    pub fn from_unified_diff(diff: &[u8]) -> Self {
+        let mut statistics = Self::default();
+        let mut in_hunk = false;
+        for line in diff.split(|byte| *byte == b'\n') {
+            if line.starts_with(b"diff --git ") {
+                in_hunk = false;
+            } else if line.starts_with(b"@@ ") {
+                in_hunk = true;
+            } else if in_hunk && line.starts_with(b"+") {
+                statistics.lines_added += 1;
+            } else if in_hunk && line.starts_with(b"-") {
+                statistics.lines_removed += 1;
+            }
+        }
+        statistics
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -275,8 +302,7 @@ impl ChangedFile {
             new_kind: FileKind::File,
             change: ChangeKind::Modified,
             display_path: path.display(),
-            lines_added: 0,
-            lines_removed: 0,
+            statistics: DiffStatistics::default(),
         }
     }
 
@@ -342,8 +368,7 @@ impl ChangedFile {
             new_kind,
             change,
             display_path,
-            lines_added: 0,
-            lines_removed: 0,
+            statistics: DiffStatistics::default(),
         })
     }
 
@@ -406,8 +431,10 @@ impl ChangedFile {
         }
         for file in files {
             if let Some(&(added, removed)) = stats.get(file.review_path().as_bytes()) {
-                file.lines_added = added;
-                file.lines_removed = removed;
+                file.statistics = DiffStatistics {
+                    lines_added: added,
+                    lines_removed: removed,
+                };
             }
         }
         Ok(())
@@ -461,12 +488,11 @@ impl ChangedFile {
             new_kind: metadata.new_kind,
             change: metadata.change()?,
             display_path,
-            lines_added: 0,
-            lines_removed: 0,
+            statistics: DiffStatistics::default(),
         })
     }
 
-    fn add_git_stats(files: &mut [Self], output: &[u8]) -> Result<()> {
+    fn parse_git_stats(output: &[u8]) -> Result<BTreeMap<RepoPath, DiffStatistics>> {
         let fields: Vec<_> = output.split(|byte| *byte == 0).collect();
         if fields.last() != Some(&&[][..]) {
             return Err(Error::Protocol {
@@ -474,7 +500,7 @@ impl ChangedFile {
                 detail: "Git returned invalid diff statistics",
             });
         }
-        let mut stats = HashMap::new();
+        let mut statistics = BTreeMap::new();
         let mut fields = fields[..fields.len() - 1].iter().copied();
         while let Some(record) = fields.next() {
             let mut values = record.splitn(3, |byte| *byte == b'\t');
@@ -508,12 +534,22 @@ impl ChangedFile {
                         detail: "Git returned an invalid line count",
                     })
             };
-            stats.insert(path, (parse(added)?, parse(removed)?));
+            statistics.insert(
+                RepoPath::from_bytes(path),
+                DiffStatistics {
+                    lines_added: parse(added)?,
+                    lines_removed: parse(removed)?,
+                },
+            );
         }
+        Ok(statistics)
+    }
+
+    fn add_git_stats(files: &mut [Self], output: &[u8]) -> Result<()> {
+        let statistics = Self::parse_git_stats(output)?;
         for file in files {
-            if let Some(&(added, removed)) = stats.get(file.review_path().as_bytes()) {
-                file.lines_added = added;
-                file.lines_removed = removed;
+            if let Some(statistics) = statistics.get(file.review_path()) {
+                file.statistics = *statistics;
             }
         }
         Ok(())

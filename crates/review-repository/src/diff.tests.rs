@@ -1,5 +1,5 @@
 use super::{DiffParser, DiffRow, MAX_LINE_BYTES, NoticeKind, parse_file_diff};
-use crate::repository::{ChangeKind, ChangedFile, FileKind, RepoPath};
+use crate::repository::{ChangeKind, ChangedFile, DiffStatistics, FileKind, RepoPath};
 
 #[test]
 fn rejects_a_line_above_the_parse_limit() {
@@ -119,8 +119,7 @@ fn changed_file(old_kind: FileKind, new_kind: FileKind) -> ChangedFile {
         new_kind,
         change: ChangeKind::Modified,
         display_path: "file".to_owned(),
-        lines_added: 0,
-        lines_removed: 0,
+        statistics: DiffStatistics::default(),
     }
 }
 

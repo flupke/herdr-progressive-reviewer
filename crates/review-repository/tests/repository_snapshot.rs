@@ -68,7 +68,7 @@ fn detects_file_changes(repository_type: RepoType) {
         snapshot
             .files
             .iter()
-            .map(|file| (file.lines_added, file.lines_removed))
+            .map(|file| (file.statistics.lines_added, file.statistics.lines_removed))
             .collect::<Vec<_>>(),
         [(1, 0), (0, 0), (0, 1), (1, 1), (0, 0)]
     );

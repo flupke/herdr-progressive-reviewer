@@ -1,6 +1,5 @@
 //! Git working-tree snapshots backed by a private index and object store.
 
-use std::collections::BTreeSet;
 use std::ffi::{OsStr, OsString};
 use std::fmt::Write as _;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
@@ -304,7 +303,7 @@ impl RepositoryBackend for GitBackend {
         for (baseline, paths) in plan.baselines() {
             let mut arguments = vec![
                 OsString::from("diff"),
-                OsString::from("--name-only"),
+                OsString::from("--numstat"),
                 OsString::from("-z"),
                 OsString::from("--no-ext-diff"),
                 OsString::from("--no-textconv"),
@@ -325,15 +324,10 @@ impl RepositoryBackend for GitBackend {
                     code: output.status.code(),
                 });
             }
-            let changed_paths = output
-                .stdout
-                .split(|byte| *byte == 0)
-                .filter(|path| !path.is_empty())
-                .map(|path| RepoPath::from_bytes(path.to_vec()))
-                .collect::<BTreeSet<_>>();
+            let path_statistics = ChangedFile::parse_git_stats(&output.stdout)?;
             results.insert(
                 baseline.clone(),
-                BaselineComparison::Compared { changed_paths },
+                BaselineComparison::Compared { path_statistics },
             );
         }
         Ok(results)

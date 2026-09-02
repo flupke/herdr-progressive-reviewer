@@ -2,7 +2,10 @@ use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use ratatui::style::{Color, Modifier};
 use review_guide::{GuideItem, GuideItemStatus, GuideLineRange, GuideTarget, ReviewCheckpoint};
-use review_repository::diff::{DiffRow, NoticeKind};
+use review_repository::{
+    diff::{DiffRow, NoticeKind},
+    repository::DiffStatistics,
+};
 use review_state::{ReviewState, ReviewStatus};
 use review_store::OutputTarget;
 use review_ui::{Action, Key, ReviewApplication, UserInput};
@@ -1267,6 +1270,7 @@ fn marking_a_changed_file_reviewed_replaces_its_baseline() {
             result: Ok(ReviewState {
                 status: ReviewStatus::Reviewed,
                 warning: None,
+                current_diff_statistics: DiffStatistics::default(),
             }),
         }),
         Vec::<Action>::new()
@@ -1560,6 +1564,7 @@ fn files_that_need_review_expand_their_parent_directories() {
         result: Ok(ReviewState {
             status: ReviewStatus::Unreviewed,
             warning: None,
+            current_diff_statistics: DiffStatistics::default(),
         }),
     });
     let rendered = application_screen(&app, 80, 12).join("\n");

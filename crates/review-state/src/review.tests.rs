@@ -2,6 +2,7 @@ use review_repository::repository::RepoType;
 use review_test_support::{
     ReviewRepositoryFixture, complete_repository_snapshot, repository_fixture,
 };
+use std::os::unix::fs::PermissionsExt;
 use test_case::test_case;
 
 use super::*;
@@ -134,18 +135,53 @@ fn statuses_compare_all_paths_from_one_baseline(repository_type: RepoType) {
     repository_files.write("first.txt", b"reviewed\nchanged\n");
     let changed = complete_repository_snapshot(&repository);
     let states = tracker.statuses(&changed).unwrap();
-    let statuses = changed
+    let states_by_path = changed
         .files
         .iter()
         .zip(states)
-        .map(|(file, state)| (file.review_path().display(), state.status))
+        .map(|(file, state)| (file.review_path().display(), state))
         .collect::<std::collections::BTreeMap<_, _>>();
 
     assert_eq!(
-        statuses.get("first.txt"),
-        Some(&ReviewStatus::ChangedSinceReview)
+        states_by_path.get("first.txt"),
+        Some(&ReviewState {
+            status: ReviewStatus::ChangedSinceReview,
+            warning: None,
+            current_diff_statistics: DiffStatistics {
+                lines_added: 1,
+                lines_removed: 0,
+            },
+        })
     );
-    assert_eq!(statuses.get("second.txt"), Some(&ReviewStatus::Reviewed));
+    assert_eq!(
+        states_by_path.get("second.txt"),
+        Some(&ReviewState {
+            status: ReviewStatus::Reviewed,
+            warning: None,
+            current_diff_statistics: DiffStatistics::default(),
+        })
+    );
+    assert_eq!(changed.files[0].statistics.lines_added, 2);
+}
+
+#[test]
+fn git_grouped_statuses_keep_mode_only_changes() {
+    let fixture = review_fixture(RepoType::Git, b"reviewed\n");
+    fixture
+        .tracker
+        .mark(&fixture.reviewed, &fixture.reviewed.files[0])
+        .unwrap();
+
+    let path = fixture.repository_files.root().join("reviewed.txt");
+    let mut permissions = std::fs::metadata(&path).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(path, permissions).unwrap();
+    let changed = complete_repository_snapshot(&fixture.repository);
+
+    assert_eq!(
+        fixture.tracker.statuses(&changed).unwrap()[0],
+        ReviewState::changed_since_review(DiffStatistics::default())
+    );
 }
 
 #[test_case(RepoType::Git; "git")]

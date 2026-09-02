@@ -1,7 +1,7 @@
 use component_core::{ComponentEventBus, ComponentSubscriptions, ComponentTarget, EventEnvelope};
 use ratatui::{Terminal, backend::TestBackend, style::Color};
 use review_guide::ReviewCheckpoint;
-use review_repository::repository::{ChangedFile, Repository};
+use review_repository::repository::{ChangedFile, DiffStatistics, Repository};
 use review_state::ReviewStatus;
 use review_store::OutputTarget;
 use review_test_support::{GitFixture, ReviewRepositoryFixture, complete_repository_snapshot};
@@ -110,13 +110,19 @@ fn rendering_shows_review_state_and_line_statistics() {
     let mut registry = ComponentEventBus::<Action>::new();
     let target = registry.mount(FilesComponent::new);
     let changed_file = changed_files(&["src/lib.rs"]).remove(0);
+    let mut file_summary = FileSummary::from_changed(&changed_file, ReviewStatus::Unreviewed);
+    file_summary.file.statistics = DiffStatistics {
+        lines_added: 20,
+        lines_removed: 10,
+    };
+    file_summary.review_state.current_diff_statistics = DiffStatistics {
+        lines_added: 2,
+        lines_removed: 0,
+    };
     registry
         .publish_envelope(EventEnvelope::new(RepositoryFilesChanged {
             review_checkpoint: ReviewCheckpoint::new("change", "commit"),
-            files: vec![FileSummary::from_changed(
-                &changed_file,
-                ReviewStatus::Unreviewed,
-            )],
+            files: vec![file_summary],
         }))
         .expect("repository event must dispatch");
     registry
@@ -162,11 +168,15 @@ fn repository_event_updates_the_header_overview() {
     registry.mount(FilesComponent::new);
     registry.mount(|_| OverviewOutput);
     let mut first = FileSummary::new("first.rs", ReviewStatus::Reviewed);
-    first.file.lines_added = 5;
-    first.file.lines_removed = 2;
+    first.file.statistics = DiffStatistics {
+        lines_added: 5,
+        lines_removed: 2,
+    };
     let mut second = FileSummary::new("second.rs", ReviewStatus::Unreviewed);
-    second.file.lines_added = 3;
-    second.file.lines_removed = 4;
+    second.file.statistics = DiffStatistics {
+        lines_added: 3,
+        lines_removed: 4,
+    };
     let actions = registry
         .publish_envelope(EventEnvelope::new(RepositoryFilesChanged {
             review_checkpoint: ReviewCheckpoint::new(review_types::ReviewUnit::default(), "commit"),

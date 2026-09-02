@@ -1,6 +1,6 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
-use super::RepoPath;
+use super::{DiffStatistics, RepoPath};
 use crate::{Error, Result};
 
 pub(super) const DESCRIPTION_DIFF_PATHS: &[u8] =
@@ -28,12 +28,12 @@ impl<'a> JjGitDiffParser<'a> {
         }
     }
 
-    pub(super) fn parse(&self) -> Result<BTreeSet<RepoPath>> {
-        let mut changed_paths = BTreeSet::new();
+    pub(super) fn parse(&self) -> Result<BTreeMap<RepoPath, DiffStatistics>> {
+        let mut path_statistics = BTreeMap::new();
         let block_starts = self.block_starts();
         if block_starts.is_empty() {
             return if self.output.is_empty() {
-                Ok(changed_paths)
+                Ok(path_statistics)
             } else {
                 Err(Self::invalid_diff(
                     "jj returned text outside a Git diff block",
@@ -46,9 +46,9 @@ impl<'a> JjGitDiffParser<'a> {
                 .get(block_index + 1)
                 .copied()
                 .unwrap_or(self.output.len());
-            self.parse_block(&self.output[start..end], &mut changed_paths)?;
+            self.parse_block(&self.output[start..end], &mut path_statistics)?;
         }
-        Ok(changed_paths)
+        Ok(path_statistics)
     }
 
     fn block_starts(&self) -> Vec<usize> {
@@ -62,7 +62,11 @@ impl<'a> JjGitDiffParser<'a> {
             .collect()
     }
 
-    fn parse_block(&self, block: &[u8], changed_paths: &mut BTreeSet<RepoPath>) -> Result<()> {
+    fn parse_block(
+        &self,
+        block: &[u8],
+        path_statistics: &mut BTreeMap<RepoPath, DiffStatistics>,
+    ) -> Result<()> {
         if block
             .windows(DESCRIPTION_DIFF_PATHS.len())
             .any(|window| window == DESCRIPTION_DIFF_PATHS)
@@ -70,18 +74,19 @@ impl<'a> JjGitDiffParser<'a> {
             return Ok(());
         }
 
+        let statistics = DiffStatistics::from_unified_diff(block);
         let mut matched = false;
         for line in block.split(|byte| *byte == b'\n') {
             let Some(path_bytes) = Self::path_from_marker_line(line)? else {
                 continue;
             };
             if let Some(path) = self.planned_path(&path_bytes) {
-                changed_paths.insert(path.clone());
+                path_statistics.insert(path.clone(), statistics);
                 matched = true;
             }
         }
         if !matched {
-            matched = self.match_mode_only_header(block, changed_paths);
+            matched = self.match_mode_only_header(block, path_statistics);
         }
         if !matched {
             return Err(Self::invalid_diff(
@@ -111,7 +116,11 @@ impl<'a> JjGitDiffParser<'a> {
         Ok(None)
     }
 
-    fn match_mode_only_header(&self, block: &[u8], changed_paths: &mut BTreeSet<RepoPath>) -> bool {
+    fn match_mode_only_header(
+        &self,
+        block: &[u8],
+        path_statistics: &mut BTreeMap<RepoPath, DiffStatistics>,
+    ) -> bool {
         let header_end = block
             .iter()
             .position(|byte| *byte == b'\n')
@@ -121,7 +130,7 @@ impl<'a> JjGitDiffParser<'a> {
             if Self::same_path_header(path, false) == header
                 || Self::same_path_header(path, true) == header
             {
-                changed_paths.insert(path.clone());
+                path_statistics.insert(path.clone(), DiffStatistics::default());
                 true
             } else {
                 false

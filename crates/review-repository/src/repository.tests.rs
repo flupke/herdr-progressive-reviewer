@@ -95,8 +95,8 @@ fn jj_statistics_require_complete_groups_and_update_matching_files() {
 
     ChangedFile::add_stats(&mut files, b"file\0\x31\x32\0\x33\0").unwrap();
 
-    assert_eq!(files[0].lines_added, 12);
-    assert_eq!(files[0].lines_removed, 3);
+    assert_eq!(files[0].statistics.lines_added, 12);
+    assert_eq!(files[0].statistics.lines_removed, 3);
     assert!(ChangedFile::add_stats(&mut files, b"file\0\x31\x32\0").is_err());
     assert!(ChangedFile::add_stats(&mut files, b"file\0not-a-number\0\x33\0").is_err());
 }

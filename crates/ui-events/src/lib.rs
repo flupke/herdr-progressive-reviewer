@@ -397,7 +397,7 @@ pub struct RevisionEditFailed {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FileSummary {
     pub file: ChangedFile,
-    pub status: ReviewStatus,
+    pub review_state: ReviewState,
     pub temporary: bool,
     pub disk_path: Option<PathBuf>,
 }
@@ -405,20 +405,24 @@ pub struct FileSummary {
 impl FileSummary {
     /// Create one file summary before its repository metadata arrives.
     pub fn new(path: impl Into<String>, status: ReviewStatus) -> Self {
-        let path = path.into();
-        Self {
-            file: ChangedFile::modified(path),
-            status,
-            temporary: false,
-            disk_path: None,
-        }
+        Self::from_changed(&ChangedFile::modified(path.into()), status)
     }
 
     /// Create a file summary from repository metadata.
     pub fn from_changed(file: &ChangedFile, status: ReviewStatus) -> Self {
+        let state = match status {
+            ReviewStatus::Unreviewed => ReviewState::unreviewed(file.statistics, None),
+            ReviewStatus::Reviewed => ReviewState::reviewed(),
+            ReviewStatus::ChangedSinceReview => ReviewState::changed_since_review(file.statistics),
+        };
+        Self::from_review_state(file, state)
+    }
+
+    /// Create a file summary with derived checkpoint-relative state.
+    pub fn from_review_state(file: &ChangedFile, state: ReviewState) -> Self {
         Self {
             file: file.clone(),
-            status,
+            review_state: state,
             temporary: false,
             disk_path: None,
         }
@@ -435,7 +439,7 @@ impl FileSummary {
         file.display_path = display_path.into();
         Self {
             file,
-            status: ReviewStatus::Reviewed,
+            review_state: ReviewState::reviewed(),
             temporary: true,
             disk_path: Some(disk_path),
         }

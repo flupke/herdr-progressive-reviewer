@@ -1,8 +1,8 @@
 //! Review state derived from stored repository baselines.
 
 use review_repository::repository::{
-    BaselineComparison, BaselineComparisonPlan, ChangedFile, FileKind, Interdiff, RepoPath,
-    Repository, Snapshot, SnapshotId,
+    BaselineComparison, BaselineComparisonPlan, ChangedFile, DiffStatistics, FileKind, Interdiff,
+    RepoPath, Repository, Snapshot, SnapshotId,
 };
 use review_store::{LoadResult, ReviewStore};
 
@@ -40,6 +40,40 @@ pub struct ReviewState {
     pub status: ReviewStatus,
     /// A non-fatal warning that the UI must show.
     pub warning: Option<ReviewWarning>,
+    /// Statistics for changes after the stored review baseline.
+    pub current_diff_statistics: DiffStatistics,
+}
+
+impl ReviewState {
+    /// Create state for a path without a usable review baseline.
+    pub fn unreviewed(
+        current_diff_statistics: DiffStatistics,
+        warning: Option<ReviewWarning>,
+    ) -> Self {
+        Self {
+            status: ReviewStatus::Unreviewed,
+            warning,
+            current_diff_statistics,
+        }
+    }
+
+    /// Create state for a path that did not change after review.
+    pub fn reviewed() -> Self {
+        Self {
+            status: ReviewStatus::Reviewed,
+            warning: None,
+            current_diff_statistics: DiffStatistics::default(),
+        }
+    }
+
+    /// Create state for a path that changed after review.
+    pub fn changed_since_review(current_diff_statistics: DiffStatistics) -> Self {
+        Self {
+            status: ReviewStatus::ChangedSinceReview,
+            warning: None,
+            current_diff_statistics,
+        }
+    }
 }
 
 /// A unified diff and the complete files on both sides.
@@ -77,20 +111,13 @@ enum PlannedReviewState {
 }
 
 impl ReviewComparison {
-    fn state(&self) -> ReviewState {
+    fn state(&self, file: &ChangedFile) -> ReviewState {
         match self {
-            Self::Unreviewed(warning) => ReviewState {
-                status: ReviewStatus::Unreviewed,
-                warning: *warning,
-            },
-            Self::Compared { diff, .. } => ReviewState {
-                status: if diff.is_empty() {
-                    ReviewStatus::Reviewed
-                } else {
-                    ReviewStatus::ChangedSinceReview
-                },
-                warning: None,
-            },
+            Self::Unreviewed(warning) => ReviewState::unreviewed(file.statistics, *warning),
+            Self::Compared { diff, .. } if diff.is_empty() => ReviewState::reviewed(),
+            Self::Compared { diff, .. } => {
+                ReviewState::changed_since_review(DiffStatistics::from_unified_diff(diff))
+            }
         }
     }
 }
@@ -124,7 +151,7 @@ impl ReviewTracker {
 
     /// Derive the current review state of one changed path.
     pub fn status(&self, snapshot: &Snapshot, file: &ChangedFile) -> eyre::Result<ReviewState> {
-        Ok(self.compare(snapshot, file)?.state())
+        Ok(self.compare(snapshot, file)?.state(file))
     }
 
     /// Derive all path states with comparisons grouped by stored baseline.
@@ -135,14 +162,13 @@ impl ReviewTracker {
         for file in &snapshot.files {
             let path = file.review_path().as_bytes();
             let planned_state = match self.store.load(review_unit, path)? {
-                LoadResult::Unreviewed => PlannedReviewState::Resolved(ReviewState {
-                    status: ReviewStatus::Unreviewed,
-                    warning: None,
-                }),
-                LoadResult::UnknownSchema => PlannedReviewState::Resolved(ReviewState {
-                    status: ReviewStatus::Unreviewed,
-                    warning: Some(ReviewWarning::UnknownSchema),
-                }),
+                LoadResult::Unreviewed => {
+                    PlannedReviewState::Resolved(ReviewState::unreviewed(file.statistics, None))
+                }
+                LoadResult::UnknownSchema => PlannedReviewState::Resolved(ReviewState::unreviewed(
+                    file.statistics,
+                    Some(ReviewWarning::UnknownSchema),
+                )),
                 LoadResult::Reviewed(record) => {
                     let baseline_snapshot_id = SnapshotId::from(record.baseline_commit_id);
                     plan.add(baseline_snapshot_id.clone(), file.review_path().clone());
@@ -167,19 +193,17 @@ impl ReviewTracker {
                     Some(BaselineComparison::Missing) => {
                         self.store
                             .unreview(review_unit, file.review_path().as_bytes())?;
-                        Ok(ReviewState {
-                            status: ReviewStatus::Unreviewed,
-                            warning: Some(ReviewWarning::BaselineExpired),
+                        Ok(ReviewState::unreviewed(
+                            file.statistics,
+                            Some(ReviewWarning::BaselineExpired),
+                        ))
+                    }
+                    Some(BaselineComparison::Compared { path_statistics }) => {
+                        Ok(match path_statistics.get(file.review_path()) {
+                            Some(statistics) => ReviewState::changed_since_review(*statistics),
+                            None => ReviewState::reviewed(),
                         })
                     }
-                    Some(BaselineComparison::Compared { changed_paths }) => Ok(ReviewState {
-                        status: if changed_paths.contains(file.review_path()) {
-                            ReviewStatus::ChangedSinceReview
-                        } else {
-                            ReviewStatus::Reviewed
-                        },
-                        warning: None,
-                    }),
                     None => eyre::bail!("comparison plan omitted a stored baseline"),
                 },
             })

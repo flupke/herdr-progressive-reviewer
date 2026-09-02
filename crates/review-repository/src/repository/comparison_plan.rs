@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{RepoPath, SnapshotId};
+use super::{DiffStatistics, RepoPath, SnapshotId};
 
 /// Paths grouped by the stored baseline that reviewed them.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -29,8 +29,10 @@ impl BaselineComparisonPlan {
 pub enum BaselineComparison {
     /// The stored baseline no longer exists.
     Missing,
-    /// The stored baseline exists, with the paths that changed from it.
-    Compared { changed_paths: BTreeSet<RepoPath> },
+    /// The stored baseline exists, with statistics for paths that changed from it.
+    Compared {
+        path_statistics: BTreeMap<RepoPath, DiffStatistics>,
+    },
 }
 
 /// Results indexed by stored baseline.

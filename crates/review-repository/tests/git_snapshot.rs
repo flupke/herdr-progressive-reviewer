@@ -45,7 +45,7 @@ fn snapshots_git_worktrees_without_changing_the_real_index() {
         snapshot
             .files
             .iter()
-            .map(|file| (file.lines_added, file.lines_removed))
+            .map(|file| (file.statistics.lines_added, file.statistics.lines_removed))
             .collect::<Vec<_>>(),
         [(1, 0), (0, 1), (1, 1), (0, 0)]
     );

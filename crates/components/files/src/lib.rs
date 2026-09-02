@@ -144,8 +144,8 @@ pub struct FilesComponent {
 
 struct PendingReview {
     path: String,
-    previous_status: ReviewStatus,
-    optimistic_status: ReviewStatus,
+    previous_state: ReviewState,
+    optimistic_state: ReviewState,
 }
 
 impl FilesComponent {
@@ -213,11 +213,19 @@ impl FilesComponent {
             reviewed: self
                 .files
                 .iter()
-                .filter(|file| file.status == ReviewStatus::Reviewed)
+                .filter(|file| file.review_state.status == ReviewStatus::Reviewed)
                 .count(),
             total: self.files.len(),
-            lines_added: self.files.iter().map(|file| file.file.lines_added).sum(),
-            lines_removed: self.files.iter().map(|file| file.file.lines_removed).sum(),
+            lines_added: self
+                .files
+                .iter()
+                .map(|file| file.file.statistics.lines_added)
+                .sum(),
+            lines_removed: self
+                .files
+                .iter()
+                .map(|file| file.file.statistics.lines_removed)
+                .sum(),
         }
     }
 
@@ -241,7 +249,10 @@ impl FilesComponent {
                 .filter(|file| {
                     self.files.iter().any(|previous| {
                         previous.file.review_path() == file.file.review_path()
-                            && needs_parent_expansion(file.status, previous.status)
+                            && needs_parent_expansion(
+                                file.review_state.status,
+                                previous.review_state.status,
+                            )
                     })
                 })
                 .map(FileSummary::path)
@@ -258,7 +269,7 @@ impl FilesComponent {
                 .iter_mut()
                 .find(|file| file.path() == pending.path)
         {
-            file.status = pending.optimistic_status;
+            file.review_state = pending.optimistic_state;
         }
         self.selected = previous_selected_path
             .as_deref()
@@ -281,11 +292,11 @@ impl FilesComponent {
             Some(_) => return,
             None => None,
         };
-        let Ok(ReviewState { status, .. }) = event.result else {
+        let Ok(review_state) = event.result else {
             if let Some(pending) = pending
                 && let Some(file) = self.files.iter_mut().find(|file| file.path() == event.path)
             {
-                file.status = pending.previous_status;
+                file.review_state = pending.previous_state;
             }
             self.refresh_reviewable_files();
             self.publish_overview();
@@ -294,8 +305,8 @@ impl FilesComponent {
         let Some(file) = self.files.iter_mut().find(|file| file.path() == event.path) else {
             return;
         };
-        let expand = needs_parent_expansion(status, file.status);
-        file.status = status;
+        let expand = needs_parent_expansion(review_state.status, file.review_state.status);
+        file.review_state = review_state;
         self.refresh_reviewable_files();
         if expand {
             self.expand_file_parents(&event.path);
@@ -491,14 +502,14 @@ impl FilesComponent {
             return None;
         }
         let path = file.path();
-        let previous_status = file.status;
-        let reviewed = previous_status.needs_review();
-        let optimistic_status = if reviewed {
-            ReviewStatus::Reviewed
+        let previous_state = file.review_state;
+        let reviewed = previous_state.status.needs_review();
+        let optimistic_state = if reviewed {
+            ReviewState::reviewed()
         } else {
-            ReviewStatus::Unreviewed
+            ReviewState::unreviewed(file.file.statistics, None)
         };
-        file.status = optimistic_status;
+        file.review_state = optimistic_state;
         self.refresh_reviewable_files();
         let next_file = reviewed
             .then(|| {
@@ -506,7 +517,7 @@ impl FilesComponent {
                     .visible_files()
                     .skip_while(|file| *file != self.selected)
                     .skip(1)
-                    .find(|file| self.files[*file].status.needs_review())
+                    .find(|file| self.files[*file].review_state.status.needs_review())
             })
             .flatten();
         if let Some(next_file) = next_file {
@@ -515,8 +526,8 @@ impl FilesComponent {
         }
         self.pending_review = Some(PendingReview {
             path: path.clone(),
-            previous_status,
-            optimistic_status,
+            previous_state,
+            optimistic_state,
         });
         Some(Action::SetReviewed { path, reviewed })
     }
@@ -529,7 +540,7 @@ impl FilesComponent {
         if self.reviewable_files.replace(
             self.files
                 .iter()
-                .filter(|file| !file.temporary && file.status.needs_review())
+                .filter(|file| !file.temporary && file.review_state.status.needs_review())
                 .map(FileSummary::path)
                 .collect(),
         ) {
@@ -621,15 +632,16 @@ impl FilesComponent {
         let marker = if self.notice_paths.contains(&path) {
             "!"
         } else {
-            match file.status {
+            match file.review_state.status {
                 ReviewStatus::Unreviewed => "○",
                 ReviewStatus::Reviewed => "✓",
                 ReviewStatus::ChangedSinceReview => "●",
             }
         };
         let prefix = format!("{}{} ", "  ".repeat(depth), marker);
-        let comment = (file.status != ReviewStatus::Reviewed && self.guide_paths.contains(&path))
-            .then_some(" 💬");
+        let comment = (file.review_state.status != ReviewStatus::Reviewed
+            && self.guide_paths.contains(&path))
+        .then_some(" 💬");
         let statistics = FileStatistics::new(file);
         let reserved = UnicodeWidthStr::width(prefix.as_str())
             + comment.map_or(0, UnicodeWidthStr::width)
@@ -694,8 +706,14 @@ struct FileStatistics {
 impl FileStatistics {
     fn new(file: &FileSummary) -> Self {
         Self {
-            added: (file.file.lines_added > 0).then(|| format!("+{}", file.file.lines_added)),
-            removed: (file.file.lines_removed > 0).then(|| format!("-{}", file.file.lines_removed)),
+            added: (file.review_state.current_diff_statistics.lines_added > 0)
+                .then(|| format!("+{}", file.review_state.current_diff_statistics.lines_added)),
+            removed: (file.review_state.current_diff_statistics.lines_removed > 0).then(|| {
+                format!(
+                    "-{}",
+                    file.review_state.current_diff_statistics.lines_removed
+                )
+            }),
         }
     }
 
