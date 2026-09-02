@@ -452,9 +452,17 @@ impl DiffComponent {
         let Some(position) = position else {
             return;
         };
-        self.drag_anchor = Some(position.row);
         self.position_cursor(position);
         self.selection = None;
+        if self
+            .displayed_document_mut()
+            .is_some_and(|document| document.document.diff.expand(document.document.cursor))
+        {
+            self.drag_anchor = None;
+            self.keep_cursor_visible();
+            return;
+        }
+        self.drag_anchor = Some(position.row);
     }
 
     fn extend_pointer_selection(&mut self, position: Option<DiffPointerPosition>) {

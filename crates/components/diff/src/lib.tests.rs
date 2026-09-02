@@ -510,6 +510,163 @@ fn repository_refresh_preserves_loaded_content_and_cursor_output() {
 }
 
 #[test]
+fn clicking_an_unmodified_section_expands_it() {
+    let (mut registry, reviewable_files, diff_target) = registry_with_observer();
+    reviewable_files.replace(["src/lib.rs".to_owned()].into());
+    publish_repository(&mut registry, "checkpoint");
+    registry
+        .publish(FileSelected {
+            path: "src/lib.rs".to_owned(),
+        })
+        .unwrap();
+    registry
+        .publish(DiffContentLoaded {
+            review_checkpoint: ReviewCheckpoint::new("change", "checkpoint"),
+            path: "src/lib.rs".to_owned(),
+            rows: vec![
+                DiffRow::Hunk {
+                    old_start: 1,
+                    old_count: 1,
+                    new_start: 1,
+                    new_count: 1,
+                },
+                DiffRow::Context {
+                    old_line: 1,
+                    new_line: 1,
+                    text: " first".to_owned(),
+                },
+                DiffRow::Hunk {
+                    old_start: 5,
+                    old_count: 1,
+                    new_start: 5,
+                    new_count: 1,
+                },
+                DiffRow::Context {
+                    old_line: 5,
+                    new_line: 5,
+                    text: " fifth".to_owned(),
+                },
+            ],
+            old_content: Some(b"first\nsecond\nthird\nfourth\nfifth\n".to_vec()),
+            new_content: Some(b"first\nsecond\nthird\nfourth\nfifth\n".to_vec()),
+        })
+        .unwrap();
+    let collapsed_lines = rendered_diff_lines(&registry, diff_target);
+    let gap_row = collapsed_lines
+        .iter()
+        .position(|line| line.contains("3 unmodified lines"))
+        .expect("the diff must contain a collapsed section");
+
+    registry
+        .dispatch_hovered_input(
+            &EventEnvelope::new(pointer_input(
+                PointerInputKind::Click { insert: false },
+                u16::try_from(gap_row).unwrap(),
+                4,
+            )),
+            diff_target,
+        )
+        .unwrap();
+
+    let expanded = rendered_diff(&registry, diff_target);
+    assert!(!expanded.contains("unmodified lines"));
+    assert!(expanded.contains("second"));
+    assert!(expanded.contains("fourth"));
+}
+
+#[test]
+fn dragging_source_rows_still_outputs_the_selected_diff() {
+    let (mut registry, reviewable_files, diff_target) = registry_with_observer();
+    reviewable_files.replace(["src/lib.rs".to_owned()].into());
+    publish_repository(&mut registry, "checkpoint");
+    registry
+        .publish(FileSelected {
+            path: "src/lib.rs".to_owned(),
+        })
+        .unwrap();
+    let rows = vec![
+        DiffRow::FileHeader {
+            old_path: None,
+            new_path: None,
+            text: "diff --git a/src/lib.rs b/src/lib.rs".to_owned(),
+        },
+        DiffRow::Meta {
+            text: "--- a/src/lib.rs".to_owned(),
+        },
+        DiffRow::Meta {
+            text: "+++ b/src/lib.rs".to_owned(),
+        },
+        DiffRow::Hunk {
+            old_start: 1,
+            old_count: 2,
+            new_start: 1,
+            new_count: 2,
+        },
+        DiffRow::Context {
+            old_line: 1,
+            new_line: 1,
+            text: " fn run() {".to_owned(),
+        },
+        DiffRow::Delete {
+            old_line: 2,
+            text: "-    old();".to_owned(),
+        },
+        DiffRow::Add {
+            new_line: 2,
+            text: "+    new();".to_owned(),
+        },
+    ];
+    registry
+        .publish(DiffContentLoaded {
+            review_checkpoint: ReviewCheckpoint::new("change", "checkpoint"),
+            path: "src/lib.rs".to_owned(),
+            rows,
+            old_content: None,
+            new_content: None,
+        })
+        .unwrap();
+    let rendered_lines = rendered_diff_lines(&registry, diff_target);
+    let selection_start_row = rendered_lines
+        .iter()
+        .position(|line| line.contains("fn run"))
+        .expect("the selection start row must be visible");
+    let selection_end_row = rendered_lines
+        .iter()
+        .position(|line| line.contains("new();"))
+        .expect("the selection end row must be visible");
+
+    for (kind, row) in [
+        (
+            PointerInputKind::Click { insert: false },
+            selection_start_row,
+        ),
+        (PointerInputKind::Drag, selection_end_row),
+    ] {
+        registry
+            .dispatch_hovered_input(
+                &EventEnvelope::new(pointer_input(kind, u16::try_from(row).unwrap(), 4)),
+                diff_target,
+            )
+            .unwrap();
+    }
+    let released = registry
+        .dispatch_hovered_input(
+            &EventEnvelope::new(pointer_input(PointerInputKind::Release, 0, 0)),
+            diff_target,
+        )
+        .unwrap()
+        .into_results();
+
+    let output = output_texts(released);
+    assert!(
+        output
+            .iter()
+            .any(|text| text.contains("-    old();") && text.contains("+    new();")),
+        "unexpected pointer selection output: {output:?}"
+    );
+}
+
+#[test]
 fn search_input_publishes_matching_file_decorations() {
     let (mut registry, reviewable_files, diff_target) = registry_with_observer();
     reviewable_files.replace(
