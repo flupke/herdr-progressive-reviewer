@@ -9,7 +9,6 @@ license.workspace = true
 review-guide = { path = "../review-guide" }
 review-lsp = { path = "../review-lsp" }
 review-repository = { path = "../review-repository" }
-review-store = { path = "../review-store" }
 ui-events = { path = "../ui-events" }
 
 [lints]

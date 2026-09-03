@@ -12,7 +12,6 @@ use guide_component::GuideComponent;
 use locations_component::LocationsComponent;
 use overlay_component::OverlayComponent;
 use ratatui::layout::Rect;
-use review_store::OutputTarget;
 use revision_component::RevisionComponent;
 use status_component::StatusComponent;
 use ui_events::{
@@ -63,35 +62,24 @@ struct ComponentDispatchResults(Vec<DispatchResult<Action>>);
 
 impl Default for ReviewApplication {
     fn default() -> Self {
-        Self::new(
-            Theme::default(),
-            None,
-            OutputTarget::default(),
-            PathBuf::new(),
-        )
+        Self::new(Theme::default(), None, PathBuf::new())
     }
 }
 
 impl ReviewApplication {
     /// Create the application and mount its components.
-    pub fn new(
-        theme: Theme,
-        file_width: Option<u16>,
-        output_target: OutputTarget,
-        repository_root: PathBuf,
-    ) -> Self {
+    pub fn new(theme: Theme, file_width: Option<u16>, repository_root: PathBuf) -> Self {
         let palette = theme.palette;
         let mut event_bus = ComponentEventBus::new();
         let reviewable_files = ReviewableFiles::default();
         let files = event_bus.mount(|events| {
-            FilesComponent::with_reviewable_files(events, reviewable_files.clone(), output_target)
+            FilesComponent::with_reviewable_files(events, reviewable_files.clone())
         });
         let diff = event_bus.mount(|events| {
             DiffComponent::new(
                 events,
                 reviewable_files.clone(),
                 SyntaxHighlighter::new(theme.syntax, theme.palette.text),
-                output_target,
                 repository_root.clone(),
                 theme.palette,
             )
@@ -99,7 +87,7 @@ impl ReviewApplication {
         let guide = event_bus.mount(GuideComponent::new);
         let locations = event_bus
             .mount(|events| LocationsComponent::new(events, repository_root, theme.palette));
-        let status = event_bus.mount(|events| StatusComponent::new(events, output_target));
+        let status = event_bus.mount(StatusComponent::new);
         let overlay = event_bus.mount(|_| OverlayComponent::new(theme));
         let revision = event_bus.mount(|events| RevisionComponent::new(events, theme.palette));
         Self {
@@ -140,7 +128,7 @@ impl ReviewApplication {
         };
         self.synchronize_component_areas();
         self.synchronize_input_routing();
-        self.collect_and_apply_actions(results)
+        Self::collect_actions(results)
     }
 
     /// Publish one typed application event to its subscribed components.
@@ -154,7 +142,7 @@ impl ReviewApplication {
         };
         self.synchronize_component_areas();
         self.synchronize_input_routing();
-        self.collect_and_apply_actions(results)
+        Self::collect_actions(results)
     }
 
     /// Publish one erased application event to its subscribed components.
@@ -165,7 +153,7 @@ impl ReviewApplication {
         };
         self.synchronize_component_areas();
         self.synchronize_input_routing();
-        self.collect_and_apply_actions(results)
+        Self::collect_actions(results)
     }
 
     fn record_viewport_size(&mut self, message: &UserInput) {
@@ -260,19 +248,8 @@ impl ReviewApplication {
         self.event_bus.publish(ViewportChanged { width, height })
     }
 
-    fn collect_and_apply_actions(
-        &mut self,
-        component_results: Vec<DispatchResult<Action>>,
-    ) -> Vec<Action> {
-        let actions = ComponentDispatchResults(component_results).into_actions();
-        for action in &actions {
-            if let Action::SaveOutputTarget(output_target) = action {
-                let _ = self.event_bus.publish(ui_events::OutputTargetChanged {
-                    output_target: *output_target,
-                });
-            }
-        }
-        actions
+    fn collect_actions(component_results: Vec<DispatchResult<Action>>) -> Vec<Action> {
+        ComponentDispatchResults(component_results).into_actions()
     }
 
     /// Return a side-effect-free view of all mounted components.

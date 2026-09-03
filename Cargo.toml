@@ -38,7 +38,6 @@ license = "MIT"
 
 [workspace.dependencies]
 ansi-to-tui = "7.0"
-arboard = { version = "3.6.1", default-features = false, features = ["wayland-data-control"] }
 base64 = "0.22"
 crossterm = "0.28"
 crossbeam-channel = "0.5"

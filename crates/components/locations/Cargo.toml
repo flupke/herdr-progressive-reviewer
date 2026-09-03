@@ -18,7 +18,6 @@ unicode-width.workspace = true
 
 [dev-dependencies]
 review-guide = { path = "../../review-guide" }
-review-store = { path = "../../review-store" }
 
 [lints]
 workspace = true

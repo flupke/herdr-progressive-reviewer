@@ -10,7 +10,6 @@ review-guide = { path = "../review-guide" }
 review-lsp = { path = "../review-lsp" }
 review-repository = { path = "../review-repository" }
 review-state = { path = "../review-state" }
-review-store = { path = "../review-store" }
 review-types = { path = "../review-types" }
 toasts = { path = "../toasts" }
 ui-shortcuts = { path = "../ui-shortcuts" }

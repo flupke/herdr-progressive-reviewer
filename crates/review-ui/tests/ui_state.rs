@@ -7,7 +7,6 @@ use review_repository::{
     repository::DiffStatistics,
 };
 use review_state::{ReviewState, ReviewStatus};
-use review_store::OutputTarget;
 use review_ui::{Action, Key, ReviewApplication, UserInput};
 use std::time::Instant;
 use ui_events::{
@@ -258,7 +257,7 @@ fn guide_generation_spinner_is_at_the_right_of_the_status_line() {
     let first = (0..80)
         .map(|column| buffer[(column, 11)].symbol())
         .collect::<String>();
-    assert!(first.contains("o toggle"), "{first}");
+    assert!(first.starts_with("? help"), "{first}");
     assert!(first.ends_with("⠋ Generating guide"), "{first}");
     assert_ne!(buffer[(0, 11)].fg, Color::LightYellow);
     assert_eq!(buffer[(79, 11)].fg, Color::LightYellow);
@@ -695,7 +694,6 @@ fn state_machine_keeps_selection_until_insert_succeeds() {
     assert_eq!(
         app.update(UserInput::Key(Key::Enter)),
         vec![Action::Output {
-            target: OutputTarget::ActiveAgent,
             text: concat!(
                 "diff --git a/src/lib.rs b/src/lib.rs\n",
                 "--- a/src/lib.rs\n",
@@ -727,7 +725,7 @@ fn state_machine_keeps_selection_until_insert_succeeds() {
 }
 
 #[test]
-fn output_panel_selects_the_target_for_paths_and_diffs() {
+fn output_uses_only_the_active_agent() {
     let mut app = ReviewApplication::default();
     app.update(UserInput::Resize {
         width: 80,
@@ -740,25 +738,13 @@ fn output_panel_selects_the_target_for_paths_and_diffs() {
         vec![FileSummary::new("src/lib.rs", ReviewStatus::Unreviewed)],
     );
 
-    assert!(screen(&app, 80, 12)[11].contains("Output: [Active agent] [Clipboard]"));
-    assert_eq!(
-        app.update(UserInput::Key(Key::Char('o'))),
-        vec![Action::SaveOutputTarget(OutputTarget::Clipboard)]
-    );
+    assert!(screen(&app, 80, 12)[11].starts_with("? help"));
+    assert!(app.update(UserInput::Key(Key::Char('o'))).is_empty());
     assert_eq!(
         app.update(UserInput::Key(Key::Enter)),
         vec![Action::Output {
-            target: OutputTarget::Clipboard,
             text: "src/lib.rs".to_owned(),
         }]
-    );
-    assert_eq!(
-        app.update(UserInput::MouseClick {
-            column: 9,
-            row: 11,
-            insert_path: false,
-        }),
-        vec![Action::SaveOutputTarget(OutputTarget::ActiveAgent)]
     );
 }
 
@@ -805,7 +791,7 @@ fn active_search_status_shows_the_query_and_current_match() {
     assert!(screen(&application, 80, 12)[11].ends_with("[3/3]"));
 
     application.update(UserInput::Key(Key::Escape));
-    assert!(screen(&application, 80, 12)[11].contains("Output:"));
+    assert!(screen(&application, 80, 12)[11].starts_with("? help"));
 }
 
 #[test]
@@ -1347,7 +1333,6 @@ fn mouse_targets_the_hovered_pane_and_click_changes_focus() {
     assert_eq!(
         app.update(UserInput::Key(Key::Enter)),
         vec![Action::Output {
-            target: OutputTarget::ActiveAgent,
             text: "second.rs".to_owned(),
         }]
     );
@@ -1358,7 +1343,6 @@ fn mouse_targets_the_hovered_pane_and_click_changes_focus() {
             insert_path: true,
         }),
         vec![Action::Output {
-            target: OutputTarget::ActiveAgent,
             text: "first.rs".to_owned(),
         }]
     );
@@ -1606,10 +1590,6 @@ fn dragging_the_separator_resizes_the_file_pane() {
 #[test]
 fn dragging_diff_lines_inserts_them_on_release() {
     let mut app = ReviewApplication::default();
-    assert_eq!(
-        app.update(UserInput::Key(Key::Char('o'))),
-        [Action::SaveOutputTarget(OutputTarget::Clipboard)]
-    );
     publish_repository(
         &mut app,
         ReviewCheckpoint::new("qpvuntsm", "11111111"),
@@ -1644,7 +1624,6 @@ fn dragging_diff_lines_inserts_them_on_release() {
     assert_eq!(
         app.update(UserInput::MouseRelease),
         [Action::Output {
-            target: OutputTarget::Clipboard,
             text: concat!(
                 "diff --git a/src/lib.rs b/src/lib.rs\n",
                 "--- a/src/lib.rs\n",

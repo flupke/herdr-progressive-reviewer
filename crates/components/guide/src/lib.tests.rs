@@ -1,6 +1,5 @@
 use component_core::{Component, ComponentEventBus, ComponentSubscriptions, EventEnvelope};
 use review_guide::{GuideItemStatus, GuideLineRange, GuideTarget, ReviewCheckpoint};
-use review_store::OutputTarget;
 use review_types::ReviewUnit;
 use ui_events::DisplayedDiffRow;
 use ui_shortcuts::Key;
@@ -177,7 +176,6 @@ impl PathObserver {
     #[allow(clippy::unused_self)]
     fn paths_changed(&mut self, event: &GuidePathsChanged) -> Vec<Action> {
         vec![Action::Output {
-            target: OutputTarget::Clipboard,
             text: event.paths.join(","),
         }]
     }
@@ -185,7 +183,6 @@ impl PathObserver {
     #[allow(clippy::unused_self)]
     fn jump_requested(&mut self, event: &GuideJumpRequested) -> Vec<Action> {
         vec![Action::Output {
-            target: OutputTarget::Clipboard,
             text: format!(
                 "{}:{}",
                 event.target.path(),

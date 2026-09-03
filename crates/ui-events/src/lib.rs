@@ -10,7 +10,6 @@ use review_lsp::{Operation, SourceLocation};
 use review_repository::diff::DiffRow;
 use review_repository::repository::ChangedFile;
 use review_state::{ReviewState, ReviewStatus};
-use review_store::OutputTarget;
 use review_types::ReviewUnit;
 use toasts::ToastKind;
 
@@ -96,12 +95,6 @@ pub struct DiffViewportChanged {
 /// Remove transient diff input state.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct DiffInputClearRequested;
-
-/// The selected output destination changed.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct OutputTargetChanged {
-    pub output_target: OutputTarget,
-}
 
 /// A selected output operation finished.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

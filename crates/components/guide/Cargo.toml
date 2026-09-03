@@ -15,8 +15,5 @@ ui-actions = { path = "../../ui-actions" }
 ui-events = { path = "../../ui-events" }
 ui-shortcuts = { path = "../../ui-shortcuts" }
 
-[dev-dependencies]
-review-store = { path = "../../review-store" }
-
 [lints]
 workspace = true

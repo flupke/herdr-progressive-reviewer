@@ -15,9 +15,9 @@ use review_types::ReviewUnit;
 use ui_actions::Action;
 use ui_events::{
     FileDecorationsChanged, FileSelected, FileSelectionRequested, FileSummary,
-    FilesOverviewChanged, FilesViewportChanged, GuidePathsChanged, OutputTargetChanged,
-    PointerInput, PointerInputKind, RepositoryFilesChanged, ReviewStateSaved, ReviewableFiles,
-    ReviewableFilesChanged, TemporaryFilesChanged,
+    FilesOverviewChanged, FilesViewportChanged, GuidePathsChanged, PointerInput, PointerInputKind,
+    RepositoryFilesChanged, ReviewStateSaved, ReviewableFiles, ReviewableFilesChanged,
+    TemporaryFilesChanged,
 };
 use ui_shortcuts::{
     ApplicationShortcut, FileShortcut, NavigationShortcut, ShortcutCommand, ShortcutMatcher,
@@ -140,7 +140,6 @@ pub struct FilesComponent {
     search_match_paths: HashSet<String>,
     pending_review: Option<PendingReview>,
     reviewable_files: ReviewableFiles,
-    output_target: review_store::OutputTarget,
 }
 
 struct PendingReview {
@@ -152,18 +151,13 @@ struct PendingReview {
 impl FilesComponent {
     #[cfg(test)]
     fn new(events: EventPublisher) -> Self {
-        Self::with_reviewable_files(
-            events,
-            ReviewableFiles::default(),
-            review_store::OutputTarget::default(),
-        )
+        Self::with_reviewable_files(events, ReviewableFiles::default())
     }
 
     /// Create an empty files component with its shared read model.
     pub fn with_reviewable_files(
         events: EventPublisher,
         reviewable_files: ReviewableFiles,
-        output_target: review_store::OutputTarget,
     ) -> Self {
         Self {
             events,
@@ -179,7 +173,6 @@ impl FilesComponent {
             search_match_paths: HashSet::new(),
             pending_review: None,
             reviewable_files,
-            output_target,
         }
     }
 
@@ -372,10 +365,7 @@ impl FilesComponent {
             }
             ShortcutCommand::Application(ApplicationShortcut::Insert) => self
                 .selected_path()
-                .map(|text| Action::Output {
-                    target: self.output_target,
-                    text,
-                })
+                .map(|text| Action::Output { text })
                 .into_iter()
                 .collect(),
             ShortcutCommand::Navigation(navigation) => {
@@ -424,11 +414,6 @@ impl FilesComponent {
         self.keep_selected_visible();
     }
 
-    #[allow(clippy::trivially_copy_pass_by_ref)]
-    fn output_target_changed(&mut self, event: &OutputTargetChanged) {
-        self.output_target = event.output_target;
-    }
-
     fn pointer_input(&mut self, input: PointerInput) -> Vec<Action> {
         if let PointerInputKind::Scroll(delta) = input.kind {
             self.scroll_input(delta);
@@ -456,7 +441,6 @@ impl FilesComponent {
             if insert_path {
                 self.publish_selection_if_changed(previous_selected_path.as_deref());
                 return vec![Action::Output {
-                    target: self.output_target,
                     text: self.files[file].path(),
                 }];
             }
@@ -725,7 +709,6 @@ impl Component<Action> for FilesComponent {
         subscriptions.subscribe(Self::decorations_changed);
         subscriptions.subscribe(Self::viewport_changed);
         subscriptions.subscribe(Self::selection_requested);
-        subscriptions.subscribe(Self::output_target_changed);
         subscriptions.subscribe_input(
             InputScope::Focused,
             ShortcutMatcher::new(ShortcutSet::Files),

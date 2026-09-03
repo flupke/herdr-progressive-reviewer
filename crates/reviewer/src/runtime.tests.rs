@@ -1033,13 +1033,10 @@ fn dispatch_all_executes_earlier_actions_before_quit() {
 
     assert!(
         dispatcher
-            .dispatch_all(vec![
-                Action::SaveOutputTarget(OutputTarget::Clipboard),
-                Action::Quit,
-            ])
+            .dispatch_all(vec![Action::SaveFilePaneWidth(42), Action::Quit])
             .unwrap()
     );
-    assert_eq!(settings.output_target().unwrap(), OutputTarget::Clipboard);
+    assert_eq!(settings.file_pane_width().unwrap(), Some(42));
 }
 
 #[test]
@@ -1059,7 +1056,6 @@ fn worker_command_preserves_output_actions() {
 
     let command = dispatcher
         .worker_command(Action::Output {
-            target: OutputTarget::Clipboard,
             text: "selected code".to_owned(),
         })
         .unwrap()
@@ -1068,53 +1064,9 @@ fn worker_command_preserves_output_actions() {
     assert!(matches!(
         command,
         WorkerCommand::Output {
-            target: OutputTarget::Clipboard,
             text,
         } if text == "selected code"
     ));
-}
-
-#[test]
-fn event_loop_runs_messages_until_quit_without_an_extra_cycle() {
-    let repository = tempfile::tempdir().unwrap();
-    let state = tempfile::tempdir().unwrap();
-    let settings = ReviewStore::open(state.path(), repository.path()).unwrap();
-    let lsp = review_lsp::Worker::start(repository.path().to_owned());
-    let mut terminal = TerminalGuard {
-        terminal: Terminal::with_options(
-            CrosstermBackend::new(stdout()),
-            TerminalOptions {
-                viewport: Viewport::Fixed(Rect::new(0, 0, 80, 20)),
-            },
-        )
-        .unwrap(),
-    };
-    let mut app = ReviewApplication::default();
-    let (commands, _command_receiver) = mpsc::channel();
-    let (event_sender, events) = unbounded();
-    event_sender
-        .send(EventEnvelope::new(UserInput::Key(Key::Char('o'))))
-        .unwrap();
-    event_sender
-        .send(EventEnvelope::new(UserInput::Key(Key::Quit)))
-        .unwrap();
-    drop(event_sender);
-
-    RuntimeEventLoop {
-        terminal: &mut terminal,
-        app: &mut app,
-        commands: &commands,
-        events,
-        lsp: &lsp,
-        lsp_root: repository.path(),
-        repository_root: repository.path(),
-        settings: &settings,
-    }
-    .run()
-    .unwrap();
-
-    assert_eq!(settings.output_target().unwrap(), OutputTarget::Clipboard);
-    std::mem::forget(terminal);
 }
 
 #[test]

@@ -39,7 +39,7 @@ use review_repository::repository::{
     ChangeId, ChangedFile, PollResult, RepoPath, Repository, RevisionDirection, Snapshot,
 };
 use review_state::{MarkResult, ReviewStatus, ReviewTracker};
-use review_store::{OutputTarget, ReviewStore};
+use review_store::ReviewStore;
 use review_types::ReviewUnit;
 use review_ui::{Action, Key, ReviewApplication, SourceLoadMode, Theme, UserInput};
 use sha2::{Digest, Sha256};
@@ -153,7 +153,6 @@ enum WorkerCommand {
         reviewed: bool,
     },
     Output {
-        target: OutputTarget,
         text: String,
     },
     GenerateReviewGuide(GuideScope),
@@ -285,11 +284,9 @@ impl Runtime {
 
         let settings = ReviewStore::open(&self.state_dir, self.repository.root())?;
         let file_pane_width = settings.file_pane_width()?;
-        let output_target = settings.output_target()?;
         let root = self.repository.root().to_owned();
         let mut terminal = TerminalGuard::new()?;
-        let mut app =
-            ReviewApplication::new(self.theme, file_pane_width, output_target, root.clone());
+        let mut app = ReviewApplication::new(self.theme, file_pane_width, root.clone());
         let area = terminal.terminal.size()?;
         let _ = app.update(UserInput::Resize {
             width: area.width,
@@ -481,10 +478,6 @@ impl RuntimeActionDispatcher<'_> {
                 self.settings.save_file_pane_width(columns)?;
                 return Ok(false);
             }
-            Action::SaveOutputTarget(target) => {
-                self.settings.save_output_target(target)?;
-                return Ok(false);
-            }
             Action::Lsp {
                 operation,
                 mut query,
@@ -539,7 +532,6 @@ impl RuntimeActionDispatcher<'_> {
             Action::None
             | Action::Quit
             | Action::SaveFilePaneWidth(_)
-            | Action::SaveOutputTarget(_)
             | Action::Lsp { .. }
             | Action::RestartLsp => unreachable!("local actions are handled before conversion"),
         }
@@ -584,7 +576,7 @@ impl RuntimeActionDispatcher<'_> {
     fn output_worker_command(action: Action) -> WorkerCommand {
         match action {
             Action::SetReviewed { path, reviewed } => WorkerCommand::SetReviewed { path, reviewed },
-            Action::Output { target, text } => WorkerCommand::Output { target, text },
+            Action::Output { text } => WorkerCommand::Output { text },
             Action::GenerateReviewGuide { scope } => WorkerCommand::GenerateReviewGuide(scope),
             _ => unreachable!("output conversion accepts only output actions"),
         }
@@ -733,9 +725,8 @@ impl Worker {
     }
 
     fn run(&mut self, commands: &Receiver<WorkerCommand>, messages: &ApplicationMessageSender) {
-        let mut clipboard = None;
         while let Ok(command) = commands.recv() {
-            if !self.handle_command(command, messages, &mut clipboard) {
+            if !self.handle_command(command, messages) {
                 return;
             }
         }
@@ -745,7 +736,6 @@ impl Worker {
         &mut self,
         command: WorkerCommand,
         messages: &ApplicationMessageSender,
-        clipboard: &mut Option<arboard::Clipboard>,
     ) -> bool {
         match command {
             command @ (WorkerCommand::Poll
@@ -756,7 +746,7 @@ impl Worker {
                 self.handle_document_command(command, messages)
             }
             command @ (WorkerCommand::SetReviewed { .. } | WorkerCommand::Output { .. }) => {
-                self.handle_output_command(command, messages, clipboard)
+                self.handle_output_command(command, messages)
             }
             command @ (WorkerCommand::GenerateReviewGuide(_)
             | WorkerCommand::GuideFinished(_)
@@ -837,15 +827,12 @@ impl Worker {
         &mut self,
         command: WorkerCommand,
         messages: &ApplicationMessageSender,
-        clipboard: &mut Option<arboard::Clipboard>,
     ) -> bool {
         match command {
             WorkerCommand::SetReviewed { path, reviewed } => {
                 self.set_reviewed(messages, path, reviewed);
             }
-            WorkerCommand::Output { target, text } => {
-                self.output(messages, clipboard, target, &text);
-            }
+            WorkerCommand::Output { text } => self.output(messages, &text),
             _ => unreachable!("output commands accept only review and output work"),
         }
         true
@@ -917,27 +904,11 @@ impl Worker {
         let _ = messages.0.send(event);
     }
 
-    fn output(
-        &mut self,
-        messages: &ApplicationMessageSender,
-        clipboard: &mut Option<arboard::Clipboard>,
-        target: OutputTarget,
-        text: &str,
-    ) {
-        let delivered = match target {
-            OutputTarget::ActiveAgent => matches!(
-                self.target.insert(&self.client, text),
-                Ok(InsertResult::Inserted { .. })
-            ),
-            OutputTarget::Clipboard => {
-                if clipboard.is_none() {
-                    *clipboard = arboard::Clipboard::new().ok();
-                }
-                clipboard
-                    .as_mut()
-                    .is_some_and(|clipboard| clipboard.set_text(text).is_ok())
-            }
-        };
+    fn output(&mut self, messages: &ApplicationMessageSender, text: &str) {
+        let delivered = matches!(
+            self.target.insert(&self.client, text),
+            Ok(InsertResult::Inserted { .. })
+        );
         let _ = messages.send(OutputDeliveryFinished { delivered });
     }
 

@@ -3,7 +3,6 @@
 use review_guide::{GuideScope, ReviewCheckpoint};
 use review_lsp::{Operation, Query, SourceLocation};
 use review_repository::repository::{ChangeId, RevisionDirection};
-use review_store::OutputTarget;
 
 pub use ui_events::{RevisionHistoryLoadId, SourceLoadMode};
 
@@ -40,14 +39,12 @@ pub enum Action {
     },
     /// Set the selected path review state.
     SetReviewed { path: String, reviewed: bool },
-    /// Send selected text to the configured output target.
-    Output { target: OutputTarget, text: String },
+    /// Send selected text to the active implementation agent.
+    Output { text: String },
     /// Generate a guide through the active implementation agent.
     GenerateReviewGuide { scope: GuideScope },
     /// Save the file-pane width in terminal columns.
     SaveFilePaneWidth(u16),
-    /// Save the selected text output target.
-    SaveOutputTarget(OutputTarget),
     /// Stop the application.
     Quit,
 }

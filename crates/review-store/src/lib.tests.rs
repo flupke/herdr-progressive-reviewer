@@ -5,7 +5,7 @@ use std::time::{Duration, SystemTime};
 use review_types::ReviewUnit;
 use tempfile::TempDir;
 
-use super::{Error, MAX_STATE_FILE_BYTES, OutputTarget, ReviewStore};
+use super::{Error, MAX_STATE_FILE_BYTES, ReviewStore};
 
 struct Fixture {
     temporary: TempDir,
@@ -39,14 +39,9 @@ fn settings_are_shared_between_repositories() {
     let other_repository = fixture.temporary.path().join("other");
     fs::create_dir(&other_repository).unwrap();
     fixture.store().save_file_pane_width(42).unwrap();
-    fixture
-        .store()
-        .save_output_target(OutputTarget::Clipboard)
-        .unwrap();
 
     let settings = ReviewStore::open(&fixture.state, other_repository).unwrap();
     assert_eq!(settings.file_pane_width().unwrap(), Some(42));
-    assert_eq!(settings.output_target().unwrap(), OutputTarget::Clipboard);
 }
 
 #[test]

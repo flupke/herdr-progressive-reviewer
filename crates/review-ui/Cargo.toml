@@ -21,7 +21,6 @@ review-lsp = { path = "../review-lsp" }
 review-guide = { path = "../review-guide" }
 review-repository = { path = "../review-repository" }
 review-state = { path = "../review-state" }
-review-store = { path = "../review-store" }
 review-types = { path = "../review-types" }
 syntect.workspace = true
 toasts = { path = "../toasts" }

@@ -13,7 +13,6 @@ review-guide = { path = "../../review-guide" }
 review-lsp = { path = "../../review-lsp" }
 review-repository = { path = "../../review-repository" }
 review-state = { path = "../../review-state" }
-review-store = { path = "../../review-store" }
 syntax-highlighting = { path = "../../syntax-highlighting" }
 toasts = { path = "../../toasts" }
 ui-actions = { path = "../../ui-actions" }
@@ -24,7 +23,6 @@ unicode-segmentation.workspace = true
 unicode-width.workspace = true
 
 [dev-dependencies]
-review-store = { path = "../../review-store" }
 review-types = { path = "../../review-types" }
 two-face.workspace = true
 

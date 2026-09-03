@@ -9,7 +9,6 @@ use review_repository::{
     repository::DiffStatistics,
 };
 use review_state::{ReviewState, ReviewStatus};
-use review_store::OutputTarget;
 use two_face::theme::EmbeddedThemeName;
 use ui_events::{FileSummary, PointerPosition};
 use ui_theme::Theme;
@@ -346,7 +345,6 @@ fn accepted_location_is_centered_after_its_preview_started_the_diff_load() {
             events,
             reviewable_files,
             SyntaxHighlighter::new(EmbeddedThemeName::CatppuccinMocha, Color::White),
-            OutputTarget::default(),
             PathBuf::from("/repo"),
             Theme::default().palette,
         )
@@ -434,7 +432,6 @@ fn completed_background_load_clears_its_pending_center() {
             events,
             reviewable_files,
             SyntaxHighlighter::new(EmbeddedThemeName::CatppuccinMocha, Color::White),
-            OutputTarget::default(),
             PathBuf::from("/repo"),
             Theme::default().palette,
         )
@@ -560,7 +557,6 @@ fn refreshed_checkpoint_restarts_an_in_flight_definition_load() {
             events,
             reviewable_files,
             SyntaxHighlighter::new(EmbeddedThemeName::CatppuccinMocha, Color::White),
-            OutputTarget::default(),
             PathBuf::from("/repo"),
             Theme::default().palette,
         )
@@ -1127,7 +1123,6 @@ fn source_shortcuts_move_between_columns_and_word_starts() {
             events,
             reviewable_files,
             SyntaxHighlighter::new(EmbeddedThemeName::CatppuccinMocha, Color::White),
-            OutputTarget::default(),
             PathBuf::new(),
             Theme::default().palette,
         )
@@ -1173,7 +1168,6 @@ fn source_shortcuts_follow_character_boundaries_and_line_ends() {
             events,
             reviewable_files,
             SyntaxHighlighter::new(EmbeddedThemeName::CatppuccinMocha, Color::White),
-            OutputTarget::default(),
             PathBuf::new(),
             Theme::default().palette,
         )
@@ -1219,7 +1213,6 @@ fn source_shortcuts_move_on_deleted_lines() {
             events,
             reviewable_files,
             SyntaxHighlighter::new(EmbeddedThemeName::CatppuccinMocha, Color::White),
-            OutputTarget::default(),
             PathBuf::new(),
             Theme::default().palette,
         )
@@ -1447,7 +1440,6 @@ fn location_shortcuts_restore_semantic_file_jumps() {
             events,
             reviewable_files,
             SyntaxHighlighter::new(EmbeddedThemeName::CatppuccinMocha, Color::White),
-            OutputTarget::default(),
             PathBuf::new(),
             Theme::default().palette,
         )
@@ -1518,7 +1510,6 @@ fn registry_with_observer() -> (ComponentEventBus<Action>, ReviewableFiles, Comp
             context,
             reviewable_files.clone(),
             SyntaxHighlighter::new(EmbeddedThemeName::CatppuccinMocha, Color::White),
-            OutputTarget::default(),
             PathBuf::new(),
             Theme::default().palette,
         )
@@ -1649,7 +1640,6 @@ fn history_registry() -> (ComponentEventBus<Action>, ReviewableFiles, ComponentT
             events,
             reviewable_files.clone(),
             SyntaxHighlighter::new(EmbeddedThemeName::CatppuccinMocha, Color::White),
-            OutputTarget::default(),
             PathBuf::new(),
             Theme::default().palette,
         )
@@ -1696,7 +1686,6 @@ impl ViewportObserver {
             .filter(|row| row.changed)
             .count();
         vec![Action::Output {
-            target: OutputTarget::Clipboard,
             text: format!("{path}:{}:{changed_rows}", event.current_row),
         }]
     }
@@ -1714,7 +1703,6 @@ impl DecorationObserver {
     #[allow(clippy::unused_self)]
     fn decorations_changed(&mut self, event: &FileDecorationsChanged) -> Vec<Action> {
         vec![Action::Output {
-            target: OutputTarget::Clipboard,
             text: format!(
                 "notice:{};search:{}",
                 event.notice_paths.join(","),
@@ -1739,7 +1727,6 @@ impl LocationObserver {
             return Vec::new();
         };
         vec![Action::Output {
-            target: OutputTarget::Clipboard,
             text: format!("column:{column}"),
         }]
     }
@@ -1757,7 +1744,6 @@ impl ToastObserver {
     #[allow(clippy::unused_self)]
     fn toast_requested(&mut self, event: &ToastRequested) -> Vec<Action> {
         vec![Action::Output {
-            target: OutputTarget::Clipboard,
             text: format!("toast:{}", event.text),
         }]
     }
@@ -1782,7 +1768,6 @@ impl FullLocationObserver {
             return Vec::new();
         };
         vec![Action::Output {
-            target: OutputTarget::Clipboard,
             text: format!("location:{path}:{cursor}:{column}"),
         }]
     }
@@ -1798,7 +1783,6 @@ impl SearchStatusObserver {
     #[allow(clippy::unused_self)]
     fn search_changed(&mut self, event: &SearchStatusChanged) -> Vec<Action> {
         vec![Action::Output {
-            target: OutputTarget::Clipboard,
             text: format!(
                 "search:{}:{}/{}",
                 event.query.as_deref().unwrap_or_default(),
@@ -1822,7 +1806,6 @@ impl ReviewPathObserver {
             return Vec::new();
         };
         vec![Action::Output {
-            target: OutputTarget::Clipboard,
             text: format!("path:{path}"),
         }]
     }

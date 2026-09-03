@@ -17,7 +17,6 @@ use review_repository::repository::{
     ChangeId, RevisionCandidate, RevisionDirection, RevisionHistoryLine,
 };
 use review_state::ReviewStatus;
-use review_store::OutputTarget;
 use review_types::ReviewUnit;
 use toasts::ToastId;
 
@@ -98,12 +97,7 @@ impl<C> InputMatcher<C, Key> for MatchingKeys {
 }
 
 fn application() -> ReviewApplication {
-    ReviewApplication::new(
-        Theme::default(),
-        Some(24),
-        OutputTarget::Clipboard,
-        PathBuf::new(),
-    )
+    ReviewApplication::new(Theme::default(), Some(24), PathBuf::new())
 }
 
 fn publish_repository(
@@ -573,7 +567,6 @@ fn control_clicking_a_file_inserts_its_path() {
     assert_eq!(
         application.update(UserInput::MouseControlClick { column: 1, row: 2 }),
         [Action::Output {
-            target: OutputTarget::Clipboard,
             text: "lib.rs".to_owned(),
         }]
     );
@@ -681,8 +674,7 @@ fn location_click_uses_the_visible_row_after_pointer_scrolling() {
 #[test]
 fn diff_pointer_selection_accounts_for_rendered_guide_rows() {
     let theme = Theme::default();
-    let mut application =
-        ReviewApplication::new(theme, Some(24), OutputTarget::Clipboard, PathBuf::new());
+    let mut application = ReviewApplication::new(theme, Some(24), PathBuf::new());
     let review_checkpoint = ReviewCheckpoint::new("change", "checkpoint");
     application.update(UserInput::Resize {
         width: 80,

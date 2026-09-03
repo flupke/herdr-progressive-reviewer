@@ -45,7 +45,6 @@ pub enum FileShortcut {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ApplicationShortcut {
     ChangeFocus,
-    ChangeOutputTarget,
     Clear,
     Insert,
     MarkReviewed,
@@ -263,7 +262,6 @@ pub enum ShortcutSet {
     Guide,
     Overlay,
     Revision,
-    Status,
 }
 
 /// Stateful matching for one shortcut subscription.
@@ -360,10 +358,6 @@ impl ShortcutSet {
                 )
             ),
             Self::Revision => is_revision_shortcut(command),
-            Self::Status => matches!(
-                command,
-                ShortcutCommand::Application(ApplicationShortcut::ChangeOutputTarget)
-            ),
         }
     }
 }
@@ -583,13 +577,6 @@ const SHORTCUTS: &[ShortcutDefinition] = &[
         ],
     },
     ShortcutDefinition {
-        description: Some("Change the output target"),
-        bindings: &[ShortcutBinding::one(
-            Key::Char('o'),
-            application(ApplicationShortcut::ChangeOutputTarget),
-        )],
-    },
-    ShortcutDefinition {
         description: Some("Quit"),
         bindings: &[
             ShortcutBinding::alias(Key::Quit, application(ApplicationShortcut::Quit)),
@@ -666,9 +653,7 @@ const fn is_component_global_shortcut(command: ShortcutCommand) -> bool {
                     | NavigationShortcut::OpenRevisionSelector
             )
             | ShortcutCommand::Application(
-                ApplicationShortcut::ShowCommitMessage
-                    | ApplicationShortcut::OpenHelp
-                    | ApplicationShortcut::ChangeOutputTarget
+                ApplicationShortcut::ShowCommitMessage | ApplicationShortcut::OpenHelp
             )
     )
 }

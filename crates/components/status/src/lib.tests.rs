@@ -1,10 +1,8 @@
-use component_core::{ComponentEventBus, EventEnvelope};
+use component_core::ComponentEventBus;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use review_store::OutputTarget;
 use ui_actions::Action;
 use ui_events::{FilesOverviewChanged, RepositoryMetadataChanged, SearchStatusChanged};
-use ui_shortcuts::Key;
 use ui_theme::Theme;
 
 use super::StatusComponent;
@@ -12,7 +10,7 @@ use super::StatusComponent;
 #[test]
 fn external_events_change_visible_header_output() {
     let mut bus = ComponentEventBus::<Action>::new();
-    let target = bus.mount(|events| StatusComponent::new(events, OutputTarget::ActiveAgent));
+    let target = bus.mount(StatusComponent::new);
     bus.publish(RepositoryMetadataChanged {
         review_checkpoint: review_guide::ReviewCheckpoint::new("change", "snapshot"),
         description: "Component migration\nbody".to_owned(),
@@ -41,23 +39,9 @@ fn external_events_change_visible_header_output() {
 }
 
 #[test]
-fn output_shortcut_changes_the_output_target() {
-    let mut bus = ComponentEventBus::<Action>::new();
-    bus.mount(|events| StatusComponent::new(events, OutputTarget::ActiveAgent));
-    let phase = bus
-        .dispatch_global_input(&EventEnvelope::new(Key::Char('o')))
-        .unwrap();
-    let mut results = phase.into_results();
-    assert_eq!(
-        results.remove(0).into_actions(),
-        vec![Action::SaveOutputTarget(OutputTarget::Clipboard)]
-    );
-}
-
-#[test]
 fn active_search_replaces_the_output_status_with_match_position() {
     let mut bus = ComponentEventBus::<Action>::new();
-    let target = bus.mount(|events| StatusComponent::new(events, OutputTarget::ActiveAgent));
+    let target = bus.mount(StatusComponent::new);
     bus.publish(SearchStatusChanged {
         query: Some("needle".to_owned()),
         current_match: 2,

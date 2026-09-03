@@ -16,8 +16,8 @@ use ui_events::{
     AnimationTick, CurrentReviewLocationChanged, DiffContentLoadFailed, DiffContentLoaded,
     DiffInputClearRequested, DiffViewportChanged, DisplayedDiffViewportsChanged,
     FileDecorationsChanged, FileSelected, FileSelectionRequested, FileSummary, GuideJumpRequested,
-    GuideLayoutChanged, LocationListVisibilityChanged, OutputDeliveryFinished, OutputTargetChanged,
-    PointerInput, PointerInputKind, RepositoryFilesChanged, ReviewLocation, ReviewLocationJumped,
+    GuideLayoutChanged, LocationListVisibilityChanged, OutputDeliveryFinished, PointerInput,
+    PointerInputKind, RepositoryFilesChanged, ReviewLocation, ReviewLocationJumped,
     ReviewLocationRestoreRequested, ReviewStateSaved, ReviewableFiles, ReviewableFilesChanged,
     RevisionEditFailed, SearchStatusChanged, SourceContentLoadFailed, SourceContentLoaded,
     SourceLocationAccepted, SourceLocationPreviewRequested, TemporaryFilesChanged, ToastRequested,
@@ -103,7 +103,6 @@ pub struct DiffComponent {
     viewport_height: u16,
     drag_anchor: Option<usize>,
     highlighter: SyntaxHighlighter,
-    output_target: review_store::OutputTarget,
     repository_root: PathBuf,
     palette: Palette,
     location_history: LocationHistory,
@@ -200,7 +199,6 @@ impl DiffComponent {
         events: EventPublisher,
         reviewable_files: ReviewableFiles,
         highlighter: SyntaxHighlighter,
-        output_target: review_store::OutputTarget,
         repository_root: PathBuf,
         palette: Palette,
     ) -> Self {
@@ -220,7 +218,6 @@ impl DiffComponent {
             viewport_height: 24,
             drag_anchor: None,
             highlighter,
-            output_target,
             repository_root,
             palette,
             location_history: LocationHistory::default(),
@@ -782,7 +779,6 @@ impl DiffComponent {
             .excerpt(range)
             .ok()
             .map(|excerpt| Action::Output {
-                target: self.output_target,
                 text: excerpt.into_string(),
             })
             .into_iter()
@@ -1263,11 +1259,6 @@ impl DiffComponent {
         self.documents
             .iter_mut()
             .find(|document| document.path == path)
-    }
-
-    #[allow(clippy::trivially_copy_pass_by_ref)]
-    fn output_target_changed(&mut self, event: &OutputTargetChanged) {
-        self.output_target = event.output_target;
     }
 
     #[allow(clippy::trivially_copy_pass_by_ref)]
@@ -1758,7 +1749,6 @@ impl Component<Action> for DiffComponent {
         subscriptions.subscribe(Self::review_state_saved);
         subscriptions.subscribe(Self::viewport_changed);
         subscriptions.subscribe(Self::clear_input);
-        subscriptions.subscribe(Self::output_target_changed);
         subscriptions.subscribe(Self::output_finished);
         subscriptions.subscribe(Self::guide_layout_changed);
         subscriptions.subscribe(Self::guide_jump_requested);

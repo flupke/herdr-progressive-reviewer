@@ -67,18 +67,6 @@ pub enum Error {
 #[serde(default)]
 struct Settings {
     file_pane_width: Option<u16>,
-    output_target: OutputTarget,
-}
-
-/// Where selected review text is sent.
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum OutputTarget {
-    /// Insert text into the active Herdr agent.
-    #[default]
-    ActiveAgent,
-    /// Copy text to the system clipboard.
-    Clipboard,
 }
 
 /// Review state for one canonical repository.
@@ -127,18 +115,6 @@ impl ReviewStore {
     pub fn save_file_pane_width(&self, columns: u16) -> Result<()> {
         let mut settings = self.settings()?;
         settings.file_pane_width = Some(columns);
-        self.atomic_json(&self.settings_path(), &settings, "write settings")
-    }
-
-    /// Get the selected text output target.
-    pub fn output_target(&self) -> Result<OutputTarget> {
-        Ok(self.settings()?.output_target)
-    }
-
-    /// Save the selected text output target.
-    pub fn save_output_target(&self, target: OutputTarget) -> Result<()> {
-        let mut settings = self.settings()?;
-        settings.output_target = target;
         self.atomic_json(&self.settings_path(), &settings, "write settings")
     }
 

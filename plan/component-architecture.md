@@ -65,7 +65,7 @@ result.
 - Do not adopt `tuirealm`, `ratatui-kit`, or another UI framework.
 - Do not create one thread or task for each component.
 - Do not let a component read from a shared terminal receiver directly.
-- Do not perform repository, LSP, Herdr, storage, or clipboard work while
+- Do not perform repository, LSP, Herdr, or storage work while
   rendering.
 - Do not create crate dependency cycles or copy shared types to avoid a
   dependency.
@@ -371,7 +371,7 @@ Examples include:
 - query or restart the LSP;
 - change a review state;
 - generate a review guide;
-- write to the selected output target;
+- write to the active implementation agent;
 - edit a revision;
 - save a setting; and
 - quit.
@@ -499,7 +499,6 @@ and tells the files and diff components to reset or restore their state.
 
 `StatusComponent` owns:
 
-- output target selection;
 - temporary status text;
 - guide generation animation display; and
 - footer rendering.
@@ -801,7 +800,7 @@ rendered output.
 
 The final slice removed the temporary controller and its state bridge. The
 owning components now handle file selection, diff cursor and scroll,
-selections, source views, output targets, overlays, and their input directly.
+selections, source views, overlays, and their input directly.
 The application keeps only component composition and cross-component
 coordination.
 

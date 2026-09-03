@@ -6,7 +6,6 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-arboard.workspace = true
 crossterm.workspace = true
 crossbeam-channel.workspace = true
 component-core = { path = "../component-core" }

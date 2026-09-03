@@ -8,7 +8,6 @@ license.workspace = true
 [dependencies]
 component-core = { path = "../../component-core" }
 ratatui.workspace = true
-review-store = { path = "../../review-store" }
 ui-actions = { path = "../../ui-actions" }
 ui-events = { path = "../../ui-events" }
 ui-shortcuts = { path = "../../ui-shortcuts" }

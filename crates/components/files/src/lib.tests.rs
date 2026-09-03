@@ -3,13 +3,11 @@ use ratatui::{Terminal, backend::TestBackend, style::Color};
 use review_guide::ReviewCheckpoint;
 use review_repository::repository::{ChangedFile, DiffStatistics, Repository};
 use review_state::ReviewStatus;
-use review_store::OutputTarget;
 use review_test_support::{GitFixture, ReviewRepositoryFixture, complete_repository_snapshot};
 use ui_actions::Action;
 use ui_events::{
     FileSelected, FileSummary, FilesOverviewChanged, FilesViewportChanged, GuidePathsChanged,
-    OutputTargetChanged, PointerInput, PointerInputKind, PointerPosition, RepositoryFilesChanged,
-    ReviewStateSaved,
+    PointerInput, PointerInputKind, PointerPosition, RepositoryFilesChanged, ReviewStateSaved,
 };
 use ui_shortcuts::Key;
 
@@ -50,7 +48,6 @@ fn repository_and_keyboard_inputs_publish_the_selected_file() {
     assert_eq!(
         initial,
         [Action::Output {
-            target: OutputTarget::Clipboard,
             text: "selected:first.rs".to_owned(),
         }]
     );
@@ -65,7 +62,6 @@ fn repository_and_keyboard_inputs_publish_the_selected_file() {
     assert_eq!(
         moved,
         [Action::Output {
-            target: OutputTarget::Clipboard,
             text: "selected:second.rs".to_owned(),
         }]
     );
@@ -106,7 +102,6 @@ fn global_shortcuts_move_between_files_that_need_review() {
         assert_eq!(
             actions,
             [Action::Output {
-                target: OutputTarget::Clipboard,
                 text: format!("selected:{expected_path}"),
             }]
         );
@@ -253,7 +248,6 @@ fn repository_event_updates_the_header_overview() {
     assert_eq!(
         actions,
         [Action::Output {
-            target: OutputTarget::Clipboard,
             text: "overview:1/2:+8:-6".to_owned(),
         }]
     );
@@ -292,7 +286,6 @@ fn review_input_moves_optimistically_and_failure_restores_the_status() {
                 reviewed: true,
             },
             Action::Output {
-                target: OutputTarget::Clipboard,
                 text: "selected:second.rs".to_owned(),
             },
         ]
@@ -337,12 +330,6 @@ fn pointer_input_can_insert_a_path_without_loading_its_diff() {
     registry
         .publish_envelope(EventEnvelope::new(FilesViewportChanged { rows: 4 }))
         .expect("viewport event must dispatch");
-    registry
-        .publish_envelope(EventEnvelope::new(OutputTargetChanged {
-            output_target: OutputTarget::Clipboard,
-        }))
-        .expect("output target event must dispatch");
-
     let actions = registry
         .dispatch_hovered_input(
             &EventEnvelope::new(PointerInput {
@@ -364,7 +351,6 @@ fn pointer_input_can_insert_a_path_without_loading_its_diff() {
     assert_eq!(
         actions,
         [Action::Output {
-            target: OutputTarget::Clipboard,
             text: "src/lib.rs".to_owned(),
         }]
     );
@@ -378,7 +364,6 @@ impl OverviewOutput {
     #[allow(clippy::unused_self)]
     fn changed(&mut self, event: &FilesOverviewChanged) -> Vec<Action> {
         vec![Action::Output {
-            target: OutputTarget::Clipboard,
             text: format!(
                 "overview:{}/{}:+{}:-{}",
                 event.reviewed, event.total, event.lines_added, event.lines_removed
@@ -397,7 +382,6 @@ impl SelectionOutput {
     #[allow(clippy::unused_self)]
     fn selected(&mut self, event: &FileSelected) -> Vec<Action> {
         vec![Action::Output {
-            target: OutputTarget::Clipboard,
             text: format!("selected:{}", event.path),
         }]
     }
@@ -426,7 +410,6 @@ fn repository_refresh_publishes_selection_from_the_files_component() {
         .collect::<Vec<_>>();
 
     assert!(actions.contains(&Action::Output {
-        target: OutputTarget::Clipboard,
         text: "selected:src/lib.rs".to_owned(),
     }));
 }

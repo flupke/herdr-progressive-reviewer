@@ -178,8 +178,5 @@ impl Component<Action> for LocationOutput {
 }
 
 fn output(text: String) -> Vec<Action> {
-    vec![Action::Output {
-        target: review_store::OutputTarget::Clipboard,
-        text,
-    }]
+    vec![Action::Output { text }]
 }
