@@ -10,6 +10,7 @@ use guide_rendering::{GuideLayout, GuideOverlay};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use review_guide::ReviewCheckpoint;
+use review_state::ReviewStatus;
 use ui_actions::Action;
 use ui_events::{
     AnimationTick, CurrentReviewLocationChanged, DiffContentLoadFailed, DiffContentLoaded,
@@ -17,9 +18,9 @@ use ui_events::{
     FileDecorationsChanged, FileSelected, FileSelectionRequested, FileSummary, GuideJumpRequested,
     GuideLayoutChanged, LocationListVisibilityChanged, OutputDeliveryFinished, OutputTargetChanged,
     PointerInput, PointerInputKind, RepositoryFilesChanged, ReviewLocation, ReviewLocationJumped,
-    ReviewLocationRestoreRequested, ReviewableFiles, ReviewableFilesChanged, RevisionEditFailed,
-    SearchStatusChanged, SourceContentLoadFailed, SourceContentLoaded, SourceLocationAccepted,
-    SourceLocationPreviewRequested, TemporaryFilesChanged, ToastRequested,
+    ReviewLocationRestoreRequested, ReviewStateSaved, ReviewableFiles, ReviewableFilesChanged,
+    RevisionEditFailed, SearchStatusChanged, SourceContentLoadFailed, SourceContentLoaded,
+    SourceLocationAccepted, SourceLocationPreviewRequested, TemporaryFilesChanged, ToastRequested,
 };
 use ui_shortcuts::{
     ApplicationShortcut, Key, LspShortcut, NavigationShortcut, SearchShortcut, ShortcutCommand,
@@ -1187,11 +1188,11 @@ impl DiffComponent {
         })
     }
 
-    fn content_loaded(&mut self, event: &DiffContentLoaded) {
+    fn content_loaded(&mut self, event: &DiffContentLoaded) -> Vec<Action> {
         let syntax_highlighter = self.highlighter.clone();
         let Some(document) = self.current_document_mut(&event.review_checkpoint, &event.path)
         else {
-            return;
+            return Vec::new();
         };
         let highlighted_rows = syntax_highlighter.highlight(
             &event.path,
@@ -1199,7 +1200,8 @@ impl DiffComponent {
             event.old_content.as_deref(),
             event.new_content.as_deref(),
         );
-        document.replace_diff(DiffPresentation::new(highlighted_rows));
+        let reload_after_current_load =
+            document.replace_diff(DiffPresentation::new(highlighted_rows));
         self.refresh_pending_preview(&event.path);
         let pending_center_completed = self.pending_center_path.as_deref() == Some(&event.path);
         let center_selected_document =
@@ -1223,23 +1225,28 @@ impl DiffComponent {
         self.publish_decorations();
         self.publish_current_location();
         self.publish_search_status();
+        if reload_after_current_load && self.selected_path.as_deref() == Some(event.path.as_str()) {
+            return self.selected_load_action().into_iter().collect();
+        }
+        Vec::new()
     }
 
-    fn content_load_failed(&mut self, event: &DiffContentLoadFailed) {
+    fn content_load_failed(&mut self, event: &DiffContentLoadFailed) -> Vec<Action> {
         if self.pending_center_path.as_deref() == Some(&event.path) {
             self.pending_center_path = None;
         }
-        if let Some(document) = self.current_document_mut(&event.review_checkpoint, &event.path) {
-            document.fail_diff_load();
-        }
+        let reload_immediately = self
+            .current_document_mut(&event.review_checkpoint, &event.path)
+            .is_some_and(LoadedDocument::fail_diff_load);
         self.finish_repository_search_load_if_complete();
+        if reload_immediately && self.selected_path.as_deref() == Some(event.path.as_str()) {
+            return self.selected_load_action().into_iter().collect();
+        }
+        Vec::new()
     }
 
     fn finish_repository_search_load_if_complete(&mut self) {
-        let repository_is_loading = self
-            .documents
-            .iter()
-            .any(|document| document.document.loading);
+        let repository_is_loading = self.documents.iter().any(LoadedDocument::is_loading);
         if !repository_is_loading && let Some(search) = &mut self.search {
             search.waiting_for_repository = false;
         }
@@ -1506,7 +1513,7 @@ impl DiffComponent {
                 self.publish_current_location();
                 let load_already_active = self
                     .selected_document()
-                    .is_some_and(|document| document.document.loading);
+                    .is_some_and(LoadedDocument::is_loading);
                 let action = self.selected_load_action();
                 if load_already_active || action.is_some() {
                     self.pending_center_path = Some(path.clone());
@@ -1610,6 +1617,33 @@ impl DiffComponent {
     #[allow(clippy::trivially_copy_pass_by_ref)]
     fn reviewable_files_changed(&mut self, _event: &ReviewableFilesChanged) -> Vec<Action> {
         self.publish_viewports();
+        self.selected_load_action().into_iter().collect()
+    }
+
+    fn review_state_saved(&mut self, event: &ReviewStateSaved) -> Vec<Action> {
+        let is_current_review_unit = self
+            .review_checkpoint
+            .as_ref()
+            .is_some_and(|checkpoint| checkpoint.review_unit == event.review_unit);
+        let became_unreviewed = event
+            .result
+            .as_ref()
+            .is_ok_and(|state| state.status == ReviewStatus::Unreviewed);
+        if !is_current_review_unit || !became_unreviewed {
+            return Vec::new();
+        }
+
+        let Some(document) = self
+            .documents
+            .iter_mut()
+            .find(|document| document.path == event.path)
+        else {
+            return Vec::new();
+        };
+        document.require_diff_reload();
+        if self.selected_path.as_deref() != Some(event.path.as_str()) {
+            return Vec::new();
+        }
         self.selected_load_action().into_iter().collect()
     }
 
@@ -1721,6 +1755,7 @@ impl Component<Action> for DiffComponent {
         subscriptions.subscribe(Self::content_loaded);
         subscriptions.subscribe(Self::content_load_failed);
         subscriptions.subscribe(Self::reviewable_files_changed);
+        subscriptions.subscribe(Self::review_state_saved);
         subscriptions.subscribe(Self::viewport_changed);
         subscriptions.subscribe(Self::clear_input);
         subscriptions.subscribe(Self::output_target_changed);

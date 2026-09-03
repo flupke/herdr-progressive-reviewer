@@ -17,8 +17,62 @@ pub(super) struct DiffDocument {
     pub(super) scroll: usize,
     pub(super) column: usize,
     pub(super) source_location: Option<SourceLocation>,
-    pub(super) loading: bool,
-    reload_required: bool,
+    load_state: DiffLoadState,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DiffLoadState {
+    Idle,
+    ReloadRequired,
+    Loading,
+    ReloadLoading,
+    LoadingThenReload,
+}
+
+impl DiffLoadState {
+    fn finish_load(&mut self) -> bool {
+        let reload_required = *self == Self::LoadingThenReload;
+        *self = if reload_required {
+            Self::ReloadRequired
+        } else {
+            Self::Idle
+        };
+        reload_required
+    }
+
+    fn fail_load(&mut self) -> bool {
+        let reload_immediately = *self == Self::LoadingThenReload;
+        *self = match self {
+            Self::ReloadLoading | Self::LoadingThenReload => Self::ReloadRequired,
+            _ => Self::Idle,
+        };
+        reload_immediately
+    }
+
+    fn require_reload(&mut self) {
+        *self = match self {
+            Self::Loading | Self::ReloadLoading | Self::LoadingThenReload => {
+                Self::LoadingThenReload
+            }
+            _ => Self::ReloadRequired,
+        };
+    }
+
+    fn start_load(&mut self) -> bool {
+        *self = match self {
+            Self::Idle => Self::Loading,
+            Self::ReloadRequired => Self::ReloadLoading,
+            Self::Loading | Self::ReloadLoading | Self::LoadingThenReload => return false,
+        };
+        true
+    }
+
+    fn is_loading(self) -> bool {
+        matches!(
+            self,
+            Self::Loading | Self::ReloadLoading | Self::LoadingThenReload
+        )
+    }
 }
 
 impl DiffDocument {
@@ -29,8 +83,7 @@ impl DiffDocument {
             scroll: 0,
             column: 0,
             source_location: None,
-            loading: false,
-            reload_required: false,
+            load_state: DiffLoadState::Idle,
         }
     }
 
@@ -43,15 +96,14 @@ impl DiffDocument {
     fn preserve_loaded_content_from(&mut self, previous: &Self, content_is_current: bool) {
         self.source_location.clone_from(&previous.source_location);
         self.diff.clone_from(&previous.diff);
-        self.loading = content_is_current && previous.loading;
-        self.reload_required = if content_is_current {
-            previous.reload_required
+        self.load_state = if content_is_current {
+            previous.load_state
         } else {
-            true
+            DiffLoadState::ReloadRequired
         };
     }
 
-    fn replace_diff(&mut self, diff: DiffPresentation) {
+    fn replace_diff(&mut self, diff: DiffPresentation) -> bool {
         let cursor_location = self.diff.presentation_location(self.cursor);
         let scroll_location = self.diff.presentation_location(self.scroll);
         let fallback_cursor = self.cursor;
@@ -59,8 +111,7 @@ impl DiffDocument {
         let column = self.column;
         let source_location = self.source_location.clone();
         self.diff = diff;
-        self.loading = false;
-        self.reload_required = false;
+        let reload_required = self.load_state.finish_load();
         self.restore_presentation_location(cursor_location, fallback_cursor, column);
         self.scroll = scroll_location
             .and_then(|location| self.diff.reveal_presentation_location(location))
@@ -68,6 +119,7 @@ impl DiffDocument {
         if let Some(source_location) = source_location {
             let _ = self.reveal_location(&source_location);
         }
+        reload_required
     }
 
     pub(super) fn reveal_location(&mut self, location: &SourceLocation) -> bool {
@@ -190,12 +242,17 @@ impl LoadedDocument {
         }
     }
 
-    pub(super) fn replace_diff(&mut self, diff: DiffPresentation) {
-        self.document.replace_diff(diff);
+    pub(super) fn replace_diff(&mut self, diff: DiffPresentation) -> bool {
+        self.document.replace_diff(diff)
     }
 
-    pub(super) fn fail_diff_load(&mut self) {
-        self.document.loading = false;
+    pub(super) fn fail_diff_load(&mut self) -> bool {
+        self.document.load_state.fail_load()
+    }
+
+    /// Keep the displayed content while requiring the next load to replace it.
+    pub(super) fn require_diff_reload(&mut self) {
+        self.document.load_state.require_reload();
     }
 
     pub(super) fn guide_viewport(&self, file_index: usize) -> DisplayedDiffViewport {
@@ -213,15 +270,20 @@ impl LoadedDocument {
     }
 
     pub(super) fn start_diff_load(&mut self) -> Option<String> {
-        if self.document.loading {
+        if self.document.load_state.is_loading() {
             return None;
         }
-        if !self.document.reload_required
+        if self.document.load_state != DiffLoadState::ReloadRequired
             && (!self.document.diff.is_empty() || self.document.diff.can_show_file())
         {
             return None;
         }
-        self.document.loading = true;
+        let load_started = self.document.load_state.start_load();
+        debug_assert!(load_started);
         Some(self.path.clone())
+    }
+
+    pub(super) fn is_loading(&self) -> bool {
+        self.document.load_state.is_loading()
     }
 }

@@ -4,8 +4,11 @@ use component_core::{
 };
 use ratatui::{buffer::Buffer, layout::Rect, style::Color};
 use review_guide::ReviewCheckpoint;
-use review_repository::diff::{DiffRow, NoticeKind};
-use review_state::ReviewStatus;
+use review_repository::{
+    diff::{DiffRow, NoticeKind},
+    repository::DiffStatistics,
+};
+use review_state::{ReviewState, ReviewStatus};
 use review_store::OutputTarget;
 use two_face::theme::EmbeddedThemeName;
 use ui_events::{FileSummary, PointerPosition};
@@ -106,6 +109,156 @@ fn loaded_content_from_another_review_unit_does_not_publish_a_viewport() {
         .expect("stale loaded diff must dispatch");
 
     assert!(output_texts(results).is_empty());
+}
+
+#[test]
+fn unreviewing_a_checkpointed_file_reloads_its_full_diff() {
+    let (mut registry, reviewable_files, _) = registry_with_observer();
+    reviewable_files.replace(["src/lib.rs".to_owned()].into());
+    publish_repository(&mut registry, "checkpoint");
+    registry
+        .publish(FileSelected {
+            path: "src/lib.rs".to_owned(),
+        })
+        .expect("file selection must dispatch");
+    registry
+        .publish(DiffContentLoaded {
+            review_checkpoint: ReviewCheckpoint::new("change", "checkpoint"),
+            path: "src/lib.rs".to_owned(),
+            rows: changed_rows(),
+            old_content: None,
+            new_content: None,
+        })
+        .expect("checkpoint diff must load");
+
+    let actions = registry
+        .publish(ReviewStateSaved {
+            review_unit: "change".into(),
+            path: "src/lib.rs".to_owned(),
+            result: Ok(ReviewState::unreviewed(DiffStatistics::default(), None)),
+        })
+        .expect("review state must dispatch")
+        .into_iter()
+        .flat_map(DispatchResult::into_actions)
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        actions,
+        vec![Action::LoadDiff {
+            review_checkpoint: ReviewCheckpoint::new("change", "checkpoint"),
+            path: "src/lib.rs".to_owned(),
+        }]
+    );
+}
+
+#[test]
+fn unreviewing_while_checkpoint_diff_loads_defers_the_full_diff_load() {
+    let (mut registry, reviewable_files, _) = registry_with_observer();
+    reviewable_files.replace(["src/lib.rs".to_owned()].into());
+    publish_repository(&mut registry, "checkpoint");
+    registry
+        .publish(FileSelected {
+            path: "src/lib.rs".to_owned(),
+        })
+        .expect("file selection must dispatch");
+
+    let actions = registry
+        .publish(ReviewStateSaved {
+            review_unit: "change".into(),
+            path: "src/lib.rs".to_owned(),
+            result: Ok(ReviewState::unreviewed(DiffStatistics::default(), None)),
+        })
+        .expect("review state must dispatch")
+        .into_iter()
+        .flat_map(DispatchResult::into_actions)
+        .collect::<Vec<_>>();
+    assert!(actions.is_empty());
+
+    let load_actions = registry
+        .publish(DiffContentLoaded {
+            review_checkpoint: ReviewCheckpoint::new("change", "checkpoint"),
+            path: "src/lib.rs".to_owned(),
+            rows: changed_rows(),
+            old_content: None,
+            new_content: None,
+        })
+        .expect("checkpoint diff must load")
+        .into_iter()
+        .flat_map(DispatchResult::into_actions)
+        .filter(|action| matches!(action, Action::LoadDiff { .. }))
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        load_actions,
+        vec![Action::LoadDiff {
+            review_checkpoint: ReviewCheckpoint::new("change", "checkpoint"),
+            path: "src/lib.rs".to_owned(),
+        }]
+    );
+}
+
+#[test]
+fn stale_load_failure_starts_full_load_then_full_load_failure_waits_for_refresh() {
+    let (mut registry, reviewable_files, _) = registry_with_observer();
+    reviewable_files.replace(["src/lib.rs".to_owned()].into());
+    publish_repository(&mut registry, "checkpoint");
+    registry
+        .publish(FileSelected {
+            path: "src/lib.rs".to_owned(),
+        })
+        .expect("file selection must dispatch");
+    registry
+        .publish(ReviewStateSaved {
+            review_unit: "change".into(),
+            path: "src/lib.rs".to_owned(),
+            result: Ok(ReviewState::unreviewed(DiffStatistics::default(), None)),
+        })
+        .expect("review state must dispatch");
+
+    let stale_failure_actions = registry
+        .publish(DiffContentLoadFailed {
+            review_checkpoint: ReviewCheckpoint::new("change", "checkpoint"),
+            path: "src/lib.rs".to_owned(),
+        })
+        .expect("load failure must dispatch")
+        .into_iter()
+        .flat_map(DispatchResult::into_actions)
+        .filter(|action| matches!(action, Action::LoadDiff { .. }))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        stale_failure_actions,
+        vec![Action::LoadDiff {
+            review_checkpoint: ReviewCheckpoint::new("change", "checkpoint"),
+            path: "src/lib.rs".to_owned(),
+        }]
+    );
+
+    let replacement_failure_actions = registry
+        .publish(DiffContentLoadFailed {
+            review_checkpoint: ReviewCheckpoint::new("change", "checkpoint"),
+            path: "src/lib.rs".to_owned(),
+        })
+        .expect("replacement load failure must dispatch")
+        .into_iter()
+        .flat_map(DispatchResult::into_actions)
+        .filter(|action| matches!(action, Action::LoadDiff { .. }))
+        .collect::<Vec<_>>();
+    assert!(replacement_failure_actions.is_empty());
+
+    let refresh_actions = registry
+        .publish(ReviewableFilesChanged)
+        .expect("reviewable-file refresh must dispatch")
+        .into_iter()
+        .flat_map(DispatchResult::into_actions)
+        .filter(|action| matches!(action, Action::LoadDiff { .. }))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        refresh_actions,
+        vec![Action::LoadDiff {
+            review_checkpoint: ReviewCheckpoint::new("change", "checkpoint"),
+            path: "src/lib.rs".to_owned(),
+        }]
+    );
 }
 
 #[test]
