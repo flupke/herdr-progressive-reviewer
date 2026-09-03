@@ -28,11 +28,18 @@ pub enum Key {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ShortcutCommand {
     Application(ApplicationShortcut),
+    File(FileShortcut),
     Guide(GuideShortcut),
     Lsp(LspShortcut),
     Navigation(NavigationShortcut),
     Search(SearchShortcut),
     Source(SourceShortcut),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FileShortcut {
+    GoToNextUnreviewed,
+    GoToPreviousUnreviewed,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -252,6 +259,7 @@ pub enum ShortcutSet {
     Application,
     Diff,
     Files,
+    FilesGlobal,
     Guide,
     Overlay,
     Revision,
@@ -343,6 +351,7 @@ impl ShortcutSet {
                     )
             }
             Self::Files => is_files_shortcut(command),
+            Self::FilesGlobal => matches!(command, ShortcutCommand::File(_)),
             Self::Guide => matches!(command, ShortcutCommand::Guide(_)),
             Self::Overlay => matches!(
                 command,
@@ -546,6 +555,21 @@ const SHORTCUTS: &[ShortcutDefinition] = &[
         ],
     },
     ShortcutDefinition {
+        description: Some("Go to previous / next unreviewed file"),
+        bindings: &[
+            ShortcutBinding::two(
+                Key::Char('['),
+                Key::Char('f'),
+                ShortcutCommand::File(FileShortcut::GoToPreviousUnreviewed),
+            ),
+            ShortcutBinding::two(
+                Key::Char(']'),
+                Key::Char('f'),
+                ShortcutCommand::File(FileShortcut::GoToNextUnreviewed),
+            ),
+        ],
+    },
+    ShortcutDefinition {
         description: Some("Show the commit message"),
         bindings: &[
             ShortcutBinding::alias(
@@ -635,6 +659,7 @@ const fn is_component_global_shortcut(command: ShortcutCommand) -> bool {
     matches!(
         command,
         ShortcutCommand::Guide(_)
+            | ShortcutCommand::File(_)
             | ShortcutCommand::Navigation(
                 NavigationShortcut::GoToParentRevision
                     | NavigationShortcut::GoToChildRevision

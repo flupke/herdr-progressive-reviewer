@@ -76,6 +76,22 @@ fn help_labels_are_generated_from_visible_bindings() {
 }
 
 #[test]
+fn unreviewed_file_navigation_help_uses_file_shortcuts() {
+    let file_navigation = SHORTCUTS
+        .iter()
+        .find(|definition| definition.description == Some("Go to previous / next unreviewed file"))
+        .and_then(ShortcutDefinition::help_line);
+
+    assert_eq!(
+        file_navigation,
+        Some((
+            "[f / ]f".to_owned(),
+            "Go to previous / next unreviewed file"
+        ))
+    );
+}
+
+#[test]
 fn help_close_label_is_generated_from_close_bindings() {
     assert_eq!(help_close_label(), "? or Esc");
     assert!(closes_help(Key::Char('?')));

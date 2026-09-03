@@ -553,7 +553,7 @@ impl DiffComponent {
             ShortcutCommand::Application(command) => self.run_application_shortcut(command),
             ShortcutCommand::Lsp(LspShortcut::Restart) => vec![Action::RestartLsp],
             ShortcutCommand::Lsp(command) => self.lsp(command),
-            ShortcutCommand::Guide(_) => Vec::new(),
+            ShortcutCommand::Guide(_) | ShortcutCommand::File(_) => Vec::new(),
         }
     }
 

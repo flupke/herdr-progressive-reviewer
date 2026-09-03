@@ -72,6 +72,69 @@ fn repository_and_keyboard_inputs_publish_the_selected_file() {
 }
 
 #[test]
+fn global_shortcuts_move_between_files_that_need_review() {
+    let mut registry = ComponentEventBus::<Action>::new();
+    registry.mount(FilesComponent::new);
+    let other_target = registry.mount(|_| SelectionOutput);
+    registry
+        .publish_envelope(EventEnvelope::new(RepositoryFilesChanged {
+            review_checkpoint: ReviewCheckpoint::new("change", "commit"),
+            files: vec![
+                FileSummary::new("first.rs", ReviewStatus::Unreviewed),
+                FileSummary::new("second.rs", ReviewStatus::Reviewed),
+                FileSummary::new("third.rs", ReviewStatus::ChangedSinceReview),
+            ],
+        }))
+        .expect("repository event must dispatch");
+
+    for (first, second, expected_path) in [
+        ('[', 'f', "third.rs"),
+        (']', 'f', "first.rs"),
+        (']', 'f', "third.rs"),
+    ] {
+        let prefix = registry
+            .dispatch_input(&EventEnvelope::new(Key::Char(first)), other_target)
+            .expect("shortcut prefix must dispatch");
+        assert!(prefix.global_input_pending());
+        let actions = registry
+            .dispatch_input(&EventEnvelope::new(Key::Char(second)), other_target)
+            .expect("shortcut must dispatch")
+            .into_results()
+            .into_iter()
+            .flat_map(component_core::DispatchResult::into_actions)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            actions,
+            [Action::Output {
+                target: OutputTarget::Clipboard,
+                text: format!("selected:{expected_path}"),
+            }]
+        );
+    }
+}
+
+#[test]
+fn global_unreviewed_file_shortcuts_do_nothing_before_files_arrive() {
+    let mut registry = ComponentEventBus::<Action>::new();
+    registry.mount(FilesComponent::new);
+    let other_target = registry.mount(|_| SelectionOutput);
+
+    for first in ['[', ']'] {
+        registry
+            .dispatch_input(&EventEnvelope::new(Key::Char(first)), other_target)
+            .expect("shortcut prefix must dispatch");
+        let actions = registry
+            .dispatch_input(&EventEnvelope::new(Key::Char('f')), other_target)
+            .expect("shortcut must dispatch")
+            .into_results()
+            .into_iter()
+            .flat_map(component_core::DispatchResult::into_actions)
+            .collect::<Vec<_>>();
+        assert!(actions.is_empty());
+    }
+}
+
+#[test]
 fn moving_back_to_the_first_file_reveals_its_parent_directory() {
     let mut registry = ComponentEventBus::<Action>::new();
     let target = registry.mount(FilesComponent::new);

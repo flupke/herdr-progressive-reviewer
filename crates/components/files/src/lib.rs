@@ -20,7 +20,8 @@ use ui_events::{
     ReviewableFilesChanged, TemporaryFilesChanged,
 };
 use ui_shortcuts::{
-    ApplicationShortcut, NavigationShortcut, ShortcutCommand, ShortcutMatcher, ShortcutSet,
+    ApplicationShortcut, FileShortcut, NavigationShortcut, ShortcutCommand, ShortcutMatcher,
+    ShortcutSet,
 };
 use ui_theme::Palette;
 use unicode_width::UnicodeWidthStr;
@@ -387,6 +388,42 @@ impl FilesComponent {
         actions
     }
 
+    fn global_shortcut(&mut self, shortcut: ShortcutCommand) {
+        let ShortcutCommand::File(shortcut) = shortcut else {
+            return;
+        };
+        let previous_selected_path = self.selected_path();
+        self.move_to_unreviewed_file(shortcut);
+        self.publish_selection_if_changed(previous_selected_path.as_deref());
+    }
+
+    fn move_to_unreviewed_file(&mut self, shortcut: FileShortcut) {
+        if self.files.is_empty() {
+            return;
+        }
+        let is_unreviewed = |index: &usize| {
+            let file = &self.files[*index];
+            !file.temporary && file.review_state.status.needs_review()
+        };
+        let target = match shortcut {
+            FileShortcut::GoToNextUnreviewed => (self.selected.saturating_add(1)..self.files.len())
+                .find(is_unreviewed)
+                .or_else(|| (0..=self.selected).find(is_unreviewed)),
+            FileShortcut::GoToPreviousUnreviewed => (0..self.selected)
+                .rev()
+                .find(is_unreviewed)
+                .or_else(|| (self.selected..self.files.len()).rev().find(is_unreviewed)),
+        };
+        let Some(target) = target else {
+            return;
+        };
+        self.selected = target;
+        let path = self.files[target].path();
+        self.expand_file_parents(&path);
+        self.rebuild_tree();
+        self.keep_selected_visible();
+    }
+
     #[allow(clippy::trivially_copy_pass_by_ref)]
     fn output_target_changed(&mut self, event: &OutputTargetChanged) {
         self.output_target = event.output_target;
@@ -693,6 +730,11 @@ impl Component<Action> for FilesComponent {
             InputScope::Focused,
             ShortcutMatcher::new(ShortcutSet::Files),
             Self::shortcut,
+        );
+        subscriptions.subscribe_input(
+            InputScope::Global,
+            ShortcutMatcher::new(ShortcutSet::FilesGlobal),
+            Self::global_shortcut,
         );
         subscriptions.subscribe_input(InputScope::Hovered, AnyInput, Self::pointer_input);
     }
