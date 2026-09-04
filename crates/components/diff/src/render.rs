@@ -430,7 +430,8 @@ impl DiffRenderer<'_> {
                 {
                     style = style.bg(self.palette.selection);
                 }
-                if focused && index == file.document.cursor {
+                let is_current_row = index == file.document.cursor;
+                if is_current_row {
                     style = style.bg(self.palette.cursor);
                 }
                 let styled_line = line.style(style);
@@ -450,6 +451,9 @@ impl DiffRenderer<'_> {
                     )
                     .into_iter()
                     .map(move |(mut line, source_display_offset)| {
+                        if is_current_row {
+                            fill_line_background(&mut line, width, self.palette.cursor);
+                        }
                         let guide_border_cells = enclosing_status.map_or_else(Vec::new, |status| {
                             enclosing_layout.map_or_else(Vec::new, |layout| {
                                 layout.enclose_line(&mut line, width, line_number_width, status)
@@ -613,6 +617,16 @@ impl DiffRenderer<'_> {
             }
             DiffRow::Context { .. } => Style::default().fg(self.palette.text),
         }
+    }
+}
+
+fn fill_line_background(line: &mut Line<'static>, width: u16, background: Color) {
+    let remaining_width = usize::from(width).saturating_sub(line.width());
+    if remaining_width > 0 {
+        line.spans.push(Span::styled(
+            " ".repeat(remaining_width),
+            Style::default().bg(background),
+        ));
     }
 }
 

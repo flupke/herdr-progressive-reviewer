@@ -548,6 +548,52 @@ fn location_history_jumps_use_the_same_centering_rule_as_first_and_last() {
 }
 
 #[test]
+fn modified_hunk_shortcuts_wrap_and_center_the_target() {
+    let (mut registry, reviewable_files, diff_target) = registry_with_observer();
+    let other_target = registry.mount(|_| ViewportObserver);
+    reviewable_files.replace(["src/lib.rs".to_owned()].into());
+    publish_repository(&mut registry, "checkpoint");
+    registry
+        .publish(FileSelected {
+            path: "src/lib.rs".to_owned(),
+        })
+        .unwrap();
+    registry
+        .publish(DiffViewportChanged {
+            width: 80,
+            height: 6,
+        })
+        .unwrap();
+    registry
+        .publish(DiffContentLoaded {
+            review_checkpoint: ReviewCheckpoint::new("change", "checkpoint"),
+            path: "src/lib.rs".to_owned(),
+            rows: two_hunk_rows(),
+            old_content: None,
+            new_content: None,
+        })
+        .unwrap();
+
+    let component = registry.get::<DiffComponent>(diff_target).unwrap();
+    let document = component.selected_document().unwrap();
+    assert_eq!(document.document.diff.modified_hunk_rows(), vec![0, 7]);
+
+    dispatch_global_shortcut(&mut registry, other_target, ']', 'h');
+
+    let component = registry.get::<DiffComponent>(diff_target).unwrap();
+    let document = component.selected_document().unwrap();
+    assert_eq!(document.document.cursor, 7);
+    assert_eq!(document.document.scroll, 3);
+
+    dispatch_global_shortcut(&mut registry, other_target, '[', 'h');
+
+    let component = registry.get::<DiffComponent>(diff_target).unwrap();
+    let document = component.selected_document().unwrap();
+    assert_eq!(document.document.cursor, 0);
+    assert_eq!(document.document.scroll, 0);
+}
+
+#[test]
 fn refreshed_checkpoint_restarts_an_in_flight_definition_load() {
     let mut registry = ComponentEventBus::new();
     let reviewable_files = ReviewableFiles::default();
@@ -1565,6 +1611,21 @@ fn dispatch_key(
         .into_results()
 }
 
+fn dispatch_global_shortcut(
+    registry: &mut ComponentEventBus<Action>,
+    focused_target: ComponentTarget,
+    prefix: char,
+    key: char,
+) {
+    let prefix_dispatch = registry
+        .dispatch_input(&EventEnvelope::new(Key::Char(prefix)), focused_target)
+        .expect("shortcut prefix must dispatch");
+    assert!(prefix_dispatch.global_input_pending());
+    registry
+        .dispatch_global_input(&EventEnvelope::new(Key::Char(key)))
+        .expect("global shortcut must dispatch");
+}
+
 fn publish_repository(registry: &mut ComponentEventBus<Action>, checkpoint: &str) {
     registry
         .publish_envelope(EventEnvelope::new(repository_event(checkpoint)))
@@ -1589,6 +1650,66 @@ fn changed_rows() -> Vec<DiffRow> {
         DiffRow::Add {
             new_line: 1,
             text: "+changed".to_owned(),
+        },
+    ]
+}
+
+fn two_hunk_rows() -> Vec<DiffRow> {
+    vec![
+        DiffRow::Hunk {
+            old_start: 1,
+            old_count: 6,
+            new_start: 1,
+            new_count: 7,
+        },
+        DiffRow::Add {
+            new_line: 1,
+            text: "+first change".to_owned(),
+        },
+        DiffRow::Context {
+            old_line: 1,
+            new_line: 2,
+            text: " line 1".to_owned(),
+        },
+        DiffRow::Context {
+            old_line: 2,
+            new_line: 3,
+            text: " line 2".to_owned(),
+        },
+        DiffRow::Context {
+            old_line: 3,
+            new_line: 4,
+            text: " line 3".to_owned(),
+        },
+        DiffRow::Context {
+            old_line: 4,
+            new_line: 5,
+            text: " line 4".to_owned(),
+        },
+        DiffRow::Context {
+            old_line: 5,
+            new_line: 6,
+            text: " line 5".to_owned(),
+        },
+        DiffRow::Context {
+            old_line: 6,
+            new_line: 7,
+            text: " line 6".to_owned(),
+        },
+        DiffRow::Hunk {
+            old_start: 20,
+            old_count: 1,
+            new_start: 21,
+            new_count: 2,
+        },
+        DiffRow::Add {
+            new_line: 21,
+            text: "+second change".to_owned(),
+        },
+        DiffRow::Context {
+            old_line: 20,
+            new_line: 22,
+            text: " line 20".to_owned(),
         },
     ]
 }

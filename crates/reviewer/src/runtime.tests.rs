@@ -5,6 +5,7 @@ use std::process::{Child, Command, Stdio};
 
 use ratatui::layout::Rect;
 use ratatui::{TerminalOptions, Viewport, backend::TestBackend};
+use review_repository::diff::DiffRow;
 use review_repository::repository::RepoType;
 use review_test_support::{
     ReviewRepositoryFixture, complete_repository_snapshot, repository_fixture,
@@ -1165,4 +1166,101 @@ fn terminal_event_producer_stops_while_waiting_for_input() {
         events.try_recv(),
         Err(crossbeam_channel::TryRecvError::Disconnected)
     ));
+}
+
+#[test]
+fn terminal_hunk_shortcut_moves_application_data_while_files_are_focused() {
+    let review_checkpoint = ReviewCheckpoint::new("change", "checkpoint");
+    let mut application = ReviewApplication::default();
+    application.update(UserInput::Resize {
+        width: 80,
+        height: 12,
+    });
+    application.publish(RepositoryFilesChanged {
+        review_checkpoint: review_checkpoint.clone(),
+        files: vec![FileSummary::new("src/lib.rs", ReviewStatus::Unreviewed)],
+    });
+    application.publish(DiffContentLoaded {
+        review_checkpoint,
+        path: "src/lib.rs".to_owned(),
+        rows: hunk_navigation_rows(),
+        old_content: None,
+        new_content: None,
+    });
+    let terminal_events = std::sync::Mutex::new(
+        [
+            Event::Key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE)),
+            Event::Key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE)),
+            Event::Key(KeyEvent::new(KeyCode::Char('['), KeyModifiers::NONE)),
+            Event::Key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE)),
+            Event::Key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE)),
+            Event::Key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE)),
+        ]
+        .into_iter(),
+    );
+    let (event_sender, events) = unbounded();
+    let producer = TerminalEventProducer::start_with_reader(event_sender, move |_| {
+        Ok(terminal_events.lock().unwrap().next())
+    });
+
+    for (expected_text, other_text) in [
+        ("second change", "first change"),
+        ("first change", "second change"),
+        ("second change", "first change"),
+    ] {
+        for _ in 0..2 {
+            let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            let input = event.downcast_ref::<UserInput>().unwrap().clone();
+            application.update(input);
+        }
+        let mut terminal = ratatui::Terminal::new(TestBackend::new(80, 12)).unwrap();
+        terminal
+            .draw(|frame| frame.render_widget(application.frame(), frame.area()))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        let expected_cell = rendered_text_cell(buffer, expected_text);
+        let other_cell = rendered_text_cell(buffer, other_text);
+        assert_ne!(expected_cell.bg, other_cell.bg);
+    }
+    producer.stop();
+}
+
+fn rendered_text_cell<'a>(
+    buffer: &'a ratatui::buffer::Buffer,
+    text: &str,
+) -> &'a ratatui::buffer::Cell {
+    for row in buffer.area.y..buffer.area.bottom() {
+        let rendered = (buffer.area.x..buffer.area.right())
+            .map(|column| buffer[(column, row)].symbol())
+            .collect::<String>();
+        if let Some(column) = rendered.find(text) {
+            return &buffer[(u16::try_from(column).unwrap(), row)];
+        }
+    }
+    panic!("rendered text not found: {text}");
+}
+
+fn hunk_navigation_rows() -> Vec<DiffRow> {
+    vec![
+        DiffRow::Hunk {
+            old_start: 1,
+            old_count: 0,
+            new_start: 1,
+            new_count: 1,
+        },
+        DiffRow::Add {
+            new_line: 1,
+            text: "+first change".to_owned(),
+        },
+        DiffRow::Hunk {
+            old_start: 20,
+            old_count: 0,
+            new_start: 21,
+            new_count: 1,
+        },
+        DiffRow::Add {
+            new_line: 21,
+            text: "+second change".to_owned(),
+        },
+    ]
 }

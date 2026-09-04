@@ -23,8 +23,8 @@ use ui_events::{
     SourceLocationAccepted, SourceLocationPreviewRequested, TemporaryFilesChanged, ToastRequested,
 };
 use ui_shortcuts::{
-    ApplicationShortcut, Key, LspShortcut, NavigationShortcut, SearchShortcut, ShortcutCommand,
-    ShortcutMatcher, ShortcutSet, SourceShortcut,
+    ApplicationShortcut, HunkShortcut, Key, LspShortcut, NavigationShortcut, SearchShortcut,
+    ShortcutCommand, ShortcutMatcher, ShortcutSet, SourceShortcut,
 };
 
 mod document;
@@ -550,7 +550,35 @@ impl DiffComponent {
             ShortcutCommand::Application(command) => self.run_application_shortcut(command),
             ShortcutCommand::Lsp(LspShortcut::Restart) => vec![Action::RestartLsp],
             ShortcutCommand::Lsp(command) => self.lsp(command),
+            ShortcutCommand::Hunk(command) => {
+                self.navigate_modified_hunk(command);
+                Vec::new()
+            }
             ShortcutCommand::Guide(_) | ShortcutCommand::File(_) => Vec::new(),
+        }
+    }
+
+    fn navigate_modified_hunk(&mut self, command: HunkShortcut) {
+        let Some(document) = self.selected_document() else {
+            return;
+        };
+        let current_row = document.document.cursor;
+        let modified_hunk_rows = document.document.diff.modified_hunk_rows();
+        let target = match command {
+            HunkShortcut::GoToNextModified => modified_hunk_rows
+                .iter()
+                .copied()
+                .find(|row| *row > current_row)
+                .or_else(|| modified_hunk_rows.first().copied()),
+            HunkShortcut::GoToPreviousModified => modified_hunk_rows
+                .iter()
+                .rev()
+                .copied()
+                .find(|row| *row < current_row)
+                .or_else(|| modified_hunk_rows.last().copied()),
+        };
+        if let Some(target) = target {
+            self.jump_cursor(target);
         }
     }
 
@@ -1764,6 +1792,11 @@ impl Component<Action> for DiffComponent {
             InputScope::Focused,
             DiffKeyboardInputMatcher::new(),
             Self::keyboard_input,
+        );
+        subscriptions.subscribe_input(
+            InputScope::Global,
+            ShortcutMatcher::new(ShortcutSet::Hunk),
+            Self::run_shortcut,
         );
         subscriptions.subscribe_input(
             InputScope::Hovered,

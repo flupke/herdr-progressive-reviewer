@@ -30,10 +30,17 @@ pub enum ShortcutCommand {
     Application(ApplicationShortcut),
     File(FileShortcut),
     Guide(GuideShortcut),
+    Hunk(HunkShortcut),
     Lsp(LspShortcut),
     Navigation(NavigationShortcut),
     Search(SearchShortcut),
     Source(SourceShortcut),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum HunkShortcut {
+    GoToNextModified,
+    GoToPreviousModified,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -260,6 +267,7 @@ pub enum ShortcutSet {
     Files,
     FilesGlobal,
     Guide,
+    Hunk,
     Overlay,
     Revision,
 }
@@ -351,6 +359,7 @@ impl ShortcutSet {
             Self::Files => is_files_shortcut(command),
             Self::FilesGlobal => matches!(command, ShortcutCommand::File(_)),
             Self::Guide => matches!(command, ShortcutCommand::Guide(_)),
+            Self::Hunk => matches!(command, ShortcutCommand::Hunk(_)),
             Self::Overlay => matches!(
                 command,
                 ShortcutCommand::Application(
@@ -549,6 +558,21 @@ const SHORTCUTS: &[ShortcutDefinition] = &[
         ],
     },
     ShortcutDefinition {
+        description: Some("Go to previous / next modified hunk"),
+        bindings: &[
+            ShortcutBinding::two(
+                Key::Char('['),
+                Key::Char('h'),
+                ShortcutCommand::Hunk(HunkShortcut::GoToPreviousModified),
+            ),
+            ShortcutBinding::two(
+                Key::Char(']'),
+                Key::Char('h'),
+                ShortcutCommand::Hunk(HunkShortcut::GoToNextModified),
+            ),
+        ],
+    },
+    ShortcutDefinition {
         description: Some("Go to previous / next unreviewed file"),
         bindings: &[
             ShortcutBinding::two(
@@ -647,6 +671,7 @@ const fn is_component_global_shortcut(command: ShortcutCommand) -> bool {
         command,
         ShortcutCommand::Guide(_)
             | ShortcutCommand::File(_)
+            | ShortcutCommand::Hunk(_)
             | ShortcutCommand::Navigation(
                 NavigationShortcut::GoToParentRevision
                     | NavigationShortcut::GoToChildRevision

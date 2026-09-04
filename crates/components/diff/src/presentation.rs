@@ -211,6 +211,27 @@ impl DiffPresentation {
         self.rows.len()
     }
 
+    pub(super) fn modified_hunk_rows(&self) -> Vec<usize> {
+        let mut previous_hunk = None;
+        let mut rows = Vec::new();
+        for (index, row) in self.rows.iter().enumerate() {
+            let PresentedRow::Diff { source, .. } = row else {
+                continue;
+            };
+            if matches!(
+                self.source_row(*source),
+                DiffRow::Add { .. } | DiffRow::Delete { .. }
+            ) {
+                let hunk = self.hunk_number(index);
+                if hunk != previous_hunk {
+                    rows.push(index);
+                    previous_hunk = hunk;
+                }
+            }
+        }
+        rows
+    }
+
     pub(super) fn is_selectable(&self, index: usize) -> bool {
         self.rows.get(index).is_some_and(|row| match row {
             PresentedRow::Diff { source, .. } => matches!(
