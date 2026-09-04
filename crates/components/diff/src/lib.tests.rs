@@ -3,7 +3,7 @@ use component_core::{
     EventEnvelope,
 };
 use ratatui::{buffer::Buffer, layout::Rect, style::Color};
-use review_guide::ReviewCheckpoint;
+use review_guide::{GuideItem, GuideItemStatus, GuideLineRange, GuideTarget, ReviewCheckpoint};
 use review_repository::{
     diff::{DiffRow, NoticeKind},
     repository::DiffStatistics,
@@ -37,6 +37,145 @@ fn loaded_content_publishes_its_guide_viewport() {
         .expect("loaded diff must dispatch");
 
     assert_eq!(output_texts(results), vec!["src/lib.rs:0:1"]);
+}
+
+#[test]
+fn guide_jump_aligns_the_guide_after_its_diff_finishes_loading() {
+    let (mut registry, reviewable_files, diff_target) = registry_with_observer();
+    reviewable_files.replace(["src/lib.rs".to_owned()].into());
+    publish_repository(&mut registry, "checkpoint");
+    let target = GuideTarget::Lines {
+        path: "src/lib.rs".to_owned(),
+        old: None,
+        new: Some(GuideLineRange {
+            first_line: 20,
+            last_line: 20,
+        }),
+    };
+    registry
+        .publish(GuideLayoutChanged {
+            items: vec![GuideItem {
+                target: target.clone(),
+                text: "Deferred guide.".to_owned(),
+                status: GuideItemStatus::Matched,
+            }],
+            counters: vec![Some(ui_events::GuideCounter {
+                number: 1,
+                total: 1,
+            })],
+        })
+        .unwrap();
+
+    let actions = registry
+        .publish(GuideJumpRequested {
+            file_index: 0,
+            row: None,
+            target,
+        })
+        .unwrap()
+        .into_iter()
+        .flat_map(DispatchResult::into_actions)
+        .collect::<Vec<_>>();
+    assert!(
+        actions
+            .iter()
+            .any(|action| matches!(action, Action::LoadDiff { path, .. } if path == "src/lib.rs")),
+        "unexpected actions: {actions:?}"
+    );
+
+    registry
+        .publish(DiffContentLoaded {
+            review_checkpoint: ReviewCheckpoint::new("change", "checkpoint"),
+            path: "src/lib.rs".to_owned(),
+            rows: context_rows(30),
+            old_content: None,
+            new_content: None,
+        })
+        .unwrap();
+
+    let rendered = rendered_diff_with_guides_lines(&registry, diff_target);
+    assert!(rendered[1].contains('╭'), "{}", rendered.join("\n"));
+    assert!(
+        rendered[2].contains("Deferred guide."),
+        "{}",
+        rendered.join("\n")
+    );
+}
+
+#[test]
+fn guide_jump_stays_pending_when_a_stale_diff_load_is_retried() {
+    let (mut registry, reviewable_files, diff_target) = registry_with_observer();
+    reviewable_files.replace(["src/lib.rs".to_owned()].into());
+    publish_repository(&mut registry, "checkpoint");
+    let target = GuideTarget::Lines {
+        path: "src/lib.rs".to_owned(),
+        old: None,
+        new: Some(GuideLineRange {
+            first_line: 20,
+            last_line: 20,
+        }),
+    };
+    registry
+        .publish(GuideLayoutChanged {
+            items: vec![GuideItem {
+                target: target.clone(),
+                text: "Deferred guide after retry.".to_owned(),
+                status: GuideItemStatus::Matched,
+            }],
+            counters: vec![Some(ui_events::GuideCounter {
+                number: 1,
+                total: 1,
+            })],
+        })
+        .unwrap();
+    registry
+        .publish(GuideJumpRequested {
+            file_index: 0,
+            row: None,
+            target,
+        })
+        .unwrap();
+    registry
+        .publish(ReviewStateSaved {
+            review_unit: "change".into(),
+            path: "src/lib.rs".to_owned(),
+            result: Ok(ReviewState::unreviewed(DiffStatistics::default(), None)),
+        })
+        .unwrap();
+
+    let retry_actions = registry
+        .publish(DiffContentLoadFailed {
+            review_checkpoint: ReviewCheckpoint::new("change", "checkpoint"),
+            path: "src/lib.rs".to_owned(),
+        })
+        .unwrap()
+        .into_iter()
+        .flat_map(DispatchResult::into_actions)
+        .collect::<Vec<_>>();
+    assert!(
+        retry_actions
+            .iter()
+            .any(|action| matches!(action, Action::LoadDiff { path, .. } if path == "src/lib.rs")),
+        "unexpected actions: {retry_actions:?}"
+    );
+
+    registry
+        .publish(DiffContentLoaded {
+            review_checkpoint: ReviewCheckpoint::new("change", "checkpoint"),
+            path: "src/lib.rs".to_owned(),
+            rows: context_rows(30),
+            old_content: None,
+            new_content: None,
+        })
+        .unwrap();
+
+    let rendered = rendered_diff_with_guides_lines(&registry, diff_target);
+    assert!(rendered[1].contains('╭'), "{}", rendered.join("\n"));
+    assert!(
+        rendered[2].contains("Deferred guide after retry."),
+        "{}",
+        rendered.join("\n")
+    );
 }
 
 #[test]
@@ -1593,6 +1732,32 @@ fn rendered_diff_lines(
         true,
         None,
     );
+    buffer
+        .content()
+        .chunks(usize::from(area.width))
+        .map(|row| row.iter().map(ratatui::buffer::Cell::symbol).collect())
+        .collect()
+}
+
+fn rendered_diff_with_guides_lines(
+    registry: &ComponentEventBus<Action>,
+    target: ComponentTarget,
+) -> Vec<String> {
+    let area = Rect::new(0, 0, 80, 12);
+    let mut buffer = Buffer::empty(area);
+    let component = registry.get::<DiffComponent>(target).unwrap();
+    let document = component
+        .displayed_document()
+        .expect("the diff document must be displayed");
+    let guide_layout = component.guide_layout(document);
+    let guide_overlay = component.render(
+        area,
+        &mut buffer,
+        Theme::default().palette,
+        true,
+        guide_layout,
+    );
+    guide_overlay.render(&mut buffer);
     buffer
         .content()
         .chunks(usize::from(area.width))

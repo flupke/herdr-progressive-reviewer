@@ -97,6 +97,7 @@ pub struct DiffComponent {
     preview: Option<LoadedDocument>,
     pending_preview_location: Option<review_lsp::SourceLocation>,
     pending_center_path: Option<String>,
+    pending_guide_jump: Option<PendingGuideJump>,
     search: Option<SearchState>,
     selection: Option<SelectionState>,
     viewport_width: u16,
@@ -116,6 +117,11 @@ pub struct DiffComponent {
 struct PendingHistoryNavigation {
     target: ReviewLocation,
     previous_history: LocationHistory,
+}
+
+#[derive(Clone, Debug)]
+struct PendingGuideJump {
+    target: review_guide::GuideTarget,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -212,6 +218,7 @@ impl DiffComponent {
             preview: None,
             pending_preview_location: None,
             pending_center_path: None,
+            pending_guide_jump: None,
             search: None,
             selection: None,
             viewport_width: 80,
@@ -1103,6 +1110,9 @@ impl DiffComponent {
             self.guide_items.clear();
             self.guide_counters.clear();
         }
+        if !same_checkpoint {
+            self.pending_guide_jump = None;
+        }
         let mut previous_documents = std::mem::take(&mut self.documents);
         self.documents = event
             .files
@@ -1162,6 +1172,13 @@ impl DiffComponent {
     }
 
     fn file_selected(&mut self, event: &FileSelected) -> Vec<Action> {
+        if self
+            .pending_guide_jump
+            .as_ref()
+            .is_some_and(|pending| pending.target.path() != event.path)
+        {
+            self.pending_guide_jump = None;
+        }
         let origin = self.current_review_location();
         let selected_is_repository_file = self
             .documents
@@ -1236,6 +1253,9 @@ impl DiffComponent {
         if center_selected_document {
             self.center_jump_target();
         }
+        if !reload_after_current_load {
+            self.finish_pending_guide_jump(&event.path);
+        }
         self.refresh_search_matches();
         if self
             .search
@@ -1259,9 +1279,16 @@ impl DiffComponent {
         if self.pending_center_path.as_deref() == Some(&event.path) {
             self.pending_center_path = None;
         }
+        let pending_guide_jump_matches = self
+            .pending_guide_jump
+            .as_ref()
+            .is_some_and(|pending| pending.target.path() == event.path);
         let reload_immediately = self
             .current_document_mut(&event.review_checkpoint, &event.path)
             .is_some_and(LoadedDocument::fail_diff_load);
+        if pending_guide_jump_matches && !reload_immediately {
+            self.pending_guide_jump = None;
+        }
         self.finish_repository_search_load_if_complete();
         if reload_immediately && self.selected_path.as_deref() == Some(event.path.as_str()) {
             return self.selected_load_action().into_iter().collect();
@@ -1315,11 +1342,51 @@ impl DiffComponent {
             self.set_cursor(row);
         }
         self.align_guide_jump_to_viewport_top();
+        let load_was_active = self
+            .selected_document()
+            .is_some_and(LoadedDocument::is_loading);
+        let load_action = self.selected_load_action();
+        if event.row.is_none() || load_was_active || load_action.is_some() {
+            self.pending_guide_jump = Some(PendingGuideJump {
+                target: event.target.clone(),
+            });
+        } else {
+            self.pending_guide_jump = None;
+        }
         self.events.publish(FileSelectionRequested { path });
         self.publish_viewports();
         self.publish_current_location();
         self.record_current_location_jump(origin);
-        self.selected_load_action().into_iter().collect()
+        load_action.into_iter().collect()
+    }
+
+    fn finish_pending_guide_jump(&mut self, loaded_path: &str) {
+        let Some(pending) = self.pending_guide_jump.take() else {
+            return;
+        };
+        if pending.target.path() != loaded_path
+            || self.selected_path.as_deref() != Some(loaded_path)
+        {
+            if pending.target.path() != loaded_path {
+                self.pending_guide_jump = Some(pending);
+            }
+            return;
+        }
+        let Some(file_index) = self
+            .documents
+            .iter()
+            .position(|document| document.path == loaded_path)
+        else {
+            return;
+        };
+        let row = self.documents.get(file_index).and_then(|document| {
+            let viewport = document.guide_viewport(file_index);
+            guide_rendering::target_rows(&viewport, &pending.target).map(|rows| rows.0)
+        });
+        if let Some(row) = row {
+            self.set_cursor(row);
+            self.align_guide_jump_to_viewport_top();
+        }
     }
 
     fn preview_source_location(&mut self, event: &SourceLocationPreviewRequested) -> Vec<Action> {
