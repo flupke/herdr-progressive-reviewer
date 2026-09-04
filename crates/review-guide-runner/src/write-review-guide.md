@@ -21,7 +21,7 @@ Write a guide for one progressive review. The request at the end of this
 prompt gives you:
 
 - the repository root;
-- the exact frozen checkpoint diff to explain;
+- the exact frozen checkpoint diff whose delta you must explain;
 - the requested scope;
 - temporary and final response paths.
 
@@ -33,28 +33,45 @@ surrounding source is necessary to understand the frozen diff.
 
 Write an author's guide, not a correctness review. Do not edit the repository.
 
-## Find the central ideas
+## Find the delta
 
-Read the complete frozen diff for the requested scope. Use the inherited
-conversation or fallback handoff to understand the intended behavior, central
-design decisions, constraints, feedback, and edits. Use the diff to find where
-those ideas appear in the change. Cover each distinct design boundary, data
-flow, safety constraint, and non-obvious decision that a reviewer must
-understand. Do not add an item only because a file or hunk changed.
+The guide explains the delta introduced by the frozen diff.
 
-## Write focused guide items
+Read the complete frozen diff for the requested scope. Identify each
+non-obvious change in behavior, data flow, ownership, or safety. Compare the
+old and new sides to determine:
 
-Each item must explain one distinct idea that is difficult to understand from
-the code. Do not combine separate ideas only to reduce the item count. Large
-or cross-cutting changes will usually need several items. An empty guide is
-valid only when the complete diff is simple and needs no explanation.
+- what happened before;
+- what happens now; and
+- why the change matters.
+
+Use the inherited conversation or fallback handoff to explain the reason for
+the delta. Use unchanged surrounding code only when it is necessary to explain
+that delta. The inventory is complete when every non-obvious delta in the
+requested scope is explained once.
+
+## Write delta-focused guide items
+
+Each item must explain one distinct delta. Lead with what the change adds,
+removes, replaces, moves, narrows, or preserves. Explain the previous behavior
+when it helps the reviewer understand the new behavior. State the reason or
+effect when it is not clear from the changed lines.
+
+Apply this test to every item:
+
+> Would this text describe the old code equally well?
+
+If yes, rewrite the item to describe the delta or omit it. Do not combine
+separate deltas only to reduce the item count. Large or cross-cutting changes
+will usually need several items. An empty guide is valid only when the complete
+diff is simple and needs no explanation.
 
 Use concise and simple text. Avoid jargon. Use more than one paragraph only
-when it is necessary to explain the idea.
+when it is necessary to explain the delta.
 
 Each item has one target:
 
-- Use a `lines` target when an idea covers a smaller part of a hunk. This is
+- Use a `lines` target when a delta covers a smaller part of a hunk. This is
   especially important for large hunks and new files that contain several
   distinct ideas. `old` and `new` are optional one-based inclusive line
   ranges. Supply at least one side. Supply both sides for a replacement when
@@ -74,8 +91,11 @@ Each item has one target:
 Paths must be exact repository-relative paths from the frozen diff. Hunk
 identifiers are the one-based identifiers shown for that file in the frozen
 diff. Line numbers must be exact line numbers from the indicated old or new
-side of that diff. A target must not include unrelated changed content only to
-connect separate ideas. Targets must not overlap.
+side of that diff. Target the smallest changed region that shows the delta. A
+`lines` or `hunks` target must contain an addition or deletion that the item
+explains. Unchanged context can support an item, but it cannot be the main
+subject. A target must not include unrelated changed content only to connect
+separate ideas. Targets must not overlap.
 
 ## Write the response
 
@@ -95,7 +115,7 @@ Write one JSON document with this shape:
           "last_line": 72
         }
       },
-      "text": "This parser keeps request validation separate from storage."
+      "text": "This change moves request validation before storage creation. Invalid requests now fail without creating persistent state."
     },
     {
       "target": {
@@ -104,14 +124,14 @@ Write one JSON document with this shape:
         "first_hunk": 2,
         "last_hunk": 3
       },
-      "text": "This boundary lets Git and jj use the same review state."
+      "text": "This change replaces separate Git and jj state paths with one shared transition. Both backends now restore review progress through the same boundary."
     },
     {
       "target": {
         "kind": "file",
         "path": "assets/model.bin"
       },
-      "text": "The application reads this model when it processes input."
+      "text": "This change replaces the bundled model. Input processing now uses the updated model weights."
     }
   ]
 }

@@ -142,6 +142,8 @@ fn submitted_response_is_loaded_without_a_request_identifier() {
 
     let prompt = client.prompt.lock().unwrap().clone().unwrap();
     assert!(prompt.contains("inherits the complete current conversation"));
+    assert!(prompt.contains("The guide explains the delta introduced by the frozen diff."));
+    assert!(prompt.contains("Would this text describe the old code equally well?"));
     assert!(!prompt.contains("Request ID"));
     assert_eq!(
         result.guide.items[0].target,
