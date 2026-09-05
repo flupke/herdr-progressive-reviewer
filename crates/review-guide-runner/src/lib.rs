@@ -193,14 +193,6 @@ impl GuideMailbox {
         ))
     }
 
-    fn wait_for_response_after(&self, previous: Option<GuideResponseVersion>) -> Result<(), Error> {
-        let (watch, _cancellation) = self.watch_response_after(previous)?;
-        match watch.wait()? {
-            GuideResponseWaitOutcome::ResponseChanged => Ok(()),
-            GuideResponseWaitOutcome::Cancelled => Err(Error::ResponseWaitCancelled),
-        }
-    }
-
     pub fn load_completed_guide(&self) -> Result<GuideResult, Error> {
         let repository_snapshot = self.read_repository_snapshot()?;
         let bytes = self.read_response()?.ok_or(Error::MissingResponse)?;
@@ -380,12 +372,6 @@ where
         self.client
             .prompt_agent(&agent.pane_id, &prompt)
             .map_err(|error| operation("submit review guide prompt", error))
-    }
-
-    /// Wait without a timeout, then validate the published response.
-    pub fn finish_prepared(&self, prepared: &PreparedGuide) -> Result<GuideResult, Error> {
-        prepared.mailbox.wait_for_response_after(None)?;
-        prepared.mailbox.load_completed_guide()
     }
 
     /// Wait with an existing interruptible watch, then validate the response.

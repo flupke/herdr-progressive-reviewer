@@ -9,8 +9,6 @@ pub use ui_events::{RevisionHistoryLoadId, SourceLoadMode};
 /// Work that the I/O layer must perform after a UI update.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Action {
-    /// No external work is required.
-    None,
     /// Load one path diff for the exact current snapshot.
     LoadDiff {
         review_checkpoint: ReviewCheckpoint,

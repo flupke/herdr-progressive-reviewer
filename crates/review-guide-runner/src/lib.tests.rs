@@ -137,8 +137,9 @@ fn submitted_response_is_loaded_without_a_request_identifier() {
     let client = FakeHerdr::new();
     let runner = GuideRunner::new(&client);
 
+    let (watch, _cancellation) = prepared.watch_response().unwrap();
     runner.submit_prepared(&agent(), &prepared).unwrap();
-    let result = runner.finish_prepared(&prepared).unwrap();
+    let result = runner.finish_prepared_with_watch(&prepared, watch).unwrap();
 
     let prompt = client.prompt.lock().unwrap().clone().unwrap();
     assert!(prompt.contains("inherits the complete current conversation"));

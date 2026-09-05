@@ -97,7 +97,7 @@ pub struct DiffComponent {
     preview: Option<LoadedDocument>,
     pending_preview_location: Option<review_lsp::SourceLocation>,
     pending_center_path: Option<String>,
-    pending_guide_jump: Option<PendingGuideJump>,
+    pending_guide_jump: Option<review_guide::GuideTarget>,
     search: Option<SearchState>,
     selection: Option<SelectionState>,
     viewport_width: u16,
@@ -117,11 +117,6 @@ pub struct DiffComponent {
 struct PendingHistoryNavigation {
     target: ReviewLocation,
     previous_history: LocationHistory,
-}
-
-#[derive(Clone, Debug)]
-struct PendingGuideJump {
-    target: review_guide::GuideTarget,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -1175,7 +1170,7 @@ impl DiffComponent {
         if self
             .pending_guide_jump
             .as_ref()
-            .is_some_and(|pending| pending.target.path() != event.path)
+            .is_some_and(|target| target.path() != event.path)
         {
             self.pending_guide_jump = None;
         }
@@ -1282,7 +1277,7 @@ impl DiffComponent {
         let pending_guide_jump_matches = self
             .pending_guide_jump
             .as_ref()
-            .is_some_and(|pending| pending.target.path() == event.path);
+            .is_some_and(|target| target.path() == event.path);
         let reload_immediately = self
             .current_document_mut(&event.review_checkpoint, &event.path)
             .is_some_and(LoadedDocument::fail_diff_load);
@@ -1347,9 +1342,7 @@ impl DiffComponent {
             .is_some_and(LoadedDocument::is_loading);
         let load_action = self.selected_load_action();
         if event.row.is_none() || load_was_active || load_action.is_some() {
-            self.pending_guide_jump = Some(PendingGuideJump {
-                target: event.target.clone(),
-            });
+            self.pending_guide_jump = Some(event.target.clone());
         } else {
             self.pending_guide_jump = None;
         }
@@ -1364,10 +1357,8 @@ impl DiffComponent {
         let Some(pending) = self.pending_guide_jump.take() else {
             return;
         };
-        if pending.target.path() != loaded_path
-            || self.selected_path.as_deref() != Some(loaded_path)
-        {
-            if pending.target.path() != loaded_path {
+        if pending.path() != loaded_path || self.selected_path.as_deref() != Some(loaded_path) {
+            if pending.path() != loaded_path {
                 self.pending_guide_jump = Some(pending);
             }
             return;
@@ -1381,7 +1372,7 @@ impl DiffComponent {
         };
         let row = self.documents.get(file_index).and_then(|document| {
             let viewport = document.guide_viewport(file_index);
-            guide_rendering::target_rows(&viewport, &pending.target).map(|rows| rows.0)
+            guide_rendering::target_rows(&viewport, &pending).map(|rows| rows.0)
         });
         if let Some(row) = row {
             self.set_cursor(row);

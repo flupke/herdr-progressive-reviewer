@@ -472,7 +472,6 @@ impl RuntimeActionDispatcher<'_> {
 
     fn dispatch(&self, action: Action) -> eyre::Result<bool> {
         let action = match action {
-            Action::None => return Ok(false),
             Action::Quit => return Ok(true),
             Action::SaveFilePaneWidth(columns) => {
                 self.settings.save_file_pane_width(columns)?;
@@ -529,8 +528,7 @@ impl RuntimeActionDispatcher<'_> {
             action @ (Action::SetReviewed { .. }
             | Action::Output { .. }
             | Action::GenerateReviewGuide { .. }) => Ok(Some(Self::output_worker_command(action))),
-            Action::None
-            | Action::Quit
+            Action::Quit
             | Action::SaveFilePaneWidth(_)
             | Action::Lsp { .. }
             | Action::RestartLsp => unreachable!("local actions are handled before conversion"),

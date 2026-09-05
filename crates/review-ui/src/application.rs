@@ -58,8 +58,6 @@ struct FilePaneResize {
     moved: bool,
 }
 
-struct ComponentDispatchResults(Vec<DispatchResult<Action>>);
-
 impl Default for ReviewApplication {
     fn default() -> Self {
         Self::new(Theme::default(), None, PathBuf::new())
@@ -249,7 +247,10 @@ impl ReviewApplication {
     }
 
     fn collect_actions(component_results: Vec<DispatchResult<Action>>) -> Vec<Action> {
-        ComponentDispatchResults(component_results).into_actions()
+        component_results
+            .into_iter()
+            .flat_map(DispatchResult::into_actions)
+            .collect()
     }
 
     /// Return a side-effect-free view of all mounted components.
@@ -562,15 +563,6 @@ fn pointer_kind(message: &UserInput) -> Option<PointerInputKind> {
         UserInput::MouseDrag { .. } => Some(PointerInputKind::Drag),
         UserInput::MouseRelease => Some(PointerInputKind::Release),
         UserInput::Resize { .. } | UserInput::Key(_) => None,
-    }
-}
-
-impl ComponentDispatchResults {
-    fn into_actions(self) -> Vec<Action> {
-        self.0
-            .into_iter()
-            .flat_map(DispatchResult::into_actions)
-            .collect()
     }
 }
 

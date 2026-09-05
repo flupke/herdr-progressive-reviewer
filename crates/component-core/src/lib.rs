@@ -17,7 +17,6 @@ impl<T> ApplicationEvent for T where T: Any + Send + Sync + 'static {}
 /// One type-erased event value for transport and event-bus delivery.
 #[derive(Clone)]
 pub struct EventEnvelope {
-    event_type: TypeId,
     value: Arc<dyn Any + Send + Sync>,
 }
 
@@ -28,7 +27,6 @@ impl EventEnvelope {
         E: ApplicationEvent,
     {
         Self {
-            event_type: TypeId::of::<E>(),
             value: Arc::new(event),
         }
     }
@@ -40,25 +38,13 @@ impl EventEnvelope {
     {
         self.value.downcast_ref()
     }
-
-    #[cfg(test)]
-    fn with_declared_type_for_test<Value, Declared>(value: Value) -> Self
-    where
-        Value: ApplicationEvent,
-        Declared: ApplicationEvent,
-    {
-        Self {
-            event_type: TypeId::of::<Declared>(),
-            value: Arc::new(value),
-        }
-    }
 }
 
 impl std::fmt::Debug for EventEnvelope {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
             .debug_struct("EventEnvelope")
-            .field("event_type", &self.event_type)
+            .field("event_type", &self.value.as_ref().type_id())
             .finish_non_exhaustive()
     }
 }
@@ -167,12 +153,9 @@ where
     fn register_subscriptions(subscriptions: &mut ComponentSubscriptions<'_, Self, A>);
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-struct ComponentId(u64);
-
 /// An opaque reference to one mounted component.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct ComponentTarget(ComponentId);
+pub struct ComponentTarget(u64);
 
 /// The application state that makes a component eligible for routed input.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -197,8 +180,7 @@ type ErasedHandler<A> =
     Rc<dyn Fn(&mut dyn Any, &dyn Any) -> Result<HandlerInvocation<A>, DispatchError>>;
 
 struct Subscription<A> {
-    component_id: ComponentId,
-    component_type: TypeId,
+    component_id: ComponentTarget,
     kind: SubscriptionKind,
     handler: ErasedHandler<A>,
 }
@@ -207,7 +189,6 @@ impl<A> Clone for Subscription<A> {
     fn clone(&self) -> Self {
         Self {
             component_id: self.component_id,
-            component_type: self.component_type,
             kind: self.kind,
             handler: Rc::clone(&self.handler),
         }
@@ -216,7 +197,7 @@ impl<A> Clone for Subscription<A> {
 
 /// A registrar used by a component to declare its handlers.
 pub struct ComponentSubscriptions<'a, C, A> {
-    component_id: ComponentId,
+    component_id: ComponentTarget,
     subscriptions_by_event: &'a mut HashMap<TypeId, Vec<Subscription<A>>>,
     component: PhantomData<C>,
 }
@@ -228,14 +209,6 @@ where
 {
     /// Subscribe the component to one event type.
     pub fn subscribe<E, R>(&mut self, handler: fn(&mut C, &E) -> R)
-    where
-        E: ApplicationEvent,
-        R: IntoDispatchResult<A> + 'static,
-    {
-        self.subscribe_with_kind(handler, SubscriptionKind::Event);
-    }
-
-    fn subscribe_with_kind<E, R>(&mut self, handler: fn(&mut C, &E) -> R, kind: SubscriptionKind)
     where
         E: ApplicationEvent,
         R: IntoDispatchResult<A> + 'static,
@@ -257,8 +230,7 @@ where
             .or_default();
         subscriptions.push(Subscription {
             component_id: self.component_id,
-            component_type: TypeId::of::<C>(),
-            kind,
+            kind: SubscriptionKind::Event,
             handler: erased_handler,
         });
     }
@@ -296,7 +268,6 @@ where
             .or_default()
             .push(Subscription {
                 component_id: self.component_id,
-                component_type: TypeId::of::<C>(),
                 kind: SubscriptionKind::Input(scope),
                 handler: erased_handler,
             });
@@ -339,7 +310,7 @@ pub struct ComponentEventBus<A: Send + 'static> {
     next_component_id: u64,
     pending_events: Rc<RefCell<VecDeque<EventEnvelope>>>,
     subscriptions_by_event: HashMap<TypeId, Vec<Subscription<A>>>,
-    components: HashMap<ComponentId, Box<dyn Any>>,
+    components: HashMap<ComponentTarget, Box<dyn Any>>,
 }
 
 impl<A: Send + 'static> Default for ComponentEventBus<A> {
@@ -369,7 +340,7 @@ impl<A: Send + 'static> ComponentEventBus<A> {
     where
         C: Component<A>,
     {
-        let component_id = ComponentId(self.next_component_id);
+        let component_id = ComponentTarget(self.next_component_id);
         self.next_component_id = self
             .next_component_id
             .checked_add(1)
@@ -385,15 +356,15 @@ impl<A: Send + 'static> ComponentEventBus<A> {
         });
         let replaced = self.components.insert(component_id, Box::new(component));
         debug_assert!(replaced.is_none());
-        ComponentTarget(component_id)
+        component_id
     }
 
     /// Remove one exact mounted component and all its subscriptions.
     pub fn remove(&mut self, target: ComponentTarget) -> bool {
-        let removed = self.components.remove(&target.0).is_some();
+        let removed = self.components.remove(&target).is_some();
         if removed {
             self.subscriptions_by_event.retain(|_, subscriptions| {
-                subscriptions.retain(|subscription| subscription.component_id != target.0);
+                subscriptions.retain(|subscription| subscription.component_id != target);
                 !subscriptions.is_empty()
             });
         }
@@ -405,7 +376,7 @@ impl<A: Send + 'static> ComponentEventBus<A> {
     where
         C: Component<A>,
     {
-        self.components.get(&target.0)?.downcast_ref::<C>()
+        self.components.get(&target)?.downcast_ref::<C>()
     }
 
     /// Publish one external event through the bus.
@@ -433,10 +404,11 @@ impl<A: Send + 'static> ComponentEventBus<A> {
     ) -> Result<InputDispatch<A>, DispatchError> {
         let mut results = Vec::new();
         let mut focused_matched = false;
-        let subscriptions = self.matching_subscriptions(event.event_type, |subscription| {
-            subscription.kind == SubscriptionKind::Input(InputScope::Focused)
-                && subscription.component_id == focused_target.0
-        });
+        let subscriptions =
+            self.matching_subscriptions(event.value.as_ref().type_id(), |subscription| {
+                subscription.kind == SubscriptionKind::Input(InputScope::Focused)
+                    && subscription.component_id == focused_target
+            });
         for subscription in subscriptions {
             match self.invoke(&subscription, event)? {
                 HandlerInvocation::NoMatch => {}
@@ -476,10 +448,11 @@ impl<A: Send + 'static> ComponentEventBus<A> {
         event: &EventEnvelope,
         target: ComponentTarget,
     ) -> Result<InputDispatch<A>, DispatchError> {
-        let subscriptions = self.matching_subscriptions(event.event_type, |subscription| {
-            subscription.kind == SubscriptionKind::Input(InputScope::Hovered)
-                && subscription.component_id == target.0
-        });
+        let subscriptions =
+            self.matching_subscriptions(event.value.as_ref().type_id(), |subscription| {
+                subscription.kind == SubscriptionKind::Input(InputScope::Hovered)
+                    && subscription.component_id == target
+            });
         let mut results = Vec::new();
         for subscription in subscriptions {
             if let HandlerInvocation::Matched(result) = self.invoke(&subscription, event)? {
@@ -497,9 +470,10 @@ impl<A: Send + 'static> ComponentEventBus<A> {
         &mut self,
         event: &EventEnvelope,
     ) -> Result<InputDispatch<A>, DispatchError> {
-        let subscriptions = self.matching_subscriptions(event.event_type, |subscription| {
-            subscription.kind == SubscriptionKind::Input(InputScope::Global)
-        });
+        let subscriptions = self
+            .matching_subscriptions(event.value.as_ref().type_id(), |subscription| {
+                subscription.kind == SubscriptionKind::Input(InputScope::Global)
+            });
         let mut results = Vec::new();
         let mut global_input_pending = false;
         for subscription in subscriptions {
@@ -528,9 +502,10 @@ impl<A: Send + 'static> ComponentEventBus<A> {
                 self.pending_events.borrow_mut().clear();
                 return Err(DispatchError::EventCycleLimitExceeded);
             }
-            let subscriptions = self.matching_subscriptions(event.event_type, |subscription| {
-                subscription.kind == SubscriptionKind::Event
-            });
+            let subscriptions = self
+                .matching_subscriptions(event.value.as_ref().type_id(), |subscription| {
+                    subscription.kind == SubscriptionKind::Event
+                });
             for subscription in subscriptions {
                 let HandlerInvocation::Matched(result) = self.invoke(&subscription, &event)? else {
                     unreachable!("ordinary event subscriptions always match");
@@ -563,30 +538,7 @@ impl<A: Send + 'static> ComponentEventBus<A> {
             .components
             .get_mut(&subscription.component_id)
             .ok_or(DispatchError::ComponentNotFound)?;
-        if component.as_ref().type_id() != subscription.component_type {
-            return Err(DispatchError::ComponentTypeMismatch);
-        }
         (subscription.handler)(component.as_mut(), event.value.as_ref())
-    }
-
-    #[cfg(test)]
-    fn replace_component_for_test<C, Replacement>(
-        &mut self,
-        target: ComponentTarget,
-        replacement: Replacement,
-    ) -> Box<dyn Any>
-    where
-        C: Component<A>,
-        Replacement: Any,
-    {
-        let component = self
-            .components
-            .get(&target.0)
-            .expect("the component must be mounted");
-        assert!(component.is::<C>(), "the component type must match");
-        self.components
-            .insert(target.0, Box::new(replacement))
-            .expect("the component must be mounted")
     }
 }
 

@@ -77,27 +77,30 @@ fn component_lookup_uses_the_exact_target() {
 }
 
 #[test]
-fn publication_rejects_a_mismatched_mounted_component() {
+fn transported_events_use_their_concrete_type_for_delivery() {
     let mut event_bus = ComponentEventBus::new();
     let target = event_bus.mount(TestComponent::new);
-    let _original_component =
-        event_bus.replace_component_for_test::<TestComponent, _>(target, String::new());
+    let event = EventEnvelope::new(NameChanged(3));
+    assert!(event.downcast_ref::<CountChanged>().is_none());
+    let results = event_bus.publish_envelope(event.clone()).unwrap();
+    assert!(
+        results
+            .into_iter()
+            .all(|result| result.into_actions().is_empty())
+    );
+    assert_eq!(event_bus.get::<TestComponent>(target).unwrap().count, 3);
 
-    let result = event_bus.publish(CountChanged(1));
-
-    assert_eq!(result, Err(DispatchError::ComponentTypeMismatch));
-}
-
-#[test]
-fn publication_rejects_a_mismatched_event_value() {
-    let mut event_bus = ComponentEventBus::new();
-    event_bus.mount(TestComponent::new);
-    let event =
-        EventEnvelope::with_declared_type_for_test::<NameChanged, CountChanged>(NameChanged(1));
-
-    let result = event_bus.publish_envelope(event);
-
-    assert_eq!(result, Err(DispatchError::EventTypeMismatch));
+    let results = event_bus
+        .publish_envelope(EventEnvelope::new(CountChanged(2)))
+        .unwrap();
+    assert_eq!(
+        results
+            .into_iter()
+            .flat_map(DispatchResult::into_actions)
+            .collect::<Vec<_>>(),
+        [TestAction::Reload]
+    );
+    assert_eq!(event_bus.get::<TestComponent>(target).unwrap().count, 5);
 }
 
 #[derive(Clone)]
