@@ -140,7 +140,7 @@ impl Server {
     fn start_session(&mut self) -> Result<(), String> {
         let startup = ServerStartup {
             id: toasts::ToastId::generate(),
-            name: self.project.server.command(),
+            name: self.project.server.name(),
         };
         self.startup = Some(startup);
         let _ = self.events.send(Event::Initializing(startup));

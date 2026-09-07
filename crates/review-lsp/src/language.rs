@@ -8,18 +8,33 @@ pub(super) enum LanguageServer {
 }
 
 impl LanguageServer {
+    pub(super) fn name(self) -> &'static str {
+        match self {
+            Self::TypeScript => "TypeScript language server",
+            _ => self.command(),
+        }
+    }
+
     pub(super) fn command(self) -> &'static str {
         match self {
             Self::RustAnalyzer => "rust-analyzer",
             Self::Expert => "expert",
-            Self::TypeScript => "typescript-language-server",
+            Self::TypeScript => "/bin/sh",
         }
     }
 
     pub(super) fn arguments(self) -> &'static [&'static str] {
         match self {
             Self::RustAnalyzer => &[],
-            Self::Expert | Self::TypeScript => &["--stdio"],
+            Self::Expert => &["--stdio"],
+            // Select inside the loaded environment, then replace the shell so
+            // the session owns the server process and its protocol streams.
+            Self::TypeScript => &[
+                "-c",
+                "if command -v tsgo >/dev/null 2>&1; then exec tsgo --lsp --stdio; \
+                 elif command -v typescript-language-server >/dev/null 2>&1; then exec typescript-language-server --stdio; \
+                 else echo 'Install tsgo or typescript-language-server in the project environment' >&2; exit 127; fi",
+            ],
         }
     }
 

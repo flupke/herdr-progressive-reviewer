@@ -117,7 +117,7 @@ impl Session {
                         }
                     }
                     Ok(None) => {
-                        let _ = sender.send(Inbound::Failed(diagnostics.failure(server.command())));
+                        let _ = sender.send(Inbound::Failed(diagnostics.failure(server.name())));
                         return;
                     }
                     Err(error) => {
@@ -528,10 +528,10 @@ impl Session {
         let state = std::mem::replace(&mut self.state, State::Stopped);
         match state {
             State::Initializing { deadline, .. } if now >= deadline => {
-                Err(format!("{} did not respond", self.server.command()))
+                Err(format!("{} did not respond", self.server.name()))
             }
             State::Quiescing { deadline } if now >= deadline => {
-                Err(format!("{} did not finish startup", self.server.command()))
+                Err(format!("{} did not finish startup", self.server.name()))
             }
             State::Retrying {
                 operation,
@@ -555,7 +555,7 @@ impl Session {
                 Ok(Some(Event::Failed {
                     toast_id: Some(query.toast_id),
                     snapshot_id: Some(query.snapshot_id),
-                    message: format!("{} did not respond", self.server.command()),
+                    message: format!("{} did not respond", self.server.name()),
                 }))
             }
             State::ShuttingDown { deadline, .. } if now >= deadline => {
@@ -612,7 +612,7 @@ impl Session {
     fn write(&mut self, message: &Message) -> Result<(), String> {
         message
             .write(&mut self.input)
-            .map_err(|error| format!("could not write to {}: {error}", self.server.command()))
+            .map_err(|error| format!("could not write to {}: {error}", self.server.name()))
     }
 }
 

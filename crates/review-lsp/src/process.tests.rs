@@ -18,6 +18,10 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
+        Self::for_server(LanguageServer::Expert)
+    }
+
+    fn for_server(server: LanguageServer) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let root = directory.path().join("project with spaces");
         fs::create_dir(&root).unwrap();
@@ -25,10 +29,7 @@ impl Fixture {
             &directory.path().join("expert"),
             "#!/bin/sh\nprintf '%s|%s|%s' \"$PWD\" \"$1\" \"${PROJECT_ENV-unset}\"\n",
         );
-        let mut launcher = ServerLauncher::new(&Project {
-            root,
-            server: LanguageServer::Expert,
-        });
+        let mut launcher = ServerLauncher::new(&Project { server, root });
         for command in [&mut launcher.direnv, &mut launcher.direct] {
             command.env_clear().env("PATH", directory.path());
         }
@@ -52,6 +53,45 @@ impl Fixture {
         let success = process.child.wait().unwrap().success();
         (process.uses_direnv, stdout, stderr, success)
     }
+}
+
+#[test]
+fn typescript_prefers_tsgo_and_falls_back_when_it_is_absent() {
+    let mut fixture = Fixture::for_server(LanguageServer::TypeScript);
+    executable(
+        &fixture.directory.path().join("typescript-language-server"),
+        "#!/bin/sh\nprintf 'fallback:%s' \"$*\"\n",
+    );
+    let (direnv, stdout, stderr, success) = fixture.output();
+    assert!(!direnv);
+    assert!(success, "{stderr}");
+    assert_eq!(stdout, "fallback:--stdio");
+
+    executable(
+        &fixture.directory.path().join("tsgo"),
+        "#!/bin/sh\nprintf 'tsgo:%s' \"$*\"\n",
+    );
+    let (_, stdout, stderr, success) = fixture.output();
+    assert!(success, "{stderr}");
+    assert_eq!(stdout, "tsgo:--lsp --stdio");
+
+    executable(
+        &fixture.directory.path().join("tsgo"),
+        "#!/bin/sh\necho 'tsgo failed' >&2\nexit 1\n",
+    );
+    let (_, stdout, stderr, success) = fixture.output();
+    assert!(!success);
+    assert!(stdout.is_empty());
+    assert!(stderr.contains("tsgo failed"));
+}
+
+#[test]
+fn missing_typescript_servers_report_both_install_options() {
+    let mut fixture = Fixture::for_server(LanguageServer::TypeScript);
+    let (_, stdout, stderr, success) = fixture.output();
+    assert!(!success);
+    assert!(stdout.is_empty());
+    assert!(stderr.contains("Install tsgo or typescript-language-server"));
 }
 
 #[test]
@@ -135,16 +175,23 @@ fn diagnostics_bound_long_lines_and_preserve_their_start() {
 
 #[test]
 #[ignore = "requires direnv"]
-fn real_direnv_loads_a_server_from_the_project_environment() {
+fn real_direnv_prefers_tsgo_from_the_project_environment() {
     let direnv = std::env::split_paths(&std::env::var_os("PATH").unwrap())
         .map(|directory| directory.join("direnv"))
         .find(|path| path.is_file())
         .expect("direnv must be installed");
-    let mut fixture = Fixture::new();
+    let mut fixture = Fixture::for_server(LanguageServer::TypeScript);
     let root = fixture.directory.path().join("project with spaces");
     let bin = root.join("bin");
     fs::create_dir(&bin).unwrap();
-    fs::rename(fixture.directory.path().join("expert"), bin.join("expert")).unwrap();
+    executable(
+        &bin.join("tsgo"),
+        "#!/bin/sh\nprintf '%s|%s' \"$*\" \"$PROJECT_ENV\"\n",
+    );
+    executable(
+        &fixture.directory.path().join("typescript-language-server"),
+        "#!/bin/sh\nprintf fallback\n",
+    );
     std::os::unix::fs::symlink(&direnv, fixture.directory.path().join("direnv")).unwrap();
     fs::write(
         root.join(".envrc"),
@@ -172,5 +219,5 @@ fn real_direnv_loads_a_server_from_the_project_environment() {
     let (direnv, stdout, stderr, success) = fixture.output();
     assert!(direnv);
     assert!(success, "{stderr}");
-    assert!(stdout.ends_with("|--stdio|loaded"));
+    assert_eq!(stdout, "--lsp --stdio|loaded");
 }

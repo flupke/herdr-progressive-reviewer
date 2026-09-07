@@ -17,7 +17,7 @@ impl ServerProcess {
     pub(super) fn start(project: &Project) -> Result<Self, String> {
         ServerLauncher::new(project)
             .spawn()
-            .map_err(|error| format!("could not start {}: {error}", project.server.command()))
+            .map_err(|error| format!("could not start {}: {error}", project.server.name()))
     }
 }
 

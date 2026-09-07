@@ -140,7 +140,7 @@ impl Fixture {
 }
 
 #[test]
-#[ignore = "requires typescript-language-server and TypeScript on PATH"]
+#[ignore = "requires tsgo, or typescript-language-server and TypeScript, on PATH"]
 fn typescript_navigation() {
     Fixture::typescript().verify();
 }
