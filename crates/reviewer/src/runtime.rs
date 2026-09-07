@@ -1,6 +1,7 @@
 //! Terminal and worker integration for the review pane.
 
 mod guide;
+mod terminal;
 
 use std::env;
 use std::io::{self, stdout};
@@ -27,7 +28,6 @@ use herdr_client::protocol::{
     Agent, AgentTarget, HerdrEvent, HerdrReader, InsertResult, PaneId, PluginContext, WorkspaceId,
 };
 use ratatui::Terminal;
-use ratatui::backend::CrosstermBackend;
 use review_guide::{FrozenFile, FrozenHunk, GuideScope, ReviewCheckpoint};
 use review_guide_runner::{
     GuideMailbox, GuideRepositorySnapshot, GuideResponseVersion, GuideResponseWaitOutcome,
@@ -45,6 +45,7 @@ use review_ui::{Action, Key, ReviewApplication, SourceLoadMode, Theme, UserInput
 use sha2::{Digest, Sha256};
 use signal_hook::consts::signal::{SIGHUP, SIGINT, SIGTERM};
 use signal_hook::flag;
+use terminal::TerminalBackend;
 use ui_events::{
     AnimationTick, DiffContentLoadFailed, DiffContentLoaded, FileSummary, OutputDeliveryFinished,
     RepositoryFilesChanged, RepositoryMetadataChanged, RepositoryRefreshFinished,
@@ -166,7 +167,7 @@ enum WorkerCommand {
 }
 
 struct TerminalGuard {
-    terminal: Terminal<CrosstermBackend<io::Stdout>>,
+    terminal: Terminal<TerminalBackend<io::Stdout>>,
 }
 
 struct TerminalEventProducer {
@@ -1047,7 +1048,7 @@ impl Worker {
 impl TerminalGuard {
     fn new() -> eyre::Result<Self> {
         enable_raw_mode()?;
-        let mut terminal = match Terminal::new(CrosstermBackend::new(stdout())) {
+        let mut terminal = match Terminal::new(TerminalBackend::new(stdout())) {
             Ok(terminal) => terminal,
             Err(error) => {
                 let _ = disable_raw_mode();

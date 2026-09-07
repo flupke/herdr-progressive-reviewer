@@ -1050,7 +1050,7 @@ fn event_loop_routes_external_events_from_the_central_channel() {
     let lsp = review_lsp::Worker::start(repository.path().to_owned());
     let mut terminal = TerminalGuard {
         terminal: Terminal::with_options(
-            CrosstermBackend::new(stdout()),
+            TerminalBackend::new(stdout()),
             TerminalOptions {
                 viewport: Viewport::Fixed(Rect::new(0, 0, 80, 20)),
             },

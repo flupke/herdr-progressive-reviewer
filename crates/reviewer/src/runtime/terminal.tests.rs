@@ -1,0 +1,103 @@
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use ratatui::layout::Rect;
+use ratatui::style::{Color, Style};
+use ratatui::widgets::Paragraph;
+use ratatui::{Terminal, TerminalOptions, Viewport};
+
+use super::*;
+
+#[derive(Clone, Default)]
+struct CapturedOutput(Rc<RefCell<Vec<u8>>>);
+
+impl Write for CapturedOutput {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.0.borrow_mut().extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+struct Fixture {
+    output: CapturedOutput,
+    terminal: Terminal<TerminalBackend<CapturedOutput>>,
+}
+
+impl Fixture {
+    fn new() -> Self {
+        let output = CapturedOutput::default();
+        let terminal = Terminal::with_options(
+            TerminalBackend::new(output.clone()),
+            TerminalOptions {
+                viewport: Viewport::Fixed(Rect::new(0, 0, 80, 20)),
+            },
+        )
+        .unwrap();
+        Self { output, terminal }
+    }
+
+    fn draw(&mut self, text: &str, style: Style) {
+        self.terminal
+            .draw(|frame| {
+                frame.render_widget(Paragraph::new(text).style(style), frame.area());
+            })
+            .unwrap();
+    }
+
+    fn bytes_written(&self) -> usize {
+        self.output.0.borrow().len()
+    }
+}
+
+#[test]
+fn unchanged_frames_produce_no_terminal_output() {
+    let mut fixture = Fixture::new();
+    fixture.draw("Review this file", Style::default());
+    let initial_output = fixture.bytes_written();
+    assert!(initial_output > 0);
+
+    for _ in 0..100 {
+        fixture.draw("Review this file", Style::default());
+    }
+    assert_eq!(fixture.bytes_written(), initial_output);
+
+    fixture.draw("File reviewed", Style::default());
+    let changed_output = fixture.bytes_written();
+    assert!(changed_output > initial_output);
+    fixture.draw("File reviewed", Style::default().fg(Color::Green));
+    assert!(fixture.bytes_written() > changed_output);
+}
+
+#[test]
+fn resize_and_cursor_transitions_still_reach_the_terminal() {
+    let mut fixture = Fixture::new();
+    fixture.draw("Review", Style::default());
+    let initial_output = fixture.bytes_written();
+    fixture.terminal.resize(Rect::new(0, 0, 100, 30)).unwrap();
+    fixture.draw("Review", Style::default());
+    assert!(fixture.bytes_written() > initial_output);
+
+    let resized_output = fixture.bytes_written();
+    fixture.terminal.show_cursor().unwrap();
+    let visible_output = fixture.bytes_written();
+    assert!(visible_output > resized_output);
+    fixture.terminal.hide_cursor().unwrap();
+    let hidden_output = fixture.bytes_written();
+    assert!(hidden_output > visible_output);
+    fixture.terminal.hide_cursor().unwrap();
+    assert_eq!(fixture.bytes_written(), hidden_output);
+
+    // Commands written outside Backend invalidate the cached cursor state.
+    fixture
+        .terminal
+        .backend_mut()
+        .write_all(b"\x1b[?25h")
+        .unwrap();
+    let raw_output = fixture.bytes_written();
+    fixture.draw("Review", Style::default());
+    assert!(fixture.bytes_written() > raw_output);
+}
