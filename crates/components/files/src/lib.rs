@@ -368,6 +368,10 @@ impl FilesComponent {
                 .map(|text| Action::Output { text })
                 .into_iter()
                 .collect(),
+            ShortcutCommand::File(shortcut) => {
+                self.move_to_unreviewed_file(shortcut);
+                Vec::new()
+            }
             ShortcutCommand::Navigation(navigation) => {
                 self.move_selection(navigation);
                 Vec::new()
@@ -376,15 +380,6 @@ impl FilesComponent {
         };
         self.publish_selection_if_changed(previous_selected_path.as_deref());
         actions
-    }
-
-    fn global_shortcut(&mut self, shortcut: ShortcutCommand) {
-        let ShortcutCommand::File(shortcut) = shortcut else {
-            return;
-        };
-        let previous_selected_path = self.selected_path();
-        self.move_to_unreviewed_file(shortcut);
-        self.publish_selection_if_changed(previous_selected_path.as_deref());
     }
 
     fn move_to_unreviewed_file(&mut self, shortcut: FileShortcut) {
@@ -717,7 +712,7 @@ impl Component<Action> for FilesComponent {
         subscriptions.subscribe_input(
             InputScope::Global,
             ShortcutMatcher::new(ShortcutSet::FilesGlobal),
-            Self::global_shortcut,
+            Self::shortcut,
         );
         subscriptions.subscribe_input(InputScope::Hovered, AnyInput, Self::pointer_input);
     }

@@ -157,6 +157,32 @@ fn making_the_selected_reviewed_file_unreviewed_loads_its_diff() {
 }
 
 #[test]
+fn space_marks_the_selected_file_reviewed_from_either_pane() {
+    for focus_diff in [false, true] {
+        for key in [Key::Space, Key::Char(' ')] {
+            let mut application = application();
+            publish_repository(
+                &mut application,
+                ReviewCheckpoint::new("change", "checkpoint"),
+                String::new(),
+                vec![FileSummary::new("src/lib.rs", ReviewStatus::Unreviewed)],
+            );
+            if focus_diff {
+                application.update(UserInput::Key(Key::Tab));
+            }
+
+            assert_eq!(
+                application.update(UserInput::Key(key)),
+                vec![Action::SetReviewed {
+                    path: "src/lib.rs".to_owned(),
+                    reviewed: true,
+                }],
+            );
+        }
+    }
+}
+
+#[test]
 fn guide_prefixes_do_not_block_revision_navigation() {
     let mut parent_application = application();
     publish_repository(

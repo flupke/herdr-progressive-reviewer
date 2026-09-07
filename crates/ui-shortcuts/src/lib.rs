@@ -351,13 +351,16 @@ impl ShortcutSet {
                         ShortcutCommand::Application(
                             ApplicationShortcut::ChangeFocus
                                 | ApplicationShortcut::Clear
-                                | ApplicationShortcut::MarkReviewed
                                 | ApplicationShortcut::Quit
                         )
                     )
             }
             Self::Files => is_files_shortcut(command),
-            Self::FilesGlobal => matches!(command, ShortcutCommand::File(_)),
+            Self::FilesGlobal => matches!(
+                command,
+                ShortcutCommand::File(_)
+                    | ShortcutCommand::Application(ApplicationShortcut::MarkReviewed)
+            ),
             Self::Guide => matches!(command, ShortcutCommand::Guide(_)),
             Self::Hunk => matches!(command, ShortcutCommand::Hunk(_)),
             Self::Overlay => matches!(
@@ -649,9 +652,7 @@ const fn is_files_shortcut(command: ShortcutCommand) -> bool {
                 | NavigationShortcut::GoToLast
                 | NavigationShortcut::MoveHalfPageDown
                 | NavigationShortcut::MoveHalfPageUp
-        ) | ShortcutCommand::Application(
-            ApplicationShortcut::MarkReviewed | ApplicationShortcut::Insert
-        )
+        ) | ShortcutCommand::Application(ApplicationShortcut::Insert)
     )
 }
 
@@ -678,7 +679,9 @@ const fn is_component_global_shortcut(command: ShortcutCommand) -> bool {
                     | NavigationShortcut::OpenRevisionSelector
             )
             | ShortcutCommand::Application(
-                ApplicationShortcut::ShowCommitMessage | ApplicationShortcut::OpenHelp
+                ApplicationShortcut::ShowCommitMessage
+                    | ApplicationShortcut::OpenHelp
+                    | ApplicationShortcut::MarkReviewed
             )
     )
 }
