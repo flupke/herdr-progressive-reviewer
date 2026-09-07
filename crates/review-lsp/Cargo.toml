@@ -13,6 +13,7 @@ toasts = { path = "../toasts" }
 serde.workspace = true
 serde_json.workspace = true
 strum.workspace = true
+strip-ansi-escapes.workspace = true
 url.workspace = true
 
 [dev-dependencies]

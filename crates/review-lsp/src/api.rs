@@ -117,23 +117,30 @@ impl SourceLocation {
 /// Work sent to the LSP thread.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum Command {
-    /// Tell rust-analyzer about one open Rust document.
+    /// Tell the language server about one open document.
     OpenDocument(PathBuf),
     /// Run one LSP request.
     Request { operation: Operation, query: Query },
-    /// Restart rust-analyzer and reopen known documents.
+    /// Restart active language servers and reopen known documents.
     Restart,
     /// Stop the server and worker.
     Shutdown,
 }
 
+/// Identity and executable name for one language server startup attempt.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ServerStartup {
+    pub id: ToastId,
+    pub name: &'static str,
+}
+
 /// Results sent back to the runtime.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Event {
-    /// rust-analyzer startup began.
-    Initializing,
-    /// rust-analyzer is ready.
-    Ready,
+    /// A language server startup began.
+    Initializing(ServerStartup),
+    /// A language server is ready.
+    Ready(ServerStartup),
     /// Hover content arrived.
     Hover {
         /// ID of the completed toast.

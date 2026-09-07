@@ -11,6 +11,7 @@ use component_modal::{ModalComponent, ModalPointerInput, ModalPointerInputMatche
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use review_lsp::{Event as LspEvent, Operation, Query};
+use std::collections::HashMap;
 use syntax_highlighting::SyntaxHighlighter;
 use toasts::{ToastId, ToastKind, ToastState};
 use ui_actions::Action;
@@ -42,7 +43,7 @@ pub struct OverlayComponent {
     hover: HoverOverlay,
     source_context_menu: Option<SourceContextMenu>,
     toasts: ToastState,
-    lsp_initialization_toast: Option<ToastId>,
+    lsp_initialization_toasts: HashMap<ToastId, ToastId>,
     viewport: Rect,
     palette: Palette,
 }
@@ -57,7 +58,7 @@ impl OverlayComponent {
             hover: HoverOverlay::new(SyntaxHighlighter::new(theme.syntax, theme.palette.text)),
             source_context_menu: None,
             toasts: ToastState::default(),
-            lsp_initialization_toast: None,
+            lsp_initialization_toasts: HashMap::new(),
             viewport: Rect::new(0, 0, 80, 24),
             palette: theme.palette,
         }
@@ -136,20 +137,22 @@ impl OverlayComponent {
             return;
         }
         match event {
-            LspEvent::Initializing => {
-                self.finish_lsp_initialization();
-                self.lsp_initialization_toast =
-                    Some(self.toasts.start_long_toast("Starting rust-analyzer..."));
+            LspEvent::Initializing(startup) => {
+                let toast = self
+                    .toasts
+                    .start_long_toast(format!("Starting {}...", startup.name));
+                self.lsp_initialization_toasts.insert(startup.id, toast);
             }
-            LspEvent::Ready => {
-                self.finish_lsp_initialization();
-                self.toasts.push("rust-analyzer ready", ToastKind::Info);
+            LspEvent::Ready(startup) => {
+                self.finish_lsp_initialization(startup.id);
+                self.toasts
+                    .push(format!("{} ready", startup.name), ToastKind::Info);
             }
             LspEvent::Failed {
                 toast_id, message, ..
             } => {
-                self.finish_lsp_initialization();
                 if let Some(toast_id) = toast_id {
+                    self.finish_lsp_initialization(*toast_id);
                     self.toasts.finish_toast(*toast_id);
                 }
                 self.toasts.push(message, ToastKind::Error);
@@ -169,7 +172,7 @@ impl OverlayComponent {
 
     fn lsp_event_matches_snapshot(&self, event: &LspEvent) -> bool {
         match event {
-            LspEvent::Initializing | LspEvent::Ready => true,
+            LspEvent::Initializing(_) | LspEvent::Ready(_) => true,
             LspEvent::Hover { snapshot_id, .. } | LspEvent::Locations { snapshot_id, .. } => {
                 snapshot_id == &self.snapshot_id
             }
@@ -314,8 +317,8 @@ impl OverlayComponent {
         }
     }
 
-    fn finish_lsp_initialization(&mut self) {
-        if let Some(id) = self.lsp_initialization_toast.take() {
+    fn finish_lsp_initialization(&mut self, startup: ToastId) {
+        if let Some(id) = self.lsp_initialization_toasts.remove(&startup) {
             self.toasts.finish_toast(id);
         }
     }

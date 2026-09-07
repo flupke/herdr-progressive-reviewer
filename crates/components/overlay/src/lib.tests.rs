@@ -142,6 +142,37 @@ fn stale_lsp_failures_do_not_create_toasts() {
     assert!(rendered_screen(&bus, target).contains("current failure"));
 }
 
+#[test]
+fn server_startup_toasts_finish_independently() {
+    let mut bus = ComponentEventBus::<Action>::new();
+    let target = bus.mount(|_| OverlayComponent::new(ui_theme::Theme::default()));
+    let expert = review_lsp::ServerStartup {
+        id: ToastId::generate(),
+        name: "expert",
+    };
+    let typescript = review_lsp::ServerStartup {
+        id: ToastId::generate(),
+        name: "typescript-language-server",
+    };
+    bus.publish(LspEvent::Initializing(expert)).unwrap();
+    bus.publish(LspEvent::Initializing(typescript)).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(260));
+    bus.publish(LspEvent::Ready(expert)).unwrap();
+    let screen = rendered_screen(&bus, target);
+    assert!(screen.contains("expert ready"));
+    assert!(screen.contains("Starting typescript-language-server..."));
+
+    bus.publish(LspEvent::Failed {
+        toast_id: Some(typescript.id),
+        snapshot_id: None,
+        message: "TypeScript startup failed".to_owned(),
+    })
+    .unwrap();
+    let screen = rendered_screen(&bus, target);
+    assert!(!screen.contains("Starting typescript-language-server..."));
+    assert!(screen.contains("TypeScript startup failed"));
+}
+
 fn rendered_screen(
     bus: &ComponentEventBus<Action>,
     target: component_core::ComponentTarget,

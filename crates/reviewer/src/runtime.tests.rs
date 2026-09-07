@@ -802,34 +802,6 @@ fn rendered_review_application(application: &ReviewApplication) -> String {
 }
 
 #[test]
-fn finds_a_nested_rust_workspace() {
-    let directory = tempfile::tempdir().unwrap();
-    let crates = directory.path().join("crates");
-    std::fs::create_dir(&crates).unwrap();
-    std::fs::write(crates.join("Cargo.toml"), "[workspace]\n").unwrap();
-
-    assert_eq!(rust_project_root(directory.path()), Some(crates));
-}
-
-#[test]
-fn only_existing_rust_documents_are_opened_for_lsp() {
-    let repository = tempfile::tempdir().unwrap();
-    let source_directory = repository.path().join("src");
-    std::fs::create_dir(&source_directory).unwrap();
-    std::fs::write(source_directory.join("lib.rs"), "fn present() {}\n").unwrap();
-
-    assert_eq!(
-        rust_document_path(repository.path(), "src/lib.rs"),
-        Some(source_directory.join("lib.rs"))
-    );
-    assert_eq!(
-        rust_document_path(repository.path(), "src/deleted.rs"),
-        None
-    );
-    assert_eq!(rust_document_path(repository.path(), "README.md"), None);
-}
-
-#[test]
 fn references_are_restricted_to_the_rust_project() {
     let location = |path| review_lsp::SourceLocation {
         path: PathBuf::from(path),
@@ -1110,7 +1082,6 @@ fn event_loop_routes_external_events_from_the_central_channel() {
         commands: &commands,
         events,
         lsp: &lsp,
-        lsp_root: repository.path(),
         repository_root: repository.path(),
         settings: &settings,
     }

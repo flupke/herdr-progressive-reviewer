@@ -4,7 +4,7 @@ use std::thread::{self, JoinHandle};
 use crossbeam_channel::{Receiver, Sender, unbounded};
 
 use crate::api::{Command, Event, Operation, Query};
-use crate::server::Server;
+use crate::manager::Manager;
 
 /// A running LSP worker.
 pub struct Worker {
@@ -19,7 +19,7 @@ impl Worker {
         let (commands, command_receiver) = unbounded();
         let (event_sender, events) = unbounded();
         let handle = thread::spawn(move || {
-            Server::new(root, event_sender).run(&command_receiver);
+            Manager::new(root, event_sender).run(&command_receiver);
         });
         Self {
             commands,
@@ -28,7 +28,7 @@ impl Worker {
         }
     }
 
-    /// Tell rust-analyzer about one open document, starting it when necessary.
+    /// Open a supported document, starting its language server when necessary.
     pub fn open_document(&self, path: PathBuf) -> Result<(), String> {
         self.send(Command::OpenDocument(path))
     }
@@ -38,7 +38,7 @@ impl Worker {
         self.send(Command::Request { operation, query })
     }
 
-    /// Restart rust-analyzer and reopen known documents.
+    /// Restart active language servers and reopen known documents.
     pub fn restart(&self) -> Result<(), String> {
         self.send(Command::Restart)
     }

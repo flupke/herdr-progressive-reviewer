@@ -4,7 +4,8 @@ use std::time::Instant;
 
 use crossbeam_channel::{Receiver, Sender, after, never, select};
 
-use crate::api::{Command, Event};
+use crate::api::{Command, Event, ServerStartup};
+use crate::language::Project;
 use crate::session::Session;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -14,20 +15,22 @@ enum ServerLoopControl {
 }
 
 pub(super) struct Server {
-    root: PathBuf,
+    project: Project,
     events: Sender<Event>,
     session: Option<Session>,
+    startup: Option<ServerStartup>,
     pending: VecDeque<Command>,
     open_documents: BTreeSet<PathBuf>,
     stopping: bool,
 }
 
 impl Server {
-    pub(super) fn new(root: PathBuf, events: Sender<Event>) -> Self {
+    pub(super) fn new(project: Project, events: Sender<Event>) -> Self {
         Self {
-            root,
+            project,
             events,
             session: None,
+            startup: None,
             pending: VecDeque::new(),
             open_documents: BTreeSet::new(),
             stopping: false,
@@ -58,7 +61,7 @@ impl Server {
                 },
                 recv(inbound) -> message => match message {
                     Ok(message) => self.message(message),
-                    Err(_) => self.fail_session("rust-analyzer stopped"),
+                    Err(_) => self.fail_session("language server stopped"),
                 },
                 recv(deadline) -> _ => self.handle_deadline(),
             }
@@ -100,29 +103,25 @@ impl Server {
     }
 
     fn queue(&mut self, command: Command) {
-        let opens_document = if let Command::OpenDocument(path) = &command {
-            self.open_documents.insert(path.clone());
-            true
-        } else {
-            false
-        };
-        if self.session.is_none() && opens_document {
-            if let Err(message) = self.start_session() {
-                let request = match &command {
-                    Command::Request { query, .. } => {
-                        (Some(query.toast_id), Some(query.snapshot_id.clone()))
-                    }
-                    _ => (None, None),
-                };
-                self.fail(request.0, request.1, message);
-                return;
+        match &command {
+            Command::OpenDocument(path) => {
+                self.open_documents.insert(path.clone());
             }
+            Command::Request { query, .. } => {
+                self.open_documents.insert(query.path.clone());
+            }
+            Command::Restart | Command::Shutdown => return,
         }
         self.pending.push_back(command);
+        if self.session.is_none() {
+            if let Err(message) = self.start_session() {
+                self.fail_session(&message);
+            }
+        }
     }
 
     fn restart(&mut self) {
-        let _ = self.fail_requests("rust-analyzer restarted");
+        let _ = self.fail_requests("language server restarted");
         self.pending = self
             .open_documents
             .iter()
@@ -134,18 +133,27 @@ impl Server {
             return;
         }
         if let Err(message) = self.start_session() {
-            self.fail(None, None, message);
+            self.fail_session(&message);
         }
     }
 
     fn start_session(&mut self) -> Result<(), String> {
-        let _ = self.events.send(Event::Initializing);
-        self.session = Some(Session::start(&self.root, Instant::now())?);
+        let startup = ServerStartup {
+            id: toasts::ToastId::generate(),
+            name: self.project.server.command(),
+        };
+        self.startup = Some(startup);
+        let _ = self.events.send(Event::Initializing(startup));
+        self.session = Some(Session::start(&self.project, startup, Instant::now())?);
         Ok(())
     }
 
-    fn fail_requests(&self, message: &str) -> bool {
+    fn fail_requests(&mut self, message: &str) -> bool {
         let mut failed_request = false;
+        if let Some(startup) = self.startup.take() {
+            self.fail(Some(startup.id), None, message.to_owned());
+            failed_request = true;
+        }
         if let Some(query) = self.session.as_ref().and_then(Session::active_query) {
             self.fail(
                 Some(query.toast_id),
@@ -177,7 +185,19 @@ impl Server {
 
     fn handle_session_result(&mut self, result: Result<Option<Event>, String>) {
         match result {
-            Ok(Some(event)) => {
+            Ok(Some(mut event)) => {
+                if matches!(event, Event::Ready(_)) {
+                    self.startup = None;
+                }
+                if let Event::Locations {
+                    operation,
+                    locations,
+                    ..
+                } = &mut event
+                {
+                    *locations =
+                        operation.filter_locations(&self.project.root, std::mem::take(locations));
+                }
                 let _ = self.events.send(event);
             }
             Ok(None) => {}
@@ -228,7 +248,7 @@ impl Server {
             self.session = None;
             return;
         }
-        if !self.fail_requests(message) {
+        if !self.fail_requests(message) && (self.session.is_some() || !self.pending.is_empty()) {
             self.fail(None, None, message.to_owned());
         }
         self.session = None;

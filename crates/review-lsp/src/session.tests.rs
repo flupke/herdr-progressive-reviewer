@@ -1,7 +1,7 @@
 use std::io::{BufReader, Write};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::process::ChildStdout;
-use std::process::Stdio;
+use std::process::{Command as ProcessCommand, Stdio};
 use std::time::{Duration, Instant};
 
 use crossbeam_channel::unbounded;
@@ -11,13 +11,18 @@ use lsp_types::PositionEncodingKind;
 use crate::api::{Event, Operation, Query};
 use crate::source::ServerLocation;
 
-use super::{
-    AnalyzerProcess, Inbound, ProcessCommand, SERVER_STATUS_METHOD, STARTUP_TIMEOUT, Session, State,
-};
+use super::{Inbound, SERVER_STATUS_METHOD, STARTUP_TIMEOUT, ServerProcess, Session, State};
+
+fn startup() -> crate::api::ServerStartup {
+    crate::api::ServerStartup {
+        id: toasts::ToastId::generate(),
+        name: "rust-analyzer",
+    }
+}
 
 fn session(state: State) -> Session {
     let mut process = ProcessCommand::new("sh")
-        .args(["-c", "cat >/dev/null"])
+        .args(["-c", "exec cat >/dev/null"])
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .spawn()
@@ -25,7 +30,12 @@ fn session(state: State) -> Session {
     let input = std::io::BufWriter::new(process.stdin.take().unwrap());
     let (_sender, inbound) = unbounded();
     Session {
-        _analyzer_process_guard: AnalyzerProcess(process),
+        process: ServerProcess {
+            child: process,
+            uses_direnv: false,
+        },
+        server: crate::language::LanguageServer::RustAnalyzer,
+        startup: startup(),
         input,
         inbound,
         next_id: 1,
@@ -39,6 +49,26 @@ pub(crate) fn ready_session() -> Session {
     session(State::Ready)
 }
 
+#[test]
+fn startup_reports_setup_diagnostics_when_the_child_exits_before_initialize() {
+    let mut session = session(State::Stopped);
+    session.process.child.kill().unwrap();
+    session.process.child.wait().unwrap();
+    let (sender, inbound) = unbounded();
+    session.inbound = inbound;
+    sender
+        .send(Inbound::Failed(
+            ".envrc is blocked; run direnv allow".to_owned(),
+        ))
+        .unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let write_error = session.initialize(root.path(), Instant::now()).unwrap_err();
+    assert_eq!(
+        session.startup_failure(write_error),
+        ".envrc is blocked; run direnv allow"
+    );
+}
+
 fn session_with_output(state: State) -> (Session, BufReader<ChildStdout>) {
     let mut process = ProcessCommand::new("cat")
         .stdin(Stdio::piped())
@@ -50,7 +80,12 @@ fn session_with_output(state: State) -> (Session, BufReader<ChildStdout>) {
     let (_sender, inbound) = unbounded();
     (
         Session {
-            _analyzer_process_guard: AnalyzerProcess(process),
+            process: ServerProcess {
+                child: process,
+                uses_direnv: false,
+            },
+            server: crate::language::LanguageServer::RustAnalyzer,
+            startup: startup(),
             input,
             inbound,
             next_id: 1,
@@ -82,8 +117,11 @@ fn query(path: std::path::PathBuf) -> Query {
 fn panic_kills_and_reaps_the_child_process() {
     let mut pid = 0;
     let panic = catch_unwind(AssertUnwindSafe(|| {
-        let process = AnalyzerProcess(ProcessCommand::new("sleep").arg("30").spawn().unwrap());
-        pid = process.0.id();
+        let process = ServerProcess {
+            child: ProcessCommand::new("sleep").arg("30").spawn().unwrap(),
+            uses_direnv: false,
+        };
+        pid = process.child.id();
         panic!("test panic");
     }));
 
@@ -159,7 +197,7 @@ fn quiescent_status_makes_an_initializing_server_ready() {
                 Instant::now()
             )
             .unwrap(),
-        Some(Event::Ready)
+        Some(Event::Ready(session.startup))
     );
     assert!(session.is_ready());
 }
@@ -432,6 +470,97 @@ fn initialize_sends_the_required_client_capabilities() {
         State::Initializing { deadline, .. }
             if deadline == now + super::INITIALIZE_TIMEOUT
     ));
+}
+
+#[test]
+fn direnv_startup_allows_time_for_nix_environment_preparation() {
+    let directory = tempfile::tempdir().unwrap();
+    let now = Instant::now();
+    let (mut session, mut output) = session_with_output(State::Stopped);
+    session.process.uses_direnv = true;
+    session.initialize(directory.path(), now).unwrap();
+    let _ = read_message(&mut session, &mut output);
+    assert_eq!(session.next_deadline(), Some(now + STARTUP_TIMEOUT));
+}
+
+#[test]
+fn expert_and_typescript_initialize_without_waiting_for_rust_status() {
+    for server in [
+        crate::language::LanguageServer::Expert,
+        crate::language::LanguageServer::TypeScript,
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let now = Instant::now();
+        let (mut session, mut output) = session_with_output(State::Stopped);
+        session.server = server;
+        session.initialize(directory.path(), now).unwrap();
+        let Message::Request(request) = read_message(&mut session, &mut output) else {
+            panic!("expected initialize");
+        };
+        assert_eq!(
+            request.params["rootUri"],
+            crate::source::path_uri(directory.path()).unwrap().as_str()
+        );
+        assert!(request.params["capabilities"]["experimental"].is_null());
+        if server == crate::language::LanguageServer::TypeScript {
+            assert_eq!(
+                request.params["initializationOptions"]["tsserver"]["useSyntaxServer"],
+                "never"
+            );
+        }
+
+        let event = session
+            .handle(
+                Inbound::Message(Message::Response(Response::new_ok(
+                    request.id,
+                    serde_json::json!({ "capabilities": {} }),
+                ))),
+                now,
+            )
+            .unwrap();
+        assert_eq!(event, Some(Event::Ready(session.startup)));
+        let Message::Notification(initialized) = read_message(&mut session, &mut output) else {
+            panic!("expected initialized");
+        };
+        assert_eq!(initialized.method, "initialized");
+        assert!(session.is_ready());
+        assert!(session.next_deadline().is_none());
+    }
+}
+
+#[test]
+fn opened_documents_use_their_language_and_forward_changed_text() {
+    for (file, language) in [
+        ("lib.ex", "elixir"),
+        ("mix.exs", "elixir"),
+        ("view.heex", "heex"),
+        ("view.eex", "eelixir"),
+        ("index.ts", "typescript"),
+        ("view.tsx", "typescriptreact"),
+        ("index.mjs", "javascript"),
+        ("view.jsx", "javascriptreact"),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join(file);
+        let (mut session, mut output) = session_with_output(State::Ready);
+        std::fs::write(&path, "before").unwrap();
+        session.open_document(&path).unwrap();
+        let Message::Notification(open) = read_message(&mut session, &mut output) else {
+            panic!("expected didOpen");
+        };
+        assert_eq!(open.method, "textDocument/didOpen");
+        assert_eq!(open.params["textDocument"]["languageId"], language);
+        assert_eq!(open.params["textDocument"]["text"], "before");
+
+        std::fs::write(&path, "after").unwrap();
+        session.open_document(&path).unwrap();
+        let Message::Notification(change) = read_message(&mut session, &mut output) else {
+            panic!("expected didChange");
+        };
+        assert_eq!(change.method, "textDocument/didChange");
+        assert_eq!(change.params["textDocument"]["version"], 2);
+        assert_eq!(change.params["contentChanges"][0]["text"], "after");
+    }
 }
 
 #[test]

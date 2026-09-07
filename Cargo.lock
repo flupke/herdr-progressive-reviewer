@@ -1230,6 +1230,7 @@ dependencies = [
  "lsp-types",
  "serde",
  "serde_json",
+ "strip-ansi-escapes",
  "strum",
  "tempfile",
  "toasts",

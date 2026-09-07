@@ -185,7 +185,6 @@ struct RuntimeEventLoop<'a> {
     commands: &'a Sender<WorkerCommand>,
     events: EventReceiver<EventEnvelope>,
     lsp: &'a review_lsp::Worker,
-    lsp_root: &'a Path,
     repository_root: &'a Path,
     settings: &'a ReviewStore,
 }
@@ -312,8 +311,7 @@ impl Runtime {
             Arc::clone(&producer_stop_requested),
             RepositoryWatcher::new(self.repository.root(), self.repository.repo_type()),
         ));
-        let lsp_root = rust_project_root(&root);
-        let lsp = review_lsp::Worker::start(lsp_root.as_ref().unwrap_or(&root).clone());
+        let lsp = review_lsp::Worker::start(root.clone());
         event_producers.push(Self::start_lsp_events(
             &lsp,
             event_sender,
@@ -327,7 +325,6 @@ impl Runtime {
             commands: &commands,
             events,
             lsp: &lsp,
-            lsp_root: lsp_root.as_deref().unwrap_or(&root),
             repository_root: &root,
             settings: &settings,
         }
@@ -649,9 +646,11 @@ impl RuntimeEventLoop<'_> {
         if let Some(input) = event.downcast_ref::<UserInput>() {
             self.app.update(input.clone())
         } else if let Some(event) = event.downcast_ref::<review_lsp::Event>() {
-            self.app.publish(self.filter_lsp_locations(event.clone()))
+            self.app.publish(event.clone())
         } else if let Some(loaded_diff) = event.downcast_ref::<DiffContentLoaded>() {
-            open_rust_document(self.repository_root, self.lsp, &loaded_diff.path);
+            let _ = self
+                .lsp
+                .open_document(self.repository_root.join(&loaded_diff.path));
             self.app.publish_envelope(event)
         } else if let Some(ApplicationTick(now)) = event.downcast_ref::<ApplicationTick>() {
             let mut actions = self.app.publish(AnimationTick);
@@ -659,23 +658,6 @@ impl RuntimeEventLoop<'_> {
             actions
         } else {
             self.app.publish_envelope(event)
-        }
-    }
-
-    fn filter_lsp_locations(&self, event: review_lsp::Event) -> review_lsp::Event {
-        match event {
-            review_lsp::Event::Locations {
-                toast_id,
-                operation,
-                snapshot_id,
-                locations,
-            } => review_lsp::Event::Locations {
-                toast_id,
-                operation,
-                snapshot_id,
-                locations: operation.filter_locations(self.lsp_root, locations),
-            },
-            event => event,
         }
     }
 
@@ -1144,28 +1126,6 @@ fn normalize_mouse(mouse: MouseEvent) -> Option<UserInput> {
         MouseEventKind::Up(MouseButton::Left) => Some(UserInput::MouseRelease),
         _ => None,
     }
-}
-
-fn open_rust_document(root: &std::path::Path, lsp: &review_lsp::Worker, path: &str) {
-    if let Some(path) = rust_document_path(root, path) {
-        let _ = lsp.open_document(path);
-    }
-}
-
-fn rust_project_root(root: &std::path::Path) -> Option<PathBuf> {
-    [root.to_owned(), root.join("crates")]
-        .into_iter()
-        .find(|path| path.join("Cargo.toml").is_file())
-}
-
-fn rust_document_path(root: &std::path::Path, path: &str) -> Option<PathBuf> {
-    let path = std::path::Path::new(path);
-    let disk_path = if path.is_absolute() {
-        path.to_owned()
-    } else {
-        root.join(path)
-    };
-    (review_ui::is_rust_path(path) && disk_path.is_file()).then_some(disk_path)
 }
 
 impl TerminalEventProducer {

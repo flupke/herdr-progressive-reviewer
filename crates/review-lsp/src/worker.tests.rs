@@ -63,8 +63,12 @@ fn public_commands_are_forwarded_to_the_server_channel() {
 #[test]
 fn events_and_stopped_command_channels_are_reported() {
     let (worker, commands, events) = disconnected_worker();
-    events.send(Event::Ready).unwrap();
-    assert_eq!(worker.try_recv(), Some(Event::Ready));
+    let startup = crate::api::ServerStartup {
+        id: toasts::ToastId::generate(),
+        name: "rust-analyzer",
+    };
+    events.send(Event::Ready(startup)).unwrap();
+    assert_eq!(worker.try_recv(), Some(Event::Ready(startup)));
     assert_eq!(worker.try_recv(), None);
 
     drop(commands);
@@ -130,11 +134,11 @@ fn rust_analyzer_finds_a_definition() {
     worker.open_document(source.clone()).unwrap();
     assert!(matches!(
         worker.events.recv_timeout(timeout),
-        Ok(Event::Initializing)
+        Ok(Event::Initializing(_))
     ));
     assert!(matches!(
         worker.events.recv_timeout(timeout),
-        Ok(Event::Ready)
+        Ok(Event::Ready(_))
     ));
     thread::sleep(Duration::from_millis(500));
     worker

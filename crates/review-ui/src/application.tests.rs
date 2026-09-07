@@ -363,7 +363,10 @@ fn lsp_startup_does_not_close_the_revision_selector() {
         }]),
     });
 
-    application.publish(LspEvent::Initializing);
+    application.publish(LspEvent::Initializing(review_lsp::ServerStartup {
+        id: ToastId::generate(),
+        name: "rust-analyzer",
+    }));
 
     assert!(rendered_application(&application).contains("Select revision"));
     assert!(rendered_application(&application).contains("current revision"));
