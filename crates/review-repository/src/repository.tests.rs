@@ -131,11 +131,12 @@ fn rename_diff_paths_include_each_distinct_side_once() {
 #[test]
 fn jj_snapshot_identity_requires_two_nonempty_ids_and_a_terminator() {
     assert_eq!(
-        SnapshotIdentity::parse(b"change\0commit\0description\0").unwrap(),
+        SnapshotIdentity::parse(b"change\0commit\0description\0short\0").unwrap(),
         SnapshotIdentity::Jj {
             change_id: super::ChangeId("change".into()),
             snapshot_id: super::SnapshotId("commit".to_owned()),
             description: "description".to_owned(),
+            display_id: "short".to_owned(),
         }
     );
     for invalid in [

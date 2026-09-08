@@ -96,6 +96,7 @@ fn location_list() -> (ComponentEventBus<Action>, component_core::ComponentTarge
     event_bus.mount(|_| LocationOutput::default());
     event_bus
         .publish(RepositoryMetadataChanged {
+            display_id: "abcd1234".to_owned(),
             review_checkpoint: ReviewCheckpoint::new("change", "snapshot"),
             description: String::new(),
         })

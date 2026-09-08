@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+ansi-to-tui.workspace = true
 component-core = { path = "../../component-core" }
 ratatui.workspace = true
 ui-actions = { path = "../../ui-actions" }

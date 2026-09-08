@@ -28,6 +28,11 @@ fn snapshots_git_worktrees_without_changing_the_real_index() {
 
     let snapshot = complete_repository_snapshot(&repository);
     assert_eq!(snapshot.identity.description(), "Git working tree\n");
+    let head = git.git(["rev-parse", "--short", "HEAD"]);
+    assert_eq!(
+        snapshot.identity.display_id(),
+        String::from_utf8(head.stdout).unwrap().trim()
+    );
     assert_eq!(
         snapshot
             .files
@@ -60,4 +65,29 @@ fn snapshots_git_worktrees_without_changing_the_real_index() {
             .any(|row| matches!(row, DiffRow::Add { text, .. } if text == "+after"))
     );
     assert!(git.git(["diff", "--cached", "--quiet"]).status.success());
+}
+
+#[test]
+fn header_id_handles_an_unborn_git_branch() {
+    let git = GitFixture::new();
+    git.git(["checkout", "--orphan", "unborn"]);
+    let state = tempfile::tempdir().unwrap();
+    let repository = Repository::discover(git.root())
+        .unwrap()
+        .with_state_root(state.path());
+    assert_eq!(
+        complete_repository_snapshot(&repository)
+            .identity
+            .display_id(),
+        "unborn"
+    );
+    fs::write(git.root().join("first.txt"), "first\n").unwrap();
+    git.commit_all("first commit");
+    let head = git.git(["rev-parse", "--short", "HEAD"]);
+    assert_eq!(
+        complete_repository_snapshot(&repository)
+            .identity
+            .display_id(),
+        String::from_utf8(head.stdout).unwrap().trim()
+    );
 }

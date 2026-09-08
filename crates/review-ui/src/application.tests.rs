@@ -107,6 +107,7 @@ fn publish_repository(
     files: Vec<FileSummary>,
 ) -> Vec<Action> {
     let mut actions = application.publish(RepositoryMetadataChanged {
+        display_id: "abcd1234".to_owned(),
         review_checkpoint: review_checkpoint.clone(),
         description,
     });

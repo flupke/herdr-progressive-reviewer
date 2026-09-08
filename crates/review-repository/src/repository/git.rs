@@ -134,6 +134,12 @@ impl GitBackend {
                 "Git returned a non-UTF-8 empty tree ID",
             )?
         };
+        let head = self.output(repository, ["rev-parse", "--verify", "--short", "HEAD"])?;
+        let display_id = if head.status.success() {
+            parse_tree_id(&head.stdout, "Git returned a non-UTF-8 HEAD commit ID")?
+        } else {
+            "unborn".to_owned()
+        };
         let mut cached_base = cache.base_tree.lock().map_err(|_| Error::Protocol {
             operation: "snapshot Git repository".to_owned(),
             detail: "Git snapshot state lock was poisoned",
@@ -149,6 +155,7 @@ impl GitBackend {
         )?;
         Ok(SnapshotIdentity::Git {
             base_tree: base_tree.into(),
+            display_id,
             snapshot_id: snapshot_tree.into(),
         })
     }

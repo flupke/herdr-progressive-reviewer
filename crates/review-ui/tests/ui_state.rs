@@ -91,6 +91,7 @@ fn publish_repository(
     files: Vec<FileSummary>,
 ) -> Vec<Action> {
     let mut actions = application.publish(RepositoryMetadataChanged {
+        display_id: "abcd1234".to_owned(),
         review_checkpoint: review_checkpoint.clone(),
         description,
     });
@@ -1770,7 +1771,8 @@ fn test_backend_renders_wide_narrow_and_minimum_layouts() {
     assert!(!narrow_diff.contains("Files (focus)"));
 
     let minimum = application_screen(&app, 40, 6).join("\n");
-    assert!(minimum.contains("Commit title"));
+    assert!(minimum.starts_with(" abcd1234 Comm"), "{minimum}");
+    assert!(minimum.contains("198/200 reviewed"));
     let too_small = application_screen(&app, 39, 5);
     assert_eq!(too_small[0].trim_end(), "Terminal is too small");
     assert_eq!(too_small[1].trim_end(), "Minimum: 40x6");

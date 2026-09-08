@@ -1,5 +1,6 @@
 //! Repository header and application status line.
 
+use ansi_to_tui::IntoText;
 use component_core::{AnyInput, Component, ComponentSubscriptions, EventPublisher, InputScope};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Alignment, Rect};
@@ -22,6 +23,7 @@ const MIN_TERMINAL_HEIGHT: u16 = 6;
 pub struct StatusComponent {
     events: EventPublisher,
     description: String,
+    display_id: Line<'static>,
     overview: FilesOverviewChanged,
     search: SearchStatusChanged,
     guide_spinner_frame: Option<usize>,
@@ -32,6 +34,7 @@ impl StatusComponent {
         Self {
             events,
             description: String::new(),
+            display_id: Line::default(),
             overview: FilesOverviewChanged::default(),
             search: SearchStatusChanged::default(),
             guide_spinner_frame: None,
@@ -48,14 +51,11 @@ impl StatusComponent {
     }
 
     pub fn render_header(&self, area: Rect, buffer: &mut Buffer, palette: Palette) {
-        Paragraph::new(format!(" {}", self.commit_title()))
-            .style(Style::default().fg(palette.text))
-            .render(area, buffer);
         let summary = format!(
             " - {}/{} reviewed ",
             self.overview.reviewed, self.overview.total
         );
-        Paragraph::new(Line::from(vec![
+        let summary = Line::from(vec![
             Span::styled(
                 format!("+{}", self.overview.lines_added),
                 Style::default().fg(palette.insertion),
@@ -66,10 +66,31 @@ impl StatusComponent {
                 Style::default().fg(palette.deletion),
             ),
             Span::raw(summary),
-        ]))
-        .alignment(Alignment::Right)
-        .style(Style::default().fg(palette.text))
-        .render(area, buffer);
+        ]);
+        let summary_width = u16::try_from(summary.width())
+            .unwrap_or(u16::MAX)
+            .min(area.width);
+        let title_width = area.width.saturating_sub(summary_width.saturating_add(1));
+        let mut title = Line::from(" ");
+        title.spans.extend(self.display_id.spans.iter().cloned());
+        title
+            .spans
+            .push(Span::raw(format!(" {}", self.commit_title())));
+        Paragraph::new(title)
+            .style(Style::default().fg(palette.text))
+            .render(Rect::new(area.x, area.y, title_width, 1), buffer);
+        Paragraph::new(summary)
+            .alignment(Alignment::Right)
+            .style(Style::default().fg(palette.text))
+            .render(
+                Rect::new(
+                    area.right().saturating_sub(summary_width),
+                    area.y,
+                    summary_width,
+                    area.height,
+                ),
+                buffer,
+            );
     }
 
     pub fn render_footer(&self, area: Rect, buffer: &mut Buffer, palette: Palette) {
@@ -121,6 +142,13 @@ impl StatusComponent {
 
     fn repository_changed(&mut self, event: &RepositoryMetadataChanged) {
         self.description.clone_from(&event.description);
+        self.display_id = event
+            .display_id
+            .as_bytes()
+            .into_text()
+            .ok()
+            .and_then(|text| text.lines.into_iter().next())
+            .unwrap_or_default();
     }
 
     fn overview_changed(&mut self, event: &FilesOverviewChanged) {
@@ -151,7 +179,8 @@ impl StatusComponent {
         };
         match position.terminal_row {
             0 if position.terminal_column > 0
-                && usize::from(position.terminal_column) <= self.commit_title().width() =>
+                && usize::from(position.terminal_column)
+                    <= self.display_id.width() + 1 + self.commit_title().width() =>
             {
                 self.events.publish(CommitMessageToggleRequested);
                 Vec::new()

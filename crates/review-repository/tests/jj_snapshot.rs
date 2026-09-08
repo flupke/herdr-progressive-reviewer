@@ -139,3 +139,42 @@ fn reports_conflicts_from_real_jj_merges(layout: JjLayout) {
         String::from_utf8_lossy(&output)
     );
 }
+
+#[test]
+fn header_id_uses_jj_abbreviation_and_configured_colours() {
+    let context = JjRepositoryTestContext::new(JjLayout::NonColocated);
+    context
+        .fixture
+        .jj(["config", "set", "--repo", "revsets.short-prefixes", "@"]);
+    context.fixture.jj([
+        "config",
+        "set",
+        "--repo",
+        r#"colors."change_id prefix""#,
+        "red",
+    ]);
+    for description in ["first header", "second header"] {
+        context.fixture.new_change(description);
+        let identity = context.repository.current_identity().unwrap();
+        let expected = context.fixture.jj([
+            "--color=always",
+            "log",
+            "--no-graph",
+            "-r",
+            "@",
+            "-T",
+            "change_id.shortest(8)",
+        ]);
+        assert_eq!(identity.display_id().as_bytes(), expected.stdout);
+        assert!(identity.display_id().contains('\u{1b}'));
+        let plain = strip_ansi_escapes::strip(identity.display_id());
+        assert_eq!(plain.len(), 8);
+        assert!(
+            identity
+                .review_unit()
+                .as_str()
+                .starts_with(std::str::from_utf8(&plain).unwrap())
+        );
+        assert_eq!(identity.description().trim(), description);
+    }
+}

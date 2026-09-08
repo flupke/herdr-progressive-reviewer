@@ -914,6 +914,7 @@ impl Worker {
         let _ = messages.send(RepositoryMetadataChanged {
             review_checkpoint: review_checkpoint.clone(),
             description: snapshot.identity.description().to_owned(),
+            display_id: snapshot.identity.display_id().to_owned(),
         });
         let _ = messages.send(RepositoryFilesChanged {
             review_checkpoint,

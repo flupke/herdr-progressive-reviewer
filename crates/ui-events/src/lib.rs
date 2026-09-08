@@ -18,6 +18,8 @@ use toasts::ToastKind;
 pub struct RepositoryMetadataChanged {
     pub review_checkpoint: ReviewCheckpoint,
     pub description: String,
+    /// Abbreviated revision identifier, optionally containing ANSI colour escapes.
+    pub display_id: String,
 }
 
 /// Aggregate values shown in the repository header.

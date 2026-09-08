@@ -575,11 +575,15 @@ pub enum SnapshotIdentity {
         snapshot_id: SnapshotId,
         /// The full commit description.
         description: String,
+        /// Repository-aware abbreviated ID, including jj terminal colours.
+        display_id: String,
     },
     /// A Git working-tree snapshot.
     Git {
         /// The tree at `HEAD` that defines the review scope.
         base_tree: ReviewUnit,
+        /// Abbreviated HEAD commit ID, or `unborn` before the first commit.
+        display_id: String,
         /// The exact captured working-tree state.
         snapshot_id: SnapshotId,
     },
@@ -587,26 +591,28 @@ pub enum SnapshotIdentity {
 
 impl SnapshotIdentity {
     fn parse(output: &[u8]) -> Result<Self> {
-        let fields: Vec<_> = output.split(|byte| *byte == 0).collect();
-        if fields.len() != 4
+        let raw_fields: Vec<_> = output.split(|byte| *byte == 0).collect();
+        let fields: Vec<_> = raw_fields.iter().map(strip_ansi_escapes::strip).collect();
+        if fields.len() != 5
             || fields[0].is_empty()
             || fields[1].is_empty()
-            || !fields[3].is_empty()
+            || fields[3].is_empty()
+            || !fields[4].is_empty()
         {
             return Err(Error::Protocol {
                 operation: "read jj snapshot identity".to_owned(),
                 detail: "jj returned an invalid identity record",
             });
         }
-        let change_id = std::str::from_utf8(fields[0]).map_err(|_| Error::Protocol {
+        let change_id = std::str::from_utf8(&fields[0]).map_err(|_| Error::Protocol {
             operation: "read jj snapshot identity".to_owned(),
             detail: "jj returned a non-UTF-8 change ID",
         })?;
-        let commit_id = std::str::from_utf8(fields[1]).map_err(|_| Error::Protocol {
+        let commit_id = std::str::from_utf8(&fields[1]).map_err(|_| Error::Protocol {
             operation: "read jj snapshot identity".to_owned(),
             detail: "jj returned a non-UTF-8 commit ID",
         })?;
-        let description = std::str::from_utf8(fields[2]).map_err(|_| Error::Protocol {
+        let description = std::str::from_utf8(&fields[2]).map_err(|_| Error::Protocol {
             operation: "read jj snapshot identity".to_owned(),
             detail: "jj returned a non-UTF-8 commit description",
         })?;
@@ -615,6 +621,10 @@ impl SnapshotIdentity {
             change_id: ChangeId(change_id.into()),
             snapshot_id: SnapshotId(commit_id.to_owned()),
             description: description.to_owned(),
+            display_id: String::from_utf8(raw_fields[3].to_vec()).map_err(|_| Error::Protocol {
+                operation: "read jj snapshot identity".to_owned(),
+                detail: "jj returned a non-UTF-8 display ID",
+            })?,
         })
     }
 
@@ -630,6 +640,13 @@ impl SnapshotIdentity {
     pub fn snapshot_id(&self) -> &str {
         match self {
             Self::Jj { snapshot_id, .. } | Self::Git { snapshot_id, .. } => snapshot_id.as_str(),
+        }
+    }
+
+    /// Get the abbreviated revision identifier, with terminal colours when available.
+    pub fn display_id(&self) -> &str {
+        match self {
+            Self::Jj { display_id, .. } | Self::Git { display_id, .. } => display_id,
         }
     }
 
@@ -978,6 +995,7 @@ impl Repository {
             arguments.push(OsString::from("--ignore-working-copy"));
         }
         arguments.extend([
+            OsString::from("--color=always"),
             OsString::from("log"),
             OsString::from("--no-graph"),
             OsString::from("-r"),

@@ -12,8 +12,7 @@ use super::{
 };
 use crate::{Error, Result};
 
-pub(super) const IDENTITY_TEMPLATE: &str =
-    r#"change_id ++ "\0" ++ commit_id ++ "\0" ++ description ++ "\0""#;
+pub(super) const IDENTITY_TEMPLATE: &str = r#"change_id ++ "\0" ++ commit_id ++ "\0" ++ description ++ "\0" ++ change_id.shortest(8) ++ "\0""#;
 const FILE_TEMPLATE: &str = concat!(
     r#"source.path() ++ "\0" ++ target.path() ++ "\0" ++ "#,
     r#"source.file_type() ++ "\0" ++ target.file_type() ++ "\0" ++ "#,
