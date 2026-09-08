@@ -52,10 +52,10 @@ requested scope is explained once.
 
 ## Write delta-focused guide items
 
-Each item must explain one distinct delta. Lead with what the change adds,
-removes, replaces, moves, narrows, or preserves. Explain the previous behavior
-when it helps the reviewer understand the new behavior. State the reason or
-effect when it is not clear from the changed lines.
+Each item must explain one distinct delta and its contribution to the commit's
+objective. Lead with the concrete change, then connect it to the behavior it
+enables or the failure it prevents. The item is complete when the reviewer can
+understand both what changed and why it belongs in this commit.
 
 Apply this test to every item:
 
