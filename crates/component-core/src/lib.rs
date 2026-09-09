@@ -18,6 +18,8 @@ impl<T> ApplicationEvent for T where T: Any + Send + Sync + 'static {}
 #[derive(Clone)]
 pub struct EventEnvelope {
     value: Arc<dyn Any + Send + Sync>,
+    created_at: std::time::Instant,
+    type_name: &'static str,
 }
 
 impl EventEnvelope {
@@ -28,7 +30,17 @@ impl EventEnvelope {
     {
         Self {
             value: Arc::new(event),
+            created_at: std::time::Instant::now(),
+            type_name: std::any::type_name::<E>(),
         }
+    }
+
+    pub fn created_at(&self) -> std::time::Instant {
+        self.created_at
+    }
+
+    pub fn type_name(&self) -> &'static str {
+        self.type_name
     }
 
     /// Borrow the concrete event value when its type matches.

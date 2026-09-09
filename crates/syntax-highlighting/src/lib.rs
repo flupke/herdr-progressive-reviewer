@@ -83,6 +83,8 @@ impl SyntaxHighlighter {
         }
     }
 
+    /// # Panics
+    /// Panics if an uncancellable highlight unexpectedly reports cancellation.
     pub fn highlight(
         &self,
         path: &str,
@@ -90,8 +92,47 @@ impl SyntaxHighlighter {
         old_content: Option<&[u8]>,
         new_content: Option<&[u8]>,
     ) -> HighlightedDiff {
-        let old = self.highlight_file(path, old_content);
-        let new = self.highlight_file(path, new_content);
+        self.highlight_unless(path, rows, old_content, new_content, || false)
+            .expect("highlighting is not cancelled")
+    }
+
+    pub fn highlight_unless(
+        &self,
+        path: &str,
+        rows: Vec<DiffRow>,
+        old_content: Option<&[u8]>,
+        new_content: Option<&[u8]>,
+        cancelled: impl Fn() -> bool,
+    ) -> Option<HighlightedDiff> {
+        if cancelled() {
+            return None;
+        }
+        let old = self.highlight_file(path, old_content, &cancelled);
+        let new = self.highlight_file(path, new_content, &cancelled);
+        (!cancelled()).then(|| self.assemble(rows, old, new, new_content.is_some()))
+    }
+
+    pub fn plain(
+        &self,
+        rows: Vec<DiffRow>,
+        old_content: Option<&[u8]>,
+        new_content: Option<&[u8]>,
+    ) -> HighlightedDiff {
+        self.assemble(
+            rows,
+            self.plain_file(old_content),
+            self.plain_file(new_content),
+            new_content.is_some(),
+        )
+    }
+
+    fn assemble(
+        &self,
+        rows: Vec<DiffRow>,
+        old: Option<Vec<Vec<Token>>>,
+        new: Option<Vec<Vec<Token>>>,
+        has_new_content: bool,
+    ) -> HighlightedDiff {
         let rows = rows
             .into_iter()
             .map(|diff| {
@@ -109,7 +150,7 @@ impl SyntaxHighlighter {
                 HighlightedRow { diff, tokens }
             })
             .collect();
-        let file = if new_content.is_some() {
+        let file = if has_new_content {
             new.map(HighlightedFile::AfterChange)
         } else {
             old.map(HighlightedFile::BeforeChange)
@@ -121,7 +162,7 @@ impl SyntaxHighlighter {
     ///
     /// Panics if Syntect cannot highlight valid UTF-8 input.
     pub fn highlight_snippet(&self, language: &str, content: &str) -> Vec<Vec<Token>> {
-        self.highlight_file(language, Some(content.as_bytes()))
+        self.highlight_file(language, Some(content.as_bytes()), &|| false)
             .expect("a string is valid UTF-8")
     }
 
@@ -148,19 +189,39 @@ impl SyntaxHighlighter {
             .or_else(|| set.find_syntax_by_token(file_name))
     }
 
-    fn highlight_file(&self, path: &str, content: Option<&[u8]>) -> Option<Vec<Vec<Token>>> {
-        let content = std::str::from_utf8(content?).ok()?;
+    fn highlight_file(
+        &self,
+        path: &str,
+        content: Option<&[u8]>,
+        cancelled: &impl Fn() -> bool,
+    ) -> Option<Vec<Vec<Token>>> {
+        if cancelled() {
+            return None;
+        }
+        let bytes = content?;
+        let content = std::str::from_utf8(bytes).ok()?;
         let Some(syntax) = Self::syntax(path) else {
-            return Some(
-                LinesWithEndings::from(content)
-                    .map(|line| vec![Token::new(line.trim_end_matches(['\r', '\n']), self.plain)])
-                    .collect(),
-            );
+            return self.plain_file(Some(bytes));
         };
         let mut highlighter = HighlightLines::new(syntax, &self.theme);
         LinesWithEndings::from(content)
-            .map(|line| Self::highlight_line(&mut highlighter, line))
+            .map(|line| {
+                if cancelled() {
+                    None
+                } else {
+                    Self::highlight_line(&mut highlighter, line)
+                }
+            })
             .collect()
+    }
+
+    fn plain_file(&self, content: Option<&[u8]>) -> Option<Vec<Vec<Token>>> {
+        let content = std::str::from_utf8(content?).ok()?;
+        Some(
+            LinesWithEndings::from(content)
+                .map(|line| vec![Token::new(line.trim_end_matches(['\r', '\n']), self.plain)])
+                .collect(),
+        )
     }
 
     fn highlight_line(highlighter: &mut HighlightLines<'_>, line: &str) -> Option<Vec<Token>> {

@@ -17,7 +17,14 @@ pub(super) struct DiffDocument {
     pub(super) scroll: usize,
     pub(super) column: usize,
     pub(super) source_location: Option<SourceLocation>,
+    highlighting: Option<PendingHighlight>,
     load_state: DiffLoadState,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct PendingHighlight {
+    request: ui_events::HighlightRequest,
+    submitted: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -83,6 +90,7 @@ impl DiffDocument {
             scroll: 0,
             column: 0,
             source_location: None,
+            highlighting: None,
             load_state: DiffLoadState::Idle,
         }
     }
@@ -94,6 +102,7 @@ impl DiffDocument {
     }
 
     fn preserve_loaded_content_from(&mut self, previous: &Self, content_is_current: bool) {
+        self.highlighting.clone_from(&previous.highlighting);
         self.source_location.clone_from(&previous.source_location);
         self.diff.clone_from(&previous.diff);
         self.load_state = if content_is_current {
@@ -104,6 +113,7 @@ impl DiffDocument {
     }
 
     fn replace_diff(&mut self, diff: DiffPresentation) -> bool {
+        self.highlighting = None;
         let cursor_location = self.diff.presentation_location(self.cursor);
         let scroll_location = self.diff.presentation_location(self.scroll);
         let fallback_cursor = self.cursor;
@@ -120,6 +130,33 @@ impl DiffDocument {
             let _ = self.reveal_location(&source_location);
         }
         reload_required
+    }
+
+    pub(super) fn prepare_highlighting(&mut self, request: ui_events::HighlightRequest) {
+        self.highlighting = Some(PendingHighlight {
+            request,
+            submitted: false,
+        });
+    }
+
+    pub(super) fn request_highlighting(&mut self) -> Option<ui_actions::Action> {
+        let pending = self
+            .highlighting
+            .as_mut()
+            .filter(|pending| !pending.submitted)?;
+        pending.submitted = true;
+        Some(ui_actions::Action::Highlight(pending.request.clone()))
+    }
+
+    pub(super) fn finish_highlighting(&mut self, result: &ui_events::HighlightingFinished) {
+        if self
+            .highlighting
+            .as_ref()
+            .is_some_and(|pending| pending.request.same_content(&result.request))
+        {
+            self.diff.apply_highlights(&result.highlighted);
+            self.highlighting = None;
+        }
     }
 
     pub(super) fn reveal_location(&mut self, location: &SourceLocation) -> bool {

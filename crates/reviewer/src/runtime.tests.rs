@@ -3,8 +3,7 @@ use std::fs::{self, File};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 
-use ratatui::layout::Rect;
-use ratatui::{TerminalOptions, Viewport, backend::TestBackend};
+use ratatui::backend::TestBackend;
 use review_repository::diff::DiffRow;
 use review_repository::repository::RepoType;
 use review_test_support::{
@@ -984,6 +983,7 @@ fn dispatch_reports_that_quit_stops_the_runtime() {
 
     let search = text_search::Worker::start(|_| {});
     let dispatcher = RuntimeActionDispatcher {
+        highlighting: &highlighting_worker(),
         search: &search,
         commands: &commands,
         documents: &mpsc::channel().0,
@@ -1005,6 +1005,7 @@ fn dispatch_all_executes_earlier_actions_before_quit() {
 
     let search = text_search::Worker::start(|_| {});
     let dispatcher = RuntimeActionDispatcher {
+        highlighting: &highlighting_worker(),
         search: &search,
         commands: &commands,
         documents: &mpsc::channel().0,
@@ -1035,15 +1036,7 @@ fn event_loop_routes_external_events_from_the_central_channel() {
     let state = tempfile::tempdir().unwrap();
     let settings = ReviewStore::open(state.path(), repository.path()).unwrap();
     let lsp = review_lsp::Worker::start(repository.path().to_owned());
-    let mut terminal = TerminalGuard {
-        terminal: Terminal::with_options(
-            TerminalBackend::new(stdout()),
-            TerminalOptions {
-                viewport: Viewport::Fixed(Rect::new(0, 0, 80, 20)),
-            },
-        )
-        .unwrap(),
-    };
+    let mut terminal = Terminal::new(TestBackend::new(80, 20)).unwrap();
     let mut app = ReviewApplication::default();
     let (commands, command_receiver) = mpsc::channel();
     let (event_sender, events) = unbounded();
@@ -1064,12 +1057,14 @@ fn event_loop_routes_external_events_from_the_central_channel() {
         .unwrap();
 
     RuntimeEventLoop {
+        highlighting: &highlighting_worker(),
+        timings: &timing::Recorder::default(),
         search: &text_search::Worker::start(|_| {}),
         terminal: &mut terminal,
         app: &mut app,
         commands: &commands,
         documents: &mpsc::channel().0,
-        events,
+        events: &mut events::Inbox::new(events, crossbeam_channel::never()),
         lsp: &lsp,
         repository_root: repository.path(),
         settings: &settings,
@@ -1082,7 +1077,6 @@ fn event_loop_routes_external_events_from_the_central_channel() {
         commands.as_slice(),
         [WorkerCommand::Focus(pane_id), WorkerCommand::Poll] if pane_id == &focused_pane
     ));
-    std::mem::forget(terminal);
 }
 
 #[test]
@@ -1270,6 +1264,7 @@ fn document_requests_complete_while_repository_work_is_pending() {
     let lsp = review_lsp::Worker::start(repository.root().to_owned());
     let search = text_search::Worker::start(|_| {});
     let dispatcher = RuntimeActionDispatcher {
+        highlighting: &highlighting_worker(),
         search: &search,
         commands: &commands,
         documents: &documents,
@@ -1320,4 +1315,12 @@ fn document_requests_complete_while_repository_work_is_pending() {
     assert!(command_receiver.try_recv().is_err());
     documents.send(document::Command::Quit).unwrap();
     document_thread.join().unwrap();
+}
+
+fn highlighting_worker() -> highlighting::Worker {
+    let theme = Theme::default();
+    highlighting::Worker::start(
+        syntax_highlighting::SyntaxHighlighter::new(theme.syntax, theme.palette.text),
+        |_| {},
+    )
 }

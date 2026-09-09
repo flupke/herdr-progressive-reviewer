@@ -651,10 +651,13 @@ fn state_machine_keeps_selection_until_insert_succeeds() {
                 FileSummary::new("README.md", ReviewStatus::Reviewed),
             ]
         ),
-        vec![Action::LoadDiff {
-            review_checkpoint: ReviewCheckpoint::new("qpvuntsm", "11111111"),
-            path: "src/lib.rs".to_owned(),
-        }]
+        vec![
+            Action::LoadDiff {
+                review_checkpoint: ReviewCheckpoint::new("qpvuntsm", "11111111"),
+                path: "src/lib.rs".to_owned(),
+            },
+            Action::OpenLspDocument("src/lib.rs".into())
+        ]
     );
     app.publish(ui_events::DiffContentLoaded {
         review_checkpoint: ReviewCheckpoint::new("qpvuntsm", "stale"),
@@ -785,6 +788,14 @@ fn active_search_status_shows_the_query_and_current_match() {
     assert!(active_search_status.ends_with("[1/3]"));
     assert!(!active_search_status.contains("Output:"));
 
+    application.publish(ui_events::ToastRequested {
+        text: "Background service starting".to_owned(),
+        kind: toasts::ToastKind::Info,
+    });
+    let notified = screen(&application, 80, 12);
+    assert!(notified.join("\n").contains("Background service starting"));
+    assert_eq!(notified[11], active_search_status);
+
     application.update(UserInput::Key(Key::Enter));
     application.update(UserInput::Key(Key::Char('n')));
     assert!(screen(&application, 80, 12)[11].ends_with("[2/3]"));
@@ -881,7 +892,10 @@ fn optimistic_selection_stays_on_the_next_file_when_review_fails() {
 
     assert!(matches!(
         app.update(UserInput::Key(Key::Space)).as_slice(),
-        [Action::SetReviewed { reviewed: true, .. }]
+        [
+            Action::SetReviewed { reviewed: true, .. },
+            Action::OpenLspDocument(_)
+        ]
     ));
     assert!(
         application_screen(&app, 80, 12)
@@ -1286,13 +1300,13 @@ fn mouse_targets_the_hovered_pane_and_click_changes_focus() {
         height: 12,
     });
 
-    assert!(
+    assert_eq!(
         app.update(UserInput::MouseScroll {
             column: 1,
             row: 2,
             delta: 1,
-        })
-        .is_empty()
+        }),
+        [Action::OpenLspDocument("second.rs".into())]
     );
     assert_eq!(
         publish_tick(&mut app, Instant::now()),
@@ -1343,9 +1357,12 @@ fn mouse_targets_the_hovered_pane_and_click_changes_focus() {
             row: 2,
             insert_path: true,
         }),
-        vec![Action::Output {
-            text: "first.rs".to_owned(),
-        }]
+        vec![
+            Action::Output {
+                text: "first.rs".to_owned(),
+            },
+            Action::OpenLspDocument("first.rs".into())
+        ]
     );
 }
 
@@ -1373,10 +1390,13 @@ fn double_clicking_a_file_marks_it_reviewed() {
     });
     assert_eq!(
         app.update(UserInput::MouseDoubleClick { column: 1, row: 2 }),
-        vec![Action::SetReviewed {
-            path: "first.rs".to_owned(),
-            reviewed: true,
-        }]
+        vec![
+            Action::SetReviewed {
+                path: "first.rs".to_owned(),
+                reviewed: true,
+            },
+            Action::OpenLspDocument("second.rs".into())
+        ]
     );
     assert!(
         application_screen(&app, 80, 12)
@@ -1447,13 +1467,13 @@ fn clicking_a_directory_collapses_its_descendants_across_refreshes() {
             .contains("lib.rs")
     );
 
-    assert!(
+    assert_eq!(
         app.update(UserInput::MouseClick {
             column: 1,
             row: 2,
             insert_path: false,
-        })
-        .is_empty()
+        }),
+        [Action::OpenLspDocument("tests/test.rs".into())]
     );
     assert_eq!(
         publish_tick(&mut app, Instant::now()),

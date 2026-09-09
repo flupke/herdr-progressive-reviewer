@@ -2938,6 +2938,7 @@ dependencies = [
  "serde_json",
  "sha2 0.10.9",
  "signal-hook",
+ "syntax-highlighting",
  "tempfile",
  "test-case",
  "text-search",
@@ -3633,6 +3634,7 @@ dependencies = [
  "review-repository",
  "review-state",
  "review-types",
+ "syntax-highlighting",
  "toasts",
  "ui-shortcuts",
 ]

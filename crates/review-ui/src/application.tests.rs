@@ -604,13 +604,19 @@ fn files_component_moves_selection_and_requests_the_new_diff() {
     );
     assert_eq!(
         initial,
-        [Action::LoadDiff {
-            review_checkpoint: ReviewCheckpoint::new("change", "commit"),
-            path: "first.rs".to_owned(),
-        }]
+        [
+            Action::LoadDiff {
+                review_checkpoint: ReviewCheckpoint::new("change", "commit"),
+                path: "first.rs".to_owned(),
+            },
+            Action::OpenLspDocument("first.rs".into())
+        ]
     );
 
-    assert_eq!(application.update(UserInput::Key(Key::Down)), []);
+    assert_eq!(
+        application.update(UserInput::Key(Key::Down)),
+        [Action::OpenLspDocument("second.rs".into())]
+    );
     assert_eq!(
         publish_tick(&mut application, Instant::now()),
         [Action::LoadDiff {

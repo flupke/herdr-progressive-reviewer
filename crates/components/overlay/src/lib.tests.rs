@@ -185,6 +185,9 @@ fn rendered_screen(
         .draw(|frame| {
             bus.get::<OverlayComponent>(target)
                 .unwrap()
+                .render_notifications(frame.area(), frame.buffer_mut());
+            bus.get::<OverlayComponent>(target)
+                .unwrap()
                 .render(frame.area(), frame.buffer_mut());
         })
         .unwrap();

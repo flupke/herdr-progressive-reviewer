@@ -65,6 +65,10 @@ make install
 
 The Herdr action list then contains `open`, `close`, and `toggle`.
 
+To diagnose UI stalls, set `HERDR_REVIEWER_TIMINGS` to a JSONL file path when
+starting the reviewer. It records event queue delays, handler times, and frame
+render times.
+
 ## Use
 
 Example configuration, to put in `~/.config/herdr/config.toml`:

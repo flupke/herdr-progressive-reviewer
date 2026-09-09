@@ -42,6 +42,7 @@ enum PresentationView {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct DiffPresentation {
     source: Vec<DiffRow>,
+    source_hunks: Vec<Option<usize>>,
     pub(super) rows: Vec<PresentedRow>,
     whole_file: Option<WholeFile>,
     file_rows: Option<Vec<PresentedRow>>,
@@ -72,6 +73,14 @@ impl DiffPresentation {
         }
         presentation_rows.finish();
         let PresentationRows { source, rows, .. } = presentation_rows;
+        let mut hunk = 0;
+        let source_hunks = source
+            .iter()
+            .map(|row| {
+                hunk += usize::from(matches!(row, DiffRow::Hunk { .. }));
+                (hunk > 0).then_some(hunk)
+            })
+            .collect();
         let file_rows = file.map(HighlightedFile::into_lines).map(|lines| {
             lines
                 .into_iter()
@@ -84,11 +93,27 @@ impl DiffPresentation {
         });
         Self {
             source,
+            source_hunks,
             rows,
             whole_file,
             file_rows,
             view: PresentationView::Diff,
             search_document: OnceCell::new(),
+        }
+    }
+
+    pub(super) fn apply_highlights(&mut self, highlighted: &HighlightedDiff) {
+        for row in self
+            .rows
+            .iter_mut()
+            .chain(self.file_rows.iter_mut().flatten())
+        {
+            row.apply_highlights(highlighted);
+        }
+        if let PresentationView::File { diff_rows } = &mut self.view {
+            for row in diff_rows {
+                row.apply_highlights(highlighted);
+            }
         }
     }
 
@@ -106,11 +131,7 @@ impl DiffPresentation {
         let PresentedRow::Diff { source, .. } = self.rows.get(index)? else {
             return None;
         };
-        let count = self.source[..=*source]
-            .iter()
-            .filter(|row| matches!(row, DiffRow::Hunk { .. }))
-            .count();
-        (count > 0).then_some(count)
+        self.source_hunks[*source]
     }
 
     pub(super) fn guide_viewport(&self, path: String, file_index: usize) -> DisplayedDiffViewport {
@@ -516,6 +537,37 @@ impl DiffPresentation {
         let start = sources.next().ok_or(ExcerptError::NoContent)?;
         let end = sources.next_back().unwrap_or(start);
         DiffExcerpt::build(&self.source, start..=end)
+    }
+}
+
+impl PresentedRow {
+    fn apply_highlights(&mut self, highlighted: &HighlightedDiff) {
+        if let Self::Diff { source, tokens } = self {
+            if let Some(row) = highlighted.rows.get(*source) {
+                tokens.clone_from(&row.tokens);
+            }
+            return;
+        }
+        let Some(file) = &highlighted.file else {
+            return;
+        };
+        let (HighlightedFile::AfterChange(colors) | HighlightedFile::BeforeChange(colors)) = file;
+        match self {
+            Self::Expanded { line, tokens } => {
+                if let Some(color) = colors.get(line.saturating_sub(1) as usize) {
+                    tokens.clone_from(color);
+                }
+            }
+            Self::Gap { start, lines } => {
+                for (tokens, color) in lines
+                    .iter_mut()
+                    .zip(colors.iter().skip(start.saturating_sub(1) as usize))
+                {
+                    tokens.clone_from(color);
+                }
+            }
+            Self::Diff { .. } => unreachable!("diff rows were handled above"),
+        }
     }
 }
 

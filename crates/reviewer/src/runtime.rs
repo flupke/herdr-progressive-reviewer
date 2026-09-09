@@ -1,8 +1,15 @@
 //! Terminal and worker integration for the review pane.
 
 mod document;
+mod events;
 mod guide;
+mod highlighting;
 mod terminal;
+mod timing;
+
+#[cfg(all(test, unix))]
+#[path = "runtime/responsiveness.tests.rs"]
+mod responsiveness;
 
 use std::env;
 use std::io::{self, stdout};
@@ -14,7 +21,9 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use component_core::{ApplicationEvent, EventEnvelope};
-use crossbeam_channel::{Receiver as EventReceiver, Sender as EventSender, unbounded};
+#[cfg(test)]
+use crossbeam_channel::Receiver as EventReceiver;
+use crossbeam_channel::{Sender as EventSender, unbounded};
 use crossterm::event::{
     self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
     KeyboardEnhancementFlags, MouseButton, MouseEvent, MouseEventKind, PopKeyboardEnhancementFlags,
@@ -29,6 +38,7 @@ use herdr_client::protocol::{
     Agent, AgentTarget, HerdrEvent, HerdrReader, InsertResult, PaneId, PluginContext, WorkspaceId,
 };
 use ratatui::Terminal;
+use ratatui::backend::Backend;
 use review_guide::{FrozenFile, FrozenHunk, GuideScope, ReviewCheckpoint};
 use review_guide_runner::{
     GuideMailbox, GuideRepositorySnapshot, GuideResponseVersion, GuideResponseWaitOutcome,
@@ -60,6 +70,8 @@ use crate::watcher::RepositoryWatcher;
 const TIMER_INTERVAL: Duration = Duration::from_millis(50);
 const DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(400);
 const HERDR_EVENT_RECONNECT_DELAY: Duration = Duration::from_secs(1);
+const EVENT_BATCH_LIMIT: usize = 64;
+const EVENT_BATCH_BUDGET: Duration = Duration::from_millis(8);
 
 /// The running review pane.
 #[derive(Debug)]
@@ -122,13 +134,15 @@ struct RuntimeEventProducers {
     threads: Vec<JoinHandle<()>>,
 }
 
-struct RuntimeEventLoop<'a> {
-    terminal: &'a mut TerminalGuard,
+struct RuntimeEventLoop<'a, B: Backend> {
+    terminal: &'a mut Terminal<B>,
     app: &'a mut ReviewApplication,
     commands: &'a Sender<WorkerCommand>,
     documents: &'a Sender<document::Command>,
     search: &'a text_search::Worker,
-    events: EventReceiver<EventEnvelope>,
+    highlighting: &'a highlighting::Worker,
+    events: &'a mut events::Inbox,
+    timings: &'a timing::Recorder,
     lsp: &'a review_lsp::Worker,
     repository_root: &'a Path,
     settings: &'a ReviewStore,
@@ -145,6 +159,7 @@ struct RuntimeActionDispatcher<'a> {
     commands: &'a Sender<WorkerCommand>,
     documents: &'a Sender<document::Command>,
     search: &'a text_search::Worker,
+    highlighting: &'a highlighting::Worker,
     settings: &'a ReviewStore,
     repository_root: &'a Path,
     lsp: &'a review_lsp::Worker,
@@ -152,6 +167,7 @@ struct RuntimeActionDispatcher<'a> {
 
 struct BackgroundWorkers {
     search: text_search::Worker,
+    highlighting: highlighting::Worker,
     commands: Sender<WorkerCommand>,
     documents: Sender<document::Command>,
     threads: [JoinHandle<()>; 2],
@@ -160,6 +176,7 @@ struct BackgroundWorkers {
 impl BackgroundWorkers {
     fn stop(self) {
         drop(self.search);
+        drop(self.highlighting);
         let _ = self.commands.send(WorkerCommand::Quit);
         let _ = self.documents.send(document::Command::Quit);
         for worker in self.threads {
@@ -243,6 +260,7 @@ impl Runtime {
 
     /// Run until the user quits or Herdr stops the pane.
     pub fn run(self) -> eyre::Result<()> {
+        let timings = timing::Recorder::from_env()?;
         let stopped = Arc::new(AtomicBool::new(false));
         Self::register_stop_signals(&stopped)?;
 
@@ -261,7 +279,8 @@ impl Runtime {
             .draw(|frame| frame.render_widget(app.frame(), frame.area()))?;
 
         let (event_sender, events) = unbounded();
-        let workers = self.start_workers(event_sender.clone())?;
+        let (input_sender, inputs) = unbounded();
+        let workers = self.start_workers(event_sender.clone(), input_sender.clone())?;
         let commands = &workers.commands;
         let producer_stop_requested = Arc::new(AtomicBool::new(false));
         let mut event_producers = RuntimeEventProducers::new(Arc::clone(&producer_stop_requested));
@@ -270,7 +289,7 @@ impl Runtime {
             event_sender.clone(),
             Arc::clone(&producer_stop_requested),
         ));
-        let terminal_events = TerminalEventProducer::start(event_sender.clone());
+        let terminal_events = TerminalEventProducer::start(input_sender);
         event_producers.push(Self::start_periodic_events(
             event_sender.clone(),
             Arc::clone(&stopped),
@@ -286,12 +305,14 @@ impl Runtime {
         let _ = app.publish(RepositoryRefreshStarted);
         commands.send(WorkerCommand::Poll)?;
         let result = RuntimeEventLoop {
-            terminal: &mut terminal,
+            terminal: &mut terminal.terminal,
             app: &mut app,
             commands,
             documents: &workers.documents,
             search: &workers.search,
-            events,
+            highlighting: &workers.highlighting,
+            events: &mut events::Inbox::new(events, inputs),
+            timings: &timings,
             lsp: &lsp,
             repository_root: &root,
             settings: &settings,
@@ -397,7 +418,11 @@ impl Runtime {
         })
     }
 
-    fn start_workers(&self, events: EventSender<EventEnvelope>) -> eyre::Result<BackgroundWorkers> {
+    fn start_workers(
+        &self,
+        events: EventSender<EventEnvelope>,
+        interactive: EventSender<EventEnvelope>,
+    ) -> eyre::Result<BackgroundWorkers> {
         let store = ReviewStore::open(&self.state_dir, self.repository.root())?;
         let guide_store = ReviewStore::open(&self.state_dir, self.repository.root())?;
         let tracker = Arc::new(ReviewTracker::new(self.repository.clone(), store));
@@ -429,12 +454,19 @@ impl Runtime {
             worker.run(&command_receiver, &messages);
             let _ = messages.send(WorkerStopped);
         });
-        let search_events = events;
+        let highlight_events = events;
+        let highlighting = highlighting::Worker::start(
+            syntax_highlighting::SyntaxHighlighter::new(self.theme.syntax, self.theme.palette.text),
+            move |result| {
+                let _ = highlight_events.send(EventEnvelope::new(result));
+            },
+        );
         let search = text_search::Worker::start(move |results| {
-            let _ = search_events.send(EventEnvelope::new(results));
+            let _ = interactive.send(EventEnvelope::new(results));
         });
         Ok(BackgroundWorkers {
             search,
+            highlighting,
             commands: command_sender,
             documents,
             threads: [handle, document_thread],
@@ -455,6 +487,16 @@ impl RuntimeActionDispatcher<'_> {
     fn dispatch(&self, action: Action) -> eyre::Result<bool> {
         let action = match action {
             Action::Quit => return Ok(true),
+            Action::Highlight(request) => {
+                self.highlighting
+                    .submit(request)
+                    .map_err(eyre::Report::msg)?;
+                return Ok(false);
+            }
+            Action::OpenLspDocument(path) => {
+                self.lsp.open_document(path).map_err(eyre::Report::msg)?;
+                return Ok(false);
+            }
             Action::Search(request) => {
                 self.search.submit(request);
                 return Ok(false);
@@ -501,7 +543,9 @@ impl RuntimeActionDispatcher<'_> {
             action @ (Action::SetReviewed { .. }
             | Action::Output { .. }
             | Action::GenerateReviewGuide { .. }) => Self::output_worker_command(action),
-            Action::Search(_)
+            Action::Highlight(_)
+            | Action::OpenLspDocument(_)
+            | Action::Search(_)
             | Action::LoadDiff { .. }
             | Action::LoadDiffs { .. }
             | Action::LoadSource { .. }
@@ -574,7 +618,7 @@ impl RuntimeActionDispatcher<'_> {
     }
 }
 
-impl RuntimeEventLoop<'_> {
+impl<B: Backend> RuntimeEventLoop<'_, B> {
     fn run(&mut self) -> eyre::Result<()> {
         while !self.cycle()? {}
         Ok(())
@@ -585,10 +629,17 @@ impl RuntimeEventLoop<'_> {
             .events
             .recv()
             .map_err(|_| eyre::eyre!("all review event producers stopped unexpectedly"))?;
+        let started = Instant::now();
         if self.handle_event(&event)? {
             return Ok(true);
         }
-        while let Ok(event) = self.events.try_recv() {
+        for _ in 1..EVENT_BATCH_LIMIT {
+            if started.elapsed() >= EVENT_BATCH_BUDGET {
+                break;
+            }
+            let Some(event) = self.events.try_recv() else {
+                break;
+            };
             if self.handle_event(&event)? {
                 return Ok(true);
             }
@@ -598,6 +649,13 @@ impl RuntimeEventLoop<'_> {
     }
 
     fn handle_event(&mut self, event: &EventEnvelope) -> eyre::Result<bool> {
+        let started = Instant::now();
+        let result = self.dispatch_event(event);
+        self.timings.event(event, started);
+        result
+    }
+
+    fn dispatch_event(&mut self, event: &EventEnvelope) -> eyre::Result<bool> {
         match self.handle_control_event(event)? {
             ControlEventOutcome::NotHandled => {}
             ControlEventOutcome::Continue => return Ok(false),
@@ -608,6 +666,7 @@ impl RuntimeEventLoop<'_> {
             commands: self.commands,
             documents: self.documents,
             search: self.search,
+            highlighting: self.highlighting,
             settings: self.settings,
             repository_root: self.repository_root,
             lsp: self.lsp,
@@ -645,11 +704,6 @@ impl RuntimeEventLoop<'_> {
             self.app.update(input.clone())
         } else if let Some(event) = event.downcast_ref::<review_lsp::Event>() {
             self.app.publish(event.clone())
-        } else if let Some(loaded_diff) = event.downcast_ref::<DiffContentLoaded>() {
-            let _ = self
-                .lsp
-                .open_document(self.repository_root.join(&loaded_diff.path));
-            self.app.publish_envelope(event)
         } else if let Some(ApplicationTick(now)) = event.downcast_ref::<ApplicationTick>() {
             let mut actions = self.app.publish(AnimationTick);
             actions.extend(self.app.publish(ToastExpirationTick { now: *now }));
@@ -660,14 +714,15 @@ impl RuntimeEventLoop<'_> {
     }
 
     fn redraw(&mut self) -> eyre::Result<()> {
-        let area = self.terminal.terminal.size()?;
+        let started = Instant::now();
+        let area = self.terminal.size()?;
         let _ = self.app.update(UserInput::Resize {
             width: area.width,
             height: area.height,
         });
         self.terminal
-            .terminal
             .draw(|frame| frame.render_widget(self.app.frame(), frame.area()))?;
+        self.timings.frame(started);
         Ok(())
     }
 }

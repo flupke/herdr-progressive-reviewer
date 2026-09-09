@@ -15,6 +15,9 @@ use ui_theme::Theme;
 
 use super::*;
 
+#[path = "highlighting.tests.rs"]
+mod highlighting;
+
 #[test]
 fn loaded_content_publishes_its_guide_viewport() {
     let (mut registry, reviewable_files, _) = registry_with_observer();

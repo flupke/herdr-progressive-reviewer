@@ -70,8 +70,6 @@ impl OverlayComponent {
 
     pub fn render(&self, area: Rect, buffer: &mut Buffer) {
         self.hover.render(area, buffer, self.palette);
-        self.toasts
-            .render(area, buffer, self.palette.focus, self.palette.deletion);
         match self.active_modal {
             Some(ModalOverlay::CommitMessage) => {
                 self.commit_message.render(area, buffer, self.palette);
@@ -84,6 +82,11 @@ impl OverlayComponent {
         if let Some(menu) = &self.source_context_menu {
             menu.render(area, buffer, self.palette);
         }
+    }
+
+    pub fn render_notifications(&self, area: Rect, buffer: &mut Buffer) {
+        self.toasts
+            .render(area, buffer, self.palette.focus, self.palette.deletion);
     }
 
     fn repository_changed(&mut self, event: &RepositoryMetadataChanged) {

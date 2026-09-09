@@ -2,6 +2,7 @@
 
 use std::cell::RefCell;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use component_core::{
     Component, ComponentSubscriptions, EventPublisher, InputMatcher, InputResolution, InputScope,
@@ -16,11 +17,12 @@ use ui_events::{
     AnimationTick, CurrentReviewLocationChanged, DiffContentLoadFailed, DiffContentLoaded,
     DiffInputClearRequested, DiffViewportChanged, DisplayedDiffViewportsChanged,
     FileDecorationsChanged, FileSelected, FileSelectionRequested, FileSummary, GuideJumpRequested,
-    GuideLayoutChanged, LocationListVisibilityChanged, OutputDeliveryFinished, PointerInput,
-    PointerInputKind, RepositoryFilesChanged, ReviewLocation, ReviewLocationJumped,
-    ReviewLocationRestoreRequested, ReviewStateSaved, ReviewableFiles, ReviewableFilesChanged,
-    RevisionEditFailed, SearchStatusChanged, SourceContentLoadFailed, SourceContentLoaded,
-    SourceLocationAccepted, SourceLocationPreviewRequested, TemporaryFilesChanged, ToastRequested,
+    GuideLayoutChanged, HighlightRequest, HighlightingFinished, LocationListVisibilityChanged,
+    OutputDeliveryFinished, PointerInput, PointerInputKind, RepositoryFilesChanged, ReviewLocation,
+    ReviewLocationJumped, ReviewLocationRestoreRequested, ReviewStateSaved, ReviewableFiles,
+    ReviewableFilesChanged, RevisionEditFailed, SearchStatusChanged, SourceContentLoadFailed,
+    SourceContentLoaded, SourceLocationAccepted, SourceLocationPreviewRequested,
+    TemporaryFilesChanged, ToastRequested,
 };
 use ui_shortcuts::{
     ApplicationShortcut, HunkShortcut, Key, LspShortcut, NavigationShortcut, SearchShortcut,
@@ -1255,6 +1257,7 @@ impl DiffComponent {
     }
 
     fn file_selected(&mut self, event: &FileSelected) -> Vec<Action> {
+        let newly_selected = self.selected_path.as_deref() != Some(&event.path);
         if self
             .pending_guide_jump
             .as_ref()
@@ -1277,12 +1280,21 @@ impl DiffComponent {
         self.publish_current_location();
         self.publish_search_status();
         self.record_current_location_jump(origin);
-        if load_immediately {
+        let mut actions = if load_immediately {
             self.selected_load_action().into_iter().collect()
         } else {
             self.pending_load_path = Some(event.path.clone());
             Vec::new()
+        };
+        if newly_selected {
+            let path = self
+                .selected_document()
+                .and_then(|document| document.disk_path.clone())
+                .unwrap_or_else(|| self.repository_root.join(&event.path));
+            actions.push(Action::OpenLspDocument(path));
         }
+        actions.extend(self.request_visible_highlights());
+        actions
     }
 
     #[allow(clippy::trivially_copy_pass_by_ref)]
@@ -1318,14 +1330,15 @@ impl DiffComponent {
         else {
             return Vec::new();
         };
-        let highlighted_rows = syntax_highlighter.highlight(
-            &event.path,
+        let highlighted_rows = syntax_highlighter.plain(
             event.rows.clone(),
             event.old_content.as_deref(),
             event.new_content.as_deref(),
         );
         let reload_after_current_load =
             document.replace_diff(DiffPresentation::new(highlighted_rows));
+        let request = HighlightRequest::Diff(Arc::new(event.clone()));
+        document.document.prepare_highlighting(request);
         self.refresh_pending_preview(&event.path);
         let pending_center_completed = self.pending_center_path.as_deref() == Some(&event.path);
         let center_selected_document =
@@ -1352,14 +1365,31 @@ impl DiffComponent {
         self.publish_decorations();
         self.publish_current_location();
         self.publish_search_status();
+        let highlights = self.request_visible_highlights();
         if reload_after_current_load && self.selected_path.as_deref() == Some(event.path.as_str()) {
             return self
                 .selected_load_action()
                 .into_iter()
                 .chain(search_action)
+                .chain(highlights)
                 .collect();
         }
-        search_action.into_iter().collect()
+        search_action.into_iter().chain(highlights).collect()
+    }
+
+    fn highlighting_finished(&mut self, event: &HighlightingFinished) {
+        for loaded in self.documents.iter_mut().chain(self.preview.iter_mut()) {
+            loaded.document.finish_highlighting(event);
+        }
+    }
+
+    fn request_visible_highlights(&mut self) -> Vec<Action> {
+        self.documents
+            .iter_mut()
+            .filter(|loaded| Some(&loaded.path) == self.selected_path.as_ref())
+            .chain(self.preview.iter_mut())
+            .filter_map(|loaded| loaded.document.request_highlighting())
+            .collect()
     }
 
     fn content_load_failed(&mut self, event: &DiffContentLoadFailed) -> Vec<Action> {
@@ -1562,19 +1592,18 @@ impl DiffComponent {
         }]
     }
 
-    fn source_content_loaded(&mut self, event: &SourceContentLoaded) {
+    fn source_content_loaded(&mut self, event: &SourceContentLoaded) -> Vec<Action> {
         if self
             .review_checkpoint
             .as_ref()
             .is_none_or(|checkpoint| checkpoint.checkpoint != event.snapshot_id)
         {
-            return;
+            return Vec::new();
         }
         let review_path = event.location.review_path(&self.repository_root);
-        let display_path = event.location.display_path(&self.repository_root);
-        let highlighted =
-            self.highlighter
-                .highlight(&display_path, Vec::new(), None, Some(&event.content));
+        let highlighted = self
+            .highlighter
+            .plain(Vec::new(), None, Some(&event.content));
         let mut presentation = DiffPresentation::new(highlighted);
         let _ = presentation.show_file();
         let mut document = LoadedDocument::from_source(
@@ -1583,6 +1612,8 @@ impl DiffComponent {
             presentation,
             event.mode,
         );
+        let request = HighlightRequest::Source(Arc::new(event.clone()));
+        document.document.prepare_highlighting(request);
         let _ = document.document.reveal_location(&event.location);
         if event.mode.is_external() {
             self.documents.retain(|document| !document.temporary);
@@ -1603,7 +1634,14 @@ impl DiffComponent {
         } else if self.pending_preview_location.as_ref() == Some(&event.location) {
             self.preview = Some(document);
             self.center_jump_target();
+        } else {
+            return Vec::new();
         }
+        let mut actions = self.request_visible_highlights();
+        if event.mode.is_external() {
+            actions.push(Action::OpenLspDocument(event.location.path.clone()));
+        }
+        actions
     }
 
     fn refresh_pending_preview(&mut self, path: &str) {
@@ -1922,6 +1960,7 @@ impl Component<Action> for DiffComponent {
         subscriptions.subscribe(Self::file_selected);
         subscriptions.subscribe(Self::animation_tick);
         subscriptions.subscribe(Self::content_loaded);
+        subscriptions.subscribe(Self::highlighting_finished);
         subscriptions.subscribe(Self::search_completed);
         subscriptions.subscribe(Self::content_load_failed);
         subscriptions.subscribe(Self::reviewable_files_changed);

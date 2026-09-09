@@ -11,6 +11,7 @@ review-lsp = { path = "../review-lsp" }
 review-repository = { path = "../review-repository" }
 review-state = { path = "../review-state" }
 review-types = { path = "../review-types" }
+syntax-highlighting = { path = "../syntax-highlighting" }
 toasts = { path = "../toasts" }
 ui-shortcuts = { path = "../ui-shortcuts" }
 

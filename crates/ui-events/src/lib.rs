@@ -624,6 +624,30 @@ pub struct DiffContentLoaded {
     pub new_content: Option<Vec<u8>>,
 }
 
+/// Immutable input for syntax coloring after text is available to the UI.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum HighlightRequest {
+    Diff(Arc<DiffContentLoaded>),
+    Source(Arc<SourceContentLoaded>),
+}
+
+impl HighlightRequest {
+    pub fn same_content(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Diff(left), Self::Diff(right)) => Arc::ptr_eq(left, right),
+            (Self::Source(left), Self::Source(right)) => Arc::ptr_eq(left, right),
+            _ => false,
+        }
+    }
+}
+
+/// Syntax colors for one exact loaded document.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HighlightingFinished {
+    pub request: HighlightRequest,
+    pub highlighted: syntax_highlighting::HighlightedDiff,
+}
+
 /// A failed diff load for one repository checkpoint and path.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DiffContentLoadFailed {

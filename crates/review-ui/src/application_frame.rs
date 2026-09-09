@@ -46,6 +46,7 @@ impl Widget for ApplicationFrame<'_> {
         self.status.render_header(header, buffer, self.palette);
         self.render_body(layout, body, buffer);
         self.status.render_footer(footer, buffer, self.palette);
+        self.overlay.render_notifications(body, buffer);
         self.overlay.render(area, buffer);
         self.revision.render(area, buffer);
     }

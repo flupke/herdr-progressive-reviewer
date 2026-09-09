@@ -9,6 +9,10 @@ pub use ui_events::{RevisionHistoryLoadId, SourceLoadMode};
 /// Work that the I/O layer must perform after a UI update.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Action {
+    /// Color loaded text without delaying input or search.
+    Highlight(ui_events::HighlightRequest),
+    /// Notify the language server when a document is selected.
+    OpenLspDocument(std::path::PathBuf),
     /// Search immutable presented text, or cancel the previous search.
     Search(Option<text_search::Request>),
     /// Load one path diff for the exact current snapshot.
