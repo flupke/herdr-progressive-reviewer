@@ -162,6 +162,41 @@ pub struct DiffRangeAnchor {
     pub diff_hash: String,
 }
 
+impl DiffRangeAnchor {
+    /// Map only the new-side interval into a current working-tree file.
+    pub fn map_new_lines(&self, content: &[u8]) -> Option<Range<u32>> {
+        map_side(
+            self.new_lines.clone(),
+            self.new_content.as_deref(),
+            Some(content),
+        )
+        .ok()
+        .flatten()
+    }
+
+    /// Map both source intervals through edits, retaining only unchanged anchored code.
+    pub fn map_lines(
+        &self,
+        old_content: Option<&[u8]>,
+        new_content: Option<&[u8]>,
+    ) -> Option<FrozenHunk> {
+        Some(FrozenHunk {
+            old: map_side(
+                self.old_lines.clone(),
+                self.old_content.as_deref(),
+                old_content,
+            )
+            .ok()?,
+            new: map_side(
+                self.new_lines.clone(),
+                self.new_content.as_deref(),
+                new_content,
+            )
+            .ok()?,
+        })
+    }
+}
+
 /// The request target that produced one stored line anchor.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -534,18 +569,13 @@ fn map_anchored_item(item: &AnchoredGuideItem, current: &FrozenFile) -> Option<G
             },
         );
     }
-    let old_lines = map_side(
-        item.anchor.old_lines.clone(),
-        item.anchor.old_content.as_deref(),
+    let FrozenHunk {
+        old: old_lines,
+        new: new_lines,
+    } = item.anchor.map_lines(
         current.old_content.as_deref(),
-    )
-    .ok()?;
-    let new_lines = map_side(
-        item.anchor.new_lines.clone(),
-        item.anchor.new_content.as_deref(),
         current.new_content.as_deref(),
-    )
-    .ok()?;
+    )?;
     if item.anchor.target_kind == GuideAnchorKind::Lines {
         return map_line_item(item, current, old_lines, new_lines);
     }

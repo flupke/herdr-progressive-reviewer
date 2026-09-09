@@ -3,12 +3,40 @@
 use ratatui::layout::Rect;
 
 const NARROW_WIDTH: u16 = 72;
-const MINIMUM_PANE_WIDTH: u16 = 16;
+const MINIMUM_DIFF_WIDTH: u16 = 16;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum Focus {
-    Files,
-    Diff,
+use ui_events::{ReviewNavigation, ReviewPane};
+
+pub(super) struct NavigationTabs;
+
+impl NavigationTabs {
+    pub(super) const FILES: &str = " [F]iles ";
+    pub(super) const THREADS: &str = " [T]hreads ";
+    pub(super) const SEPARATOR: &str = "|";
+    pub(super) const UNREAD: &str = "● ";
+
+    fn width(unread: bool) -> usize {
+        Self::FILES.len()
+            + Self::SEPARATOR.len()
+            + Self::THREADS.len()
+            + usize::from(unread) * Self::UNREAD.chars().count()
+    }
+
+    fn minimum_pane_width() -> u16 {
+        u16::try_from(Self::width(true) + 2).expect("navigation tabs fit the terminal width")
+    }
+
+    pub(super) fn mode_at(column: u16, unread: bool) -> Option<ReviewNavigation> {
+        let column = usize::from(column);
+        let threads_start = Self::FILES.len() + Self::SEPARATOR.len();
+        if column < Self::FILES.len() {
+            Some(ReviewNavigation::Files)
+        } else if (threads_start..Self::width(unread)).contains(&column) {
+            Some(ReviewNavigation::Threads)
+        } else {
+            None
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -22,9 +50,10 @@ pub(crate) struct PaneLayout {
 impl PaneLayout {
     pub(crate) fn new(width: u16, height: u16, file_width: Option<u16>) -> Self {
         let file_width = if width >= NARROW_WIDTH {
-            file_width
-                .unwrap_or(width * 30 / 100)
-                .clamp(MINIMUM_PANE_WIDTH, width - MINIMUM_PANE_WIDTH)
+            file_width.unwrap_or(width * 30 / 100).clamp(
+                NavigationTabs::minimum_pane_width(),
+                width - MINIMUM_DIFF_WIDTH,
+            )
         } else {
             width
         };
@@ -56,8 +85,8 @@ impl PaneLayout {
         usize::from(self.body_height().saturating_sub(2).max(1))
     }
 
-    pub(crate) fn files_content_area(self, focus: Focus) -> Option<Rect> {
-        if !self.is_wide() && focus != Focus::Files {
+    pub(crate) fn files_content_area(self, focus: ReviewPane) -> Option<Rect> {
+        if !self.is_wide() && focus != ReviewPane::Navigation {
             return None;
         }
         let pane_width = if self.is_wide() {

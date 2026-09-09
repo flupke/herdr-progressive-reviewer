@@ -9,6 +9,8 @@ pub use ui_events::{RevisionHistoryLoadId, SourceLoadMode};
 /// Work that the I/O layer must perform after a UI update.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Action {
+    /// Load or update a review conversation through its serial owner.
+    Thread(review_threads::ThreadCommand),
     /// Color loaded text without delaying input or search.
     Highlight(ui_events::HighlightRequest),
     /// Notify the language server when a document is selected.

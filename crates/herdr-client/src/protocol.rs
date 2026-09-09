@@ -184,6 +184,22 @@ pub struct AgentSession {
     pub value: String,
 }
 
+/// Foreground process identities reported for a terminal pane.
+#[derive(Clone, Debug, Deserialize)]
+pub struct PaneProcessInfo {
+    pub pane_id: PaneId,
+    #[serde(default)]
+    pub foreground_processes: Vec<PaneProcess>,
+}
+
+/// A process in a pane's foreground process group.
+#[derive(Clone, Debug, Deserialize)]
+pub struct PaneProcess {
+    pub pid: u32,
+    pub name: String,
+    pub argv: Option<Vec<String>>,
+}
+
 /// One typed event from Herdr that is relevant to the reviewer.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum HerdrEvent {
@@ -260,7 +276,7 @@ impl AgentInputMode {
 }
 
 /// The last focused agent target for one Herdr workspace.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct AgentTarget {
     workspace_id: WorkspaceId,
     focused_pane_ids: Vec<PaneId>,

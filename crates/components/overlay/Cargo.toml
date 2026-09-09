@@ -9,7 +9,7 @@ license.workspace = true
 component-core = { path = "../../component-core" }
 component-modal = { path = "../../component-modal" }
 ratatui.workspace = true
-ratatui-markdown.workspace = true
+markdown-rendering = { path = "../../markdown-rendering" }
 review-lsp = { path = "../../review-lsp" }
 syntax-highlighting = { path = "../../syntax-highlighting" }
 toasts = { path = "../../toasts" }

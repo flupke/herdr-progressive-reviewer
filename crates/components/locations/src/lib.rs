@@ -24,6 +24,7 @@ pub struct LocationsComponent {
     events: EventPublisher,
     repository_root: PathBuf,
     snapshot_id: String,
+    source_session: Option<String>,
     page_rows: usize,
     palette: Palette,
     list: Option<LocationSelection>,
@@ -35,6 +36,7 @@ impl LocationsComponent {
             events,
             repository_root,
             snapshot_id: String::new(),
+            source_session: None,
             page_rows: 1,
             palette,
             list: None,
@@ -104,6 +106,15 @@ impl LocationsComponent {
         self.close();
     }
 
+    fn source_session_changed(&mut self, event: &ui_events::SourceSessionChanged) {
+        self.source_session.clone_from(&event.snapshot_id);
+        self.close();
+    }
+
+    fn active_snapshot(&self) -> &str {
+        self.source_session.as_deref().unwrap_or(&self.snapshot_id)
+    }
+
     fn lsp_event(&mut self, event: &LspEvent) {
         let LspEvent::Locations {
             operation,
@@ -114,7 +125,7 @@ impl LocationsComponent {
         else {
             return;
         };
-        if snapshot_id != &self.snapshot_id {
+        if snapshot_id != self.active_snapshot() {
             return;
         }
         match locations.as_slice() {
@@ -269,6 +280,7 @@ fn shorten(text: &str, width: usize) -> String {
 impl Component<Action> for LocationsComponent {
     fn register_subscriptions(subscriptions: &mut ComponentSubscriptions<'_, Self, Action>) {
         subscriptions.subscribe(Self::repository_changed);
+        subscriptions.subscribe(Self::source_session_changed);
         subscriptions.subscribe(Self::lsp_event);
         subscriptions.subscribe(Self::viewport_changed);
         subscriptions.subscribe_input(InputScope::Focused, AnyInput, Self::keyboard_input);

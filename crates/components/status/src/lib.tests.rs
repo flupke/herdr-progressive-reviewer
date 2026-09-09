@@ -66,6 +66,9 @@ fn active_search_replaces_the_output_status_with_match_position() {
     assert!(rendered.starts_with("/needle"));
     assert!(rendered.ends_with("[2/5]"));
     assert!(!rendered.contains("Output:"));
+    assert!(!rendered.contains("open"));
+    assert!(!rendered.contains("new replies"));
+    assert!(!rendered.contains("waiting"));
 }
 
 #[test]

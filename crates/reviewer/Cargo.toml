@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+toasts = { path = "../toasts" }
 text-search = { path = "../text-search" }
 crossterm.workspace = true
 crossbeam-channel.workspace = true
@@ -21,6 +22,10 @@ review-guide = { path = "../review-guide" }
 review-guide-runner = { path = "../review-guide-runner" }
 review-lsp = { path = "../review-lsp" }
 review-state = { path = "../review-state" }
+review-threads = { path = "../review-threads" }
+review-thread-service = { path = "../review-thread-service" }
+review-mcp = { path = "../review-mcp" }
+review-mcp-config = { path = "../review-mcp-config" }
 review-store = { path = "../review-store" }
 review-types = { path = "../review-types" }
 review-ui = { path = "../review-ui" }
@@ -31,6 +36,8 @@ signal-hook.workspace = true
 syntax-highlighting = { path = "../syntax-highlighting" }
 
 [dev-dependencies]
+rmcp = { workspace = true, features = ["client", "transport-streamable-http-client-reqwest"] }
+tokio.workspace = true
 review-test-support = { path = "../review-test-support" }
 test-case.workspace = true
 tempfile.workspace = true

@@ -1,4 +1,5 @@
 [workspace]
+exclude = ["vendor/ratatui-markdown"]
 members = [
     "crates/component-core",
     "crates/component-modal",
@@ -7,9 +8,11 @@ members = [
     "crates/components/guide",
     "crates/components/locations",
     "crates/components/status",
+    "crates/components/threads",
     "crates/components/overlay",
     "crates/components/revision",
     "crates/guide-rendering",
+    "crates/markdown-rendering",
     "crates/syntax-highlighting",
     "crates/ui-actions",
     "crates/ui-events",
@@ -24,6 +27,11 @@ members = [
     "crates/review-store",
     "crates/review-test-support",
     "crates/review-types",
+    "crates/review-threads",
+    "crates/review-mcp",
+    "crates/review-mcp-config",
+    "crates/review-thread-service",
+    "crates/comment-editor",
     "crates/review-ui",
     "crates/reviewer",
     "crates/toasts",
@@ -38,11 +46,13 @@ rust-version = "1.89"
 license = "MIT"
 
 [workspace.dependencies]
-ansi-to-tui = "7.0"
+ansi-to-tui = "8.0"
+axum = "0.8"
 base64 = "0.22"
-crossterm = "0.28"
+crossterm = "0.29"
 crossbeam-channel = "0.5"
 eyre = "0.6"
+edtui = { version = "=0.11.7", default-features = false }
 fs2 = "0.4"
 futures = "0.3"
 jj-lib = "=0.44.0"
@@ -53,8 +63,11 @@ libc = "0.2"
 lsp-server = "0.10"
 lsp-types = "0.97"
 notify = "8.2"
-ratatui = { version = "0.29", default-features = false }
+ratatui = { version = "0.30", default-features = false, features = ["underline-color"] }
+# ratatui-markdown has not migrated to 0.30; confine its types to markdown-rendering.
+ratatui-legacy = { package = "ratatui", version = "0.29", default-features = false }
 ratatui-markdown = { version = "=0.3.6", default-features = false, features = ["markdown"] }
+rmcp = { version = "3.3", default-features = false, features = ["server", "macros", "transport-streamable-http-server"] }
 grep-matcher = "0.1"
 grep-regex = "0.1"
 grep-searcher = "0.1"
@@ -70,6 +83,8 @@ test-case = "3.3.1"
 thiserror = "2.0"
 time = { version = "0.3", features = ["formatting"] }
 toml = "0.9"
+toml_edit = "0.25"
+tokio = { version = "1.52", features = ["rt", "net", "sync", "time"] }
 two-face = { version = "0.5", default-features = false, features = ["syntect-fancy"] }
 unicode-segmentation = "1.13"
 unicode-width = "0.2"
@@ -89,3 +104,6 @@ must_use_candidate = "allow"
 
 [profile.release]
 panic = "unwind"
+
+[patch.crates-io]
+ratatui-markdown = { path = "vendor/ratatui-markdown" }
