@@ -1,7 +1,7 @@
 use ui_events::PresentationLocation;
 
 use crate::document::DiffDocument;
-use crate::{DiffComponent, DiffPresentation, DiffViewport, PresentedRow};
+use crate::{DiffComponent, DiffPresentation, PresentedRow};
 
 struct CursorAnchor {
     location: PresentationLocation,
@@ -52,7 +52,7 @@ impl DiffComponent {
         let Some(document) = self.displayed_document() else {
             return false;
         };
-        let viewport = self.context_viewport();
+        let viewport = self.displayed_viewport().expect("the document exists");
         let anchor = CursorAnchor::new(&document.document, viewport.cursor_visual_row(document));
         let document = self.displayed_document_mut().expect("the document exists");
         if !change(&mut document.document.diff) {
@@ -60,16 +60,10 @@ impl DiffComponent {
         }
         if let Some(anchor) = anchor {
             anchor.restore_cursor(&mut document.document);
-            let viewport = self.context_viewport();
+            let viewport = self.displayed_viewport().expect("the document exists");
             let document = self.displayed_document_mut().expect("the document exists");
             document.document.scroll = anchor.scroll(viewport.cursor_visual_row(document));
         }
         true
-    }
-
-    fn context_viewport(&self) -> DiffViewport {
-        let document = self.displayed_document().expect("the document exists");
-        self.renderer(self.palette, self.guide_layout(document), true)
-            .viewport(document, self.viewport_width, true)
     }
 }

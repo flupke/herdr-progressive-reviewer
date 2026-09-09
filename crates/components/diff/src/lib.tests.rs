@@ -21,6 +21,9 @@ mod highlighting;
 #[path = "expansion.tests.rs"]
 mod expansion;
 
+#[path = "scrolling.tests.rs"]
+mod scrolling;
+
 #[test]
 fn loaded_content_publishes_its_guide_viewport() {
     let (mut registry, reviewable_files, _) = registry_with_observer();

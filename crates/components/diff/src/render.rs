@@ -10,11 +10,12 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 use review_lsp::SourceLocation;
 use review_repository::diff::{DiffRow, NoticeKind};
+use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
 use ui_theme::Palette;
 
-use crate::{LoadedDocument, PresentedRow, Token};
+use crate::{DiffPointerPosition, LoadedDocument, PresentedRow, Token};
 
 pub(super) const TAB_DISPLAY_WIDTH: usize = 4;
 const DIFF_CONTROLS_TITLE: &str = "[←→] [→←] [👁 ]";
@@ -208,14 +209,60 @@ impl DiffViewport {
         self.rows.len()
     }
 
-    pub(super) fn cursor_visual_row(&self, file: &LoadedDocument) -> usize {
-        let source_display_column = file
-            .document
+    pub(super) fn visible_cursor_position(
+        &self,
+        file: &LoadedDocument,
+        height: usize,
+    ) -> Option<DiffPointerPosition> {
+        let cursor = self.cursor_visual_row(file);
+        let scroll = self.scroll(file);
+        let visible = scroll..scroll.saturating_add(height).min(self.rows.len());
+        if visible.contains(&cursor) {
+            return None;
+        }
+        let target = visible
+            .filter(|index| self.rows[*index].is_source_row)
+            .min_by_key(|index| index.abs_diff(cursor))?;
+        Some(DiffPointerPosition {
+            row: self.rows[target].source_row,
+            column: Some(self.column_on_row(file, cursor, target)),
+        })
+    }
+
+    fn column_on_row(&self, file: &LoadedDocument, cursor: usize, target: usize) -> usize {
+        let row = &self.rows[target];
+        let column = Self::cursor_display_column(file)
+            .saturating_sub(self.rows[cursor].source_display_offset);
+        let end = self
+            .rows
+            .get(target + 1)
+            .filter(|next| next.is_source_row && next.source_row == row.source_row)
+            .map_or_else(
+                || {
+                    file.document
+                        .diff
+                        .source_position(row.source_row)
+                        .map_or(0, |(_, line)| source_display_width(&line, line.len()))
+                },
+                |next| next.source_display_offset,
+            );
+        row.source_display_offset
+            .saturating_add(column)
+            .min(end.saturating_sub(1))
+            .max(row.source_display_offset)
+    }
+
+    fn cursor_display_column(file: &LoadedDocument) -> usize {
+        file.document
             .diff
             .source_position(file.document.cursor)
             .map_or(0, |(_, line)| {
                 source_display_width(&line, file.document.column)
-            });
+            })
+    }
+
+    pub(super) fn cursor_visual_row(&self, file: &LoadedDocument) -> usize {
+        let source_display_column = Self::cursor_display_column(file);
         self.rows
             .iter()
             .enumerate()
@@ -632,8 +679,6 @@ fn fill_line_background(line: &mut Line<'static>, width: u16, background: Color)
 }
 
 fn source_display_width(line: &str, byte_column: usize) -> usize {
-    use unicode_segmentation::UnicodeSegmentation;
-
     line.grapheme_indices(true)
         .take_while(|(byte, grapheme)| byte.saturating_add(grapheme.len()) <= byte_column)
         .map(|(_, grapheme)| {
@@ -671,7 +716,9 @@ fn token_boundaries(
         *column >= token.start && *column < token.end && text.is_char_boundary(*column)
     }) {
         boundaries.push(column);
-        boundaries.push(column + text[column..].chars().next().map_or(0, char::len_utf8));
+        boundaries.push(
+            (column + text[column..].graphemes(true).next().map_or(0, str::len)).min(token.end),
+        );
     }
     boundaries.sort_unstable();
     boundaries.dedup();

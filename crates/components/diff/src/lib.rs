@@ -502,46 +502,73 @@ impl DiffComponent {
         let Some(document) = self.displayed_document_mut() else {
             return;
         };
-        document.document.cursor = position
-            .row
-            .min(document.document.diff.len().saturating_sub(1));
-        if let Some(display_column) = position.column
-            && let Some((_, line)) = document
-                .document
-                .diff
-                .source_position(document.document.cursor)
-        {
-            document.document.column = display_column_to_byte(&line, display_column);
-        }
-        document.document.clear_source_location();
+        document.document.place_cursor(position);
         self.keep_cursor_visible();
         self.publish_current_location();
     }
 
     fn scroll(&mut self, delta: isize) {
         let height = usize::from(self.viewport_height);
-        let maximum = self.displayed_document().map_or(0, |document| {
-            let guide_layout = self.guide_layout(document);
-            layout_diff_viewport(
-                document,
-                self.viewport_width,
-                self.palette,
-                self.search_query(),
-                self.selection.map(SelectionState::range),
-                true,
-                guide_layout,
-            )
-            .visible_row_count()
-            .saturating_sub(height)
-        });
-        let Some(document) = self.displayed_document_mut() else {
+        let Some(document) = self.displayed_document() else {
             return;
         };
+        let viewport = self
+            .renderer(self.palette, self.guide_layout(document), true)
+            .viewport(document, self.viewport_width, true);
+        let maximum = viewport.visible_row_count().saturating_sub(height);
+        let document = self.displayed_document_mut().expect("the document exists");
         document.document.scroll = document
             .document
             .scroll
             .saturating_add_signed(delta)
             .min(maximum);
+        self.contain_cursor(&viewport);
+    }
+
+    fn displayed_viewport(&self) -> Option<DiffViewport> {
+        let document = self.displayed_document()?;
+        Some(
+            self.renderer(self.palette, self.guide_layout(document), true)
+                .viewport(document, self.viewport_width, true),
+        )
+    }
+
+    fn contain_displayed_cursor(&mut self) {
+        if let Some(viewport) = self.displayed_viewport() {
+            self.contain_cursor(&viewport);
+        }
+    }
+
+    fn contain_cursor(&mut self, viewport: &DiffViewport) {
+        if self.move_cursor_into_viewport(viewport)
+            && let Some(updated) = self.displayed_viewport()
+        {
+            // Moving an end-of-line cursor can remove a wrapped row.
+            self.move_cursor_into_viewport(&updated);
+        }
+    }
+
+    fn move_cursor_into_viewport(&mut self, viewport: &DiffViewport) -> bool {
+        let Some(document) = self.displayed_document() else {
+            return false;
+        };
+        let Some(position) =
+            viewport.visible_cursor_position(document, usize::from(self.viewport_height))
+        else {
+            return false;
+        };
+        self.displayed_document_mut()
+            .expect("the document exists")
+            .document
+            .place_cursor(position);
+        if let Some(selection) = &mut self.selection
+            && !selection.fixed
+        {
+            selection.cursor = position.row;
+        }
+        self.publish_current_location();
+        self.publish_search_status();
+        true
     }
 
     fn run_shortcut(&mut self, command: ShortcutCommand) -> Vec<Action> {
@@ -1275,6 +1302,9 @@ impl DiffComponent {
         }
         let load_immediately = self.selected_path.is_none();
         self.selected_path = Some(event.path.clone());
+        if newly_selected {
+            self.contain_displayed_cursor();
+        }
         self.publish_viewports();
         self.publish_current_location();
         self.publish_search_status();
@@ -1360,6 +1390,7 @@ impl DiffComponent {
             self.find_from_origin();
         }
         self.finish_repository_search_load_if_complete();
+        self.contain_loaded_cursor(&event.path);
         self.publish_viewports();
         self.publish_decorations();
         self.publish_current_location();
@@ -1379,6 +1410,15 @@ impl DiffComponent {
     fn highlighting_finished(&mut self, event: &HighlightingFinished) {
         for loaded in self.documents.iter_mut().chain(self.preview.iter_mut()) {
             loaded.document.finish_highlighting(event);
+        }
+    }
+
+    fn contain_loaded_cursor(&mut self, path: &str) {
+        if self
+            .displayed_document()
+            .is_some_and(|document| document.path == path)
+        {
+            self.contain_displayed_cursor();
         }
     }
 
@@ -1440,8 +1480,12 @@ impl DiffComponent {
     }
 
     fn guide_layout_changed(&mut self, event: &GuideLayoutChanged) {
+        if self.guide_items == event.items && self.guide_counters == event.counters {
+            return;
+        }
         self.guide_items.clone_from(&event.items);
         self.guide_counters.clone_from(&event.counters);
+        self.contain_displayed_cursor();
     }
 
     fn guide_jump_requested(&mut self, event: &GuideJumpRequested) -> Vec<Action> {

@@ -83,6 +83,17 @@ impl DiffLoadState {
 }
 
 impl DiffDocument {
+    pub(super) fn place_cursor(&mut self, position: crate::DiffPointerPosition) {
+        self.cursor = position.row.min(self.diff.len().saturating_sub(1));
+        if let Some(column) = position.column {
+            self.column = self
+                .diff
+                .source_position(self.cursor)
+                .map_or(0, |(_, line)| crate::display_column_to_byte(&line, column));
+        }
+        self.clear_source_location();
+    }
+
     fn new() -> Self {
         Self {
             diff: DiffPresentation::default(),
