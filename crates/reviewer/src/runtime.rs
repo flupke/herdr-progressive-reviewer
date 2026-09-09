@@ -1,5 +1,8 @@
 //! Terminal and worker integration for the review pane.
 
+use review_thread_service as comments;
+#[path = "runtime/comments.rs"]
+mod comment_service;
 mod document;
 mod events;
 mod guide;
@@ -116,7 +119,6 @@ enum WorkerCommand {
         review_unit: ReviewUnit,
         wait_token: u64,
     },
-    Focus(PaneId),
     Quit,
 }
 
@@ -135,6 +137,10 @@ struct RuntimeEventProducers {
 }
 
 struct RuntimeEventLoop<'a, B: Backend> {
+    target: AgentTarget,
+    source_watches: Option<&'a crate::watcher::SourceWatchRequests>,
+    last_frame: Instant,
+    comments: &'a comments::Worker,
     terminal: &'a mut Terminal<B>,
     app: &'a mut ReviewApplication,
     commands: &'a Sender<WorkerCommand>,
@@ -156,6 +162,8 @@ enum ControlEventOutcome {
 }
 
 struct RuntimeActionDispatcher<'a> {
+    source_watches: Option<&'a crate::watcher::SourceWatchRequests>,
+    comments: &'a comments::Worker,
     commands: &'a Sender<WorkerCommand>,
     documents: &'a Sender<document::Command>,
     search: &'a text_search::Worker,
@@ -166,6 +174,8 @@ struct RuntimeActionDispatcher<'a> {
 }
 
 struct BackgroundWorkers {
+    target: AgentTarget,
+    comments: comments::Worker,
     search: text_search::Worker,
     highlighting: highlighting::Worker,
     commands: Sender<WorkerCommand>,
@@ -175,6 +185,7 @@ struct BackgroundWorkers {
 
 impl BackgroundWorkers {
     fn stop(self) {
+        drop(self.comments);
         drop(self.search);
         drop(self.highlighting);
         let _ = self.commands.send(WorkerCommand::Quit);
@@ -187,7 +198,7 @@ impl BackgroundWorkers {
 
 struct WorkerStopped;
 struct StopRequested;
-struct RepositoryPollDue;
+struct RepositoryRefreshDue;
 struct ApplicationTick(Instant);
 struct TerminalFailed(String);
 struct TerminalFocused;
@@ -291,11 +302,13 @@ impl Runtime {
             Arc::clone(&producer_stop_requested),
         ));
         let terminal_events = TerminalEventProducer::start(input_sender);
+        let watcher = RepositoryWatcher::new(self.repository.root(), self.repository.repo_type());
+        let source_watches = watcher.source_requests();
         event_producers.push(Self::start_periodic_events(
             event_sender.clone(),
             Arc::clone(&stopped),
             Arc::clone(&producer_stop_requested),
-            RepositoryWatcher::new(self.repository.root(), self.repository.repo_type()),
+            watcher,
         ));
         let lsp = review_lsp::Worker::start(root.clone());
         event_producers.push(Self::start_lsp_events(
@@ -306,6 +319,10 @@ impl Runtime {
         let _ = app.publish(RepositoryRefreshStarted);
         commands.send(WorkerCommand::Poll)?;
         let result = RuntimeEventLoop {
+            target: workers.target.clone(),
+            source_watches: Some(&source_watches),
+            last_frame: Instant::now(),
+            comments: &workers.comments,
             terminal: &mut terminal.terminal,
             app: &mut app,
             commands,
@@ -403,8 +420,16 @@ impl Runtime {
                     let _ = events.send(EventEnvelope::new(StopRequested));
                     return;
                 }
-                if watcher.poll_due(now)
-                    && events.send(EventEnvelope::new(RepositoryPollDue)).is_err()
+                if watcher.take_failure() {
+                    let _ = events.send(EventEnvelope::new(ui_events::ToastRequested {
+                        text: "Filesystem watcher stopped; live updates are paused. Reopen the reviewer to retry.".into(),
+                        kind: toasts::ToastKind::Error,
+                    }));
+                }
+                if watcher.refresh_due(now)
+                    && events
+                        .send(EventEnvelope::new(RepositoryRefreshDue))
+                        .is_err()
                 {
                     return;
                 }
@@ -424,6 +449,7 @@ impl Runtime {
         events: EventSender<EventEnvelope>,
         interactive: EventSender<EventEnvelope>,
     ) -> eyre::Result<BackgroundWorkers> {
+        let target = AgentTarget::new(self.workspace_id.clone(), self.initial_agent.clone());
         let store = ReviewStore::open(&self.state_dir, self.repository.root())?;
         let guide_store = ReviewStore::open(&self.state_dir, self.repository.root())?;
         let tracker = Arc::new(ReviewTracker::new(self.repository.clone(), store));
@@ -444,13 +470,15 @@ impl Runtime {
             tracker,
             guide_store,
             client: self.client.clone(),
-            target: AgentTarget::new(self.workspace_id.clone(), self.initial_agent.clone()),
+            target: target.clone(),
             snapshot: None,
             commands: command_sender.clone(),
             guide: guide::GuideRequestCoordinator::default(),
             documents: documents.clone(),
         };
         let messages = ApplicationMessageSender(events.clone());
+        let comments =
+            self.start_comments(worker.guide_store.clone(), messages.clone(), target.clone());
         let handle = thread::spawn(move || {
             worker.run(&command_receiver, &messages);
             let _ = messages.send(WorkerStopped);
@@ -466,6 +494,8 @@ impl Runtime {
             let _ = interactive.send(EventEnvelope::new(results));
         });
         Ok(BackgroundWorkers {
+            target,
+            comments,
             search,
             highlighting,
             commands: command_sender,
@@ -488,18 +518,24 @@ impl RuntimeActionDispatcher<'_> {
     fn dispatch(&self, action: Action) -> eyre::Result<bool> {
         let action = match action {
             Action::Quit => return Ok(true),
+            Action::Thread(command) => {
+                self.comments.send(comments::Command::Thread(command));
+                return Ok(false);
+            }
             Action::Highlight(request) => {
                 self.highlighting
                     .submit(request)
                     .map_err(eyre::Report::msg)?;
                 return Ok(false);
             }
-            Action::OpenLspDocument(path) => {
-                self.lsp.open_document(path).map_err(eyre::Report::msg)?;
-                return Ok(false);
-            }
             Action::Search(request) => {
                 self.search.submit(request);
+                return Ok(false);
+            }
+            Action::WatchSource(path) => {
+                if let Some(watches) = self.source_watches {
+                    watches.watch(path.as_deref());
+                }
                 return Ok(false);
             }
             action @ (Action::LoadDiff { .. }
@@ -511,6 +547,21 @@ impl RuntimeActionDispatcher<'_> {
             Action::SaveFilePaneWidth(columns) => {
                 self.settings.save_file_pane_width(columns)?;
                 return Ok(false);
+            }
+            action @ (Action::OpenLspDocument(_) | Action::Lsp { .. } | Action::RestartLsp) => {
+                self.dispatch_lsp_action(action)?;
+                return Ok(false);
+            }
+            action => action,
+        };
+        self.commands.send(Self::worker_command(action))?;
+        Ok(false)
+    }
+
+    fn dispatch_lsp_action(&self, action: Action) -> eyre::Result<()> {
+        match action {
+            Action::OpenLspDocument(path) => {
+                self.lsp.open_document(path).map_err(eyre::Report::msg)?;
             }
             Action::Lsp {
                 operation,
@@ -524,16 +575,13 @@ impl RuntimeActionDispatcher<'_> {
                 self.lsp
                     .request(operation, query)
                     .map_err(eyre::Report::msg)?;
-                return Ok(false);
             }
             Action::RestartLsp => {
                 self.lsp.restart().map_err(eyre::Report::msg)?;
-                return Ok(false);
             }
-            action => action,
-        };
-        self.commands.send(Self::worker_command(action))?;
-        Ok(false)
+            _ => unreachable!("LSP dispatch accepts only LSP actions"),
+        }
+        Ok(())
     }
 
     fn worker_command(action: Action) -> WorkerCommand {
@@ -544,8 +592,10 @@ impl RuntimeActionDispatcher<'_> {
             action @ (Action::SetReviewed { .. }
             | Action::Output { .. }
             | Action::GenerateReviewGuide { .. }) => Self::output_worker_command(action),
-            Action::Highlight(_)
+            Action::Thread(_)
+            | Action::Highlight(_)
             | Action::OpenLspDocument(_)
+            | Action::WatchSource(_)
             | Action::Search(_)
             | Action::LoadDiff { .. }
             | Action::LoadDiffs { .. }
@@ -619,7 +669,10 @@ impl RuntimeActionDispatcher<'_> {
     }
 }
 
-impl<B: CursorBackend> RuntimeEventLoop<'_, B> {
+impl<B: CursorBackend> RuntimeEventLoop<'_, B>
+where
+    B::Error: Send + Sync + 'static,
+{
     fn run(&mut self) -> eyre::Result<()> {
         while !self.cycle()? {}
         Ok(())
@@ -630,6 +683,11 @@ impl<B: CursorBackend> RuntimeEventLoop<'_, B> {
             .events
             .recv()
             .map_err(|_| eyre::eyre!("all review event producers stopped unexpectedly"))?;
+        if let Some(ApplicationTick(now)) = event.downcast_ref::<ApplicationTick>()
+            && !self.app.needs_tick(self.last_frame, *now)
+        {
+            return Ok(false);
+        }
         let started = Instant::now();
         if self.handle_event(&event)? {
             return Ok(true);
@@ -673,6 +731,8 @@ impl<B: CursorBackend> RuntimeEventLoop<'_, B> {
         }
         let actions = self.application_actions(event);
         RuntimeActionDispatcher {
+            source_watches: self.source_watches,
+            comments: self.comments,
             commands: self.commands,
             documents: self.documents,
             search: self.search,
@@ -686,10 +746,13 @@ impl<B: CursorBackend> RuntimeEventLoop<'_, B> {
 
     fn handle_control_event(&mut self, event: &EventEnvelope) -> eyre::Result<ControlEventOutcome> {
         if let Some(HerdrEvent::PaneFocused(pane_id)) = event.downcast_ref::<HerdrEvent>() {
-            let _ = self.commands.send(WorkerCommand::Focus(pane_id.clone()));
+            self.target.observe_focus(pane_id);
+            self.comments.send(comments::Command::ActiveAgentChanged);
             return Ok(ControlEventOutcome::Continue);
         }
-        if event.downcast_ref::<HerdrEvent>().is_some() {
+        if let Some(event) = event.downcast_ref::<HerdrEvent>() {
+            self.comments
+                .send(comments::Command::Observe(event.clone()));
             return Ok(ControlEventOutcome::Continue);
         }
         if event.downcast_ref::<WorkerStopped>().is_some() {
@@ -701,10 +764,9 @@ impl<B: CursorBackend> RuntimeEventLoop<'_, B> {
         if event.downcast_ref::<StopRequested>().is_some() {
             return Ok(ControlEventOutcome::Stop);
         }
-        if event.downcast_ref::<RepositoryPollDue>().is_some() {
-            let _ = self.app.publish(RepositoryRefreshStarted);
+        if event.downcast_ref::<RepositoryRefreshDue>().is_some() {
             self.commands.send(WorkerCommand::Poll)?;
-            return Ok(ControlEventOutcome::Continue);
+            return Ok(ControlEventOutcome::NotHandled);
         }
         Ok(ControlEventOutcome::NotHandled)
     }
@@ -712,6 +774,8 @@ impl<B: CursorBackend> RuntimeEventLoop<'_, B> {
     fn application_actions(&mut self, event: &EventEnvelope) -> Vec<Action> {
         if let Some(input) = event.downcast_ref::<UserInput>() {
             self.app.update(input.clone())
+        } else if event.downcast_ref::<RepositoryRefreshDue>().is_some() {
+            self.app.publish(RepositoryRefreshStarted)
         } else if let Some(event) = event.downcast_ref::<review_lsp::Event>() {
             self.app.publish(event.clone())
         } else if let Some(ApplicationTick(now)) = event.downcast_ref::<ApplicationTick>() {
@@ -732,7 +796,9 @@ impl<B: CursorBackend> RuntimeEventLoop<'_, B> {
         });
         self.terminal
             .draw(|frame| frame.render_widget(self.app.frame(), frame.area()))?;
+        self.last_frame = started;
         self.timings.frame(started);
+        self.dispatch_event(&EventEnvelope::new(ui_events::FrameRendered))?;
         Ok(())
     }
 }
@@ -793,10 +859,6 @@ impl Worker {
             | WorkerCommand::GuideFinished(_)
             | WorkerCommand::ImportReviewGuide { .. }) => {
                 self.handle_guide_command(command, messages)
-            }
-            WorkerCommand::Focus(pane_id) => {
-                self.target.observe_focus(&pane_id);
-                true
             }
             WorkerCommand::Quit => false,
         }
@@ -1009,6 +1071,7 @@ impl TerminalGuard {
             EnterAlternateScreen,
             EnableMouseCapture,
             EnableFocusChange,
+            crossterm::event::EnableBracketedPaste,
             PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
         ) {
             let _ = disable_raw_mode();
@@ -1016,6 +1079,7 @@ impl TerminalGuard {
                 terminal.backend_mut(),
                 DisableMouseCapture,
                 DisableFocusChange,
+                crossterm::event::DisableBracketedPaste,
                 PopKeyboardEnhancementFlags,
                 LeaveAlternateScreen
             );
@@ -1032,6 +1096,7 @@ impl Drop for TerminalGuard {
             self.terminal.backend_mut(),
             DisableMouseCapture,
             DisableFocusChange,
+            crossterm::event::DisableBracketedPaste,
             PopKeyboardEnhancementFlags,
             LeaveAlternateScreen
         );
@@ -1105,7 +1170,7 @@ impl TerminalEventProducer {
                         return;
                     }
                 };
-                let message = Self::normalize_event(&event, &mut mouse_clicks);
+                let message = Self::normalize_event(event, &mut mouse_clicks);
                 if message.is_some_and(|message| events.send(message).is_err()) {
                     return;
                 }
@@ -1117,18 +1182,18 @@ impl TerminalEventProducer {
         }
     }
 
-    fn normalize_event(event: &Event, mouse_clicks: &mut MouseClicks) -> Option<EventEnvelope> {
+    fn normalize_event(event: Event, mouse_clicks: &mut MouseClicks) -> Option<EventEnvelope> {
         match event {
-            Event::Key(key) => normalize_key(*key)
+            Event::Paste(text) => Some(EventEnvelope::new(UserInput::Paste(text))),
+            Event::Key(key) => normalize_key(key)
                 .map(UserInput::Key)
                 .map(EventEnvelope::new),
-            Event::Mouse(mouse) => mouse_clicks.normalize(*mouse).map(EventEnvelope::new),
-            Event::Resize(width, height) => Some(EventEnvelope::new(UserInput::Resize {
-                width: *width,
-                height: *height,
-            })),
+            Event::Mouse(mouse) => mouse_clicks.normalize(mouse).map(EventEnvelope::new),
+            Event::Resize(width, height) => {
+                Some(EventEnvelope::new(UserInput::Resize { width, height }))
+            }
             Event::FocusGained => Some(EventEnvelope::new(TerminalFocused)),
-            Event::FocusLost | Event::Paste(_) => None,
+            Event::FocusLost => None,
         }
     }
 
@@ -1207,36 +1272,57 @@ impl MouseClicks {
 }
 
 fn normalize_key(key: KeyEvent) -> Option<Key> {
+    if key.kind == crossterm::event::KeyEventKind::Release {
+        return None;
+    }
     if key.modifiers.contains(KeyModifiers::CONTROL) {
         return normalize_control_key(key.code);
+    }
+    if key.modifiers.contains(KeyModifiers::ALT)
+        && let KeyCode::Char(character) = key.code
+    {
+        return Some(Key::Alt(character));
     }
     normalize_plain_key(key.code)
 }
 
 fn normalize_control_key(code: KeyCode) -> Option<Key> {
     match code {
+        KeyCode::Enter => Some(Key::ControlEnter),
         KeyCode::Char('d') => Some(Key::HalfPageDown),
         KeyCode::Char('u') => Some(Key::HalfPageUp),
         KeyCode::Char('o') => Some(Key::PreviousLocation),
         KeyCode::Char('i') => Some(Key::NextLocation),
+        KeyCode::Char(character) => Some(Key::Control(character)),
         _ => None,
     }
 }
 
 fn normalize_plain_key(code: KeyCode) -> Option<Key> {
-    match code {
-        KeyCode::Tab => Some(Key::Tab),
-        KeyCode::Down => Some(Key::Down),
-        KeyCode::Up => Some(Key::Up),
-        KeyCode::Home => Some(Key::First),
-        KeyCode::End => Some(Key::Last),
-        KeyCode::Esc => Some(Key::Escape),
-        KeyCode::Enter => Some(Key::Enter),
-        KeyCode::Backspace => Some(Key::Backspace),
-        KeyCode::Char(character) => Some(Key::Char(character)),
-        _ => None,
+    if let KeyCode::Char(character) = code {
+        return Some(Key::Char(character));
     }
+    PLAIN_KEYS
+        .iter()
+        .find_map(|(candidate, key)| (*candidate == code).then_some(*key))
 }
+
+const PLAIN_KEYS: &[(KeyCode, Key)] = &[
+    (KeyCode::F(2), Key::EditorMode),
+    (KeyCode::Left, Key::Left),
+    (KeyCode::Right, Key::Right),
+    (KeyCode::Delete, Key::Delete),
+    (KeyCode::PageUp, Key::PageUp),
+    (KeyCode::PageDown, Key::PageDown),
+    (KeyCode::Tab, Key::Tab),
+    (KeyCode::Down, Key::Down),
+    (KeyCode::Up, Key::Up),
+    (KeyCode::Home, Key::First),
+    (KeyCode::End, Key::Last),
+    (KeyCode::Esc, Key::Escape),
+    (KeyCode::Enter, Key::Enter),
+    (KeyCode::Backspace, Key::Backspace),
+];
 
 #[cfg(test)]
 #[path = "runtime.tests.rs"]

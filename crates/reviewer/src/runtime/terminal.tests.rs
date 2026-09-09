@@ -8,8 +8,8 @@ use ratatui::{Terminal, TerminalOptions, Viewport};
 
 use super::*;
 use crate::runtime::{
-    ApplicationTick, EventEnvelope, HerdrEvent, PaneId, RuntimeEventLoop, TerminalEventProducer,
-    TerminalFocused, Theme, UserInput, events, highlighting, timing,
+    AgentTarget, ApplicationTick, EventEnvelope, HerdrEvent, PaneId, RuntimeEventLoop,
+    TerminalEventProducer, TerminalFocused, Theme, UserInput, events, highlighting, timing,
 };
 
 #[derive(Clone, Default)]
@@ -66,6 +66,10 @@ impl Fixture {
             |_| {},
         );
         RuntimeEventLoop {
+            target: AgentTarget::new(herdr_client::protocol::WorkspaceId("test".into()), None),
+            source_watches: None,
+            last_frame: std::time::Instant::now(),
+            comments: &crate::runtime::comment_service::test_worker(&settings),
             terminal: &mut self.terminal,
             app: &mut review_ui::ReviewApplication::default(),
             commands: &std::sync::mpsc::channel().0,

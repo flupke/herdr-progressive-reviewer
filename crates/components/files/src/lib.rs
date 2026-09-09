@@ -26,110 +26,18 @@ use ui_shortcuts::{
 use ui_theme::Palette;
 use unicode_width::UnicodeWidthStr;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum FileTreeRow {
-    Directory {
-        depth: usize,
-        name: String,
-        path: String,
-        collapsed: bool,
-    },
-    File {
-        depth: usize,
-        name: String,
-        file: usize,
-    },
-}
-
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-struct FileTree {
-    rows: Vec<FileTreeRow>,
-}
-
-impl FileTree {
-    fn new(files: impl Iterator<Item = (String, String)>, collapsed: &HashSet<String>) -> Self {
-        let mut rows = Vec::new();
-        let mut previous: Vec<String> = Vec::new();
-        for (file, (path, display_path)) in files.enumerate() {
-            let parts = path.split('/').collect::<Vec<_>>();
-            let Some((name, directories)) = parts.split_last() else {
-                continue;
-            };
-            let common = previous
-                .iter()
-                .zip(directories)
-                .take_while(|(left, right)| left.as_str() == **right)
-                .count();
-            let mut hidden = (0..common)
-                .map(|depth| directories[..=depth].join("/"))
-                .any(|path| collapsed.contains(&path));
-            for (depth, name) in directories.iter().enumerate().skip(common) {
-                if hidden {
-                    break;
-                }
-                let path = directories[..=depth].join("/");
-                let is_collapsed = collapsed.contains(&path);
-                rows.push(FileTreeRow::Directory {
-                    depth,
-                    name: (*name).to_owned(),
-                    path,
-                    collapsed: is_collapsed,
-                });
-                hidden = is_collapsed;
-            }
-            if !hidden {
-                rows.push(FileTreeRow::File {
-                    depth: directories.len(),
-                    name: if display_path == path {
-                        (*name).to_owned()
-                    } else {
-                        display_path
-                    },
-                    file,
-                });
-            }
-            previous = directories.iter().map(|part| (*part).to_owned()).collect();
-        }
-        Self { rows }
-    }
-
-    fn file_at(&self, row: usize) -> Option<usize> {
-        match self.rows.get(row)? {
-            FileTreeRow::File { file, .. } => Some(*file),
-            FileTreeRow::Directory { .. } => None,
-        }
-    }
-
-    fn row_for_file(&self, file: usize) -> Option<usize> {
-        self.rows.iter().position(
-            |row| matches!(row, FileTreeRow::File { file: candidate, .. } if *candidate == file),
-        )
-    }
-
-    fn nearest_visible_file(&self, file: usize) -> Option<usize> {
-        let mut previous = None;
-        for candidate in self.visible_files() {
-            if candidate >= file {
-                return Some(candidate);
-            }
-            previous = Some(candidate);
-        }
-        previous
-    }
-
-    fn visible_files(&self) -> impl DoubleEndedIterator<Item = usize> + '_ {
-        self.rows.iter().filter_map(|row| match row {
-            FileTreeRow::File { file, .. } => Some(*file),
-            FileTreeRow::Directory { .. } => None,
-        })
-    }
-}
+mod tree;
+use tree::{FileTree, FileTreeRow};
+mod badges;
+use badges::FileBadges;
 
 /// The complete changed-file pane component.
 pub struct FilesComponent {
     events: EventPublisher,
     review_checkpoint: ReviewCheckpoint,
+    associations: review_threads::ThreadPaths,
     files: Vec<FileSummary>,
+    thread_paths: Vec<String>,
     tree: FileTree,
     collapsed_directories: HashSet<String>,
     selected: usize,
@@ -140,6 +48,8 @@ pub struct FilesComponent {
     search_match_paths: HashSet<String>,
     pending_review: Option<PendingReview>,
     reviewable_files: ReviewableFiles,
+    threads: Option<review_threads::ReviewThreads>,
+    navigation: ui_events::ReviewNavigation,
 }
 
 struct PendingReview {
@@ -163,6 +73,8 @@ impl FilesComponent {
             events,
             review_checkpoint: ReviewCheckpoint::new(ReviewUnit::default(), String::new()),
             files: Vec::new(),
+            associations: review_threads::ThreadPaths::default(),
+            thread_paths: Vec::new(),
             tree: FileTree::default(),
             collapsed_directories: HashSet::new(),
             selected: 0,
@@ -173,6 +85,8 @@ impl FilesComponent {
             search_match_paths: HashSet::new(),
             pending_review: None,
             reviewable_files,
+            threads: None,
+            navigation: ui_events::ReviewNavigation::Files,
         }
     }
 
@@ -207,9 +121,11 @@ impl FilesComponent {
             reviewed: self
                 .files
                 .iter()
-                .filter(|file| file.review_state.status == ReviewStatus::Reviewed)
+                .filter(|file| {
+                    !file.temporary && file.review_state.status == ReviewStatus::Reviewed
+                })
                 .count(),
-            total: self.files.len(),
+            total: self.files.iter().filter(|file| !file.temporary).count(),
             lines_added: self
                 .files
                 .iter()
@@ -229,6 +145,8 @@ impl FilesComponent {
         let same_checkpoint = self.review_checkpoint == event.review_checkpoint;
         let previous_selected_path = same_review_unit.then(|| self.selected_path()).flatten();
         if !same_review_unit {
+            self.threads = None;
+            self.thread_paths.clear();
             self.collapsed_directories.clear();
             self.scroll = 0;
             self.pending_review = None;
@@ -257,6 +175,8 @@ impl FilesComponent {
         }
         self.review_checkpoint.clone_from(&event.review_checkpoint);
         self.files.clone_from(&event.files);
+        self.associations = ui_events::FileSummary::thread_paths(&self.files);
+        self.add_thread_files();
         if let Some(pending) = &self.pending_review
             && let Some(file) = self
                 .files
@@ -275,6 +195,19 @@ impl FilesComponent {
         self.keep_selected_visible();
         self.publish_selection_if_changed(previous_selected_path.as_deref());
         self.publish_overview();
+    }
+
+    fn threads_loaded(&mut self, event: &ui_events::ReviewThreadsLoaded) {
+        if event.review_unit == self.review_checkpoint.review_unit
+            && let Ok(book) = &event.result
+        {
+            self.threads = Some(book.clone());
+        }
+    }
+
+    #[allow(clippy::trivially_copy_pass_by_ref)]
+    fn navigation_changed(&mut self, event: &ui_events::ReviewNavigationChanged) {
+        self.navigation = event.0;
     }
 
     fn review_state_saved(&mut self, event: &ReviewStateSaved) {
@@ -301,6 +234,7 @@ impl FilesComponent {
         };
         let expand = needs_parent_expansion(review_state.status, file.review_state.status);
         file.review_state = review_state;
+        self.reviewed_notice(&event.path, review_state.status);
         self.refresh_reviewable_files();
         if expand {
             self.expand_file_parents(&event.path);
@@ -322,6 +256,7 @@ impl FilesComponent {
         let selected_path = self.selected_path();
         self.files.retain(|file| !file.temporary);
         self.files.extend(event.files.iter().cloned());
+        self.add_thread_files();
         self.selected = selected_path
             .as_deref()
             .and_then(|path| self.files.iter().position(|file| file.path() == path))
@@ -330,6 +265,52 @@ impl FilesComponent {
         self.rebuild_tree();
         self.keep_selected_visible();
         self.publish_selection_if_changed(selected_path.as_deref());
+    }
+
+    fn reviewed_notice(&self, path: &str, status: ReviewStatus) {
+        if status != ReviewStatus::Reviewed {
+            return;
+        }
+        let open = self.threads.as_ref().map_or(0, |book| {
+            book.counts_for(|thread| self.current_thread_path(thread.path()) == path)
+                .open
+        });
+        if open > 0 {
+            self.events.publish(ui_events::ToastRequested {
+                text: format!("File reviewed. {open} open threads remain."),
+                kind: toasts::ToastKind::Info,
+            });
+        }
+    }
+
+    fn add_thread_files(&mut self) {
+        for path in &self.thread_paths {
+            if !self.files.iter().any(|file| file.path() == *path) {
+                self.files.push(FileSummary::temporary(
+                    path,
+                    format!("{path} · threads"),
+                    std::path::PathBuf::from(path),
+                ));
+            }
+        }
+    }
+
+    fn thread_files_changed(&mut self, event: &ui_events::ThreadFilesChanged) {
+        if self.thread_paths == event.paths {
+            return;
+        }
+        let selected = self.selected_path();
+        self.files
+            .retain(|file| !file.temporary || !self.thread_paths.contains(&file.path()));
+        self.thread_paths.clone_from(&event.paths);
+        self.add_thread_files();
+        self.selected = selected
+            .as_ref()
+            .and_then(|path| self.files.iter().position(|file| file.path() == *path))
+            .unwrap_or(0);
+        self.rebuild_tree();
+        self.keep_selected_visible();
+        self.publish_selection_if_changed(selected.as_deref());
     }
 
     fn guide_paths_changed(&mut self, event: &GuidePathsChanged) {
@@ -358,6 +339,9 @@ impl FilesComponent {
     }
 
     fn shortcut(&mut self, shortcut: ShortcutCommand) -> Vec<Action> {
+        if self.navigation == ui_events::ReviewNavigation::Threads {
+            return Vec::new();
+        }
         let previous_selected_path = self.selected_path();
         let actions = match shortcut {
             ShortcutCommand::Application(ApplicationShortcut::MarkReviewed) => {
@@ -619,16 +603,19 @@ impl FilesComponent {
                 name,
                 collapsed,
                 ..
-            } => Line::styled(
-                format!(
+            } => {
+                let label = format!(
                     "{}{} {name}/",
                     "  ".repeat(*depth),
                     if *collapsed { '▸' } else { '▾' }
-                ),
-                Style::default()
-                    .fg(palette.dim)
-                    .add_modifier(Modifier::BOLD),
-            ),
+                );
+                Line::styled(
+                    shorten(&label, width),
+                    Style::default()
+                        .fg(palette.dim)
+                        .add_modifier(Modifier::BOLD),
+                )
+            }
             FileTreeRow::File { depth, name, file } => {
                 self.render_file(*depth, name, *file, width, palette)
             }
@@ -655,18 +642,29 @@ impl FilesComponent {
             }
         };
         let prefix = format!("{}{} ", "  ".repeat(depth), marker);
-        let comment = (file.review_state.status != ReviewStatus::Reviewed
-            && self.guide_paths.contains(&path))
-        .then_some(" 💬");
+        let counts = self
+            .threads
+            .as_ref()
+            .map_or_else(review_threads::ThreadCounts::default, |book| {
+                book.counts_for(|thread| self.current_thread_path(thread.path()) == path)
+            });
+        let badges = FileBadges {
+            guide: self.guide_paths.contains(&path),
+            threads: counts,
+        }
+        .line(palette);
         let statistics = FileStatistics::new(file);
-        let reserved = UnicodeWidthStr::width(prefix.as_str())
-            + comment.map_or(0, UnicodeWidthStr::width)
-            + statistics.width();
+        let prefix = shorten(
+            &prefix,
+            width.saturating_sub(badges.width() + statistics.width()),
+        );
+        let reserved =
+            UnicodeWidthStr::width(prefix.as_str()) + badges.width() + statistics.width();
         let name = shorten(name, width.saturating_sub(reserved));
         let padding = width.saturating_sub(
             UnicodeWidthStr::width(prefix.as_str())
                 + UnicodeWidthStr::width(name.as_str())
-                + comment.map_or(0, UnicodeWidthStr::width)
+                + badges.width()
                 + statistics.width(),
         );
         let color = file_color(file, palette);
@@ -674,9 +672,7 @@ impl FilesComponent {
             Span::styled(prefix, Style::default().fg(color)),
             Span::styled(name, Style::default().fg(color)),
         ];
-        if let Some(comment) = comment {
-            spans.push(Span::styled(comment, Style::default().fg(palette.guide)));
-        }
+        spans.extend(badges.spans);
         spans.push(Span::raw(" ".repeat(padding)));
         statistics.append(&mut spans, palette);
         let mut style = if index == self.selected {
@@ -689,6 +685,10 @@ impl FilesComponent {
         }
         Line::from(spans).style(style)
     }
+
+    fn current_thread_path<'a>(&'a self, path: &'a str) -> &'a str {
+        self.associations.resolve(path)
+    }
 }
 
 fn needs_parent_expansion(status: ReviewStatus, previous: ReviewStatus) -> bool {
@@ -697,9 +697,12 @@ fn needs_parent_expansion(status: ReviewStatus, previous: ReviewStatus) -> bool 
 
 impl Component<Action> for FilesComponent {
     fn register_subscriptions(subscriptions: &mut ComponentSubscriptions<'_, Self, Action>) {
+        subscriptions.subscribe(Self::threads_loaded);
+        subscriptions.subscribe(Self::navigation_changed);
         subscriptions.subscribe(Self::repository_changed);
         subscriptions.subscribe(Self::review_state_saved);
         subscriptions.subscribe(Self::temporary_files_changed);
+        subscriptions.subscribe(Self::thread_files_changed);
         subscriptions.subscribe(Self::guide_paths_changed);
         subscriptions.subscribe(Self::decorations_changed);
         subscriptions.subscribe(Self::viewport_changed);

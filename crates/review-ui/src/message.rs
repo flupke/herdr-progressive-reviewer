@@ -5,6 +5,7 @@ use ui_shortcuts::Key;
 /// One normalized terminal input.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum UserInput {
+    Paste(String),
     Resize {
         width: u16,
         height: u16,

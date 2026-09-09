@@ -549,6 +549,29 @@ impl DiffPresentation {
         let end = sources.next_back().unwrap_or(start);
         DiffExcerpt::build(&self.source, start..=end)
     }
+
+    pub(super) fn comment_excerpt(&self, selection: RangeInclusive<usize>) -> String {
+        let rows = &self.rows[selection.clone()];
+        if rows
+            .iter()
+            .all(|row| matches!(row, PresentedRow::Diff { .. }))
+            && let Ok(excerpt) = self.excerpt(selection)
+        {
+            return excerpt.into_string();
+        }
+        rows.iter()
+            .filter_map(|row| match row {
+                PresentedRow::Diff { tokens, .. } | PresentedRow::Expanded { tokens, .. } => Some(
+                    tokens
+                        .iter()
+                        .map(|token| token.text.as_str())
+                        .collect::<String>(),
+                ),
+                PresentedRow::Gap { .. } => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
 }
 
 impl PresentedRow {

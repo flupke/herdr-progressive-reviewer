@@ -84,6 +84,26 @@ fn application_screen(app: &ReviewApplication, width: u16, height: u16) -> Vec<S
         .collect()
 }
 
+fn click_on_text(screen: &[String], text: &str) -> UserInput {
+    let (row, column) = screen
+        .iter()
+        .enumerate()
+        .find_map(|(row, line)| {
+            line.find(text).map(|column| {
+                (
+                    u16::try_from(row).unwrap(),
+                    u16::try_from(line[..column].chars().count()).unwrap(),
+                )
+            })
+        })
+        .unwrap_or_else(|| panic!("{text:?} must be visible in {screen:?}"));
+    UserInput::MouseClick {
+        column,
+        row,
+        insert_path: false,
+    }
+}
+
 fn publish_repository(
     application: &mut ReviewApplication,
     review_checkpoint: ReviewCheckpoint,
@@ -220,7 +240,7 @@ fn file_with_a_review_guide_has_a_comment_marker() {
         String::new(),
         vec![FileSummary::new("src/lib.rs", ReviewStatus::Unreviewed)],
     );
-    assert!(!application_screen(&app, 100, 12).join("\n").contains("💬"));
+    assert!(!application_screen(&app, 100, 12).join("\n").contains(" 📄"));
 
     app.publish(ReviewGuideChanged {
         review_checkpoint: ReviewCheckpoint::new("qpvuntsm", "11111111"),
@@ -237,8 +257,8 @@ fn file_with_a_review_guide_has_a_comment_marker() {
 
     assert!(
         application_screen(&app, 100, 12)
-            .join("\n")
-            .contains("lib.rs 💬")
+            .iter()
+            .any(|line| line.contains("lib.rs") && line.contains(" 📄"))
     );
 }
 
@@ -702,6 +722,7 @@ fn state_machine_keeps_selection_until_insert_succeeds() {
             ]
         ),
         vec![
+            Action::Thread(review_threads::ThreadCommand::Load("qpvuntsm".into())),
             Action::LoadDiff {
                 review_checkpoint: ReviewCheckpoint::new("qpvuntsm", "11111111"),
                 path: "src/lib.rs".to_owned(),
@@ -833,7 +854,7 @@ fn global_search_focuses_the_diff_and_shows_the_query_and_current_match() {
     assert!(
         screen(&application, 80, 12)
             .join("\n")
-            .contains("Files (focus)")
+            .contains("[F]iles | [T]hreads")
     );
     application.update(UserInput::Key(Key::Char('/')));
     assert!(
@@ -1640,8 +1661,7 @@ fn files_that_need_review_expand_their_parent_directories() {
         }),
     });
     let rendered = application_screen(&app, 80, 12).join("\n");
-    assert!(rendered.contains("▾ src/"));
-    assert!(rendered.contains("▾ deep/"));
+    assert!(rendered.contains("▾ src/deep/"));
     assert!(rendered.contains("lib.rs"));
 }
 
@@ -1673,10 +1693,33 @@ fn dragging_the_separator_resizes_the_file_pane() {
 
     let after = screen(&app, 80, 12)[1].find("Diff").unwrap();
     assert!(after > before);
+
+    app.update(UserInput::MouseClick {
+        column: 40,
+        row: 5,
+        insert_path: false,
+    });
+    app.update(UserInput::MouseDrag { column: 0, row: 5 });
+    assert_eq!(
+        app.update(UserInput::MouseRelease),
+        vec![Action::SaveFilePaneWidth(25)]
+    );
+    assert!(screen(&app, 80, 12)[1].contains("[F]iles | [T]hreads"));
+
+    app.update(UserInput::MouseClick {
+        column: 25,
+        row: 5,
+        insert_path: false,
+    });
+    app.update(UserInput::MouseDrag { column: 79, row: 5 });
+    assert_eq!(
+        app.update(UserInput::MouseRelease),
+        vec![Action::SaveFilePaneWidth(64)]
+    );
 }
 
 #[test]
-fn dragging_diff_lines_inserts_them_on_release() {
+fn dragging_diff_lines_opens_an_inline_comment_on_release() {
     let mut app = ReviewApplication::default();
     publish_repository(
         &mut app,
@@ -1684,12 +1727,16 @@ fn dragging_diff_lines_inserts_them_on_release() {
         "Commit title\n\nCommit body\n".to_owned(),
         vec![FileSummary::new("src/lib.rs", ReviewStatus::Unreviewed)],
     );
+    app.publish(ui_events::ReviewThreadsLoaded {
+        review_unit: "qpvuntsm".into(),
+        result: Ok(review_threads::ReviewThreads::new("qpvuntsm".into())),
+    });
     app.publish(ui_events::DiffContentLoaded {
         review_checkpoint: ReviewCheckpoint::new("qpvuntsm", "11111111"),
         path: "src/lib.rs".to_owned(),
         rows: rows(),
-        old_content: None,
-        new_content: None,
+        old_content: Some(b"fn run() {\n    old();\n".to_vec()),
+        new_content: Some(b"fn run() {\n    new();\n".to_vec()),
     });
     app.update(UserInput::Resize {
         width: 80,
@@ -1709,21 +1756,87 @@ fn dragging_diff_lines_inserts_them_on_release() {
         insert_path: false,
     });
     assert_eq!(app.update(UserInput::MouseDrag { column: 70, row: 4 }), []);
-    assert_eq!(
-        app.update(UserInput::MouseRelease),
-        [Action::Output {
-            text: concat!(
-                "diff --git a/src/lib.rs b/src/lib.rs\n",
-                "--- a/src/lib.rs\n",
-                "+++ b/src/lib.rs\n",
-                "@@ -1,2 +1,2 @@\n",
-                " fn run() {\n",
-                "-    old();\n",
-                "+    new();"
-            )
-            .to_owned(),
-        }]
+    assert!(app.update(UserInput::MouseRelease).is_empty());
+    assert!(
+        application_screen(&app, 80, 12)
+            .join("\n")
+            .contains("Vim · INSERT")
     );
+    app.update(UserInput::Paste("Please explain this range".into()));
+    assert!(app.update(UserInput::Key(Key::Escape)).is_empty());
+    assert!(
+        application_screen(&app, 80, 12)
+            .join("\n")
+            .contains("Vim · NORMAL")
+    );
+    assert!(app.update(UserInput::Key(Key::EditorMode)).is_empty());
+    assert!(app.update(UserInput::Key(Key::Escape)).is_empty());
+    assert!(
+        application_screen(&app, 80, 12)
+            .join("\n")
+            .contains("Regular editing")
+    );
+    app.update(UserInput::Key(Key::Last));
+    app.update(UserInput::Key(Key::Char('j')));
+    let submit = click_on_text(&application_screen(&app, 80, 12), "Post");
+    let saved = app.update(submit);
+    assert!(app.update(UserInput::MouseRelease).is_empty());
+    let book = acknowledge_comment(&mut app, &saved);
+    assert_eq!(book.threads().len(), 1);
+    assert_eq!(
+        book.threads()[0].messages[0].text,
+        "Please explain this rangej"
+    );
+    assert!(book.threads()[0].excerpt.contains("-    old();"));
+    assert!(book.threads()[0].excerpt.contains("+    new();"));
+    let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    terminal
+        .draw(|frame| frame.render_widget(app.frame(), frame.area()))
+        .unwrap();
+    let buffer = terminal.backend().buffer();
+    let color = review_ui::Theme::default().palette.focus;
+    for symbol in ["├", "┤", "╰", "╯"] {
+        assert!(
+            buffer
+                .content()
+                .iter()
+                .any(|cell| cell.symbol() == symbol && cell.fg == color),
+            "comment border {symbol} must be visible without a review guide"
+        );
+    }
+    app.update(UserInput::Key(Key::Tab));
+    assert!(
+        application_screen(&app, 80, 12)
+            .join("\n")
+            .contains("[F]iles | [T]hreads")
+    );
+    assert!(app.update(UserInput::Key(Key::Control('s'))).is_empty());
+}
+
+fn acknowledge_comment(
+    app: &mut ReviewApplication,
+    actions: &[Action],
+) -> review_threads::ReviewThreads {
+    actions
+        .iter()
+        .find_map(|action| match action {
+            Action::Thread(review_threads::ThreadCommand::Post { review_unit, post }) => {
+                let mut book = review_threads::ReviewThreads::new(review_unit.clone());
+                book.post(post.clone()).unwrap();
+                app.publish(ui_events::ReviewThreadsLoaded {
+                    review_unit: review_unit.clone(),
+                    result: Ok(book.clone()),
+                });
+                app.publish(ui_events::ThreadPostFinished {
+                    review_unit: review_unit.clone(),
+                    message_id: post.message().id.clone(),
+                    result: Ok(()),
+                });
+                Some(book)
+            }
+            _ => None,
+        })
+        .unwrap()
 }
 
 #[test]
@@ -1789,6 +1902,35 @@ fn mouse_wheel_scrolls_the_diff_viewport_regardless_of_focus() {
     assert!(screen.contains("Diff · src/lib.rs (focus)"));
 }
 
+fn unread_threads(checkpoint: &ReviewCheckpoint, path: &str) -> review_threads::ReviewThreads {
+    let mut book = review_threads::ReviewThreads::new(checkpoint.review_unit.clone());
+    let post = review_threads::Post::start(
+        review_guide::DiffRangeAnchor {
+            source_checkpoint: checkpoint.checkpoint.clone(),
+            old_path: None,
+            new_path: Some(path.into()),
+            old_lines: None,
+            new_lines: None,
+            target_kind: review_guide::GuideAnchorKind::Hunks,
+            source_hunk_count: 0,
+            old_content: None,
+            new_content: None,
+            diff_hash: String::new(),
+        },
+        String::new(),
+        "Check this asset".into(),
+    );
+    let thread_id = post.thread_id().clone();
+    book.post(post).unwrap();
+    book.post(review_threads::Post::agent_reply(
+        thread_id,
+        review_threads::MessageId::parse("7e43f70b-6d54-40ae-b04c-630fa7a6b7ea").unwrap(),
+        "The asset is correct".into(),
+    ))
+    .unwrap();
+    book
+}
+
 #[test]
 fn test_backend_renders_wide_narrow_and_minimum_layouts() {
     let mut app = ReviewApplication::default();
@@ -1833,14 +1975,23 @@ fn test_backend_renders_wide_narrow_and_minimum_layouts() {
         new_content: None,
     });
 
+    let book = unread_threads(
+        &ReviewCheckpoint::new("qpvuntsm", "11111111"),
+        "assets/logo.bin",
+    );
+    app.publish(ui_events::ReviewThreadsLoaded {
+        review_unit: book.review_unit.clone(),
+        result: Ok(book),
+    });
+
     let wide = application_screen(&app, 120, 30).join("\n");
-    assert!(wide.contains("Files (focus)"));
+    assert!(wide.contains("[F]iles | [T]hreads"));
     assert!(wide.contains("Diff · src/a/very/long"));
     assert!(wide.contains("●"));
     assert!(wide.contains('!'));
 
     let threshold = application_screen(&app, 72, 15).join("\n");
-    assert!(threshold.contains("Files (focus)"));
+    assert!(threshold.contains("[F]iles | [T]hreads ●"));
     assert!(threshold.contains("Diff ·"));
 
     app.update(UserInput::Resize {
@@ -1848,14 +1999,14 @@ fn test_backend_renders_wide_narrow_and_minimum_layouts() {
         height: 10,
     });
     let narrow_files = application_screen(&app, 60, 10).join("\n");
-    assert!(narrow_files.contains("Files (focus)"));
+    assert!(narrow_files.contains("[F]iles | [T]hreads"));
     assert!(!narrow_files.contains("Diff ·"));
     assert!(narrow_files.contains("file.rs"));
 
     app.update(UserInput::Key(Key::Tab));
     let narrow_diff = application_screen(&app, 60, 10).join("\n");
     assert!(narrow_diff.contains("Diff ·"));
-    assert!(!narrow_diff.contains("Files (focus)"));
+    assert!(!narrow_diff.contains("[F]iles | [T]hreads"));
 
     let minimum = application_screen(&app, 40, 6).join("\n");
     assert!(minimum.starts_with(" abcd1234 Comm"), "{minimum}");
@@ -1901,7 +2052,7 @@ fn shortcut_help_scrolls_on_short_terminals() {
 
     app.update(UserInput::Key(Key::Char('?')));
     assert!(!screen(&app, 80, 6).join("\n").contains("Quit"));
-    for _ in 0..20 {
+    for _ in 0..ui_shortcuts::help_line_count() {
         app.update(UserInput::Key(Key::Down));
     }
 

@@ -7,6 +7,106 @@ use ratatui::backend::TestBackend;
 use review_repository::diff::DiffRow;
 use ui_events::HighlightingFinished;
 
+#[test]
+fn file_selection_loads_on_the_next_tick_without_further_activity() {
+    let root = tempfile::tempdir().unwrap();
+    let mut scenario = Scenario::new(root.path().into());
+    scenario.deliver(RepositoryFilesChanged {
+        review_checkpoint: ReviewCheckpoint::new("change", "checkpoint"),
+        files: ["first.txt", "second.txt"]
+            .into_iter()
+            .map(|path| FileSummary::new(path, ReviewStatus::Unreviewed))
+            .collect(),
+    });
+    scenario.pending_documents.try_iter().for_each(drop);
+    scenario.deliver(UserInput::Key(Key::Down));
+    assert!(scenario.pending_documents.try_recv().is_err());
+    let inputs = scenario.interactive.clone();
+    {
+        let mut runtime = scenario.event_loop();
+        inputs
+            .send(EventEnvelope::new(ApplicationTick(Instant::now())))
+            .unwrap();
+        assert!(!runtime.cycle().unwrap());
+        let frames = runtime.terminal.get_frame().count();
+        inputs
+            .send(EventEnvelope::new(ApplicationTick(Instant::now())))
+            .unwrap();
+        assert!(!runtime.cycle().unwrap());
+        assert_eq!(runtime.terminal.get_frame().count(), frames);
+    }
+    let commands = scenario.pending_documents.try_iter().collect::<Vec<_>>();
+    assert!(
+        matches!(commands.as_slice(), [document::Command::LoadDiff { path, .. }] if path == "second.txt"),
+        "{commands:?}"
+    );
+}
+
+#[test]
+fn idle_ticks_skip_frames_but_input_animation_and_toast_expiration_still_render() {
+    let root = tempfile::tempdir().unwrap();
+    let mut scenario = Scenario::new(root.path().into());
+    let inputs = scenario.interactive.clone();
+    let mut runtime = scenario.event_loop();
+    runtime.redraw().unwrap();
+    let frames = runtime.terminal.get_frame().count();
+    for _ in 0..100 {
+        inputs
+            .send(EventEnvelope::new(ApplicationTick(Instant::now())))
+            .unwrap();
+        assert!(!runtime.cycle().unwrap());
+    }
+    assert_eq!(runtime.terminal.get_frame().count(), frames);
+
+    inputs
+        .send(EventEnvelope::new(UserInput::Key(Key::Char('t'))))
+        .unwrap();
+    assert!(!runtime.cycle().unwrap());
+    assert_eq!(runtime.terminal.get_frame().count(), frames + 1);
+
+    let mut status = ui_events::ReviewGuideStatusChanged {
+        review_checkpoint: ReviewCheckpoint::new("change", "checkpoint"),
+        generating: true,
+        message: None,
+    };
+    runtime
+        .dispatch_event(&EventEnvelope::new(status.clone()))
+        .unwrap();
+    inputs
+        .send(EventEnvelope::new(ApplicationTick(Instant::now())))
+        .unwrap();
+    assert!(!runtime.cycle().unwrap());
+    assert_eq!(runtime.terminal.get_frame().count(), frames + 2);
+
+    status.generating = false;
+    runtime.dispatch_event(&EventEnvelope::new(status)).unwrap();
+    inputs
+        .send(EventEnvelope::new(ApplicationTick(Instant::now())))
+        .unwrap();
+    assert!(!runtime.cycle().unwrap());
+    assert_eq!(runtime.terminal.get_frame().count(), frames + 2);
+
+    runtime
+        .dispatch_event(&EventEnvelope::new(ui_events::ToastRequested {
+            text: "Saved".into(),
+            kind: toasts::ToastKind::Info,
+        }))
+        .unwrap();
+    runtime.redraw().unwrap();
+    inputs
+        .send(EventEnvelope::new(ApplicationTick(
+            Instant::now() + Duration::from_secs(4),
+        )))
+        .unwrap();
+    assert!(!runtime.cycle().unwrap());
+    assert_eq!(runtime.terminal.get_frame().count(), frames + 4);
+    assert!(
+        !runtime
+            .app
+            .needs_tick(runtime.last_frame, Instant::now() + Duration::from_secs(5))
+    );
+}
+
 struct DelayedHighlights {
     worker: highlighting::Worker,
     started: Receiver<()>,
@@ -41,6 +141,7 @@ impl Drop for DelayedHighlights {
 }
 
 struct Scenario {
+    comments: comments::Worker,
     _state: tempfile::TempDir,
     root: PathBuf,
     settings: ReviewStore,
@@ -52,7 +153,7 @@ struct Scenario {
     commands: Sender<WorkerCommand>,
     _repository_commands: Receiver<WorkerCommand>,
     documents: Sender<document::Command>,
-    _document_commands: Receiver<document::Command>,
+    pending_documents: Receiver<document::Command>,
     background: EventSender<EventEnvelope>,
     interactive: EventSender<EventEnvelope>,
     inbox: events::Inbox,
@@ -72,6 +173,7 @@ impl Scenario {
             let _ = results.send(EventEnvelope::new(result));
         });
         Self {
+            comments: comment_service::test_worker(&settings),
             _state: state,
             app: ReviewApplication::new(Theme::default(), None, root.clone()),
             lsp: review_lsp::Worker::start(root.clone()),
@@ -83,7 +185,7 @@ impl Scenario {
             commands,
             _repository_commands: repository_commands,
             documents,
-            _document_commands: document_commands,
+            pending_documents: document_commands,
             background,
             interactive,
             inbox: events::Inbox::new(events, inputs),
@@ -93,6 +195,10 @@ impl Scenario {
 
     fn event_loop(&mut self) -> RuntimeEventLoop<'_, TestBackend> {
         RuntimeEventLoop {
+            target: AgentTarget::new(herdr_client::protocol::WorkspaceId("test".into()), None),
+            source_watches: None,
+            last_frame: Instant::now(),
+            comments: &self.comments,
             terminal: &mut self.terminal,
             app: &mut self.app,
             commands: &self.commands,
@@ -148,7 +254,9 @@ impl Scenario {
         self.deliver(startup);
         self.highlighting
             .started
-            .recv_timeout(Duration::from_secs(3))
+            // Cold syntax initialization is setup, not part of the measured
+            // input/frame latency. Allow it to finish on a loaded test host.
+            .recv_timeout(Duration::from_secs(10))
             .unwrap();
     }
 

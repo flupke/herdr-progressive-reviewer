@@ -14,12 +14,14 @@ use overlay_component::OverlayComponent;
 use ratatui::layout::Rect;
 use revision_component::RevisionComponent;
 use status_component::StatusComponent;
+use threads_component::ThreadsComponent;
 use ui_events::{
     DiffInputClearRequested, DiffViewportChanged, FilesViewportChanged, PointerInput,
-    PointerInputKind, PointerPosition, ReviewableFiles, ViewportChanged,
+    PointerInputKind, PointerPosition, ReviewNavigation, ReviewNavigationChanged, ReviewPane,
+    ReviewableFiles, ViewportChanged,
 };
 
-use crate::layout::{Focus, PaneLayout};
+use crate::layout::{NavigationTabs, PaneLayout};
 use crate::{Action, ApplicationFrame, Theme, UserInput};
 use ui_theme::Palette;
 
@@ -30,6 +32,7 @@ pub struct ReviewApplication {
     focused_component: ComponentTarget,
     hovered_component: Option<ComponentTarget>,
     files_component: ComponentTarget,
+    threads_component: ComponentTarget,
     diff_component: ComponentTarget,
     guide_component: ComponentTarget,
     locations_component: ComponentTarget,
@@ -37,7 +40,10 @@ pub struct ReviewApplication {
     overlay_component: ComponentTarget,
     revision_component: ComponentTarget,
     file_width: Option<u16>,
-    focus: Focus,
+    focus: ReviewPane,
+    navigation: ReviewNavigation,
+    files_focus: ReviewPane,
+    consumed_focus_request: u64,
     palette: Palette,
     width: u16,
     height: u16,
@@ -45,6 +51,7 @@ pub struct ReviewApplication {
     global_input_pending: bool,
     application_shortcuts: ui_shortcuts::ShortcutMatcher,
     file_pane_resize: Option<FilePaneResize>,
+    watched_source: Option<PathBuf>,
 }
 
 #[derive(Clone, Copy)]
@@ -65,6 +72,21 @@ impl Default for ReviewApplication {
 }
 
 impl ReviewApplication {
+    /// Run ticks for deferred file loads, animation, and toast deadlines.
+    pub fn needs_tick(&self, previous: std::time::Instant, now: std::time::Instant) -> bool {
+        self.event_bus
+            .get::<StatusComponent>(self.status_component)
+            .is_some_and(StatusComponent::is_animating)
+            || self
+                .event_bus
+                .get::<OverlayComponent>(self.overlay_component)
+                .is_some_and(|overlay| overlay.changes_between(previous, now))
+            || self
+                .event_bus
+                .get::<DiffComponent>(self.diff_component)
+                .is_some_and(DiffComponent::has_pending_load)
+    }
+
     /// Create the application and mount its components.
     pub fn new(theme: Theme, file_width: Option<u16>, repository_root: PathBuf) -> Self {
         let palette = theme.palette;
@@ -86,6 +108,7 @@ impl ReviewApplication {
         let locations = event_bus
             .mount(|events| LocationsComponent::new(events, repository_root, theme.palette));
         let status = event_bus.mount(StatusComponent::new);
+        let threads = event_bus.mount(ThreadsComponent::new);
         let overlay = event_bus.mount(|_| OverlayComponent::new(theme));
         let revision = event_bus.mount(|events| RevisionComponent::new(events, theme.palette));
         Self {
@@ -94,6 +117,7 @@ impl ReviewApplication {
             focused_component: files,
             hovered_component: None,
             files_component: files,
+            threads_component: threads,
             diff_component: diff,
             guide_component: guide,
             locations_component: locations,
@@ -101,7 +125,10 @@ impl ReviewApplication {
             overlay_component: overlay,
             revision_component: revision,
             file_width,
-            focus: Focus::Files,
+            focus: ReviewPane::Navigation,
+            navigation: ReviewNavigation::Files,
+            files_focus: ReviewPane::Navigation,
+            consumed_focus_request: 0,
             palette,
             width: 80,
             height: 24,
@@ -111,6 +138,7 @@ impl ReviewApplication {
                 ui_shortcuts::ShortcutSet::Application,
             ),
             file_pane_resize: None,
+            watched_source: None,
         }
     }
 
@@ -118,15 +146,15 @@ impl ReviewApplication {
     #[allow(clippy::needless_pass_by_value)]
     pub fn update(&mut self, message: UserInput) -> Vec<Action> {
         self.record_viewport_size(&message);
-        self.synchronize_component_areas();
         self.synchronize_input_routing();
+        self.synchronize_component_areas();
         let Ok(results) = self.dispatch_primary_message(&message) else {
             debug_assert!(false, "the mounted component must match its subscription");
             return Vec::new();
         };
-        self.synchronize_component_areas();
         self.synchronize_input_routing();
-        Self::collect_actions(results)
+        self.synchronize_component_areas();
+        self.collect_actions(results)
     }
 
     /// Publish one typed application event to its subscribed components.
@@ -138,9 +166,9 @@ impl ReviewApplication {
             debug_assert!(false, "the mounted component must match its subscription");
             return Vec::new();
         };
-        self.synchronize_component_areas();
         self.synchronize_input_routing();
-        Self::collect_actions(results)
+        self.synchronize_component_areas();
+        self.collect_actions(results)
     }
 
     /// Publish one erased application event to its subscribed components.
@@ -149,9 +177,9 @@ impl ReviewApplication {
             debug_assert!(false, "the mounted component must match its subscription");
             return Vec::new();
         };
-        self.synchronize_component_areas();
         self.synchronize_input_routing();
-        Self::collect_actions(results)
+        self.synchronize_component_areas();
+        self.collect_actions(results)
     }
 
     fn record_viewport_size(&mut self, message: &UserInput) {
@@ -166,6 +194,13 @@ impl ReviewApplication {
         message: &UserInput,
     ) -> Result<Vec<DispatchResult<Action>>, DispatchError> {
         match message {
+            UserInput::Paste(text) => self
+                .event_bus
+                .dispatch_input(
+                    &EventEnvelope::new(ui_events::TextPasted(text.clone())),
+                    self.modal_component.unwrap_or(self.focused_component),
+                )
+                .map(component_core::InputDispatch::into_results),
             UserInput::Key(key) => self.dispatch_key(*key),
             UserInput::Resize { width, height } => self.dispatch_resize(*width, *height),
             message => self.dispatch_pointer_input(message),
@@ -176,6 +211,9 @@ impl ReviewApplication {
         &mut self,
         message: &UserInput,
     ) -> Result<Vec<DispatchResult<Action>>, DispatchError> {
+        if let Some(mode) = self.navigation_tab_at(message) {
+            return self.event_bus.publish(ReviewNavigationChanged(mode));
+        }
         if let Some(results) = self.dispatch_file_pane_resize(message) {
             return Ok(results);
         }
@@ -211,11 +249,11 @@ impl ReviewApplication {
             kind,
             PointerInputKind::Click { .. } | PointerInputKind::DoubleClick
         ) {
-            if target == self.files_component {
-                self.set_focus(Focus::Files);
-                self.focused_component = self.files_component;
+            if target == self.files_component || target == self.threads_component {
+                self.set_focus(ReviewPane::Navigation);
+                self.focused_component = target;
             } else if target == self.diff_component {
-                self.set_focus(Focus::Diff);
+                self.set_focus(ReviewPane::Detail);
                 self.focused_component = self.diff_component;
             }
         }
@@ -238,6 +276,30 @@ impl ReviewApplication {
             .into_results())
     }
 
+    fn navigation_tab_at(&self, message: &UserInput) -> Option<ReviewNavigation> {
+        if self.modal_component.is_none()
+            && let UserInput::MouseClick { column, row: 1, .. } = message
+        {
+            let layout = PaneLayout::new(self.width, self.height, self.file_width);
+            let width = if layout.is_wide() {
+                layout.file_width
+            } else {
+                self.width
+            };
+            if (layout.is_wide() || self.focus == ReviewPane::Navigation)
+                && *column > 0
+                && *column < width.saturating_sub(1)
+            {
+                let unread = self
+                    .event_bus
+                    .get::<ThreadsComponent>(self.threads_component)
+                    .is_some_and(ThreadsComponent::has_unread_replies);
+                return NavigationTabs::mode_at(column - 1, unread);
+            }
+        }
+        None
+    }
+
     fn dispatch_resize(
         &mut self,
         width: u16,
@@ -246,11 +308,20 @@ impl ReviewApplication {
         self.event_bus.publish(ViewportChanged { width, height })
     }
 
-    fn collect_actions(component_results: Vec<DispatchResult<Action>>) -> Vec<Action> {
-        component_results
+    fn collect_actions(&mut self, component_results: Vec<DispatchResult<Action>>) -> Vec<Action> {
+        let mut actions: Vec<_> = component_results
             .into_iter()
             .flat_map(DispatchResult::into_actions)
-            .collect()
+            .collect();
+        let source = self
+            .event_bus
+            .get::<DiffComponent>(self.diff_component)
+            .and_then(DiffComponent::live_source_path);
+        if source != self.watched_source.as_deref() {
+            self.watched_source = source.map(std::path::Path::to_owned);
+            actions.push(Action::WatchSource(self.watched_source.clone()));
+        }
+        actions
     }
 
     /// Return a side-effect-free view of all mounted components.
@@ -267,6 +338,10 @@ impl ReviewApplication {
                 .event_bus
                 .get::<FilesComponent>(self.files_component)
                 .expect("the files component must stay mounted"),
+            threads: self
+                .event_bus
+                .get::<ThreadsComponent>(self.threads_component)
+                .expect("the threads component must stay mounted"),
             diff: self
                 .event_bus
                 .get::<DiffComponent>(self.diff_component)
@@ -313,8 +388,8 @@ impl ReviewApplication {
                 Some(Vec::new())
             }
             UserInput::MouseDrag { column, .. } if self.file_pane_resize.is_some() => {
-                let maximum = self.width.saturating_sub(16);
-                self.file_width = Some((*column).clamp(16, maximum));
+                self.file_width =
+                    Some(PaneLayout::new(self.width, self.height, Some(*column)).file_width);
                 if let Some(resize) = &mut self.file_pane_resize {
                     resize.moved = true;
                 }
@@ -324,7 +399,7 @@ impl ReviewApplication {
         }
     }
 
-    fn set_focus(&mut self, focus: Focus) {
+    fn set_focus(&mut self, focus: ReviewPane) {
         self.focus = focus;
     }
 
@@ -336,6 +411,7 @@ impl ReviewApplication {
     }
 
     fn synchronize_input_routing(&mut self) {
+        self.synchronize_navigation();
         let overlay_is_modal = self
             .event_bus
             .get::<OverlayComponent>(self.overlay_component)
@@ -360,13 +436,35 @@ impl ReviewApplication {
         if self.modal_component.is_none()
             && matches!(
                 self.focused_component,
-                target if target == self.diff_component || target == self.files_component
+                target if target == self.diff_component || target == self.files_component || target == self.threads_component
             )
         {
             self.focused_component = match self.focus {
-                Focus::Files => self.files_component,
-                Focus::Diff => self.diff_component,
+                ReviewPane::Navigation => self.navigation_component(),
+                ReviewPane::Detail => self.diff_component,
             };
+        }
+    }
+
+    fn synchronize_navigation(&mut self) {
+        let threads = self
+            .event_bus
+            .get::<ThreadsComponent>(self.threads_component)
+            .expect("the threads component must stay mounted");
+        let mode = threads.mode();
+        let (serial, pane) = threads.focus_request();
+        if self.navigation != mode {
+            if mode == ReviewNavigation::Threads {
+                self.files_focus = self.focus;
+                self.focus = ReviewPane::Navigation;
+            } else {
+                self.focus = self.files_focus;
+            }
+            self.navigation = mode;
+        }
+        if serial != self.consumed_focus_request {
+            self.consumed_focus_request = serial;
+            self.focus = pane;
         }
     }
 
@@ -381,8 +479,12 @@ impl ReviewApplication {
             width
         };
         let application_area = Rect::new(0, 0, width, height);
+        let navigation_component = self.navigation_component();
+        self.component_areas.retain(|component| {
+            component.target != self.files_component && component.target != self.threads_component
+        });
         if let Some(area) = files_area {
-            self.set_component_area(self.files_component, area, 0);
+            self.set_component_area(navigation_component, area, 0);
             let _ = self.event_bus.publish(FilesViewportChanged {
                 rows: layout.page_rows(),
             });
@@ -400,7 +502,11 @@ impl ReviewApplication {
         } else {
             Rect::new(0, 1, width, layout.body_height())
         };
-        self.set_component_area(self.diff_component, diff_pane_area, 1);
+        self.component_areas
+            .retain(|component| component.target != self.diff_component);
+        if layout.is_wide() || self.focus == ReviewPane::Detail {
+            self.set_component_area(self.diff_component, diff_pane_area, 1);
+        }
         let _ = self.event_bus.publish(DiffViewportChanged {
             width: diff_pane_area.width.saturating_sub(2),
             height: diff_pane_area.height.saturating_sub(2),
@@ -497,28 +603,43 @@ impl ReviewApplication {
             return Vec::new();
         };
         if command == ui_shortcuts::ShortcutCommand::Search(ui_shortcuts::SearchShortcut::Begin) {
-            self.set_focus(Focus::Diff);
-            self.focused_component = self.diff_component;
-            return self
-                .event_bus
-                .dispatch_input(event, self.diff_component)
-                .map(component_core::InputDispatch::into_results)
-                .unwrap_or_default();
+            return self.begin_search(event);
         }
         let ui_shortcuts::ShortcutCommand::Application(command) = command else {
             unreachable!("the application shortcut set is exact");
         };
+        self.run_application_command(command)
+    }
+
+    fn run_application_command(
+        &mut self,
+        command: ui_shortcuts::ApplicationShortcut,
+    ) -> Vec<DispatchResult<Action>> {
         let actions = match command {
-            ui_shortcuts::ApplicationShortcut::ChangeFocus => {
-                self.set_focus(match self.focus {
-                    Focus::Files => Focus::Diff,
-                    Focus::Diff => Focus::Files,
+            ui_shortcuts::ApplicationShortcut::OpenFiles => {
+                return self.change_navigation(ReviewNavigation::Files);
+            }
+            ui_shortcuts::ApplicationShortcut::OpenThreads => {
+                return self.change_navigation(ReviewNavigation::Threads);
+            }
+            ui_shortcuts::ApplicationShortcut::ToggleNavigation => {
+                return self.change_navigation(match self.navigation {
+                    ReviewNavigation::Files => ReviewNavigation::Threads,
+                    ReviewNavigation::Threads => ReviewNavigation::Files,
                 });
-                self.focused_component = match self.focus {
-                    Focus::Files => self.files_component,
-                    Focus::Diff => self.diff_component,
-                };
-                Vec::new()
+            }
+            ui_shortcuts::ApplicationShortcut::NewReplies => {
+                return self
+                    .event_bus
+                    .publish(ui_events::NewRepliesRequested)
+                    .unwrap_or_default();
+            }
+            ui_shortcuts::ApplicationShortcut::ChangeFocus => {
+                self.change_focus();
+                return self
+                    .event_bus
+                    .publish(ui_events::ReviewPaneFocusRequested(self.focus))
+                    .unwrap_or_default();
             }
             ui_shortcuts::ApplicationShortcut::Clear => {
                 return self
@@ -530,6 +651,48 @@ impl ReviewApplication {
             _ => unreachable!("the application shortcut set is exact"),
         };
         vec![actions.into_dispatch_result()]
+    }
+
+    fn change_navigation(&mut self, mode: ReviewNavigation) -> Vec<DispatchResult<Action>> {
+        self.event_bus
+            .publish(ReviewNavigationChanged(mode))
+            .unwrap_or_default()
+    }
+
+    fn begin_search(&mut self, event: &EventEnvelope) -> Vec<DispatchResult<Action>> {
+        if self.navigation == ReviewNavigation::Threads {
+            self.focus = ReviewPane::Navigation;
+            self.focused_component = self.threads_component;
+            return self
+                .event_bus
+                .dispatch_input(event, self.threads_component)
+                .map(component_core::InputDispatch::into_results)
+                .unwrap_or_default();
+        }
+        self.set_focus(ReviewPane::Detail);
+        self.focused_component = self.diff_component;
+        self.event_bus
+            .dispatch_input(event, self.diff_component)
+            .map(component_core::InputDispatch::into_results)
+            .unwrap_or_default()
+    }
+
+    fn change_focus(&mut self) {
+        self.focus = match self.focus {
+            ReviewPane::Navigation => ReviewPane::Detail,
+            ReviewPane::Detail => ReviewPane::Navigation,
+        };
+        self.focused_component = match self.focus {
+            ReviewPane::Navigation => self.navigation_component(),
+            ReviewPane::Detail => self.diff_component,
+        };
+    }
+
+    fn navigation_component(&self) -> ComponentTarget {
+        match self.navigation {
+            ReviewNavigation::Files => self.files_component,
+            ReviewNavigation::Threads => self.threads_component,
+        }
     }
 
     #[cfg(test)]
@@ -557,7 +720,10 @@ fn pointer_position(message: &UserInput) -> Option<(u16, u16)> {
         | UserInput::MouseDoubleClick { column, row }
         | UserInput::MouseRightClick { column, row }
         | UserInput::MouseDrag { column, row } => Some((*column, *row)),
-        UserInput::MouseRelease | UserInput::Resize { .. } | UserInput::Key(_) => None,
+        UserInput::MouseRelease
+        | UserInput::Resize { .. }
+        | UserInput::Key(_)
+        | UserInput::Paste(_) => None,
     }
 }
 
@@ -572,7 +738,7 @@ fn pointer_kind(message: &UserInput) -> Option<PointerInputKind> {
         UserInput::MouseRightClick { .. } => Some(PointerInputKind::RightClick),
         UserInput::MouseDrag { .. } => Some(PointerInputKind::Drag),
         UserInput::MouseRelease => Some(PointerInputKind::Release),
-        UserInput::Resize { .. } | UserInput::Key(_) => None,
+        UserInput::Resize { .. } | UserInput::Key(_) | UserInput::Paste(_) => None,
     }
 }
 

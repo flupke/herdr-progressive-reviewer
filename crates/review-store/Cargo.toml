@@ -6,6 +6,8 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+fs2.workspace = true
+review-threads = { path = "../review-threads" }
 base64.workspace = true
 getrandom.workspace = true
 libc.workspace = true

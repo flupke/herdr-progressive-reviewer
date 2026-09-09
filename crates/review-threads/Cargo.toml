@@ -1,0 +1,18 @@
+[package]
+name = "review-threads"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+review-guide = { path = "../review-guide" }
+review-types = { path = "../review-types" }
+serde.workspace = true
+uuid.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

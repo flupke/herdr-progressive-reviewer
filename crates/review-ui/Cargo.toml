@@ -14,6 +14,7 @@ locations-component = { path = "../components/locations" }
 overlay-component = { path = "../components/overlay" }
 revision-component = { path = "../components/revision" }
 status-component = { path = "../components/status" }
+threads-component = { path = "../components/threads" }
 eyre.workspace = true
 ratatui = { workspace = true, features = ["crossterm"] }
 ratatui-markdown.workspace = true
@@ -34,6 +35,7 @@ unicode-segmentation.workspace = true
 unicode-width.workspace = true
 
 [dev-dependencies]
+review-threads = { path = "../review-threads" }
 tempfile.workspace = true
 
 [lints]

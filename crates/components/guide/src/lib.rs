@@ -1,8 +1,7 @@
 //! Review-guide state and input handling.
 
 use component_core::{Component, ComponentSubscriptions, EventPublisher, InputScope};
-use guide_rendering::{GuideLayout, GuideOverlay};
-use ratatui::buffer::Buffer;
+use guide_rendering::GuideLayout;
 use ratatui::style::Color;
 use review_guide::{GuideItem, GuideScope, ReviewCheckpoint};
 use ui_actions::Action;
@@ -64,13 +63,6 @@ impl GuideComponent {
             guide_color,
             |target| guide_rendering::target_rows(viewport, target),
         )
-    }
-
-    /// Draw the positioned guide layer after the diff surface.
-    pub fn render(&self, overlay: &GuideOverlay, buffer: &mut Buffer) {
-        if !self.items.is_empty() {
-            overlay.render(buffer);
-        }
     }
 
     fn viewports_changed(&mut self, event: &DisplayedDiffViewportsChanged) {

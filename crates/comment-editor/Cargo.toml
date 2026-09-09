@@ -1,0 +1,18 @@
+[package]
+name = "comment-editor"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+crossterm.workspace = true
+edtui.workspace = true
+ratatui.workspace = true
+ui-shortcuts = { path = "../ui-shortcuts" }
+ui-theme = { path = "../ui-theme" }
+unicode-segmentation.workspace = true
+unicode-width.workspace = true
+
+[lints]
+workspace = true

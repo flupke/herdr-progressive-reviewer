@@ -1,10 +1,7 @@
+use markdown_rendering::MarkdownRenderer;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::Style;
-use ratatui::text::{Line, Span};
 use ratatui::widgets::{Clear, Paragraph, Widget};
-use ratatui_markdown::markdown::{MarkdownRenderer, RenderHooks};
-use ratatui_markdown::theme::ThemeConfig;
 use syntax_highlighting::SyntaxHighlighter;
 use ui_shortcuts::Key;
 use ui_theme::Palette;
@@ -65,38 +62,10 @@ impl HoverOverlay {
         let block = popup_block("Documentation · Esc close", palette);
         let inner = block.inner(popup);
         block.render(popup, buffer);
-        let theme = ThemeConfig::default()
-            .with_text_color(palette.text)
-            .with_muted_text_color(palette.dim)
-            .with_primary_color(palette.focus)
-            .with_secondary_color(palette.focus)
-            .with_info_color(palette.focus)
-            .with_accent_yellow(palette.warning);
-        let renderer = MarkdownRenderer::new(usize::from(inner.width))
-            .with_render_hooks(Box::new(MarkdownCode(self.highlighter.clone())));
-        Paragraph::new(renderer.render(&renderer.parse(markdown), &theme))
+        let lines =
+            MarkdownRenderer::new(self.highlighter.clone()).render(markdown, inner.width, palette);
+        Paragraph::new(lines)
             .scroll((self.scroll, 0))
             .render(inner, buffer);
-    }
-}
-
-struct MarkdownCode(SyntaxHighlighter);
-
-impl RenderHooks for MarkdownCode {
-    fn render_code_block(&self, language: &str, content: &str) -> Option<Vec<Line<'static>>> {
-        Some(
-            self.0
-                .highlight_snippet(language, content)
-                .into_iter()
-                .map(|tokens| {
-                    Line::from(
-                        tokens
-                            .into_iter()
-                            .map(|token| Span::styled(token.text, Style::default().fg(token.color)))
-                            .collect::<Vec<_>>(),
-                    )
-                })
-                .collect(),
-        )
     }
 }
