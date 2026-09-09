@@ -27,6 +27,7 @@ members = [
     "crates/review-ui",
     "crates/reviewer",
     "crates/toasts",
+    "crates/text-search",
 ]
 resolver = "3"
 
@@ -54,6 +55,9 @@ lsp-types = "0.97"
 notify = "8.2"
 ratatui = { version = "0.29", default-features = false }
 ratatui-markdown = { version = "=0.3.6", default-features = false, features = ["markdown"] }
+grep-matcher = "0.1"
+grep-regex = "0.1"
+grep-searcher = "0.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.10"

@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+text-search = { path = "../../text-search" }
 component-core = { path = "../../component-core" }
 guide-rendering = { path = "../../guide-rendering" }
 ratatui.workspace = true

@@ -127,6 +127,7 @@ struct RuntimeEventLoop<'a> {
     app: &'a mut ReviewApplication,
     commands: &'a Sender<WorkerCommand>,
     documents: &'a Sender<document::Command>,
+    search: &'a text_search::Worker,
     events: EventReceiver<EventEnvelope>,
     lsp: &'a review_lsp::Worker,
     repository_root: &'a Path,
@@ -143,12 +144,14 @@ enum ControlEventOutcome {
 struct RuntimeActionDispatcher<'a> {
     commands: &'a Sender<WorkerCommand>,
     documents: &'a Sender<document::Command>,
+    search: &'a text_search::Worker,
     settings: &'a ReviewStore,
     repository_root: &'a Path,
     lsp: &'a review_lsp::Worker,
 }
 
 struct BackgroundWorkers {
+    search: text_search::Worker,
     commands: Sender<WorkerCommand>,
     documents: Sender<document::Command>,
     threads: [JoinHandle<()>; 2],
@@ -156,6 +159,7 @@ struct BackgroundWorkers {
 
 impl BackgroundWorkers {
     fn stop(self) {
+        drop(self.search);
         let _ = self.commands.send(WorkerCommand::Quit);
         let _ = self.documents.send(document::Command::Quit);
         for worker in self.threads {
@@ -286,6 +290,7 @@ impl Runtime {
             app: &mut app,
             commands,
             documents: &workers.documents,
+            search: &workers.search,
             events,
             lsp: &lsp,
             repository_root: &root,
@@ -422,9 +427,14 @@ impl Runtime {
         let messages = ApplicationMessageSender(events.clone());
         let handle = thread::spawn(move || {
             worker.run(&command_receiver, &messages);
-            let _ = events.send(EventEnvelope::new(WorkerStopped));
+            let _ = messages.send(WorkerStopped);
+        });
+        let search_events = events;
+        let search = text_search::Worker::start(move |results| {
+            let _ = search_events.send(EventEnvelope::new(results));
         });
         Ok(BackgroundWorkers {
+            search,
             commands: command_sender,
             documents,
             threads: [handle, document_thread],
@@ -445,6 +455,10 @@ impl RuntimeActionDispatcher<'_> {
     fn dispatch(&self, action: Action) -> eyre::Result<bool> {
         let action = match action {
             Action::Quit => return Ok(true),
+            Action::Search(request) => {
+                self.search.submit(request);
+                return Ok(false);
+            }
             action @ (Action::LoadDiff { .. }
             | Action::LoadDiffs { .. }
             | Action::LoadSource { .. }) => {
@@ -487,7 +501,8 @@ impl RuntimeActionDispatcher<'_> {
             action @ (Action::SetReviewed { .. }
             | Action::Output { .. }
             | Action::GenerateReviewGuide { .. }) => Self::output_worker_command(action),
-            Action::LoadDiff { .. }
+            Action::Search(_)
+            | Action::LoadDiff { .. }
             | Action::LoadDiffs { .. }
             | Action::LoadSource { .. }
             | Action::Quit
@@ -592,6 +607,7 @@ impl RuntimeEventLoop<'_> {
         RuntimeActionDispatcher {
             commands: self.commands,
             documents: self.documents,
+            search: self.search,
             settings: self.settings,
             repository_root: self.repository_root,
             lsp: self.lsp,

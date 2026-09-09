@@ -982,7 +982,9 @@ fn dispatch_reports_that_quit_stops_the_runtime() {
     let lsp = review_lsp::Worker::start(repository.path().to_owned());
     let (commands, _command_receiver) = mpsc::channel();
 
+    let search = text_search::Worker::start(|_| {});
     let dispatcher = RuntimeActionDispatcher {
+        search: &search,
         commands: &commands,
         documents: &mpsc::channel().0,
         settings: &settings,
@@ -1001,7 +1003,9 @@ fn dispatch_all_executes_earlier_actions_before_quit() {
     let lsp = review_lsp::Worker::start(repository.path().to_owned());
     let (commands, _command_receiver) = mpsc::channel();
 
+    let search = text_search::Worker::start(|_| {});
     let dispatcher = RuntimeActionDispatcher {
+        search: &search,
         commands: &commands,
         documents: &mpsc::channel().0,
         settings: &settings,
@@ -1060,6 +1064,7 @@ fn event_loop_routes_external_events_from_the_central_channel() {
         .unwrap();
 
     RuntimeEventLoop {
+        search: &text_search::Worker::start(|_| {}),
         terminal: &mut terminal,
         app: &mut app,
         commands: &commands,
@@ -1263,7 +1268,9 @@ fn document_requests_complete_while_repository_work_is_pending() {
     let (commands, command_receiver) = mpsc::channel();
     commands.send(WorkerCommand::Poll).unwrap();
     let lsp = review_lsp::Worker::start(repository.root().to_owned());
+    let search = text_search::Worker::start(|_| {});
     let dispatcher = RuntimeActionDispatcher {
+        search: &search,
         commands: &commands,
         documents: &documents,
         settings: &settings,

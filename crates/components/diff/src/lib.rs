@@ -34,7 +34,7 @@ mod render;
 
 use document::LoadedDocument;
 use history::{LocationHistory, LocationHistoryDirection};
-use presentation::{DiffPresentation, PresentedRow, SearchDirection, SearchMatch, matching_ranges};
+use presentation::{DiffPresentation, PresentedRow, SearchDirection, SearchMatch};
 use render::{DiffPointerViewport, DiffRenderer, DiffViewport, TAB_DISPLAY_WIDTH};
 use std::ops::RangeInclusive;
 pub use syntax_highlighting::SyntaxHighlighter;
@@ -99,6 +99,7 @@ pub struct DiffComponent {
     pending_center_path: Option<String>,
     pending_guide_jump: Option<review_guide::GuideTarget>,
     search: Option<SearchState>,
+    next_search_id: u64,
     selection: Option<SelectionState>,
     viewport_width: u16,
     viewport_height: u16,
@@ -126,6 +127,9 @@ struct SearchState {
     editing: bool,
     waiting_for_repository: bool,
     matches: Vec<RepositorySearchLocation>,
+    pending: Option<text_search::Request>,
+    matched: Option<text_search::Request>,
+    navigate_on_results: bool,
 }
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -136,25 +140,16 @@ struct RepositorySearchLocation {
 }
 
 impl SearchState {
-    fn replace_matches(&mut self, documents: &[LoadedDocument]) {
-        if self.query.is_empty() {
-            self.matches.clear();
-            return;
-        }
-        self.matches = documents
-            .iter()
-            .enumerate()
-            .flat_map(|(document_index, document)| {
-                document
-                    .document
-                    .diff
-                    .matching_positions(&self.query)
-                    .into_iter()
-                    .map(move |position| RepositorySearchLocation {
-                        document_index,
-                        path: document.path.clone(),
-                        position,
-                    })
+    fn replace_matches(&mut self, matches: Vec<text_search::Match>, documents: &[LoadedDocument]) {
+        self.matches = matches
+            .into_iter()
+            .filter_map(|found| {
+                let document = documents.get(found.document_index)?;
+                Some(RepositorySearchLocation {
+                    document_index: found.document_index,
+                    path: document.path.clone(),
+                    position: found.position,
+                })
             })
             .collect();
     }
@@ -215,6 +210,7 @@ impl DiffComponent {
             pending_center_path: None,
             pending_guide_jump: None,
             search: None,
+            next_search_id: 0,
             selection: None,
             viewport_width: 80,
             viewport_height: 24,
@@ -387,19 +383,21 @@ impl DiffComponent {
     }
 
     #[allow(clippy::trivially_copy_pass_by_ref)]
-    fn clear_input(&mut self, _event: &DiffInputClearRequested) {
+    fn clear_input(&mut self, _event: &DiffInputClearRequested) -> Vec<Action> {
+        let cancel = self
+            .search
+            .as_ref()
+            .is_some_and(|search| search.pending.is_some());
         self.search = None;
         self.selection = None;
         self.publish_decorations();
         self.publish_search_status();
+        cancel.then_some(Action::Search(None)).into_iter().collect()
     }
 
     fn keyboard_input(&mut self, input: DiffKeyboardInput) -> Vec<Action> {
         match input {
-            DiffKeyboardInput::SearchKey(key) => {
-                self.edit_search(key);
-                Vec::new()
-            }
+            DiffKeyboardInput::SearchKey(key) => self.edit_search(key),
             DiffKeyboardInput::Shortcut(command) => self.run_shortcut(command),
         }
     }
@@ -816,58 +814,65 @@ impl DiffComponent {
     }
 
     fn search(&mut self, command: SearchShortcut) -> Vec<Action> {
-        let mut actions = Vec::new();
-        match command {
-            SearchShortcut::Begin => {
-                let origin = self.search_cursor_location();
-                self.selection = None;
-                self.search = Some(SearchState {
-                    query: String::new(),
-                    origin,
-                    editing: true,
-                    waiting_for_repository: false,
-                    matches: Vec::new(),
-                });
-                self.refresh_search_matches();
-                if let Some(action) = self.load_all_diffs_for_search() {
-                    self.search
-                        .as_mut()
-                        .expect("search was just created")
-                        .waiting_for_repository = true;
-                    actions.push(action);
-                }
+        let actions = match command {
+            SearchShortcut::Begin => self.begin_search(String::new(), true),
+            SearchShortcut::WordUnderCursor => self
+                .word_under_cursor()
+                .map(|word| self.begin_search(word, false))
+                .unwrap_or_default(),
+            SearchShortcut::NextMatch => {
+                self.repeat_search(SearchDirection::Forward);
+                Vec::new()
             }
-            SearchShortcut::WordUnderCursor => {
-                if let Some(word) = self.word_under_cursor() {
-                    let origin = self.search_cursor_location();
-                    self.selection = None;
-                    self.search = Some(SearchState {
-                        query: word,
-                        origin,
-                        editing: false,
-                        waiting_for_repository: false,
-                        matches: Vec::new(),
-                    });
-                    self.refresh_search_matches();
-                    self.repeat_search(SearchDirection::Forward);
-                    if let Some(action) = self.load_all_diffs_for_search() {
-                        self.search
-                            .as_mut()
-                            .expect("search was just created")
-                            .waiting_for_repository = true;
-                        actions.push(action);
-                    }
-                }
+            SearchShortcut::PreviousMatch => {
+                self.repeat_search(SearchDirection::Backward);
+                Vec::new()
             }
-            SearchShortcut::NextMatch => self.repeat_search(SearchDirection::Forward),
-            SearchShortcut::PreviousMatch => self.repeat_search(SearchDirection::Backward),
-        }
+        };
         self.publish_decorations();
         self.publish_search_status();
         actions
     }
 
-    fn edit_search(&mut self, key: Key) {
+    fn begin_search(&mut self, query: String, editing: bool) -> Vec<Action> {
+        let mut actions = Vec::new();
+        if self
+            .search
+            .as_ref()
+            .is_some_and(|search| search.pending.is_some())
+        {
+            actions.push(Action::Search(None));
+        }
+        self.selection = None;
+        self.search = Some(SearchState {
+            query,
+            origin: self.search_cursor_location(),
+            editing,
+            waiting_for_repository: false,
+            matches: Vec::new(),
+            pending: None,
+            matched: None,
+            navigate_on_results: false,
+        });
+        actions.extend(self.refresh_search_matches());
+        self.search
+            .as_mut()
+            .expect("search was just created")
+            .navigate_on_results = true;
+        if !editing {
+            self.repeat_search(SearchDirection::Forward);
+        }
+        if let Some(action) = self.load_all_diffs_for_search() {
+            self.search
+                .as_mut()
+                .expect("search was just created")
+                .waiting_for_repository = true;
+            actions.push(action);
+        }
+        actions
+    }
+
+    fn edit_search(&mut self, key: Key) -> Vec<Action> {
         match key {
             Key::Char(character) => {
                 if let Some(search) = &mut self.search {
@@ -884,34 +889,39 @@ impl DiffComponent {
                     search.editing = false;
                 }
                 self.publish_search_status();
-                return;
+                return Vec::new();
             }
             Key::Escape => {
+                let cancel = self
+                    .search
+                    .as_ref()
+                    .is_some_and(|search| search.pending.is_some());
                 let origin = self.search.take().map(|search| search.origin);
                 if let Some(origin) = origin {
                     self.jump_to_search_location(&origin);
                 }
                 self.publish_decorations();
                 self.publish_search_status();
-                return;
+                return cancel.then_some(Action::Search(None)).into_iter().collect();
             }
-            _ => return,
+            _ => return Vec::new(),
         }
-        self.refresh_search_matches();
+        let action = self.refresh_search_matches();
         self.find_from_origin();
         self.publish_decorations();
         self.publish_search_status();
+        action.into_iter().collect()
     }
 
     fn find_from_origin(&mut self) {
-        let Some(search) = self.search.clone() else {
-            return;
-        };
-        if search.query.is_empty() {
-            self.jump_to_search_location(&search.origin);
-            return;
-        }
-        if let Some(target) = search.first_after(&search.origin).cloned() {
+        let target = self.search.as_ref().and_then(|search| {
+            if search.query.is_empty() {
+                Some(search.origin.clone())
+            } else {
+                search.first_after(&search.origin).cloned()
+            }
+        });
+        if let Some(target) = target {
             self.jump_to_search_location(&target);
         }
     }
@@ -948,10 +958,83 @@ impl DiffComponent {
         })
     }
 
-    fn refresh_search_matches(&mut self) {
-        if let Some(search) = &mut self.search {
-            search.replace_matches(&self.documents);
+    fn refresh_search_matches(&mut self) -> Option<Action> {
+        let search = self.search.as_mut()?;
+        let documents = if search.query.is_empty() {
+            Vec::new()
+        } else {
+            self.documents
+                .iter()
+                .map(|document| document.document.diff.search_document())
+                .collect::<Vec<_>>()
+        };
+        if search
+            .pending
+            .as_ref()
+            .or(search.matched.as_ref())
+            .is_some_and(|request| {
+                request.query == search.query && request.same_documents(&documents)
+            })
+        {
+            return None;
         }
+        let cancel = search.pending.take().is_some();
+        search.matched = None;
+        search.matches.clear();
+        if search.query.is_empty() {
+            return cancel.then_some(Action::Search(None));
+        }
+        self.next_search_id = self.next_search_id.wrapping_add(1);
+        let request = text_search::Request {
+            id: self.next_search_id,
+            query: search.query.clone(),
+            documents,
+        };
+        if request.is_large() {
+            search.navigate_on_results = search.editing || search.waiting_for_repository;
+            search.pending = Some(request.clone());
+            Some(Action::Search(Some(request)))
+        } else {
+            search.replace_matches(request.search().matches, &self.documents);
+            search.matched = Some(request);
+            cancel.then_some(Action::Search(None))
+        }
+    }
+
+    fn search_completed(&mut self, results: &text_search::Results) -> Vec<Action> {
+        let Some(request) = self
+            .search
+            .as_ref()
+            .and_then(|search| search.pending.as_ref())
+            .filter(|request| request.id == results.id)
+        else {
+            return Vec::new();
+        };
+        let documents = self
+            .documents
+            .iter()
+            .map(|document| document.document.diff.search_document())
+            .collect::<Vec<_>>();
+        if !request.same_documents(&documents) {
+            let navigate = self
+                .search
+                .as_ref()
+                .is_some_and(|search| search.navigate_on_results);
+            let action = self.refresh_search_matches();
+            if let Some(search) = &mut self.search {
+                search.navigate_on_results = navigate;
+            }
+            return action.into_iter().collect();
+        }
+        let search = self.search.as_mut().expect("matching pending search");
+        search.matched = search.pending.take();
+        search.replace_matches(results.matches.clone(), &self.documents);
+        if search.navigate_on_results {
+            self.find_from_origin();
+        }
+        self.publish_decorations();
+        self.publish_search_status();
+        Vec::new()
     }
 
     fn jump_to_search_location(&mut self, location: &RepositorySearchLocation) {
@@ -1137,7 +1220,7 @@ impl DiffComponent {
             .collect();
         self.review_checkpoint = Some(event.review_checkpoint.clone());
         self.pending_load_path = None;
-        self.refresh_search_matches();
+        let search_action = self.refresh_search_matches();
         self.publish_viewports();
         self.publish_decorations();
         self.publish_current_location();
@@ -1150,7 +1233,9 @@ impl DiffComponent {
             })
             && let Some(pending) = self.pending_history_navigation.take()
         {
-            return self.restore_location(&pending.target);
+            let mut actions = self.restore_location(&pending.target);
+            actions.extend(search_action);
+            return actions;
         }
         if self.search.is_some() {
             let action = self.load_all_diffs_for_search();
@@ -1160,9 +1245,12 @@ impl DiffComponent {
                     .expect("active search is still present")
                     .waiting_for_repository = true;
             }
-            action.into_iter().collect()
+            action.into_iter().chain(search_action).collect()
         } else {
-            self.selected_load_action().into_iter().collect()
+            self.selected_load_action()
+                .into_iter()
+                .chain(search_action)
+                .collect()
         }
     }
 
@@ -1251,7 +1339,7 @@ impl DiffComponent {
         if !reload_after_current_load {
             self.finish_pending_guide_jump(&event.path);
         }
-        self.refresh_search_matches();
+        let search_action = self.refresh_search_matches();
         if self
             .search
             .as_ref()
@@ -1265,9 +1353,13 @@ impl DiffComponent {
         self.publish_current_location();
         self.publish_search_status();
         if reload_after_current_load && self.selected_path.as_deref() == Some(event.path.as_str()) {
-            return self.selected_load_action().into_iter().collect();
+            return self
+                .selected_load_action()
+                .into_iter()
+                .chain(search_action)
+                .collect();
         }
-        Vec::new()
+        search_action.into_iter().collect()
     }
 
     fn content_load_failed(&mut self, event: &DiffContentLoadFailed) -> Vec<Action> {
@@ -1830,6 +1922,7 @@ impl Component<Action> for DiffComponent {
         subscriptions.subscribe(Self::file_selected);
         subscriptions.subscribe(Self::animation_tick);
         subscriptions.subscribe(Self::content_loaded);
+        subscriptions.subscribe(Self::search_completed);
         subscriptions.subscribe(Self::content_load_failed);
         subscriptions.subscribe(Self::reviewable_files_changed);
         subscriptions.subscribe(Self::review_state_saved);

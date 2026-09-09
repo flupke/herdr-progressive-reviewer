@@ -1,7 +1,9 @@
 //! Visible rows derived from a parsed unified diff.
 
-use std::ops::Range;
+use std::cell::OnceCell;
 use std::ops::RangeInclusive;
+use std::sync::Arc;
+pub(super) use text_search::Position as SearchMatch;
 
 use review_repository::diff::DiffRow;
 use review_repository::excerpt::{DiffExcerpt, ExcerptError};
@@ -20,12 +22,6 @@ pub(super) enum PresentedRow {
 pub(super) enum SearchDirection {
     Forward,
     Backward,
-}
-
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub(super) struct SearchMatch {
-    pub row: usize,
-    pub column: usize,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -50,6 +46,7 @@ pub(super) struct DiffPresentation {
     whole_file: Option<WholeFile>,
     file_rows: Option<Vec<PresentedRow>>,
     view: PresentationView,
+    search_document: OnceCell<Arc<text_search::Document>>,
 }
 
 struct PresentationRows<'a> {
@@ -91,6 +88,7 @@ impl DiffPresentation {
             whole_file,
             file_rows,
             view: PresentationView::Diff,
+            search_document: OnceCell::new(),
         }
     }
 
@@ -193,6 +191,7 @@ impl DiffPresentation {
         let Some(rows) = self.file_rows.take() else {
             return false;
         };
+        self.search_document.take();
         self.view = PresentationView::File {
             diff_rows: std::mem::replace(&mut self.rows, rows),
         };
@@ -203,6 +202,7 @@ impl DiffPresentation {
         let PresentationView::File { diff_rows } = std::mem::take(&mut self.view) else {
             return false;
         };
+        self.search_document.take();
         self.file_rows = Some(std::mem::replace(&mut self.rows, diff_rows));
         true
     }
@@ -404,38 +404,28 @@ impl DiffPresentation {
         None
     }
 
-    pub(super) fn matching_positions(&self, query: &str) -> Vec<SearchMatch> {
-        self.rows
-            .iter()
-            .enumerate()
-            .flat_map(|(row, _)| {
-                self.row_matching_ranges(row, query)
-                    .unwrap_or_default()
-                    .into_iter()
-                    .map(move |range| SearchMatch {
-                        row,
-                        column: range.start,
-                    })
-            })
-            .collect()
-    }
-
-    fn row_matching_ranges(&self, index: usize, query: &str) -> Option<Vec<Range<usize>>> {
-        let tokens = match &self.rows[index] {
-            PresentedRow::Diff { tokens, .. } | PresentedRow::Expanded { tokens, .. } => tokens,
-            PresentedRow::Gap { .. } => return None,
-        };
-        let text = tokens
-            .iter()
-            .map(|token| token.text.as_str())
-            .collect::<String>();
-        Some(matching_ranges(&text, query))
+    pub(super) fn search_document(&self) -> Arc<text_search::Document> {
+        Arc::clone(self.search_document.get_or_init(|| {
+            Arc::new(text_search::Document::from_rows(self.rows.iter().map(
+                |row| {
+                    match row {
+                        PresentedRow::Diff { tokens, .. }
+                        | PresentedRow::Expanded { tokens, .. } => tokens
+                            .iter()
+                            .map(|token| token.text.as_str())
+                            .collect::<String>(),
+                        PresentedRow::Gap { .. } => String::new(),
+                    }
+                },
+            )))
+        }))
     }
 
     pub(super) fn expand(&mut self, index: usize) -> bool {
         let Some(PresentedRow::Gap { start, lines }) = self.rows.get(index).cloned() else {
             return false;
         };
+        self.search_document.take();
         self.rows.splice(
             index..=index,
             lines
@@ -484,6 +474,7 @@ impl DiffPresentation {
                 });
             }
         }
+        self.search_document.take();
         self.rows = rows;
         true
     }
@@ -619,50 +610,4 @@ impl<'a> PresentationRows<'a> {
             self.rows.push(PresentedRow::Gap { start, lines });
         }
     }
-}
-
-pub(super) fn matching_ranges(text: &str, query: &str) -> Vec<Range<usize>> {
-    if query.is_empty() {
-        return Vec::new();
-    }
-    if query.chars().any(char::is_uppercase) {
-        return text
-            .match_indices(query)
-            .map(|(start, found)| start..start + found.len())
-            .collect();
-    }
-    if text.is_ascii() && query.is_ascii() {
-        let mut matches = Vec::new();
-        let mut start = 0;
-        while start + query.len() <= text.len() {
-            if text.as_bytes()[start..start + query.len()].eq_ignore_ascii_case(query.as_bytes()) {
-                matches.push(start..start + query.len());
-                start += query.len();
-            } else {
-                start += 1;
-            }
-        }
-        return matches;
-    }
-
-    let query = query.to_lowercase();
-    let boundaries = text
-        .char_indices()
-        .map(|(index, _)| index)
-        .chain(std::iter::once(text.len()))
-        .collect::<Vec<_>>();
-    let mut matches = Vec::new();
-    let mut start = 0;
-    // ponytail: this is quadratic for non-ASCII text; replace it if long Unicode lines stutter.
-    while start + 1 < boundaries.len() {
-        let Some(end) = (start + 1..boundaries.len())
-            .find(|end| text[boundaries[start]..boundaries[*end]].to_lowercase() == query)
-        else {
-            start += 1;
-            continue;
-        };
-        matches.push(boundaries[start]..boundaries[end]);
-        start = end;
-    }
-    matches
 }

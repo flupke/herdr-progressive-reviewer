@@ -14,7 +14,7 @@ use unicode_width::UnicodeWidthStr;
 
 use ui_theme::Palette;
 
-use crate::{LoadedDocument, PresentedRow, Token, matching_ranges};
+use crate::{LoadedDocument, PresentedRow, Token};
 
 pub(super) const TAB_DISPLAY_WIDTH: usize = 4;
 const DIFF_CONTROLS_TITLE: &str = "[←→] [→←] [👁 ]";
@@ -29,6 +29,7 @@ pub(super) struct DiffRenderer<'a> {
     focused: bool,
     reviewable: bool,
     search_query: Option<&'a str>,
+    search_pattern: text_search::Query,
     selection: Option<RangeInclusive<usize>>,
 }
 
@@ -49,6 +50,7 @@ impl<'a> DiffRenderer<'a> {
             focused,
             reviewable,
             search_query,
+            search_pattern: text_search::Query::new(search_query.unwrap_or_default()),
             selection,
         }
     }
@@ -540,7 +542,6 @@ impl DiffRenderer<'_> {
         source_line: Option<u32>,
         source_location: Option<&SourceLocation>,
     ) -> Vec<Span<'static>> {
-        let query = self.search_query.unwrap_or_default();
         let text = tokens
             .iter()
             .map(|token| token.text.as_str())
@@ -548,7 +549,7 @@ impl DiffRenderer<'_> {
         let source_selection = source_line
             .zip(source_location)
             .and_then(|(line, location)| location.range_in_line(line, text.len()));
-        let matches = matching_ranges(&text, query);
+        let matches = self.search_pattern.ranges(&text).collect::<Vec<_>>();
         let tab_display = " ".repeat(TAB_DISPLAY_WIDTH);
         let mut spans = Vec::new();
         let mut token_start = 0;
