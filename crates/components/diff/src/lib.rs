@@ -29,6 +29,7 @@ use ui_shortcuts::{
     ShortcutCommand, ShortcutMatcher, ShortcutSet, SourceShortcut,
 };
 
+mod context;
 mod document;
 mod history;
 mod presentation;
@@ -452,16 +453,13 @@ impl DiffComponent {
         let Some(position) = position else {
             return;
         };
-        self.position_cursor(position);
         self.selection = None;
-        if self
-            .displayed_document_mut()
-            .is_some_and(|document| document.document.diff.expand(document.document.cursor))
-        {
+        if self.expand_context(position.row) {
             self.drag_anchor = None;
-            self.keep_cursor_visible();
+            self.publish_current_location();
             return;
         }
+        self.position_cursor(position);
         self.drag_anchor = Some(position.row);
     }
 
@@ -479,23 +477,25 @@ impl DiffComponent {
     }
 
     fn activate_diff_control(&mut self, control: DiffControl) {
-        if let Some(document) = self.selected_document_mut() {
-            match control {
-                DiffControl::ExpandAll => {
-                    let _ = document.document.diff.expand_all();
+        match control {
+            DiffControl::ExpandAll => {
+                self.change_context(DiffPresentation::expand_all);
+            }
+            DiffControl::ContractAll => {
+                self.change_context(DiffPresentation::contract_all);
+            }
+            DiffControl::ShowFile | DiffControl::CloseFile => {
+                if let Some(document) = self.selected_document_mut() {
+                    if control == DiffControl::ShowFile {
+                        let _ = document.document.diff.show_file();
+                    } else {
+                        let _ = document.document.diff.show_diff();
+                    }
                 }
-                DiffControl::ContractAll => {
-                    let _ = document.document.diff.contract_all();
-                }
-                DiffControl::ShowFile => {
-                    let _ = document.document.diff.show_file();
-                }
-                DiffControl::CloseFile => {
-                    let _ = document.document.diff.show_diff();
-                }
+                self.keep_cursor_visible();
             }
         }
-        self.keep_cursor_visible();
+        self.publish_current_location();
     }
 
     fn position_cursor(&mut self, position: DiffPointerPosition) {
@@ -1070,17 +1070,16 @@ impl DiffComponent {
     }
 
     fn source(&mut self, command: SourceShortcut) -> Vec<Action> {
-        let Some(document) = self.selected_document_mut() else {
+        let Some(document) = self.selected_document() else {
             return Vec::new();
         };
-        if command == SourceShortcut::ExpandOrMoveRight
-            && document.document.diff.expand(document.document.cursor)
-        {
-            self.keep_cursor_visible();
+        let row = document.document.cursor;
+        if command == SourceShortcut::ExpandOrMoveRight && self.expand_context(row) {
             self.publish_viewports();
             self.publish_current_location();
             return Vec::new();
         }
+        let document = self.selected_document_mut().expect("the document exists");
         let source_line = document.document.diff.source_text(document.document.cursor);
         let Some(source_line) = source_line.as_deref() else {
             return Vec::new();

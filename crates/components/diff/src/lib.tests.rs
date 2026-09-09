@@ -18,6 +18,9 @@ use super::*;
 #[path = "highlighting.tests.rs"]
 mod highlighting;
 
+#[path = "expansion.tests.rs"]
+mod expansion;
+
 #[test]
 fn loaded_content_publishes_its_guide_viewport() {
     let (mut registry, reviewable_files, _) = registry_with_observer();
@@ -847,7 +850,7 @@ fn repository_refresh_preserves_loaded_content_and_cursor_output() {
 }
 
 #[test]
-fn clicking_an_unmodified_section_expands_it() {
+fn clicking_an_unmodified_section_keeps_the_cursor_hunk_in_place() {
     let (mut registry, reviewable_files, diff_target) = registry_with_observer();
     reviewable_files.replace(["src/lib.rs".to_owned()].into());
     publish_repository(&mut registry, "checkpoint");
@@ -905,7 +908,9 @@ fn clicking_an_unmodified_section_expands_it() {
         )
         .unwrap();
 
-    let expanded = rendered_diff(&registry, diff_target);
+    let expanded_lines = rendered_diff_lines(&registry, diff_target);
+    assert_eq!(&expanded_lines[..gap_row], &collapsed_lines[..gap_row]);
+    let expanded = expanded_lines.join("\n");
     assert!(!expanded.contains("unmodified lines"));
     assert!(expanded.contains("second"));
     assert!(expanded.contains("fourth"));

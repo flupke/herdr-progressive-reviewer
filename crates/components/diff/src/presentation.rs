@@ -371,6 +371,14 @@ impl DiffPresentation {
         }
     }
 
+    pub(super) fn row_at_location(&self, location: PresentationLocation) -> Option<usize> {
+        self.rows.iter().enumerate().find_map(|(index, row)| {
+            (self.presentation_location(index) == Some(location)
+                || row.contains_collapsed_location(location))
+            .then_some(index)
+        })
+    }
+
     fn context_row(&self, matches: impl Fn((u32, u32)) -> bool) -> Option<usize> {
         self.rows.iter().position(|row| match row {
             PresentedRow::Diff { source, .. } => match self.source_row(*source) {
@@ -517,7 +525,10 @@ impl DiffPresentation {
             .iter()
             .filter_map(|row| match row {
                 PresentedRow::Expanded { line, .. } => Some(*line),
-                PresentedRow::Diff { .. } | PresentedRow::Gap { .. } => None,
+                PresentedRow::Gap { start, lines } => Some(start.saturating_add(
+                    u32::try_from(lines.len().saturating_sub(1)).unwrap_or(u32::MAX),
+                )),
+                PresentedRow::Diff { .. } => None,
             })
             .max()
             .unwrap_or(source_line)
@@ -541,6 +552,17 @@ impl DiffPresentation {
 }
 
 impl PresentedRow {
+    fn contains_collapsed_location(&self, location: PresentationLocation) -> bool {
+        match (self, location) {
+            (Self::Expanded { line, .. }, PresentationLocation::GapStart(start)) => *line == start,
+            (Self::Gap { start, lines }, PresentationLocation::NewLine(line)) => line
+                .saturating_add(1)
+                .checked_sub(*start)
+                .is_some_and(|offset| (offset as usize) < lines.len()),
+            _ => false,
+        }
+    }
+
     fn apply_highlights(&mut self, highlighted: &HighlightedDiff) {
         if let Self::Diff { source, tokens } = self {
             if let Some(row) = highlighted.rows.get(*source) {

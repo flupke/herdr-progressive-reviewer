@@ -208,7 +208,7 @@ impl DiffViewport {
         self.rows.len()
     }
 
-    fn cursor_visual_row(&self, file: &LoadedDocument) -> usize {
+    pub(super) fn cursor_visual_row(&self, file: &LoadedDocument) -> usize {
         let source_display_column = file
             .document
             .diff
