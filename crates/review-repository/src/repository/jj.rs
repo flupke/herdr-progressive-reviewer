@@ -94,6 +94,7 @@ impl RepositoryBackend for JjBackend {
         file: &ChangedFile,
     ) -> Result<Vec<u8>> {
         let mut arguments = vec![
+            OsString::from("--ignore-working-copy"),
             OsString::from("diff"),
             OsString::from("-r"),
             OsString::from(snapshot.identity.snapshot_id()),

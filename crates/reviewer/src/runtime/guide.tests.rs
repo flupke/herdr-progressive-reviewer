@@ -457,3 +457,33 @@ fn exact_checkpoint_guide_is_shown() {
         Some(event) if event.review_checkpoint == checkpoint && event.items == guide.items
     ));
 }
+
+#[test]
+fn parallel_guide_file_reads_preserve_repository_order() {
+    let mut fixture = GuideCoordinatorFixture::new(RepoType::Git);
+    for index in 0..9 {
+        fixture.repository_files.write(
+            &format!("file-{index}.rs"),
+            format!("fn file_{index}() {{}}\n").as_bytes(),
+        );
+    }
+    let snapshot = complete_repository_snapshot(&fixture.repository);
+    let files = snapshot.files.iter().collect::<Vec<_>>();
+    let expected = files
+        .iter()
+        .map(|file| file.review_path().display())
+        .collect::<Vec<_>>();
+    let loaded = GuideRequestCoordinator::frozen_files(&fixture.context(), &snapshot, &files);
+    assert_eq!(
+        loaded
+            .iter()
+            .map(|file| file.path.clone())
+            .collect::<Vec<_>>(),
+        expected
+    );
+    assert!(
+        loaded
+            .iter()
+            .all(|file| file.new_content.is_some() && file.hunk_count > 0)
+    );
+}

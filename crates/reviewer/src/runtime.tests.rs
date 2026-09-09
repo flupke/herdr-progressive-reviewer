@@ -40,7 +40,7 @@ fn source_loading_prefers_frozen_content_when_a_deleted_path_is_recreated() {
     let (commands, _command_receiver) = mpsc::channel();
     let worker = Worker {
         repository: repository.clone(),
-        tracker,
+        tracker: Arc::new(tracker),
         guide_store: ReviewStore::open(state_directory.path(), repository.root()).unwrap(),
         client: HerdrClient::new(
             state_directory.path().join("unused.sock"),
@@ -51,11 +51,12 @@ fn source_loading_prefers_frozen_content_when_a_deleted_path_is_recreated() {
         snapshot: Some(snapshot.clone()),
         commands,
         guide: guide::GuideRequestCoordinator::default(),
+        documents: mpsc::channel().0,
     };
     std::fs::write(&location.path, "fn recreated_after_snapshot() {}\n").unwrap();
     let (message_sender, messages) = application_message_channel();
 
-    worker.load_source(
+    document_worker(&worker).load_source(
         &message_sender,
         snapshot.identity.snapshot_id().to_owned(),
         location.clone(),
@@ -576,13 +577,14 @@ impl GuideFlowFixture {
         let (commands, command_receiver) = mpsc::channel();
         let mut worker = Worker {
             repository: repository.clone(),
-            tracker,
+            tracker: Arc::new(tracker),
             guide_store,
             client: herdr.client(),
             target: AgentTarget::new(herdr.workspace_id.clone(), Some(herdr.pane_id.clone())),
             snapshot: None,
             commands: commands.clone(),
             guide: guide::GuideRequestCoordinator::default(),
+            documents: mpsc::channel().0,
         };
         let (message_sender, messages) = application_message_channel();
         let worker_thread = thread::spawn(move || worker.run(&command_receiver, &message_sender));
@@ -725,7 +727,7 @@ fn disk_content_changes_replace_the_visible_diff(repository_type: RepoType) {
     let (commands, _command_receiver) = mpsc::channel();
     let mut worker = Worker {
         repository: repository.clone(),
-        tracker,
+        tracker: Arc::new(tracker),
         guide_store: ReviewStore::open(state_directory.path(), repository.root()).unwrap(),
         client: HerdrClient::new(
             state_directory.path().join("unused.sock"),
@@ -736,6 +738,7 @@ fn disk_content_changes_replace_the_visible_diff(repository_type: RepoType) {
         snapshot: None,
         commands,
         guide: guide::GuideRequestCoordinator::default(),
+        documents: mpsc::channel().0,
     };
     let (message_sender, messages) = application_message_channel();
     let mut application = ReviewApplication::default();
@@ -782,7 +785,7 @@ fn load_requested_diffs(
             path,
         } = action
         {
-            worker.load_diff(messages, review_checkpoint, path);
+            document_worker(worker).load_diff(messages, review_checkpoint, path);
         }
     }
 }
@@ -981,6 +984,7 @@ fn dispatch_reports_that_quit_stops_the_runtime() {
 
     let dispatcher = RuntimeActionDispatcher {
         commands: &commands,
+        documents: &mpsc::channel().0,
         settings: &settings,
         repository_root: repository.path(),
         lsp: &lsp,
@@ -999,6 +1003,7 @@ fn dispatch_all_executes_earlier_actions_before_quit() {
 
     let dispatcher = RuntimeActionDispatcher {
         commands: &commands,
+        documents: &mpsc::channel().0,
         settings: &settings,
         repository_root: repository.path(),
         lsp: &lsp,
@@ -1014,32 +1019,10 @@ fn dispatch_all_executes_earlier_actions_before_quit() {
 
 #[test]
 fn worker_command_preserves_output_actions() {
-    let repository = tempfile::tempdir().unwrap();
-    let lsp = review_lsp::Worker::start(repository.path().to_owned());
-    let (commands, _command_receiver) = mpsc::channel();
-
-    let settings_directory = tempfile::tempdir().unwrap();
-    let settings = ReviewStore::open(settings_directory.path(), repository.path()).unwrap();
-    let dispatcher = RuntimeActionDispatcher {
-        commands: &commands,
-        settings: &settings,
-        repository_root: repository.path(),
-        lsp: &lsp,
-    };
-
-    let command = dispatcher
-        .worker_command(Action::Output {
-            text: "selected code".to_owned(),
-        })
-        .unwrap()
-        .unwrap();
-
-    assert!(matches!(
-        command,
-        WorkerCommand::Output {
-            text,
-        } if text == "selected code"
-    ));
+    let command = RuntimeActionDispatcher::worker_command(Action::Output {
+        text: "selected code".to_owned(),
+    });
+    assert!(matches!(command, WorkerCommand::Output { text } if text == "selected code"));
 }
 
 #[test]
@@ -1080,6 +1063,7 @@ fn event_loop_routes_external_events_from_the_central_channel() {
         terminal: &mut terminal,
         app: &mut app,
         commands: &commands,
+        documents: &mpsc::channel().0,
         events,
         lsp: &lsp,
         repository_root: repository.path(),
@@ -1234,4 +1218,99 @@ fn hunk_navigation_rows() -> Vec<DiffRow> {
             text: "+second change".to_owned(),
         },
     ]
+}
+
+fn document_worker(worker: &Worker) -> document::DocumentWorker {
+    document::DocumentWorker {
+        repository: worker.repository.clone(),
+        tracker: Arc::clone(&worker.tracker),
+        snapshot: worker.snapshot.clone(),
+    }
+}
+
+#[test]
+fn document_requests_complete_while_repository_work_is_pending() {
+    let files = repository_fixture(RepoType::Git);
+    files.write("changed.rs", b"fn original() {}\n");
+    files.new_change("original");
+    files.write("changed.rs", b"fn updated() {}\n");
+    let state = tempfile::tempdir().unwrap();
+    let repository = Repository::discover(files.root())
+        .unwrap()
+        .with_state_root(state.path());
+    let snapshot = complete_repository_snapshot(&repository);
+    let checkpoint = ReviewCheckpoint::new(
+        snapshot.identity.review_unit().clone(),
+        snapshot.identity.snapshot_id(),
+    );
+    let settings = ReviewStore::open(state.path(), repository.root()).unwrap();
+    let tracker = Arc::new(ReviewTracker::new(
+        repository.clone(),
+        ReviewStore::open(state.path(), repository.root()).unwrap(),
+    ));
+    let mut worker = document::DocumentWorker {
+        repository: repository.clone(),
+        tracker,
+        snapshot: None,
+    };
+    let (documents, document_receiver) = mpsc::channel();
+    let (sender, messages) = application_message_channel();
+    let document_thread = thread::spawn(move || worker.run(&document_receiver, &sender));
+    documents
+        .send(document::Command::Snapshot(snapshot))
+        .unwrap();
+    // Leave repository work pending throughout the file requests.
+    let (commands, command_receiver) = mpsc::channel();
+    commands.send(WorkerCommand::Poll).unwrap();
+    let lsp = review_lsp::Worker::start(repository.root().to_owned());
+    let dispatcher = RuntimeActionDispatcher {
+        commands: &commands,
+        documents: &documents,
+        settings: &settings,
+        repository_root: repository.root(),
+        lsp: &lsp,
+    };
+    for action in [
+        Action::LoadDiff {
+            review_checkpoint: checkpoint.clone(),
+            path: "changed.rs".to_owned(),
+        },
+        Action::LoadDiffs {
+            review_checkpoint: checkpoint.clone(),
+            paths: vec!["changed.rs".to_owned()],
+        },
+    ] {
+        dispatcher.dispatch(action).unwrap();
+        let event = messages.recv_timeout(Duration::from_secs(5)).unwrap();
+        let loaded = event.downcast_ref::<DiffContentLoaded>().unwrap();
+        assert_eq!(loaded.review_checkpoint, checkpoint);
+        assert_eq!(
+            loaded.new_content.as_deref(),
+            Some(b"fn updated() {}\n".as_slice())
+        );
+    }
+    dispatcher
+        .dispatch(Action::LoadSource {
+            snapshot_id: checkpoint.checkpoint.clone(),
+            location: SourceLocation {
+                path: PathBuf::from("changed.rs"),
+                line: 0,
+                byte_column: 0,
+                end_line: 0,
+                end_byte_column: 0,
+            },
+            mode: SourceLoadMode::External,
+        })
+        .unwrap();
+    let event = messages.recv_timeout(Duration::from_secs(5)).unwrap();
+    let loaded = event.downcast_ref::<SourceContentLoaded>().unwrap();
+    assert_eq!(loaded.content, b"fn updated() {}\n");
+    assert_eq!(loaded.location.path, repository.root().join("changed.rs"));
+    assert!(matches!(
+        command_receiver.try_recv(),
+        Ok(WorkerCommand::Poll)
+    ));
+    assert!(command_receiver.try_recv().is_err());
+    documents.send(document::Command::Quit).unwrap();
+    document_thread.join().unwrap();
 }

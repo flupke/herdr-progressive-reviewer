@@ -10,7 +10,7 @@ use super::*;
 struct ReviewFixture {
     repository_files: Box<dyn ReviewRepositoryFixture>,
     repository: Repository,
-    _state_directory: tempfile::TempDir,
+    state_directory: tempfile::TempDir,
     tracker: ReviewTracker,
     reviewed: Snapshot,
 }
@@ -32,7 +32,7 @@ fn review_fixture(repository_type: RepoType, reviewed_content: &[u8]) -> ReviewF
     ReviewFixture {
         repository_files,
         repository,
-        _state_directory: state_directory,
+        state_directory,
         tracker,
         reviewed,
     }
@@ -237,4 +237,68 @@ fn grouped_jj_status_distinguishes_a_real_description_named_file() {
         tracker.statuses(&changed).unwrap()[0].status,
         ReviewStatus::ChangedSinceReview
     );
+}
+
+#[test_case(RepoType::Git; "git")]
+#[test_case(RepoType::Jj; "jj")]
+fn unchanged_diff_reuses_frozen_data_without_repository_commands(repository_type: RepoType) {
+    let fixture = review_fixture(repository_type, b"after\n");
+    let snapshot = &fixture.reviewed;
+    let expected = fixture.tracker.diff(snapshot, &snapshot.files[0]).unwrap();
+    // Any further repository command would fail, but immutable cached data is usable.
+    fixture.repository.cancel();
+    let mut loaded = fixture.tracker.diff(snapshot, &snapshot.files[0]).unwrap();
+    assert_eq!(loaded, expected);
+    loaded.new_content.as_mut().unwrap().clear();
+    assert_eq!(
+        fixture.tracker.diff(snapshot, &snapshot.files[0]).unwrap(),
+        expected
+    );
+}
+
+#[test_case(RepoType::Git; "git")]
+#[test_case(RepoType::Jj; "jj")]
+fn a_new_snapshot_invalidates_cached_file_data(repository_type: RepoType) {
+    let fixture = review_fixture(repository_type, b"after\n");
+    fixture
+        .tracker
+        .diff(&fixture.reviewed, &fixture.reviewed.files[0])
+        .unwrap();
+    fixture
+        .repository_files
+        .write("reviewed.txt", b"new content\n");
+    let snapshot = complete_repository_snapshot(&fixture.repository);
+    let loaded = fixture.tracker.diff(&snapshot, &snapshot.files[0]).unwrap();
+    assert_eq!(
+        loaded.new_content.as_deref(),
+        Some(b"new content\n".as_slice())
+    );
+}
+
+#[test_case(RepoType::Git; "git")]
+#[test_case(RepoType::Jj; "jj")]
+fn external_review_marks_invalidate_cached_diffs_at_the_same_snapshot(repository_type: RepoType) {
+    let fixture = review_fixture(repository_type, b"after\n");
+    let snapshot = &fixture.reviewed;
+    let file = &snapshot.files[0];
+    let original = fixture.tracker.diff(snapshot, file).unwrap();
+    let other_store =
+        ReviewStore::open(fixture.state_directory.path(), fixture.repository.root()).unwrap();
+    other_store
+        .mark(
+            snapshot.identity.review_unit(),
+            file.review_path().as_bytes(),
+            snapshot.identity.snapshot_id(),
+        )
+        .unwrap();
+    let reviewed = fixture.tracker.diff(snapshot, file).unwrap();
+    assert!(reviewed.unified.is_empty());
+    assert_eq!(reviewed.old_content, reviewed.new_content);
+    other_store
+        .unreview(
+            snapshot.identity.review_unit(),
+            file.review_path().as_bytes(),
+        )
+        .unwrap();
+    assert_eq!(fixture.tracker.diff(snapshot, file).unwrap(), original);
 }

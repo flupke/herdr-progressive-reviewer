@@ -177,11 +177,11 @@ impl GuideRequestCoordinator {
             let result = runner
                 .submit_prepared(&agent, &prepared)
                 .and_then(|()| runner.finish_prepared_with_watch(&prepared, response_watch));
-            let _ = commands.send(WorkerCommand::GuideFinished(FinishedGuide {
+            let _ = commands.send(WorkerCommand::GuideFinished(Box::new(FinishedGuide {
                 review_checkpoint,
                 agent_name,
                 result,
-            }));
+            })));
         });
     }
 
@@ -428,14 +428,7 @@ impl GuideRequestCoordinator {
             let Ok(unreviewed_files) = Self::unreviewed_files(context, snapshot) else {
                 return;
             };
-            let current_files = unreviewed_files
-                .into_iter()
-                .filter_map(|file| {
-                    Self::frozen_file(context, snapshot, file)
-                        .ok()
-                        .map(|value| value.0)
-                })
-                .collect::<Vec<_>>();
+            let current_files = Self::frozen_files(context, snapshot, &unreviewed_files);
             review_guide::map_anchored_items(&guide.anchored_items, &current_files)
         };
         let _ = messages.send(ReviewGuideChanged {
@@ -535,14 +528,7 @@ impl GuideRequestCoordinator {
             Some(files) => files,
             None => Self::unreviewed_files(context, snapshot)?,
         };
-        let current_files = unreviewed_files
-            .into_iter()
-            .filter_map(|file| {
-                Self::frozen_file(context, snapshot, file)
-                    .ok()
-                    .map(|value| value.0)
-            })
-            .collect::<Vec<_>>();
+        let current_files = Self::frozen_files(context, snapshot, &unreviewed_files);
         let mapped_items = review_guide::map_anchored_items(&guide.anchored_items, &current_files);
         Ok((mapped_items, guide.anchored_items))
     }
@@ -560,7 +546,40 @@ impl GuideRequestCoordinator {
             .collect())
     }
 
-    pub(super) fn frozen_file(
+    pub(super) fn frozen_files(
+        context: &GuideOperationContext<'_>,
+        snapshot: &Snapshot,
+        files: &[&ChangedFile],
+    ) -> Vec<FrozenFile> {
+        if files.is_empty() {
+            return Vec::new();
+        }
+        // Each file needs several repository commands. Bound concurrent processes
+        // while preserving repository order for guide overlap detection.
+        thread::scope(|scope| {
+            let readers = files
+                .chunks(files.len().div_ceil(4))
+                .map(|chunk| {
+                    scope.spawn(move || {
+                        chunk
+                            .iter()
+                            .filter_map(|file| {
+                                Self::frozen_file(context, snapshot, file)
+                                    .ok()
+                                    .map(|value| value.0)
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                })
+                .collect::<Vec<_>>();
+            readers
+                .into_iter()
+                .flat_map(|reader| reader.join().expect("guide file reader did not panic"))
+                .collect()
+        })
+    }
+
+    fn frozen_file(
         context: &GuideOperationContext<'_>,
         snapshot: &Snapshot,
         file: &ChangedFile,

@@ -178,3 +178,33 @@ fn header_id_uses_jj_abbreviation_and_configured_colours() {
         assert_eq!(identity.description().trim(), description);
     }
 }
+
+#[test_case(JjLayout::NonColocated; "non_colocated")]
+#[test_case(JjLayout::Colocated; "colocated")]
+fn loading_a_frozen_diff_does_not_snapshot_new_worktree_edits(layout: JjLayout) {
+    let context = JjRepositoryTestContext::new(layout);
+    context.fixture.write("changed.rs", b"fn frozen() {}\n");
+    let snapshot = complete_repository_snapshot(&context.repository);
+    context
+        .fixture
+        .write("changed.rs", b"fn unsnapshotted() {}\n");
+
+    let diff = context
+        .repository
+        .diff(&snapshot, &snapshot.files[0])
+        .unwrap();
+    assert!(String::from_utf8(diff).unwrap().contains("fn frozen()"));
+    let identity = context.fixture.jj([
+        "--ignore-working-copy",
+        "log",
+        "--no-graph",
+        "-r",
+        "@",
+        "-T",
+        "commit_id",
+    ]);
+    assert_eq!(
+        String::from_utf8(identity.stdout).unwrap(),
+        snapshot.identity.snapshot_id()
+    );
+}

@@ -1,5 +1,11 @@
 //! Review state derived from stored repository baselines.
 
+#[path = "diff_cache.rs"]
+mod diff_cache;
+
+use std::sync::Mutex;
+
+use diff_cache::DiffCache;
 use review_repository::repository::{
     BaselineComparison, BaselineComparisonPlan, ChangedFile, DiffStatistics, FileKind, Interdiff,
     RepoPath, Repository, Snapshot, SnapshotId,
@@ -127,12 +133,17 @@ impl ReviewComparison {
 pub struct ReviewTracker {
     repository: Repository,
     store: ReviewStore,
+    diffs: Mutex<DiffCache>,
 }
 
 impl ReviewTracker {
     /// Connect a repository to its on-disk review store.
     pub fn new(repository: Repository, store: ReviewStore) -> Self {
-        Self { repository, store }
+        Self {
+            repository,
+            store,
+            diffs: Mutex::new(DiffCache::default()),
+        }
     }
 
     /// Mark one path at the current exact commit.
@@ -212,7 +223,38 @@ impl ReviewTracker {
 
     /// Load the diff and both complete file versions for one changed path.
     pub fn diff(&self, snapshot: &Snapshot, file: &ChangedFile) -> eyre::Result<ReviewDiff> {
-        match self.compare(snapshot, file)? {
+        let record = self.store.load(
+            snapshot.identity.review_unit(),
+            file.review_path().as_bytes(),
+        )?;
+        if let Some(diff) = self
+            .diffs
+            .lock()
+            .map_err(|_| eyre::eyre!("diff cache lock poisoned"))?
+            .get(&snapshot.identity, file.review_path(), &record)
+        {
+            return Ok(diff);
+        }
+        let diff = self.load_diff(snapshot, file, record.clone())?;
+        self.diffs
+            .lock()
+            .map_err(|_| eyre::eyre!("diff cache lock poisoned"))?
+            .insert(
+                &snapshot.identity,
+                file.review_path().clone(),
+                record,
+                &diff,
+            );
+        Ok(diff)
+    }
+
+    fn load_diff(
+        &self,
+        snapshot: &Snapshot,
+        file: &ChangedFile,
+        record: LoadResult,
+    ) -> eyre::Result<ReviewDiff> {
+        match self.compare_record(snapshot, file, record)? {
             ReviewComparison::Unreviewed(_) => {
                 let commit_id = snapshot.identity.snapshot_id();
                 Ok(ReviewDiff {
@@ -286,7 +328,18 @@ impl ReviewTracker {
     fn compare(&self, snapshot: &Snapshot, file: &ChangedFile) -> eyre::Result<ReviewComparison> {
         let review_unit = snapshot.identity.review_unit();
         let path = file.review_path().as_bytes();
-        let record = match self.store.load(review_unit, path)? {
+        self.compare_record(snapshot, file, self.store.load(review_unit, path)?)
+    }
+
+    fn compare_record(
+        &self,
+        snapshot: &Snapshot,
+        file: &ChangedFile,
+        record: LoadResult,
+    ) -> eyre::Result<ReviewComparison> {
+        let review_unit = snapshot.identity.review_unit();
+        let path = file.review_path().as_bytes();
+        let record = match record {
             LoadResult::Unreviewed => return Ok(ReviewComparison::Unreviewed(None)),
             LoadResult::UnknownSchema => {
                 return Ok(ReviewComparison::Unreviewed(Some(

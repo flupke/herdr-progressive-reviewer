@@ -1,5 +1,6 @@
 //! Terminal and worker integration for the review pane.
 
+mod document;
 mod guide;
 mod terminal;
 
@@ -74,64 +75,14 @@ pub struct Runtime {
 #[derive(Debug)]
 struct Worker {
     repository: Repository,
-    tracker: ReviewTracker,
+    tracker: Arc<ReviewTracker>,
     guide_store: ReviewStore,
     client: HerdrClient,
     target: AgentTarget,
     snapshot: Option<Snapshot>,
     commands: Sender<WorkerCommand>,
     guide: guide::GuideRequestCoordinator,
-}
-
-struct FrozenSourceLoader<'a> {
-    repository_root: &'a Path,
-    tracker: &'a ReviewTracker,
-    snapshot: Option<&'a Snapshot>,
-}
-
-enum FrozenSourceSide {
-    Old,
-    New,
-}
-
-impl FrozenSourceLoader<'_> {
-    fn load(&self, snapshot_id: &str, location: &SourceLocation) -> eyre::Result<Option<Vec<u8>>> {
-        let snapshot = self
-            .snapshot
-            .filter(|snapshot| snapshot.identity.snapshot_id() == snapshot_id);
-        let Some((snapshot, review_path)) =
-            snapshot.zip(location.review_path(self.repository_root))
-        else {
-            return Ok(None);
-        };
-        let matching_file = snapshot.files.iter().find_map(|file| {
-            let old_path_matches = file
-                .old_path
-                .as_ref()
-                .is_some_and(|path| path.display() == review_path);
-            let new_path_matches = file
-                .new_path
-                .as_ref()
-                .is_some_and(|path| path.display() == review_path);
-            if new_path_matches {
-                Some((file, FrozenSourceSide::New))
-            } else if old_path_matches {
-                Some((file, FrozenSourceSide::Old))
-            } else {
-                None
-            }
-        });
-        let Some((file, source_side)) = matching_file else {
-            return Ok(None);
-        };
-        let diff = self.tracker.diff(snapshot, file)?;
-        let content = match source_side {
-            FrozenSourceSide::Old => diff.old_content.or(diff.new_content),
-            FrozenSourceSide::New => diff.new_content.or(diff.old_content),
-        }
-        .ok_or_else(|| eyre::eyre!("the frozen review file has no text content"))?;
-        Ok(Some(content))
-    }
+    documents: Sender<document::Command>,
 }
 
 #[derive(Debug)]
@@ -140,15 +91,6 @@ enum WorkerCommand {
     LoadRevisionCandidates(RevisionDirection),
     LoadRevisionHistory(RevisionHistoryLoadId),
     EditRevision(ChangeId),
-    LoadDiff {
-        review_checkpoint: ReviewCheckpoint,
-        path: String,
-    },
-    LoadSource {
-        snapshot_id: String,
-        location: SourceLocation,
-        mode: SourceLoadMode,
-    },
     SetReviewed {
         path: String,
         reviewed: bool,
@@ -157,7 +99,7 @@ enum WorkerCommand {
         text: String,
     },
     GenerateReviewGuide(GuideScope),
-    GuideFinished(guide::FinishedGuide),
+    GuideFinished(Box<guide::FinishedGuide>),
     ImportReviewGuide {
         review_unit: ReviewUnit,
         wait_token: u64,
@@ -184,6 +126,7 @@ struct RuntimeEventLoop<'a> {
     terminal: &'a mut TerminalGuard,
     app: &'a mut ReviewApplication,
     commands: &'a Sender<WorkerCommand>,
+    documents: &'a Sender<document::Command>,
     events: EventReceiver<EventEnvelope>,
     lsp: &'a review_lsp::Worker,
     repository_root: &'a Path,
@@ -199,9 +142,26 @@ enum ControlEventOutcome {
 
 struct RuntimeActionDispatcher<'a> {
     commands: &'a Sender<WorkerCommand>,
+    documents: &'a Sender<document::Command>,
     settings: &'a ReviewStore,
     repository_root: &'a Path,
     lsp: &'a review_lsp::Worker,
+}
+
+struct BackgroundWorkers {
+    commands: Sender<WorkerCommand>,
+    documents: Sender<document::Command>,
+    threads: [JoinHandle<()>; 2],
+}
+
+impl BackgroundWorkers {
+    fn stop(self) {
+        let _ = self.commands.send(WorkerCommand::Quit);
+        let _ = self.documents.send(document::Command::Quit);
+        for worker in self.threads {
+            let _ = worker.join();
+        }
+    }
 }
 
 struct WorkerStopped;
@@ -297,7 +257,8 @@ impl Runtime {
             .draw(|frame| frame.render_widget(app.frame(), frame.area()))?;
 
         let (event_sender, events) = unbounded();
-        let (commands, worker) = self.start_worker(event_sender.clone())?;
+        let workers = self.start_workers(event_sender.clone())?;
+        let commands = &workers.commands;
         let producer_stop_requested = Arc::new(AtomicBool::new(false));
         let mut event_producers = RuntimeEventProducers::new(Arc::clone(&producer_stop_requested));
         event_producers.push(Self::start_herdr_events(
@@ -323,7 +284,8 @@ impl Runtime {
         let result = RuntimeEventLoop {
             terminal: &mut terminal,
             app: &mut app,
-            commands: &commands,
+            commands,
+            documents: &workers.documents,
             events,
             lsp: &lsp,
             repository_root: &root,
@@ -334,8 +296,7 @@ impl Runtime {
         event_producers.stop();
         self.repository.cancel();
         drop(terminal);
-        let _ = commands.send(WorkerCommand::Quit);
-        let _ = worker.join();
+        workers.stop();
         result
     }
 
@@ -431,14 +392,22 @@ impl Runtime {
         })
     }
 
-    fn start_worker(
-        &self,
-        events: EventSender<EventEnvelope>,
-    ) -> eyre::Result<(Sender<WorkerCommand>, JoinHandle<()>)> {
+    fn start_workers(&self, events: EventSender<EventEnvelope>) -> eyre::Result<BackgroundWorkers> {
         let store = ReviewStore::open(&self.state_dir, self.repository.root())?;
         let guide_store = ReviewStore::open(&self.state_dir, self.repository.root())?;
-        let tracker = ReviewTracker::new(self.repository.clone(), store);
+        let tracker = Arc::new(ReviewTracker::new(self.repository.clone(), store));
         let (command_sender, command_receiver) = mpsc::channel();
+        let (documents, document_receiver) = mpsc::channel();
+        let mut document_worker = document::DocumentWorker {
+            repository: self.repository.clone(),
+            tracker: Arc::clone(&tracker),
+            snapshot: None,
+        };
+        let document_messages = ApplicationMessageSender(events.clone());
+        let document_thread = thread::spawn(move || {
+            document_worker.run(&document_receiver, &document_messages);
+            let _ = document_messages.send(WorkerStopped);
+        });
         let mut worker = Worker {
             repository: self.repository.clone(),
             tracker,
@@ -448,13 +417,18 @@ impl Runtime {
             snapshot: None,
             commands: command_sender.clone(),
             guide: guide::GuideRequestCoordinator::default(),
+            documents: documents.clone(),
         };
         let messages = ApplicationMessageSender(events.clone());
         let handle = thread::spawn(move || {
             worker.run(&command_receiver, &messages);
             let _ = events.send(EventEnvelope::new(WorkerStopped));
         });
-        Ok((command_sender, handle))
+        Ok(BackgroundWorkers {
+            commands: command_sender,
+            documents,
+            threads: [handle, document_thread],
+        })
     }
 }
 
@@ -471,6 +445,12 @@ impl RuntimeActionDispatcher<'_> {
     fn dispatch(&self, action: Action) -> eyre::Result<bool> {
         let action = match action {
             Action::Quit => return Ok(true),
+            action @ (Action::LoadDiff { .. }
+            | Action::LoadDiffs { .. }
+            | Action::LoadSource { .. }) => {
+                self.dispatch_document_action(action)?;
+                return Ok(false);
+            }
             Action::SaveFilePaneWidth(columns) => {
                 self.settings.save_file_pane_width(columns)?;
                 return Ok(false);
@@ -495,20 +475,50 @@ impl RuntimeActionDispatcher<'_> {
             }
             action => action,
         };
-        if let Some(command) = self.worker_command(action)? {
-            self.commands.send(command)?;
-        }
+        self.commands.send(Self::worker_command(action))?;
         Ok(false)
     }
 
-    fn worker_command(&self, action: Action) -> eyre::Result<Option<WorkerCommand>> {
+    fn worker_command(action: Action) -> WorkerCommand {
         match action {
-            action @ (Action::LoadDiff { .. } | Action::LoadDiffs { .. }) => {
-                self.diff_worker_command(action)
-            }
             action @ (Action::LoadRevisionCandidates(_)
             | Action::LoadRevisionHistory { .. }
-            | Action::EditRevision { .. }) => Ok(Some(Self::revision_worker_command(action))),
+            | Action::EditRevision { .. }) => Self::revision_worker_command(action),
+            action @ (Action::SetReviewed { .. }
+            | Action::Output { .. }
+            | Action::GenerateReviewGuide { .. }) => Self::output_worker_command(action),
+            Action::LoadDiff { .. }
+            | Action::LoadDiffs { .. }
+            | Action::LoadSource { .. }
+            | Action::Quit
+            | Action::SaveFilePaneWidth(_)
+            | Action::Lsp { .. }
+            | Action::RestartLsp => unreachable!("local actions are handled before conversion"),
+        }
+    }
+
+    fn dispatch_document_action(&self, action: Action) -> eyre::Result<()> {
+        match action {
+            Action::LoadDiff {
+                review_checkpoint,
+                path,
+            } => {
+                self.documents.send(document::Command::LoadDiff {
+                    review_checkpoint,
+                    path,
+                })?;
+            }
+            Action::LoadDiffs {
+                review_checkpoint,
+                paths,
+            } => {
+                for path in paths {
+                    self.documents.send(document::Command::LoadDiff {
+                        review_checkpoint: review_checkpoint.clone(),
+                        path,
+                    })?;
+                }
+            }
             Action::LoadSource {
                 snapshot_id,
                 mut location,
@@ -517,45 +527,15 @@ impl RuntimeActionDispatcher<'_> {
                 if location.path.is_relative() {
                     location.path = self.repository_root.join(&location.path);
                 }
-                Ok(Some(WorkerCommand::LoadSource {
+                self.documents.send(document::Command::LoadSource {
                     snapshot_id,
                     location,
                     mode,
-                }))
+                })?;
             }
-            action @ (Action::SetReviewed { .. }
-            | Action::Output { .. }
-            | Action::GenerateReviewGuide { .. }) => Ok(Some(Self::output_worker_command(action))),
-            Action::Quit
-            | Action::SaveFilePaneWidth(_)
-            | Action::Lsp { .. }
-            | Action::RestartLsp => unreachable!("local actions are handled before conversion"),
+            _ => unreachable!("document actions accept only diff and source work"),
         }
-    }
-
-    fn diff_worker_command(&self, action: Action) -> eyre::Result<Option<WorkerCommand>> {
-        match action {
-            Action::LoadDiff {
-                review_checkpoint,
-                path,
-            } => Ok(Some(WorkerCommand::LoadDiff {
-                review_checkpoint,
-                path,
-            })),
-            Action::LoadDiffs {
-                review_checkpoint,
-                paths,
-            } => {
-                for path in paths {
-                    self.commands.send(WorkerCommand::LoadDiff {
-                        review_checkpoint: review_checkpoint.clone(),
-                        path,
-                    })?;
-                }
-                Ok(None)
-            }
-            _ => unreachable!("diff conversion accepts only diff actions"),
-        }
+        Ok(())
     }
 
     fn revision_worker_command(action: Action) -> WorkerCommand {
@@ -611,6 +591,7 @@ impl RuntimeEventLoop<'_> {
         let actions = self.application_actions(event);
         RuntimeActionDispatcher {
             commands: self.commands,
+            documents: self.documents,
             settings: self.settings,
             repository_root: self.repository_root,
             lsp: self.lsp,
@@ -692,6 +673,7 @@ impl Worker {
             snapshot,
             commands,
             guide,
+            ..
         } = self;
         let mut context = guide::GuideOperationContext::new(
             repository,
@@ -723,9 +705,6 @@ impl Worker {
             | WorkerCommand::LoadRevisionCandidates(_)
             | WorkerCommand::LoadRevisionHistory(_)
             | WorkerCommand::EditRevision(_)) => self.handle_repository_command(command, messages),
-            command @ (WorkerCommand::LoadDiff { .. } | WorkerCommand::LoadSource { .. }) => {
-                self.handle_document_command(command, messages)
-            }
             command @ (WorkerCommand::SetReviewed { .. } | WorkerCommand::Output { .. }) => {
                 self.handle_output_command(command, messages)
             }
@@ -784,26 +763,6 @@ impl Worker {
         let _ = messages.send(RevisionEditFailed { message: failure });
     }
 
-    fn handle_document_command(
-        &mut self,
-        command: WorkerCommand,
-        messages: &ApplicationMessageSender,
-    ) -> bool {
-        match command {
-            WorkerCommand::LoadDiff {
-                review_checkpoint,
-                path,
-            } => self.load_diff(messages, review_checkpoint, path),
-            WorkerCommand::LoadSource {
-                snapshot_id,
-                location,
-                mode,
-            } => self.load_source(messages, snapshot_id, location, mode),
-            _ => unreachable!("document commands accept only diff and source work"),
-        }
-        true
-    }
-
     fn handle_output_command(
         &mut self,
         command: WorkerCommand,
@@ -832,7 +791,7 @@ impl Worker {
             }
             WorkerCommand::GuideFinished(finished) => {
                 self.guide_operation(|guide, context| {
-                    guide.finish_review_guide(context, messages, finished);
+                    guide.finish_review_guide(context, messages, *finished);
                 });
             }
             WorkerCommand::ImportReviewGuide {
@@ -846,43 +805,6 @@ impl Worker {
             _ => unreachable!("only guide commands are delegated here"),
         }
         true
-    }
-
-    fn load_source(
-        &self,
-        messages: &ApplicationMessageSender,
-        snapshot_id: String,
-        location: SourceLocation,
-        mode: SourceLoadMode,
-    ) {
-        let frozen_content = FrozenSourceLoader {
-            repository_root: self.repository.root(),
-            tracker: &self.tracker,
-            snapshot: self.snapshot.as_ref(),
-        }
-        .load(&snapshot_id, &location);
-        let content = match frozen_content {
-            Ok(Some(content)) => Ok(content),
-            Ok(None) => std::fs::read(&location.path)
-                .map_err(|error| format!("could not read {}: {error}", location.path.display())),
-            Err(error) => Err(format!(
-                "could not read frozen source {}: {error}",
-                location.path.display()
-            )),
-        };
-        let event = match content {
-            Err(message) => EventEnvelope::new(SourceContentLoadFailed {
-                snapshot_id: snapshot_id.clone(),
-                message,
-            }),
-            Ok(content) => EventEnvelope::new(SourceContentLoaded {
-                snapshot_id,
-                location,
-                content,
-                mode,
-            }),
-        };
-        let _ = messages.0.send(event);
     }
 
     fn output(&mut self, messages: &ApplicationMessageSender, text: &str) {
@@ -911,6 +833,9 @@ impl Worker {
             snapshot.identity.review_unit().clone(),
             snapshot.identity.snapshot_id(),
         );
+        let _ = self
+            .documents
+            .send(document::Command::Snapshot(snapshot.clone()));
         let _ = messages.send(RepositoryMetadataChanged {
             review_checkpoint: review_checkpoint.clone(),
             description: snapshot.identity.description().to_owned(),
@@ -931,16 +856,13 @@ impl Worker {
                     .filter(|(_, state)| state.status != ReviewStatus::Reviewed)
                     .map(|(file, _)| file)
                     .collect::<Vec<_>>();
-                let current_files = unreviewed_files
-                    .into_iter()
-                    .filter_map(|file| {
-                        self.guide_operation(|_guide, context| {
-                            guide::GuideRequestCoordinator::frozen_file(context, &snapshot, file)
-                                .ok()
-                                .map(|value| value.0)
-                        })
-                    })
-                    .collect::<Vec<_>>();
+                let current_files = self.guide_operation(|_guide, context| {
+                    guide::GuideRequestCoordinator::frozen_files(
+                        context,
+                        &snapshot,
+                        &unreviewed_files,
+                    )
+                });
                 review_guide::map_anchored_items(&guide.anchored_items, &current_files)
             };
             let _ = messages.send(ReviewGuideChanged {
@@ -957,38 +879,6 @@ impl Worker {
             guide.import_completed_guide(context, messages, &review_unit);
         });
         true
-    }
-
-    fn load_diff(
-        &self,
-        messages: &ApplicationMessageSender,
-        review_checkpoint: ReviewCheckpoint,
-        path: String,
-    ) {
-        let result = self
-            .find_file(&review_checkpoint, &path)
-            .and_then(|(snapshot, file)| {
-                let diff = self.tracker.diff(snapshot, file)?;
-                Ok((
-                    parse_file_diff(&diff.unified, file),
-                    diff.old_content,
-                    diff.new_content,
-                ))
-            });
-        let event = match result {
-            Ok((rows, old_content, new_content)) => EventEnvelope::new(DiffContentLoaded {
-                review_checkpoint,
-                path,
-                rows,
-                old_content,
-                new_content,
-            }),
-            Err(_) => EventEnvelope::new(DiffContentLoadFailed {
-                review_checkpoint,
-                path,
-            }),
-        };
-        let _ = messages.0.send(event);
     }
 
     fn set_reviewed(&self, messages: &ApplicationMessageSender, path: String, reviewed: bool) {
@@ -1020,29 +910,6 @@ impl Worker {
             path,
             result,
         });
-    }
-
-    fn find_file<'a>(
-        &'a self,
-        review_checkpoint: &ReviewCheckpoint,
-        path: &str,
-    ) -> eyre::Result<(&'a Snapshot, &'a ChangedFile)> {
-        let snapshot = self
-            .snapshot
-            .as_ref()
-            .filter(|snapshot| {
-                review_checkpoint.matches(
-                    snapshot.identity.review_unit(),
-                    snapshot.identity.snapshot_id(),
-                )
-            })
-            .ok_or_else(|| eyre::eyre!("the diff snapshot is no longer current"))?;
-        let file = snapshot
-            .files
-            .iter()
-            .find(|file| file.review_path().display() == path)
-            .ok_or_else(|| eyre::eyre!("the selected file is no longer in the current change"))?;
-        Ok((snapshot, file))
     }
 }
 
