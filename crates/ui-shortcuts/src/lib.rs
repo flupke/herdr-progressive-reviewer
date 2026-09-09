@@ -288,10 +288,10 @@ impl ShortcutMatcher {
         if let Some(command) = self.matching_command(prefix, key) {
             return InputResolution::Matched(command);
         }
-        if prefix.is_some() {
-            if let Some(command) = self.matching_command(None, key) {
-                return InputResolution::Matched(command);
-            }
+        if prefix.is_some()
+            && let Some(command) = self.matching_command(None, key)
+        {
+            return InputResolution::Matched(command);
         }
         if self.starts_sequence(key) {
             self.prefix = Some(ShortcutPrefix::new(key));

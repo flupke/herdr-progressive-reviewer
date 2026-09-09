@@ -113,10 +113,10 @@ impl Server {
             Command::Restart | Command::Shutdown => return,
         }
         self.pending.push_back(command);
-        if self.session.is_none() {
-            if let Err(message) = self.start_session() {
-                self.fail_session(&message);
-            }
+        if self.session.is_none()
+            && let Err(message) = self.start_session()
+        {
+            self.fail_session(&message);
         }
     }
 

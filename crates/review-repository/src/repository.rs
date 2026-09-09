@@ -16,8 +16,11 @@ use review_types::ReviewUnit;
 
 mod comparison_plan;
 mod git;
+mod git_path;
 mod jj;
 mod jj_git_diff;
+mod jj_patch;
+mod jj_reader;
 
 pub use comparison_plan::{BaselineComparison, BaselineComparisonPlan, BaselineComparisonResults};
 
@@ -829,7 +832,7 @@ impl Repository {
             return Ok(Self {
                 root: root.clone(),
                 repo_type: RepoType::Jj,
-                backend: Arc::new(jj::JjBackend),
+                backend: Arc::new(jj::JjBackend::default()),
                 cancellation,
             });
         }

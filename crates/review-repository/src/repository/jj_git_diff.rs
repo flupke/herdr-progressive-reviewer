@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use super::git_path::GitPath;
 use super::{DiffStatistics, RepoPath};
 use crate::{Error, Result};
 
@@ -140,39 +141,14 @@ impl<'a> JjGitDiffParser<'a> {
 
     fn same_path_header(path: &RepoPath, quote_paths: bool) -> Vec<u8> {
         let mut header = DIFF_HEADER.to_vec();
-        Self::append_header_path(&mut header, b'a', path, quote_paths);
+        GitPath::new("a/", path)
+            .with_quoting(quote_paths)
+            .append_to(&mut header);
         header.push(b' ');
-        Self::append_header_path(&mut header, b'b', path, quote_paths);
+        GitPath::new("b/", path)
+            .with_quoting(quote_paths)
+            .append_to(&mut header);
         header
-    }
-
-    fn append_header_path(header: &mut Vec<u8>, prefix: u8, path: &RepoPath, quote: bool) {
-        if quote {
-            header.push(b'"');
-        }
-        header.extend_from_slice(&[prefix, b'/']);
-        for byte in path.as_bytes() {
-            if quote {
-                match byte {
-                    b'\\' | b'"' => header.extend_from_slice(&[b'\\', *byte]),
-                    b'\t' => header.extend_from_slice(br"\t"),
-                    b'\n' => header.extend_from_slice(br"\n"),
-                    b'\r' => header.extend_from_slice(br"\r"),
-                    b' '..=b'~' => header.push(*byte),
-                    _ => header.extend_from_slice(&[
-                        b'\\',
-                        b'0' + (byte >> 6),
-                        b'0' + ((byte >> 3) & 7),
-                        b'0' + (byte & 7),
-                    ]),
-                }
-            } else {
-                header.push(*byte);
-            }
-        }
-        if quote {
-            header.push(b'"');
-        }
     }
 
     fn planned_path(&self, path_bytes: &[u8]) -> Option<&RepoPath> {

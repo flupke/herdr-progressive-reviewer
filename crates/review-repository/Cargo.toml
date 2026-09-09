@@ -6,6 +6,8 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+futures.workspace = true
+jj-lib.workspace = true
 review-types = { path = "../review-types" }
 serde.workspace = true
 sha2.workspace = true

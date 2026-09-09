@@ -54,7 +54,7 @@
         {
           default = pkgs.mkShell {
             packages = [
-              pkgs.rust-bin.stable."1.88.0".default
+              pkgs.rust-bin.stable."1.89.0".default
               pkgs.cargo-nextest
               pkgs.cargo-mutants
               pkgs.jq

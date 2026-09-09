@@ -9,6 +9,13 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// A repository or command error with no repository file content.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    /// A jj library operation failed without exposing repository contents.
+    #[error("jj-lib could not {operation}")]
+    JjLibrary {
+        /// The operation that failed.
+        operation: &'static str,
+    },
+
     /// Local repository state I/O failed.
     #[error("{operation} failed at {path:?}: {source}")]
     Io {

@@ -1,8 +1,10 @@
 //! Jujutsu change snapshots.
 
+use super::jj_reader::JjReader;
 use std::ffi::OsString;
 use std::os::unix::ffi::OsStringExt;
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 
 use super::jj_git_diff::{DESCRIPTION_DIFF_PATHS, JjGitDiffParser};
 use super::{
@@ -37,8 +39,24 @@ const REVISION_HISTORY_TEMPLATE: &str = concat!(
     r#"change_id.shortest(8) ++ " " ++ description.first_line() ++ "\n""#,
 );
 
-#[derive(Debug)]
-pub(super) struct JjBackend;
+#[derive(Debug, Default)]
+pub(super) struct JjBackend {
+    reader: Mutex<Option<Arc<JjReader>>>,
+}
+
+impl JjBackend {
+    fn reader(&self, repository: &Repository) -> Result<Arc<JjReader>> {
+        let mut reader = self.reader.lock().map_err(|_| Error::JjLibrary {
+            operation: "lock repository reader",
+        })?;
+        if let Some(reader) = reader.as_ref() {
+            return Ok(Arc::clone(reader));
+        }
+        let initialized = Arc::new(JjReader::open(repository)?);
+        *reader = Some(Arc::clone(&initialized));
+        Ok(initialized)
+    }
+}
 
 impl RepositoryBackend for JjBackend {
     fn set_state_root(&self, _repository_root: &Path, _state_root: &Path) {}
@@ -93,30 +111,11 @@ impl RepositoryBackend for JjBackend {
         snapshot: &Snapshot,
         file: &ChangedFile,
     ) -> Result<Vec<u8>> {
-        let mut arguments = vec![
-            OsString::from("--ignore-working-copy"),
-            OsString::from("diff"),
-            OsString::from("-r"),
-            OsString::from(snapshot.identity.snapshot_id()),
-            OsString::from("--git"),
-            OsString::from("--"),
-        ];
-        arguments.extend(file.diff_paths().map(|path| path.as_os_str().to_owned()));
-        Ok(repository.run_jj(arguments)?.stdout)
+        self.reader(repository)?.diff(repository, snapshot, file)
     }
 
     fn file_at(&self, repository: &Repository, revision: &str, path: &RepoPath) -> Result<Vec<u8>> {
-        Ok(repository
-            .run_jj([
-                OsString::from("--ignore-working-copy"),
-                OsString::from("file"),
-                OsString::from("show"),
-                OsString::from("-r"),
-                OsString::from(revision),
-                OsString::from("--"),
-                path.as_os_str().to_owned(),
-            ])?
-            .stdout)
+        self.reader(repository)?.file_at(repository, revision, path)
     }
 
     fn base_file_at(
@@ -125,11 +124,8 @@ impl RepositoryBackend for JjBackend {
         snapshot: &Snapshot,
         path: &RepoPath,
     ) -> Result<Vec<u8>> {
-        self.file_at(
-            repository,
-            &format!("{}-", snapshot.identity.snapshot_id()),
-            path,
-        )
+        self.reader(repository)?
+            .base_file_at(repository, snapshot, path)
     }
 
     fn interdiff(

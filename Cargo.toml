@@ -33,7 +33,7 @@ resolver = "3"
 [workspace.package]
 version = "0.2.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.89"
 license = "MIT"
 
 [workspace.dependencies]
@@ -43,6 +43,8 @@ crossterm = "0.28"
 crossbeam-channel = "0.5"
 eyre = "0.6"
 fs2 = "0.4"
+futures = "0.3"
+jj-lib = "=0.44.0"
 getrandom = "0.3"
 gix-imara-diff = "0.2"
 ignore = "0.4.23"

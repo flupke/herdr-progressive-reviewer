@@ -55,6 +55,8 @@ cargo test -p review-lsp --test language_servers -- --ignored
 
 ## Development install
 
+Requires Rust 1.89 or newer, a C compiler, and Make.
+
 Build both programs and link this directory:
 
 ```sh
