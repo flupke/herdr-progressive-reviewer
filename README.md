@@ -14,7 +14,7 @@ Main features:
 
 ## Language servers
 
-Hover, definitions, and references use these executables:
+Hover, definitions, type definitions, and references use these executables:
 
 | Files | Server command |
 | --- | --- |

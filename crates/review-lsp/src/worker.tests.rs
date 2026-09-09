@@ -115,7 +115,7 @@ fn worker_waits_for_an_open_document_before_starting_rust_analyzer() {
 }
 
 #[test]
-fn rust_analyzer_finds_a_definition() {
+fn rust_analyzer_finds_definitions_and_type_definitions() {
     let directory = tempfile::tempdir().unwrap();
     fs::create_dir(directory.path().join("src")).unwrap();
     fs::write(
@@ -126,7 +126,7 @@ fn rust_analyzer_finds_a_definition() {
     let source = directory.path().join("src/lib.rs");
     fs::write(
         &source,
-        "fn answer() -> u32 { 42 }\npub fn use_it() { answer(); }\n",
+        "struct Answer;\nfn answer() -> Answer { Answer }\npub fn use_it() { let value = answer(); }\n",
     )
     .unwrap();
     let timeout = Duration::from_secs(30);
@@ -141,27 +141,39 @@ fn rust_analyzer_finds_a_definition() {
         Ok(Event::Ready(_))
     ));
     thread::sleep(Duration::from_millis(500));
-    worker
-        .request(
-            Operation::Definition,
-            Query {
-                toast_id: toasts::ToastId::generate(),
-                path: source.clone(),
-                line: 1,
-                byte_column: 20,
-                expected_line: "pub fn use_it() { answer(); }".to_owned(),
-                snapshot_id: "test".to_owned(),
-            },
-        )
-        .unwrap();
-    let event = worker.events.recv_timeout(timeout).unwrap();
-    let Event::Locations { locations, .. } = event else {
-        panic!("rust-analyzer did not return locations: {event:?}");
-    };
-    assert!(
-        locations
-            .iter()
-            .any(|location| location.path == source && location.line == 0),
-        "{locations:?}"
-    );
+    let text = "pub fn use_it() { let value = answer(); }";
+    for (operation, symbol, target_line) in [
+        (Operation::Definition, "answer", 1),
+        (Operation::TypeDefinition, "value", 0),
+    ] {
+        worker
+            .request(
+                operation,
+                Query {
+                    toast_id: toasts::ToastId::generate(),
+                    path: source.clone(),
+                    line: 2,
+                    byte_column: text.find(symbol).unwrap(),
+                    expected_line: text.to_owned(),
+                    snapshot_id: "test".to_owned(),
+                },
+            )
+            .unwrap();
+        let event = worker.events.recv_timeout(timeout).unwrap();
+        let Event::Locations {
+            operation: returned_operation,
+            locations,
+            ..
+        } = event
+        else {
+            panic!("rust-analyzer did not return locations: {event:?}");
+        };
+        assert_eq!(returned_operation, operation);
+        assert!(
+            locations
+                .iter()
+                .any(|location| location.path == source && location.line == target_line),
+            "{locations:?}"
+        );
+    }
 }

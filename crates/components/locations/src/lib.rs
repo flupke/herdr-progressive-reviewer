@@ -122,7 +122,9 @@ impl LocationsComponent {
                 text: "No locations found".to_owned(),
                 kind: toasts::ToastKind::Info,
             }),
-            [location] if *operation == Operation::Definition => {
+            [location]
+                if matches!(operation, Operation::Definition | Operation::TypeDefinition) =>
+            {
                 self.events.publish(SourceLocationAccepted {
                     location: location.clone(),
                 });

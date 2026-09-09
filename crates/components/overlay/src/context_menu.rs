@@ -40,6 +40,9 @@ impl SourceContextMenu {
     }
 
     pub(super) fn query_at_row(self, row: u16, area: Rect) -> Option<(Operation, LspQueryContext)> {
+        if row >= area.bottom().saturating_sub(1) {
+            return None;
+        }
         let item = row.checked_sub(area.y.saturating_add(1)).map(usize::from)?;
         Some((Operation::from_repr(item)?, self.query?))
     }

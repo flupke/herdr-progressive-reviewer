@@ -198,6 +198,10 @@ impl Session {
                 ..Default::default()
             }),
             text_document: Some(TextDocumentClientCapabilities {
+                type_definition: Some(lsp_types::GotoCapability {
+                    link_support: Some(true),
+                    ..Default::default()
+                }),
                 hover: Some(HoverClientCapabilities {
                     content_format: Some(vec![MarkupKind::Markdown]),
                     ..Default::default()
@@ -285,17 +289,18 @@ impl Session {
                     params,
                 )
             }
-            Operation::Definition => {
+            Operation::Definition | Operation::TypeDefinition => {
                 let params = GotoDefinitionParams {
                     text_document_position_params: position,
                     work_done_progress_params: WorkDoneProgressParams::default(),
                     partial_result_params: PartialResultParams::default(),
                 };
-                Request::new(
-                    id.clone(),
-                    lsp_types::request::GotoDefinition::METHOD.to_owned(),
-                    params,
-                )
+                let method = if operation == Operation::TypeDefinition {
+                    lsp_types::request::GotoTypeDefinition::METHOD
+                } else {
+                    lsp_types::request::GotoDefinition::METHOD
+                };
+                Request::new(id.clone(), method.to_owned(), params)
             }
             Operation::References => {
                 let params = ReferenceParams {
@@ -493,13 +498,15 @@ impl Session {
                     markdown: hover.map(|hover| hover_markdown(hover.contents)),
                 })
             }
-            Operation::Definition => response_value::<Option<GotoDefinitionResponse>>(response)
-                .map(|locations| Event::Locations {
-                    toast_id: query.toast_id,
-                    operation,
-                    snapshot_id: query.snapshot_id,
-                    locations: self.normalize_locations(ServerLocation::from_definition(locations)),
-                }),
+            Operation::Definition | Operation::TypeDefinition => response_value::<
+                Option<GotoDefinitionResponse>,
+            >(response)
+            .map(|locations| Event::Locations {
+                toast_id: query.toast_id,
+                operation,
+                snapshot_id: query.snapshot_id,
+                locations: self.normalize_locations(ServerLocation::from_definition(locations)),
+            }),
             Operation::References => {
                 response_value::<Option<Vec<Location>>>(response).map(|locations| {
                     Event::Locations {

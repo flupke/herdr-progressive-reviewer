@@ -16,7 +16,7 @@ use super::LocationsComponent;
 
 #[test]
 fn pointer_selection_previews_the_location_at_the_clicked_row() {
-    let (mut event_bus, target) = location_list();
+    let (mut event_bus, target) = location_list(Operation::References);
 
     let results = event_bus
         .dispatch_hovered_input(
@@ -31,7 +31,7 @@ fn pointer_selection_previews_the_location_at_the_clicked_row() {
 
 #[test]
 fn pointer_scroll_moves_the_selection_and_double_click_accepts_and_closes() {
-    let (mut event_bus, target) = location_list();
+    let (mut event_bus, target) = location_list(Operation::References);
 
     let scrolled = event_bus
         .dispatch_hovered_input(
@@ -72,19 +72,23 @@ fn pointer_input(kind: PointerInputKind, row: u16) -> PointerInput {
 
 #[test]
 fn keyboard_navigation_previews_each_location_and_accepts_the_selection() {
-    let (mut event_bus, target) = location_list();
+    for operation in [Operation::References, Operation::TypeDefinition] {
+        let (mut event_bus, target) = location_list(operation);
 
-    let moved = dispatch_key(&mut event_bus, target, Key::Last);
-    assert_eq!(output_texts(moved), ["preview:3"]);
+        let moved = dispatch_key(&mut event_bus, target, Key::Last);
+        assert_eq!(output_texts(moved), ["preview:3"]);
 
-    let moved = dispatch_key(&mut event_bus, target, Key::Up);
-    assert_eq!(output_texts(moved), ["preview:2"]);
+        let moved = dispatch_key(&mut event_bus, target, Key::Up);
+        assert_eq!(output_texts(moved), ["preview:2"]);
 
-    let accepted = dispatch_key(&mut event_bus, target, Key::Enter);
-    assert_eq!(output_texts(accepted), ["accepted:2", "visible:false"]);
+        let accepted = dispatch_key(&mut event_bus, target, Key::Enter);
+        assert_eq!(output_texts(accepted), ["accepted:2", "visible:false"]);
+    }
 }
 
-fn location_list() -> (ComponentEventBus<Action>, component_core::ComponentTarget) {
+fn location_list(
+    operation: Operation,
+) -> (ComponentEventBus<Action>, component_core::ComponentTarget) {
     let mut event_bus = ComponentEventBus::new();
     let target = event_bus.mount(|events| {
         LocationsComponent::new(
@@ -107,7 +111,7 @@ fn location_list() -> (ComponentEventBus<Action>, component_core::ComponentTarge
     event_bus
         .publish(LspEvent::Locations {
             toast_id: ToastId::generate(),
-            operation: Operation::References,
+            operation,
             snapshot_id: "snapshot".to_owned(),
             locations: (0..4).map(location).collect(),
         })

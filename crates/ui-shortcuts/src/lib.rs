@@ -72,6 +72,7 @@ pub enum GuideShortcut {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LspShortcut {
     GoToDefinition,
+    GoToTypeDefinition,
     GoToReferences,
     Restart,
     ShowDocumentation,
@@ -515,12 +516,17 @@ const SHORTCUTS: &[ShortcutDefinition] = &[
         )],
     },
     ShortcutDefinition {
-        description: Some("Definition / references / restart LSP"),
+        description: Some("Definition / type definition / references / restart LSP"),
         bindings: &[
             ShortcutBinding::two(
                 Key::Char('g'),
                 Key::Char('d'),
                 lsp(LspShortcut::GoToDefinition),
+            ),
+            ShortcutBinding::two(
+                Key::Char('g'),
+                Key::Char('y'),
+                lsp(LspShortcut::GoToTypeDefinition),
             ),
             ShortcutBinding::two(
                 Key::Char('g'),

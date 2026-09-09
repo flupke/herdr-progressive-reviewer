@@ -14,6 +14,8 @@ pub enum Operation {
     Definition,
     /// Find references at the position.
     References,
+    /// Find type definitions at the position.
+    TypeDefinition,
 }
 
 impl Operation {
@@ -22,6 +24,7 @@ impl Operation {
         match self {
             Self::Hover => "Documentation",
             Self::Definition => "Definitions",
+            Self::TypeDefinition => "Type definitions",
             Self::References => "References",
         }
     }
@@ -31,6 +34,7 @@ impl Operation {
         match self {
             Self::Hover => "Loading documentation…",
             Self::Definition => "Finding definition…",
+            Self::TypeDefinition => "Finding type definition…",
             Self::References => "Finding references…",
         }
     }
@@ -150,7 +154,7 @@ pub enum Event {
         /// Markdown content, when the position has documentation.
         markdown: Option<String>,
     },
-    /// Definition or reference locations arrived.
+    /// Definition, type definition, or reference locations arrived.
     Locations {
         /// ID of the completed toast.
         toast_id: ToastId,

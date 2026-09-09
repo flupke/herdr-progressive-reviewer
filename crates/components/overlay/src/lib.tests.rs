@@ -10,6 +10,30 @@ use ui_shortcuts::Key;
 use super::OverlayComponent;
 
 #[test]
+fn source_menu_borders_do_not_trigger_an_unlisted_lsp_operation() {
+    let menu = super::SourceContextMenu {
+        column: 2,
+        row: 3,
+        selected: 0,
+        query: Some(ui_events::LspQueryContext {
+            path: "src/lib.rs".into(),
+            line: 0,
+            byte_column: 0,
+            expected_line: "struct Thing;".to_owned(),
+            snapshot_id: "snapshot".to_owned(),
+        }),
+    };
+    let area = menu.area(ratatui::layout::Rect::new(0, 0, 80, 24));
+    assert_eq!(menu.clone().query_at_row(area.y, area), None);
+    assert_eq!(menu.clone().query_at_row(area.bottom() - 1, area), None);
+    assert_eq!(
+        menu.query_at_row(area.bottom() - 2, area)
+            .map(|(operation, _)| operation),
+        Some(review_lsp::Operation::References)
+    );
+}
+
+#[test]
 fn help_opens_and_closes_through_keyboard_input() {
     let mut bus = ComponentEventBus::<Action>::new();
     let target = bus.mount(|_| OverlayComponent::new(ui_theme::Theme::default()));

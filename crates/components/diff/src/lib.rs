@@ -1142,6 +1142,7 @@ impl DiffComponent {
         let operation = match command {
             LspShortcut::ShowDocumentation => review_lsp::Operation::Hover,
             LspShortcut::GoToDefinition => review_lsp::Operation::Definition,
+            LspShortcut::GoToTypeDefinition => review_lsp::Operation::TypeDefinition,
             LspShortcut::GoToReferences => review_lsp::Operation::References,
             LspShortcut::Restart => return vec![Action::RestartLsp],
         };
