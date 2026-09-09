@@ -753,7 +753,7 @@ fn output_uses_only_the_active_agent() {
 }
 
 #[test]
-fn active_search_status_shows_the_query_and_current_match() {
+fn global_search_focuses_the_diff_and_shows_the_query_and_current_match() {
     let mut application = wrapped_diff_application(
         vec![
             DiffRow::Hunk {
@@ -779,7 +779,18 @@ fn active_search_status_shows_the_query_and_current_match() {
         12,
     );
 
+    application.update(UserInput::Key(Key::Tab));
+    assert!(
+        screen(&application, 80, 12)
+            .join("\n")
+            .contains("Files (focus)")
+    );
     application.update(UserInput::Key(Key::Char('/')));
+    assert!(
+        screen(&application, 80, 12)
+            .join("\n")
+            .contains("Diff · src/lib.rs (focus)")
+    );
     for character in "needle".chars() {
         application.update(UserInput::Key(Key::Char(character)));
     }
@@ -801,6 +812,12 @@ fn active_search_status_shows_the_query_and_current_match() {
     assert!(screen(&application, 80, 12)[11].ends_with("[2/3]"));
     application.update(UserInput::Key(Key::Char('n')));
     assert!(screen(&application, 80, 12)[11].ends_with("[3/3]"));
+
+    application.update(UserInput::Key(Key::Char('/')));
+    for character in "src/lib".chars() {
+        application.update(UserInput::Key(Key::Char(character)));
+    }
+    assert!(screen(&application, 80, 12)[11].starts_with("/src/lib"));
 
     application.update(UserInput::Key(Key::Escape));
     assert!(screen(&application, 80, 12)[11].starts_with("? help"));

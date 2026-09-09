@@ -493,10 +493,20 @@ impl ReviewApplication {
         let Some(key) = event.downcast_ref::<crate::Key>() else {
             return Vec::new();
         };
-        let InputResolution::Matched(ui_shortcuts::ShortcutCommand::Application(command)) =
-            self.application_shortcuts.resolve_key(*key)
-        else {
+        let InputResolution::Matched(command) = self.application_shortcuts.resolve_key(*key) else {
             return Vec::new();
+        };
+        if command == ui_shortcuts::ShortcutCommand::Search(ui_shortcuts::SearchShortcut::Begin) {
+            self.set_focus(Focus::Diff);
+            self.focused_component = self.diff_component;
+            return self
+                .event_bus
+                .dispatch_input(event, self.diff_component)
+                .map(component_core::InputDispatch::into_results)
+                .unwrap_or_default();
+        }
+        let ui_shortcuts::ShortcutCommand::Application(command) = command else {
+            unreachable!("the application shortcut set is exact");
         };
         let actions = match command {
             ui_shortcuts::ApplicationShortcut::ChangeFocus => {

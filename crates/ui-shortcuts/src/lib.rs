@@ -342,7 +342,7 @@ impl ShortcutSet {
                     ApplicationShortcut::ChangeFocus
                         | ApplicationShortcut::Clear
                         | ApplicationShortcut::Quit
-                )
+                ) | ShortcutCommand::Search(SearchShortcut::Begin)
             ),
             Self::Diff => {
                 !is_component_global_shortcut(command)
