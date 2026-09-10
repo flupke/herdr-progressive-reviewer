@@ -278,6 +278,75 @@ fn completed_mailbox_response_is_imported_once() {
     );
 }
 
+#[test_case::test_case(RepoType::Git; "git")]
+#[test_case::test_case(RepoType::Jj; "jj")]
+fn explanation_order_survives_checkpoint_refresh_and_mailbox_reimport(repository_type: RepoType) {
+    let mut fixture = GuideCoordinatorFixture::new(repository_type);
+    let checkpoint = fixture.checkpoint();
+    let repository_snapshot = GuideRequestCoordinator::freeze_repository_snapshot(
+        &fixture.context(),
+        GuideScope::All,
+        &checkpoint,
+    )
+    .unwrap();
+    let mailbox = fixture
+        .guide_store
+        .guide_mailbox_directory(&checkpoint.review_unit)
+        .unwrap();
+    GuideRunner::<HerdrClient>::prepare(repository_snapshot, mailbox.clone()).unwrap();
+    let items = vec![
+        guide_item("changed.rs", "Entry point"),
+        guide_item("added.rs", "Dependency"),
+    ];
+    std::fs::write(
+        mailbox.join("response.json"),
+        serde_json::to_vec(&serde_json::json!({"schema_version": 1, "items": items})).unwrap(),
+    )
+    .unwrap();
+    let guide = GuideMailbox::open(mailbox)
+        .unwrap()
+        .load_completed_guide()
+        .unwrap()
+        .guide;
+    fixture.guide_store.save_guide(&guide).unwrap();
+
+    fixture
+        .repository_files
+        .write("unrelated.rs", b"fn unrelated() {}\n");
+    fixture.snapshot = complete_repository_snapshot(&fixture.repository);
+    assert_ne!(fixture.checkpoint(), checkpoint);
+    let (messages, received) = super::super::application_message_channel();
+    let reloaded = fixture
+        .guide_store
+        .load_guide(&checkpoint.review_unit)
+        .unwrap()
+        .unwrap();
+    GuideRequestCoordinator::show_guide_for_current_checkpoint(
+        &fixture.context(),
+        &messages,
+        &reloaded,
+    );
+    GuideRequestCoordinator::default().import_completed_guide(
+        &fixture.context(),
+        &messages,
+        &checkpoint.review_unit,
+    );
+
+    let changes = received
+        .try_iter()
+        .filter_map(|event| event.downcast_ref::<ReviewGuideChanged>().cloned())
+        .collect::<Vec<_>>();
+    assert_eq!(changes.len(), 2);
+    let mut expected = items;
+    for item in &mut expected {
+        item.status = GuideItemStatus::Stale;
+    }
+    for change in changes {
+        assert_eq!(change.review_checkpoint, fixture.checkpoint());
+        assert_eq!(change.items, expected);
+    }
+}
+
 #[test]
 fn identical_responses_from_different_review_units_are_each_imported() {
     let mut fixture = GuideCoordinatorFixture::new(RepoType::Git);

@@ -251,10 +251,9 @@ impl<'a> ResponseValidator<'a> {
             GuideTarget::Lines { path, old, new } => {
                 self.accept_lines(path, old.as_ref(), new.as_ref())
             }
-            GuideTarget::File { path } => self
-                .files
-                .get(path.as_str())
-                .is_some_and(|file| file.hunk_count == 0),
+            GuideTarget::File { path } => self.files.get(path.as_str()).is_some_and(|file| {
+                file.hunk_count == 0 && self.ranges.insert(path.clone(), Vec::new()).is_none()
+            }),
         }
     }
 
@@ -622,66 +621,23 @@ fn map_hunk_item(
     })
 }
 
-/// Map an ordered guide while omitting overlaps and reordered targets.
+/// Map guides in response order while omitting ambiguous or overlapping targets.
 pub fn map_anchored_items(
     items: &[AnchoredGuideItem],
     current_files: &[FrozenFile],
 ) -> Vec<GuideItem> {
-    let mut previous_position = None;
+    let mut validator = ResponseValidator::new(current_files);
     items
         .iter()
         .filter_map(|item| {
             let matches = current_files
                 .iter()
-                .enumerate()
-                .filter_map(|(index, file)| map_anchored_item(item, file).map(|item| (index, item)))
+                .filter_map(|file| map_anchored_item(item, file))
                 .collect::<Vec<_>>();
-            let [(file_index, mapped)] = matches.as_slice() else {
+            let [mapped] = matches.as_slice() else {
                 return None;
             };
-            let order_range = match &mapped.target {
-                GuideTarget::Hunks {
-                    first_hunk,
-                    last_hunk,
-                    ..
-                } => (*first_hunk - 1, 0)..(*last_hunk, 0),
-                GuideTarget::Lines { old, new, .. } => {
-                    let file = &current_files[*file_index];
-                    let old_half_open = old.as_ref().and_then(GuideLineRange::half_open);
-                    let new_half_open = new.as_ref().and_then(GuideLineRange::half_open);
-                    let matching = file
-                        .hunks
-                        .iter()
-                        .enumerate()
-                        .filter(|(_, hunk)| {
-                            ranges_overlap(hunk.old.as_ref(), old_half_open.as_ref())
-                                || ranges_overlap(hunk.new.as_ref(), new_half_open.as_ref())
-                        })
-                        .map(|(index, _)| index)
-                        .collect::<Vec<_>>();
-                    let first_hunk = *matching.first()?;
-                    let last_hunk = *matching.last()?;
-                    let first_line = new
-                        .as_ref()
-                        .or(old.as_ref())
-                        .map_or(0, |range| range.first_line);
-                    let last_line = new
-                        .as_ref()
-                        .or(old.as_ref())
-                        .map_or(first_line, |range| range.last_line);
-                    (first_hunk, first_line)..(last_hunk, last_line.saturating_add(1))
-                }
-                GuideTarget::File { .. } => (0, 0)..(0, 1),
-            };
-            let position = (*file_index, order_range.end);
-            if previous_position.is_some_and(|(previous_file, previous_end)| {
-                *file_index < previous_file
-                    || (*file_index == previous_file && order_range.start < previous_end)
-            }) {
-                return None;
-            }
-            previous_position = Some(position);
-            Some(mapped.clone())
+            validator.accept(&mapped.target).then(|| mapped.clone())
         })
         .collect()
 }

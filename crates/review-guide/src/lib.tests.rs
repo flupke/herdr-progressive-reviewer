@@ -943,7 +943,7 @@ fn ordered_anchored_items_map_to_the_current_file() {
 }
 
 #[test]
-fn reordered_or_overlapping_anchored_items_are_omitted() {
+fn response_order_is_preserved_while_overlapping_anchors_are_omitted() {
     let items = vec![
         anchored_new_line_item("src/lib.rs", 2, "later"),
         anchored_new_line_item("src/lib.rs", 1, "earlier"),
@@ -952,8 +952,48 @@ fn reordered_or_overlapping_anchored_items_are_omitted() {
 
     let mapped = map_anchored_items(&items, &[added_text_file("src/lib.rs")]);
 
-    assert_eq!(mapped.len(), 1);
+    assert_eq!(mapped.len(), 2);
     assert_eq!(mapped[0].text, "later");
+    assert_eq!(mapped[1].text, "earlier");
+}
+
+#[test]
+fn guides_can_revisit_files_in_explanation_order() {
+    let items = vec![
+        anchored_new_line_item("two.rs", 2, "entry point"),
+        anchored_new_line_item("one.rs", 1, "dependency"),
+        anchored_new_line_item("two.rs", 0, "setup"),
+        anchored_new_line_item("one.rs", 1, "overlapping dependency"),
+    ];
+
+    let mapped = map_anchored_items(
+        &items,
+        &[added_text_file("one.rs"), added_text_file("two.rs")],
+    );
+
+    assert_eq!(
+        mapped
+            .iter()
+            .map(|item| item.text.as_str())
+            .collect::<Vec<_>>(),
+        ["entry point", "dependency", "setup"]
+    );
+}
+
+#[test]
+fn duplicate_file_anchors_are_omitted() {
+    let file = zero_hunk_file("image.png", "same diff");
+    let items = vec![GuideItem {
+        target: GuideTarget::File {
+            path: file.path.clone(),
+        },
+        text: "image update".to_owned(),
+        status: GuideItemStatus::Matched,
+    }];
+    let mut anchors = anchor_items(&items, std::slice::from_ref(&file), "checkpoint");
+    anchors.push(anchors[0].clone());
+
+    assert_eq!(map_anchored_items(&anchors, &[file]).len(), 1);
 }
 
 #[test]
