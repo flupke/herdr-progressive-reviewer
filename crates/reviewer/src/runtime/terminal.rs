@@ -4,6 +4,11 @@ use ratatui::backend::{Backend, ClearType, CrosstermBackend, WindowSize};
 use ratatui::buffer::Cell;
 use ratatui::layout::{Position, Size};
 
+/// A backend that can discard cursor visibility cached before input or focus changes.
+pub(super) trait CursorBackend: Backend {
+    fn invalidate_cursor_visibility(&mut self);
+}
+
 /// Avoid terminal traffic for unchanged frames, including repeated cursor hides.
 pub(super) struct TerminalBackend<W: Write> {
     inner: CrosstermBackend<W>,
@@ -19,6 +24,18 @@ impl<W: Write> TerminalBackend<W> {
     }
 }
 
+impl<W: Write> CursorBackend for TerminalBackend<W> {
+    fn invalidate_cursor_visibility(&mut self) {
+        self.cursor_hidden = None;
+    }
+}
+
+#[cfg(test)]
+impl CursorBackend for ratatui::backend::TestBackend {
+    // TestBackend does not cache cursor visibility commands.
+    fn invalidate_cursor_visibility(&mut self) {}
+}
+
 impl<W: Write> Backend for TerminalBackend<W> {
     fn draw<'a, I>(&mut self, content: I) -> io::Result<()>
     where
@@ -26,6 +43,10 @@ impl<W: Write> Backend for TerminalBackend<W> {
     {
         let mut content = content.peekable();
         if content.peek().is_some() {
+            // Reassert visibility before painting: the host may have exposed the
+            // cursor since the last frame, leaving it on the last updated cell.
+            self.inner.hide_cursor()?;
+            self.cursor_hidden = Some(true);
             self.inner.draw(content)?;
         }
         Ok(())
@@ -83,7 +104,7 @@ impl<W: Write> Backend for TerminalBackend<W> {
 impl<W: Write> Write for TerminalBackend<W> {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         // Raw terminal commands may change cursor visibility outside Backend.
-        self.cursor_hidden = None;
+        self.invalidate_cursor_visibility();
         self.inner.write(bytes)
     }
 

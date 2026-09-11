@@ -25,9 +25,9 @@ use component_core::{ApplicationEvent, EventEnvelope};
 use crossbeam_channel::Receiver as EventReceiver;
 use crossbeam_channel::{Sender as EventSender, unbounded};
 use crossterm::event::{
-    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
-    KeyboardEnhancementFlags, MouseButton, MouseEvent, MouseEventKind, PopKeyboardEnhancementFlags,
-    PushKeyboardEnhancementFlags,
+    self, DisableFocusChange, DisableMouseCapture, EnableFocusChange, EnableMouseCapture, Event,
+    KeyCode, KeyEvent, KeyModifiers, KeyboardEnhancementFlags, MouseButton, MouseEvent,
+    MouseEventKind, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
 };
 use crossterm::execute;
 use crossterm::terminal::{
@@ -56,7 +56,7 @@ use review_ui::{Action, Key, ReviewApplication, SourceLoadMode, Theme, UserInput
 use sha2::{Digest, Sha256};
 use signal_hook::consts::signal::{SIGHUP, SIGINT, SIGTERM};
 use signal_hook::flag;
-use terminal::TerminalBackend;
+use terminal::{CursorBackend, TerminalBackend};
 use ui_events::{
     AnimationTick, DiffContentLoadFailed, DiffContentLoaded, FileSummary, OutputDeliveryFinished,
     RepositoryFilesChanged, RepositoryMetadataChanged, RepositoryRefreshFinished,
@@ -190,6 +190,7 @@ struct StopRequested;
 struct RepositoryPollDue;
 struct ApplicationTick(Instant);
 struct TerminalFailed(String);
+struct TerminalFocused;
 
 #[derive(Clone)]
 struct ApplicationMessageSender(EventSender<EventEnvelope>);
@@ -618,7 +619,7 @@ impl RuntimeActionDispatcher<'_> {
     }
 }
 
-impl<B: Backend> RuntimeEventLoop<'_, B> {
+impl<B: CursorBackend> RuntimeEventLoop<'_, B> {
     fn run(&mut self) -> eyre::Result<()> {
         while !self.cycle()? {}
         Ok(())
@@ -650,6 +651,15 @@ impl<B: Backend> RuntimeEventLoop<'_, B> {
 
     fn handle_event(&mut self, event: &EventEnvelope) -> eyre::Result<bool> {
         let started = Instant::now();
+        if event.downcast_ref::<UserInput>().is_some()
+            || event.downcast_ref::<TerminalFocused>().is_some()
+            || matches!(
+                event.downcast_ref::<HerdrEvent>(),
+                Some(HerdrEvent::PaneFocused(_))
+            )
+        {
+            self.terminal.backend_mut().invalidate_cursor_visibility();
+        }
         let result = self.dispatch_event(event);
         self.timings.event(event, started);
         result
@@ -998,12 +1008,14 @@ impl TerminalGuard {
             terminal.backend_mut(),
             EnterAlternateScreen,
             EnableMouseCapture,
+            EnableFocusChange,
             PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
         ) {
             let _ = disable_raw_mode();
             let _ = execute!(
                 terminal.backend_mut(),
                 DisableMouseCapture,
+                DisableFocusChange,
                 PopKeyboardEnhancementFlags,
                 LeaveAlternateScreen
             );
@@ -1019,6 +1031,7 @@ impl Drop for TerminalGuard {
         let _ = execute!(
             self.terminal.backend_mut(),
             DisableMouseCapture,
+            DisableFocusChange,
             PopKeyboardEnhancementFlags,
             LeaveAlternateScreen
         );
@@ -1092,14 +1105,8 @@ impl TerminalEventProducer {
                         return;
                     }
                 };
-                let message = match event {
-                    Event::Key(key) => normalize_key(key).map(UserInput::Key),
-                    Event::Mouse(mouse) => mouse_clicks.normalize(mouse),
-                    Event::Resize(width, height) => Some(UserInput::Resize { width, height }),
-                    _ => None,
-                };
-                if message.is_some_and(|message| events.send(EventEnvelope::new(message)).is_err())
-                {
+                let message = Self::normalize_event(&event, &mut mouse_clicks);
+                if message.is_some_and(|message| events.send(message).is_err()) {
                     return;
                 }
             }
@@ -1107,6 +1114,21 @@ impl TerminalEventProducer {
         Self {
             stop_requested,
             thread: Some(thread),
+        }
+    }
+
+    fn normalize_event(event: &Event, mouse_clicks: &mut MouseClicks) -> Option<EventEnvelope> {
+        match event {
+            Event::Key(key) => normalize_key(*key)
+                .map(UserInput::Key)
+                .map(EventEnvelope::new),
+            Event::Mouse(mouse) => mouse_clicks.normalize(*mouse).map(EventEnvelope::new),
+            Event::Resize(width, height) => Some(EventEnvelope::new(UserInput::Resize {
+                width: *width,
+                height: *height,
+            })),
+            Event::FocusGained => Some(EventEnvelope::new(TerminalFocused)),
+            Event::FocusLost | Event::Paste(_) => None,
         }
     }
 
