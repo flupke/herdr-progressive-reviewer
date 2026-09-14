@@ -17,6 +17,7 @@ const MAX_STATE_FILE_BYTES: u64 = 1024 * 1024;
 
 mod checkpoint;
 mod guide;
+mod threads;
 
 pub use checkpoint::{LoadResult, ReviewRecord};
 
@@ -26,6 +27,9 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// An error that does not include repository file content.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    /// A conversation change could not be applied to the latest stored history.
+    #[error("{0}")]
+    ThreadUpdate(String),
     /// State could not be read or changed.
     #[error("{operation} failed for review state at {path:?}: {source}")]
     StateIo {
@@ -70,7 +74,7 @@ struct Settings {
 }
 
 /// Review state for one canonical repository.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct ReviewStore {
     state_root: PathBuf,
     repository_dir: PathBuf,

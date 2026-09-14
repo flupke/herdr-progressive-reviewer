@@ -1,7 +1,7 @@
 use std::ops::{Range, RangeInclusive};
 
 use guide_rendering::{
-    GuideBorderCell, GuideLayout, GuideOverlay, GuideOverlayRow, GuideRenderedRow,
+    DiffFrame, GuideBorderCell, GuideLayout, GuideOverlay, GuideOverlayRow, GuideRenderedRow,
 };
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Alignment, Rect};
@@ -15,6 +15,7 @@ use unicode_width::UnicodeWidthStr;
 
 use ui_theme::Palette;
 
+use crate::comment_layout::CommentLayout;
 use crate::{DiffPointerPosition, LoadedDocument, PresentedRow, Token};
 
 pub(super) const TAB_DISPLAY_WIDTH: usize = 4;
@@ -24,6 +25,7 @@ const FILE_CONTROL_TITLE: &str = "[x]";
 const MIN_DIFF_CONTROLS_WIDTH: u16 = 32;
 
 pub(super) struct DiffRenderer<'a> {
+    comments: Option<&'a crate::comments::Comments>,
     palette: Palette,
     file: Option<&'a LoadedDocument>,
     guide_layout: Option<GuideLayout<'a>>,
@@ -35,6 +37,55 @@ pub(super) struct DiffRenderer<'a> {
 }
 
 impl<'a> DiffRenderer<'a> {
+    pub(super) fn original_context_rows(
+        rows: &[syntax_highlighting::HighlightedRow],
+        width: u16,
+        number_width: usize,
+        palette: Palette,
+    ) -> Vec<crate::comment_layout::CommentRow> {
+        let renderer = Self::new(palette, None, None, false, false, None, None);
+        let frame = DiffFrame::new(width, number_width, Style::default().fg(palette.dim));
+        rows.iter()
+            .enumerate()
+            .flat_map(|(index, row)| {
+                let context = CodeRenderContext {
+                    tokens: &row.tokens,
+                    number_width,
+                    cursor: None,
+                    source_line: None,
+                    source_location: None,
+                };
+                let line = renderer
+                    .diff_line(&row.diff, context, true)
+                    .style(renderer.row_style(&row.diff, true));
+                WrappedDiffRow::wrap_source(
+                    &line,
+                    index,
+                    width,
+                    number_width + 3,
+                    Some(frame),
+                    None,
+                )
+                .into_iter()
+                .map(|row| crate::comment_layout::CommentRow {
+                    rendered: GuideRenderedRow {
+                        line: row.line,
+                        border_cells: row.guide_border_cells,
+                        source_row: row.source_row,
+                    },
+                    target: None,
+                    editor: false,
+                    reply: None,
+                })
+            })
+            .collect()
+    }
+
+    pub(super) fn with_comments(mut self, comments: &'a crate::comments::Comments) -> Self {
+        self.comments = Some(comments);
+        self
+    }
+
     pub(super) fn new(
         palette: Palette,
         file: Option<&'a LoadedDocument>,
@@ -45,6 +96,7 @@ impl<'a> DiffRenderer<'a> {
         selection: Option<RangeInclusive<usize>>,
     ) -> Self {
         Self {
+            comments: None,
             palette,
             file,
             guide_layout,
@@ -83,12 +135,17 @@ pub(super) struct DiffPointerViewport {
 }
 
 struct PointerRow {
+    comment: Option<crate::comments::CommentTarget>,
+    editor: bool,
     source_row: usize,
     source_display_offset: usize,
     is_source_row: bool,
 }
 
 struct WrappedDiffRow {
+    reply: Option<review_threads::MessageId>,
+    comment: Option<crate::comments::CommentTarget>,
+    editor: bool,
     line: Line<'static>,
     guide_line: Option<Line<'static>>,
     guide_border_cells: Vec<GuideBorderCell>,
@@ -99,6 +156,9 @@ struct WrappedDiffRow {
 
 fn wrapped_guide_row(row: GuideRenderedRow) -> WrappedDiffRow {
     WrappedDiffRow {
+        comment: None,
+        editor: false,
+        reply: None,
         line: Line::raw(" ".repeat(row.line.width())),
         guide_line: Some(row.line),
         guide_border_cells: row.border_cells,
@@ -139,6 +199,38 @@ fn append_guide_rows_after(
 }
 
 impl DiffViewport {
+    fn comments_only(layout: Option<CommentLayout>) -> Self {
+        Self {
+            rows: layout
+                .into_iter()
+                .flat_map(CommentLayout::into_remaining)
+                .map(WrappedDiffRow::from_comment)
+                .collect(),
+        }
+    }
+
+    pub(super) fn comment_range(
+        &self,
+        id: Option<&review_threads::MessageId>,
+        editing: bool,
+    ) -> Option<RangeInclusive<usize>> {
+        let mut rows = self.rows.iter().enumerate().filter_map(|(index, row)| {
+            let matches = if editing {
+                row.editor
+            } else {
+                id.is_some()
+                    && row
+                        .comment
+                        .as_ref()
+                        .and_then(crate::comments::CommentTarget::id)
+                        == id
+            };
+            matches.then_some(index)
+        });
+        let start = rows.next()?;
+        Some(start..=rows.next_back().unwrap_or(start))
+    }
+
     pub(super) fn scroll(&self, file: &LoadedDocument) -> usize {
         file.document.scroll.min(self.rows.len().saturating_sub(1))
     }
@@ -201,7 +293,15 @@ impl DiffViewport {
             .cursor_visual_row(file)
             .saturating_add_signed(delta)
             .min(self.rows.len().saturating_sub(1));
-        let row = self.rows.get(visual_row)?;
+        let index = if delta >= 0 {
+            (visual_row..self.rows.len())
+                .find(|index| self.rows[*index].comment.is_none() && !self.rows[*index].editor)
+        } else {
+            (0..=visual_row)
+                .rev()
+                .find(|index| self.rows[*index].comment.is_none() && !self.rows[*index].editor)
+        }?;
+        let row = self.rows.get(index)?;
         Some((row.source_row, row.source_display_offset))
     }
 
@@ -283,6 +383,18 @@ impl DiffViewport {
 }
 
 impl DiffPointerViewport {
+    pub(super) fn comment_at(&self, screen_row: usize) -> Option<&crate::comments::CommentTarget> {
+        self.rows
+            .get(screen_row)
+            .and_then(|row| row.comment.as_ref())
+    }
+
+    pub(super) fn is_comment(&self, screen_row: usize) -> bool {
+        self.rows
+            .get(screen_row)
+            .is_some_and(|row| row.editor || row.comment.is_some())
+    }
+
     pub(super) fn position(
         &self,
         screen_row: usize,
@@ -299,7 +411,12 @@ impl DiffPointerViewport {
 }
 
 impl DiffRenderer<'_> {
-    pub(super) fn render(self, area: Rect, buffer: &mut Buffer) -> DiffRenderResult {
+    pub(super) fn render(
+        self,
+        area: Rect,
+        buffer: &mut Buffer,
+        replies: &mut crate::reply_visibility::ReplyVisibility,
+    ) -> DiffRenderResult {
         let focused = self.focused;
         let file = self.file;
         let inner = self.render_pane(area, buffer, focused, file);
@@ -317,6 +434,14 @@ impl DiffRenderer<'_> {
         }
         let viewport = self.viewport(file, inner.width, focused);
         let scroll = viewport.scroll(file);
+        replies.observe(
+            viewport
+                .rows
+                .iter()
+                .map(|row| (row.reply.as_ref(), &row.line)),
+            scroll..scroll.saturating_add(usize::from(inner.height)),
+            inner,
+        );
         let visible_rows = viewport
             .rows
             .iter()
@@ -327,6 +452,8 @@ impl DiffRenderer<'_> {
             rows: visible_rows
                 .iter()
                 .map(|row| PointerRow {
+                    comment: row.comment.clone(),
+                    editor: row.editor,
                     source_row: row.source_row,
                     source_display_offset: row.source_display_offset,
                     is_source_row: row.is_source_row,
@@ -405,10 +532,9 @@ impl DiffRenderer<'_> {
     }
 
     fn render_empty_review(&self, file: &LoadedDocument, area: Rect, buffer: &mut Buffer) -> bool {
-        if !self.reviewable
-            && self.search_query.is_none()
-            && file.document.source_location.is_none()
-            && !file.document.diff.is_file_view()
+        if !file.comments_only
+            && self.comments.is_none_or(|comments| !comments.has_for(file))
+            && self.hides_reviewed_diff(file)
         {
             let center = Rect::new(area.x, area.y + area.height / 2, area.width, 1);
             Paragraph::new("No changes")
@@ -418,6 +544,13 @@ impl DiffRenderer<'_> {
             return true;
         }
         false
+    }
+
+    fn hides_reviewed_diff(&self, file: &LoadedDocument) -> bool {
+        !self.reviewable
+            && self.search_query.is_none()
+            && file.document.source_location.is_none()
+            && !file.document.diff.is_file_view()
     }
 
     pub(super) fn viewport(
@@ -430,7 +563,18 @@ impl DiffRenderer<'_> {
         let line_number_width = file.document.diff.line_number_width();
         let show_markers = !file.document.diff.shows_whole_file();
         let guide_layout = self.guide_layout.as_ref();
-        let rows = file
+        let include_code = !self.hides_reviewed_diff(file);
+        let comment_layout = self
+            .comments
+            .map(|comments| comments.layout(file, width, self.palette, include_code));
+        if !include_code {
+            return DiffViewport::comments_only(comment_layout);
+        }
+        let editing = self
+            .comments
+            .is_some_and(|comments| comments.inline_editor_visible_in(file));
+        let focused = focused && !editing;
+        let rows: Vec<_> = file
             .document
             .diff
             .rows
@@ -479,52 +623,75 @@ impl DiffRenderer<'_> {
                 {
                     style = style.bg(self.palette.selection);
                 }
-                let is_current_row = index == file.document.cursor;
+                let is_current_row = !editing && index == file.document.cursor;
                 if is_current_row {
                     style = style.bg(self.palette.cursor);
                 }
                 let styled_line = line.style(style);
                 let enclosing_status =
                     guide_layout.and_then(|layout| layout.enclosing_status(index));
-                let enclosing_layout = guide_layout;
-                let enclosed = enclosing_status.is_some();
-                wrapped.extend(
-                    wrap_line(
-                        &styled_line,
-                        if enclosed {
-                            width.saturating_sub(1)
-                        } else {
-                            width
-                        },
-                        line_number_width + 3,
-                    )
-                    .into_iter()
-                    .map(move |(mut line, source_display_offset)| {
-                        if is_current_row {
-                            fill_line_background(&mut line, width, self.palette.cursor);
-                        }
-                        let guide_border_cells = enclosing_status.map_or_else(Vec::new, |status| {
-                            enclosing_layout.map_or_else(Vec::new, |layout| {
-                                layout.enclose_line(&mut line, width, line_number_width, status)
-                            })
-                        });
-                        WrappedDiffRow {
-                            line,
-                            guide_line: None,
-                            guide_border_cells,
-                            source_row: index,
-                            source_display_offset,
-                            is_source_row: true,
-                        }
-                    }),
-                );
+                let comment_frame = comment_layout
+                    .as_ref()
+                    .and_then(|layout| layout.frame_at(index));
+                let enclosing_frame = comment_frame.or_else(|| {
+                    guide_layout
+                        .zip(enclosing_status)
+                        .map(|(layout, status)| layout.frame(width, line_number_width, status))
+                });
+                wrapped.extend(WrappedDiffRow::wrap_source(
+                    &styled_line,
+                    index,
+                    width,
+                    line_number_width + 3,
+                    enclosing_frame,
+                    is_current_row.then_some(self.palette.cursor),
+                ));
                 if let Some(layout) = guide_layout {
                     append_guide_rows_after(&mut wrapped, layout, index, width, line_number_width);
                 }
                 wrapped
             })
             .collect();
+        let rows = Self::insert_comment_rows(rows, comment_layout);
         DiffViewport { rows }
+    }
+
+    fn insert_comment_rows(
+        source: Vec<WrappedDiffRow>,
+        layout: Option<crate::comment_layout::CommentLayout>,
+    ) -> Vec<WrappedDiffRow> {
+        let Some(mut layout) = layout else {
+            return source;
+        };
+        let mut source = source.into_iter().peekable();
+        let mut rows = Vec::new();
+        while let Some(row) = source.next() {
+            let index = row.source_row;
+            let is_source_row = row.is_source_row;
+            if is_source_row {
+                rows.extend(
+                    layout
+                        .take_before(index)
+                        .into_iter()
+                        .map(WrappedDiffRow::from_comment),
+                );
+            }
+            rows.push(row);
+            if is_source_row
+                && source
+                    .peek()
+                    .is_none_or(|next| !next.is_source_row || next.source_row != index)
+            {
+                rows.extend(
+                    layout
+                        .take_after(index)
+                        .into_iter()
+                        .map(WrappedDiffRow::from_comment),
+                );
+            }
+        }
+        rows.extend(layout.into_remaining().map(WrappedDiffRow::from_comment));
+        rows
     }
 
     fn diff_line(
@@ -918,4 +1085,65 @@ fn diff_controls_are_visible(width: u16, file: Option<&LoadedDocument>) -> bool 
         MIN_DIFF_CONTROLS_WIDTH
     };
     width >= minimum
+}
+
+impl WrappedDiffRow {
+    fn wrap_source(
+        line: &Line<'static>,
+        index: usize,
+        width: u16,
+        continuation_indent: usize,
+        frame: Option<DiffFrame>,
+        cursor_background: Option<Color>,
+    ) -> Vec<Self> {
+        let content_width = if frame.is_some() {
+            width.saturating_sub(1)
+        } else {
+            width
+        };
+        wrap_line(line, content_width, continuation_indent)
+            .into_iter()
+            .map(|(mut line, source_display_offset)| {
+                if let Some(background) = cursor_background {
+                    fill_line_background(&mut line, width, background);
+                }
+                let border_cells =
+                    frame.map_or_else(Vec::new, |frame| frame.enclose_line(&mut line));
+                Self::source(line, border_cells, index, source_display_offset)
+            })
+            .collect()
+    }
+
+    fn source(
+        line: Line<'static>,
+        guide_border_cells: Vec<GuideBorderCell>,
+        source_row: usize,
+        source_display_offset: usize,
+    ) -> Self {
+        Self {
+            line,
+            guide_border_cells,
+            source_row,
+            source_display_offset,
+            comment: None,
+            editor: false,
+            reply: None,
+            guide_line: None,
+            is_source_row: true,
+        }
+    }
+
+    fn from_comment(row: crate::comment_layout::CommentRow) -> Self {
+        Self {
+            line: row.rendered.line,
+            comment: row.target,
+            reply: row.reply,
+            editor: row.editor,
+            guide_line: None,
+            guide_border_cells: row.rendered.border_cells,
+            source_row: row.rendered.source_row,
+            source_display_offset: 0,
+            is_source_row: false,
+        }
+    }
 }

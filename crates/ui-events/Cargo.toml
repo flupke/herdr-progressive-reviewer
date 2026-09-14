@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+review-threads = { path = "../review-threads" }
 review-guide = { path = "../review-guide" }
 review-lsp = { path = "../review-lsp" }
 review-repository = { path = "../review-repository" }

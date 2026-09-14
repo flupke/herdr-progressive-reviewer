@@ -8,18 +8,26 @@ use overlay_component::OverlayComponent;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::widgets::Widget;
+use ratatui::{
+    style::{Modifier, Style},
+    text::{Line, Span},
+    widgets::Paragraph,
+};
 use revision_component::RevisionComponent;
 use status_component::StatusComponent;
+use threads_component::ThreadsComponent;
+use ui_events::{ReviewNavigation, ReviewPane};
 use ui_theme::Palette;
 
-use crate::layout::{Focus, PaneLayout};
+use crate::layout::{NavigationTabs, PaneLayout};
 
 /// One renderable frame assembled from mounted components.
 pub struct ApplicationFrame<'a> {
     pub(super) file_width: Option<u16>,
-    pub(super) focus: Focus,
+    pub(super) focus: ReviewPane,
     pub(super) palette: Palette,
     pub(super) files: &'a FilesComponent,
+    pub(super) threads: &'a ThreadsComponent,
     pub(super) diff: &'a DiffComponent,
     pub(super) guide: &'a GuideComponent,
     pub(super) locations: &'a LocationsComponent,
@@ -30,6 +38,7 @@ pub struct ApplicationFrame<'a> {
 
 impl Widget for ApplicationFrame<'_> {
     fn render(self, area: Rect, buffer: &mut Buffer) {
+        self.diff.begin_reply_frame();
         if self.status.render_terminal_too_small(area, buffer) {
             return;
         }
@@ -45,10 +54,12 @@ impl Widget for ApplicationFrame<'_> {
         );
         self.status.render_header(header, buffer, self.palette);
         self.render_body(layout, body, buffer);
+        self.diff.capture_reply_frame(buffer);
         self.status.render_footer(footer, buffer, self.palette);
         self.overlay.render_notifications(body, buffer);
         self.overlay.render(area, buffer);
         self.revision.render(area, buffer);
+        self.diff.finish_reply_frame(buffer);
     }
 }
 
@@ -68,8 +79,8 @@ impl ApplicationFrame<'_> {
             );
         } else {
             match self.focus {
-                Focus::Files => self.render_files(body, buffer),
-                Focus::Diff => self.render_diff(body, buffer),
+                ReviewPane::Navigation => self.render_files(body, buffer),
+                ReviewPane::Detail => self.render_diff(body, buffer),
             }
         }
     }
@@ -79,8 +90,60 @@ impl ApplicationFrame<'_> {
             self.locations.render(area, buffer, true);
             return;
         }
-        self.files
-            .render(area, buffer, self.palette, self.focus == Focus::Files);
+        let mode = self.threads.mode();
+        match mode {
+            ReviewNavigation::Files => {
+                self.files.render(
+                    area,
+                    buffer,
+                    self.palette,
+                    self.focus == ReviewPane::Navigation,
+                );
+            }
+            ReviewNavigation::Threads => {
+                self.threads.render(
+                    area,
+                    buffer,
+                    self.palette,
+                    self.focus == ReviewPane::Navigation,
+                );
+            }
+        }
+        let active = Style::default()
+            .fg(self.palette.focus)
+            .add_modifier(Modifier::BOLD);
+        let inactive = Style::default().fg(self.palette.dim);
+        Paragraph::new(Line::from(vec![
+            Span::styled(
+                NavigationTabs::FILES,
+                if mode == ReviewNavigation::Files {
+                    active
+                } else {
+                    inactive
+                },
+            ),
+            Span::raw(NavigationTabs::SEPARATOR),
+            Span::styled(
+                NavigationTabs::THREADS,
+                if mode == ReviewNavigation::Threads {
+                    active
+                } else {
+                    inactive
+                },
+            ),
+            Span::styled(
+                if self.threads.has_unread_replies() {
+                    NavigationTabs::UNREAD
+                } else {
+                    ""
+                },
+                Style::default().fg(self.palette.deletion),
+            ),
+        ]))
+        .render(
+            Rect::new(area.x + 1, area.y, area.width.saturating_sub(2), 1),
+            buffer,
+        );
     }
 
     fn render_diff(&self, area: Rect, buffer: &mut Buffer) {
@@ -88,13 +151,13 @@ impl ApplicationFrame<'_> {
         let guide_layout = viewport
             .as_ref()
             .map(|viewport| self.guide.layout(viewport, self.palette.guide));
-        let guide_overlay = self.diff.render(
+        let overlay = self.diff.render(
             area,
             buffer,
             self.palette,
-            self.focus == Focus::Diff,
+            self.focus == ReviewPane::Detail,
             guide_layout,
         );
-        self.guide.render(&guide_overlay, buffer);
+        overlay.render(buffer);
     }
 }

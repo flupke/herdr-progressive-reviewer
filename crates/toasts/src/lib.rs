@@ -61,6 +61,15 @@ impl ToastKind {
 }
 
 impl ToastState {
+    /// Whether a toast appears or expires since the previous frame.
+    pub fn changes_between(&self, previous: Instant, now: Instant) -> bool {
+        self.toasts.iter().any(|toast| toast.expires <= now)
+            || self.long_toasts.front().is_some_and(|toast| {
+                let appears = toast.started + LONG_TOAST_DELAY;
+                previous < appears && appears <= now
+            })
+    }
+
     /// Add a short toast.
     pub fn push(&mut self, text: impl Into<String>, kind: ToastKind) {
         self.toasts.push(Toast {

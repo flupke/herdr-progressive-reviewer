@@ -1,0 +1,16 @@
+[package]
+name = "review-mcp-config"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+fs2.workspace = true
+review-mcp = { path = "../review-mcp" }
+serde_json.workspace = true
+tempfile.workspace = true
+toml_edit.workspace = true
+
+[lints]
+workspace = true

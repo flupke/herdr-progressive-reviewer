@@ -10,6 +10,9 @@ use herdr_client::client::HerdrClient;
 use herdr_client::protocol::PluginContext;
 use reviewer::control::{PaneAction, PaneActions};
 
+#[path = "reviewer-control/mcp_config.rs"]
+mod mcp_config;
+
 #[derive(Debug)]
 struct Control {
     action: PaneAction,
@@ -24,7 +27,9 @@ impl Control {
             Some("open") => PaneAction::Open,
             Some("close") => PaneAction::Close,
             Some("toggle") => PaneAction::Toggle,
-            _ => eyre::bail!("usage: reviewer-control <open|close|toggle>"),
+            _ => eyre::bail!(
+                "usage: reviewer-control <open|close|toggle|mcp-install|mcp-config codex|claude>"
+            ),
         };
         let context = serde_json::from_str(
             &env::var("HERDR_PLUGIN_CONTEXT_JSON")
@@ -57,5 +62,9 @@ impl Control {
 }
 
 fn main() -> eyre::Result<()> {
-    Control::from_env()?.run()
+    match env::args().nth(1).as_deref() {
+        Some("mcp-config") => mcp_config::print(),
+        Some("mcp-install") => mcp_config::install(),
+        _ => Control::from_env()?.run(),
+    }
 }

@@ -3,7 +3,7 @@
 build:
 	cargo build --release --locked --bins
 	mkdir -p bin
-	for binary in reviewer reviewer-control; do \
+	for binary in reviewer reviewer-control reviewer-mcp; do \
 		cp "target/release/$$binary" "bin/$$binary.new"; \
 		mv -f "bin/$$binary.new" "bin/$$binary"; \
 	done

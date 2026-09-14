@@ -6,10 +6,17 @@ use component_core::{InputMatcher, InputResolution};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Key {
     Char(char),
+    Control(char),
+    Alt(char),
     Backspace,
+    Delete,
     Tab,
+    Left,
+    Right,
     Down,
     Up,
+    PageDown,
+    PageUp,
     First,
     Last,
     HalfPageDown,
@@ -21,6 +28,8 @@ pub enum Key {
     CommitMessage,
     Escape,
     Enter,
+    ControlEnter,
+    EditorMode,
     Space,
     Quit,
 }
@@ -28,6 +37,7 @@ pub enum Key {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ShortcutCommand {
     Application(ApplicationShortcut),
+    Comment(CommentShortcut),
     File(FileShortcut),
     Guide(GuideShortcut),
     Hunk(HunkShortcut),
@@ -35,6 +45,14 @@ pub enum ShortcutCommand {
     Navigation(NavigationShortcut),
     Search(SearchShortcut),
     Source(SourceShortcut),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CommentShortcut {
+    Add,
+    Reply,
+    Previous,
+    Next,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -52,6 +70,10 @@ pub enum FileShortcut {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ApplicationShortcut {
     ChangeFocus,
+    OpenFiles,
+    OpenThreads,
+    ToggleNavigation,
+    NewReplies,
     Clear,
     Insert,
     MarkReviewed,
@@ -263,6 +285,7 @@ pub enum ShortcutLookup {
 /// The shortcut group owned by one input subscription.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ShortcutSet {
+    Comments,
     Application,
     Diff,
     Files,
@@ -336,21 +359,41 @@ impl<C> InputMatcher<C, Key> for ShortcutMatcher {
 
 impl ShortcutSet {
     const fn includes(self, command: ShortcutCommand) -> bool {
-        match self {
-            Self::Application => matches!(
+        if let Self::Comments = self {
+            return matches!(
+                command,
+                ShortcutCommand::Comment(CommentShortcut::Previous | CommentShortcut::Next)
+            );
+        }
+        if let Self::Application = self {
+            return matches!(
                 command,
                 ShortcutCommand::Application(
                     ApplicationShortcut::ChangeFocus
+                        | ApplicationShortcut::OpenFiles
+                        | ApplicationShortcut::OpenThreads
+                        | ApplicationShortcut::ToggleNavigation
+                        | ApplicationShortcut::NewReplies
                         | ApplicationShortcut::Clear
                         | ApplicationShortcut::Quit
                 ) | ShortcutCommand::Search(SearchShortcut::Begin)
-            ),
+            );
+        }
+        self.includes_other(command)
+    }
+
+    const fn includes_other(self, command: ShortcutCommand) -> bool {
+        match self {
             Self::Diff => {
                 !is_component_global_shortcut(command)
                     && !matches!(
                         command,
                         ShortcutCommand::Application(
                             ApplicationShortcut::ChangeFocus
+                                | ApplicationShortcut::OpenFiles
+                                | ApplicationShortcut::OpenThreads
+                                | ApplicationShortcut::ToggleNavigation
+                                | ApplicationShortcut::NewReplies
                                 | ApplicationShortcut::Clear
                                 | ApplicationShortcut::Quit
                         )
@@ -371,11 +414,69 @@ impl ShortcutSet {
                 )
             ),
             Self::Revision => is_revision_shortcut(command),
+            Self::Comments | Self::Application => false,
         }
     }
 }
 
 const SHORTCUTS: &[ShortcutDefinition] = &[
+    ShortcutDefinition {
+        description: Some("Open Files / Threads"),
+        bindings: &[
+            ShortcutBinding::one(Key::Char('f'), application(ApplicationShortcut::OpenFiles)),
+            ShortcutBinding::alias(Key::Char('F'), application(ApplicationShortcut::OpenFiles)),
+            ShortcutBinding::one(
+                Key::Char('t'),
+                application(ApplicationShortcut::OpenThreads),
+            ),
+            ShortcutBinding::alias(
+                Key::Char('T'),
+                application(ApplicationShortcut::OpenThreads),
+            ),
+        ],
+    },
+    ShortcutDefinition {
+        description: Some("Switch Files / Threads, including while composing"),
+        bindings: &[ShortcutBinding::one(
+            Key::Control('t'),
+            application(ApplicationShortcut::ToggleNavigation),
+        )],
+    },
+    ShortcutDefinition {
+        description: Some("Jump to first unread thread in All"),
+        bindings: &[ShortcutBinding::one(
+            Key::Alt('u'),
+            application(ApplicationShortcut::NewReplies),
+        )],
+    },
+    ShortcutDefinition {
+        description: Some("Add / reply to comment"),
+        bindings: &[
+            ShortcutBinding::one(
+                Key::Char('a'),
+                ShortcutCommand::Comment(CommentShortcut::Add),
+            ),
+            ShortcutBinding::one(
+                Key::Char('A'),
+                ShortcutCommand::Comment(CommentShortcut::Reply),
+            ),
+        ],
+    },
+    ShortcutDefinition {
+        description: Some("Previous / next comment"),
+        bindings: &[
+            ShortcutBinding::two(
+                Key::Char('['),
+                Key::Char('c'),
+                ShortcutCommand::Comment(CommentShortcut::Previous),
+            ),
+            ShortcutBinding::two(
+                Key::Char(']'),
+                Key::Char('c'),
+                ShortcutCommand::Comment(CommentShortcut::Next),
+            ),
+        ],
+    },
     ShortcutDefinition {
         description: Some("Move"),
         bindings: &[
@@ -676,7 +777,8 @@ const fn is_revision_shortcut(command: ShortcutCommand) -> bool {
 const fn is_component_global_shortcut(command: ShortcutCommand) -> bool {
     matches!(
         command,
-        ShortcutCommand::Guide(_)
+        ShortcutCommand::Comment(CommentShortcut::Previous | CommentShortcut::Next)
+            | ShortcutCommand::Guide(_)
             | ShortcutCommand::File(_)
             | ShortcutCommand::Hunk(_)
             | ShortcutCommand::Navigation(
@@ -720,8 +822,11 @@ pub fn help_close_label() -> String {
 }
 
 fn key_label(key: Key) -> String {
-    if let Key::Char(character) = key {
-        return character.to_string();
+    match key {
+        Key::Char(character) => return character.to_string(),
+        Key::Control(character) => return format!("Ctrl-{character}"),
+        Key::Alt(character) => return format!("Alt-{character}"),
+        _ => {}
     }
     NAMED_KEY_LABELS
         .iter()
@@ -731,6 +836,13 @@ fn key_label(key: Key) -> String {
 }
 
 const NAMED_KEY_LABELS: &[(Key, &str)] = &[
+    (Key::Left, "Left"),
+    (Key::Right, "Right"),
+    (Key::Delete, "Delete"),
+    (Key::PageDown, "PageDown"),
+    (Key::PageUp, "PageUp"),
+    (Key::ControlEnter, "Ctrl-Enter"),
+    (Key::EditorMode, "F2"),
     (Key::Backspace, "Backspace"),
     (Key::Tab, "Tab"),
     (Key::Down, "Down"),

@@ -57,12 +57,16 @@ impl DocumentWorker {
         location: SourceLocation,
         mode: SourceLoadMode,
     ) {
-        let frozen_content = FrozenSourceLoader {
-            repository_root: self.repository.root(),
-            tracker: &self.tracker,
-            snapshot: self.snapshot.as_ref(),
-        }
-        .load(&snapshot_id, &location);
+        let frozen_content = if mode == SourceLoadMode::ThreadPeek {
+            Ok(None)
+        } else {
+            FrozenSourceLoader {
+                repository_root: self.repository.root(),
+                tracker: &self.tracker,
+                snapshot: self.snapshot.as_ref(),
+            }
+            .load(&snapshot_id, &location)
+        };
         let content = match frozen_content {
             Ok(Some(content)) => Ok(content),
             Ok(None) => std::fs::read(&location.path)

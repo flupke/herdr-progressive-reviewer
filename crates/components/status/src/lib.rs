@@ -30,6 +30,10 @@ pub struct StatusComponent {
 }
 
 impl StatusComponent {
+    pub fn is_animating(&self) -> bool {
+        self.guide_spinner_frame.is_some()
+    }
+
     pub fn new(events: EventPublisher) -> Self {
         Self {
             events,
@@ -94,50 +98,60 @@ impl StatusComponent {
     }
 
     pub fn render_footer(&self, area: Rect, buffer: &mut Buffer, palette: Palette) {
-        if let Some(query) = &self.search.query {
-            Paragraph::new(format!("/{query}"))
-                .style(Style::default().fg(palette.text))
-                .render(area, buffer);
-            Paragraph::new(format!(
+        let mut statuses = Vec::new();
+        if let Some(frame) = self.guide_spinner_frame {
+            statuses.push(Span::styled(
+                format!(
+                    "{} Generating guide",
+                    GUIDE_SPINNER[frame % GUIDE_SPINNER.len()]
+                ),
+                Style::default().fg(palette.guide),
+            ));
+        }
+        if self.search.query.is_some() {
+            statuses.push(Span::raw(format!(
                 "[{}/{}]",
                 self.search.current_match, self.search.total_matches
-            ))
-            .alignment(Alignment::Right)
-            .style(Style::default().fg(palette.text))
-            .render(area, buffer);
-            return;
+            )));
         }
-
-        let guide_status = self.guide_spinner_frame.map(|frame| {
-            format!(
-                "{} Generating guide",
-                GUIDE_SPINNER[frame % GUIDE_SPINNER.len()]
-            )
-        });
-        let status_width = guide_status
-            .as_deref()
-            .map_or(0, |status| status.width().saturating_add(1));
-        let status = Line::raw("? help");
-        Paragraph::new(status)
+        let status = Line::from(
+            statuses
+                .into_iter()
+                .enumerate()
+                .flat_map(|(index, span)| {
+                    (index > 0)
+                        .then_some(Span::raw(" · "))
+                        .into_iter()
+                        .chain([span])
+                })
+                .collect::<Vec<_>>(),
+        );
+        let width = u16::try_from(status.width())
+            .unwrap_or(u16::MAX)
+            .min(area.width);
+        let left = self
+            .search
+            .query
+            .as_ref()
+            .map_or_else(|| "? help".to_owned(), |query| format!("/{query}"));
+        Paragraph::new(left)
             .style(Style::default().fg(palette.text))
             .render(
                 Rect::new(
                     area.x,
                     area.y,
-                    area.width
-                        .saturating_sub(u16::try_from(status_width).unwrap_or(u16::MAX)),
+                    area.width.saturating_sub(width.saturating_add(1)),
                     1,
                 ),
                 buffer,
             );
-        if let Some(guide_status) = guide_status {
-            Paragraph::new(Span::styled(
-                guide_status,
-                Style::default().fg(palette.guide),
-            ))
+        Paragraph::new(status)
+            .style(Style::default().fg(palette.text))
             .alignment(Alignment::Right)
-            .render(area, buffer);
-        }
+            .render(
+                Rect::new(area.right().saturating_sub(width), area.y, width, 1),
+                buffer,
+            );
     }
 
     fn repository_changed(&mut self, event: &RepositoryMetadataChanged) {

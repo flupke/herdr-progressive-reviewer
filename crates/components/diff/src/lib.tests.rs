@@ -15,6 +15,9 @@ use ui_theme::Theme;
 
 use super::*;
 
+#[path = "comments.tests.rs"]
+mod comments;
+
 #[path = "highlighting.tests.rs"]
 mod highlighting;
 
@@ -920,13 +923,19 @@ fn clicking_an_unmodified_section_keeps_the_cursor_hunk_in_place() {
 }
 
 #[test]
-fn dragging_source_rows_still_outputs_the_selected_diff() {
+fn dragging_source_rows_opens_an_editor_with_the_selected_diff() {
     let (mut registry, reviewable_files, diff_target) = registry_with_observer();
     reviewable_files.replace(["src/lib.rs".to_owned()].into());
     publish_repository(&mut registry, "checkpoint");
     registry
         .publish(FileSelected {
             path: "src/lib.rs".to_owned(),
+        })
+        .unwrap();
+    registry
+        .publish(ui_events::ReviewThreadsLoaded {
+            review_unit: "change".into(),
+            result: Ok(review_threads::ReviewThreads::new("change".into())),
         })
         .unwrap();
     let rows = vec![
@@ -1002,13 +1011,15 @@ fn dragging_source_rows_still_outputs_the_selected_diff() {
         .unwrap()
         .into_results();
 
-    let output = output_texts(released);
     assert!(
-        output
+        !output_texts(released)
             .iter()
-            .any(|text| text.contains("-    old();") && text.contains("+    new();")),
-        "unexpected pointer selection output: {output:?}"
+            .any(|text| text.contains("@@"))
     );
+    let component = registry.get::<DiffComponent>(diff_target).unwrap();
+    let editing = component.comments.editing.as_ref().unwrap();
+    assert!(editing.excerpt.contains("-    old();"));
+    assert!(editing.excerpt.contains("+    new();"));
 }
 
 #[test]

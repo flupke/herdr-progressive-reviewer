@@ -66,6 +66,8 @@ impl Fixture {
             |_| {},
         );
         RuntimeEventLoop {
+            last_frame: std::time::Instant::now(),
+            comments: &crate::runtime::comment_service::test_worker(&settings),
             terminal: &mut self.terminal,
             app: &mut review_ui::ReviewApplication::default(),
             commands: &std::sync::mpsc::channel().0,

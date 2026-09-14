@@ -37,6 +37,7 @@ enum ModalOverlay {
 /// Application overlays with their input, state, and rendering.
 pub struct OverlayComponent {
     snapshot_id: String,
+    source_session: Option<String>,
     active_modal: Option<ModalOverlay>,
     commit_message: CommitMessageOverlay,
     shortcut_help: ShortcutHelpOverlay,
@@ -49,9 +50,14 @@ pub struct OverlayComponent {
 }
 
 impl OverlayComponent {
+    pub fn changes_between(&self, previous: std::time::Instant, now: std::time::Instant) -> bool {
+        self.toasts.changes_between(previous, now)
+    }
+
     pub fn new(theme: Theme) -> Self {
         Self {
             snapshot_id: String::new(),
+            source_session: None,
             active_modal: None,
             commit_message: CommitMessageOverlay::default(),
             shortcut_help: ShortcutHelpOverlay::default(),
@@ -135,6 +141,16 @@ impl OverlayComponent {
         self.toasts.expire(event.now);
     }
 
+    fn source_session_changed(&mut self, event: &ui_events::SourceSessionChanged) {
+        self.source_session.clone_from(&event.snapshot_id);
+        self.hover.close();
+        self.source_context_menu = None;
+    }
+
+    fn active_snapshot(&self) -> &str {
+        self.source_session.as_deref().unwrap_or(&self.snapshot_id)
+    }
+
     fn lsp_event(&mut self, event: &LspEvent) {
         if !self.lsp_event_matches_snapshot(event) {
             return;
@@ -177,11 +193,11 @@ impl OverlayComponent {
         match event {
             LspEvent::Initializing(_) | LspEvent::Ready(_) => true,
             LspEvent::Hover { snapshot_id, .. } | LspEvent::Locations { snapshot_id, .. } => {
-                snapshot_id == &self.snapshot_id
+                snapshot_id == self.active_snapshot()
             }
             LspEvent::Failed { snapshot_id, .. } => snapshot_id
                 .as_ref()
-                .is_none_or(|snapshot_id| snapshot_id == &self.snapshot_id),
+                .is_none_or(|snapshot_id| snapshot_id == self.active_snapshot()),
         }
     }
 
@@ -330,6 +346,7 @@ impl OverlayComponent {
 impl Component<Action> for OverlayComponent {
     fn register_subscriptions(subscriptions: &mut ComponentSubscriptions<'_, Self, Action>) {
         subscriptions.subscribe(Self::repository_changed);
+        subscriptions.subscribe(Self::source_session_changed);
         subscriptions.subscribe(Self::viewport_changed);
         subscriptions.subscribe(Self::toggle_commit_message);
         subscriptions.subscribe(Self::guide_status_changed);
