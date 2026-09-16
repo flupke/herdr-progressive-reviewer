@@ -26,6 +26,9 @@ use component_core::{
     AnyInput, Component, ComponentSubscriptions, InputMatcher, InputResolution, InputScope,
 };
 
+#[path = "threads.tests.rs"]
+mod threads;
+
 struct SelectiveGlobalComponent;
 
 impl Component<Action> for SelectiveGlobalComponent {
@@ -509,7 +512,7 @@ fn mounted_components_render_through_the_application() {
         .iter()
         .map(ratatui::buffer::Cell::symbol)
         .collect::<String>();
-    assert!(rendered.contains("Files"));
+    assert!(rendered.contains("[F]iles"));
     assert!(rendered.contains("Diff"));
 }
 
@@ -605,6 +608,7 @@ fn files_component_moves_selection_and_requests_the_new_diff() {
     assert_eq!(
         initial,
         [
+            Action::Thread(review_threads::ThreadCommand::Load("change".into())),
             Action::LoadDiff {
                 review_checkpoint: ReviewCheckpoint::new("change", "commit"),
                 path: "first.rs".to_owned(),
@@ -856,10 +860,13 @@ fn revision_navigation_restores_the_file_after_the_new_files_arrive() {
             String::new(),
             vec![FileSummary::new("src/lib.rs", ReviewStatus::Unreviewed)]
         ),
-        [Action::LoadDiff {
-            review_checkpoint: ReviewCheckpoint::new("new", "new-snapshot"),
-            path: "src/lib.rs".to_owned(),
-        }]
+        [
+            Action::LoadDiff {
+                review_checkpoint: ReviewCheckpoint::new("new", "new-snapshot"),
+                path: "src/lib.rs".to_owned(),
+            },
+            Action::Thread(review_threads::ThreadCommand::Load("new".into()))
+        ]
     );
 }
 
@@ -919,8 +926,13 @@ fn rendered_text_position(
         let line = (0..width)
             .map(|column| buffer[(column, row)].symbol())
             .collect::<String>();
-        let column = u16::try_from(line.find(text)?).ok()?;
-        Some((column, row))
+        let byte = line.find(text)?;
+        let mut offset = 0;
+        (0..width).find_map(|column| {
+            let matched = offset == byte;
+            offset += buffer[(column, row)].symbol().len();
+            matched.then_some((column, row))
+        })
     })
 }
 

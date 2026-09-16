@@ -5,6 +5,79 @@ use tempfile::tempdir;
 use super::*;
 
 #[test]
+fn displayed_ignored_tracked_source_refreshes_on_edit_delete_and_recreation() {
+    use review_test_support::{GitFixture, ReviewRepositoryFixture};
+
+    let files = GitFixture::new();
+    files.write("ignored/nested/source.rs", b"original\n");
+    files.commit_all("track the source before ignoring its directory");
+    files.write(".gitignore", b"ignored/\n");
+    let path = files.root().join("ignored/nested/source.rs");
+    let mut watcher = RepositoryWatcher::new(files.root(), RepoType::Git);
+    watcher.source_requests().watch(Some(&path));
+    wait_for_source_refresh(&mut watcher);
+
+    fs::write(
+        files.root().join("ignored/nested/noise.log"),
+        "ignored output",
+    )
+    .unwrap();
+    let deadline = Instant::now() + DEBOUNCE * 3;
+    while Instant::now() < deadline {
+        assert!(
+            !watcher.refresh_due(Instant::now()),
+            "unrelated ignored output caused a refresh"
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
+
+    fs::write(&path, "edited\n").unwrap();
+    wait_for_source_refresh(&mut watcher);
+    fs::write(path.with_extension("tmp"), "atomic replacement\n").unwrap();
+    fs::rename(path.with_extension("tmp"), &path).unwrap();
+    wait_for_source_refresh(&mut watcher);
+    fs::remove_file(&path).unwrap();
+    wait_for_source_refresh(&mut watcher);
+    fs::write(&path, "recreated\n").unwrap();
+    wait_for_source_refresh(&mut watcher);
+    fs::remove_dir_all(files.root().join("ignored")).unwrap();
+    wait_for_source_refresh(&mut watcher);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(&path, "new parent directories\n").unwrap();
+    wait_for_source_refresh(&mut watcher);
+    fs::write(&path, "still watched\n").unwrap();
+    wait_for_source_refresh(&mut watcher);
+
+    let definition = files.root().join("ignored/definition.rs");
+    fs::write(&definition, "definition\n").unwrap();
+    watcher.source_requests().watch(Some(&definition));
+    wait_for_source_refresh(&mut watcher);
+    fs::write(&definition, "edited definition\n").unwrap();
+    wait_for_source_refresh(&mut watcher);
+    fs::write(&path, "old source is no longer displayed\n").unwrap();
+    let deadline = Instant::now() + DEBOUNCE * 3;
+    while Instant::now() < deadline {
+        assert!(
+            !watcher.refresh_due(Instant::now()),
+            "previously displayed ignored source is still watched"
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn wait_for_source_refresh(watcher: &mut RepositoryWatcher) {
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while !watcher.refresh_due(Instant::now()) {
+        assert!(!watcher.take_failure(), "source watcher failed");
+        assert!(
+            Instant::now() < deadline,
+            "source change did not cause a refresh"
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[test]
 fn notification_debounces_before_poll() {
     let now = Instant::now();
     let state = Arc::new(WatchState::default());
@@ -12,17 +85,16 @@ fn notification_debounces_before_poll() {
     let mut watcher = RepositoryWatcher {
         commands,
         state: Arc::clone(&state),
-        next_poll: now + FALLBACK_POLL_INTERVAL,
-        poll_interval: FALLBACK_POLL_INTERVAL,
+        next_refresh: None,
     };
 
     state.notified.store(true, Ordering::Relaxed);
     state.watching.store(true, Ordering::Relaxed);
 
-    assert!(!watcher.poll_due(now));
+    assert!(!watcher.refresh_due(now));
     assert!(command_receiver.try_recv().is_err());
-    assert!(watcher.poll_due(now + DEBOUNCE));
-    assert!(!watcher.poll_due(now + DEBOUNCE));
+    assert!(watcher.refresh_due(now + DEBOUNCE));
+    assert!(!watcher.refresh_due(now + DEBOUNCE));
 }
 
 #[test]
@@ -33,15 +105,14 @@ fn notification_during_watcher_start_keeps_its_debounce_deadline() {
     let mut watcher = RepositoryWatcher {
         commands,
         state: Arc::clone(&state),
-        next_poll: now + FAILED_WATCHER_POLL_INTERVAL,
-        poll_interval: FAILED_WATCHER_POLL_INTERVAL,
+        next_refresh: None,
     };
     state.notified.store(true, Ordering::Relaxed);
     state.watching.store(true, Ordering::Relaxed);
 
-    assert!(!watcher.poll_due(now));
-    assert!(!watcher.poll_due(now + DEBOUNCE / 2));
-    assert!(watcher.poll_due(now + DEBOUNCE));
+    assert!(!watcher.refresh_due(now));
+    assert!(!watcher.refresh_due(now + DEBOUNCE / 2));
+    assert!(watcher.refresh_due(now + DEBOUNCE));
 }
 
 #[test]
@@ -61,7 +132,7 @@ fn disk_content_change_schedules_a_repository_poll() {
 
     let poll_deadline = Instant::now() + Duration::from_secs(1);
     loop {
-        if watcher.poll_due(Instant::now()) {
+        if watcher.refresh_due(Instant::now()) {
             break;
         }
         assert!(
@@ -130,19 +201,21 @@ fn repository_root_stops_parent_gitignore_rules() {
 }
 
 #[test]
-fn failed_watcher_stays_in_polling_mode() {
+fn failed_watcher_reports_once_without_periodic_scans() {
     let now = Instant::now();
     let state = Arc::new(WatchState::default());
     let (commands, command_receiver) = mpsc::channel();
     let mut watcher = RepositoryWatcher {
         commands,
         state: Arc::clone(&state),
-        next_poll: now + FALLBACK_POLL_INTERVAL,
-        poll_interval: FALLBACK_POLL_INTERVAL,
+        next_refresh: None,
     };
     state.failed.store(true, Ordering::Relaxed);
 
-    assert!(watcher.poll_due(now));
+    assert!(watcher.take_failure());
+    assert!(!watcher.take_failure());
+    assert!(!watcher.refresh_due(now));
+    assert!(!watcher.refresh_due(now + Duration::from_secs(3600)));
     assert!(command_receiver.try_recv().is_err());
 }
 

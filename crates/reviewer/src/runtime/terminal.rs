@@ -37,6 +37,8 @@ impl CursorBackend for ratatui::backend::TestBackend {
 }
 
 impl<W: Write> Backend for TerminalBackend<W> {
+    type Error = io::Error;
+
     fn draw<'a, I>(&mut self, content: I) -> io::Result<()>
     where
         I: Iterator<Item = (u16, u16, &'a Cell)>,

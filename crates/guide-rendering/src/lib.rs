@@ -1,5 +1,9 @@
 //! Review-guide layout and rendering primitives.
 
+mod frame;
+
+pub use frame::{DiffFrame, FrameRule};
+
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
@@ -29,13 +33,6 @@ struct GuideStart<'a> {
 struct GuideEnd {
     target_row: usize,
     status: GuideItemStatus,
-}
-
-#[derive(Clone, Copy)]
-enum GuideRuleKind {
-    Top(GuideCounter),
-    Middle,
-    Bottom,
 }
 
 #[derive(Default)]
@@ -189,7 +186,7 @@ impl<'a> GuideLayout<'a> {
             .flat_map(|row| row.ends.iter().copied())
             .map(|end| {
                 self.render_rule(
-                    GuideRuleKind::Bottom,
+                    FrameRule::Bottom,
                     width,
                     line_number_width,
                     end.target_row,
@@ -204,19 +201,14 @@ impl<'a> GuideLayout<'a> {
         self.rows.get(source_row)?.enclosing_status
     }
 
-    /// Extend a diff line and return the border cells for its guide box.
-    pub fn enclose_line(
+    /// Frame geometry and styling for a guide's diff rows.
+    pub fn frame(
         &self,
-        line: &mut Line<'static>,
         width: u16,
         line_number_width: usize,
         status: GuideItemStatus,
-    ) -> Vec<GuideBorderCell> {
-        let available = usize::from(width).saturating_sub(line.width());
-        if available > 0 {
-            line.spans.push(Span::raw(" ".repeat(available)));
-        }
-        guide_edge_cells(width, line_number_width, self.style(status))
+    ) -> DiffFrame {
+        DiffFrame::new(width, line_number_width, self.style(status))
     }
 
     /// Return the visible style for one guide state.
@@ -235,8 +227,9 @@ impl<'a> GuideLayout<'a> {
         width: u16,
         line_number_width: usize,
     ) -> Vec<GuideRenderedRow> {
+        let counter = format!(" {}/{} ", start.counter.number, start.counter.total);
         let mut rows = vec![self.render_rule(
-            GuideRuleKind::Top(start.counter),
+            FrameRule::Top(Some(&counter)),
             width,
             line_number_width,
             start.target_row,
@@ -251,9 +244,9 @@ impl<'a> GuideLayout<'a> {
         ));
         rows.push(self.render_rule(
             if start.is_file_target {
-                GuideRuleKind::Bottom
+                FrameRule::Bottom
             } else {
-                GuideRuleKind::Middle
+                FrameRule::Middle
             },
             width,
             line_number_width,
@@ -265,47 +258,14 @@ impl<'a> GuideLayout<'a> {
 
     fn render_rule(
         &self,
-        kind: GuideRuleKind,
+        kind: FrameRule<'_>,
         width: u16,
         line_number_width: usize,
         source_row: usize,
         status: GuideItemStatus,
     ) -> GuideRenderedRow {
-        let (left, right, counter) = match kind {
-            GuideRuleKind::Top(counter) => (
-                '╭',
-                '╮',
-                Some(format!(" {}/{} ", counter.number, counter.total)),
-            ),
-            GuideRuleKind::Middle => ('├', '┤', None),
-            GuideRuleKind::Bottom => ('╰', '╯', None),
-        };
-        let prefix = format!("  {:width$}", "", width = line_number_width);
-        let rule_width = usize::from(width).saturating_sub(prefix.len());
-        let counter_width = counter.as_ref().map_or(0, String::len);
-        let rule = if rule_width >= counter_width.saturating_add(2) {
-            format!(
-                "{left}{}{counter}{right}",
-                "─".repeat(rule_width - counter_width - 2),
-                counter = counter.as_deref().unwrap_or_default(),
-            )
-        } else {
-            left.to_string()
-        };
-        let border_cells = rule
-            .chars()
-            .enumerate()
-            .map(|(offset, symbol)| GuideBorderCell {
-                column: prefix.len() + offset,
-                symbol,
-                style: self.style(status),
-            })
-            .collect();
-        GuideRenderedRow {
-            line: Line::raw(" ".repeat(usize::from(width))),
-            border_cells,
-            source_row,
-        }
+        self.frame(width, line_number_width, status)
+            .rule(kind, source_row)
     }
 
     fn render_text(
@@ -316,23 +276,9 @@ impl<'a> GuideLayout<'a> {
         source_row: usize,
         status: GuideItemStatus,
     ) -> Vec<GuideRenderedRow> {
-        let prefix = format!("  {:width$}   ", "", width = line_number_width);
         let style = self.style(status);
-        let guide = Line::from(vec![
-            Span::styled(prefix, style),
-            Span::styled(text.to_owned(), style),
-        ]);
-        wrap_line(&guide, width.saturating_sub(1), line_number_width + 5)
-            .into_iter()
-            .map(|mut line| {
-                let border_cells = self.enclose_line(&mut line, width, line_number_width, status);
-                GuideRenderedRow {
-                    line,
-                    border_cells,
-                    source_row,
-                }
-            })
-            .collect()
+        self.frame(width, line_number_width, status)
+            .text(text, style, source_row)
     }
 }
 
@@ -396,27 +342,6 @@ impl<'a> PositionedGuide<'a> {
             status: self.item.status,
         })
     }
-}
-
-fn guide_edge_cells(width: u16, line_number_width: usize, style: Style) -> Vec<GuideBorderCell> {
-    let width = usize::from(width);
-    let left = line_number_width + 2;
-    let mut cells = Vec::new();
-    if left < width {
-        cells.push(GuideBorderCell {
-            column: left,
-            symbol: '│',
-            style,
-        });
-    }
-    if let Some(right) = width.checked_sub(1).filter(|right| *right != left) {
-        cells.push(GuideBorderCell {
-            column: right,
-            symbol: '│',
-            style,
-        });
-    }
-    cells
 }
 
 #[derive(Clone)]

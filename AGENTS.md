@@ -9,6 +9,9 @@
   already have this attribute.
 - Always use the smallest visibility level that permits the required use. Do
   not make an item `pub` when private or `pub(crate)` visibility is sufficient.
+- Refresh filesystem-driven views through filesystem events (inotify on Linux),
+  not periodic polling. Reuse the repository watcher and event pipeline so idle
+  views do not spend CPU checking for file changes.
 
 # Small feature workflow
 

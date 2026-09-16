@@ -15,13 +15,24 @@ use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use review_repository::repository::RepoType;
 
 const DEBOUNCE: Duration = Duration::from_millis(100);
-const FALLBACK_POLL_INTERVAL: Duration = Duration::from_secs(30);
-const FAILED_WATCHER_POLL_INTERVAL: Duration = Duration::from_secs(2);
+
+mod source;
+use source::SourceWatch;
 
 enum WatchCommand {
     Event(Event),
+    Source(Option<PathBuf>),
+    SourceEvent(Event),
     Failed,
     Stop,
+}
+
+pub(super) struct SourceWatchRequests(Sender<WatchCommand>);
+
+impl SourceWatchRequests {
+    pub(super) fn watch(&self, path: Option<&Path>) {
+        let _ = self.0.send(WatchCommand::Source(path.map(Path::to_owned)));
+    }
 }
 
 struct IgnoreRules {
@@ -198,8 +209,7 @@ struct MetadataWatch {
 pub(super) struct RepositoryWatcher {
     commands: Sender<WatchCommand>,
     state: Arc<WatchState>,
-    next_poll: Instant,
-    poll_interval: Duration,
+    next_refresh: Option<Instant>,
 }
 
 impl RepositoryWatcher {
@@ -212,23 +222,28 @@ impl RepositoryWatcher {
         thread::spawn(move || {
             let mut watcher =
                 ActiveWatcher::start(&root, repo_type, &thread_state, &event_commands);
+            let mut source = SourceWatch::new(root, event_commands.clone());
             while let Ok(command) = command_receiver.recv() {
-                match command {
-                    WatchCommand::Event(event) => {
-                        if let Some(active) = watcher.as_mut()
-                            && active.update(&event, &thread_state).is_err()
-                        {
-                            watcher = None;
-                            thread_state.watching.store(false, Ordering::Relaxed);
-                            thread_state.failed.store(true, Ordering::Relaxed);
-                        }
+                let result = match command {
+                    WatchCommand::Event(event) => watcher
+                        .as_mut()
+                        .map_or(Ok(()), |active| active.update(&event, &thread_state)),
+                    WatchCommand::Source(Some(path)) => source.select(path, &thread_state),
+                    WatchCommand::Source(None) => {
+                        source.clear();
+                        Ok(())
                     }
+                    WatchCommand::SourceEvent(event) => source.update(&event, &thread_state),
                     WatchCommand::Failed => {
-                        watcher = None;
-                        thread_state.watching.store(false, Ordering::Relaxed);
-                        thread_state.failed.store(true, Ordering::Relaxed);
+                        Err(notify::Error::generic("filesystem watcher failed"))
                     }
                     WatchCommand::Stop => break,
+                };
+                if result.is_err() {
+                    watcher = None;
+                    source.clear();
+                    thread_state.watching.store(false, Ordering::Relaxed);
+                    thread_state.failed.store(true, Ordering::Relaxed);
                 }
             }
         });
@@ -236,35 +251,27 @@ impl RepositoryWatcher {
         Self {
             commands,
             state,
-            next_poll: Instant::now() + FAILED_WATCHER_POLL_INTERVAL,
-            poll_interval: FAILED_WATCHER_POLL_INTERVAL,
+            next_refresh: None,
         }
     }
 
-    pub(super) fn poll_due(&mut self, now: Instant) -> bool {
-        let notified = self.state.notified.swap(false, Ordering::Relaxed);
-        let failed = self.state.failed.swap(false, Ordering::Relaxed);
-        let watching = self.state.watching.load(Ordering::Relaxed);
+    pub(super) fn source_requests(&self) -> SourceWatchRequests {
+        SourceWatchRequests(self.commands.clone())
+    }
 
-        if failed {
-            // ponytail: Fall back to polling; restart only if transient failures matter.
-            self.poll_interval = FAILED_WATCHER_POLL_INTERVAL;
-            self.next_poll = now;
-        } else {
-            if watching && self.poll_interval == FAILED_WATCHER_POLL_INTERVAL {
-                self.poll_interval = FALLBACK_POLL_INTERVAL;
-                self.next_poll = now + FALLBACK_POLL_INTERVAL;
-            }
-            if notified {
-                self.next_poll = now + DEBOUNCE;
-            }
+    pub(super) fn refresh_due(&mut self, now: Instant) -> bool {
+        if self.state.notified.swap(false, Ordering::Relaxed) {
+            self.next_refresh = Some(now + DEBOUNCE);
         }
+        if self.next_refresh.is_some_and(|deadline| now >= deadline) {
+            self.next_refresh = None;
+            return true;
+        }
+        false
+    }
 
-        if now < self.next_poll {
-            return false;
-        }
-        self.next_poll = now + self.poll_interval;
-        true
+    pub(super) fn take_failure(&self) -> bool {
+        self.state.failed.swap(false, Ordering::Relaxed)
     }
 }
 
@@ -287,7 +294,7 @@ impl ActiveWatcher {
         let callback_commands = commands.clone();
         let watcher =
             notify::recommended_watcher(move |event: notify::Result<Event>| match event {
-                Ok(event) if should_process(&event) => {
+                Ok(event) if event.need_rescan() || should_process(&event) => {
                     let _ = callback_commands.send(WatchCommand::Event(event));
                 }
                 Err(_) => {
@@ -309,6 +316,8 @@ impl ActiveWatcher {
             });
         if let Ok(watcher) = watcher {
             state.watching.store(true, Ordering::Relaxed);
+            // Close the initial scan/watch setup gap with one event-driven refresh.
+            state.notified.store(true, Ordering::Relaxed);
             Some(Self {
                 watcher,
                 rules,

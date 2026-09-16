@@ -12,6 +12,9 @@ use std::process::{Command, Output};
 
 use review_repository::repository::{PollResult, RepoType, Repository, Snapshot};
 
+mod port;
+pub use port::TestPort;
+
 /// The repository layout for a jj integration fixture.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum JjLayout {

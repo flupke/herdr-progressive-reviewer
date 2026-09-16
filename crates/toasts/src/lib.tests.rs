@@ -1,6 +1,31 @@
 use super::*;
 
 #[test]
+fn timer_changes_only_at_toast_appearance_and_expiration() {
+    let mut toasts = ToastState::default();
+    let initial = Instant::now();
+    assert!(!toasts.changes_between(initial, initial + Duration::from_secs(10)));
+    toasts.push("saved", ToastKind::Info);
+    let expires = toasts.toasts[0].expires;
+    let long = toasts.start_long_toast("waiting for the server");
+    let appears = toasts.long_toasts[0].started + LONG_TOAST_DELAY;
+    assert!(!toasts.changes_between(
+        initial,
+        appears.checked_sub(Duration::from_nanos(1)).unwrap()
+    ));
+    assert!(toasts.changes_between(initial, appears));
+    assert!(!toasts.changes_between(
+        appears,
+        expires.checked_sub(Duration::from_nanos(1)).unwrap()
+    ));
+    assert!(toasts.changes_between(appears, expires));
+    toasts.expire(expires);
+    assert!(!toasts.changes_between(expires, expires + Duration::from_secs(10)));
+    toasts.finish_toast(long);
+    assert!(!toasts.changes_between(expires, expires + Duration::from_secs(10)));
+}
+
+#[test]
 fn toast_kinds_have_distinct_display_durations() {
     assert_eq!(ToastKind::Info.duration(), Duration::from_secs(3));
     assert_eq!(ToastKind::Error.duration(), Duration::from_secs(6));

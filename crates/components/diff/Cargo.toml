@@ -6,9 +6,13 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+comment-editor = { path = "../../comment-editor" }
+review-threads = { path = "../../review-threads" }
+review-types = { path = "../../review-types" }
 text-search = { path = "../../text-search" }
 component-core = { path = "../../component-core" }
 guide-rendering = { path = "../../guide-rendering" }
+markdown-rendering = { path = "../../markdown-rendering" }
 ratatui.workspace = true
 review-guide = { path = "../../review-guide" }
 review-lsp = { path = "../../review-lsp" }
@@ -24,7 +28,6 @@ unicode-segmentation.workspace = true
 unicode-width.workspace = true
 
 [dev-dependencies]
-review-types = { path = "../../review-types" }
 two-face.workspace = true
 
 [lints]

@@ -1,7 +1,8 @@
 //! Diff document state and its component event boundary.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use component_core::{
@@ -29,11 +30,15 @@ use ui_shortcuts::{
     ShortcutCommand, ShortcutMatcher, ShortcutSet, SourceShortcut,
 };
 
+mod comment_layout;
+mod comments;
 mod context;
+mod conversation;
 mod document;
 mod history;
 mod presentation;
 mod render;
+mod reply_visibility;
 
 use document::LoadedDocument;
 use history::{LocationHistory, LocationHistoryDirection};
@@ -67,31 +72,13 @@ enum ScrollPlacement {
     AlignGuideTop,
 }
 
-/// Build the visual row mapping used by diff input and refresh handling.
-fn layout_diff_viewport(
-    file: &LoadedDocument,
-    width: u16,
-    palette: Palette,
-    search_query: Option<&str>,
-    selection: Option<RangeInclusive<usize>>,
-    focused: bool,
-    guide_layout: Option<GuideLayout<'_>>,
-) -> DiffViewport {
-    DiffRenderer::new(
-        palette,
-        Some(file),
-        guide_layout,
-        focused,
-        true,
-        search_query,
-        selection,
-    )
-    .viewport(file, width, focused)
-}
-
 /// Loaded diff documents and their guide-facing viewport projection.
 pub struct DiffComponent {
     events: EventPublisher,
+    reply_visibility: RefCell<reply_visibility::ReplyVisibility>,
+    source_session: Option<String>,
+    comments: comments::Comments,
+    conversation: conversation::ConversationView,
     reviewable_files: ReviewableFiles,
     review_checkpoint: Option<ReviewCheckpoint>,
     documents: Vec<LoadedDocument>,
@@ -102,7 +89,7 @@ pub struct DiffComponent {
     pending_center_path: Option<String>,
     pending_guide_jump: Option<review_guide::GuideTarget>,
     search: Option<SearchState>,
-    next_search_id: u64,
+    next_search_id: Rc<Cell<u64>>,
     selection: Option<SelectionState>,
     viewport_width: u16,
     viewport_height: u16,
@@ -193,6 +180,11 @@ impl SelectionState {
 }
 
 impl DiffComponent {
+    /// File selection defers loading to the next application tick.
+    pub fn has_pending_load(&self) -> bool {
+        self.pending_load_path.is_some()
+    }
+
     /// Create an empty diff component.
     pub fn new(
         events: EventPublisher,
@@ -203,6 +195,9 @@ impl DiffComponent {
     ) -> Self {
         Self {
             events,
+            source_session: None,
+            comments: comments::Comments::default(),
+            conversation: conversation::ConversationView::default(),
             reviewable_files,
             review_checkpoint: None,
             documents: Vec::new(),
@@ -213,7 +208,7 @@ impl DiffComponent {
             pending_center_path: None,
             pending_guide_jump: None,
             search: None,
-            next_search_id: 0,
+            next_search_id: Rc::new(Cell::new(0)),
             selection: None,
             viewport_width: 80,
             viewport_height: 24,
@@ -226,6 +221,7 @@ impl DiffComponent {
             guide_items: Vec::new(),
             guide_counters: Vec::new(),
             rendered_pointer_viewport: RefCell::new(None),
+            reply_visibility: RefCell::default(),
         }
     }
 
@@ -238,9 +234,19 @@ impl DiffComponent {
         focused: bool,
         guide_layout: Option<GuideLayout<'_>>,
     ) -> GuideOverlay {
-        let result = self
-            .renderer(palette, guide_layout, focused)
-            .render(area, buffer);
+        if let Some(peek) = &self.conversation.peek {
+            peek.render(area, buffer, palette, focused);
+            return GuideOverlay::empty();
+        }
+        if self.conversation.active {
+            self.render_conversation(area, buffer, palette, focused);
+            return GuideOverlay::empty();
+        }
+        let result = self.renderer(palette, guide_layout, focused).render(
+            area,
+            buffer,
+            &mut self.reply_visibility.borrow_mut(),
+        );
         self.rendered_pointer_viewport
             .replace(result.pointer_viewport);
         result.guide_overlay
@@ -380,8 +386,21 @@ impl DiffComponent {
             || self.viewport_height != event.height.max(1);
         self.viewport_width = event.width.max(1);
         self.viewport_height = event.height.max(1);
-        if changed {
-            self.keep_cursor_visible();
+        if let Some(peek) = &mut self.conversation.peek {
+            peek.viewer.viewport_changed(&DiffViewportChanged {
+                width: event.width,
+                height: event.height.saturating_sub(1),
+            });
+        }
+        self.comments.editor_height = self.viewport_height.saturating_sub(6).clamp(1, 5);
+        if changed && self.conversation.active {
+            self.keep_conversation_composer_visible();
+        } else if changed {
+            if self.editor_is_visible() {
+                self.keep_comment_visible();
+            } else {
+                self.keep_cursor_visible();
+            }
         }
     }
 
@@ -399,13 +418,41 @@ impl DiffComponent {
     }
 
     fn keyboard_input(&mut self, input: DiffKeyboardInput) -> Vec<Action> {
+        if !matches!(input, DiffKeyboardInput::ConversationKey(_)) && self.conversation.is_peeking()
+        {
+            return self.source_view_mut().keyboard_input(input);
+        }
         match input {
+            DiffKeyboardInput::ConversationKey(key) => self.conversation_key(key),
+            DiffKeyboardInput::CommentKey(key) => self.comment_key(key),
             DiffKeyboardInput::SearchKey(key) => self.edit_search(key),
             DiffKeyboardInput::Shortcut(command) => self.run_shortcut(command),
         }
     }
 
-    fn pointer_input(&mut self, input: PointerInput) -> Vec<Action> {
+    fn pointer_input(&mut self, mut input: PointerInput) -> Vec<Action> {
+        if self.conversation.is_peeking() {
+            if let Some(position) = &mut input.position {
+                if position.component_row == 0 {
+                    if matches!(input.kind, PointerInputKind::Click { .. }) {
+                        self.close_peek();
+                    }
+                    return Vec::new();
+                }
+                position.component_row = position.component_row.saturating_sub(1);
+            }
+            return self.source_view_mut().pointer_input(input);
+        }
+        if self.conversation.active {
+            return self.conversation_pointer(input);
+        }
+        self.file_pointer_input(input)
+    }
+
+    fn file_pointer_input(&mut self, input: PointerInput) -> Vec<Action> {
+        if let Some(actions) = self.comment_pointer_input(input) {
+            return actions;
+        }
         let pointer_position = input.position.and_then(|position| {
             if position.component_row == 0 {
                 None
@@ -437,9 +484,9 @@ impl DiffComponent {
             PointerInputKind::Drag => self.extend_pointer_selection(pointer_position),
             PointerInputKind::Release => {
                 self.drag_anchor = None;
-                let actions = self.insert_selection();
+                self.finish_pointer_selection();
                 self.publish_viewports();
-                return actions;
+                return Vec::new();
             }
             PointerInputKind::ControlClick
             | PointerInputKind::DoubleClick
@@ -447,6 +494,12 @@ impl DiffComponent {
         }
         self.publish_viewports();
         Vec::new()
+    }
+
+    fn finish_pointer_selection(&mut self) {
+        if self.source_session.is_none() && self.selection.is_some() {
+            self.add_comment();
+        }
     }
 
     fn start_pointer_selection(&mut self, position: Option<DiffPointerPosition>) {
@@ -572,7 +625,21 @@ impl DiffComponent {
     }
 
     fn run_shortcut(&mut self, command: ShortcutCommand) -> Vec<Action> {
+        if self.conversation.is_peeking() {
+            return self.source_view_mut().run_shortcut(command);
+        }
+        if self.source_session.is_some() && matches!(command, ShortcutCommand::Comment(_)) {
+            return Vec::new();
+        }
+        if self.conversation.active {
+            return Vec::new();
+        }
+        self.file_shortcut(command)
+    }
+
+    fn file_shortcut(&mut self, command: ShortcutCommand) -> Vec<Action> {
         match command {
+            ShortcutCommand::Comment(command) => self.comment_shortcut(command),
             ShortcutCommand::Navigation(command) => self.run_navigation_shortcut(command),
             ShortcutCommand::Search(command) => self.search(command),
             ShortcutCommand::Source(command) => self.source(command),
@@ -692,16 +759,9 @@ impl DiffComponent {
     fn navigate_visual_rows(&mut self, delta: isize) {
         let target = self.selected_document().and_then(|document| {
             let guide_layout = self.guide_layout(document);
-            layout_diff_viewport(
-                document,
-                self.viewport_width,
-                self.palette,
-                self.search_query(),
-                self.selection.map(SelectionState::range),
-                true,
-                guide_layout,
-            )
-            .source_position_after_visual_delta(document, delta)
+            self.renderer(self.palette, guide_layout, true)
+                .viewport(document, self.viewport_width, true)
+                .source_position_after_visual_delta(document, delta)
         });
         let Some((row, column)) = target else {
             return;
@@ -766,14 +826,10 @@ impl DiffComponent {
         let height = usize::from(self.viewport_height);
         let scroll = self.displayed_document().map(|document| {
             let guide_layout = self.guide_layout(document);
-            let viewport = layout_diff_viewport(
+            let viewport = self.renderer(self.palette, guide_layout, true).viewport(
                 document,
                 self.viewport_width,
-                self.palette,
-                self.search_query(),
-                self.selection.map(SelectionState::range),
                 true,
-                guide_layout,
             );
             match placement {
                 ScrollPlacement::KeepCursorVisible => {
@@ -806,6 +862,7 @@ impl DiffComponent {
         {
             return;
         }
+        let finalized = self.selection.is_some_and(|selection| !selection.fixed);
         self.selection = match self.selection {
             Some(mut selection) if !selection.fixed => {
                 selection.fixed = true;
@@ -817,6 +874,9 @@ impl DiffComponent {
                 fixed: false,
             }),
         };
+        if finalized {
+            self.add_comment();
+        }
     }
 
     fn insert_selection(&self) -> Vec<Action> {
@@ -1013,9 +1073,10 @@ impl DiffComponent {
         if search.query.is_empty() {
             return cancel.then_some(Action::Search(None));
         }
-        self.next_search_id = self.next_search_id.wrapping_add(1);
+        self.next_search_id
+            .set(self.next_search_id.get().wrapping_add(1));
         let request = text_search::Request {
-            id: self.next_search_id,
+            id: self.next_search_id.get(),
             query: search.query.clone(),
             documents,
         };
@@ -1031,6 +1092,12 @@ impl DiffComponent {
     }
 
     fn search_completed(&mut self, results: &text_search::Results) -> Vec<Action> {
+        if let Some(peek) = &mut self.conversation.peek {
+            let actions = peek.viewer.search_completed(results);
+            if !actions.is_empty() {
+                return actions;
+            }
+        }
         let Some(request) = self
             .search
             .as_ref()
@@ -1069,9 +1136,7 @@ impl DiffComponent {
     fn jump_to_search_location(&mut self, location: &RepositorySearchLocation) {
         self.selected_path = Some(location.path.clone());
         self.jump_cursor_to_column(location.position.row, Some(location.position.column));
-        self.events.publish(FileSelectionRequested {
-            path: location.path.clone(),
-        });
+        self.publish_file_selection(location.path.clone());
     }
 
     fn word_under_cursor(&self) -> Option<String> {
@@ -1146,8 +1211,8 @@ impl DiffComponent {
             LspShortcut::GoToReferences => review_lsp::Operation::References,
             LspShortcut::Restart => return vec![Action::RestartLsp],
         };
-        let (Some(document), Some(checkpoint)) =
-            (self.selected_document(), self.review_checkpoint.as_ref())
+        let (Some(document), Some(snapshot_id)) =
+            (self.selected_document(), self.source_snapshot())
         else {
             return Vec::new();
         };
@@ -1178,7 +1243,7 @@ impl DiffComponent {
                 line,
                 byte_column,
                 expected_line,
-                snapshot_id: checkpoint.checkpoint.clone(),
+                snapshot_id: snapshot_id.to_owned(),
             },
         }]
     }
@@ -1200,9 +1265,12 @@ impl DiffComponent {
             self.search_query(),
             self.selection.map(SelectionState::range),
         )
+        .with_comments(&self.comments)
     }
 
     fn repository_changed(&mut self, event: &RepositoryFilesChanged) -> Vec<Action> {
+        self.comments.paths = FileSummary::thread_paths(&event.files);
+        self.conversation.refresh_files();
         self.preview = None;
         self.pending_preview_location = None;
         let same_review_unit = self.review_checkpoint.as_ref().is_some_and(|checkpoint| {
@@ -1212,6 +1280,7 @@ impl DiffComponent {
             .review_checkpoint
             .as_ref()
             .is_some_and(|checkpoint| checkpoint == &event.review_checkpoint);
+        self.prepare_review_switch(same_review_unit);
         if !same_review_unit {
             self.pending_center_path = None;
             self.guide_items.clear();
@@ -1230,11 +1299,7 @@ impl DiffComponent {
                     .iter()
                     .position(|document| document.path == path)
                     .map(|index| previous_documents.swap_remove(index));
-                let mut document = LoadedDocument::new(&path);
-                summary
-                    .display_path()
-                    .clone_into(&mut document.display_path);
-                document.disk_path.clone_from(&summary.disk_path);
+                let mut document = LoadedDocument::from_summary(summary);
                 if same_review_unit && let Some(previous_document) = previous_document {
                     let preserve_content =
                         same_checkpoint || self.selected_path.as_deref() == Some(path.as_str());
@@ -1247,9 +1312,27 @@ impl DiffComponent {
                 document
             })
             .collect();
+        if same_review_unit {
+            self.documents.extend(
+                previous_documents
+                    .into_iter()
+                    .filter(|file| file.comments_only),
+            );
+        }
         self.review_checkpoint = Some(event.review_checkpoint.clone());
+        self.refresh_peek_checkpoint();
+        self.refresh_comment_documents();
+        let thread_load = (!same_review_unit).then(|| {
+            Action::Thread(review_threads::ThreadCommand::Load(
+                event.review_checkpoint.review_unit.clone(),
+            ))
+        });
         self.pending_load_path = None;
         let search_action = self.refresh_search_matches();
+        let search_action = search_action
+            .into_iter()
+            .chain(thread_load)
+            .collect::<Vec<_>>();
         self.publish_viewports();
         self.publish_decorations();
         self.publish_current_location();
@@ -1303,6 +1386,9 @@ impl DiffComponent {
         }
         let load_immediately = self.selected_path.is_none();
         self.selected_path = Some(event.path.clone());
+        if newly_selected && !self.conversation.active {
+            self.comments.restore_file_editor(&event.path);
+        }
         if newly_selected {
             self.contain_displayed_cursor();
         }
@@ -1367,8 +1453,11 @@ impl DiffComponent {
         );
         let reload_after_current_load =
             document.replace_diff(DiffPresentation::new(highlighted_rows));
-        let request = HighlightRequest::Diff(Arc::new(event.clone()));
+        let content = Arc::new(event.clone());
+        document.content = Some(Arc::clone(&content));
+        let request = HighlightRequest::Diff(content);
         document.document.prepare_highlighting(request);
+        self.comments.refresh_anchors(&self.documents);
         self.refresh_pending_preview(&event.path);
         let pending_center_completed = self.pending_center_path.as_deref() == Some(&event.path);
         let center_selected_document =
@@ -1392,6 +1481,10 @@ impl DiffComponent {
         }
         self.finish_repository_search_load_if_complete();
         self.contain_loaded_cursor(&event.path);
+        if self.comments.pending_path.as_deref() == Some(&event.path) {
+            self.comments.pending_path = None;
+            self.keep_comment_visible();
+        }
         self.publish_viewports();
         self.publish_decorations();
         self.publish_current_location();
@@ -1409,6 +1502,9 @@ impl DiffComponent {
     }
 
     fn highlighting_finished(&mut self, event: &HighlightingFinished) {
+        if let Some(peek) = &mut self.conversation.peek {
+            peek.viewer.highlighting_finished(event);
+        }
         for loaded in self.documents.iter_mut().chain(self.preview.iter_mut()) {
             loaded.document.finish_highlighting(event);
         }
@@ -1512,7 +1608,7 @@ impl DiffComponent {
         } else {
             self.pending_guide_jump = None;
         }
-        self.events.publish(FileSelectionRequested { path });
+        self.publish_file_selection(path);
         self.publish_viewports();
         self.publish_current_location();
         self.record_current_location_jump(origin);
@@ -1575,7 +1671,10 @@ impl DiffComponent {
                 .collect();
         }
         vec![Action::LoadSource {
-            snapshot_id: review_checkpoint.checkpoint,
+            snapshot_id: self
+                .source_snapshot()
+                .expect("checkpoint exists")
+                .to_owned(),
             location: event.location.clone(),
             mode: ui_actions::SourceLoadMode::Preview,
         }]
@@ -1602,9 +1701,9 @@ impl DiffComponent {
         location: review_lsp::SourceLocation,
         mode: ui_actions::SourceLoadMode,
     ) -> Vec<Action> {
-        let Some(review_checkpoint) = &self.review_checkpoint else {
+        if self.review_checkpoint.is_none() {
             return Vec::new();
-        };
+        }
         if let Some(path) = location.review_path(&self.repository_root)
             && let Some(document) = self
                 .documents
@@ -1618,8 +1717,7 @@ impl DiffComponent {
                 if revealed {
                     self.center_jump_target();
                 }
-                self.events
-                    .publish(FileSelectionRequested { path: path.clone() });
+                self.publish_file_selection(path.clone());
                 self.publish_viewports();
                 self.publish_current_location();
             }
@@ -1630,7 +1728,10 @@ impl DiffComponent {
             return action.into_iter().collect();
         }
         vec![Action::LoadSource {
-            snapshot_id: review_checkpoint.checkpoint.clone(),
+            snapshot_id: self
+                .source_snapshot()
+                .expect("checkpoint exists")
+                .to_owned(),
             location,
             mode,
         }]
@@ -1638,10 +1739,18 @@ impl DiffComponent {
 
     fn source_content_loaded(&mut self, event: &SourceContentLoaded) -> Vec<Action> {
         if self
-            .review_checkpoint
+            .conversation
+            .peek
             .as_ref()
-            .is_none_or(|checkpoint| checkpoint.checkpoint != event.snapshot_id)
+            .is_some_and(|peek| peek.viewer.source_snapshot() == Some(event.snapshot_id.as_str()))
+            && event.mode != ui_events::SourceLoadMode::ThreadPeek
         {
+            return self.source_view_mut().source_content_loaded(event);
+        }
+        if event.mode == ui_events::SourceLoadMode::ThreadPeek {
+            return self.peek_loaded(event);
+        }
+        if self.source_snapshot() != Some(event.snapshot_id.as_str()) {
             return Vec::new();
         }
         let review_path = event.location.review_path(&self.repository_root);
@@ -1660,19 +1769,22 @@ impl DiffComponent {
         document.document.prepare_highlighting(request);
         let _ = document.document.reveal_location(&event.location);
         if event.mode.is_external() {
+            self.selection = None;
             self.documents.retain(|document| !document.temporary);
             let path = document.path.clone();
             self.documents.push(document);
             self.selected_path = Some(path.clone());
             self.center_jump_target();
-            self.events.publish(TemporaryFilesChanged {
-                files: vec![FileSummary::temporary(
-                    path.clone(),
-                    event.location.path.display().to_string(),
-                    event.location.path.clone(),
-                )],
-            });
-            self.events.publish(FileSelectionRequested { path });
+            if self.source_session.is_none() {
+                self.events.publish(TemporaryFilesChanged {
+                    files: vec![FileSummary::temporary(
+                        path.clone(),
+                        event.location.path.display().to_string(),
+                        event.location.path.clone(),
+                    )],
+                });
+            }
+            self.publish_file_selection(path);
             self.publish_viewports();
             self.publish_current_location();
         } else if self.pending_preview_location.as_ref() == Some(&event.location) {
@@ -1715,11 +1827,14 @@ impl DiffComponent {
     }
 
     fn source_content_failed(&mut self, event: &SourceContentLoadFailed) {
-        if self
-            .review_checkpoint
-            .as_ref()
-            .is_some_and(|checkpoint| checkpoint.checkpoint == event.snapshot_id)
-        {
+        if self.peek_failed(event) {
+            return;
+        }
+        if self.conversation.is_peeking() {
+            self.source_view_mut().source_content_failed(event);
+            return;
+        }
+        if self.source_snapshot() == Some(event.snapshot_id.as_str()) {
             self.events.publish(ToastRequested {
                 text: event.message.clone(),
                 kind: toasts::ToastKind::Error,
@@ -1758,8 +1873,7 @@ impl DiffComponent {
                 );
                 self.selected_path = Some(path.clone());
                 self.center_jump_target();
-                self.events
-                    .publish(FileSelectionRequested { path: path.clone() });
+                self.publish_file_selection(path.clone());
                 self.publish_viewports();
                 self.publish_current_location();
                 let load_already_active = self
@@ -1804,10 +1918,11 @@ impl DiffComponent {
         let reviewable_files = self.reviewable_files.clone();
         let repository_root = self.repository_root.clone();
         let previous_history = self.location_history.clone();
+        let source_only = self.source_session.is_some();
         let Some(target) = self
             .location_history
             .navigate(direction, current, |location| {
-                if location.review_unit() != &current_review_unit {
+                if source_only || location.review_unit() != &current_review_unit {
                     return true;
                 }
                 match location {
@@ -1859,7 +1974,16 @@ impl DiffComponent {
         })
     }
 
+    fn publish_file_selection(&self, path: String) {
+        if self.source_session.is_none() {
+            self.events.publish(FileSelectionRequested { path });
+        }
+    }
+
     fn publish_current_location(&self) {
+        if self.source_session.is_some() {
+            return;
+        }
         self.events.publish(CurrentReviewLocationChanged {
             location: self.current_review_location(),
         });
@@ -1867,6 +1991,7 @@ impl DiffComponent {
 
     #[allow(clippy::trivially_copy_pass_by_ref)]
     fn reviewable_files_changed(&mut self, _event: &ReviewableFilesChanged) -> Vec<Action> {
+        self.scroll(0);
         self.publish_viewports();
         self.selected_load_action().into_iter().collect()
     }
@@ -1899,6 +2024,10 @@ impl DiffComponent {
     }
 
     fn publish_viewports(&self) {
+        if self.source_session.is_some() {
+            return;
+        }
+        self.publish_thread_contexts();
         let viewports = self
             .documents
             .iter()
@@ -1927,6 +2056,9 @@ impl DiffComponent {
     }
 
     fn publish_decorations(&self) {
+        if self.source_session.is_some() {
+            return;
+        }
         let notice_paths = self
             .documents
             .iter()
@@ -1949,6 +2081,10 @@ impl DiffComponent {
     }
 
     fn publish_search_status(&self) {
+        if self.conversation.is_peeking() {
+            self.source_view().publish_search_status();
+            return;
+        }
         let Some(search) = &self.search else {
             self.events.publish(SearchStatusChanged::default());
             return;
@@ -2000,6 +2136,17 @@ impl DiffComponent {
 
 impl Component<Action> for DiffComponent {
     fn register_subscriptions(subscriptions: &mut ComponentSubscriptions<'_, Self, Action>) {
+        subscriptions.subscribe(Self::replies_displayed);
+        subscriptions.subscribe(Self::conversation_selected);
+        subscriptions.subscribe(Self::conversation_navigation);
+        subscriptions.subscribe(Self::threads_loaded);
+        subscriptions.subscribe(Self::comment_paste);
+        subscriptions.subscribe_input(
+            InputScope::Focused,
+            component_core::AnyInput,
+            |component, input: ui_events::TextPasted| component.comment_paste(&input),
+        );
+        subscriptions.subscribe(Self::post_finished);
         subscriptions.subscribe(Self::repository_changed);
         subscriptions.subscribe(Self::file_selected);
         subscriptions.subscribe(Self::animation_tick);
@@ -2010,22 +2157,40 @@ impl Component<Action> for DiffComponent {
         subscriptions.subscribe(Self::reviewable_files_changed);
         subscriptions.subscribe(Self::review_state_saved);
         subscriptions.subscribe(Self::viewport_changed);
-        subscriptions.subscribe(Self::clear_input);
-        subscriptions.subscribe(Self::output_finished);
+        subscriptions.subscribe(|component, event| component.source_view_mut().clear_input(event));
+        subscriptions
+            .subscribe(|component, event| component.source_view_mut().output_finished(event));
         subscriptions.subscribe(Self::guide_layout_changed);
         subscriptions.subscribe(Self::guide_jump_requested);
-        subscriptions.subscribe(Self::preview_source_location);
-        subscriptions.subscribe(Self::location_list_visibility_changed);
-        subscriptions.subscribe(Self::accept_source_location);
+        subscriptions.subscribe(|component, event| {
+            component.source_view_mut().preview_source_location(event)
+        });
+        subscriptions.subscribe(|component, event| {
+            component
+                .source_view_mut()
+                .location_list_visibility_changed(event);
+        });
+        subscriptions.subscribe(|component, event| {
+            component.source_view_mut().accept_source_location(event)
+        });
         subscriptions.subscribe(Self::source_content_loaded);
+        subscriptions.subscribe(Self::refresh_current_file);
         subscriptions.subscribe(Self::source_content_failed);
-        subscriptions.subscribe(Self::restore_review_location);
-        subscriptions.subscribe(Self::location_jumped);
+        subscriptions.subscribe(|component, event| {
+            component.source_view_mut().restore_review_location(event)
+        });
+        subscriptions
+            .subscribe(|component, event| component.source_view_mut().location_jumped(event));
         subscriptions.subscribe(Self::revision_edit_failed);
         subscriptions.subscribe_input(
             InputScope::Focused,
             DiffKeyboardInputMatcher::new(),
             Self::keyboard_input,
+        );
+        subscriptions.subscribe_input(
+            InputScope::Global,
+            ShortcutMatcher::new(ShortcutSet::Comments),
+            Self::run_shortcut,
         );
         subscriptions.subscribe_input(
             InputScope::Global,
@@ -2042,6 +2207,8 @@ impl Component<Action> for DiffComponent {
 
 #[derive(Clone, Copy)]
 enum DiffKeyboardInput {
+    CommentKey(Key),
+    ConversationKey(Key),
     SearchKey(Key),
     Shortcut(ShortcutCommand),
 }
@@ -2062,14 +2229,47 @@ impl InputMatcher<DiffComponent, Key> for DiffKeyboardInputMatcher {
     type Output = DiffKeyboardInput;
 
     fn resolve(&mut self, component: &DiffComponent, key: &Key) -> InputResolution<Self::Output> {
+        if component.conversation.is_peeking()
+            && *key == Key::Escape
+            && !component
+                .source_view()
+                .search
+                .as_ref()
+                .is_some_and(|search| search.editing)
+        {
+            return InputResolution::Matched(DiffKeyboardInput::ConversationKey(*key));
+        }
+        self.resolve_view(component.source_view(), *key)
+    }
+}
+
+impl DiffKeyboardInputMatcher {
+    fn resolve_view(
+        &mut self,
+        component: &DiffComponent,
+        key: Key,
+    ) -> InputResolution<DiffKeyboardInput> {
+        if key == Key::Control('t') {
+            return InputResolution::NoMatch;
+        }
+        if component.editor_is_visible() && !component.conversation.is_peeking() {
+            return InputResolution::Matched(DiffKeyboardInput::CommentKey(key));
+        }
+        if component.conversation.active {
+            return if conversation::ConversationView::handles_key(key) {
+                InputResolution::Matched(DiffKeyboardInput::ConversationKey(key))
+            } else {
+                InputResolution::NoMatch
+            };
+        }
         if component
             .search
             .as_ref()
             .is_some_and(|search| search.editing)
         {
-            return InputResolution::Matched(DiffKeyboardInput::SearchKey(*key));
+            return InputResolution::Matched(DiffKeyboardInput::SearchKey(key));
         }
-        match self.shortcuts.resolve_key(*key) {
+        match self.shortcuts.resolve_key(key) {
             InputResolution::NoMatch => InputResolution::NoMatch,
             InputResolution::AwaitingMoreInput => InputResolution::AwaitingMoreInput,
             InputResolution::Matched(command) => {

@@ -213,9 +213,32 @@ pub(super) struct LoadedDocument {
     pub(super) disk_path: Option<PathBuf>,
     pub(super) temporary: bool,
     pub(super) document: DiffDocument,
+    pub(super) content: Option<std::sync::Arc<ui_events::DiffContentLoaded>>,
+    pub(super) old_path: Option<String>,
+    pub(super) new_path: Option<String>,
+    pub(super) comments_only: bool,
 }
 
 impl LoadedDocument {
+    pub(super) fn from_summary(summary: &ui_events::FileSummary) -> Self {
+        let mut document = Self::new(summary.path());
+        document.old_path = summary
+            .file
+            .old_path
+            .as_ref()
+            .map(review_repository::repository::RepoPath::display);
+        document.new_path = summary
+            .file
+            .new_path
+            .as_ref()
+            .map(review_repository::repository::RepoPath::display);
+        summary
+            .display_path()
+            .clone_into(&mut document.display_path);
+        document.disk_path.clone_from(&summary.disk_path);
+        document
+    }
+
     /// Create an unloaded document for one repository path.
     pub(super) fn new(path: impl Into<String>) -> Self {
         let path = path.into();
@@ -225,6 +248,10 @@ impl LoadedDocument {
             disk_path: None,
             temporary: false,
             document: DiffDocument::new(),
+            content: None,
+            old_path: None,
+            new_path: None,
+            comments_only: false,
         }
     }
 
@@ -285,6 +312,7 @@ impl LoadedDocument {
     ) {
         self.document.preserve_navigation_from(&previous.document);
         if preserve_content {
+            self.content.clone_from(&previous.content);
             self.document
                 .preserve_loaded_content_from(&previous.document, content_is_current);
         }
@@ -318,7 +346,7 @@ impl LoadedDocument {
     }
 
     pub(super) fn start_diff_load(&mut self) -> Option<String> {
-        if self.document.load_state.is_loading() {
+        if self.comments_only || self.document.load_state.is_loading() {
             return None;
         }
         if self.document.load_state != DiffLoadState::ReloadRequired

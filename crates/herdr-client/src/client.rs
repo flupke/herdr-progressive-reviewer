@@ -216,6 +216,31 @@ fn parse_stream_event(event: EventEnvelope) -> Result<Option<HerdrEvent>> {
 }
 
 impl HerdrClient {
+    /// Read terminal styling so placeholder text can be distinguished from input.
+    pub fn read_agent_screen_ansi(&self, pane_id: &PaneId) -> Result<String> {
+        self.agent_screen(pane_id, true)
+    }
+
+    fn agent_screen(&self, pane_id: &PaneId, styled: bool) -> Result<String> {
+        let result = self.request(
+            method::AGENT_READ,
+            &json!({
+                "target": pane_id.0,
+                "source": "visible",
+                "format": if styled { "ansi" } else { "text" },
+                "strip_ansi": !styled,
+            }),
+        )?;
+        let read: PaneReadWire = Self::parse(&result, "read", method::AGENT_READ)?;
+        Ok(read.text)
+    }
+
+    /// Inspect the processes currently owning a pane, without reading their environment.
+    pub fn pane_process_info(&self, pane_id: &PaneId) -> Result<crate::protocol::PaneProcessInfo> {
+        let result = self.request("pane.process_info", &json!({"pane_id": pane_id.0}))?;
+        Self::parse(&result, "process_info", "pane.process_info")
+    }
+
     /// Build a client for an explicitly configured Herdr connection.
     pub fn new(socket_path: PathBuf, plugin_id: String, state_dir: PathBuf) -> Self {
         Self {
@@ -458,6 +483,17 @@ impl HerdrClient {
         }
         Ok(())
     }
+
+    fn synchronize_pane_size(&self, pane_id: &PaneId) -> Result<()> {
+        // Herdr 0.9 can leave plugin panes at the parent PTY's dimensions.
+        // A zero-distance resize applies the visible geometry without moving
+        // the split or changing focus, including when retrying an earlier open.
+        self.request(
+            "pane.resize",
+            &json!({"pane_id": pane_id.0, "direction": "left", "amount": 0.0}),
+        )?;
+        Ok(())
+    }
 }
 
 fn parse_event<T: for<'de> Deserialize<'de>>(data: Value, operation: &'static str) -> Result<T> {
@@ -522,17 +558,7 @@ impl HerdrReader for HerdrClient {
     }
 
     fn read_agent_screen(&self, pane_id: &PaneId) -> Result<String> {
-        let result = self.request(
-            method::AGENT_READ,
-            &json!({
-                "target": pane_id.0,
-                "source": "visible",
-                "format": "text",
-                "strip_ansi": true,
-            }),
-        )?;
-        let read: PaneReadWire = Self::parse(&result, "read", method::AGENT_READ)?;
-        Ok(read.text)
+        self.agent_screen(pane_id, false)
     }
 
     fn list_plugin_panes(&self, workspace_id: &WorkspaceId) -> Result<Vec<PluginPane>> {
@@ -574,12 +600,13 @@ impl HerdrWriter for HerdrClient {
             entrypoint_id: wire.entrypoint,
         };
         self.save_pane(&pane)?;
+        self.synchronize_pane_size(&pane.pane_id)?;
         Ok(pane)
     }
 
     fn focus_plugin_pane(&self, pane_id: &PaneId) -> Result<()> {
         self.request(method::PLUGIN_PANE_FOCUS, &json!({"pane_id": pane_id.0}))?;
-        Ok(())
+        self.synchronize_pane_size(pane_id)
     }
 
     fn focus_agent(&self, pane_id: &PaneId) -> Result<()> {

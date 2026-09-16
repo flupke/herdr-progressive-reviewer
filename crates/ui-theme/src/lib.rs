@@ -22,6 +22,7 @@ pub struct Theme {
 /// The colors that the review UI uses.
 #[derive(Clone, Copy, Debug)]
 pub struct Palette {
+    pub background: Color,
     pub text: Color,
     pub dim: Color,
     pub focus: Color,
@@ -196,6 +197,7 @@ impl Palette {
             Appearance::Light => (Anchors::color(0x00_00_00), 12),
         };
         Self {
+            background: anchors.base,
             text: anchors.text,
             dim: Self::blend(anchors.base, pole, 34),
             focus: anchors.focus,

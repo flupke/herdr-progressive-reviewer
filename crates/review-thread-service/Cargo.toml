@@ -1,0 +1,24 @@
+[package]
+name = "review-thread-service"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+ansi-to-tui.workspace = true
+herdr-client = { path = "../herdr-client" }
+ratatui.workspace = true
+review-mcp = { path = "../review-mcp" }
+review-store = { path = "../review-store" }
+review-threads = { path = "../review-threads" }
+review-types = { path = "../review-types" }
+serde_json.workspace = true
+ui-events = { path = "../ui-events" }
+uuid.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

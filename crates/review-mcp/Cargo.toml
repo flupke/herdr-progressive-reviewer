@@ -1,0 +1,23 @@
+[package]
+name = "review-mcp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+axum.workspace = true
+review-threads = { path = "../review-threads" }
+rmcp = { workspace = true, features = ["client", "transport-io", "transport-streamable-http-client-reqwest"] }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+review-test-support = { path = "../review-test-support" }
+rmcp = { workspace = true, features = ["client", "transport-streamable-http-client-reqwest"] }
+tempfile.workspace = true
+
+[lints]
+workspace = true

@@ -1,5 +1,6 @@
 use super::*;
 use std::fs::{self, File};
+use std::io::Write;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 
@@ -10,8 +11,16 @@ use review_test_support::{
     ReviewRepositoryFixture, complete_repository_snapshot, repository_fixture,
 };
 
+#[path = "runtime/mcp.tests.rs"]
+mod mcp;
+
+#[path = "runtime/agent_input.tests.rs"]
+mod agent_input;
+
 const GUIDE_E2E_AGENT_SOURCE: &str = "progressive-reviewer-e2e";
-const GUIDE_E2E_AGENT_SESSION_SOURCE: &str = "herdr:codex";
+// Test against the installed binary's rules, without background network updates.
+const GUIDE_E2E_CONFIG: &str = "onboarding = false\n\
+    [update]\nversion_check = false\nmanifest_check = false\n";
 
 #[test]
 fn source_loading_prefers_frozen_content_when_a_deleted_path_is_recreated() {
@@ -74,6 +83,32 @@ fn source_loading_prefers_frozen_content_when_a_deleted_path_is_recreated() {
             && *loaded_location == location
             && content == deleted_content
     ));
+    document_worker(&worker).load_source(
+        &message_sender,
+        snapshot.identity.snapshot_id().to_owned(),
+        location.clone(),
+        SourceLoadMode::ThreadPeek,
+    );
+    let event = messages.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_eq!(
+        event.downcast_ref::<SourceContentLoaded>().unwrap().content,
+        b"fn recreated_after_snapshot() {}\n"
+    );
+    std::fs::remove_file(&location.path).unwrap();
+    document_worker(&worker).load_source(
+        &message_sender,
+        snapshot.identity.snapshot_id().to_owned(),
+        location,
+        SourceLoadMode::ThreadPeek,
+    );
+    let event = messages.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert!(event.downcast_ref::<SourceContentLoadFailed>().is_some());
+}
+
+#[derive(Clone, Copy)]
+enum AgentLifecycle {
+    Reported,
+    Native,
 }
 
 struct IsolatedHerdrServer {
@@ -84,11 +119,33 @@ struct IsolatedHerdrServer {
     workspace_id: WorkspaceId,
     pane_id: PaneId,
     agent_binary: PathBuf,
+    agent: String,
     child: Child,
 }
 
 impl IsolatedHerdrServer {
     fn start(repository_root: &std::path::Path) -> Self {
+        Self::start_as(repository_root, "codex")
+    }
+
+    fn start_as(repository_root: &std::path::Path, agent: &str) -> Self {
+        Self::start_with_session(repository_root, agent, Some("session"))
+    }
+
+    fn start_native(repository_root: &Path) -> Self {
+        Self::start_with_lifecycle(repository_root, "codex", None, AgentLifecycle::Native)
+    }
+
+    fn start_with_session(repository_root: &Path, agent: &str, session: Option<&str>) -> Self {
+        Self::start_with_lifecycle(repository_root, agent, session, AgentLifecycle::Reported)
+    }
+
+    fn start_with_lifecycle(
+        repository_root: &Path,
+        agent: &str,
+        session: Option<&str>,
+        lifecycle: AgentLifecycle,
+    ) -> Self {
         let directory = tempfile::tempdir().unwrap();
         let config_directory = directory.path().join("config");
         let runtime_directory = directory.path().join("runtime");
@@ -99,7 +156,7 @@ impl IsolatedHerdrServer {
         fs::create_dir_all(config_path.parent().unwrap()).unwrap();
         fs::create_dir_all(&runtime_directory).unwrap();
         fs::create_dir_all(&state_directory).unwrap();
-        fs::write(&config_path, "onboarding = false\n").unwrap();
+        fs::write(&config_path, GUIDE_E2E_CONFIG).unwrap();
 
         let binary = std::env::var_os("HERDR_BIN_PATH")
             .map_or_else(|| PathBuf::from("herdr"), PathBuf::from);
@@ -125,6 +182,18 @@ impl IsolatedHerdrServer {
 
         let prompt_environment = format!("REVIEW_GUIDE_E2E_PROMPT_PATH={}", prompt_path.display());
         let binary_environment = format!("REVIEW_GUIDE_E2E_HERDR_BIN={}", binary.display());
+        let agent_environment = format!("REVIEW_GUIDE_E2E_AGENT={agent}");
+        let session_environment = format!(
+            "REVIEW_GUIDE_E2E_AGENT_SESSION={}",
+            session.unwrap_or_default()
+        );
+        let report_environment = format!(
+            "REVIEW_GUIDE_E2E_REPORT_LIFECYCLE={}",
+            match lifecycle {
+                AgentLifecycle::Reported => "1",
+                AgentLifecycle::Native => "0",
+            }
+        );
         let workspace = Self::run_cli_json_with(
             &binary,
             &socket_path,
@@ -139,6 +208,12 @@ impl IsolatedHerdrServer {
                 &prompt_environment,
                 "--env",
                 &binary_environment,
+                "--env",
+                &agent_environment,
+                "--env",
+                &session_environment,
+                "--env",
+                &report_environment,
                 "--no-focus",
             ],
         );
@@ -155,7 +230,7 @@ impl IsolatedHerdrServer {
                 .to_owned(),
         );
         let current_test_binary = std::env::current_exe().unwrap();
-        let agent_binary = directory.path().join("codex");
+        let agent_binary = directory.path().join(agent);
         fs::copy(current_test_binary, &agent_binary).unwrap();
         let server = Self {
             directory,
@@ -165,10 +240,11 @@ impl IsolatedHerdrServer {
             workspace_id,
             pane_id,
             agent_binary,
+            agent: agent.into(),
             child,
         };
         server.start_agent();
-        server.wait_for_agent();
+        server.wait_for_agent(session);
         server
     }
 
@@ -182,6 +258,28 @@ impl IsolatedHerdrServer {
             "runtime::tests::guide_e2e_agent_process",
             "--nocapture",
         ]);
+    }
+
+    fn stop_agent(&self) {
+        // Native detection must observe the exit; release-agent would reset it
+        // and could leave a stale agent record after the process is gone.
+        self.run_cli(&["pane", "send-keys", &self.pane_id.0, "ctrl+d"]);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while self.client().get_agent(&self.pane_id).unwrap().is_some()
+            || self
+                .client()
+                .pane_process_info(&self.pane_id)
+                .unwrap()
+                .foreground_processes
+                .iter()
+                .any(|process| process.name == self.agent)
+        {
+            assert!(
+                Instant::now() < deadline,
+                "the previous test agent did not exit"
+            );
+            thread::sleep(Duration::from_millis(25));
+        }
     }
 
     fn client(&self) -> HerdrClient {
@@ -208,19 +306,27 @@ impl IsolatedHerdrServer {
         panic!("isolated Herdr server did not become ready:\n{log}");
     }
 
-    fn wait_for_agent(&self) {
+    fn wait_for_agent(&self, session: Option<&str>) {
         let client = self.client();
         let deadline = Instant::now() + Duration::from_secs(5);
         while Instant::now() < deadline {
-            if client
-                .get_agent(&self.pane_id)
-                .is_ok_and(|agent| agent.is_some_and(|agent| agent.agent_session.is_some()))
-            {
+            if client.get_agent(&self.pane_id).is_ok_and(|agent| {
+                agent.is_some_and(|agent| {
+                    agent
+                        .agent_session
+                        .as_ref()
+                        .map(|session| session.value.as_str())
+                        == session
+                })
+            }) {
                 return;
             }
             thread::sleep(Duration::from_millis(25));
         }
-        panic!("the deterministic agent did not register with Herdr");
+        panic!(
+            "expected agent session {session:?}, got {:?}",
+            client.get_agent(&self.pane_id)
+        );
     }
 
     fn run_cli_json_with(
@@ -259,7 +365,7 @@ impl IsolatedHerdrServer {
             "--source",
             GUIDE_E2E_AGENT_SOURCE,
             "--agent",
-            "codex",
+            &self.agent,
             "--state",
             state,
         ]);
@@ -273,8 +379,23 @@ impl IsolatedHerdrServer {
             "--source",
             GUIDE_E2E_AGENT_SOURCE,
             "--agent",
-            "codex",
+            &self.agent,
         ]);
+    }
+
+    fn report_session(&self, session: &str) {
+        self.run_cli(&[
+            "pane",
+            "report-agent-session",
+            &self.pane_id.0,
+            "--source",
+            &format!("herdr:{}", self.agent),
+            "--agent",
+            &self.agent,
+            "--agent-session-id",
+            session,
+        ]);
+        self.wait_for_agent(Some(session));
     }
 }
 
@@ -290,37 +411,104 @@ fn guide_e2e_agent_process() {
     let Some(prompt_path) = std::env::var_os("REVIEW_GUIDE_E2E_PROMPT_PATH") else {
         return;
     };
+    // Match a native TUI: the terminal must not submit pasted newlines, echo
+    // input, or truncate long lines through its canonical input buffer.
+    crossterm::terminal::enable_raw_mode().unwrap();
+    crossterm::execute!(io::stdout(), crossterm::event::EnableBracketedPaste).unwrap();
     let binary = std::env::var_os("REVIEW_GUIDE_E2E_HERDR_BIN").unwrap();
     let pane_id = std::env::var("HERDR_PANE_ID").unwrap();
-    for arguments in [
-        vec![
-            "pane",
-            "report-agent",
-            &pane_id,
-            "--source",
-            GUIDE_E2E_AGENT_SOURCE,
-            "--agent",
-            "codex",
-            "--state",
-            "idle",
-        ],
-        vec![
-            "pane",
-            "report-agent-session",
-            &pane_id,
-            "--source",
-            GUIDE_E2E_AGENT_SESSION_SOURCE,
-            "--agent",
-            "codex",
-            "--agent-session-id",
-            "session",
-        ],
-    ] {
-        let status = Command::new(&binary).args(arguments).status().unwrap();
+    let agent = std::env::var("REVIEW_GUIDE_E2E_AGENT").unwrap();
+    if std::env::var("REVIEW_GUIDE_E2E_REPORT_LIFECYCLE").as_deref() != Ok("0") {
+        let status = Command::new(&binary)
+            .args([
+                "pane",
+                "report-agent",
+                &pane_id,
+                "--source",
+                GUIDE_E2E_AGENT_SOURCE,
+                "--agent",
+                &agent,
+                "--state",
+                "idle",
+            ])
+            .status()
+            .unwrap();
         assert!(status.success());
     }
-    let mut prompt_file = File::create(prompt_path).unwrap();
-    io::copy(&mut io::stdin().lock(), &mut prompt_file).unwrap();
+    if let Ok(session) = std::env::var("REVIEW_GUIDE_E2E_AGENT_SESSION")
+        && !session.is_empty()
+    {
+        let status = Command::new(&binary)
+            .args([
+                "pane",
+                "report-agent-session",
+                &pane_id,
+                "--source",
+                &format!("herdr:{agent}"),
+                "--agent",
+                &agent,
+                "--agent-session-id",
+                &session,
+            ])
+            .status()
+            .unwrap();
+        assert!(status.success());
+    }
+    let state_path = PathBuf::from(&prompt_path).with_extension("state");
+    let screen_path = PathBuf::from(&prompt_path).with_extension("screen");
+    let screen_updates = screen_path.clone();
+    thread::spawn(move || {
+        let mut previous = String::new();
+        let mut previous_screen = String::new();
+        loop {
+            if let Ok(title) = fs::read_to_string(&state_path)
+                && title != previous
+            {
+                print!("\x1b]0;{title}\x07");
+                io::stdout().flush().unwrap();
+                previous = title;
+            }
+            if let Ok(screen) = fs::read_to_string(&screen_updates)
+                && screen != previous_screen
+            {
+                print!("\x1b[2J\x1b[H{}", screen.replace('\n', "\r\n"));
+                io::stdout().flush().unwrap();
+                previous_screen = screen;
+            }
+            thread::sleep(Duration::from_millis(25));
+        }
+    });
+    let mut prompt_file = File::options()
+        .create(true)
+        .append(true)
+        .open(prompt_path)
+        .unwrap();
+    let marker = if agent == "claude" { "❯" } else { "›" };
+    print!("\x1b[2J\x1b[H{marker} ");
+    io::stdout().flush().unwrap();
+    let mut input = agent_input::AgentInput::default();
+    loop {
+        let event = crossterm::event::read().unwrap();
+        if matches!(event, crossterm::event::Event::Key(key)
+            if key.code == crossterm::event::KeyCode::Char('d')
+                && key.modifiers == crossterm::event::KeyModifiers::CONTROL)
+        {
+            crossterm::terminal::disable_raw_mode().unwrap();
+            crossterm::execute!(io::stdout(), crossterm::event::DisableBracketedPaste).unwrap();
+            return;
+        }
+        if let Some(prompt) = input.handle(event) {
+            writeln!(prompt_file, "{prompt}").unwrap();
+            prompt_file.flush().unwrap();
+        }
+        let screen = if input.text().is_empty() {
+            fs::read_to_string(&screen_path).unwrap_or_else(|_| format!("{marker} "))
+        } else {
+            format!("{marker} {}", input.text())
+        };
+        print!("\x1b[2J\x1b[H{}", screen.replace('\n', "\r\n"));
+        io::stdout().flush().unwrap();
+    }
 }
 
 fn prompt_field(prompt: &str, label: &str) -> String {
@@ -421,52 +609,61 @@ fn receive_agent_release(events: &Receiver<HerdrEvent>) {
     }
 }
 
-fn confirm_multiple_event_subscribers(herdr: &IsolatedHerdrServer) {
-    let (first_sender, first_events) = mpsc::channel();
-    let (second_sender, second_events) = mpsc::channel();
-    let first_client = herdr.client();
-    let second_client = herdr.client();
-    let first_pane_id = herdr.pane_id.clone();
-    let second_pane_id = herdr.pane_id.clone();
-    let first_thread = thread::spawn(move || {
-        first_client.forward_events(&first_sender, std::slice::from_ref(&first_pane_id))
-    });
-    let second_thread = thread::spawn(move || {
-        second_client.forward_events(&second_sender, std::slice::from_ref(&second_pane_id))
-    });
-
-    receive_current_agent(&first_events);
-    receive_current_agent(&second_events);
-
-    herdr.release_agent();
-    receive_agent_release(&first_events);
-    receive_agent_release(&second_events);
-    drop(first_events);
-    drop(second_events);
-    herdr.report_agent("idle");
-    assert_eq!(
-        first_thread.join().unwrap().unwrap(),
-        EventStreamEnd::ReceiverDisconnected
-    );
-    assert_eq!(
-        second_thread.join().unwrap().unwrap(),
-        EventStreamEnd::ReceiverDisconnected
-    );
+struct AgentEventSubscription {
+    events: Receiver<HerdrEvent>,
+    continue_streaming: Arc<AtomicBool>,
+    thread: JoinHandle<herdr_client::Result<EventStreamEnd>>,
 }
 
-fn receive_current_agent(events: &Receiver<HerdrEvent>) {
-    loop {
-        let event = events.recv_timeout(Duration::from_secs(5)).unwrap();
-        if matches!(
-            event,
-            HerdrEvent::AgentDetected {
-                released: false,
-                ..
-            }
-        ) {
-            return;
+impl AgentEventSubscription {
+    fn start(herdr: &IsolatedHerdrServer) -> Self {
+        let client = herdr.client();
+        let pane_id = herdr.pane_id.clone();
+        let continue_streaming = Arc::new(AtomicBool::new(true));
+        let thread_continue_streaming = Arc::clone(&continue_streaming);
+        let (event_sender, events) = mpsc::channel();
+        let (ready_sender, ready) = mpsc::sync_channel(1);
+        let thread = thread::spawn(move || {
+            let mut ready_sender = Some(ready_sender);
+            client.forward_events_while(
+                std::slice::from_ref(&pane_id),
+                || {
+                    // The cancellation callback first runs after subscription acknowledgement.
+                    if let Some(sender) = ready_sender.take() {
+                        sender.send(()).unwrap();
+                    }
+                    thread_continue_streaming.load(Ordering::Relaxed)
+                },
+                |event| event_sender.send(event).is_ok(),
+            )
+        });
+        ready.recv_timeout(Duration::from_secs(5)).unwrap();
+        Self {
+            events,
+            continue_streaming,
+            thread,
         }
     }
+}
+
+fn confirm_multiple_event_subscribers(herdr: &IsolatedHerdrServer) {
+    let first = AgentEventSubscription::start(herdr);
+    let second = AgentEventSubscription::start(herdr);
+
+    herdr.release_agent();
+    receive_agent_release(&first.events);
+    receive_agent_release(&second.events);
+    drop(first.events);
+    drop(second.events);
+    herdr.report_agent("idle");
+    assert_eq!(
+        first.thread.join().unwrap().unwrap(),
+        EventStreamEnd::ReceiverDisconnected
+    );
+    assert_eq!(
+        second.thread.join().unwrap().unwrap(),
+        EventStreamEnd::ReceiverDisconnected
+    );
 }
 
 #[test]
@@ -481,50 +678,25 @@ fn simultaneous_herdr_event_subscribers_stay_connected() {
 fn herdr_event_subscription_stops_without_a_new_server_event() {
     let repository = tempfile::tempdir().unwrap();
     let herdr = IsolatedHerdrServer::start(repository.path());
-    let client = herdr.client();
-    let pane_id = herdr.pane_id.clone();
-    let continue_streaming = Arc::new(AtomicBool::new(true));
-    let thread_continue_streaming = Arc::clone(&continue_streaming);
-    let (event_sender, events) = mpsc::channel();
-    let thread = thread::spawn(move || {
-        client.forward_events_while(
-            std::slice::from_ref(&pane_id),
-            || thread_continue_streaming.load(Ordering::Relaxed),
-            |event| event_sender.send(event).is_ok(),
-        )
-    });
-    receive_current_agent(&events);
+    let subscription = AgentEventSubscription::start(&herdr);
 
-    continue_streaming.store(false, Ordering::Relaxed);
+    subscription
+        .continue_streaming
+        .store(false, Ordering::Relaxed);
 
     assert_eq!(
-        thread.join().unwrap().unwrap(),
+        subscription.thread.join().unwrap().unwrap(),
         EventStreamEnd::ReceiverDisconnected
     );
 }
 
-fn subscribe_to_agent_events(herdr: &IsolatedHerdrServer) -> Receiver<HerdrEvent> {
-    let event_client = herdr.client();
-    let event_pane_id = herdr.pane_id.clone();
-    let (event_sender, event_receiver) = mpsc::channel();
-    thread::spawn(move || {
-        loop {
-            let Ok(end) =
-                event_client.forward_events(&event_sender, std::slice::from_ref(&event_pane_id))
-            else {
-                return;
-            };
-            if end == EventStreamEnd::ReceiverDisconnected {
-                return;
-            }
-        }
-    });
-    event_receiver
-}
-
 fn forward_until_agent_detection(events: &Receiver<HerdrEvent>, expected_released: bool) {
     loop {
-        let event = events.recv_timeout(Duration::from_secs(5)).unwrap();
+        let event = events
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap_or_else(|error| {
+                panic!("waiting for agent detection with released={expected_released}: {error}")
+            });
         let is_expected = matches!(
             event,
             HerdrEvent::AgentDetected { released, .. } if released == expected_released
@@ -535,15 +707,11 @@ fn forward_until_agent_detection(events: &Receiver<HerdrEvent>, expected_release
     }
 }
 
-fn confirm_agent_event_subscription(events: &Receiver<HerdrEvent>) {
-    // Herdr replays the current detected agent after it accepts the subscription.
-    forward_until_agent_detection(events, false);
-}
-
 fn churn_agent_lifecycle(herdr: &IsolatedHerdrServer, events: &Receiver<HerdrEvent>) {
-    herdr.release_agent();
-    herdr.report_agent("idle");
+    herdr.stop_agent();
     forward_until_agent_detection(events, true);
+    herdr.start_agent();
+    herdr.wait_for_agent(None);
     forward_until_agent_detection(events, false);
 }
 
@@ -569,7 +737,7 @@ impl GuideFlowFixture {
         let repository = Repository::discover(repository_files.root())
             .unwrap()
             .with_state_root(state_directory.path());
-        let herdr = IsolatedHerdrServer::start(repository_files.root());
+        let herdr = IsolatedHerdrServer::start_native(repository_files.root());
         let store = ReviewStore::open(state_directory.path(), repository.root()).unwrap();
         let guide_store = ReviewStore::open(state_directory.path(), repository.root()).unwrap();
         let tracker = ReviewTracker::new(repository.clone(), store);
@@ -601,8 +769,7 @@ impl GuideFlowFixture {
                 );
             }
         };
-        let events = subscribe_to_agent_events(&herdr);
-        confirm_agent_event_subscription(&events);
+        let events = AgentEventSubscription::start(&herdr).events;
 
         Self {
             repository_files,
@@ -983,6 +1150,8 @@ fn dispatch_reports_that_quit_stops_the_runtime() {
 
     let search = text_search::Worker::start(|_| {});
     let dispatcher = RuntimeActionDispatcher {
+        source_watches: None,
+        comments: &comment_service::test_worker(&settings),
         highlighting: &highlighting_worker(),
         search: &search,
         commands: &commands,
@@ -1005,6 +1174,8 @@ fn dispatch_all_executes_earlier_actions_before_quit() {
 
     let search = text_search::Worker::start(|_| {});
     let dispatcher = RuntimeActionDispatcher {
+        source_watches: None,
+        comments: &comment_service::test_worker(&settings),
         highlighting: &highlighting_worker(),
         search: &search,
         commands: &commands,
@@ -1047,7 +1218,7 @@ fn event_loop_routes_external_events_from_the_central_channel() {
         )))
         .unwrap();
     event_sender
-        .send(EventEnvelope::new(RepositoryPollDue))
+        .send(EventEnvelope::new(RepositoryRefreshDue))
         .unwrap();
     event_sender
         .send(EventEnvelope::new(ApplicationTick(Instant::now())))
@@ -1057,6 +1228,10 @@ fn event_loop_routes_external_events_from_the_central_channel() {
         .unwrap();
 
     RuntimeEventLoop {
+        target: AgentTarget::new(herdr_client::protocol::WorkspaceId("test".into()), None),
+        source_watches: None,
+        last_frame: Instant::now(),
+        comments: &comment_service::test_worker(&settings),
         highlighting: &highlighting_worker(),
         timings: &timing::Recorder::default(),
         search: &text_search::Worker::start(|_| {}),
@@ -1073,10 +1248,7 @@ fn event_loop_routes_external_events_from_the_central_channel() {
     .unwrap();
 
     let commands = command_receiver.try_iter().collect::<Vec<_>>();
-    assert!(matches!(
-        commands.as_slice(),
-        [WorkerCommand::Focus(pane_id), WorkerCommand::Poll] if pane_id == &focused_pane
-    ));
+    assert!(matches!(commands.as_slice(), [WorkerCommand::Poll]));
 }
 
 #[test]
@@ -1264,6 +1436,8 @@ fn document_requests_complete_while_repository_work_is_pending() {
     let lsp = review_lsp::Worker::start(repository.root().to_owned());
     let search = text_search::Worker::start(|_| {});
     let dispatcher = RuntimeActionDispatcher {
+        source_watches: None,
+        comments: &comment_service::test_worker(&settings),
         highlighting: &highlighting_worker(),
         search: &search,
         commands: &commands,

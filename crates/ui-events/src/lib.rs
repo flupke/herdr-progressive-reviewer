@@ -1,5 +1,12 @@
 //! Typed events shared by review UI components.
 
+mod threads;
+pub use threads::{
+    NewRepliesRequested, ReviewNavigation, ReviewNavigationChanged, ReviewPane,
+    ReviewPaneFocusRequested, ReviewThreadsLoaded, TextPasted, ThreadContext,
+    ThreadContextsChanged, ThreadFilesChanged, ThreadPostFinished, ThreadSelectionChanged,
+};
+
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
@@ -125,12 +132,19 @@ pub struct SourceContentLoadFailed {
 pub enum SourceLoadMode {
     Preview,
     External,
+    ThreadPeek,
 }
 
 impl SourceLoadMode {
     pub fn is_external(self) -> bool {
         self == Self::External
     }
+}
+
+/// Restrict LSP responses to a temporary source viewer until it closes.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SourceSessionChanged {
+    pub snapshot_id: Option<String>,
 }
 
 /// One source position without its operation-specific toast identifier.
@@ -654,3 +668,7 @@ pub struct DiffContentLoadFailed {
     pub review_checkpoint: ReviewCheckpoint,
     pub path: String,
 }
+
+/// A terminal draw completed successfully; visible reply observations may be acknowledged.
+#[derive(Clone, Copy, Debug)]
+pub struct FrameRendered;

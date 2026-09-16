@@ -1,6 +1,7 @@
 //! Herdr protocol boundaries used by the application and control processes.
 
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
@@ -184,6 +185,22 @@ pub struct AgentSession {
     pub value: String,
 }
 
+/// Foreground process identities reported for a terminal pane.
+#[derive(Clone, Debug, Deserialize)]
+pub struct PaneProcessInfo {
+    pub pane_id: PaneId,
+    #[serde(default)]
+    pub foreground_processes: Vec<PaneProcess>,
+}
+
+/// A process in a pane's foreground process group.
+#[derive(Clone, Debug, Deserialize)]
+pub struct PaneProcess {
+    pub pid: u32,
+    pub name: String,
+    pub argv: Option<Vec<String>>,
+}
+
 /// One typed event from Herdr that is relevant to the reviewer.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum HerdrEvent {
@@ -259,11 +276,11 @@ impl AgentInputMode {
     }
 }
 
-/// The last focused agent target for one Herdr workspace.
-#[derive(Debug)]
+/// The shared last-focused agent target for one Herdr workspace.
+#[derive(Clone, Debug)]
 pub struct AgentTarget {
     workspace_id: WorkspaceId,
-    focused_pane_ids: Vec<PaneId>,
+    focused_pane_ids: Arc<Mutex<Vec<PaneId>>>,
 }
 
 impl AgentTarget {
@@ -271,7 +288,7 @@ impl AgentTarget {
     pub fn new(workspace_id: WorkspaceId, focused_pane_id: Option<PaneId>) -> Self {
         Self {
             workspace_id,
-            focused_pane_ids: focused_pane_id.into_iter().collect(),
+            focused_pane_ids: Arc::new(Mutex::new(focused_pane_id.into_iter().collect())),
         }
     }
 
@@ -286,10 +303,14 @@ impl AgentTarget {
         Ok(())
     }
 
-    /// Record a pane focus for validation before the next insertion.
+    /// Record a pane focus for validation before selecting the active agent.
+    ///
+    /// # Panics
+    /// Panics if another thread poisoned the shared focus lock.
     pub fn observe_focus(&mut self, pane_id: &PaneId) {
-        self.focused_pane_ids.retain(|focused| focused != pane_id);
-        self.focused_pane_ids.push(pane_id.clone());
+        let mut focused = self.focused_pane_ids.lock().expect("agent focus lock");
+        focused.retain(|previous| previous != pane_id);
+        focused.push(pane_id.clone());
     }
 
     /// Resolve the current same-workspace implementation agent.
@@ -311,12 +332,19 @@ impl AgentTarget {
     }
 
     fn current_agent(&self, agents: &[Agent]) -> Option<Agent> {
-        self.focused_pane_ids.iter().rev().find_map(|pane_id| {
-            agents
-                .iter()
-                .find(|agent| agent.pane_id == *pane_id && agent.workspace_id == self.workspace_id)
-                .cloned()
-        })
+        self.focused_pane_ids
+            .lock()
+            .expect("agent focus lock")
+            .iter()
+            .rev()
+            .find_map(|pane_id| {
+                agents
+                    .iter()
+                    .find(|agent| {
+                        agent.pane_id == *pane_id && agent.workspace_id == self.workspace_id
+                    })
+                    .cloned()
+            })
     }
 
     /// Resolve the target again and insert text without submission.

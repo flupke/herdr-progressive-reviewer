@@ -430,7 +430,7 @@ fn new_repository_checkpoint_removes_old_guide_decorations() {
             paths: vec!["src/lib.rs".to_owned()],
         }))
         .expect("guide event must dispatch");
-    assert!(rendered_files(&registry, target).contains('💬'));
+    assert!(rendered_files(&registry, target).contains(" 📄"));
 
     registry
         .publish_envelope(EventEnvelope::new(RepositoryFilesChanged {
@@ -439,7 +439,7 @@ fn new_repository_checkpoint_removes_old_guide_decorations() {
         }))
         .expect("repository event must dispatch");
 
-    assert!(!rendered_files(&registry, target).contains('💬'));
+    assert!(!rendered_files(&registry, target).contains(" 📄"));
 }
 
 fn rendered_files(registry: &ComponentEventBus<Action>, target: ComponentTarget) -> String {

@@ -158,7 +158,7 @@ impl ReviewStore {
             .and_then(StoredGuideSnapshot::into_guide)
     }
 
-    fn atomic_compressed_json(
+    pub(super) fn atomic_compressed_json(
         &self,
         target: &Path,
         value: &impl Serialize,
