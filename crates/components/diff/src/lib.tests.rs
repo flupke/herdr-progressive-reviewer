@@ -28,6 +28,62 @@ mod expansion;
 mod scrolling;
 
 #[test]
+fn old_evidence_coordinates_reveal_context_in_later_hunks() {
+    let highlighter = SyntaxHighlighter::new(EmbeddedThemeName::CatppuccinMocha, Color::White);
+    let mut presentation = presentation::DiffPresentation::new(highlighter.plain(
+        vec![
+            DiffRow::Context {
+                old_line: 1,
+                new_line: 1,
+                text: " first".into(),
+            },
+            DiffRow::Delete {
+                old_line: 2,
+                text: "-old".into(),
+            },
+            DiffRow::Add {
+                new_line: 2,
+                text: "+new".into(),
+            },
+            DiffRow::Hunk {
+                old_start: 50,
+                old_count: 2,
+                new_start: 50,
+                new_count: 2,
+            },
+            DiffRow::Context {
+                old_line: 50,
+                new_line: 50,
+                text: " later context".into(),
+            },
+            DiffRow::Delete {
+                old_line: 51,
+                text: "-old later".into(),
+            },
+            DiffRow::Add {
+                new_line: 51,
+                text: "+new later".into(),
+            },
+        ],
+        None,
+        None,
+    ));
+    let row = presentation
+        .reveal_presentation_location(ui_events::PresentationLocation::OldLine(49))
+        .unwrap();
+    assert_eq!(
+        presentation.source_text(row).as_deref(),
+        Some("later context")
+    );
+    assert!(
+        presentation
+            .reveal_presentation_location(ui_events::PresentationLocation::OldLine(29))
+            .is_none(),
+        "unavailable old ranges must not fall back to unrelated code"
+    );
+}
+
+#[test]
 fn loaded_content_publishes_its_guide_viewport() {
     let (mut registry, reviewable_files, _) = registry_with_observer();
     reviewable_files.replace(["src/lib.rs".to_owned()].into());

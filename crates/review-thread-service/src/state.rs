@@ -3,7 +3,7 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::time::Duration;
 
 use herdr_client::client::HerdrClient;
-use herdr_client::protocol::{Agent, AgentPrompter, AgentTarget, HerdrEvent, PaneId};
+use herdr_client::protocol::{Agent, AgentTarget, HerdrEvent, PaneId};
 use review_mcp::{Operation, Response};
 use review_store::ReviewStore;
 use review_threads::{Post, Resolution, ReviewThreads, ThreadCommand};
@@ -271,12 +271,14 @@ impl State {
     }
 
     fn grant(&mut self, unit: &ReviewUnit, agent: Agent) -> Result<Access, String> {
-        for access in self.access.values() {
-            if access.review_unit == *unit && access.matches_agent(&self.client, &agent)? {
-                return Ok(access.clone());
-            }
+        if let Some(access) = self
+            .access
+            .values()
+            .find(|access| access.review_unit == *unit && access.matches_agent(&agent))
+        {
+            return Ok(access.clone());
         }
-        let access = Access::new(unit.clone(), agent, &self.client)?;
+        let access = Access::new(unit.clone(), agent)?;
         self.cancel_wakeups(unit);
         self.access
             .retain(|_, previous| previous.review_unit != *unit);
@@ -346,14 +348,19 @@ impl State {
 
     fn observe(&mut self, event: HerdrEvent) {
         match event {
+            HerdrEvent::AgentStatusChanged {
+                pane_id, status, ..
+            } => {
+                self.observe_wakeups(&pane_id, |wakeup| wakeup.observe(status));
+            }
             HerdrEvent::AgentDetected {
                 pane_id,
                 released: true,
                 ..
             } => {
-                // An agent can resume in the same pane after MCP setup.
+                // A native session can resume in the same pane after MCP setup.
                 // Keep its grant; every request still checks the live identity.
-                self.interrupt_wakeups(&pane_id);
+                self.observe_wakeups(&pane_id, Wakeup::interrupted);
                 self.refresh_target();
             }
             HerdrEvent::AgentDetected {
@@ -384,12 +391,12 @@ impl State {
         }
     }
 
-    fn interrupt_wakeups(&mut self, pane: &PaneId) {
+    fn observe_wakeups(&mut self, pane: &PaneId, observe: impl Fn(&mut Wakeup)) {
         for (token, access) in &self.access {
             if access.agent.pane_id == *pane
                 && let Some(wakeup) = self.wakeups.get_mut(token)
             {
-                wakeup.interrupted();
+                observe(wakeup);
             }
         }
     }
@@ -402,12 +409,7 @@ impl State {
                 (self.publish)(Event::Error(error));
             }
         }
-        let tokens = self
-            .wakeups
-            .iter()
-            .filter(|(_, wakeup)| wakeup.needs_poll())
-            .map(|(token, _)| token.clone())
-            .collect::<Vec<_>>();
+        let tokens = self.wakeups.keys().cloned().collect::<Vec<_>>();
         for token in tokens {
             if let Err(error) = self.notify(&token) {
                 self.wakeups.remove(&token);
@@ -435,6 +437,9 @@ impl State {
             .resolve(&self.client)
             .map_err(|error| error.to_string())?
             .ok_or("Focus an implementation agent to receive the saved comments")?;
+        if agent.agent_session.is_none() {
+            return Ok(());
+        }
         let access = self.grant(unit, agent)?;
         self.notifications.remove(unit);
         self.request_wakeup(&access, retry);
@@ -457,7 +462,7 @@ impl State {
             .resolve(&self.client)
             .map_err(|error| error.to_string())?
             .ok_or("Focus an implementation agent to receive the saved comments")?;
-        if !access.matches_agent(&self.client, &current)? {
+        if !access.matches_agent(&current) {
             let unit = access.review_unit.clone();
             self.wakeups.remove(token);
             return self.schedule(&unit, false);
@@ -465,11 +470,18 @@ impl State {
         let Some(wakeup) = self.wakeups.get_mut(token) else {
             return Ok(());
         };
-        if wakeup.needs_poll() {
-            wakeup.sent();
-            self.client
-                .prompt_agent(&current.pane_id, &access.prompt())
-                .map_err(|error| error.to_string())?;
+        wakeup.observe(current.agent_status);
+        if wakeup.should_notify(current.agent_status, unread) {
+            let result =
+                crate::prompt::PromptGate::send(&self.client, &current, &access.prompt(), || true);
+            if matches!(result, Ok(false)) {
+                if wakeup.defer() {
+                    (self.publish)(Event::NotificationDeferred);
+                }
+                return Ok(());
+            }
+            wakeup.sent(result.is_ok());
+            result?;
         }
         Ok(())
     }

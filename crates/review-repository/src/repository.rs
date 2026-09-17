@@ -94,11 +94,13 @@ impl From<String> for SnapshotId {
 }
 
 /// A lossless Unix repository-relative path.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(
+    Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize, serde::Deserialize,
+)]
 pub struct RepoPath(Vec<u8>);
 
 impl RepoPath {
-    pub(crate) fn from_bytes(bytes: impl Into<Vec<u8>>) -> Self {
+    pub fn from_bytes(bytes: impl Into<Vec<u8>>) -> Self {
         Self(bytes.into())
     }
 
@@ -122,7 +124,7 @@ impl RepoPath {
 }
 
 /// The repository entry type on one side of a change.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum FileKind {
     /// No entry exists on this side.
     Absent,
@@ -165,7 +167,7 @@ impl FileKind {
 }
 
 /// The normalized change for one file row.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ChangeKind {
     /// A path was added.
     Added,
@@ -182,7 +184,7 @@ pub enum ChangeKind {
 }
 
 /// One changed path in the current review.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ChangedFile {
     /// The path on the parent side.
     pub old_path: Option<RepoPath>,
@@ -201,7 +203,7 @@ pub struct ChangedFile {
 }
 
 /// Added and removed text lines in one diff.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DiffStatistics {
     /// Number of added text lines.
     pub lines_added: u64,

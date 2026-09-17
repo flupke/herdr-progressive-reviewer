@@ -4,7 +4,6 @@ use std::io::Write;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 
-use herdr_client::protocol::HerdrReader;
 use ratatui::backend::TestBackend;
 use review_repository::diff::DiffRow;
 use review_repository::repository::RepoType;
@@ -620,12 +619,13 @@ fn receive_agent_release(events: &Receiver<HerdrEvent>) {
 struct AgentEventSubscription {
     events: Receiver<HerdrEvent>,
     continue_streaming: Arc<AtomicBool>,
-    thread: JoinHandle<herdr_client::Result<()>>,
+    thread: JoinHandle<herdr_client::Result<EventStreamEnd>>,
 }
 
 impl AgentEventSubscription {
     fn start(herdr: &IsolatedHerdrServer) -> Self {
         let client = herdr.client();
+        let pane_id = herdr.pane_id.clone();
         let continue_streaming = Arc::new(AtomicBool::new(true));
         let thread_continue_streaming = Arc::clone(&continue_streaming);
         let (event_sender, events) = mpsc::channel();
@@ -633,6 +633,7 @@ impl AgentEventSubscription {
         let thread = thread::spawn(move || {
             let mut ready_sender = Some(ready_sender);
             client.forward_events_while(
+                std::slice::from_ref(&pane_id),
                 || {
                     // The cancellation callback first runs after subscription acknowledgement.
                     if let Some(sender) = ready_sender.take() {
@@ -662,8 +663,14 @@ fn confirm_multiple_event_subscribers(herdr: &IsolatedHerdrServer) {
     drop(first.events);
     drop(second.events);
     herdr.report_agent("idle");
-    first.thread.join().unwrap().unwrap();
-    second.thread.join().unwrap().unwrap();
+    assert_eq!(
+        first.thread.join().unwrap().unwrap(),
+        EventStreamEnd::ReceiverDisconnected
+    );
+    assert_eq!(
+        second.thread.join().unwrap().unwrap(),
+        EventStreamEnd::ReceiverDisconnected
+    );
 }
 
 #[test]
@@ -684,7 +691,10 @@ fn herdr_event_subscription_stops_without_a_new_server_event() {
         .continue_streaming
         .store(false, Ordering::Relaxed);
 
-    subscription.thread.join().unwrap().unwrap();
+    assert_eq!(
+        subscription.thread.join().unwrap().unwrap(),
+        EventStreamEnd::ReceiverDisconnected
+    );
 }
 
 fn forward_until_agent_detection(events: &Receiver<HerdrEvent>, expected_released: bool) {
@@ -922,23 +932,13 @@ fn guide_flow_survives_agent_churn_and_replaces_results(repository_type: RepoTyp
 }
 
 #[test]
-fn replacing_a_pending_guide_ignores_its_response_when_preparation_fails() {
+fn replacing_a_queued_guide_cancels_it_even_when_preparation_fails() {
     let mut fixture = GuideFlowFixture::start(RepoType::Git);
+    fixture.herdr.report_agent("working");
     fixture
         .commands
         .send(WorkerCommand::GenerateReviewGuide(GuideScope::All))
         .unwrap();
-    let deadline = Instant::now() + Duration::from_secs(5);
-    let first_prompt = loop {
-        let prompt = fs::read_to_string(fixture.herdr.directory.path().join("prompt.txt"))
-            .unwrap_or_default();
-        if prompt.contains("- Final response: `") {
-            break prompt;
-        }
-        assert!(Instant::now() < deadline, "guide prompt was not delivered");
-        thread::sleep(Duration::from_millis(25));
-    };
-    fixture.prompt_length = u64::try_from(first_prompt.len()).unwrap();
     fixture
         .commands
         .send(WorkerCommand::GenerateReviewGuide(GuideScope::File {
@@ -963,12 +963,14 @@ fn replacing_a_pending_guide_ignores_its_response_when_preparation_fails() {
             break;
         }
     }
-    // The failed replacement still supersedes the old response watcher.
-    write_guide_response(&first_prompt, "Late answer to a cancelled request");
+    // The failed replacement still supersedes the old unsent request. Making the
+    // agent ready must not send it or overwrite the replacement's error status.
+    fixture.herdr.report_agent("idle");
     thread::sleep(Duration::from_millis(350));
-    assert_eq!(
-        fs::read_to_string(fixture.herdr.directory.path().join("prompt.txt")).unwrap(),
-        first_prompt
+    assert!(
+        fs::read_to_string(fixture.herdr.directory.path().join("prompt.txt"))
+            .unwrap_or_default()
+            .is_empty()
     );
     assert!(!fixture.messages.try_iter().any(|event| {
         event
@@ -1140,24 +1142,27 @@ fn modified_mouse_inputs_reuse_existing_actions() {
             delta: 3,
         })
     );
-    assert_eq!(
-        normalize_mouse(MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column: 4,
-            row: 5,
-            modifiers: KeyModifiers::SHIFT,
-        }),
-        Some(UserInput::MouseClick { column: 4, row: 5 })
-    );
-    assert_eq!(
-        normalize_mouse(MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Middle),
-            column: 4,
-            row: 5,
-            modifiers: KeyModifiers::NONE,
-        }),
-        None
-    );
+    for (kind, modifiers) in [
+        (MouseEventKind::Down(MouseButton::Left), KeyModifiers::SHIFT),
+        (
+            MouseEventKind::Down(MouseButton::Middle),
+            KeyModifiers::NONE,
+        ),
+    ] {
+        assert_eq!(
+            normalize_mouse(MouseEvent {
+                kind,
+                column: 4,
+                row: 5,
+                modifiers,
+            }),
+            Some(UserInput::MouseClick {
+                column: 4,
+                row: 5,
+                insert_path: true,
+            })
+        );
+    }
     assert_eq!(
         normalize_mouse(MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
@@ -1293,6 +1298,14 @@ fn dispatch_all_executes_earlier_actions_before_quit() {
             .unwrap()
     );
     assert_eq!(settings.file_pane_width().unwrap(), Some(42));
+}
+
+#[test]
+fn worker_command_preserves_output_actions() {
+    let command = RuntimeActionDispatcher::worker_command(Action::Output {
+        text: "selected code".to_owned(),
+    });
+    assert!(matches!(command, WorkerCommand::Output { text } if text == "selected code"));
 }
 
 #[test]

@@ -6,6 +6,8 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+review-explore-runner = { path = "../review-explore-runner" }
+review-explore = { path = "../review-explore" }
 toasts = { path = "../toasts" }
 text-search = { path = "../text-search" }
 crossterm.workspace = true

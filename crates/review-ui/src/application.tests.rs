@@ -26,6 +26,8 @@ use component_core::{
     AnyInput, Component, ComponentSubscriptions, InputMatcher, InputResolution, InputScope,
 };
 
+#[path = "explore.tests.rs"]
+mod explore;
 #[path = "threads.tests.rs"]
 mod threads;
 

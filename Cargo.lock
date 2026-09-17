@@ -732,6 +732,7 @@ dependencies = [
  "guide-rendering",
  "markdown-rendering",
  "ratatui 0.30.2",
+ "review-explore",
  "review-guide",
  "review-lsp",
  "review-repository",
@@ -748,6 +749,7 @@ dependencies = [
  "ui-theme",
  "unicode-segmentation",
  "unicode-width 0.2.0",
+ "uuid",
 ]
 
 [[package]]
@@ -898,6 +900,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1a05365e3b1c6d1650318537c7460c6923f1abdd272ad6842baa2b509957a06"
 dependencies = [
  "num-traits",
+]
+
+[[package]]
+name = "explore-component"
+version = "0.2.0"
+dependencies = [
+ "comment-editor",
+ "component-core",
+ "diff-component",
+ "ratatui 0.30.2",
+ "review-explore",
+ "review-guide",
+ "review-repository",
+ "ui-actions",
+ "ui-events",
+ "ui-shortcuts",
+ "ui-theme",
 ]
 
 [[package]]
@@ -3590,6 +3609,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "review-explore"
+version = "0.2.0"
+dependencies = [
+ "eyre",
+ "review-guide",
+ "review-repository",
+ "review-test-support",
+ "schemars",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "test-case",
+ "uuid",
+]
+
+[[package]]
+name = "review-explore-runner"
+version = "0.2.0"
+dependencies = [
+ "eyre",
+ "review-explore",
+ "serde_json",
+]
+
+[[package]]
 name = "review-guide"
 version = "0.2.0"
 dependencies = [
@@ -3603,7 +3648,6 @@ dependencies = [
 name = "review-guide-runner"
 version = "0.2.0"
 dependencies = [
- "herdr-client",
  "libc",
  "notify",
  "review-guide",
@@ -3636,6 +3680,7 @@ name = "review-mcp"
 version = "0.2.0"
 dependencies = [
  "axum",
+ "review-explore",
  "review-test-support",
  "review-threads",
  "rmcp",
@@ -3729,6 +3774,7 @@ dependencies = [
  "review-types",
  "serde_json",
  "tempfile",
+ "thiserror 2.0.19",
  "ui-events",
  "uuid",
 ]
@@ -3757,6 +3803,7 @@ version = "0.2.0"
 dependencies = [
  "component-core",
  "diff-component",
+ "explore-component",
  "eyre",
  "files-component",
  "guide-component",
@@ -3764,10 +3811,12 @@ dependencies = [
  "overlay-component",
  "ratatui 0.30.2",
  "ratatui-markdown",
+ "review-explore",
  "review-guide",
  "review-lsp",
  "review-repository",
  "review-state",
+ "review-test-support",
  "review-threads",
  "review-types",
  "revision-component",
@@ -3799,6 +3848,8 @@ dependencies = [
  "ignore",
  "notify",
  "ratatui 0.30.2",
+ "review-explore",
+ "review-explore-runner",
  "review-guide",
  "review-guide-runner",
  "review-lsp",
@@ -4870,6 +4921,7 @@ checksum = "2896d95c02a80c6d6a5d6e953d479f5ddf2dfdb6a244441010e373ac0fb88971"
 name = "ui-actions"
 version = "0.2.0"
 dependencies = [
+ "review-explore",
  "review-guide",
  "review-lsp",
  "review-repository",
@@ -4883,6 +4935,7 @@ dependencies = [
 name = "ui-events"
 version = "0.2.0"
 dependencies = [
+ "review-explore",
  "review-guide",
  "review-lsp",
  "review-repository",

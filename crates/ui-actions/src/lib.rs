@@ -58,6 +58,10 @@ pub enum Action {
         path: String,
         reviewed: bool,
     },
+    /// Send selected text to the active implementation agent.
+    Output {
+        text: String,
+    },
     /// Generate a guide through the active implementation agent.
     GenerateReviewGuide {
         scope: GuideScope,

@@ -1,0 +1,25 @@
+[package]
+name = "explore-component"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+diff-component = { path = "../diff" }
+review-explore = { path = "../../review-explore" }
+component-core = { path = "../../component-core" }
+ui-actions = { path = "../../ui-actions" }
+ui-events = { path = "../../ui-events" }
+ui-theme = { path = "../../ui-theme" }
+ui-shortcuts = { path = "../../ui-shortcuts" }
+comment-editor = { path = "../../comment-editor" }
+ratatui = { workspace = true, features = ["unstable-rendered-line-info"] }
+
+
+[dev-dependencies]
+review-guide = { path = "../../review-guide" }
+review-repository = { path = "../../review-repository" }
+
+[lints]
+workspace = true

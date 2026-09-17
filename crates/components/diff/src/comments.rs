@@ -82,6 +82,23 @@ pub(super) struct EditingComment {
 }
 
 impl Comments {
+    pub(super) fn share_draft_cancellations(&mut self, other: &Self) {
+        self.drafts.share_cancellations(&other.drafts);
+    }
+
+    pub(super) fn inherit_book(&mut self, book: &ReviewThreads) {
+        self.recover_drafts(book);
+        self.book = Some(book.clone());
+    }
+
+    fn recover_drafts(&mut self, book: &ReviewThreads) {
+        self.drafts.recover(
+            book,
+            self.keymap,
+            self.editing.as_ref().map(|editing| &editing.draft.target),
+        );
+    }
+
     pub(super) fn threads(&self) -> impl Iterator<Item = &ReviewThread> {
         self.book.iter().flat_map(ReviewThreads::threads)
     }
@@ -253,6 +270,9 @@ impl DiffComponent {
             }
             EditorAction::Submit | EditorAction::Cancel => {
                 let discard = self.comments.book.as_ref().map(|book| {
+                    self.comments
+                        .drafts
+                        .remember_cancellation(&book.review_unit, &editing.draft);
                     Action::Thread(ThreadCommand::DiscardDraft {
                         review_unit: book.review_unit.clone(),
                         target: editing.draft.target.clone(),
@@ -468,36 +488,51 @@ impl DiffComponent {
     }
 
     pub(super) fn threads_loaded(&mut self, event: &ReviewThreadsLoaded) -> Vec<Action> {
+        let actions = self.update_loaded_threads(event);
+        if let Err(message) = &event.result {
+            self.events.publish(ui_events::ToastRequested {
+                text: format!("Could not load comments: {message}"),
+                kind: toasts::ToastKind::Error,
+            });
+        }
+        actions
+    }
+
+    fn update_loaded_threads(&mut self, event: &ReviewThreadsLoaded) -> Vec<Action> {
+        let mut actions: Vec<_> = self
+            .retained_viewers_mut()
+            .flat_map(|viewer| viewer.update_loaded_threads(event))
+            .collect();
         if self
             .review_checkpoint
             .as_ref()
             .map(|checkpoint| &checkpoint.review_unit)
             != Some(&event.review_unit)
         {
-            return Vec::new();
+            return actions;
         }
-        match &event.result {
-            Ok(book) => {
-                self.comments.drafts.recover(book, self.comments.keymap);
-                self.comments.book = Some(book.clone());
-                self.restore_saved_editor();
-                if self
-                    .comments
-                    .selected
-                    .as_ref()
-                    .is_some_and(|id| book.message(id).is_none())
-                {
-                    self.comments.selected = None;
-                }
+        if let Ok(book) = &event.result {
+            self.comments.recover_drafts(book);
+            let editing = self.comments.editing.is_some();
+            actions.extend(self.comments.reconcile_posts(book));
+            self.comments.book = Some(book.clone());
+            if editing && self.comments.editing.is_none() {
+                self.selection = None;
+                self.keep_comment_visible();
             }
-            Err(message) => self.events.publish(ui_events::ToastRequested {
-                text: format!("Could not load comments: {message}"),
-                kind: toasts::ToastKind::Error,
-            }),
+            self.restore_saved_editor();
+            if self
+                .comments
+                .selected
+                .as_ref()
+                .is_some_and(|id| book.message(id).is_none())
+            {
+                self.comments.selected = None;
+            }
         }
         self.refresh_comment_documents();
         self.refresh_conversation_context();
-        Vec::new()
+        actions
     }
 
     fn restore_saved_editor(&mut self) {
@@ -516,6 +551,20 @@ impl DiffComponent {
     }
 
     pub(super) fn post_finished(&mut self, event: &ThreadPostFinished) -> Vec<Action> {
+        self.update_finished_post(event);
+        if let Err(error) = &event.result {
+            self.events.publish(ui_events::ToastRequested {
+                text: format!("Could not post comment: {error}"),
+                kind: toasts::ToastKind::Error,
+            });
+        }
+        Vec::new()
+    }
+
+    fn update_finished_post(&mut self, event: &ThreadPostFinished) {
+        for viewer in self.retained_viewers_mut() {
+            viewer.update_finished_post(event);
+        }
         let current = self
             .review_checkpoint
             .as_ref()
@@ -541,13 +590,6 @@ impl DiffComponent {
         }
 
         self.comments.drafts.post_finished(event);
-        if let Err(error) = &event.result {
-            self.events.publish(ui_events::ToastRequested {
-                text: format!("Could not post comment: {error}"),
-                kind: toasts::ToastKind::Error,
-            });
-        }
-        Vec::new()
     }
 
     pub(super) fn refresh_comment_documents(&mut self) {

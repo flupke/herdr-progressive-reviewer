@@ -17,7 +17,7 @@ reviewer --agent.prompt--> Herdr's Unix socket --> agent's terminal
 ```
 
 `reviewer-mcp` is launched by the agent using its MCP configuration. It advertises
-the four tools even when no reviewer is running; actual calls connect to the
+the six tools even when no reviewer is running; actual calls connect to the
 repository's reviewer. It holds no history. The reviewer owns the HTTP server,
 validates access, and reads or updates the conversation store. Closing the
 reviewer leaves the bridge alive; a later tool call reconnects after reopening.
@@ -153,7 +153,7 @@ overwrite one another's posted messages.
 
 ## Review access and tools
 
-The tools are `list_threads`, `get_thread`, `get_new_messages`, and `reply`.
+The comment tools are `list_threads`, `get_thread`, `get_new_messages`, and `reply`.
 Every updated thread includes its full conversation and original code context.
 The Herdr wakeup supplies a review access value tied to the selected agent
 and logical review. When Herdr reports a native session ID, access is bound to
@@ -186,6 +186,87 @@ comments through that ID. A later comment remains pending even if it arrived
 before the answer was saved. Retrying requires the same three values. A rejected
 or interrupted reply leaves the comments pending. Existing MCP clients must refresh
 their tool definitions after upgrading from the earlier reply schema.
+
+Explore starts with a kickoff prompt containing the repository root, comparison
+identity, first request ID and interview instructions. The agent inspects the code
+and calls `submit_question` directly to post the first question.
+
+After a human contribution, the shared prompt delivery sends a compact wakeup:
+
+```json
+{
+  "instance": "review-id",
+  "request": "turn-id",
+  "checkpoint": {"review_unit": "unit", "checkpoint": "commit"},
+  "answer": {
+    "id": "answer-id",
+    "question": {"id": "policy", "version": 1},
+    "option": {"id": "keep", "text": "Keep resolved conversations resolved", "outcome": "accepted"},
+    "text": "Include the legacy caller."
+  }
+}
+```
+
+The selected option carries its full exact text, stable ID and outcome; the comment
+is preserved exactly and omitted when empty. The agent matches question ID/version
+to its original question in the same conversation. The checkpoint appears once.
+The reviewer keeps the full question and answer for history and validation; its
+evidence, assessments, rationale, other choices and recommendation are not resent.
+
+Conditional fields appear only when relevant: `answer.corrects` identifies an answer
+being corrected, `answer.deferred: true` records an explicit deferral, and
+`response_error` contains the previous attempt's failure. An unselected option is
+omitted. Replies to a questionless conclusion use `question: null` and
+`answer.in_reply_to` for the original conclusion turn. The agent posts the next turn
+with `submit_question` directly; no repository catalog or history dump is sent.
+`get_explore_answer`, `get_explore` and `read_explore` have been removed.
+
+Inspect source directly from disk and use Git/jj for diffs and historical text.
+Git's `checkpoint.review_unit` identifies the base tree; jj's `checkpoint.checkpoint`
+identifies the reviewed commit. Include untracked files that Git diff omits; jj merge
+bases use the merged parent tree. Cite evidence and topic associations directly using
+`{path, side, lines}`: paths are repository-relative UTF-8 strings or raw byte arrays,
+side is `old` or `new`, and lines are inclusive and one-based (null for file-level
+references). No source registration is needed. Evidence also explains what it
+establishes and how it could change the answer.
+
+Send each complete structured turn with `submit_question`, using the supplied review
+value and the result in `update`. Refresh an already-running agent's MCP tool catalog
+after upgrading; Explore exposes `submit_question` and `submit_conclusion`. The old
+`submit_explore` name has been removed. `submit_question` requires a next question
+and cannot carry a conclusion.
+Its access belongs to the current in-memory Explore pass and pinned agent
+conversation. Each call checks that binding, and the UI validates the entire turn
+before acknowledging it. Validation errors leave the request open for repair;
+transport retries must reuse the identical payload. Accepted retries return
+`accepted: true, applied: false`. Cancelled, obsolete or changed accepted payloads
+are rejected. Explore never writes ordinary thread replies or uses response files.
+
+Use `submit_conclusion` for the separate conclusion screen. Its top-level arguments are:
+
+```json
+{
+  "review": "review-id",
+  "request": "turn-id",
+  "checkpoint": {"review_unit": "unit", "checkpoint": "commit"},
+  "interpretation": null,
+  "summary": "Review outcome and uncertainty; further human Files inspection is required.",
+  "to_be_implemented": "1. First agreed task.\n2. Second agreed task.",
+  "future_work": "Deferred or optional work outside this implementation scope."
+}
+```
+
+The three sections are separate strings. Use an empty string for no implementation
+or future work. The final answer still needs its attributed interpretation when it
+records a decision; the same exact-answer and retry rules apply. There are no
+question, evidence, reply, topic or agenda fields in a conclusion submission.
+Summary and future work are displayed separately. Only `to_be_implemented` seeds
+the editable task box. Submitting a conclusion does not start implementation.
+The human's **Implement** action sends the edited box contents through the shared
+reviewer-to-agent delivery queue, authorizing those tasks and their validation.
+It waits for the pinned agent conversation, supports cancelling queued delivery,
+and reports delivery failures without discarding edits. Delivery confirmation
+means the request was sent, not that implementation has finished.
 
 ## Runtime and verification
 

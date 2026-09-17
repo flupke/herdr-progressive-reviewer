@@ -245,17 +245,53 @@ impl ExploreFlow {
             "limitations":[],"findings":[]
         })
     }
+
+    fn assert_no_prompt(&self) {
+        // Exercise several retries of the shared pending-delivery loop.
+        thread::sleep(Duration::from_millis(350));
+        let text = fs::read_to_string(self.fixture.herdr.directory.path().join("prompt.txt"))
+            .unwrap_or_default();
+        assert!(text.is_empty(), "{text}");
+        assert!(
+            !self
+                .fixture
+                .messages
+                .try_iter()
+                .any(|event| event.downcast_ref::<ui_events::ExploreFinished>().is_some()),
+            "transient readiness must not fail the turn"
+        );
+    }
 }
 
 #[test]
-fn explore_turn_prompts_a_working_agent_once() {
+fn explore_turn_waits_for_the_busy_agent_without_another_click() {
     let mut flow = ExploreFlow::start(RepoType::Git);
-    flow.native_status(herdr_client::protocol::AgentStatus::Working);
+    flow.fixture.herdr.report_agent("working");
     let request = flow.enqueue();
+    flow.assert_no_prompt();
+    flow.fixture.herdr.report_agent("idle");
     flow.wait_for_prompt(&request);
     thread::sleep(Duration::from_millis(350));
     let text = fs::read_to_string(flow.fixture.herdr.directory.path().join("prompt.txt")).unwrap();
     assert_eq!(text.matches("Explore request: ").count(), 1);
+    flow.finish();
+}
+
+#[test]
+fn cancelling_a_queued_explore_turn_prevents_later_delivery() {
+    let mut flow = ExploreFlow::start(RepoType::Git);
+    flow.fixture.herdr.report_agent("working");
+    let request = flow.enqueue();
+    flow.assert_no_prompt();
+    flow.fixture
+        .commands
+        .send(WorkerCommand::Explore(ExploreCommand::Cancel))
+        .unwrap();
+    // The round trip confirms cancellation reached the serial runtime owner.
+    let result = flow.submit(&ExploreFlow::empty_update(&request));
+    assert_eq!(result.is_error, Some(true));
+    flow.fixture.herdr.report_agent("idle");
+    flow.assert_no_prompt();
     flow.finish();
 }
 

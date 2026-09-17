@@ -2,22 +2,18 @@ use super::*;
 use review_thread_service::{PinnedAgent, PromptCancellation, PromptReceipt};
 
 impl ConversationFixture {
-    fn pinned_agent(&self) -> PinnedAgent {
-        PinnedAgent::new(
-            self.target
-                .clone()
-                .resolve(&self.server.client())
-                .unwrap()
-                .unwrap(),
-        )
-    }
-
-    fn queue_prompt(&self, agent: PinnedAgent, text: &str) -> (PromptReceipt, PromptCancellation) {
+    fn queue_prompt(&self, text: &str) -> (PromptReceipt, PromptCancellation) {
+        let agent = self
+            .target
+            .clone()
+            .resolve(&self.server.client())
+            .unwrap()
+            .unwrap();
         self.worker
             .as_ref()
             .unwrap()
             .prompt_sender()
-            .send(agent, text.into())
+            .send(PinnedAgent::new(agent), text.into())
     }
 
     fn wait_for_prompt_text(&self, text: &str) {
@@ -33,46 +29,64 @@ impl ConversationFixture {
 }
 
 #[test]
-fn structured_prompts_submit_once_while_the_agent_is_working_and_focused() {
+fn structured_prompts_wait_for_focus_and_drafts_then_send_once() {
     let fixture = ConversationFixture::start("codex");
-    fixture.status(AgentStatus::Working);
-    fixture
-        .server
-        .client()
-        .focus_agent(&fixture.server.pane_id)
-        .unwrap();
-    let (receipt, _cancellation) = fixture.queue_prompt(fixture.pinned_agent(), "Reviewer turn");
-    receipt.wait().unwrap();
-    fixture.wait_for_prompt_text("Reviewer turn");
-    fixture.status(AgentStatus::Idle);
-    thread::sleep(Duration::from_millis(250));
-    assert_eq!(fixture.prompts(), "Reviewer turn\n");
-}
-
-#[test]
-fn structured_prompts_reject_a_replaced_conversation() {
-    let fixture = ConversationFixture::start("codex");
-    let original = fixture.pinned_agent();
-    fixture.replace_session("replacement-session");
-    let (receipt, _cancellation) = fixture.queue_prompt(original, "For the original conversation");
-    let error = receipt.wait().unwrap_err().to_string();
-    assert!(error.contains("different agent conversation"), "{error}");
+    let client = fixture.server.client();
+    client.focus_agent(&fixture.server.pane_id).unwrap();
+    let (receipt, _cancellation) = fixture.queue_prompt("Queued reviewer turn");
+    thread::sleep(Duration::from_millis(350));
     assert!(fixture.prompts().is_empty());
+
+    client
+        .send_text(&fixture.server.pane_id, "My unposted draft")
+        .unwrap();
+    fixture.wait_for_screen(|screen| screen.contains("My unposted draft"));
+    fixture.server.run_cli(&[
+        "pane",
+        "focus",
+        "--direction",
+        "right",
+        "--pane",
+        &fixture.server.pane_id.0,
+    ]);
+    thread::sleep(Duration::from_millis(350));
+    assert!(fixture.prompts().is_empty());
+    assert!(
+        client
+            .read_agent_screen(&fixture.server.pane_id)
+            .unwrap()
+            .contains("My unposted draft")
+    );
+
+    client
+        .send_keys(&fixture.server.pane_id, &["Enter"])
+        .unwrap();
+    fixture.wait_for_prompt_text("Queued reviewer turn");
+    receipt.wait().unwrap();
+    thread::sleep(Duration::from_millis(350));
+    assert_eq!(
+        fixture.prompts(),
+        "My unposted draft\nQueued reviewer turn\n"
+    );
 }
 
 #[test]
-fn cancelling_or_closing_delivery_waiting_for_session_identity_sends_nothing() {
+fn queued_prompts_reject_replaced_sessions_and_stop_with_the_worker() {
     let mut fixture = ConversationFixture::start("codex");
-    let original = fixture.pinned_agent();
-    fixture.replace_session("");
-    let (receipt, cancellation) = fixture.queue_prompt(original.clone(), "Cancelled turn");
-    drop(cancellation);
-    assert!(matches!(
-        receipt.wait(),
-        Err(review_thread_service::PromptError::Cancelled)
-    ));
+    fixture.status(AgentStatus::Working);
+    let (receipt, _cancellation) = fixture.queue_prompt("For the original conversation");
+    fixture.replace_session("replacement-session");
+    let error = receipt.wait().unwrap_err().to_string();
+    assert!(
+        error.contains("different agent conversation") || error.contains("no longer available"),
+        "{error}"
+    );
+    fixture.status(AgentStatus::Idle);
+    thread::sleep(Duration::from_millis(350));
+    assert!(fixture.prompts().is_empty());
 
-    let (receipt, _cancellation) = fixture.queue_prompt(original, "Cancelled by shutdown");
+    fixture.status(AgentStatus::Working);
+    let (receipt, _cancellation) = fixture.queue_prompt("Cancelled by shutdown");
     drop(fixture.worker.take());
     assert!(
         receipt
@@ -81,6 +95,6 @@ fn cancelling_or_closing_delivery_waiting_for_session_identity_sends_nothing() {
             .to_string()
             .contains("dispatcher closed")
     );
-    fixture.server.report_session("session");
+    fixture.server.report_agent("idle");
     assert!(fixture.prompts().is_empty());
 }

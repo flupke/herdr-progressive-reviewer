@@ -28,6 +28,7 @@ pub struct ApplicationFrame<'a> {
     pub(super) palette: Palette,
     pub(super) files: &'a FilesComponent,
     pub(super) threads: &'a ThreadsComponent,
+    pub(super) explore: &'a explore_component::ExploreComponent,
     pub(super) diff: &'a DiffComponent,
     pub(super) guide: &'a GuideComponent,
     pub(super) locations: &'a LocationsComponent,
@@ -43,7 +44,12 @@ impl Widget for ApplicationFrame<'_> {
             return;
         }
 
-        let layout = PaneLayout::new(area.width, area.height, self.file_width);
+        let layout = PaneLayout::for_navigation(
+            area.width,
+            area.height,
+            self.file_width,
+            self.threads.mode(),
+        );
         let header = Rect::new(area.x, area.y, area.width, 1);
         let body = Rect::new(area.x, area.y + 1, area.width, layout.body_height());
         let footer = Rect::new(
@@ -65,6 +71,25 @@ impl Widget for ApplicationFrame<'_> {
 
 impl ApplicationFrame<'_> {
     fn render_body(&self, layout: PaneLayout, body: Rect, buffer: &mut Buffer) {
+        if self.threads.mode() == ReviewNavigation::Explore {
+            self.explore.render(
+                Rect::new(
+                    body.x,
+                    body.y + 1,
+                    body.width,
+                    body.height.saturating_sub(1),
+                ),
+                buffer,
+                self.palette,
+                self.focus == ReviewPane::Navigation,
+                self.diff,
+            );
+            self.render_tabs(body, buffer);
+            if self.locations.is_active() {
+                self.locations.render(body, buffer, true);
+            }
+            return;
+        }
         if layout.is_wide() {
             let file_width = layout.file_width;
             self.render_files(Rect::new(body.x, body.y, file_width, body.height), buffer);
@@ -100,6 +125,13 @@ impl ApplicationFrame<'_> {
                     self.focus == ReviewPane::Navigation,
                 );
             }
+            ReviewNavigation::Explore => self.explore.render(
+                area,
+                buffer,
+                self.palette,
+                self.focus == ReviewPane::Navigation,
+                self.diff,
+            ),
             ReviewNavigation::Threads => {
                 self.threads.render(
                     area,
@@ -109,6 +141,11 @@ impl ApplicationFrame<'_> {
                 );
             }
         }
+        self.render_tabs(area, buffer);
+    }
+
+    fn render_tabs(&self, area: Rect, buffer: &mut Buffer) {
+        let mode = self.threads.mode();
         let active = Style::default()
             .fg(self.palette.focus)
             .add_modifier(Modifier::BOLD);
@@ -138,6 +175,15 @@ impl ApplicationFrame<'_> {
                     ""
                 },
                 Style::default().fg(self.palette.deletion),
+            ),
+            Span::raw(NavigationTabs::SEPARATOR),
+            Span::styled(
+                NavigationTabs::EXPLORE,
+                if mode == ReviewNavigation::Explore {
+                    active
+                } else {
+                    inactive
+                },
             ),
         ]))
         .render(

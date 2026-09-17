@@ -435,7 +435,7 @@ const SHORTCUTS: &[ShortcutDefinition] = &[
         ],
     },
     ShortcutDefinition {
-        description: Some("Switch Files / Threads, including while composing"),
+        description: Some("Switch Files / Threads / Explore, including while composing"),
         bindings: &[ShortcutBinding::one(
             Key::Control('t'),
             application(ApplicationShortcut::ToggleNavigation),
@@ -788,7 +788,35 @@ const fn is_component_global_shortcut(command: ShortcutCommand) -> bool {
 
 /// Return the visible shortcut help lines.
 pub fn help_lines() -> impl Iterator<Item = (String, &'static str)> {
-    SHORTCUTS.iter().filter_map(ShortcutDefinition::help_line)
+    SHORTCUTS
+        .iter()
+        .filter_map(ShortcutDefinition::help_line)
+        .chain([
+            (
+                "Up / Down / j / k (Explore)".into(),
+                "Select an answer, including None of the above",
+            ),
+            (
+                "Enter (Explore)".into(),
+                "Send the selected answer with any additional text",
+            ),
+            (
+                "Tab (Explore)".into(),
+                "Focus conversation, inline evidence, then answer",
+            ),
+            (
+                "Alt-j / Alt-k".into(),
+                "Grow / shrink the Explore evidence window",
+            ),
+            (
+                "Alt-0".into(),
+                "Fit Explore evidence to its wrapped relevant range",
+            ),
+            (
+                "[ / ] (Explore)".into(),
+                "Visit previous / next interview turn",
+            ),
+        ])
 }
 
 /// Return the number of visible shortcut help lines.

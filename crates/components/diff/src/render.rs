@@ -1,4 +1,6 @@
 use std::ops::{Range, RangeInclusive};
+#[path = "evidence.rs"]
+mod evidence;
 
 use guide_rendering::{
     DiffFrame, GuideBorderCell, GuideLayout, GuideOverlay, GuideOverlayRow, GuideRenderedRow,
@@ -26,6 +28,7 @@ const MIN_DIFF_CONTROLS_WIDTH: u16 = 32;
 
 pub(super) struct DiffRenderer<'a> {
     comments: Option<&'a crate::comments::Comments>,
+    evidence: Option<&'a crate::explore::ExploreView>,
     palette: Palette,
     file: Option<&'a LoadedDocument>,
     guide_layout: Option<GuideLayout<'a>>,
@@ -81,6 +84,11 @@ impl<'a> DiffRenderer<'a> {
             .collect()
     }
 
+    pub(super) fn with_evidence(mut self, evidence: &'a crate::explore::ExploreView) -> Self {
+        self.evidence = Some(evidence);
+        self
+    }
+
     pub(super) fn with_comments(mut self, comments: &'a crate::comments::Comments) -> Self {
         self.comments = Some(comments);
         self
@@ -97,6 +105,7 @@ impl<'a> DiffRenderer<'a> {
     ) -> Self {
         Self {
             comments: None,
+            evidence: None,
             palette,
             file,
             guide_layout,
@@ -638,6 +647,8 @@ impl DiffRenderer<'_> {
                         .zip(enclosing_status)
                         .map(|(layout, status)| layout.frame(width, line_number_width, status))
                 });
+                let enclosing_frame =
+                    enclosing_frame.or_else(|| self.evidence_frame(file, index, width));
                 wrapped.extend(WrappedDiffRow::wrap_source(
                     &styled_line,
                     index,
@@ -653,7 +664,9 @@ impl DiffRenderer<'_> {
             })
             .collect();
         let rows = Self::insert_comment_rows(rows, comment_layout);
-        DiffViewport { rows }
+        DiffViewport {
+            rows: self.outline(rows, file, width),
+        }
     }
 
     fn insert_comment_rows(

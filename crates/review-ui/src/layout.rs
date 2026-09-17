@@ -11,6 +11,7 @@ pub(super) struct NavigationTabs;
 
 impl NavigationTabs {
     pub(super) const FILES: &str = " [F]iles ";
+    pub(super) const EXPLORE: &str = " Explore ";
     pub(super) const THREADS: &str = " [T]hreads ";
     pub(super) const SEPARATOR: &str = "|";
     pub(super) const UNREAD: &str = "● ";
@@ -19,6 +20,8 @@ impl NavigationTabs {
         Self::FILES.len()
             + Self::SEPARATOR.len()
             + Self::THREADS.len()
+            + Self::SEPARATOR.len()
+            + Self::EXPLORE.len()
             + usize::from(unread) * Self::UNREAD.chars().count()
     }
 
@@ -29,10 +32,15 @@ impl NavigationTabs {
     pub(super) fn mode_at(column: u16, unread: bool) -> Option<ReviewNavigation> {
         let column = usize::from(column);
         let threads_start = Self::FILES.len() + Self::SEPARATOR.len();
+        let threads_end = threads_start
+            + Self::THREADS.len()
+            + usize::from(unread) * Self::UNREAD.chars().count();
         if column < Self::FILES.len() {
             Some(ReviewNavigation::Files)
-        } else if (threads_start..Self::width(unread)).contains(&column) {
+        } else if (threads_start..threads_end).contains(&column) {
             Some(ReviewNavigation::Threads)
+        } else if (threads_end + Self::SEPARATOR.len()..Self::width(unread)).contains(&column) {
+            Some(ReviewNavigation::Explore)
         } else {
             None
         }
@@ -45,6 +53,7 @@ pub(crate) struct PaneLayout {
     pub(crate) height: u16,
     pub(crate) footer_height: u16,
     pub(crate) file_width: u16,
+    wide: bool,
 }
 
 impl PaneLayout {
@@ -60,13 +69,28 @@ impl PaneLayout {
         Self {
             width,
             height,
+            wide: width >= NARROW_WIDTH,
             footer_height: 1,
             file_width,
         }
     }
 
+    pub(crate) fn for_navigation(
+        width: u16,
+        height: u16,
+        file_width: Option<u16>,
+        navigation: ReviewNavigation,
+    ) -> Self {
+        let mut layout = Self::new(width, height, file_width);
+        if navigation == ReviewNavigation::Explore {
+            layout.wide = false;
+            layout.file_width = width;
+        }
+        layout
+    }
+
     pub(crate) fn is_wide(self) -> bool {
-        self.width >= NARROW_WIDTH
+        self.wide
     }
 
     pub(crate) fn body_height(self) -> u16 {

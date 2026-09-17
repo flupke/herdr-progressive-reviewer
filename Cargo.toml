@@ -1,6 +1,9 @@
 [workspace]
 exclude = ["vendor/ratatui-markdown"]
 members = [
+    "crates/review-explore",
+    "crates/review-explore-runner",
+    "crates/components/explore",
     "crates/component-core",
     "crates/component-modal",
     "crates/components/diff",
@@ -73,6 +76,7 @@ grep-regex = "0.1"
 grep-searcher = "0.1"
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
+schemars = "1.2"
 sha2 = "0.10"
 signal-hook = "0.3"
 strip-ansi-escapes = "0.2"

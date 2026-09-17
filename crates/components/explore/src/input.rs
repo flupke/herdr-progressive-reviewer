@@ -333,7 +333,7 @@ impl ExploreComponent {
         let column = position.terminal_column;
         let row = position.terminal_row;
         let resize = self.layout.borrow().resize_at(column, row);
-        if matches!(input.kind, PointerInputKind::Click)
+        if matches!(input.kind, PointerInputKind::Click { .. })
             && let Some((view, height)) = resize
         {
             self.open_evidence(view, false);
@@ -352,7 +352,7 @@ impl ExploreComponent {
             return Vec::new();
         }
         let control = self.layout.borrow().control_at(column, row);
-        if matches!(input.kind, PointerInputKind::Click)
+        if matches!(input.kind, PointerInputKind::Click { .. })
             && let Some(control) = control
         {
             self.events
@@ -364,7 +364,7 @@ impl ExploreComponent {
 
     fn viewer_pointer(&mut self, window: super::flow::Window, mut input: PointerInput) {
         self.open_evidence(window.view, false);
-        if matches!(input.kind, PointerInputKind::Click) {
+        if matches!(input.kind, PointerInputKind::Click { .. }) {
             self.pointer_view = Some(window);
             self.events
                 .publish(ReviewPaneFocusRequested(ReviewPane::Detail));

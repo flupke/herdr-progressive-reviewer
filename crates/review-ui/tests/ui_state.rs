@@ -10,8 +10,9 @@ use review_state::{ReviewState, ReviewStatus};
 use review_ui::{Action, Key, ReviewApplication, UserInput};
 use std::time::Instant;
 use ui_events::{
-    AnimationTick, FileSummary, RepositoryFilesChanged, RepositoryMetadataChanged,
-    ReviewGuideChanged, ReviewGuideStatusChanged, ReviewStateSaved, ToastExpirationTick,
+    AnimationTick, FileSummary, OutputDeliveryFinished, RepositoryFilesChanged,
+    RepositoryMetadataChanged, ReviewGuideChanged, ReviewGuideStatusChanged, ReviewStateSaved,
+    ToastExpirationTick,
 };
 
 fn rows() -> Vec<DiffRow> {
@@ -96,7 +97,11 @@ fn click_on_text(screen: &[String], text: &str) -> UserInput {
             })
         })
         .unwrap_or_else(|| panic!("{text:?} must be visible in {screen:?}"));
-    UserInput::MouseClick { column, row }
+    UserInput::MouseClick {
+        column,
+        row,
+        insert_path: false,
+    }
 }
 
 fn publish_repository(
@@ -615,7 +620,11 @@ fn wrapped_continuation_mouse_targets_its_source_position() {
         40,
         8,
     );
-    app.update(UserInput::MouseClick { column: 10, row: 3 });
+    app.update(UserInput::MouseClick {
+        column: 10,
+        row: 3,
+        insert_path: false,
+    });
 
     let actions = app.update(UserInput::Key(Key::Char('K')));
     let [Action::Lsp { query, .. }] = actions.as_slice() else {
@@ -686,7 +695,11 @@ fn wrapped_grapheme_mouse_position_uses_its_terminal_width() {
         40,
         8,
     );
-    app.update(UserInput::MouseClick { column: 7, row: 3 });
+    app.update(UserInput::MouseClick {
+        column: 7,
+        row: 3,
+        insert_path: false,
+    });
 
     let actions = app.update(UserInput::Key(Key::Char('K')));
     let [Action::Lsp { query, .. }] = actions.as_slice() else {
@@ -696,7 +709,7 @@ fn wrapped_grapheme_mouse_position_uses_its_terminal_width() {
 }
 
 #[test]
-fn stale_diffs_are_ignored_and_selected_text_is_not_sent_on_enter() {
+fn state_machine_keeps_selection_until_insert_succeeds() {
     let mut app = ReviewApplication::default();
     assert_eq!(
         publish_repository(
@@ -753,19 +766,61 @@ fn stale_diffs_are_ignored_and_selected_text_is_not_sent_on_enter() {
     app.update(UserInput::Key(Key::Visual));
     app.update(UserInput::Key(Key::Down));
     app.update(UserInput::Key(Key::Visual));
+    assert_eq!(
+        app.update(UserInput::Key(Key::Enter)),
+        vec![Action::Output {
+            text: concat!(
+                "diff --git a/src/lib.rs b/src/lib.rs\n",
+                "--- a/src/lib.rs\n",
+                "+++ b/src/lib.rs\n",
+                "@@ -1,2 +1,1 @@\n",
+                " fn run() {\n",
+                "-    old();"
+            )
+            .to_owned(),
+        }]
+    );
+
+    app.publish(OutputDeliveryFinished { delivered: false });
+    assert!(matches!(
+        app.update(UserInput::Key(Key::Enter)).as_slice(),
+        [Action::Output { .. }]
+    ));
+    app.publish(OutputDeliveryFinished { delivered: false });
+    let rendered = screen(&app, 80, 12);
+    assert!(rendered.last().unwrap().contains("? help"));
+    assert!(!rendered.join("\n").contains("No agent chat"));
+    assert!(matches!(
+        app.update(UserInput::Key(Key::Enter)).as_slice(),
+        [Action::Output { .. }]
+    ));
+    app.publish(OutputDeliveryFinished { delivered: true });
+    assert!(!screen(&app, 80, 12).join("\n").contains("Inserted into"));
     assert!(app.update(UserInput::Key(Key::Enter)).is_empty());
 }
 
 #[test]
-fn enter_on_a_filename_does_not_send_text() {
+fn output_uses_only_the_active_agent() {
     let mut app = ReviewApplication::default();
+    app.update(UserInput::Resize {
+        width: 80,
+        height: 12,
+    });
     publish_repository(
         &mut app,
         ReviewCheckpoint::new("qpvuntsm", "11111111"),
         "Commit title\n".to_owned(),
         vec![FileSummary::new("src/lib.rs", ReviewStatus::Unreviewed)],
     );
-    assert!(app.update(UserInput::Key(Key::Enter)).is_empty());
+
+    assert!(screen(&app, 80, 12)[11].starts_with("? help"));
+    assert!(app.update(UserInput::Key(Key::Char('o'))).is_empty());
+    assert_eq!(
+        app.update(UserInput::Key(Key::Enter)),
+        vec![Action::Output {
+            text: "src/lib.rs".to_owned(),
+        }]
+    );
 }
 
 #[test]
@@ -886,13 +941,25 @@ fn commit_message_opens_and_closes_from_mouse_or_keyboard() {
     assert!(popup.contains("Commit message"));
     assert!(popup.contains("Commit body"));
 
-    app.update(UserInput::MouseClick { column: 40, row: 6 });
+    app.update(UserInput::MouseClick {
+        column: 40,
+        row: 6,
+        insert_path: false,
+    });
     assert!(screen(&app, 80, 12).join("\n").contains("Commit body"));
 
-    app.update(UserInput::MouseClick { column: 0, row: 11 });
+    app.update(UserInput::MouseClick {
+        column: 0,
+        row: 11,
+        insert_path: false,
+    });
     assert!(!screen(&app, 80, 12).join("\n").contains("Commit body"));
 
-    app.update(UserInput::MouseClick { column: 2, row: 0 });
+    app.update(UserInput::MouseClick {
+        column: 2,
+        row: 0,
+        insert_path: false,
+    });
     assert!(screen(&app, 80, 12).join("\n").contains("Commit body"));
 }
 
@@ -1135,7 +1202,11 @@ fn diff_uses_bars_line_numbers_and_expandable_gaps() {
     assert!(!expanded.contains("… 3 unmodified lines"));
 
     load(&mut app);
-    app.update(UserInput::MouseClick { column: 70, row: 5 });
+    app.update(UserInput::MouseClick {
+        column: 70,
+        row: 5,
+        insert_path: false,
+    });
     assert!(screen(&app, 100, 14).join("\n").contains("3 third"));
 }
 
@@ -1189,20 +1260,32 @@ fn diff_controls_expand_and_contract_all_gaps() {
     assert!(collapsed.contains("→←"));
     assert!(collapsed.contains('👁'));
     assert!(collapsed.contains("1 unmodified lines"));
-    app.update(UserInput::MouseClick { column: 87, row: 1 });
+    app.update(UserInput::MouseClick {
+        column: 87,
+        row: 1,
+        insert_path: false,
+    });
     assert!(
         !screen(&app, 100, 14)
             .join("\n")
             .contains("unmodified lines")
     );
-    app.update(UserInput::MouseClick { column: 92, row: 1 });
+    app.update(UserInput::MouseClick {
+        column: 92,
+        row: 1,
+        insert_path: false,
+    });
     assert!(
         screen(&app, 100, 14)
             .join("\n")
             .contains("1 unmodified lines")
     );
 
-    app.update(UserInput::MouseClick { column: 96, row: 1 });
+    app.update(UserInput::MouseClick {
+        column: 96,
+        row: 1,
+        insert_path: false,
+    });
     let file = screen(&app, 100, 14).join("\n");
     assert!(file.contains("File ·"));
     assert!(file.contains("[x]"));
@@ -1211,7 +1294,11 @@ fn diff_controls_expand_and_contract_all_gaps() {
     assert!(file.contains("2 middle"));
     assert!(!file.contains("unmodified lines"));
 
-    app.update(UserInput::MouseClick { column: 97, row: 1 });
+    app.update(UserInput::MouseClick {
+        column: 97,
+        row: 1,
+        insert_path: false,
+    });
     let diff = screen(&app, 100, 14).join("\n");
     assert!(diff.contains("Diff ·"));
     assert!(diff.contains("←→"));
@@ -1320,7 +1407,11 @@ fn mouse_targets_the_hovered_pane_and_click_changes_focus() {
             path: "second.rs".to_owned(),
         }]
     );
-    app.update(UserInput::MouseClick { column: 70, row: 2 });
+    app.update(UserInput::MouseClick {
+        column: 70,
+        row: 2,
+        insert_path: false,
+    });
     assert!(
         application_screen(&app, 80, 12)
             .join("\n")
@@ -1336,16 +1427,34 @@ fn mouse_targets_the_hovered_pane_and_click_changes_focus() {
             .join("\n")
             .contains("Diff · first.rs (focus)")
     );
-    app.update(UserInput::MouseClick { column: 1, row: 3 });
+    app.update(UserInput::MouseClick {
+        column: 1,
+        row: 3,
+        insert_path: false,
+    });
     assert!(
         application_screen(&app, 80, 12)
             .join("\n")
             .contains("Diff · second.rs")
     );
-    assert!(app.update(UserInput::Key(Key::Enter)).is_empty());
     assert_eq!(
-        app.update(UserInput::MouseControlClick { column: 1, row: 2 }),
-        vec![Action::OpenLspDocument("first.rs".into())]
+        app.update(UserInput::Key(Key::Enter)),
+        vec![Action::Output {
+            text: "second.rs".to_owned(),
+        }]
+    );
+    assert_eq!(
+        app.update(UserInput::MouseClick {
+            column: 1,
+            row: 2,
+            insert_path: true,
+        }),
+        vec![
+            Action::Output {
+                text: "first.rs".to_owned(),
+            },
+            Action::OpenLspDocument("first.rs".into())
+        ]
     );
 }
 
@@ -1366,7 +1475,11 @@ fn double_clicking_a_file_marks_it_reviewed() {
         height: 12,
     });
 
-    app.update(UserInput::MouseClick { column: 1, row: 2 });
+    app.update(UserInput::MouseClick {
+        column: 1,
+        row: 2,
+        insert_path: false,
+    });
     assert_eq!(
         app.update(UserInput::MouseDoubleClick { column: 1, row: 2 }),
         vec![
@@ -1394,7 +1507,11 @@ fn double_clicking_a_reviewed_file_marks_it_unreviewed() {
         vec![FileSummary::new("reviewed.rs", ReviewStatus::Reviewed)],
     );
 
-    app.update(UserInput::MouseClick { column: 1, row: 2 });
+    app.update(UserInput::MouseClick {
+        column: 1,
+        row: 2,
+        insert_path: false,
+    });
     assert_eq!(
         app.update(UserInput::MouseDoubleClick { column: 1, row: 2 }),
         vec![
@@ -1431,7 +1548,11 @@ fn clicking_a_directory_collapses_its_descendants_across_refreshes() {
         files(),
     );
 
-    app.update(UserInput::MouseClick { column: 4, row: 2 });
+    app.update(UserInput::MouseClick {
+        column: 4,
+        row: 2,
+        insert_path: false,
+    });
     assert!(
         application_screen(&app, 80, 12)
             .join("\n")
@@ -1439,7 +1560,11 @@ fn clicking_a_directory_collapses_its_descendants_across_refreshes() {
     );
 
     assert_eq!(
-        app.update(UserInput::MouseClick { column: 1, row: 2 }),
+        app.update(UserInput::MouseClick {
+            column: 1,
+            row: 2,
+            insert_path: false,
+        }),
         [Action::OpenLspDocument("tests/test.rs".into())]
     );
     assert_eq!(
@@ -1466,7 +1591,11 @@ fn clicking_a_directory_collapses_its_descendants_across_refreshes() {
             .contains("▸ src/")
     );
 
-    app.update(UserInput::MouseClick { column: 1, row: 2 });
+    app.update(UserInput::MouseClick {
+        column: 1,
+        row: 2,
+        insert_path: false,
+    });
     let expanded = application_screen(&app, 80, 12).join("\n");
     assert!(expanded.contains("▾ src/"));
     assert!(expanded.contains("lib.rs"));
@@ -1492,7 +1621,11 @@ fn files_that_need_review_expand_their_parent_directories() {
         String::new(),
         files(ReviewStatus::Reviewed),
     );
-    app.update(UserInput::MouseClick { column: 1, row: 2 });
+    app.update(UserInput::MouseClick {
+        column: 1,
+        row: 2,
+        insert_path: false,
+    });
 
     publish_repository(
         &mut app,
@@ -1517,7 +1650,11 @@ fn files_that_need_review_expand_their_parent_directories() {
         String::new(),
         files(ReviewStatus::Reviewed),
     );
-    app.update(UserInput::MouseClick { column: 1, row: 2 });
+    app.update(UserInput::MouseClick {
+        column: 1,
+        row: 2,
+        insert_path: false,
+    });
     app.publish(ReviewStateSaved {
         review_unit: "qpvuntsm".into(),
         path: "src/deep/lib.rs".to_owned(),
@@ -1547,7 +1684,11 @@ fn dragging_the_separator_resizes_the_file_pane() {
     });
     let before = screen(&app, 80, 12)[1].find("Diff").unwrap();
 
-    app.update(UserInput::MouseClick { column: 34, row: 5 });
+    app.update(UserInput::MouseClick {
+        column: 34,
+        row: 5,
+        insert_path: false,
+    });
     app.update(UserInput::MouseDrag { column: 40, row: 5 });
     assert_eq!(
         app.update(UserInput::MouseRelease),
@@ -1557,7 +1698,11 @@ fn dragging_the_separator_resizes_the_file_pane() {
     let after = screen(&app, 80, 12)[1].find("Diff").unwrap();
     assert!(after > before);
 
-    app.update(UserInput::MouseClick { column: 40, row: 5 });
+    app.update(UserInput::MouseClick {
+        column: 40,
+        row: 5,
+        insert_path: false,
+    });
     app.update(UserInput::MouseDrag { column: 0, row: 5 });
     assert_eq!(
         app.update(UserInput::MouseRelease),
@@ -1565,7 +1710,11 @@ fn dragging_the_separator_resizes_the_file_pane() {
     );
     assert!(screen(&app, 80, 12)[1].contains("[F]iles | [T]hreads"));
 
-    app.update(UserInput::MouseClick { column: 35, row: 5 });
+    app.update(UserInput::MouseClick {
+        column: 35,
+        row: 5,
+        insert_path: false,
+    });
     app.update(UserInput::MouseDrag { column: 79, row: 5 });
     assert_eq!(
         app.update(UserInput::MouseRelease),
@@ -1598,10 +1747,18 @@ fn dragging_diff_lines_opens_an_inline_comment_on_release() {
         height: 12,
     });
 
-    app.update(UserInput::MouseClick { column: 70, row: 2 });
+    app.update(UserInput::MouseClick {
+        column: 70,
+        row: 2,
+        insert_path: false,
+    });
     assert!(app.update(UserInput::MouseRelease).is_empty());
 
-    app.update(UserInput::MouseClick { column: 70, row: 2 });
+    app.update(UserInput::MouseClick {
+        column: 70,
+        row: 2,
+        insert_path: false,
+    });
     assert_eq!(app.update(UserInput::MouseDrag { column: 70, row: 4 }), []);
     assert!(app.update(UserInput::MouseRelease).is_empty());
     assert!(
@@ -1734,7 +1891,11 @@ fn mouse_wheel_scrolls_the_diff_viewport_regardless_of_focus() {
     });
     assert!(!screen(&app, 80, 8).join("\n").contains("line-0"));
 
-    app.update(UserInput::MouseClick { column: 70, row: 2 });
+    app.update(UserInput::MouseClick {
+        column: 70,
+        row: 2,
+        insert_path: false,
+    });
     app.update(UserInput::MouseScroll {
         column: 70,
         row: 2,

@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+explore-component = { path = "../components/explore" }
 component-core = { path = "../component-core" }
 diff-component = { path = "../components/diff" }
 files-component = { path = "../components/files" }
@@ -35,6 +36,10 @@ unicode-segmentation.workspace = true
 unicode-width.workspace = true
 
 [dev-dependencies]
+review-test-support = { path = "../review-test-support" }
+
+review-explore = { path = "../review-explore" }
+
 review-threads = { path = "../review-threads" }
 tempfile.workspace = true
 

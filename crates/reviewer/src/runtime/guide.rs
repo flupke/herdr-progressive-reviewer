@@ -1,7 +1,7 @@
 use super::{
     Agent, AgentTarget, ApplicationMessageSender, ChangedFile, Digest, FrozenFile, FrozenHunk,
     GuideMailbox, GuideRepositorySnapshot, GuideResponseVersion, GuideResponseWaitOutcome,
-    GuideResponseWatchCancellation, GuideResult, GuideRunner, GuideScope, HerdrClient, RepoPath,
+    GuideResponseWatchCancellation, GuideResult, GuideScope, HerdrClient, PreparedGuide, RepoPath,
     Repository, ReviewCheckpoint, ReviewStatus, ReviewStore, ReviewTracker, ReviewUnit, Sender,
     Sha256, Snapshot, WorkerCommand, parse_file_diff, thread,
 };
@@ -38,6 +38,7 @@ impl Drop for ResponseWait {
 struct GenerationWait {
     review_unit: ReviewUnit,
     cancellation: GuideResponseWatchCancellation,
+    _prompt: review_thread_service::PromptCancellation,
 }
 
 struct PreparedGeneration {
@@ -62,35 +63,14 @@ pub(super) struct FinishedGuide {
 }
 
 pub(super) struct GuideOperationContext<'a> {
-    repository: &'a Repository,
-    tracker: &'a ReviewTracker,
-    guide_store: &'a ReviewStore,
-    client: &'a HerdrClient,
-    target: &'a mut AgentTarget,
-    snapshot: Option<&'a Snapshot>,
-    commands: &'a Sender<WorkerCommand>,
-}
-
-impl<'a> GuideOperationContext<'a> {
-    pub(super) fn new(
-        repository: &'a Repository,
-        tracker: &'a ReviewTracker,
-        guide_store: &'a ReviewStore,
-        client: &'a HerdrClient,
-        target: &'a mut AgentTarget,
-        snapshot: Option<&'a Snapshot>,
-        commands: &'a Sender<WorkerCommand>,
-    ) -> Self {
-        Self {
-            repository,
-            tracker,
-            guide_store,
-            client,
-            target,
-            snapshot,
-            commands,
-        }
-    }
+    pub(super) repository: &'a Repository,
+    pub(super) tracker: &'a ReviewTracker,
+    pub(super) guide_store: &'a ReviewStore,
+    pub(super) client: &'a HerdrClient,
+    pub(super) target: &'a mut AgentTarget,
+    pub(super) snapshot: Option<&'a Snapshot>,
+    pub(super) prompts: &'a review_thread_service::PromptSender,
+    pub(super) commands: &'a Sender<WorkerCommand>,
 }
 
 impl GuideRequestCoordinator {
@@ -103,6 +83,8 @@ impl GuideRequestCoordinator {
         let Some(snapshot) = context.snapshot else {
             return;
         };
+        // Cancel unsent work before preparing a replacement's shared inputs.
+        self.generation_wait = None;
         let review_checkpoint = ReviewCheckpoint::new(
             snapshot.identity.review_unit().clone(),
             snapshot.identity.snapshot_id(),
@@ -116,18 +98,19 @@ impl GuideRequestCoordinator {
             }
         };
         self.observed_response = None;
-        self.generation_wait = Some(GenerationWait {
-            review_unit: review_checkpoint.review_unit.clone(),
-            cancellation: generation.cancellation,
-        });
-        Self::start_guide_thread(
+        let prompt = Self::start_guide_thread(
             context,
             generation.agent,
             generation.prepared,
             generation.response_watch,
-            review_checkpoint,
+            review_checkpoint.clone(),
             generation.agent_name,
         );
+        self.generation_wait = Some(GenerationWait {
+            review_unit: review_checkpoint.review_unit,
+            cancellation: generation.cancellation,
+            _prompt: prompt,
+        });
     }
 
     fn prepare_generation(
@@ -148,7 +131,7 @@ impl GuideRequestCoordinator {
             .guide_store
             .guide_mailbox_directory(&review_checkpoint.review_unit)
             .map_err(|error| guide_request_error(&agent_name, &error))?;
-        let prepared = GuideRunner::<HerdrClient>::prepare(repository_snapshot, mailbox_directory)
+        let prepared = PreparedGuide::prepare(repository_snapshot, mailbox_directory)
             .map_err(|error| guide_request_error(&agent_name, &error))?;
         let (response_watch, cancellation) = prepared
             .watch_response()
@@ -169,20 +152,34 @@ impl GuideRequestCoordinator {
         response_watch: review_guide_runner::GuideResponseWatch,
         review_checkpoint: ReviewCheckpoint,
         agent_name: String,
-    ) {
+    ) -> review_thread_service::PromptCancellation {
         let commands = context.commands.clone();
-        let client = context.client.clone();
+        let (receipt, cancellation) = context.prompts.send(
+            review_thread_service::PinnedAgent::new(agent),
+            prepared.prompt(),
+        );
         thread::spawn(move || {
-            let runner = GuideRunner::new(&client);
-            let result = runner
-                .submit_prepared(&agent, &prepared)
-                .and_then(|()| runner.finish_prepared_with_watch(&prepared, response_watch));
+            let result = receipt
+                .wait()
+                .map_err(|error| match error {
+                    review_thread_service::PromptError::Cancelled => {
+                        review_guide_runner::Error::ResponseWaitCancelled
+                    }
+                    review_thread_service::PromptError::Delivery(message) => {
+                        review_guide_runner::Error::Operation {
+                            operation: "submit review guide prompt",
+                            message,
+                        }
+                    }
+                })
+                .and_then(|()| prepared.finish_with_watch(response_watch));
             let _ = commands.send(WorkerCommand::GuideFinished(Box::new(FinishedGuide {
                 review_checkpoint,
                 agent_name,
                 result,
             })));
         });
+        cancellation
     }
 
     pub(super) fn import_completed_guide(

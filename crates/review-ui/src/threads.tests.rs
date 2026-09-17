@@ -240,12 +240,18 @@ fn replies_preserve_each_composer_and_post_to_its_original_thread() {
     ui.paste("First unposted reply");
     ui.key(Key::Control('t'));
     ui.key(Key::Control('t'));
+    ui.key(Key::Control('t'));
+    ui.app
+        .publish(ui_events::ReviewPaneFocusRequested(ReviewPane::Navigation));
     ui.key(Key::Down);
     ui.key(Key::Enter);
     ui.key(Key::Char('A'));
     ui.paste("Second unposted reply");
     ui.key(Key::Control('t'));
     ui.key(Key::Control('t'));
+    ui.key(Key::Control('t'));
+    ui.app
+        .publish(ui_events::ReviewPaneFocusRequested(ReviewPane::Navigation));
     ui.key(Key::Up);
     ui.key(Key::Enter);
     assert!(ui.text().contains("First unposted reply"), "{}", ui.text());
@@ -761,7 +767,7 @@ fn filename_opens_files_and_preserves_the_conversation_draft() {
         assert!(ui.text().contains("Diff · gone.rs"), "{}", ui.text());
         assert_eq!(ui.book.thread(&ui.ids[1]).unwrap().messages.len(), 1);
         ui.key(Key::Char('t'));
-        ui.key(Key::Tab);
+        assert_eq!(ui.app.focus, ReviewPane::Detail);
         ui.key(Key::ControlEnter);
         assert_eq!(
             ui.book
@@ -1379,6 +1385,9 @@ fn empty_filters_clear_conversation_actions_and_park_the_reply() {
         // The tab shortcut reaches navigation even in a narrow composing pane.
         ui.key(Key::Control('t'));
         ui.key(Key::Control('t'));
+        ui.key(Key::Control('t'));
+        ui.app
+            .publish(ui_events::ReviewPaneFocusRequested(ReviewPane::Navigation));
         if search {
             ui.key(Key::Char('/'));
             ui.paste("no-match");

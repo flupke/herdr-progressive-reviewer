@@ -6,6 +6,8 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+uuid.workspace = true
+review-explore = { path = "../../review-explore" }
 comment-editor = { path = "../../comment-editor" }
 review-threads = { path = "../../review-threads" }
 review-types = { path = "../../review-types" }

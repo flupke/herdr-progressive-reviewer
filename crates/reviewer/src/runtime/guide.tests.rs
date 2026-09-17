@@ -21,6 +21,7 @@ struct GuideCoordinatorFixture {
     snapshot: Snapshot,
     commands: Sender<WorkerCommand>,
     command_receiver: Receiver<WorkerCommand>,
+    prompts: review_thread_service::PromptSender,
 }
 
 impl GuideCoordinatorFixture {
@@ -50,7 +51,9 @@ impl GuideCoordinatorFixture {
             Some(PaneId("workspace:pane".to_owned())),
         );
         let (commands, command_receiver) = mpsc::channel();
+        let prompts = crate::runtime::comment_service::test_worker(&guide_store).prompt_sender();
         Self {
+            prompts,
             repository_files,
             _state_directory: state_directory,
             repository,
@@ -65,15 +68,16 @@ impl GuideCoordinatorFixture {
     }
 
     fn context(&mut self) -> GuideOperationContext<'_> {
-        GuideOperationContext::new(
-            &self.repository,
-            &self.tracker,
-            &self.guide_store,
-            &self.client,
-            &mut self.target,
-            Some(&self.snapshot),
-            &self.commands,
-        )
+        GuideOperationContext {
+            repository: &self.repository,
+            tracker: &self.tracker,
+            guide_store: &self.guide_store,
+            client: &self.client,
+            target: &mut self.target,
+            snapshot: Some(&self.snapshot),
+            commands: &self.commands,
+            prompts: &self.prompts,
+        }
     }
 
     fn checkpoint(&self) -> ReviewCheckpoint {
@@ -251,7 +255,7 @@ fn completed_mailbox_response_is_imported_once() {
         .guide_store
         .guide_mailbox_directory(&checkpoint.review_unit)
         .unwrap();
-    GuideRunner::<HerdrClient>::prepare(repository_snapshot, mailbox.clone()).unwrap();
+    PreparedGuide::prepare(repository_snapshot, mailbox.clone()).unwrap();
     write_mailbox_response(&mailbox, "Explanation");
     let (messages, received) = super::super::application_message_channel();
     let mut coordinator = GuideRequestCoordinator::default();
@@ -293,7 +297,7 @@ fn explanation_order_survives_checkpoint_refresh_and_mailbox_reimport(repository
         .guide_store
         .guide_mailbox_directory(&checkpoint.review_unit)
         .unwrap();
-    GuideRunner::<HerdrClient>::prepare(repository_snapshot, mailbox.clone()).unwrap();
+    PreparedGuide::prepare(repository_snapshot, mailbox.clone()).unwrap();
     let items = vec![
         guide_item("changed.rs", "Entry point"),
         guide_item("added.rs", "Dependency"),
@@ -374,9 +378,8 @@ fn identical_responses_from_different_review_units_are_each_imported() {
         &current_checkpoint,
     )
     .unwrap();
-    GuideRunner::<HerdrClient>::prepare(current_repository_snapshot, current_mailbox.clone())
-        .unwrap();
-    GuideRunner::<HerdrClient>::prepare(repository_snapshot, other_mailbox.clone()).unwrap();
+    PreparedGuide::prepare(current_repository_snapshot, current_mailbox.clone()).unwrap();
+    PreparedGuide::prepare(repository_snapshot, other_mailbox.clone()).unwrap();
     write_mailbox_response(&current_mailbox, "Same explanation");
     write_mailbox_response(&other_mailbox, "Same explanation");
     let (messages, _received) = super::super::application_message_channel();
@@ -423,7 +426,7 @@ fn response_that_lands_after_the_reviewer_opens_is_imported() {
         .guide_store
         .guide_mailbox_directory(&checkpoint.review_unit)
         .unwrap();
-    GuideRunner::<HerdrClient>::prepare(repository_snapshot, mailbox.clone()).unwrap();
+    PreparedGuide::prepare(repository_snapshot, mailbox.clone()).unwrap();
     let (messages, _received) = super::super::application_message_channel();
     let mut coordinator = GuideRequestCoordinator::default();
 
@@ -469,7 +472,7 @@ fn stale_completion_imports_the_last_response_that_landed() {
         .guide_store
         .guide_mailbox_directory(&checkpoint.review_unit)
         .unwrap();
-    GuideRunner::<HerdrClient>::prepare(repository_snapshot, mailbox_directory.clone()).unwrap();
+    PreparedGuide::prepare(repository_snapshot, mailbox_directory.clone()).unwrap();
     write_mailbox_response(&mailbox_directory, "Older response");
     let older_result = GuideMailbox::open(mailbox_directory.clone())
         .unwrap()

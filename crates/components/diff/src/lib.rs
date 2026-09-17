@@ -29,16 +29,21 @@ use ui_shortcuts::{
     ShortcutCommand, ShortcutMatcher, ShortcutSet, SourceShortcut,
 };
 
+mod clipped_viewport;
 mod comment_layout;
 mod comments;
 mod context;
 mod conversation;
 mod document;
+mod embedded;
+mod evidence_source;
+mod explore;
 mod history;
 mod presentation;
 mod render;
 mod reply_visibility;
 
+pub use clipped_viewport::ClippedViewport;
 use document::LoadedDocument;
 use history::{LocationHistory, LocationHistoryDirection};
 use presentation::{DiffPresentation, PresentedRow, SearchDirection, SearchMatch};
@@ -73,6 +78,8 @@ enum ScrollPlacement {
 
 /// Loaded diff documents and their guide-facing viewport projection.
 pub struct DiffComponent {
+    embedded: embedded::EmbeddedViews,
+    explore: explore::ExploreView,
     events: EventPublisher,
     reply_visibility: RefCell<reply_visibility::ReplyVisibility>,
     source_session: Option<String>,
@@ -193,8 +200,10 @@ impl DiffComponent {
         palette: Palette,
     ) -> Self {
         Self {
+            embedded: embedded::EmbeddedViews::default(),
             events,
             source_session: None,
+            explore: explore::ExploreView::default(),
             comments: comments::Comments::default(),
             conversation: conversation::ConversationView::default(),
             reviewable_files,
@@ -496,7 +505,7 @@ impl DiffComponent {
     }
 
     fn finish_pointer_selection(&mut self) {
-        if self.source_session.is_none() && self.selection.is_some() {
+        if (self.source_session.is_none() || self.explore.active) && self.selection.is_some() {
             self.add_comment();
         }
     }
@@ -627,7 +636,10 @@ impl DiffComponent {
         if self.conversation.is_peeking() {
             return self.source_view_mut().run_shortcut(command);
         }
-        if self.source_session.is_some() && matches!(command, ShortcutCommand::Comment(_)) {
+        if self.source_session.is_some()
+            && !self.explore.active
+            && matches!(command, ShortcutCommand::Comment(_))
+        {
             return Vec::new();
         }
         if self.conversation.active {
@@ -1067,12 +1079,19 @@ impl DiffComponent {
     }
 
     fn search_completed(&mut self, results: &text_search::Results) -> Vec<Action> {
+        for viewer in self.retained_viewers_mut() {
+            viewer.retain_search_results(results);
+        }
         if let Some(peek) = &mut self.conversation.peek {
             let actions = peek.viewer.search_completed(results);
             if !actions.is_empty() {
                 return actions;
             }
         }
+        self.finish_search(results, true)
+    }
+
+    fn finish_search(&mut self, results: &text_search::Results, focused: bool) -> Vec<Action> {
         let Some(request) = self
             .search
             .as_ref()
@@ -1087,6 +1106,12 @@ impl DiffComponent {
             .map(|document| document.document.diff.search_document())
             .collect::<Vec<_>>();
         if !request.same_documents(&documents) {
+            if !focused {
+                let search = self.search.as_mut().expect("matching pending search");
+                search.pending = None;
+                search.matched = None;
+                return Vec::new();
+            }
             let navigate = self
                 .search
                 .as_ref()
@@ -1100,11 +1125,13 @@ impl DiffComponent {
         let search = self.search.as_mut().expect("matching pending search");
         search.matched = search.pending.take();
         search.replace_matches(results.matches.clone(), &self.documents);
-        if search.navigate_on_results {
+        if focused && search.navigate_on_results {
             self.find_from_origin();
         }
-        self.publish_decorations();
-        self.publish_search_status();
+        if focused {
+            self.publish_decorations();
+            self.publish_search_status();
+        }
         Vec::new()
     }
 
@@ -1179,6 +1206,9 @@ impl DiffComponent {
     }
 
     fn lsp(&self, command: LspShortcut) -> Vec<Action> {
+        if self.explore.active && !self.explore_lsp_ready() {
+            return Vec::new();
+        }
         let operation = match command {
             LspShortcut::ShowDocumentation => review_lsp::Operation::Hover,
             LspShortcut::GoToDefinition => review_lsp::Operation::Definition,
@@ -1234,16 +1264,23 @@ impl DiffComponent {
             self.displayed_document(),
             guide_layout,
             focused,
-            self.selected_path
-                .as_deref()
-                .is_some_and(|path| self.reviewable_files.contains(path)),
+            self.explore.active
+                || self
+                    .selected_path
+                    .as_deref()
+                    .is_some_and(|path| self.reviewable_files.contains(path)),
             self.search_query(),
             self.selection.map(SelectionState::range),
         )
         .with_comments(&self.comments)
+        .with_evidence(&self.explore)
     }
 
     fn repository_changed(&mut self, event: &RepositoryFilesChanged) -> Vec<Action> {
+        if self.explore.active {
+            self.explore.latest = Some(event.clone());
+            return Vec::new();
+        }
         self.comments.paths = FileSummary::thread_paths(&event.files);
         self.conversation.refresh_files();
         self.preview = None;
@@ -1342,6 +1379,9 @@ impl DiffComponent {
     }
 
     fn file_selected(&mut self, event: &FileSelected) -> Vec<Action> {
+        if self.explore.active {
+            return Vec::new();
+        }
         let newly_selected = self.selected_path.as_deref() != Some(&event.path);
         if self
             .pending_guide_jump
@@ -1416,6 +1456,9 @@ impl DiffComponent {
     }
 
     fn content_loaded(&mut self, event: &DiffContentLoaded) -> Vec<Action> {
+        if self.explore.active {
+            return Vec::new();
+        }
         let syntax_highlighter = self.highlighter.clone();
         let Some(document) = self.current_document_mut(&event.review_checkpoint, &event.path)
         else {
@@ -1477,6 +1520,9 @@ impl DiffComponent {
     }
 
     fn highlighting_finished(&mut self, event: &HighlightingFinished) {
+        for viewer in self.retained_viewers_mut() {
+            viewer.highlighting_finished(event);
+        }
         if let Some(peek) = &mut self.conversation.peek {
             peek.viewer.highlighting_finished(event);
         }
@@ -1613,6 +1659,9 @@ impl DiffComponent {
     fn preview_source_location(&mut self, event: &SourceLocationPreviewRequested) -> Vec<Action> {
         self.preview = None;
         self.pending_preview_location = Some(event.location.clone());
+        if self.explore.active {
+            return self.explore_source(event.location.clone(), ui_events::SourceLoadMode::Preview);
+        }
         let Some(review_checkpoint) = self.review_checkpoint.clone() else {
             return Vec::new();
         };
@@ -1669,6 +1718,9 @@ impl DiffComponent {
         location: review_lsp::SourceLocation,
         mode: ui_actions::SourceLoadMode,
     ) -> Vec<Action> {
+        if self.explore.active {
+            return self.explore_source(location, mode);
+        }
         if self.review_checkpoint.is_none() {
             return Vec::new();
         }
@@ -1733,6 +1785,8 @@ impl DiffComponent {
             presentation,
             event.mode,
         );
+        self.explore
+            .identify_source(&mut document, &event.location.path, &self.repository_root);
         let request = HighlightRequest::Source(Arc::new(event.clone()));
         document.document.prepare_highlighting(request);
         let _ = document.document.reveal_location(&event.location);
@@ -2106,7 +2160,11 @@ impl Component<Action> for DiffComponent {
     fn register_subscriptions(subscriptions: &mut ComponentSubscriptions<'_, Self, Action>) {
         subscriptions.subscribe(Self::replies_displayed);
         subscriptions.subscribe(Self::conversation_selected);
-        subscriptions.subscribe(Self::conversation_navigation);
+        subscriptions.subscribe(Self::explore_navigation);
+        subscriptions.subscribe(Self::explore_comparison_accepted);
+        subscriptions.subscribe(Self::explore_evidence);
+        subscriptions.subscribe(Self::embedded_viewports);
+        subscriptions.subscribe(Self::embedded_pointer);
         subscriptions.subscribe(Self::threads_loaded);
         subscriptions.subscribe(Self::comment_paste);
         subscriptions.subscribe_input(
