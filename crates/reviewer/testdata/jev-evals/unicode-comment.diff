@@ -1,0 +1,16 @@
+diff --git a/crates/review-explore/src/source.rs b/crates/review-explore/src/source.rs
+--- a/crates/review-explore/src/source.rs
++++ b/crates/review-explore/src/source.rs
+@@ -1,10 +1,11 @@
+ pub struct CodeLocation {
+     /// Repository-relative UTF-8 path or lossless raw path bytes.
+     #[serde(with = "crate::path_serde")]
+     #[schemars(with = "crate::path_serde::PathInput")]
+     pub path: RepoPath,
+     pub side: SourceSide,
+-    /// One-based inclusive lines. None identifies the whole file.
++    /// Lines start at 1; both endpoints are included. None selects the whole file.
++    /// Example: résumé.rs: café → 茶 is displayed without changing the path bytes.
+     pub lines: Option<GuideLineRange>,
+ }
+ 

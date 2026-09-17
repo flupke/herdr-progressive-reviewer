@@ -1,0 +1,62 @@
+diff --git a/crates/review-explore/src/consequence.rs b/crates/review-explore/src/consequence.rs
+--- a/crates/review-explore/src/consequence.rs
++++ b/crates/review-explore/src/consequence.rs
+@@ -1,57 +1,58 @@
+ use serde::Deserialize;
+ 
+ #[derive(Deserialize)]
+ struct SavedExplanation {
+     summary: String,
++    #[serde(default)]
+     details: String,
+ }
+ 
+ impl SavedExplanation {
+     fn heading_0(&self) -> &str {
+         self.summary.as_str()
+     }
+ 
+     fn heading_1(&self) -> &str {
+         self.summary.as_str()
+     }
+ 
+     fn heading_2(&self) -> &str {
+         self.summary.as_str()
+     }
+ 
+     fn heading_3(&self) -> &str {
+         self.summary.as_str()
+     }
+ 
+     fn heading_4(&self) -> &str {
+         self.summary.as_str()
+     }
+ 
+     fn heading_5(&self) -> &str {
+         self.summary.as_str()
+     }
+ 
+     fn heading_6(&self) -> &str {
+         self.summary.as_str()
+     }
+ 
+     fn heading_7(&self) -> &str {
+         self.summary.as_str()
+     }
+ 
+     fn heading_8(&self) -> &str {
+         self.summary.as_str()
+     }
+ 
+     fn heading_9(&self) -> &str {
+         self.summary.as_str()
+     }
+ 
+     fn render(&self) -> String {
+         if self.details.is_empty() {
+             self.summary.clone()
+         } else {
+             format!("{}\n\n{}", self.summary, self.details)
+         }
+     }
+ }

@@ -3,6 +3,10 @@
 - Keep crates small, don't hesitate to create tiny ones or split a big one.
 - Reuse existing types between workspace crates. Do not create a local copy of
   a type only to adapt it for another crate.
+- Reuse shared UI components for rendering, editing, focus and keyboard behavior.
+  Do not duplicate their internals or intercept component-owned keys in
+  feature-specific wrappers. Extend the shared component when behavior is missing,
+  then reuse it across the affected views.
 - Avoid "functions soup", design types first, then implement their methods.
 - Use `#[must_use]` only when ignoring a return value is likely to cause a bug.
   Do not add it to routine getters or to functions that return types that
@@ -27,6 +31,14 @@ For each small feature:
 5. Run `make install`.
 6. Keep later user-feedback fixes in the same change. Create another change
    only when the user requests the next feature.
+
+Run `make check` and `make install` through `nix develop --command` so the
+pinned Rust toolchain, `cccc`, and `cargo-nextest` are available. Keep the
+`make check` warning gate enabled; fix warnings in the current change instead
+of overriding `-Dwarnings`. With the current `eyre` version, use
+`Err(eyre::eyre!(...))` in expression-position match arms, or put
+`eyre::bail!(...);` in a statement block, to avoid the trailing-semicolon
+macro warning.
 
 # Sandbox E2E Tests
 

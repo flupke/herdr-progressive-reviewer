@@ -61,6 +61,47 @@ fn structured_prompts_reject_a_replaced_conversation() {
 }
 
 #[test]
+fn selected_prompt_uses_the_current_pane_when_native_identity_changes_before_delivery() {
+    let fixture = ConversationFixture::start("codex");
+    let selected = PinnedAgent::for_selected_prompt(
+        fixture
+            .target
+            .clone()
+            .resolve(&fixture.server.client())
+            .unwrap()
+            .unwrap(),
+    );
+    fixture.replace_session("");
+    let (receipt, _cancellation) = fixture.queue_prompt(selected.clone(), "Selected turn");
+    receipt.wait().unwrap();
+    fixture.wait_for_prompt_text("Selected turn");
+    assert!(
+        selected
+            .current(&fixture.server.client())
+            .unwrap()
+            .is_some()
+    );
+}
+
+#[test]
+fn selected_prompt_freezes_the_native_identity_used_at_delivery() {
+    let fixture = ConversationFixture::start("codex");
+    let selected = PinnedAgent::for_selected_prompt(
+        fixture
+            .target
+            .clone()
+            .resolve(&fixture.server.client())
+            .unwrap()
+            .unwrap(),
+    );
+    fixture.replace_session("chosen-conversation");
+    let (receipt, _cancellation) = fixture.queue_prompt(selected.clone(), "Chosen turn");
+    receipt.wait().unwrap();
+    fixture.replace_session("another-conversation");
+    assert!(selected.current(&fixture.server.client()).is_err());
+}
+
+#[test]
 fn cancelling_or_closing_delivery_waiting_for_session_identity_sends_nothing() {
     let mut fixture = ConversationFixture::start("codex");
     let original = fixture.pinned_agent();

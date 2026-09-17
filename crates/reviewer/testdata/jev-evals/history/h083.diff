@@ -1,0 +1,63 @@
+diff --git a/crates/components/files/src/lib.rs b/crates/components/files/src/lib.rs
+index 01175f64..8edb9e6b 100644
+--- a/crates/components/files/src/lib.rs
++++ b/crates/components/files/src/lib.rs
+@@ -363,35 +363,30 @@ fn shortcut(&mut self, shortcut: ShortcutCommand) -> Vec<Action> {
+             ShortcutCommand::Application(ApplicationShortcut::MarkReviewed) => {
+                 self.toggle_review().into_iter().collect()
+             }
+             ShortcutCommand::Application(ApplicationShortcut::Insert) => self
+                 .selected_path()
+                 .map(|text| Action::Output { text })
+                 .into_iter()
+                 .collect(),
++            ShortcutCommand::File(shortcut) => {
++                self.move_to_unreviewed_file(shortcut);
++                Vec::new()
++            }
+             ShortcutCommand::Navigation(navigation) => {
+                 self.move_selection(navigation);
+                 Vec::new()
+             }
+             _ => Vec::new(),
+         };
+         self.publish_selection_if_changed(previous_selected_path.as_deref());
+         actions
+     }
+ 
+-    fn global_shortcut(&mut self, shortcut: ShortcutCommand) {
+-        let ShortcutCommand::File(shortcut) = shortcut else {
+-            return;
+-        };
+-        let previous_selected_path = self.selected_path();
+-        self.move_to_unreviewed_file(shortcut);
+-        self.publish_selection_if_changed(previous_selected_path.as_deref());
+-    }
+-
+     fn move_to_unreviewed_file(&mut self, shortcut: FileShortcut) {
+         if self.files.is_empty() {
+             return;
+         }
+         let is_unreviewed = |index: &usize| {
+             let file = &self.files[*index];
+             !file.temporary && file.review_state.status.needs_review()
+         };
+@@ -712,17 +707,17 @@ fn register_subscriptions(subscriptions: &mut ComponentSubscriptions<'_, Self, A
+         subscriptions.subscribe_input(
+             InputScope::Focused,
+             ShortcutMatcher::new(ShortcutSet::Files),
+             Self::shortcut,
+         );
+         subscriptions.subscribe_input(
+             InputScope::Global,
+             ShortcutMatcher::new(ShortcutSet::FilesGlobal),
+-            Self::global_shortcut,
++            Self::shortcut,
+         );
+         subscriptions.subscribe_input(InputScope::Hovered, AnyInput, Self::pointer_input);
+     }
+ }
+ 
+ struct FileStatistics {
+     added: Option<String>,
+     removed: Option<String>,

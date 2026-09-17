@@ -1,0 +1,17 @@
+diff --git a/crates/review-store/Cargo.toml b/crates/review-store/Cargo.toml
+index 94385136..cf212292 100644
+--- a/crates/review-store/Cargo.toml
++++ b/crates/review-store/Cargo.toml
+@@ -19,11 +19,12 @@ serde_json.workspace = true
+ sha2.workspace = true
+ thiserror.workspace = true
+ time.workspace = true
+ zstd.workspace = true
+ 
+ [dev-dependencies]
+ herdr-client = { path = "../herdr-client" }
+ tempfile.workspace = true
++review-repository = { path = "../review-repository" }
+ 
+ [lints]
+ workspace = true

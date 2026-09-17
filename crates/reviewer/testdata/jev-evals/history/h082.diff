@@ -1,0 +1,75 @@
+diff --git a/crates/ui-shortcuts/src/lib.rs b/crates/ui-shortcuts/src/lib.rs
+index 414edd77..92fc7167 100644
+--- a/crates/ui-shortcuts/src/lib.rs
++++ b/crates/ui-shortcuts/src/lib.rs
+@@ -346,23 +346,26 @@ const fn includes(self, command: ShortcutCommand) -> bool {
+             ),
+             Self::Diff => {
+                 !is_component_global_shortcut(command)
+                     && !matches!(
+                         command,
+                         ShortcutCommand::Application(
+                             ApplicationShortcut::ChangeFocus
+                                 | ApplicationShortcut::Clear
+-                                | ApplicationShortcut::MarkReviewed
+                                 | ApplicationShortcut::Quit
+                         )
+                     )
+             }
+             Self::Files => is_files_shortcut(command),
+-            Self::FilesGlobal => matches!(command, ShortcutCommand::File(_)),
++            Self::FilesGlobal => matches!(
++                command,
++                ShortcutCommand::File(_)
++                    | ShortcutCommand::Application(ApplicationShortcut::MarkReviewed)
++            ),
+             Self::Guide => matches!(command, ShortcutCommand::Guide(_)),
+             Self::Hunk => matches!(command, ShortcutCommand::Hunk(_)),
+             Self::Overlay => matches!(
+                 command,
+                 ShortcutCommand::Application(
+                     ApplicationShortcut::ShowCommitMessage | ApplicationShortcut::OpenHelp
+                 )
+             ),
+@@ -644,19 +647,17 @@ const fn is_files_shortcut(command: ShortcutCommand) -> bool {
+         command,
+         ShortcutCommand::Navigation(
+             NavigationShortcut::MoveDown
+                 | NavigationShortcut::MoveUp
+                 | NavigationShortcut::GoToFirst
+                 | NavigationShortcut::GoToLast
+                 | NavigationShortcut::MoveHalfPageDown
+                 | NavigationShortcut::MoveHalfPageUp
+-        ) | ShortcutCommand::Application(
+-            ApplicationShortcut::MarkReviewed | ApplicationShortcut::Insert
+-        )
++        ) | ShortcutCommand::Application(ApplicationShortcut::Insert)
+     )
+ }
+ 
+ const fn is_revision_shortcut(command: ShortcutCommand) -> bool {
+     matches!(
+         command,
+         ShortcutCommand::Navigation(
+             NavigationShortcut::GoToParentRevision
+@@ -673,17 +674,19 @@ const fn is_component_global_shortcut(command: ShortcutCommand) -> bool {
+             | ShortcutCommand::File(_)
+             | ShortcutCommand::Hunk(_)
+             | ShortcutCommand::Navigation(
+                 NavigationShortcut::GoToParentRevision
+                     | NavigationShortcut::GoToChildRevision
+                     | NavigationShortcut::OpenRevisionSelector
+             )
+             | ShortcutCommand::Application(
+-                ApplicationShortcut::ShowCommitMessage | ApplicationShortcut::OpenHelp
++                ApplicationShortcut::ShowCommitMessage
++                    | ApplicationShortcut::OpenHelp
++                    | ApplicationShortcut::MarkReviewed
+             )
+     )
+ }
+ 
+ /// Return the visible shortcut help lines.
+ pub fn help_lines() -> impl Iterator<Item = (String, &'static str)> {
+     SHORTCUTS.iter().filter_map(ShortcutDefinition::help_line)
+ }

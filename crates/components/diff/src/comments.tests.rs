@@ -633,6 +633,15 @@ fn recovered_editors_restore_without_posting_and_cancel_discards_the_saved_draft
         }
         assert_eq!(fixture.book.drafts().len(), 1);
         let saved = fixture.book.clone();
+        fixture.click_text("Cancel");
+        fixture
+            .registry
+            .publish(ui_events::ReviewThreadsLoaded {
+                review_unit: saved.review_unit.clone(),
+                result: Ok(saved.clone()),
+            })
+            .unwrap();
+        fixture.assert_editor(false);
         drop(fixture);
         let mut restarted = CommentFixture::with_book(saved.clone());
         if reply {
@@ -655,8 +664,46 @@ fn recovered_editors_restore_without_posting_and_cancel_discards_the_saved_draft
             restarted.text()
         );
         assert_eq!(restarted.book.threads().len(), usize::from(reply));
+        for character in " edited".chars() {
+            restarted.key(Key::Char(character));
+        }
+        let edited = restarted
+            .component()
+            .comments
+            .editing
+            .as_ref()
+            .unwrap()
+            .editor
+            .text();
+        assert!(edited.contains("edited"));
+        restarted
+            .registry
+            .publish(ui_events::ReviewThreadsLoaded {
+                review_unit: saved.review_unit.clone(),
+                result: Ok(saved.clone()),
+            })
+            .unwrap();
+        assert_eq!(
+            restarted
+                .component()
+                .comments
+                .editing
+                .as_ref()
+                .unwrap()
+                .editor
+                .text(),
+            edited
+        );
         restarted.click_text("Cancel");
         assert!(restarted.book.drafts().is_empty());
+        restarted
+            .registry
+            .publish(ui_events::ReviewThreadsLoaded {
+                review_unit: saved.review_unit.clone(),
+                result: Ok(saved),
+            })
+            .unwrap();
+        restarted.assert_editor(false);
         let mut cancelled = CommentFixture::with_book(restarted.book.clone());
         cancelled.key(Key::Last);
         cancelled.key(Key::Char('a'));

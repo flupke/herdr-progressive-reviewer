@@ -1,0 +1,71 @@
+diff --git a/crates/components/diff/src/render.rs b/crates/components/diff/src/render.rs
+index d148c2fc..14ba3019 100644
+--- a/crates/components/diff/src/render.rs
++++ b/crates/components/diff/src/render.rs
+@@ -425,17 +425,18 @@ pub(super) fn viewport(
+                     ),
+                 };
+                 if selection
+                     .as_ref()
+                     .is_some_and(|selection| selection.contains(&index))
+                 {
+                     style = style.bg(self.palette.selection);
+                 }
+-                if focused && index == file.document.cursor {
++                let is_current_row = index == file.document.cursor;
++                if is_current_row {
+                     style = style.bg(self.palette.cursor);
+                 }
+                 let styled_line = line.style(style);
+                 let enclosing_status =
+                     guide_layout.and_then(|layout| layout.enclosing_status(index));
+                 let enclosing_layout = guide_layout;
+                 let enclosed = enclosing_status.is_some();
+                 wrapped.extend(
+@@ -445,16 +446,19 @@ pub(super) fn viewport(
+                             width.saturating_sub(1)
+                         } else {
+                             width
+                         },
+                         line_number_width + 3,
+                     )
+                     .into_iter()
+                     .map(move |(mut line, source_display_offset)| {
++                        if is_current_row {
++                            fill_line_background(&mut line, width, self.palette.cursor);
++                        }
+                         let guide_border_cells = enclosing_status.map_or_else(Vec::new, |status| {
+                             enclosing_layout.map_or_else(Vec::new, |layout| {
+                                 layout.enclose_line(&mut line, width, line_number_width, status)
+                             })
+                         });
+                         WrappedDiffRow {
+                             line,
+                             guide_line: None,
+@@ -611,16 +615,26 @@ fn row_style(&self, row: &DiffRow, show_markers: bool) -> Style {
+             DiffRow::Meta { .. } | DiffRow::FileHeader { .. } | DiffRow::Hunk { .. } => {
+                 Style::default().fg(self.palette.dim)
+             }
+             DiffRow::Context { .. } => Style::default().fg(self.palette.text),
+         }
+     }
+ }
+ 
++fn fill_line_background(line: &mut Line<'static>, width: u16, background: Color) {
++    let remaining_width = usize::from(width).saturating_sub(line.width());
++    if remaining_width > 0 {
++        line.spans.push(Span::styled(
++            " ".repeat(remaining_width),
++            Style::default().bg(background),
++        ));
++    }
++}
++
+ fn source_display_width(line: &str, byte_column: usize) -> usize {
+     use unicode_segmentation::UnicodeSegmentation;
+ 
+     line.grapheme_indices(true)
+         .take_while(|(byte, grapheme)| byte.saturating_add(grapheme.len()) <= byte_column)
+         .map(|(_, grapheme)| {
+             if grapheme == "\t" {
+                 TAB_DISPLAY_WIDTH

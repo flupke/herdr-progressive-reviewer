@@ -1,0 +1,40 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 85d54a38..ab1fbf30 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -2933,16 +2933,17 @@ dependencies = [
+  "review-state",
+  "review-store",
+  "review-test-support",
+  "review-types",
+  "review-ui",
+  "serde_json",
+  "sha2 0.10.9",
+  "signal-hook",
++ "syntax-highlighting",
+  "tempfile",
+  "test-case",
+  "text-search",
+  "ui-events",
+ ]
+ 
+ [[package]]
+ name = "revision-component"
+@@ -3628,16 +3629,17 @@ dependencies = [
+ name = "ui-events"
+ version = "0.2.0"
+ dependencies = [
+  "review-guide",
+  "review-lsp",
+  "review-repository",
+  "review-state",
+  "review-types",
++ "syntax-highlighting",
+  "toasts",
+  "ui-shortcuts",
+ ]
+ 
+ [[package]]
+ name = "ui-shortcuts"
+ version = "0.2.0"
+ dependencies = [

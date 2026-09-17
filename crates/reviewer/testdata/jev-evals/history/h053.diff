@@ -1,0 +1,116 @@
+diff --git a/crates/components/diff/src/document.rs b/crates/components/diff/src/document.rs
+index 7a23e3e0..be49f401 100644
+--- a/crates/components/diff/src/document.rs
++++ b/crates/components/diff/src/document.rs
+@@ -12,19 +12,26 @@
+ /// Loaded diff content and its navigation state for one file.
+ #[derive(Clone, Debug, Eq, PartialEq)]
+ pub(super) struct DiffDocument {
+     pub(super) diff: DiffPresentation,
+     pub(super) cursor: usize,
+     pub(super) scroll: usize,
+     pub(super) column: usize,
+     pub(super) source_location: Option<SourceLocation>,
++    highlighting: Option<PendingHighlight>,
+     load_state: DiffLoadState,
+ }
+ 
++#[derive(Clone, Debug, Eq, PartialEq)]
++struct PendingHighlight {
++    request: ui_events::HighlightRequest,
++    submitted: bool,
++}
++
+ #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+ enum DiffLoadState {
+     Idle,
+     ReloadRequired,
+     Loading,
+     ReloadLoading,
+     LoadingThenReload,
+ }
+@@ -78,37 +85,40 @@ fn is_loading(self) -> bool {
+ impl DiffDocument {
+     fn new() -> Self {
+         Self {
+             diff: DiffPresentation::default(),
+             cursor: 0,
+             scroll: 0,
+             column: 0,
+             source_location: None,
++            highlighting: None,
+             load_state: DiffLoadState::Idle,
+         }
+     }
+ 
+     fn preserve_navigation_from(&mut self, previous: &Self) {
+         self.cursor = previous.cursor;
+         self.scroll = previous.scroll;
+         self.column = previous.column;
+     }
+ 
+     fn preserve_loaded_content_from(&mut self, previous: &Self, content_is_current: bool) {
++        self.highlighting.clone_from(&previous.highlighting);
+         self.source_location.clone_from(&previous.source_location);
+         self.diff.clone_from(&previous.diff);
+         self.load_state = if content_is_current {
+             previous.load_state
+         } else {
+             DiffLoadState::ReloadRequired
+         };
+     }
+ 
+     fn replace_diff(&mut self, diff: DiffPresentation) -> bool {
++        self.highlighting = None;
+         let cursor_location = self.diff.presentation_location(self.cursor);
+         let scroll_location = self.diff.presentation_location(self.scroll);
+         let fallback_cursor = self.cursor;
+         let fallback_scroll = self.scroll;
+         let column = self.column;
+         let source_location = self.source_location.clone();
+         self.diff = diff;
+         let reload_required = self.load_state.finish_load();
+@@ -117,16 +127,43 @@ fn replace_diff(&mut self, diff: DiffPresentation) -> bool {
+             .and_then(|location| self.diff.reveal_presentation_location(location))
+             .unwrap_or_else(|| fallback_scroll.min(self.diff.len().saturating_sub(1)));
+         if let Some(source_location) = source_location {
+             let _ = self.reveal_location(&source_location);
+         }
+         reload_required
+     }
+ 
++    pub(super) fn prepare_highlighting(&mut self, request: ui_events::HighlightRequest) {
++        self.highlighting = Some(PendingHighlight {
++            request,
++            submitted: false,
++        });
++    }
++
++    pub(super) fn request_highlighting(&mut self) -> Option<ui_actions::Action> {
++        let pending = self
++            .highlighting
++            .as_mut()
++            .filter(|pending| !pending.submitted)?;
++        pending.submitted = true;
++        Some(ui_actions::Action::Highlight(pending.request.clone()))
++    }
++
++    pub(super) fn finish_highlighting(&mut self, result: &ui_events::HighlightingFinished) {
++        if self
++            .highlighting
++            .as_ref()
++            .is_some_and(|pending| pending.request.same_content(&result.request))
++        {
++            self.diff.apply_highlights(&result.highlighted);
++            self.highlighting = None;
++        }
++    }
++
+     pub(super) fn reveal_location(&mut self, location: &SourceLocation) -> bool {
+         self.column = location.byte_column;
+         self.source_location = Some(location.clone());
+         let Some(row) = self.diff.reveal_line(location.line) else {
+             return false;
+         };
+         self.cursor = row;
+         true

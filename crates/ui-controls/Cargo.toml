@@ -1,0 +1,13 @@
+[package]
+name = "ui-controls"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+ratatui.workspace = true
+ui-theme = { path = "../ui-theme" }
+
+[lints]
+workspace = true

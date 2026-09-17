@@ -23,6 +23,18 @@ pub struct Draft<S = Arc<ThreadSource>> {
 }
 
 impl Draft {
+    pub fn message_id(&self) -> &MessageId {
+        &self.id
+    }
+
+    /// Preserve a divergent editor after another copy has published the original identity.
+    pub fn renew_publication(&mut self) {
+        self.id = Message::reviewer(String::new()).id;
+        if matches!(self.target, DraftTarget::File(_)) {
+            self.thread = ThreadId(uuid::Uuid::new_v4().to_string());
+        }
+    }
+
     pub fn start(path: String, source: Arc<ThreadSource>) -> Self {
         Self {
             target: DraftTarget::File(path),

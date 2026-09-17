@@ -1,0 +1,375 @@
+diff --git a/crates/components/explore/src/render.rs b/crates/components/explore/src/render.rs
+index 8e5a8642..2f5cfa38 100644
+--- a/crates/components/explore/src/render.rs
++++ b/crates/components/explore/src/render.rs
+@@ -23,31 +23,35 @@ pub fn conversation_layout(
+         let navigation = self.navigation_bar(area);
+         let reserved = navigation.height().saturating_add(1);
+         let body = Rect::new(
+             area.x + 1,
+             area.y.saturating_add(reserved),
+             area.width.saturating_sub(2),
+             area.height.saturating_sub(reserved),
+         );
+-        let mut layout = ConversationLayout::new(body);
++        let content = if self.coverage_overview {
++            Block::default().borders(Borders::ALL).inner(body)
++        } else {
++            body
++        };
++        let mut layout = ConversationLayout::new(content);
+         layout.navigation = navigation;
++        layout.frame = self.coverage_overview.then_some(body);
+         if self.coverage_overview {
+             self.render_coverage_overview(&mut layout, diff, palette);
+-        }
+-        if self
++        } else if self
+             .exploration
+             .as_ref()
+             .is_none_or(|exploration| exploration.conversation.is_empty())
+         {
+             layout.text(&self.status, palette.text, None);
+             self.status_controls(&mut layout);
+         } else {
+             self.transcript(&mut layout, diff, palette);
+-            self.render_jev_debug(&mut layout, palette);
+         }
+         layout.position(self.scroll.get(), self.reveal.take());
+         self.scroll.set(layout.scroll);
+         self.layout.replace(layout.clone());
+         layout
+     }
+ 
+     fn render_coverage_overview(
+@@ -55,48 +59,66 @@ fn render_coverage_overview(
+         layout: &mut ConversationLayout,
+         diff: &DiffComponent,
+         palette: Palette,
+     ) {
+         let (Some(coverage), Some(exploration)) = (&self.coverage, &self.exploration) else {
+             return;
+         };
+         let summary = coverage.summary(self.completion_policy.unwrap_or(self.jev_enabled));
++        let lines = coverage.changed_line_coverage(None);
++        if summary.complete && lines.total > 0 {
++            layout.text(
++                format!(
++                    "{} of changed lines explored ({} of {})",
++                    Self::changed_line_percent(lines),
++                    lines.explored,
++                    lines.total
++                ),
++                palette.text,
++                None,
++            );
++        } else if summary.complete {
++            layout.text("No added or deleted lines in this diff", palette.text, None);
++        } else {
++            layout.text("Changed-line count unavailable", palette.warning, None);
++        }
++        layout.text(
++            "Added and deleted lines count; unchanged context and metadata do not. Lines excluded by Jev remain unexplored.",
++            palette.dim,
++            None,
++        );
+         layout.text(
+             format!(
+-                "Coverage · {} / {} required change units · {} excluded",
+-                summary.explored_required, summary.required, summary.excluded_unexplored
++                "To finish: {} required lines or metadata changes remain · {} Jev-excluded changes",
++                summary.remaining, summary.excluded_unexplored
+             ),
+             palette.text,
+             None,
+         );
++        layout.text(
++            "Show file diff displays that file below and selects it in Files.",
++            palette.dim,
++            None,
++        );
+         layout.text(
+             "Keys: g toggle · Alt-[ / Alt-] files · Alt-o open · Alt-n next gap · Alt-v Jev · Alt-r require review",
+             palette.dim,
+             None,
+         );
+         for limitation in &summary.limitations {
+             layout.text(format!("Inventory: {limitation}"), palette.warning, None);
+         }
+         let files = coverage.files(
+             &exploration.comparison,
+             self.completion_policy.unwrap_or(self.jev_enabled),
+         );
+         let remaining = coverage.remaining(self.completion_policy.unwrap_or(self.jev_enabled));
+-        self.render_coverage_files(layout, &files, &remaining, palette);
+-        if self.jev_enabled || self.completion_done {
+-            layout.text(
+-                format!(
+-                    "Jev exclusions · {} unexplored regions  [Inspect]",
+-                    coverage.unexplored_exclusions().len()
+-                ),
+-                palette.focus,
+-                Some(Control::JevDebug),
+-            );
+-        }
++        self.render_coverage_files(layout, coverage, &files, &remaining, palette);
++        self.render_jev_debug(layout, palette);
+         self.render_coverage_diff(layout, diff, palette);
+         layout.gap();
+     }
+ 
+     fn coverage_group(file: &review_explore::FileCoverage) -> u8 {
+         let summary = &file.summary;
+         if !summary.complete {
+             4
+@@ -109,61 +131,66 @@ fn coverage_group(file: &review_explore::FileCoverage) -> u8 {
+         } else {
+             2
+         }
+     }
+ 
+     fn render_coverage_files(
+         &self,
+         layout: &mut ConversationLayout,
++        coverage: &review_explore::CoverageLedger,
+         files: &[review_explore::FileCoverage],
+         remaining: &[review_explore::CoverageUnit],
+         palette: Palette,
+     ) {
+         for (heading, predicate) in [
+-            ("Explored", 0_u8),
+-            ("Partly explored", 1),
+-            ("Unexplored", 2),
+-            ("Excluded by Jev", 3),
+-            ("Incomplete", 4),
++            ("All required changes answered", 0_u8),
++            ("Some required changes answered", 1),
++            ("Needs answers", 2),
++            ("Jev-excluded only", 3),
++            ("Inventory incomplete", 4),
+         ] {
+             let group: Vec<_> = files
+                 .iter()
+                 .filter(|file| Self::coverage_group(file) == predicate)
+                 .collect();
+             if group.is_empty() {
+                 continue;
+             }
+             layout.gap();
+             layout.text(heading, palette.text, None);
+             for file in group {
+-                self.render_coverage_file(layout, file, remaining, palette);
++                self.render_coverage_file(layout, coverage, file, remaining, palette);
+             }
+         }
+     }
+ 
+     fn render_coverage_file(
+         &self,
+         layout: &mut ConversationLayout,
++        coverage: &review_explore::CoverageLedger,
+         file: &review_explore::FileCoverage,
+         remaining: &[review_explore::CoverageUnit],
+         palette: Palette,
+     ) {
+-        let percent = file
+-            .summary
+-            .percent
+-            .map_or_else(|| "—".into(), |value| format!("{value}%"));
+-        layout.text(
++        let lines = coverage.changed_line_coverage(Some(file.file));
++        let progress = if !file.summary.complete {
++            "changed-line count unavailable".into()
++        } else if lines.total == 0 {
++            "no changed text lines".into()
++        } else {
+             format!(
+-                "{}  {percent}  {} / {} required · {} excluded  [Open diff]",
+-                file.path.display(),
+-                file.summary.explored_required,
+-                file.summary.required,
+-                file.summary.excluded_unexplored
+-            ),
++                "{} of changed lines explored ({} of {})",
++                Self::changed_line_percent(lines),
++                lines.explored,
++                lines.total
++            )
++        };
++        layout.text(
++            format!("{} · {progress}  [Show file diff]", file.path.display(),),
+             palette.focus,
+             Some(Control::CoverageFile(file.file)),
+         );
+         if let Some(index) = self.next_coverage_gap(remaining, file.file) {
+             layout.text(
+                 "  [Next unexplored region]",
+                 palette.focus,
+                 Some(Control::CoverageGap(index)),
+@@ -179,21 +206,19 @@ fn render_coverage_diff(
+     ) {
+         if let Some(index) = self.coverage_file
+             && let Some(file) = self
+                 .exploration
+                 .as_ref()
+                 .and_then(|pass| pass.comparison.files.get(index))
+         {
+             layout.gap();
++            let start = layout.height;
+             layout.text(
+-                format!(
+-                    "Coverage diff · {}  [Return to question evidence]",
+-                    file.review_path().display()
+-                ),
++                format!("File diff · {}  [Close diff]", file.review_path().display()),
+                 palette.focus,
+                 Some(Control::CoverageReturn),
+             );
+             let view = Self::coverage_view();
+             if let Some(viewer) = diff.evidence_view(view) {
+                 if let Some(limitation) = viewer.evidence_limitation() {
+                     layout.text(limitation, palette.warning, None);
+                 }
+@@ -203,39 +228,40 @@ fn render_coverage_diff(
+                 );
+             } else {
+                 layout.text(
+                     "Coverage diff is loading or unavailable",
+                     palette.warning,
+                     None,
+                 );
+             }
++            layout.coverage_diff = Some(start..layout.height.min(start.saturating_add(8)));
+         }
+     }
+ 
+     pub fn render(
+         &self,
+         area: Rect,
+         buffer: &mut Buffer,
+         palette: Palette,
+         focused: bool,
+         diff: &DiffComponent,
+     ) {
+         let layout = self.conversation_layout(area, diff, palette);
+         layout.navigation.render(buffer, palette);
++        layout.render_frame(buffer, palette);
+         for item in &layout.items {
+             let Some((visible, skipped)) = layout.visible(item) else {
+                 continue;
+             };
+             match &item.content {
+-                Content::Text(text, color, _) => {
+-                    Paragraph::new(text.as_str())
++                Content::Text(text, _) => {
++                    Paragraph::new(text.clone())
+                         .wrap(Wrap { trim: false })
+                         .scroll((skipped, 0))
+-                        .style(Style::default().fg(*color))
+                         .render(visible, buffer);
+                 }
+                 Content::Window(view) => {
+                     if let Some(viewer) = diff.evidence_view(*view) {
+                         viewer.render_embedded(
+                             Window::new(*view, visible, skipped, item.height).viewport,
+                             buffer,
+                             palette,
+@@ -329,17 +355,17 @@ fn transcript(&self, layout: &mut ConversationLayout, diff: &DiffComponent, pale
+         }
+         if self.compose_scope == ComposeScope::Opening {
+             self.opening(layout, palette);
+         }
+         if let Some(question) = self.question() {
+             let index = self.selected;
+             self.preceding_reply(index, layout, palette);
+             self.answers(index, question, layout, palette);
+-            Self::assessments(question, layout, palette);
++            Self::question_sections(question, layout, palette);
+             self.turn_controls(index, question, layout, palette);
+             self.evidence_block(index, layout, diff, palette);
+         }
+         if self.map {
+             self.render_map(layout, palette);
+         }
+     }
+ 
+@@ -351,32 +377,35 @@ fn render_jev_debug(&self, layout: &mut ConversationLayout, palette: Palette) {
+         layout.gap();
+         if !self.jev_enabled && !self.completion_done {
+             layout.text(
+                 "Jev disabled — all changes require coverage",
+                 palette.dim,
+                 Some(Control::JevDebug),
+             );
+         }
++        let start = layout.height;
+         layout.text(
+             format!(
+-                "{} Jev exclusions · {} currently unexplored regions omitted",
++                "{} Jev exclusions · {} unexplored regions  [{}]",
+                 if self.jev_debug { "▾" } else { "▸" },
+-                exclusions.len()
++                exclusions.len(),
++                if self.jev_debug { "Hide" } else { "Inspect" }
+             ),
+-            palette.dim,
++            palette.focus,
+             Some(Control::JevDebug),
+         );
+         if !self.jev_debug {
+             return;
+         }
+         self.render_jev_exclusions(layout, &exclusions, palette);
+         for result in coverage.classifications.values() {
+             Self::render_jev_result(layout, result, palette);
+         }
++        layout.jev = Some(start..layout.height.min(start.saturating_add(4)));
+     }
+ 
+     fn render_jev_exclusions(
+         &self,
+         layout: &mut ConversationLayout,
+         exclusions: &[review_explore::Gap],
+         palette: Palette,
+     ) {
+@@ -621,36 +650,21 @@ pub(super) fn status_controls(&self, layout: &mut ConversationLayout) {
+     fn turn_controls(
+         &self,
+         index: usize,
+         question: &Question,
+         layout: &mut ConversationLayout,
+         palette: Palette,
+     ) {
+         let turn = &self.turns[index];
+-        let mut controls = Vec::new();
+-        if question.rationale.is_some() || question.visual.is_some() {
+-            controls.push(("Why this matters".into(), Control::Details(index)));
+-        } else if question.assessments.is_some() {
+-            controls.push(("Consequence details".into(), Control::Details(index)));
+-        }
+-        controls.push(("Reply".into(), Control::Reply(index)));
+-        controls.push(("More".into(), Control::More(index)));
+         layout.gap();
+-        layout.controls(controls);
+-        if turn.details {
+-            Self::assessment_details(question, layout, palette);
+-            layout.gap();
+-            for text in [&question.rationale, &question.visual]
+-                .into_iter()
+-                .flatten()
+-            {
+-                layout.text(text, palette.text, None);
+-            }
+-        }
++        layout.controls([
++            ("Reply".into(), Control::Reply(index)),
++            ("More".into(), Control::More(index)),
++        ]);
+         if turn.more {
+             let mut controls = vec![
+                 ("Map / follow-ups".into(), Control::Map),
+                 ("New pass".into(), Control::Start),
+             ];
+             if self.exploration.as_ref().is_some_and(|exploration| {
+                 exploration
+                     .answers

@@ -1,0 +1,50 @@
+diff --git a/crates/review-lsp/src/language.rs b/crates/review-lsp/src/language.rs
+index e56e25c3..59675d3b 100644
+--- a/crates/review-lsp/src/language.rs
++++ b/crates/review-lsp/src/language.rs
+@@ -3,28 +3,43 @@
+ #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+ pub(super) enum LanguageServer {
+     RustAnalyzer,
+     Expert,
+     TypeScript,
+ }
+ 
+ impl LanguageServer {
++    pub(super) fn name(self) -> &'static str {
++        match self {
++            Self::TypeScript => "TypeScript language server",
++            _ => self.command(),
++        }
++    }
++
+     pub(super) fn command(self) -> &'static str {
+         match self {
+             Self::RustAnalyzer => "rust-analyzer",
+             Self::Expert => "expert",
+-            Self::TypeScript => "typescript-language-server",
++            Self::TypeScript => "/bin/sh",
+         }
+     }
+ 
+     pub(super) fn arguments(self) -> &'static [&'static str] {
+         match self {
+             Self::RustAnalyzer => &[],
+-            Self::Expert | Self::TypeScript => &["--stdio"],
++            Self::Expert => &["--stdio"],
++            // Select inside the loaded environment, then replace the shell so
++            // the session owns the server process and its protocol streams.
++            Self::TypeScript => &[
++                "-c",
++                "if command -v tsgo >/dev/null 2>&1; then exec tsgo --lsp --stdio; \
++                 elif command -v typescript-language-server >/dev/null 2>&1; then exec typescript-language-server --stdio; \
++                 else echo 'Install tsgo or typescript-language-server in the project environment' >&2; exit 127; fi",
++            ],
+         }
+     }
+ 
+     pub(super) fn initialization_options(self) -> Option<serde_json::Value> {
+         (self == Self::TypeScript).then(|| {
+             // The syntax server can return import aliases before project loading finishes.
+             serde_json::json!({ "tsserver": { "useSyntaxServer": "never" } })
+         })

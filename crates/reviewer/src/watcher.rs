@@ -17,12 +17,14 @@ use review_repository::repository::RepoType;
 const DEBOUNCE: Duration = Duration::from_millis(100);
 
 mod source;
+mod state;
 use source::SourceWatch;
 
 enum WatchCommand {
     Event(Event),
     Source(Option<PathBuf>),
     SourceEvent(Event),
+    State(PathBuf, state::StateObserver),
     Failed,
     Stop,
 }
@@ -223,6 +225,7 @@ impl RepositoryWatcher {
             let mut watcher =
                 ActiveWatcher::start(&root, repo_type, &thread_state, &event_commands);
             let mut source = SourceWatch::new(root, event_commands.clone());
+            let mut state_watch = state::StateWatch::default();
             while let Ok(command) = command_receiver.recv() {
                 let result = match command {
                     WatchCommand::Event(event) => watcher
@@ -234,6 +237,10 @@ impl RepositoryWatcher {
                         Ok(())
                     }
                     WatchCommand::SourceEvent(event) => source.update(&event, &thread_state),
+                    WatchCommand::State(path, changed) => {
+                        state_watch.watch(&path, &changed);
+                        Ok(())
+                    }
                     WatchCommand::Failed => {
                         Err(notify::Error::generic("filesystem watcher failed"))
                     }
@@ -253,6 +260,16 @@ impl RepositoryWatcher {
             state,
             next_refresh: None,
         }
+    }
+
+    pub(super) fn watch_explore(
+        &self,
+        path: PathBuf,
+        changed: impl Fn(Result<(), String>) + Send + Sync + 'static,
+    ) {
+        let _ = self
+            .commands
+            .send(WatchCommand::State(path, Arc::new(changed)));
     }
 
     pub(super) fn source_requests(&self) -> SourceWatchRequests {

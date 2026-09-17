@@ -1,0 +1,76 @@
+diff --git a/crates/review-explore/src/presentation.rs b/crates/review-explore/src/presentation.rs
+--- a/crates/review-explore/src/presentation.rs
++++ b/crates/review-explore/src/presentation.rs
+@@ -1 +1,72 @@
+ // Display labels are literal return values.
++fn status_0() -> &'static str {
++    "Pending review 0"
++}
++
++fn status_1() -> &'static str {
++    "Pending review 1"
++}
++
++fn status_2() -> &'static str {
++    "Pending review 2"
++}
++
++fn status_3() -> &'static str {
++    "Pending review 3"
++}
++
++fn status_4() -> &'static str {
++    "Pending review 4"
++}
++
++fn status_5() -> &'static str {
++    "Pending review 5"
++}
++
++fn status_6() -> &'static str {
++    "Pending review 6"
++}
++
++fn status_7() -> &'static str {
++    "Pending review 7"
++}
++
++fn status_8() -> &'static str {
++    "Pending review 8"
++}
++
++fn status_9() -> &'static str {
++    "Pending review 9"
++}
++
++fn status_10() -> &'static str {
++    "Pending review 10"
++}
++
++fn status_11() -> &'static str {
++    "Pending review 11"
++}
++
++fn status_12() -> &'static str {
++    "Pending review 12"
++}
++
++fn status_13() -> &'static str {
++    "Pending review 13"
++}
++
++fn status_14() -> &'static str {
++    "Pending review 14"
++}
++
++fn status_15() -> &'static str {
++    "Pending review 15"
++}
++
++fn status_16() -> &'static str {
++    "Pending review 16"
++}
++
++fn status_17() -> &'static str {
++    "Pending review 17"
++}

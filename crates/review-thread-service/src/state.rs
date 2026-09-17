@@ -3,7 +3,7 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::time::Duration;
 
 use herdr_client::client::HerdrClient;
-use herdr_client::protocol::{Agent, AgentPrompter, AgentTarget, HerdrEvent, PaneId};
+use herdr_client::protocol::{Agent, AgentTarget, HerdrEvent, PaneId};
 use review_mcp::{Operation, Response};
 use review_store::ReviewStore;
 use review_threads::{Post, Resolution, ReviewThreads, ThreadCommand};
@@ -69,7 +69,9 @@ impl State {
     fn dispatch_mcp(&mut self, request: review_mcp::Request) {
         if matches!(
             request.operation,
-            Operation::SubmitQuestion(_) | Operation::SubmitConclusion(_)
+            Operation::SubmitQuestion(_)
+                | Operation::SubmitConclusion(_)
+                | Operation::GetCoverageGaps(_)
         ) {
             (self.publish)(Event::Explore(request));
         } else {
@@ -317,7 +319,9 @@ impl State {
         access.current_agent(&self.client)?;
         let book = self.load(&access.review_unit)?;
         match &request.operation {
-            Operation::SubmitQuestion(_) | Operation::SubmitConclusion(_) => {
+            Operation::SubmitQuestion(_)
+            | Operation::SubmitConclusion(_)
+            | Operation::GetCoverageGaps(_) => {
                 Err("Explore requests belong to the interview owner".into())
             }
             Operation::ListThreads => Ok(Response::Threads(book.threads().to_vec())),
@@ -467,9 +471,7 @@ impl State {
         };
         if wakeup.needs_poll() {
             wakeup.sent();
-            self.client
-                .prompt_agent(&current.pane_id, &access.prompt())
-                .map_err(|error| error.to_string())?;
+            crate::delivery::prompt_agent(&self.client, &current, &access.prompt())?;
         }
         Ok(())
     }

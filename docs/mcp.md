@@ -17,7 +17,7 @@ reviewer --agent.prompt--> Herdr's Unix socket --> agent's terminal
 ```
 
 `reviewer-mcp` is launched by the agent using its MCP configuration. It advertises
-the four tools even when no reviewer is running; actual calls connect to the
+the six tools even when no reviewer is running; actual calls connect to the
 repository's reviewer. It holds no history. The reviewer owns the HTTP server,
 validates access, and reads or updates the conversation store. Closing the
 reviewer leaves the bridge alive; a later tool call reconnects after reopening.
@@ -129,18 +129,18 @@ action. Filenames and selected diff text are no longer inserted into agent input
 Herdr owns terminal submission and rejects prompts to a blocked agent. The reviewer
 does not inspect or protect an existing draft in the agent's composer.
 
-## Multiple reviewers and ports
+## Repository ports
 
 The reviewer hosts Streamable HTTP on `127.0.0.1` only while its pane is open,
 using the official Rust MCP SDK, `rmcp`. The default port is stable for the
 repository's canonical path. A new agent started after moving the repository
 discovers its new path without changing configuration.
-For a port conflict or simultaneous reviewers of the same
-checkout, set `HERDR_REVIEWER_MCP_PORT` to a distinct nonzero port in each
-reviewer's and corresponding agent's environment. A busy port
+One agent and one reviewer are supported per repository. For a port conflict,
+set `HERDR_REVIEWER_MCP_PORT` to a distinct nonzero port in the reviewer's and
+corresponding agent's environment. A busy port
 is reported; the reviewer never silently switches addresses.
 
-Alternatively, override the second agent's bridge port at launch:
+Alternatively, override the agent's bridge port at launch:
 
 ```sh
 # Start this workspace's reviewer with HERDR_REVIEWER_MCP_PORT=59123.
@@ -148,12 +148,12 @@ codex -c 'mcp_servers.herdr_reviewer.args=["59123"]'
 claude --mcp-config '{"mcpServers":{"herdr_reviewer":{"type":"stdio","command":"/path/to/herdr-progressive-reviewer/bin/reviewer-mcp","args":["59123"]}}}'
 ```
 
-Conversation updates use a storage lock so reviewers sharing a checkout cannot
-overwrite one another's posted messages.
+Conversation updates use a storage lock to preserve posted messages while delivery
+callbacks and agent responses update their records.
 
 ## Review access and tools
 
-The tools are `list_threads`, `get_thread`, `get_new_messages`, and `reply`.
+The comment tools are `list_threads`, `get_thread`, `get_new_messages`, and `reply`.
 Every updated thread includes its full conversation and original code context.
 The Herdr wakeup supplies a review access value tied to the selected agent
 and logical review. When Herdr reports a native session ID, access is bound to
@@ -186,6 +186,131 @@ comments through that ID. A later comment remains pending even if it arrived
 before the answer was saved. Retrying requires the same three values. A rejected
 or interrupted reply leaves the comments pending. Existing MCP clients must refresh
 their tool definitions after upgrading from the earlier reply schema.
+
+Explore starts with a kickoff prompt containing the repository root, comparison
+identity, first request ID and interview instructions. The agent inspects the code
+and calls `submit_question` directly to post the first question.
+
+The tools advertise their full input schemas, including nested questions, evidence,
+assessments, agenda changes and interpretations. The kickoff explains the review behavior
+without duplicating schema examples.
+
+After a human contribution, the shared prompt delivery sends a plain-text wakeup:
+
+```text
+Explore review access: temporary-access
+Explore pass: pass-id
+Explore request: turn-id
+Review unit: unit
+Checkpoint: commit
+
+Answer ID: answer-id
+Question: policy (version 1)
+Selected option ID: keep
+Selected outcome: accepted
+
+Selected option:
+Keep resolved conversations resolved
+
+Comment:
+Include the existing caller.
+```
+
+The selected option carries its full exact text, stable ID and outcome; the comment
+is preserved exactly and omitted when empty. The agent matches question ID/version
+to its original question in the same conversation. The checkpoint appears once.
+The reviewer keeps the full question and answer for history and validation; its
+evidence, assessments, rationale, other choices and recommendation are not resent.
+
+Conditional details appear only when relevant: Corrects answer identifies an answer
+being corrected, Explicitly deferred records a deferral, and Previous response error
+contains the previous attempt's failure. An unselected option is omitted. Replies to
+a conclusion use Reply to conclusion with the original conclusion turn ID instead of
+a question ID/version. The agent posts the next turn with submit_question directly;
+no repository catalog or history dump is sent. get_explore_answer, get_explore and
+read_explore have been removed.
+
+Inspect source directly from disk and use Git/jj for diffs and historical text.
+Git's `checkpoint.review_unit` identifies the base tree; jj's `checkpoint.checkpoint`
+identifies the reviewed commit. Include untracked files that Git diff omits; jj merge
+bases use the merged parent tree. Cite evidence and topic associations directly using
+`{path, side, lines}`: paths are repository-relative UTF-8 strings or raw byte arrays,
+side is `old` or `new`, and lines are inclusive and one-based (null for file-level
+references). No source registration is needed. Evidence also explains what it
+establishes and how it could change the answer.
+
+Explore displays Markdown `#` sections for Context (`rationale`, with `visual` appended),
+Door and Blast radius (`assessments`), and Notes (the selected evidence's `notes`).
+Supply bodies without those headings,
+starting with a short summary paragraph and adding detail only when useful. Assessment
+`details` may be omitted or empty; the summary must still give the decisive reason, backed
+by valid evidence or explicit unknowns. All supplied reasoning and unknowns are visible
+without an expansion button. Explain unfamiliar implementation concepts in Context, adapting
+to the reviewer's demonstrated knowledge, while keeping questions and choices in plain language.
+
+Send each complete structured turn with `submit_question`, using the supplied review
+value and the result in `update`. Refresh an already-running agent's MCP tool catalog
+after upgrading; Explore exposes `submit_question` and `submit_conclusion`. The old
+`submit_explore` name has been removed. `submit_question` requires a next question
+and cannot carry a conclusion.
+Successful question results include a `coverage` object with its ledger revision,
+exact unassigned gaps, gaps awaiting an answer, full totals and `has_more` when the
+bounded list is truncated. Credit comes from the exact answered question's essential
+and supporting changed regions; explicit Defer earns none. Concept exploration
+drives the interview: even 100% coverage does not exhaust its useful questions.
+When no useful inquiry remains, the agent inspects uncovered locations for missed
+concepts, including old-side deletions and non-line changes. It asks further questions
+only when that inspection reveals one, and otherwise explains remaining gaps in its
+conclusion. Jev exclusions, when enabled by a reviewer-process `TYPESAFE_API_KEY`,
+reduce the coverage reminders and remain inspectable; they do not establish correctness.
+The durable `instance` is distinct from renewable `review` access. Access is never
+saved with the pass. Reopening rotates it; the next explicit reviewer action supplies
+current access through the existing wakeup. Each call checks the pinned native
+conversation, then validates against the latest stored pass under its lock, atomically
+saves the update and deduplication record, publishes it to the UI, and waits for UI
+application before acknowledging it. Validation errors leave the request open for repair;
+transport retries must reuse the identical semantic payload (with current `review` access after reconnection). A response saved before a lost acknowledgement is restored locally; it is not regenerated. Accepted retries return
+`accepted: true, applied: false`. Cancelled, obsolete or changed accepted payloads
+are rejected. Explore never writes ordinary thread replies or uses response files.
+
+Use `submit_conclusion` for the separate conclusion screen. Its top-level arguments are:
+
+```json
+{
+  "review": "temporary-access",
+  "instance": "pass-id",
+  "request": "turn-id",
+  "checkpoint": {"review_unit": "unit", "checkpoint": "commit"},
+  "interpretation": null,
+  "summary": "Review outcome, decisions and remaining uncertainty.",
+  "to_be_implemented": "1. First agreed task.\n2. Second agreed task.",
+  "future_work": "Deferred or optional work outside this implementation scope."
+}
+```
+
+The three sections are separate strings. Use an empty string for no implementation
+or future work. The final answer still needs its attributed interpretation when it
+records a decision; the same exact-answer and retry rules apply. There are no
+question, evidence, reply, topic or agenda fields in a conclusion submission.
+Summary and future work are displayed separately. Only `to_be_implemented` seeds
+the editable task box. Submitting a conclusion does not start implementation.
+A conclusion can retain gaps in answered evidence after the final source inspection;
+its coverage receipt preserves those gaps. An incomplete change inventory still returns
+`coverage_incomplete` without consuming the request or answer, because checkpoint
+marking needs a trustworthy inventory. A valid conclusion saves a recoverable completion
+record, marks only the pass's changed files at its captured checkpoint, and acknowledges success
+after local marking finishes. Repeating an accepted conclusion does not reapply
+marks. Subsequent edits appear in Files against that reviewed baseline.
+The human's **Implement** action sends the edited box contents through the shared
+reviewer-to-agent delivery queue, authorizing those tasks and their validation.
+It waits for the pinned agent conversation, supports cancelling queued delivery,
+and reports delivery failures without discarding edits. Authorization saves the exact
+edited scope and logical delivery ID before queuing. The shared dispatcher saves an
+attempt marker before the external call and records the authoritative outcome before
+reporting success. Reopening never replays pending work. An unfinished attempt is
+shown as delivery unknown, not as a cancelled or definitely unsent request.
+Delivery confirmation
+means the request was sent, not that implementation has finished.
 
 ## Runtime and verification
 

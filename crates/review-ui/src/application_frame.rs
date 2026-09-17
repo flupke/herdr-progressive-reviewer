@@ -17,9 +17,10 @@ use revision_component::RevisionComponent;
 use status_component::StatusComponent;
 use threads_component::ThreadsComponent;
 use ui_events::{ReviewNavigation, ReviewPane};
+use ui_panes::SplitPane;
 use ui_theme::Palette;
 
-use crate::layout::{NavigationTabs, PaneLayout};
+use crate::layout::{NavigationTabs, PaneLayout, location_selector_panes};
 
 /// One renderable frame assembled from mounted components.
 pub struct ApplicationFrame<'a> {
@@ -28,6 +29,7 @@ pub struct ApplicationFrame<'a> {
     pub(super) palette: Palette,
     pub(super) files: &'a FilesComponent,
     pub(super) threads: &'a ThreadsComponent,
+    pub(super) explore: &'a explore_component::ExploreComponent,
     pub(super) diff: &'a DiffComponent,
     pub(super) guide: &'a GuideComponent,
     pub(super) locations: &'a LocationsComponent,
@@ -43,7 +45,12 @@ impl Widget for ApplicationFrame<'_> {
             return;
         }
 
-        let layout = PaneLayout::new(area.width, area.height, self.file_width);
+        let layout = PaneLayout::for_navigation(
+            area.width,
+            area.height,
+            self.file_width,
+            self.threads.mode(),
+        );
         let header = Rect::new(area.x, area.y, area.width, 1);
         let body = Rect::new(area.x, area.y + 1, area.width, layout.body_height());
         let footer = Rect::new(
@@ -65,17 +72,33 @@ impl Widget for ApplicationFrame<'_> {
 
 impl ApplicationFrame<'_> {
     fn render_body(&self, layout: PaneLayout, body: Rect, buffer: &mut Buffer) {
+        if self.threads.mode() == ReviewNavigation::Explore {
+            let source = |area, buffer: &mut Buffer| {
+                self.explore.render(
+                    area,
+                    buffer,
+                    self.palette,
+                    self.focus == ReviewPane::Navigation,
+                    self.diff,
+                );
+                self.render_tabs(area, buffer);
+            };
+            if self.locations.is_active() {
+                location_selector_panes(body, self.file_width).render(
+                    buffer,
+                    |left, buffer| self.locations.render(left, buffer, true),
+                    source,
+                );
+            } else {
+                source(body, buffer);
+            }
+            return;
+        }
         if layout.is_wide() {
-            let file_width = layout.file_width;
-            self.render_files(Rect::new(body.x, body.y, file_width, body.height), buffer);
-            self.render_diff(
-                Rect::new(
-                    body.x + file_width,
-                    body.y,
-                    body.width - file_width,
-                    body.height,
-                ),
+            SplitPane::new(body, layout.file_width, 0).render(
                 buffer,
+                |left, buffer| self.render_files(left, buffer),
+                |right, buffer| self.render_diff(right, buffer),
             );
         } else {
             match self.focus {
@@ -100,6 +123,13 @@ impl ApplicationFrame<'_> {
                     self.focus == ReviewPane::Navigation,
                 );
             }
+            ReviewNavigation::Explore => self.explore.render(
+                area,
+                buffer,
+                self.palette,
+                self.focus == ReviewPane::Navigation,
+                self.diff,
+            ),
             ReviewNavigation::Threads => {
                 self.threads.render(
                     area,
@@ -109,11 +139,16 @@ impl ApplicationFrame<'_> {
                 );
             }
         }
+        self.render_tabs(area, buffer);
+    }
+
+    fn render_tabs(&self, area: Rect, buffer: &mut Buffer) {
+        let mode = self.threads.mode();
         let active = Style::default()
             .fg(self.palette.focus)
             .add_modifier(Modifier::BOLD);
         let inactive = Style::default().fg(self.palette.dim);
-        Paragraph::new(Line::from(vec![
+        let tabs = Line::from(vec![
             Span::styled(
                 NavigationTabs::FILES,
                 if mode == ReviewNavigation::Files {
@@ -139,11 +174,20 @@ impl ApplicationFrame<'_> {
                 },
                 Style::default().fg(self.palette.deletion),
             ),
-        ]))
-        .render(
-            Rect::new(area.x + 1, area.y, area.width.saturating_sub(2), 1),
-            buffer,
-        );
+            Span::raw(NavigationTabs::SEPARATOR),
+            Span::styled(
+                NavigationTabs::EXPLORE,
+                if mode == ReviewNavigation::Explore {
+                    active
+                } else {
+                    inactive
+                },
+            ),
+        ]);
+        let width = u16::try_from(tabs.width())
+            .unwrap_or(u16::MAX)
+            .min(area.width.saturating_sub(2));
+        Paragraph::new(tabs).render(Rect::new(area.x + 1, area.y, width, 1), buffer);
     }
 
     fn render_diff(&self, area: Rect, buffer: &mut Buffer) {

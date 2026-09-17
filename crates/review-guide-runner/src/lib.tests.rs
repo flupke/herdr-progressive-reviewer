@@ -1,71 +1,38 @@
 use std::os::unix::fs::{PermissionsExt, symlink};
-use std::sync::Mutex;
 
-use herdr_client::Result;
-use herdr_client::protocol::{AgentPrompter, AgentStatus, PaneId, TabId, WorkspaceId};
 use review_guide::{FrozenHunk, GuideTarget};
 
 use super::*;
 
-struct FakeHerdr {
-    prompt: Mutex<Option<String>>,
-}
-
-impl FakeHerdr {
-    fn new() -> Self {
-        Self {
-            prompt: Mutex::new(None),
-        }
-    }
-}
-
-impl AgentPrompter for FakeHerdr {
-    fn prompt_agent(&self, _pane_id: &PaneId, prompt: &str) -> Result<()> {
-        *self.prompt.lock().unwrap() = Some(prompt.to_owned());
-        let value = |label: &str| {
-            prompt
-                .lines()
-                .find_map(|line| line.strip_prefix(label))
-                .unwrap()
-                .trim_matches('`')
-                .to_owned()
-        };
-        let temporary_path = PathBuf::from(value("- Temporary response: "));
-        let response_path = PathBuf::from(value("- Final response: "));
-        fs::write(
-            &temporary_path,
-            serde_json::json!({
-                "schema_version": 1,
-                "items": [{
-                    "target": {
-                        "kind": "hunks",
-                        "path": "src/lib.rs",
-                        "first_hunk": 1,
-                        "last_hunk": 1
-                    },
-                    "text": "The central idea."
-                }]
-            })
-            .to_string(),
-        )
-        .unwrap();
-        fs::rename(temporary_path, response_path).unwrap();
-        Ok(())
-    }
-}
-
-fn agent() -> Agent {
-    Agent {
-        pane_id: PaneId("pane".to_owned()),
-        tab_id: TabId("tab".to_owned()),
-        workspace_id: WorkspaceId("workspace".to_owned()),
-        name: None,
-        display_agent: Some("Codex".to_owned()),
-        agent: Some("codex".to_owned()),
-        agent_status: AgentStatus::Idle,
-        agent_session: None,
-        cwd: None,
-    }
+fn write_response(prompt: &str) {
+    let value = |label: &str| {
+        prompt
+            .lines()
+            .find_map(|line| line.strip_prefix(label))
+            .unwrap()
+            .trim_matches('`')
+            .to_owned()
+    };
+    let temporary_path = PathBuf::from(value("- Temporary response: "));
+    let response_path = PathBuf::from(value("- Final response: "));
+    fs::write(
+        &temporary_path,
+        serde_json::json!({
+            "schema_version": 1,
+            "items": [{
+                "target": {
+                    "kind": "hunks",
+                    "path": "src/lib.rs",
+                    "first_hunk": 1,
+                    "last_hunk": 1
+                },
+                "text": "The central idea."
+            }]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    fs::rename(temporary_path, response_path).unwrap();
 }
 
 fn repository_snapshot(scope: GuideScope) -> GuideRepositorySnapshot {
@@ -103,7 +70,7 @@ fn prepare_writes_the_deterministic_repository_snapshot_and_diff() {
     let mailbox = private_mailbox();
     fs::write(mailbox.path().join(RESPONSE_FILE), b"old response").unwrap();
 
-    GuideRunner::<FakeHerdr>::prepare(
+    PreparedGuide::prepare(
         repository_snapshot(GuideScope::All),
         mailbox.path().to_owned(),
     )
@@ -129,19 +96,17 @@ fn prepare_writes_the_deterministic_repository_snapshot_and_diff() {
 #[test]
 fn submitted_response_is_loaded_without_a_request_identifier() {
     let mailbox = private_mailbox();
-    let prepared = GuideRunner::<FakeHerdr>::prepare(
+    let prepared = PreparedGuide::prepare(
         repository_snapshot(GuideScope::All),
         mailbox.path().to_owned(),
     )
     .unwrap();
-    let client = FakeHerdr::new();
-    let runner = GuideRunner::new(&client);
 
     let (watch, _cancellation) = prepared.watch_response().unwrap();
-    runner.submit_prepared(&agent(), &prepared).unwrap();
-    let result = runner.finish_prepared_with_watch(&prepared, watch).unwrap();
+    let prompt = prepared.prompt();
+    write_response(&prompt);
+    let result = prepared.finish_with_watch(watch).unwrap();
 
-    let prompt = client.prompt.lock().unwrap().clone().unwrap();
     assert!(prompt.contains("inherits the complete current conversation"));
     assert!(prompt.contains("The guide explains the delta introduced by the frozen diff."));
     assert!(prompt.contains("Would this text describe the old code equally well?"));

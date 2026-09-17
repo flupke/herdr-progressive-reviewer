@@ -1,0 +1,35 @@
+diff --git a/crates/review-ui/tests/ui_state.rs b/crates/review-ui/tests/ui_state.rs
+index a6399272..26ad86c7 100644
+--- a/crates/review-ui/tests/ui_state.rs
++++ b/crates/review-ui/tests/ui_state.rs
+@@ -1408,20 +1408,26 @@ fn double_clicking_a_reviewed_file_marks_it_unreviewed() {
+ 
+     app.update(UserInput::MouseClick {
+         column: 1,
+         row: 2,
+         insert_path: false,
+     });
+     assert_eq!(
+         app.update(UserInput::MouseDoubleClick { column: 1, row: 2 }),
+-        vec![Action::SetReviewed {
+-            path: "reviewed.rs".to_owned(),
+-            reviewed: false,
+-        }]
++        vec![
++            Action::SetReviewed {
++                path: "reviewed.rs".to_owned(),
++                reviewed: false,
++            },
++            Action::LoadDiff {
++                review_checkpoint: ReviewCheckpoint::new("qpvuntsm", "11111111"),
++                path: "reviewed.rs".to_owned(),
++            },
++        ]
+     );
+ }
+ 
+ #[test]
+ fn clicking_a_directory_collapses_its_descendants_across_refreshes() {
+     let mut app = ReviewApplication::default();
+     let files = || {
+         vec![

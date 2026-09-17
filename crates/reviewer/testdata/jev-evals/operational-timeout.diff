@@ -1,0 +1,12 @@
+diff --git a/crates/reviewer/src/runtime/explore/jev.rs b/crates/reviewer/src/runtime/explore/jev.rs
+--- a/crates/reviewer/src/runtime/explore/jev.rs
++++ b/crates/reviewer/src/runtime/explore/jev.rs
+@@ -1,7 +1,7 @@
+ use std::time::Duration;
+ 
+-const JOB_BUDGET: Duration = Duration::from_secs(30);
++const JOB_BUDGET: Duration = Duration::from_secs(300);
+ 
+ fn expired(started: std::time::Instant) -> bool {
+     started.elapsed() >= JOB_BUDGET
+ }

@@ -1,0 +1,115 @@
+diff --git a/crates/review-lsp/src/session.rs b/crates/review-lsp/src/session.rs
+index 765a7e73..f19392c9 100644
+--- a/crates/review-lsp/src/session.rs
++++ b/crates/review-lsp/src/session.rs
+@@ -1,15 +1,15 @@
+ use std::collections::HashMap;
+ use std::ffi::OsStr;
+ use std::fs;
+ use std::io::{BufReader, BufWriter};
+ use std::path::{Path, PathBuf};
+ use std::process::{Child, ChildStdin, Command as ProcessCommand, Stdio};
+-use std::thread::{self, JoinHandle};
++use std::thread;
+ use std::time::{Duration, Instant};
+ 
+ use crossbeam_channel::{Receiver, unbounded};
+ use lsp_server::{ErrorCode, Message, Notification, Request, RequestId, Response};
+ use lsp_types::notification::Notification as _;
+ use lsp_types::request::Request as _;
+ use lsp_types::{
+     ClientCapabilities, DidChangeTextDocumentParams, DidOpenTextDocumentParams,
+@@ -64,20 +64,19 @@ enum State {
+     ShuttingDown {
+         id: RequestId,
+         deadline: Instant,
+     },
+     Stopped,
+ }
+ 
+ pub(super) struct Session {
+-    process: AnalyzerProcess,
++    _analyzer_process_guard: AnalyzerProcess,
+     input: BufWriter<ChildStdin>,
+     inbound: Receiver<Inbound>,
+-    reader: Option<JoinHandle<()>>,
+     next_id: i32,
+     encoding: PositionEncodingKind,
+     documents: HashMap<PathBuf, (String, i32)>,
+     state: State,
+ }
+ 
+ struct AnalyzerProcess(Child);
+ 
+@@ -110,17 +109,17 @@ pub(super) fn start(root: &Path, now: Instant) -> Result<Self, String> {
+             .take()
+             .ok_or_else(|| "rust-analyzer stdin is unavailable".to_owned())?;
+         let output = process
+             .0
+             .stdout
+             .take()
+             .ok_or_else(|| "rust-analyzer stdout is unavailable".to_owned())?;
+         let (sender, inbound) = unbounded();
+-        let reader = thread::spawn(move || {
++        thread::spawn(move || {
+             let mut output = BufReader::new(output);
+             loop {
+                 match Message::read(&mut output) {
+                     Ok(Some(message)) => {
+                         if sender.send(Inbound::Message(message)).is_err() {
+                             return;
+                         }
+                     }
+@@ -131,20 +130,19 @@ pub(super) fn start(root: &Path, now: Instant) -> Result<Self, String> {
+                     Err(error) => {
+                         let _ = sender.send(Inbound::Failed(error.to_string()));
+                         return;
+                     }
+                 }
+             }
+         });
+         let mut session = Self {
+-            process,
++            _analyzer_process_guard: process,
+             input: BufWriter::new(input),
+             inbound,
+-            reader: Some(reader),
+             next_id: 1,
+             encoding: PositionEncodingKind::UTF16,
+             documents: HashMap::new(),
+             state: State::Stopped,
+         };
+         session.initialize(root, now)?;
+         Ok(session)
+     }
+@@ -590,29 +588,18 @@ fn respond(&mut self, request: Request) -> Result<(), String> {
+ 
+     fn write(&mut self, message: &Message) -> Result<(), String> {
+         message
+             .write(&mut self.input)
+             .map_err(|error| format!("could not write to rust-analyzer: {error}"))
+     }
+ }
+ 
+-impl Drop for Session {
+-    fn drop(&mut self) {
+-        if self.process.0.try_wait().ok().flatten().is_none() {
+-            let _ = self.process.0.kill();
+-        }
+-        if let Some(reader) = self.reader.take() {
+-            let _ = reader.join();
+-        }
+-    }
+-}
+-
+ fn response_value<R: serde::de::DeserializeOwned>(response: Response) -> Result<R, String> {
+     match response.response_result {
+         Ok(value) => serde_json::from_value(value).map_err(|error| error.to_string()),
+         Err(error) => Err(error.message),
+     }
+ }
+ 
+ #[cfg(all(test, unix))]
+ #[path = "session.tests.rs"]
+-mod tests;
++pub(super) mod tests;

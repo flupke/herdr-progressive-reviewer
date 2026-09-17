@@ -1,0 +1,22 @@
+diff --git a/crates/review-store/Cargo.toml b/crates/review-store/Cargo.toml
+index a5388a19..77b71db8 100644
+--- a/crates/review-store/Cargo.toml
++++ b/crates/review-store/Cargo.toml
+@@ -1,17 +1,16 @@
+ [package]
+ name = "review-store"
+ version.workspace = true
+ edition.workspace = true
+ rust-version.workspace = true
+ license.workspace = true
+ 
+ [dependencies]
+-herdr-client = { path = "../herdr-client" }
+ base64.workspace = true
+ getrandom.workspace = true
+ libc.workspace = true
+ review-guide = { path = "../review-guide" }
+ serde.workspace = true
+ serde_json.workspace = true
+ sha2.workspace = true
+ thiserror.workspace = true

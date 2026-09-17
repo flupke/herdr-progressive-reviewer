@@ -1,0 +1,260 @@
+diff --git a/plan/explore-milestone-1-adaptive-interview-update.md b/plan/explore-milestone-1-adaptive-interview-update.md
+new file mode 100644
+index 00000000..23342fb9
+--- /dev/null
++++ b/plan/explore-milestone-1-adaptive-interview-update.md
+@@ -0,0 +1,254 @@
++# Milestone 1 update — adaptive conversation, reversibility, and blast radius
++
++Implement this as feedback on the current Explore milestone 1, not as a new milestone or a replacement implementation plan. Keep the working inline UI and change the interview semantics where necessary. Implement only gaps in the current behavior; do not rebuild capabilities that already satisfy these requirements.
++
++## Read first; preserve the working-copy decision
++
++Read `AGENTS.md`, the current jj change description, `docs/usage.md` → “Explore a change (experimental)”, and the “Follow-up: review the working copy” override in `plan/explore-milestone-1-ui-update.md`. Use `herdr-explore-milestone1-handoff-sg_rzqyx.md` as the implementation index. Recheck the actual jj state; do not blindly reuse historical change IDs.
++
++**Do not restore repository snapshotting.** The reviewer assumes code remains unchanged during this review pass. Continue using working-copy source access and ordinary base-side before/after evidence. Do not add eager repository capture, frozen-source storage, or a new source-change invalidation system as part of this update. Ordinary Files baselines and existing source navigation are unchanged.
++
++The question perimeter must evolve even when the source does not. New user context and investigation can change which questions matter, which assumptions hold, and which code needs examination. In-memory interview state concerns restart persistence, not whether the conversation is adaptive.
++
++Keep the existing vertical conversation flow, resizable native diff windows, yellow relevance outlines, LSP, search, selection, comments, and keyboard choice selection. Do not restore the removed persistent warning/help rows. Keep genuine errors and contextual help. Persistence, classifiers, automated experiments, and unrelated fixes remain outside this update.
++
++## 1. Make the interview a real back-and-forth
++
++The reviewer is conversing with the implementation agent, not completing a pre-generated form. An initial question map is provisional. A fixed questionnaire that merely advances after each answer does not satisfy this requirement.
++
++Each committed reviewer message—choice or free text—must drive an agent turn that can:
++
++1. Answer the reviewer’s question or clarification, investigate relevant source, or acknowledge new domain context.
++2. Reassess the active assumptions, pending questions, and consequences in light of that input and the evidence.
++3. Update the agenda and present at most one next actionable question, or explain that exploration has reached its current stopping point.
++
++A reviewer message can be an answer, a question, a challenge, a correction, a request to inspect evidence, or a redirection. Do not require the reviewer to select an intent mode before typing. “Why?”, “What about concurrent writers?”, and “Show me the caller” are valid replies, not malformed answers or implicit acceptance.
++
++Keep questions concise. Supply credible alternatives when useful, with the recommended option first and a short reason when a recommendation is justified. Always allow free text. For complex relationships, use the smallest useful terminal-readable sketch and focused embedded code evidence. Do not make every message a long explanation followed by an approval question. Answer factual questions available from code rather than making the reviewer look them up.
++
++Reuse the existing agent connection and delivery mechanism. Pass the conversation, current agenda, recorded outcomes, and relevant evidence references to the agent—not just the latest choice and a predetermined next index. Do not make correctness depend solely on the agent remembering previous turns outside the application’s context.
++
++Exploration remains review work. A conversational reply does not authorize editing the reviewed code. Continue collecting fixes for afterwards unless the reviewer explicitly gives a separate implementation instruction.
++
++## 2. Let the active agenda change without rewriting history
++
++The agent may add, refine, reorder, supersede, or retire pending questions without asking permission to maintain the agenda. It may discover new questions while examining callers, consumers, tests, or the reviewer’s answers. The initial catalog of evidence is not a whitelist for further investigation: use the existing working-copy access to inspect and link additional relevant source on demand.
++
++Use stable logical question/topic identities and enough assumption/prerequisite relationships to express why a question remains relevant. Extend the existing domain model minimally; a graphical tree editor or general-purpose dependency engine is not required.
++
++Required semantics:
++
++| Change | Meaning |
++| --- | --- |
++| Add or refine | New information creates a question or makes a pending question more precise. |
++| Retire | A question no longer applies under the established context. Retain its text and a short reason linked to the relevant reviewer message or evidence. |
++| Supersede | Another question replaces the old formulation. Preserve the relationship instead of silently rewriting a question already shown. |
++| Defer | The question still matters, but has not been settled. It remains outstanding. |
++| Reconsider | New information undermines a recorded conclusion. Preserve the original answer and flag or ask the reconsideration question; do not silently change the reviewer’s decision. |
++
++When a premise is invalidated, retire the dependent questions that actually relied on it, not every question that happens to appear under the same visual branch. Preserve questions that still matter for another reason. Check any source-verifiable assertion before using it to eliminate a material risk. Conflicting evidence should cause a focused follow-up, not blind deference to either the code’s apparent intent or the reviewer’s assertion.
++
++Keep posted conversation immutable. Pending, not-yet-presented wording can change freely. Do not mutate the displayed question or discard an unfinished reply underneath the reviewer. Background agenda maintenance alone must not move the viewport; advancing to a new question uses the existing automatic evidence-navigation behavior.
++
++Record unequivocal reviewer decisions without another Accept click, as already agreed. Tie each recorded outcome to the reviewer message and the question it answers. Silence, asking for more information, or choosing an explanatory action is not acceptance. Conditional agreement retains its outstanding conditions. Ambiguous material agreement gets one concise clarification.
++
++**Retired is not accepted. Discussed is not file-reviewed.** Agenda changes must not remove changed files from the ordinary review obligation, mark files reviewed, or imply that the agent has established full coverage. Keep existing file-level review marks. Do not introduce hunk-level marks or classifier-based skipping.
++
++## 3. Make two consequence questions explicit
++
++For each consequential topic, assess and expose both of these lenses. These are evidence-backed review prompts, not numerical risk scores or additional forms the reviewer must mechanically fill out. The agent should answer what source and context establish, then ask for missing domain knowledge or the trade-off that genuinely needs human judgment.
++
++### “Is it a one-way door, or a two-way door?”
++
++Assess whether the *consequences* are realistically reversible, not merely whether the commit can be reverted.
++
++- **One-way / hard to reverse:** reversing it requires an expensive migration, repair, coordinated consumer changes, or recovery from effects that rollback does not undo.
++- **Two-way / readily reversible:** there is a credible way to undo the behavior and its relevant effects at acceptable cost. State the rollback conditions that make this true.
++- **Mixed or unknown:** name the distinct aspects or missing evidence rather than forcing an optimistic binary classification.
++
++Expose the decisive reason and supporting source. For a hard-to-reverse change, investigate the important compatibility, migration, recovery, and rollback assumptions before treating the topic as settled. “Git revert exists” is not adequate evidence. A new domain fact can change this assessment and retire or create related questions.
++
++### “What’s the blast radius?”
++
++Describe a plausible concrete failure: who or what is affected, what damage occurs, how it propagates, and what limits it. Examples of scope include one operation, one tenant, all users, shared persistent state, or an external consumer. Distinguish a temporary interruption from corruption, irreversible loss, or an externally visible effect where relevant.
++
++Use actual boundaries and safeguards from the evidence. Do not invent affected-user counts, probabilities, recovery times, or an unlimited worst case. Unknown deployment or domain assumptions should remain explicit and become a focused question when they change the judgment.
++
++Large or severe impact warrants closer investigation even when the code is easy to roll back. Easy reversal does not undo harm already caused. Conversely, an apparently small migration can merit thorough review because reversing it is expensive. Keep reversibility and blast radius separate rather than averaging them into a single score.
++
++### Expose both without producing a wall of text
++
++Add a compact assessment beside the current question, with evidence and detail available on demand. For example, using hypothetical content:
++
++```text
++Can existing readers still consume records after rollback?
++
++Door: One-way — rollback does not restore the old stored format.
++Blast radius: All readers of the shared store may reject new records.
++
++[embedded native diff: writer]  [reader]  [compatibility test]
++
++A  Preserve old-reader compatibility — recommended for mixed versions.
++B  Require a coordinated upgrade.
++
++Reply or ask a question...
++```
++
++This illustrates content, not a replacement layout. Keep the existing flow and embedded viewers. Do not repeat these assessments on every short clarification or introduce permanent warning banners. For meaningful topics, make the two assessments visible and concise; for uncertainty, say what is unknown.
++
++Let these lenses shape the next question: prefer unresolved hard-to-reverse or high-impact consequences whose prerequisites are understood. They do not justify endlessly grilling a settled topic, changing a human decision, or skipping remaining human code inspection.
++
++## 4. Extend the existing protocol and state, not the architecture
++
++Inspect the current schema before editing. The handoff supplies entry points, not enough detail to prescribe exact Rust types or transport changes.
++
++| Area | Entry points from the handoff |
++| --- | --- |
++| Interview state and response validation | `crates/review-explore/src/interview.rs`, `validation.rs` |
++| Working-copy source access | `crates/review-explore/src/source.rs`, `capture.rs` |
++| Agent instructions and turn protocol | `crates/review-explore-runner/src/interview.md`, `lib.rs` |
++| Session binding and turn delivery | `crates/reviewer/src/runtime/explore.rs`, `explore.tests.rs` |
++| Conversation and input | `crates/components/explore/src/`; `crates/review-ui/src/explore_choices.tests.rs`, `explore_flow.tests.rs`, `explore.tests.rs` |
++
++The turn result must be able to represent a direct conversational reply, validated agenda changes with reasons, any grounded interpretation of the reviewer’s outcome, and the next question with its evidence and consequence assessments. Use one coherent turn result; do not bolt on a second, independently advancing conversation.
++
++Bind each result to the input and interview turn it answers. Apply the validated reply, agenda updates, and next-question selection consistently. Reject unknown references or inconsistent updates without corrupting the current agenda. Retried delivery must not duplicate questions or conclusions; cancelled or obsolete results must not resurrect retired branches or overwrite newer turns.
++
++Preserve the session-identity fix described in the handoff: learning a previously unknown native session ID is not necessarily a session replacement. Do not confuse agent-session binding with the deliberately removed repository-snapshot checks.
++
++When answering an earlier question from the conversation, retain enough identity/context to interpret that reply correctly; do not apply it to a different current question just because focus moved. Preserve unposted text and the native diff interaction behavior during updates. If progress displays a question count, do not imply a fixed total while the agenda can grow or shrink.
++
++The in-memory map should explain outstanding, deferred, retired, and reconsideration work. The end of an initial list is not completion. Report remaining questions, uncertainty, follow-ups, and human file inspection honestly. No cross-restart persistence or new public MCP tool family is required for this update.
++
++## 5. Demonstrate changed reasoning, not just changed text
++
++Add deterministic state/protocol/UI regressions and a fresh isolated real-agent acceptance demonstration. Test these behaviors:
++
++1. A free-text domain answer changes the next investigation instead of just incrementing a question index.
++2. An invalidated premise retires the appropriate pending branch with a reason, while an independently relevant question survives. Retired questions do not become accepted or count as inspected files.
++3. A reviewer question gets an answer and can introduce a new branch or new source evidence; it does not silently record agreement.
++4. A correction preserves the original decision history and triggers reconsideration where necessary. Conditional agreement remains conditional.
++5. A hard-to-reverse change prompts the appropriate migration/recovery investigation. A readily reversible but broad-impact failure still gets closer review. An unsupported assessment remains unknown rather than defaulting to safe.
++6. Obsolete/duplicate results, invalid updates, session-ID discovery, and drafts behave correctly. Existing choice keys, native diff resizing/navigation, and yellow outlines remain functional.
++
++Use this illustrative scenario for the acceptance demonstration, with a controlled repository fixture rather than assertions about the real project:
++
++```text
++Agent: asks about a changed stored format; migration questions are pending.
++
++Reviewer: “These files are disposable cache. The authoritative data is elsewhere.”
++
++Agent: examines the rebuild/read paths.
++  If confirmed:
++    retires the now-irrelevant durable-data migration branch, with a reason;
++    reassesses reversibility;
++    retains or adds cache-rebuild availability questions.
++  If contradicted:
++    shows the conflicting evidence and asks a focused clarification.
++
++Reviewer: “What happens if every instance rebuilds at once?”
++
++Agent: investigates shared dependencies, answers that question,
++       updates the blast-radius assessment, and asks the next useful question.
++       It does not record this question as approval.
++```
++
++The changed agenda, preserved conversation, new source references, and revised assessments must be visible in Explore. Use the real working-copy implementation; do not cite older snapshot-based demos as validation of this update. Deterministic fixtures prove state behavior, not the quality of a live agent’s reasoning, so report the real-agent outcome and limitations separately.
++
++## Finish this feedback update, then stop
++
++Follow the current `AGENTS.md` workflow with a pinned feedback baseline, required checks/reviews, description update, and installation. The handoff records `NEXTEST_TEST_THREADS=8 make check` as the last successful full-suite invocation; use the current repository instructions as authority. Keep demos isolated. Do not send test messages to live user agents, restart live panes, or resume obsolete mailboxes.
++
++Update the current usage/agent-protocol documentation and append this feedback’s precedence to the existing milestone material. Do not replace the original plan with another full plan, or reintroduce its superseded snapshot and immutable-agenda requirements. Record exactly what was demonstrated, which tests ran, and any remaining limitations. Then stop for feedback rather than beginning persistence or another milestone.
++
++**Done means: the reviewer can change the direction of the investigation through conversation; the agent can retire invalid branches and open relevant ones; and reversibility and blast radius visibly guide the review without turning it into another checklist.**
++
++## Follow-up feedback — focused evidence and MCP delivery
++
++Later user feedback supersedes the response-file transport and optional alternatives:
++send Explore results through `submit_explore` on the existing MCP server and always
++offer two to five distinct answer choices. Every primary snippet must explain what
++it establishes and how it could change the answer; retain corroborating and background
++references in supporting sources. Open full base text when a valid old-side range
++is outside diff hunks. Fit and position the entire wrapped evidence range, including
++outlines, within the bounded native window. These remain feedback on this change.
++
++Further feedback removes the remaining input mailbox as well: use MCP for the
++entire Explore handoff, with no file fallback. Keep requests and base text in memory;
++fetch the exact turn and manifest through `get_explore`, page through diffs and source
++text with `read_explore`, and return results with `submit_explore`. Preserve the
++existing working-copy assumption, session binding, cancellation and exact history.
++
++Further feedback requires one reviewer-to-agent prompting method: reuse thread
++delivery for Explore and guide requests, keep transiently blocked requests pending,
++and send automatically when the agent is ready. Cancel queued prompts on cancellation
++or replacement. Fix the mouse-answer flow so releasing the submit click does not
++prevent an accepted MCP turn from revealing the next question; preserve genuine new
++navigation and unposted drafts while an answer is pending.
++
++Later clarification removes `read_explore`: the MCP-only requirement applies to
++interview context and structured responses. Agents read source files directly from
++disk and use Git/jj for diffs and historical versions. Keep `get_explore` and
++`submit_explore`, the source catalog/evidence IDs, and the working-copy assumption;
++remove the source-reading MCP tool and its paging machinery without adding a mailbox.
++
++
++The subsequent conversation-flow simplification takes precedence over the catalog
++and context-fetch descriptions above. Send the existing instructions, repository
++root and first turn identity once in the kickoff prompt. The agent posts its first
++question with `submit_explore` directly. Each human contribution wakes the same
++agent with a prompt containing that exact pending answer (including its original
++question and option), turn identity and retry error; the agent submits its next
++turn directly with `submit_explore`. No answer-fetch call is needed. Remove
++`get_explore_answer` as well. The agent retains context in its conversation while
++the reviewer retains immutable
++history. Remove `get_explore`, source registration and repository catalog exchange.
++Citations and topic associations use repository-relative paths, sides and line
++ranges directly. Continue until the review perimeter has been explored; closing
++still names unresolved work and required human Files inspection. Preserve MCP-only
++responses, shared prompt delivery, exact answer identity and idempotent submissions.
++
++Later answer-form feedback takes precedence over the earlier free-text choice:
++remove the selectable "Or answer in your own words" item. The text field supplements
++the selected option. Clicking an option or pressing its number selects it; Send,
++Ctrl-Enter, or Enter outside the editor submits the option and exact text together.
++Always append a built-in "None of the above" choice with an open outcome. Keep the
++first option selected by default, and put the question immediately above the choices,
++after supporting context and displayed evidence.
++
++
++Later navigation feedback supersedes the appended conversation and activity-gated
++advancement above. Show one question at a time with persistent Previous/Next controls,
++keyboard history navigation, and access to the opening context and latest question.
++An accepted new question must become the displayed Explore question even after input
++while waiting. Preserve prior answers, corrections, per-question drafts and native
++evidence state when navigating history. Updates received in Files or Threads select
++the new question for the next Explore visit without changing the active pane.
++
++
++Later wakeup feedback supersedes retransmitting the full original question. Send
++only the selected option's full exact text (not its number), ID and outcome, optional
++exact comment, answer/turn identity, one checkpoint and question ID/version. The
++agent already posted the question in the same conversation. Keep full questions and
++answers in reviewer history; do not resend evidence, assessments, rationale, other
++choices or recommendations. Include the original answer ID only for a correction,
++the previous error only after a failed attempt, and explicit deferral only when true.
++A reply to a questionless closing retains its closing-turn ID. Keep existing MCP
++submission validation, retries and shared prompt delivery.
++
++
++## Follow-up: separate conclusion and explicit implementation
++
++This feedback supersedes earlier closing-string and `submit_explore` contracts.
++Rename that tool to `submit_question`, which always posts a next question. Add a
++separate `submit_conclusion` with `summary`, `to_be_implemented`, and `future_work`
++string arguments plus turn identity and final-answer interpretation. Preserve the
++same attribution, validation, session binding and idempotent retry rules.
++
++Conclusions open their own page, like Opening, and remain reachable through history
++controls. Do not append a conclusion to the final question. Show summary and future
++work outside an editable task box populated only with `to_be_implemented`. An
++explicit Implement action sends only the edited tasks through the existing shared
++prompt delivery method. It authorizes implementation and validation of those tasks;
++submitting a conclusion alone does not. Preserve edits on failure, allow cancelling
++queued delivery, and distinguish request delivery from completed implementation.

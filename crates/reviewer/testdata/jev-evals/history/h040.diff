@@ -1,0 +1,93 @@
+diff --git a/crates/review-lsp/src/session.rs b/crates/review-lsp/src/session.rs
+index cd642367..392f0c05 100644
+--- a/crates/review-lsp/src/session.rs
++++ b/crates/review-lsp/src/session.rs
+@@ -193,16 +193,20 @@ fn initialize(&mut self, root: &Path, now: Instant) -> Result<(), String> {
+             general: Some(lsp_types::GeneralClientCapabilities {
+                 position_encodings: Some(vec![
+                     PositionEncodingKind::UTF8,
+                     PositionEncodingKind::UTF16,
+                 ]),
+                 ..Default::default()
+             }),
+             text_document: Some(TextDocumentClientCapabilities {
++                type_definition: Some(lsp_types::GotoCapability {
++                    link_support: Some(true),
++                    ..Default::default()
++                }),
+                 hover: Some(HoverClientCapabilities {
+                     content_format: Some(vec![MarkupKind::Markdown]),
+                     ..Default::default()
+                 }),
+                 ..Default::default()
+             }),
+             ..Default::default()
+         };
+@@ -280,27 +284,28 @@ fn start_query(
+                     work_done_progress_params: WorkDoneProgressParams::default(),
+                 };
+                 Request::new(
+                     id.clone(),
+                     lsp_types::request::HoverRequest::METHOD.to_owned(),
+                     params,
+                 )
+             }
+-            Operation::Definition => {
++            Operation::Definition | Operation::TypeDefinition => {
+                 let params = GotoDefinitionParams {
+                     text_document_position_params: position,
+                     work_done_progress_params: WorkDoneProgressParams::default(),
+                     partial_result_params: PartialResultParams::default(),
+                 };
+-                Request::new(
+-                    id.clone(),
+-                    lsp_types::request::GotoDefinition::METHOD.to_owned(),
+-                    params,
+-                )
++                let method = if operation == Operation::TypeDefinition {
++                    lsp_types::request::GotoTypeDefinition::METHOD
++                } else {
++                    lsp_types::request::GotoDefinition::METHOD
++                };
++                Request::new(id.clone(), method.to_owned(), params)
+             }
+             Operation::References => {
+                 let params = ReferenceParams {
+                     text_document_position: position,
+                     work_done_progress_params: WorkDoneProgressParams::default(),
+                     partial_result_params: PartialResultParams::default(),
+                     context: ReferenceContext {
+                         include_declaration: true,
+@@ -488,23 +493,25 @@ fn query_event(&self, operation: Operation, query: Query, response: Response) ->
+         let result = match operation {
+             Operation::Hover => {
+                 response_value::<Option<lsp_types::Hover>>(response).map(|hover| Event::Hover {
+                     toast_id: query.toast_id,
+                     snapshot_id: query.snapshot_id,
+                     markdown: hover.map(|hover| hover_markdown(hover.contents)),
+                 })
+             }
+-            Operation::Definition => response_value::<Option<GotoDefinitionResponse>>(response)
+-                .map(|locations| Event::Locations {
+-                    toast_id: query.toast_id,
+-                    operation,
+-                    snapshot_id: query.snapshot_id,
+-                    locations: self.normalize_locations(ServerLocation::from_definition(locations)),
+-                }),
++            Operation::Definition | Operation::TypeDefinition => response_value::<
++                Option<GotoDefinitionResponse>,
++            >(response)
++            .map(|locations| Event::Locations {
++                toast_id: query.toast_id,
++                operation,
++                snapshot_id: query.snapshot_id,
++                locations: self.normalize_locations(ServerLocation::from_definition(locations)),
++            }),
+             Operation::References => {
+                 response_value::<Option<Vec<Location>>>(response).map(|locations| {
+                     Event::Locations {
+                         toast_id: query.toast_id,
+                         operation,
+                         snapshot_id: query.snapshot_id,
+                         locations: self.normalize_locations(
+                             locations

@@ -1,0 +1,180 @@
+diff --git a/crates/review-repository/src/repository.rs b/crates/review-repository/src/repository.rs
+index 891b4775..0bd6a25b 100644
+--- a/crates/review-repository/src/repository.rs
++++ b/crates/review-repository/src/repository.rs
+@@ -9,18 +9,22 @@
+ use std::sync::Arc;
+ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+ use std::thread;
+ use std::time::Duration;
+ 
+ use crate::{Error, Result};
+ use review_types::ReviewUnit;
+ 
++mod comparison_plan;
+ mod git;
+ mod jj;
++mod jj_git_diff;
++
++pub use comparison_plan::{BaselineComparison, BaselineComparisonPlan, BaselineComparisonResults};
+ 
+ const COMMAND_OUTPUT_LIMIT: usize = 256 * 1024 * 1024;
+ 
+ #[derive(Clone, Copy, Debug)]
+ struct RepositoryProcess<'a> {
+     program: &'static str,
+     cwd: &'a Path,
+     operation: &'static str,
+@@ -64,27 +68,33 @@ fn from(value: String) -> Self {
+ }
+ 
+ impl From<&ReviewUnit> for ChangeId {
+     fn from(value: &ReviewUnit) -> Self {
+         Self(value.clone())
+     }
+ }
+ 
+-/// A full jj commit identifier.
+-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+-pub struct CommitId(String);
++/// An exact repository snapshot identifier.
++#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
++pub struct SnapshotId(String);
+ 
+-impl CommitId {
++impl SnapshotId {
+     /// Get the identifier text.
+     pub fn as_str(&self) -> &str {
+         &self.0
+     }
+ }
+ 
++impl From<String> for SnapshotId {
++    fn from(value: String) -> Self {
++        Self(value)
++    }
++}
++
+ /// A lossless Unix repository-relative path.
+ #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+ pub struct RepoPath(Vec<u8>);
+ 
+ impl RepoPath {
+     pub(crate) fn from_bytes(bytes: impl Into<Vec<u8>>) -> Self {
+         Self(bytes.into())
+     }
+@@ -521,26 +531,26 @@ fn diff_paths(&self) -> impl Iterator<Item = &RepoPath> {
+ /// The exact identity of one repository snapshot.
+ #[derive(Clone, Debug, Eq, PartialEq)]
+ pub enum SnapshotIdentity {
+     /// A jj working-copy snapshot.
+     Jj {
+         /// The stable jj change ID.
+         change_id: ChangeId,
+         /// The exact jj commit ID.
+-        commit_id: CommitId,
++        snapshot_id: SnapshotId,
+         /// The full commit description.
+         description: String,
+     },
+     /// A Git working-tree snapshot.
+     Git {
+         /// The tree at `HEAD` that defines the review scope.
+         base_tree: ReviewUnit,
+         /// The exact captured working-tree state.
+-        snapshot_tree: String,
++        snapshot_id: SnapshotId,
+     },
+ }
+ 
+ impl SnapshotIdentity {
+     fn parse(output: &[u8]) -> Result<Self> {
+         let fields: Vec<_> = output.split(|byte| *byte == 0).collect();
+         if fields.len() != 4
+             || fields[0].is_empty()
+@@ -562,34 +572,33 @@ fn parse(output: &[u8]) -> Result<Self> {
+         })?;
+         let description = std::str::from_utf8(fields[2]).map_err(|_| Error::Protocol {
+             operation: "read jj snapshot identity".to_owned(),
+             detail: "jj returned a non-UTF-8 commit description",
+         })?;
+ 
+         Ok(Self::Jj {
+             change_id: ChangeId(change_id.into()),
+-            commit_id: CommitId(commit_id.to_owned()),
++            snapshot_id: SnapshotId(commit_id.to_owned()),
+             description: description.to_owned(),
+         })
+     }
+ 
+     /// Get the stable identifier used to group review marks.
+     pub fn review_unit(&self) -> &ReviewUnit {
+         match self {
+             Self::Jj { change_id, .. } => &change_id.0,
+             Self::Git { base_tree, .. } => base_tree,
+         }
+     }
+ 
+     /// Get the exact identifier for the captured repository state.
+     pub fn snapshot_id(&self) -> &str {
+         match self {
+-            Self::Jj { commit_id, .. } => commit_id.as_str(),
+-            Self::Git { snapshot_tree, .. } => snapshot_tree,
++            Self::Jj { snapshot_id, .. } | Self::Git { snapshot_id, .. } => snapshot_id.as_str(),
+         }
+     }
+ 
+     /// Get the text shown in the review header.
+     pub fn description(&self) -> &str {
+         match self {
+             Self::Jj { description, .. } => description,
+             Self::Git { .. } => "Git working tree\n",
+@@ -653,16 +662,22 @@ fn base_file_at(
+     ) -> Result<Vec<u8>>;
+     fn interdiff(
+         &self,
+         repository: &Repository,
+         baseline_snapshot_id: &str,
+         snapshot: &Snapshot,
+         path: &RepoPath,
+     ) -> Result<Interdiff>;
++    fn compare_baselines(
++        &self,
++        repository: &Repository,
++        snapshot: &Snapshot,
++        plan: &BaselineComparisonPlan,
++    ) -> Result<BaselineComparisonResults>;
+ }
+ 
+ /// The repository implementation selected during discovery.
+ #[derive(Clone, Copy, Debug, Eq, PartialEq, strum::Display, strum::EnumString)]
+ #[strum(serialize_all = "lowercase")]
+ pub enum RepoType {
+     /// A Git working tree.
+     Git,
+@@ -907,16 +922,25 @@ pub fn interdiff(
+         baseline_snapshot_id: &str,
+         snapshot: &Snapshot,
+         path: &RepoPath,
+     ) -> Result<Interdiff> {
+         self.backend
+             .interdiff(self, baseline_snapshot_id, snapshot, path)
+     }
+ 
++    /// Execute all stored-baseline comparisons in one backend plan.
++    pub fn compare_baselines(
++        &self,
++        snapshot: &Snapshot,
++        plan: &BaselineComparisonPlan,
++    ) -> Result<BaselineComparisonResults> {
++        self.backend.compare_baselines(self, snapshot, plan)
++    }
++
+     fn read_jj_identity(&self, ignore_working_copy: bool) -> Result<SnapshotIdentity> {
+         let mut arguments = Vec::new();
+         if ignore_working_copy {
+             arguments.push(OsString::from("--ignore-working-copy"));
+         }
+         arguments.extend([
+             OsString::from("log"),
+             OsString::from("--no-graph"),

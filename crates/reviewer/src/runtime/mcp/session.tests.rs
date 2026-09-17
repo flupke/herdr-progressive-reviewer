@@ -1,7 +1,7 @@
 use super::*;
 
 impl ConversationFixture {
-    fn replace_session(&self, session: &str) {
+    pub(super) fn replace_session(&self, session: &str) {
         self.server
             .run_cli(&["pane", "send-keys", &self.server.pane_id.0, "ctrl+d"]);
         let deadline = Instant::now() + Duration::from_secs(5);

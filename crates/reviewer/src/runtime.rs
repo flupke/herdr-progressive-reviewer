@@ -719,6 +719,7 @@ where
             }
         }
         if redraw {
+            self.dispatch_event(&EventEnvelope::new(ui_events::ExploreCoverageRefresh))?;
             self.redraw()?;
         }
         Ok(false)
@@ -1089,7 +1090,7 @@ impl Worker {
                     match self.tracker.mark(snapshot, file)? {
                         MarkResult::Marked => self.tracker.status(snapshot, file),
                         MarkResult::ChangeChanged => {
-                            eyre::bail!("the change moved; wait for the next refresh")
+                            eyre::bail!("the change moved; wait for the next refresh");
                         }
                     }
                 } else {

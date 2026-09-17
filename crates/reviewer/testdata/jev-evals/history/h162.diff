@@ -1,0 +1,50 @@
+diff --git a/flake.lock b/flake.lock
+index 1e03312e..05e1ca73 100644
+--- a/flake.lock
++++ b/flake.lock
+@@ -1,10 +1,27 @@
+ {
+   "nodes": {
++    "cccc": {
++      "flake": false,
++      "locked": {
++        "lastModified": 1784468540,
++        "narHash": "sha256-At6q57Vw+Vs8/g9LKH4ZM0JCtsBgjnclev/bPhhs7WM=",
++        "owner": "moznion",
++        "repo": "cccc",
++        "rev": "d728759323be5d9977b7390a27133e8eaf481f26",
++        "type": "github"
++      },
++      "original": {
++        "owner": "moznion",
++        "ref": "v1.6.0",
++        "repo": "cccc",
++        "type": "github"
++      }
++    },
+     "nixpkgs": {
+       "locked": {
+         "lastModified": 1785967620,
+         "narHash": "sha256-IItrdb7Puk05RqOBWZYFC5X6Wl1sJmCfh5MWVHw5iMM=",
+         "owner": "NixOS",
+         "repo": "nixpkgs",
+         "rev": "b7c2ada94fe99c15b0dbcf4d11fd7850b957a436",
+         "type": "github"
+@@ -13,16 +30,17 @@
+         "owner": "NixOS",
+         "ref": "nixos-unstable",
+         "repo": "nixpkgs",
+         "type": "github"
+       }
+     },
+     "root": {
+       "inputs": {
++        "cccc": "cccc",
+         "nixpkgs": "nixpkgs",
+         "rust-overlay": "rust-overlay"
+       }
+     },
+     "rust-overlay": {
+       "inputs": {
+         "nixpkgs": [
+           "nixpkgs"

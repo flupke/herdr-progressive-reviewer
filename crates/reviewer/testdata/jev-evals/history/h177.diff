@@ -1,0 +1,21 @@
+diff --git a/crates/review-ui/Cargo.toml b/crates/review-ui/Cargo.toml
+index 96d5ff90..56d13978 100644
+--- a/crates/review-ui/Cargo.toml
++++ b/crates/review-ui/Cargo.toml
+@@ -12,15 +12,16 @@ ratatui-markdown.workspace = true
+ review-lsp = { path = "../review-lsp" }
+ review-repository = { path = "../review-repository" }
+ review-state = { path = "../review-state" }
+ review-store = { path = "../review-store" }
+ syntect.workspace = true
+ toasts = { path = "../toasts" }
+ toml.workspace = true
+ two-face.workspace = true
++unicode-segmentation.workspace = true
+ unicode-width.workspace = true
+ 
+ [dev-dependencies]
+ tempfile.workspace = true
+ 
+ [lints]
+ workspace = true

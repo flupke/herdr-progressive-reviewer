@@ -1,0 +1,150 @@
+{
+  "date": "2026-09-19",
+  "kind": "fresh real-agent acceptance observation",
+  "agent": "Codex gpt-6-astra",
+  "isolation": "Private Herdr socket/config/state/workspace and agent home; no live user pane operations.",
+  "pass": "8d3c59f9-8a3a-4a53-8981-48601541c679",
+  "checkpoint": {
+    "review_unit": "a67b8c75ae0f5ef3b1b3a10d1608c4714df77b62",
+    "checkpoint": "27a1476ad563fc8f7949a0fa6233621350bafc14"
+  },
+  "native_session": "01a0bb44-98af-7f13-9004-541b5ef60365",
+  "restarts": [
+    {
+      "name": "restart",
+      "native_session": "01a0bb44-98af-7f13-9004-541b5ef60365",
+      "before_user_messages": 6,
+      "after_user_messages": 6,
+      "before_agent_turns": 5,
+      "after_agent_turns": 5,
+      "identical_domain_history": true,
+      "identical_page_tasks_and_drafts": true,
+      "selected_page": {
+        "Conclusion": "d3aa3d10-23a9-4636-a419-89774d883a93"
+      }
+    },
+    {
+      "name": "second-restart",
+      "native_session": "01a0bb44-98af-7f13-9004-541b5ef60365",
+      "before_user_messages": 8,
+      "after_user_messages": 8,
+      "before_agent_turns": 7,
+      "after_agent_turns": 7,
+      "identical_domain_history": true,
+      "identical_page_tasks_and_drafts": true,
+      "selected_page": {
+        "Conclusion": "9ea1935b-304a-43d5-9f85-9fcf2d1620f3"
+      }
+    }
+  ],
+  "retirement": {
+    "topic": "shared-rollout",
+    "action": "retire",
+    "reason": "The reviewer explicitly states this demo uses a device-local disposable cache owned by one process, with no shared-version rollout, and requests retirement of this branch. Independent origin compatibility, envelope validation, and local recovery risks remain.",
+    "answer": "23d3186f-9795-4b22-8125-25b321650ff7",
+    "evidence": [],
+    "replacement": null,
+    "decision": null
+  },
+  "contribution_texts": [
+    {
+      "option": {
+        "id": "legacy-origin",
+        "text": "Origin can still contain the legacy list format",
+        "outcome": "open",
+        "recommendation": null
+      },
+      "text": "Demo-only policy context: this is a device-local disposable cache, owned by one process, with no shared-version rollout. Retire the shared-rollout branch. Legacy local origin snapshots must remain readable; require supporting them and adding reader recovery tests. Origin read failures should surface while leaving the cache intact. No production or deployment actions are requested."
+    },
+    {
+      "option": {
+        "id": "validate-and-recover",
+        "text": "Raise ValueError and test origin recovery",
+        "outcome": "needs_follow_up",
+        "recommendation": "Recommended: preserve the prior list contract and use the existing recovery path instead of returning invalid rows or bypassing fallback."
+      },
+      "text": "Demo-only policy: require list validation and reader recovery tests. Keep cache-write failures propagating for this slice and record atomic cache replacement as future work only. Please conclude once these bounded decisions and the existing legacy-origin requirement are recorded; do not run tests or implement."
+    },
+    {
+      "option": null,
+      "text": "Demo-only follow-up draft A: does the agreed list validation also constrain the rows supplied to encode, or only values read from disk? Keep this review-only."
+    },
+    {
+      "option": null,
+      "text": "Demo-only follow-up draft B: is atomic cache replacement still future work, outside the agreed implementation list? Keep this review-only."
+    }
+  ],
+  "conclusion_ids": [
+    "d3aa3d10-23a9-4636-a419-89774d883a93",
+    "9ea1935b-304a-43d5-9f85-9fcf2d1620f3",
+    "0c622285-185b-44c3-bdd5-86710be9a943"
+  ],
+  "saved_conclusion_editors": {
+    "tasks": {
+      "9ea1935b-304a-43d5-9f85-9fcf2d1620f3": {
+        "text": "Second edited scope: preserve legacy origins, validate decoded lists, and test reader recovery.",
+        "row": 0,
+        "column": 95,
+        "scroll": 0,
+        "vim": false,
+        "normal": false
+      },
+      "d3aa3d10-23a9-4636-a419-89774d883a93": {
+        "text": "1. Support legacy local origin snapshots.\n2. Validate list records and add reader recovery tests.\n3. Keep origin/cache-write failures propagating.\n",
+        "row": 3,
+        "column": 0,
+        "scroll": 0,
+        "vim": false,
+        "normal": false
+      }
+    },
+    "drafts": [
+      [
+        {
+          "Conclusion": "d3aa3d10-23a9-4636-a419-89774d883a93"
+        },
+        {
+          "editor": {
+            "text": "Unposted first-conclusion note A",
+            "row": 0,
+            "column": 32,
+            "scroll": 0,
+            "vim": false,
+            "normal": false
+          },
+          "correction": null
+        }
+      ],
+      [
+        {
+          "Conclusion": "9ea1935b-304a-43d5-9f85-9fcf2d1620f3"
+        },
+        {
+          "editor": {
+            "text": "Demo-only follow-up draft B: is atomic cache replacement still future work, outside the agreed implementation list? Keep this review-only.",
+            "row": 0,
+            "column": 138,
+            "scroll": 0,
+            "vim": false,
+            "normal": false
+          },
+          "correction": null
+        }
+      ]
+    ]
+  },
+  "observed": {
+    "earlier_conclusion_has_own_tasks_and_reply": true,
+    "earlier_conclusion_has_no_implement_control": true,
+    "normal_followup_after_second_restart_accepted_in_same_pass": true,
+    "final_clarification": "Yes. Atomic cache replacement remains future work only, outside the agreed implementation list, as explicitly requested in the earlier decision. This factual clarification adds no decision or implementation task. Cache-write failures continue to propagate for this slice; atomic replacement has not been implemented or agreed for this slice. Required work remains support for legacy list-format local origins, ValueError for missing/non-list v2 records, and reader recovery tests including origin-read failures that leave existing cache contents unchanged. The list-validation agreement remains decoder-side; recovery writes inherit it through decoded origin rows, while direct encode inputs have no additional agreed list check. The demo remains device-local, disposable, and owned by one process; shared rollout remains retired. The full checkout comparison was previously inspected, but actual origin data, external consumers, and runtime behavior remain unverified. No source edits, tests, implementation, file-review marks, or ordinary-thread changes were performed. Further human Files inspection is required.",
+    "source_files_unchanged": true,
+    "reviewed_files": 0,
+    "implementation_authorizations": 0
+  },
+  "limitations": [
+    "No fixture tests or implementation were run by the real agent. Crash/delivery outcomes were checked separately with deterministic tests.",
+    "The first follow-up needed explicit retry after harness shortcut input exposed a new-pass autosave ordering defect; this was repaired and the original answer was retained.",
+    "After the successful second continuation, a late harness text input hit shortcuts and started an extra pass. It was cancelled; the original investigation remained stored. That extra pass is not acceptance evidence."
+  ]
+}

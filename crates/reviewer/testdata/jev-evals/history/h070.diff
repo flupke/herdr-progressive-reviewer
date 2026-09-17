@@ -1,0 +1,23 @@
+diff --git a/crates/ui-events/src/lib.rs b/crates/ui-events/src/lib.rs
+index 00d17884..83ecdd46 100644
+--- a/crates/ui-events/src/lib.rs
++++ b/crates/ui-events/src/lib.rs
+@@ -13,16 +13,18 @@
+ use review_types::ReviewUnit;
+ use toasts::ToastKind;
+ 
+ /// Repository text shown outside the file and diff panes.
+ #[derive(Clone, Debug, Eq, PartialEq)]
+ pub struct RepositoryMetadataChanged {
+     pub review_checkpoint: ReviewCheckpoint,
+     pub description: String,
++    /// Abbreviated revision identifier, optionally containing ANSI colour escapes.
++    pub display_id: String,
+ }
+ 
+ /// Aggregate values shown in the repository header.
+ #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+ pub struct FilesOverviewChanged {
+     pub reviewed: usize,
+     pub total: usize,
+     pub lines_added: u64,

@@ -1,0 +1,22 @@
+diff --git a/crates/components/locations/src/lib.tests.rs b/crates/components/locations/src/lib.tests.rs
+index 66b10586..79de84e3 100644
+--- a/crates/components/locations/src/lib.tests.rs
++++ b/crates/components/locations/src/lib.tests.rs
+@@ -91,16 +91,17 @@ fn location_list() -> (ComponentEventBus<Action>, component_core::ComponentTarge
+             events,
+             PathBuf::from("/repository"),
+             ui_theme::Theme::default().palette,
+         )
+     });
+     event_bus.mount(|_| LocationOutput::default());
+     event_bus
+         .publish(RepositoryMetadataChanged {
++            display_id: "abcd1234".to_owned(),
+             review_checkpoint: ReviewCheckpoint::new("change", "snapshot"),
+             description: String::new(),
+         })
+         .expect("repository metadata must dispatch");
+     event_bus
+         .publish(FilesViewportChanged { rows: 3 })
+         .expect("viewport must dispatch");
+     event_bus

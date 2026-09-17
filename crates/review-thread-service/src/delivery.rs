@@ -6,9 +6,15 @@ use std::sync::{
 };
 
 use herdr_client::client::HerdrClient;
-use herdr_client::protocol::AgentPrompter;
+use herdr_client::protocol::{Agent, AgentPrompter};
 
 use crate::{Input, PinnedAgent};
+
+pub(super) fn prompt_agent(client: &HerdrClient, agent: &Agent, text: &str) -> Result<(), String> {
+    client
+        .prompt_agent(&agent.pane_id, text)
+        .map_err(|error| error.to_string())
+}
 
 #[derive(Clone, Debug)]
 pub struct PromptSender {
@@ -117,10 +123,9 @@ impl PromptRequest {
                 .before_attempt(&agent)
                 .map_err(PromptError::Delivery)?;
         }
+        self.agent.seal_attempt().map_err(PromptError::Delivery)?;
         // After the durable attempt marker, authoritative success wins a cancellation race.
-        client
-            .prompt_agent(&agent.pane_id, &self.text)
-            .map_err(|error| PromptError::Unknown(error.to_string()))?;
+        prompt_agent(client, &agent, &self.text).map_err(PromptError::Unknown)?;
         Ok(true)
     }
 }

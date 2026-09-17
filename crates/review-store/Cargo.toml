@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+review-explore = { path = "../review-explore" }
 fs2.workspace = true
 review-threads = { path = "../review-threads" }
 base64.workspace = true
@@ -21,7 +22,9 @@ time.workspace = true
 zstd.workspace = true
 
 [dev-dependencies]
+herdr-client = { path = "../herdr-client" }
 tempfile.workspace = true
+review-repository = { path = "../review-repository" }
 
 [lints]
 workspace = true

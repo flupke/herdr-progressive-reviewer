@@ -1,0 +1,15 @@
+diff --git a/crates/review-explore/src/consequence.rs b/crates/review-explore/src/consequence.rs
+--- a/crates/review-explore/src/consequence.rs
++++ b/crates/review-explore/src/consequence.rs
+@@ -1,9 +1,11 @@
+ #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, schemars::JsonSchema)]
+ #[serde(deny_unknown_fields)]
+ pub struct Consequence {
+     /// Short first paragraph for this Markdown section, including the decisive reason.
+     pub summary: String,
++    /// Optional Markdown reasoning after the summary; omit or leave empty when unnecessary.
++    #[serde(default)]
+     pub details: String,
+     pub evidence: Vec<EvidenceRef>,
+     pub unknowns: Vec<String>,
+ }

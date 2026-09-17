@@ -11,6 +11,7 @@ impl Runtime {
         store: ReviewStore,
         messages: ApplicationMessageSender,
         target: AgentTarget,
+        commands: std::sync::mpsc::Sender<super::WorkerCommand>,
     ) -> comments::Worker {
         comments::Worker::start(
             store,
@@ -19,6 +20,9 @@ impl Runtime {
             review_mcp::Endpoint::from_env(self.repository.root()),
             {
                 move |event| match event {
+                    comments::Event::Explore(request) => {
+                        let _ = commands.send(super::WorkerCommand::ExploreMcp(Box::new(request)));
+                    }
                     comments::Event::Loaded(event) => {
                         let _ = messages.send(event);
                     }

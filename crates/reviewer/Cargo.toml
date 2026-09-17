@@ -5,7 +5,13 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+jev-evals = ["dep:serde"]
+
 [dependencies]
+uuid.workspace = true
+review-explore-runner = { path = "../review-explore-runner" }
+review-explore = { path = "../review-explore" }
 toasts = { path = "../toasts" }
 text-search = { path = "../text-search" }
 crossterm.workspace = true
@@ -31,9 +37,12 @@ review-types = { path = "../review-types" }
 review-ui = { path = "../review-ui" }
 ui-events = { path = "../ui-events" }
 serde_json.workspace = true
+reqwest.workspace = true
 sha2.workspace = true
 signal-hook.workspace = true
 syntax-highlighting = { path = "../syntax-highlighting" }
+serde = { workspace = true, optional = true }
+tiktoken-rs = "0.12"
 
 [dev-dependencies]
 rmcp = { workspace = true, features = ["client", "transport-streamable-http-client-reqwest"] }
