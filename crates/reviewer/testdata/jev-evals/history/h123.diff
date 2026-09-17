@@ -1,0 +1,63 @@
+diff --git a/crates/review-repository/src/repository.rs b/crates/review-repository/src/repository.rs
+index c5d6ebf3..891b4775 100644
+--- a/crates/review-repository/src/repository.rs
++++ b/crates/review-repository/src/repository.rs
+@@ -685,16 +685,33 @@ pub struct RevisionCandidate {
+     /// The full stable jj change identifier used by `jj edit`.
+     pub change_id: ChangeId,
+     /// The short change identifier shown in the selector.
+     pub short_change_id: String,
+     /// The first line of the commit description.
+     pub description: String,
+ }
+ 
++/// One terminal-rendered row in the revision history.
++#[derive(Clone, Debug, Eq, PartialEq)]
++pub struct RevisionHistoryLine {
++    /// ANSI-colored text produced by `jj log`.
++    pub text: String,
++    /// Text without terminal control sequences, used if ANSI parsing fails.
++    pub plain_text: String,
++    /// The short change identifier shown in the terminal-rendered text.
++    pub short_change_id: Option<String>,
++    /// The full change identifier when this row represents a commit.
++    pub change_id: Option<ChangeId>,
++    /// Whether this row represents the current working-copy commit.
++    pub is_current: bool,
++    /// Whether this row is immutable context that cannot be selected.
++    pub is_immutable: bool,
++}
++
+ /// A discovered jj or Git workspace.
+ #[derive(Clone, Debug)]
+ pub struct Repository {
+     root: PathBuf,
+     repo_type: RepoType,
+     backend: Arc<dyn RepositoryBackend>,
+     cancellation: Cancellation,
+ }
+@@ -809,16 +826,24 @@ pub fn revision_candidates(
+         direction: RevisionDirection,
+     ) -> Result<Vec<RevisionCandidate>> {
+         if self.repo_type != RepoType::Jj {
+             return Ok(Vec::new());
+         }
+         jj::revision_candidates(self, direction)
+     }
+ 
++    /// Render the mutable graph above the immutable base and its immutable children with `jj log`.
++    pub fn revision_history(&self) -> Result<Vec<RevisionHistoryLine>> {
++        if self.repo_type != RepoType::Jj {
++            return Ok(Vec::new());
++        }
++        jj::revision_history(self)
++    }
++
+     /// Make one mutable jj change the working-copy commit.
+     pub fn edit_revision(&self, change_id: &ChangeId) -> Result<bool> {
+         if self.repo_type != RepoType::Jj {
+             return Ok(false);
+         }
+         let revset = format!("{} & mutable()", change_id.as_str());
+         let editable = self
+             .run_jj([

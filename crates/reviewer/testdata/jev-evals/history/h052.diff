@@ -1,0 +1,253 @@
+diff --git a/crates/components/diff/src/lib.rs b/crates/components/diff/src/lib.rs
+index f73d7f74..1a5fbfdc 100644
+--- a/crates/components/diff/src/lib.rs
++++ b/crates/components/diff/src/lib.rs
+@@ -1,31 +1,33 @@
+ //! Diff document state and its component event boundary.
+ 
+ use std::cell::RefCell;
+ use std::path::PathBuf;
++use std::sync::Arc;
+ 
+ use component_core::{
+     Component, ComponentSubscriptions, EventPublisher, InputMatcher, InputResolution, InputScope,
+ };
+ use guide_rendering::{GuideLayout, GuideOverlay};
+ use ratatui::buffer::Buffer;
+ use ratatui::layout::Rect;
+ use review_guide::ReviewCheckpoint;
+ use review_state::ReviewStatus;
+ use ui_actions::Action;
+ use ui_events::{
+     AnimationTick, CurrentReviewLocationChanged, DiffContentLoadFailed, DiffContentLoaded,
+     DiffInputClearRequested, DiffViewportChanged, DisplayedDiffViewportsChanged,
+     FileDecorationsChanged, FileSelected, FileSelectionRequested, FileSummary, GuideJumpRequested,
+-    GuideLayoutChanged, LocationListVisibilityChanged, OutputDeliveryFinished, PointerInput,
+-    PointerInputKind, RepositoryFilesChanged, ReviewLocation, ReviewLocationJumped,
+-    ReviewLocationRestoreRequested, ReviewStateSaved, ReviewableFiles, ReviewableFilesChanged,
+-    RevisionEditFailed, SearchStatusChanged, SourceContentLoadFailed, SourceContentLoaded,
+-    SourceLocationAccepted, SourceLocationPreviewRequested, TemporaryFilesChanged, ToastRequested,
++    GuideLayoutChanged, HighlightRequest, HighlightingFinished, LocationListVisibilityChanged,
++    OutputDeliveryFinished, PointerInput, PointerInputKind, RepositoryFilesChanged, ReviewLocation,
++    ReviewLocationJumped, ReviewLocationRestoreRequested, ReviewStateSaved, ReviewableFiles,
++    ReviewableFilesChanged, RevisionEditFailed, SearchStatusChanged, SourceContentLoadFailed,
++    SourceContentLoaded, SourceLocationAccepted, SourceLocationPreviewRequested,
++    TemporaryFilesChanged, ToastRequested,
+ };
+ use ui_shortcuts::{
+     ApplicationShortcut, HunkShortcut, Key, LspShortcut, NavigationShortcut, SearchShortcut,
+     ShortcutCommand, ShortcutMatcher, ShortcutSet, SourceShortcut,
+ };
+ 
+ mod document;
+ mod history;
+@@ -1250,16 +1252,17 @@ fn repository_changed(&mut self, event: &RepositoryFilesChanged) -> Vec<Action>
+             self.selected_load_action()
+                 .into_iter()
+                 .chain(search_action)
+                 .collect()
+         }
+     }
+ 
+     fn file_selected(&mut self, event: &FileSelected) -> Vec<Action> {
++        let newly_selected = self.selected_path.as_deref() != Some(&event.path);
+         if self
+             .pending_guide_jump
+             .as_ref()
+             .is_some_and(|target| target.path() != event.path)
+         {
+             self.pending_guide_jump = None;
+         }
+         let origin = self.current_review_location();
+@@ -1272,22 +1275,31 @@ fn file_selected(&mut self, event: &FileSelected) -> Vec<Action> {
+             self.events.publish(TemporaryFilesChanged::default());
+         }
+         let load_immediately = self.selected_path.is_none();
+         self.selected_path = Some(event.path.clone());
+         self.publish_viewports();
+         self.publish_current_location();
+         self.publish_search_status();
+         self.record_current_location_jump(origin);
+-        if load_immediately {
++        let mut actions = if load_immediately {
+             self.selected_load_action().into_iter().collect()
+         } else {
+             self.pending_load_path = Some(event.path.clone());
+             Vec::new()
++        };
++        if newly_selected {
++            let path = self
++                .selected_document()
++                .and_then(|document| document.disk_path.clone())
++                .unwrap_or_else(|| self.repository_root.join(&event.path));
++            actions.push(Action::OpenLspDocument(path));
+         }
++        actions.extend(self.request_visible_highlights());
++        actions
+     }
+ 
+     #[allow(clippy::trivially_copy_pass_by_ref)]
+     fn animation_tick(&mut self, _event: &AnimationTick) -> Vec<Action> {
+         let Some(path) = self.pending_load_path.take() else {
+             return Vec::new();
+         };
+         if self.selected_path.as_deref() != Some(path.as_str()) {
+@@ -1313,24 +1325,25 @@ fn selected_load_action(&mut self) -> Option<Action> {
+     }
+ 
+     fn content_loaded(&mut self, event: &DiffContentLoaded) -> Vec<Action> {
+         let syntax_highlighter = self.highlighter.clone();
+         let Some(document) = self.current_document_mut(&event.review_checkpoint, &event.path)
+         else {
+             return Vec::new();
+         };
+-        let highlighted_rows = syntax_highlighter.highlight(
+-            &event.path,
++        let highlighted_rows = syntax_highlighter.plain(
+             event.rows.clone(),
+             event.old_content.as_deref(),
+             event.new_content.as_deref(),
+         );
+         let reload_after_current_load =
+             document.replace_diff(DiffPresentation::new(highlighted_rows));
++        let request = HighlightRequest::Diff(Arc::new(event.clone()));
++        document.document.prepare_highlighting(request);
+         self.refresh_pending_preview(&event.path);
+         let pending_center_completed = self.pending_center_path.as_deref() == Some(&event.path);
+         let center_selected_document =
+             pending_center_completed && self.selected_path.as_deref() == Some(&event.path);
+         if pending_center_completed {
+             self.pending_center_path = None;
+         }
+         if center_selected_document {
+@@ -1347,24 +1360,41 @@ fn content_loaded(&mut self, event: &DiffContentLoaded) -> Vec<Action> {
+         {
+             self.find_from_origin();
+         }
+         self.finish_repository_search_load_if_complete();
+         self.publish_viewports();
+         self.publish_decorations();
+         self.publish_current_location();
+         self.publish_search_status();
++        let highlights = self.request_visible_highlights();
+         if reload_after_current_load && self.selected_path.as_deref() == Some(event.path.as_str()) {
+             return self
+                 .selected_load_action()
+                 .into_iter()
+                 .chain(search_action)
++                .chain(highlights)
+                 .collect();
+         }
+-        search_action.into_iter().collect()
++        search_action.into_iter().chain(highlights).collect()
++    }
++
++    fn highlighting_finished(&mut self, event: &HighlightingFinished) {
++        for loaded in self.documents.iter_mut().chain(self.preview.iter_mut()) {
++            loaded.document.finish_highlighting(event);
++        }
++    }
++
++    fn request_visible_highlights(&mut self) -> Vec<Action> {
++        self.documents
++            .iter_mut()
++            .filter(|loaded| Some(&loaded.path) == self.selected_path.as_ref())
++            .chain(self.preview.iter_mut())
++            .filter_map(|loaded| loaded.document.request_highlighting())
++            .collect()
+     }
+ 
+     fn content_load_failed(&mut self, event: &DiffContentLoadFailed) -> Vec<Action> {
+         if self.pending_center_path.as_deref() == Some(&event.path) {
+             self.pending_center_path = None;
+         }
+         let pending_guide_jump_matches = self
+             .pending_guide_jump
+@@ -1557,37 +1587,38 @@ fn load_source_location(
+         }
+         vec![Action::LoadSource {
+             snapshot_id: review_checkpoint.checkpoint.clone(),
+             location,
+             mode,
+         }]
+     }
+ 
+-    fn source_content_loaded(&mut self, event: &SourceContentLoaded) {
++    fn source_content_loaded(&mut self, event: &SourceContentLoaded) -> Vec<Action> {
+         if self
+             .review_checkpoint
+             .as_ref()
+             .is_none_or(|checkpoint| checkpoint.checkpoint != event.snapshot_id)
+         {
+-            return;
++            return Vec::new();
+         }
+         let review_path = event.location.review_path(&self.repository_root);
+-        let display_path = event.location.display_path(&self.repository_root);
+-        let highlighted =
+-            self.highlighter
+-                .highlight(&display_path, Vec::new(), None, Some(&event.content));
++        let highlighted = self
++            .highlighter
++            .plain(Vec::new(), None, Some(&event.content));
+         let mut presentation = DiffPresentation::new(highlighted);
+         let _ = presentation.show_file();
+         let mut document = LoadedDocument::from_source(
+             &event.location,
+             review_path.as_deref(),
+             presentation,
+             event.mode,
+         );
++        let request = HighlightRequest::Source(Arc::new(event.clone()));
++        document.document.prepare_highlighting(request);
+         let _ = document.document.reveal_location(&event.location);
+         if event.mode.is_external() {
+             self.documents.retain(|document| !document.temporary);
+             let path = document.path.clone();
+             self.documents.push(document);
+             self.selected_path = Some(path.clone());
+             self.center_jump_target();
+             self.events.publish(TemporaryFilesChanged {
+@@ -1598,17 +1629,24 @@ fn source_content_loaded(&mut self, event: &SourceContentLoaded) {
+                 )],
+             });
+             self.events.publish(FileSelectionRequested { path });
+             self.publish_viewports();
+             self.publish_current_location();
+         } else if self.pending_preview_location.as_ref() == Some(&event.location) {
+             self.preview = Some(document);
+             self.center_jump_target();
++        } else {
++            return Vec::new();
+         }
++        let mut actions = self.request_visible_highlights();
++        if event.mode.is_external() {
++            actions.push(Action::OpenLspDocument(event.location.path.clone()));
++        }
++        actions
+     }
+ 
+     fn refresh_pending_preview(&mut self, path: &str) {
+         let Some(location) = self.pending_preview_location.clone() else {
+             return;
+         };
+         if location.review_path(&self.repository_root).as_deref() != Some(path) {
+             return;
+@@ -1917,16 +1955,17 @@ fn current_search_location(&self) -> Option<RepositorySearchLocation> {
+ }
+ 
+ impl Component<Action> for DiffComponent {
+     fn register_subscriptions(subscriptions: &mut ComponentSubscriptions<'_, Self, Action>) {
+         subscriptions.subscribe(Self::repository_changed);
+         subscriptions.subscribe(Self::file_selected);
+         subscriptions.subscribe(Self::animation_tick);
+         subscriptions.subscribe(Self::content_loaded);
++        subscriptions.subscribe(Self::highlighting_finished);
+         subscriptions.subscribe(Self::search_completed);
+         subscriptions.subscribe(Self::content_load_failed);
+         subscriptions.subscribe(Self::reviewable_files_changed);
+         subscriptions.subscribe(Self::review_state_saved);
+         subscriptions.subscribe(Self::viewport_changed);
+         subscriptions.subscribe(Self::clear_input);
+         subscriptions.subscribe(Self::output_finished);
+         subscriptions.subscribe(Self::guide_layout_changed);

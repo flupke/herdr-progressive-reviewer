@@ -1,0 +1,493 @@
+diff --git a/crates/review-ui/src/input.rs b/crates/review-ui/src/input.rs
+index 9efd881f..ec731b4c 100644
+--- a/crates/review-ui/src/input.rs
++++ b/crates/review-ui/src/input.rs
+@@ -1,269 +1,268 @@
+ use crate::app::{
+-    Action, ContextMenu, DiffControl, DragState, Focus, Key, MIN_PANE_WIDTH, PaneLayout,
+-    PendingGuideJump, PendingReview, ReviewApp, Search, Selection, display_column_to_byte,
++    Action, ActivePopup, ContextMenu, DiffControl, DragState, Focus, Key, MIN_PANE_WIDTH,
++    PaneLayout, PendingGuideJump, PendingReview, ReviewApp, Search, Selection,
++    display_column_to_byte,
+ };
+ use crate::diff::{DiffView, GuideTargetPosition};
+ use crate::presentation::SearchDirection;
+-use crate::{commit_message, footer};
++use crate::shortcuts::{
++    self, ApplicationShortcut, GuideShortcut, LspShortcut, NavigationShortcut, SearchShortcut,
++    ShortcutCommand, ShortcutLookup, SourceShortcut,
++};
++use crate::{commit_message, footer, help};
+ use ratatui::layout::{Position, Rect};
+ use review_guide::GuideTarget;
+ use review_lsp::Operation;
+ use review_state::ReviewStatus;
+ use review_store::OutputTarget;
+ use toasts::ToastKind;
+ 
+ #[derive(Clone, Debug)]
+ struct GuideCommentTarget {
+     file_index: usize,
+     target: GuideTarget,
+     row: Option<usize>,
+ }
+ 
+ impl ReviewApp {
+     pub(super) fn key(&mut self, key: Key) -> Action {
++        if self.active_popup == Some(ActivePopup::ShortcutHelp) {
++            return self.shortcut_help_key(key);
++        }
+         if self.context_menu.is_some() {
+             return self.context_menu_key(key);
+         }
+         if self.locations.is_some() {
+             return self.location_list_key(key);
+         }
+         if self.hover.is_some() {
+             return self.hover_key(key);
+         }
+         if self.search.as_ref().is_some_and(|search| search.editing) {
+             return self.search_key(key);
+         }
+-        if self.awaiting_g_command {
+-            return self.g_command_key(key);
+-        }
+-        if let Some(direction) = self.pending_guide_navigation_prefix.take() {
+-            return self.guide_navigation_key(key, direction);
+-        }
+-        if self.awaiting_review_command {
+-            return self.review_command_key(key);
+-        }
+         self.main_view_key(key)
+     }
+ 
++    fn shortcut_help_key(&mut self, key: Key) -> Action {
++        if shortcuts::closes_help(key) {
++            self.active_popup = None;
++        }
++        if shortcuts::lookup(None, key)
++            == ShortcutLookup::Command(ShortcutCommand::Application(ApplicationShortcut::Clear))
++        {
++            self.selection = None;
++            self.search = None;
++            self.context_menu = None;
++        }
++        match shortcuts::lookup(None, key) {
++            ShortcutLookup::Command(ShortcutCommand::Navigation(NavigationShortcut::MoveDown)) => {
++                self.shortcut_help_scroll = self
++                    .shortcut_help_scroll
++                    .saturating_add(1)
++                    .min(help::ShortcutHelpView::maximum_scroll(self.height));
++            }
++            ShortcutLookup::Command(ShortcutCommand::Navigation(NavigationShortcut::MoveUp)) => {
++                self.shortcut_help_scroll = self.shortcut_help_scroll.saturating_sub(1);
++            }
++            _ => {}
++        }
++        Action::None
++    }
++
+     fn hover_key(&mut self, key: Key) -> Action {
+         match key {
+             Key::Escape => self.hover = None,
+             Key::Down | Key::Char('j') => {
+                 self.hover_scroll = self.hover_scroll.saturating_add(1);
+             }
+             Key::Up | Key::Char('k') => {
+                 self.hover_scroll = self.hover_scroll.saturating_sub(1);
+             }
+             _ => {}
+         }
+         Action::None
+     }
+ 
+-    fn g_command_key(&mut self, key: Key) -> Action {
+-        self.awaiting_g_command = false;
+-        match key {
+-            Key::Char('g') => self.jump_to(0),
+-            Key::Char('d') => self.lsp(Operation::Definition),
+-            Key::Char('r') => self.lsp(Operation::References),
+-            Key::Char('R') => Action::RestartLsp,
+-            _ => Action::None,
+-        }
+-    }
+-
+-    fn guide_navigation_key(&mut self, key: Key, direction: SearchDirection) -> Action {
+-        match key {
+-            Key::Char('r') => self.jump_to_guide_comment(direction),
+-            _ => Action::None,
+-        }
+-    }
+-
+-    fn review_command_key(&mut self, key: Key) -> Action {
+-        self.awaiting_review_command = false;
+-        let action = match key {
+-            Key::Char('f') => {
+-                self.selected()
+-                    .map_or(Action::None, |file| Action::GenerateReviewGuide {
+-                        scope: review_guide::GuideScope::File {
+-                            path: file.path.clone(),
+-                        },
+-                    })
+-            }
+-            Key::Char('a') => Action::GenerateReviewGuide {
+-                scope: review_guide::GuideScope::All,
+-            },
+-            _ => Action::None,
+-        };
+-        if self.guide_spinner_frame.is_some()
+-            && matches!(action, Action::GenerateReviewGuide { .. })
+-        {
++    fn generate_review_guide(&mut self, scope: review_guide::GuideScope) -> Action {
++        let action = Action::GenerateReviewGuide { scope };
++        if self.guide_spinner_frame.is_some() {
+             self.toasts
+                 .push("A guide update is already in progress", ToastKind::Info);
+             return Action::None;
+         }
+         action
+     }
+ 
+     fn main_view_key(&mut self, key: Key) -> Action {
+-        if let Some(action) = self.general_key(key) {
+-            return action;
++        let prefix = self.pending_shortcut_prefix.take();
++        match shortcuts::lookup(prefix, key) {
++            ShortcutLookup::Command(command) => self.run_shortcut(command),
++            ShortcutLookup::Prefix(prefix) => {
++                self.pending_shortcut_prefix = Some(prefix);
++                Action::None
++            }
++            ShortcutLookup::None => Action::None,
+         }
+-        if let Some(action) = self.interaction_key(key) {
+-            return action;
+-        }
+-        if let Some(action) = self.command_prefix_key(key) {
+-            return action;
+-        }
+-        if let Some(action) = self.source_key(key) {
+-            return action;
+-        }
+-        self.navigation_key(key)
+     }
+ 
+-    fn general_key(&mut self, key: Key) -> Option<Action> {
+-        match key {
+-            Key::Char('/') => {
+-                self.focus = Focus::Diff;
+-                self.selection = None;
+-                let origin_location = self.current_review_location();
+-                self.search = Some(Search {
+-                    query: String::new(),
+-                    origin: self.selected().map_or(0, |file| file.cursor),
+-                    origin_location,
+-                    editing: true,
+-                    pending: Vec::new(),
+-                });
+-                Some(self.load_all_diffs_action())
+-            }
+-            Key::Char('n') => {
++    fn run_shortcut(&mut self, command: ShortcutCommand) -> Action {
++        match command {
++            ShortcutCommand::Application(command) => self.run_application_shortcut(command),
++            ShortcutCommand::Guide(command) => self.run_guide_shortcut(command),
++            ShortcutCommand::Lsp(command) => self.run_lsp_shortcut(command),
++            ShortcutCommand::Navigation(command) => self.run_navigation_shortcut(command),
++            ShortcutCommand::Search(command) => self.run_search_shortcut(command),
++            ShortcutCommand::Source(command) => self.run_source_shortcut(command),
++        }
++    }
++
++    fn run_search_shortcut(&mut self, command: SearchShortcut) -> Action {
++        match command {
++            SearchShortcut::Begin => self.start_search(),
++            SearchShortcut::NextMatch => {
+                 self.repeat_search(SearchDirection::Forward);
+-                Some(Action::None)
++                Action::None
+             }
+-            Key::Char('p') => {
++            SearchShortcut::PreviousMatch => {
+                 self.repeat_search(SearchDirection::Backward);
+-                Some(Action::None)
++                Action::None
+             }
+-            Key::Quit | Key::Char('q') => Some(Action::Quit),
+-            Key::CommitMessage | Key::Char('c') => {
+-                self.show_commit_message = !self.show_commit_message;
+-                Some(Action::None)
++        }
++    }
++
++    fn run_application_shortcut(&mut self, command: ApplicationShortcut) -> Action {
++        match command {
++            ApplicationShortcut::Quit => Action::Quit,
++            ApplicationShortcut::ShowCommitMessage => {
++                self.active_popup = (self.active_popup != Some(ActivePopup::CommitMessage))
++                    .then_some(ActivePopup::CommitMessage);
++                Action::None
+             }
+-            Key::Tab => {
++            ApplicationShortcut::OpenHelp => {
++                self.active_popup = Some(ActivePopup::ShortcutHelp);
++                self.shortcut_help_scroll = 0;
++                Action::None
++            }
++            ApplicationShortcut::ChangeFocus => {
+                 self.focus = match self.focus {
+                     Focus::Files => Focus::Diff,
+                     Focus::Diff => Focus::Files,
+                 };
+-                Some(Action::None)
++                Action::None
+             }
+-            Key::Escape => {
+-                self.show_commit_message = false;
++            ApplicationShortcut::Clear => {
++                self.active_popup = None;
+                 self.selection = None;
+                 self.search = None;
+                 self.context_menu = None;
+-                Some(Action::None)
++                Action::None
+             }
+-            _ => None,
+-        }
+-    }
+-
+-    fn interaction_key(&mut self, key: Key) -> Option<Action> {
+-        match key {
+-            Key::Enter if self.focus == Focus::Files => {
+-                self.selected().map_or(Some(Action::None), |file| {
+-                    Some(self.output(file.path.clone()))
++            ApplicationShortcut::Insert if self.focus == Focus::Files => self
++                .selected()
++                .map_or(Action::None, |file| self.output(file.path.clone())),
++            ApplicationShortcut::Insert => self.insert(),
++            ApplicationShortcut::ChangeOutputTarget => {
++                self.set_output_target(match self.output_target {
++                    OutputTarget::ActiveAgent => OutputTarget::Clipboard,
++                    OutputTarget::Clipboard => OutputTarget::ActiveAgent,
+                 })
+             }
+-            Key::Enter => Some(self.insert()),
+-            Key::Char('o') => Some(self.set_output_target(match self.output_target {
+-                OutputTarget::ActiveAgent => OutputTarget::Clipboard,
+-                OutputTarget::Clipboard => OutputTarget::ActiveAgent,
+-            })),
+-            Key::Space | Key::Char(' ') => Some(self.toggle_review()),
+-            Key::Visual | Key::Char('v' | 'V') if self.focus == Focus::Diff => {
++            ApplicationShortcut::MarkReviewed => self.toggle_review(),
++            ApplicationShortcut::StartSelection if self.focus == Focus::Diff => {
+                 self.visual();
+-                Some(Action::None)
++                Action::None
+             }
+-            Key::Char('K') if self.focus == Focus::Diff => Some(self.lsp(Operation::Hover)),
+-            _ => None,
++            ApplicationShortcut::StartSelection => Action::None,
+         }
+     }
+ 
+-    fn command_prefix_key(&mut self, key: Key) -> Option<Action> {
+-        match key {
+-            Key::Char('g') => {
+-                self.awaiting_g_command = true;
+-                Some(Action::None)
++    fn run_guide_shortcut(&mut self, command: GuideShortcut) -> Action {
++        match command {
++            GuideShortcut::GenerateSelectedFile => {
++                let Some(path) = self.selected().map(|file| file.path.clone()) else {
++                    return Action::None;
++                };
++                self.generate_review_guide(review_guide::GuideScope::File { path })
+             }
+-            Key::Char('r') => {
+-                self.awaiting_review_command = true;
+-                Some(Action::None)
++            GuideShortcut::GenerateFull => {
++                self.generate_review_guide(review_guide::GuideScope::All)
+             }
+-            Key::Char('[') => {
+-                self.pending_guide_navigation_prefix = Some(SearchDirection::Backward);
+-                Some(Action::None)
++            GuideShortcut::GoToPreviousComment => {
++                self.jump_to_guide_comment(SearchDirection::Backward)
+             }
+-            Key::Char(']') => {
+-                self.pending_guide_navigation_prefix = Some(SearchDirection::Forward);
+-                Some(Action::None)
+-            }
+-            _ => None,
++            GuideShortcut::GoToNextComment => self.jump_to_guide_comment(SearchDirection::Forward),
+         }
+     }
+ 
+-    fn source_key(&mut self, key: Key) -> Option<Action> {
+-        match key {
+-            Key::Char('h') if self.focus == Focus::Diff => self.move_source_column(-1),
+-            Key::Expand | Key::Char('l') if self.focus == Focus::Diff => {
++    fn run_lsp_shortcut(&mut self, command: LspShortcut) -> Action {
++        match command {
++            LspShortcut::ShowDocumentation if self.focus == Focus::Diff => {
++                self.lsp(Operation::Hover)
++            }
++            LspShortcut::GoToDefinition => self.lsp(Operation::Definition),
++            LspShortcut::GoToReferences => self.lsp(Operation::References),
++            LspShortcut::Restart => Action::RestartLsp,
++            LspShortcut::ShowDocumentation => Action::None,
++        }
++    }
++
++    fn run_navigation_shortcut(&mut self, command: NavigationShortcut) -> Action {
++        match command {
++            NavigationShortcut::MoveDown => self.navigate(1),
++            NavigationShortcut::MoveUp => self.navigate(-1),
++            NavigationShortcut::GoToFirst => self.jump_to(0),
++            NavigationShortcut::GoToLast => {
++                let last = self.focus_len().saturating_sub(1);
++                self.jump_to(last)
++            }
++            NavigationShortcut::MoveHalfPageDown => self.navigate_half_page(self.half_page_rows()),
++            NavigationShortcut::MoveHalfPageUp => self.navigate_half_page(-self.half_page_rows()),
++            NavigationShortcut::GoToPreviousLocation => self.previous_location(),
++            NavigationShortcut::GoToNextLocation => self.next_location(),
++        }
++    }
++
++    fn start_search(&mut self) -> Action {
++        self.focus = Focus::Diff;
++        self.selection = None;
++        let origin_location = self.current_review_location();
++        self.search = Some(Search {
++            query: String::new(),
++            origin: self.selected().map_or(0, |file| file.cursor),
++            origin_location,
++            editing: true,
++            pending: Vec::new(),
++        });
++        self.load_all_diffs_action()
++    }
++
++    fn run_source_shortcut(&mut self, command: SourceShortcut) -> Action {
++        if self.focus != Focus::Diff {
++            return Action::None;
++        }
++        match command {
++            SourceShortcut::MoveLeft => self.move_source_column(-1),
++            SourceShortcut::ExpandOrMoveRight => {
+                 if self.current_source().is_some() {
+                     self.move_source_column(1)
+                 } else {
+                     self.expand_gap();
+                     Action::None
+                 }
+             }
+-            Key::Char('w') if self.focus == Focus::Diff => self.move_word(true),
+-            Key::Char('b') if self.focus == Focus::Diff => self.move_word(false),
+-            Key::Char('0') if self.focus == Focus::Diff => self.set_source_column(0),
+-            Key::Char('$') if self.focus == Focus::Diff => {
++            SourceShortcut::MoveToNextWord => self.move_word(true),
++            SourceShortcut::MoveToPreviousWord => self.move_word(false),
++            SourceShortcut::MoveToStartOfLine => self.set_source_column(0),
++            SourceShortcut::MoveToEndOfLine => {
+                 let end = self.current_source().map_or(0, |(_, line)| line.len());
+                 self.set_source_column(end)
+             }
+-            _ => return None,
+-        }
+-        .into()
+-    }
+-
+-    fn navigation_key(&mut self, key: Key) -> Action {
+-        if let Some(action) = self.cursor_navigation_key(key) {
+-            return action;
+-        }
+-        self.page_navigation_key(key).unwrap_or(Action::None)
+-    }
+-
+-    fn cursor_navigation_key(&mut self, key: Key) -> Option<Action> {
+-        match key {
+-            Key::Down | Key::Char('j') => Some(self.navigate(1)),
+-            Key::Up | Key::Char('k') => Some(self.navigate(-1)),
+-            Key::First => Some(self.jump_to(0)),
+-            Key::Last | Key::Char('G') => {
+-                let last = self.focus_len().saturating_sub(1);
+-                Some(self.jump_to(last))
+-            }
+-            _ => None,
+-        }
+-    }
+-
+-    fn page_navigation_key(&mut self, key: Key) -> Option<Action> {
+-        match key {
+-            Key::HalfPageDown => Some(self.navigate_half_page(self.half_page_rows())),
+-            Key::HalfPageUp => Some(self.navigate_half_page(-self.half_page_rows())),
+-            Key::PreviousLocation => Some(self.previous_location()),
+-            Key::NextLocation => Some(self.next_location()),
+-            _ => None,
+         }
+     }
+ 
+     fn search_key(&mut self, key: Key) -> Action {
+         match key {
+             Key::Char(character) => {
+                 if let Some(search) = &mut self.search {
+                     search.query.push(character);
+@@ -764,43 +763,51 @@ pub(super) fn mouse_click(&mut self, column: u16, row: u16, insert_path: bool) -
+         let layout = self.layout();
+         if let Some(action) = self.chrome_mouse_click(layout, column, row) {
+             return action;
+         }
+         self.pane_mouse_click(layout, column, row, insert_path)
+     }
+ 
+     fn overlay_mouse_click(&mut self, column: u16, row: u16) -> Option<Action> {
++        if self.active_popup == Some(ActivePopup::ShortcutHelp) {
++            let area = help::ShortcutHelpView::area(Rect::new(0, 0, self.width, self.height));
++            if !area.contains(Position::new(column, row)) {
++                self.active_popup = None;
++            }
++            return Some(Action::None);
++        }
+         if let Some(menu) = self.context_menu.take() {
+             return Some(self.context_menu_click(&menu, column, row));
+         }
+         if self.locations.is_some()
+             && self.layout().focus_at(self.focus, column, row) == Some(Focus::Files)
+             && self.layout().contains_pane_content(row)
+         {
+             let scroll = self.locations.as_ref().map_or(0, |list| list.scroll);
+             return Some(self.move_location_to(scroll + usize::from(row - 2)));
+         }
+-        if self.show_commit_message {
++        if self.active_popup == Some(ActivePopup::CommitMessage) {
+             let area =
+                 commit_message::CommitMessageView::area(Rect::new(0, 0, self.width, self.height));
+             if !area.contains(Position::new(column, row)) {
+-                self.show_commit_message = false;
++                self.active_popup = None;
+             }
+             return Some(Action::None);
+         }
+         None
+     }
+ 
+     fn chrome_mouse_click(&mut self, layout: PaneLayout, column: u16, row: u16) -> Option<Action> {
+         if self.commit_title_at(column, row) {
+-            self.show_commit_message = !self.show_commit_message;
++            self.active_popup = (self.active_popup != Some(ActivePopup::CommitMessage))
++                .then_some(ActivePopup::CommitMessage);
+             return Some(Action::None);
+         }
+-        if row == self.height.saturating_sub(2)
++        if row == self.height.saturating_sub(1)
+             && let Some(target) = footer::FooterView::output_target_at(column)
+         {
+             return Some(self.set_output_target(target));
+         }
+         if self.preview.is_some()
+             && !layout.is_separator(column, row)
+             && layout.focus_at(self.focus, column, row) == Some(Focus::Diff)
+         {

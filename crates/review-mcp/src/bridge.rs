@@ -78,10 +78,7 @@ impl ServerHandler for Bridge {
     ) -> Result<CallToolResponse, ErrorData> {
         let result = tokio::time::timeout(Duration::from_secs(20), self.forward(request)).await;
         let result = result.unwrap_or_else(|_| {
-            Err(
-                "The reviewer did not respond; retry replies with the same message_id and text"
-                    .into(),
-            )
+            Err("The reviewer did not respond; retry the identical tool arguments".into())
         });
         Ok(result
             .unwrap_or_else(|error| CallToolResult::error(vec![ContentBlock::text(error)]))

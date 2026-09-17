@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+explore-component = { path = "../components/explore" }
 component-core = { path = "../component-core" }
 diff-component = { path = "../components/diff" }
 files-component = { path = "../components/files" }
@@ -26,6 +27,7 @@ review-types = { path = "../review-types" }
 syntect.workspace = true
 toasts = { path = "../toasts" }
 ui-actions = { path = "../ui-actions" }
+ui-panes = { path = "../ui-panes" }
 ui-events = { path = "../ui-events" }
 ui-shortcuts = { path = "../ui-shortcuts" }
 ui-theme = { path = "../ui-theme" }
@@ -35,6 +37,11 @@ unicode-segmentation.workspace = true
 unicode-width.workspace = true
 
 [dev-dependencies]
+serde_json.workspace = true
+review-test-support = { path = "../review-test-support" }
+
+review-explore = { path = "../review-explore" }
+
 review-threads = { path = "../review-threads" }
 tempfile.workspace = true
 

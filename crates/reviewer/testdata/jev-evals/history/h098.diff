@@ -1,0 +1,137 @@
+diff --git a/crates/components/diff/src/lib.rs b/crates/components/diff/src/lib.rs
+index 0f8808b5..aeb482e3 100644
+--- a/crates/components/diff/src/lib.rs
++++ b/crates/components/diff/src/lib.rs
+@@ -11,18 +11,18 @@
+ use ratatui::layout::Rect;
+ use review_guide::ReviewCheckpoint;
+ use review_state::ReviewStatus;
+ use ui_actions::Action;
+ use ui_events::{
+     AnimationTick, CurrentReviewLocationChanged, DiffContentLoadFailed, DiffContentLoaded,
+     DiffInputClearRequested, DiffViewportChanged, DisplayedDiffViewportsChanged,
+     FileDecorationsChanged, FileSelected, FileSelectionRequested, FileSummary, GuideJumpRequested,
+-    GuideLayoutChanged, LocationListVisibilityChanged, OutputDeliveryFinished, OutputTargetChanged,
+-    PointerInput, PointerInputKind, RepositoryFilesChanged, ReviewLocation, ReviewLocationJumped,
++    GuideLayoutChanged, LocationListVisibilityChanged, OutputDeliveryFinished, PointerInput,
++    PointerInputKind, RepositoryFilesChanged, ReviewLocation, ReviewLocationJumped,
+     ReviewLocationRestoreRequested, ReviewStateSaved, ReviewableFiles, ReviewableFilesChanged,
+     RevisionEditFailed, SearchStatusChanged, SourceContentLoadFailed, SourceContentLoaded,
+     SourceLocationAccepted, SourceLocationPreviewRequested, TemporaryFilesChanged, ToastRequested,
+ };
+ use ui_shortcuts::{
+     ApplicationShortcut, Key, LspShortcut, NavigationShortcut, SearchShortcut, ShortcutCommand,
+     ShortcutMatcher, ShortcutSet, SourceShortcut,
+ };
+@@ -98,17 +98,16 @@ pub struct DiffComponent {
+     pending_preview_location: Option<review_lsp::SourceLocation>,
+     pending_center_path: Option<String>,
+     search: Option<SearchState>,
+     selection: Option<SelectionState>,
+     viewport_width: u16,
+     viewport_height: u16,
+     drag_anchor: Option<usize>,
+     highlighter: SyntaxHighlighter,
+-    output_target: review_store::OutputTarget,
+     repository_root: PathBuf,
+     palette: Palette,
+     location_history: LocationHistory,
+     pending_history_navigation: Option<PendingHistoryNavigation>,
+     guide_items: Vec<review_guide::GuideItem>,
+     guide_counters: Vec<Option<ui_events::GuideCounter>>,
+     rendered_pointer_viewport: RefCell<Option<DiffPointerViewport>>,
+ }
+@@ -195,17 +194,16 @@ fn range(self) -> RangeInclusive<usize> {
+ }
+ 
+ impl DiffComponent {
+     /// Create an empty diff component.
+     pub fn new(
+         events: EventPublisher,
+         reviewable_files: ReviewableFiles,
+         highlighter: SyntaxHighlighter,
+-        output_target: review_store::OutputTarget,
+         repository_root: PathBuf,
+         palette: Palette,
+     ) -> Self {
+         Self {
+             events,
+             reviewable_files,
+             review_checkpoint: None,
+             documents: Vec::new(),
+@@ -215,17 +213,16 @@ pub fn new(
+             pending_preview_location: None,
+             pending_center_path: None,
+             search: None,
+             selection: None,
+             viewport_width: 80,
+             viewport_height: 24,
+             drag_anchor: None,
+             highlighter,
+-            output_target,
+             repository_root,
+             palette,
+             location_history: LocationHistory::default(),
+             pending_history_navigation: None,
+             guide_items: Vec::new(),
+             guide_counters: Vec::new(),
+             rendered_pointer_viewport: RefCell::new(None),
+         }
+@@ -777,17 +774,16 @@ fn insert_selection(&self) -> Vec<Action> {
+             return Vec::new();
+         }
+         document
+             .document
+             .diff
+             .excerpt(range)
+             .ok()
+             .map(|excerpt| Action::Output {
+-                target: self.output_target,
+                 text: excerpt.into_string(),
+             })
+             .into_iter()
+             .collect()
+     }
+ 
+     fn search(&mut self, command: SearchShortcut) -> Vec<Action> {
+         let mut actions = Vec::new();
+@@ -1260,21 +1256,16 @@ fn current_document_mut(
+         if self.review_checkpoint.as_ref() != Some(review_checkpoint) {
+             return None;
+         }
+         self.documents
+             .iter_mut()
+             .find(|document| document.path == path)
+     }
+ 
+-    #[allow(clippy::trivially_copy_pass_by_ref)]
+-    fn output_target_changed(&mut self, event: &OutputTargetChanged) {
+-        self.output_target = event.output_target;
+-    }
+-
+     #[allow(clippy::trivially_copy_pass_by_ref)]
+     fn output_finished(&mut self, event: &OutputDeliveryFinished) {
+         if event.delivered {
+             self.selection = None;
+         }
+     }
+ 
+     fn guide_layout_changed(&mut self, event: &GuideLayoutChanged) {
+@@ -1753,17 +1744,16 @@ fn register_subscriptions(subscriptions: &mut ComponentSubscriptions<'_, Self, A
+         subscriptions.subscribe(Self::file_selected);
+         subscriptions.subscribe(Self::animation_tick);
+         subscriptions.subscribe(Self::content_loaded);
+         subscriptions.subscribe(Self::content_load_failed);
+         subscriptions.subscribe(Self::reviewable_files_changed);
+         subscriptions.subscribe(Self::review_state_saved);
+         subscriptions.subscribe(Self::viewport_changed);
+         subscriptions.subscribe(Self::clear_input);
+-        subscriptions.subscribe(Self::output_target_changed);
+         subscriptions.subscribe(Self::output_finished);
+         subscriptions.subscribe(Self::guide_layout_changed);
+         subscriptions.subscribe(Self::guide_jump_requested);
+         subscriptions.subscribe(Self::preview_source_location);
+         subscriptions.subscribe(Self::location_list_visibility_changed);
+         subscriptions.subscribe(Self::accept_source_location);
+         subscriptions.subscribe(Self::source_content_loaded);
+         subscriptions.subscribe(Self::source_content_failed);

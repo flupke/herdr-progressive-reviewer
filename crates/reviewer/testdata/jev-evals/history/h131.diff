@@ -1,0 +1,99 @@
+diff --git a/crates/review-ui/src/navigation.rs b/crates/review-ui/src/navigation.rs
+index 30aff320..bb7043f7 100644
+--- a/crates/review-ui/src/navigation.rs
++++ b/crates/review-ui/src/navigation.rs
+@@ -604,16 +604,39 @@ pub(super) fn lsp(&mut self, operation: Operation) -> Action {
+         }
+     }
+ 
+     pub(super) fn current_source(&self) -> Option<(u32, String)> {
+         let file = self.selected()?;
+         file.diff.source_position(file.cursor)
+     }
+ 
++    pub(super) fn current_word(&self) -> Option<String> {
++        let (_, line) = self.current_source()?;
++        let column = self.selected()?.column.min(line.len());
++        let character = line.get(column..)?.chars().next()?;
++        if !is_word_character(character) {
++            return None;
++        }
++        let start = line[..column]
++            .char_indices()
++            .rev()
++            .take_while(|(_, character)| is_word_character(*character))
++            .last()
++            .map_or(column, |(index, _)| index);
++        let end = line[column..]
++            .char_indices()
++            .take_while(|(_, character)| is_word_character(*character))
++            .last()
++            .map_or(column, |(index, character)| {
++                column + index + character.len_utf8()
++            });
++        Some(line[start..end].to_owned())
++    }
++
+     pub(super) fn set_source_column(&mut self, column: usize) -> Action {
+         let Some((_, line)) = self.current_source() else {
+             return Action::None;
+         };
+         let mut column = column.min(line.len());
+         while !line.is_char_boundary(column) {
+             column = column.saturating_sub(1);
+         }
+@@ -648,43 +671,49 @@ pub(super) fn move_source_column(&mut self, delta: isize) -> Action {
+ 
+     pub(super) fn move_word(&mut self, forward: bool) -> Action {
+         let Some((_, line)) = self.current_source() else {
+             return Action::None;
+         };
+         let current = self
+             .selected()
+             .map_or(0, |file| file.column.min(line.len()));
+-        let word = |character: char| character.is_alphanumeric() || character == '_';
+         let target = if forward {
+-            let starts_in_word = line[current..].chars().next().is_some_and(word);
++            let starts_in_word = line[current..]
++                .chars()
++                .next()
++                .is_some_and(is_word_character);
+             let mut left_word = !starts_in_word;
+             line[current..]
+                 .char_indices()
+                 .find_map(|(index, character)| {
+-                    if word(character) && left_word {
++                    if is_word_character(character) && left_word {
+                         Some(current + index)
+                     } else {
+-                        left_word |= !word(character);
++                        left_word |= !is_word_character(character);
+                         None
+                     }
+                 })
+                 .unwrap_or(line.len())
+         } else {
+             let mut target = 0;
+             let mut found_word = false;
+             for (index, character) in line[..current].char_indices().rev() {
+-                if word(character) {
++                if is_word_character(character) {
+                     target = index;
+                     found_word = true;
+                 } else if found_word {
+                     break;
+                 }
+             }
+             target
+         };
+         self.set_source_column(target)
+     }
+ }
+ 
++fn is_word_character(character: char) -> bool {
++    character.is_alphanumeric() || character == '_'
++}
++
+ #[cfg(test)]
+ #[path = "navigation.tests.rs"]
+ mod tests;

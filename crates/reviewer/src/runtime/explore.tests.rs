@@ -58,7 +58,7 @@ impl ExploreFlow {
             "interpretation":interpretation, "reply":{"text":"I checked the policy.","evidence":[]},
             "topics":[{"id":format!("topic{version}"),"title":"Policy consequence","entries":[{"path":"reviewed.rs","side":"new","lines":null}],"status":"open"}],
             "next":{"id":format!("q{version}"),"version":1,"topic":format!("topic{version}"),"text":"Keep resolved conversations resolved?",
-                "rationale":null,"visual":null,"alternatives":[{"id":"keep","text":"Keep resolved","outcome":"accepted"},{"id":"change","text":"Reopen","outcome":"needs_follow_up"}],"evidence":[{"path":"reviewed.rs","side":"new","lines":{"first_line":1,"last_line":1},"relationship":"Implements policy","decision_relevance":"This determines whether completed conversations should reopen"}]},
+                "rationale":null,"visual":null,"alternatives":[{"id":"keep","text":"Keep resolved","outcome":"accepted"},{"id":"change","text":"Reopen","outcome":"needs_follow_up"}],"evidence":[{"path":"reviewed.rs","side":"new","lines":{"first_line":1,"last_line":1},"notes":"Implements the policy that determines whether completed conversations should reopen"}]},
             "conclusion":null,"limitations":[],"findings":[]
         });
         for field in ["instance", "request"] {
@@ -293,7 +293,7 @@ fn selected_agent_receives_working_copy_turns_without_freshness_checks(kind: Rep
 }
 
 #[test]
-fn late_session_detection_preserves_the_interview_but_a_replacement_does_not_receive_answers() {
+fn late_session_detection_preserves_the_interview_and_a_new_send_selects_the_replacement() {
     let mut flow = ExploreFlow::start(RepoType::Git);
     flow.turn(None, 1);
     flow.fixture.herdr.report_session("late-native-session");
@@ -338,26 +338,18 @@ fn late_session_detection_preserves_the_interview_but_a_replacement_does_not_rec
             request.clone(),
         ))))
         .unwrap();
-    let error = loop {
-        let event = flow
-            .fixture
-            .messages
-            .recv_timeout(Duration::from_secs(10))
-            .unwrap();
-        if let Some(finished) = event.downcast_ref::<ui_events::ExploreFinished>() {
-            assert_eq!(finished.request, request.request);
-            break finished.result.clone().unwrap_err();
-        }
-    };
-    assert!(error.contains("different agent conversation"), "{error}");
-    assert_eq!(
-        fs::read_to_string(flow.fixture.herdr.directory.path().join("prompt.txt"))
-            .unwrap()
-            .len(),
-        flow.prompt_offset
+    flow.wait_for_prompt(&request);
+    assert!(
+        flow.saved().last_agent_session.unwrap().matches(
+            &flow
+                .fixture
+                .herdr
+                .client()
+                .get_agent(&flow.fixture.herdr.pane_id)
+                .unwrap()
+                .unwrap()
+        )
     );
-    assert!(flow.exploration.failed(&request.request, &error));
-    assert_eq!(flow.exploration.retry().unwrap().answer, request.answer);
     flow.finish();
 }
 
@@ -378,5 +370,54 @@ fn cancelled_explore_access_rejects_submissions_without_changing_history() {
             .contains("Obsolete Explore access")
     );
     assert_eq!(flow.exploration.conversation.len(), 1);
+    flow.finish();
+}
+
+#[test]
+fn mcp_gap_pages_are_navigable_and_reject_stale_pass_inputs() {
+    let mut flow = ExploreFlow::start(RepoType::Git);
+    flow.turn(None, 1);
+    let pass = flow.saved();
+    let mut query = serde_json::json!({
+        "instance": pass.exploration.instance,
+        "checkpoint": pass.exploration.comparison.checkpoint,
+        "revision": pass.coverage.revision,
+        "mode": "disabled",
+        "cursor": 0,
+        "limit": 1,
+    });
+    let result = flow.call("get_coverage_gaps", query.clone());
+    assert_ne!(result.is_error, Some(true), "{result:?}");
+    let text = result.content[0].as_text().unwrap();
+    let first: serde_json::Value = serde_json::from_str(&text.text).unwrap();
+    let gaps = &first["gaps"];
+    assert!(gaps["total_gaps"].as_u64().unwrap() > 0);
+    assert_eq!(gaps["gaps"].as_array().unwrap().len(), 1);
+    if let Some(cursor) = gaps["next_cursor"].as_u64() {
+        query["cursor"] = cursor.into();
+        let second = flow.call("get_coverage_gaps", query.clone());
+        assert_ne!(second.is_error, Some(true), "{second:?}");
+        let text = second.content[0].as_text().unwrap();
+        let page: serde_json::Value = serde_json::from_str(&text.text).unwrap();
+        assert_ne!(page["gaps"]["gaps"][0], gaps["gaps"][0]);
+    }
+    query["path_prefix"] = "reviewed.rs".into();
+    query["cursor"] = 0.into();
+    let filtered = flow.call("get_coverage_gaps", query.clone());
+    assert_ne!(filtered.is_error, Some(true), "{filtered:?}");
+    query["revision"] = (pass.coverage.revision + 1).into();
+    assert_eq!(
+        flow.call("get_coverage_gaps", query.clone()).is_error,
+        Some(true)
+    );
+    query["revision"] = pass.coverage.revision.into();
+    query["mode"] = "enabled".into();
+    assert_eq!(
+        flow.call("get_coverage_gaps", query.clone()).is_error,
+        Some(true)
+    );
+    query["mode"] = "disabled".into();
+    query["checkpoint"]["checkpoint"] = "different".into();
+    assert_eq!(flow.call("get_coverage_gaps", query).is_error, Some(true));
     flow.finish();
 }

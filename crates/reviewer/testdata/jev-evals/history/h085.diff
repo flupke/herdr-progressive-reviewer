@@ -1,0 +1,66 @@
+diff --git a/crates/review-ui/src/application.rs b/crates/review-ui/src/application.rs
+index 8605623f..8bc7048d 100644
+--- a/crates/review-ui/src/application.rs
++++ b/crates/review-ui/src/application.rs
+@@ -53,18 +53,16 @@ struct ComponentArea {
+     area: Rect,
+ }
+ 
+ #[derive(Clone, Copy)]
+ struct FilePaneResize {
+     moved: bool,
+ }
+ 
+-struct ComponentDispatchResults(Vec<DispatchResult<Action>>);
+-
+ impl Default for ReviewApplication {
+     fn default() -> Self {
+         Self::new(Theme::default(), None, PathBuf::new())
+     }
+ }
+ 
+ impl ReviewApplication {
+     /// Create the application and mount its components.
+@@ -244,17 +242,20 @@ fn dispatch_resize(
+         &mut self,
+         width: u16,
+         height: u16,
+     ) -> Result<Vec<DispatchResult<Action>>, DispatchError> {
+         self.event_bus.publish(ViewportChanged { width, height })
+     }
+ 
+     fn collect_actions(component_results: Vec<DispatchResult<Action>>) -> Vec<Action> {
+-        ComponentDispatchResults(component_results).into_actions()
++        component_results
++            .into_iter()
++            .flat_map(DispatchResult::into_actions)
++            .collect()
+     }
+ 
+     /// Return a side-effect-free view of all mounted components.
+     ///
+     /// # Panics
+     ///
+     /// Panics if the files component was removed from the application registry.
+     pub fn frame(&self) -> ApplicationFrame<'_> {
+@@ -560,20 +561,11 @@ fn pointer_kind(message: &UserInput) -> Option<PointerInputKind> {
+         UserInput::MouseDoubleClick { .. } => Some(PointerInputKind::DoubleClick),
+         UserInput::MouseRightClick { .. } => Some(PointerInputKind::RightClick),
+         UserInput::MouseDrag { .. } => Some(PointerInputKind::Drag),
+         UserInput::MouseRelease => Some(PointerInputKind::Release),
+         UserInput::Resize { .. } | UserInput::Key(_) => None,
+     }
+ }
+ 
+-impl ComponentDispatchResults {
+-    fn into_actions(self) -> Vec<Action> {
+-        self.0
+-            .into_iter()
+-            .flat_map(DispatchResult::into_actions)
+-            .collect()
+-    }
+-}
+-
+ #[cfg(test)]
+ #[path = "application.tests.rs"]
+ mod tests;

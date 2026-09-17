@@ -5,6 +5,7 @@ use std::ops::RangeInclusive;
 use std::sync::Arc;
 pub(super) use text_search::Position as SearchMatch;
 
+use review_explore::SourceSide;
 use review_repository::diff::DiffRow;
 use review_repository::excerpt::{DiffExcerpt, ExcerptError};
 use ui_events::{DisplayedDiffRow, DisplayedDiffViewport, PresentationLocation};
@@ -59,6 +60,18 @@ struct PresentationRows<'a> {
 }
 
 impl DiffPresentation {
+    /// A historical source document has old-side coordinates and no live LSP target.
+    pub(super) fn base_file(highlighted: HighlightedDiff) -> Self {
+        let mut document = Self::new(highlighted);
+        document.whole_file = Some(WholeFile::Deleted);
+        document.show_file();
+        document
+    }
+
+    pub(super) fn is_base_file(&self) -> bool {
+        self.is_file_view() && self.whole_file == Some(WholeFile::Deleted)
+    }
+
     pub(super) fn new(highlighted: HighlightedDiff) -> Self {
         let HighlightedDiff {
             rows: highlighted_rows,
@@ -220,6 +233,9 @@ impl DiffPresentation {
     }
 
     pub(super) fn show_diff(&mut self) -> bool {
+        if self.is_base_file() && self.source.is_empty() {
+            return false;
+        }
         let PresentationView::File { diff_rows } = std::mem::take(&mut self.view) else {
             return false;
         };
@@ -330,6 +346,23 @@ impl DiffPresentation {
         }
     }
 
+    /// One-based evidence coordinates for a visible row on the requested side.
+    pub(super) fn evidence_line(&self, row: usize, side: SourceSide) -> Option<u32> {
+        match (side, self.presentation_location(row)?) {
+            (
+                SourceSide::New,
+                PresentationLocation::NewLine(line)
+                | PresentationLocation::Context { new_line: line, .. },
+            )
+            | (
+                SourceSide::Old,
+                PresentationLocation::OldLine(line)
+                | PresentationLocation::Context { old_line: line, .. },
+            ) => Some(line + 1),
+            _ => None,
+        }
+    }
+
     pub(super) fn reveal_presentation_location(
         &mut self,
         location: PresentationLocation,
@@ -344,14 +377,17 @@ impl DiffPresentation {
             }
             PresentationLocation::NewLine(line) => self.reveal_line(line),
             PresentationLocation::OldLine(line) => {
-                let _ = self.show_diff();
+                if !self.is_base_file() {
+                    let _ = self.show_diff();
+                }
                 let display_line = line.saturating_add(1);
                 self.rows.iter().position(|row| match row {
                     PresentedRow::Diff { source, .. } => matches!(
                         self.source_row(*source),
-                        DiffRow::Delete { old_line, .. } if *old_line == display_line
+                        DiffRow::Delete { old_line, .. } | DiffRow::Context { old_line, .. } if *old_line == display_line
                     ),
-                    PresentedRow::Gap { .. } | PresentedRow::Expanded { .. } => false,
+                    PresentedRow::Expanded { line, .. } => self.whole_file == Some(WholeFile::Deleted) && *line == display_line,
+                    PresentedRow::Gap { .. } => false,
                 })
             }
             PresentationLocation::SourceRow(target_source) => {

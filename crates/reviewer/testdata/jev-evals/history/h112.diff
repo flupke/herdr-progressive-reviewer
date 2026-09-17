@@ -1,0 +1,27 @@
+diff --git a/crates/review-repository/src/repository.rs b/crates/review-repository/src/repository.rs
+index 0bd6a25b..5155a6ab 100644
+--- a/crates/review-repository/src/repository.rs
++++ b/crates/review-repository/src/repository.rs
+@@ -353,20 +353,20 @@ fn display_path(old_path: Option<&RepoPath>, new_path: Option<&RepoPath>) -> Opt
+                 Some(format!("{} => {}", old.display(), new.display()))
+             }
+             (Some(path), _) | (_, Some(path)) => Some(path.display()),
+             (None, None) => None,
+         }
+     }
+ 
+     fn jj_change(old_kind: FileKind, new_kind: FileKind, status: &str) -> Result<ChangeKind> {
+-        if old_kind == FileKind::Conflict || new_kind == FileKind::Conflict {
++        if new_kind == FileKind::Conflict {
+             return Ok(ChangeKind::Conflict);
+         }
+-        if Self::entry_type_changed(old_kind, new_kind) {
++        if old_kind != FileKind::Conflict && Self::entry_type_changed(old_kind, new_kind) {
+             return Ok(ChangeKind::TypeChanged);
+         }
+         match status {
+             "added" | "copied" => Ok(ChangeKind::Added),
+             "modified" => Ok(ChangeKind::Modified),
+             "removed" => Ok(ChangeKind::Deleted),
+             "renamed" => Ok(ChangeKind::Renamed),
+             _ => Err(Error::Protocol {

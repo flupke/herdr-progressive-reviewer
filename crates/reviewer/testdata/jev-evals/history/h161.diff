@@ -1,0 +1,320 @@
+diff --git a/crates/review-repository/src/repository.rs b/crates/review-repository/src/repository.rs
+index be08031c..af3c8bc8 100644
+--- a/crates/review-repository/src/repository.rs
++++ b/crates/review-repository/src/repository.rs
+@@ -166,16 +166,81 @@ pub struct ChangedFile {
+     /// Escaped text for the file list.
+     pub display_path: String,
+     /// Number of added text lines.
+     pub lines_added: u64,
+     /// Number of removed text lines.
+     pub lines_removed: u64,
+ }
+ 
++#[derive(Clone, Copy, Debug)]
++struct GitChangeMetadata<'a> {
++    old_kind: FileKind,
++    new_kind: FileKind,
++    status: &'a [u8],
++}
++
++impl<'a> GitChangeMetadata<'a> {
++    fn parse(metadata: &'a [u8]) -> Result<Self> {
++        let mut values = metadata.split(|byte| *byte == b' ');
++        let old_mode = values.next().and_then(|value| value.strip_prefix(b":"));
++        let new_mode = values.next();
++        let _old_object = values.next();
++        let _new_object = values.next();
++        let status = values.next();
++        if values.next().is_some() {
++            return Err(Error::Protocol {
++                operation: "read Git changed files".to_owned(),
++                detail: "Git returned invalid raw diff metadata",
++            });
++        }
++        let (Some(old_mode), Some(new_mode), Some(status)) = (old_mode, new_mode, status) else {
++            return Err(Error::Protocol {
++                operation: "read Git changed files".to_owned(),
++                detail: "Git returned incomplete raw diff metadata",
++            });
++        };
++        Ok(Self {
++            old_kind: FileKind::parse_git_mode(old_mode)?,
++            new_kind: FileKind::parse_git_mode(new_mode)?,
++            status,
++        })
++    }
++
++    fn second_path(self, fields: &mut impl Iterator<Item = &'a [u8]>) -> Result<Option<&'a [u8]>> {
++        if !matches!(self.status.first(), Some(b'R' | b'C')) {
++            return Ok(None);
++        }
++        fields.next().map(Some).ok_or_else(|| Error::Protocol {
++            operation: "read Git changed files".to_owned(),
++            detail: "Git returned a rename without its new path",
++        })
++    }
++
++    fn change(self) -> Result<ChangeKind> {
++        if self.status.first() == Some(&b'U') {
++            return Ok(ChangeKind::Conflict);
++        }
++        if ChangedFile::entry_type_changed(self.old_kind, self.new_kind) {
++            return Ok(ChangeKind::TypeChanged);
++        }
++        match self.status.first() {
++            Some(b'A' | b'C') => Ok(ChangeKind::Added),
++            Some(b'M') => Ok(ChangeKind::Modified),
++            Some(b'D') => Ok(ChangeKind::Deleted),
++            Some(b'R') => Ok(ChangeKind::Renamed),
++            Some(b'T') => Ok(ChangeKind::TypeChanged),
++            _ => Err(Error::Protocol {
++                operation: "read Git changed files".to_owned(),
++                detail: "Git returned an unknown file status",
++            }),
++        }
++    }
++}
++
+ impl ChangedFile {
+     /// Get the path used for review state.
+     ///
+     /// # Panics
+     ///
+     /// Panics if both path fields are `None`.
+     pub fn review_path(&self) -> &RepoPath {
+         self.new_path
+@@ -213,63 +278,70 @@ fn parse(fields: &[&[u8]]) -> Result<Self> {
+         let new_kind = FileKind::parse(fields[3])?;
+         let old_path = (old_kind != FileKind::Absent).then(|| RepoPath::from_bytes(fields[0]));
+         let new_path = (new_kind != FileKind::Absent).then(|| RepoPath::from_bytes(fields[1]));
+         let status = std::str::from_utf8(fields[4]).map_err(|_| Error::Protocol {
+             operation: "read jj changed files".to_owned(),
+             detail: "jj returned a non-UTF-8 file status",
+         })?;
+ 
+-        let change = if old_kind == FileKind::Conflict || new_kind == FileKind::Conflict {
+-            ChangeKind::Conflict
+-        } else if old_kind != FileKind::Absent
+-            && new_kind != FileKind::Absent
+-            && old_kind != new_kind
+-        {
+-            ChangeKind::TypeChanged
+-        } else {
+-            match status {
+-                "added" | "copied" => ChangeKind::Added,
+-                "modified" => ChangeKind::Modified,
+-                "removed" => ChangeKind::Deleted,
+-                "renamed" => ChangeKind::Renamed,
+-                _ => {
+-                    return Err(Error::Protocol {
+-                        operation: "read jj changed files".to_owned(),
+-                        detail: "jj returned an unknown file status",
+-                    });
+-                }
+-            }
+-        };
+-
+-        let display_path = match (&old_path, &new_path) {
+-            (Some(old), Some(new)) if old != new => {
+-                format!("{} => {}", old.display(), new.display())
+-            }
+-            (Some(path), _) | (_, Some(path)) => path.display(),
+-            (None, None) => {
+-                return Err(Error::Protocol {
++        let change = Self::jj_change(old_kind, new_kind, status)?;
++        let display_path =
++            Self::display_path(old_path.as_ref(), new_path.as_ref()).ok_or_else(|| {
++                Error::Protocol {
+                     operation: "read jj changed files".to_owned(),
+                     detail: "jj returned a changed file without a path",
+-                });
+-            }
+-        };
++                }
++            })?;
+ 
+         Ok(Self {
+             old_path,
+             new_path,
+             old_kind,
+             new_kind,
+             change,
+             display_path,
+             lines_added: 0,
+             lines_removed: 0,
+         })
+     }
+ 
++    fn display_path(old_path: Option<&RepoPath>, new_path: Option<&RepoPath>) -> Option<String> {
++        match (old_path, new_path) {
++            (Some(old), Some(new)) if old != new => {
++                Some(format!("{} => {}", old.display(), new.display()))
++            }
++            (Some(path), _) | (_, Some(path)) => Some(path.display()),
++            (None, None) => None,
++        }
++    }
++
++    fn jj_change(old_kind: FileKind, new_kind: FileKind, status: &str) -> Result<ChangeKind> {
++        if old_kind == FileKind::Conflict || new_kind == FileKind::Conflict {
++            return Ok(ChangeKind::Conflict);
++        }
++        if Self::entry_type_changed(old_kind, new_kind) {
++            return Ok(ChangeKind::TypeChanged);
++        }
++        match status {
++            "added" | "copied" => Ok(ChangeKind::Added),
++            "modified" => Ok(ChangeKind::Modified),
++            "removed" => Ok(ChangeKind::Deleted),
++            "renamed" => Ok(ChangeKind::Renamed),
++            _ => Err(Error::Protocol {
++                operation: "read jj changed files".to_owned(),
++                detail: "jj returned an unknown file status",
++            }),
++        }
++    }
++
++    fn entry_type_changed(old_kind: FileKind, new_kind: FileKind) -> bool {
++        old_kind != FileKind::Absent && new_kind != FileKind::Absent && old_kind != new_kind
++    }
++
+     fn add_stats(files: &mut [Self], output: &[u8]) -> Result<()> {
+         if output.is_empty() {
+             return Ok(());
+         }
+         let fields: Vec<_> = output.split(|byte| *byte == 0).collect();
+         if fields.last() != Some(&&[][..]) || (fields.len() - 1) % 3 != 0 {
+             return Err(Error::Protocol {
+                 operation: "read jj diff statistics".to_owned(),
+@@ -308,101 +380,54 @@ fn parse_git(output: &[u8]) -> Result<Vec<Self>> {
+                 operation: "read Git changed files".to_owned(),
+                 detail: "Git returned an invalid raw diff",
+             });
+         }
+ 
+         let mut files = Vec::new();
+         let mut fields = fields[..fields.len() - 1].iter().copied();
+         while let Some(metadata) = fields.next() {
+-            let mut metadata = metadata.split(|byte| *byte == b' ');
+-            let old_mode = metadata.next().and_then(|value| value.strip_prefix(b":"));
+-            let new_mode = metadata.next();
+-            let _old_object = metadata.next();
+-            let _new_object = metadata.next();
+-            let status = metadata.next();
+-            if metadata.next().is_some() {
+-                return Err(Error::Protocol {
+-                    operation: "read Git changed files".to_owned(),
+-                    detail: "Git returned invalid raw diff metadata",
+-                });
+-            }
+-            let (Some(old_mode), Some(new_mode), Some(status)) = (old_mode, new_mode, status)
+-            else {
+-                return Err(Error::Protocol {
+-                    operation: "read Git changed files".to_owned(),
+-                    detail: "Git returned incomplete raw diff metadata",
+-                });
+-            };
+-            let old_kind = FileKind::parse_git_mode(old_mode)?;
+-            let new_kind = FileKind::parse_git_mode(new_mode)?;
+-            let first_path = fields.next().ok_or_else(|| Error::Protocol {
+-                operation: "read Git changed files".to_owned(),
+-                detail: "Git returned a changed file without a path",
+-            })?;
+-            let renamed = matches!(status.first(), Some(b'R' | b'C'));
+-            let second_path = if renamed {
+-                Some(fields.next().ok_or_else(|| Error::Protocol {
+-                    operation: "read Git changed files".to_owned(),
+-                    detail: "Git returned a rename without its new path",
+-                })?)
+-            } else {
+-                None
+-            };
+-            let old_path = (old_kind != FileKind::Absent).then(|| RepoPath::from_bytes(first_path));
+-            let new_path = (new_kind != FileKind::Absent)
+-                .then(|| RepoPath::from_bytes(second_path.unwrap_or(first_path)));
+-            let change = if status.first() == Some(&b'U') {
+-                ChangeKind::Conflict
+-            } else if old_kind != FileKind::Absent
+-                && new_kind != FileKind::Absent
+-                && old_kind != new_kind
+-            {
+-                ChangeKind::TypeChanged
+-            } else {
+-                match status.first() {
+-                    Some(b'A' | b'C') => ChangeKind::Added,
+-                    Some(b'M') => ChangeKind::Modified,
+-                    Some(b'D') => ChangeKind::Deleted,
+-                    Some(b'R') => ChangeKind::Renamed,
+-                    Some(b'T') => ChangeKind::TypeChanged,
+-                    _ => {
+-                        return Err(Error::Protocol {
+-                            operation: "read Git changed files".to_owned(),
+-                            detail: "Git returned an unknown file status",
+-                        });
+-                    }
+-                }
+-            };
+-            let display_path = match (&old_path, &new_path) {
+-                (Some(old), Some(new)) if old != new => {
+-                    format!("{} => {}", old.display(), new.display())
+-                }
+-                (Some(path), _) | (_, Some(path)) => path.display(),
+-                (None, None) => unreachable!("Git raw changes always have a path"),
+-            };
+-            files.push(Self {
+-                old_path,
+-                new_path,
+-                old_kind,
+-                new_kind,
+-                change,
+-                display_path,
+-                lines_added: 0,
+-                lines_removed: 0,
+-            });
++            files.push(Self::parse_git_record(metadata, &mut fields)?);
+         }
+         files.sort_by(|left, right| {
+             left.review_path()
+                 .as_bytes()
+                 .cmp(right.review_path().as_bytes())
+         });
+         Ok(files)
+     }
+ 
++    fn parse_git_record<'a>(
++        metadata: &'a [u8],
++        fields: &mut impl Iterator<Item = &'a [u8]>,
++    ) -> Result<Self> {
++        let metadata = GitChangeMetadata::parse(metadata)?;
++        let first_path = fields.next().ok_or_else(|| Error::Protocol {
++            operation: "read Git changed files".to_owned(),
++            detail: "Git returned a changed file without a path",
++        })?;
++        let second_path = metadata.second_path(fields)?;
++        let old_path =
++            (metadata.old_kind != FileKind::Absent).then(|| RepoPath::from_bytes(first_path));
++        let new_path = (metadata.new_kind != FileKind::Absent)
++            .then(|| RepoPath::from_bytes(second_path.unwrap_or(first_path)));
++        let display_path = Self::display_path(old_path.as_ref(), new_path.as_ref())
++            .expect("Git raw changes always have a path");
++        Ok(Self {
++            old_path,
++            new_path,
++            old_kind: metadata.old_kind,
++            new_kind: metadata.new_kind,
++            change: metadata.change()?,
++            display_path,
++            lines_added: 0,
++            lines_removed: 0,
++        })
++    }
++
+     fn add_git_stats(files: &mut [Self], output: &[u8]) -> Result<()> {
+         let fields: Vec<_> = output.split(|byte| *byte == 0).collect();
+         if fields.last() != Some(&&[][..]) {
+             return Err(Error::Protocol {
+                 operation: "read Git diff statistics".to_owned(),
+                 detail: "Git returned invalid diff statistics",
+             });
+         }

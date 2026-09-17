@@ -1,0 +1,25 @@
+diff --git a/crates/ui-actions/src/lib.rs b/crates/ui-actions/src/lib.rs
+index c660317e..a00f41a8 100644
+--- a/crates/ui-actions/src/lib.rs
++++ b/crates/ui-actions/src/lib.rs
+@@ -53,20 +53,16 @@ pub enum Action {
+         location: SourceLocation,
+         mode: SourceLoadMode,
+     },
+     /// Set the selected path review state.
+     SetReviewed {
+         path: String,
+         reviewed: bool,
+     },
+-    /// Send selected text to the active implementation agent.
+-    Output {
+-        text: String,
+-    },
+     /// Generate a guide through the active implementation agent.
+     GenerateReviewGuide {
+         scope: GuideScope,
+     },
+     /// Save the file-pane width in terminal columns.
+     SaveFilePaneWidth(u16),
+     /// Stop the application.
+     Quit,

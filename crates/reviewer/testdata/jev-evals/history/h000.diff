@@ -1,0 +1,108 @@
+diff --git a/docs/usage.md b/docs/usage.md
+index 7525c4e9..9eefaf08 100644
+--- a/docs/usage.md
++++ b/docs/usage.md
+@@ -116,17 +116,21 @@ ## Explore a change (experimental)
+ Explore shows one question at a time across the full content width. Its evidence,
+ answers and recap scroll together. **Previous** and **Next** (or `[` / `]`) visit
+ question and conclusion history in posting order; **Latest** returns to the newest question or active conclusion. These controls stay
+ visible while scrolling. **Opening** shows the initial context. **Conclusion** opens the separate conclusion page.
+ The pinned **Coverage** control shows the share of required changed lines and file-change items
+ credited to answered questions. Click it for a file overview and open a file's full diff.
+ Essential and collapsed supporting references count only after you answer that exact question;
+ explicit **Defer** earns no coverage. An unanswered assignment remains outstanding. The
+-overview separates explored, partly explored, unexplored and Jev-excluded changes.
++boxed overview groups files by remaining review work. Its percentage is the share of added
++and deleted lines cited by answered questions, counted on both sides of the diff; unchanged
++context and metadata do not enter that percentage. Jev-excluded lines remain in the total
++but are not counted as explored. **Show file diff** displays the selected file below the
++overview and selects it in Files.
+ Reaching 100% does not end the discussion or mark files by itself.
+ **Reply** addresses the displayed question; each question keeps its own unfinished
+ text, selected choice and evidence state.
+ 
+ The conclusion page separates **Summary**, an editable **To be implemented** box,
+ and **Future work**. Earlier conclusions retain their own edits and replies; only
+ the current conclusion offers Implement. Only the agreed task list goes in the box. Edit it and click
+ **Implement** (or press `Ctrl-Enter` while editing it) to authorize the agent to
+@@ -141,18 +145,21 @@ ## Explore a change (experimental)
+ about the conclusion, without authorizing code changes. A valid conclusion marks the pass's
+ changed files reviewed at its captured checkpoint. Subsequent edits appear in Files against
+ that baseline. Explore does not resolve ordinary threads.
+ The preparation state shows the actual pending status and Cancel. Delivery
+ errors and Retry appear beside the affected turn.
+ 
+ On follow-up turns, the agent's reply appears above the question. The question is
+ followed by its choices and the text field for optional details.
+-The Door and Blast radius assessments and their detail controls
+-follow, then the evidence. The provisional map stays on the **Opening** page. Every question
++The **Context**, **Door** and **Blast radius** Markdown sections follow, then the
++evidence with **Establishes** and **For your answer** sections. Each starts with a short
++summary paragraph, followed by any useful detail directly in the conversation. Context explains
++the behavior and unfamiliar terms, with depth adapted to what you already know.
++The provisional map stays on the **Opening** page. Every question
+ offers two to five alternatives plus **None of the above**, with the first selected by default.
+ Use `Up` / `Down` or `j` / `k`, click a choice, or press its number to select it.
+ The text field adds optional details to the selected choice; changing the choice keeps
+ those details. Click **Send**, press `Ctrl-Enter`, or press `Enter` while selecting choices
+ to submit both together. **None of the above** keeps the inquiry open and can be sent
+ with or without text. Click the text field or use `Tab` to reach it. The text fields
+ use the shared comment editor: `Esc` returns to Normal mode in Vim editing and stays
+ in the field in Regular editing. `Tab` returns to Explore commands. The short recap
+@@ -165,17 +172,17 @@ ## Explore a change (experimental)
+ 
+ | Explore command | Action |
+ | --- | --- |
+ | `Up` / `Down` or `j` / `k` | Select an answer, including None of the above |
+ | `Enter` | Submit the selected answer and optional details when outside the editor |
+ | `d` | Defer the question |
+ | `[` / `]` | Previous / next question |
+ | `e` / `b` | Next evidence reference / primary evidence |
+-| `m` / `v` | Expand map and follow-ups / details |
++| `m` | Expand map and follow-ups |
+ | `PageUp` / `PageDown` | Scroll the conversation when it has focus |
+ | Mouse wheel | Scroll code over a diff; scroll the conversation outside it |
+ | `Alt-j` / `Alt-k` | Grow / shrink the selected evidence window |
+ | `Alt-0` | Fit evidence automatically again |
+ | `c` / `r` | Cancel pending work / explicitly retry |
+ | `n` | Start a new pass, retaining the previous investigation as history |
+ | `Tab` | Cycle conversation, evidence and answer focus |
+ 
+@@ -215,32 +222,32 @@ ## Explore a change (experimental)
+ available. MCP validation errors let the agent repair the same pending turn;
+ an identical retry of an accepted result is acknowledged without replaying it.
+ Responses are bounded to 1 MiB; exceeding that bound is
+ reported without truncation. Stored passes can grow across many responses (up to
+ 256 MiB per pass; editor records up to 16 MiB). Corrupt, oversized or unsupported
+ records report an error and retain their original bytes. Request and answer identities still protect against
+ cancelled, duplicate or unrelated responses; they do not establish source freshness.
+ 
+-Consequential questions show separate **Door** and **Blast radius** summaries.
++Consequential questions show separate **Door** and **Blast radius** sections.
+ The first assesses whether effects can actually be undone, including rollback or
+ rebuild conditions; the second describes plausible harm, propagation and bounds.
+-**Consequence details** (or **Why this matters**) expands the reasoning and
+-unknowns; **Supporting sources** opens its citations in the same native viewer.
++Additional reasoning and unknowns appear below their summaries without an expansion button.
++**Supporting sources** opens their citations in the same native viewer.
+ These are evidence-backed agent judgments, not risk scores or guaranteed safety.
+ 
+ The agenda is provisional. Context can add, refine, reorder, retire or supersede
+ pending inquiries. Retirement keeps the reason and original wording and does not
+ mean acceptance. A reconsideration flags a prior conclusion without changing the
+ original decision; deferrals and conditions remain outstanding. New questions
+ do not imply a fixed total. The reviewer saves conversation and agenda history; the agent retains context in its own conversation.
+ 
+ The expanded map shows those states, prerequisites, entries not yet mapped and scan limitations. Topic
+ associations are not proof of coverage. Only answered essential/supporting changed regions
+ receive credit; an early conclusion is rejected with remaining locations. A successful
+ conclusion marks changed files at the reviewed checkpoint. Explore does not resolve threads.
+ 
+ Setting a nonempty `TYPESAFE_API_KEY` in the reviewer process enables optional Jev
+ significance checks. The reviewer sends bounded before/after code snippets and relative
+ paths to TypeSafe AI. Missing or whitespace-only keys make every change required.
+-Uncertain, failed and oversized checks remain required. The collapsed Jev area on each
+-question shows excluded regions and lets you choose **Require review**; this returns an
++Uncertain, failed and oversized checks remain required. The Jev area in expanded Coverage
++shows excluded regions and lets you choose **Require review**; this returns an
+ uncovered exclusion to the required work without erasing earlier answer coverage.

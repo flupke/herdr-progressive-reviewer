@@ -8,7 +8,7 @@ use review_types::ReviewUnit;
 use serde::{Deserialize, Serialize};
 
 /// The repository identity for which one guide was generated.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, schemars::JsonSchema)]
 pub struct ReviewCheckpoint {
     pub review_unit: ReviewUnit,
     pub checkpoint: String,
@@ -67,7 +67,7 @@ impl GuideTarget {
 }
 
 /// One inclusive, one-based line range in a guide response.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, schemars::JsonSchema)]
 pub struct GuideLineRange {
     pub first_line: u32,
     pub last_line: u32,

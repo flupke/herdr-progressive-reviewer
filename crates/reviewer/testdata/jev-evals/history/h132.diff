@@ -1,0 +1,132 @@
+diff --git a/crates/review-ui/src/input.rs b/crates/review-ui/src/input.rs
+index ee65549c..91116b1e 100644
+--- a/crates/review-ui/src/input.rs
++++ b/crates/review-ui/src/input.rs
+@@ -118,16 +118,17 @@ fn run_shortcut(&mut self, command: ShortcutCommand) -> Action {
+             ShortcutCommand::Search(command) => self.run_search_shortcut(command),
+             ShortcutCommand::Source(command) => self.run_source_shortcut(command),
+         }
+     }
+ 
+     fn run_search_shortcut(&mut self, command: SearchShortcut) -> Action {
+         match command {
+             SearchShortcut::Begin => self.start_search(),
++            SearchShortcut::WordUnderCursor => self.search_word_under_cursor(),
+             SearchShortcut::NextMatch => {
+                 self.repeat_search(SearchDirection::Forward);
+                 Action::None
+             }
+             SearchShortcut::PreviousMatch => {
+                 self.repeat_search(SearchDirection::Backward);
+                 Action::None
+             }
+@@ -241,16 +242,39 @@ fn start_search(&mut self) -> Action {
+             origin: self.selected().map_or(0, |file| file.cursor),
+             origin_location,
+             editing: true,
+             pending: Vec::new(),
+         });
+         self.load_all_diffs_action()
+     }
+ 
++    fn search_word_under_cursor(&mut self) -> Action {
++        if self.focus != Focus::Diff {
++            return Action::None;
++        }
++        let Some(query) = self.current_word() else {
++            return Action::None;
++        };
++        self.selection = None;
++        let origin_location = self.current_review_location();
++        self.search = Some(Search {
++            query,
++            origin: self.selected().map_or(0, |file| file.cursor),
++            origin_location: origin_location.clone(),
++            editing: false,
++            pending: Vec::new(),
++        });
++        self.update_search_match();
++        if self.record_location_change(origin_location) {
++            self.center_selected_location();
++        }
++        self.load_all_diffs_action()
++    }
++
+     fn run_source_shortcut(&mut self, command: SourceShortcut) -> Action {
+         if self.focus != Focus::Diff {
+             return Action::None;
+         }
+         match command {
+             SourceShortcut::MoveLeft => self.move_source_column(-1),
+             SourceShortcut::ExpandOrMoveRight => {
+                 if self.current_source().is_some() {
+@@ -322,17 +346,17 @@ pub(super) fn update_search_match(&mut self) {
+             }
+             self.keep_visible();
+             return;
+         }
+         let target = self.selected().and_then(|file| {
+             file.diff
+                 .find_matching_row(&search.query, search.origin, SearchDirection::Forward)
+         });
+-        self.move_diff_cursor(target);
++        self.move_search_cursor(target, SearchDirection::Forward);
+     }
+ 
+     fn repeat_search(&mut self, direction: SearchDirection) {
+         let Some(search) = self.search.as_ref().filter(|search| !search.editing) else {
+             return;
+         };
+         if self.files.iter().any(|file| file.loading) {
+             if let Some(search) = &mut self.search {
+@@ -366,17 +390,17 @@ fn repeat_search(&mut self, direction: SearchDirection) {
+                 .iter()
+                 .copied()
+                 .find(|target| *target > current)
+                 .or_else(|| matches.first().copied()),
+         };
+         if let Some((file, row)) = target {
+             let _ = self.jump(|app| {
+                 app.select_file(file);
+-                app.move_diff_cursor(Some(row));
++                app.move_search_cursor(Some(row), direction);
+                 Action::None
+             });
+         }
+     }
+ 
+     fn jump_to_guide_comment(&mut self, direction: SearchDirection) -> Action {
+         let targets = self.guide_comment_targets();
+         let current = (
+@@ -520,16 +544,31 @@ fn move_diff_cursor(&mut self, target: Option<usize>) {
+         if let Some(file) = self.files.get_mut(self.selected_file) {
+             file.clear_source_location();
+             file.jump_to_row(target, page);
+         }
+         self.selection = None;
+         self.keep_visible();
+     }
+ 
++    fn move_search_cursor(&mut self, target: Option<usize>, direction: SearchDirection) {
++        let Some(target) = target else {
++            return;
++        };
++        let column = self.search.as_ref().and_then(|search| {
++            self.selected()?
++                .diff
++                .matching_column(target, &search.query, direction)
++        });
++        self.move_diff_cursor(Some(target));
++        if let (Some(column), Some(file)) = (column, self.files.get_mut(self.selected_file)) {
++            file.column = column;
++        }
++    }
++
+     fn toggle_review(&mut self) -> Action {
+         if self.review_in_flight.is_some() {
+             return Action::None;
+         }
+         let Some(file) = self.files.get_mut(self.selected_file) else {
+             return Action::None;
+         };
+         if file.temporary {

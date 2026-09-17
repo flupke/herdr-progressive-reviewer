@@ -1,10 +1,13 @@
 //! Unposted editors survive conversation and review navigation.
 
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 use comment_editor::{CommentEditor, EditorKeymap};
-use review_threads::{DraftTarget, ReviewThreads, ThreadId};
+use review_threads::{Draft, DraftTarget, MessageId, ReviewThreads, ThreadCommand, ThreadId};
 use review_types::ReviewUnit;
+use ui_actions::Action;
 use ui_events::ThreadPostFinished;
 
 use super::{Comments, EditingComment};
@@ -13,15 +16,43 @@ use super::{Comments, EditingComment};
 pub(super) struct Drafts {
     parked: HashMap<(ReviewUnit, DraftTarget), EditingComment>,
     file_editor: Option<DraftTarget>,
-    recovered: HashSet<ReviewUnit>,
+    recovered: HashSet<(ReviewUnit, MessageId)>,
+    cancelled: Rc<RefCell<HashSet<(ReviewUnit, MessageId)>>>,
 }
 
 impl Drafts {
-    pub(super) fn recover(&mut self, book: &ReviewThreads, keymap: EditorKeymap) {
-        if !self.recovered.insert(book.review_unit.clone()) {
-            return;
-        }
+    pub(super) fn share_cancellations(&mut self, other: &Self) {
+        self.cancelled = Rc::clone(&other.cancelled);
+    }
+
+    pub(super) fn remember_cancellation(&self, unit: &ReviewUnit, draft: &Draft) {
+        self.cancelled
+            .borrow_mut()
+            .insert((unit.clone(), draft.message_id().clone()));
+    }
+
+    fn reconcile_posts(&mut self, book: &ReviewThreads, actions: &mut Vec<Action>) {
+        self.parked.retain(|(unit, _), editing| {
+            unit != &book.review_unit || editing.retain_after_posts(book, actions)
+        });
+    }
+
+    pub(super) fn recover(
+        &mut self,
+        book: &ReviewThreads,
+        keymap: EditorKeymap,
+        active: Option<&DraftTarget>,
+    ) {
         for draft in book.drafts() {
+            // A cached book cannot suppress later drafts or resurrect cancelled ones.
+            let identity = (book.review_unit.clone(), draft.message_id().clone());
+            let unseen = self.recovered.insert(identity.clone());
+            if !unseen
+                || active == Some(&draft.target)
+                || self.cancelled.borrow().contains(&identity)
+            {
+                continue;
+            }
             self.parked
                 .entry((book.review_unit.clone(), draft.target.clone()))
                 .or_insert_with(|| EditingComment {
@@ -50,7 +81,39 @@ impl Drafts {
     }
 }
 
+impl EditingComment {
+    fn retain_after_posts(&mut self, book: &ReviewThreads, actions: &mut Vec<Action>) -> bool {
+        let Some(posted) = book.message(self.draft.message_id()) else {
+            return true;
+        };
+        let text = self.editor.text();
+        if text == posted.text {
+            return false;
+        }
+        self.draft.renew_publication();
+        self.draft.text = text;
+        self.posting = None;
+        actions.push(Action::Thread(ThreadCommand::SaveDraft {
+            review_unit: book.review_unit.clone(),
+            draft: self.draft.clone(),
+        }));
+        true
+    }
+}
+
 impl Comments {
+    pub(super) fn reconcile_posts(&mut self, book: &ReviewThreads) -> Vec<Action> {
+        let mut actions = Vec::new();
+        self.drafts.reconcile_posts(book, &mut actions);
+        if let Some(editing) = &mut self.editing
+            && !editing.retain_after_posts(book, &mut actions)
+        {
+            self.selected = Some(editing.draft.message_id().clone());
+            self.editing = None;
+        }
+        actions
+    }
+
     pub(super) fn draft_paths(&self) -> impl Iterator<Item = &str> {
         self.editing
             .iter()

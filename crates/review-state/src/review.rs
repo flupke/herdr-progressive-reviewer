@@ -215,7 +215,7 @@ impl ReviewTracker {
                             None => ReviewState::reviewed(),
                         })
                     }
-                    None => eyre::bail!("comparison plan omitted a stored baseline"),
+                    None => Err(eyre::eyre!("comparison plan omitted a stored baseline")),
                 },
             })
             .collect()

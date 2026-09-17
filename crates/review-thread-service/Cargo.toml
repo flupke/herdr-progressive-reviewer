@@ -12,6 +12,7 @@ review-store = { path = "../review-store" }
 review-threads = { path = "../review-threads" }
 review-types = { path = "../review-types" }
 serde_json.workspace = true
+thiserror.workspace = true
 ui-events = { path = "../ui-events" }
 uuid.workspace = true
 

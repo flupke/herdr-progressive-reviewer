@@ -72,6 +72,7 @@ pub enum ApplicationShortcut {
     ChangeFocus,
     OpenFiles,
     OpenThreads,
+    OpenExplore,
     ToggleNavigation,
     NewReplies,
     Clear,
@@ -371,6 +372,7 @@ impl ShortcutSet {
                     ApplicationShortcut::ChangeFocus
                         | ApplicationShortcut::OpenFiles
                         | ApplicationShortcut::OpenThreads
+                        | ApplicationShortcut::OpenExplore
                         | ApplicationShortcut::ToggleNavigation
                         | ApplicationShortcut::NewReplies
                         | ApplicationShortcut::Clear
@@ -391,6 +393,7 @@ impl ShortcutSet {
                             ApplicationShortcut::ChangeFocus
                                 | ApplicationShortcut::OpenFiles
                                 | ApplicationShortcut::OpenThreads
+                                | ApplicationShortcut::OpenExplore
                                 | ApplicationShortcut::ToggleNavigation
                                 | ApplicationShortcut::NewReplies
                                 | ApplicationShortcut::Clear
@@ -420,7 +423,7 @@ impl ShortcutSet {
 
 const SHORTCUTS: &[ShortcutDefinition] = &[
     ShortcutDefinition {
-        description: Some("Open Files / Threads"),
+        description: Some("Open Files / Threads / Explore"),
         bindings: &[
             ShortcutBinding::one(Key::Char('f'), application(ApplicationShortcut::OpenFiles)),
             ShortcutBinding::alias(Key::Char('F'), application(ApplicationShortcut::OpenFiles)),
@@ -432,10 +435,18 @@ const SHORTCUTS: &[ShortcutDefinition] = &[
                 Key::Char('T'),
                 application(ApplicationShortcut::OpenThreads),
             ),
+            ShortcutBinding::one(
+                Key::Char('e'),
+                application(ApplicationShortcut::OpenExplore),
+            ),
+            ShortcutBinding::alias(
+                Key::Char('E'),
+                application(ApplicationShortcut::OpenExplore),
+            ),
         ],
     },
     ShortcutDefinition {
-        description: Some("Switch Files / Threads, including while composing"),
+        description: Some("Switch Files / Threads / Explore, including while composing"),
         bindings: &[ShortcutBinding::one(
             Key::Control('t'),
             application(ApplicationShortcut::ToggleNavigation),
@@ -505,10 +516,15 @@ const SHORTCUTS: &[ShortcutDefinition] = &[
                 Key::HalfPageDown,
                 navigation(NavigationShortcut::MoveHalfPageDown),
             ),
+            ShortcutBinding::alias(
+                Key::PageDown,
+                navigation(NavigationShortcut::MoveHalfPageDown),
+            ),
             ShortcutBinding::one(
                 Key::HalfPageUp,
                 navigation(NavigationShortcut::MoveHalfPageUp),
             ),
+            ShortcutBinding::alias(Key::PageUp, navigation(NavigationShortcut::MoveHalfPageUp)),
         ],
     },
     ShortcutDefinition {
@@ -788,7 +804,35 @@ const fn is_component_global_shortcut(command: ShortcutCommand) -> bool {
 
 /// Return the visible shortcut help lines.
 pub fn help_lines() -> impl Iterator<Item = (String, &'static str)> {
-    SHORTCUTS.iter().filter_map(ShortcutDefinition::help_line)
+    SHORTCUTS
+        .iter()
+        .filter_map(ShortcutDefinition::help_line)
+        .chain([
+            (
+                "Up / Down / j / k (Explore)".into(),
+                "Select an answer, including None of the above",
+            ),
+            (
+                "Enter (Explore)".into(),
+                "Send the selected answer with any additional text",
+            ),
+            (
+                "Tab (Explore)".into(),
+                "Focus conversation, inline evidence, then answer",
+            ),
+            (
+                "Alt-j / Alt-k".into(),
+                "Grow / shrink the Explore evidence window",
+            ),
+            (
+                "Alt-0".into(),
+                "Fit Explore evidence to its wrapped relevant range",
+            ),
+            (
+                "[ / ] (Explore)".into(),
+                "Visit previous / next interview turn",
+            ),
+        ])
 }
 
 /// Return the number of visible shortcut help lines.

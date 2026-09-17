@@ -1,0 +1,22 @@
+diff --git a/crates/components/explore/Cargo.toml b/crates/components/explore/Cargo.toml
+index 5fdade0b..565b868b 100644
+--- a/crates/components/explore/Cargo.toml
++++ b/crates/components/explore/Cargo.toml
+@@ -10,16 +10,17 @@ diff-component = { path = "../diff" }
+ review-explore = { path = "../../review-explore" }
+ review-guide = { path = "../../review-guide" }
+ component-core = { path = "../../component-core" }
+ ui-actions = { path = "../../ui-actions" }
+ ui-events = { path = "../../ui-events" }
+ ui-theme = { path = "../../ui-theme" }
+ ui-shortcuts = { path = "../../ui-shortcuts" }
+ comment-editor = { path = "../../comment-editor" }
++markdown-rendering = { path = "../../markdown-rendering" }
+ ratatui = { workspace = true, features = ["unstable-rendered-line-info"] }
+ 
+ 
+ [dev-dependencies]
+ review-repository = { path = "../../review-repository" }
+ 
+ [lints]
+ workspace = true

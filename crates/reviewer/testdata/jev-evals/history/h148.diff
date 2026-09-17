@@ -1,0 +1,166 @@
+diff --git a/crates/review-ui/tests/ui_state.rs b/crates/review-ui/tests/ui_state.rs
+index b64409dd..e1177046 100644
+--- a/crates/review-ui/tests/ui_state.rs
++++ b/crates/review-ui/tests/ui_state.rs
+@@ -169,38 +169,38 @@ fn file_with_a_review_guide_has_a_comment_marker() {
+     assert!(!screen(&app, 100, 12).join("\n").contains("💬"));
+ 
+     load_single_hunk_guide(&mut app, "A short explanation.");
+ 
+     assert!(screen(&app, 100, 12).join("\n").contains("lib.rs 💬"));
+ }
+ 
+ #[test]
+-fn guide_generation_spinner_is_at_the_right_of_the_first_footer_line() {
++fn guide_generation_spinner_is_at_the_right_of_the_status_line() {
+     let mut app = wrapped_diff_app(rows(), 80, 12);
+     app.update(Message::ReviewGuideStatus {
+         review_checkpoint: ReviewCheckpoint::new("qpvuntsm", "11111111"),
+         generating: true,
+         message: None,
+     });
+     let mut terminal = Terminal::new(TestBackend::new(80, 12)).unwrap();
+     terminal
+         .draw(|frame| frame.render_widget(app.view(), frame.area()))
+         .unwrap();
+     let buffer = terminal.backend().buffer();
+     let first = (0..80)
+-        .map(|column| buffer[(column, 10)].symbol())
++        .map(|column| buffer[(column, 11)].symbol())
+         .collect::<String>();
+     assert!(first.contains("o toggle"), "{first}");
+     assert!(first.ends_with("⠋ Generating guide"), "{first}");
+-    assert_ne!(buffer[(0, 10)].fg, Color::LightYellow);
+-    assert_eq!(buffer[(79, 10)].fg, Color::LightYellow);
++    assert_ne!(buffer[(0, 11)].fg, Color::LightYellow);
++    assert_eq!(buffer[(79, 11)].fg, Color::LightYellow);
+ 
+     app.update(Message::Tick(Instant::now()));
+-    let second = screen(&app, 80, 12)[10].clone();
++    let second = screen(&app, 80, 12)[11].clone();
+     assert!(second.ends_with("⠙ Generating guide"), "{second}");
+ }
+ 
+ #[test]
+ fn separate_line_guides_render_inside_one_hunk() {
+     let mut guide_rows = vec![DiffRow::Hunk {
+         old_start: 0,
+         old_count: 0,
+@@ -615,17 +615,17 @@ fn state_machine_keeps_selection_until_insert_succeeds() {
+ 
+     app.update(Message::OutputFinished { delivered: false });
+     assert!(matches!(
+         app.update(Message::Key(Key::Enter)),
+         Action::Output { .. }
+     ));
+     app.update(Message::OutputFinished { delivered: false });
+     let rendered = screen(&app, 80, 12);
+-    assert!(rendered.last().unwrap().contains("Tab focus"));
++    assert!(rendered.last().unwrap().contains("? help"));
+     assert!(!rendered.join("\n").contains("No agent chat"));
+     assert!(matches!(
+         app.update(Message::Key(Key::Enter)),
+         Action::Output { .. }
+     ));
+     app.update(Message::OutputFinished { delivered: true });
+     assert!(!screen(&app, 80, 12).join("\n").contains("Inserted into"));
+     assert_eq!(app.update(Message::Key(Key::Enter)), Action::None);
+@@ -643,17 +643,17 @@ fn state_machine_keeps_selection_until_insert_succeeds() {
+         change_id: "qpvuntsm".to_owned(),
+         path: "src/lib.rs".to_owned(),
+         result: Ok(ReviewState {
+             status: ReviewStatus::Unreviewed,
+             warning: Some(ReviewWarning::BaselineExpired),
+         }),
+     });
+     let rendered = screen(&app, 80, 12);
+-    assert!(rendered.last().unwrap().contains("Tab focus"));
++    assert!(rendered.last().unwrap().contains("? help"));
+     assert!(!rendered.join("\n").contains("Review baseline expired"));
+ }
+ 
+ #[test]
+ fn output_panel_selects_the_target_for_paths_and_diffs() {
+     let mut app = ReviewApp::default();
+     app.update(Message::Resize {
+         width: 80,
+@@ -661,32 +661,32 @@ fn output_panel_selects_the_target_for_paths_and_diffs() {
+     });
+     app.update(Message::FilesLoaded {
+         change_id: "qpvuntsm".to_owned(),
+         commit_id: "11111111".to_owned(),
+         description: "Commit title\n".to_owned(),
+         files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed)],
+     });
+ 
+-    assert!(screen(&app, 80, 12)[10].contains("Output: [Active agent] [Clipboard]"));
++    assert!(screen(&app, 80, 12)[11].contains("Output: [Active agent] [Clipboard]"));
+     assert_eq!(
+         app.update(Message::Key(Key::Char('o'))),
+         Action::SaveOutputTarget(OutputTarget::Clipboard)
+     );
+     assert_eq!(
+         app.update(Message::Key(Key::Enter)),
+         Action::Output {
+             target: OutputTarget::Clipboard,
+             text: "src/lib.rs".to_owned(),
+         }
+     );
+     assert_eq!(
+         app.update(Message::MouseClick {
+             column: 9,
+-            row: 10,
++            row: 11,
+             insert_path: false,
+         }),
+         Action::SaveOutputTarget(OutputTarget::ActiveAgent)
+     );
+ }
+ 
+ #[test]
+ fn reviewed_file_hides_its_diff() {
+@@ -1614,10 +1614,43 @@ fn test_backend_renders_wide_narrow_and_minimum_layouts() {
+     assert_eq!(too_small[0].trim_end(), "Terminal is too small");
+     assert_eq!(too_small[1].trim_end(), "Minimum: 40x6");
+     assert_eq!(too_small[2].trim_end(), "q quit");
+ 
+     app.update(Message::Key(Key::Tab));
+     app.update(Message::Key(Key::Down));
+     app.update(Message::Key(Key::Tab));
+     app.update(Message::Key(Key::Visual));
+-    assert!(screen(&app, 80, 10).last().unwrap().contains("Tab focus"));
++    assert!(screen(&app, 80, 10).last().unwrap().contains("? help"));
++}
++
++#[test]
++fn question_mark_opens_shortcut_help_and_escape_closes_it() {
++    let mut app = wrapped_diff_app(rows(), 80, 24);
++
++    assert_eq!(app.update(Message::Key(Key::Char('?'))), Action::None);
++    let popup = screen(&app, 80, 24).join("\n");
++    assert!(popup.contains("Keyboard shortcuts"));
++    assert!(popup.contains("rf / ra"));
++    assert!(popup.contains("[r / ]r"));
++
++    assert_eq!(app.update(Message::Key(Key::Escape)), Action::None);
++    assert!(
++        !screen(&app, 80, 24)
++            .join("\n")
++            .contains("Keyboard shortcuts")
++    );
++}
++
++#[test]
++fn shortcut_help_scrolls_on_short_terminals() {
++    let mut app = wrapped_diff_app(rows(), 80, 6);
++
++    app.update(Message::Key(Key::Char('?')));
++    assert!(!screen(&app, 80, 6).join("\n").contains("Quit"));
++    for _ in 0..20 {
++        app.update(Message::Key(Key::Down));
++    }
++
++    let popup = screen(&app, 80, 6).join("\n");
++    assert!(popup.contains("Quit"));
++    assert!(popup.contains("Show keyboard shortcuts"));
+ }

@@ -1,0 +1,22 @@
+diff --git a/crates/review-repository/src/repository/jj.rs b/crates/review-repository/src/repository/jj.rs
+index 5853d6b7..2d53a55b 100644
+--- a/crates/review-repository/src/repository/jj.rs
++++ b/crates/review-repository/src/repository/jj.rs
+@@ -89,16 +89,17 @@ fn read_stats(
+ 
+     fn diff(
+         &self,
+         repository: &Repository,
+         snapshot: &Snapshot,
+         file: &ChangedFile,
+     ) -> Result<Vec<u8>> {
+         let mut arguments = vec![
++            OsString::from("--ignore-working-copy"),
+             OsString::from("diff"),
+             OsString::from("-r"),
+             OsString::from(snapshot.identity.snapshot_id()),
+             OsString::from("--git"),
+             OsString::from("--"),
+         ];
+         arguments.extend(file.diff_paths().map(|path| path.as_os_str().to_owned()));
+         Ok(repository.run_jj(arguments)?.stdout)

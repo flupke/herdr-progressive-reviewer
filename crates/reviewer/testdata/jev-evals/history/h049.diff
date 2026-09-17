@@ -1,0 +1,39 @@
+diff --git a/crates/review-ui/src/application.rs b/crates/review-ui/src/application.rs
+index 8bc7048d..9214708a 100644
+--- a/crates/review-ui/src/application.rs
++++ b/crates/review-ui/src/application.rs
+@@ -488,21 +488,31 @@ fn dispatch_keyboard_input(
+ 
+     fn dispatch_application_shortcut(
+         &mut self,
+         event: &EventEnvelope,
+     ) -> Vec<DispatchResult<Action>> {
+         let Some(key) = event.downcast_ref::<crate::Key>() else {
+             return Vec::new();
+         };
+-        let InputResolution::Matched(ui_shortcuts::ShortcutCommand::Application(command)) =
+-            self.application_shortcuts.resolve_key(*key)
+-        else {
++        let InputResolution::Matched(command) = self.application_shortcuts.resolve_key(*key) else {
+             return Vec::new();
+         };
++        if command == ui_shortcuts::ShortcutCommand::Search(ui_shortcuts::SearchShortcut::Begin) {
++            self.set_focus(Focus::Diff);
++            self.focused_component = self.diff_component;
++            return self
++                .event_bus
++                .dispatch_input(event, self.diff_component)
++                .map(component_core::InputDispatch::into_results)
++                .unwrap_or_default();
++        }
++        let ui_shortcuts::ShortcutCommand::Application(command) = command else {
++            unreachable!("the application shortcut set is exact");
++        };
+         let actions = match command {
+             ui_shortcuts::ApplicationShortcut::ChangeFocus => {
+                 self.set_focus(match self.focus {
+                     Focus::Files => Focus::Diff,
+                     Focus::Diff => Focus::Files,
+                 });
+                 self.focused_component = match self.focus {
+                     Focus::Files => self.files_component,

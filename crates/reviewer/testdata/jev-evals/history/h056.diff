@@ -1,0 +1,83 @@
+diff --git a/crates/components/diff/src/render.rs b/crates/components/diff/src/render.rs
+index 14ba3019..1305bb39 100644
+--- a/crates/components/diff/src/render.rs
++++ b/crates/components/diff/src/render.rs
+@@ -9,31 +9,32 @@
+ use ratatui::text::{Line, Span};
+ use ratatui::widgets::{Block, Borders, Paragraph, Widget};
+ use review_lsp::SourceLocation;
+ use review_repository::diff::{DiffRow, NoticeKind};
+ use unicode_width::UnicodeWidthStr;
+ 
+ use ui_theme::Palette;
+ 
+-use crate::{LoadedDocument, PresentedRow, Token, matching_ranges};
++use crate::{LoadedDocument, PresentedRow, Token};
+ 
+ pub(super) const TAB_DISPLAY_WIDTH: usize = 4;
+ const DIFF_CONTROLS_TITLE: &str = "[←→] [→←] [👁 ]";
+ const BASIC_DIFF_CONTROLS_TITLE: &str = "[←→] [→←]";
+ const FILE_CONTROL_TITLE: &str = "[x]";
+ const MIN_DIFF_CONTROLS_WIDTH: u16 = 32;
+ 
+ pub(super) struct DiffRenderer<'a> {
+     palette: Palette,
+     file: Option<&'a LoadedDocument>,
+     guide_layout: Option<GuideLayout<'a>>,
+     focused: bool,
+     reviewable: bool,
+     search_query: Option<&'a str>,
++    search_pattern: text_search::Query,
+     selection: Option<RangeInclusive<usize>>,
+ }
+ 
+ impl<'a> DiffRenderer<'a> {
+     pub(super) fn new(
+         palette: Palette,
+         file: Option<&'a LoadedDocument>,
+         guide_layout: Option<GuideLayout<'a>>,
+@@ -44,16 +45,17 @@ pub(super) fn new(
+     ) -> Self {
+         Self {
+             palette,
+             file,
+             guide_layout,
+             focused,
+             reviewable,
+             search_query,
++            search_pattern: text_search::Query::new(search_query.unwrap_or_default()),
+             selection,
+         }
+     }
+ }
+ 
+ #[derive(Clone, Copy)]
+ struct CodeRenderContext<'a> {
+     tokens: &'a [Token],
+@@ -535,25 +537,24 @@ fn code_line(
+ 
+     fn code_spans(
+         &self,
+         tokens: &[Token],
+         cursor_column: Option<usize>,
+         source_line: Option<u32>,
+         source_location: Option<&SourceLocation>,
+     ) -> Vec<Span<'static>> {
+-        let query = self.search_query.unwrap_or_default();
+         let text = tokens
+             .iter()
+             .map(|token| token.text.as_str())
+             .collect::<String>();
+         let source_selection = source_line
+             .zip(source_location)
+             .and_then(|(line, location)| location.range_in_line(line, text.len()));
+-        let matches = matching_ranges(&text, query);
++        let matches = self.search_pattern.ranges(&text).collect::<Vec<_>>();
+         let tab_display = " ".repeat(TAB_DISPLAY_WIDTH);
+         let mut spans = Vec::new();
+         let mut token_start = 0;
+         for token in tokens {
+             let token_end = token_start + token.text.len();
+             let boundaries = token_boundaries(
+                 token_start..token_end,
+                 &matches,

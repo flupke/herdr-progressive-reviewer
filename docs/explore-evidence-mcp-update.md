@@ -59,7 +59,7 @@ transiently busy agent.
 The stale next-turn view came from gating advancement on every input event. Excluding
 mouse release alone did not fix it: other activity still held back accepted questions.
 Explore now selects each accepted new question regardless of intervening activity.
-One question is displayed at a time, with pinned Previous/Next, Latest and Opening
+One question is displayed at a time, with pinned Previous/Next and Latest
 controls. Earlier answers, corrections, choices, draft editors and native evidence
 state remain available through history. Responses received in Files or Threads select
 the new question for the next Explore visit without switching the active pane.

@@ -2,11 +2,12 @@ use guide_rendering::{DiffFrame, FrameRule, GuideOverlay, GuideOverlayRow};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::{Modifier, Style},
+    style::Style,
     text::{Line, Span},
     widgets::{Block, Borders, Widget},
 };
 use review_threads::ReviewThread;
+use ui_controls::NavigationLink;
 use ui_theme::Palette;
 
 use super::ConversationAction;
@@ -96,24 +97,13 @@ impl ConversationRows {
     }
 
     fn file_link(&mut self, path: &str, palette: Palette) {
-        let dim = Style::default().fg(palette.dim);
-        let line = Line::from(Span::styled(
-            path.to_owned(),
-            dim.add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
-        ));
-        for rendered in self.frame.wrapped_content(&line, 0) {
-            let mut column = 0;
-            let mut links = Vec::new();
-            for span in &rendered.line.spans {
-                let end = column + span.width();
-                if span.style.add_modifier.contains(Modifier::UNDERLINED) {
-                    links.push(ConversationButton {
-                        action: ConversationAction::OpenFile,
-                        columns: column..end,
-                    });
-                }
-                column = end;
-            }
+        let link = NavigationLink::new(path);
+        let label_line = Line::from(Span::styled(link.text(), NavigationLink::style(palette)));
+        for (rendered, columns) in self.frame.wrapped_content_with_ranges(&label_line, 0) {
+            let links = vec![ConversationButton {
+                action: ConversationAction::OpenFile,
+                columns,
+            }];
             self.rows.push(CommentRow {
                 rendered,
                 target: Some(CommentTarget::ConversationButtons(links)),

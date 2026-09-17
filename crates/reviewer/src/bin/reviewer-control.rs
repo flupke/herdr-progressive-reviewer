@@ -27,9 +27,11 @@ impl Control {
             Some("open") => PaneAction::Open,
             Some("close") => PaneAction::Close,
             Some("toggle") => PaneAction::Toggle,
-            _ => eyre::bail!(
-                "usage: reviewer-control <open|close|toggle|mcp-install [codex|claude]>"
-            ),
+            _ => {
+                eyre::bail!(
+                    "usage: reviewer-control <open|close|toggle|mcp-install [codex|claude]>"
+                );
+            }
         };
         let context = serde_json::from_str(
             &env::var("HERDR_PLUGIN_CONTEXT_JSON")

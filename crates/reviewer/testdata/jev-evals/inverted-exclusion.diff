@@ -1,0 +1,25 @@
+diff --git a/crates/review-explore/src/coverage.rs b/crates/review-explore/src/coverage.rs
+--- a/crates/review-explore/src/coverage.rs
++++ b/crates/review-explore/src/coverage.rs
+@@ -1,20 +1,20 @@
+     pub fn record_significance(&mut self, result: SignificanceResult) -> bool {
+         if self.classifications.contains_key(&result.id)
+             || result.units.is_empty()
+             || !subtract(&result.units, &self.inventory.units).is_empty()
+         {
+             return false;
+         }
+-        if result.outcome == Significance::Insignificant {
++        if result.outcome != Significance::Insignificant {
+             self.excluded = normalize(
+                 self.excluded
+                     .iter()
+                     .cloned()
+                     .chain(result.units.iter().cloned())
+                     .collect(),
+             );
+         }
+         self.classifications.insert(result.id.clone(), result);
+         self.revision += 1;
+         true
+     }

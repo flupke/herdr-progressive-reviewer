@@ -137,3 +137,33 @@ fn cancelling_after_implementation_delivery_does_not_repeat_the_prompt() {
     );
     flow.finish();
 }
+
+#[test]
+fn restored_conclusion_prompts_selected_agent_without_a_native_conversation_id() {
+    let mut flow = ExploreFlow::start(RepoType::Git);
+    flow.turn(None, 1);
+    flow.conclude();
+    flow.fixture.herdr.stop_agent();
+    flow.fixture.herdr.start_agent();
+    flow.fixture.herdr.wait_for_agent(None);
+    flow.exploration = flow.reopen().result.unwrap().unwrap().exploration.clone();
+    let before = fs::read(flow.fixture.herdr.directory.path().join("prompt.txt"))
+        .unwrap()
+        .len();
+    let request = flow
+        .exploration
+        .implementation("Implement the edited task list.".into())
+        .unwrap();
+    flow.fixture
+        .commands
+        .send(WorkerCommand::Explore(ExploreCommand::Implement(
+            request.clone(),
+        )))
+        .unwrap();
+    let delivered = flow.wait_for_implementation();
+    assert_eq!(delivered.request, request);
+    assert_eq!(delivered.state, review_explore::DispatchState::Delivered);
+    let text = fs::read_to_string(flow.fixture.herdr.directory.path().join("prompt.txt")).unwrap();
+    assert!(text[before..].contains("Implement the edited task list."));
+    flow.finish();
+}

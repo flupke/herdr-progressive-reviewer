@@ -1,0 +1,25 @@
+diff --git a/crates/review-guide-runner/src/lib.tests.rs b/crates/review-guide-runner/src/lib.tests.rs
+index 0420438f..bbee674b 100644
+--- a/crates/review-guide-runner/src/lib.tests.rs
++++ b/crates/review-guide-runner/src/lib.tests.rs
+@@ -132,18 +132,19 @@ fn submitted_response_is_loaded_without_a_request_identifier() {
+     let prepared = GuideRunner::<FakeHerdr>::prepare(
+         repository_snapshot(GuideScope::All),
+         mailbox.path().to_owned(),
+     )
+     .unwrap();
+     let client = FakeHerdr::new();
+     let runner = GuideRunner::new(&client);
+ 
++    let (watch, _cancellation) = prepared.watch_response().unwrap();
+     runner.submit_prepared(&agent(), &prepared).unwrap();
+-    let result = runner.finish_prepared(&prepared).unwrap();
++    let result = runner.finish_prepared_with_watch(&prepared, watch).unwrap();
+ 
+     let prompt = client.prompt.lock().unwrap().clone().unwrap();
+     assert!(prompt.contains("inherits the complete current conversation"));
+     assert!(prompt.contains("The guide explains the delta introduced by the frozen diff."));
+     assert!(prompt.contains("Would this text describe the old code equally well?"));
+     assert!(!prompt.contains("Request ID"));
+     assert_eq!(
+         result.guide.items[0].target,

@@ -1,0 +1,758 @@
+{
+  "date": "2026-09-18",
+  "kind": "isolated real-agent Explore acceptance",
+  "reviewer_messages": [
+    "These files are disposable cache. The authoritative data is elsewhere.",
+    "What happens if every instance rebuilds at once?"
+  ],
+  "responses": [
+    {
+      "instance": "d704510d-4349-4d37-b90d-e07b80259be9",
+      "request": "7c666dcc-65a1-4f68-b4c4-895a98c4a129",
+      "checkpoint": {
+        "review_unit": "a9415fef6a5239ab20a34b32555d27161aae24b8",
+        "checkpoint": "61cfe3d71446c24c8046fe404aa5c415d9fae231"
+      },
+      "interpretation": null,
+      "reply": {
+        "text": "Provisional map: writing changes bare lists to a version-2 envelope; decoding rejects legacy lists, as the new test expects. The unchanged reader handles that rejection by fetching origin rows and overwriting the file: a rebuild-on-read transition. The old decoder also rejects v2, so rollback through this reader requires another refill. The deployment fixture describes an origin shared by all instances with no client limit; actual capacity and data authority remain unknown. Separately, a missing records field raises KeyError outside the reader's recovery handling, and non-list records pass through unchecked. I have recorded the validation fix for later.",
+        "evidence": [
+          {
+            "source": "f0:new",
+            "lines": {
+              "first_line": 4,
+              "last_line": 11
+            },
+            "relationship": "Writes the v2 envelope, rejects legacy lists, and accesses records without presence or list validation."
+          },
+          {
+            "source": "f1:new",
+            "lines": {
+              "first_line": 3,
+              "last_line": 9
+            },
+            "relationship": "Shows the round-trip assertion and intentional legacy rejection; these tests were read, not run."
+          },
+          {
+            "source": "s7",
+            "lines": {
+              "first_line": 5,
+              "last_line": 11
+            },
+            "relationship": "Recovers from missing files or ValueError by fetching, overwriting, and returning origin rows; does not catch KeyError."
+          },
+          {
+            "source": "f0:old",
+            "lines": {
+              "first_line": 7,
+              "last_line": 11
+            },
+            "relationship": "The previous decoder required a list and rejects the new dictionary envelope."
+          },
+          {
+            "source": "extra1",
+            "lines": {
+              "first_line": 1,
+              "last_line": 1
+            },
+            "relationship": "The deployment fixture describes a shared origin, no client limit, and unestablished server limits."
+          }
+        ]
+      },
+      "agenda": [],
+      "sources": [
+        {
+          "id": "extra1",
+          "path": [
+            46,
+            100,
+            101,
+            112,
+            108,
+            111,
+            121,
+            109,
+            101,
+            110,
+            116,
+            47,
+            111,
+            114,
+            105,
+            103,
+            105,
+            110,
+            46,
+            106,
+            115,
+            111,
+            110
+          ]
+        }
+      ],
+      "topics": [
+        {
+          "id": "record-authority",
+          "title": "Record authority and recovery",
+          "entries": [
+            "f0"
+          ],
+          "status": "open",
+          "prompt": "Can the origin reconstruct every stored record, or would invalidation discard data that needs preservation?",
+          "prerequisites": [],
+          "rank": 0
+        },
+        {
+          "id": "shared-origin-load",
+          "title": "Shared origin refill load",
+          "entries": [
+            "f0"
+          ],
+          "status": "open",
+          "prompt": "What bounds simultaneous refills and protects the shared origin during rollout, rollback, or repeated failures?",
+          "prerequisites": [],
+          "rank": 1
+        },
+        {
+          "id": "mixed-version-access",
+          "title": "Version coexistence and rollback",
+          "entries": [
+            "f0",
+            "f1"
+          ],
+          "status": "open",
+          "prompt": "Can old and new processes access the same files, and how will rollout and rollback avoid repeated format rejection and rewriting?",
+          "prerequisites": [],
+          "rank": 2
+        },
+        {
+          "id": "records-validation",
+          "title": "Malformed version-2 records",
+          "entries": [
+            "f0",
+            "f1"
+          ],
+          "status": "open",
+          "prompt": "How should missing or non-list records be rejected so the decoder preserves its list contract and the reader can recover?",
+          "prerequisites": [],
+          "rank": 3
+        }
+      ],
+      "next": {
+        "id": "record-rebuildability",
+        "version": 1,
+        "topic": "record-authority",
+        "text": "Are these files fully disposable copies of the origin, or can they contain records the origin cannot reconstruct?",
+        "rationale": "A format rejection now leads to an overwrite. The data's authority determines whether recovery can rely on refilling or needs a data-preserving migration. Shared-origin load and version coexistence remain independent inquiries.",
+        "visual": null,
+        "alternatives": [],
+        "evidence": [
+          {
+            "source": "f0:new",
+            "lines": {
+              "first_line": 7,
+              "last_line": 11
+            },
+            "relationship": "Legacy files are rejected by the new decoder."
+          },
+          {
+            "source": "s7",
+            "lines": {
+              "first_line": 5,
+              "last_line": 11
+            },
+            "relationship": "Rejected files are replaced with rows fetched from the origin."
+          },
+          {
+            "source": "s6",
+            "lines": {
+              "first_line": 5,
+              "last_line": 8
+            },
+            "relationship": "The rebuild source is a network endpoint configured outside the store."
+          }
+        ],
+        "assessments": {
+          "door": "unknown",
+          "reversibility": {
+            "summary": "Recovery depends on whether the origin can reproduce every stored record.",
+            "details": "The reader overwrites a rejected file after a successful origin fetch. The old decoder rejects v2 too, so reverting code alone does not restore the previous file contents. If all rows remain available from a reachable origin, refilling can rebuild a file in the active writer's format. If files contain local-only or authoritative rows, overwriting can lose them; recovery then needs an independent copy or restore path. Neither a backup nor a data-preserving migration is shown in the inspected code.",
+            "evidence": [
+              {
+                "source": "s7",
+                "lines": {
+                  "first_line": 5,
+                  "last_line": 11
+                },
+                "relationship": "Establishes fetch-before-overwrite recovery and its dependency on origin data."
+              },
+              {
+                "source": "f0:new",
+                "lines": {
+                  "first_line": 4,
+                  "last_line": 14
+                },
+                "relationship": "Writes v2 and replaces file text without preserving previous contents."
+              },
+              {
+                "source": "f0:old",
+                "lines": {
+                  "first_line": 4,
+                  "last_line": 11
+                },
+                "relationship": "The previous writer emits a list and its decoder rejects a v2 dictionary."
+              },
+              {
+                "source": "s6",
+                "lines": {
+                  "first_line": 5,
+                  "last_line": 8
+                },
+                "relationship": "Rebuilding requires the configured network origin to supply rows."
+              }
+            ],
+            "unknowns": [
+              "Whether any stored records are absent from the origin.",
+              "Whether independent backups or restore paths exist outside this repository.",
+              "Whether origin data and availability satisfy recovery requirements during upgrade and rollback."
+            ]
+          },
+          "blast_radius": {
+            "summary": "Refills can affect stored records and a shared origin; the operational scope is unknown.",
+            "details": "Each rejected read enters a network fetch without throttling or request coalescing in the inspected path. The deployment fixture describes that origin as shared by all service instances with no client limit. Concurrent refills could concentrate traffic on the shared service; fetch failures propagate to callers, while successful refills replace the supplied file's contents. Reverting code cannot undo lost records or disruption already caused. Writes are scoped to the path passed to read_rows, but instance counts, shared paths, other origin consumers, and server protections are not established.",
+            "evidence": [
+              {
+                "source": "s7",
+                "lines": {
+                  "first_line": 5,
+                  "last_line": 11
+                },
+                "relationship": "Every rejected read fetches and writes its supplied path; exceptions from the recovery body propagate."
+              },
+              {
+                "source": "s6",
+                "lines": {
+                  "first_line": 5,
+                  "last_line": 8
+                },
+                "relationship": "Each fetch issues a network request with a timeout but no rate or concurrency control here."
+              },
+              {
+                "source": "extra1",
+                "lines": {
+                  "first_line": 1,
+                  "last_line": 1
+                },
+                "relationship": "The fixture explicitly describes shared scope and no client limit, while leaving server limits unestablished."
+              }
+            ],
+            "unknowns": [
+              "Whether the fixture's topology matches a real deployment.",
+              "Number of instances and files, rollout pacing, and whether processes share file paths.",
+              "Origin capacity, server protections, external consumers, and any controls outside the inspected code."
+            ]
+          }
+        }
+      },
+      "closing": null,
+      "limitations": [
+        "The complete two-file diff, both old sides, and all seven non-VCS working-copy files were inspected, including the ignored deployment configuration. No missing or non-text source was encountered.",
+        "Tests were read only, not run. The supplied tests cover a round trip and legacy rejection, but not refill failures, version coexistence, rollback, or malformed v2 records.",
+        "No callers of read_rows, deployment orchestration, origin implementation, or backup/restore tooling were found in the supplied repository; external consumers and operational context remain unknown.",
+        "The deployment configuration contains fixture assumptions. The endpoint was not contacted, and live topology, availability, or capacity has not been verified."
+      ],
+      "findings": [
+        "Required fix for later: validate that a version-2 envelope contains a list-valued records field and raise ValueError for missing or invalid records, preserving the previous decoder contract and the reader's recovery path. Add coverage for both malformed cases. The supporting source evidence is included in reply.evidence; no fix or test execution was performed."
+      ]
+    },
+    {
+      "instance": "d704510d-4349-4d37-b90d-e07b80259be9",
+      "request": "6e4c2ad9-961f-41c8-9bf5-6a05b097d7b2",
+      "checkpoint": {
+        "review_unit": "a9415fef6a5239ab20a34b32555d27161aae24b8",
+        "checkpoint": "61cfe3d71446c24c8046fe404aa5c415d9fae231"
+      },
+      "interpretation": null,
+      "reply": {
+        "text": "Understood: “These files are disposable cache. The authoritative data is elsewhere.” I’m recording this as data-ownership context and retiring the inquiry about preserving authoritative records in these files. The reader supports refilling rejected caches, but the configured origin is shared and this path has no throttling or request coalescing. Cache recovery can therefore still affect service availability. Shared-origin load is now first; version coexistence and the records-validation fix remain outstanding.",
+        "evidence": [
+          {
+            "source": "s7",
+            "lines": {
+              "first_line": 5,
+              "last_line": 11
+            },
+            "relationship": "Rejected or missing cache files trigger a fetch and replacement; the recovery body has no coordination or exception handling."
+          },
+          {
+            "source": "s6",
+            "lines": {
+              "first_line": 5,
+              "last_line": 8
+            },
+            "relationship": "Each refill invokes the configured network endpoint without request-rate or concurrency controls in this function."
+          },
+          {
+            "source": "extra1",
+            "lines": {
+              "first_line": 1,
+              "last_line": 1
+            },
+            "relationship": "The deployment fixture describes an origin shared by all service instances, no client limit, and unestablished server limits."
+          },
+          {
+            "source": "f0:new",
+            "lines": {
+              "first_line": 7,
+              "last_line": 11
+            },
+            "relationship": "Missing records raises KeyError and non-list records pass through, leaving the recorded validation fix outstanding."
+          },
+          {
+            "source": "f0:old",
+            "lines": {
+              "first_line": 7,
+              "last_line": 11
+            },
+            "relationship": "The previous decoder guaranteed a list and rejects the v2 dictionary, preserving the independent rollback/coexistence inquiry."
+          }
+        ]
+      },
+      "agenda": [
+        {
+          "topic": "record-authority",
+          "action": "retire",
+          "reason": "The reviewer states: “These files are disposable cache. The authoritative data is elsewhere.” This removes the premise that cache replacement needs to preserve locally authoritative records. The reader already has a refill path. Retirement applies only to the data-preservation inquiry; origin availability/load, mixed-version access, and malformed-envelope handling remain active.",
+          "answer": "bcb87156-fb6d-481e-845d-fdb4d273c9ae",
+          "evidence": [
+            {
+              "source": "s7",
+              "lines": {
+                "first_line": 5,
+                "last_line": 11
+              },
+              "relationship": "Confirms the implemented refill mechanism; the disposable-cache characterization comes from the cited reviewer answer."
+            }
+          ],
+          "replacement": null,
+          "decision": null
+        }
+      ],
+      "sources": [],
+      "topics": [
+        {
+          "id": "shared-origin-load",
+          "title": "Shared origin refill load",
+          "entries": [
+            "f0"
+          ],
+          "status": "open",
+          "prompt": "Which deployment or server-side controls bound simultaneous refills when legacy caches are rejected during rollout or rollback?",
+          "prerequisites": [],
+          "rank": 0
+        },
+        {
+          "id": "mixed-version-access",
+          "title": "Version coexistence and rollback",
+          "entries": [
+            "f0",
+            "f1"
+          ],
+          "status": "open",
+          "prompt": "Can old and new processes access the same files, and how will rollout and rollback avoid repeated format rejection and rewriting?",
+          "prerequisites": [],
+          "rank": 1
+        },
+        {
+          "id": "records-validation",
+          "title": "Malformed version-2 records",
+          "entries": [
+            "f0",
+            "f1"
+          ],
+          "status": "open",
+          "prompt": "How should missing or non-list records be rejected so the decoder preserves its list contract and the reader can recover?",
+          "prerequisites": [],
+          "rank": 2
+        }
+      ],
+      "next": {
+        "id": "shared-refill-controls",
+        "version": 1,
+        "topic": "shared-origin-load",
+        "text": "What deployment or server-side control limits simultaneous cache refills against the shared origin during rollout or rollback?",
+        "rationale": "The files are disposable, but both format transitions can trigger origin requests. The inspected client has no refill limit, and the fixture leaves server limits unestablished.",
+        "visual": null,
+        "alternatives": [],
+        "evidence": [
+          {
+            "source": "f0:new",
+            "lines": {
+              "first_line": 7,
+              "last_line": 11
+            },
+            "relationship": "The new decoder rejects legacy lists, turning their reads into refills through the reader."
+          },
+          {
+            "source": "f0:old",
+            "lines": {
+              "first_line": 7,
+              "last_line": 11
+            },
+            "relationship": "The old decoder rejects v2 dictionaries, so rollback can cause another refill wave."
+          },
+          {
+            "source": "s7",
+            "lines": {
+              "first_line": 5,
+              "last_line": 11
+            },
+            "relationship": "Every failed read or rejected format in this path calls fetch_rows; concurrent calls are not coalesced."
+          },
+          {
+            "source": "s6",
+            "lines": {
+              "first_line": 5,
+              "last_line": 8
+            },
+            "relationship": "The network call has a timeout but no rate or concurrency limiter in this function."
+          },
+          {
+            "source": "extra1",
+            "lines": {
+              "first_line": 1,
+              "last_line": 1
+            },
+            "relationship": "The fixture identifies a shared origin with no client limit and unknown server limits."
+          }
+        ],
+        "assessments": {
+          "door": "two_way",
+          "reversibility": {
+            "summary": "The disposable cache format can be rebuilt in either version, provided the origin and cache writes work.",
+            "details": "Given your disposable-cache context, overwriting these files does not require preserving authoritative local records. Each writer emits its own format, and the unchanged reader can fetch and rewrite a file rejected by either decoder. Recovery requires a reachable origin returning valid rows and a writable cache path. Rolling back code can itself trigger refills; it does not cancel work already sent to the origin or undo failed service requests.",
+            "evidence": [
+              {
+                "source": "f0:new",
+                "lines": {
+                  "first_line": 4,
+                  "last_line": 14
+                },
+                "relationship": "The current writer emits v2 and the decoder rejects old lists."
+              },
+              {
+                "source": "f0:old",
+                "lines": {
+                  "first_line": 4,
+                  "last_line": 14
+                },
+                "relationship": "The previous writer emits lists and its decoder rejects v2 dictionaries."
+              },
+              {
+                "source": "s7",
+                "lines": {
+                  "first_line": 5,
+                  "last_line": 11
+                },
+                "relationship": "Refills rejected files and writes using the active store implementation."
+              },
+              {
+                "source": "s6",
+                "lines": {
+                  "first_line": 5,
+                  "last_line": 8
+                },
+                "relationship": "Successful rebuild depends on the configured origin responding with usable data."
+              }
+            ],
+            "unknowns": [
+              "Origin availability and the validity of returned rows during upgrade or rollback.",
+              "Operational file permissions and whether old and new processes share cache paths.",
+              "Service recovery behavior outside this repository after origin failures."
+            ]
+          },
+          "blast_radius": {
+            "summary": "Simultaneous cache refills could disrupt the shared origin and readers across service instances.",
+            "details": "The fixture describes one origin shared by all service instances. Each rejected cache read calls it without throttling or coalescing in the inspected path; a per-request timeout does not bound aggregate demand. If demand exceeds origin capacity, reads can fail or slow, and other consumers sharing that origin could be affected. Fetch exceptions propagate from the reader's recovery body, leaving the rejected cache to trigger another fetch on a later read. The code issues one fetch per fallback invocation and writes only the supplied cache path; total concurrent invocations and downstream impact are not bounded by the supplied evidence.",
+            "evidence": [
+              {
+                "source": "extra1",
+                "lines": {
+                  "first_line": 1,
+                  "last_line": 1
+                },
+                "relationship": "Establishes the fixture's shared scope, absence of a client limit, and unestablished server limits."
+              },
+              {
+                "source": "s6",
+                "lines": {
+                  "first_line": 5,
+                  "last_line": 8
+                },
+                "relationship": "Issues a network request per fetch_rows invocation; timeout is the only visible request control."
+              },
+              {
+                "source": "s7",
+                "lines": {
+                  "first_line": 5,
+                  "last_line": 11
+                },
+                "relationship": "Fetch failures propagate before cache replacement, allowing later reads to enter the same fallback again."
+              }
+            ],
+            "unknowns": [
+              "Actual deployment topology, instance counts, cache distribution, and rollout pacing.",
+              "Origin capacity, server-side limits, and any deployment controls outside the inspected code.",
+              "Other origin consumers and caller retry behavior; neither their presence nor scale is established."
+            ]
+          }
+        }
+      },
+      "closing": null,
+      "limitations": [
+        "The full supplied diff, both old sides, current callers, tests, and deployment fixture were inspected. All cataloged sources were readable text; no missing or non-text source was encountered.",
+        "Disposable-cache status comes from the latest reviewer context. The source confirms refill mechanics but does not describe the authoritative system.",
+        "The deployment configuration is a fixture. Live capacity, rollout controls, external consumers, and caller retry behavior remain unverified; the endpoint was not contacted.",
+        "Tests were read, not run. Current assertions do not cover refill load, failures, mixed-version access, rollback, or malformed v2 records."
+      ],
+      "findings": [
+        "Required fix for later: validate that a version-2 envelope contains a list-valued records field and raise ValueError for missing or invalid records, preserving the previous decoder contract and the reader's recovery path. Add coverage for both malformed cases. The supporting source evidence is included in reply.evidence; no fix or test execution was performed."
+      ]
+    },
+    {
+      "instance": "d704510d-4349-4d37-b90d-e07b80259be9",
+      "request": "985b9cff-5e05-4f27-9bb4-77cbff8c24ba",
+      "checkpoint": {
+        "review_unit": "a9415fef6a5239ab20a34b32555d27161aae24b8",
+        "checkpoint": "61cfe3d71446c24c8046fe404aa5c415d9fae231"
+      },
+      "reply": {
+        "text": "Every read_rows call that reaches the fallback independently fetches from the configured shared origin. If every instance encounters a legacy cache at once, those requests arrive together; overlapping reads can generate several refills within one instance because nothing coalesces them.\n\nIf the origin serves the burst and writes succeed, callers receive the fetched rows and their caches become v2. If the origin slows or rejects requests, callers wait or receive exceptions. The code specifies a network timeout but no aggregate concurrency limit. It does not serve the rejected cache or retry inside that call. A fetch failure occurs before the write, so that call leaves the cache unchanged; subsequent reads can trigger more fetches unless another caller has successfully rebuilt it.\n\nThis can spread an availability problem across instances and any other consumers sharing the origin. An outage is possible, not established: origin capacity and server protections are unknown. Your disposable-cache context removes the local authoritative-data concern, but rollback can cause another refill burst because the old decoder rejects v2. The missing operational bound remains the next inquiry; no decision has been inferred from your question.",
+        "evidence": [
+          {
+            "source": "s7",
+            "lines": {
+              "first_line": 5,
+              "last_line": 11
+            },
+            "relationship": "Each fallback independently fetches, then writes and returns; fetch errors escape, with no legacy-data fallback, retry loop, or request coalescing."
+          },
+          {
+            "source": "s6",
+            "lines": {
+              "first_line": 5,
+              "last_line": 8
+            },
+            "relationship": "Each fetch calls the configured endpoint with a network timeout and no rate or concurrency control in this function."
+          },
+          {
+            "source": "extra1",
+            "lines": {
+              "first_line": 1,
+              "last_line": 1
+            },
+            "relationship": "The fixture describes an origin shared by all service instances with no client limit and unestablished server limits."
+          },
+          {
+            "source": "f0:new",
+            "lines": {
+              "first_line": 4,
+              "last_line": 14
+            },
+            "relationship": "Successful writes use v2; legacy lists are rejected. Missing or non-list records also remain unvalidated."
+          },
+          {
+            "source": "f0:old",
+            "lines": {
+              "first_line": 7,
+              "last_line": 11
+            },
+            "relationship": "The old decoder rejects a v2 dictionary, so rollback through the reader can trigger another refill."
+          }
+        ]
+      },
+      "interpretation": null,
+      "topics": [
+        {
+          "id": "shared-origin-load",
+          "title": "Shared origin refill load",
+          "prompt": "What external control bounds aggregate refill demand during rollout or rollback, including overlapping reads within each instance?",
+          "prerequisites": [],
+          "rank": 0,
+          "entries": [
+            "f0"
+          ],
+          "status": "open"
+        },
+        {
+          "id": "mixed-version-access",
+          "title": "Version coexistence and rollback",
+          "prompt": "Can old and new processes access the same files, and how will rollout and rollback avoid repeated format rejection and rewriting?",
+          "prerequisites": [],
+          "rank": 1,
+          "entries": [
+            "f0",
+            "f1"
+          ],
+          "status": "open"
+        },
+        {
+          "id": "records-validation",
+          "title": "Malformed version-2 records",
+          "prompt": "How should missing or non-list records be rejected so the decoder preserves its list contract and the reader can recover?",
+          "prerequisites": [],
+          "rank": 2,
+          "entries": [
+            "f0",
+            "f1"
+          ],
+          "status": "open"
+        }
+      ],
+      "agenda": [],
+      "sources": [],
+      "next": {
+        "id": "shared-refill-controls",
+        "version": 2,
+        "topic": "shared-origin-load",
+        "text": "Is refill concurrency bounded anywhere outside this code, such as by the rollout system or the origin?",
+        "rationale": "The source establishes uncoordinated refill demand. The remaining fact needed to assess its operational impact is whether an external control actually bounds that demand.",
+        "visual": null,
+        "alternatives": [],
+        "evidence": [
+          {
+            "source": "s7",
+            "lines": {
+              "first_line": 5,
+              "last_line": 11
+            },
+            "relationship": "There is no bound on how many callers can independently enter the refill path."
+          },
+          {
+            "source": "s6",
+            "lines": {
+              "first_line": 5,
+              "last_line": 8
+            },
+            "relationship": "The visible network timeout does not impose an aggregate refill limit."
+          },
+          {
+            "source": "extra1",
+            "lines": {
+              "first_line": 1,
+              "last_line": 1
+            },
+            "relationship": "The fixture reports no client limit and leaves server limits unestablished."
+          }
+        ],
+        "assessments": {
+          "door": "two_way",
+          "reversibility": {
+            "summary": "Disposable cache state can be rebuilt in either format; restoring service still depends on the origin.",
+            "details": "Given the recorded disposable-cache context, successful refills can recreate files using either version's writer. Recovery requires valid origin responses and successful cache writes. Reverting to the old decoder can provoke another refill wave, so code rollback alone need not relieve overload. Rebuilding caches cannot undo failed or delayed calls that have already affected users.",
+            "evidence": [
+              {
+                "source": "f0:new",
+                "lines": {
+                  "first_line": 4,
+                  "last_line": 14
+                },
+                "relationship": "The current implementation writes v2 and rejects legacy lists."
+              },
+              {
+                "source": "f0:old",
+                "lines": {
+                  "first_line": 4,
+                  "last_line": 14
+                },
+                "relationship": "The previous implementation writes lists and rejects the v2 envelope."
+              },
+              {
+                "source": "s7",
+                "lines": {
+                  "first_line": 5,
+                  "last_line": 11
+                },
+                "relationship": "The reader rebuilds rejected files using whichever writer is active."
+              },
+              {
+                "source": "s6",
+                "lines": {
+                  "first_line": 5,
+                  "last_line": 8
+                },
+                "relationship": "Rebuild success depends on a usable response from the configured origin."
+              }
+            ],
+            "unknowns": [
+              "Origin availability and response validity under simultaneous refill demand.",
+              "External operational controls and the conditions needed to restore service after overload."
+            ]
+          },
+          "blast_radius": {
+            "summary": "A refill burst could affect the shared origin and callers across instances; its scale is unestablished.",
+            "details": "There is one fetch_rows invocation per fallback call, with no in-path coordination across concurrent calls. Fetch failures propagate before replacement, allowing later reads to repeat the fallback. A saturated shared origin could therefore affect both rebuilding instances and other origin consumers, if present. Neither an instance count nor a request-rate or concurrency bound is supplied. The source supports this failure path, but does not establish that the origin will saturate or how long recovery would take.",
+            "evidence": [
+              {
+                "source": "s7",
+                "lines": {
+                  "first_line": 5,
+                  "last_line": 11
+                },
+                "relationship": "Independent fallbacks propagate fetch failures and can recur on later reads."
+              },
+              {
+                "source": "s6",
+                "lines": {
+                  "first_line": 5,
+                  "last_line": 8
+                },
+                "relationship": "The fetch path lacks throttling, coalescing, and a retry/backoff mechanism."
+              },
+              {
+                "source": "extra1",
+                "lines": {
+                  "first_line": 1,
+                  "last_line": 1
+                },
+                "relationship": "The fixture establishes shared scope while leaving server limits unknown."
+              }
+            ],
+            "unknowns": [
+              "Real deployment topology, number of concurrent callers, and rollout pacing.",
+              "Origin capacity, admission controls, and other consumers.",
+              "Caller retry behavior and whether old and new processes share cache paths."
+            ]
+          }
+        }
+      },
+      "closing": null,
+      "limitations": [
+        "The complete supplied diff, both old sides, reader, origin fetcher, deployment fixture, and tests were inspected. All cataloged sources were readable text; no missing or non-text source was encountered.",
+        "The simultaneous-rebuild outcome is a source-based analysis, not a load-test result. No tests or network requests were run.",
+        "The repository does not supply the origin implementation, deployment orchestration, or production callers of read_rows. Live capacity, external controls, retry behavior, and file-sharing topology remain unknown.",
+        "The prior disposable-cache context and retirement of the data-preservation inquiry remain in effect. Shared-origin load, version coexistence, and malformed-record validation remain outstanding."
+      ],
+      "findings": [
+        "Required fix for later: validate that a version-2 envelope contains a list-valued records field and raise ValueError for missing or invalid records, preserving the previous decoder contract and the reader's recovery path. Add coverage for both malformed cases. The supporting source evidence is included in reply.evidence; no fix or test execution was performed."
+      ]
+    }
+  ],
+  "fixture": {
+    "CHANGE.md": "Change the on-disk record envelope. Review compatibility, migration/recovery, and rollout implications. Reader behavior and deployment topology need consideration.\n",
+    "test_store.py": "from store import encode, decode\n\ndef test_round_trip():\n    assert decode(encode([{\"id\": 1}])) == [{\"id\": 1}]\n\ndef test_old_envelope_rejected():\n    import pytest\n    with pytest.raises(ValueError):\n        decode('[{\"id\": 1}]')\n",
+    "origin.py": "import json\nfrom pathlib import Path\nfrom urllib.request import urlopen\n\ndef fetch_rows():\n    settings = json.loads(Path(\".deployment/origin.json\").read_text())\n    with urlopen(settings[\"endpoint\"], timeout=10) as response:\n        return json.load(response)\n",
+    "reader.py": "from pathlib import Path\nfrom store import decode, write\nfrom origin import fetch_rows\n\ndef read_rows(path):\n    try:\n        return decode(Path(path).read_text())\n    except (FileNotFoundError, ValueError):\n        rows = fetch_rows()\n        write(path, rows)\n        return rows\n",
+    "store.py": "import json\nfrom pathlib import Path\n\ndef encode(rows):\n    return json.dumps({\"version\": 2, \"records\": rows})\n\ndef decode(text):\n    envelope = json.loads(text)\n    if not isinstance(envelope, dict) or envelope.get(\"version\") != 2:\n        raise ValueError(\"unsupported store format\")\n    return envelope[\"records\"]\n\ndef write(path, rows):\n    Path(path).write_text(encode(rows))\n",
+    ".gitignore": ".deployment/\n",
+    ".deployment/origin.json": "{\"endpoint\": \"https://origin.invalid/shared/export\", \"scope\": \"shared by all service instances\", \"client_limit\": \"none\", \"server_limit\": \"not established in this fixture\"}"
+  },
+  "review_marks": "0/2 reviewed throughout",
+  "notes": [
+    "Real-agent source analysis; no load test or fixture tests were run.",
+    "The agent registered the ignored deployment file during its initial scan, before the human concurrency question.",
+    "The agent refined its existing shared-origin branch after the concurrency question; it did not invent a new branch merely to satisfy the example.",
+    "Final correction, initial-closing and viewport repairs are covered by deterministic regressions after this live run."
+  ],
+  "base_store": "import json\nfrom pathlib import Path\n\ndef encode(rows):\n    return json.dumps(rows)\n\ndef decode(text):\n    rows = json.loads(text)\n    if not isinstance(rows, list):\n        raise ValueError(\"unsupported store format\")\n    return rows\n\ndef write(path, rows):\n    Path(path).write_text(encode(rows))\n"
+}

@@ -1,0 +1,7 @@
+diff --git a/crates/review-explore/src/lib.rs b/crates/review-explore/src/lib.rs
+--- a/crates/review-explore/src/lib.rs
++++ b/crates/review-explore/src/lib.rs
+@@ -1,2 +1,3 @@
+ mod coverage;
++mod import_eval;
+ mod source;

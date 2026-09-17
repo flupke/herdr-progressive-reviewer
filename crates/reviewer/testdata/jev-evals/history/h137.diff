@@ -1,0 +1,119 @@
+diff --git a/crates/review-ui/src/app.rs b/crates/review-ui/src/app.rs
+index a9c63848..a8e522a4 100644
+--- a/crates/review-ui/src/app.rs
++++ b/crates/review-ui/src/app.rs
+@@ -1059,21 +1059,32 @@ fn load_files(
+         commit_id: String,
+         description: String,
+         mut files: Vec<ReviewFile>,
+     ) -> Action {
+         self.set_file_disk_paths(&mut files);
+         let same_change = self.review_unit == review_unit;
+         let same_snapshot = self.commit_id == commit_id;
+         if !same_snapshot {
+-            self.clear_checkpoint_guide_state();
++            self.clear_checkpoint_guide_activity();
+         }
+         let refreshed_cursor = (same_change && !same_snapshot)
+             .then(|| self.selected().and_then(ReviewFile::cursor_location))
+             .flatten();
++        let visible_diff = (same_change && !same_snapshot)
++            .then(|| {
++                self.files.get_mut(self.selected_file).map(|file| {
++                    (
++                        file.path.clone(),
++                        std::mem::take(&mut file.diff),
++                        file.source_location.take(),
++                    )
++                })
++            })
++            .flatten();
+         let selected_path = same_change
+             .then(|| self.selected().map(|file| file.path.clone()))
+             .flatten();
+         let expand = if same_change {
+             self.refresh_files(&mut files, same_snapshot)
+         } else {
+             self.reset_for_new_change();
+             Vec::new()
+@@ -1088,41 +1099,60 @@ fn load_files(
+         self.rebuild_guide_item_counters();
+         self.rebuild_file_tree();
+         let selected_file = selected_path
+             .as_deref()
+             .and_then(|path| self.files.iter().position(|file| file.path == path));
+         self.selected_file = selected_file
+             .unwrap_or(0)
+             .min(self.files.len().saturating_sub(1));
++        let refresh_visible_diff = visible_diff.and_then(|(path, diff, source_location)| {
++            let file = self.files.get_mut(self.selected_file)?;
++            (file.path == path).then(|| {
++                file.diff = diff;
++                file.source_location = source_location;
++                file.loading = true;
++                Action::LoadDiff {
++                    commit_id: self.commit_id.clone(),
++                    path: file.path.clone(),
++                }
++            })
++        });
+         self.ensure_selected_file_visible();
+         if selected_file.is_none() {
+             self.selection = None;
+         }
+         self.keep_file_visible();
+         if !same_change && self.revision_navigation.is_some() {
+             return self.complete_revision_edit();
+         }
++        if let Some(action) = refresh_visible_diff {
++            return action;
++        }
+         match refreshed_cursor {
+             Some(location) => self.restore_refreshed_cursor(location),
+             None => self.load_selected_action(),
+         }
+     }
+ 
+     fn set_file_disk_paths(&self, files: &mut [ReviewFile]) {
+         for file in files {
+             file.disk_path = Some(self.repository_root.join(&file.path));
+         }
+     }
+ 
++    fn clear_checkpoint_guide_activity(&mut self) {
++        self.guide_spinner_frame = None;
++        self.pending_guide_jump = None;
++    }
++
+     fn clear_checkpoint_guide_state(&mut self) {
+         self.guide_items.clear();
+         self.guide_item_counters.clear();
+-        self.guide_spinner_frame = None;
+-        self.pending_guide_jump = None;
++        self.clear_checkpoint_guide_activity();
+     }
+ 
+     fn refresh_files(&mut self, files: &mut Vec<ReviewFile>, same_snapshot: bool) -> Vec<String> {
+         let mut expand = Vec::new();
+         for file in &mut *files {
+             self.refresh_file(file, same_snapshot, &mut expand);
+         }
+         if same_snapshot {
+@@ -1162,16 +1192,17 @@ fn clear_transient_views(&mut self) {
+         self.preview = None;
+         self.hover = None;
+         self.context_menu = None;
+     }
+ 
+     fn reset_for_new_change(&mut self) {
+         self.selection = None;
+         self.search = None;
++        self.clear_checkpoint_guide_state();
+         self.active_popup = None;
+         self.file_scroll = 0;
+         self.focus = Focus::Files;
+         self.review_in_flight = None;
+         self.clear_transient_views();
+         self.collapsed_directories.clear();
+     }
+ 

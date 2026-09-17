@@ -1,0 +1,18 @@
+diff --git a/crates/herdr-client/Cargo.toml b/crates/herdr-client/Cargo.toml
+index 96f42dfd..ce2d255a 100644
+--- a/crates/herdr-client/Cargo.toml
++++ b/crates/herdr-client/Cargo.toml
+@@ -5,10 +5,13 @@ edition.workspace = true
+ rust-version.workspace = true
+ license.workspace = true
+ 
+ [dependencies]
+ serde.workspace = true
+ serde_json.workspace = true
+ thiserror.workspace = true
+ 
++[dev-dependencies]
++tempfile.workspace = true
++
+ [lints]
+ workspace = true

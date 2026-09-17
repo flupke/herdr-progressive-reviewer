@@ -1,0 +1,18 @@
+diff --git a/docs/explore-milestone-1-demo.md b/docs/explore-milestone-1-demo.md
+index 75804540..ea2245e2 100644
+--- a/docs/explore-milestone-1-demo.md
++++ b/docs/explore-milestone-1-demo.md
+@@ -1,10 +1,13 @@
+ # Explore milestone 1 acceptance demo
+ 
++The delivery checks described below are historical. Current delivery uses
++`agent.prompt` directly; see [Notifications](mcp.md#notifications).
++
+ Subsequent user feedback removed Explore source snapshots and freshness pauses.
+ These observations describe the earlier build; the current working-copy behavior
+ and unchanged-code assumption are documented in [usage](usage.md#explore-a-change-experimental).
+ 
+ This records the original milestone implementation. See the subsequent
+ [inline conversation demo](explore-inline-ui-demo.md) for the corrected layout
+ and its current validation results.
+ 

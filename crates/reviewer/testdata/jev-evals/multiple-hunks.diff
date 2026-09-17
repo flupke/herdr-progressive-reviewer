@@ -1,0 +1,17 @@
+diff --git a/crates/review-explore/src/coverage.rs b/crates/review-explore/src/coverage.rs
+--- a/crates/review-explore/src/coverage.rs
++++ b/crates/review-explore/src/coverage.rs
+@@ -1,5 +1,5 @@
+ fn first() -> u32 {
+-    1
++    2
+ }
+ 
+ // unchanged separator
+@@ -26,5 +26,5 @@
+ 
+ // unchanged separator
+ fn last() -> u32 {
+-    3
++    4
+ }

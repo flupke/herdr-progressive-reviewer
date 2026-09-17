@@ -6,7 +6,6 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-herdr-client = { path = "../herdr-client" }
 libc.workspace = true
 notify.workspace = true
 review-guide = { path = "../review-guide" }

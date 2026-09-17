@@ -1,0 +1,22 @@
+diff --git a/README.md b/README.md
+index 3352746a..c18aa158 100644
+--- a/README.md
++++ b/README.md
+@@ -1,16 +1,17 @@
+ # Progressive reviewer
+ 
+ https://github.com/user-attachments/assets/4f0c949d-3eb2-4dd4-bbcc-948ae47b0c41
+ 
+ Main features:
+ 
+ - Per-file turn-based reviews: send feedback to the LLM on a diff range, mark
+   file as reviewed, see new diff since your last pass.
++- AI-generated inline review guides.
+ - LSP navigation.
+ - Full mouse support.
+ - Syntax highlighting.
+ - Vim movements.
+ 
+ ## Development install
+ 
+ Build both programs and link this directory:

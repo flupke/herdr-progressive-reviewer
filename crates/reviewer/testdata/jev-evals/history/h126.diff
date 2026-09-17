@@ -1,0 +1,822 @@
+diff --git a/plan/component-architecture.md b/plan/component-architecture.md
+new file mode 100644
+index 00000000..69c863cf
+--- /dev/null
++++ b/plan/component-architecture.md
+@@ -0,0 +1,816 @@
++# Component architecture
++
++## Decision
++
++Refactor the review UI into concrete components. Each component owns its
++state, handles its user and external events, and renders itself.
++
++Keep one synchronous runtime. Do not add a component framework or an async
++runtime. Use the component pattern documented by Ratatui. Send events from
++runtime producers through one Crossbeam channel to a typed component event
++bus.
++
++Consolidating the current synchronous event sources into one Crossbeam
++channel is part of this design. It does not introduce async tasks or change
++which runtime owns external work.
++
++Use Bevy-style typed handler registration. Each component declares its own
++subscriptions beside its handler methods. Do not put the subscription list in
++a central router and do not generate it with a macro.
++
++Separate reusable component infrastructure from product components. Put the
++component trait, typed event bus, opaque component targets, handler results,
++and shared rendering interfaces in a small `component-core` crate.
++This crate must not depend on a concrete review component.
++
++Put each independent product component in its own crate. Keep `review-ui` as
++the application composition crate. Bias toward more small crates with a
++one-way dependency graph so Cargo can compile unrelated components in
++parallel and reuse their build results independently.
++
++## Problem
++
++The current code has render-only views, but it does not have complete UI
++components. State and behavior for one screen area are spread across several
++large files:
++
++- `ReviewApp` owns almost all UI state.
++- `input.rs` handles input for every screen area.
++- `navigation.rs` handles diff, source, and history behavior.
++- files such as `files.rs` and `diff.rs` only render borrowed `ReviewApp`
++  state.
++- `reviewer::runtime` polls and drains several event sources before every
++  redraw.
++
++This shape makes a local change affect unrelated code. It also makes it hard
++to identify which type owns a cursor, a pending request, or an external
++result.
++
++## Goals
++
++- Keep state, event handling, and rendering for one component together.
++- Route user input to the active component.
++- Route an external event only to the component that owns it.
++- Keep all state changes on one UI thread.
++- Keep blocking repository and integration work outside UI components.
++- Preserve the existing typed action boundary for external work.
++- Preserve current behavior, shortcuts, cursor positions, and scroll
++  positions during the refactor.
++- Keep components small enough that their state and behavior can be understood
++  in one module.
++
++## Non-goals
++
++- Do not move to Tokio or another async runtime.
++- Do not adopt `tuirealm`, `ratatui-kit`, or another UI framework.
++- Do not create one thread or task for each component.
++- Do not let a component read from a shared terminal receiver directly.
++- Do not perform repository, LSP, Herdr, storage, or clipboard work while
++  rendering.
++- Do not create crate dependency cycles or copy shared types to avoid a
++  dependency.
++- Do not put product-specific behavior in the reusable component crate.
++- Do not use string event names or untyped event payloads.
++- Do not capture a component reference in a subscription callback.
++- Do not expose the bus's internal component IDs. Use opaque
++  `ComponentTarget` values for exact component access.
++
++## Target control flow
++
++```text
++ terminal reader ---------+
++ repository watcher ------+
++ repository worker -------+
++ LSP worker --------------+--> Crossbeam channel --> ReviewApplication
++ Herdr event reader -------+                              |
++ guide mailbox watcher ----+                    input eligibility
++ timer --------------------+                              |
++                                                  ComponentEventBus
++                                              declared subscriptions
++                                                          |
++                                           mounted component handlers
++                                                  |
++                                             component actions
++                                                  |
++                                        runtime executes external work
++```
++
++The runtime owns terminal setup, event producers, the central event receiver,
++external action execution, and terminal draws. `ReviewApplication` owns the
++component event bus, layout, focus, and component coordination. Components own
++feature behavior and declare which event types they handle.
++
++## Crate boundaries
++
++Use this target directory structure:
++
++```text
++crates/
++├── component-core/
++├── ui-actions/
++├── ui-events/
++├── components/
++│   ├── files/
++│   ├── diff/
++│   ├── guide/
++│   ├── revision/
++│   ├── status/
++│   └── overlay/
++└── review-ui/
++```
++
++Add `crates/components/*` to the workspace members. Directory names organize
++related crates but do not provide a Cargo namespace. Give the nested packages
++the unique names `files-component`, `diff-component`, `guide-component`,
++`revision-component`, `status-component`, and `overlay-component`.
++
++Use this target dependency shape:
++
++```text
++reviewer
++   |
++   v
++review-ui --------------------------------------+
++   |              |              |              |
++   v              v              v              v
++files-component                    diff-component
++       |                                  |
++       +----------------+-----------------+
++                        |
++guide-component         |         revision-component
++       |                |                 |
++       +----------------+-----------------+
++                        |
++          +-------------+-------------+
++          |             |             |
++          v             v             v
++  component-core    ui-events    ui-actions
++```
++
++The `status-component` and `overlay-component` crates use the same dependency
++direction. The component crates can depend on relevant existing domain crates,
++such as repository, guide, LSP, store, and shared review types. They must reuse
++those types instead of defining UI copies.
++
++`component-core` is library-style code. It owns only general component
++mechanics:
++
++- `Component` and `ApplicationEvent` traits;
++- `ComponentEventBus`, opaque `ComponentTarget` values, and `EventPublisher`;
++- typed subscription builders and erased internal dispatch;
++- target-based component mounting, access, removal, and subscription cleanup;
++- generic input matchers, `DispatchResult<A>`, and result conversion; and
++- small rendering interfaces that do not contain review concepts.
++
++`ui-events` contains the concrete cross-component event vocabulary.
++`ui-actions` contains the external-work requests that components return. The
++generic parameter `A` is `ui_actions::Action` in this application. This keeps
++`component-core` independent from review-specific actions. Create these leaf
++crates only when the first extracted component needs them. Before that point,
++use existing shared types where they already provide the required boundary.
++
++Each product component crate owns its state, event handlers, rendering, and
++adjacent tests. It must not depend on `review-ui` or another component crate.
++Cross-component communication uses event and action types from the leaf
++crates. `review-ui` depends on all component crates and wires them together.
++This rule keeps the graph acyclic and lets Cargo build component crates in
++parallel.
++
++## Typed component event bus
++
++Use concrete types for application events. Producers publish these types into
++one event channel. The bus erases the type only inside its transport and
++subscription registries.
++
++```rust
++trait ApplicationEvent: Any + Send + Sync + 'static {}
++
++type SharedEvent = Arc<dyn Any + Send + Sync>;
++
++struct EventEnvelope {
++    event_type: TypeId,
++    value: SharedEvent,
++}
++```
++
++`Arc` permits one published value to reach more than one component without a
++payload copy. Each subscription keeps the event `TypeId`, an internal
++`ComponentId`, and an erased typed method function. The public API stays
++typed.
++
++The event bus keeps this index:
++
++```text
++TypeId of RepositoryChanged -> FilesComponent
++TypeId of GuideChanged      -> GuideComponent, FilesComponent
++TypeId of RevisionChanged   -> FilesComponent, DiffComponent, GuideComponent
++```
++
++The UI thread receives `EventEnvelope` values from the Crossbeam channel and
++asks the event bus to dispatch them. A timer publishes ticks only when a timed
++feature is active.
++
++The terminal reader is the only code that calls Crossterm event reads. It
++normalizes key and mouse values before it sends them. This prevents components
++from competing for terminal input.
++
++Repository, LSP, Herdr, and guide integrations keep their worker ownership.
++Adapters publish concrete result types. Do not make a component wait on a
++worker receiver.
++
++## Component registration
++
++The shared component trait provides the typed registration method. A
++component keeps its subscription declarations beside its handler methods.
++
++```rust
++trait Component<A>: Sized + 'static
++where
++    A: Send + 'static,
++{
++    fn register_subscriptions(
++        subscriptions: &mut ComponentSubscriptions<'_, Self, A>,
++    );
++}
++```
++
++`IntoDispatchResult<A>` keeps handler return values typed before dispatch
++erases them. Support these results:
++
++- `()` for an external event that only changes component state;
++- `Vec<A>` for an external event that also requests runtime work.
++
++The erased method function always returns one internal `DispatchResult<A>`.
++The event bus gives this result back to `ReviewApplication`. The application
++collects its actions.
++
++For example:
++
++```rust
++impl Component<Action> for FilesComponent {
++    fn register_subscriptions(
++        subscriptions: &mut ComponentSubscriptions<'_, Self, Action>,
++    ) {
++        subscriptions.subscribe(Self::repository_changed);
++        subscriptions.subscribe(Self::review_state_saved);
++        subscriptions.subscribe(Self::revision_changed);
++    }
++}
++
++impl FilesComponent {
++    fn revision_changed(&mut self, event: &RevisionChanged) {
++        // Update component state.
++    }
++}
++```
++
++Rust method values use `Self::method`. The registration must not use a closure
++that captures `self`. The bus stores a method function and looks up the
++component only when it dispatches an event.
++
++`subscribe` adds an application-event subscription to the bus-owned type
++index. `subscribe_input` adds routed input with an explicit scope and matcher:
++
++```rust
++subscriptions.subscribe(Self::repository_changed);
++subscriptions.subscribe_input(
++    InputScope::Focused,
++    FilesShortcutMatcher::new(),
++    Self::shortcut,
++);
++subscriptions.subscribe_input(InputScope::Hovered, AnyInput, Self::mouse_pressed);
++```
++
++The matcher selects the input before the handler runs. It reports no match,
++an incomplete input sequence, or a match with the typed value for the handler.
++The handler only updates state and returns actions. Each subscription owns its
++matcher state, including a pending multi-key shortcut.
++
++Components do not own identifiers or subscription-lifecycle state. The bus
++owns both. Removing one exact `ComponentTarget` removes only that instance and
++its subscriptions. Component lookup also requires the target so multiple
++instances of one concrete component type are not ambiguous.
++
++A component that emits events stores a narrow `EventPublisher`. This handle
++only adds an event to the same bus queue. External producers publish through
++`ComponentEventBus`. Both paths use one event queue and one typed subscription
++index. `ReviewApplication` owns the bus.
++
++Mount a component in this order:
++
++1. Reserve its internal component ID.
++2. Create its narrow `EventPublisher`.
++3. Construct the component.
++4. Register its static subscription declarations in the bus-owned index.
++5. Insert it into `ComponentEventBus`.
++
++The bus must not deliver events during this sequence. A single
++`mount` method enforces the sequence. Dispatch checks both the component type
++and event type before it calls the stored method.
++
++The subscription index is `HashMap<TypeId, Vec<Subscription>>`. The bus does
++not scan subscriptions for unrelated event types. One publication can produce
++more component events. The bus stops and reports an error when one publication
++causes more than 1,024 event deliveries. This prevents an accidental event
++cycle from using one CPU core without a limit.
++
++This model gives each registered handler a compiler-checked event type. It
++does not try to prove that a component registered every event that a feature
++needs. Subscription declarations stay explicit and local to the component.
++
++## Input delivery
++
++Route input in this order:
++
++1. Send keyboard input to the active modal, or to the focused component when
++   there is no modal.
++2. Send keyboard input that has no focused match to global shortcut
++   components.
++3. Send pointer input to the hovered component.
++
++Keyboard input goes to the modal component, or to the focused component when
++there is no modal. Global input subscribers receive keyboard input when no
++focused subscription matches it. The hovered input subscriber receives
++pointer input.
++
++```rust
++subscriptions.subscribe_input(
++    InputScope::Focused,
++    FilesShortcutMatcher::new(),
++    Self::shortcut,
++);
++subscriptions.subscribe_input(InputScope::Hovered, AnyInput, Self::mouse_pressed);
++subscriptions.subscribe_input(
++    InputScope::Global,
++    HelpShortcutMatcher::new(),
++    Self::open_help,
++);
++```
++
++`ReviewApplication` owns overlay state, focus, and component areas. It selects
++the focused or hovered target. The event bus tests that target's subscription
++matchers and invokes only matching handlers. It then tests global input
++subscribers when no focused matcher matches. An incomplete global multi-key
++sequence keeps the next key in global matching. The event bus does not read
++application layout or focus state.
++
++External event subscriptions do not use focus. The event bus invokes every
++component that declares the concrete event type and returns all requested
++actions to `ReviewApplication`. Registration order defines dispatch order.
++Components must not depend on this order for independent state updates.
++
++## Actions and external work
++
++Keep actions as requests from the UI to the runtime. A component can return an
++action, but it must not execute the action itself.
++
++Examples include:
++
++- load a diff;
++- load source text;
++- query or restart the LSP;
++- change a review state;
++- generate a review guide;
++- write to the selected output target;
++- edit a revision;
++- save a setting; and
++- quit.
++
++Split the current global `Action` enum only when component ownership makes a
++smaller action type useful. Each small action enum can convert into a runtime
++action. Do not copy payload types between enums.
++
++## Application coordinator
++
++Replace the current all-owning `ReviewApp` with a small coordinator. It owns:
++
++- the component instances;
++- current focus;
++- terminal dimensions and component areas;
++- application shortcut fallback routing;
++- cross-component navigation requests;
++- the repository revision identity that all visible components share.
++
++It must not own file-tree rows, a diff cursor, search state, guide items,
++popup scroll, or revision selector state.
++
++The coordinator and components publish concrete events for cross-component
++communication. For example, a file selection publishes `FileSelected`, and a
++guide update publishes `GuidePathIndexChanged`. The event bus delivers these
++events to the components that subscribed to their types.
++
++## Files component
++
++`FilesComponent` owns:
++
++- file summaries;
++- the file tree;
++- collapsed directories;
++- selected file;
++- pane scroll;
++- optimistic and pending review-state changes; and
++- file-pane rendering.
++
++It handles:
++
++- file navigation keys;
++- directory expansion;
++- file-pane mouse events;
++- repository snapshots;
++- completed review-state writes; and
++- comment-marker summaries from `GuideComponent`.
++
++It emits actions to load the selected diff and to change a review state. A
++selection change also publishes `FileSelected` for `DiffComponent`.
++
++## Diff component
++
++`DiffComponent` owns:
++
++- loaded diff documents by path;
++- the displayed document and optional preview;
++- cursor, column, and scroll state for each document;
++- selection and search state;
++- source locations and temporary source previews;
++- location history and LSP location lists; and
++- diff-pane rendering.
++
++It handles:
++
++- diff and source navigation keys;
++- search and selection input;
++- diff-pane mouse events;
++- loaded diff and source results;
++- LSP results.
++
++It emits diff, source, LSP, and output actions.
++
++`DiffComponent` contains small state types for selection, search, source
++preview, and LSP navigation. These types keep independent behavior out of the
++main component methods. The overlay host owns hover and context-menu state.
++
++Split the present `ReviewFile` before this move:
++
++- `FileSummary` contains path, display path, disk path, change kind,
++  statistics, review status, and temporary-file metadata.
++- `DiffDocument` contains the presented content, loading state, cursor, column,
++  scroll, and source location.
++
++Reuse repository and guide types for payloads. Do not create local copies.
++
++## Guide component
++
++`GuideComponent` owns:
++
++- review guide items and their path index;
++- previous and next item navigation;
++- item counters;
++- guide generation state; and
++- guide box rendering inside the diff area.
++
++It handles guide mailbox updates, guide navigation input, and its animation
++ticks. It emits guide-generation actions and small comment-marker summaries
++for `FilesComponent`.
++
++Guide navigation handlers subscribe to global input. The focused component
++gets the first opportunity to match each shortcut. During rendering,
++`DiffComponent` draws the document first. `GuideComponent` then draws guide
++boxes over the supplied diff area. It does not borrow all `DiffComponent`
++state. The coordinator gives it one `DisplayedDiffViewport` value. This value
++contains the displayed path, presented line positions, and scroll information
++that guide rendering needs.
++
++## Revision component
++
++`RevisionComponent` owns:
++
++- revision loading state;
++- candidate revisions;
++- selected candidate and popup scroll;
++- the pending edit target; and
++- revision selector rendering.
++
++It handles parent and child navigation input, candidate results, and revision
++edit results. It emits candidate-load and revision-edit actions. The
++application coordinator handles the final change of shared revision identity
++and tells the files and diff components to reset or restore their state.
++
++## Status component
++
++`StatusComponent` owns:
++
++- output target selection;
++- temporary status text;
++- guide generation animation display; and
++- footer rendering.
++
++It handles its keyboard and mouse shortcuts, saved setting updates, and timed
++status changes. Other components send small status events. They do not expose
++their complete state to the footer.
++
++## Overlay component
++
++Use one overlay host for modal input order and stacking. Keep each overlay as
++a concrete child with its own state and rendering:
++
++- shortcut help;
++- commit message;
++- hover documentation;
++- context menu; and
++- toast display.
++
++Do not force these children through a trait unless the host needs a common
++collection. An enum is sufficient for a fixed set of overlays.
++
++## Rendering
++
++Each component renders from its own state into a supplied `Rect` and
++`Buffer` or `Frame`. A view must not accept `&ReviewApplication`.
++
++Shared immutable rendering data, such as the palette, can be passed through a
++small rendering context. Do not copy theme state into every component only to
++avoid one immutable borrow.
++
++The application computes layout once per draw and gives each component its
++area. It then renders overlays in a fixed order.
++
++Preserve the current redraw schedule during this refactor. Redraw suppression
++is a separate performance change and is not required for component ownership.
++
++## Migration sequence
++
++### 1. Component library and central channel
++
++- Create `crates/component-core` for reusable component infrastructure.
++- Add the Crossbeam dependency to `reviewer`.
++- Introduce `ApplicationEvent`, `EventEnvelope`, and one central receiver.
++- Introduce `ComponentEventBus`, opaque `ComponentTarget` values, a narrow
++  `EventPublisher`, and the typed subscription API.
++- Store event types and handler methods in an erased internal subscription,
++  but keep the registration and publishing APIs typed.
++- Implement mount, dispatch, unsubscription, and component removal as one
++  tested lifecycle.
++- Move Crossterm reads to one producer.
++- Adapt worker, repository-watch, LSP, Herdr, guide, stop, resize, and timer
++  results into concrete event types on the same receiver.
++- Preserve the current `ReviewApp::update` call during this step.
++- Preserve the current timer and redraw behavior until component dispatch is
++  complete.
++- Keep concrete review events and actions out of `component-core`.
++- Make its component, event-bus, publisher, handler-result, and dispatch types
++  generic over the application action type.
++
++### 2. Shared UI protocols and application shell
++
++Slice 1 test inventory:
++
++- Adapted the existing runtime event-loop test to use the central event
++  channel.
++- Kept the existing action-dispatch, mouse-normalization, Herdr event-stream,
++  guide-flow, and repository-watch tests at their current runtime boundaries.
++- Added component lifecycle tests for typed dispatch, action results,
++  target-based removal, and type mismatch rejection.
++- Added a runtime test for terminal-reader shutdown while it waits for input.
++- Added runtime tests for central-channel routing, joined LSP adapter shutdown,
++  and cancellation of an idle Herdr event subscription.
++
++- Create `crates/ui-events` for concrete cross-component events and
++  `crates/ui-actions` for external-work requests when the first extracted
++  component requires these shared protocols.
++- Introduce scoped input subscriptions with subscription-owned matchers.
++- Move component focus, component areas, subscription eligibility, and ordered
++  input delivery into `ReviewApplication`. Keep the legacy files/diff focus and
++  pane layout with the temporary child until those two panes become separate
++  components in slices 3 and 4.
++- Keep existing state in a temporary legacy child while components move.
++- Mount the legacy child through the same `Component` trait and event bus.
++
++Slice 2 test inventory:
++
++- Added ordered input-delivery coverage that checks that matched focused input
++  stops delivery before global handlers.
++- Added application-shell coverage that sends keyboard input through the
++  mounted legacy component and checks the returned runtime action.
++- Added ordered keyboard and pointer-area routing coverage through the
++  application input boundary.
++- Added runtime coverage that checks that an ordered action batch does not
++  lose work before a quit action.
++- Added application-shell rendering coverage through a Ratatui test backend.
++- Kept the existing review UI state and rendering tests at their current
++  public boundaries while the legacy component remains mounted.
++
++### 3. File and document submodels
++
++- Introduce explicit `FileSummary` and `DiffDocument` submodels inside the
++  transitional `ReviewFile` aggregate.
++- Do not use dereference forwarding between the submodels. Call sites must
++  state which model they use.
++- Make refresh logic replace summaries without clearing the matching document.
++- Keep current behavior tests at the public application boundary. The files
++  component slice moves summary behavior tests to component input and output
++  boundaries.
++
++Slice 3 test inventory:
++
++- Kept repository refresh coverage that checks that a selected diff stays
++  visible until its replacement arrives.
++- Kept refresh coverage that checks that a change to another file preserves
++  the selected diff and its guide.
++- Kept refresh coverage that checks that cursor and viewport positions survive
++  a summary replacement.
++- Kept file-list, diff-rendering, navigation, and input tests at the existing
++  application boundary. Slice 4 must port summary-specific cases to component
++  inputs and rendered outputs.
++
++### 4. Files component
++
++- Create `crates/components/files` with the package name `files-component`.
++- Move file summaries, tree state, selection, review updates, input handlers,
++  and rendering together.
++- Remove the transitional `ReviewFile` aggregate. Store loaded documents by
++  path in the legacy diff state until `DiffComponent` owns them.
++- Register repository and file-pane handlers in `FilesComponent`.
++- Remove corresponding fields and methods from the legacy app state.
++- Keep its dependencies limited to the component library, shared protocols,
++  and the domain crates that its behavior uses.
++
++Slice 4 test inventory:
++
++- Ported file navigation, path insertion, optimistic review updates, failed
++  review restoration, directory collapse, parent expansion, guide markers,
++  file statistics, and layout rendering to component or composed-application
++  inputs and visible outputs.
++- Kept cross-component selection and diff-loading checks at the application
++  boundary.
++- Added temporary-source synchronization coverage so an external source is
++  visible in the files component and leaves it when a repository file is
++  selected.
++- Removed legacy file-state assertions after equivalent component coverage
++  was in place.
++
++### 5. Diff component
++
++- Create `crates/components/diff` and `crates/components/guide` with the
++  package names `diff-component` and `guide-component`.
++- Move diff document state, source navigation, search, selection, LSP state,
++  input handling, and rendering together.
++- Move guide state, guide events, and guide rendering into `GuideComponent`.
++- Reject stale external results in their owning typed component handlers by
++  revision identity and path.
++- Remove `input.rs` and `navigation.rs` behavior that moved into the
++  component.
++- Keep both crates independent. Exchange displayed-viewport and guide-index
++  values through shared event types instead of a component dependency.
++
++### 6. Revision, status, and overlay components
++
++- Create the `revision-component`, `status-component`, and
++  `overlay-component` packages in their matching `crates/components`
++  directories.
++- Move each remaining state and event group to its concrete component.
++- Replace whole-application borrows in views with component state borrows.
++- Keep only shared coordination in `ReviewApplication`.
++
++### 7. Remove the legacy shell
++
++- Remove the old `Message` routing and all temporary adapters.
++- Remove unused state and broad visibility.
++- Review module and crate names against their final contents.
++- Measure production and test size by component crate.
++- Split any component crate again when it contains independent parts with a
++  one-way dependency boundary.
++- Confirm that no component crate depends on `review-ui` or another component
++  crate.
++
++## Testing
++
++Keep each component's tests in its adjacent `.tests.rs` file. Keep every test
++module declaration at the bottom of its source file.
++
++Test components through their normal boundary. Generate keyboard, mouse, and
++external input events and deliver them through the component dispatcher.
++Check observable outputs: rendered test buffers, emitted application events,
++returned runtime actions, and routed input results. Do not call handler
++methods directly, inspect private component fields, or assert internal helper
++state. A refactor that preserves the same inputs and outputs must not require
++component test changes.
++
++Port existing tests with the behavior that moves into each component. Before
++each migration slice, list the current tests that cover the behavior in that
++slice. Move or adapt those tests to the new component API before removing the
++old implementation. Preserve their scenarios and important assertions. Do
++not replace an existing behavior test only with a smaller test of a new helper.
++
++Put tests for behavior owned by one component in that component crate. Keep
++cross-component tests in `review-ui` and external-work tests in `reviewer`.
++When an existing test cannot move unchanged, record why and keep equivalent
++coverage at the nearest stable boundary. Each migration slice must show which
++existing tests it ported and which new tests it added.
++
++Add focused tests for:
++
++- input matching and fallback order;
++- keyboard focus and mouse-area routing;
++- typed external-event subscriptions and dispatch;
++- removal of a component and all subscriptions for its exact target;
++- rejection of mismatched component and event types inside erased dispatch;
++- action emission;
++- state preservation across repository refreshes;
++- file selection and diff loading;
++- cursor and scroll preservation per file;
++- guide and LSP results for current and stale revisions;
++- modal input precedence;
++- guide input precedence and rendering over a displayed diff; and
++- clean shutdown while workers are active.
++
++Use Ratatui test buffers for component rendering. Keep runtime tests for event
++channel integration and action execution. Do not mock the component event
++loop when an existing real worker or test repository can provide the event.
++
++## Completion criteria
++
++- No render type borrows the complete application state.
++- No central input file contains behavior for every component.
++- Each visible component owns its state, event reactions, and rendering.
++- Reusable component infrastructure is in `component-core`, separate from
++  product component crates.
++- Independent product components are separate crates with no dependencies on
++  each other.
++- `review-ui` only composes components and owns application-wide coordination.
++- Each component declares typed subscriptions beside its handler methods.
++- No central match statement lists external-event destinations.
++- Removing a component removes all of its subscriptions.
++- External work still runs outside the UI thread.
++- One event receiver wakes the UI for terminal and external changes.
++- Current shortcuts and visible behavior remain unchanged.
++- Existing behavior tests move with their owning components, with equivalent
++  coverage for tests that cannot move unchanged.
++- Component tests generate events through the normal dispatch boundary and
++  check observable outputs instead of internal state.
++- Repository refreshes preserve the displayed file, cursor, and scroll when
++  their anchors still exist.
++- `make check` passes after every migration change.
++- Each migration change passes `$code-review` against its own fixed point and
++  follows the repository small-feature workflow.
++
++## Migration record
++
++### Diff model prerequisite
++
++Ported the three syntax-highlighting tests and the five diff-presentation
++tests from `review-ui` to `diff-component`. The presentation tests now build
++their input through `SyntaxHighlighter` and check the public presentation
++output. This removes their former direct construction of private highlighted
++rows and presentation state. This prerequisite adds no new test scenario.
++
++### Diff state and guide viewport projection
++
++Mounted `DiffComponent` beside the files and guide components. It now owns
++repository diff documents and publishes the displayed viewport data that the
++guide component uses. Exact `ReviewCheckpoint` values reject stale diff load
++results.
++
++Added component-boundary tests for loaded diff publication, stale-result
++rejection, cursor movement, and reviewed-file filtering. Kept the existing
++application tests for guide jumps, repository refresh preservation, and
++rendering because those behaviors cross the diff and guide component
++boundaries.
++
++### Diff-owned file decorations
++
++Moved notice and search-match file decoration calculation to `DiffComponent`,
++which calculates these values from its loaded documents. Ported the
++search-path assertions to a component-boundary test that sends keyboard input
++and checks the published file decorations.
++
++### Complete component rendering boundary
++
++Mounted the locations, status, overlay, and revision components. The
++application frame now composes only mounted component renderers. Removed the old header, footer, files,
++review, popup, help, hover, context-menu, and commit-message view modules.
++Also removed the legacy `ReviewApp::view` entry point and the copied diff
++viewport renderer. Input hit testing now uses the viewport projection from
++`diff-component`, so rendering and pointer coordinates cannot use different
++row models.
++
++Ported the application rendering tests to render `ReviewApplication` through
++the component frame. Kept cross-component visual scenarios at the application
++boundary. Component-specific visual tests remain in each component crate and
++send input or external events through the dispatcher before they check the
++rendered output.
++
++The final slice removed the temporary controller and its state bridge. The
++owning components now handle file selection, diff cursor and scroll,
++selections, source views, output targets, overlays, and their input directly.
++The application keeps only component composition and cross-component
++coordination.
++
++The files, status, and locations components use the shared event projections
++directly. They do not keep local copies of the file overview or location-list
++selection models.
++
++Guide composition uses two render passes. The diff component first draws the
++document and returns the positioned guide layer for the composed viewport.
++The guide component then draws that layer. This keeps guide text and borders
++owned by `GuideComponent` while the diff component keeps source-row wrapping,
++scrolling, and hit testing.

@@ -10,6 +10,7 @@ https://github.com/user-attachments/assets/4f0c949d-3eb2-4dd4-bbcc-948ae47b0c41
 - Incremental reviews: mark files as reviewed and see only changes since your last pass.
 - Persistent review threads with agent replies, available inline and in a dedicated Threads view.
 - AI-generated review guides alongside the diff.
+- Experimental Explore interviews: answer policy questions beside working-copy code evidence.
 - Syntax highlighting, search, and code navigation with language servers.
 - Mouse support, Vim navigation, and Vim or regular comment editing.
 

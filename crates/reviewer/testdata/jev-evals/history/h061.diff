@@ -1,0 +1,115 @@
+diff --git a/crates/review-repository/src/repository/jj.rs b/crates/review-repository/src/repository/jj.rs
+index 2d53a55b..0b8af066 100644
+--- a/crates/review-repository/src/repository/jj.rs
++++ b/crates/review-repository/src/repository/jj.rs
+@@ -1,13 +1,15 @@
+ //! Jujutsu change snapshots.
+ 
++use super::jj_reader::JjReader;
+ use std::ffi::OsString;
+ use std::os::unix::ffi::OsStringExt;
+ use std::path::Path;
++use std::sync::{Arc, Mutex};
+ 
+ use super::jj_git_diff::{DESCRIPTION_DIFF_PATHS, JjGitDiffParser};
+ use super::{
+     BaselineComparison, BaselineComparisonPlan, BaselineComparisonResults, ChangeId, ChangedFile,
+     Interdiff, RepoPath, Repository, RepositoryBackend, RevisionCandidate, RevisionDirection,
+     RevisionHistoryLine, Snapshot, SnapshotIdentity,
+ };
+ use crate::{Error, Result};
+@@ -32,18 +34,34 @@
+ const REVISION_HISTORY_REVSET: &str = "(descendants(heads(ancestors(@) & immutable())) & mutable())
+     | heads(ancestors(@) & immutable())
+     | (children(heads(ancestors(@) & immutable())) & immutable())";
+ const REVISION_HISTORY_TEMPLATE: &str = concat!(
+     r#""\x1e" ++ change_id ++ ":" ++ change_id.shortest(8) ++ ":" ++ if(current_working_copy, "1", "0") ++ ":" ++ if(immutable, "1", "0") ++ "\x1f" ++ "\x1d" ++ "#,
+     r#"change_id.shortest(8) ++ " " ++ description.first_line() ++ "\n""#,
+ );
+ 
+-#[derive(Debug)]
+-pub(super) struct JjBackend;
++#[derive(Debug, Default)]
++pub(super) struct JjBackend {
++    reader: Mutex<Option<Arc<JjReader>>>,
++}
++
++impl JjBackend {
++    fn reader(&self, repository: &Repository) -> Result<Arc<JjReader>> {
++        let mut reader = self.reader.lock().map_err(|_| Error::JjLibrary {
++            operation: "lock repository reader",
++        })?;
++        if let Some(reader) = reader.as_ref() {
++            return Ok(Arc::clone(reader));
++        }
++        let initialized = Arc::new(JjReader::open(repository)?);
++        *reader = Some(Arc::clone(&initialized));
++        Ok(initialized)
++    }
++}
+ 
+ impl RepositoryBackend for JjBackend {
+     fn set_state_root(&self, _repository_root: &Path, _state_root: &Path) {}
+ 
+     fn current_identity(&self, repository: &Repository) -> Result<SnapshotIdentity> {
+         repository.read_jj_identity(false)
+     }
+ 
+@@ -88,53 +106,31 @@ fn read_stats(
+     }
+ 
+     fn diff(
+         &self,
+         repository: &Repository,
+         snapshot: &Snapshot,
+         file: &ChangedFile,
+     ) -> Result<Vec<u8>> {
+-        let mut arguments = vec![
+-            OsString::from("--ignore-working-copy"),
+-            OsString::from("diff"),
+-            OsString::from("-r"),
+-            OsString::from(snapshot.identity.snapshot_id()),
+-            OsString::from("--git"),
+-            OsString::from("--"),
+-        ];
+-        arguments.extend(file.diff_paths().map(|path| path.as_os_str().to_owned()));
+-        Ok(repository.run_jj(arguments)?.stdout)
++        self.reader(repository)?.diff(repository, snapshot, file)
+     }
+ 
+     fn file_at(&self, repository: &Repository, revision: &str, path: &RepoPath) -> Result<Vec<u8>> {
+-        Ok(repository
+-            .run_jj([
+-                OsString::from("--ignore-working-copy"),
+-                OsString::from("file"),
+-                OsString::from("show"),
+-                OsString::from("-r"),
+-                OsString::from(revision),
+-                OsString::from("--"),
+-                path.as_os_str().to_owned(),
+-            ])?
+-            .stdout)
++        self.reader(repository)?.file_at(repository, revision, path)
+     }
+ 
+     fn base_file_at(
+         &self,
+         repository: &Repository,
+         snapshot: &Snapshot,
+         path: &RepoPath,
+     ) -> Result<Vec<u8>> {
+-        self.file_at(
+-            repository,
+-            &format!("{}-", snapshot.identity.snapshot_id()),
+-            path,
+-        )
++        self.reader(repository)?
++            .base_file_at(repository, snapshot, path)
+     }
+ 
+     fn interdiff(
+         &self,
+         repository: &Repository,
+         baseline_snapshot_id: &str,
+         snapshot: &Snapshot,
+         path: &RepoPath,

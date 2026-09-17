@@ -1,0 +1,64 @@
+diff --git a/crates/components/diff/src/lib.tests.rs b/crates/components/diff/src/lib.tests.rs
+index 2a406f09..fd779ed9 100644
+--- a/crates/components/diff/src/lib.tests.rs
++++ b/crates/components/diff/src/lib.tests.rs
+@@ -13,16 +13,19 @@
+ use ui_events::{FileSummary, PointerPosition};
+ use ui_theme::Theme;
+ 
+ use super::*;
+ 
+ #[path = "highlighting.tests.rs"]
+ mod highlighting;
+ 
++#[path = "expansion.tests.rs"]
++mod expansion;
++
+ #[test]
+ fn loaded_content_publishes_its_guide_viewport() {
+     let (mut registry, reviewable_files, _) = registry_with_observer();
+     reviewable_files.replace(["src/lib.rs".to_owned()].into());
+     publish_repository(&mut registry, "checkpoint");
+     registry
+         .publish_envelope(EventEnvelope::new(FileSelected {
+             path: "src/lib.rs".to_owned(),
+@@ -842,17 +845,17 @@ fn repository_refresh_preserves_loaded_content_and_cursor_output() {
+     let refreshed = registry
+         .publish_envelope(EventEnvelope::new(repository_event("second")))
+         .expect("repository refresh must dispatch");
+ 
+     assert_eq!(output_texts(refreshed), vec!["src/lib.rs:1:2"]);
+ }
+ 
+ #[test]
+-fn clicking_an_unmodified_section_expands_it() {
++fn clicking_an_unmodified_section_keeps_the_cursor_hunk_in_place() {
+     let (mut registry, reviewable_files, diff_target) = registry_with_observer();
+     reviewable_files.replace(["src/lib.rs".to_owned()].into());
+     publish_repository(&mut registry, "checkpoint");
+     registry
+         .publish(FileSelected {
+             path: "src/lib.rs".to_owned(),
+         })
+         .unwrap();
+@@ -900,17 +903,19 @@ fn clicking_an_unmodified_section_expands_it() {
+                 PointerInputKind::Click { insert: false },
+                 u16::try_from(gap_row).unwrap(),
+                 4,
+             )),
+             diff_target,
+         )
+         .unwrap();
+ 
+-    let expanded = rendered_diff(&registry, diff_target);
++    let expanded_lines = rendered_diff_lines(&registry, diff_target);
++    assert_eq!(&expanded_lines[..gap_row], &collapsed_lines[..gap_row]);
++    let expanded = expanded_lines.join("\n");
+     assert!(!expanded.contains("unmodified lines"));
+     assert!(expanded.contains("second"));
+     assert!(expanded.contains("fourth"));
+ }
+ 
+ #[test]
+ fn dragging_source_rows_still_outputs_the_selected_diff() {
+     let (mut registry, reviewable_files, diff_target) = registry_with_observer();

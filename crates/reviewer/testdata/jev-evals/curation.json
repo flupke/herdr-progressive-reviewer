@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "decision_rule": "Exclude a whole hunk only when every target edit belongs to a reviewer-excluded category. Import/module declarations are outside scope even if behavior-changing. Uncertain category stays required; try up to two non-overlapping splits.",
+  "development": [
+    "comment-only",
+    "unicode-comment",
+    "misleading-door-label",
+    "credit-deferred-answer",
+    "inverted-exclusion",
+    "multiple-hunks",
+    "distant-operational-consumer",
+    "large-coverage-hunk",
+    "import-reorder",
+    "module-declaration"
+  ],
+  "holdout": [
+    "formatting-match-arm",
+    "operational-timeout",
+    "mixed-comment-and-policy",
+    "range-union-regression",
+    "paired-function-rewrite",
+    "import-target-change"
+  ],
+  "excluded_from_prompt_tuning": {
+    "optional-explanation-default": "The serde(default) line changes the saved-data contract and was corrected after the first run. The adjacent comment remains insignificant; keep this post-audit case out of tuning and holdout scores.",
+    "distant-descriptive-consumer": "The serde(default) line changes the saved-data contract and was corrected after the first run. Keep this post-audit case out of tuning and holdout scores.",
+    "large-added-run": "Synthetic, uncalled functions stress split geometry, but no consumer establishes the impact of each new function; their repeated lines would dominate quality metrics.",
+    "indivisible-long-line": "Synthetic repeated display wording stresses token limits, but the user-visible meaning of the wording change is too subjective for a safety label."
+  }
+}

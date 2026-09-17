@@ -1,0 +1,39 @@
+diff --git a/crates/review-ui/src/review_view.rs b/crates/review-ui/src/review_view.rs
+index c68c9690..f7caa55d 100644
+--- a/crates/review-ui/src/review_view.rs
++++ b/crates/review-ui/src/review_view.rs
+@@ -8,16 +8,17 @@
+ use crate::commit_message::CommitMessageView;
+ use crate::context_menu::ContextMenuView;
+ use crate::diff::DiffView;
+ use crate::files::FilesView;
+ use crate::footer::FooterView;
+ use crate::header::HeaderView;
+ use crate::help::ShortcutHelpView;
+ use crate::hover::HoverView;
++use crate::revision_navigation::RevisionSelectorView;
+ 
+ const MIN_WIDTH: u16 = 40;
+ const MIN_HEIGHT: u16 = 6;
+ 
+ /// A side-effect-free view of [`ReviewApp`].
+ pub struct ReviewView<'a>(pub(super) &'a ReviewApp);
+ 
+ impl Widget for ReviewView<'_> {
+@@ -72,13 +73,16 @@ fn render_overlays(&self, area: Rect, buffer: &mut Buffer) {
+         if let Some(menu) = &self.0.context_menu {
+             ContextMenuView(self.0, menu).render(area, buffer);
+         }
+         self.0
+             .toasts
+             .render(area, buffer, self.0.palette.focus, self.0.palette.deletion);
+         match self.0.active_popup {
+             Some(ActivePopup::CommitMessage) => CommitMessageView(self.0).render(area, buffer),
++            Some(ActivePopup::RevisionSelector) => {
++                RevisionSelectorView(self.0).render(area, buffer);
++            }
+             Some(ActivePopup::ShortcutHelp) => ShortcutHelpView(self.0).render(area, buffer),
+             None => {}
+         }
+     }
+ }
