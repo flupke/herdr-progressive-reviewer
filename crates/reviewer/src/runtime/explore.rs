@@ -1,13 +1,22 @@
-//! Working-copy inputs and MCP submissions; no review-store writes.
+//! Durable Explore commands using the shared dispatcher and authoritative UI acknowledgement.
 use super::{ApplicationMessageSender, Worker, WorkerCommand};
 use review_explore::{Command, Comparison, TurnRequest};
 use review_thread_service::{PinnedAgent, PromptCancellation};
 use std::sync::Arc;
+mod dispatch;
 mod implementation;
+mod storage;
 
 #[derive(Debug, Default)]
 pub(super) struct ExploreRuntime {
     comparison: Option<Arc<Comparison>>,
+    pass: Option<review_explore::ExplorePass>,
+    loaded_unit: Option<review_types::ReviewUnit>,
+    restored: bool,
+    historical: bool,
+    storage_error: Option<String>,
+    access: String,
+    last_view: Option<review_explore::ViewSave>,
     pending: Option<(String, String)>,
     agent: Option<PinnedAgent>,
     prompt: Option<PromptCancellation>,
@@ -22,10 +31,14 @@ impl Worker {
     ) {
         match command {
             Command::Start => self.start_explore(messages),
+            Command::SaveView(view) => self.save_explore_view(*view, messages),
+            Command::OpenPass(instance) => self.open_explore(Some(instance), messages),
             Command::Turn(request) => self.explore_turn(*request, messages),
             Command::Implement(request) => self.implement_explore(request, messages),
             Command::CancelImplementation => self.explore.implementation = None,
             Command::Cancel => {
+                self.cancel_explore_record(messages);
+                self.explore.access = uuid::Uuid::new_v4().to_string();
                 self.explore.prompt = None;
                 self.explore.pending = None;
                 self.explore.implementation = None;
@@ -34,6 +47,16 @@ impl Worker {
     }
 
     fn start_explore(&mut self, messages: &ApplicationMessageSender) {
+        if self.explore.storage_error.is_some() || !self.cancel_explore_record(messages) {
+            let _ = messages.send(ui_events::ExploreCaptured {
+                result: Err(self
+                    .explore
+                    .storage_error
+                    .clone()
+                    .unwrap_or_else(|| "Explore could not save its state".into())),
+            });
+            return;
+        }
         self.explore.prompt = None;
         self.explore.implementation = None;
         self.explore.pending = None;
@@ -41,6 +64,10 @@ impl Worker {
         if let Ok(comparison) = &result {
             self.explore.comparison = Some(comparison.clone());
             self.explore.agent = None;
+            self.explore.pass = None;
+            self.explore.restored = false;
+            self.explore.historical = false;
+            self.explore.access = uuid::Uuid::new_v4().to_string();
         }
         let _ = messages.send(ui_events::ExploreCaptured {
             result: result.map_err(|error| error.to_string()),
@@ -59,30 +86,67 @@ impl Worker {
     fn explore_turn(&mut self, request: TurnRequest, messages: &ApplicationMessageSender) {
         self.explore.prompt = None;
         self.explore.implementation = None;
-        let result = self.prepare_explore(&request);
-        let (prepared, agent) = match result {
-            Ok(prepared) => prepared,
+        // Preserve the posted contribution even when its subsequent wakeup cannot be sent.
+        let _ = self.bound_explore_agent();
+        let persisted = self.persist_explore_request(&request);
+        let pass = match persisted {
+            Ok(pass) => pass,
             Err(error) => {
-                let _ = messages.send(ui_events::ExploreFinished {
-                    instance: request.instance,
-                    request: request.request,
+                let _ = messages.send(ui_events::ExplorePosted {
+                    request,
                     result: Err(error.to_string()),
                 });
                 return;
             }
         };
-        let (receipt, cancellation) = self.prompts.send(agent, prepared.prompt());
+        self.explore.pass = Some(pass.clone());
+        let _ = messages.send(ui_events::ExplorePosted {
+            request: request.clone(),
+            result: Ok(Arc::new(pass.clone())),
+        });
+        let (prepared, agent) = match self.prepare_explore(&request) {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                self.explore.pending = Some((request.instance.clone(), request.request.clone()));
+                self.explore_finished(
+                    ui_events::ExploreFinished {
+                        instance: request.instance,
+                        request: request.request.clone(),
+                        result: Err(error.to_string()),
+                    },
+                    &pass.turns[&request.request].attempt,
+                    messages,
+                );
+                return;
+            }
+        };
+        let observer = dispatch::DurableDispatch {
+            began: std::sync::atomic::AtomicBool::default(),
+            store: self.guide_store.clone(),
+            unit: request.checkpoint.review_unit.clone(),
+            instance: request.instance.clone(),
+            id: review_explore::DispatchId::Interview {
+                request: request.request.clone(),
+                attempt: pass.turns[&request.request].attempt.clone(),
+            },
+            messages: messages.clone(),
+        };
+        let (receipt, cancellation) =
+            self.prompts
+                .send_observed(agent, prepared.prompt(), Some(Arc::new(observer)));
         self.explore.prompt = Some(cancellation);
         let commands = self.commands.clone();
+        let attempt = pass.turns[&request.request].attempt.clone();
         std::thread::spawn(move || {
             if let Err(error) = receipt.wait() {
-                let _ = commands.send(WorkerCommand::ExploreFinished(Box::new(
-                    ui_events::ExploreFinished {
+                let _ = commands.send(WorkerCommand::ExploreFinished {
+                    event: Box::new(ui_events::ExploreFinished {
                         instance: request.instance,
                         request: request.request,
                         result: Err(error.to_string()),
-                    },
-                )));
+                    }),
+                    attempt,
+                });
             }
         });
     }
@@ -100,13 +164,13 @@ impl Worker {
             comparison.checkpoint == request.checkpoint,
             "Request does not belong to this comparison"
         );
-        let agent = match &self.explore.agent {
-            Some(agent) => agent.clone(),
-            None => PinnedAgent::new(self.target.resolve(&self.client)?.ok_or_else(|| {
-                eyre::eyre!("No implementation agent is available. Select an agent and Retry.")
-            })?),
-        };
-        let prepared = review_explore_runner::PreparedTurn::prepare(request, comparison)?;
+        let comparison = comparison.clone();
+        let agent = self.bound_explore_agent()?;
+        let prepared = review_explore_runner::PreparedTurn::prepare(
+            request,
+            &comparison,
+            &self.explore.access,
+        );
         self.explore.pending = Some((request.instance.clone(), request.request.clone()));
         self.explore.agent = Some(agent.clone());
         Ok((prepared, agent))
@@ -115,12 +179,39 @@ impl Worker {
     pub(super) fn explore_finished(
         &mut self,
         event: ui_events::ExploreFinished,
+        attempt: &str,
         messages: &ApplicationMessageSender,
     ) {
         if self.explore.pending.as_ref() != Some(&(event.instance.clone(), event.request.clone())) {
             return;
         }
-        self.explore.pending = None;
+        if let Some(pass) = &self.explore.pass {
+            let result = self.guide_store.update_explore(
+                &pass.exploration.comparison.checkpoint.review_unit,
+                &event.instance,
+                |pass| {
+                    if pass
+                        .turns
+                        .get(&event.request)
+                        .is_none_or(|turn| turn.attempt != attempt)
+                    {
+                        return Ok(false);
+                    }
+                    if let Err(error) = &event.result {
+                        return Ok(pass.exploration.failed(&event.request, error));
+                    }
+                    Ok(false)
+                },
+            );
+            match result {
+                Ok((true, pass)) => self.explore.pass = Some(pass),
+                Ok((false, _)) => return,
+                Err(error) => {
+                    let _ = messages.send(ui_events::ExploreStorageFailed(error.to_string()));
+                    return;
+                }
+            }
+        }
         self.explore.prompt = None;
         let _ = messages.send(event);
     }
@@ -150,16 +241,44 @@ impl Worker {
                 return;
             }
         };
-        if update.instance != request.access {
+        if self
+            .explore
+            .pass
+            .as_ref()
+            .is_none_or(|pass| pass.exploration.instance != update.instance)
+        {
             request.respond(Err("Explore response belongs to another instance".into()));
             return;
         }
+        let committed = self.guide_store.update_explore(
+            &update.checkpoint.review_unit,
+            &update.instance,
+            |pass| {
+                pass.exploration
+                    .submit(update.clone())
+                    .map_err(|error| error.to_string())
+            },
+        );
+        let (applied, pass) = match committed {
+            Ok(result) => result,
+            Err(error) => {
+                request.respond(Err(error.to_string()));
+                return;
+            }
+        };
+        self.explore.pass = Some(pass.clone());
         let (response, received) = std::sync::mpsc::channel();
         if messages
-            .send(ui_events::ExploreSubmission { update, response })
+            .send(ui_events::ExploreCommitted {
+                pass: Arc::new(pass),
+                applied,
+                response,
+            })
             .is_err()
         {
-            request.respond(Err("The reviewer is closed".into()));
+            request.respond(Err(
+                "The reviewer is closed; the accepted response was saved".into(),
+            ));
             return;
         }
         std::thread::spawn(move || {
@@ -177,21 +296,75 @@ impl Worker {
 
     fn authorize_explore(&mut self, access: &str) -> eyre::Result<()> {
         eyre::ensure!(
-            self.explore
-                .pending
-                .as_ref()
-                .is_some_and(|(instance, _)| instance == access),
-            "Unknown or cancelled Explore access value; use the active request.instance"
+            self.explore.storage_error.is_none(),
+            "Explore storage is unavailable: {}",
+            self.explore.storage_error.as_deref().unwrap_or_default()
         );
-        self.explore
-            .agent
+        eyre::ensure!(
+            !access.is_empty() && self.explore.access == access && !self.explore.historical,
+            "Obsolete Explore access; retry the interrupted turn from the reviewer for fresh access"
+        );
+        let pass = self
+            .explore
+            .pass
             .as_ref()
-            .ok_or_else(|| eyre::eyre!("No interview agent"))?
+            .ok_or_else(|| eyre::eyre!("No Explore pass"))?;
+        self.explore.pass = Some(
+            self.guide_store
+                .load_explore(
+                    &pass.exploration.comparison.checkpoint.review_unit,
+                    &pass.exploration.instance,
+                )?
+                .ok_or_else(|| {
+                    eyre::eyre!(
+                        "Saved Explore pass is missing; restore its state before continuing"
+                    )
+                })?,
+        );
+        let agent = self
+            .bound_explore_agent()?
             .current(&self.client)
             .map_err(eyre::Report::msg)?
-            .ok_or_else(|| {
-                eyre::eyre!("Waiting for Herdr to identify the interview agent's session")
-            })?;
+            .ok_or_else(|| eyre::eyre!("Waiting for the native agent conversation identity"))?;
+        if let Some(binding) = review_explore::ConversationBinding::from_agent(&agent) {
+            let pass = self.explore.pass.as_ref().expect("active pass");
+            self.guide_store.update_explore(
+                &pass.exploration.comparison.checkpoint.review_unit,
+                &pass.exploration.instance,
+                |pass| {
+                    if let Some(previous) = &pass.binding {
+                        if !previous.matches(&agent) {
+                            return Err("Different native agent conversation".into());
+                        }
+                    } else {
+                        pass.binding = Some(binding);
+                    }
+                    Ok(())
+                },
+            )?;
+        }
         Ok(())
+    }
+
+    fn cancel_explore_record(&mut self, messages: &ApplicationMessageSender) -> bool {
+        let Some(pass) = &self.explore.pass else {
+            return true;
+        };
+        if self.explore.historical {
+            return true;
+        }
+        if let Err(error) = self.guide_store.update_explore(
+            &pass.exploration.comparison.checkpoint.review_unit,
+            &pass.exploration.instance,
+            |pass| {
+                pass.exploration.cancel();
+                Ok(())
+            },
+        ) {
+            self.explore.storage_error = Some(error.to_string());
+            let _ = messages.send(ui_events::ExploreStorageFailed(error.to_string()));
+            return false;
+        }
+        true
     }
 }

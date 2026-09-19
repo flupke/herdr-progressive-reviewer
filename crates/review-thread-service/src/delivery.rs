@@ -1,4 +1,4 @@
-//! Reviewer prompts are submitted through Herdr by the conversation worker.
+//! Structured reviewer prompts share the conversation worker's deferred delivery loop.
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -6,9 +6,8 @@ use std::sync::{
 };
 
 use herdr_client::client::HerdrClient;
-use herdr_client::protocol::AgentPrompter;
 
-use crate::{Input, PinnedAgent};
+use crate::{Input, PinnedAgent, prompt::PromptGate};
 
 #[derive(Clone, Debug)]
 pub struct PromptSender {
@@ -28,7 +27,7 @@ pub enum PromptError {
     Unknown(String),
 }
 
-/// Optional durable boundary for a caller's intent before external delivery.
+/// Optional durable boundary for a caller's intent, using the same readiness and sender.
 pub trait DispatchObserver: Send + Sync {
     fn before_attempt(&self, agent: &herdr_client::protocol::Agent) -> Result<(), String>;
     fn finished(&self, result: &Result<(), PromptError>) -> Result<(), String>;
@@ -109,19 +108,18 @@ impl PromptRequest {
         let Some(agent) = self.agent.current(client).map_err(PromptError::Delivery)? else {
             return Ok(false);
         };
-        if self.cancelled.load(Ordering::Acquire) {
-            return Err(PromptError::Cancelled);
-        }
-        if let Some(observer) = &self.observer {
-            observer
-                .before_attempt(&agent)
-                .map_err(PromptError::Delivery)?;
-        }
-        // After the durable attempt marker, authoritative success wins a cancellation race.
-        client
-            .prompt_agent(&agent.pane_id, &self.text)
-            .map_err(|error| PromptError::Unknown(error.to_string()))?;
-        Ok(true)
+        PromptGate::send_observed(client, &agent, &self.text, || {
+            if self.cancelled.load(Ordering::Acquire) {
+                return Ok(false);
+            }
+            if let Some(observer) = &self.observer {
+                observer
+                    .before_attempt(&agent)
+                    .map_err(PromptError::Delivery)?;
+            }
+            // After the durable attempt marker, authoritative success wins a cancellation race.
+            Ok(true)
+        })
     }
 }
 

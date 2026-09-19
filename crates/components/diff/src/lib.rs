@@ -38,6 +38,7 @@ mod document;
 mod embedded;
 mod evidence_source;
 mod explore;
+mod explore_restore;
 mod history;
 mod presentation;
 mod render;
@@ -2161,6 +2162,7 @@ impl Component<Action> for DiffComponent {
         subscriptions.subscribe(Self::replies_displayed);
         subscriptions.subscribe(Self::conversation_selected);
         subscriptions.subscribe(Self::explore_navigation);
+        subscriptions.subscribe(Self::restore_explore_positions);
         subscriptions.subscribe(Self::explore_comparison_accepted);
         subscriptions.subscribe(Self::explore_evidence);
         subscriptions.subscribe(Self::embedded_viewports);

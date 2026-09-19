@@ -2,7 +2,7 @@ use crate::{EvidenceRef, Exploration, Question, TopicStatus};
 use serde::{Deserialize, Serialize};
 
 /// Agenda lifecycle is independent of the reviewer's recorded decision.
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum AgendaAction {
     Retire,
@@ -10,7 +10,7 @@ pub enum AgendaAction {
     Reconsider,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct AgendaChange {
     pub topic: String,

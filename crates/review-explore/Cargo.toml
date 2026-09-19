@@ -6,6 +6,8 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+review-types = { path = "../review-types" }
+herdr-client = { path = "../herdr-client" }
 review-repository = { path = "../review-repository" }
 review-guide = { path = "../review-guide" }
 serde.workspace = true

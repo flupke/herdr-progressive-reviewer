@@ -17,13 +17,15 @@ pub struct Conclusion {
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ConclusionSubmission {
-    /// Copy the Explore instance from the kickoff or answer wakeup.
+    /// Copy the renewable Explore access from the latest kickoff or answer wakeup.
     pub review: String,
+    /// Durable Explore pass identity, independent of renewable review access.
+    pub instance: String,
+    /// Copy Explore request from the latest wakeup.
     pub request: String,
-    #[schemars(with = "serde_json::Value")]
+    /// Copy Review unit and Checkpoint from the latest wakeup.
     pub checkpoint: ReviewCheckpoint,
-    /// Record the exact final answer's decision, using the interview interpretation schema.
-    #[schemars(with = "Option<serde_json::Value>")]
+    /// Record the latest human decision using its exact Answer ID; otherwise null.
     pub interpretation: Option<Interpretation>,
     #[serde(flatten)]
     pub conclusion: Conclusion,
@@ -32,7 +34,7 @@ pub struct ConclusionSubmission {
 impl ConclusionSubmission {
     pub fn into_update(self) -> InterviewUpdate {
         InterviewUpdate {
-            instance: self.review,
+            instance: self.instance,
             request: self.request,
             checkpoint: self.checkpoint,
             interpretation: self.interpretation,
@@ -48,7 +50,7 @@ impl ConclusionSubmission {
 }
 
 /// Explicit human authorization, bound to the conclusion that supplied the editor.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct ImplementationRequest {
     pub instance: String,
     pub conclusion: String,

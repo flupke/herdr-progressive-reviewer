@@ -342,6 +342,18 @@ impl ReviewApplication {
             self.watched_source = source.map(std::path::Path::to_owned);
             actions.push(Action::WatchSource(self.watched_source.clone()));
         }
+        let positions = self
+            .event_bus
+            .get::<DiffComponent>(self.diff_component)
+            .map(DiffComponent::explore_positions)
+            .unwrap_or_default();
+        if let Ok(saves) = self.event_bus.publish(ui_events::ExploreAutosave {
+            positions,
+            focus: (self.navigation == ReviewNavigation::Explore).then_some(self.focus),
+        }) {
+            let saves = saves.into_iter().flat_map(DispatchResult::into_actions);
+            actions.splice(0..0, saves);
+        }
         actions
     }
 

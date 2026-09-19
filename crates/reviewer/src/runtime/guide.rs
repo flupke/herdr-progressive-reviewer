@@ -165,7 +165,8 @@ impl GuideRequestCoordinator {
                     review_thread_service::PromptError::Cancelled => {
                         review_guide_runner::Error::ResponseWaitCancelled
                     }
-                    review_thread_service::PromptError::Delivery(message) => {
+                    review_thread_service::PromptError::Delivery(message)
+                    | review_thread_service::PromptError::Unknown(message) => {
                         review_guide_runner::Error::Operation {
                             operation: "submit review guide prompt",
                             message,

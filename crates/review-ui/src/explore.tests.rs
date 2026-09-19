@@ -17,6 +17,8 @@ mod choices;
 mod conclusion_tests;
 #[path = "explore_flow.tests.rs"]
 mod flow;
+#[path = "explore_recovery.tests.rs"]
+mod recovery;
 
 struct ExploreUi {
     app: ReviewApplication,
@@ -408,7 +410,7 @@ fn a_current_turn_with_wrong_payload_identity_is_visible_and_retryable() {
 }
 
 #[test]
-fn new_pass_warns_before_discarding_and_failed_capture_preserves_text() {
+fn new_pass_retains_history_and_failed_capture_preserves_text() {
     let (mut fixture, request) = ExploreUi::new();
     fixture.respond(&request, 1);
     fixture.app.update(UserInput::Paste("Keep my draft".into()));
@@ -419,7 +421,11 @@ fn new_pass_warns_before_discarding_and_failed_capture_preserves_text() {
             .iter()
             .any(|action| matches!(action, Action::Explore(Command::Start)))
     );
-    assert!(fixture.text().contains("discards interview progress"));
+    assert!(
+        fixture
+            .text()
+            .contains("keeps this investigation in history")
+    );
     let actions = fixture.app.update(UserInput::Key(Key::Char('n')));
     assert!(
         actions

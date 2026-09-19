@@ -51,7 +51,7 @@ impl ExploreFlow {
 }
 
 #[test]
-fn conclusion_uses_its_own_mcp_contract_and_implement_prompts_a_working_agent() {
+fn conclusion_uses_its_own_mcp_contract_and_implement_waits_on_the_shared_delivery_queue() {
     let mut flow = ExploreFlow::start(RepoType::Git);
     flow.turn(None, 1);
     let payload = flow.conclude();
@@ -96,6 +96,13 @@ fn conclusion_uses_its_own_mcp_contract_and_implement_prompts_a_working_agent() 
             request.clone(),
         )))
         .unwrap();
+    // This round trip confirms the command reached the serial owner while the agent was busy.
+    flow.call("submit_conclusion", payload);
+    assert_eq!(
+        fs::read_to_string(flow.fixture.herdr.directory.path().join("prompt.txt")).unwrap(),
+        before
+    );
+    flow.native_status(AgentStatus::Idle);
     let delivered = flow.wait_for_implementation();
     assert_eq!(delivered.request, request);
     assert_eq!(delivered.state, review_explore::DispatchState::Delivered);
@@ -109,31 +116,33 @@ fn conclusion_uses_its_own_mcp_contract_and_implement_prompts_a_working_agent() 
 }
 
 #[test]
-fn cancelling_after_implementation_delivery_does_not_repeat_the_prompt() {
+fn cancelled_implementation_is_not_delivered_when_the_agent_becomes_ready() {
     let mut flow = ExploreFlow::start(RepoType::Git);
     flow.turn(None, 1);
-    let payload = flow.conclude();
+    flow.conclude();
+    flow.native_status(AgentStatus::Working);
     let request = flow
         .exploration
-        .implementation("Authorized task".into())
+        .implementation("Cancelled task".into())
         .unwrap();
     flow.fixture
         .commands
         .send(WorkerCommand::Explore(ExploreCommand::Implement(request)))
         .unwrap();
-    assert_eq!(
-        flow.wait_for_implementation().state,
-        review_explore::DispatchState::Delivered
-    );
-    let prompts = fs::read(flow.fixture.herdr.directory.path().join("prompt.txt")).unwrap();
     flow.fixture
         .commands
         .send(WorkerCommand::Explore(ExploreCommand::CancelImplementation))
         .unwrap();
-    flow.call("submit_conclusion", payload);
     assert_eq!(
-        fs::read(flow.fixture.herdr.directory.path().join("prompt.txt")).unwrap(),
-        prompts
+        flow.wait_for_implementation().state,
+        review_explore::DispatchState::Cancelled
+    );
+    flow.native_status(AgentStatus::Idle);
+    assert_eq!(
+        fs::read_to_string(flow.fixture.herdr.directory.path().join("prompt.txt"))
+            .unwrap()
+            .len(),
+        flow.prompt_offset
     );
     flow.finish();
 }

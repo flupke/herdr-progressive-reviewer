@@ -9,6 +9,7 @@ use ui_theme::Palette;
 #[derive(Default)]
 pub(super) struct EmbeddedViews {
     pub(super) active: Option<EvidenceView>,
+    pub(super) restored: Vec<review_explore::EvidencePosition>,
     pub(super) saved: BTreeMap<EvidenceView, Box<DiffComponent>>,
 }
 
@@ -123,6 +124,20 @@ impl DiffComponent {
     }
 
     fn evidence_viewport(&mut self, viewport: ui_events::DiffViewportChanged) {
+        if let Some(active) = self.embedded.active
+            && let Some(index) = self.embedded.restored.iter().position(|position| {
+                position.turn == active.turn && position.reference == active.reference
+            })
+        {
+            let saved = self.embedded.restored.remove(index);
+            if let Some(file) = self.displayed_document_mut() {
+                let maximum = file.document.diff.len().saturating_sub(1);
+                file.document.scroll = saved.scroll.min(maximum);
+                file.document.cursor = saved.cursor.min(maximum);
+                file.document.column = saved.column;
+            }
+            self.explore.fit_pending = false;
+        }
         self.viewport_changed(&viewport);
         if !std::mem::take(&mut self.explore.fit_pending) {
             return;
@@ -205,5 +220,57 @@ impl DiffComponent {
             .render(&mut window);
         viewport.draw(&window, buffer);
         self.reply_visibility.borrow_mut().project(viewport);
+    }
+}
+
+impl DiffComponent {
+    pub fn explore_positions(&self) -> Vec<review_explore::EvidencePosition> {
+        if !self.explore.active {
+            return self.explore.parked.as_ref().map_or_else(
+                || self.explore.positions.clone(),
+                |viewer| viewer.explore_positions(),
+            );
+        }
+        let mut result = self.embedded.restored.clone();
+        for (id, viewer) in self
+            .embedded
+            .saved
+            .iter()
+            .map(|(id, view)| (*id, view.as_ref()))
+            .chain(self.embedded.active.map(|id| (id, self)))
+        {
+            if result
+                .iter()
+                .any(|saved| saved.turn == id.turn && saved.reference == id.reference)
+            {
+                // The first viewport event has not applied this recovered position yet.
+                continue;
+            }
+            if let Some(file) = viewer.displayed_document() {
+                result.retain(|saved| saved.turn != id.turn || saved.reference != id.reference);
+                result.push(review_explore::EvidencePosition {
+                    turn: id.turn,
+                    reference: id.reference,
+                    scroll: file.document.scroll,
+                    cursor: file.document.cursor,
+                    column: file.document.column,
+                });
+            }
+        }
+        result.sort_by_key(|position| (position.turn, position.reference));
+        result
+    }
+
+    pub(super) fn restore_explore_positions(
+        &mut self,
+        event: &ui_events::ExplorePositionsRestored,
+    ) {
+        if self.explore.active {
+            self.embedded.restored.clone_from(&event.0);
+        } else if let Some(parked) = &mut self.explore.parked {
+            parked.embedded.restored.clone_from(&event.0);
+        } else {
+            self.explore.positions.clone_from(&event.0);
+        }
     }
 }

@@ -129,18 +129,18 @@ action. Filenames and selected diff text are no longer inserted into agent input
 Herdr owns terminal submission and rejects prompts to a blocked agent. The reviewer
 does not inspect or protect an existing draft in the agent's composer.
 
-## Multiple reviewers and ports
+## Repository ports
 
 The reviewer hosts Streamable HTTP on `127.0.0.1` only while its pane is open,
 using the official Rust MCP SDK, `rmcp`. The default port is stable for the
 repository's canonical path. A new agent started after moving the repository
 discovers its new path without changing configuration.
-For a port conflict or simultaneous reviewers of the same
-checkout, set `HERDR_REVIEWER_MCP_PORT` to a distinct nonzero port in each
-reviewer's and corresponding agent's environment. A busy port
+One agent and one reviewer are supported per repository. For a port conflict,
+set `HERDR_REVIEWER_MCP_PORT` to a distinct nonzero port in the reviewer's and
+corresponding agent's environment. A busy port
 is reported; the reviewer never silently switches addresses.
 
-Alternatively, override the second agent's bridge port at launch:
+Alternatively, override the agent's bridge port at launch:
 
 ```sh
 # Start this workspace's reviewer with HERDR_REVIEWER_MCP_PORT=59123.
@@ -148,8 +148,8 @@ codex -c 'mcp_servers.herdr_reviewer.args=["59123"]'
 claude --mcp-config '{"mcpServers":{"herdr_reviewer":{"type":"stdio","command":"/path/to/herdr-progressive-reviewer/bin/reviewer-mcp","args":["59123"]}}}'
 ```
 
-Conversation updates use a storage lock so reviewers sharing a checkout cannot
-overwrite one another's posted messages.
+Conversation updates use a storage lock to preserve posted messages while delivery
+callbacks and agent responses update their records.
 
 ## Review access and tools
 
@@ -191,20 +191,29 @@ Explore starts with a kickoff prompt containing the repository root, comparison
 identity, first request ID and interview instructions. The agent inspects the code
 and calls `submit_question` directly to post the first question.
 
-After a human contribution, the shared prompt delivery sends a compact wakeup:
+The tools advertise their full input schemas, including nested questions, evidence,
+assessments, agenda changes and interpretations. The kickoff explains the review behavior
+without duplicating schema examples.
 
-```json
-{
-  "instance": "review-id",
-  "request": "turn-id",
-  "checkpoint": {"review_unit": "unit", "checkpoint": "commit"},
-  "answer": {
-    "id": "answer-id",
-    "question": {"id": "policy", "version": 1},
-    "option": {"id": "keep", "text": "Keep resolved conversations resolved", "outcome": "accepted"},
-    "text": "Include the legacy caller."
-  }
-}
+After a human contribution, the shared prompt delivery sends a plain-text wakeup:
+
+```text
+Explore review access: temporary-access
+Explore pass: pass-id
+Explore request: turn-id
+Review unit: unit
+Checkpoint: commit
+
+Answer ID: answer-id
+Question: policy (version 1)
+Selected option ID: keep
+Selected outcome: accepted
+
+Selected option:
+Keep resolved conversations resolved
+
+Comment:
+Include the existing caller.
 ```
 
 The selected option carries its full exact text, stable ID and outcome; the comment
@@ -213,13 +222,13 @@ to its original question in the same conversation. The checkpoint appears once.
 The reviewer keeps the full question and answer for history and validation; its
 evidence, assessments, rationale, other choices and recommendation are not resent.
 
-Conditional fields appear only when relevant: `answer.corrects` identifies an answer
-being corrected, `answer.deferred: true` records an explicit deferral, and
-`response_error` contains the previous attempt's failure. An unselected option is
-omitted. Replies to a questionless conclusion use `question: null` and
-`answer.in_reply_to` for the original conclusion turn. The agent posts the next turn
-with `submit_question` directly; no repository catalog or history dump is sent.
-`get_explore_answer`, `get_explore` and `read_explore` have been removed.
+Conditional details appear only when relevant: Corrects answer identifies an answer
+being corrected, Explicitly deferred records a deferral, and Previous response error
+contains the previous attempt's failure. An unselected option is omitted. Replies to
+a conclusion use Reply to conclusion with the original conclusion turn ID instead of
+a question ID/version. The agent posts the next turn with submit_question directly;
+no repository catalog or history dump is sent. get_explore_answer, get_explore and
+read_explore have been removed.
 
 Inspect source directly from disk and use Git/jj for diffs and historical text.
 Git's `checkpoint.review_unit` identifies the base tree; jj's `checkpoint.checkpoint`
@@ -235,10 +244,13 @@ value and the result in `update`. Refresh an already-running agent's MCP tool ca
 after upgrading; Explore exposes `submit_question` and `submit_conclusion`. The old
 `submit_explore` name has been removed. `submit_question` requires a next question
 and cannot carry a conclusion.
-Its access belongs to the current in-memory Explore pass and pinned agent
-conversation. Each call checks that binding, and the UI validates the entire turn
-before acknowledging it. Validation errors leave the request open for repair;
-transport retries must reuse the identical payload. Accepted retries return
+The durable `instance` is distinct from renewable `review` access. Access is never
+saved with the pass. Reopening rotates it; the next explicit reviewer action supplies
+current access through the existing wakeup. Each call checks the pinned native
+conversation, then validates against the latest stored pass under its lock, atomically
+saves the update and deduplication record, publishes it to the UI, and waits for UI
+application before acknowledging it. Validation errors leave the request open for repair;
+transport retries must reuse the identical semantic payload (with current `review` access after reconnection). A response saved before a lost acknowledgement is restored locally; it is not regenerated. Accepted retries return
 `accepted: true, applied: false`. Cancelled, obsolete or changed accepted payloads
 are rejected. Explore never writes ordinary thread replies or uses response files.
 
@@ -246,7 +258,8 @@ Use `submit_conclusion` for the separate conclusion screen. Its top-level argume
 
 ```json
 {
-  "review": "review-id",
+  "review": "temporary-access",
+  "instance": "pass-id",
   "request": "turn-id",
   "checkpoint": {"review_unit": "unit", "checkpoint": "commit"},
   "interpretation": null,
@@ -265,7 +278,12 @@ the editable task box. Submitting a conclusion does not start implementation.
 The human's **Implement** action sends the edited box contents through the shared
 reviewer-to-agent delivery queue, authorizing those tasks and their validation.
 It waits for the pinned agent conversation, supports cancelling queued delivery,
-and reports delivery failures without discarding edits. Delivery confirmation
+and reports delivery failures without discarding edits. Authorization saves the exact
+edited scope and logical delivery ID before queuing. The shared dispatcher saves an
+attempt marker before the external call and records the authoritative outcome before
+reporting success. Reopening never replays pending work. An unfinished attempt is
+shown as delivery unknown, not as a cancelled or definitely unsent request.
+Delivery confirmation
 means the request was sent, not that implementation has finished.
 
 ## Runtime and verification

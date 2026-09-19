@@ -6,6 +6,12 @@ Implement this as an additive slice over the shipped Explore experience. This is
 
 **Persist the investigation, not the repository.**
 
+**2026-09-20 scope override:** support one agent and one reviewer per repository.
+Use one saved editor/reading state per pass; remove window identities, separate
+window records, and alternate-draft controls. This supersedes the multi-window
+requirements below. No legacy-format support or migration is required: the feature
+has not been released. Preserve the existing durability and delivery guarantees.
+
 ## 1. Starting point and source of truth
 
 This guide is based on the supplied handoff, **“Explore: first-slice deltas for second-slice planning.”** It reports installed commit `a98fd9967d8c92d39c5e0b0ef6f387478db8a50b` in jj change `tqrxzpsnnqxrronpxsvnrrurmyvxnpyn`. These are reported endpoints, not a claim that the checkout still matches them.

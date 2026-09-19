@@ -21,12 +21,16 @@ mod evidence;
 mod flow;
 mod input;
 mod navigation;
+mod persistence;
 mod render;
 pub use flow::ConversationLayout;
 
 #[derive(Clone, Copy, Debug)]
 enum Control {
     Start,
+    PreviousPass,
+    LatestPass,
+    NewImplementation,
     Send,
     Defer,
     History(navigation::History),
@@ -50,21 +54,13 @@ enum Control {
     CancelImplementation,
 }
 
-#[derive(Default)]
-#[allow(
-    clippy::struct_excessive_bools,
-    reason = "Sections expand independently"
-)]
-struct TurnView {
-    reference: usize,
-    choice: usize,
-    details: bool,
-    more: bool,
-    references: bool,
-    supporting: bool,
+use review_explore::{ExplorePage as DraftKey, QuestionReading as TurnView};
+
+trait TurnControls {
+    fn toggle(&mut self, control: Control);
 }
 
-impl TurnView {
+impl TurnControls for TurnView {
     fn toggle(&mut self, control: Control) {
         match control {
             Control::Details(_) => self.details = !self.details,
@@ -122,15 +118,9 @@ enum EditorTarget {
     Implementation,
 }
 
-#[derive(Eq, PartialEq, Ord, PartialOrd)]
-enum DraftKey {
-    Question(usize),
-    Conclusion(String),
-    Opening,
-}
-
 pub struct ExploreComponent {
     events: EventPublisher,
+    durable: persistence::Durability,
     exploration: Option<Exploration>,
     mode: ReviewNavigation,
     selected: usize,
@@ -160,6 +150,7 @@ impl ExploreComponent {
     pub fn new(events: EventPublisher) -> Self {
         Self {
             events,
+            durable: persistence::Durability::default(),
             exploration: None,
             mode: ReviewNavigation::Files,
             selected: 0,
@@ -203,7 +194,7 @@ impl ExploreComponent {
     }
 
     fn request(&mut self, input: Option<AnswerInput>) -> Vec<Action> {
-        if !self.progress.can_submit() {
+        if !self.progress.can_submit() || self.durable.blocked() {
             return Vec::new();
         }
         let question = self.question().cloned();
@@ -212,14 +203,27 @@ impl ExploreComponent {
             return Vec::new();
         };
         self.status_turn = question.as_ref().map(|_| self.selected);
-        match exploration.request(input, question.as_ref()) {
+        let result = if self.durable.enabled {
+            exploration.clone().request(input, question.as_ref())
+        } else {
+            exploration.request(input, question.as_ref())
+        };
+        match result {
             Ok(request) => {
-                if contributed {
+                if contributed && !self.durable.enabled {
                     self.editor = CommentEditor::new("", self.editor.keymap());
                     self.drafts.remove(&self.draft_key());
                     self.correction = None;
                 }
-                self.status = "Waiting for the implementation agent…".into();
+                if self.durable.enabled {
+                    self.durable.posting = Some(request.clone());
+                }
+                self.status = if self.durable.enabled {
+                    "Saving answer and preparing the agent turn…"
+                } else {
+                    "Waiting for the implementation agent…"
+                }
+                .into();
                 self.progress = Progress::Waiting;
                 self.editing = false;
                 vec![Action::Explore(Command::Turn(Box::new(request)))]
@@ -243,6 +247,7 @@ impl ExploreComponent {
         self.progress = Progress::Ready;
         match &event.result {
             Ok(comparison) => {
+                self.durable.begin_pass();
                 self.exploration = Some(Exploration::new(comparison.clone()));
                 self.selected = 0;
                 self.turns.clear();
@@ -366,6 +371,10 @@ impl ExploreComponent {
         self.mode = event.0;
         if self.mode == ReviewNavigation::Explore {
             self.publish_evidence(self.view_id(), false);
+            if self.durable.enabled {
+                self.events
+                    .publish(ui_events::ReviewPaneFocusRequested(self.durable.focus));
+            }
         }
     }
 
@@ -407,13 +416,13 @@ impl ExploreComponent {
     }
 
     fn start(&mut self) -> Vec<Action> {
-        if self.progress.awaiting_capture() {
+        if self.progress.awaiting_capture() || self.durable.error.is_some() {
             return Vec::new();
         }
         if self.exploration.is_some() && !self.reset_warning {
             self.reset_warning = true;
             self.status_turn = Some(self.selected);
-            self.status = "New pass discards interview progress and unposted answers. Press n or New pass again to continue; another action cancels.".into();
+            self.status = "New pass keeps this investigation in history and starts a separate review. Press n or New pass again to continue.".into();
             return Vec::new();
         }
         self.reset_warning = false;
@@ -449,7 +458,10 @@ impl ExploreComponent {
     }
 
     fn retry(&mut self) -> Vec<Action> {
-        if self.progress.awaiting_capture() {
+        if self.progress.awaiting_capture()
+            || self.durable.blocked()
+            || self.durable.posting.is_some()
+        {
             return Vec::new();
         }
         let Some(exploration) = &mut self.exploration else {
@@ -457,6 +469,9 @@ impl ExploreComponent {
         };
         match exploration.retry() {
             Ok(request) => {
+                if self.durable.enabled {
+                    self.durable.posting = Some(request.clone());
+                }
                 self.status = "Retrying interview turn…".into();
                 self.progress = Progress::Waiting;
                 vec![Action::Explore(Command::Turn(Box::new(request)))]
@@ -492,6 +507,15 @@ impl ExploreComponent {
 
 impl Component<Action> for ExploreComponent {
     fn register_subscriptions(subscriptions: &mut ComponentSubscriptions<'_, Self, Action>) {
+        subscriptions.subscribe(|component: &mut Self, event: &ui_events::ExploreAutosave| {
+            component.autosave(event).into_iter().collect::<Vec<_>>()
+        });
+        subscriptions.subscribe(Self::history_changed);
+        subscriptions.subscribe(Self::restored);
+        subscriptions.subscribe(Self::posted);
+        subscriptions.subscribe(Self::committed);
+        subscriptions.subscribe(Self::storage_failed);
+        subscriptions.subscribe(Self::implementation_saved);
         subscriptions.subscribe(Self::captured);
         subscriptions.subscribe(Self::finished);
         subscriptions.subscribe(Self::submitted);

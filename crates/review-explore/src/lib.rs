@@ -1,4 +1,16 @@
-//! A single in-memory interview over the complete working-copy change.
+//! Durable interviews over the complete working-copy change, without source archives.
+
+mod durable;
+mod presentation;
+mod recovery;
+pub use durable::{
+    ConversationBinding, DispatchId, DispatchResult, DispatchState, ExplorePass,
+    ImplementationDelivery, InterviewDelivery,
+};
+pub use presentation::{
+    EditorFocus, EvidencePosition, ExploreDraft, ExplorePage, ExploreViewState, QuestionReading,
+    ViewSave,
+};
 
 mod agenda;
 mod agenda_validation;
@@ -9,7 +21,6 @@ mod consequence;
 mod conversation;
 mod interview;
 mod path_serde;
-mod prompt;
 mod source;
 mod validation;
 
@@ -28,6 +39,8 @@ pub use source::{CodeLocation, EvidenceRef, Source, SourceSide};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Command {
     Start,
+    SaveView(Box<ViewSave>),
+    OpenPass(String),
     Turn(Box<TurnRequest>),
     Implement(ImplementationRequest),
     CancelImplementation,

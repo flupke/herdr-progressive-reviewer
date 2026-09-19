@@ -1,27 +1,31 @@
 //! Start an Explore interview once, then wake the same agent for each human answer.
 use review_explore::{Comparison, TurnRequest};
 
+mod input;
+
 #[derive(Debug)]
 pub struct PreparedTurn {
     prompt: String,
 }
 
 impl PreparedTurn {
-    pub fn prepare(request: &TurnRequest, comparison: &Comparison) -> eyre::Result<Self> {
-        let template = if request.answer.is_some() {
-            "Continue Explore with this answer; call submit_question or, when finished, submit_conclusion. Match question.id/version to your earlier question. Keep review-only scope. If response_error is present, repair it without changing the answer or decisions.\nTurn input (JSON): {{TURN}}"
+    pub fn prepare(request: &TurnRequest, comparison: &Comparison, access: &str) -> Self {
+        let instructions = if request.answer.is_some() {
+            "Continue Explore with this answer; call submit_question or, when finished, submit_conclusion. Match the question ID/version to your earlier question. Keep review-only scope. Repair any previous response error without changing the answer or decisions."
         } else {
             include_str!("interview.md")
         };
-        let prompt = template
-            .replace("{{INSTANCE}}", &request.instance)
-            .replace("{{REQUEST}}", &request.request)
-            .replace(
-                "{{ROOT}}",
-                &serde_json::to_string(&comparison.repository_root)?,
-            )
-            .replace("{{TURN}}", &serde_json::to_string(&request.prompt_input())?);
-        Ok(Self { prompt })
+        let input = input::TurnInput {
+            request,
+            access,
+            repository_root: request
+                .answer
+                .is_none()
+                .then_some(comparison.repository_root.as_path()),
+        };
+        Self {
+            prompt: format!("{instructions}\n\n{input}"),
+        }
     }
 
     pub fn prompt(self) -> String {

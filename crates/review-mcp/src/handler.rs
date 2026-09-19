@@ -47,8 +47,7 @@ struct ReplyInput {
 struct ExploreInput {
     /// The Explore review value supplied in the kickoff or answer wakeup.
     review: String,
-    /// The structured question turn, following the schema in the Explore prompt.
-    #[schemars(with = "serde_json::Value")]
+    /// The next question and response to the latest human contribution.
     update: review_explore::InterviewUpdate,
 }
 
@@ -125,7 +124,7 @@ impl Handler {
     }
 
     #[tool(
-        description = "Submit the next Explore question to the open reviewer, following the kickoff schema. Use submit_conclusion when the interview is finished. Success means validated and applied. Repair validation errors in the same request; retry transport failures with identical arguments."
+        description = "Submit the next Explore question to the open reviewer. Use submit_conclusion when the interview is finished. Success means validated and applied. Repair validation errors in the same request; retry transport failures with identical arguments."
     )]
     async fn submit_question(
         &self,
@@ -219,3 +218,7 @@ impl ServerHandler for Handler {
         Self::info()
     }
 }
+
+#[cfg(test)]
+#[path = "schema.tests.rs"]
+mod tests;

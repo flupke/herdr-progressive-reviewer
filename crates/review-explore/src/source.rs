@@ -7,7 +7,7 @@ use review_guide::GuideLineRange;
 use review_repository::repository::{RepoPath, Repository, Snapshot, SnapshotIdentity};
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, Hash, PartialEq, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SourceSide {
     Old,
@@ -15,9 +15,11 @@ pub enum SourceSide {
 }
 
 /// A citation supplied by the agent, without a reviewer-assigned source ID.
-#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, schemars::JsonSchema)]
 pub struct CodeLocation {
+    /// Repository-relative UTF-8 path or lossless raw path bytes.
     #[serde(with = "crate::path_serde")]
+    #[schemars(with = "crate::path_serde::PathInput")]
     pub path: RepoPath,
     pub side: SourceSide,
     /// One-based inclusive lines. None identifies the whole file.
@@ -96,10 +98,11 @@ impl Source {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, schemars::JsonSchema)]
 pub struct EvidenceRef {
     #[serde(flatten)]
     pub location: CodeLocation,
+    /// What the cited source establishes.
     pub relationship: String,
     /// Why this snippet could change the answer to the displayed question.
     #[serde(default)]

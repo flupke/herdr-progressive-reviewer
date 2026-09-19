@@ -49,7 +49,7 @@ impl Cancellation {
 }
 
 /// A full stable jj change identifier.
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ChangeId(ReviewUnit);
 
 impl ChangeId {
@@ -77,7 +77,9 @@ impl From<&ReviewUnit> for ChangeId {
 }
 
 /// An exact repository snapshot identifier.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(
+    Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize, serde::Deserialize,
+)]
 pub struct SnapshotId(String);
 
 impl SnapshotId {
@@ -570,7 +572,7 @@ impl ChangedFile {
 }
 
 /// The exact identity of one repository snapshot.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum SnapshotIdentity {
     /// A jj working-copy snapshot.
     Jj {

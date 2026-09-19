@@ -5,7 +5,9 @@ use review_guide::ReviewCheckpoint;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, sync::Arc};
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
+#[derive(
+    Clone, Copy, Debug, Default, Deserialize, Serialize, Eq, PartialEq, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum TopicStatus {
     #[default]
@@ -15,7 +17,7 @@ pub enum TopicStatus {
     Deferred,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Topic {
     pub id: String,
@@ -32,7 +34,7 @@ pub struct Topic {
     pub rank: u32,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Alternative {
     pub id: String,
@@ -41,16 +43,22 @@ pub struct Alternative {
     pub recommendation: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Question {
+    /// Stable question ID; use a higher version only to clarify the same question.
     pub id: String,
+    #[schemars(range(min = 1))]
     pub version: u32,
+    /// ID of an active topic in this pass.
     pub topic: String,
     pub text: String,
     pub rationale: Option<String>,
     pub visual: Option<String>,
+    /// Distinct choices; the reviewer adds None of the above automatically.
+    #[schemars(length(min = 2, max = 5))]
     pub alternatives: Vec<Alternative>,
+    /// Minimal decision-relevant snippets, each with relationship and `decision_relevance`.
     pub evidence: Vec<EvidenceRef>,
     /// Additional context, opened on demand rather than promoted into the question.
     #[serde(default)]
@@ -81,33 +89,43 @@ pub struct AnswerInput {
     pub in_reply_to: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Interpretation {
+    /// Exact Answer ID from the latest wakeup.
     pub answer: String,
+    /// Preserve an unqualified choice's outcome; required changes mean `needs_follow_up`.
     pub status: TopicStatus,
     pub recap: String,
     pub follow_ups: Vec<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct InterviewUpdate {
+    /// Copy Explore pass from the latest wakeup.
     pub instance: String,
+    /// Copy Explore request from the latest wakeup.
     pub request: String,
+    /// Copy Review unit and Checkpoint from the latest wakeup.
     pub checkpoint: ReviewCheckpoint,
+    /// Interpret only the latest human decision. Null for kickoff or factual context.
     pub interpretation: Option<Interpretation>,
     pub reply: Option<Reply>,
     #[serde(default)]
     pub agenda: Vec<AgendaChange>,
     pub topics: Vec<Topic>,
+    /// Required for `submit_question`. Use `submit_conclusion` to finish the interview.
+    #[schemars(required)]
     pub next: Option<Question>,
+    // Stored conclusions share this internal type; the question tool never accepts them.
+    #[schemars(skip)]
     pub conclusion: Option<crate::Conclusion>,
     pub limitations: Vec<String>,
     pub findings: Vec<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct TurnRequest {
     pub instance: String,
     pub request: String,
@@ -117,7 +135,7 @@ pub struct TurnRequest {
 }
 
 /// The sole decision owner. Agent updates can interpret only the outstanding human answer.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct Exploration {
     pub instance: String,
     pub comparison: Arc<Comparison>,
@@ -266,11 +284,10 @@ impl Exploration {
 
     pub fn retry(&mut self) -> eyre::Result<TurnRequest> {
         eyre::ensure!(!self.pending(), "An interview request is already pending");
-        let mut request = self
+        let request = self
             .retry
             .clone()
             .ok_or_else(|| eyre::eyre!("No request to retry"))?;
-        request.request = uuid::Uuid::new_v4().to_string();
         self.retry = Some(request.clone());
         self.outstanding = Some(request.clone());
         Ok(request)

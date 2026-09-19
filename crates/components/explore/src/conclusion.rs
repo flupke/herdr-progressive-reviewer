@@ -16,6 +16,8 @@ enum Delivery {
     Cancelling(String),
     Sent,
     Failed(String),
+    Paused(review_explore::ImplementationRequest),
+    Unknown(review_explore::ImplementationRequest),
 }
 
 impl Delivery {
@@ -24,7 +26,7 @@ impl Delivery {
     }
 
     fn can_submit(&self) -> bool {
-        !self.is_pending() && !matches!(self, Self::Sent)
+        !self.is_pending() && !matches!(self, Self::Sent | Self::Unknown(_))
     }
 }
 
@@ -34,9 +36,16 @@ pub(super) struct ConclusionView {
     pub(super) editor: CommentEditor,
     pub(super) replying: bool,
     delivery: Delivery,
+    attempt: Option<String>,
 }
 
 impl ExploreComponent {
+    pub(super) fn implementation_in_progress(&self) -> bool {
+        self.conclusions
+            .values()
+            .any(|view| view.delivery.is_pending())
+    }
+
     pub(super) fn accept_conclusion(&mut self) {
         let exploration = self.exploration.as_ref().expect("active exploration");
         let request = exploration
@@ -55,6 +64,7 @@ impl ExploreComponent {
                 content,
                 replying: false,
                 delivery: Delivery::Ready,
+                attempt: None,
             },
         );
         self.visit_conclusion_at(request);
@@ -115,6 +125,7 @@ impl ExploreComponent {
         if self.editor_target == EditorTarget::Implementation
             && let Some(view) = self.conclusion_mut()
             && !view.delivery.is_pending()
+            && !matches!(view.delivery, Delivery::Paused(_) | Delivery::Unknown(_))
         {
             view.delivery = Delivery::Ready;
         }
@@ -123,6 +134,7 @@ impl ExploreComponent {
     pub(super) fn implement(&mut self) -> Vec<Action> {
         if self.compose_scope != ComposeScope::Conclusion
             || !self.progress.can_submit()
+            || self.durable.blocked()
             || !self.active_conclusion_selected()
         {
             return vec![];
@@ -134,11 +146,16 @@ impl ExploreComponent {
             return vec![];
         }
         let exploration = self.exploration.as_ref().expect("conclusion exploration");
-        let result = exploration.implementation(view.editor.text());
+        let result = if let Delivery::Paused(request) = &view.delivery {
+            Ok(request.clone())
+        } else {
+            exploration.implementation(view.editor.text())
+        };
         let view = self.conclusion_mut().expect("selected conclusion");
         match result {
             Ok(request) => {
                 view.delivery = Delivery::Pending(request.delivery.clone());
+                view.attempt = None;
                 self.editing = false;
                 vec![Action::Explore(review_explore::Command::Implement(request))]
             }
@@ -171,11 +188,9 @@ impl ExploreComponent {
         }
         if let Some(view) = self.conclusions.get_mut(&event.request.conclusion)
             && matches!(&view.delivery, Delivery::Pending(id) | Delivery::Cancelling(id) if id == &event.request.delivery)
+            && view.attempt == event.attempt
         {
-            view.delivery = match &event.result {
-                Ok(()) => Delivery::Sent,
-                Err(error) => Delivery::Failed(error.clone()),
-            };
+            view.delivery = Delivery::from_state(&event.request, &event.state);
         }
     }
 
@@ -231,7 +246,7 @@ impl ExploreComponent {
 
     fn implementation_controls(&self, layout: &mut ConversationLayout, palette: Palette) {
         let view = self.conclusion().expect("conclusion view");
-        if !self.active_conclusion_selected() {
+        if !self.active_conclusion_selected() || self.durable.historical {
             layout.text(
                 "The interview has continued since this conclusion.",
                 palette.dim,
@@ -252,19 +267,173 @@ impl ExploreComponent {
                     Control::CancelImplementation,
                 )]);
             }
+            Delivery::Paused(request) => {
+                layout.text(
+                    "Saved implementation request is paused; it has not been sent.",
+                    palette.text,
+                    None,
+                );
+                if view.editor.text() != request.text {
+                    layout.text("Send saved uses the previously authorized text. New request uses the current editor text.", palette.text, None);
+                }
+                layout.controls([
+                    (
+                        "Send saved implementation request".into(),
+                        Control::Implement,
+                    ),
+                    (
+                        "New implementation request".into(),
+                        Control::NewImplementation,
+                    ),
+                ]);
+            }
+            Delivery::Unknown(request) => {
+                layout.text(
+                    format!("Implementation request {}", request.delivery),
+                    palette.dim,
+                    None,
+                );
+                layout.text("Delivery outcome unknown. Check the original agent conversation before deliberately sending a new request.", palette.warning, None);
+                layout.controls([(
+                    "New implementation request".into(),
+                    Control::NewImplementation,
+                )]);
+            }
             Delivery::Sent => layout.text(
                 "Implementation request sent to the agent.",
                 palette.text,
                 None,
             ),
-            state => {
-                if let Delivery::Failed(error) = state {
-                    layout.text(error, palette.warning, None);
-                }
-                if self.progress.can_submit() && !view.editor.text().trim().is_empty() {
-                    layout.controls([("Implement".into(), Control::Implement)]);
-                }
+            state => self.implementation_ready_controls(state, layout, palette),
+        }
+    }
+
+    fn implementation_ready_controls(
+        &self,
+        state: &Delivery,
+        layout: &mut ConversationLayout,
+        palette: Palette,
+    ) {
+        if let Delivery::Failed(error) = state {
+            layout.text(error, palette.warning, None);
+        }
+        if self.progress.can_submit()
+            && !self.durable.blocked()
+            && self
+                .conclusion()
+                .is_some_and(|view| !view.editor.text().trim().is_empty())
+        {
+            layout.controls([("Implement".into(), Control::Implement)]);
+        }
+    }
+}
+
+impl ExploreComponent {
+    pub(super) fn refresh_implementation_delivery(&mut self, pass: &review_explore::ExplorePass) {
+        for (id, view) in &mut self.conclusions {
+            let Some(record) = pass
+                .implementations
+                .values()
+                .filter(|record| &record.request.conclusion == id)
+                .max_by_key(|record| record.authorized_at)
+            else {
+                continue;
+            };
+            let pending_here = matches!(&view.delivery, Delivery::Pending(id) | Delivery::Cancelling(id) if id == &record.request.delivery);
+            if pending_here
+                && matches!(
+                    record.state,
+                    review_explore::DispatchState::Queued
+                        | review_explore::DispatchState::Attempting
+                )
+            {
+                continue;
             }
+            view.delivery = Delivery::restored(record);
+            view.attempt = Some(record.attempt.clone());
+        }
+    }
+
+    pub(super) fn new_implementation(&mut self) {
+        if let Some(view) = self.conclusion_mut()
+            && !view.delivery.is_pending()
+        {
+            view.delivery = Delivery::Ready;
+        }
+    }
+
+    pub(super) fn restore_conclusions(&mut self, pass: &review_explore::ExplorePass) {
+        self.conclusions.clear();
+        self.reconcile_conclusions(pass);
+    }
+
+    pub(super) fn reconcile_conclusions(&mut self, pass: &review_explore::ExplorePass) {
+        for turn in &pass.exploration.conversation {
+            let Some(content) = &turn.update.conclusion else {
+                continue;
+            };
+            if self.conclusions.contains_key(&turn.update.request) {
+                continue;
+            }
+            let delivery = pass
+                .implementations
+                .values()
+                .filter(|record| record.request.conclusion == turn.update.request)
+                .max_by_key(|record| record.authorized_at)
+                .map_or(Delivery::Ready, Delivery::restored);
+            self.conclusions.insert(
+                turn.update.request.clone(),
+                ConclusionView {
+                    request: turn.update.request.clone(),
+                    content: content.clone(),
+                    editor: CommentEditor::new(&content.to_be_implemented, self.editor.keymap()),
+                    replying: false,
+                    delivery,
+                    attempt: None,
+                },
+            );
+        }
+    }
+
+    pub(super) fn implementation_saved(&mut self, event: &ui_events::ExploreImplementationSaved) {
+        let record = &event.0;
+        if self
+            .exploration
+            .as_ref()
+            .is_none_or(|pass| pass.instance != record.request.instance)
+        {
+            return;
+        }
+        if let Some(view) = self.conclusions.get_mut(&record.request.conclusion)
+            && matches!(&view.delivery, Delivery::Pending(id) | Delivery::Cancelling(id) if id == &record.request.delivery)
+        {
+            view.attempt = Some(record.attempt.clone());
+            // A queued result is not a recovered paused request in this running process.
+            if record.state != review_explore::DispatchState::Queued {
+                view.delivery = Delivery::restored(record);
+            }
+        }
+    }
+}
+
+impl Delivery {
+    fn restored(record: &review_explore::ImplementationDelivery) -> Self {
+        Self::from_state(&record.request, &record.state)
+    }
+
+    fn from_state(
+        request: &review_explore::ImplementationRequest,
+        state: &review_explore::DispatchState,
+    ) -> Self {
+        use review_explore::DispatchState;
+        match state.recovered() {
+            DispatchState::Queued => Self::Paused(request.clone()),
+            DispatchState::Attempting | DispatchState::Unknown => Self::Unknown(request.clone()),
+            DispatchState::Delivered => Self::Sent,
+            DispatchState::Cancelled => {
+                Self::Failed("Implementation request cancelled before sending.".into())
+            }
+            DispatchState::NotSent(error) => Self::Failed(error),
         }
     }
 }

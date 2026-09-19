@@ -10,7 +10,7 @@ use review_repository::{
 };
 use sha2::{Digest, Sha256};
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ManifestEntry {
     pub file: usize,
     /// None identifies file metadata/non-text changes; text hunks have one-based IDs.
@@ -18,14 +18,17 @@ pub struct ManifestEntry {
 }
 
 /// Internal comparison for native viewers; no repository catalog is sent to the agent.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Comparison {
     pub repository_root: PathBuf,
     pub checkpoint: ReviewCheckpoint,
     pub files: Vec<ChangedFile>,
+    #[serde(skip)]
     pub context: Vec<FrozenFile>,
+    #[serde(skip)]
     pub diffs: Vec<Vec<u8>>,
     pub manifest: Vec<ManifestEntry>,
+    #[serde(skip)]
     pub sources: Vec<Source>,
     pub base: Option<SnapshotIdentity>,
 }
@@ -200,7 +203,9 @@ impl Comparison {
     }
 
     pub(crate) fn maps(&self, entry: &ManifestEntry, location: &CodeLocation) -> bool {
-        let file = &self.files[entry.file];
+        let Some(file) = self.files.get(entry.file) else {
+            return false;
+        };
         let path = match location.side {
             SourceSide::Old => &file.old_path,
             SourceSide::New => &file.new_path,
@@ -211,7 +216,13 @@ impl Comparison {
         let (Some(hunk), Some(lines)) = (entry.hunk, &location.lines) else {
             return true;
         };
-        let hunk = &self.context[entry.file].hunks[hunk - 1];
+        let Some(hunk) = self
+            .context
+            .get(entry.file)
+            .and_then(|file| file.hunks.get(hunk.checked_sub(1)?))
+        else {
+            return true; // Restored associations are navigation, never coverage.
+        };
         let range = match location.side {
             SourceSide::Old => &hunk.old,
             SourceSide::New => &hunk.new,

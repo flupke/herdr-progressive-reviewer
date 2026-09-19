@@ -3,7 +3,8 @@ use review_explore::{ConclusionSubmission, ImplementationRequest};
 
 fn finish(fixture: &mut ExploreUi, request: &TurnRequest) -> InterviewUpdate {
     let update = ConclusionSubmission {
-        review: request.instance.clone(),
+        instance: request.instance.clone(),
+        review: "runtime-access".into(),
         request: request.request.clone(),
         checkpoint: request.checkpoint.clone(),
         interpretation: request
@@ -94,7 +95,8 @@ fn conclusion_has_its_own_page_and_sends_only_the_edited_tasks_once() {
         .app
         .publish(ui_events::ExploreImplementationFinished {
             request,
-            result: Ok(()),
+            attempt: None,
+            state: review_explore::DispatchState::Delivered,
         });
     assert!(
         fixture
@@ -119,7 +121,8 @@ fn failed_or_cancelled_delivery_keeps_edits_and_ignores_obsolete_acknowledgement
         .app
         .publish(ui_events::ExploreImplementationFinished {
             request: first.clone(),
-            result: Err("The reviewer prompt was cancelled".into()),
+            attempt: None,
+            state: review_explore::DispatchState::Cancelled,
         });
     assert!(!fixture.text().contains("Implementation request sent"));
     let second = implementation(fixture.click_actions("[Implement]"));
@@ -127,14 +130,16 @@ fn failed_or_cancelled_delivery_keeps_edits_and_ignores_obsolete_acknowledgement
         .app
         .publish(ui_events::ExploreImplementationFinished {
             request: first,
-            result: Ok(()),
+            attempt: None,
+            state: review_explore::DispatchState::Delivered,
         });
     assert!(!fixture.text().contains("Implementation request sent"));
     fixture
         .app
         .publish(ui_events::ExploreImplementationFinished {
             request: second.clone(),
-            result: Err("Agent unavailable".into()),
+            attempt: None,
+            state: review_explore::DispatchState::NotSent("Agent unavailable".into()),
         });
     assert!(fixture.text().contains("Agent unavailable"));
     let third = implementation(fixture.click_actions("[Implement]"));
@@ -174,7 +179,8 @@ fn cancel_racing_with_completed_delivery_reports_that_the_request_was_sent() {
         .app
         .publish(ui_events::ExploreImplementationFinished {
             request,
-            result: Ok(()),
+            attempt: None,
+            state: review_explore::DispatchState::Delivered,
         });
     assert!(
         fixture
@@ -182,6 +188,53 @@ fn cancel_racing_with_completed_delivery_reports_that_the_request_was_sent() {
             .contains("Implementation request sent to the agent.")
     );
     assert!(!fixture.text().contains("[Implement]"));
+}
+
+#[test]
+fn a_receipt_from_a_previous_attempt_cannot_finish_the_current_implementation() {
+    let (mut fixture, kickoff) = ExploreUi::new();
+    let conclusion = finish(&mut fixture, &kickoff);
+    let request = implementation(fixture.click_actions("[Implement]"));
+    let mut exploration = review_explore::Exploration::new(fixture.comparison.clone());
+    exploration.instance.clone_from(&kickoff.instance);
+    let mut pass = review_explore::ExplorePass::new(exploration);
+    pass.post(&kickoff).unwrap();
+    pass.exploration.submit(conclusion).unwrap();
+    pass.binding = Some(
+        serde_json::from_value(serde_json::json!({
+            "agent": "codex",
+            "session": {"source": "native", "agent": "codex", "kind": "id", "value": "conversation"}
+        }))
+        .unwrap(),
+    );
+    pass.authorize(&request).unwrap();
+    let old = pass.implementations[&request.delivery].clone();
+    fixture
+        .app
+        .publish(ui_events::ExploreImplementationSaved(old.clone()));
+    pass.authorize(&request).unwrap();
+    let current = pass.implementations[&request.delivery].clone();
+    fixture
+        .app
+        .publish(ui_events::ExploreImplementationSaved(current.clone()));
+    fixture
+        .app
+        .publish(ui_events::ExploreImplementationFinished {
+            request: request.clone(),
+            attempt: Some(old.attempt),
+            state: review_explore::DispatchState::Cancelled,
+        });
+    assert!(fixture.text().contains("[Cancel implementation]"));
+    assert!(!fixture.text().contains("[Implement]"));
+    fixture
+        .app
+        .publish(ui_events::ExploreImplementationFinished {
+            request,
+            attempt: Some(current.attempt),
+            state: review_explore::DispatchState::Unknown,
+        });
+    assert!(fixture.text().contains("Delivery outcome unknown"));
+    assert!(!fixture.text().contains("[Implement]") && !fixture.text().contains("[Retry]"));
 }
 
 #[test]

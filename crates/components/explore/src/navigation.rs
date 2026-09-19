@@ -183,7 +183,7 @@ impl ExploreComponent {
         let history = HistoryPages::new(self);
         let last = history.pages.len() - 1;
         if last == 0 {
-            return Navigation::default();
+            return Navigation::new(area, self.saved_controls());
         }
         let position = history.current;
         let mut labels = vec![(history.pages[position].label(self), None)];
@@ -202,6 +202,7 @@ impl ExploreComponent {
                 labels.push((format!("[{label}]"), Some(Control::History(target))));
             }
         }
+        labels.extend(self.saved_controls());
         Navigation::new(area, labels)
     }
 }

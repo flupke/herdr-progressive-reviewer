@@ -374,6 +374,7 @@ dependencies = [
  "crossterm 0.29.0",
  "edtui",
  "ratatui 0.30.2",
+ "review-types",
  "ui-shortcuts",
  "ui-theme",
  "unicode-segmentation",
@@ -729,6 +730,7 @@ version = "0.2.0"
 dependencies = [
  "comment-editor",
  "component-core",
+ "eyre",
  "guide-rendering",
  "markdown-rendering",
  "ratatui 0.30.2",
@@ -3613,9 +3615,11 @@ name = "review-explore"
 version = "0.2.0"
 dependencies = [
  "eyre",
+ "herdr-client",
  "review-guide",
  "review-repository",
  "review-test-support",
+ "review-types",
  "schemars",
  "serde",
  "serde_json",
@@ -3629,7 +3633,6 @@ dependencies = [
 name = "review-explore-runner"
 version = "0.2.0"
 dependencies = [
- "eyre",
  "review-explore",
  "serde_json",
 ]
@@ -3640,6 +3643,7 @@ version = "0.2.0"
 dependencies = [
  "gix-imara-diff",
  "review-types",
+ "schemars",
  "serde",
  "thiserror 2.0.19",
 ]
@@ -3741,7 +3745,9 @@ dependencies = [
  "base64 0.22.1",
  "fs2",
  "getrandom 0.3.4",
+ "herdr-client",
  "libc",
+ "review-explore",
  "review-guide",
  "review-threads",
  "review-types",
@@ -3794,6 +3800,7 @@ dependencies = [
 name = "review-types"
 version = "0.2.0"
 dependencies = [
+ "schemars",
  "serde",
 ]
 
@@ -3820,6 +3827,7 @@ dependencies = [
  "review-threads",
  "review-types",
  "revision-component",
+ "serde_json",
  "status-component",
  "syntect",
  "tempfile",
@@ -3874,6 +3882,7 @@ dependencies = [
  "toasts",
  "tokio",
  "ui-events",
+ "uuid",
 ]
 
 [[package]]

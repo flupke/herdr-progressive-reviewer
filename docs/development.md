@@ -49,12 +49,11 @@ existing reviewer server to a locked store transaction and then the UI; success 
 validation, durable commit and application. Invalid updates remain pending and return their error
 to the agent for repair. Cancelled/obsolete requests cannot apply, and an exact
 duplicate is acknowledged without replaying it. Replacing an accepted payload is
-rejected. Thread comments, Explore turns and guide requests submit directly through Herdr's
-`agent.prompt`. Delivery does not parse terminal output or wait for an idle agent,
-unfocused pane, or empty composer. Review access binds to the native session when
-available, or the foreground process group otherwise. Cancellation removes unsent
-requests and a replaced conversation rejects them.
-Delivery failures retain the literal input for Retry. The kickoff prompt carries the scope and first turn identity; the agent submits
+rejected. Thread comments, Explore turns and guide requests share the thread service's
+pending-delivery loop and the same readiness checks before prompting. Busy agents,
+focused composers and unposted drafts defer delivery automatically; cancellation
+removes queued requests and a replaced conversation rejects them. Permanent delivery
+failures retain the literal input for Retry. The kickoff prompt carries the scope and first turn identity; the agent submits
 its first question directly. The tools advertise complete schemas derived from the
 shared submission types; the kickoff carries behavior instructions without schema
 examples. The runner formats later wakeups as labeled plain text: turn identity,
@@ -147,8 +146,8 @@ that queue flush. Posted answers retain their exact original option and comment.
 Explicit Retry reuses the logical request ID with a fresh dispatch-attempt ID, so
 a late cancellation cannot fail a newer attempt.
 
-`DispatchObserver` records durable outcomes around the shared `agent.prompt`
-submission. Before external delivery, it commits `Attempting`; a lost result
+`DispatchObserver` extends the shared prompt pipeline, leaving readiness/focus/input
+checks in one place. Before external delivery, it commits `Attempting`; a lost result
 recovers as `Unknown`. A confirmed result wins cancellation races and can be saved
 to an archived pass. Queued work stays paused on restore, and retries cannot alter
 its authorized scope. Runtime access, connections and caches are never persisted.

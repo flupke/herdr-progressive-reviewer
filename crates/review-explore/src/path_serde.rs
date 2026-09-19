@@ -2,9 +2,9 @@
 use review_repository::repository::RepoPath;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-#[derive(Deserialize)]
+#[derive(Deserialize, schemars::JsonSchema)]
 #[serde(untagged)]
-enum PathInput {
+pub(super) enum PathInput {
     Text(String),
     Bytes(Vec<u8>),
 }

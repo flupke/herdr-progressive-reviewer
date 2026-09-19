@@ -1,7 +1,7 @@
 use crate::{Comparison, EvidenceRef};
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Door {
     OneWay,
@@ -21,7 +21,7 @@ impl Door {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Consequence {
     pub summary: String,
@@ -30,7 +30,7 @@ pub struct Consequence {
     pub unknowns: Vec<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Assessments {
     pub door: Door,

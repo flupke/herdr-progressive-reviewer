@@ -14,6 +14,10 @@ impl PinnedAgent {
         Self(Arc::new(Mutex::new(agent)))
     }
 
+    pub fn known_agent(&self) -> Option<Agent> {
+        self.0.lock().ok().map(|agent| agent.clone())
+    }
+
     /// Missing native identity is transient; a known replacement is an error.
     pub fn current(&self, client: &HerdrClient) -> Result<Option<Agent>, String> {
         let mut previous = self

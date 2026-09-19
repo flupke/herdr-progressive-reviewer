@@ -264,7 +264,7 @@ fn cancellation_retry_and_duplicate_results_cannot_rewrite_a_decision() {
     exploration.cancel();
     assert!(!exploration.apply(update(&first, None)).unwrap());
     let retry = exploration.retry().unwrap();
-    assert_ne!(retry.request, first.request);
+    assert_eq!(retry.request, first.request);
     assert_eq!(retry.answer, first.answer);
     assert_eq!(exploration.answers.len(), 1);
     let mut response = update(&retry, None);
@@ -410,7 +410,7 @@ fn dedicated_conclusion_preserves_the_final_choice_and_rejects_a_changed_retry()
         )
         .unwrap();
     let payload = serde_json::json!({
-        "review": request.instance, "request": request.request, "checkpoint": request.checkpoint,
+        "review": "runtime-access", "instance": request.instance, "request": request.request, "checkpoint": request.checkpoint,
         "interpretation": null,
         "summary": "Change the resolution policy; human Files inspection remains required.",
         "to_be_implemented": "Reopen resolved threads when new comments arrive.",

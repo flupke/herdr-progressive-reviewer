@@ -19,6 +19,7 @@ pub(super) struct ExploreView {
     pub(super) selected: usize,
     pub(super) limitation: Option<String>,
     pub(super) fit_pending: bool,
+    pub(super) positions: Vec<review_explore::EvidencePosition>,
 }
 
 impl ExploreView {
@@ -83,12 +84,12 @@ impl ExploreView {
 impl DiffComponent {
     fn comparison_document(&self, comparison: &Comparison, index: usize) -> LoadedDocument {
         let file = &comparison.files[index];
-        let context = &comparison.context[index];
-        let summary = ui_events::FileSummary::from_review_state(
-            file,
-            review_state::ReviewState::unreviewed(file.statistics, None),
-        );
-        let mut document = LoadedDocument::from_summary(&summary);
+        let Some(context) = comparison.context.get(index) else {
+            return LoadedDocument::from_summary(&ui_events::FileSummary::from_review_state(
+                file,
+                review_state::ReviewState::unreviewed(file.statistics, None),
+            ));
+        };
         let rows = parse_file_diff(&comparison.diffs[index], file);
         let loaded = Arc::new(ui_events::DiffContentLoaded {
             review_checkpoint: comparison.checkpoint.clone(),
@@ -97,10 +98,23 @@ impl DiffComponent {
             old_content: context.old_content.clone(),
             new_content: context.new_content.clone(),
         });
+        self.comparison_content_document(file, loaded)
+    }
+
+    pub(super) fn comparison_content_document(
+        &self,
+        file: &review_repository::repository::ChangedFile,
+        loaded: Arc<ui_events::DiffContentLoaded>,
+    ) -> LoadedDocument {
+        let summary = ui_events::FileSummary::from_review_state(
+            file,
+            review_state::ReviewState::unreviewed(file.statistics, None),
+        );
+        let mut document = LoadedDocument::from_summary(&summary);
         document.replace_diff(DiffPresentation::new(self.highlighter.plain(
-            rows,
-            context.old_content.as_deref(),
-            context.new_content.as_deref(),
+            loaded.rows.clone(),
+            loaded.old_content.as_deref(),
+            loaded.new_content.as_deref(),
         )));
         document
             .document
@@ -109,8 +123,17 @@ impl DiffComponent {
         document
     }
 
-    fn select_comparison_document(&mut self, comparison: &Comparison, index: usize) {
+    fn select_comparison_document(
+        &mut self,
+        comparison: &Comparison,
+        index: usize,
+    ) -> eyre::Result<()> {
         let path = comparison.files[index].review_path().display();
+        if comparison.context.get(index).is_none() {
+            let document = self.restored_comparison_document(comparison, index)?;
+            self.documents.retain(|document| document.path != path);
+            self.documents.push(document);
+        }
         if !self.documents.iter().any(|document| document.path == path) {
             self.documents
                 .push(self.comparison_document(comparison, index));
@@ -118,6 +141,7 @@ impl DiffComponent {
         self.comments.restore_file_editor(&path);
         self.selected_path = Some(path);
         self.preview = None;
+        Ok(())
     }
 
     #[allow(clippy::trivially_copy_pass_by_ref)]
@@ -127,6 +151,7 @@ impl DiffComponent {
         let mut actions = Vec::new();
         if self.explore.active != active {
             let latest = self.explore.latest.take();
+            let positions = std::mem::take(&mut self.explore.positions);
             let mut other = self.explore.parked.take().unwrap_or_else(|| {
                 let mut viewer = Self::new(
                     self.events.clone(),
@@ -142,6 +167,9 @@ impl DiffComponent {
             });
             std::mem::swap(self, &mut other);
             self.explore.parked = Some(other);
+            if active {
+                self.embedded.restored.extend(positions);
+            }
             if !active && let Some(latest) = latest {
                 actions.extend(self.repository_changed(&latest));
             }
@@ -237,26 +265,54 @@ impl DiffComponent {
                 return Vec::new();
             }
         };
+        if evidence.location.lines.as_ref().is_some_and(|range| {
+            range.first_line == 0
+                || range.last_line < range.first_line
+                || range.last_line as usize > content.lines().count()
+        }) {
+            self.explore.limitation =
+                Some("The saved evidence range is unavailable in this source.".into());
+            return Vec::new();
+        }
         let file = event.comparison.files.iter().position(|file| match source.side {
             SourceSide::Old => file.old_path.as_ref(), SourceSide::New => file.new_path.as_ref(),
         } == Some(&source.path));
         if let Some(index) = file {
-            self.select_comparison_document(&event.comparison, index);
-            if let Some(range) = &evidence.location.lines {
-                let location = match source.side {
-                    SourceSide::Old => {
-                        ui_events::PresentationLocation::OldLine(range.first_line - 1)
-                    }
-                    SourceSide::New => {
-                        ui_events::PresentationLocation::NewLine(range.first_line - 1)
-                    }
-                };
-                self.reveal_evidence_range(&source, &content, range, location);
-            }
-            self.explore.fit_pending = true;
-            return self.request_visible_highlights();
+            return self.open_changed_evidence(
+                &event.comparison,
+                index,
+                &source,
+                &content,
+                evidence,
+            );
         }
         self.open_supporting_evidence(&source, &content, evidence.location.lines.as_ref())
+    }
+
+    fn open_changed_evidence(
+        &mut self,
+        comparison: &Comparison,
+        index: usize,
+        source: &review_explore::Source,
+        content: &str,
+        evidence: &EvidenceRef,
+    ) -> Vec<Action> {
+        if self.select_comparison_document(comparison, index).is_err() {
+            return self.open_supporting_evidence(
+                source,
+                content,
+                evidence.location.lines.as_ref(),
+            );
+        }
+        if let Some(range) = &evidence.location.lines {
+            let location = match source.side {
+                SourceSide::Old => ui_events::PresentationLocation::OldLine(range.first_line - 1),
+                SourceSide::New => ui_events::PresentationLocation::NewLine(range.first_line - 1),
+            };
+            self.reveal_evidence_range(source, content, range, location);
+        }
+        self.explore.fit_pending = true;
+        self.request_visible_highlights()
     }
 
     pub(super) fn explore_source(
@@ -280,7 +336,8 @@ impl DiffComponent {
         self.documents
             .retain(|document| !document.comments_only || document.path != path);
         if let Some(document) = self.documents.iter_mut().find(|document| {
-            !document.document.diff.is_base_file()
+            document.content.is_some()
+                && !document.document.diff.is_base_file()
                 && (document.new_path.as_deref() == Some(path.as_str()) || document.path == path)
         }) {
             if mode == ui_events::SourceLoadMode::Preview {
@@ -301,6 +358,10 @@ impl DiffComponent {
                 return self.request_visible_highlights();
             }
         }
+        // Restored comparison entries contain metadata only. A source view must replace
+        // that placeholder, otherwise path-based selection finds the empty entry first.
+        self.documents
+            .retain(|document| document.path != path || document.content.is_some());
         let event = ui_events::SourceContentLoaded {
             snapshot_id: self.source_session.clone().expect("Explore source view"),
             location,

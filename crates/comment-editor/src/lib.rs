@@ -59,6 +59,39 @@ impl CommentEditor {
         }
     }
 
+    pub fn saved_state(&self) -> review_types::TextEditorState {
+        let state = self.state.borrow();
+        review_types::TextEditorState {
+            text: self.text(),
+            row: state.cursor.row,
+            column: state.cursor.col,
+            scroll: state.viewport_offset().1,
+            vim: self.keymap == EditorKeymap::Vim,
+            normal: state.mode == EditorMode::Normal,
+        }
+    }
+
+    pub fn restore(saved: &review_types::TextEditorState) -> Self {
+        let mut editor = Self::new(
+            &saved.text,
+            if saved.vim {
+                EditorKeymap::Vim
+            } else {
+                EditorKeymap::Regular
+            },
+        );
+        let state = editor.state.get_mut();
+        let lines: Vec<_> = saved.text.split('\n').collect();
+        let row = saved.row.min(lines.len().saturating_sub(1));
+        let column = saved.column.min(lines[row].chars().count());
+        state.cursor = edtui::Index2::new(row, column);
+        if saved.vim && saved.normal {
+            SwitchMode(EditorMode::Normal).execute(state);
+        }
+        state.set_viewport_offset(0, saved.scroll.min(row));
+        editor
+    }
+
     pub fn text(&self) -> String {
         String::from(self.state.borrow().lines.clone())
     }

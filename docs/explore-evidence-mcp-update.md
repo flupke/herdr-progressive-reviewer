@@ -1,8 +1,5 @@
 # Explore evidence and MCP feedback
 
-The delivery checks described below are historical. Current delivery uses
-`agent.prompt` directly; see [Notifications](mcp.md#notifications).
-
 Slice 2 adds [durable resumption](explore-slice-2-recovery.md) to the protocol below.
 Pass identity now persists independently of renewable MCP access.
 
