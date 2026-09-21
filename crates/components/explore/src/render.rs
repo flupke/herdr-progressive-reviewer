@@ -136,9 +136,9 @@ impl ExploreComponent {
         };
         let hint = if editing {
             if target == EditorTarget::Implementation {
-                " · Ctrl-Enter Implement · Esc conversation"
+                " · Ctrl-Enter Implement · Tab conversation"
             } else {
-                " · Ctrl-Enter Send · Esc conversation"
+                " · Ctrl-Enter Send · Tab conversation"
             }
         } else {
             ""
@@ -162,16 +162,16 @@ impl ExploreComponent {
             self.render_conclusion(layout, palette);
             return;
         }
-        if self.compose_scope == ComposeScope::Opening || self.selected == 0 {
+        if self.compose_scope == ComposeScope::Opening {
             self.opening(layout, palette);
         }
         if let Some(question) = self.question() {
             let index = self.selected;
             self.preceding_reply(index, layout, palette);
-            Self::assessments(question, layout, palette);
-            self.evidence_block(index, layout, diff, palette);
             self.answers(index, question, layout, palette);
+            Self::assessments(question, layout, palette);
             self.turn_controls(index, question, layout, palette);
+            self.evidence_block(index, layout, diff, palette);
         }
         if self.map {
             self.render_map(layout, palette);
@@ -192,21 +192,9 @@ impl ExploreComponent {
             .filter(|answer| answer.question.as_ref() == Some(question))
             .collect();
         let composing = self.composing_answer(index, !answers.is_empty());
-        if !composing {
-            Self::question_heading(index, question, layout, palette);
-        }
-        for answer in &answers {
-            self.recorded_answer(answer, layout, palette);
-        }
-        if self.status_turn == Some(index) && !self.status.is_empty() {
-            layout.gap();
-            layout.text(&self.status, palette.warning, None);
-            self.status_controls(layout);
-        }
+        let heading = layout.height;
+        Self::question_heading(index, question, layout, palette);
         if composing {
-            layout.gap();
-            let heading = layout.height;
-            Self::question_heading(index, question, layout, palette);
             self.composer(
                 Some(question),
                 self.selected_choice().is_some(),
@@ -218,6 +206,14 @@ impl ExploreComponent {
             {
                 choice.start = heading;
             }
+        }
+        for answer in &answers {
+            self.recorded_answer(answer, layout, palette);
+        }
+        if self.status_turn == Some(index) && !self.status.is_empty() {
+            layout.gap();
+            layout.text(&self.status, palette.warning, None);
+            self.status_controls(layout);
         }
     }
 

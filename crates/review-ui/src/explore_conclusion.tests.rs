@@ -245,7 +245,7 @@ fn implementation_editor_and_conversation_reply_keep_separate_text_and_focus() {
     fixture.app.update(UserInput::Paste(
         "Unposted question about the conclusion".into(),
     ));
-    fixture.app.update(UserInput::Key(Key::Escape));
+    fixture.app.update(UserInput::Key(Key::Tab));
     fixture.app.update(UserInput::Resize {
         width: 100,
         height: 24,

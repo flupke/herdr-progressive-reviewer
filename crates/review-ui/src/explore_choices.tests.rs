@@ -130,7 +130,7 @@ fn changing_the_choice_keeps_typed_details_and_none_can_be_sent_without_text() {
         let (mut fixture, request) = ExploreUi::new();
         fixture.respond(&request, 1);
         fixture.app.update(UserInput::Paste(details.into()));
-        fixture.app.update(UserInput::Key(Key::Escape));
+        fixture.app.update(UserInput::Key(Key::Tab));
         assert!(fixture.text().contains("› 1. Keep resolved"));
         for _ in 0..5 {
             fixture.app.update(UserInput::Key(Key::Down));
@@ -144,7 +144,7 @@ fn changing_the_choice_keeps_typed_details_and_none_can_be_sent_without_text() {
 }
 
 #[test]
-fn the_question_is_immediately_above_choices_after_evidence() {
+fn the_question_and_answer_controls_precede_evidence() {
     let (mut fixture, request) = ExploreUi::new();
     fixture.respond(&request, 1);
     for width in [70, 140] {
@@ -167,8 +167,14 @@ fn the_question_is_immediately_above_choices_after_evidence() {
             .iter()
             .position(|row| row.contains("Evidence 1/2"))
             .unwrap();
-        assert!(evidence < question);
+        let editor = rows
+            .iter()
+            .position(|row| row.contains("Your answer"))
+            .unwrap();
         assert!(question < choice);
+        assert!(choice < editor);
+        assert!(editor < evidence);
+        assert!(!fixture.text().contains("The source supports this context."));
         assert!(
             rows[question + 1..choice]
                 .iter()
@@ -222,7 +228,7 @@ fn moving_selection_reveals_the_answer_in_a_short_viewport() {
     let (mut fixture, request) = ExploreUi::new();
     fixture.app.update(UserInput::Resize {
         width: 60,
-        height: 16,
+        height: 9,
     });
     let mut response = fixture.response(&request, 1);
     response.next.as_mut().unwrap().alternatives.truncate(1);

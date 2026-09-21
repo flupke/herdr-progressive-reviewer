@@ -1,10 +1,9 @@
-//! One serial owner for UI posts, MCP replies, persistence, and idle agent wakeups.
+//! One serial owner for UI posts, MCP replies, persistence, and agent notifications.
 
 mod access;
 mod delivery;
 mod notification;
 mod pinned_agent;
-mod prompt;
 mod state;
 mod wakeup;
 
@@ -45,7 +44,6 @@ pub enum Event {
     Explore(review_mcp::Request),
     Loaded(ui_events::ReviewThreadsLoaded),
     Posted(ui_events::ThreadPostFinished),
-    NotificationDeferred,
     Error(String),
 }
 

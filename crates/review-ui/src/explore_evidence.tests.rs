@@ -39,6 +39,102 @@ fn primary_range(
     response
 }
 
+fn assert_closed_outline(buffer: &Buffer) {
+    let rows: Vec<_> = buffer
+        .content
+        .chunks(usize::from(buffer.area.width))
+        .collect();
+    let corners = |symbol: &str| {
+        rows.iter()
+            .enumerate()
+            .flat_map(|(row, cells)| {
+                cells.iter().enumerate().filter_map(move |(column, cell)| {
+                    (cell.symbol() == symbol && cell.fg == ratatui::style::Color::Yellow)
+                        .then_some((row, column))
+                })
+            })
+            .collect::<Vec<_>>()
+    };
+    let top = corners("╭");
+    let bottom = corners("╰");
+    let right = corners("╮");
+    assert_eq!(top.len(), 1, "one opening edge");
+    assert_eq!(bottom.len(), 1, "one closing edge");
+    assert_eq!(right.len(), 1, "one top-right corner");
+    assert_eq!(corners("╯"), vec![(bottom[0].0, right[0].1)]);
+    assert_eq!(top[0].1, bottom[0].1);
+    for (row, cells) in rows.iter().enumerate().take(bottom[0].0).skip(top[0].0 + 1) {
+        for column in [top[0].1, right[0].1] {
+            assert_eq!(cells[column].symbol(), "│", "border gap at {row}:{column}");
+            assert_eq!(cells[column].fg, ratatui::style::Color::Yellow);
+        }
+    }
+}
+
+#[test]
+fn evidence_outlines_enclose_interleaved_diff_sides_and_wrapped_rows() {
+    let base = format!(
+        "// before\npub fn policy() {{\n    let old_first = \"{}\";\n    checkpoint_a();\n    removed_call();\n    checkpoint_b();\n}}\n// after\n",
+        "old wide 字 text ".repeat(8)
+    );
+    let current = base
+        .replace("old_first", "new_first")
+        .replace("removed_call", "added_call");
+    for side in [
+        review_explore::SourceSide::New,
+        review_explore::SourceSide::Old,
+    ] {
+        let (mut fixture, request) = ExploreUi::with_versions(base.as_bytes(), current.as_bytes());
+        fixture.app.update(UserInput::Resize {
+            width: 60,
+            height: 120,
+        });
+        let mut response = primary_range(&fixture, &request, side);
+        response.next.as_mut().unwrap().evidence[0].location.lines = Some(GuideLineRange {
+            first_line: 2,
+            last_line: 7,
+        });
+        publish(&mut fixture, response);
+        let text = fixture.text();
+        for line in ["old_first", "new_first", "removed_call", "added_call"] {
+            assert!(text.contains(line), "missing {line}: {text}");
+        }
+        assert_closed_outline(&fixture.buffer());
+    }
+}
+
+#[test]
+fn overlapping_evidence_ranges_share_one_closed_outline() {
+    for reverse in [false, true] {
+        let (mut fixture, request) = source_fixture();
+        let mut response = primary_range(&fixture, &request, review_explore::SourceSide::New);
+        let question = response.next.as_mut().unwrap();
+        question.evidence[0].location.lines = Some(GuideLineRange {
+            first_line: 20,
+            last_line: 30,
+        });
+        let mut overlapping = question.evidence[0].clone();
+        overlapping.location.lines = Some(GuideLineRange {
+            first_line: 25,
+            last_line: 35,
+        });
+        overlapping.relationship = "Overlapping decision evidence".into();
+        question.evidence.push(overlapping);
+        if reverse {
+            question.evidence.reverse();
+        }
+        publish(&mut fixture, response);
+        for _ in 0..2 {
+            assert_closed_outline(&fixture.buffer());
+            let text = fixture.text();
+            for line in [20, 35] {
+                assert!(text.contains(&format!("source line {line}")), "{text}");
+            }
+            fixture.click("Fit evidence");
+        }
+    }
+}
+
 #[test]
 fn base_evidence_outside_hunks_uses_full_historical_text_and_old_coordinates() {
     let (mut fixture, request) = source_fixture();

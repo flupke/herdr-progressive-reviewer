@@ -54,18 +54,22 @@ impl ExploreComponent {
             palette.dim,
             None,
         );
+        let code_start = layout.height;
         if let Some(viewer) = diff.evidence_view(view) {
             if let Some(limitation) = viewer.evidence_limitation() {
                 layout.text(limitation, palette.warning, None);
             } else {
                 let maximum = layout.area.height.saturating_sub(1).max(3);
-                let fit = viewer
-                    .fitted_evidence_height(layout.area.width, (layout.area.height / 2).max(3));
                 let height = self
                     .heights
                     .get(&view)
                     .copied()
-                    .unwrap_or(fit)
+                    .unwrap_or_else(|| {
+                        viewer.fitted_evidence_height(
+                            layout.area.width,
+                            (layout.area.height / 2).max(3),
+                        )
+                    })
                     .clamp(3, maximum);
                 layout.push(Content::Window(view), height);
                 layout.push(Content::Resize(view), 1);
@@ -77,6 +81,7 @@ impl ExploreComponent {
                 Some(Control::Evidence(view)),
             );
         }
+        layout.evidence = Some(code_start..layout.height);
         self.evidence_controls(view, &evidence, layout, palette);
     }
 

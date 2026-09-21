@@ -36,6 +36,7 @@ mod context;
 mod conversation;
 mod document;
 mod embedded;
+mod evidence_size;
 mod evidence_source;
 mod explore;
 mod explore_restore;

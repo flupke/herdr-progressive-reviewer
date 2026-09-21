@@ -48,6 +48,7 @@ pub struct ConversationLayout {
     pub(super) items: Vec<Item>,
     pub(super) answer: Option<usize>,
     pub(super) choice: Option<Range<usize>>,
+    pub(super) evidence: Option<Range<usize>>,
     pub(super) navigation: super::navigation::Navigation,
 }
 
@@ -115,6 +116,10 @@ impl ConversationLayout {
                 }),
             Some(Reveal::Choice) => self
                 .choice
+                .as_ref()
+                .map_or(scroll, |rows| self.reveal_rows(rows.clone(), scroll)),
+            Some(Reveal::Evidence) => self
+                .evidence
                 .as_ref()
                 .map_or(scroll, |rows| self.reveal_rows(rows.clone(), scroll)),
             Some(Reveal::KeepAnswer { offset }) => self

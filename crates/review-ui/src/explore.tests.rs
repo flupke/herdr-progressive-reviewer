@@ -15,6 +15,8 @@ use ui_events::{ExploreCaptured, ExploreFinished, ReviewNavigation, ReviewNaviga
 mod choices;
 #[path = "explore_conclusion.tests.rs"]
 mod conclusion_tests;
+#[path = "explore_editor.tests.rs"]
+mod editor;
 #[path = "explore_flow.tests.rs"]
 mod flow;
 #[path = "explore_recovery.tests.rs"]
@@ -319,6 +321,8 @@ fn clipped_evidence_keeps_continuations_open_at_the_viewport_edges() {
         width: 140,
         height: 20,
     });
+    fixture.app.update(UserInput::Key(Key::Tab));
+    assert_eq!(fixture.app.focus, ui_events::ReviewPane::Detail);
     let render = |fixture: &ExploreUi| {
         let mut buffer = Buffer::empty(Rect::new(0, 0, 140, 20));
         fixture.app.frame().render(buffer.area, &mut buffer);
@@ -414,7 +418,7 @@ fn new_pass_retains_history_and_failed_capture_preserves_text() {
     let (mut fixture, request) = ExploreUi::new();
     fixture.respond(&request, 1);
     fixture.app.update(UserInput::Paste("Keep my draft".into()));
-    fixture.app.update(UserInput::Key(Key::Escape));
+    fixture.app.update(UserInput::Key(Key::Tab));
     let actions = fixture.app.update(UserInput::Key(Key::Char('n')));
     assert!(
         !actions
@@ -648,7 +652,7 @@ fn real_rust_lsp_navigates_working_copy_sources_and_rejects_other_view_results()
     assert!(fixture.text().contains("resolved()"));
     // Switching evidence windows invalidates responses for the earlier viewer.
     fixture.app.update(UserInput::Key(Key::Tab));
-    fixture.app.update(UserInput::Key(Key::Escape));
+    fixture.app.update(UserInput::Key(Key::Tab));
     fixture.app.update(UserInput::Key(Key::Char('e')));
     fixture.app.publish(ui_events::SourceLocationAccepted {
         location: SourceLocation {

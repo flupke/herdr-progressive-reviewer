@@ -186,14 +186,13 @@ impl DiffComponent {
         else {
             return minimum;
         };
-        self.renderer(self.palette, None, false)
-            .evidence_height(
-                file,
-                width.saturating_sub(2),
-                source.side,
-                evidence.location.lines.as_ref(),
-            )
-            .clamp(minimum, maximum.max(minimum))
+        self.measure_evidence_height(
+            file,
+            width.saturating_sub(2),
+            source.side,
+            evidence.location.lines.as_ref(),
+        )
+        .clamp(minimum, maximum.max(minimum))
     }
 
     /// Displayed source may differ from the question's immutable evidence after navigation.

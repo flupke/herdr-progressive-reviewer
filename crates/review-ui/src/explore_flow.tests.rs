@@ -141,11 +141,7 @@ impl ExploreUi {
 
     pub(super) fn click_actions(&mut self, needle: &str) -> Vec<Action> {
         let (column, row) = self.point(needle);
-        self.app.update(UserInput::MouseClick {
-            column,
-            row,
-            insert_path: false,
-        })
+        self.app.update(UserInput::MouseClick { column, row })
     }
 
     fn viewer_path(&self, turn: usize, reference: usize) -> &str {
@@ -177,11 +173,7 @@ fn accepted_mcp_questions_advance_after_input_and_preserve_history_drafts() {
 
         fixture.click("2. Inspect the caller");
         let (column, row) = fixture.point("[Send]");
-        request = ExploreUi::request(fixture.app.update(UserInput::MouseClick {
-            column,
-            row,
-            insert_path: false,
-        }));
+        request = ExploreUi::request(fixture.app.update(UserInput::MouseClick { column, row }));
         fixture.app.update(UserInput::MouseRelease);
         // Incidental activity used to suppress the next accepted question.
         fixture.app.update(UserInput::Key(Key::Escape));
@@ -418,7 +410,6 @@ fn evidence_fits_wrapping_and_resizes_without_using_files_sidebar_width() {
     fixture.app.update(UserInput::MouseClick {
         column,
         row: row - 1,
-        insert_path: false,
     });
     fixture.app.update(UserInput::MouseDrag {
         column,

@@ -185,7 +185,7 @@ fn edits_during_posting_are_queued_for_save_before_normal_close() {
             .iter()
             .any(|(_, draft)| draft.editor.text == "Next unposted draft")
     );
-    fixture.app.update(UserInput::Key(Key::Escape));
+    fixture.app.update(UserInput::Key(Key::Tab));
     assert!(
         fixture
             .app
@@ -253,7 +253,7 @@ fn a_combined_external_refresh_keeps_every_conclusion_and_existing_editor() {
     fixture
         .app
         .update(UserInput::Paste("My existing edit: ".into()));
-    fixture.app.update(UserInput::Key(Key::Escape));
+    fixture.app.update(UserInput::Key(Key::Tab));
     let (response, received) = std::sync::mpsc::channel();
     fixture.app.publish(ui_events::ExploreCommitted {
         pass: Arc::new(pass),

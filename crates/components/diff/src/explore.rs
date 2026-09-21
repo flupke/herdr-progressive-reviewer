@@ -10,6 +10,7 @@ use ui_events::{
 
 #[derive(Default)]
 pub(super) struct ExploreView {
+    pub(super) size: crate::evidence_size::EvidenceSizeCache,
     pub(super) active: bool,
     pub(super) parked: Option<Box<DiffComponent>>,
     pub(super) comparison: Option<Arc<Comparison>>,

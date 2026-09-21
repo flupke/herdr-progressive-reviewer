@@ -1,5 +1,8 @@
 # Explore milestone 1 acceptance demo
 
+The delivery checks described below are historical. Current delivery uses
+`agent.prompt` directly; see [Notifications](mcp.md#notifications).
+
 Subsequent user feedback removed Explore source snapshots and freshness pauses.
 These observations describe the earlier build; the current working-copy behavior
 and unchanged-code assumption are documented in [usage](usage.md#explore-a-change-experimental).

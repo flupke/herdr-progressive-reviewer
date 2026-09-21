@@ -1,6 +1,7 @@
 use std::ops::{Range, RangeInclusive};
 #[path = "evidence.rs"]
 mod evidence;
+use evidence::EvidenceFrames;
 
 use guide_rendering::{
     DiffFrame, GuideBorderCell, GuideLayout, GuideOverlay, GuideOverlayRow, GuideRenderedRow,
@@ -568,6 +569,17 @@ impl DiffRenderer<'_> {
         width: u16,
         focused: bool,
     ) -> DiffViewport {
+        let evidence = EvidenceFrames::new(file, width, self.evidence);
+        self.viewport_with_frames(file, width, focused, &evidence)
+    }
+
+    fn viewport_with_frames(
+        &self,
+        file: &LoadedDocument,
+        width: u16,
+        focused: bool,
+        evidence: &EvidenceFrames,
+    ) -> DiffViewport {
         let selection = self.selection.clone();
         let line_number_width = file.document.diff.line_number_width();
         let show_markers = !file.document.diff.shows_whole_file();
@@ -647,8 +659,7 @@ impl DiffRenderer<'_> {
                         .zip(enclosing_status)
                         .map(|(layout, status)| layout.frame(width, line_number_width, status))
                 });
-                let enclosing_frame =
-                    enclosing_frame.or_else(|| self.evidence_frame(file, index, width));
+                let enclosing_frame = enclosing_frame.or_else(|| evidence.frame_at(index));
                 wrapped.extend(WrappedDiffRow::wrap_source(
                     &styled_line,
                     index,
@@ -665,7 +676,7 @@ impl DiffRenderer<'_> {
             .collect();
         let rows = Self::insert_comment_rows(rows, comment_layout);
         DiffViewport {
-            rows: self.outline(rows, file, width),
+            rows: evidence.outline(rows),
         }
     }
 

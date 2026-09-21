@@ -3,6 +3,10 @@
 - Keep crates small, don't hesitate to create tiny ones or split a big one.
 - Reuse existing types between workspace crates. Do not create a local copy of
   a type only to adapt it for another crate.
+- Reuse shared UI components for rendering, editing, focus and keyboard behavior.
+  Do not duplicate their internals or intercept component-owned keys in
+  feature-specific wrappers. Extend the shared component when behavior is missing,
+  then reuse it across the affected views.
 - Avoid "functions soup", design types first, then implement their methods.
 - Use `#[must_use]` only when ignoring a return value is likely to cause a bug.
   Do not add it to routine getters or to functions that return types that

@@ -6,6 +6,26 @@ struct Scrolling {
 }
 
 impl Scrolling {
+    fn evidence_height(&self, width: u16, range: &GuideLineRange) -> u16 {
+        let viewer = self.registry.get::<DiffComponent>(self.target).unwrap();
+        let file = viewer.displayed_document().unwrap();
+        let native = viewer
+            .renderer(viewer.palette, None, false)
+            .evidence_height(file, width, review_explore::SourceSide::New, Some(range));
+        for _ in 0..2 {
+            assert_eq!(
+                viewer.measure_evidence_height(
+                    file,
+                    width,
+                    review_explore::SourceSide::New,
+                    Some(range),
+                ),
+                native,
+            );
+        }
+        native
+    }
+
     fn new(rows: Vec<DiffRow>, width: u16, height: u16) -> Self {
         let (mut registry, reviewable_files, target) = registry_with_observer();
         reviewable_files.replace(["src/lib.rs".to_owned()].into());
@@ -82,6 +102,70 @@ impl Scrolling {
             })
             .unwrap();
     }
+}
+
+#[test]
+fn cached_evidence_size_tracks_wrapping_ranges_reload_and_inline_editing() {
+    let mut fixture = Scrolling::new(context_rows(30), 78, 20);
+    let range = GuideLineRange {
+        first_line: 3,
+        last_line: 5,
+    };
+    let wide = fixture.evidence_height(78, &range);
+    let narrow = fixture.evidence_height(8, &range);
+    assert!(narrow > wide);
+    let larger_range = GuideLineRange {
+        first_line: 3,
+        last_line: 15,
+    };
+    assert!(fixture.evidence_height(78, &larger_range) > wide);
+    assert_eq!(fixture.evidence_height(78, &range), wide);
+
+    let text = "long replacement line with more wrapping ".repeat(6);
+    fixture
+        .registry
+        .publish(DiffContentLoaded {
+            review_checkpoint: ReviewCheckpoint::new("change", "checkpoint"),
+            path: "src/lib.rs".into(),
+            rows: (1..=30)
+                .map(|line| DiffRow::Add {
+                    new_line: line,
+                    text: format!("+{text}"),
+                })
+                .collect(),
+            old_content: None,
+            new_content: Some(format!("{text}\n").repeat(30).into_bytes()),
+        })
+        .unwrap();
+    let reloaded = fixture.evidence_height(78, &range);
+    assert!(reloaded > wide);
+
+    fixture
+        .registry
+        .publish(ui_events::ReviewThreadsLoaded {
+            review_unit: "change".into(),
+            result: Ok(review_threads::ReviewThreads::new("change".into())),
+        })
+        .unwrap();
+    fixture.key(Key::Down);
+    fixture.key(Key::Down);
+    fixture.key(Key::Char('a'));
+    fixture
+        .registry
+        .publish(ui_events::TextPasted(
+            "An inline explanation\nwith additional lines\nand more context".into(),
+        ))
+        .unwrap();
+    let viewer = fixture
+        .registry
+        .get::<DiffComponent>(fixture.target)
+        .unwrap();
+    assert!(
+        viewer
+            .comments
+            .inline_editor_visible_in(viewer.displayed_document().unwrap())
+    );
+    assert!(fixture.evidence_height(78, &range) > reloaded);
 }
 
 #[test]

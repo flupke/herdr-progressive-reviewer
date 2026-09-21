@@ -96,6 +96,7 @@ enum Reveal {
     Start,
     Editor(EditorTarget),
     Choice,
+    Evidence,
     KeepAnswer { offset: isize },
 }
 

@@ -117,7 +117,7 @@ fn a_reply_to_an_earlier_question_keeps_its_identity_and_the_other_draft() {
     fixture
         .app
         .update(UserInput::Paste("Unposted current draft".into()));
-    fixture.app.update(UserInput::Key(Key::Escape));
+    fixture.app.update(UserInput::Key(Key::Tab));
     fixture.app.update(UserInput::Key(Key::Char('[')));
     fixture
         .app
@@ -288,12 +288,12 @@ fn resuming_or_revisiting_a_correction_preserves_its_original_answer_link() {
         fixture.app.update(UserInput::Paste(
             "Correction: only with bounded rebuilds".into(),
         ));
-        fixture.app.update(UserInput::Key(Key::Escape));
+        fixture.app.update(UserInput::Key(Key::Tab));
         if revisit {
             fixture.app.update(UserInput::Key(Key::Char(']')));
             fixture.click("[Reply]");
             fixture.app.update(UserInput::Paste("Other draft".into()));
-            fixture.app.update(UserInput::Key(Key::Escape));
+            fixture.app.update(UserInput::Key(Key::Tab));
             fixture.app.update(UserInput::Key(Key::Char('[')));
         }
         fixture.app.update(UserInput::Key(Key::Enter));
@@ -328,6 +328,11 @@ fn automatic_advancement_keeps_the_direct_answer_visible_before_the_next_questio
     let text = fixture.text();
     assert!(text.contains("Agent: The decoder rejects"), "{text}");
     assert!(text.contains("Question 2: keep resolved?"));
+    assert!(
+        text.find("Agent: The decoder rejects").unwrap()
+            < text.find("Question 2: keep resolved?").unwrap(),
+        "{text}"
+    );
 }
 
 fn question_after_conclusion_context() -> ExploreUi {

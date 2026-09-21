@@ -11,7 +11,7 @@ move between unreviewed files, and `[h` and `]h` to move between changed hunks.
 
 Press `rf` to ask the active agent for a guide to the selected file, or `ra` for
 all visible unreviewed files. Navigate guide comments with `[r` and `]r`.
-Filenames, guides and review comments all use the same agent: the last focused
+Guides and review comments use the same agent: the last focused
 agent in the Herdr workspace. Focus another agent to switch; pending comments
 follow that selection, while completed answers and conversation history remain.
 
@@ -81,8 +81,8 @@ For connection problems or delayed notifications, see
 
 Open **Explore** and click **Start** or press `s`. Explore prepares the complete
 base-to-working-copy change, including reviewed and filtered files. The selected implementation agent investigates the change with you in its existing
-conversation, asking at most one next question per turn. Requests wait automatically
-while the agent is busy, focused, or has an unposted draft, using the same delivery
+conversation, asking at most one next question per turn. Requests are sent through
+Herdr immediately, including while the agent is working, using the same delivery
 as thread comments. Explore pins that conversation for the pass.
 The kickoff prompt supplies the review target and interview instructions. The agent
 reads files directly, uses Git/jj for the full diff, and posts the first question
