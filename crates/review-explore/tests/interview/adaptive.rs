@@ -246,6 +246,22 @@ fn invalid_agenda_update_is_atomic_and_cancelled_turn_cannot_resurrect_a_branch(
 }
 
 #[test]
+fn assessments_accept_summary_only_sections_with_valid_evidence() {
+    let mut exploration = started();
+    let request = contribute(&mut exploration, "Can we undo the effects?");
+    let mut response = update(&request, Some(question(2)));
+    let mut assessment = serde_json::to_value(assessments(Door::TwoWay)).unwrap();
+    for lens in ["reversibility", "blast_radius"] {
+        assessment[lens].as_object_mut().unwrap().remove("details");
+    }
+    response.next.as_mut().unwrap().assessments = Some(serde_json::from_value(assessment).unwrap());
+    exploration.apply(response).unwrap();
+    let assessment = exploration.questions[1].assessments.as_ref().unwrap();
+    assert!(assessment.reversibility.details.is_empty());
+    assert!(assessment.blast_radius.details.is_empty());
+}
+
+#[test]
 fn unsupported_reversibility_stays_unknown_and_blast_radius_remains_independent() {
     let mut exploration = started();
     let request = contribute(&mut exploration, "Can we undo the effects?");

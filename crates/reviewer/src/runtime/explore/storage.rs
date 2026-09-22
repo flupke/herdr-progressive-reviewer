@@ -77,11 +77,18 @@ impl Worker {
                 self.explore.restored = true;
                 self.explore.historical = event.historical;
                 self.explore.storage_error.clone_from(&event.storage_error);
-                self.explore.pass = pass.as_deref().cloned();
-                self.explore.last_view.clone_from(&event.view);
                 self.explore.comparison = pass
                     .as_ref()
                     .map(|pass| pass.exploration.comparison.clone());
+                let pass = pass.map(|pass| {
+                    if !event.historical && event.storage_error.is_none() {
+                        Arc::new(self.start_jev_if_enabled((*pass).clone(), messages))
+                    } else {
+                        pass
+                    }
+                });
+                self.explore.pass = pass.as_deref().cloned();
+                self.explore.last_view.clone_from(&event.view);
                 event.result = Ok(pass);
             }
             Err(error) => {

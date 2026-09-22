@@ -8,14 +8,14 @@ use std::{
     time::{Duration, Instant},
 };
 
-const RUBRIC: &str = "explore-significance-v1";
+pub(super) const RUBRIC: &str = "explore-significance-v2";
 const MODEL: &str = "jev-1.13.0";
 const MAX_CANDIDATES: usize = 32;
 const MAX_STATE_BYTES: usize = 10 * 1024;
 const MAX_RESPONSE_BYTES: u64 = 64 * 1024;
 const JOB_BUDGET: Duration = Duration::from_secs(30);
 
-const INSTRUCTIONS: &str = "Decide whether THIS exact changed block needs its own explanation in a code review. Compare before and after, using only supplied context. Behavior, policy, state, contracts, dependencies, operations, changed defaults, removed assertions, permissions, imports with meaningful targets or side effects are significant. Plain mechanical formatting or incidental wiring may be insignificant only when the supplied context establishes that. If an unseen consumer, helper, side effect or other context is needed, choose uncertain. Do not infer correctness from a missing source. Answer for this block only.";
+const INSTRUCTIONS: &str = "Decide whether THIS exact changed block needs its own explanation in a code review, not whether the surrounding file deserves review. Old changed lines were removed; new changed lines were added. Adjacent context lines are unchanged and only help interpret this block. A change can be insignificant when its local effect is clear but adds no independent review decision: explanatory comments, formatting, routine annotations, or allowing an existing nonessential explanation field to be absent with a default. Significant changes include behavior, policy, state, contracts, dependencies, operations, operational defaults, removed assertions, permissions, and imports with meaningful targets or side effects. A default affecting functional data or compatibility with consequential consumers may still need an explanation. If an unseen consumer, helper, side effect or other context is needed to decide, choose uncertain. Do not infer correctness from a missing source. Answer for this block only.";
 
 #[cfg(not(test))]
 pub(super) fn key() -> Option<String> {
@@ -32,7 +32,7 @@ pub(super) fn key() -> Option<String> {
 pub(super) struct Candidate {
     id: String,
     units: Vec<CoverageUnit>,
-    state: String,
+    state: Value,
     references: Vec<String>,
     omissions: Vec<String>,
 }
@@ -123,15 +123,23 @@ impl Candidate {
             .take(3)
             .filter_map(context_text)
             .collect();
-        let state = format!(
-            "Path: {}\nChanged block: {}\nContext before:\n{}\nOld changed lines:\n{}\nNew changed lines:\n{}\nContext after:\n{}",
-            file.review_path().display(),
-            block,
-            before.into_iter().rev().collect::<Vec<_>>().join("\n"),
-            old.join("\n"),
-            new.join("\n"),
-            after.join("\n")
-        );
+        let path = file.review_path().display().to_string();
+        let language_hint = if std::path::Path::new(&path)
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("rs"))
+        {
+            "Rust"
+        } else {
+            "Unspecified"
+        };
+        let state = json!({
+            "path": path,
+            "language_hint": language_hint,
+            "unchanged_before": before.into_iter().rev().collect::<Vec<_>>(),
+            "removed_lines": old,
+            "added_lines": new,
+            "unchanged_after": after,
+        });
         let references = units
             .iter()
             .filter_map(|unit| match unit {
@@ -195,7 +203,7 @@ pub(super) fn classify(
         if started.elapsed() >= JOB_BUDGET {
             break;
         }
-        let result = if candidate.state.len() > MAX_STATE_BYTES {
+        let result = if candidate.state.to_string().len() > MAX_STATE_BYTES {
             candidate.result(
                 Significance::Oversized,
                 None,
@@ -218,8 +226,8 @@ fn classify_one(
     candidate: &Candidate,
 ) -> SignificanceResult {
     let question = json!({ "type": "choice", "instructions": INSTRUCTIONS,
-        "criteria": { "significant": "Contains behavior, policy, state, contract, dependency or operational substance that should be explained.",
-        "insignificant": "Supplied context establishes a purely mechanical or non-consequential change requiring no separate explanation.",
+        "criteria": { "significant": "This changed block warrants its own explanation because it adds an independent consequential review decision.",
+        "insignificant": "The changed lines are locally clear and add no independent review decision, even if a nearby change still warrants review.",
         "uncertain": "Context or understanding is insufficient to decide conservatively." } });
     let body = json!({ "model": MODEL, "state": candidate.state, "questions": { "significance": question } });
     let response = client
@@ -384,9 +392,18 @@ mod tests {
         let key = std::env::var("TYPESAFE_API_KEY").expect("reviewer-process key");
         assert!(!key.trim().is_empty());
         let candidate = Candidate {
-            id: "harmless".into(), units: vec![],
-            state: "Path: fixture.rs\nBefore: fn answer() -> i32 { 1 }\nAfter: fn answer() -> i32 { 2 }\nThis synthetic function changes its returned value.".into(),
-            references: vec!["fixture.rs new 1-1".into()], omissions: vec![],
+            id: "harmless".into(),
+            units: vec![],
+            state: json!({
+                "path": "fixture.rs",
+                "language_hint": "Rust",
+                "unchanged_before": [],
+                "removed_lines": ["fn answer() -> i32 { 1 }"],
+                "added_lines": ["fn answer() -> i32 { 2 }"],
+                "unchanged_after": [],
+            }),
+            references: vec!["fixture.rs new 1-1".into()],
+            omissions: vec![],
         };
         let client = reqwest::blocking::Client::builder()
             .timeout(Duration::from_secs(8))
@@ -403,5 +420,70 @@ mod tests {
             "provider request failed: {:?}",
             result.error
         );
+    }
+
+    #[test]
+    #[ignore = "requires a reviewer-process TYPESAFE_API_KEY and external network"]
+    fn live_jev_distinguishes_descriptive_and_operational_defaults() {
+        let key = std::env::var("TYPESAFE_API_KEY").expect("reviewer-process key");
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(8))
+            .build()
+            .unwrap();
+        let comment_only = Candidate {
+            id: "comment-only".into(),
+            units: vec![],
+            state: json!({
+                "path": "crates/review-explore/src/consequence.rs",
+                "language_hint": "Rust",
+                "unchanged_before": ["pub struct Consequence {"],
+                "removed_lines": [],
+                "added_lines": [
+                    "    /// Short first paragraph for this Markdown section, including the decisive reason."
+                ],
+                "unchanged_after": ["    pub summary: String,"]
+            }),
+            references: vec![],
+            omissions: vec![],
+        };
+        let result = classify_one(&client, &key, &comment_only);
+        assert_eq!(result.outcome, Significance::Insignificant, "{result:?}");
+
+        let descriptive = Candidate {
+            id: "descriptive-default".into(),
+            units: vec![],
+            state: json!({
+                "path": "crates/review-explore/src/consequence.rs",
+                "language_hint": "Rust",
+                "unchanged_before": ["pub summary: String,"],
+                "removed_lines": [],
+                "added_lines": [
+                    "    /// Optional Markdown reasoning after the summary; omit or leave empty when unnecessary.",
+                    "    #[serde(default)]"
+                ],
+                "unchanged_after": ["    pub details: String,", "    pub evidence: Vec<EvidenceRef>,"]
+            }),
+            references: vec![],
+            omissions: vec![],
+        };
+        let result = classify_one(&client, &key, &descriptive);
+        assert_eq!(result.outcome, Significance::Insignificant, "{result:?}");
+
+        let operational = Candidate {
+            id: "operational-default".into(),
+            units: vec![],
+            state: json!({
+                "path": "src/config.rs",
+                "language_hint": "Rust",
+                "unchanged_before": ["pub struct RetryConfig {"],
+                "removed_lines": ["    #[serde(default = \"one_retry\")]"],
+                "added_lines": ["    #[serde(default = \"ten_retries\")]"],
+                "unchanged_after": ["    pub max_retries: u32,", "}"]
+            }),
+            references: vec![],
+            omissions: vec![],
+        };
+        let result = classify_one(&client, &key, &operational);
+        assert_eq!(result.outcome, Significance::Significant, "{result:?}");
     }
 }

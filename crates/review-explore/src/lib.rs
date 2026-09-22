@@ -5,8 +5,9 @@ mod durable;
 mod presentation;
 mod recovery;
 pub use coverage::{
-    CoverageFeedback, CoverageInventory, CoverageLedger, CoverageSummary, CoverageUnit,
-    FileCoverage, Gap, GapKind, JevFeedback, JevMode, Significance, SignificanceResult,
+    ChangedLineCoverage, CoverageFeedback, CoverageInventory, CoverageLedger, CoverageSummary,
+    CoverageUnit, FileCoverage, Gap, GapKind, JevFeedback, JevMode, Significance,
+    SignificanceResult,
 };
 pub use durable::{
     CompletionMark, ConversationBinding, DispatchId, DispatchResult, DispatchState, ExplorePass,

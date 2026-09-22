@@ -226,8 +226,8 @@ fn only_decision_evidence_is_in_the_primary_cycle_and_supporting_sources_stay_av
     response.reply.as_mut().unwrap().evidence.push(supporting);
     publish(&mut fixture, response);
     let text = fixture.text();
-    assert!(text.contains("Establishes: Policy behavior"));
-    assert!(text.contains("For your answer:"));
+    assert!(text.contains("Establishes") && text.contains("Policy behavior"));
+    assert!(text.contains("For your answer"));
     assert!(text.contains("Evidence 1/1"));
     assert!(text.contains("Supporting sources 1"));
     assert!(!text.contains("Supporting caller context"));

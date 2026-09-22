@@ -52,7 +52,13 @@ fn coverage_diff_uses_the_selected_file_after_restoring_multiple_files() {
     assert!(pass.exploration.comparison.files.len() > 1);
     restore(&mut fixture, &pass, None);
     fixture.click("Coverage");
-    fixture.click(&format!("{expected}  "));
+    for _ in 0..10 {
+        if fixture.text().contains(&format!("{expected} ·")) {
+            break;
+        }
+        fixture.app.update(UserInput::Key(Key::PageDown));
+    }
+    fixture.click(&format!("{expected} ·"));
     let diff = fixture
         .app
         .event_bus
@@ -63,11 +69,55 @@ fn coverage_diff_uses_the_selected_file_after_restoring_multiple_files() {
             .and_then(DiffComponent::evidence_path),
         Some(expected.as_str())
     );
+    assert!(fixture.text().contains(&format!("File diff · {expected}")));
+}
+
+#[test]
+fn inspect_jev_exclusions_reveals_the_regions_beside_the_control() {
+    let (mut fixture, request) = ExploreUi::new();
+    let mut pass = pass(&fixture, &request);
+    let unit = pass.coverage.inventory.units[0].clone();
     assert!(
-        fixture
-            .text()
-            .contains(&format!("Coverage diff · {expected}"))
+        pass.coverage
+            .record_significance(review_explore::SignificanceResult {
+                id: "excluded-region".into(),
+                units: vec![unit.clone()],
+                outcome: review_explore::Significance::Insignificant,
+                model: None,
+                rubric: "fixture".into(),
+                criterion: String::new(),
+                input_references: vec![],
+                omissions: vec![],
+                probabilities: std::collections::BTreeMap::default(),
+                confidence: None,
+                error: None,
+            })
     );
+    pass.completion = Some(review_explore::ReviewCompletion {
+        request: request.request.clone(),
+        baseline: request.checkpoint.checkpoint.clone(),
+        marks: vec![],
+        completed: true,
+        exclusions_enabled: true,
+        summary: pass.coverage.summary(true),
+    });
+    restore(&mut fixture, &pass, None);
+    assert!(!fixture.text().contains("Jev exclusions"));
+    fixture.app.update(UserInput::Resize {
+        width: 140,
+        height: 12,
+    });
+    fixture.click("Coverage");
+    for _ in 0..10 {
+        if fixture.text().contains("Jev exclusions") {
+            break;
+        }
+        fixture.app.update(UserInput::Key(Key::PageDown));
+    }
+    assert!(fixture.text().contains("Jev exclusions"));
+    fixture.click("Jev exclusions");
+    let visible = fixture.text();
+    assert!(visible.contains("[Inspect diff]"), "{visible}");
 }
 
 #[test]
@@ -122,6 +172,27 @@ fn restore_preserves_choice_comment_cursor_and_does_not_send_or_mark_files() {
         submit.answer.unwrap().option.unwrap().id,
         pass.exploration.questions[0].alternatives[1].id
     );
+}
+
+#[test]
+fn restored_question_clamps_a_saved_scroll_past_the_document() {
+    let (mut fixture, request) = ExploreUi::new();
+    let pass = pass(&fixture, &request);
+    let view = ViewSave {
+        instance: pass.exploration.instance.clone(),
+        review_unit: pass.exploration.comparison.checkpoint.review_unit.clone(),
+        sequence: 1,
+        state: ExploreViewState {
+            page: ExplorePage::Question(0),
+            scroll: 10_000,
+            ..Default::default()
+        },
+    };
+    no_post(&restore(&mut fixture, &pass, Some(view)));
+
+    let text = fixture.text();
+    assert!(text.contains("Question 1: keep resolved?"), "{text}");
+    assert!(text.contains("[Reply]"), "{text}");
 }
 
 #[test]

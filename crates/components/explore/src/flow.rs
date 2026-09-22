@@ -1,17 +1,21 @@
 //! Document coordinates and clipping shared by drawing and pointer routing.
 use super::{Control, Reveal, controls::Button};
 use diff_component::ClippedViewport;
+use markdown_rendering::MarkdownRenderer;
 use ratatui::{
+    buffer::Buffer,
     layout::Rect,
-    style::Color,
-    widgets::{Paragraph, Wrap},
+    style::{Color, Style},
+    text::Text,
+    widgets::{Block, Borders, Paragraph, Widget, Wrap},
 };
 use std::ops::Range;
 use ui_events::{DiffViewportChanged, EvidenceView, ExploreViewports};
+use ui_theme::Palette;
 
 #[derive(Clone)]
 pub(super) enum Content {
-    Text(String, Color, Option<Control>),
+    Text(Text<'static>, Option<Control>),
     Window(EvidenceView),
     Editor(super::EditorTarget),
     Resize(EvidenceView),
@@ -49,6 +53,9 @@ pub struct ConversationLayout {
     pub(super) answer: Option<usize>,
     pub(super) choice: Option<Range<usize>>,
     pub(super) evidence: Option<Range<usize>>,
+    pub(super) jev: Option<Range<usize>>,
+    pub(super) coverage_diff: Option<Range<usize>>,
+    pub(super) frame: Option<Rect>,
     pub(super) navigation: super::navigation::Navigation,
 }
 
@@ -60,13 +67,26 @@ impl ConversationLayout {
         }
     }
 
+    pub(super) fn render_frame(&self, buffer: &mut Buffer, palette: Palette) {
+        if let Some(frame) = self.frame {
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Coverage ")
+                .border_style(Style::default().fg(palette.dim))
+                .render(frame, buffer);
+        }
+    }
+
     pub(super) fn text(&mut self, text: impl Into<String>, color: Color, control: Option<Control>) {
-        let text = text.into();
-        let height = Paragraph::new(text.as_str())
+        self.paragraph(Text::styled(text.into(), color), control);
+    }
+
+    fn paragraph(&mut self, text: Text<'static>, control: Option<Control>) {
+        let height = Paragraph::new(text.clone())
             .wrap(Wrap { trim: false })
             .line_count(self.area.width.max(1));
         self.push(
-            Content::Text(text, color, control),
+            Content::Text(text, control),
             u16::try_from(height).unwrap_or(u16::MAX).max(1),
         );
     }
@@ -78,6 +98,19 @@ impl ConversationLayout {
             content,
         });
         self.height = self.height.saturating_add(usize::from(height));
+    }
+
+    pub(super) fn section(&mut self, title: &str, body: &str, palette: Palette) {
+        if body.trim().is_empty() {
+            return;
+        }
+        let lines = MarkdownRenderer::default().render(
+            &format!("# {title}\n\n{body}"),
+            self.area.width,
+            palette,
+        );
+        self.gap();
+        self.paragraph(Text::from(lines), None);
     }
 
     pub(super) fn gap(&mut self) {
@@ -105,8 +138,21 @@ impl ConversationLayout {
             None => self.maximum_scroll().max(scroll),
             _ => self.maximum_scroll(),
         };
-        self.scroll = match reveal {
+        self.scroll = self.revealed_scroll(scroll, reveal).min(ceiling);
+        if self.scroll >= self.height {
+            self.scroll = self.maximum_scroll();
+        }
+        // Retain enough trailing space to keep the visible anchor even when the document
+        // previously fit on screen. Idle frames must not clamp it back and shift the text.
+        self.height = self
+            .height
+            .max(self.scroll.saturating_add(usize::from(self.area.height)));
+    }
+
+    fn revealed_scroll(&self, scroll: usize, reveal: Option<Reveal>) -> usize {
+        match reveal {
             Some(Reveal::Start) => 0,
+            Some(Reveal::RestoreScroll) => scroll.min(self.maximum_scroll()),
             Some(Reveal::Editor(target)) => self
                 .items
                 .iter()
@@ -122,17 +168,19 @@ impl ConversationLayout {
                 .evidence
                 .as_ref()
                 .map_or(scroll, |rows| self.reveal_rows(rows.clone(), scroll)),
+            Some(Reveal::Jev) => self
+                .jev
+                .as_ref()
+                .map_or(scroll, |rows| self.reveal_rows(rows.clone(), scroll)),
+            Some(Reveal::CoverageDiff) => self
+                .coverage_diff
+                .as_ref()
+                .map_or(scroll, |rows| self.reveal_rows(rows.clone(), scroll)),
             Some(Reveal::KeepAnswer { offset }) => self
                 .answer
                 .map_or(scroll, |row| row.saturating_add_signed(offset)),
             None => scroll,
         }
-        .min(ceiling);
-        // Retain enough trailing space to keep the visible anchor even when the document
-        // previously fit on screen. Idle frames must not clamp it back and shift the text.
-        self.height = self
-            .height
-            .max(self.scroll.saturating_add(usize::from(self.area.height)));
     }
 
     pub(super) fn answer_anchor(&self) -> Option<Reveal> {
@@ -197,7 +245,7 @@ impl ConversationLayout {
                 return None;
             }
             match &item.content {
-                Content::Text(_, _, action) => *action,
+                Content::Text(_, action) => *action,
                 Content::Editor(super::EditorTarget::Answer) => Some(Control::Edit),
                 Content::Editor(super::EditorTarget::Implementation) => {
                     Some(Control::EditImplementation)
@@ -259,5 +307,23 @@ impl ConversationLayout {
                 })
                 .collect(),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn restored_scroll_fills_the_viewport_without_shifting_live_anchors() {
+        let mut restored = ConversationLayout::new(Rect::new(0, 0, 80, 40));
+        restored.push(Content::Text(Text::raw("row\n".repeat(100)), None), 100);
+        restored.position(90, Some(Reveal::RestoreScroll));
+        assert_eq!(restored.scroll, 60);
+
+        let mut live = ConversationLayout::new(Rect::new(0, 0, 80, 40));
+        live.push(Content::Text(Text::raw("row\n".repeat(100)), None), 100);
+        live.position(90, None);
+        assert_eq!(live.scroll, 90);
     }
 }

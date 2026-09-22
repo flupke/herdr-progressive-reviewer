@@ -53,7 +53,10 @@ pub struct Question {
     /// ID of an active topic in this pass.
     pub topic: String,
     pub text: String,
+    /// Context section body: short summary paragraph, then optional Markdown explanation.
+    /// Explain relevant behavior and unfamiliar terms without assuming implementation knowledge.
     pub rationale: Option<String>,
+    /// Optional simplified/proposed sketch appended to Context; use a fenced Markdown block.
     pub visual: Option<String>,
     /// Distinct choices; the reviewer adds None of the above automatically.
     #[schemars(length(min = 2, max = 5))]

@@ -241,7 +241,7 @@ impl ExploreComponent {
         };
         self.status = self.recovery_status(pass);
         self.status_turn = self.question().map(|_| self.selected);
-        self.reveal.set(None);
+        self.reveal.set(Some(super::Reveal::RestoreScroll));
         self.durable.last = Some(self.saved_view(state.code));
         if let Some(error) = &event.storage_error {
             self.storage_failed(&ExploreStorageFailed(error.clone()));
@@ -313,6 +313,7 @@ impl ExploreComponent {
         self.scroll.set(state.scroll);
         self.map = state.map;
         self.coverage_overview = state.coverage_overview;
+        self.coverage_origin_scroll.set(None);
         self.coverage_file = state.coverage_file;
         self.coverage_next.clone_from(&state.coverage_next);
         self.jev_debug = state.jev_debug;

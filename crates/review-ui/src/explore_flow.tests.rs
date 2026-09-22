@@ -4,13 +4,13 @@ use super::*;
 fn coverage_overview_opens_a_gap_without_losing_the_question_draft() {
     let (mut fixture, request) = ExploreUi::new();
     fixture.respond(&request, 1);
-    assert!(fixture.text().contains("Coverage 0%"));
+    assert!(fixture.text().contains("Coverage 0% of changed lines"));
     fixture.app.update(UserInput::Key(Key::Char('1')));
     fixture
         .app
         .update(UserInput::Paste("Keep this draft".into()));
-    fixture.click("Coverage 0%");
-    assert!(fixture.text().contains("Unexplored"));
+    fixture.click("Coverage 0% of changed lines");
+    assert!(fixture.text().contains("Needs answers"));
     fixture.click("Next unexplored region");
     assert_eq!(fixture.app.navigation, ReviewNavigation::Explore);
     let coverage = fixture
@@ -24,10 +24,10 @@ fn coverage_overview_opens_a_gap_without_losing_the_question_draft() {
             .and_then(DiffComponent::evidence_path),
         Some("policy.rs")
     );
-    assert!(fixture.text().contains("Coverage diff · policy.rs"));
-    assert!(fixture.text().contains("Keep this draft"));
-    assert!(fixture.text().contains("Coverage 0%"));
-    fixture.click("Return to question evidence");
+    assert!(fixture.text().contains("File diff · policy.rs"));
+    assert!(fixture.text().contains("Coverage 0% of changed lines"));
+    fixture.click("Close diff");
+    fixture.click("Coverage 0% of changed lines");
     assert!(fixture.text().contains("Keep this draft"));
 }
 
@@ -37,8 +37,94 @@ fn coverage_keyboard_opens_the_pass_diff_without_editing_the_answer() {
     fixture.respond(&request, 1);
     fixture.app.update(UserInput::Key(Key::Char('g')));
     fixture.app.update(UserInput::Key(Key::Alt('n')));
-    assert!(fixture.text().contains("Coverage diff · policy.rs"));
+    assert!(fixture.text().contains("File diff · policy.rs"));
     assert_eq!(fixture.app.navigation, ReviewNavigation::Explore);
+}
+
+#[test]
+fn coverage_control_reveals_overview_from_a_scrolled_question_and_restores_scroll() {
+    let (mut fixture, request) = ExploreUi::new();
+    fixture.respond(&request, 1);
+    fixture.app.update(UserInput::Resize {
+        width: 140,
+        height: 16,
+    });
+    for _ in 0..8 {
+        fixture.app.update(UserInput::Key(Key::PageDown));
+    }
+    let before = fixture.text();
+    assert!(!before.contains("of changed lines explored"));
+    fixture.click("Coverage 0% of changed lines");
+    let overview = fixture.text();
+    assert!(
+        overview.contains("0% of changed lines explored"),
+        "{overview}"
+    );
+    assert!(overview.contains("Needs answers"), "{overview}");
+    assert!(!overview.contains("Question 1 ·"));
+    assert!(
+        fixture
+            .buffer()
+            .content
+            .chunks(usize::from(fixture.app.width))
+            .any(|row| row
+                .iter()
+                .map(ratatui::buffer::Cell::symbol)
+                .collect::<String>()
+                .contains("┌ Coverage "))
+    );
+    fixture.click("Coverage 0% of changed lines");
+    assert_eq!(fixture.text(), before);
+}
+
+#[test]
+fn show_file_diff_reveals_the_selected_diff_inside_coverage() {
+    let (mut fixture, request) = ExploreUi::new();
+    fixture.respond(&request, 1);
+    fixture.click("Coverage 0% of changed lines");
+    fixture.click("[Show file diff]");
+    let visible = fixture.text();
+    assert!(visible.contains("File diff ·"), "{visible}");
+    assert!(visible.contains("[Close diff]"), "{visible}");
+}
+
+#[test]
+fn coverage_header_reports_credited_units_even_below_one_percent() {
+    let mut policy = b"pub fn policy() -> bool { true }\n".to_vec();
+    for _ in 0..400 {
+        policy.extend_from_slice(b"// changed line\n");
+    }
+    let (mut fixture, kickoff) = ExploreUi::with_policy(&policy);
+    let mut exploration = review_explore::Exploration::new(fixture.comparison.clone());
+    exploration.instance.clone_from(&kickoff.instance);
+    let mut pass = review_explore::ExplorePass::new(exploration);
+    pass.post(&kickoff).unwrap();
+    pass.submit(&fixture.response(&kickoff, 1), false).unwrap();
+    let question = pass.exploration.questions[0].clone();
+    let answer = pass
+        .exploration
+        .clone()
+        .request(
+            Some(review_explore::AnswerInput {
+                option: Some("inspect".into()),
+                ..Default::default()
+            }),
+            Some(&question),
+        )
+        .unwrap();
+    pass.post(&answer).unwrap();
+    fixture.app.publish(ui_events::ExploreRestored {
+        result: Ok(Some(Arc::new(pass))),
+        view: None,
+        passes: vec![],
+        historical: false,
+        storage_error: None,
+    });
+    let coverage = fixture.text();
+    assert!(
+        coverage.contains("Coverage 0.4% of changed lines"),
+        "{coverage}"
+    );
 }
 use std::fmt::Write as _;
 use ui_events::EvidenceView;
@@ -389,6 +475,7 @@ fn cancelled_drafts_do_not_reappear_in_fresh_evidence_views_from_stale_books() {
         result: Ok(book.clone()),
     });
     fixture.respond(&request, 1);
+    fixture.app.update(UserInput::Key(Key::Tab));
     assert!(fixture.text().contains(&draft.text));
     fixture.click("Cancel");
     assert!(!fixture.text().contains(&draft.text));
@@ -448,23 +535,20 @@ fn evidence_fits_wrapping_and_resizes_without_using_files_sidebar_width() {
     fixture.app.update(UserInput::Key(Key::Alt('j')));
     assert_eq!(fixture.inline_height(0), fitted + 2);
     let (column, row) = fixture.point("drag to resize");
-    fixture.app.update(UserInput::MouseClick {
-        column,
-        row: row - 1,
-    });
+    fixture.app.update(UserInput::MouseClick { column, row });
     fixture.app.update(UserInput::MouseDrag {
         column,
-        row: row + 2,
+        row: row + 1,
     });
     fixture.app.update(UserInput::MouseRelease);
-    assert_eq!(fixture.inline_height(0), fitted + 5);
+    assert_eq!(fixture.inline_height(0), fitted + 3);
     fixture.app.update(UserInput::Resize {
         width: 55,
         height: 45,
     });
     assert_eq!(
         fixture.inline_height(0),
-        fitted + 5,
+        fitted + 3,
         "manual height survives reflow"
     );
     fixture.app.update(UserInput::Key(Key::Alt('0')));
@@ -633,7 +717,7 @@ fn large_evidence_is_bounded_and_wheels_scroll_exactly_one_layer() {
     let (mut fixture, request) = ExploreUi::with_policy(policy.as_bytes());
     fixture.app.update(UserInput::Resize {
         width: 100,
-        height: 32,
+        height: 40,
     });
     let mut response = fixture.response(&request, 1);
     let question = response.next.as_mut().unwrap();

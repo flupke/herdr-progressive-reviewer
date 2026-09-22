@@ -48,7 +48,6 @@ enum Control {
     Reply(usize),
     GeneralReply,
     SelectChoice(usize),
-    Details(usize),
     More(usize),
     References(usize),
     Supporting(usize),
@@ -70,7 +69,6 @@ trait TurnControls {
 impl TurnControls for TurnView {
     fn toggle(&mut self, control: Control) {
         match control {
-            Control::Details(_) => self.details = !self.details,
             Control::More(_) => self.more = !self.more,
             Control::References(_) => self.references = !self.references,
             Control::Supporting(_) => self.supporting = !self.supporting,
@@ -101,9 +99,12 @@ impl Progress {
 #[derive(Clone, Copy)]
 enum Reveal {
     Start,
+    RestoreScroll,
     Editor(EditorTarget),
     Choice,
     Evidence,
+    Jev,
+    CoverageDiff,
     KeepAnswer { offset: isize },
 }
 
@@ -151,6 +152,7 @@ pub struct ExploreComponent {
     reset_warning: bool,
     map: bool,
     coverage_overview: bool,
+    coverage_origin_scroll: Cell<Option<usize>>,
     coverage_file: Option<usize>,
     coverage_next: BTreeMap<usize, usize>,
     jev_debug: bool,
@@ -189,6 +191,7 @@ impl ExploreComponent {
             reset_warning: false,
             map: false,
             coverage_overview: false,
+            coverage_origin_scroll: Cell::new(None),
             coverage_file: None,
             coverage_next: BTreeMap::new(),
             jev_debug: false,
@@ -278,6 +281,7 @@ impl ExploreComponent {
                 self.durable.begin_pass();
                 self.coverage = Some(review_explore::CoverageLedger::new(comparison));
                 self.coverage_overview = false;
+                self.coverage_origin_scroll.set(None);
                 self.coverage_file = None;
                 self.coverage_next.clear();
                 self.completion_done = false;

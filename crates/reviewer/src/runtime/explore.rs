@@ -358,26 +358,47 @@ impl Worker {
         let Some(key) = jev::key() else {
             return pass;
         };
-        if pass.coverage.classification_started || pass.revision != 0 {
+        if pass.completion.is_some()
+            || !pass
+                .coverage
+                .needs_classification(jev::RUBRIC, pass.revision)
+        {
             return pass;
         }
-        let Some(comparison) = &self.explore.comparison else {
-            return pass;
+        // Saved comparisons omit diff bytes; only recapture when the checkpoint still matches.
+        let comparison = match &self.explore.comparison {
+            Some(comparison) if comparison.diffs.len() == comparison.files.len() => {
+                comparison.clone()
+            }
+            _ => match self.capture_explore() {
+                Ok(comparison) => comparison,
+                Err(_) => return pass,
+            },
         };
-        let candidates = jev::Candidate::prepare(comparison);
+        if comparison.checkpoint != pass.exploration.comparison.checkpoint {
+            return pass;
+        }
+        let candidates = jev::Candidate::prepare(&comparison);
         let unit = pass.exploration.comparison.checkpoint.review_unit.clone();
         let instance = pass.exploration.instance.clone();
         let attempt = uuid::Uuid::new_v4().to_string();
-        let Ok(((), pass)) = self.guide_store.update_explore(&unit, &instance, |pass| {
-            if pass.coverage.classification_started {
-                return Ok(());
+        let Ok((started, pass)) = self.guide_store.update_explore(&unit, &instance, |pass| {
+            if pass.completion.is_some()
+                || !pass
+                    .coverage
+                    .needs_classification(jev::RUBRIC, pass.revision)
+            {
+                return Ok(false);
             }
-            pass.coverage.classification_started = true;
-            pass.coverage.classification_attempt = Some(attempt.clone());
-            Ok(())
+            pass.coverage
+                .restart_classification(jev::RUBRIC, attempt.clone());
+            Ok(true)
         }) else {
             return pass;
         };
+        if !started {
+            return pass;
+        }
         let store = self.guide_store.clone();
         let messages = messages.clone();
         std::thread::spawn(move || {

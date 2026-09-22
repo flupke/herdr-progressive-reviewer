@@ -29,19 +29,8 @@ impl ExploreComponent {
         let Some(source) = exploration.comparison.source(&reference.location) else {
             return;
         };
-        layout.gap();
-        layout.text(
-            format!("Establishes: {}", reference.relationship),
-            palette.text,
-            None,
-        );
-        if !reference.decision_relevance.is_empty() {
-            layout.text(
-                format!("For your answer: {}", reference.decision_relevance),
-                palette.text,
-                None,
-            );
-        }
+        layout.section("Establishes", &reference.relationship, palette);
+        layout.section("For your answer", &reference.decision_relevance, palette);
         layout.gap();
         layout.text(
             format!(

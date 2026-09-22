@@ -28,12 +28,17 @@ impl ExploreComponent {
             area.width.saturating_sub(2),
             area.height.saturating_sub(reserved),
         );
-        let mut layout = ConversationLayout::new(body);
+        let content = if self.coverage_overview {
+            Block::default().borders(Borders::ALL).inner(body)
+        } else {
+            body
+        };
+        let mut layout = ConversationLayout::new(content);
         layout.navigation = navigation;
+        layout.frame = self.coverage_overview.then_some(body);
         if self.coverage_overview {
             self.render_coverage_overview(&mut layout, diff, palette);
-        }
-        if self
+        } else if self
             .exploration
             .as_ref()
             .is_none_or(|exploration| exploration.conversation.is_empty())
@@ -42,7 +47,6 @@ impl ExploreComponent {
             self.status_controls(&mut layout);
         } else {
             self.transcript(&mut layout, diff, palette);
-            self.render_jev_debug(&mut layout, palette);
         }
         layout.position(self.scroll.get(), self.reveal.take());
         self.scroll.set(layout.scroll);
@@ -60,12 +64,39 @@ impl ExploreComponent {
             return;
         };
         let summary = coverage.summary(self.completion_policy.unwrap_or(self.jev_enabled));
+        let lines = coverage.changed_line_coverage(None);
+        if summary.complete && lines.total > 0 {
+            layout.text(
+                format!(
+                    "{} of changed lines explored ({} of {})",
+                    Self::changed_line_percent(lines),
+                    lines.explored,
+                    lines.total
+                ),
+                palette.text,
+                None,
+            );
+        } else if summary.complete {
+            layout.text("No added or deleted lines in this diff", palette.text, None);
+        } else {
+            layout.text("Changed-line count unavailable", palette.warning, None);
+        }
+        layout.text(
+            "Added and deleted lines count; unchanged context and metadata do not. Lines excluded by Jev remain unexplored.",
+            palette.dim,
+            None,
+        );
         layout.text(
             format!(
-                "Coverage · {} / {} required change units · {} excluded",
-                summary.explored_required, summary.required, summary.excluded_unexplored
+                "To finish: {} required lines or metadata changes remain · {} Jev-excluded changes",
+                summary.remaining, summary.excluded_unexplored
             ),
             palette.text,
+            None,
+        );
+        layout.text(
+            "Show file diff displays that file below and selects it in Files.",
+            palette.dim,
             None,
         );
         layout.text(
@@ -81,17 +112,8 @@ impl ExploreComponent {
             self.completion_policy.unwrap_or(self.jev_enabled),
         );
         let remaining = coverage.remaining(self.completion_policy.unwrap_or(self.jev_enabled));
-        self.render_coverage_files(layout, &files, &remaining, palette);
-        if self.jev_enabled || self.completion_done {
-            layout.text(
-                format!(
-                    "Jev exclusions · {} unexplored regions  [Inspect]",
-                    coverage.unexplored_exclusions().len()
-                ),
-                palette.focus,
-                Some(Control::JevDebug),
-            );
-        }
+        self.render_coverage_files(layout, coverage, &files, &remaining, palette);
+        self.render_jev_debug(layout, palette);
         self.render_coverage_diff(layout, diff, palette);
         layout.gap();
     }
@@ -114,16 +136,17 @@ impl ExploreComponent {
     fn render_coverage_files(
         &self,
         layout: &mut ConversationLayout,
+        coverage: &review_explore::CoverageLedger,
         files: &[review_explore::FileCoverage],
         remaining: &[review_explore::CoverageUnit],
         palette: Palette,
     ) {
         for (heading, predicate) in [
-            ("Explored", 0_u8),
-            ("Partly explored", 1),
-            ("Unexplored", 2),
-            ("Excluded by Jev", 3),
-            ("Incomplete", 4),
+            ("All required changes answered", 0_u8),
+            ("Some required changes answered", 1),
+            ("Needs answers", 2),
+            ("Jev-excluded only", 3),
+            ("Inventory incomplete", 4),
         ] {
             let group: Vec<_> = files
                 .iter()
@@ -135,7 +158,7 @@ impl ExploreComponent {
             layout.gap();
             layout.text(heading, palette.text, None);
             for file in group {
-                self.render_coverage_file(layout, file, remaining, palette);
+                self.render_coverage_file(layout, coverage, file, remaining, palette);
             }
         }
     }
@@ -143,22 +166,26 @@ impl ExploreComponent {
     fn render_coverage_file(
         &self,
         layout: &mut ConversationLayout,
+        coverage: &review_explore::CoverageLedger,
         file: &review_explore::FileCoverage,
         remaining: &[review_explore::CoverageUnit],
         palette: Palette,
     ) {
-        let percent = file
-            .summary
-            .percent
-            .map_or_else(|| "—".into(), |value| format!("{value}%"));
-        layout.text(
+        let lines = coverage.changed_line_coverage(Some(file.file));
+        let progress = if !file.summary.complete {
+            "changed-line count unavailable".into()
+        } else if lines.total == 0 {
+            "no changed text lines".into()
+        } else {
             format!(
-                "{}  {percent}  {} / {} required · {} excluded  [Open diff]",
-                file.path.display(),
-                file.summary.explored_required,
-                file.summary.required,
-                file.summary.excluded_unexplored
-            ),
+                "{} of changed lines explored ({} of {})",
+                Self::changed_line_percent(lines),
+                lines.explored,
+                lines.total
+            )
+        };
+        layout.text(
+            format!("{} · {progress}  [Show file diff]", file.path.display(),),
             palette.focus,
             Some(Control::CoverageFile(file.file)),
         );
@@ -184,11 +211,9 @@ impl ExploreComponent {
                 .and_then(|pass| pass.comparison.files.get(index))
         {
             layout.gap();
+            let start = layout.height;
             layout.text(
-                format!(
-                    "Coverage diff · {}  [Return to question evidence]",
-                    file.review_path().display()
-                ),
+                format!("File diff · {}  [Close diff]", file.review_path().display()),
                 palette.focus,
                 Some(Control::CoverageReturn),
             );
@@ -208,6 +233,7 @@ impl ExploreComponent {
                     None,
                 );
             }
+            layout.coverage_diff = Some(start..layout.height.min(start.saturating_add(8)));
         }
     }
 
@@ -221,16 +247,16 @@ impl ExploreComponent {
     ) {
         let layout = self.conversation_layout(area, diff, palette);
         layout.navigation.render(buffer, palette);
+        layout.render_frame(buffer, palette);
         for item in &layout.items {
             let Some((visible, skipped)) = layout.visible(item) else {
                 continue;
             };
             match &item.content {
-                Content::Text(text, color, _) => {
-                    Paragraph::new(text.as_str())
+                Content::Text(text, _) => {
+                    Paragraph::new(text.clone())
                         .wrap(Wrap { trim: false })
                         .scroll((skipped, 0))
-                        .style(Style::default().fg(*color))
                         .render(visible, buffer);
                 }
                 Content::Window(view) => {
@@ -334,7 +360,7 @@ impl ExploreComponent {
             let index = self.selected;
             self.preceding_reply(index, layout, palette);
             self.answers(index, question, layout, palette);
-            Self::assessments(question, layout, palette);
+            Self::question_sections(question, layout, palette);
             self.turn_controls(index, question, layout, palette);
             self.evidence_block(index, layout, diff, palette);
         }
@@ -356,13 +382,15 @@ impl ExploreComponent {
                 Some(Control::JevDebug),
             );
         }
+        let start = layout.height;
         layout.text(
             format!(
-                "{} Jev exclusions · {} currently unexplored regions omitted",
+                "{} Jev exclusions · {} unexplored regions  [{}]",
                 if self.jev_debug { "▾" } else { "▸" },
-                exclusions.len()
+                exclusions.len(),
+                if self.jev_debug { "Hide" } else { "Inspect" }
             ),
-            palette.dim,
+            palette.focus,
             Some(Control::JevDebug),
         );
         if !self.jev_debug {
@@ -372,6 +400,7 @@ impl ExploreComponent {
         for result in coverage.classifications.values() {
             Self::render_jev_result(layout, result, palette);
         }
+        layout.jev = Some(start..layout.height.min(start.saturating_add(4)));
     }
 
     fn render_jev_exclusions(
@@ -626,26 +655,11 @@ impl ExploreComponent {
         palette: Palette,
     ) {
         let turn = &self.turns[index];
-        let mut controls = Vec::new();
-        if question.rationale.is_some() || question.visual.is_some() {
-            controls.push(("Why this matters".into(), Control::Details(index)));
-        } else if question.assessments.is_some() {
-            controls.push(("Consequence details".into(), Control::Details(index)));
-        }
-        controls.push(("Reply".into(), Control::Reply(index)));
-        controls.push(("More".into(), Control::More(index)));
         layout.gap();
-        layout.controls(controls);
-        if turn.details {
-            Self::assessment_details(question, layout, palette);
-            layout.gap();
-            for text in [&question.rationale, &question.visual]
-                .into_iter()
-                .flatten()
-            {
-                layout.text(text, palette.text, None);
-            }
-        }
+        layout.controls([
+            ("Reply".into(), Control::Reply(index)),
+            ("More".into(), Control::More(index)),
+        ]);
         if turn.more {
             let mut controls = vec![
                 ("Map / follow-ups".into(), Control::Map),

@@ -3,45 +3,45 @@ use review_explore::{Question, ReviewerAnswer};
 use ui_theme::Palette;
 
 impl ExploreComponent {
-    pub(super) fn assessments(
+    pub(super) fn question_sections(
         question: &Question,
         layout: &mut ConversationLayout,
         palette: Palette,
     ) {
+        let context = [&question.rationale, &question.visual]
+            .into_iter()
+            .flatten()
+            .map(String::as_str)
+            .filter(|text| !text.trim().is_empty())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        layout.section("Context", &context, palette);
         if let Some(assessment) = &question.assessments {
-            layout.gap();
-            layout.text(
-                format!(
-                    "Door: {} — {}",
-                    assessment.door.label(),
-                    assessment.reversibility.summary
+            for (title, mut body, lens) in [
+                (
+                    "Door",
+                    format!(
+                        "{} — {}",
+                        assessment.door.label(),
+                        assessment.reversibility.summary
+                    ),
+                    &assessment.reversibility,
                 ),
-                palette.text,
-                None,
-            );
-            layout.text(
-                format!("Blast radius: {}", assessment.blast_radius.summary),
-                palette.text,
-                None,
-            );
-        }
-    }
-
-    pub(super) fn assessment_details(
-        question: &Question,
-        layout: &mut ConversationLayout,
-        palette: Palette,
-    ) {
-        if let Some(assessment) = &question.assessments {
-            for (label, lens) in [
-                ("Reversibility", &assessment.reversibility),
-                ("Blast radius", &assessment.blast_radius),
+                (
+                    "Blast radius",
+                    assessment.blast_radius.summary.clone(),
+                    &assessment.blast_radius,
+                ),
             ] {
-                layout.gap();
-                layout.text(format!("{label}: {}", lens.details), palette.text, None);
-                for unknown in &lens.unknowns {
-                    layout.text(format!("Unknown: {unknown}"), palette.dim, None);
+                if !lens.details.trim().is_empty() {
+                    body.push_str("\n\n");
+                    body.push_str(&lens.details);
                 }
+                for unknown in &lens.unknowns {
+                    body.push_str("\n\nUnknown: ");
+                    body.push_str(unknown);
+                }
+                layout.section(title, &body, palette);
             }
         }
     }

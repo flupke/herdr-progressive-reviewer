@@ -15,6 +15,7 @@ ui-events = { path = "../../ui-events" }
 ui-theme = { path = "../../ui-theme" }
 ui-shortcuts = { path = "../../ui-shortcuts" }
 comment-editor = { path = "../../comment-editor" }
+markdown-rendering = { path = "../../markdown-rendering" }
 ratatui = { workspace = true, features = ["unstable-rendered-line-info"] }
 
 

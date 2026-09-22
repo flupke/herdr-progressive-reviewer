@@ -139,26 +139,55 @@ impl ExploreComponent {
 
     fn navigate_coverage(&mut self, control: Control) {
         match control {
-            Control::Coverage => {
-                self.coverage_overview = !self.coverage_overview;
-                if !self.coverage_overview {
-                    self.coverage_file = None;
-                    if self.compose_scope == ComposeScope::Question {
-                        self.publish_evidence(self.view_id(), false);
-                    }
-                }
-            }
-            Control::JevDebug => self.jev_debug = !self.jev_debug,
+            Control::Coverage => self.toggle_coverage_overview(),
+            Control::JevDebug => self.toggle_jev_debug(),
             Control::CoverageFile(index) => self.open_coverage_file(index),
             Control::CoverageGap(index) => self.open_coverage_gap(index, false),
             Control::ExcludedGap(index) => self.open_coverage_gap(index, true),
             Control::CoverageReturn => {
                 self.coverage_file = None;
+                self.reveal.set(Some(Reveal::Start));
                 if self.compose_scope == ComposeScope::Question {
                     self.publish_evidence(self.view_id(), false);
                 }
             }
             _ => {}
+        }
+    }
+
+    fn toggle_coverage_overview(&mut self) {
+        if self.coverage_overview {
+            self.coverage_overview = false;
+            self.coverage_file = None;
+            self.scroll
+                .set(self.coverage_origin_scroll.take().unwrap_or_default());
+            self.reveal.set(None);
+            if self.compose_scope == ComposeScope::Question {
+                self.publish_evidence(self.view_id(), false);
+            }
+        } else {
+            self.show_coverage_overview();
+        }
+    }
+
+    fn show_coverage_overview(&mut self) {
+        if self.coverage_overview {
+            return;
+        }
+        self.coverage_origin_scroll.set(Some(self.scroll.get()));
+        self.coverage_overview = true;
+        self.reveal.set(Some(Reveal::Start));
+    }
+
+    fn toggle_jev_debug(&mut self) {
+        if self.coverage_overview {
+            self.jev_debug = !self.jev_debug;
+        } else {
+            self.show_coverage_overview();
+            self.jev_debug = true;
+        }
+        if self.jev_debug {
+            self.reveal.set(Some(Reveal::Jev));
         }
     }
 
@@ -180,10 +209,7 @@ impl ExploreComponent {
 
     fn expand(&mut self, control: Control) {
         match control {
-            Control::Details(turn)
-            | Control::More(turn)
-            | Control::References(turn)
-            | Control::Supporting(turn) => {
+            Control::More(turn) | Control::References(turn) | Control::Supporting(turn) => {
                 if let Some(state) = self.turns.get_mut(turn) {
                     state.toggle(control);
                 }
@@ -238,18 +264,22 @@ impl ExploreComponent {
         let Some(file) = exploration.comparison.files.get(index) else {
             return;
         };
-        self.coverage_overview = true;
+        let comparison = exploration.comparison.clone();
+        let path = file.review_path().clone();
+        let side = if file.new_path.is_some() {
+            review_explore::SourceSide::New
+        } else {
+            review_explore::SourceSide::Old
+        };
+        self.show_coverage_overview();
         self.coverage_file = Some(index);
+        self.reveal.set(Some(Reveal::CoverageDiff));
         self.events.publish(ui_events::ExploreEvidence {
-            comparison: exploration.comparison.clone(),
+            comparison,
             evidence: vec![review_explore::EvidenceRef {
                 location: review_explore::CodeLocation {
-                    path: file.review_path().clone(),
-                    side: if file.new_path.is_some() {
-                        review_explore::SourceSide::New
-                    } else {
-                        review_explore::SourceSide::Old
-                    },
+                    path,
+                    side,
                     lines: None,
                 },
                 relationship: "Coverage inspection".into(),
@@ -507,7 +537,6 @@ impl ExploreComponent {
                 }),
             ),
             ('m', Control::Map),
-            ('v', Control::Details(self.selected)),
             ('c', Control::Cancel),
             ('r', Control::Retry),
             ('x', Control::Correct(self.selected)),

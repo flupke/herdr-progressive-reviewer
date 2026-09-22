@@ -26,7 +26,6 @@ pub struct ExploreDraft {
 pub struct QuestionReading {
     pub reference: usize,
     pub choice: usize,
-    pub details: bool,
     pub more: bool,
     pub references: bool,
     pub supporting: bool,

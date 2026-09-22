@@ -963,6 +963,7 @@ dependencies = [
  "comment-editor",
  "component-core",
  "diff-component",
+ "markdown-rendering",
  "ratatui 0.30.2",
  "review-explore",
  "review-guide",

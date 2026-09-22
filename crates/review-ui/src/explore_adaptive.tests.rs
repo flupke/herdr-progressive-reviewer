@@ -77,8 +77,8 @@ fn conversation_redirects_agenda_and_opens_new_evidence_in_the_native_viewer() {
     next.assessments = Some(cache_assessment(evidence));
     publish(&mut fixture, response);
     let text = fixture.text();
-    assert!(text.contains("Door: Two-way"), "{text}");
-    assert!(text.contains("Blast radius: All instances share origin load"));
+    assert!(text.contains("Door") && text.contains("Two-way"), "{text}");
+    assert!(text.contains("Blast radius") && text.contains("All instances share origin load"));
     assert!(text.contains("pub fn rebuild()"));
     assert!(!text.contains("Question 1:"));
     assert!(text.contains("Agent: Rebuild reads authoritative rows"));
@@ -208,6 +208,78 @@ fn cache_assessment(evidence: EvidenceRef) -> Assessments {
             unknowns: vec!["Deployment size and origin capacity".into()],
         },
     }
+}
+
+#[test]
+fn question_sections_show_markdown_summaries_and_details_without_expansion() {
+    let (mut fixture, request) = ExploreUi::new();
+    fixture.app.update(UserInput::Resize {
+        width: 100,
+        height: 120,
+    });
+    let mut response = fixture.response(&request, 1);
+    let question = response.next.as_mut().unwrap();
+    question.rationale = Some(
+        "A **cache** stores copies of data.\n\nThe *origin* holds the authoritative data.".into(),
+    );
+    question.visual = Some("Simplified:\n\n```text\norigin -> cache\n```".into());
+    question.assessments = Some(cache_assessment(question.evidence[0].clone()));
+    question.evidence[0].relationship =
+        "The **policy** controls reuse.\n\nIt reads `resolved()` before rebuilding.".into();
+    question.evidence[0].decision_relevance =
+        "Your choice controls rebuilding.\n\nConsider simultaneous requests.".into();
+    publish(&mut fixture, response);
+
+    let buffer = fixture.buffer();
+    let rows: Vec<_> = buffer
+        .content
+        .chunks(usize::from(buffer.area.width))
+        .collect();
+    let mut previous = 0;
+    for heading in [
+        "Context",
+        "Door",
+        "Blast radius",
+        "Establishes",
+        "For your answer",
+    ] {
+        let index = rows
+            .iter()
+            .position(|row| {
+                row.iter()
+                    .map(ratatui::buffer::Cell::symbol)
+                    .collect::<String>()
+                    .trim()
+                    == heading
+            })
+            .unwrap_or_else(|| panic!("missing Markdown heading: {heading}"));
+        assert!(index > previous);
+        previous = index;
+        let first = rows[index]
+            .iter()
+            .find(|cell| cell.symbol() != " ")
+            .unwrap();
+        assert!(first.modifier.contains(ratatui::style::Modifier::BOLD));
+    }
+    let text = fixture.text();
+    for content in [
+        "A cache stores copies of data.",
+        "The origin holds the authoritative data.",
+        "origin -> cache",
+        "Two-way — Rebuild disposable files",
+        "Only while the authoritative origin stays available",
+        "No global limiter is shown",
+        "Unknown: Deployment size and origin capacity",
+        "The policy controls reuse.",
+        "It reads resolved() before rebuilding.",
+        "Your choice controls rebuilding.",
+        "Consider simultaneous requests.",
+    ] {
+        assert!(text.contains(content), "missing section content: {content}");
+    }
+    assert!(!text.contains("Why this matters"));
+    assert!(!text.contains("Consequence details"));
+    assert!(!text.contains("**cache**"));
 }
 
 #[test]

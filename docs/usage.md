@@ -121,7 +121,11 @@ The pinned **Coverage** control shows the share of required changed lines and fi
 credited to answered questions. Click it for a file overview and open a file's full diff.
 Essential and collapsed supporting references count only after you answer that exact question;
 explicit **Defer** earns no coverage. An unanswered assignment remains outstanding. The
-overview separates explored, partly explored, unexplored and Jev-excluded changes.
+boxed overview groups files by remaining review work. Its percentage is the share of added
+and deleted lines cited by answered questions, counted on both sides of the diff; unchanged
+context and metadata do not enter that percentage. Jev-excluded lines remain in the total
+but are not counted as explored. **Show file diff** displays the selected file below the
+overview and selects it in Files.
 Reaching 100% does not end the discussion or mark files by itself.
 **Reply** addresses the displayed question; each question keeps its own unfinished
 text, selected choice and evidence state.
@@ -146,8 +150,11 @@ errors and Retry appear beside the affected turn.
 
 On follow-up turns, the agent's reply appears above the question. The question is
 followed by its choices and the text field for optional details.
-The Door and Blast radius assessments and their detail controls
-follow, then the evidence. The provisional map stays on the **Opening** page. Every question
+The **Context**, **Door** and **Blast radius** Markdown sections follow, then the
+evidence with **Establishes** and **For your answer** sections. Each starts with a short
+summary paragraph, followed by any useful detail directly in the conversation. Context explains
+the behavior and unfamiliar terms, with depth adapted to what you already know.
+The provisional map stays on the **Opening** page. Every question
 offers two to five alternatives plus **None of the above**, with the first selected by default.
 Use `Up` / `Down` or `j` / `k`, click a choice, or press its number to select it.
 The text field adds optional details to the selected choice; changing the choice keeps
@@ -170,7 +177,7 @@ to inspect and correct, not a semantic guarantee.
 | `d` | Defer the question |
 | `[` / `]` | Previous / next question |
 | `e` / `b` | Next evidence reference / primary evidence |
-| `m` / `v` | Expand map and follow-ups / details |
+| `m` | Expand map and follow-ups |
 | `PageUp` / `PageDown` | Scroll the conversation when it has focus |
 | Mouse wheel | Scroll code over a diff; scroll the conversation outside it |
 | `Alt-j` / `Alt-k` | Grow / shrink the selected evidence window |
@@ -220,11 +227,11 @@ reported without truncation. Stored passes can grow across many responses (up to
 records report an error and retain their original bytes. Request and answer identities still protect against
 cancelled, duplicate or unrelated responses; they do not establish source freshness.
 
-Consequential questions show separate **Door** and **Blast radius** summaries.
+Consequential questions show separate **Door** and **Blast radius** sections.
 The first assesses whether effects can actually be undone, including rollback or
 rebuild conditions; the second describes plausible harm, propagation and bounds.
-**Consequence details** (or **Why this matters**) expands the reasoning and
-unknowns; **Supporting sources** opens its citations in the same native viewer.
+Additional reasoning and unknowns appear below their summaries without an expansion button.
+**Supporting sources** opens their citations in the same native viewer.
 These are evidence-backed agent judgments, not risk scores or guaranteed safety.
 
 The agenda is provisional. Context can add, refine, reorder, retire or supersede
@@ -241,6 +248,6 @@ conclusion marks changed files at the reviewed checkpoint. Explore does not reso
 Setting a nonempty `TYPESAFE_API_KEY` in the reviewer process enables optional Jev
 significance checks. The reviewer sends bounded before/after code snippets and relative
 paths to TypeSafe AI. Missing or whitespace-only keys make every change required.
-Uncertain, failed and oversized checks remain required. The collapsed Jev area on each
-question shows excluded regions and lets you choose **Require review**; this returns an
+Uncertain, failed and oversized checks remain required. The Jev area in expanded Coverage
+shows excluded regions and lets you choose **Require review**; this returns an
 uncovered exclusion to the required work without erasing earlier answer coverage.

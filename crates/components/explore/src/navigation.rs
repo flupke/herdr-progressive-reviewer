@@ -5,6 +5,7 @@ use ratatui::{
     style::Style,
     widgets::{Paragraph, Widget},
 };
+use review_explore::ChangedLineCoverage;
 use ui_theme::Palette;
 
 #[derive(Clone)]
@@ -166,6 +167,15 @@ impl HistoryPages {
 }
 
 impl ExploreComponent {
+    pub(super) fn changed_line_percent(progress: ChangedLineCoverage) -> String {
+        match progress.percent_tenths() {
+            None => "—".into(),
+            Some(0) if progress.explored > 0 => "<0.1%".into(),
+            Some(tenths) if tenths % 10 == 0 => format!("{}%", tenths / 10),
+            Some(tenths) => format!("{}.{:01}%", tenths / 10, tenths % 10),
+        }
+    }
+
     pub(super) fn visit_history(&mut self, target: History) {
         let history = HistoryPages::new(self);
         let destination = history.destination(target);
@@ -214,16 +224,18 @@ impl ExploreComponent {
             return Vec::new();
         };
         let summary = coverage.summary(self.completion_policy.unwrap_or(self.jev_enabled));
-        let label = if !summary.complete {
-            "Coverage incomplete".into()
-        } else if summary.required == 0 {
-            if self.completion_done {
-                "Coverage 100% · No required changes".into()
+        let label = if summary.complete {
+            let lines = coverage.changed_line_coverage(None);
+            if lines.total == 0 {
+                "Coverage · No changed text lines".into()
             } else {
-                "Coverage — · No required changes".into()
+                format!(
+                    "Coverage {} of changed lines",
+                    Self::changed_line_percent(lines)
+                )
             }
         } else {
-            format!("Coverage {}%", summary.percent.unwrap_or(0))
+            "Coverage incomplete".into()
         };
         vec![(
             format!(

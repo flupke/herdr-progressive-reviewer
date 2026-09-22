@@ -24,7 +24,10 @@ impl Door {
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Consequence {
+    /// Short first paragraph for this Markdown section, including the decisive reason.
     pub summary: String,
+    /// Optional Markdown reasoning after the summary; omit or leave empty when unnecessary.
+    #[serde(default)]
     pub details: String,
     pub evidence: Vec<EvidenceRef>,
     pub unknowns: Vec<String>,
@@ -43,7 +46,6 @@ impl Assessments {
         for lens in [&self.reversibility, &self.blast_radius] {
             eyre::ensure!(
                 !lens.summary.trim().is_empty()
-                    && !lens.details.trim().is_empty()
                     && (!lens.evidence.is_empty() || !lens.unknowns.is_empty())
                     && lens
                         .unknowns

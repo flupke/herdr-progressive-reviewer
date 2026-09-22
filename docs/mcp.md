@@ -239,6 +239,15 @@ side is `old` or `new`, and lines are inclusive and one-based (null for file-lev
 references). No source registration is needed. Evidence also explains what it
 establishes and how it could change the answer.
 
+Explore displays Markdown `#` sections for Context (`rationale`, with `visual` appended),
+Door and Blast radius (`assessments`), and Establishes and For your answer (the selected
+evidence's `relationship` and `decision_relevance`). Supply bodies without those headings,
+starting with a short summary paragraph and adding detail only when useful. Assessment
+`details` may be omitted or empty; the summary must still give the decisive reason, backed
+by valid evidence or explicit unknowns. All supplied reasoning and unknowns are visible
+without an expansion button. Explain unfamiliar implementation concepts in Context, adapting
+to the reviewer's demonstrated knowledge, while keeping questions and choices in plain language.
+
 Send each complete structured turn with `submit_question`, using the supplied review
 value and the result in `update`. Refresh an already-running agent's MCP tool catalog
 after upgrading; Explore exposes `submit_question` and `submit_conclusion`. The old

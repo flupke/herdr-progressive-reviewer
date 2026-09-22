@@ -37,6 +37,30 @@ impl CoverageUnit {
             Self::Item { .. } => 1,
         }
     }
+
+    fn changed_line_weight(&self) -> u64 {
+        match self {
+            Self::Lines { .. } => self.weight(),
+            Self::Item { .. } => 0,
+        }
+    }
+}
+
+/// Added and deleted diff lines, counted on their respective sides.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct ChangedLineCoverage {
+    pub explored: u64,
+    pub total: u64,
+}
+
+impl ChangedLineCoverage {
+    /// Percentage in tenths, truncated so partial coverage never appears complete.
+    pub fn percent_tenths(self) -> Option<u16> {
+        (self.total > 0).then(|| {
+            let tenths = u128::from(self.explored) * 1000 / u128::from(self.total);
+            u16::try_from(tenths.min(1000)).unwrap_or(1000)
+        })
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
@@ -59,6 +83,8 @@ pub struct CoverageLedger {
     pub revision: u64,
     pub classification_started: bool,
     pub classification_attempt: Option<String>,
+    #[serde(default)]
+    pub classification_rubric: Option<String>,
     pub classifications: BTreeMap<String, SignificanceResult>,
 }
 
@@ -283,6 +309,14 @@ impl CoverageInventory {
 }
 
 impl CoverageLedger {
+    pub fn needs_classification(&self, rubric: &str, conversation_revision: u64) -> bool {
+        if self.classification_started {
+            self.classification_rubric.as_deref() != Some(rubric)
+        } else {
+            conversation_revision == 0
+        }
+    }
+
     pub fn new(comparison: &Comparison) -> Self {
         Self {
             inventory: CoverageInventory::capture(comparison),
@@ -327,7 +361,7 @@ impl CoverageLedger {
         eyre::ensure!(
             subtract(&self.credited, &self.inventory.units).is_empty()
                 && subtract(&self.excluded, &self.inventory.units).is_empty()
-                && subtract(&self.required_overrides, &self.excluded).is_empty(),
+                && subtract(&self.required_overrides, &self.inventory.units).is_empty(),
             "coverage references changes outside the inventory"
         );
         let mut attributed = Vec::new();
@@ -390,6 +424,15 @@ impl CoverageLedger {
         self.classifications.insert(result.id.clone(), result);
         self.revision += 1;
         true
+    }
+
+    pub fn restart_classification(&mut self, rubric: &str, attempt: String) {
+        self.classification_started = true;
+        self.classification_attempt = Some(attempt);
+        self.classification_rubric = Some(rubric.into());
+        self.classifications.clear();
+        self.excluded.clear();
+        self.revision += 1;
     }
 
     pub fn require_review(&mut self, units: Vec<CoverageUnit>) {
@@ -482,6 +525,21 @@ impl CoverageLedger {
 
     pub fn summary(&self, exclusions_enabled: bool) -> CoverageSummary {
         self.summary_for(&self.inventory.units, exclusions_enabled)
+    }
+
+    /// Raw line progress ignores metadata and does not credit Jev exclusions.
+    pub fn changed_line_coverage(&self, file: Option<usize>) -> ChangedLineCoverage {
+        let count = |units: &[CoverageUnit]| {
+            units
+                .iter()
+                .filter(|unit| file.is_none_or(|index| unit.file_index() == index))
+                .map(CoverageUnit::changed_line_weight)
+                .sum()
+        };
+        ChangedLineCoverage {
+            explored: count(&self.credited),
+            total: count(&self.inventory.units),
+        }
     }
 
     fn summary_for(&self, units: &[CoverageUnit], exclusions_enabled: bool) -> CoverageSummary {
@@ -805,6 +863,53 @@ mod tests {
     use crate::{Alternative, Question, TopicStatus};
     use review_repository::repository::{ChangeKind, ChangedFile, DiffStatistics};
 
+    #[test]
+    fn replacing_an_old_rubric_recalculates_exclusions_without_losing_answers() {
+        let unit = CoverageUnit::Lines {
+            file: 0,
+            side: SourceSide::New,
+            first: 1,
+            end: 2,
+        };
+        let mut ledger = CoverageLedger {
+            inventory: CoverageInventory {
+                units: vec![unit.clone()],
+                complete: true,
+                ..CoverageInventory::default()
+            },
+            credited: vec![unit.clone()],
+            required_overrides: vec![unit.clone()],
+            ..CoverageLedger::default()
+        };
+        assert!(ledger.needs_classification("rubric-v1", 0));
+        assert!(!ledger.needs_classification("rubric-v1", 1));
+        ledger.restart_classification("rubric-v1", "attempt-v1".into());
+        assert!(!ledger.needs_classification("rubric-v1", 1));
+        assert!(ledger.needs_classification("rubric-v2", 1));
+        assert!(ledger.record_significance(SignificanceResult {
+            id: "f0-b0".into(),
+            units: vec![unit.clone()],
+            outcome: Significance::Insignificant,
+            model: Some("jev".into()),
+            rubric: "rubric-v1".into(),
+            criterion: String::new(),
+            input_references: vec![],
+            omissions: vec![],
+            probabilities: BTreeMap::new(),
+            confidence: None,
+            error: None,
+        }));
+        assert_eq!(ledger.excluded, vec![unit.clone()]);
+
+        ledger.restart_classification("rubric-v2", "attempt-v2".into());
+        assert!(ledger.classifications.is_empty());
+        assert!(ledger.excluded.is_empty());
+        assert_eq!(ledger.credited, vec![unit.clone()]);
+        assert_eq!(ledger.required_overrides, vec![unit]);
+        assert_eq!(ledger.classification_rubric.as_deref(), Some("rubric-v2"));
+        assert_eq!(ledger.classification_attempt.as_deref(), Some("attempt-v2"));
+    }
+
     fn comparison(diff: &str, old: Option<&str>, new: Option<&str>) -> Comparison {
         Comparison {
             repository_root: "/tmp".into(),
@@ -840,6 +945,26 @@ mod tests {
             sources: Vec::new(),
             base: None,
         }
+    }
+
+    #[test]
+    fn saved_review_override_survives_a_rubric_refresh_without_an_exclusion() {
+        let comparison = comparison(
+            "diff --git a/f.rs b/f.rs\n--- a/f.rs\n+++ b/f.rs\n@@ -1 +1 @@\n-old\n+new\n",
+            Some("f.rs"),
+            Some("f.rs"),
+        );
+        let mut ledger = CoverageLedger::new(&comparison);
+        let unit = ledger.inventory.units[1].clone();
+        ledger.excluded = vec![unit.clone()];
+        ledger.require_review(vec![unit.clone()]);
+        ledger.restart_classification("rubric-v2", "attempt-v2".into());
+
+        assert!(ledger.excluded.is_empty());
+        assert_eq!(ledger.required_overrides, vec![unit]);
+        ledger
+            .validate_restored(&comparison, std::iter::empty())
+            .expect("saved override is independent of the current Jev exclusions");
     }
 
     fn reference(path: &str, side: SourceSide, lines: Option<(u32, u32)>) -> EvidenceRef {
@@ -985,6 +1110,14 @@ mod tests {
             &comparison,
         );
         assert_eq!(ledger.summary(false).explored_required, 2);
+        assert_eq!(
+            ledger.changed_line_coverage(None),
+            ChangedLineCoverage {
+                explored: 2,
+                total: 2,
+            },
+            "renames and mode changes do not enter the line percentage"
+        );
         ledger.credit(
             &answer(
                 "b",
@@ -1021,6 +1154,18 @@ mod tests {
             end: 4,
         };
         ledger.excluded = vec![excluded.clone()];
+        assert_eq!(
+            ledger.changed_line_coverage(None),
+            ChangedLineCoverage {
+                explored: 1,
+                total: 3,
+            },
+            "Jev exclusions remain in the changed-line denominator"
+        );
+        assert_eq!(
+            ledger.changed_line_coverage(Some(0)).percent_tenths(),
+            Some(333)
+        );
         let summary = ledger.summary(true);
         assert_eq!(
             (
