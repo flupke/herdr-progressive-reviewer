@@ -100,7 +100,7 @@ so large unchanged assets do not impose a repository-wide capture limit.
 
 **Explore progress is saved automatically.** Opening the same checkout and logical
 review restores its latest pass: exact questions, answers, corrections, agenda,
-conclusions, separate task/reply drafts, choice selection and reading position.
+conclusions, coverage, separate task/reply drafts, choice selection and reading position.
 Reopening sends no prompt and never starts implementation. The next normal action
 continues with the original native agent conversation, including a resumed instance.
 If that conversation is unavailable or cannot yet be identified, history and edits
@@ -117,6 +117,12 @@ Explore shows one question at a time across the full content width. Its evidence
 answers and recap scroll together. **Previous** and **Next** (or `[` / `]`) visit
 question and conclusion history in posting order; **Latest** returns to the newest question or active conclusion. These controls stay
 visible while scrolling. **Opening** shows the initial context. **Conclusion** opens the separate conclusion page.
+The pinned **Coverage** control shows the share of required changed lines and file-change items
+credited to answered questions. Click it for a file overview and open a file's full diff.
+Essential and collapsed supporting references count only after you answer that exact question;
+explicit **Defer** earns no coverage. An unanswered assignment remains outstanding. The
+overview separates explored, partly explored, unexplored and Jev-excluded changes.
+Reaching 100% does not end the discussion or mark files by itself.
 **Reply** addresses the displayed question; each question keeps its own unfinished
 text, selected choice and evidence state.
 
@@ -132,8 +138,9 @@ edited box. A delivered request is not sent again automatically. **Delivery outc
 unknown** means a crash or transport failure may have interrupted confirmation:
 check the original agent conversation before deliberately sending a new request.
 A sent status confirms delivery, not implementation completion. **Reply** continues the interview
-about the conclusion, without authorizing code changes. Further human Files
-inspection remains required.
+about the conclusion, without authorizing code changes. A valid conclusion marks the pass's
+changed files reviewed at its captured checkpoint. Subsequent edits appear in Files against
+that baseline. Explore does not resolve ordinary threads.
 The preparation state shows the actual pending status and Cancel. Delivery
 errors and Retry appear beside the affected turn.
 
@@ -227,5 +234,13 @@ original decision; deferrals and conditions remain outstanding. New questions
 do not imply a fixed total. The reviewer saves conversation and agenda history; the agent retains context in its own conversation.
 
 The expanded map shows those states, prerequisites, entries not yet mapped and scan limitations. Topic
-associations are not proof of inspection. Explore never marks files reviewed
-or resolves threads. Return to **Files** for the remaining human inspection.
+associations are not proof of coverage. Only answered essential/supporting changed regions
+receive credit; an early conclusion is rejected with remaining locations. A successful
+conclusion marks changed files at the reviewed checkpoint. Explore does not resolve threads.
+
+Setting a nonempty `TYPESAFE_API_KEY` in the reviewer process enables optional Jev
+significance checks. The reviewer sends bounded before/after code snippets and relative
+paths to TypeSafe AI. Missing or whitespace-only keys make every change required.
+Uncertain, failed and oversized checks remain required. The collapsed Jev area on each
+question shows excluded regions and lets you choose **Require review**; this returns an
+uncovered exclusion to the required work without erasing earlier answer coverage.

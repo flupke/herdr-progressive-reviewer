@@ -47,10 +47,18 @@ impl Worker {
                 "Unknown saved Explore pass"
             );
             event.historical = event.passes.last() != Some(&instance);
-            let pass = self
-                .guide_store
-                .load_explore(&unit, &instance)?
-                .ok_or_else(|| eyre::eyre!("Saved Explore pass is missing; history retained"))?;
+            let pass = match self.guide_store.recover_explore_marks(&unit, &instance) {
+                Ok(pass) => pass,
+                Err(error) => {
+                    event.storage_error =
+                        Some(format!("Explore file marking needs recovery: {error}"));
+                    self.guide_store
+                        .load_explore(&unit, &instance)?
+                        .ok_or_else(|| {
+                            eyre::eyre!("Saved Explore pass is missing; history retained")
+                        })?
+                }
+            };
             event.view = match self.guide_store.load_explore_view(&unit, &instance) {
                 Ok(view) => view,
                 Err(error) => {

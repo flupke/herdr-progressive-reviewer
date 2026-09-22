@@ -51,6 +51,10 @@ pub struct EvidencePosition {
 
 /// The reviewer's saved editors and reading position for one pass.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "Independent saved expansion and editor states"
+)]
 pub struct ExploreViewState {
     pub page: ExplorePage,
     pub turns: Vec<QuestionReading>,
@@ -61,6 +65,14 @@ pub struct ExploreViewState {
     pub focus: EditorFocus,
     pub scroll: usize,
     pub map: bool,
+    #[serde(default)]
+    pub coverage_overview: bool,
+    #[serde(default)]
+    pub coverage_file: Option<usize>,
+    #[serde(default)]
+    pub coverage_next: BTreeMap<usize, usize>,
+    #[serde(default)]
+    pub jev_debug: bool,
     pub heights: Vec<((usize, usize), u16)>,
     pub code: Vec<EvidencePosition>,
 }

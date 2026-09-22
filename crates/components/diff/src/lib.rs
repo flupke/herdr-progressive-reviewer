@@ -1611,7 +1611,13 @@ impl DiffComponent {
         if let Some(document) = self.selected_document_mut() {
             document.document.column = 0;
         }
-        if let Some(row) = event.row {
+        let row = event.row.or_else(|| {
+            self.selected_document().and_then(|document| {
+                let viewport = document.guide_viewport(event.file_index);
+                guide_rendering::target_rows(&viewport, &event.target).map(|rows| rows.0)
+            })
+        });
+        if let Some(row) = row {
             self.set_cursor(row);
         }
         self.align_guide_jump_to_viewport_top();
@@ -1619,7 +1625,7 @@ impl DiffComponent {
             .selected_document()
             .is_some_and(LoadedDocument::is_loading);
         let load_action = self.selected_load_action();
-        if event.row.is_none() || load_was_active || load_action.is_some() {
+        if row.is_none() || load_was_active || load_action.is_some() {
             self.pending_guide_jump = Some(event.target.clone());
         } else {
             self.pending_guide_jump = None;

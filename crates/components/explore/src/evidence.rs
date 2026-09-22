@@ -17,12 +17,13 @@ impl ExploreComponent {
         palette: Palette,
     ) {
         let exploration = self.exploration.as_ref().expect("question exploration");
-        let view = EvidenceView {
+        let reference_index = self.turns[index].reference;
+        let view = EvidenceView::Question {
             turn: index,
-            reference: self.turns[index].reference,
+            reference: reference_index,
         };
         let evidence = exploration.evidence(index);
-        let Some(reference) = evidence.get(view.reference) else {
+        let Some(reference) = evidence.get(reference_index) else {
             return;
         };
         let Some(source) = exploration.comparison.source(&reference.location) else {
@@ -92,14 +93,20 @@ impl ExploreComponent {
         layout: &mut ConversationLayout,
         palette: Palette,
     ) {
-        let index = view.turn;
+        let EvidenceView::Question {
+            turn: index,
+            reference,
+        } = view
+        else {
+            return;
+        };
         let exploration = self.exploration.as_ref().expect("question exploration");
         let primary = exploration.questions[index].evidence.len();
         let supporting = evidence.len().saturating_sub(primary);
         let mut controls = vec![
             (
-                if view.reference < primary {
-                    format!("Evidence {}/{}", view.reference + 1, primary)
+                if reference < primary {
+                    format!("Evidence {}/{primary}", reference + 1)
                 } else {
                     format!("Evidence {primary}")
                 },
@@ -107,7 +114,7 @@ impl ExploreComponent {
             ),
             (
                 "Primary".into(),
-                Control::Primary(EvidenceView {
+                Control::Primary(EvidenceView::Question {
                     turn: index,
                     reference: 0,
                 }),
@@ -158,7 +165,7 @@ impl ExploreComponent {
             layout.text(
                 format!("{} · {path}: {}", reference + 1, evidence.relationship),
                 palette.focus,
-                Some(Control::Evidence(EvidenceView {
+                Some(Control::Evidence(EvidenceView::Question {
                     turn: index,
                     reference,
                 })),

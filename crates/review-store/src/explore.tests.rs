@@ -1,4 +1,5 @@
 use super::*;
+use crate::LoadResult;
 use review_explore::{
     AnswerInput, Comparison, Conclusion, Exploration, ExplorePass, InterviewUpdate, Question,
     Topic, TopicStatus,
@@ -7,6 +8,204 @@ use std::sync::Arc;
 
 #[path = "explore_delivery.tests.rs"]
 mod delivery;
+
+#[test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "One end-to-end local finalization transaction"
+)]
+fn coverage_gate_repairs_same_request_and_marks_exact_baseline_once() {
+    use review_repository::repository::{
+        ChangeKind, ChangedFile, DiffStatistics, FileKind, RepoPath, SnapshotId, SnapshotIdentity,
+    };
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::write(directory.path().join("policy.rs"), "first\nsecond\n").unwrap();
+    let store = ReviewStore::open(directory.path().join("state"), directory.path()).unwrap();
+    let comparison = Arc::new(Comparison {
+        repository_root: directory.path().to_owned(),
+        checkpoint: review_guide::ReviewCheckpoint::new("aabb", "ccdd"),
+        files: vec![ChangedFile {
+            old_path: None,
+            new_path: Some(RepoPath::from_bytes(b"policy.rs".as_slice())),
+            old_kind: FileKind::Absent,
+            new_kind: FileKind::File,
+            change: ChangeKind::Added,
+            display_path: "policy.rs".into(),
+            statistics: DiffStatistics {
+                lines_added: 2,
+                lines_removed: 0,
+            },
+        }],
+        context: vec![],
+        diffs: vec![
+            b"diff --git a/policy.rs b/policy.rs\n@@ -0,0 +1,2 @@\n+first\n+second\n".to_vec(),
+        ],
+        manifest: vec![],
+        sources: vec![],
+        base: Some(SnapshotIdentity::Git {
+            base_tree: "aabb".into(),
+            display_id: "base".into(),
+            snapshot_id: SnapshotId::from("ccdd".to_owned()),
+        }),
+    });
+    let mut exploration = Exploration::new(comparison);
+    let kickoff = exploration.request(None, None).unwrap();
+    let mut pass = ExplorePass::new(Exploration::new(exploration.comparison.clone()));
+    pass.exploration.instance = kickoff.instance.clone();
+    pass.post(&kickoff).unwrap();
+    store.create_explore(pass).unwrap();
+    let question = |id: &str,
+                    request: &review_explore::TurnRequest,
+                    line: u32|
+     -> InterviewUpdate {
+        serde_json::from_value(serde_json::json!({
+            "instance": request.instance, "request": request.request, "checkpoint": request.checkpoint,
+            "interpretation": null, "reply": null, "agenda": [],
+            "topics": [{"id":id,"title":"Policy","entries":[],"status":"open"}],
+            "next": {"id":id,"version":1,"topic":id,"text":"Explain this line?",
+                "alternatives":[{"id":"keep","text":"Keep it","outcome":"accepted"},{"id":"change","text":"Change it","outcome":"needs_follow_up"}],
+                "evidence":[{"path":"policy.rs","side":"new","lines":{"first_line":line,"last_line":line},"relationship":"Implements policy","decision_relevance":"Changes outcome"}],
+                "supporting":[]}, "conclusion":null,"limitations":[],"findings":[]
+        })).unwrap()
+    };
+    let first = question("q1", &kickoff, 1);
+    let (applied, pass, feedback) = store
+        .submit_explore(&"aabb".into(), &kickoff.instance, &first, false)
+        .unwrap();
+    assert!(applied);
+    assert_eq!(feedback.summary.percent, Some(0));
+    assert_eq!(feedback.awaiting_answer.len(), 1);
+    let first_receipt = feedback.clone();
+    let shown = pass.exploration.questions.last().unwrap().clone();
+    let answer = pass
+        .exploration
+        .clone()
+        .request(
+            Some(AnswerInput {
+                text: "Discussed".into(),
+                ..Default::default()
+            }),
+            Some(&shown),
+        )
+        .unwrap();
+    store
+        .update_explore(&"aabb".into(), &kickoff.instance, |pass| {
+            pass.post(&answer).map_err(|error| error.to_string())
+        })
+        .unwrap();
+    let (applied, _, replayed) = store
+        .submit_explore(&"aabb".into(), &kickoff.instance, &first, false)
+        .unwrap();
+    assert!(!applied);
+    assert_eq!(
+        replayed, first_receipt,
+        "retries retain the original coverage revision"
+    );
+    let conclusion = InterviewUpdate {
+        instance: answer.instance.clone(),
+        request: answer.request.clone(),
+        checkpoint: answer.checkpoint.clone(),
+        interpretation: None,
+        reply: Some(review_explore::Reply {
+            text: "Acknowledged".into(),
+            evidence: vec![],
+        }),
+        agenda: vec![],
+        topics: vec![],
+        next: None,
+        conclusion: Some(Conclusion {
+            summary: "Concluded".into(),
+            to_be_implemented: String::new(),
+            future_work: String::new(),
+        }),
+        limitations: vec![],
+        findings: vec![],
+    };
+    let rejected = store
+        .submit_explore(&"aabb".into(), &kickoff.instance, &conclusion, false)
+        .unwrap_err()
+        .to_string();
+    assert!(rejected.contains("coverage_incomplete"), "{rejected}");
+    assert_eq!(
+        store.load(&"aabb".into(), b"policy.rs").unwrap(),
+        LoadResult::Unreviewed
+    );
+    let mut repair = question("q2", &answer, 2);
+    repair.reply = Some(review_explore::Reply {
+        text: "Acknowledged".into(),
+        evidence: vec![],
+    });
+    let (_, pass, feedback) = store
+        .submit_explore(&"aabb".into(), &kickoff.instance, &repair, false)
+        .unwrap();
+    assert_eq!(feedback.summary.percent, Some(50));
+    let shown = pass.exploration.questions.last().unwrap().clone();
+    let answer2 = pass
+        .exploration
+        .clone()
+        .request(
+            Some(AnswerInput {
+                text: "Also discussed".into(),
+                ..Default::default()
+            }),
+            Some(&shown),
+        )
+        .unwrap();
+    store
+        .update_explore(&"aabb".into(), &kickoff.instance, |pass| {
+            pass.post(&answer2).map_err(|error| error.to_string())
+        })
+        .unwrap();
+    let mut conclusion = conclusion;
+    conclusion.request = answer2.request.clone();
+    conclusion.reply = Some(review_explore::Reply {
+        text: "Acknowledged".into(),
+        evidence: vec![],
+    });
+    let (applied, pass, feedback) = store
+        .submit_explore(&"aabb".into(), &kickoff.instance, &conclusion, false)
+        .unwrap();
+    assert!(applied);
+    assert_eq!(feedback.summary.percent, Some(100));
+    assert!(pass.completion.as_ref().unwrap().completed);
+    let LoadResult::Reviewed(record) = store.load(&"aabb".into(), b"policy.rs").unwrap() else {
+        panic!("no mark")
+    };
+    assert_eq!(record.baseline_commit_id, "ccdd");
+    store.unreview(&"aabb".into(), b"policy.rs").unwrap();
+    let (applied, _, _) = store
+        .submit_explore(&"aabb".into(), &kickoff.instance, &conclusion, false)
+        .unwrap();
+    assert!(!applied);
+    assert_eq!(
+        store.load(&"aabb".into(), b"policy.rs").unwrap(),
+        LoadResult::Unreviewed,
+        "accepted retry must not recreate a manually removed mark"
+    );
+    let followup = pass.exploration.clone().request(None, None).unwrap();
+    store
+        .update_explore(&"aabb".into(), &kickoff.instance, |pass| {
+            pass.post(&followup).map_err(|error| error.to_string())
+        })
+        .unwrap();
+    let later = question("q3", &followup, 1);
+    let (applied, _, _) = store
+        .submit_explore(&"aabb".into(), &kickoff.instance, &later, false)
+        .unwrap();
+    assert!(applied, "the conversation remains open after marking");
+    assert!(
+        store
+            .load_explore(&"aabb".into(), &kickoff.instance)
+            .unwrap()
+            .is_some(),
+        "a later response must leave a readable pass"
+    );
+    assert_eq!(
+        store.load(&"aabb".into(), b"policy.rs").unwrap(),
+        LoadResult::Unreviewed,
+        "later conversation must not recreate completed marks"
+    );
+}
 
 struct Investigation {
     directory: tempfile::TempDir,

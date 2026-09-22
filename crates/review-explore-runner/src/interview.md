@@ -1,6 +1,6 @@
 Conduct one turn of experimental Explore review in THIS implementation-agent conversation.
 Review only: do not delegate the interview, edit repository source, run tests, implement fixes,
-mark files reviewed, or change ordinary review threads. Collect required fixes for later.
+manually mark files reviewed, or change ordinary review threads. Collect required fixes for later.
 
 The identifiers at the end of this message apply to this turn. Copy Explore review access
 into review, Explore pass into instance, Explore request into request, and Review unit and
@@ -13,8 +13,12 @@ and assessments are not resent. No Comment section means no added comment; no Se
 section means no choice was selected. Corrects answer identifies the original contribution;
 Explicitly deferred records a deferral. Previous response error appears only after a failed attempt.
 Retain the interview context in THIS conversation. Continue with submit_question until the
-material review perimeter has been explored, then submit_conclusion. Record outstanding work
-and uncertainty honestly; do not equate the end of the interview with completion of Files review.
+material review perimeter has been explored, then submit_conclusion. Read each tool result's
+coverage feedback. It distinguishes uncovered unassigned regions from those awaiting a human
+answer, with an explicit truncation flag. Group related gaps into coherent questions, including
+old/deleted lines and metadata changes. Do not list unrelated files merely to satisfy a counter.
+Record outstanding work and uncertainty honestly. An accepted conclusion automatically marks
+the changed files at the reviewed checkpoint; later edits reappear in Files against that baseline.
 
 Inspect files directly under the repository root and use Git/jj for the full comparison,
 including reviewed/filtered files and relevant unchanged callers, consumers and tests.
@@ -81,8 +85,8 @@ when unchanged; give revised assessments when context changes them. Do not repea
 
 Ask at most ONE concise next question whose prerequisites are understood, or give an honest
 conclusion that names outstanding/deferred/reconsideration work, uncertainty and required fixes.
-The conclusion summary MUST say further human Files inspection is required; exhausting topics isn't completion.
-Associations never imply coverage, acceptance, or reviewed files. EVERY next question MUST have
+The conclusion summary must name unresolved concerns and optional further inspection honestly.
+Topic associations never imply coverage or acceptance. EVERY next question MUST have
 two to five brief, genuinely distinct choices so the reviewer can answer without typing.
 The reviewer automatically appends "None of the above" (stable ID none-of-the-above,
 outcome open); do not include that ID or label in alternatives. It is not agreement or deferral.
@@ -109,7 +113,13 @@ relationship (what it establishes) AND decision_relevance (how that fact could c
 reviewer's answer). Combine overlapping/duplicate excerpts. Put corroboration, the broad scan,
 and references that add no distinct decision-relevant information in next.supporting instead.
 Assessment, reply and agenda citations remain supporting sources unless deliberately selected
-in next.evidence. Do not promote the entire investigation bibliography into displayed evidence.
+in next.evidence. Make next.supporting exhaustive for the changed regions related to this
+question, while keeping them collapsed in the UI. An ordinary answer automatically credits
+the changed portions intersecting both evidence lists, even when the answer requests fixes.
+Explicit Defer earns no credit; topic entries, assessments, unsent research and null-line text
+references earn none. A replacement needs both its deleted and added changed sides covered.
+For a real non-line change, use file-level evidence with a meaningful relationship. Jev
+exclusions are coverage exemptions, not claims of correctness; investigate them when useful.
 
 Send the result with the reviewer's MCP tool submit_question, using the supplied review access
 and identities. Do not create handoff files or send ordinary thread replies. Success means the
@@ -133,8 +143,10 @@ contributions. A factual reply may have interpretation null and lead to a differ
 
 When no further useful question remains, call submit_conclusion instead. Use the same
 interpretation rules for the final human answer; do not lose or invent its decision.
-The summary records the review outcome, decisions, remaining uncertainty and human Files
-inspection requirement. to_be_implemented contains only the agreed tasks as a plain-text list;
+The summary records the review outcome, decisions and remaining uncertainty. A
+coverage_incomplete error preserves the pending request and final answer: continue with an
+appropriate question on the same request, without repeating the interpretation elsewhere.
+to_be_implemented contains only the agreed tasks as a plain-text list;
 future_work contains deferred or optional work outside that scope. Use an empty string when there
 are no implementation tasks or no future work. Keep recap, rationale, warnings and future work
 out of to_be_implemented: it goes directly into the editable task box. The call records a

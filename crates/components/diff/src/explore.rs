@@ -132,8 +132,11 @@ impl DiffComponent {
         let path = comparison.files[index].review_path().display();
         if comparison.context.get(index).is_none() {
             let document = self.restored_comparison_document(comparison, index)?;
-            self.documents.retain(|document| document.path != path);
-            self.documents.push(document);
+            if let Some(existing) = self.documents.iter_mut().find(|entry| entry.path == path) {
+                *existing = document;
+            } else {
+                self.documents.push(document);
+            }
         }
         if !self.documents.iter().any(|document| document.path == path) {
             self.documents
@@ -241,6 +244,12 @@ impl DiffComponent {
         if !self.explore.active {
             return Vec::new();
         }
+        if event.view == ui_events::EvidenceView::Coverage {
+            return self.explore_coverage_evidence(event);
+        }
+        let ui_events::EvidenceView::Question { reference, .. } = event.view else {
+            unreachable!("coverage dispatched above")
+        };
         let switched = self.embedded.active != Some(event.view);
         let opened = self.activate_evidence_view(event);
         self.explore.comparison = Some(event.comparison.clone());
@@ -249,9 +258,9 @@ impl DiffComponent {
         if !opened && !event.reveal {
             return self.retained_evidence_actions(switched);
         }
-        self.explore.selected = event.view.reference;
+        self.explore.selected = reference;
         self.explore.limitation = None;
-        let Some(evidence) = event.evidence.get(event.view.reference) else {
+        let Some(evidence) = event.evidence.get(reference) else {
             return Vec::new();
         };
         let Some(source) = event.comparison.source(&evidence.location) else {
@@ -288,6 +297,32 @@ impl DiffComponent {
             );
         }
         self.open_supporting_evidence(&source, &content, evidence.location.lines.as_ref())
+    }
+
+    fn explore_coverage_evidence(&mut self, event: &ExploreEvidence) -> Vec<Action> {
+        let Some(reference) = event.evidence.first() else {
+            return Vec::new();
+        };
+        let Some(index) = event.comparison.files.iter().position(|file| {
+            file.old_path.as_ref() == Some(&reference.location.path)
+                || file.new_path.as_ref() == Some(&reference.location.path)
+        }) else {
+            return Vec::new();
+        };
+        let switched = self.embedded.active != Some(event.view);
+        let opened = self.activate_evidence_view(event);
+        if !opened && !event.reveal {
+            return self.retained_evidence_actions(switched);
+        }
+        self.explore.comparison = Some(event.comparison.clone());
+        self.explore.evidence.clone_from(&event.evidence);
+        self.explore.selected = 0;
+        self.explore.limitation = None;
+        if let Err(error) = self.select_comparison_document(&event.comparison, index) {
+            self.explore.limitation = Some(format!("Coverage diff unavailable: {error}"));
+            return Vec::new();
+        }
+        self.request_visible_highlights()
     }
 
     fn open_changed_evidence(

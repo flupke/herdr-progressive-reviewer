@@ -35,6 +35,13 @@ enum Control {
     Defer,
     History(navigation::History),
     Map,
+    Coverage,
+    CoverageFile(usize),
+    CoverageGap(usize),
+    CoverageReturn,
+    ExcludedGap(usize),
+    JevDebug,
+    RequireReview(usize),
     Cancel,
     Retry,
     Correct(usize),
@@ -119,6 +126,10 @@ enum EditorTarget {
     Implementation,
 }
 
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "Independent UI expansion and focus states"
+)]
 pub struct ExploreComponent {
     events: EventPublisher,
     durable: persistence::Durability,
@@ -139,6 +150,14 @@ pub struct ExploreComponent {
     progress: Progress,
     reset_warning: bool,
     map: bool,
+    coverage_overview: bool,
+    coverage_file: Option<usize>,
+    coverage_next: BTreeMap<usize, usize>,
+    jev_debug: bool,
+    coverage: Option<review_explore::CoverageLedger>,
+    completion_done: bool,
+    completion_policy: Option<bool>,
+    jev_enabled: bool,
     scroll: Cell<usize>,
     reveal: Cell<Option<Reveal>>,
     heights: BTreeMap<EvidenceView, u16>,
@@ -169,6 +188,14 @@ impl ExploreComponent {
             progress: Progress::Ready,
             reset_warning: false,
             map: false,
+            coverage_overview: false,
+            coverage_file: None,
+            coverage_next: BTreeMap::new(),
+            jev_debug: false,
+            coverage: None,
+            completion_done: false,
+            completion_policy: None,
+            jev_enabled: std::env::var("TYPESAFE_API_KEY").is_ok_and(|key| !key.trim().is_empty()),
             scroll: Cell::new(0),
             reveal: Cell::new(None),
             heights: BTreeMap::new(),
@@ -249,6 +276,12 @@ impl ExploreComponent {
         match &event.result {
             Ok(comparison) => {
                 self.durable.begin_pass();
+                self.coverage = Some(review_explore::CoverageLedger::new(comparison));
+                self.coverage_overview = false;
+                self.coverage_file = None;
+                self.coverage_next.clear();
+                self.completion_done = false;
+                self.completion_policy = None;
                 self.exploration = Some(Exploration::new(comparison.clone()));
                 self.selected = 0;
                 self.turns.clear();
@@ -393,7 +426,7 @@ impl ExploreComponent {
     }
 
     fn view_id(&self) -> EvidenceView {
-        EvidenceView {
+        EvidenceView::Question {
             turn: self.selected,
             reference: self
                 .turns
@@ -403,13 +436,16 @@ impl ExploreComponent {
     }
 
     fn publish_evidence(&self, view: EvidenceView, reveal: bool) {
+        let EvidenceView::Question { turn, .. } = view else {
+            return;
+        };
         if let Some(exploration) = &self.exploration
-            && exploration.questions.get(view.turn).is_some()
+            && exploration.questions.get(turn).is_some()
         {
             self.events.publish(ExploreEvidence {
                 comparison: exploration.comparison.clone(),
-                evidence: exploration.evidence(view.turn),
-                primary: exploration.questions[view.turn].evidence.len(),
+                evidence: exploration.evidence(turn),
+                primary: exploration.questions[turn].evidence.len(),
                 view,
                 reveal,
             });

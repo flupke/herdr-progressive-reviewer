@@ -7,7 +7,19 @@ use review_guide::GuideLineRange;
 use review_repository::repository::{RepoPath, Repository, Snapshot, SnapshotIdentity};
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, Hash, PartialEq, schemars::JsonSchema)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Deserialize,
+    Serialize,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+    schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum SourceSide {
     Old,

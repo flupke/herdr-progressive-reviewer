@@ -244,6 +244,13 @@ value and the result in `update`. Refresh an already-running agent's MCP tool ca
 after upgrading; Explore exposes `submit_question` and `submit_conclusion`. The old
 `submit_explore` name has been removed. `submit_question` requires a next question
 and cannot carry a conclusion.
+Successful question results include a `coverage` object with its ledger revision,
+exact unassigned gaps, gaps awaiting an answer, full totals and `has_more` when the
+bounded list is truncated. Credit comes from the exact answered question's essential
+and supporting changed regions; explicit Defer earns none. The agent should use
+the uncovered locations to ask coherent follow-up questions, including old-side
+deletions and non-line changes. Jev exclusions, when enabled by a reviewer-process
+`TYPESAFE_API_KEY`, are exempt from the completion condition and remain inspectable.
 The durable `instance` is distinct from renewable `review` access. Access is never
 saved with the pass. Reopening rotates it; the next explicit reviewer action supplies
 current access through the existing wakeup. Each call checks the pinned native
@@ -263,7 +270,7 @@ Use `submit_conclusion` for the separate conclusion screen. Its top-level argume
   "request": "turn-id",
   "checkpoint": {"review_unit": "unit", "checkpoint": "commit"},
   "interpretation": null,
-  "summary": "Review outcome and uncertainty; further human Files inspection is required.",
+  "summary": "Review outcome, decisions and remaining uncertainty.",
   "to_be_implemented": "1. First agreed task.\n2. Second agreed task.",
   "future_work": "Deferred or optional work outside this implementation scope."
 }
@@ -275,6 +282,12 @@ records a decision; the same exact-answer and retry rules apply. There are no
 question, evidence, reply, topic or agenda fields in a conclusion submission.
 Summary and future work are displayed separately. Only `to_be_implemented` seeds
 the editable task box. Submitting a conclusion does not start implementation.
+A conclusion with uncovered required changes or incomplete inventory returns
+`coverage_incomplete` and exact remaining locations without consuming its request
+or answer. A valid conclusion saves a recoverable completion record, marks only
+the pass's changed files at its captured checkpoint, and acknowledges success
+after local marking finishes. Repeating an accepted conclusion does not reapply
+marks. Subsequent edits appear in Files against that reviewed baseline.
 The human's **Implement** action sends the edited box contents through the shared
 reviewer-to-agent delivery queue, authorizing those tasks and their validation.
 It waits for the pinned agent conversation, supports cancelling queued delivery,

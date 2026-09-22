@@ -73,10 +73,19 @@ pub struct ExploreEvidence {
 }
 
 /// One evidence reference in an immutable displayed question version.
-#[derive(Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd)]
-pub struct EvidenceView {
-    pub turn: usize,
-    pub reference: usize,
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum EvidenceView {
+    Coverage,
+    Question { turn: usize, reference: usize },
+}
+
+impl Default for EvidenceView {
+    fn default() -> Self {
+        Self::Question {
+            turn: 0,
+            reference: 0,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]

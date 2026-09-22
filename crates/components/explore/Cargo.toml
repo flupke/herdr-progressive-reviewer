@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 diff-component = { path = "../diff" }
 review-explore = { path = "../../review-explore" }
+review-guide = { path = "../../review-guide" }
 component-core = { path = "../../component-core" }
 ui-actions = { path = "../../ui-actions" }
 ui-events = { path = "../../ui-events" }
@@ -18,7 +19,6 @@ ratatui = { workspace = true, features = ["unstable-rendered-line-info"] }
 
 
 [dev-dependencies]
-review-guide = { path = "../../review-guide" }
 review-repository = { path = "../../review-repository" }
 
 [lints]

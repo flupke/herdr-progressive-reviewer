@@ -161,6 +161,47 @@ impl Exploration {
 impl crate::ExplorePass {
     pub fn validate_restored(&self) -> eyre::Result<()> {
         self.exploration.validate_restored()?;
+        self.coverage.validate_restored(
+            &self.exploration.comparison,
+            self.exploration
+                .answers
+                .iter()
+                .map(|answer| answer.id.clone()),
+        )?;
+        if let Some(completion) = &self.completion {
+            eyre::ensure!(
+                self.exploration.conversation.iter().any(|turn| {
+                    turn.update.request == completion.request && turn.update.conclusion.is_some()
+                }) && self.exploration.comparison.checkpoint.checkpoint == completion.baseline,
+                "saved completion lost its conclusion or baseline"
+            );
+            let expected: std::collections::BTreeSet<_> = self
+                .exploration
+                .comparison
+                .files
+                .iter()
+                .map(|file| file.review_path().as_bytes().to_vec())
+                .collect();
+            let actual: std::collections::BTreeSet<_> = completion
+                .marks
+                .iter()
+                .map(|mark| mark.path.clone())
+                .collect();
+            eyre::ensure!(
+                expected == actual
+                    && actual.len() == completion.marks.len()
+                    && (!completion.completed || completion.marks.iter().all(|mark| mark.applied)),
+                "saved completion has incorrect file targets"
+            );
+            if completion.summary.complete {
+                eyre::ensure!(
+                    self.coverage_receipts
+                        .get(&completion.request)
+                        .is_some_and(|receipt| receipt.summary == completion.summary),
+                    "saved completion coverage receipt is inconsistent"
+                );
+            }
+        }
         for (id, record) in &self.turns {
             eyre::ensure!(
                 *id == record.request.request

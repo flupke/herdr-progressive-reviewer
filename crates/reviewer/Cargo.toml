@@ -34,6 +34,7 @@ review-types = { path = "../review-types" }
 review-ui = { path = "../review-ui" }
 ui-events = { path = "../ui-events" }
 serde_json.workspace = true
+reqwest.workspace = true
 sha2.workspace = true
 signal-hook.workspace = true
 syntax-highlighting = { path = "../syntax-highlighting" }

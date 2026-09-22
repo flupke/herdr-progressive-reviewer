@@ -31,6 +31,42 @@ impl PreparedTurn {
     pub fn prompt(self) -> String {
         self.prompt
     }
+
+    #[must_use]
+    pub fn with_coverage(mut self, feedback: &review_explore::CoverageFeedback) -> Self {
+        use std::fmt::Write;
+        let _ = write!(
+            self.prompt,
+            "\n\nCoverage revision {}: {} required change units remain; {} regions in this bounded listing{}.",
+            feedback.revision,
+            feedback.summary.remaining,
+            feedback.total_gaps,
+            if feedback.has_more {
+                " (more remain)"
+            } else {
+                ""
+            }
+        );
+        for gap in feedback.unassigned_required.iter().take(8) {
+            let _ = write!(
+                self.prompt,
+                "\nUnassigned: {} {:?} {:?}",
+                gap.location.path.display(),
+                gap.location.side,
+                gap.location.lines
+            );
+        }
+        for gap in feedback.awaiting_answer.iter().take(8) {
+            let _ = write!(
+                self.prompt,
+                "\nAwaiting answer: {} {:?} {:?}",
+                gap.location.path.display(),
+                gap.location.side,
+                gap.location.lines
+            );
+        }
+        self
+    }
 }
 
 /// The human's edited task list is the entire implementation scope.

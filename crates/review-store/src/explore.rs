@@ -1,7 +1,10 @@
 //! Versioned Explore domain transactions and one editor autosave per pass.
 use super::{Error, Result, ReviewStore, StateKey};
 use fs2::FileExt;
-use review_explore::{ExplorePass, ViewSave};
+use review_explore::{
+    CompletionMark, CoverageFeedback, ExplorePass, InterviewUpdate, PriorMark, ReviewCompletion,
+    ViewSave,
+};
 use review_types::ReviewUnit;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{
@@ -28,6 +31,213 @@ struct Stored<T> {
 }
 
 impl ReviewStore {
+    /// Serially accept an Explore response and, for a conclusion, recoverably mark its exact files.
+    pub fn submit_explore(
+        &self,
+        unit: &ReviewUnit,
+        instance: &str,
+        update: &InterviewUpdate,
+        exclusions_enabled: bool,
+    ) -> Result<(bool, ExplorePass, CoverageFeedback)> {
+        let _lock = self.explore_lock(unit)?;
+        if self
+            .load_explore_history(unit)?
+            .passes
+            .last()
+            .map(String::as_str)
+            != Some(instance)
+        {
+            return Err(Error::Explore(
+                "this pass is history; open the latest pass to continue".into(),
+            ));
+        }
+        let mut pass = self
+            .load_explore(unit, instance)?
+            .ok_or_else(|| Error::Explore("saved pass is missing".into()))?;
+        if let Some(completion) = &pass.completion
+            && !completion.completed
+        {
+            let accepted = pass
+                .exploration
+                .conversation
+                .iter()
+                .find(|turn| turn.update.request == completion.request)
+                .is_some_and(|turn| &turn.update == update);
+            if !accepted {
+                return Err(Error::Explore(
+                    "Explore conclusion finalization is pending; retry the identical payload"
+                        .into(),
+                ));
+            }
+            self.finish_explore_marks(unit, instance, &mut pass)?;
+            let feedback = pass
+                .coverage_receipts
+                .get(&update.request)
+                .cloned()
+                .ok_or_else(|| {
+                    Error::Explore("accepted conclusion has no coverage receipt".into())
+                })?;
+            return Ok((false, pass, feedback));
+        }
+        let (applied, feedback) = pass
+            .submit(update, exclusions_enabled)
+            .map_err(|error| Error::Explore(error.to_string()))?;
+        if !applied {
+            return Ok((false, pass, feedback));
+        }
+        if update.conclusion.is_some() && pass.completion.is_none() {
+            pass.completion = Some(self.prepare_explore_completion(
+                unit,
+                &pass,
+                update,
+                exclusions_enabled,
+                &feedback,
+            )?);
+        }
+        self.save_explore_revision(unit, instance, &mut pass)?;
+        if pass.completion.is_some() {
+            self.finish_explore_marks(unit, instance, &mut pass)?;
+        }
+        Ok((true, pass, feedback))
+    }
+
+    fn prepare_explore_completion(
+        &self,
+        unit: &ReviewUnit,
+        pass: &ExplorePass,
+        update: &InterviewUpdate,
+        exclusions_enabled: bool,
+        feedback: &CoverageFeedback,
+    ) -> Result<ReviewCompletion> {
+        let comparison = &pass.exploration.comparison;
+        if comparison.checkpoint.review_unit != *unit
+            || comparison
+                .base
+                .as_ref()
+                .is_none_or(|base| base.snapshot_id() != comparison.checkpoint.checkpoint)
+        {
+            return Err(Error::Explore(
+                "reviewed baseline identity is unavailable".into(),
+            ));
+        }
+        let mut paths = std::collections::BTreeSet::new();
+        let mut marks = Vec::new();
+        for file in &comparison.files {
+            let path = file.review_path().as_bytes();
+            if !paths.insert(path.to_vec()) {
+                continue;
+            }
+            let prior = match self.load(unit, path)? {
+                super::LoadResult::Unreviewed => None,
+                super::LoadResult::Reviewed(record) => Some(PriorMark {
+                    baseline: record.baseline_commit_id,
+                    reviewed_at: record.reviewed_at,
+                }),
+                super::LoadResult::UnknownSchema => {
+                    return Err(Error::Explore(format!(
+                        "cannot replace unknown review mark for {}",
+                        file.review_path().display()
+                    )));
+                }
+            };
+            marks.push(CompletionMark {
+                path: path.to_vec(),
+                prior,
+                applied: false,
+            });
+        }
+        Ok(ReviewCompletion {
+            request: update.request.clone(),
+            baseline: comparison.checkpoint.checkpoint.clone(),
+            marks,
+            completed: false,
+            exclusions_enabled,
+            summary: feedback.summary.clone(),
+        })
+    }
+
+    /// Resume only local marks; never dispatch a prompt or replay a completed receipt.
+    pub fn recover_explore_marks(&self, unit: &ReviewUnit, instance: &str) -> Result<ExplorePass> {
+        let _lock = self.explore_lock(unit)?;
+        let mut pass = self
+            .load_explore(unit, instance)?
+            .ok_or_else(|| Error::Explore("saved pass is missing".into()))?;
+        if pass
+            .completion
+            .as_ref()
+            .is_some_and(|record| !record.completed)
+        {
+            self.finish_explore_marks(unit, instance, &mut pass)?;
+        }
+        Ok(pass)
+    }
+
+    fn finish_explore_marks(
+        &self,
+        unit: &ReviewUnit,
+        instance: &str,
+        pass: &mut ExplorePass,
+    ) -> Result<()> {
+        let Some(completion) = &pass.completion else {
+            return Ok(());
+        };
+        if completion.completed {
+            return Ok(());
+        }
+        let baseline = completion.baseline.clone();
+        let count = completion.marks.len();
+        for index in 0..count {
+            let mark = pass.completion.as_ref().expect("completion").marks[index].clone();
+            let current = self.load(unit, &mark.path)?;
+            if mark.applied {
+                if !matches!(current, super::LoadResult::Reviewed(ref record) if record.baseline_commit_id == baseline)
+                {
+                    return Err(Error::Explore(
+                        "a completed Explore mark was changed during finalization".into(),
+                    ));
+                }
+                continue;
+            }
+            match current {
+                super::LoadResult::Reviewed(ref record)
+                    if record.baseline_commit_id == baseline => {}
+                super::LoadResult::Unreviewed if mark.prior.is_none() => {
+                    self.mark(unit, &mark.path, &baseline)?;
+                }
+                super::LoadResult::Reviewed(ref record)
+                    if mark.prior.as_ref().is_some_and(|prior| {
+                        prior.baseline == record.baseline_commit_id
+                            && prior.reviewed_at == record.reviewed_at
+                    }) =>
+                {
+                    self.mark(unit, &mark.path, &baseline)?;
+                }
+                _ => {
+                    return Err(Error::Explore(format!(
+                        "review mark changed while Explore was finalizing: {}",
+                        String::from_utf8_lossy(&mark.path)
+                    )));
+                }
+            }
+            pass.completion.as_mut().expect("completion").marks[index].applied = true;
+            self.save_explore_revision(unit, instance, pass)?;
+        }
+        pass.completion.as_mut().expect("completion").completed = true;
+        self.save_explore_revision(unit, instance, pass)
+    }
+
+    fn save_explore_revision(
+        &self,
+        unit: &ReviewUnit,
+        instance: &str,
+        pass: &mut ExplorePass,
+    ) -> Result<()> {
+        pass.revision = pass
+            .revision
+            .checked_add(1)
+            .ok_or_else(|| Error::Explore("revision exhausted".into()))?;
+        self.write_explore(&self.explore_path(unit, instance)?, pass, MAX_DOMAIN)
+    }
     /// Watch this namespace with the existing filesystem event infrastructure.
     pub fn explore_directory(&self) -> PathBuf {
         self.repository_dir.join("explore-v1")

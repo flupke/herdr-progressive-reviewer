@@ -5,6 +5,7 @@ use review_thread_service::{PinnedAgent, PromptCancellation};
 use std::sync::Arc;
 mod dispatch;
 mod implementation;
+mod jev;
 mod storage;
 
 #[derive(Debug, Default)]
@@ -35,6 +36,7 @@ impl Worker {
             Command::OpenPass(instance) => self.open_explore(Some(instance), messages),
             Command::Turn(request) => self.explore_turn(*request, messages),
             Command::Implement(request) => self.implement_explore(request, messages),
+            Command::RequireReview(units) => self.require_explore_review(*units, messages),
             Command::CancelImplementation => self.explore.implementation = None,
             Command::Cancel => {
                 self.cancel_explore_record(messages);
@@ -42,6 +44,46 @@ impl Worker {
                 self.explore.prompt = None;
                 self.explore.pending = None;
                 self.explore.implementation = None;
+            }
+        }
+    }
+
+    fn require_explore_review(
+        &mut self,
+        units: Vec<review_explore::CoverageUnit>,
+        messages: &ApplicationMessageSender,
+    ) {
+        let Some(pass) = &self.explore.pass else {
+            return;
+        };
+        if self.explore.historical || pass.completion.is_some() {
+            return;
+        }
+        let unit = pass.exploration.comparison.checkpoint.review_unit.clone();
+        let instance = pass.exploration.instance.clone();
+        let result = self.guide_store.update_explore(&unit, &instance, |pass| {
+            if pass.completion.is_some() {
+                return Err("Explore is already finalizing".into());
+            }
+            let excluded = pass.coverage.unexplored_exclusions();
+            if !units.iter().all(|unit| excluded.contains(unit)) {
+                return Err("Exclusion is no longer current".into());
+            }
+            pass.coverage.require_review(units);
+            Ok(())
+        });
+        match result {
+            Ok(((), pass)) => {
+                self.explore.pass = Some(pass.clone());
+                let (response, _) = std::sync::mpsc::channel();
+                let _ = messages.send(ui_events::ExploreCommitted {
+                    pass: Arc::new(pass),
+                    applied: true,
+                    response,
+                });
+            }
+            Err(error) => {
+                let _ = messages.send(ui_events::ExploreStorageFailed(error.to_string()));
             }
         }
     }
@@ -99,6 +141,7 @@ impl Worker {
                 return;
             }
         };
+        let pass = self.start_jev_if_enabled(pass, messages);
         self.explore.pass = Some(pass.clone());
         let _ = messages.send(ui_events::ExplorePosted {
             request: request.clone(),
@@ -166,11 +209,19 @@ impl Worker {
         );
         let comparison = comparison.clone();
         let agent = self.bound_explore_agent()?;
-        let prepared = review_explore_runner::PreparedTurn::prepare(
+        let mut prepared = review_explore_runner::PreparedTurn::prepare(
             request,
             &comparison,
             &self.explore.access,
         );
+        if request.answer.is_some()
+            && let Some(pass) = &self.explore.pass
+        {
+            let feedback = pass
+                .coverage
+                .feedback(&comparison, &[], jev::key().is_some());
+            prepared = prepared.with_coverage(&feedback);
+        }
         self.explore.pending = Some((request.instance.clone(), request.request.clone()));
         self.explore.agent = Some(agent.clone());
         Ok((prepared, agent))
@@ -250,23 +301,28 @@ impl Worker {
             request.respond(Err("Explore response belongs to another instance".into()));
             return;
         }
-        let committed = self.guide_store.update_explore(
+        let committed = self.guide_store.submit_explore(
             &update.checkpoint.review_unit,
             &update.instance,
-            |pass| {
-                pass.exploration
-                    .submit(update.clone())
-                    .map_err(|error| error.to_string())
-            },
+            &update,
+            jev::key().is_some(),
         );
-        let (applied, pass) = match committed {
+        let (applied, pass, coverage) = match committed {
             Ok(result) => result,
             Err(error) => {
                 request.respond(Err(error.to_string()));
                 return;
             }
         };
+        self.publish_explore_marks(&pass, messages);
         self.explore.pass = Some(pass.clone());
+        if pass
+            .completion
+            .as_ref()
+            .is_some_and(|completion| completion.completed)
+        {
+            self.explore.storage_error = None;
+        }
         let (response, received) = std::sync::mpsc::channel();
         if messages
             .send(ui_events::ExploreCommitted {
@@ -289,14 +345,110 @@ impl Worker {
                         .to_owned()
                 })
                 .and_then(|result| result)
-                .map(|applied| review_mcp::Response::Explore { applied });
+                .map(|applied| review_mcp::Response::Explore { applied, coverage });
             request.respond(result);
         });
     }
 
+    fn start_jev_if_enabled(
+        &self,
+        pass: review_explore::ExplorePass,
+        messages: &ApplicationMessageSender,
+    ) -> review_explore::ExplorePass {
+        let Some(key) = jev::key() else {
+            return pass;
+        };
+        if pass.coverage.classification_started || pass.revision != 0 {
+            return pass;
+        }
+        let Some(comparison) = &self.explore.comparison else {
+            return pass;
+        };
+        let candidates = jev::Candidate::prepare(comparison);
+        let unit = pass.exploration.comparison.checkpoint.review_unit.clone();
+        let instance = pass.exploration.instance.clone();
+        let attempt = uuid::Uuid::new_v4().to_string();
+        let Ok(((), pass)) = self.guide_store.update_explore(&unit, &instance, |pass| {
+            if pass.coverage.classification_started {
+                return Ok(());
+            }
+            pass.coverage.classification_started = true;
+            pass.coverage.classification_attempt = Some(attempt.clone());
+            Ok(())
+        }) else {
+            return pass;
+        };
+        let store = self.guide_store.clone();
+        let messages = messages.clone();
+        std::thread::spawn(move || {
+            jev::classify(&key, candidates, |result| {
+                match store.update_explore(&unit, &instance, |pass| {
+                    if pass.coverage.classification_attempt.as_deref() != Some(&attempt)
+                        || pass.completion.is_some()
+                    {
+                        return Err("obsolete classification attempt".into());
+                    }
+                    Ok(pass.coverage.record_significance(result))
+                }) {
+                    Ok((true, pass)) => {
+                        let (response, _) = std::sync::mpsc::channel();
+                        messages
+                            .send(ui_events::ExploreCommitted {
+                                pass: Arc::new(pass),
+                                applied: true,
+                                response,
+                            })
+                            .is_ok()
+                    }
+                    Ok((false, _)) => true,
+                    Err(_) => false,
+                }
+            });
+        });
+        pass
+    }
+
+    fn publish_explore_marks(
+        &self,
+        pass: &review_explore::ExplorePass,
+        messages: &ApplicationMessageSender,
+    ) {
+        let Some(completion) = &pass.completion else {
+            return;
+        };
+        if !completion.completed {
+            return;
+        }
+        let Some(snapshot) = &self.snapshot else {
+            return;
+        };
+        if snapshot.identity.review_unit() != &pass.exploration.comparison.checkpoint.review_unit {
+            return;
+        }
+        for mark in &completion.marks {
+            if let Some(file) = snapshot
+                .files
+                .iter()
+                .find(|file| file.review_path().as_bytes() == mark.path)
+            {
+                let _ = messages.send(ui_events::ReviewStateSaved {
+                    review_unit: snapshot.identity.review_unit().clone(),
+                    path: file.review_path().display(),
+                    result: self.tracker.status(snapshot, file).map_err(|_| ()),
+                });
+            }
+        }
+    }
+
     fn authorize_explore(&mut self, access: &str) -> eyre::Result<()> {
         eyre::ensure!(
-            self.explore.storage_error.is_none(),
+            self.explore.storage_error.is_none()
+                || self
+                    .explore
+                    .pass
+                    .as_ref()
+                    .and_then(|pass| pass.completion.as_ref())
+                    .is_some_and(|completion| !completion.completed),
             "Explore storage is unavailable: {}",
             self.explore.storage_error.as_deref().unwrap_or_default()
         );

@@ -45,6 +45,32 @@ fn no_post(actions: &[Action]) {
 }
 
 #[test]
+fn coverage_diff_uses_the_selected_file_after_restoring_multiple_files() {
+    let (mut fixture, request) = ExploreUi::new();
+    let pass = pass(&fixture, &request);
+    let expected = pass.exploration.comparison.files[0].review_path().display();
+    assert!(pass.exploration.comparison.files.len() > 1);
+    restore(&mut fixture, &pass, None);
+    fixture.click("Coverage");
+    fixture.click(&format!("{expected}  "));
+    let diff = fixture
+        .app
+        .event_bus
+        .get::<DiffComponent>(fixture.app.diff_component)
+        .unwrap();
+    assert_eq!(
+        diff.evidence_view(ui_events::EvidenceView::Coverage)
+            .and_then(DiffComponent::evidence_path),
+        Some(expected.as_str())
+    );
+    assert!(
+        fixture
+            .text()
+            .contains(&format!("Coverage diff · {expected}"))
+    );
+}
+
+#[test]
 fn previous_pass_remains_accessible_when_the_current_pass_has_no_agent_response() {
     let (mut fixture, kickoff) = ExploreUi::new();
     let mut exploration = review_explore::Exploration::new(fixture.comparison.clone());
@@ -221,7 +247,8 @@ fn separate_conclusions_restore_independent_editors_and_old_conclusion_cannot_im
         text.contains("Only edited tasks 1") && text.contains("Independent reply 1"),
         "{text}"
     );
-    assert!(text.contains("[Implement]"));
+    assert!(text.contains("file marking is pending"));
+    assert!(!text.contains("[Implement]"));
 }
 
 #[test]

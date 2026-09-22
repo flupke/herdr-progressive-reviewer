@@ -20,6 +20,17 @@ fn implementation(
         future_work: "Later tasks".into(),
     });
     fixture.submit(conclusion);
+    fixture.mutate(|pass| {
+        pass.completion = Some(review_explore::ReviewCompletion {
+            request: turn.request.clone(),
+            baseline: "checkpoint".into(),
+            marks: vec![],
+            completed: true,
+            exclusions_enabled: false,
+            summary: review_explore::CoverageSummary::default(),
+        });
+        Ok(())
+    });
     let request = fixture
         .pass
         .exploration

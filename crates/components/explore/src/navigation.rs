@@ -183,10 +183,13 @@ impl ExploreComponent {
         let history = HistoryPages::new(self);
         let last = history.pages.len() - 1;
         if last == 0 {
-            return Navigation::new(area, self.saved_controls());
+            let mut labels = self.coverage_control();
+            labels.extend(self.saved_controls());
+            return Navigation::new(area, labels);
         }
         let position = history.current;
         let mut labels = vec![(history.pages[position].label(self), None)];
+        labels.extend(self.coverage_control());
         for (label, target, visible) in [
             ("Previous", History::Previous, position > 0),
             ("Next", History::Next, position < last),
@@ -204,5 +207,30 @@ impl ExploreComponent {
         }
         labels.extend(self.saved_controls());
         Navigation::new(area, labels)
+    }
+
+    fn coverage_control(&self) -> Vec<(String, Option<Control>)> {
+        let Some(coverage) = &self.coverage else {
+            return Vec::new();
+        };
+        let summary = coverage.summary(self.completion_policy.unwrap_or(self.jev_enabled));
+        let label = if !summary.complete {
+            "Coverage incomplete".into()
+        } else if summary.required == 0 {
+            if self.completion_done {
+                "Coverage 100% · No required changes".into()
+            } else {
+                "Coverage — · No required changes".into()
+            }
+        } else {
+            format!("Coverage {}%", summary.percent.unwrap_or(0))
+        };
+        vec![(
+            format!(
+                "[{label} {}]",
+                if self.coverage_overview { "▴" } else { "▾" }
+            ),
+            Some(Control::Coverage),
+        )]
     }
 }

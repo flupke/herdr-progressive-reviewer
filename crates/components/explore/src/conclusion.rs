@@ -40,6 +40,10 @@ pub(super) struct ConclusionView {
 }
 
 impl ExploreComponent {
+    fn marking_ready(&self) -> bool {
+        !self.durable.enabled || self.completion_done
+    }
+
     pub(super) fn implementation_in_progress(&self) -> bool {
         self.conclusions
             .values()
@@ -135,6 +139,7 @@ impl ExploreComponent {
         if self.compose_scope != ComposeScope::Conclusion
             || !self.progress.can_submit()
             || self.durable.blocked()
+            || !self.marking_ready()
             || !self.active_conclusion_selected()
         {
             return vec![];
@@ -246,6 +251,14 @@ impl ExploreComponent {
 
     fn implementation_controls(&self, layout: &mut ConversationLayout, palette: Palette) {
         let view = self.conclusion().expect("conclusion view");
+        if !self.marking_ready() {
+            layout.text(
+                "Explore file marking is pending; restore or retry the accepted conclusion before implementing.",
+                palette.warning,
+                None,
+            );
+            return;
+        }
         if !self.active_conclusion_selected() || self.durable.historical {
             layout.text(
                 "The interview has continued since this conclusion.",

@@ -43,9 +43,8 @@ impl ExploreComponent {
             self.reset_warning = false;
         }
         match control {
-            Control::Start => return self.start(),
-            Control::PreviousPass | Control::LatestPass => {
-                return self.open_saved(control);
+            Control::Start | Control::PreviousPass | Control::LatestPass => {
+                return self.start_or_open(control);
             }
             Control::Implement | Control::NewImplementation => {
                 if matches!(control, Control::NewImplementation) {
@@ -57,9 +56,34 @@ impl ExploreComponent {
             Control::Cancel => return self.cancel(),
             Control::Retry => return self.retry(),
             Control::CancelImplementation => return self.cancel_implementation(),
+            Control::RequireReview(index) => return self.require_review(index),
             control => self.navigate(control),
         }
         Vec::new()
+    }
+
+    fn start_or_open(&mut self, control: Control) -> Vec<Action> {
+        if matches!(control, Control::Start) {
+            self.start()
+        } else {
+            self.open_saved(control)
+        }
+    }
+
+    fn require_review(&self, index: usize) -> Vec<Action> {
+        if self.completion_done {
+            return Vec::new();
+        }
+        let Some(unit) = self
+            .coverage
+            .as_ref()
+            .and_then(|coverage| coverage.unexplored_exclusions().get(index).cloned())
+        else {
+            return Vec::new();
+        };
+        vec![Action::Explore(review_explore::Command::RequireReview(
+            Box::new(vec![unit]),
+        ))]
     }
 
     fn cancel(&mut self) -> Vec<Action> {
@@ -82,12 +106,26 @@ impl ExploreComponent {
                 self.begin_edit(control);
             }
             Control::Map => self.map = !self.map,
+            Control::Coverage
+            | Control::JevDebug
+            | Control::CoverageFile(_)
+            | Control::CoverageGap(_)
+            | Control::CoverageReturn
+            | Control::ExcludedGap(_) => self.navigate_coverage(control),
             Control::Correct(turn) => self.correct(turn),
             Control::Reply(turn) => self.edit_turn(turn),
             Control::History(target) => self.visit_history(target),
-            Control::Primary(view) => {
-                self.open_evidence(view, true);
+            Control::Primary(_) | Control::Evidence(_) | Control::Fit(_) => {
+                self.navigate_evidence(control);
             }
+            Control::SelectChoice(choice) => self.select_choice(choice),
+            control => self.expand(control),
+        }
+    }
+
+    fn navigate_evidence(&mut self, control: Control) {
+        match control {
+            Control::Primary(view) => self.open_evidence(view, true),
             Control::Evidence(view) => self.open_evidence(view, false),
             Control::Fit(view) => {
                 self.heights.remove(&view);
@@ -95,8 +133,32 @@ impl ExploreComponent {
                 self.events
                     .publish(ReviewPaneFocusRequested(ReviewPane::Detail));
             }
-            Control::SelectChoice(choice) => self.select_choice(choice),
-            control => self.expand(control),
+            _ => {}
+        }
+    }
+
+    fn navigate_coverage(&mut self, control: Control) {
+        match control {
+            Control::Coverage => {
+                self.coverage_overview = !self.coverage_overview;
+                if !self.coverage_overview {
+                    self.coverage_file = None;
+                    if self.compose_scope == ComposeScope::Question {
+                        self.publish_evidence(self.view_id(), false);
+                    }
+                }
+            }
+            Control::JevDebug => self.jev_debug = !self.jev_debug,
+            Control::CoverageFile(index) => self.open_coverage_file(index),
+            Control::CoverageGap(index) => self.open_coverage_gap(index, false),
+            Control::ExcludedGap(index) => self.open_coverage_gap(index, true),
+            Control::CoverageReturn => {
+                self.coverage_file = None;
+                if self.compose_scope == ComposeScope::Question {
+                    self.publish_evidence(self.view_id(), false);
+                }
+            }
+            _ => {}
         }
     }
 
@@ -143,10 +205,137 @@ impl ExploreComponent {
     }
 
     fn open_evidence(&mut self, view: EvidenceView, reveal: bool) {
-        if let Some(turn) = self.turns.get_mut(view.turn) {
-            turn.reference = view.reference;
+        let EvidenceView::Question { turn, reference } = view else {
+            return;
+        };
+        if let Some(turn) = self.turns.get_mut(turn) {
+            turn.reference = reference;
             self.publish_evidence(view, reveal);
         }
+    }
+
+    pub(super) fn open_coverage_file(&mut self, index: usize) {
+        let Some(file) = self
+            .exploration
+            .as_ref()
+            .and_then(|pass| pass.comparison.files.get(index))
+        else {
+            return;
+        };
+        let path = file.review_path().display();
+        self.publish_coverage_view(index, true);
+        self.events.publish(ui_events::GuideJumpRequested {
+            file_index: index,
+            row: None,
+            target: review_guide::GuideTarget::File { path },
+        });
+    }
+
+    fn publish_coverage_view(&mut self, index: usize, reveal: bool) {
+        let Some(exploration) = &self.exploration else {
+            return;
+        };
+        let Some(file) = exploration.comparison.files.get(index) else {
+            return;
+        };
+        self.coverage_overview = true;
+        self.coverage_file = Some(index);
+        self.events.publish(ui_events::ExploreEvidence {
+            comparison: exploration.comparison.clone(),
+            evidence: vec![review_explore::EvidenceRef {
+                location: review_explore::CodeLocation {
+                    path: file.review_path().clone(),
+                    side: if file.new_path.is_some() {
+                        review_explore::SourceSide::New
+                    } else {
+                        review_explore::SourceSide::Old
+                    },
+                    lines: None,
+                },
+                relationship: "Coverage inspection".into(),
+                decision_relevance: String::new(),
+            }],
+            primary: 1,
+            view: Self::coverage_view(),
+            reveal,
+        });
+    }
+
+    fn open_coverage_gap(&mut self, index: usize, excluded: bool) {
+        let (Some(coverage), Some(exploration)) = (&self.coverage, &self.exploration) else {
+            return;
+        };
+        let units = if excluded {
+            coverage.unexplored_exclusions()
+        } else {
+            coverage.remaining(self.completion_policy.unwrap_or(self.jev_enabled))
+        };
+        let Some(unit) = units.get(index) else {
+            return;
+        };
+        let file_index = unit.file_index();
+        let following = units
+            .iter()
+            .enumerate()
+            .filter(|(_, candidate)| candidate.file_index() == file_index)
+            .map(|(position, _)| position)
+            .collect::<Vec<_>>();
+        if let Some(position) = following.iter().position(|position| *position == index) {
+            self.coverage_next
+                .insert(file_index, following[(position + 1) % following.len()]);
+        }
+        let Some(file) = exploration.comparison.files.get(unit.file_index()) else {
+            return;
+        };
+        let path = file.review_path().display();
+        let target = match unit {
+            review_explore::CoverageUnit::Lines {
+                side, first, end, ..
+            } => {
+                let range = Some(review_guide::GuideLineRange {
+                    first_line: *first,
+                    last_line: end - 1,
+                });
+                review_guide::GuideTarget::Lines {
+                    path,
+                    old: if *side == review_explore::SourceSide::Old {
+                        range.clone()
+                    } else {
+                        None
+                    },
+                    new: if *side == review_explore::SourceSide::New {
+                        range
+                    } else {
+                        None
+                    },
+                }
+            }
+            review_explore::CoverageUnit::Item { .. } => review_guide::GuideTarget::File { path },
+        };
+        self.open_coverage_file(file_index);
+        self.events.publish(ui_events::GuideJumpRequested {
+            file_index: unit.file_index(),
+            row: None,
+            target,
+        });
+    }
+
+    pub(super) fn coverage_view() -> EvidenceView {
+        EvidenceView::Coverage
+    }
+
+    pub(super) fn next_coverage_gap(
+        &self,
+        units: &[review_explore::CoverageUnit],
+        file: usize,
+    ) -> Option<usize> {
+        let first = units.iter().position(|unit| unit.file_index() == file)?;
+        let remembered = self.coverage_next.get(&file).copied().unwrap_or(first);
+        units
+            .iter()
+            .enumerate()
+            .find(|(index, unit)| *index >= remembered && unit.file_index() == file)
+            .map_or(Some(first), |(index, _)| Some(index))
     }
 
     #[allow(clippy::trivially_copy_pass_by_ref)]
@@ -215,6 +404,9 @@ impl ExploreComponent {
         if let Some(control) = self.choice_control(key) {
             return self.activate(control);
         }
+        if let Key::Alt(_) = key {
+            return self.coverage_command(key);
+        }
         match key {
             Key::Enter if self.compose_scope == ComposeScope::Conclusion => {
                 self.activate(Control::EditImplementation)
@@ -232,6 +424,62 @@ impl ExploreComponent {
         }
     }
 
+    fn coverage_command(&mut self, key: Key) -> Vec<Action> {
+        let count = self
+            .exploration
+            .as_ref()
+            .map_or(0, |pass| pass.comparison.files.len());
+        let selected = self.coverage_file.unwrap_or(0).min(count.saturating_sub(1));
+        match key {
+            Key::Alt('o') => {
+                if count > 0 {
+                    self.activate(Control::CoverageFile(selected))
+                } else {
+                    Vec::new()
+                }
+            }
+            Key::Alt('n') => {
+                let remaining = self.coverage.as_ref().map(|coverage| {
+                    coverage.remaining(self.completion_policy.unwrap_or(self.jev_enabled))
+                });
+                let index = remaining.as_ref().and_then(|units| {
+                    let file = self.coverage_file.unwrap_or_else(|| {
+                        units
+                            .first()
+                            .map_or(0, review_explore::CoverageUnit::file_index)
+                    });
+                    self.next_coverage_gap(units, file)
+                });
+                index.map_or_else(Vec::new, |index| self.activate(Control::CoverageGap(index)))
+            }
+            Key::Alt('v') => self.activate(Control::JevDebug),
+            Key::Alt('r') => {
+                let index = self.coverage.as_ref().and_then(|coverage| {
+                    coverage.unexplored_exclusions().iter().position(|unit| {
+                        self.coverage_file
+                            .is_none_or(|file| unit.file_index() == file)
+                    })
+                });
+                index.map_or_else(Vec::new, |index| {
+                    self.activate(Control::RequireReview(index))
+                })
+            }
+            Key::Alt(']' | '[') => {
+                if count > 0 {
+                    let next = if key == Key::Alt(']') {
+                        (selected + 1) % count
+                    } else {
+                        (selected + count - 1) % count
+                    };
+                    self.activate(Control::CoverageFile(next))
+                } else {
+                    Vec::new()
+                }
+            }
+            _ => Vec::new(),
+        }
+    }
+
     fn shortcut(&mut self, key: Key) -> Vec<Action> {
         let Key::Char(character) = key else {
             return Vec::new();
@@ -245,6 +493,7 @@ impl ExploreComponent {
             .and_then(|exploration| exploration.questions.get(self.selected))
             .map_or(0, |question| question.evidence.len());
         let bindings = [
+            ('g', Control::Coverage),
             ('s', Control::Start),
             ('n', Control::Start),
             ('d', Control::Defer),
@@ -252,7 +501,7 @@ impl ExploreComponent {
             (']', Control::History(History::Next)),
             (
                 'b',
-                Control::Primary(EvidenceView {
+                Control::Primary(EvidenceView::Question {
                     turn: self.selected,
                     reference: 0,
                 }),
@@ -264,9 +513,14 @@ impl ExploreComponent {
             ('x', Control::Correct(self.selected)),
             (
                 'e',
-                Control::Evidence(EvidenceView {
+                Control::Evidence(EvidenceView::Question {
                     turn: self.selected,
-                    reference: (self.view_id().reference + 1) % count.max(1),
+                    reference: (self
+                        .turns
+                        .get(self.selected)
+                        .map_or(0, |turn| turn.reference)
+                        + 1)
+                        % count.max(1),
                 }),
             ),
         ];
@@ -363,7 +617,13 @@ impl ExploreComponent {
     }
 
     fn viewer_pointer(&mut self, window: super::flow::Window, mut input: PointerInput) {
-        self.open_evidence(window.view, false);
+        if window.view == EvidenceView::Coverage {
+            if let Some(index) = self.coverage_file {
+                self.publish_coverage_view(index, false);
+            }
+        } else {
+            self.open_evidence(window.view, false);
+        }
         if matches!(input.kind, PointerInputKind::Click) {
             self.pointer_view = Some(window);
             self.events

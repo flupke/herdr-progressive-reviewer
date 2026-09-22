@@ -1,11 +1,16 @@
 //! Durable interviews over the complete working-copy change, without source archives.
 
+mod coverage;
 mod durable;
 mod presentation;
 mod recovery;
+pub use coverage::{
+    CoverageFeedback, CoverageInventory, CoverageLedger, CoverageSummary, CoverageUnit,
+    FileCoverage, Gap, GapKind, JevFeedback, JevMode, Significance, SignificanceResult,
+};
 pub use durable::{
-    ConversationBinding, DispatchId, DispatchResult, DispatchState, ExplorePass,
-    ImplementationDelivery, InterviewDelivery,
+    CompletionMark, ConversationBinding, DispatchId, DispatchResult, DispatchState, ExplorePass,
+    ImplementationDelivery, InterviewDelivery, PriorMark, ReviewCompletion,
 };
 pub use presentation::{
     EditorFocus, EvidencePosition, ExploreDraft, ExplorePage, ExploreViewState, QuestionReading,
@@ -43,6 +48,7 @@ pub enum Command {
     OpenPass(String),
     Turn(Box<TurnRequest>),
     Implement(ImplementationRequest),
+    RequireReview(Box<Vec<CoverageUnit>>),
     CancelImplementation,
     Cancel,
 }

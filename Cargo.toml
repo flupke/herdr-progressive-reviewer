@@ -71,6 +71,7 @@ ratatui = { version = "0.30", default-features = false, features = ["underline-c
 ratatui-legacy = { package = "ratatui", version = "0.29", default-features = false }
 ratatui-markdown = { version = "=0.3.6", default-features = false, features = ["markdown"] }
 rmcp = { version = "3.3", default-features = false, features = ["server", "macros", "transport-streamable-http-server"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["blocking", "json", "rustls"] }
 grep-matcher = "0.1"
 grep-regex = "0.1"
 grep-searcher = "0.1"

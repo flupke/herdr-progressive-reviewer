@@ -24,6 +24,7 @@ zstd.workspace = true
 [dev-dependencies]
 herdr-client = { path = "../herdr-client" }
 tempfile.workspace = true
+review-repository = { path = "../review-repository" }
 
 [lints]
 workspace = true

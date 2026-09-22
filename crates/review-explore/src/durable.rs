@@ -1,5 +1,8 @@
 //! Durable investigation state. Sources and runtime capabilities are never stored here.
-use crate::{Exploration, ImplementationRequest, TurnRequest};
+use crate::{
+    CoverageFeedback, CoverageLedger, Exploration, ImplementationRequest, InterviewUpdate,
+    TurnRequest,
+};
 use herdr_client::protocol::AgentSession;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -87,29 +90,130 @@ pub struct InterviewDelivery {
     pub state: DispatchState,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+pub struct PriorMark {
+    pub baseline: String,
+    pub reviewed_at: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+pub struct CompletionMark {
+    pub path: Vec<u8>,
+    pub prior: Option<PriorMark>,
+    pub applied: bool,
+}
+
+/// A saved local transaction; completion is acknowledged only after every path is marked.
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+pub struct ReviewCompletion {
+    pub request: String,
+    pub baseline: String,
+    pub marks: Vec<CompletionMark>,
+    pub completed: bool,
+    #[serde(default)]
+    pub exclusions_enabled: bool,
+    #[serde(default)]
+    pub summary: crate::CoverageSummary,
+}
+
 /// Domain and deduplication state are committed together, separate from editor autosaves.
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct ExplorePass {
     pub revision: u64,
     pub exploration: Exploration,
+    #[serde(default)]
+    pub coverage: CoverageLedger,
     pub binding: Option<ConversationBinding>,
     pub turns: BTreeMap<String, InterviewDelivery>,
     pub implementations: BTreeMap<String, ImplementationDelivery>,
+    #[serde(default)]
+    pub completion: Option<ReviewCompletion>,
+    #[serde(default)]
+    pub coverage_receipts: BTreeMap<String, CoverageFeedback>,
 }
 
 impl ExplorePass {
     pub fn new(exploration: Exploration) -> Self {
+        let coverage = CoverageLedger::new(&exploration.comparison);
         Self {
             revision: 0,
             exploration,
+            coverage,
             binding: None,
             turns: BTreeMap::new(),
             implementations: BTreeMap::new(),
+            completion: None,
+            coverage_receipts: BTreeMap::new(),
         }
+    }
+
+    /// Validate on a candidate so a coverage rejection retains the pending request and answer.
+    pub fn submit(
+        &mut self,
+        update: &InterviewUpdate,
+        exclusions_enabled: bool,
+    ) -> eyre::Result<(bool, CoverageFeedback)> {
+        let mut candidate = self.exploration.clone();
+        let applied = candidate.submit(update.clone())?;
+        if !applied && let Some(receipt) = self.coverage_receipts.get(&update.request) {
+            return Ok((false, receipt.clone()));
+        }
+        if update.conclusion.is_some() && applied {
+            eyre::ensure!(
+                self.coverage.inventory.complete,
+                "coverage_incomplete: {}",
+                self.coverage.inventory.limitations.join("; ")
+            );
+            let missing = self.coverage.remaining(exclusions_enabled);
+            if !missing.is_empty() {
+                let feedback =
+                    self.coverage
+                        .feedback(&self.exploration.comparison, &[], exclusions_enabled);
+                eyre::bail!(
+                    "coverage_incomplete: {} required change units remain. Unassigned: {:?}; awaiting an answer: {:?}; has_more: {}",
+                    feedback.summary.remaining,
+                    feedback.unassigned_required,
+                    feedback.awaiting_answer,
+                    feedback.has_more
+                );
+            }
+        }
+        if applied {
+            self.exploration = candidate;
+            if update.next.is_some() {
+                self.coverage.revision += 1;
+            }
+        }
+        let pending =
+            self.exploration
+                .questions
+                .last()
+                .filter(|question| {
+                    !self.exploration.answers.iter().any(|answer| {
+                        answer.question.as_ref() == Some(question) && !answer.deferred
+                    })
+                })
+                .cloned()
+                .into_iter()
+                .collect::<Vec<_>>();
+        let feedback =
+            self.coverage
+                .feedback(&self.exploration.comparison, &pending, exclusions_enabled);
+        if applied {
+            self.coverage_receipts
+                .insert(update.request.clone(), feedback.clone());
+        }
+        Ok((applied, feedback))
     }
 
     /// Accept an already attributed UI contribution against the latest stored state.
     pub fn post(&mut self, request: &TurnRequest) -> eyre::Result<bool> {
+        eyre::ensure!(
+            self.completion
+                .as_ref()
+                .is_none_or(|completion| completion.completed),
+            "Explore conclusion finalization is pending; recover file marking before posting"
+        );
         eyre::ensure!(
             request.instance == self.exploration.instance
                 && request.checkpoint == self.exploration.comparison.checkpoint,
@@ -178,6 +282,7 @@ impl ExplorePass {
                 "Answer identity already used"
             );
             self.exploration.answers.push(answer.clone());
+            self.coverage.credit(answer, &self.exploration.comparison);
         }
         self.exploration.outstanding = Some(request.clone());
         self.exploration.retry = Some(request.clone());
@@ -194,6 +299,12 @@ impl ExplorePass {
     }
 
     pub fn authorize(&mut self, request: &ImplementationRequest) -> eyre::Result<bool> {
+        eyre::ensure!(
+            self.completion
+                .as_ref()
+                .is_some_and(|completion| completion.completed),
+            "Explore file marking is not complete"
+        );
         eyre::ensure!(
             request.instance == self.exploration.instance
                 && self.exploration.conclusion_request() == Some(request.conclusion.as_str()),

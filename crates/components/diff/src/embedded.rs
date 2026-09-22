@@ -126,7 +126,7 @@ impl DiffComponent {
     fn evidence_viewport(&mut self, viewport: ui_events::DiffViewportChanged) {
         if let Some(active) = self.embedded.active
             && let Some(index) = self.embedded.restored.iter().position(|position| {
-                position.turn == active.turn && position.reference == active.reference
+                matches!(active, EvidenceView::Question { turn, reference } if position.turn == turn && position.reference == reference)
             })
         {
             let saved = self.embedded.restored.remove(index);
@@ -238,18 +238,21 @@ impl DiffComponent {
             .map(|(id, view)| (*id, view.as_ref()))
             .chain(self.embedded.active.map(|id| (id, self)))
         {
+            let EvidenceView::Question { turn, reference } = id else {
+                continue;
+            };
             if result
                 .iter()
-                .any(|saved| saved.turn == id.turn && saved.reference == id.reference)
+                .any(|saved| saved.turn == turn && saved.reference == reference)
             {
                 // The first viewport event has not applied this recovered position yet.
                 continue;
             }
             if let Some(file) = viewer.displayed_document() {
-                result.retain(|saved| saved.turn != id.turn || saved.reference != id.reference);
+                result.retain(|saved| saved.turn != turn || saved.reference != reference);
                 result.push(review_explore::EvidencePosition {
-                    turn: id.turn,
-                    reference: id.reference,
+                    turn,
+                    reference,
                     scroll: file.document.scroll,
                     cursor: file.document.cursor,
                     column: file.document.column,

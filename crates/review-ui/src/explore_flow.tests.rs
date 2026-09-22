@@ -1,4 +1,45 @@
 use super::*;
+
+#[test]
+fn coverage_overview_opens_a_gap_without_losing_the_question_draft() {
+    let (mut fixture, request) = ExploreUi::new();
+    fixture.respond(&request, 1);
+    assert!(fixture.text().contains("Coverage 0%"));
+    fixture.app.update(UserInput::Key(Key::Char('1')));
+    fixture
+        .app
+        .update(UserInput::Paste("Keep this draft".into()));
+    fixture.click("Coverage 0%");
+    assert!(fixture.text().contains("Unexplored"));
+    fixture.click("Next unexplored region");
+    assert_eq!(fixture.app.navigation, ReviewNavigation::Explore);
+    let coverage = fixture
+        .app
+        .event_bus
+        .get::<DiffComponent>(fixture.app.diff_component)
+        .unwrap();
+    assert_eq!(
+        coverage
+            .evidence_view(EvidenceView::Coverage)
+            .and_then(DiffComponent::evidence_path),
+        Some("policy.rs")
+    );
+    assert!(fixture.text().contains("Coverage diff · policy.rs"));
+    assert!(fixture.text().contains("Keep this draft"));
+    assert!(fixture.text().contains("Coverage 0%"));
+    fixture.click("Return to question evidence");
+    assert!(fixture.text().contains("Keep this draft"));
+}
+
+#[test]
+fn coverage_keyboard_opens_the_pass_diff_without_editing_the_answer() {
+    let (mut fixture, request) = ExploreUi::new();
+    fixture.respond(&request, 1);
+    fixture.app.update(UserInput::Key(Key::Char('g')));
+    fixture.app.update(UserInput::Key(Key::Alt('n')));
+    assert!(fixture.text().contains("Coverage diff · policy.rs"));
+    assert_eq!(fixture.app.navigation, ReviewNavigation::Explore);
+}
 use std::fmt::Write as _;
 use ui_events::EvidenceView;
 
@@ -110,7 +151,7 @@ impl ExploreUi {
     fn inline_height(&self, turn: usize) -> u16 {
         self.inline_sizes()
             .iter()
-            .find(|(id, _)| id.turn == turn)
+            .find(|(id, _)| matches!(id, EvidenceView::Question { turn: index, .. } if *index == turn))
             .unwrap()
             .1
             .height
@@ -149,7 +190,7 @@ impl ExploreUi {
             .event_bus
             .get::<DiffComponent>(self.app.diff_component)
             .unwrap()
-            .evidence_view(EvidenceView { turn, reference })
+            .evidence_view(EvidenceView::Question { turn, reference })
             .unwrap()
             .evidence_path()
             .unwrap()
@@ -694,7 +735,7 @@ fn delayed_search_results_stay_with_their_evidence_window() {
             comparison: fixture.comparison.clone(),
             evidence: evidence.clone(),
             primary: evidence.len(),
-            view: EvidenceView { turn: 0, reference },
+            view: EvidenceView::Question { turn: 0, reference },
             reveal: false,
         })
     };

@@ -44,7 +44,10 @@ impl Request {
 pub enum Response {
     Threads(Vec<ReviewThread>),
     Posted(MessageId),
-    Explore { applied: bool },
+    Explore {
+        applied: bool,
+        coverage: review_explore::CoverageFeedback,
+    },
 }
 
 #[cfg(test)]
