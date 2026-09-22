@@ -247,7 +247,7 @@ impl ReviewApplication {
         };
         if matches!(
             kind,
-            PointerInputKind::Click { .. } | PointerInputKind::DoubleClick
+            PointerInputKind::Click | PointerInputKind::DoubleClick
         ) {
             if target == self.files_component || target == self.threads_component {
                 self.set_focus(ReviewPane::Navigation);
@@ -730,9 +730,7 @@ fn pointer_position(message: &UserInput) -> Option<(u16, u16)> {
 fn pointer_kind(message: &UserInput) -> Option<PointerInputKind> {
     match message {
         UserInput::MouseScroll { delta, .. } => Some(PointerInputKind::Scroll(*delta)),
-        UserInput::MouseClick { insert_path, .. } => Some(PointerInputKind::Click {
-            insert: *insert_path,
-        }),
+        UserInput::MouseClick { .. } => Some(PointerInputKind::Click),
         UserInput::MouseControlClick { .. } => Some(PointerInputKind::ControlClick),
         UserInput::MouseDoubleClick { .. } => Some(PointerInputKind::DoubleClick),
         UserInput::MouseRightClick { .. } => Some(PointerInputKind::RightClick),

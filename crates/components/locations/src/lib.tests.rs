@@ -20,7 +20,7 @@ fn pointer_selection_previews_the_location_at_the_clicked_row() {
 
     let results = event_bus
         .dispatch_hovered_input(
-            &EventEnvelope::new(pointer_input(PointerInputKind::Click { insert: false }, 3)),
+            &EventEnvelope::new(pointer_input(PointerInputKind::Click, 3)),
             target,
         )
         .expect("pointer selection must dispatch")
@@ -145,7 +145,7 @@ fn output_texts(results: Vec<component_core::DispatchResult<Action>>) -> Vec<Str
         .into_iter()
         .flat_map(component_core::DispatchResult::into_actions)
         .filter_map(|action| match action {
-            Action::Output { text, .. } => Some(text),
+            Action::EditRevision { change_id: text } => Some(text.as_str().to_owned()),
             _ => None,
         })
         .collect()
@@ -183,5 +183,7 @@ impl Component<Action> for LocationOutput {
 }
 
 fn output(text: String) -> Vec<Action> {
-    vec![Action::Output { text }]
+    vec![Action::EditRevision {
+        change_id: text.into(),
+    }]
 }

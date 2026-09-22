@@ -107,6 +107,46 @@ fn idle_ticks_skip_frames_but_input_animation_and_toast_expiration_still_render(
     );
 }
 
+#[test]
+fn agent_detection_events_and_batched_idle_ticks_do_not_repaint() {
+    let root = tempfile::tempdir().unwrap();
+    let mut scenario = Scenario::new(root.path().into());
+    let events = scenario.background.clone();
+    let mut runtime = scenario.event_loop();
+    runtime.redraw().unwrap();
+    let frames = runtime.terminal.get_frame().count();
+    for released in [false, true] {
+        events
+            .send(EventEnvelope::new(HerdrEvent::AgentDetected {
+                pane_id: PaneId("companion".into()),
+                workspace_id: WorkspaceId("test".into()),
+                agent: Some("codex".into()),
+                released,
+                final_status: None,
+            }))
+            .unwrap();
+        events
+            .send(EventEnvelope::new(ApplicationTick(Instant::now())))
+            .unwrap();
+        assert!(!runtime.cycle().unwrap());
+        assert_eq!(runtime.terminal.get_frame().count(), frames);
+    }
+    events
+        .send(EventEnvelope::new(HerdrEvent::AgentDetected {
+            pane_id: PaneId("companion".into()),
+            workspace_id: WorkspaceId("test".into()),
+            agent: Some("codex".into()),
+            released: false,
+            final_status: None,
+        }))
+        .unwrap();
+    events
+        .send(EventEnvelope::new(UserInput::Key(Key::Char('t'))))
+        .unwrap();
+    assert!(!runtime.cycle().unwrap());
+    assert_eq!(runtime.terminal.get_frame().count(), frames + 1);
+}
+
 struct DelayedHighlights {
     worker: highlighting::Worker,
     started: Receiver<()>,

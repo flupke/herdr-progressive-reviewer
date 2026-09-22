@@ -13,7 +13,7 @@ Codex / Claude --stdio--> reviewer-mcp --localhost HTTP--> reviewer
                                                      conversation store
 
 Reviewer wakes the agent after a comment is posted:
-reviewer --PromptGate--> Herdr's Unix socket --prompt--> agent's terminal
+reviewer --agent.prompt--> Herdr's Unix socket --> agent's terminal
 ```
 
 `reviewer-mcp` is launched by the agent using its MCP configuration. It advertises
@@ -22,9 +22,9 @@ repository's reviewer. It holds no history. The reviewer owns the HTTP server,
 validates access, and reads or updates the conversation store. Closing the
 reviewer leaves the bridge alive; a later tool call reconnects after reopening.
 
-`PromptGate` checks that the agent pane is unfocused and its input appears empty
-before sending a notification through Herdr. It is separate from MCP access and
-approval rules. Its remaining race is described under [Notifications](#notifications).
+The reviewer submits notifications through Herdr's `agent.prompt` API. Thread
+messages and acknowledgements determine pending work; delivery does not inspect
+the agent's terminal layout, focus, or lifecycle state.
 
 User-level registration lets both clients find the bridge in every repository. It does
 not grant access to every review: each call needs a token for the selected review
@@ -113,23 +113,21 @@ automatic review with your explicit approval as context. See
 
 ## Notifications
 
-Codex and Claude Code read and reply through MCP. Posting wakes the active
-agent through Herdr when it is idle or done. During review work the agent checks
-for new comments through MCP, including before finishing. A comment that arrives
-after its final read wakes it once it becomes idle. Returning to idle does not
-repeat the same notification if MCP is unavailable or the agent stops before
-answering comments. Use **Retry agent** on an unresolved thread to request
-another attempt for unanswered comments without adding a comment; a follow-up also
-requests work. Both use the same active agent as filename insertion. Use the Post
-button or `Ctrl-Enter` to post composer text; `Ctrl-s` has no reviewer action.
+Codex and Claude Code read and reply through MCP. Posting a comment saves it and
+sends the active agent a notification through Herdr's `agent.prompt`, including
+while the agent is working. Each new comment requests a notification; changing
+agent status or revisiting the review does not repeat an already attempted one.
+The agent checks pending threads through MCP, including before finishing. Reading
+never consumes comments: a successful reply acknowledges its exact snapshot.
 
-Automatic notifications wait while the agent pane is focused or its input
-contains unfinished text or an image. A notice explains the delay; the comment
-is already saved and available through MCP. Notification retries once the
-unfocused input is visibly empty. Codex's dim placeholder and animated dots are
-recognized from their terminal styling. Unrecognized input layouts also defer the
-notification. Herdr currently has no atomic empty-input check with submission,
-so a focus change or new input between the check and submission remains possible.
+Delivery errors are reported while comments remain saved. Use **Retry agent** on
+an unresolved thread to request another attempt without adding a comment; a
+follow-up also requests work. Both use the active agent selected for the review.
+Use the Post button or `Ctrl-Enter` to post composer text; `Ctrl-s` has no reviewer
+action. Filenames and selected diff text are no longer inserted into agent input.
+
+Herdr owns terminal submission and rejects prompts to a blocked agent. The reviewer
+does not inspect or protect an existing draft in the agent's composer.
 
 ## Multiple reviewers and ports
 
@@ -158,21 +156,22 @@ overwrite one another's posted messages.
 The tools are `list_threads`, `get_thread`, `get_new_messages`, and `reply`.
 Every updated thread includes its full conversation and original code context.
 The Herdr wakeup supplies a review access value tied to the selected agent
-session and logical review. Notifications wait until Herdr reports the selected
-agent's session ID, so a late identity report cannot invalidate newly sent access.
-Filenames, guide generation and comment delivery share one active-agent selection:
+and logical review. When Herdr reports a native session ID, access is bound to
+that session. Otherwise it is bound to the agent's foreground process group,
+so notifications and **Retry agent** can still reach an agent without a native
+session ID.
+Guide generation and comment delivery share one active-agent selection:
 the most recently focused live agent in this workspace, with the existing single-agent
 fallback. Focus changes, posts, retries and reopening use that selection; reviews do
-not store a separate recipient. Pending notifications also follow focus while waiting
-for a native session or an empty input. Waking a different agent retires the previous
+not store a separate recipient. Waking a different agent retires the previous
 access value for that review. Completed answers belong to the review, so the active
 agent gets only unanswered work, with each pending thread's full conversation as context.
 
 Access values are bearer tokens. Each request checks that the bound pane still has
-the same native session; a session change invalidates that grant. The server does
-not authenticate the calling process: another local caller possessing a valid token
+the same native session or foreground process group; a change invalidates that
+grant. The server does not authenticate the calling process: another local caller possessing a valid token
 can use it. Closing the reviewer invalidates its values. Reopening with pending
-comments sends a fresh wakeup when the active agent is idle. Fetched but unanswered comments remain
+comments sends a fresh notification to the active agent. Fetched but unanswered comments remain
 pending and are recovered as well. Agents can read and append replies. Thread
 creation and resolution remain reviewer actions.
 

@@ -10,7 +10,7 @@ use super::{
     Response, event_subscriptions, read_line, validate_response,
 };
 use crate::Error;
-use crate::protocol::{AgentStatus, EntrypointId, HerdrEvent, PluginPane, TabId, WorkspaceId};
+use crate::protocol::{EntrypointId, HerdrEvent, PluginPane, TabId, WorkspaceId};
 
 #[test]
 fn reads_the_herdr_focus_event_envelope() {
@@ -37,15 +37,14 @@ fn reads_an_agent_release_event() {
 }
 
 #[test]
-fn scopes_agent_status_subscriptions_to_panes() {
-    let subscriptions = event_subscriptions(&[PaneId("w1:p2".to_owned())]);
+fn subscribes_to_focus_and_agent_detection() {
+    let subscriptions = event_subscriptions();
 
     assert_eq!(
         subscriptions,
         vec![
             json!({"type": "pane.focused"}),
             json!({"type": "pane.agent_detected"}),
-            json!({"type": "pane.agent_status_changed", "pane_id": "w1:p2"}),
         ]
     );
 }
@@ -73,7 +72,7 @@ fn reports_a_rejected_event_subscription() {
     assert_eq!(error.message, "pane_id is required");
 }
 
-fn event_stream(lines: &[&str], agent_panes: Vec<PaneId>) -> HerdrEventStream {
+fn event_stream(lines: &[&str]) -> HerdrEventStream {
     let (reader, mut writer) = UnixStream::pair().unwrap();
     for line in lines {
         writeln!(writer, "{line}").unwrap();
@@ -81,82 +80,46 @@ fn event_stream(lines: &[&str], agent_panes: Vec<PaneId>) -> HerdrEventStream {
     drop(writer);
     HerdrEventStream {
         reader: BufReader::new(reader),
-        agent_panes,
     }
 }
 
 #[test]
-fn forwards_focus_and_status_events() {
-    let stream = event_stream(
-        &[
-            r#"{"event":"pane_focused","data":{"pane_id":"w1:p1"}}"#,
-            r#"{"event":"pane_agent_status_changed","data":{"pane_id":"w1:p1","workspace_id":"w1","agent":"codex","agent_status":"working"}}"#,
-            r#"{"event":"pane_agent_detected","data":{"pane_id":"w1:p2","workspace_id":"w1","agent":"codex","released":false}}"#,
-        ],
-        vec![PaneId("w1:p1".to_owned())],
-    );
-    let (sender, receiver) = mpsc::channel();
-
-    let end = stream.forward(&sender).unwrap();
-
-    assert_eq!(
-        end,
-        super::EventStreamEnd::AgentPanesChanged(PaneId("w1:p2".to_owned()))
-    );
-    assert_eq!(
-        receiver.recv().unwrap(),
-        HerdrEvent::PaneFocused(PaneId("w1:p1".to_owned()))
-    );
-    assert_eq!(
-        receiver.recv().unwrap(),
-        HerdrEvent::AgentStatusChanged {
-            pane_id: PaneId("w1:p1".to_owned()),
-            workspace_id: WorkspaceId("w1".to_owned()),
-            agent: Some("codex".to_owned()),
-            status: AgentStatus::Working,
-        }
-    );
+fn forwards_focus_and_detection_without_restarting_for_new_agents() {
+    let mut stream = event_stream(&[
+        r#"{"event":"pane_focused","data":{"pane_id":"w1:p1"}}"#,
+        r#"{"event":"pane_agent_status_changed","data":{"pane_id":"w1:p1","agent_status":"working"}}"#,
+        r#"{"event":"pane_agent_detected","data":{"pane_id":"w1:p1","workspace_id":"w1","released":true}}"#,
+        r#"{"event":"pane_agent_detected","data":{"pane_id":"w1:p2","workspace_id":"w1","agent":"codex","released":false}}"#,
+    ]);
+    let mut received = Vec::new();
+    stream
+        .forward_while(
+            || true,
+            |event| {
+                received.push(event);
+                received.len() < 3
+            },
+        )
+        .unwrap();
+    assert_eq!(received[0], HerdrEvent::PaneFocused(PaneId("w1:p1".into())));
     assert!(matches!(
-        receiver.recv().unwrap(),
-        HerdrEvent::AgentDetected {
-            pane_id,
-            released: false,
-            ..
-        } if pane_id == PaneId("w1:p2".to_owned())
+        &received[1],
+        HerdrEvent::AgentDetected { released: true, .. }
     ));
-}
-
-#[test]
-fn released_and_subscribed_agents_do_not_restart_the_event_stream() {
-    let stream = event_stream(
-        &[
-            r#"{"event":"pane_agent_detected","data":{"pane_id":"w1:p1","workspace_id":"w1","released":true}}"#,
-            r#"{"event":"pane_agent_detected","data":{"pane_id":"w1:p2","workspace_id":"w1","released":false}}"#,
-            r#"{"event":"pane_agent_detected","data":{"pane_id":"w1:p3","workspace_id":"w1","released":false}}"#,
-        ],
-        vec![PaneId("w1:p2".to_owned())],
+    assert!(
+        matches!(&received[2], HerdrEvent::AgentDetected { pane_id, released: false, .. }
+        if pane_id.0 == "w1:p2")
     );
-    let (sender, receiver) = mpsc::channel();
-
-    assert_eq!(
-        stream.forward(&sender).unwrap(),
-        super::EventStreamEnd::AgentPanesChanged(PaneId("w1:p3".to_owned()))
-    );
-    assert_eq!(receiver.iter().take(3).count(), 3);
 }
 
 #[test]
 fn a_disconnected_receiver_ends_the_event_stream() {
-    let stream = event_stream(
-        &[r#"{"event":"pane_focused","data":{"pane_id":"w1:p1"}}"#],
-        Vec::new(),
-    );
+    let mut stream = event_stream(&[r#"{"event":"pane_focused","data":{"pane_id":"w1:p1"}}"#]);
     let (sender, receiver) = mpsc::channel();
     drop(receiver);
-    assert_eq!(
-        stream.forward(&sender).unwrap(),
-        super::EventStreamEnd::ReceiverDisconnected
-    );
+    stream
+        .forward_while(|| true, |event| sender.send(event).is_ok())
+        .unwrap();
 }
 
 #[test]

@@ -68,7 +68,7 @@ pub struct PointerPosition {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PointerInputKind {
     Scroll(isize),
-    Click { insert: bool },
+    Click,
     ControlClick,
     DoubleClick,
     RightClick,
@@ -104,12 +104,6 @@ pub struct DiffViewportChanged {
 /// Remove transient diff input state.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct DiffInputClearRequested;
-
-/// A selected output operation finished.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct OutputDeliveryFinished {
-    pub delivered: bool,
-}
 
 /// Complete source content loaded for one LSP location.
 #[derive(Clone, Debug, Eq, PartialEq)]

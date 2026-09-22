@@ -347,11 +347,6 @@ impl FilesComponent {
             ShortcutCommand::Application(ApplicationShortcut::MarkReviewed) => {
                 self.toggle_review().into_iter().collect()
             }
-            ShortcutCommand::Application(ApplicationShortcut::Insert) => self
-                .selected_path()
-                .map(|text| Action::Output { text })
-                .into_iter()
-                .collect(),
             ShortcutCommand::File(shortcut) => {
                 self.move_to_unreviewed_file(shortcut);
                 Vec::new()
@@ -398,10 +393,9 @@ impl FilesComponent {
             self.scroll_input(delta);
             return Vec::new();
         }
-        let (double_click, insert_path) = match input.kind {
-            PointerInputKind::Click { insert } => (false, insert),
-            PointerInputKind::ControlClick => (false, true),
-            PointerInputKind::DoubleClick => (true, false),
+        let double_click = match input.kind {
+            PointerInputKind::Click | PointerInputKind::ControlClick => false,
+            PointerInputKind::DoubleClick => true,
             PointerInputKind::Scroll(_)
             | PointerInputKind::RightClick
             | PointerInputKind::Drag
@@ -417,12 +411,6 @@ impl FilesComponent {
         if let Some(file) = self.tree.file_at(row) {
             self.selected = file;
             self.keep_selected_visible();
-            if insert_path {
-                self.publish_selection_if_changed(previous_selected_path.as_deref());
-                return vec![Action::Output {
-                    text: self.files[file].path(),
-                }];
-            }
             if double_click {
                 self.publish_selection_if_changed(previous_selected_path.as_deref());
                 return self.shortcut(ShortcutCommand::Application(

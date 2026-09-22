@@ -174,7 +174,7 @@ impl ConversationFixture {
 
 #[test_case::test_case(false; "unretrieved")]
 #[test_case::test_case(true; "retrieved")]
-fn comments_follow_the_same_active_agent_as_filename_insertion(retrieved: bool) {
+fn comments_follow_the_active_agent(retrieved: bool) {
     let fixture = ConversationFixture::start("codex");
     let first = fixture.new_thread("review", "file.rs", "Question for the first agent");
     let access = fixture.access(1);
@@ -192,7 +192,7 @@ fn comments_follow_the_same_active_agent_as_filename_insertion(retrieved: bool) 
             if retrieved {
                 value(&client, "get_new_messages", json!({"review": access})).await;
             }
-            let mut filename_target = fixture.target.clone();
+            let mut guide_target = fixture.target.clone();
             let second = fixture.second_agent();
             fixture.focus_agent(&second);
             fixture.server.run_cli(&[
@@ -204,7 +204,7 @@ fn comments_follow_the_same_active_agent_as_filename_insertion(retrieved: bool) 
                 &second.pane_id.0,
             ]);
             assert_eq!(
-                filename_target
+                guide_target
                     .resolve(&fixture.server.client())
                     .unwrap()
                     .unwrap()
@@ -245,16 +245,17 @@ fn comments_follow_the_same_active_agent_as_filename_insertion(retrieved: bool) 
                     review_unit: "review".into(),
                     thread_id: first.clone(),
                 }));
-            assert_eq!(fixture.second_access(2), second_access);
+            assert_eq!(fixture.second_access(3), second_access);
             assert_eq!(fixture.prompts().matches("Logical review: ").count(), 1);
             client.cancel().await.unwrap();
         });
 }
 
 #[test]
-fn changing_focus_redirects_comments_waiting_for_native_session_detection() {
+fn changing_focus_hands_pending_comments_to_a_second_agent() {
     let fixture = ConversationFixture::start_with_session("codex", None);
     let first = fixture.new_thread("review", "file.rs", "Pending before detection");
+    let first_access = fixture.access(1);
     let second = fixture.second_agent();
     fixture.focus_agent(&second);
     fixture.server.run_cli(&[
@@ -279,7 +280,13 @@ fn changing_focus_redirects_comments_waiting_for_native_session_detection() {
                 .unwrap();
             let updated = value(&client, "get_new_messages", json!({"review": access})).await;
             assert_eq!(updated["threads"][0]["thread_id"], json!(first));
-            assert!(fixture.prompts().is_empty());
+            assert_eq!(fixture.prompts().matches("Logical review: ").count(), 1);
+            assert_eq!(
+                call(&client, "get_new_messages", json!({"review": first_access}))
+                    .await
+                    .is_error,
+                Some(true)
+            );
             client.cancel().await.unwrap();
         });
 }

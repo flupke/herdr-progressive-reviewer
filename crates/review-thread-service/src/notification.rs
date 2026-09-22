@@ -1,4 +1,4 @@
-/// A pending notification waiting for the active native agent to be ready.
+/// A pending notification for the active agent.
 #[derive(Default)]
 pub(super) struct Notification {
     pub(super) retry: bool,

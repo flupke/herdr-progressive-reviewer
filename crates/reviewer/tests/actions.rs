@@ -1,10 +1,10 @@
 use std::sync::Mutex;
 
+use herdr_client::Result;
 use herdr_client::protocol::{
-    Agent, AgentTarget, EntrypointId, HerdrReader, HerdrWriter, InsertResult, OpenPluginPane,
-    PaneId, PanePlacement, PluginContext, PluginPane, SessionSnapshot, TabId, WorkspaceId,
+    Agent, EntrypointId, HerdrReader, HerdrWriter, OpenPluginPane, PaneId, PanePlacement,
+    PluginContext, PluginPane, SessionSnapshot, TabId, WorkspaceId,
 };
-use herdr_client::{Error, Result};
 use review_repository::repository::RepoType;
 use review_test_support::repository_fixture;
 use reviewer::control::{PaneAction, PaneActionResult, PaneActions};
@@ -14,15 +14,11 @@ use test_case::test_case;
 struct FakeHerdr {
     session: Mutex<SessionSnapshot>,
     agents: Mutex<Vec<Agent>>,
-    agent_screen: Mutex<String>,
     panes: Mutex<Vec<PluginPane>>,
     opened: Mutex<Vec<OpenPluginPane>>,
     focused: Mutex<Vec<PaneId>>,
     closed: Mutex<Vec<PaneId>>,
-    sent: Mutex<Vec<(PaneId, String)>>,
-    sent_keys: Mutex<Vec<(PaneId, Vec<String>)>>,
     race_on_open: Mutex<bool>,
-    fail_send: Mutex<bool>,
 }
 
 impl HerdrReader for FakeHerdr {
@@ -45,7 +41,7 @@ impl HerdrReader for FakeHerdr {
     }
 
     fn read_agent_screen(&self, _pane_id: &PaneId) -> Result<String> {
-        Ok(self.agent_screen.lock().unwrap().clone())
+        unreachable!()
     }
 
     fn list_plugin_panes(&self, workspace_id: &WorkspaceId) -> Result<Vec<PluginPane>> {
@@ -88,28 +84,6 @@ impl HerdrWriter for FakeHerdr {
             .lock()
             .unwrap()
             .retain(|pane| pane.pane_id != *pane_id);
-        Ok(())
-    }
-
-    fn send_text(&self, pane_id: &PaneId, text: &str) -> Result<()> {
-        if *self.fail_send.lock().unwrap() {
-            return Err(Error::Protocol {
-                operation: "send text".to_owned(),
-                detail: "fixture failure",
-            });
-        }
-        self.sent
-            .lock()
-            .unwrap()
-            .push((pane_id.clone(), text.to_owned()));
-        Ok(())
-    }
-
-    fn send_keys(&self, pane_id: &PaneId, keys: &[&str]) -> Result<()> {
-        self.sent_keys.lock().unwrap().push((
-            pane_id.clone(),
-            keys.iter().map(|key| (*key).to_owned()).collect(),
-        ));
         Ok(())
     }
 }
@@ -162,116 +136,11 @@ fn pane_actions_are_idempotent_and_remove_a_racing_duplicate(repository_type: Re
     );
 }
 
-#[test]
-fn insertion_lazily_finds_and_rechecks_the_last_focused_agent_workspace() {
-    let client = FakeHerdr::default();
-    let workspace = WorkspaceId("workspace".to_owned());
-    let first_agent = agent("agent-1", "workspace", Some("Codex"));
-    *client.session.lock().unwrap() = SessionSnapshot {
-        focused_workspace_id: Some(workspace.clone()),
-        focused_pane_id: Some(first_agent.pane_id.clone()),
-    };
-    client.agents.lock().unwrap().push(first_agent);
-    *client.agent_screen.lock().unwrap() = "prompt\nVim: Normal\n".to_owned();
-    let mut target = AgentTarget::new(workspace, None);
-
-    assert_eq!(
-        target.insert(&client, "diff text").unwrap(),
-        InsertResult::Inserted {
-            agent_name: "Codex".to_owned(),
-        }
-    );
-    assert_eq!(
-        client.sent_keys.lock().unwrap().as_slice(),
-        [(PaneId("agent-1".to_owned()), vec!["i".to_owned()])]
-    );
-    assert_eq!(
-        client.sent.lock().unwrap().as_slice(),
-        [(PaneId("agent-1".to_owned()), "diff text\n\n".to_owned())]
-    );
-    assert_eq!(
-        client.focused.lock().unwrap().as_slice(),
-        [PaneId("agent-1".to_owned())]
-    );
-
-    let other_agent = agent("other-agent", "other", None);
-    client.agents.lock().unwrap().push(other_agent.clone());
-    target.observe_focus(&other_agent.pane_id);
-    *client.agent_screen.lock().unwrap() = "prompt\nVim: Insert\n".to_owned();
-    assert!(matches!(
-        target.insert(&client, "same target").unwrap(),
-        InsertResult::Inserted { .. }
-    ));
-    assert_eq!(
-        client.sent.lock().unwrap()[1],
-        (PaneId("agent-1".to_owned()), "same target\n\n".to_owned())
-    );
-    assert_eq!(client.sent_keys.lock().unwrap().len(), 1);
-    target.observe_focus(&PaneId("review-pane".to_owned()));
-    assert!(matches!(
-        target.insert(&client, "keep agent target").unwrap(),
-        InsertResult::Inserted { .. }
-    ));
-    client.agents.lock().unwrap()[0].workspace_id = WorkspaceId("other".to_owned());
-    assert_eq!(
-        target.insert(&client, "must not send").unwrap(),
-        InsertResult::NoAgent
-    );
-    assert_eq!(client.sent.lock().unwrap().len(), 3);
-
-    let agent = agent("agent-2", "workspace", None);
-    client.agents.lock().unwrap().push(agent.clone());
-    target.observe_focus(&agent.pane_id);
-    *client.fail_send.lock().unwrap() = true;
-    assert!(target.insert(&client, "retry").is_err());
-    *client.fail_send.lock().unwrap() = false;
-    assert_eq!(
-        target.insert(&client, "retry").unwrap(),
-        InsertResult::Inserted {
-            agent_name: "agent-2".to_owned(),
-        }
-    );
-}
-
-#[test]
-fn insertion_keeps_the_initial_agent_when_the_reviewer_takes_focus() {
-    let client = FakeHerdr::default();
-    let workspace = WorkspaceId("workspace".to_owned());
-    let agent = agent("agent", "workspace", None);
-    client.agents.lock().unwrap().push(agent.clone());
-    let review_pane = PaneId("review-pane".to_owned());
-    *client.session.lock().unwrap() = SessionSnapshot {
-        focused_workspace_id: Some(workspace.clone()),
-        focused_pane_id: Some(review_pane.clone()),
-    };
-    let mut target = AgentTarget::new(workspace, Some(agent.pane_id));
-    target.observe_focus(&review_pane);
-
-    assert!(matches!(
-        target.insert(&client, "diff text").unwrap(),
-        InsertResult::Inserted { .. }
-    ));
-}
-
 fn review_pane(id: &str) -> PluginPane {
     PluginPane {
         pane_id: PaneId(id.to_owned()),
         tab_id: TabId("tab".to_owned()),
         workspace_id: WorkspaceId("workspace".to_owned()),
         entrypoint_id: EntrypointId("review".to_owned()),
-    }
-}
-
-fn agent(id: &str, workspace: &str, name: Option<&str>) -> Agent {
-    Agent {
-        pane_id: PaneId(id.to_owned()),
-        tab_id: TabId("tab".to_owned()),
-        workspace_id: WorkspaceId(workspace.to_owned()),
-        name: name.map(str::to_owned),
-        display_agent: None,
-        agent: None,
-        agent_status: herdr_client::protocol::AgentStatus::Idle,
-        agent_session: None,
-        cwd: None,
     }
 }

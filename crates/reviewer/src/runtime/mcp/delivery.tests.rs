@@ -49,7 +49,7 @@ fn partial_answers_and_reviewer_navigation_do_not_repeat_notifications() {
     let answered = fixture.new_thread("review", "first.rs", "First question");
     let pending = fixture.new_thread("review", "second.rs", "Second question");
     fixture.status(AgentStatus::Idle);
-    let access = fixture.access(1);
+    let access = fixture.access(2);
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -85,7 +85,7 @@ fn partial_answers_and_reviewer_navigation_do_not_repeat_notifications() {
             assert_eq!(remaining["threads"].as_array().unwrap().len(), 1);
             assert_eq!(remaining["threads"][0]["thread_id"], json!(pending));
             thread::sleep(Duration::from_millis(350));
-            assert_eq!(fixture.prompts().matches("Logical review: ").count(), 1);
+            assert_eq!(fixture.prompts().matches("Logical review: ").count(), 2);
             client.cancel().await.unwrap();
         });
 }

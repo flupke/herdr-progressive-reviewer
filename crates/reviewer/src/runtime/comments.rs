@@ -25,12 +25,6 @@ impl Runtime {
                     comments::Event::Posted(event) => {
                         let _ = messages.send(event);
                     }
-                    comments::Event::NotificationDeferred => {
-                        let _ = messages.send(ui_events::ToastRequested {
-                                text: "Comments saved. Notification is waiting for the agent input to be empty and unfocused.".into(),
-                                kind: toasts::ToastKind::Info,
-                            });
-                    }
                     comments::Event::Error(text) => {
                         let _ = messages.send(ui_events::ToastRequested {
                             text,

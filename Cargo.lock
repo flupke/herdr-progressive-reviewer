@@ -3722,9 +3722,7 @@ dependencies = [
 name = "review-thread-service"
 version = "0.2.0"
 dependencies = [
- "ansi-to-tui",
  "herdr-client",
- "ratatui 0.30.2",
  "review-mcp",
  "review-store",
  "review-threads",

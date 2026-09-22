@@ -610,7 +610,7 @@ impl DiffComponent {
             }
             viewport.comment_at(row).cloned()
         };
-        if matches!(input.kind, ui_events::PointerInputKind::Click { .. })
+        if matches!(input.kind, ui_events::PointerInputKind::Click)
             && let Some(target) = target
         {
             let column = usize::from(position.component_column.saturating_sub(1));

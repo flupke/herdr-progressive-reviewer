@@ -837,11 +837,7 @@ fn repository_refresh_preserves_loaded_content_and_cursor_output() {
         .expect("loaded diff must dispatch");
     let moved = registry
         .dispatch_hovered_input(
-            &EventEnvelope::new(pointer_input(
-                PointerInputKind::Click { insert: false },
-                2,
-                4,
-            )),
+            &EventEnvelope::new(pointer_input(PointerInputKind::Click, 2, 4)),
             diff_target,
         )
         .expect("pointer input must dispatch")
@@ -906,7 +902,7 @@ fn clicking_an_unmodified_section_keeps_the_cursor_hunk_in_place() {
     registry
         .dispatch_hovered_input(
             &EventEnvelope::new(pointer_input(
-                PointerInputKind::Click { insert: false },
+                PointerInputKind::Click,
                 u16::try_from(gap_row).unwrap(),
                 4,
             )),
@@ -990,10 +986,7 @@ fn dragging_source_rows_opens_an_editor_with_the_selected_diff() {
         .expect("the selection end row must be visible");
 
     for (kind, row) in [
-        (
-            PointerInputKind::Click { insert: false },
-            selection_start_row,
-        ),
+        (PointerInputKind::Click, selection_start_row),
         (PointerInputKind::Drag, selection_end_row),
     ] {
         registry
@@ -1474,11 +1467,7 @@ fn word_under_cursor_search_does_nothing_on_punctuation() {
         .unwrap();
     registry
         .dispatch_hovered_input(
-            &EventEnvelope::new(pointer_input(
-                PointerInputKind::Click { insert: false },
-                1,
-                10,
-            )),
+            &EventEnvelope::new(pointer_input(PointerInputKind::Click, 1, 10)),
             diff_target,
         )
         .unwrap();
@@ -1513,11 +1502,7 @@ fn word_under_cursor_search_marks_files_with_the_selected_word() {
         .unwrap();
     registry
         .dispatch_hovered_input(
-            &EventEnvelope::new(pointer_input(
-                PointerInputKind::Click { insert: false },
-                1,
-                4,
-            )),
+            &EventEnvelope::new(pointer_input(PointerInputKind::Click, 1, 4)),
             diff_target,
         )
         .unwrap();
@@ -1993,8 +1978,8 @@ impl ViewportObserver {
             .flat_map(|viewport| &viewport.rows)
             .filter(|row| row.changed)
             .count();
-        vec![Action::Output {
-            text: format!("{path}:{}:{changed_rows}", event.current_row),
+        vec![Action::EditRevision {
+            change_id: format!("{path}:{}:{changed_rows}", event.current_row).into(),
         }]
     }
 }
@@ -2010,12 +1995,13 @@ struct DecorationObserver;
 impl DecorationObserver {
     #[allow(clippy::unused_self)]
     fn decorations_changed(&mut self, event: &FileDecorationsChanged) -> Vec<Action> {
-        vec![Action::Output {
-            text: format!(
+        vec![Action::EditRevision {
+            change_id: format!(
                 "notice:{};search:{}",
                 event.notice_paths.join(","),
                 event.search_match_paths.join(",")
-            ),
+            )
+            .into(),
         }]
     }
 }
@@ -2034,8 +2020,8 @@ impl LocationObserver {
         let Some(ReviewLocation::LoadedDocument { column, .. }) = &event.location else {
             return Vec::new();
         };
-        vec![Action::Output {
-            text: format!("column:{column}"),
+        vec![Action::EditRevision {
+            change_id: format!("column:{column}").into(),
         }]
     }
 }
@@ -2051,8 +2037,8 @@ struct ToastObserver;
 impl ToastObserver {
     #[allow(clippy::unused_self)]
     fn toast_requested(&mut self, event: &ToastRequested) -> Vec<Action> {
-        vec![Action::Output {
-            text: format!("toast:{}", event.text),
+        vec![Action::EditRevision {
+            change_id: format!("toast:{}", event.text).into(),
         }]
     }
 }
@@ -2075,8 +2061,8 @@ impl FullLocationObserver {
         else {
             return Vec::new();
         };
-        vec![Action::Output {
-            text: format!("location:{path}:{cursor}:{column}"),
+        vec![Action::EditRevision {
+            change_id: format!("location:{path}:{cursor}:{column}").into(),
         }]
     }
 }
@@ -2090,13 +2076,14 @@ impl Component<Action> for FullLocationObserver {
 impl SearchStatusObserver {
     #[allow(clippy::unused_self)]
     fn search_changed(&mut self, event: &SearchStatusChanged) -> Vec<Action> {
-        vec![Action::Output {
-            text: format!(
+        vec![Action::EditRevision {
+            change_id: format!(
                 "search:{}:{}/{}",
                 event.query.as_deref().unwrap_or_default(),
                 event.current_match,
                 event.total_matches
-            ),
+            )
+            .into(),
         }]
     }
 }
@@ -2113,8 +2100,8 @@ impl ReviewPathObserver {
         let Some(ReviewLocation::LoadedDocument { path, .. }) = &event.location else {
             return Vec::new();
         };
-        vec![Action::Output {
-            text: format!("path:{path}"),
+        vec![Action::EditRevision {
+            change_id: format!("path:{path}").into(),
         }]
     }
 }
@@ -2136,7 +2123,7 @@ fn output_texts(results: Vec<DispatchResult<Action>>) -> Vec<String> {
         .into_iter()
         .flat_map(DispatchResult::into_actions)
         .filter_map(|action| match action {
-            Action::Output { text, .. } => Some(text),
+            Action::EditRevision { change_id: text } => Some(text.as_str().to_owned()),
             _ => None,
         })
         .collect()
@@ -2280,11 +2267,9 @@ fn unchanged_repository_refresh_preserves_large_search_progress() {
         .into_iter()
         .flat_map(DispatchResult::into_actions)
         .collect::<Vec<_>>();
-    assert!(
-        actions
-            .iter()
-            .any(|action| matches!(action, Action::Output { text } if text == "search:needle:1/2"))
-    );
+    assert!(actions.iter().any(
+        |action| matches!(action, Action::EditRevision { change_id: text } if text.as_str() == "search:needle:1/2")
+    ));
     assert!(
         !actions
             .iter()

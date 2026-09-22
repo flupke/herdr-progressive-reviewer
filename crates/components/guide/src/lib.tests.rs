@@ -175,21 +175,22 @@ struct PathObserver;
 impl PathObserver {
     #[allow(clippy::unused_self)]
     fn paths_changed(&mut self, event: &GuidePathsChanged) -> Vec<Action> {
-        vec![Action::Output {
-            text: event.paths.join(","),
+        vec![Action::EditRevision {
+            change_id: event.paths.join(",").into(),
         }]
     }
 
     #[allow(clippy::unused_self)]
     fn jump_requested(&mut self, event: &GuideJumpRequested) -> Vec<Action> {
-        vec![Action::Output {
-            text: format!(
+        vec![Action::EditRevision {
+            change_id: format!(
                 "{}:{}",
                 event.target.path(),
                 event
                     .row
                     .map_or_else(|| "unloaded".to_owned(), |row| row.to_string())
-            ),
+            )
+            .into(),
         }]
     }
 }
@@ -265,7 +266,7 @@ fn output_texts(results: Vec<component_core::DispatchResult<Action>>) -> Vec<Str
         .into_iter()
         .flat_map(component_core::DispatchResult::into_actions)
         .filter_map(|action| match action {
-            Action::Output { text, .. } => Some(text),
+            Action::EditRevision { change_id: text } => Some(text.as_str().to_owned()),
             _ => None,
         })
         .collect()

@@ -1,8 +1,9 @@
-//! One serial owner for UI posts, MCP replies, persistence, and idle agent wakeups.
+//! One serial owner for UI posts, MCP replies, persistence, and agent notifications.
 
 mod access;
+mod delivery;
 mod notification;
-mod prompt;
+mod pinned_agent;
 mod state;
 mod wakeup;
 
@@ -15,6 +16,10 @@ use review_mcp::Endpoint;
 use review_store::ReviewStore;
 use review_threads::ThreadCommand;
 
+pub use delivery::{
+    DispatchObserver, PromptCancellation, PromptError, PromptReceipt, PromptSender,
+};
+pub use pinned_agent::PinnedAgent;
 use state::State;
 
 /// UI commands accepted by the conversation owner.
@@ -29,14 +34,16 @@ pub enum Command {
 enum Input {
     Ui(Command),
     Mcp(review_mcp::Request),
+    Prompt(delivery::PromptRequest),
     Stop,
 }
 
 /// Conversation updates emitted after the authoritative state changes.
 pub enum Event {
+    /// Explore has its own in-memory decision owner; it never changes ordinary threads.
+    Explore(review_mcp::Request),
     Loaded(ui_events::ReviewThreadsLoaded),
     Posted(ui_events::ThreadPostFinished),
-    NotificationDeferred,
     Error(String),
 }
 
@@ -53,6 +60,12 @@ impl std::fmt::Debug for Worker {
 }
 
 impl Worker {
+    pub fn prompt_sender(&self) -> PromptSender {
+        PromptSender {
+            sender: self.sender.clone(),
+        }
+    }
+
     pub fn start(
         store: ReviewStore,
         client: HerdrClient,

@@ -365,7 +365,7 @@ impl ThreadsComponent {
             self.move_selection(delta);
         } else if matches!(
             input.kind,
-            PointerInputKind::Click { .. } | PointerInputKind::DoubleClick
+            PointerInputKind::Click | PointerInputKind::DoubleClick
         ) && let Some(position) = input.position
         {
             let row = usize::from(position.component_row);

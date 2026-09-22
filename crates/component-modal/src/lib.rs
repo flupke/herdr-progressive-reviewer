@@ -32,7 +32,7 @@ where
         let Some(modal_area) = component.modal_area() else {
             return InputResolution::NoMatch;
         };
-        let outside_click = matches!(input.kind, PointerInputKind::Click { .. })
+        let outside_click = matches!(input.kind, PointerInputKind::Click)
             && input.position.is_some_and(|position| {
                 !modal_area.contains(Position::new(
                     position.terminal_column,

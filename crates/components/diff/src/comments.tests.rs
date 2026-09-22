@@ -227,11 +227,7 @@ impl CommentFixture {
         let actions = self
             .registry
             .dispatch_hovered_input(
-                &EventEnvelope::new(pointer_input(
-                    PointerInputKind::Click { insert: false },
-                    row,
-                    column,
-                )),
+                &EventEnvelope::new(pointer_input(PointerInputKind::Click, row, column)),
                 self.target,
             )
             .unwrap()

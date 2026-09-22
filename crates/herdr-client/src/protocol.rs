@@ -29,10 +29,6 @@ pub mod method {
     pub const PLUGIN_PANE_FOCUS: &str = "plugin.pane.focus";
     /// Close one plugin-owned pane.
     pub const PLUGIN_PANE_CLOSE: &str = "plugin.pane.close";
-    /// Insert literal text into a terminal pane.
-    pub const PANE_SEND_TEXT: &str = "pane.send_text";
-    /// Send key presses to a terminal pane.
-    pub const PANE_SEND_KEYS: &str = "pane.send_keys";
 }
 
 /// A Herdr terminal pane ID.
@@ -94,12 +90,6 @@ pub trait HerdrWriter: Send + Sync {
 
     /// Close a plugin-owned pane.
     fn close_plugin_pane(&self, pane_id: &PaneId) -> Result<()>;
-
-    /// Insert text without a submit key.
-    fn send_text(&self, pane_id: &PaneId, text: &str) -> Result<()>;
-
-    /// Send key presses to a pane.
-    fn send_keys(&self, pane_id: &PaneId, keys: &[&str]) -> Result<()>;
 }
 
 /// Agent-aware prompt submission needed by review-guide generation.
@@ -189,6 +179,9 @@ pub struct AgentSession {
 #[derive(Clone, Debug, Deserialize)]
 pub struct PaneProcessInfo {
     pub pane_id: PaneId,
+    /// The process group currently attached to the pane's terminal.
+    #[serde(default)]
+    pub foreground_process_group_id: Option<u32>,
     #[serde(default)]
     pub foreground_processes: Vec<PaneProcess>,
 }
@@ -213,13 +206,6 @@ pub enum HerdrEvent {
         agent: Option<String>,
         released: bool,
         final_status: Option<AgentStatus>,
-    },
-    /// The lifecycle status of an agent changed.
-    AgentStatusChanged {
-        pane_id: PaneId,
-        workspace_id: WorkspaceId,
-        agent: Option<String>,
-        status: AgentStatus,
     },
 }
 
@@ -249,31 +235,6 @@ pub struct OpenPluginPane {
     pub cwd: PathBuf,
     /// Whether Herdr focuses the new pane.
     pub focus: bool,
-}
-
-/// The result of inserting an excerpt into an agent pane.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum InsertResult {
-    /// Text was inserted into the named agent.
-    Inserted { agent_name: String },
-    /// No live same-workspace agent is available.
-    NoAgent,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum AgentInputMode {
-    VimNormal,
-    Other,
-}
-
-impl AgentInputMode {
-    fn detect(screen: &str) -> Self {
-        if screen.contains("Vim: Normal") {
-            Self::VimNormal
-        } else {
-            Self::Other
-        }
-    }
 }
 
 /// The shared last-focused agent target for one Herdr workspace.
@@ -345,29 +306,6 @@ impl AgentTarget {
                     })
                     .cloned()
             })
-    }
-
-    /// Resolve the target again and insert text without submission.
-    pub fn insert<C>(&mut self, client: &C, text: &str) -> Result<InsertResult>
-    where
-        C: HerdrReader + HerdrWriter,
-    {
-        let Some(agent) = self.resolve(client)? else {
-            return Ok(InsertResult::NoAgent);
-        };
-
-        let screen = client.read_agent_screen(&agent.pane_id)?;
-        if AgentInputMode::detect(&screen) == AgentInputMode::VimNormal {
-            client.send_keys(&agent.pane_id, &["i"])?;
-        }
-        client.send_text(&agent.pane_id, &format!("{text}\n\n"))?;
-        client.focus_agent(&agent.pane_id)?;
-        Ok(InsertResult::Inserted {
-            agent_name: agent
-                .name
-                .or(agent.display_agent)
-                .unwrap_or(agent.pane_id.0),
-        })
     }
 }
 

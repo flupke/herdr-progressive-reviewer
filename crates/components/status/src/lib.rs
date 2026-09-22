@@ -185,7 +185,7 @@ impl StatusComponent {
     }
 
     fn pointer_input(&mut self, input: PointerInput) -> Vec<Action> {
-        if !matches!(input.kind, PointerInputKind::Click { .. }) {
+        if !matches!(input.kind, PointerInputKind::Click) {
             return Vec::new();
         }
         let Some(position) = input.position else {

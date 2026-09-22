@@ -132,11 +132,7 @@ impl ThreadUi {
     fn click_text(&mut self, text: &str) {
         let (column, row) =
             rendered_text_position(&self.app, text, self.width, self.height).unwrap();
-        let actions = self.app.update(UserInput::MouseClick {
-            column,
-            row,
-            insert_path: false,
-        });
+        let actions = self.app.update(UserInput::MouseClick { column, row });
         for action in &actions {
             self.accept(action);
         }
@@ -363,17 +359,9 @@ fn source_peek_is_read_only_and_rejects_results_from_a_previous_thread() {
 #[test]
 fn mouse_tabs_and_conversation_actions_work_after_resizing() {
     let mut ui = ThreadUi::new(110);
-    ui.app.update(UserInput::MouseClick {
-        column: 12,
-        row: 1,
-        insert_path: false,
-    });
+    ui.app.update(UserInput::MouseClick { column: 12, row: 1 });
     assert_eq!(ui.app.navigation, ReviewNavigation::Threads);
-    ui.app.update(UserInput::MouseClick {
-        column: 5,
-        row: 4,
-        insert_path: false,
-    });
+    ui.app.update(UserInput::MouseClick { column: 5, row: 4 });
     assert_eq!(ui.app.focus, ReviewPane::Detail);
     ui.width = 48;
     ui.app.update(UserInput::Resize {
@@ -425,7 +413,6 @@ fn threads_resolution_stays_at_bottom_right_without_a_peek_button() {
         let actions = ui.app.update(UserInput::MouseClick {
             column: resolve_column - 2,
             row: resolve_row,
-            insert_path: false,
         });
         assert!(actions.is_empty(), "padding is not a button");
         ui.click_text("Resolve thread");
@@ -564,11 +551,7 @@ fn reply_editor_follows_short_conversations_and_stays_visible_when_resized() {
         }
     }
     let (column, row) = rendered_text_position(&ui.app, "Post", ui.width, ui.height).unwrap();
-    let actions = ui.app.update(UserInput::MouseClick {
-        column,
-        row,
-        insert_path: false,
-    });
+    let actions = ui.app.update(UserInput::MouseClick { column, row });
     for action in &actions {
         ui.accept(action);
     }
@@ -612,11 +595,7 @@ fn reviewed_files_show_full_inline_replies_with_or_without_remaining_diff_rows()
         assert_eq!(ui.book.counts().unread, 0);
         assert_eq!(ui.app.navigation, ReviewNavigation::Files);
         let (column, row) = rendered_text_position(&ui.app, "Reply…", ui.width, ui.height).unwrap();
-        ui.app.update(UserInput::MouseClick {
-            column,
-            row,
-            insert_path: false,
-        });
+        ui.app.update(UserInput::MouseClick { column, row });
         ui.paste("Inline follow-up on a reviewed file");
         ui.key(Key::ControlEnter);
         assert_eq!(
@@ -649,7 +628,6 @@ fn reviewed_files_show_full_inline_replies_with_or_without_remaining_diff_rows()
                 .update(UserInput::MouseClick {
                     column: column - 2,
                     row,
-                    insert_path: false,
                 })
                 .is_empty(),
             "the gap between Retry and Resolve must not trigger either action"
@@ -658,11 +636,7 @@ fn reviewed_files_show_full_inline_replies_with_or_without_remaining_diff_rows()
             ui.book.thread(&ui.ids[0]).unwrap().resolution,
             Resolution::Open
         );
-        let actions = ui.app.update(UserInput::MouseClick {
-            column,
-            row,
-            insert_path: false,
-        });
+        let actions = ui.app.update(UserInput::MouseClick { column, row });
         for action in &actions {
             ui.accept(action);
         }
@@ -775,18 +749,13 @@ fn filename_opens_files_and_preserves_the_conversation_draft() {
         ui.app.update(UserInput::MouseClick {
             column: width - 3,
             row,
-            insert_path: false,
         });
         assert_eq!(
             ui.app.navigation,
             ReviewNavigation::Threads,
             "padding is not a link"
         );
-        ui.app.update(UserInput::MouseClick {
-            column,
-            row,
-            insert_path: false,
-        });
+        ui.app.update(UserInput::MouseClick { column, row });
         assert_eq!(ui.app.navigation, ReviewNavigation::Files);
         assert_eq!(ui.app.focus, ReviewPane::Detail);
         assert!(ui.text().contains("Diff · gone.rs"), "{}", ui.text());
@@ -872,11 +841,7 @@ fn thread_badges_stay_on_reviewed_files_and_never_appear_on_directories() {
         !directory.contains("💬") && !directory.contains('●'),
         "{directory}"
     );
-    ui.app.update(UserInput::MouseClick {
-        column: 1,
-        row: 2,
-        insert_path: false,
-    });
+    ui.app.update(UserInput::MouseClick { column: 1, row: 2 });
     let lines = ui.text();
     let directory = lines
         .lines()
@@ -926,21 +891,13 @@ fn bottom_filters_keep_resolved_history_in_all_with_boxed_entries() {
         ui.key(Key::Tab);
         let (column, row) =
             rendered_text_position(&ui.app, "Unresolved", ui.width, ui.height).unwrap();
-        ui.app.update(UserInput::MouseClick {
-            column,
-            row,
-            insert_path: false,
-        });
+        ui.app.update(UserInput::MouseClick { column, row });
         assert!(ui.text().contains("[Unresolved] / All"));
         assert!(ui.text().contains("Explain this branch"));
         assert!(!ui.text().contains("Keep the removed file"));
         let (column, row) = rendered_text_position(&ui.app, "All", ui.width, ui.height).unwrap();
         assert_eq!(row, ui.height - 3);
-        ui.app.update(UserInput::MouseClick {
-            column,
-            row,
-            insert_path: false,
-        });
+        ui.app.update(UserInput::MouseClick { column, row });
         assert!(ui.text().contains("Keep the removed file"));
         assert!(ui.text().contains("Explain this branch"));
         ui.height = 24;
@@ -1000,11 +957,7 @@ fn pasting_into_search_leaves_a_parked_reply_unchanged() {
     ui.key(Key::Char('A'));
     ui.paste("Keep this draft");
     let (column, row) = rendered_text_position(&ui.app, "All", ui.width, ui.height).unwrap();
-    ui.app.update(UserInput::MouseClick {
-        column,
-        row,
-        insert_path: false,
-    });
+    ui.app.update(UserInput::MouseClick { column, row });
     ui.key(Key::Char('/'));
     ui.paste("gone.rs");
     ui.key(Key::Enter);

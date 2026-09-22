@@ -341,7 +341,7 @@ impl DiffComponent {
             self.scroll_conversation(delta);
             return Vec::new();
         }
-        if !matches!(input.kind, PointerInputKind::Click { .. }) {
+        if !matches!(input.kind, PointerInputKind::Click) {
             return Vec::new();
         }
         let Some(position) = input.position else {

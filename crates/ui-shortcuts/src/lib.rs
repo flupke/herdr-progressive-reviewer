@@ -75,7 +75,6 @@ pub enum ApplicationShortcut {
     ToggleNavigation,
     NewReplies,
     Clear,
-    Insert,
     MarkReviewed,
     OpenHelp,
     Quit,
@@ -584,13 +583,6 @@ const SHORTCUTS: &[ShortcutDefinition] = &[
         ],
     },
     ShortcutDefinition {
-        description: Some("Insert the path, diff, or selection"),
-        bindings: &[ShortcutBinding::one(
-            Key::Enter,
-            application(ApplicationShortcut::Insert),
-        )],
-    },
-    ShortcutDefinition {
         description: Some("Mark a file as reviewed"),
         bindings: &[
             ShortcutBinding::one(Key::Space, application(ApplicationShortcut::MarkReviewed)),
@@ -759,7 +751,7 @@ const fn is_files_shortcut(command: ShortcutCommand) -> bool {
                 | NavigationShortcut::GoToLast
                 | NavigationShortcut::MoveHalfPageDown
                 | NavigationShortcut::MoveHalfPageUp
-        ) | ShortcutCommand::Application(ApplicationShortcut::Insert)
+        )
     )
 }
 

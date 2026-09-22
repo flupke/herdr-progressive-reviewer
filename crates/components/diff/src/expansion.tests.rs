@@ -125,7 +125,7 @@ impl ContextExpansion {
         let column = (0..80)
             .find(|column| component.control_at(80, *column) == Some(control))
             .unwrap();
-        self.pointer(PointerInputKind::Click { insert: false }, 0, column);
+        self.pointer(PointerInputKind::Click, 0, column);
     }
 }
 
@@ -184,11 +184,7 @@ fn clicking_context_anchors_the_cursor_hunk_above_or_below_it() {
             .position(|text| text.contains("19 unmodified lines"))
             .unwrap();
         let anchor = HunkAnchor::new(&fixture, line);
-        fixture.pointer(
-            PointerInputKind::Click { insert: false },
-            u16::try_from(gap).unwrap(),
-            4,
-        );
+        fixture.pointer(PointerInputKind::Click, u16::try_from(gap).unwrap(), 4);
         anchor.assert_preserved(&fixture);
         assert!(
             !fixture

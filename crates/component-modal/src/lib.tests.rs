@@ -36,7 +36,7 @@ fn primary_click_inside_the_modal_stays_inside() {
 
 fn pointer_click(column: u16, row: u16) -> PointerInput {
     PointerInput {
-        kind: PointerInputKind::Click { insert: false },
+        kind: PointerInputKind::Click,
         position: Some(PointerPosition {
             terminal_column: column,
             terminal_row: row,

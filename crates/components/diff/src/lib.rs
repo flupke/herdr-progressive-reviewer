@@ -19,11 +19,10 @@ use ui_events::{
     DiffInputClearRequested, DiffViewportChanged, DisplayedDiffViewportsChanged,
     FileDecorationsChanged, FileSelected, FileSelectionRequested, FileSummary, GuideJumpRequested,
     GuideLayoutChanged, HighlightRequest, HighlightingFinished, LocationListVisibilityChanged,
-    OutputDeliveryFinished, PointerInput, PointerInputKind, RepositoryFilesChanged, ReviewLocation,
-    ReviewLocationJumped, ReviewLocationRestoreRequested, ReviewStateSaved, ReviewableFiles,
-    ReviewableFilesChanged, RevisionEditFailed, SearchStatusChanged, SourceContentLoadFailed,
-    SourceContentLoaded, SourceLocationAccepted, SourceLocationPreviewRequested,
-    TemporaryFilesChanged, ToastRequested,
+    PointerInput, PointerInputKind, RepositoryFilesChanged, ReviewLocation, ReviewLocationJumped,
+    ReviewLocationRestoreRequested, ReviewStateSaved, ReviewableFiles, ReviewableFilesChanged,
+    RevisionEditFailed, SearchStatusChanged, SourceContentLoadFailed, SourceContentLoaded,
+    SourceLocationAccepted, SourceLocationPreviewRequested, TemporaryFilesChanged, ToastRequested,
 };
 use ui_shortcuts::{
     ApplicationShortcut, HunkShortcut, Key, LspShortcut, NavigationShortcut, SearchShortcut,
@@ -434,7 +433,7 @@ impl DiffComponent {
         if self.conversation.is_peeking() {
             if let Some(position) = &mut input.position {
                 if position.component_row == 0 {
-                    if matches!(input.kind, PointerInputKind::Click { .. }) {
+                    if matches!(input.kind, PointerInputKind::Click) {
                         self.close_peek();
                     }
                     return Vec::new();
@@ -468,7 +467,7 @@ impl DiffComponent {
         });
         match input.kind {
             PointerInputKind::Scroll(delta) => self.scroll(delta),
-            PointerInputKind::Click { .. } => {
+            PointerInputKind::Click => {
                 if let Some(position) = input.position
                     && position.component_row == 0
                     && let Some(control) = self.control_at(
@@ -706,7 +705,6 @@ impl DiffComponent {
                 self.start_selection();
                 Vec::new()
             }
-            ApplicationShortcut::Insert => self.insert_selection(),
             _ => Vec::new(),
         }
     }
@@ -877,29 +875,6 @@ impl DiffComponent {
         if finalized {
             self.add_comment();
         }
-    }
-
-    fn insert_selection(&self) -> Vec<Action> {
-        let (Some(document), Some(selection)) = (self.selected_document(), self.selection) else {
-            return Vec::new();
-        };
-        let range = selection.range();
-        if !range
-            .clone()
-            .any(|row| document.document.diff.is_selectable(row))
-        {
-            return Vec::new();
-        }
-        document
-            .document
-            .diff
-            .excerpt(range)
-            .ok()
-            .map(|excerpt| Action::Output {
-                text: excerpt.into_string(),
-            })
-            .into_iter()
-            .collect()
     }
 
     fn search(&mut self, command: SearchShortcut) -> Vec<Action> {
@@ -1569,13 +1544,6 @@ impl DiffComponent {
             .find(|document| document.path == path)
     }
 
-    #[allow(clippy::trivially_copy_pass_by_ref)]
-    fn output_finished(&mut self, event: &OutputDeliveryFinished) {
-        if event.delivered {
-            self.selection = None;
-        }
-    }
-
     fn guide_layout_changed(&mut self, event: &GuideLayoutChanged) {
         if self.guide_items == event.items && self.guide_counters == event.counters {
             return;
@@ -2158,8 +2126,6 @@ impl Component<Action> for DiffComponent {
         subscriptions.subscribe(Self::review_state_saved);
         subscriptions.subscribe(Self::viewport_changed);
         subscriptions.subscribe(|component, event| component.source_view_mut().clear_input(event));
-        subscriptions
-            .subscribe(|component, event| component.source_view_mut().output_finished(event));
         subscriptions.subscribe(Self::guide_layout_changed);
         subscriptions.subscribe(Self::guide_jump_requested);
         subscriptions.subscribe(|component, event| {

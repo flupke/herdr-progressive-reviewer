@@ -400,11 +400,7 @@ fn clicking_outside_the_revision_selector_closes_it() {
     });
     assert!(rendered_application(&application).contains("Select revision"));
 
-    application.update(UserInput::MouseClick {
-        column: 0,
-        row: 0,
-        insert_path: false,
-    });
+    application.update(UserInput::MouseClick { column: 0, row: 0 });
 
     assert!(!rendered_application(&application).contains("Select revision"));
 }
@@ -415,11 +411,7 @@ fn clicking_outside_the_help_popup_closes_it() {
     application.update(UserInput::Key(Key::Char('?')));
     assert!(rendered_application(&application).contains("Keyboard shortcuts"));
 
-    application.update(UserInput::MouseClick {
-        column: 0,
-        row: 0,
-        insert_path: false,
-    });
+    application.update(UserInput::MouseClick { column: 0, row: 0 });
 
     assert!(!rendered_application(&application).contains("Keyboard shortcuts"));
 }
@@ -584,11 +576,7 @@ fn external_source_is_added_to_and_removed_from_the_files_component() {
 
     assert!(rendered_application(&application).contains("/outside/example.rs"));
 
-    application.update(UserInput::MouseClick {
-        column: 3,
-        row: 3,
-        insert_path: false,
-    });
+    application.update(UserInput::MouseClick { column: 3, row: 3 });
     let rendered = rendered_application(&application);
     assert!(!rendered.contains("/outside/example.rs"), "{rendered}");
 }
@@ -631,7 +619,7 @@ fn files_component_moves_selection_and_requests_the_new_diff() {
 }
 
 #[test]
-fn control_clicking_a_file_inserts_its_path() {
+fn control_clicking_a_file_does_not_send_text() {
     let mut application = application();
     application.update(UserInput::Resize {
         width: 80,
@@ -644,11 +632,10 @@ fn control_clicking_a_file_inserts_its_path() {
         vec![FileSummary::new("lib.rs", ReviewStatus::Unreviewed)],
     );
 
-    assert_eq!(
-        application.update(UserInput::MouseControlClick { column: 1, row: 2 }),
-        [Action::Output {
-            text: "lib.rs".to_owned(),
-        }]
+    assert!(
+        application
+            .update(UserInput::MouseControlClick { column: 1, row: 2 })
+            .is_empty()
     );
 }
 
@@ -736,11 +723,7 @@ fn location_click_uses_the_visible_row_after_pointer_scrolling() {
         row: 3,
         delta: 5,
     });
-    let actions = application.update(UserInput::MouseClick {
-        column: 2,
-        row: 2,
-        insert_path: false,
-    });
+    let actions = application.update(UserInput::MouseClick { column: 2, row: 2 });
 
     assert!(
         matches!(
@@ -806,11 +789,7 @@ fn diff_pointer_selection_accounts_for_rendered_guide_rows() {
     let (word_column, row) = rendered_text_position(&application, "third_pointer_target", 80, 16)
         .expect("the third source row must be visible");
     let column = word_column + 5;
-    application.update(UserInput::MouseClick {
-        column,
-        row,
-        insert_path: false,
-    });
+    application.update(UserInput::MouseClick { column, row });
 
     let mut terminal = Terminal::new(TestBackend::new(80, 16)).unwrap();
     terminal

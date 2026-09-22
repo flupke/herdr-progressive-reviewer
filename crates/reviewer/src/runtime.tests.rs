@@ -4,6 +4,7 @@ use std::io::Write;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 
+use herdr_client::protocol::HerdrReader;
 use ratatui::backend::TestBackend;
 use review_repository::diff::DiffRow;
 use review_repository::repository::RepoType;
@@ -16,6 +17,8 @@ mod mcp;
 
 #[path = "runtime/agent_input.tests.rs"]
 mod agent_input;
+#[path = "runtime/explore.tests.rs"]
+mod explore_flow;
 
 const GUIDE_E2E_AGENT_SOURCE: &str = "progressive-reviewer-e2e";
 // Test against the installed binary's rules, without background network updates.
@@ -59,6 +62,11 @@ fn source_loading_prefers_frozen_content_when_a_deleted_path_is_recreated() {
         snapshot: Some(snapshot.clone()),
         commands,
         guide: guide::GuideRequestCoordinator::default(),
+        explore: explore::ExploreRuntime::default(),
+        prompts: comment_service::test_worker(
+            &ReviewStore::open(state_directory.path(), repository.root()).unwrap(),
+        )
+        .prompt_sender(),
         documents: mpsc::channel().0,
     };
     std::fs::write(&location.path, "fn recreated_after_snapshot() {}\n").unwrap();
@@ -612,13 +620,12 @@ fn receive_agent_release(events: &Receiver<HerdrEvent>) {
 struct AgentEventSubscription {
     events: Receiver<HerdrEvent>,
     continue_streaming: Arc<AtomicBool>,
-    thread: JoinHandle<herdr_client::Result<EventStreamEnd>>,
+    thread: JoinHandle<herdr_client::Result<()>>,
 }
 
 impl AgentEventSubscription {
     fn start(herdr: &IsolatedHerdrServer) -> Self {
         let client = herdr.client();
-        let pane_id = herdr.pane_id.clone();
         let continue_streaming = Arc::new(AtomicBool::new(true));
         let thread_continue_streaming = Arc::clone(&continue_streaming);
         let (event_sender, events) = mpsc::channel();
@@ -626,7 +633,6 @@ impl AgentEventSubscription {
         let thread = thread::spawn(move || {
             let mut ready_sender = Some(ready_sender);
             client.forward_events_while(
-                std::slice::from_ref(&pane_id),
                 || {
                     // The cancellation callback first runs after subscription acknowledgement.
                     if let Some(sender) = ready_sender.take() {
@@ -656,14 +662,8 @@ fn confirm_multiple_event_subscribers(herdr: &IsolatedHerdrServer) {
     drop(first.events);
     drop(second.events);
     herdr.report_agent("idle");
-    assert_eq!(
-        first.thread.join().unwrap().unwrap(),
-        EventStreamEnd::ReceiverDisconnected
-    );
-    assert_eq!(
-        second.thread.join().unwrap().unwrap(),
-        EventStreamEnd::ReceiverDisconnected
-    );
+    first.thread.join().unwrap().unwrap();
+    second.thread.join().unwrap().unwrap();
 }
 
 #[test]
@@ -684,10 +684,7 @@ fn herdr_event_subscription_stops_without_a_new_server_event() {
         .continue_streaming
         .store(false, Ordering::Relaxed);
 
-    assert_eq!(
-        subscription.thread.join().unwrap().unwrap(),
-        EventStreamEnd::ReceiverDisconnected
-    );
+    subscription.thread.join().unwrap().unwrap();
 }
 
 fn forward_until_agent_detection(events: &Receiver<HerdrEvent>, expected_released: bool) {
@@ -727,6 +724,9 @@ struct GuideFlowFixture {
     review_unit: ReviewUnit,
     checkpoint: String,
     prompt_length: u64,
+    endpoint: review_mcp::Endpoint,
+    comments: comments::Worker,
+    _port: review_test_support::TestPort,
 }
 
 impl GuideFlowFixture {
@@ -742,6 +742,39 @@ impl GuideFlowFixture {
         let guide_store = ReviewStore::open(state_directory.path(), repository.root()).unwrap();
         let tracker = ReviewTracker::new(repository.clone(), store);
         let (commands, command_receiver) = mpsc::channel();
+        let port = review_test_support::TestPort::new();
+        let endpoint =
+            review_mcp::Endpoint::for_repository(repository_files.root(), Some(port.number()))
+                .unwrap();
+        let prompt_commands = commands.clone();
+        let comments = comments::Worker::start(
+            guide_store.clone(),
+            herdr.client(),
+            AgentTarget::new(herdr.workspace_id.clone(), Some(herdr.pane_id.clone())),
+            Ok(endpoint),
+            move |event| {
+                if let comments::Event::Explore(request) = event {
+                    let _ = prompt_commands.send(WorkerCommand::ExploreMcp(Box::new(request)));
+                }
+            },
+        );
+        herdr.report_agent("idle");
+        herdr.run_cli(&[
+            "pane",
+            "split",
+            &herdr.pane_id.0,
+            "--direction",
+            "right",
+            "--no-focus",
+        ]);
+        herdr.run_cli(&[
+            "pane",
+            "focus",
+            "--direction",
+            "right",
+            "--pane",
+            &herdr.pane_id.0,
+        ]);
         let mut worker = Worker {
             repository: repository.clone(),
             tracker: Arc::new(tracker),
@@ -751,6 +784,8 @@ impl GuideFlowFixture {
             snapshot: None,
             commands: commands.clone(),
             guide: guide::GuideRequestCoordinator::default(),
+            explore: explore::ExploreRuntime::default(),
+            prompts: comments.prompt_sender(),
             documents: mpsc::channel().0,
         };
         let (message_sender, messages) = application_message_channel();
@@ -772,6 +807,9 @@ impl GuideFlowFixture {
         let events = AgentEventSubscription::start(&herdr).events;
 
         Self {
+            endpoint,
+            comments,
+            _port: port,
             repository_files,
             state_directory,
             repository,
@@ -793,6 +831,7 @@ impl GuideFlowFixture {
     }
 
     fn request_guide(&mut self, response_text: &str, after_prompt_delivery: impl FnOnce(&Self)) {
+        self.herdr.report_agent("idle");
         let (prompt_delivered_sender, prompt_delivered_receiver) = mpsc::sync_channel(0);
         let (write_response_sender, write_response_receiver) = mpsc::channel();
         let response_writer = respond_to_delivered_guide(
@@ -853,6 +892,9 @@ impl GuideFlowFixture {
             review_unit,
             checkpoint,
             prompt_length: _,
+            comments,
+            _port,
+            endpoint: _,
         } = self;
         drop(events);
         commands.send(WorkerCommand::Quit).unwrap();
@@ -865,7 +907,7 @@ impl GuideFlowFixture {
         assert_eq!(stored.review_checkpoint.checkpoint, checkpoint);
         assert_eq!(stored.items.len(), 1);
         assert_eq!(stored.items[0].text, "Replacement explanation");
-        drop((herdr, repository_files));
+        drop((comments, herdr, repository_files));
     }
 }
 
@@ -875,6 +917,64 @@ fn guide_flow_survives_agent_churn_and_replaces_results(repository_type: RepoTyp
     let mut fixture = GuideFlowFixture::start(repository_type);
     fixture.request_first_guide_after_agent_churn();
     fixture.confirm_refresh_does_not_generate_guide();
+    fixture.replace_guide();
+    fixture.assert_replacement_is_stored();
+}
+
+#[test]
+fn replacing_a_pending_guide_ignores_its_response_when_preparation_fails() {
+    let mut fixture = GuideFlowFixture::start(RepoType::Git);
+    fixture
+        .commands
+        .send(WorkerCommand::GenerateReviewGuide(GuideScope::All))
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let first_prompt = loop {
+        let prompt = fs::read_to_string(fixture.herdr.directory.path().join("prompt.txt"))
+            .unwrap_or_default();
+        if prompt.contains("- Final response: `") {
+            break prompt;
+        }
+        assert!(Instant::now() < deadline, "guide prompt was not delivered");
+        thread::sleep(Duration::from_millis(25));
+    };
+    fixture.prompt_length = u64::try_from(first_prompt.len()).unwrap();
+    fixture
+        .commands
+        .send(WorkerCommand::GenerateReviewGuide(GuideScope::File {
+            path: "missing.rs".into(),
+        }))
+        .unwrap();
+    loop {
+        let event = fixture
+            .messages
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap();
+        if let Some(status) = event.downcast_ref::<ui_events::ReviewGuideStatusChanged>()
+            && !status.generating
+        {
+            assert!(
+                status
+                    .message
+                    .as_ref()
+                    .unwrap()
+                    .contains("no visible unreviewed file")
+            );
+            break;
+        }
+    }
+    // The failed replacement still supersedes the old response watcher.
+    write_guide_response(&first_prompt, "Late answer to a cancelled request");
+    thread::sleep(Duration::from_millis(350));
+    assert_eq!(
+        fs::read_to_string(fixture.herdr.directory.path().join("prompt.txt")).unwrap(),
+        first_prompt
+    );
+    assert!(!fixture.messages.try_iter().any(|event| {
+        event
+            .downcast_ref::<ui_events::ReviewGuideStatusChanged>()
+            .is_some()
+    }));
     fixture.replace_guide();
     fixture.assert_replacement_is_stored();
 }
@@ -904,6 +1004,11 @@ fn disk_content_changes_replace_the_visible_diff(repository_type: RepoType) {
         snapshot: None,
         commands,
         guide: guide::GuideRequestCoordinator::default(),
+        explore: explore::ExploreRuntime::default(),
+        prompts: comment_service::test_worker(
+            &ReviewStore::open(state_directory.path(), repository.root()).unwrap(),
+        )
+        .prompt_sender(),
         documents: mpsc::channel().0,
     };
     let (message_sender, messages) = application_message_channel();
@@ -1035,27 +1140,24 @@ fn modified_mouse_inputs_reuse_existing_actions() {
             delta: 3,
         })
     );
-    for (kind, modifiers) in [
-        (MouseEventKind::Down(MouseButton::Left), KeyModifiers::SHIFT),
-        (
-            MouseEventKind::Down(MouseButton::Middle),
-            KeyModifiers::NONE,
-        ),
-    ] {
-        assert_eq!(
-            normalize_mouse(MouseEvent {
-                kind,
-                column: 4,
-                row: 5,
-                modifiers,
-            }),
-            Some(UserInput::MouseClick {
-                column: 4,
-                row: 5,
-                insert_path: true,
-            })
-        );
-    }
+    assert_eq!(
+        normalize_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 4,
+            row: 5,
+            modifiers: KeyModifiers::SHIFT,
+        }),
+        Some(UserInput::MouseClick { column: 4, row: 5 })
+    );
+    assert_eq!(
+        normalize_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Middle),
+            column: 4,
+            row: 5,
+            modifiers: KeyModifiers::NONE,
+        }),
+        None
+    );
     assert_eq!(
         normalize_mouse(MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
@@ -1191,14 +1293,6 @@ fn dispatch_all_executes_earlier_actions_before_quit() {
             .unwrap()
     );
     assert_eq!(settings.file_pane_width().unwrap(), Some(42));
-}
-
-#[test]
-fn worker_command_preserves_output_actions() {
-    let command = RuntimeActionDispatcher::worker_command(Action::Output {
-        text: "selected code".to_owned(),
-    });
-    assert!(matches!(command, WorkerCommand::Output { text } if text == "selected code"));
 }
 
 #[test]

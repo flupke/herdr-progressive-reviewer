@@ -5,6 +5,7 @@ use review_thread_service as comments;
 mod comment_service;
 mod document;
 mod events;
+mod explore;
 mod guide;
 mod highlighting;
 mod terminal;
@@ -36,16 +37,14 @@ use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
-use herdr_client::client::{EventStreamEnd, HerdrClient};
-use herdr_client::protocol::{
-    Agent, AgentTarget, HerdrEvent, HerdrReader, InsertResult, PaneId, PluginContext, WorkspaceId,
-};
+use herdr_client::client::HerdrClient;
+use herdr_client::protocol::{Agent, AgentTarget, HerdrEvent, PaneId, PluginContext, WorkspaceId};
 use ratatui::Terminal;
 use ratatui::backend::Backend;
 use review_guide::{FrozenFile, FrozenHunk, GuideScope, ReviewCheckpoint};
 use review_guide_runner::{
     GuideMailbox, GuideRepositorySnapshot, GuideResponseVersion, GuideResponseWaitOutcome,
-    GuideResponseWatchCancellation, GuideResult, GuideRunner,
+    GuideResponseWatchCancellation, GuideResult, PreparedGuide,
 };
 use review_lsp::SourceLocation;
 use review_repository::diff::parse_file_diff;
@@ -61,11 +60,11 @@ use signal_hook::consts::signal::{SIGHUP, SIGINT, SIGTERM};
 use signal_hook::flag;
 use terminal::{CursorBackend, TerminalBackend};
 use ui_events::{
-    AnimationTick, DiffContentLoadFailed, DiffContentLoaded, FileSummary, OutputDeliveryFinished,
-    RepositoryFilesChanged, RepositoryMetadataChanged, RepositoryRefreshFinished,
-    RepositoryRefreshStarted, ReviewGuideChanged, ReviewStateSaved, RevisionCandidatesLoaded,
-    RevisionEditFailed, RevisionHistoryLoadId, RevisionHistoryLoaded, SourceContentLoadFailed,
-    SourceContentLoaded, ToastExpirationTick,
+    AnimationTick, DiffContentLoadFailed, DiffContentLoaded, FileSummary, RepositoryFilesChanged,
+    RepositoryMetadataChanged, RepositoryRefreshFinished, RepositoryRefreshStarted,
+    ReviewGuideChanged, ReviewStateSaved, RevisionCandidatesLoaded, RevisionEditFailed,
+    RevisionHistoryLoadId, RevisionHistoryLoaded, SourceContentLoadFailed, SourceContentLoaded,
+    ToastExpirationTick,
 };
 
 use crate::watcher::RepositoryWatcher;
@@ -97,11 +96,20 @@ struct Worker {
     snapshot: Option<Snapshot>,
     commands: Sender<WorkerCommand>,
     guide: guide::GuideRequestCoordinator,
+    explore: explore::ExploreRuntime,
+    prompts: comments::PromptSender,
     documents: Sender<document::Command>,
 }
 
 #[derive(Debug)]
 enum WorkerCommand {
+    Explore(review_explore::Command),
+    ExploreFinished {
+        event: Box<ui_events::ExploreFinished>,
+        attempt: String,
+    },
+    ExploreChanged,
+    ExploreMcp(Box<review_mcp::Request>),
     Poll,
     LoadRevisionCandidates(RevisionDirection),
     LoadRevisionHistory(RevisionHistoryLoadId),
@@ -109,9 +117,6 @@ enum WorkerCommand {
     SetReviewed {
         path: String,
         reviewed: bool,
-    },
-    Output {
-        text: String,
     },
     GenerateReviewGuide(GuideScope),
     GuideFinished(Box<guide::FinishedGuide>),
@@ -303,6 +308,24 @@ impl Runtime {
         ));
         let terminal_events = TerminalEventProducer::start(input_sender);
         let watcher = RepositoryWatcher::new(self.repository.root(), self.repository.repo_type());
+        let changed = workers.commands.clone();
+        let explore_events = event_sender.clone();
+        if let Err(error) = settings.prepare_explore_storage() {
+            let _ = explore_events.send(EventEnvelope::new(ui_events::ExploreStorageFailed(
+                error.to_string(),
+            )));
+        } else {
+            watcher.watch_explore(settings.explore_directory(), move |event| match event {
+                Ok(()) => {
+                    let _ = changed.send(WorkerCommand::ExploreChanged);
+                }
+                Err(error) => {
+                    let _ = explore_events.send(EventEnvelope::new(
+                        ui_events::ExploreStorageFailed(format!("Watch Explore state: {error}")),
+                    ));
+                }
+            });
+        }
         let source_watches = watcher.source_requests();
         event_producers.push(Self::start_periodic_events(
             event_sender.clone(),
@@ -357,26 +380,12 @@ impl Runtime {
         stop_requested: Arc<AtomicBool>,
     ) -> JoinHandle<()> {
         thread::spawn(move || {
-            let mut agent_panes = Vec::new();
             while !stop_requested.load(Ordering::Relaxed) {
-                let Ok(agents) = event_client.list_agents() else {
-                    thread::sleep(HERDR_EVENT_RECONNECT_DELAY);
-                    continue;
-                };
-                for agent in agents {
-                    if !agent_panes.contains(&agent.pane_id) {
-                        agent_panes.push(agent.pane_id);
-                    }
-                }
                 match event_client.forward_events_while(
-                    &agent_panes,
                     || !stop_requested.load(Ordering::Relaxed),
                     |event| events.send(EventEnvelope::new(event)).is_ok(),
                 ) {
-                    Ok(EventStreamEnd::ReceiverDisconnected) => return,
-                    Ok(EventStreamEnd::AgentPanesChanged(pane_id)) => {
-                        agent_panes.push(pane_id);
-                    }
+                    Ok(()) => return,
                     Err(_) => thread::sleep(HERDR_EVENT_RECONNECT_DELAY),
                 }
             }
@@ -465,6 +474,13 @@ impl Runtime {
             document_worker.run(&document_receiver, &document_messages);
             let _ = document_messages.send(WorkerStopped);
         });
+        let messages = ApplicationMessageSender(events.clone());
+        let comments = self.start_comments(
+            guide_store.clone(),
+            messages.clone(),
+            target.clone(),
+            command_sender.clone(),
+        );
         let mut worker = Worker {
             repository: self.repository.clone(),
             tracker,
@@ -474,11 +490,10 @@ impl Runtime {
             snapshot: None,
             commands: command_sender.clone(),
             guide: guide::GuideRequestCoordinator::default(),
+            explore: explore::ExploreRuntime::default(),
+            prompts: comments.prompt_sender(),
             documents: documents.clone(),
         };
-        let messages = ApplicationMessageSender(events.clone());
-        let comments =
-            self.start_comments(worker.guide_store.clone(), messages.clone(), target.clone());
         let handle = thread::spawn(move || {
             worker.run(&command_receiver, &messages);
             let _ = messages.send(WorkerStopped);
@@ -586,12 +601,13 @@ impl RuntimeActionDispatcher<'_> {
 
     fn worker_command(action: Action) -> WorkerCommand {
         match action {
+            Action::Explore(command) => WorkerCommand::Explore(command),
             action @ (Action::LoadRevisionCandidates(_)
             | Action::LoadRevisionHistory { .. }
             | Action::EditRevision { .. }) => Self::revision_worker_command(action),
-            action @ (Action::SetReviewed { .. }
-            | Action::Output { .. }
-            | Action::GenerateReviewGuide { .. }) => Self::output_worker_command(action),
+            action @ (Action::SetReviewed { .. } | Action::GenerateReviewGuide { .. }) => {
+                Self::review_worker_command(action)
+            }
             Action::Thread(_)
             | Action::Highlight(_)
             | Action::OpenLspDocument(_)
@@ -659,12 +675,11 @@ impl RuntimeActionDispatcher<'_> {
         }
     }
 
-    fn output_worker_command(action: Action) -> WorkerCommand {
+    fn review_worker_command(action: Action) -> WorkerCommand {
         match action {
             Action::SetReviewed { path, reviewed } => WorkerCommand::SetReviewed { path, reviewed },
-            Action::Output { text } => WorkerCommand::Output { text },
             Action::GenerateReviewGuide { scope } => WorkerCommand::GenerateReviewGuide(scope),
-            _ => unreachable!("output conversion accepts only output actions"),
+            _ => unreachable!("review conversion accepts only review actions"),
         }
     }
 }
@@ -683,12 +698,11 @@ where
             .events
             .recv()
             .map_err(|_| eyre::eyre!("all review event producers stopped unexpectedly"))?;
-        if let Some(ApplicationTick(now)) = event.downcast_ref::<ApplicationTick>()
-            && !self.app.needs_tick(self.last_frame, *now)
-        {
+        if self.is_idle_tick(&event) {
             return Ok(false);
         }
         let started = Instant::now();
+        let mut redraw = self.event_needs_frame(&event);
         if self.handle_event(&event)? {
             return Ok(true);
         }
@@ -699,15 +713,37 @@ where
             let Some(event) = self.events.try_recv() else {
                 break;
             };
+            redraw |= self.event_needs_frame(&event);
             if self.handle_event(&event)? {
                 return Ok(true);
             }
         }
-        self.redraw()?;
+        if redraw {
+            self.redraw()?;
+        }
         Ok(false)
     }
 
+    fn is_idle_tick(&self, event: &EventEnvelope) -> bool {
+        event
+            .downcast_ref::<ApplicationTick>()
+            .is_some_and(|ApplicationTick(now)| !self.app.needs_tick(self.last_frame, *now))
+    }
+
+    fn event_needs_frame(&self, event: &EventEnvelope) -> bool {
+        // Agent detection events belong to the delivery worker. Its resulting UI
+        // events redraw when needed; the detection notification itself changes no UI.
+        !self.is_idle_tick(event)
+            && !matches!(
+                event.downcast_ref::<HerdrEvent>(),
+                Some(HerdrEvent::AgentDetected { .. })
+            )
+    }
+
     fn handle_event(&mut self, event: &EventEnvelope) -> eyre::Result<bool> {
+        if self.is_idle_tick(event) {
+            return Ok(false);
+        }
         let started = Instant::now();
         if event.downcast_ref::<UserInput>().is_some()
             || event.downcast_ref::<TerminalFocused>().is_some()
@@ -820,22 +856,41 @@ impl Worker {
             snapshot,
             commands,
             guide,
+            prompts,
             ..
         } = self;
-        let mut context = guide::GuideOperationContext::new(
+        let mut context = guide::GuideOperationContext {
             repository,
             tracker,
             guide_store,
             client,
             target,
-            snapshot.as_ref(),
+            prompts,
+            snapshot: snapshot.as_ref(),
             commands,
-        );
+        };
         operation(guide, &mut context)
     }
 
     fn run(&mut self, commands: &Receiver<WorkerCommand>, messages: &ApplicationMessageSender) {
-        while let Ok(command) = commands.recv() {
+        let mut next = None;
+        while let Some(mut command) = next.take().or_else(|| commands.recv().ok()) {
+            if let WorkerCommand::Explore(review_explore::Command::SaveView(view)) = &mut command {
+                for _ in 0..64 {
+                    match commands.try_recv() {
+                        Ok(WorkerCommand::Explore(review_explore::Command::SaveView(new)))
+                            if new.instance == view.instance =>
+                        {
+                            *view = new;
+                        }
+                        Ok(command) => {
+                            next = Some(command);
+                            break;
+                        }
+                        Err(_) => break,
+                    }
+                }
+            }
             if !self.handle_command(command, messages) {
                 return;
             }
@@ -852,13 +907,30 @@ impl Worker {
             | WorkerCommand::LoadRevisionCandidates(_)
             | WorkerCommand::LoadRevisionHistory(_)
             | WorkerCommand::EditRevision(_)) => self.handle_repository_command(command, messages),
-            command @ (WorkerCommand::SetReviewed { .. } | WorkerCommand::Output { .. }) => {
-                self.handle_output_command(command, messages)
+            WorkerCommand::SetReviewed { path, reviewed } => {
+                self.set_reviewed(messages, path, reviewed);
+                true
             }
             command @ (WorkerCommand::GenerateReviewGuide(_)
             | WorkerCommand::GuideFinished(_)
             | WorkerCommand::ImportReviewGuide { .. }) => {
                 self.handle_guide_command(command, messages)
+            }
+            WorkerCommand::ExploreChanged => {
+                self.refresh_explore(messages);
+                true
+            }
+            WorkerCommand::Explore(command) => {
+                self.explore_command(command, messages);
+                true
+            }
+            WorkerCommand::ExploreFinished { event, attempt } => {
+                self.explore_finished(*event, &attempt, messages);
+                true
+            }
+            WorkerCommand::ExploreMcp(request) => {
+                self.explore_mcp(*request, messages);
+                true
             }
             WorkerCommand::Quit => false,
         }
@@ -906,21 +978,6 @@ impl Worker {
         let _ = messages.send(RevisionEditFailed { message: failure });
     }
 
-    fn handle_output_command(
-        &mut self,
-        command: WorkerCommand,
-        messages: &ApplicationMessageSender,
-    ) -> bool {
-        match command {
-            WorkerCommand::SetReviewed { path, reviewed } => {
-                self.set_reviewed(messages, path, reviewed);
-            }
-            WorkerCommand::Output { text } => self.output(messages, &text),
-            _ => unreachable!("output commands accept only review and output work"),
-        }
-        true
-    }
-
     fn handle_guide_command(
         &mut self,
         command: WorkerCommand,
@@ -948,14 +1005,6 @@ impl Worker {
             _ => unreachable!("only guide commands are delegated here"),
         }
         true
-    }
-
-    fn output(&mut self, messages: &ApplicationMessageSender, text: &str) {
-        let delivered = matches!(
-            self.target.insert(&self.client, text),
-            Ok(InsertResult::Inserted { .. })
-        );
-        let _ = messages.send(OutputDeliveryFinished { delivered });
     }
 
     fn poll(&mut self, messages: &ApplicationMessageSender) -> bool {
@@ -1017,6 +1066,7 @@ impl Worker {
             });
         }
         let review_unit = snapshot.identity.review_unit().clone();
+        self.restore_explore(&review_unit, messages);
         self.snapshot = Some(snapshot);
         self.guide_operation(|guide, context| {
             guide.import_completed_guide(context, messages, &review_unit);
@@ -1127,16 +1177,7 @@ fn normalize_mouse(mouse: MouseEvent) -> Option<UserInput> {
         {
             Some(UserInput::MouseControlClick { column, row })
         }
-        MouseEventKind::Down(MouseButton::Left) => Some(UserInput::MouseClick {
-            column,
-            row,
-            insert_path: mouse.modifiers.contains(KeyModifiers::SHIFT),
-        }),
-        MouseEventKind::Down(MouseButton::Middle) => Some(UserInput::MouseClick {
-            column,
-            row,
-            insert_path: true,
-        }),
+        MouseEventKind::Down(MouseButton::Left) => Some(UserInput::MouseClick { column, row }),
         MouseEventKind::Down(MouseButton::Right) => {
             Some(UserInput::MouseRightClick { column, row })
         }

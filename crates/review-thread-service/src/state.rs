@@ -20,6 +20,7 @@ pub(super) struct State {
     access: HashMap<String, Access>,
     notifications: HashMap<ReviewUnit, Notification>,
     wakeups: HashMap<String, Wakeup>,
+    prompts: crate::delivery::PromptQueue,
     publish: Box<dyn Fn(Event) + Send>,
 }
 
@@ -40,6 +41,7 @@ impl State {
             access: HashMap::new(),
             notifications: HashMap::new(),
             wakeups: HashMap::new(),
+            prompts: crate::delivery::PromptQueue::default(),
             publish,
         }
     }
@@ -54,9 +56,9 @@ impl State {
             match input {
                 Ok(Input::Stop) | Err(RecvTimeoutError::Disconnected) => return,
                 Ok(Input::Ui(command)) => self.command(command),
+                Ok(Input::Prompt(request)) => self.prompts.push(request),
                 Ok(Input::Mcp(request)) => {
-                    let result = self.request(&request);
-                    request.respond(result);
+                    self.dispatch_mcp(request);
                 }
                 Err(RecvTimeoutError::Timeout) => {}
             }
@@ -64,8 +66,21 @@ impl State {
         }
     }
 
+    fn dispatch_mcp(&mut self, request: review_mcp::Request) {
+        if matches!(
+            request.operation,
+            Operation::SubmitQuestion(_) | Operation::SubmitConclusion(_)
+        ) {
+            (self.publish)(Event::Explore(request));
+        } else {
+            let result = self.request(&request);
+            request.respond(result);
+        }
+    }
+
     fn has_pending_notifications(&self) -> bool {
-        !self.notifications.is_empty()
+        self.prompts.is_pending()
+            || !self.notifications.is_empty()
             || self.wakeups.iter().any(|(token, wakeup)| {
                 wakeup.needs_poll()
                     && self.access.get(token).is_some_and(|access| {
@@ -256,14 +271,12 @@ impl State {
     }
 
     fn grant(&mut self, unit: &ReviewUnit, agent: Agent) -> Result<Access, String> {
-        if let Some(access) = self
-            .access
-            .values()
-            .find(|access| access.review_unit == *unit && access.matches_agent(&agent))
-        {
-            return Ok(access.clone());
+        for access in self.access.values() {
+            if access.review_unit == *unit && access.matches_agent(&self.client, &agent)? {
+                return Ok(access.clone());
+            }
         }
-        let access = Access::new(unit.clone(), agent)?;
+        let access = Access::new(unit.clone(), agent, &self.client)?;
         self.cancel_wakeups(unit);
         self.access
             .retain(|_, previous| previous.review_unit != *unit);
@@ -304,6 +317,9 @@ impl State {
         access.current_agent(&self.client)?;
         let book = self.load(&access.review_unit)?;
         match &request.operation {
+            Operation::SubmitQuestion(_) | Operation::SubmitConclusion(_) => {
+                Err("Explore requests belong to the interview owner".into())
+            }
             Operation::ListThreads => Ok(Response::Threads(book.threads().to_vec())),
             Operation::GetThread(id) => {
                 let thread = book
@@ -330,19 +346,14 @@ impl State {
 
     fn observe(&mut self, event: HerdrEvent) {
         match event {
-            HerdrEvent::AgentStatusChanged {
-                pane_id, status, ..
-            } => {
-                self.observe_wakeups(&pane_id, |wakeup| wakeup.observe(status));
-            }
             HerdrEvent::AgentDetected {
                 pane_id,
                 released: true,
                 ..
             } => {
-                // A native session can resume in the same pane after MCP setup.
+                // An agent can resume in the same pane after MCP setup.
                 // Keep its grant; every request still checks the live identity.
-                self.observe_wakeups(&pane_id, Wakeup::interrupted);
+                self.interrupt_wakeups(&pane_id);
                 self.refresh_target();
             }
             HerdrEvent::AgentDetected {
@@ -373,24 +384,30 @@ impl State {
         }
     }
 
-    fn observe_wakeups(&mut self, pane: &PaneId, observe: impl Fn(&mut Wakeup)) {
+    fn interrupt_wakeups(&mut self, pane: &PaneId) {
         for (token, access) in &self.access {
             if access.agent.pane_id == *pane
                 && let Some(wakeup) = self.wakeups.get_mut(token)
             {
-                observe(wakeup);
+                wakeup.interrupted();
             }
         }
     }
 
     fn poll(&mut self) {
+        self.prompts.poll(&self.client);
         for unit in self.notifications.keys().cloned().collect::<Vec<_>>() {
             if let Err(error) = self.prepare_notification(&unit) {
                 self.notifications.remove(&unit);
                 (self.publish)(Event::Error(error));
             }
         }
-        let tokens = self.wakeups.keys().cloned().collect::<Vec<_>>();
+        let tokens = self
+            .wakeups
+            .iter()
+            .filter(|(_, wakeup)| wakeup.needs_poll())
+            .map(|(token, _)| token.clone())
+            .collect::<Vec<_>>();
         for token in tokens {
             if let Err(error) = self.notify(&token) {
                 self.wakeups.remove(&token);
@@ -418,9 +435,6 @@ impl State {
             .resolve(&self.client)
             .map_err(|error| error.to_string())?
             .ok_or("Focus an implementation agent to receive the saved comments")?;
-        if agent.agent_session.is_none() {
-            return Ok(());
-        }
         let access = self.grant(unit, agent)?;
         self.notifications.remove(unit);
         self.request_wakeup(&access, retry);
@@ -443,7 +457,7 @@ impl State {
             .resolve(&self.client)
             .map_err(|error| error.to_string())?
             .ok_or("Focus an implementation agent to receive the saved comments")?;
-        if !access.matches_agent(&current) {
+        if !access.matches_agent(&self.client, &current)? {
             let unit = access.review_unit.clone();
             self.wakeups.remove(token);
             return self.schedule(&unit, false);
@@ -451,20 +465,11 @@ impl State {
         let Some(wakeup) = self.wakeups.get_mut(token) else {
             return Ok(());
         };
-        wakeup.observe(current.agent_status);
-        if wakeup.should_notify(current.agent_status, unread) {
-            if !crate::prompt::PromptGate::ready(&self.client, &current) {
-                if wakeup.defer() {
-                    (self.publish)(Event::NotificationDeferred);
-                }
-                return Ok(());
-            }
-            let result = self
-                .client
+        if wakeup.needs_poll() {
+            wakeup.sent();
+            self.client
                 .prompt_agent(&current.pane_id, &access.prompt())
-                .map_err(|error| error.to_string());
-            wakeup.sent(result.is_ok());
-            result?;
+                .map_err(|error| error.to_string())?;
         }
         Ok(())
     }

@@ -29,21 +29,18 @@ impl ConversationFixture {
             "runtime::tests::guide_e2e_agent_process",
             "--nocapture",
         ]);
-        self.server.wait_for_agent(Some(session));
+        self.server
+            .wait_for_agent((!session.is_empty()).then_some(session));
         self.server.release_agent();
     }
 }
 
 #[test_case::test_case("codex"; "codex")]
 #[test_case::test_case("claude"; "claude")]
-fn mcp_waits_for_the_selected_session_before_publishing_access(agent: &str) {
+fn mcp_notifies_agents_without_native_sessions_and_retries_with_the_same_access(agent: &str) {
     let fixture = ConversationFixture::start_with_session(agent, None);
     let first = fixture.new_thread("review", "file.rs", "Question before session detection");
-    thread::sleep(Duration::from_millis(350));
-    assert!(
-        fixture.prompts().is_empty(),
-        "access was sent before the session was known"
-    );
+    let access = fixture.access(1);
     assert_eq!(
         fixture
             .store
@@ -66,8 +63,16 @@ fn mcp_waits_for_the_selected_session_before_publishing_access(agent: &str) {
     }));
     fixture.reload("other-review");
     fixture.reload("review");
+    fixture
+        .worker
+        .as_ref()
+        .unwrap()
+        .send(Command::Thread(ThreadCommand::Retry {
+            review_unit: "review".into(),
+            thread_id: first.clone(),
+        }));
+    assert_eq!(fixture.access(2), access);
     fixture.server.report_session("resumed-session");
-    let access = fixture.access(1);
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -87,7 +92,51 @@ fn mcp_waits_for_the_selected_session_before_publishing_access(agent: &str) {
     let second_prompts =
         fs::read_to_string(fixture.server.directory.path().join("second-prompt.txt")).unwrap();
     assert!(second_prompts.is_empty());
-    assert_eq!(fixture.prompts().matches("Logical review: ").count(), 1);
+    assert_eq!(fixture.prompts().matches("Logical review: ").count(), 2);
+}
+
+#[test]
+fn a_restarted_agent_without_a_native_session_gets_new_access() {
+    let fixture = ConversationFixture::start_with_session("codex", None);
+    let thread = fixture.new_thread("review", "file.rs", "Pending question");
+    let expired = fixture.access(1);
+    fixture.replace_session("");
+    fixture
+        .worker
+        .as_ref()
+        .unwrap()
+        .send(Command::Thread(ThreadCommand::Retry {
+            review_unit: "review".into(),
+            thread_id: thread,
+        }));
+    let access = fixture.access(2);
+    assert_ne!(access, expired);
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            let client = ClientInfo::default()
+                .serve(StreamableHttpClientTransport::from_uri(
+                    fixture.endpoint.url(),
+                ))
+                .await
+                .unwrap();
+            assert_eq!(
+                call(&client, "get_new_messages", json!({"review": expired}))
+                    .await
+                    .is_error,
+                Some(true)
+            );
+            assert_eq!(
+                value(&client, "get_new_messages", json!({"review": access})).await["threads"]
+                    .as_array()
+                    .unwrap()
+                    .len(),
+                1
+            );
+            client.cancel().await.unwrap();
+        });
 }
 
 #[test]

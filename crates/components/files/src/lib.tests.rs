@@ -47,8 +47,8 @@ fn repository_and_keyboard_inputs_publish_the_selected_file() {
         .collect::<Vec<_>>();
     assert_eq!(
         initial,
-        [Action::Output {
-            text: "selected:first.rs".to_owned(),
+        [Action::EditRevision {
+            change_id: "selected:first.rs".to_owned().into()
         }]
     );
 
@@ -61,8 +61,8 @@ fn repository_and_keyboard_inputs_publish_the_selected_file() {
         .collect::<Vec<_>>();
     assert_eq!(
         moved,
-        [Action::Output {
-            text: "selected:second.rs".to_owned(),
+        [Action::EditRevision {
+            change_id: "selected:second.rs".to_owned().into()
         }]
     );
 }
@@ -101,8 +101,8 @@ fn global_shortcuts_move_between_files_that_need_review() {
             .collect::<Vec<_>>();
         assert_eq!(
             actions,
-            [Action::Output {
-                text: format!("selected:{expected_path}"),
+            [Action::EditRevision {
+                change_id: format!("selected:{expected_path}").into()
             }]
         );
     }
@@ -247,8 +247,8 @@ fn repository_event_updates_the_header_overview() {
 
     assert_eq!(
         actions,
-        [Action::Output {
-            text: "overview:1/2:+8:-6".to_owned(),
+        [Action::EditRevision {
+            change_id: "overview:1/2:+8:-6".to_owned().into()
         }]
     );
 }
@@ -285,8 +285,8 @@ fn review_input_moves_optimistically_and_failure_restores_the_status() {
                 path: "first.rs".to_owned(),
                 reviewed: true,
             },
-            Action::Output {
-                text: "selected:second.rs".to_owned(),
+            Action::EditRevision {
+                change_id: "selected:second.rs".to_owned().into()
             },
         ]
     );
@@ -318,7 +318,7 @@ fn review_input_moves_optimistically_and_failure_restores_the_status() {
 }
 
 #[test]
-fn pointer_input_can_insert_a_path_without_loading_its_diff() {
+fn control_click_does_not_send_a_path_to_the_agent() {
     let mut registry = ComponentEventBus::<Action>::new();
     let target = registry.mount(FilesComponent::new);
     registry
@@ -348,12 +348,7 @@ fn pointer_input_can_insert_a_path_without_loading_its_diff() {
         .into_iter()
         .flat_map(component_core::DispatchResult::into_actions)
         .collect::<Vec<_>>();
-    assert_eq!(
-        actions,
-        [Action::Output {
-            text: "src/lib.rs".to_owned(),
-        }]
-    );
+    assert!(actions.is_empty());
 }
 
 struct SelectionOutput;
@@ -363,11 +358,12 @@ struct OverviewOutput;
 impl OverviewOutput {
     #[allow(clippy::unused_self)]
     fn changed(&mut self, event: &FilesOverviewChanged) -> Vec<Action> {
-        vec![Action::Output {
-            text: format!(
+        vec![Action::EditRevision {
+            change_id: format!(
                 "overview:{}/{}:+{}:-{}",
                 event.reviewed, event.total, event.lines_added, event.lines_removed
-            ),
+            )
+            .into(),
         }]
     }
 }
@@ -381,8 +377,8 @@ impl component_core::Component<Action> for OverviewOutput {
 impl SelectionOutput {
     #[allow(clippy::unused_self)]
     fn selected(&mut self, event: &FileSelected) -> Vec<Action> {
-        vec![Action::Output {
-            text: format!("selected:{}", event.path),
+        vec![Action::EditRevision {
+            change_id: format!("selected:{}", event.path).into(),
         }]
     }
 }
@@ -409,8 +405,8 @@ fn repository_refresh_publishes_selection_from_the_files_component() {
         .flat_map(component_core::DispatchResult::into_actions)
         .collect::<Vec<_>>();
 
-    assert!(actions.contains(&Action::Output {
-        text: "selected:src/lib.rs".to_owned(),
+    assert!(actions.contains(&Action::EditRevision {
+        change_id: "selected:src/lib.rs".to_owned().into()
     }));
 }
 

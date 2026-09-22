@@ -271,15 +271,6 @@ impl ConversationFixture {
             assert!(Instant::now() < deadline, "Herdr did not detect {status:?}");
             thread::sleep(Duration::from_millis(25));
         }
-        self.worker
-            .as_ref()
-            .unwrap()
-            .send(Command::Observe(HerdrEvent::AgentStatusChanged {
-                pane_id: self.server.pane_id.clone(),
-                workspace_id: self.server.workspace_id.clone(),
-                agent: Some(self.server.agent.clone()),
-                status,
-            }));
     }
 
     fn prompts(&self) -> String {
@@ -305,16 +296,6 @@ impl ConversationFixture {
         }
     }
 
-    fn wait_for_deferral(&self) {
-        loop {
-            match self.events.recv_timeout(Duration::from_secs(5)).unwrap() {
-                Event::NotificationDeferred => return,
-                Event::Error(error) => panic!("{error}"),
-                _ => {}
-            }
-        }
-    }
-
     fn wait_for_wakeups(&self, count: usize) -> String {
         let deadline = Instant::now() + Duration::from_secs(5);
         while Instant::now() < deadline {
@@ -327,9 +308,7 @@ impl ConversationFixture {
         panic!(
             "expected {count} wakeups, got: {}; agent screen: {:?}; agent: {:?}",
             self.prompts(),
-            self.server
-                .client()
-                .read_agent_screen_ansi(&self.server.pane_id),
+            self.server.client().read_agent_screen(&self.server.pane_id),
             self.server.client().get_agent(&self.server.pane_id),
         );
     }
@@ -392,18 +371,19 @@ fn multiline_prompts_are_captured_whole_only_after_submission(agent: &str) {
 
 #[test_case::test_case("codex"; "codex")]
 #[test_case::test_case("claude"; "claude")]
-fn mcp_wakeups_preserve_focused_and_parked_agent_input(agent: &str) {
+fn mcp_posts_notify_a_working_focused_agent_without_recognizing_its_composer(agent: &str) {
     let fixture = ConversationFixture::start(agent);
     let client = fixture.server.client();
-    fixture
-        .wait_for_screen(|screen| screen.trim() == if agent == "claude" { "❯" } else { "›" });
+    fixture.status(AgentStatus::Working);
     client.focus_agent(&fixture.server.pane_id).unwrap();
-    let id = fixture.new_thread("review", "src/lib.rs", "Wait for my draft");
-    fixture.wait_for_deferral();
-    assert!(
-        fixture.prompts().is_empty(),
-        "a focused empty composer must not be submitted"
-    );
+    fs::write(
+        fixture.server.directory.path().join("prompt.screen"),
+        "An unfamiliar agent input layout",
+    )
+    .unwrap();
+    fixture.wait_for_screen(|screen| screen.contains("An unfamiliar agent input layout"));
+    let id = fixture.new_thread("review", "src/lib.rs", "First comment");
+    let access = fixture.access(1);
     assert!(
         fixture
             .store
@@ -413,72 +393,12 @@ fn mcp_wakeups_preserve_focused_and_parked_agent_input(agent: &str) {
             .is_some()
     );
 
-    client
-        .send_text(
-            &fixture.server.pane_id,
-            "unfinished prompt with an image reference",
-        )
-        .unwrap();
-    fixture.wait_for_screen(|screen| screen.contains("unfinished prompt with an image reference"));
-    fixture.server.run_cli(&[
-        "pane",
-        "focus",
-        "--direction",
-        "right",
-        "--pane",
-        &fixture.server.pane_id.0,
-    ]);
-    assert_ne!(
-        client.session_snapshot().unwrap().focused_pane_id.as_ref(),
-        Some(&fixture.server.pane_id)
-    );
-    // Allow several notification polls with a draft parked in an unfocused pane.
-    thread::sleep(Duration::from_millis(350));
-    assert!(fixture.prompts().is_empty(), "{}", fixture.prompts());
-    assert!(
-        client
-            .read_agent_screen(&fixture.server.pane_id)
-            .unwrap()
-            .contains("unfinished prompt with an image reference")
-    );
-
-    // The user submits their own draft. The deferred wakeup must be a separate prompt.
-    client
-        .send_keys(&fixture.server.pane_id, &["Enter"])
-        .unwrap();
-    let prompts = fixture.wait_for_wakeups(1);
-    assert_eq!(
-        prompts.lines().next(),
-        Some("unfinished prompt with an image reference")
-    );
-    assert!(
-        prompts
-            .lines()
-            .nth(1)
-            .unwrap()
-            .starts_with("There are review comments for you."),
-        "{prompts}"
-    );
-    assert_eq!(prompts.matches("Logical review: ").count(), 1);
-}
-
-#[test_case::test_case(include_str!("../../../review-thread-service/src/prompt/codex-empty.ansi"); "animated")]
-#[test_case::test_case(include_str!("../../../review-thread-service/src/prompt/codex-plain-empty.ansi"); "plain")]
-fn mcp_wakes_codex_with_an_empty_placeholder(screen: &str) {
-    let fixture = ConversationFixture::start("codex");
-    fs::write(
-        fixture.server.directory.path().join("prompt.screen"),
-        screen,
-    )
-    .unwrap();
-    fixture.wait_for_screen(|screen| screen.contains("Ask Codex to do anything"));
-    fixture.new_thread("review", "src/lib.rs", "Deliver this comment");
-    let prompts = fixture.wait_for_wakeups(1);
-    assert!(
-        prompts.starts_with("There are review comments for you."),
-        "{prompts}"
-    );
-    assert!(!prompts.contains("Ask Codex to do anything"), "{prompts}");
+    fixture.post("review", Post::reply(id, "Follow-up while working".into()));
+    assert_eq!(fixture.access(2), access);
+    fixture.status(AgentStatus::Idle);
+    fixture.reload("review");
+    thread::sleep(Duration::from_millis(250));
+    assert_eq!(fixture.prompts().matches("Logical review: ").count(), 2);
 }
 
 async fn call(client: &Peer<RoleClient>, tool: &'static str, arguments: Value) -> CallToolResult {
@@ -528,7 +448,7 @@ fn mcp_threads_exchange_through_an_isolated_herdr_agent(agent: &str) {
         assert_eq!(updated["threads"][0]["code_context"], "+original");
         assert_eq!(updated["threads"][0]["source_checkpoint"], "original");
         assert!(!updated.to_string().contains("new_content"));
-        assert_eq!(fixture.prompts().matches("Logical review: ").count(), 1, "{}", fixture.prompts());
+        assert_eq!(fixture.wait_for_wakeups(2).matches("Logical review: ").count(), 2);
 
         let reply = json!({"review": access, "thread_id": first, "message_id": "d2b82f52-39d7-4a37-a6ca-28d6f8be17db", "text": "Agent answer", "in_reply_to": updated["threads"][0]["in_reply_to"]});
         assert_eq!(value(&client, "reply", reply.clone()).await, value(&client, "reply", reply).await);
@@ -550,10 +470,10 @@ fn mcp_threads_exchange_through_an_isolated_herdr_agent(agent: &str) {
 
         fixture.post("review", Post::reply(first.clone(), "After the final read".into()));
         fixture.status(AgentStatus::Idle);
-        fixture.wait_for_wakeups(2);
+        fixture.wait_for_wakeups(4);
         value(&client, "get_new_messages", json!({"review": access})).await;
         thread::sleep(Duration::from_millis(250));
-        assert_eq!(fixture.prompts().matches("Logical review: ").count(), 2);
+        assert_eq!(fixture.prompts().matches("Logical review: ").count(), 4);
 
         fixture.status(AgentStatus::Working);
         let other = fixture.new_thread("other-review", "private.rs", "Different logical review");
@@ -585,9 +505,6 @@ fn mcp_reopening_sends_fresh_access_only_for_unread_comments(agent: &str) {
     let expired = fixture.access(1);
     fixture.status(AgentStatus::Working);
     fixture.reopen("review");
-    thread::sleep(Duration::from_millis(250));
-    assert_eq!(fixture.prompts().matches("Logical review: ").count(), 1);
-    fixture.status(AgentStatus::Idle);
     let access = fixture.access(2);
     assert_ne!(access, expired);
     let runtime = tokio::runtime::Builder::new_current_thread()

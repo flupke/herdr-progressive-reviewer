@@ -11,7 +11,7 @@ move between unreviewed files, and `[h` and `]h` to move between changed hunks.
 
 Press `rf` to ask the active agent for a guide to the selected file, or `ra` for
 all visible unreviewed files. Navigate guide comments with `[r` and `]r`.
-Filenames, guides and review comments all use the same agent: the last focused
+Guides and review comments use the same agent: the last focused
 agent in the Herdr workspace. Focus another agent to switch; pending comments
 follow that selection, while completed answers and conversation history remain.
 
@@ -28,7 +28,7 @@ it, and use `[c` and `]c` to move between messages.
 
 Unposted comments and replies are saved across restarts without sending them.
 **Cancel**, or submitting empty or whitespace-only text, discards the draft.
-`Ctrl-t` switches between Files and Threads while preserving text being composed.
+`Ctrl-t` cycles Files, Threads and Explore while preserving text being composed.
 
 `F2` switches between Vim and regular editing. In Vim mode, `Esc` returns to
 normal mode and `i` starts inserting. Arrows, Page Up/Down, `j`/`k` and
@@ -36,7 +36,8 @@ normal mode and `i` starts inserting. Arrows, Page Up/Down, `j`/`k` and
 
 ## Browse threads
 
-Use the **[F]iles | [T]hreads** tabs, or press `f` or `t`. Uppercase works too.
+Use the **Files | Threads | Explore** tabs, or press `f` or `t` for Files or
+Threads. Uppercase works too.
 Threads lists conversations across the whole review, including ones whose
 original code has changed or disappeared.
 
@@ -75,3 +76,156 @@ visible, including when you scroll through a reply taller than the pane.
 
 For connection problems or delayed notifications, see
 [Agent connection through MCP](mcp.md).
+
+## Explore a change (experimental)
+
+Open **Explore** and click **Start** or press `s`. Explore prepares the complete
+base-to-working-copy change, including reviewed and filtered files. The selected implementation agent investigates the change with you in its existing
+conversation, asking at most one next question per turn. Requests are sent through
+Herdr immediately, including while the agent is working, using the same delivery
+as thread comments. Explore pins that conversation for the pass.
+The kickoff prompt supplies the review target and interview instructions. The agent
+reads files directly, uses Git/jj for the full diff, and posts the first question
+with `submit_question`. Each human contribution sends a wakeup containing the exact
+selected option's full text and optional comment, plus IDs identifying the original
+question and turn. The agent uses its existing conversation and posts the next turn
+with `submit_question`, or concludes with `submit_conclusion`; evidence and assessments are not sent back to it.
+The agent keeps context in the same conversation. No history dump, repository catalog,
+mailbox or file fallback is exchanged. Refresh the agent's MCP connection after upgrading to update its tool catalog.
+
+**Keep code unchanged while continuing a pass, including after reopening.** Explore reads working-copy files
+directly and assumes they stay unchanged. Saved decisions describe that investigation; they do not establish that later edits were reviewed. Use New pass when code has changed. It does not snapshot the repository or
+pause decisions when source files change. Supporting files are read as needed,
+so large unchanged assets do not impose a repository-wide capture limit.
+
+**Explore progress is saved automatically.** Opening the same checkout and logical
+review restores its latest pass: exact questions, answers, corrections, agenda,
+conclusions, separate task/reply drafts, choice selection and reading position.
+Reopening sends no prompt and never starts implementation. The next normal action
+continues with the original native agent conversation, including a resumed instance.
+If that conversation is unavailable or cannot yet be identified, history and edits
+remain available. A different conversation requires an explicit New pass.
+
+Accepted responses, posted answers and implementation authorization are saved before
+acknowledgement or delivery. Editor changes save in the background and flush on a
+normal close; an abrupt process death can lose keystrokes still awaiting a save.
+Storage errors preserve the original files and stop unsafe Explore changes. Files
+and Threads remain usable. Explore supports one agent and one reviewer per repository,
+with one saved editor and reading state per pass.
+
+Explore shows one question at a time across the full content width. Its evidence,
+answers and recap scroll together. **Previous** and **Next** (or `[` / `]`) visit
+question and conclusion history in posting order; **Latest** returns to the newest question or active conclusion. These controls stay
+visible while scrolling. **Opening** shows the initial context. **Conclusion** opens the separate conclusion page.
+**Reply** addresses the displayed question; each question keeps its own unfinished
+text, selected choice and evidence state.
+
+The conclusion page separates **Summary**, an editable **To be implemented** box,
+and **Future work**. Earlier conclusions retain their own edits and replies; only
+the current conclusion offers Implement. Only the agreed task list goes in the box. Edit it and click
+**Implement** (or press `Ctrl-Enter` while editing it) to authorize the agent to
+implement exactly that list. Summary and future work are not added to the request.
+Queued delivery can be cancelled; errors keep your edits. On reopening, a request
+that was definitely never attempted stays paused. **Send saved implementation request**
+sends its originally authorized scope; **New implementation request** uses the current
+edited box. A delivered request is not sent again automatically. **Delivery outcome
+unknown** means a crash or transport failure may have interrupted confirmation:
+check the original agent conversation before deliberately sending a new request.
+A sent status confirms delivery, not implementation completion. **Reply** continues the interview
+about the conclusion, without authorizing code changes. Further human Files
+inspection remains required.
+The preparation state shows the actual pending status and Cancel. Delivery
+errors and Retry appear beside the affected turn.
+
+On follow-up turns, the agent's reply appears above the question. The question is
+followed by its choices and the text field for optional details.
+The Door and Blast radius assessments and their detail controls
+follow, then the evidence. The provisional map stays on the **Opening** page. Every question
+offers two to five alternatives plus **None of the above**, with the first selected by default.
+Use `Up` / `Down` or `j` / `k`, click a choice, or press its number to select it.
+The text field adds optional details to the selected choice; changing the choice keeps
+those details. Click **Send**, press `Ctrl-Enter`, or press `Enter` while selecting choices
+to submit both together. **None of the above** keeps the inquiry open and can be sent
+with or without text. Click the text field or use `Tab` to reach it. The text fields
+use the shared comment editor: `Esc` returns to Normal mode in Vim editing and stays
+in the field in Regular editing. `Tab` returns to Explore commands. The short recap
+shows the agent's interpretation; `x` appends
+a correction through the same answer interface. Ask “Why?”, request a caller,
+challenge an assumption, or provide new context in the same free-text composer.
+The agent replies directly; a factual question or context is not agreement. Conditional decisions retain
+their required changes as follow-ups. Free-text interpretation remains something
+to inspect and correct, not a semantic guarantee.
+
+| Explore command | Action |
+| --- | --- |
+| `Up` / `Down` or `j` / `k` | Select an answer, including None of the above |
+| `Enter` | Submit the selected answer and optional details when outside the editor |
+| `d` | Defer the question |
+| `[` / `]` | Previous / next question |
+| `e` / `b` | Next evidence reference / primary evidence |
+| `m` / `v` | Expand map and follow-ups / details |
+| `PageUp` / `PageDown` | Scroll the conversation when it has focus |
+| Mouse wheel | Scroll code over a diff; scroll the conversation outside it |
+| `Alt-j` / `Alt-k` | Grow / shrink the selected evidence window |
+| `Alt-0` | Fit evidence automatically again |
+| `c` / `r` | Cancel pending work / explicitly retry |
+| `n` | Start a new pass, retaining the previous investigation as history |
+| `Tab` | Cycle conversation, evidence and answer focus |
+
+Each accepted new question opens automatically, including after input while waiting.
+Any unposted text stays with its original question and is restored through history.
+If you are in Files or Threads, Explore selects the new question for your return
+without switching panes. Switching Files/Threads/Explore preserves questions, drafts
+and code position. Narrow terminals reflow the question and history controls without
+changing Files' sidebar.
+
+The initial native diff window fits the primary evidence's wrapped rows plus
+context, capped at about half the content height. Larger sources remain fully
+scrollable. Each primary snippet explains what it establishes and how that could
+change your answer. **Evidence** lists those decision-relevant snippets;
+**Supporting sources** keeps additional citations available without expanding the
+question's main evidence list. Repeated references to the same range appear once.
+Drag the bottom edge or use the resize keys; **Fit evidence** restores automatic
+sizing and positions the complete range, including its outline and wrapped lines. Manual
+heights and each opened viewer's position, search, selection and comment draft
+stay independent. Overlapping ranges share an outline and fit together. Distant
+ranges remain separate rather than enlarging the window to include unrelated
+code. Non-text or unavailable sources show a compact limitation.
+
+Yellow outlines mean **relevant to this question**. They do not mean accepted,
+reviewed or high risk. Each code window retains search, selection, comments, syntax
+highlighting and new-side language-server navigation. Use **Primary** to return
+after following a definition. Old/deleted-line LSP operations are unavailable;
+additional regular working-copy files inside the repository can be opened on demand.
+Citations name paths, sides and lines directly. Outside-repository destinations
+and non-regular files remain unavailable.
+Old-side references open at their old coordinates. A range outside displayed diff
+hunks opens the available full base text in the native viewer. It retains historical
+coordinates; it is never substituted with current working-copy text.
+
+A new pass retains the old investigation under **Previous pass**; **Latest pass**
+returns to the current one. Decisions are never transferred automatically. Invalid responses leave the last usable question and answer
+available. MCP validation errors let the agent repair the same pending turn;
+an identical retry of an accepted result is acknowledged without replaying it.
+Responses are bounded to 1 MiB; exceeding that bound is
+reported without truncation. Stored passes can grow across many responses (up to
+256 MiB per pass; editor records up to 16 MiB). Corrupt, oversized or unsupported
+records report an error and retain their original bytes. Request and answer identities still protect against
+cancelled, duplicate or unrelated responses; they do not establish source freshness.
+
+Consequential questions show separate **Door** and **Blast radius** summaries.
+The first assesses whether effects can actually be undone, including rollback or
+rebuild conditions; the second describes plausible harm, propagation and bounds.
+**Consequence details** (or **Why this matters**) expands the reasoning and
+unknowns; **Supporting sources** opens its citations in the same native viewer.
+These are evidence-backed agent judgments, not risk scores or guaranteed safety.
+
+The agenda is provisional. Context can add, refine, reorder, retire or supersede
+pending inquiries. Retirement keeps the reason and original wording and does not
+mean acceptance. A reconsideration flags a prior conclusion without changing the
+original decision; deferrals and conditions remain outstanding. New questions
+do not imply a fixed total. The reviewer saves conversation and agenda history; the agent retains context in its own conversation.
+
+The expanded map shows those states, prerequisites, entries not yet mapped and scan limitations. Topic
+associations are not proof of inspection. Explore never marks files reviewed
+or resolves threads. Return to **Files** for the remaining human inspection.

@@ -7,7 +7,6 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::Sender;
 use std::time::Duration;
 
 use serde::Deserialize;
@@ -71,15 +70,6 @@ struct AgentDetectedEvent {
 }
 
 #[derive(Debug, Deserialize)]
-struct AgentStatusChangedEvent {
-    pane_id: PaneId,
-    workspace_id: WorkspaceId,
-    #[serde(default)]
-    agent: Option<String>,
-    agent_status: AgentStatus,
-}
-
-#[derive(Debug, Deserialize)]
 struct PaneWire {
     #[serde(rename = "pane_id")]
     pane: PaneId,
@@ -100,48 +90,26 @@ struct PaneReadWire {
     text: String,
 }
 
-/// The reason that a Herdr event stream ended normally.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum EventStreamEnd {
-    /// The event receiver disconnected.
-    ReceiverDisconnected,
-    /// A newly detected agent needs an additional status subscription.
-    AgentPanesChanged(PaneId),
-}
-
 #[derive(Debug)]
 struct HerdrEventStream {
     reader: BufReader<UnixStream>,
-    agent_panes: Vec<PaneId>,
 }
 
 impl HerdrEventStream {
-    fn forward(mut self, sender: &Sender<HerdrEvent>) -> Result<EventStreamEnd> {
-        self.forward_with(|event| sender.send(event).is_ok())
-    }
-
-    fn forward_with(&mut self, mut send: impl FnMut(HerdrEvent) -> bool) -> Result<EventStreamEnd> {
-        self.forward_while(|| true, &mut send)
-    }
-
     fn forward_while(
         &mut self,
         mut should_continue: impl FnMut() -> bool,
         mut send: impl FnMut(HerdrEvent) -> bool,
-    ) -> Result<EventStreamEnd> {
+    ) -> Result<()> {
         loop {
             if !should_continue() {
-                return Ok(EventStreamEnd::ReceiverDisconnected);
+                return Ok(());
             }
             let Some(event) = self.read_event()? else {
                 continue;
             };
-            let new_agent_pane = self.new_agent_pane(&event);
             if !send(event) {
-                return Ok(EventStreamEnd::ReceiverDisconnected);
-            }
-            if let Some(pane_id) = new_agent_pane {
-                return Ok(EventStreamEnd::AgentPanesChanged(pane_id));
+                return Ok(());
             }
         }
     }
@@ -164,16 +132,6 @@ impl HerdrEventStream {
                 source,
             })?;
         parse_stream_event(envelope)
-    }
-
-    fn new_agent_pane(&self, event: &HerdrEvent) -> Option<PaneId> {
-        let HerdrEvent::AgentDetected {
-            pane_id, released, ..
-        } = event
-        else {
-            return None;
-        };
-        (!released && !self.agent_panes.contains(pane_id)).then(|| pane_id.clone())
     }
 }
 
@@ -201,34 +159,19 @@ fn parse_stream_event(event: EventEnvelope) -> Result<Option<HerdrEvent>> {
                 final_status: value.final_status,
             })
         }
-        "pane_agent_status_changed" => {
-            let value: AgentStatusChangedEvent =
-                parse_event(event.data, "read Herdr agent status event")?;
-            Some(HerdrEvent::AgentStatusChanged {
-                pane_id: value.pane_id,
-                workspace_id: value.workspace_id,
-                agent: value.agent,
-                status: value.agent_status,
-            })
-        }
         _ => None,
     })
 }
 
 impl HerdrClient {
-    /// Read terminal styling so placeholder text can be distinguished from input.
-    pub fn read_agent_screen_ansi(&self, pane_id: &PaneId) -> Result<String> {
-        self.agent_screen(pane_id, true)
-    }
-
-    fn agent_screen(&self, pane_id: &PaneId, styled: bool) -> Result<String> {
+    fn agent_screen(&self, pane_id: &PaneId) -> Result<String> {
         let result = self.request(
             method::AGENT_READ,
             &json!({
                 "target": pane_id.0,
                 "source": "visible",
-                "format": if styled { "ansi" } else { "text" },
-                "strip_ansi": !styled,
+                "format": "text",
+                "strip_ansi": true,
             }),
         )?;
         let read: PaneReadWire = Self::parse(&result, "read", method::AGENT_READ)?;
@@ -259,32 +202,13 @@ impl HerdrClient {
         ))
     }
 
-    /// Stream reviewer-relevant events until the event receiver disconnects.
-    pub fn forward_events(
-        &self,
-        sender: &Sender<HerdrEvent>,
-        agent_panes: &[PaneId],
-    ) -> Result<EventStreamEnd> {
-        self.subscribe_events(agent_panes)?.forward(sender)
-    }
-
-    /// Stream reviewer-relevant events through a callback.
-    pub fn forward_events_with(
-        &self,
-        agent_panes: &[PaneId],
-        send: impl FnMut(HerdrEvent) -> bool,
-    ) -> Result<EventStreamEnd> {
-        self.subscribe_events(agent_panes)?.forward_with(send)
-    }
-
     /// Stream reviewer events until the caller requests cancellation.
     pub fn forward_events_while(
         &self,
-        agent_panes: &[PaneId],
         should_continue: impl FnMut() -> bool,
         send: impl FnMut(HerdrEvent) -> bool,
-    ) -> Result<EventStreamEnd> {
-        let mut stream = self.subscribe_events(agent_panes)?;
+    ) -> Result<()> {
+        let mut stream = self.subscribe_events()?;
         stream
             .reader
             .get_ref()
@@ -297,7 +221,7 @@ impl HerdrClient {
         stream.forward_while(should_continue, send)
     }
 
-    fn subscribe_events(&self, agent_panes: &[PaneId]) -> Result<HerdrEventStream> {
+    fn subscribe_events(&self) -> Result<HerdrEventStream> {
         let mut socket = self.connect(None)?;
         let request_id = format!(
             "progressive-reviewer-events-{}-{}",
@@ -307,7 +231,7 @@ impl HerdrClient {
         let request = json!({
             "id": &request_id,
             "method": "events.subscribe",
-            "params": {"subscriptions": event_subscriptions(agent_panes)}
+            "params": {"subscriptions": event_subscriptions()}
         });
         write_json_line(&mut socket, &request, "subscribe to Herdr events")?;
         let mut reader = BufReader::new(socket);
@@ -324,10 +248,7 @@ impl HerdrClient {
                 message: error.message,
             });
         }
-        Ok(HerdrEventStream {
-            reader,
-            agent_panes: agent_panes.to_vec(),
-        })
+        Ok(HerdrEventStream { reader })
     }
 
     fn request(&self, operation: &'static str, params: &Value) -> Result<Value> {
@@ -500,18 +421,11 @@ fn parse_event<T: for<'de> Deserialize<'de>>(data: Value, operation: &'static st
     serde_json::from_value(data).map_err(|source| Error::Json { operation, source })
 }
 
-fn event_subscriptions(agent_panes: &[PaneId]) -> Vec<Value> {
-    let mut subscriptions = vec![
+fn event_subscriptions() -> Vec<Value> {
+    vec![
         json!({"type": "pane.focused"}),
         json!({"type": "pane.agent_detected"}),
-    ];
-    subscriptions.extend(agent_panes.iter().map(|pane_id| {
-        json!({
-            "type": "pane.agent_status_changed",
-            "pane_id": pane_id.0,
-        })
-    }));
-    subscriptions
+    ]
 }
 
 fn validate_response(
@@ -558,7 +472,7 @@ impl HerdrReader for HerdrClient {
     }
 
     fn read_agent_screen(&self, pane_id: &PaneId) -> Result<String> {
-        self.agent_screen(pane_id, false)
+        self.agent_screen(pane_id)
     }
 
     fn list_plugin_panes(&self, workspace_id: &WorkspaceId) -> Result<Vec<PluginPane>> {
@@ -617,22 +531,6 @@ impl HerdrWriter for HerdrClient {
     fn close_plugin_pane(&self, pane_id: &PaneId) -> Result<()> {
         self.request(method::PLUGIN_PANE_CLOSE, &json!({"pane_id": pane_id.0}))?;
         self.remove_pane(pane_id)
-    }
-
-    fn send_text(&self, pane_id: &PaneId, text: &str) -> Result<()> {
-        self.request(
-            method::PANE_SEND_TEXT,
-            &json!({"pane_id": pane_id.0, "text": text}),
-        )?;
-        Ok(())
-    }
-
-    fn send_keys(&self, pane_id: &PaneId, keys: &[&str]) -> Result<()> {
-        self.request(
-            method::PANE_SEND_KEYS,
-            &json!({"pane_id": pane_id.0, "keys": keys}),
-        )?;
-        Ok(())
     }
 }
 

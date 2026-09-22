@@ -131,11 +131,7 @@ fn clicks_and_focus_hide_an_exposed_cursor_without_a_changed_frame() {
     let mut fixture = Fixture::new();
     fixture.draw("Review this file", Style::default());
     for event in [
-        EventEnvelope::new(UserInput::MouseClick {
-            column: 0,
-            row: 0,
-            insert_path: false,
-        }),
+        EventEnvelope::new(UserInput::MouseClick { column: 0, row: 0 }),
         EventEnvelope::new(HerdrEvent::PaneFocused(PaneId("review-pane".into()))),
         EventEnvelope::new(TerminalFocused),
     ] {
