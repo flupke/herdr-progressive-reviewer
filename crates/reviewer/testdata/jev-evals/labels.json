@@ -1,0 +1,1452 @@
+{
+  "schema_version": 1,
+  "label_policy": "Agent-authored, reviewer-steered development labels. 0=outside requested Explore review scope; 1=requires explanation. Import/module declarations, comments, formatting, test-only, docs, generated files and lockfiles are excluded by reviewer policy, even if they can alter behavior. Context lines are unscored. Labels are judgments, not objective ground truth.",
+  "cases": [
+    {
+      "id": "comment-only",
+      "path": "crates/review-explore/src/consequence.rs",
+      "language": "Rust",
+      "patch": "comment-only.diff",
+      "origin": "Agent-authored mutation/excerpt of herdr-progressive-reviewer 21d15023a5ed4039e7940005c178d7e49cea2434, crates/review-explore/src/consequence.rs. Fixture line numbers are local; these are not historical commit labels.",
+      "purpose": "Small negative control matching the original Jev report.",
+      "labels": [
+        {
+          "side": "new",
+          "line": 4,
+          "significance": 0,
+          "category": "explanatory_comment",
+          "reason": "Documents an existing explanation field without changing its value or consumer."
+        }
+      ]
+    },
+    {
+      "id": "optional-explanation-default",
+      "path": "crates/review-explore/src/consequence.rs",
+      "language": "Rust",
+      "patch": "optional-explanation-default.diff",
+      "origin": "Agent-authored mutation/excerpt of herdr-progressive-reviewer 21d15023a5ed4039e7940005c178d7e49cea2434, crates/review-explore/src/consequence.rs. Fixture line numbers are local; these are not historical commit labels.",
+      "purpose": "Distinguish routine explanation defaults from operational defaults.",
+      "labels": [
+        {
+          "side": "new",
+          "line": 6,
+          "significance": 0,
+          "category": "descriptive_default",
+          "reason": "Allows an absent nonessential explanation string to become empty, as explicitly permitted by the review rubric."
+        },
+        {
+          "side": "new",
+          "line": 7,
+          "significance": 1,
+          "category": "serialization_contract",
+          "reason": "Adding serde(default) changes deserialization of records without details from failure to success, even though the displayed text is nonessential."
+        }
+      ]
+    },
+    {
+      "id": "formatting-match-arm",
+      "path": "crates/review-explore/src/consequence.rs",
+      "language": "Rust",
+      "patch": "formatting-match-arm.diff",
+      "origin": "Agent-authored mutation/excerpt of herdr-progressive-reviewer 21d15023a5ed4039e7940005c178d7e49cea2434, crates/review-explore/src/consequence.rs. Fixture line numbers are local; these are not historical commit labels.",
+      "purpose": "Multi-line replacement that is behaviorally identical.",
+      "labels": [
+        {
+          "side": "old",
+          "line": 6,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "Adding a block around the same literal expression preserves the returned label."
+        },
+        {
+          "side": "new",
+          "line": 6,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "Adding a block around the same literal expression preserves the returned label."
+        },
+        {
+          "side": "new",
+          "line": 7,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "Adding a block around the same literal expression preserves the returned label."
+        },
+        {
+          "side": "new",
+          "line": 8,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "Adding a block around the same literal expression preserves the returned label."
+        }
+      ]
+    },
+    {
+      "id": "misleading-door-label",
+      "path": "crates/review-explore/src/consequence.rs",
+      "language": "Rust",
+      "patch": "misleading-door-label.diff",
+      "origin": "Agent-authored mutation/excerpt of herdr-progressive-reviewer 21d15023a5ed4039e7940005c178d7e49cea2434, crates/review-explore/src/consequence.rs. Fixture line numbers are local; these are not historical commit labels.",
+      "purpose": "Positive control where only a string literal changes.",
+      "labels": [
+        {
+          "side": "old",
+          "line": 5,
+          "significance": 1,
+          "category": "user_visible_behavior",
+          "reason": "Hard-to-reverse decisions would be displayed as reversible, changing the review information."
+        },
+        {
+          "side": "new",
+          "line": 5,
+          "significance": 1,
+          "category": "user_visible_behavior",
+          "reason": "Hard-to-reverse decisions would be displayed as reversible, changing the review information."
+        }
+      ]
+    },
+    {
+      "id": "credit-deferred-answer",
+      "path": "crates/review-explore/src/coverage.rs",
+      "language": "Rust",
+      "patch": "credit-deferred-answer.diff",
+      "origin": "Agent-authored mutation/excerpt of herdr-progressive-reviewer 21d15023a5ed4039e7940005c178d7e49cea2434, crates/review-explore/src/coverage.rs. Fixture line numbers are local; these are not historical commit labels.",
+      "purpose": "A removed guard with a small textual difference.",
+      "labels": [
+        {
+          "side": "old",
+          "line": 3,
+          "significance": 1,
+          "category": "coverage_policy",
+          "reason": "Deferred answers would now earn coverage credit and could allow an incomplete review to finish."
+        },
+        {
+          "side": "new",
+          "line": 3,
+          "significance": 1,
+          "category": "coverage_policy",
+          "reason": "Deferred answers would now earn coverage credit and could allow an incomplete review to finish."
+        }
+      ]
+    },
+    {
+      "id": "inverted-exclusion",
+      "path": "crates/review-explore/src/coverage.rs",
+      "language": "Rust",
+      "patch": "inverted-exclusion.diff",
+      "origin": "Agent-authored mutation/excerpt of herdr-progressive-reviewer 21d15023a5ed4039e7940005c178d7e49cea2434, crates/review-explore/src/coverage.rs. Fixture line numbers are local; these are not historical commit labels.",
+      "purpose": "One-character operator change with a large effect.",
+      "labels": [
+        {
+          "side": "old",
+          "line": 8,
+          "significance": 1,
+          "category": "coverage_policy",
+          "reason": "Changes marked significant or uncertain would be excluded from required review."
+        },
+        {
+          "side": "new",
+          "line": 8,
+          "significance": 1,
+          "category": "coverage_policy",
+          "reason": "Changes marked significant or uncertain would be excluded from required review."
+        }
+      ]
+    },
+    {
+      "id": "range-union-regression",
+      "path": "crates/review-explore/src/coverage.rs",
+      "language": "Rust",
+      "patch": "range-union-regression.diff",
+      "origin": "Agent-authored mutation/excerpt of herdr-progressive-reviewer 21d15023a5ed4039e7940005c178d7e49cea2434, crates/review-explore/src/coverage.rs. Fixture line numbers are local; these are not historical commit labels.",
+      "purpose": "Small edit whose effect needs its surrounding algorithm.",
+      "labels": [
+        {
+          "side": "old",
+          "line": 23,
+          "significance": 1,
+          "category": "range_geometry",
+          "reason": "A union would shrink an overlapping range instead of retaining all covered lines."
+        },
+        {
+          "side": "new",
+          "line": 23,
+          "significance": 1,
+          "category": "range_geometry",
+          "reason": "A union would shrink an overlapping range instead of retaining all covered lines."
+        }
+      ]
+    },
+    {
+      "id": "operational-timeout",
+      "path": "crates/reviewer/src/runtime/explore/jev.rs",
+      "language": "Rust",
+      "patch": "operational-timeout.diff",
+      "origin": "Agent-authored synthetic variation inspired by herdr-progressive-reviewer 21d15023a5ed4039e7940005c178d7e49cea2434, crates/reviewer/src/runtime/explore/jev.rs. Fixture line numbers are local; these are not historical commit labels.",
+      "purpose": "Operational default contrasted with optional explanation metadata.",
+      "labels": [
+        {
+          "side": "old",
+          "line": 3,
+          "significance": 1,
+          "category": "operational_default",
+          "reason": "The evaluator may continue work for ten times as long before its budget expires."
+        },
+        {
+          "side": "new",
+          "line": 3,
+          "significance": 1,
+          "category": "operational_default",
+          "reason": "The evaluator may continue work for ten times as long before its budget expires."
+        }
+      ]
+    },
+    {
+      "id": "unicode-comment",
+      "path": "crates/review-explore/src/source.rs",
+      "language": "Rust",
+      "patch": "unicode-comment.diff",
+      "origin": "Agent-authored mutation/excerpt of herdr-progressive-reviewer 21d15023a5ed4039e7940005c178d7e49cea2434, crates/review-explore/src/source.rs. Fixture line numbers are local; these are not historical commit labels.",
+      "purpose": "Token estimates must handle non-ASCII code comments.",
+      "labels": [
+        {
+          "side": "old",
+          "line": 7,
+          "significance": 0,
+          "category": "explanatory_comment",
+          "reason": "Changes explanatory comments only, including Unicode examples."
+        },
+        {
+          "side": "new",
+          "line": 7,
+          "significance": 0,
+          "category": "explanatory_comment",
+          "reason": "Changes explanatory comments only, including Unicode examples."
+        },
+        {
+          "side": "new",
+          "line": 8,
+          "significance": 0,
+          "category": "explanatory_comment",
+          "reason": "Changes explanatory comments only, including Unicode examples."
+        }
+      ]
+    },
+    {
+      "id": "mixed-comment-and-policy",
+      "path": "crates/review-explore/src/coverage.rs",
+      "language": "Rust",
+      "patch": "mixed-comment-and-policy.diff",
+      "origin": "Agent-authored mutation/excerpt of herdr-progressive-reviewer 21d15023a5ed4039e7940005c178d7e49cea2434, crates/review-explore/src/coverage.rs. Fixture line numbers are local; these are not historical commit labels.",
+      "purpose": "Both positive and negative labels inside one hunk.",
+      "labels": [
+        {
+          "side": "new",
+          "line": 2,
+          "significance": 0,
+          "category": "explanatory_comment",
+          "reason": "Explanatory wording only; the neighboring behavior change is labelled separately."
+        },
+        {
+          "side": "old",
+          "line": 29,
+          "significance": 1,
+          "category": "coverage_policy",
+          "reason": "Inverting the exclusion condition removes meaningful changes from required review."
+        },
+        {
+          "side": "new",
+          "line": 30,
+          "significance": 1,
+          "category": "coverage_policy",
+          "reason": "Inverting the exclusion condition removes meaningful changes from required review."
+        }
+      ]
+    },
+    {
+      "id": "distant-descriptive-consumer",
+      "path": "crates/review-explore/src/consequence.rs",
+      "language": "Rust",
+      "patch": "distant-descriptive-consumer.diff",
+      "origin": "Agent-authored synthetic variation inspired by herdr-progressive-reviewer 21d15023a5ed4039e7940005c178d7e49cea2434, crates/review-explore/src/consequence.rs. Fixture line numbers are local; these are not historical commit labels.",
+      "purpose": "Context across a split reveals the consumer of a defaulted field.",
+      "labels": [
+        {
+          "side": "new",
+          "line": 6,
+          "significance": 1,
+          "category": "serialization_contract",
+          "reason": "Adding serde(default) changes deserialization of records without details from failure to success; the distant consumer only establishes that the resulting empty text renders safely."
+        }
+      ]
+    },
+    {
+      "id": "distant-operational-consumer",
+      "path": "crates/review-explore/src/coverage.rs",
+      "language": "Rust",
+      "patch": "distant-operational-consumer.diff",
+      "origin": "Agent-authored synthetic variation inspired by herdr-progressive-reviewer 21d15023a5ed4039e7940005c178d7e49cea2434, crates/review-explore/src/coverage.rs. Fixture line numbers are local; these are not historical commit labels.",
+      "purpose": "The same-looking annotation controls a consequential distant consumer.",
+      "labels": [
+        {
+          "side": "old",
+          "line": 8,
+          "significance": 1,
+          "category": "operational_default",
+          "reason": "The bool default changes from true to false; can_finish then permits completion with unanswered changes."
+        },
+        {
+          "side": "new",
+          "line": 8,
+          "significance": 1,
+          "category": "operational_default",
+          "reason": "The bool default changes from true to false; can_finish then permits completion with unanswered changes."
+        }
+      ]
+    },
+    {
+      "id": "multiple-hunks",
+      "path": "crates/review-explore/src/coverage.rs",
+      "language": "Rust",
+      "patch": "multiple-hunks.diff",
+      "origin": "Agent-authored synthetic variation inspired by herdr-progressive-reviewer 21d15023a5ed4039e7940005c178d7e49cea2434, crates/review-explore/src/coverage.rs. Fixture line numbers are local; these are not historical commit labels.",
+      "purpose": "Overlap must remain inside the original hunk.",
+      "labels": [
+        {
+          "side": "old",
+          "line": 2,
+          "significance": 1,
+          "category": "behavior",
+          "reason": "Changes a function return value."
+        },
+        {
+          "side": "new",
+          "line": 2,
+          "significance": 1,
+          "category": "behavior",
+          "reason": "Changes a function return value."
+        },
+        {
+          "side": "old",
+          "line": 29,
+          "significance": 1,
+          "category": "behavior",
+          "reason": "Changes a function return value."
+        },
+        {
+          "side": "new",
+          "line": 29,
+          "significance": 1,
+          "category": "behavior",
+          "reason": "Changes a function return value."
+        }
+      ]
+    },
+    {
+      "id": "large-coverage-hunk",
+      "path": "crates/review-explore/src/coverage.rs",
+      "language": "Rust",
+      "patch": "large-coverage-hunk.diff",
+      "origin": "Agent-authored mutation/excerpt of herdr-progressive-reviewer 21d15023a5ed4039e7940005c178d7e49cea2434, crates/review-explore/src/coverage.rs. Fixture line numbers are local; these are not historical commit labels.",
+      "purpose": "Full real source file forces token-budget splits, including at the default large budget.",
+      "labels": [
+        {
+          "side": "old",
+          "line": 389,
+          "significance": 1,
+          "category": "coverage_policy",
+          "reason": "Removes the deferral guard or inverts exclusion, both changing which work is required."
+        },
+        {
+          "side": "new",
+          "line": 389,
+          "significance": 1,
+          "category": "coverage_policy",
+          "reason": "Removes the deferral guard or inverts exclusion, both changing which work is required."
+        },
+        {
+          "side": "old",
+          "line": 415,
+          "significance": 1,
+          "category": "coverage_policy",
+          "reason": "Removes the deferral guard or inverts exclusion, both changing which work is required."
+        },
+        {
+          "side": "new",
+          "line": 415,
+          "significance": 1,
+          "category": "coverage_policy",
+          "reason": "Removes the deferral guard or inverts exclusion, both changing which work is required."
+        },
+        {
+          "side": "old",
+          "line": 530,
+          "significance": 0,
+          "category": "explanatory_comment",
+          "reason": "Explanatory wording only; the neighboring behavior change is labelled separately."
+        },
+        {
+          "side": "new",
+          "line": 530,
+          "significance": 0,
+          "category": "explanatory_comment",
+          "reason": "Explanatory wording only; the neighboring behavior change is labelled separately."
+        }
+      ]
+    },
+    {
+      "id": "large-added-run",
+      "path": "crates/review-explore/src/presentation.rs",
+      "language": "Rust",
+      "patch": "large-added-run.diff",
+      "origin": "Agent-authored synthetic variation inspired by herdr-progressive-reviewer 21d15023a5ed4039e7940005c178d7e49cea2434, crates/review-explore/src/presentation.rs. Fixture line numbers are local; these are not historical commit labels.",
+      "purpose": "One added run with blank declaration boundaries exercises recursive splitting.",
+      "labels": [
+        {
+          "side": "new",
+          "line": 2,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 3,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 4,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 5,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "A blank separator between declarations has no independent behavior."
+        },
+        {
+          "side": "new",
+          "line": 6,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 7,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 8,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 9,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "A blank separator between declarations has no independent behavior."
+        },
+        {
+          "side": "new",
+          "line": 10,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 11,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 12,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 13,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "A blank separator between declarations has no independent behavior."
+        },
+        {
+          "side": "new",
+          "line": 14,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 15,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 16,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 17,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "A blank separator between declarations has no independent behavior."
+        },
+        {
+          "side": "new",
+          "line": 18,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 19,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 20,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 21,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "A blank separator between declarations has no independent behavior."
+        },
+        {
+          "side": "new",
+          "line": 22,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 23,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 24,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 25,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "A blank separator between declarations has no independent behavior."
+        },
+        {
+          "side": "new",
+          "line": 26,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 27,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 28,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 29,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "A blank separator between declarations has no independent behavior."
+        },
+        {
+          "side": "new",
+          "line": 30,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 31,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 32,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 33,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "A blank separator between declarations has no independent behavior."
+        },
+        {
+          "side": "new",
+          "line": 34,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 35,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 36,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 37,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "A blank separator between declarations has no independent behavior."
+        },
+        {
+          "side": "new",
+          "line": 38,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 39,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 40,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 41,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "A blank separator between declarations has no independent behavior."
+        },
+        {
+          "side": "new",
+          "line": 42,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 43,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 44,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 45,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "A blank separator between declarations has no independent behavior."
+        },
+        {
+          "side": "new",
+          "line": 46,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 47,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 48,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 49,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "A blank separator between declarations has no independent behavior."
+        },
+        {
+          "side": "new",
+          "line": 50,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 51,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 52,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 53,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "A blank separator between declarations has no independent behavior."
+        },
+        {
+          "side": "new",
+          "line": 54,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 55,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 56,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 57,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "A blank separator between declarations has no independent behavior."
+        },
+        {
+          "side": "new",
+          "line": 58,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 59,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 60,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 61,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "A blank separator between declarations has no independent behavior."
+        },
+        {
+          "side": "new",
+          "line": 62,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 63,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 64,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 65,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "A blank separator between declarations has no independent behavior."
+        },
+        {
+          "side": "new",
+          "line": 66,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 67,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 68,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 69,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "A blank separator between declarations has no independent behavior."
+        },
+        {
+          "side": "new",
+          "line": 70,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 71,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        },
+        {
+          "side": "new",
+          "line": 72,
+          "significance": 1,
+          "category": "new_behavior",
+          "reason": "Adds distinct display-producing functions; their addition is a new implementation decision."
+        }
+      ]
+    },
+    {
+      "id": "indivisible-long-line",
+      "path": "crates/review-explore/src/presentation.rs",
+      "language": "Rust",
+      "patch": "indivisible-long-line.diff",
+      "origin": "Agent-authored synthetic variation inspired by herdr-progressive-reviewer 21d15023a5ed4039e7940005c178d7e49cea2434, crates/review-explore/src/presentation.rs. Fixture line numbers are local; these are not historical commit labels.",
+      "purpose": "An indivisible long replacement can be oversized under small budgets.",
+      "labels": [
+        {
+          "side": "old",
+          "line": 1,
+          "significance": 0,
+          "category": "explanatory_wording",
+          "reason": "Only the wording of a nonessential explanation changes; no policy or computation changes."
+        },
+        {
+          "side": "new",
+          "line": 1,
+          "significance": 0,
+          "category": "explanatory_wording",
+          "reason": "Only the wording of a nonessential explanation changes; no policy or computation changes."
+        }
+      ]
+    },
+    {
+      "id": "paired-function-rewrite",
+      "path": "crates/review-explore/src/coverage.rs",
+      "language": "Rust",
+      "patch": "paired-function-rewrite.diff",
+      "origin": "Agent-authored synthetic Rust functions inspired by coverage.rs at 21d15023a5ed4039e7940005c178d7e49cea2434. A deliberately coarsened unified diff keeps all removals before all additions; not a historical patch.",
+      "purpose": "A contiguous old/new replacement containing several matching functions must split while retaining both sides of each function.",
+      "labels": [
+        {
+          "side": "old",
+          "line": 1,
+          "significance": 1,
+          "category": "behavior",
+          "reason": "Changes a function return type or returned value; the old and new declaration need to be judged together."
+        },
+        {
+          "side": "old",
+          "line": 2,
+          "significance": 1,
+          "category": "behavior",
+          "reason": "Changes a function return type or returned value; the old and new declaration need to be judged together."
+        },
+        {
+          "side": "old",
+          "line": 3,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "Unchanged separator or closing brace appears as changed only because this deliberately coarse replacement includes whole declarations."
+        },
+        {
+          "side": "old",
+          "line": 4,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "Unchanged separator or closing brace appears as changed only because this deliberately coarse replacement includes whole declarations."
+        },
+        {
+          "side": "old",
+          "line": 5,
+          "significance": 1,
+          "category": "behavior",
+          "reason": "Changes a function return type or returned value; the old and new declaration need to be judged together."
+        },
+        {
+          "side": "old",
+          "line": 6,
+          "significance": 1,
+          "category": "behavior",
+          "reason": "Changes a function return type or returned value; the old and new declaration need to be judged together."
+        },
+        {
+          "side": "old",
+          "line": 7,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "Unchanged separator or closing brace appears as changed only because this deliberately coarse replacement includes whole declarations."
+        },
+        {
+          "side": "old",
+          "line": 8,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "Unchanged separator or closing brace appears as changed only because this deliberately coarse replacement includes whole declarations."
+        },
+        {
+          "side": "old",
+          "line": 9,
+          "significance": 1,
+          "category": "behavior",
+          "reason": "Changes a function return type or returned value; the old and new declaration need to be judged together."
+        },
+        {
+          "side": "old",
+          "line": 10,
+          "significance": 1,
+          "category": "behavior",
+          "reason": "Changes a function return type or returned value; the old and new declaration need to be judged together."
+        },
+        {
+          "side": "old",
+          "line": 11,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "Unchanged separator or closing brace appears as changed only because this deliberately coarse replacement includes whole declarations."
+        },
+        {
+          "side": "old",
+          "line": 12,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "Unchanged separator or closing brace appears as changed only because this deliberately coarse replacement includes whole declarations."
+        },
+        {
+          "side": "old",
+          "line": 13,
+          "significance": 1,
+          "category": "behavior",
+          "reason": "Changes a function return type or returned value; the old and new declaration need to be judged together."
+        },
+        {
+          "side": "old",
+          "line": 14,
+          "significance": 1,
+          "category": "behavior",
+          "reason": "Changes a function return type or returned value; the old and new declaration need to be judged together."
+        },
+        {
+          "side": "old",
+          "line": 15,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "Unchanged separator or closing brace appears as changed only because this deliberately coarse replacement includes whole declarations."
+        },
+        {
+          "side": "old",
+          "line": 16,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "Unchanged separator or closing brace appears as changed only because this deliberately coarse replacement includes whole declarations."
+        },
+        {
+          "side": "old",
+          "line": 17,
+          "significance": 1,
+          "category": "behavior",
+          "reason": "Changes a function return type or returned value; the old and new declaration need to be judged together."
+        },
+        {
+          "side": "old",
+          "line": 18,
+          "significance": 1,
+          "category": "behavior",
+          "reason": "Changes a function return type or returned value; the old and new declaration need to be judged together."
+        },
+        {
+          "side": "old",
+          "line": 19,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "Unchanged separator or closing brace appears as changed only because this deliberately coarse replacement includes whole declarations."
+        },
+        {
+          "side": "old",
+          "line": 20,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "Unchanged separator or closing brace appears as changed only because this deliberately coarse replacement includes whole declarations."
+        },
+        {
+          "side": "old",
+          "line": 21,
+          "significance": 1,
+          "category": "behavior",
+          "reason": "Changes a function return type or returned value; the old and new declaration need to be judged together."
+        },
+        {
+          "side": "old",
+          "line": 22,
+          "significance": 1,
+          "category": "behavior",
+          "reason": "Changes a function return type or returned value; the old and new declaration need to be judged together."
+        },
+        {
+          "side": "old",
+          "line": 23,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "Unchanged separator or closing brace appears as changed only because this deliberately coarse replacement includes whole declarations."
+        },
+        {
+          "side": "old",
+          "line": 24,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "Unchanged separator or closing brace appears as changed only because this deliberately coarse replacement includes whole declarations."
+        },
+        {
+          "side": "old",
+          "line": 25,
+          "significance": 1,
+          "category": "behavior",
+          "reason": "Changes a function return type or returned value; the old and new declaration need to be judged together."
+        },
+        {
+          "side": "old",
+          "line": 26,
+          "significance": 1,
+          "category": "behavior",
+          "reason": "Changes a function return type or returned value; the old and new declaration need to be judged together."
+        },
+        {
+          "side": "old",
+          "line": 27,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "Unchanged separator or closing brace appears as changed only because this deliberately coarse replacement includes whole declarations."
+        },
+        {
+          "side": "old",
+          "line": 28,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "Unchanged separator or closing brace appears as changed only because this deliberately coarse replacement includes whole declarations."
+        },
+        {
+          "side": "old",
+          "line": 29,
+          "significance": 1,
+          "category": "behavior",
+          "reason": "Changes a function return type or returned value; the old and new declaration need to be judged together."
+        },
+        {
+          "side": "old",
+          "line": 30,
+          "significance": 1,
+          "category": "behavior",
+          "reason": "Changes a function return type or returned value; the old and new declaration need to be judged together."
+        },
+        {
+          "side": "old",
+          "line": 31,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "Unchanged separator or closing brace appears as changed only because this deliberately coarse replacement includes whole declarations."
+        },
+        {
+          "side": "old",
+          "line": 32,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "Unchanged separator or closing brace appears as changed only because this deliberately coarse replacement includes whole declarations."
+        },
+        {
+          "side": "new",
+          "line": 1,
+          "significance": 1,
+          "category": "behavior",
+          "reason": "Changes a function return type or returned value; the old and new declaration need to be judged together."
+        },
+        {
+          "side": "new",
+          "line": 2,
+          "significance": 1,
+          "category": "behavior",
+          "reason": "Changes a function return type or returned value; the old and new declaration need to be judged together."
+        },
+        {
+          "side": "new",
+          "line": 3,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "Unchanged separator or closing brace appears as changed only because this deliberately coarse replacement includes whole declarations."
+        },
+        {
+          "side": "new",
+          "line": 4,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "Unchanged separator or closing brace appears as changed only because this deliberately coarse replacement includes whole declarations."
+        },
+        {
+          "side": "new",
+          "line": 5,
+          "significance": 1,
+          "category": "behavior",
+          "reason": "Changes a function return type or returned value; the old and new declaration need to be judged together."
+        },
+        {
+          "side": "new",
+          "line": 6,
+          "significance": 1,
+          "category": "behavior",
+          "reason": "Changes a function return type or returned value; the old and new declaration need to be judged together."
+        },
+        {
+          "side": "new",
+          "line": 7,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "Unchanged separator or closing brace appears as changed only because this deliberately coarse replacement includes whole declarations."
+        },
+        {
+          "side": "new",
+          "line": 8,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "Unchanged separator or closing brace appears as changed only because this deliberately coarse replacement includes whole declarations."
+        },
+        {
+          "side": "new",
+          "line": 9,
+          "significance": 1,
+          "category": "behavior",
+          "reason": "Changes a function return type or returned value; the old and new declaration need to be judged together."
+        },
+        {
+          "side": "new",
+          "line": 10,
+          "significance": 1,
+          "category": "behavior",
+          "reason": "Changes a function return type or returned value; the old and new declaration need to be judged together."
+        },
+        {
+          "side": "new",
+          "line": 11,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "Unchanged separator or closing brace appears as changed only because this deliberately coarse replacement includes whole declarations."
+        },
+        {
+          "side": "new",
+          "line": 12,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "Unchanged separator or closing brace appears as changed only because this deliberately coarse replacement includes whole declarations."
+        },
+        {
+          "side": "new",
+          "line": 13,
+          "significance": 1,
+          "category": "behavior",
+          "reason": "Changes a function return type or returned value; the old and new declaration need to be judged together."
+        },
+        {
+          "side": "new",
+          "line": 14,
+          "significance": 1,
+          "category": "behavior",
+          "reason": "Changes a function return type or returned value; the old and new declaration need to be judged together."
+        },
+        {
+          "side": "new",
+          "line": 15,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "Unchanged separator or closing brace appears as changed only because this deliberately coarse replacement includes whole declarations."
+        },
+        {
+          "side": "new",
+          "line": 16,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "Unchanged separator or closing brace appears as changed only because this deliberately coarse replacement includes whole declarations."
+        },
+        {
+          "side": "new",
+          "line": 17,
+          "significance": 1,
+          "category": "behavior",
+          "reason": "Changes a function return type or returned value; the old and new declaration need to be judged together."
+        },
+        {
+          "side": "new",
+          "line": 18,
+          "significance": 1,
+          "category": "behavior",
+          "reason": "Changes a function return type or returned value; the old and new declaration need to be judged together."
+        },
+        {
+          "side": "new",
+          "line": 19,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "Unchanged separator or closing brace appears as changed only because this deliberately coarse replacement includes whole declarations."
+        },
+        {
+          "side": "new",
+          "line": 20,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "Unchanged separator or closing brace appears as changed only because this deliberately coarse replacement includes whole declarations."
+        },
+        {
+          "side": "new",
+          "line": 21,
+          "significance": 1,
+          "category": "behavior",
+          "reason": "Changes a function return type or returned value; the old and new declaration need to be judged together."
+        },
+        {
+          "side": "new",
+          "line": 22,
+          "significance": 1,
+          "category": "behavior",
+          "reason": "Changes a function return type or returned value; the old and new declaration need to be judged together."
+        },
+        {
+          "side": "new",
+          "line": 23,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "Unchanged separator or closing brace appears as changed only because this deliberately coarse replacement includes whole declarations."
+        },
+        {
+          "side": "new",
+          "line": 24,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "Unchanged separator or closing brace appears as changed only because this deliberately coarse replacement includes whole declarations."
+        },
+        {
+          "side": "new",
+          "line": 25,
+          "significance": 1,
+          "category": "behavior",
+          "reason": "Changes a function return type or returned value; the old and new declaration need to be judged together."
+        },
+        {
+          "side": "new",
+          "line": 26,
+          "significance": 1,
+          "category": "behavior",
+          "reason": "Changes a function return type or returned value; the old and new declaration need to be judged together."
+        },
+        {
+          "side": "new",
+          "line": 27,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "Unchanged separator or closing brace appears as changed only because this deliberately coarse replacement includes whole declarations."
+        },
+        {
+          "side": "new",
+          "line": 28,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "Unchanged separator or closing brace appears as changed only because this deliberately coarse replacement includes whole declarations."
+        },
+        {
+          "side": "new",
+          "line": 29,
+          "significance": 1,
+          "category": "behavior",
+          "reason": "Changes a function return type or returned value; the old and new declaration need to be judged together."
+        },
+        {
+          "side": "new",
+          "line": 30,
+          "significance": 1,
+          "category": "behavior",
+          "reason": "Changes a function return type or returned value; the old and new declaration need to be judged together."
+        },
+        {
+          "side": "new",
+          "line": 31,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "Unchanged separator or closing brace appears as changed only because this deliberately coarse replacement includes whole declarations."
+        },
+        {
+          "side": "new",
+          "line": 32,
+          "significance": 0,
+          "category": "formatting",
+          "reason": "Unchanged separator or closing brace appears as changed only because this deliberately coarse replacement includes whole declarations."
+        }
+      ]
+    },
+    {
+      "id": "import-target-change",
+      "path": "crates/review-explore/src/import_eval.rs",
+      "language": "Rust",
+      "patch": "import-target-change.diff",
+      "origin": "Agent-authored focused Rust fixture for a reviewer-specified exclusion category; not a historical code change.",
+      "purpose": "Probe category recognition under the reviewer policy; effects may differ from review interest.",
+      "labels": [
+        {
+          "side": "old",
+          "line": 5,
+          "significance": 0,
+          "category": "reviewer_excluded_declaration",
+          "reason": "Reviewer explicitly excludes import, re-export, and module declarations even when they can alter behavior."
+        },
+        {
+          "side": "new",
+          "line": 5,
+          "significance": 0,
+          "category": "reviewer_excluded_declaration",
+          "reason": "Reviewer explicitly excludes import, re-export, and module declarations even when they can alter behavior."
+        }
+      ]
+    },
+    {
+      "id": "import-reorder",
+      "path": "crates/review-explore/src/import_eval.rs",
+      "language": "Rust",
+      "patch": "import-reorder.diff",
+      "origin": "Agent-authored focused Rust fixture for a reviewer-specified exclusion category; not a historical code change.",
+      "purpose": "Probe category recognition under the reviewer policy; effects may differ from review interest.",
+      "labels": [
+        {
+          "side": "old",
+          "line": 1,
+          "significance": 0,
+          "category": "reviewer_excluded_declaration",
+          "reason": "Reviewer explicitly excludes import, re-export, and module declarations even when they can alter behavior."
+        },
+        {
+          "side": "new",
+          "line": 1,
+          "significance": 0,
+          "category": "reviewer_excluded_declaration",
+          "reason": "Reviewer explicitly excludes import, re-export, and module declarations even when they can alter behavior."
+        }
+      ]
+    },
+    {
+      "id": "module-declaration",
+      "path": "crates/review-explore/src/lib.rs",
+      "language": "Rust",
+      "patch": "module-declaration.diff",
+      "origin": "Agent-authored focused Rust fixture for a reviewer-specified exclusion category; not a historical code change.",
+      "purpose": "Probe category recognition under the reviewer policy; effects may differ from review interest.",
+      "labels": [
+        {
+          "side": "new",
+          "line": 2,
+          "significance": 0,
+          "category": "reviewer_excluded_declaration",
+          "reason": "Reviewer explicitly excludes import, re-export, and module declarations even when they can alter behavior."
+        }
+      ]
+    }
+  ]
+}

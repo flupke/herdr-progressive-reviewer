@@ -1,0 +1,34 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index bca4807b..e639dda5 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -28,26 +28,28 @@ members = [
+     "crates/reviewer",
+     "crates/toasts",
+ ]
+ resolver = "3"
+ 
+ [workspace.package]
+ version = "0.2.0"
+ edition = "2024"
+-rust-version = "1.85"
++rust-version = "1.89"
+ license = "MIT"
+ 
+ [workspace.dependencies]
+ ansi-to-tui = "7.0"
+ base64 = "0.22"
+ crossterm = "0.28"
+ crossbeam-channel = "0.5"
+ eyre = "0.6"
+ fs2 = "0.4"
++futures = "0.3"
++jj-lib = "=0.44.0"
+ getrandom = "0.3"
+ gix-imara-diff = "0.2"
+ ignore = "0.4.23"
+ libc = "0.2"
+ lsp-server = "0.10"
+ lsp-types = "0.97"
+ notify = "8.2"
+ ratatui = { version = "0.29", default-features = false }

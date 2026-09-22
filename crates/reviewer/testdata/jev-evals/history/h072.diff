@@ -1,0 +1,91 @@
+diff --git a/crates/reviewer/src/runtime.rs b/crates/reviewer/src/runtime.rs
+index b3403d50..f20e3cb8 100644
+--- a/crates/reviewer/src/runtime.rs
++++ b/crates/reviewer/src/runtime.rs
+@@ -1,11 +1,12 @@
+ //! Terminal and worker integration for the review pane.
+ 
+ mod guide;
++mod terminal;
+ 
+ use std::env;
+ use std::io::{self, stdout};
+ use std::path::{Path, PathBuf};
+ use std::sync::Arc;
+ use std::sync::atomic::{AtomicBool, Ordering};
+ use std::sync::mpsc::{self, Receiver, Sender};
+ use std::thread::{self, JoinHandle};
+@@ -22,17 +23,16 @@
+ use crossterm::terminal::{
+     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
+ };
+ use herdr_client::client::{EventStreamEnd, HerdrClient};
+ use herdr_client::protocol::{
+     Agent, AgentTarget, HerdrEvent, HerdrReader, InsertResult, PaneId, PluginContext, WorkspaceId,
+ };
+ use ratatui::Terminal;
+-use ratatui::backend::CrosstermBackend;
+ use review_guide::{FrozenFile, FrozenHunk, GuideScope, ReviewCheckpoint};
+ use review_guide_runner::{
+     GuideMailbox, GuideRepositorySnapshot, GuideResponseVersion, GuideResponseWaitOutcome,
+     GuideResponseWatchCancellation, GuideResult, GuideRunner,
+ };
+ use review_lsp::SourceLocation;
+ use review_repository::diff::parse_file_diff;
+ use review_repository::repository::{
+@@ -40,16 +40,17 @@
+ };
+ use review_state::{MarkResult, ReviewStatus, ReviewTracker};
+ use review_store::ReviewStore;
+ use review_types::ReviewUnit;
+ use review_ui::{Action, Key, ReviewApplication, SourceLoadMode, Theme, UserInput};
+ use sha2::{Digest, Sha256};
+ use signal_hook::consts::signal::{SIGHUP, SIGINT, SIGTERM};
+ use signal_hook::flag;
++use terminal::TerminalBackend;
+ use ui_events::{
+     AnimationTick, DiffContentLoadFailed, DiffContentLoaded, FileSummary, OutputDeliveryFinished,
+     RepositoryFilesChanged, RepositoryMetadataChanged, RepositoryRefreshFinished,
+     RepositoryRefreshStarted, ReviewGuideChanged, ReviewStateSaved, RevisionCandidatesLoaded,
+     RevisionEditFailed, RevisionHistoryLoadId, RevisionHistoryLoaded, SourceContentLoadFailed,
+     SourceContentLoaded, ToastExpirationTick,
+ };
+ 
+@@ -161,17 +162,17 @@ enum WorkerCommand {
+         review_unit: ReviewUnit,
+         wait_token: u64,
+     },
+     Focus(PaneId),
+     Quit,
+ }
+ 
+ struct TerminalGuard {
+-    terminal: Terminal<CrosstermBackend<io::Stdout>>,
++    terminal: Terminal<TerminalBackend<io::Stdout>>,
+ }
+ 
+ struct TerminalEventProducer {
+     stop_requested: Arc<AtomicBool>,
+     thread: Option<JoinHandle<()>>,
+ }
+ 
+ struct RuntimeEventProducers {
+@@ -1042,17 +1043,17 @@ fn find_file<'a>(
+             .ok_or_else(|| eyre::eyre!("the selected file is no longer in the current change"))?;
+         Ok((snapshot, file))
+     }
+ }
+ 
+ impl TerminalGuard {
+     fn new() -> eyre::Result<Self> {
+         enable_raw_mode()?;
+-        let mut terminal = match Terminal::new(CrosstermBackend::new(stdout())) {
++        let mut terminal = match Terminal::new(TerminalBackend::new(stdout())) {
+             Ok(terminal) => terminal,
+             Err(error) => {
+                 let _ = disable_raw_mode();
+                 return Err(error.into());
+             }
+         };
+         if let Err(error) = execute!(
+             terminal.backend_mut(),

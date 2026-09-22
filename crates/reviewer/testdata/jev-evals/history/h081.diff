@@ -1,0 +1,47 @@
+diff --git a/crates/review-ui/src/application.tests.rs b/crates/review-ui/src/application.tests.rs
+index e11950a4..e90daf1d 100644
+--- a/crates/review-ui/src/application.tests.rs
++++ b/crates/review-ui/src/application.tests.rs
+@@ -151,16 +151,42 @@ fn making_the_selected_reviewed_file_unreviewed_loads_its_diff() {
+             Action::LoadDiff {
+                 review_checkpoint,
+                 path: "src/lib.rs".to_owned(),
+             },
+         ]
+     );
+ }
+ 
++#[test]
++fn space_marks_the_selected_file_reviewed_from_either_pane() {
++    for focus_diff in [false, true] {
++        for key in [Key::Space, Key::Char(' ')] {
++            let mut application = application();
++            publish_repository(
++                &mut application,
++                ReviewCheckpoint::new("change", "checkpoint"),
++                String::new(),
++                vec![FileSummary::new("src/lib.rs", ReviewStatus::Unreviewed)],
++            );
++            if focus_diff {
++                application.update(UserInput::Key(Key::Tab));
++            }
++
++            assert_eq!(
++                application.update(UserInput::Key(key)),
++                vec![Action::SetReviewed {
++                    path: "src/lib.rs".to_owned(),
++                    reviewed: true,
++                }],
++            );
++        }
++    }
++}
++
+ #[test]
+ fn guide_prefixes_do_not_block_revision_navigation() {
+     let mut parent_application = application();
+     publish_repository(
+         &mut parent_application,
+         ReviewCheckpoint::new(ReviewUnit::from("change"), "commit".to_owned()),
+         String::new(),
+         vec![FileSummary::new("src/lib.rs", ReviewStatus::Unreviewed)],

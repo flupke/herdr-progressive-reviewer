@@ -225,60 +225,54 @@ fn classify_one(
     key: &str,
     candidate: &Candidate,
 ) -> SignificanceResult {
-    let question = json!({ "type": "choice", "instructions": INSTRUCTIONS,
-        "criteria": { "significant": "This changed block warrants its own explanation because it adds an independent consequential review decision.",
-        "insignificant": "The changed lines are locally clear and add no independent review decision, even if a nearby change still warrants review.",
-        "uncertain": "Context or understanding is insufficient to decide conservatively." } });
-    let body = json!({ "model": MODEL, "state": candidate.state, "questions": { "significance": question } });
-    let response = client
+    match request_json(client, key, &candidate.request()) {
+        Ok(value) => parse_response(candidate, &value),
+        Err(error) => candidate.result(
+            Significance::Failed,
+            None,
+            BTreeMap::new(),
+            None,
+            Some(error),
+        ),
+    }
+}
+
+impl Candidate {
+    fn request(&self) -> Value {
+        let question = json!({ "type": "choice", "instructions": INSTRUCTIONS,
+            "criteria": { "significant": "This changed block warrants its own explanation because it adds an independent consequential review decision.",
+                "insignificant": "The changed lines are locally clear and add no independent review decision, even if a nearby change still warrants review.",
+                "uncertain": "Context or understanding is insufficient to decide conservatively." } });
+        json!({ "model": MODEL, "state": self.state, "questions": { "significance": question } })
+    }
+}
+
+// The opt-in evaluator uses this same transport and response parser, retaining
+// the raw response for token accounting without changing production decisions.
+fn request_json(
+    client: &reqwest::blocking::Client,
+    key: &str,
+    body: &Value,
+) -> Result<Value, String> {
+    let mut response = client
         .post("https://api.typesafe.ai/v1/systemone")
         .bearer_auth(key)
-        .json(&body)
-        .send();
-    let Ok(mut response) = response else {
-        return candidate.result(
-            Significance::Failed,
-            None,
-            BTreeMap::new(),
-            None,
-            Some("Provider request failed or timed out".into()),
-        );
-    };
+        .json(body)
+        .send()
+        .map_err(|_| "Provider request failed or timed out".to_owned())?;
     if !response.status().is_success() {
-        return candidate.result(
-            Significance::Failed,
-            None,
-            BTreeMap::new(),
-            None,
-            Some(format!("Provider HTTP {}", response.status().as_u16())),
-        );
+        return Err(format!("Provider HTTP {}", response.status().as_u16()));
     }
     let mut bytes = Vec::new();
-    if response
+    response
         .by_ref()
         .take(MAX_RESPONSE_BYTES + 1)
         .read_to_end(&mut bytes)
-        .is_err()
-        || bytes.len() as u64 > MAX_RESPONSE_BYTES
-    {
-        return candidate.result(
-            Significance::Failed,
-            None,
-            BTreeMap::new(),
-            None,
-            Some("Provider response is unavailable or oversized".into()),
-        );
+        .map_err(|_| "Provider response is unavailable or oversized".to_owned())?;
+    if bytes.len() as u64 > MAX_RESPONSE_BYTES {
+        return Err("Provider response is unavailable or oversized".into());
     }
-    let Ok(value) = serde_json::from_slice::<Value>(&bytes) else {
-        return candidate.result(
-            Significance::Failed,
-            None,
-            BTreeMap::new(),
-            None,
-            Some("Malformed provider JSON".into()),
-        );
-    };
-    parse_response(candidate, &value)
+    serde_json::from_slice(&bytes).map_err(|_| "Malformed provider JSON".into())
 }
 
 fn parse_response(candidate: &Candidate, value: &Value) -> SignificanceResult {
@@ -382,108 +376,5 @@ fn valid_probabilities(
     Some(parsed)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    #[ignore = "requires a reviewer-process TYPESAFE_API_KEY and external network"]
-    fn live_jev_harmless_fixture() {
-        let key = std::env::var("TYPESAFE_API_KEY").expect("reviewer-process key");
-        assert!(!key.trim().is_empty());
-        let candidate = Candidate {
-            id: "harmless".into(),
-            units: vec![],
-            state: json!({
-                "path": "fixture.rs",
-                "language_hint": "Rust",
-                "unchanged_before": [],
-                "removed_lines": ["fn answer() -> i32 { 1 }"],
-                "added_lines": ["fn answer() -> i32 { 2 }"],
-                "unchanged_after": [],
-            }),
-            references: vec!["fixture.rs new 1-1".into()],
-            omissions: vec![],
-        };
-        let client = reqwest::blocking::Client::builder()
-            .timeout(Duration::from_secs(8))
-            .build()
-            .unwrap();
-        let result = classify_one(&client, &key, &candidate);
-        println!(
-            "model={:?} outcome={:?} confidence={:?} error={:?}",
-            result.model, result.outcome, result.confidence, result.error
-        );
-        assert_ne!(
-            result.outcome,
-            Significance::Failed,
-            "provider request failed: {:?}",
-            result.error
-        );
-    }
-
-    #[test]
-    #[ignore = "requires a reviewer-process TYPESAFE_API_KEY and external network"]
-    fn live_jev_distinguishes_descriptive_and_operational_defaults() {
-        let key = std::env::var("TYPESAFE_API_KEY").expect("reviewer-process key");
-        let client = reqwest::blocking::Client::builder()
-            .timeout(Duration::from_secs(8))
-            .build()
-            .unwrap();
-        let comment_only = Candidate {
-            id: "comment-only".into(),
-            units: vec![],
-            state: json!({
-                "path": "crates/review-explore/src/consequence.rs",
-                "language_hint": "Rust",
-                "unchanged_before": ["pub struct Consequence {"],
-                "removed_lines": [],
-                "added_lines": [
-                    "    /// Short first paragraph for this Markdown section, including the decisive reason."
-                ],
-                "unchanged_after": ["    pub summary: String,"]
-            }),
-            references: vec![],
-            omissions: vec![],
-        };
-        let result = classify_one(&client, &key, &comment_only);
-        assert_eq!(result.outcome, Significance::Insignificant, "{result:?}");
-
-        let descriptive = Candidate {
-            id: "descriptive-default".into(),
-            units: vec![],
-            state: json!({
-                "path": "crates/review-explore/src/consequence.rs",
-                "language_hint": "Rust",
-                "unchanged_before": ["pub summary: String,"],
-                "removed_lines": [],
-                "added_lines": [
-                    "    /// Optional Markdown reasoning after the summary; omit or leave empty when unnecessary.",
-                    "    #[serde(default)]"
-                ],
-                "unchanged_after": ["    pub details: String,", "    pub evidence: Vec<EvidenceRef>,"]
-            }),
-            references: vec![],
-            omissions: vec![],
-        };
-        let result = classify_one(&client, &key, &descriptive);
-        assert_eq!(result.outcome, Significance::Insignificant, "{result:?}");
-
-        let operational = Candidate {
-            id: "operational-default".into(),
-            units: vec![],
-            state: json!({
-                "path": "src/config.rs",
-                "language_hint": "Rust",
-                "unchanged_before": ["pub struct RetryConfig {"],
-                "removed_lines": ["    #[serde(default = \"one_retry\")]"],
-                "added_lines": ["    #[serde(default = \"ten_retries\")]"],
-                "unchanged_after": ["    pub max_retries: u32,", "}"]
-            }),
-            references: vec![],
-            omissions: vec![],
-        };
-        let result = classify_one(&client, &key, &operational);
-        assert_eq!(result.outcome, Significance::Significant, "{result:?}");
-    }
-}
+#[cfg(all(test, feature = "jev-evals"))]
+mod evals;

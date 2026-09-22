@@ -1,0 +1,638 @@
+diff --git a/crates/review-guide-runner/src/lib.tests.rs b/crates/review-guide-runner/src/lib.tests.rs
+index c6b22154..8310e386 100644
+--- a/crates/review-guide-runner/src/lib.tests.rs
++++ b/crates/review-guide-runner/src/lib.tests.rs
+@@ -1,145 +1,81 @@
+-use std::fs::FileTimes;
+-use std::os::unix::fs::symlink;
++use std::os::unix::fs::{PermissionsExt, symlink};
+ use std::sync::Mutex;
+-use std::time::SystemTime;
+ 
+ use herdr_client::Result;
+-use herdr_client::protocol::{
+-    AgentPrompter, AgentSession, HerdrReader, PaneId, PluginPane, SessionSnapshot, TabId,
+-    WorkspaceId,
+-};
++use herdr_client::protocol::{AgentPrompter, AgentStatus, PaneId, TabId, WorkspaceId};
+ use review_guide::{FrozenHunk, GuideTarget};
+ 
+ use super::*;
+ 
+ struct FakeHerdr {
+-    agent: Mutex<Agent>,
+-    transport_directory: Mutex<Option<PathBuf>>,
+-    saw_private_transport: Mutex<bool>,
+-    saw_delegated_prompt: Mutex<bool>,
++    prompt: Mutex<Option<String>>,
+ }
+ 
+ impl FakeHerdr {
+-    fn new(agent: Agent) -> Self {
++    fn new() -> Self {
+         Self {
+-            agent: Mutex::new(agent),
+-            transport_directory: Mutex::new(None),
+-            saw_private_transport: Mutex::new(false),
+-            saw_delegated_prompt: Mutex::new(false),
++            prompt: Mutex::new(None),
+         }
+     }
+ }
+ 
+-impl HerdrReader for FakeHerdr {
+-    fn session_snapshot(&self) -> Result<SessionSnapshot> {
+-        Ok(SessionSnapshot::default())
+-    }
+-
+-    fn list_agents(&self) -> Result<Vec<Agent>> {
+-        Ok(vec![self.agent.lock().unwrap().clone()])
+-    }
+-
+-    fn get_agent(&self, pane_id: &PaneId) -> Result<Option<Agent>> {
+-        let agent = self.agent.lock().unwrap();
+-        Ok((agent.pane_id == *pane_id).then(|| agent.clone()))
+-    }
+-
+-    fn read_agent_screen(&self, _pane_id: &PaneId) -> Result<String> {
+-        Ok(String::new())
+-    }
+-
+-    fn list_plugin_panes(&self, _workspace_id: &WorkspaceId) -> Result<Vec<PluginPane>> {
+-        Ok(Vec::new())
+-    }
+-}
+-
+ impl AgentPrompter for FakeHerdr {
+-    fn prompt_agent(&self, pane_id: &PaneId, prompt: &str) -> Result<()> {
+-        assert_eq!(*pane_id, self.agent.lock().unwrap().pane_id);
+-        *self.saw_delegated_prompt.lock().unwrap() = prompt
+-            .contains("inherits the complete current conversation")
+-            && prompt.contains("If your agent runtime cannot start a subagent")
+-            && prompt.contains("invoke `$handoff`")
+-            && prompt.contains("## Review-guide task for the subagent")
+-            && prompt.contains("diff in its own context");
++    fn prompt_agent(&self, _pane_id: &PaneId, prompt: &str) -> Result<()> {
++        *self.prompt.lock().unwrap() = Some(prompt.to_owned());
+         let value = |label: &str| {
+             prompt
+                 .lines()
+                 .find_map(|line| line.strip_prefix(label))
+                 .unwrap()
+                 .trim_matches('`')
+                 .to_owned()
+         };
+-        let diff_path = PathBuf::from(value("- Frozen checkpoint diff: "));
+-        let request_id = value("- Request ID: ");
+         let temporary_path = PathBuf::from(value("- Temporary response: "));
+         let response_path = PathBuf::from(value("- Final response: "));
+-        let directory = response_path.parent().unwrap().to_owned();
+-        let repository_marker = directory.join("repository");
+-        *self.saw_private_transport.lock().unwrap() =
+-            fs::metadata(&directory).unwrap().permissions().mode() & 0o777 == 0o700
+-                && fs::metadata(&diff_path).unwrap().permissions().mode() & 0o777 == 0o600
+-                && fs::metadata(&repository_marker)
+-                    .unwrap()
+-                    .permissions()
+-                    .mode()
+-                    & 0o777
+-                    == 0o600
+-                && fs::read(repository_marker).unwrap() == b"/repository"
+-                && fs::read_to_string(diff_path)
+-                    .unwrap()
+-                    .contains("=== HUNK 1 ===");
+         fs::write(
+             &temporary_path,
+             serde_json::json!({
+                 "schema_version": 1,
+-                "request_id": request_id,
+                 "items": [{
+                     "target": {
+                         "kind": "hunks",
+                         "path": "src/lib.rs",
+                         "first_hunk": 1,
+                         "last_hunk": 1
+                     },
+                     "text": "The central idea."
+                 }]
+             })
+             .to_string(),
+         )
+         .unwrap();
+         fs::rename(temporary_path, response_path).unwrap();
+-        *self.transport_directory.lock().unwrap() = Some(directory);
+         Ok(())
+     }
+ }
+ 
+ fn agent() -> Agent {
+     Agent {
+         pane_id: PaneId("pane".to_owned()),
+         tab_id: TabId("tab".to_owned()),
+         workspace_id: WorkspaceId("workspace".to_owned()),
+         name: None,
+         display_agent: Some("Codex".to_owned()),
+         agent: Some("codex".to_owned()),
+         agent_status: AgentStatus::Idle,
+-        agent_session: Some(AgentSession {
+-            source: "native".to_owned(),
+-            agent: "codex".to_owned(),
+-            kind: "thread".to_owned(),
+-            value: "session".to_owned(),
+-        }),
++        agent_session: None,
+         cwd: None,
+     }
+ }
+ 
+-fn guide_request(repository_root: PathBuf, scope: GuideScope) -> GuideRequest {
+-    GuideRequest {
+-        repository_root,
++fn repository_snapshot(scope: GuideScope) -> GuideRepositorySnapshot {
++    GuideRepositorySnapshot {
++        repository_root: PathBuf::from("/repository"),
+         review_checkpoint: ReviewCheckpoint::new("unit", "checkpoint"),
+         scope,
+         frozen_diff: "=== FILE src/lib.rs ===\n=== HUNK 1 ===\n@@ -1 +1 @@\n".to_owned(),
+         files: vec![FrozenFile {
+             path: "src/lib.rs".to_owned(),
+             hunk_count: 1,
+             old_path: Some("src/lib.rs".to_owned()),
+             new_path: Some("src/lib.rs".to_owned()),
+@@ -151,371 +87,134 @@ fn guide_request(repository_root: PathBuf, scope: GuideScope) -> GuideRequest {
+             }],
+             diff_hash: "diff".to_owned(),
+         }],
+         previous_items: Vec::new(),
+         previous_anchored_items: Vec::new(),
+     }
+ }
+ 
+-#[test]
+-fn cancellation_reports_canceled_and_blocked_states() {
+-    let canceled = GuideCancellation::default();
+-    assert!(canceled.error().is_none());
+-    canceled.cancel();
+-    assert!(matches!(canceled.error(), Some(Error::Canceled)));
+-
+-    let blocked = GuideCancellation::default();
+-    blocked.block();
+-    assert!(matches!(blocked.error(), Some(Error::AgentBlocked)));
+-    blocked.cancel();
+-    assert!(matches!(blocked.error(), Some(Error::AgentBlocked)));
+-}
+-
+-#[test]
+-fn scope_prompt_names_the_exact_scope() {
+-    assert_eq!(
+-        scope_prompt_text(&GuideScope::All),
+-        "all visible unreviewed files"
+-    );
+-    assert_eq!(
+-        scope_prompt_text(&GuideScope::File {
+-            path: "src/lib.rs".to_owned(),
+-        }),
+-        "selected file `src/lib.rs`"
+-    );
+-}
+-
+-#[test]
+-fn stored_request_round_trips_through_compression() {
++fn private_mailbox() -> tempfile::TempDir {
+     let directory = tempfile::tempdir().unwrap();
+-    let path = directory.path().join(STORED_REQUEST_FILE);
+-    let request = guide_request(
+-        PathBuf::from("/repository"),
+-        GuideScope::File {
+-            path: "src/lib.rs".to_owned(),
+-        },
++    fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o700)).unwrap();
++    directory
++}
++
++#[test]
++fn prepare_writes_the_deterministic_repository_snapshot_and_diff() {
++    let mailbox = private_mailbox();
++    fs::write(mailbox.path().join(RESPONSE_FILE), b"old response").unwrap();
++
++    GuideRunner::<FakeHerdr>::prepare(
++        repository_snapshot(GuideScope::All),
++        mailbox.path().to_owned(),
++    )
++    .unwrap();
++
++    assert!(!mailbox.path().join(RESPONSE_FILE).exists());
++    assert!(mailbox.path().join(REPOSITORY_SNAPSHOT_FILE).is_file());
++    assert_eq!(
++        fs::read_to_string(mailbox.path().join(DIFF_FILE)).unwrap(),
++        "=== FILE src/lib.rs ===\n=== HUNK 1 ===\n@@ -1 +1 @@\n"
+     );
+-
+-    write_stored_request(&path, &request).unwrap();
+-    let stored = read_stored_request(&path).unwrap();
+-
+-    assert_eq!(stored.repository_root, PathBuf::from("/repository"));
++    let stored = GuideMailbox::open(mailbox.path().to_owned())
++        .unwrap()
++        .read_repository_snapshot()
++        .unwrap();
+     assert_eq!(
+         stored.review_checkpoint,
+         ReviewCheckpoint::new("unit", "checkpoint")
+     );
+-    assert_eq!(stored.scope, request.scope);
+-    assert_eq!(stored.frozen_diff, request.frozen_diff);
+-    assert_eq!(stored.files, request.files);
++    assert!(stored.frozen_diff.is_empty());
+ }
+ 
+ #[test]
+-fn response_read_accepts_the_limit_and_rejects_one_extra_byte() {
+-    assert_eq!(RESPONSE_LIMIT, 1_048_576);
+-    let directory = tempfile::tempdir().unwrap();
+-    let path = directory.path().join("response.json");
+-    let response_limit = usize::try_from(RESPONSE_LIMIT).unwrap();
+-    fs::write(&path, vec![b'x'; response_limit]).unwrap();
+-    assert_eq!(read_bounded(&path).unwrap().len() as u64, RESPONSE_LIMIT);
+-
+-    fs::write(&path, vec![b'x'; response_limit + 1]).unwrap();
+-    assert!(matches!(read_bounded(&path), Err(Error::LargeResponse)));
+-    assert!(matches!(
+-        read_bounded(&directory.path().join("missing")),
+-        Err(Error::MissingResponse)
+-    ));
+-
+-    let target = directory.path().join("target");
+-    fs::write(&target, b"{}").unwrap();
+-    let link = directory.path().join("link");
+-    symlink(target, &link).unwrap();
+-    assert!(matches!(read_bounded(&link), Err(Error::MissingResponse)));
+-}
+-
+-#[test]
+-fn prepared_guide_resumes_only_after_submission_or_response() {
+-    let prepared = GuideRunner::<FakeHerdr>::prepare(guide_request(
+-        PathBuf::from("/repository"),
+-        GuideScope::All,
+-    ))
++fn submitted_response_is_loaded_without_a_request_identifier() {
++    let mailbox = private_mailbox();
++    let prepared = GuideRunner::<FakeHerdr>::prepare(
++        repository_snapshot(GuideScope::All),
++        mailbox.path().to_owned(),
++    )
+     .unwrap();
+-    let request_id = prepared.request_id().clone();
+-    let transport = prepared.transport_directory().to_owned();
+-    drop(prepared);
++    let client = FakeHerdr::new();
++    let runner = GuideRunner::new(&client);
+ 
+-    assert!(PreparedGuide::resume(request_id.clone(), transport.clone()).is_err());
+-    write_private(&transport.join("submitted"), b"", "test submission").unwrap();
+-    let resumed = PreparedGuide::resume(request_id.clone(), transport.clone()).unwrap();
+-    assert_eq!(resumed.request_id(), &request_id);
+-    assert_eq!(resumed.transport_directory(), transport);
+-    drop(resumed);
++    runner.submit_prepared(&agent(), &prepared).unwrap();
++    let result = runner.finish_prepared(&prepared).unwrap();
+ 
+-    fs::remove_file(transport.join("submitted")).unwrap();
+-    write_private(&transport.join("response.json"), b"{}", "test response").unwrap();
+-    assert!(PreparedGuide::resume(request_id, transport.clone()).is_ok());
+-    fs::remove_dir_all(transport).unwrap();
+-}
+-
+-#[test]
+-fn transport_repository_marker_requires_an_exact_small_regular_file() {
+-    let directory = tempfile::Builder::new()
+-        .prefix("herdr-review-guide-")
+-        .tempdir_in(std::env::temp_dir())
+-        .unwrap();
+-    let marker = directory.path().join("repository");
+-    fs::write(&marker, b"/repository").unwrap();
+-    assert!(transport_belongs_to_repository(
+-        directory.path(),
+-        Path::new("/repository")
+-    ));
+-    assert!(!transport_belongs_to_repository(
+-        directory.path(),
+-        Path::new("/other")
+-    ));
+-
+-    fs::write(&marker, vec![b'x'; 4097]).unwrap();
+-    assert!(!transport_belongs_to_repository(
+-        directory.path(),
+-        Path::new("/repository")
+-    ));
+-    fs::remove_file(&marker).unwrap();
+-    let target = directory.path().join("target");
+-    fs::write(&target, b"/repository").unwrap();
+-    symlink(target, marker).unwrap();
+-    assert!(!transport_belongs_to_repository(
+-        directory.path(),
+-        Path::new("/repository")
+-    ));
+-}
+-
+-#[test]
+-fn abandoned_transport_cleanup_respects_age_repository_and_protection() {
+-    assert_eq!(ABANDONED_TRANSPORT_GRACE, Duration::from_secs(300));
+-    let repository = PathBuf::from(format!("/mutation-test-{}", Uuid::new_v4()));
+-    let create_transport = |marker: &[u8], old: bool| {
+-        let directory = tempfile::Builder::new()
+-            .prefix("herdr-review-guide-")
+-            .tempdir_in(std::env::temp_dir())
+-            .unwrap()
+-            .keep();
+-        fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
+-        fs::write(directory.join("repository"), marker).unwrap();
+-        if old {
+-            let modified = SystemTime::now() - Duration::from_secs(301);
+-            let file = OpenOptions::new().read(true).open(&directory).unwrap();
+-            file.set_times(FileTimes::new().set_modified(modified))
+-                .unwrap();
+-        }
+-        directory
+-    };
+-    let expired = create_transport(repository.as_os_str().as_bytes(), true);
+-    let fresh = create_transport(repository.as_os_str().as_bytes(), false);
+-    let protected = create_transport(repository.as_os_str().as_bytes(), true);
+-    let other = create_transport(b"/another-repository", true);
+-
+-    cleanup_abandoned_transports(&repository, std::slice::from_ref(&protected)).unwrap();
+-
+-    assert!(!expired.exists());
+-    assert!(fresh.exists());
+-    assert!(protected.exists());
+-    assert!(other.exists());
+-    fs::remove_dir_all(fresh).unwrap();
+-    fs::remove_dir_all(protected).unwrap();
+-    fs::remove_dir_all(other).unwrap();
+-}
+-
+-#[test]
+-fn waiting_stops_for_a_published_response_or_control_signal() {
+-    let agent = agent();
+-    let client = FakeHerdr::new(agent.clone());
+-    let directory = tempfile::tempdir().unwrap();
+-    let response = directory.path().join("response.json");
+-    fs::write(&response, b"{}").unwrap();
+-    assert!(wait_for_response(&client, &agent, &response, &GuideCancellation::default()).is_ok());
+-
+-    fs::remove_file(&response).unwrap();
+-    let canceled = GuideCancellation::default();
+-    canceled.cancel();
+-    let delayed_response = response.clone();
+-    let writer = thread::spawn(move || {
+-        thread::sleep(Duration::from_millis(20));
+-        fs::write(delayed_response, b"{}").unwrap();
+-    });
+-    assert!(matches!(
+-        wait_for_response(&client, &agent, &response, &canceled),
+-        Err(Error::Canceled)
+-    ));
+-    writer.join().unwrap();
+-    fs::remove_file(&response).unwrap();
+-
+-    client.agent.lock().unwrap().agent_status = AgentStatus::Blocked;
+-    let delayed_response = response.clone();
+-    let writer = thread::spawn(move || {
+-        thread::sleep(Duration::from_millis(20));
+-        fs::write(delayed_response, b"{}").unwrap();
+-    });
+-    assert!(matches!(
+-        wait_for_response(&client, &agent, &response, &GuideCancellation::default()),
+-        Err(Error::AgentBlocked)
+-    ));
+-    writer.join().unwrap();
+-}
+-
+-#[test]
+-fn abandoned_transport_is_validated_and_removed_after_retention() {
+-    assert!(abandon_transport(PathBuf::from("/not-a-transport")).is_err());
+-    let directory = tempfile::Builder::new()
+-        .prefix("herdr-review-guide-")
+-        .tempdir_in(std::env::temp_dir())
+-        .unwrap()
+-        .keep();
+-    fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).unwrap();
+-    retain_transport_for(directory.clone(), Duration::from_millis(1))
+-        .join()
+-        .unwrap();
+-    assert!(!directory.exists());
+-}
+-
+-#[test]
+-fn failed_finish_retains_the_transport() {
+-    let prepared = GuideRunner::<FakeHerdr>::prepare(guide_request(
+-        PathBuf::from("/repository"),
+-        GuideScope::All,
+-    ))
+-    .unwrap();
+-    let transport = prepared.transport_directory().to_owned();
+-    let agent = agent();
+-    let client = FakeHerdr::new(agent.clone());
+-    let cancellation = GuideCancellation::default();
+-    cancellation.cancel();
+-
+-    assert!(matches!(
+-        GuideRunner::new(&client).finish_prepared(&agent, prepared, &cancellation),
+-        Err(Error::Canceled)
+-    ));
+-    assert!(transport.exists());
+-    fs::remove_dir_all(transport).unwrap();
+-}
+-
+-#[test]
+-fn agent_identity_requires_all_stable_fields_to_match() {
+-    let original = agent();
+-    assert!(same_agent(&original, &original));
+-
+-    let mut changed = original.clone();
+-    changed.pane_id = PaneId("other-pane".to_owned());
+-    assert!(!same_agent(&original, &changed));
+-
+-    let mut changed = original.clone();
+-    changed.tab_id = TabId("other-tab".to_owned());
+-    assert!(!same_agent(&original, &changed));
+-
+-    let mut changed = original.clone();
+-    changed.workspace_id = WorkspaceId("other-workspace".to_owned());
+-    assert!(!same_agent(&original, &changed));
+-
+-    let mut changed = original.clone();
+-    changed.agent = Some("claude".to_owned());
+-    assert!(!same_agent(&original, &changed));
+-
+-    let mut changed = original.clone();
+-    changed.cwd = Some(PathBuf::from("/other/repository"));
+-    assert!(!same_agent(&original, &changed));
+-
+-    let mut changed = original.clone();
+-    changed.agent_session.as_mut().unwrap().value = "other-session".to_owned();
+-    assert!(!same_agent(&original, &changed));
+-
+-    let mut without_session = original.clone();
+-    without_session.agent_session = None;
+-    assert!(same_agent(&without_session, &without_session));
+-    assert!(!same_agent(&original, &without_session));
+-}
+-
+-#[test]
+-fn transport_directory_must_be_a_private_direct_child_of_the_temporary_root() {
+-    let valid = tempfile::Builder::new()
+-        .prefix("herdr-review-guide-")
+-        .tempdir_in(std::env::temp_dir())
+-        .unwrap();
+-    fs::set_permissions(valid.path(), fs::Permissions::from_mode(0o700)).unwrap();
+-    assert!(validate_transport_directory(valid.path()).is_ok());
+-
+-    let invalid_name = tempfile::Builder::new()
+-        .prefix("other-")
+-        .tempdir_in(std::env::temp_dir())
+-        .unwrap();
+-    fs::set_permissions(invalid_name.path(), fs::Permissions::from_mode(0o700)).unwrap();
+-    assert!(validate_transport_directory(invalid_name.path()).is_err());
+-
+-    let parent = tempfile::tempdir_in(std::env::temp_dir()).unwrap();
+-    let nested = parent.path().join("herdr-review-guide-nested");
+-    fs::create_dir(&nested).unwrap();
+-    fs::set_permissions(&nested, fs::Permissions::from_mode(0o700)).unwrap();
+-    assert!(validate_transport_directory(&nested).is_err());
+-
+-    let loose = tempfile::Builder::new()
+-        .prefix("herdr-review-guide-")
+-        .tempdir_in(std::env::temp_dir())
+-        .unwrap();
+-    fs::set_permissions(loose.path(), fs::Permissions::from_mode(0o755)).unwrap();
+-    assert!(validate_transport_directory(loose.path()).is_err());
+-
+-    let file = tempfile::Builder::new()
+-        .prefix("herdr-review-guide-")
+-        .tempfile_in(std::env::temp_dir())
+-        .unwrap();
+-    fs::set_permissions(file.path(), fs::Permissions::from_mode(0o600)).unwrap();
+-    assert!(validate_transport_directory(file.path()).is_err());
+-}
+-
+-#[test]
+-fn submission_marker_must_be_a_private_regular_file() {
+-    let valid = tempfile::NamedTempFile::new().unwrap();
+-    fs::set_permissions(valid.path(), fs::Permissions::from_mode(0o600)).unwrap();
+-    assert!(validate_submission_marker(valid.path()).is_ok());
+-
+-    let owner_only = tempfile::NamedTempFile::new().unwrap();
+-    fs::set_permissions(owner_only.path(), fs::Permissions::from_mode(0o700)).unwrap();
+-    assert!(validate_submission_marker(owner_only.path()).is_ok());
+-
+-    let loose = tempfile::NamedTempFile::new().unwrap();
+-    fs::set_permissions(loose.path(), fs::Permissions::from_mode(0o644)).unwrap();
+-    assert!(validate_submission_marker(loose.path()).is_err());
+-
+-    let directory = tempfile::tempdir().unwrap();
+-    fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o700)).unwrap();
+-    assert!(validate_submission_marker(directory.path()).is_err());
+-}
+-
+-#[test]
+-fn published_response_is_accepted_while_the_agent_is_working() {
+-    let mut agent = agent();
+-    agent.agent_status = AgentStatus::Working;
+-    let client = FakeHerdr::new(agent.clone());
+-    let result = GuideRunner::new(&client)
+-        .run(
+-            &agent,
+-            guide_request(PathBuf::from("/repository"), GuideScope::All),
+-        )
+-        .unwrap();
+-
+-    assert!(*client.saw_private_transport.lock().unwrap());
+-    assert!(*client.saw_delegated_prompt.lock().unwrap());
+-    assert!(
+-        !client
+-            .transport_directory
+-            .lock()
+-            .unwrap()
+-            .as_ref()
+-            .unwrap()
+-            .exists()
+-    );
++    let prompt = client.prompt.lock().unwrap().clone().unwrap();
++    assert!(prompt.contains("inherits the complete current conversation"));
++    assert!(!prompt.contains("Request ID"));
+     assert_eq!(
+         result.guide.items[0].target,
+         GuideTarget::Hunks {
+             path: "src/lib.rs".to_owned(),
+             first_hunk: 1,
+             last_hunk: 1,
+         }
+     );
+ }
++
++#[test]
++fn response_version_changes_when_a_new_response_lands() {
++    let mailbox = private_mailbox();
++    let mailbox = GuideMailbox::open(mailbox.path().to_owned()).unwrap();
++    assert_eq!(mailbox.response_version().unwrap(), None);
++    fs::write(mailbox.directory.join(RESPONSE_FILE), b"{}").unwrap();
++    let first = mailbox.response_version().unwrap().unwrap();
++    fs::write(mailbox.directory.join(RESPONSE_FILE), b"[]").unwrap();
++    let second = mailbox.response_version().unwrap().unwrap();
++    assert_ne!(first, second);
++}
++
++#[test]
++fn response_watch_ignores_file_access_and_unrelated_mailbox_events() {
++    use notify::event::{AccessKind, CreateKind};
++    use notify::{Event, EventKind};
++
++    let response_access =
++        Event::new(EventKind::Access(AccessKind::Any)).add_path(PathBuf::from(RESPONSE_FILE));
++    let unrelated_creation =
++        Event::new(EventKind::Create(CreateKind::File)).add_path(PathBuf::from(DIFF_FILE));
++    let response_creation =
++        Event::new(EventKind::Create(CreateKind::File)).add_path(PathBuf::from(RESPONSE_FILE));
++
++    assert!(!is_response_publication_event(&response_access));
++    assert!(!is_response_publication_event(&unrelated_creation));
++    assert!(is_response_publication_event(&response_creation));
++}
++
++#[test]
++fn response_read_accepts_the_limit_and_rejects_one_extra_byte() {
++    let directory = private_mailbox();
++    let mailbox = GuideMailbox::open(directory.path().to_owned()).unwrap();
++    let path = mailbox.directory.join(RESPONSE_FILE);
++    let response_limit = usize::try_from(RESPONSE_LIMIT).unwrap();
++    fs::write(&path, vec![b'x'; response_limit]).unwrap();
++    assert_eq!(
++        mailbox.read_response().unwrap().unwrap().len() as u64,
++        RESPONSE_LIMIT
++    );
++
++    fs::write(&path, vec![b'x'; response_limit + 1]).unwrap();
++    assert!(matches!(mailbox.read_response(), Err(Error::LargeResponse)));
++
++    fs::remove_file(&path).unwrap();
++    assert_eq!(mailbox.read_response().unwrap(), None);
++
++    let target = directory.path().join("target");
++    fs::write(&target, b"{}").unwrap();
++    symlink(target, &path).unwrap();
++    assert!(matches!(
++        mailbox.read_response(),
++        Err(Error::Operation { .. })
++    ));
++}
++
++#[test]
++fn mailbox_must_be_a_private_directory() {
++    let loose = tempfile::tempdir().unwrap();
++    fs::set_permissions(loose.path(), fs::Permissions::from_mode(0o755)).unwrap();
++    assert!(GuideMailbox::open(loose.path().to_owned()).is_err());
++
++    let file = tempfile::NamedTempFile::new().unwrap();
++    assert!(GuideMailbox::open(file.path().to_owned()).is_err());
++}

@@ -1,0 +1,64 @@
+diff --git a/crates/review-ui/src/diff.rs b/crates/review-ui/src/diff.rs
+index 7a3a8c25..6f440195 100644
+--- a/crates/review-ui/src/diff.rs
++++ b/crates/review-ui/src/diff.rs
+@@ -31,25 +31,59 @@ struct CodeRenderContext<'a> {
+     source_line: Option<u32>,
+     source_location: Option<&'a SourceLocation>,
+ }
+ 
+ pub(super) struct DiffViewport {
+     rows: Vec<WrappedDiffRow>,
+ }
+ 
++#[derive(Clone, Copy)]
++pub(super) enum DiffViewportPosition {
++    Cursor { screen_row: usize },
++    Scroll { visual_row: usize },
++}
++
+ struct WrappedDiffRow {
+     line: Line<'static>,
+     guide_border_cells: Vec<GuideBorderCell>,
+     source_row: usize,
+     source_display_offset: usize,
+     is_source_row: bool,
+ }
+ 
+ impl DiffViewport {
++    pub(super) fn position(&self, file: &ReviewFile, height: usize) -> DiffViewportPosition {
++        let scroll = self.scroll(file);
++        let cursor = self.cursor_visual_row(file);
++        if (scroll..scroll.saturating_add(height)).contains(&cursor) {
++            DiffViewportPosition::Cursor {
++                screen_row: cursor - scroll,
++            }
++        } else {
++            DiffViewportPosition::Scroll { visual_row: scroll }
++        }
++    }
++
++    pub(super) fn restore_scroll(
++        &self,
++        file: &ReviewFile,
++        position: DiffViewportPosition,
++        height: usize,
++    ) -> usize {
++        let last_scroll = self.rows.len().saturating_sub(height);
++        match position {
++            DiffViewportPosition::Cursor { screen_row } => self
++                .cursor_visual_row(file)
++                .saturating_sub(screen_row)
++                .min(last_scroll),
++            DiffViewportPosition::Scroll { visual_row } => visual_row.min(last_scroll),
++        }
++    }
++
+     pub(super) fn scroll(&self, file: &ReviewFile) -> usize {
+         file.scroll.min(self.rows.len().saturating_sub(1))
+     }
+ 
+     pub(super) fn scroll_with_cursor_visible(&self, file: &ReviewFile, height: usize) -> usize {
+         let last = self.rows.len().saturating_sub(height);
+         let mut scroll = file.scroll.min(last);
+         let cursor = self.cursor_visual_row(file);

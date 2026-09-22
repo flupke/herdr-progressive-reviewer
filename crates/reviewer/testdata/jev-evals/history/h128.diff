@@ -1,0 +1,30 @@
+diff --git a/crates/components/overlay/Cargo.toml b/crates/components/overlay/Cargo.toml
+new file mode 100644
+index 00000000..eeb5e7ee
+--- /dev/null
++++ b/crates/components/overlay/Cargo.toml
+@@ -0,0 +1,24 @@
++[package]
++name = "overlay-component"
++version.workspace = true
++edition.workspace = true
++rust-version.workspace = true
++license.workspace = true
++
++[dependencies]
++component-core = { path = "../../component-core" }
++ratatui.workspace = true
++ratatui-markdown.workspace = true
++review-lsp = { path = "../../review-lsp" }
++syntax-highlighting = { path = "../../syntax-highlighting" }
++toasts = { path = "../../toasts" }
++ui-actions = { path = "../../ui-actions" }
++ui-events = { path = "../../ui-events" }
++ui-shortcuts = { path = "../../ui-shortcuts" }
++ui-theme = { path = "../../ui-theme" }
++
++[dev-dependencies]
++review-guide = { path = "../../review-guide" }
++
++[lints]
++workspace = true

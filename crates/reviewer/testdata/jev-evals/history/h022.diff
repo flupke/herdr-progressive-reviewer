@@ -1,0 +1,33 @@
+diff --git a/crates/reviewer/src/runtime/comments.rs b/crates/reviewer/src/runtime/comments.rs
+index bed1b7c0..32aa4aff 100644
+--- a/crates/reviewer/src/runtime/comments.rs
++++ b/crates/reviewer/src/runtime/comments.rs
+@@ -6,24 +6,28 @@
+ use super::{HerdrClient, WorkspaceId};
+ 
+ impl Runtime {
+     pub(super) fn start_comments(
+         &self,
+         store: ReviewStore,
+         messages: ApplicationMessageSender,
+         target: AgentTarget,
++        commands: std::sync::mpsc::Sender<super::WorkerCommand>,
+     ) -> comments::Worker {
+         comments::Worker::start(
+             store,
+             self.client.clone(),
+             target,
+             review_mcp::Endpoint::from_env(self.repository.root()),
+             {
+                 move |event| match event {
++                    comments::Event::Explore(request) => {
++                        let _ = commands.send(super::WorkerCommand::ExploreMcp(Box::new(request)));
++                    }
+                     comments::Event::Loaded(event) => {
+                         let _ = messages.send(event);
+                     }
+                     comments::Event::Posted(event) => {
+                         let _ = messages.send(event);
+                     }
+                     comments::Event::Error(text) => {
+                         let _ = messages.send(ui_events::ToastRequested {

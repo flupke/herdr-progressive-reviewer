@@ -1,0 +1,84 @@
+diff --git a/crates/review-lsp/src/session.rs b/crates/review-lsp/src/session.rs
+index cea559da..cd642367 100644
+--- a/crates/review-lsp/src/session.rs
++++ b/crates/review-lsp/src/session.rs
+@@ -112,17 +112,17 @@ pub(super) fn start(
+             loop {
+                 match output.read() {
+                     Ok(Some(message)) => {
+                         if sender.send(Inbound::Message(message)).is_err() {
+                             return;
+                         }
+                     }
+                     Ok(None) => {
+-                        let _ = sender.send(Inbound::Failed(diagnostics.failure(server.command())));
++                        let _ = sender.send(Inbound::Failed(diagnostics.failure(server.name())));
+                         return;
+                     }
+                     Err(error) => {
+                         let _ = sender.send(Inbound::Failed(error.to_string()));
+                         return;
+                     }
+                 }
+             }
+@@ -523,20 +523,20 @@ fn query_event(&self, operation: Operation, query: Query, response: Response) ->
+             message,
+         })
+     }
+ 
+     pub(super) fn handle_deadline(&mut self, now: Instant) -> Result<Option<Event>, String> {
+         let state = std::mem::replace(&mut self.state, State::Stopped);
+         match state {
+             State::Initializing { deadline, .. } if now >= deadline => {
+-                Err(format!("{} did not respond", self.server.command()))
++                Err(format!("{} did not respond", self.server.name()))
+             }
+             State::Quiescing { deadline } if now >= deadline => {
+-                Err(format!("{} did not finish startup", self.server.command()))
++                Err(format!("{} did not finish startup", self.server.name()))
+             }
+             State::Retrying {
+                 operation,
+                 query,
+                 attempt,
+                 retry_at,
+             } if now >= retry_at => {
+                 self.state = State::Retrying {
+@@ -550,17 +550,17 @@ pub(super) fn handle_deadline(&mut self, now: Instant) -> Result<Option<Event>,
+             }
+             State::Querying {
+                 query, deadline, ..
+             } if now >= deadline => {
+                 self.state = State::Ready;
+                 Ok(Some(Event::Failed {
+                     toast_id: Some(query.toast_id),
+                     snapshot_id: Some(query.snapshot_id),
+-                    message: format!("{} did not respond", self.server.command()),
++                    message: format!("{} did not respond", self.server.name()),
+                 }))
+             }
+             State::ShuttingDown { deadline, .. } if now >= deadline => {
+                 self.write(&Notification::new("exit".to_owned(), ()).into())?;
+                 self.state = State::Stopped;
+                 Ok(None)
+             }
+             state => {
+@@ -607,17 +607,17 @@ fn respond(&mut self, request: Request) -> Result<(), String> {
+             }
+         };
+         self.write(&Response::new_ok(request.id, result).into())
+     }
+ 
+     fn write(&mut self, message: &Message) -> Result<(), String> {
+         message
+             .write(&mut self.input)
+-            .map_err(|error| format!("could not write to {}: {error}", self.server.command()))
++            .map_err(|error| format!("could not write to {}: {error}", self.server.name()))
+     }
+ }
+ 
+ fn response_value<R: serde::de::DeserializeOwned>(response: Response) -> Result<R, String> {
+     match response.response_result {
+         Ok(value) => serde_json::from_value(value).map_err(|error| error.to_string()),
+         Err(error) => Err(error.message),
+     }

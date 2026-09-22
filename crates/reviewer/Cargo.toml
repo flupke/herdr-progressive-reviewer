@@ -5,6 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+jev-evals = ["dep:serde", "dep:tiktoken-rs"]
+
 [dependencies]
 uuid.workspace = true
 review-explore-runner = { path = "../review-explore-runner" }
@@ -38,6 +41,8 @@ reqwest.workspace = true
 sha2.workspace = true
 signal-hook.workspace = true
 syntax-highlighting = { path = "../syntax-highlighting" }
+serde = { workspace = true, optional = true }
+tiktoken-rs = { version = "0.12", optional = true }
 
 [dev-dependencies]
 rmcp = { workspace = true, features = ["client", "transport-streamable-http-client-reqwest"] }

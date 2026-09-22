@@ -1,0 +1,202 @@
+diff --git a/crates/reviewer/src/runtime.rs b/crates/reviewer/src/runtime.rs
+index 3b5de66b..0748fc78 100644
+--- a/crates/reviewer/src/runtime.rs
++++ b/crates/reviewer/src/runtime.rs
+@@ -20,19 +20,19 @@
+ use std::thread::{self, JoinHandle};
+ use std::time::{Duration, Instant};
+ 
+ use component_core::{ApplicationEvent, EventEnvelope};
+ #[cfg(test)]
+ use crossbeam_channel::Receiver as EventReceiver;
+ use crossbeam_channel::{Sender as EventSender, unbounded};
+ use crossterm::event::{
+-    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
+-    KeyboardEnhancementFlags, MouseButton, MouseEvent, MouseEventKind, PopKeyboardEnhancementFlags,
+-    PushKeyboardEnhancementFlags,
++    self, DisableFocusChange, DisableMouseCapture, EnableFocusChange, EnableMouseCapture, Event,
++    KeyCode, KeyEvent, KeyModifiers, KeyboardEnhancementFlags, MouseButton, MouseEvent,
++    MouseEventKind, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+ };
+ use crossterm::execute;
+ use crossterm::terminal::{
+     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
+ };
+ use herdr_client::client::{EventStreamEnd, HerdrClient};
+ use herdr_client::protocol::{
+     Agent, AgentTarget, HerdrEvent, HerdrReader, InsertResult, PaneId, PluginContext, WorkspaceId,
+@@ -51,17 +51,17 @@
+ };
+ use review_state::{MarkResult, ReviewStatus, ReviewTracker};
+ use review_store::ReviewStore;
+ use review_types::ReviewUnit;
+ use review_ui::{Action, Key, ReviewApplication, SourceLoadMode, Theme, UserInput};
+ use sha2::{Digest, Sha256};
+ use signal_hook::consts::signal::{SIGHUP, SIGINT, SIGTERM};
+ use signal_hook::flag;
+-use terminal::TerminalBackend;
++use terminal::{CursorBackend, TerminalBackend};
+ use ui_events::{
+     AnimationTick, DiffContentLoadFailed, DiffContentLoaded, FileSummary, OutputDeliveryFinished,
+     RepositoryFilesChanged, RepositoryMetadataChanged, RepositoryRefreshFinished,
+     RepositoryRefreshStarted, ReviewGuideChanged, ReviewStateSaved, RevisionCandidatesLoaded,
+     RevisionEditFailed, RevisionHistoryLoadId, RevisionHistoryLoaded, SourceContentLoadFailed,
+     SourceContentLoaded, ToastExpirationTick,
+ };
+ 
+@@ -185,16 +185,17 @@ fn stop(self) {
+     }
+ }
+ 
+ struct WorkerStopped;
+ struct StopRequested;
+ struct RepositoryPollDue;
+ struct ApplicationTick(Instant);
+ struct TerminalFailed(String);
++struct TerminalFocused;
+ 
+ #[derive(Clone)]
+ struct ApplicationMessageSender(EventSender<EventEnvelope>);
+ 
+ impl ApplicationMessageSender {
+     fn send<Event>(&self, event: Event) -> Result<(), crossbeam_channel::SendError<EventEnvelope>>
+     where
+         Event: ApplicationEvent,
+@@ -613,17 +614,17 @@ fn output_worker_command(action: Action) -> WorkerCommand {
+             Action::SetReviewed { path, reviewed } => WorkerCommand::SetReviewed { path, reviewed },
+             Action::Output { text } => WorkerCommand::Output { text },
+             Action::GenerateReviewGuide { scope } => WorkerCommand::GenerateReviewGuide(scope),
+             _ => unreachable!("output conversion accepts only output actions"),
+         }
+     }
+ }
+ 
+-impl<B: Backend> RuntimeEventLoop<'_, B> {
++impl<B: CursorBackend> RuntimeEventLoop<'_, B> {
+     fn run(&mut self) -> eyre::Result<()> {
+         while !self.cycle()? {}
+         Ok(())
+     }
+ 
+     fn cycle(&mut self) -> eyre::Result<bool> {
+         let event = self
+             .events
+@@ -645,16 +646,25 @@ fn cycle(&mut self) -> eyre::Result<bool> {
+             }
+         }
+         self.redraw()?;
+         Ok(false)
+     }
+ 
+     fn handle_event(&mut self, event: &EventEnvelope) -> eyre::Result<bool> {
+         let started = Instant::now();
++        if event.downcast_ref::<UserInput>().is_some()
++            || event.downcast_ref::<TerminalFocused>().is_some()
++            || matches!(
++                event.downcast_ref::<HerdrEvent>(),
++                Some(HerdrEvent::PaneFocused(_))
++            )
++        {
++            self.terminal.backend_mut().invalidate_cursor_visibility();
++        }
+         let result = self.dispatch_event(event);
+         self.timings.event(event, started);
+         result
+     }
+ 
+     fn dispatch_event(&mut self, event: &EventEnvelope) -> eyre::Result<bool> {
+         match self.handle_control_event(event)? {
+             ControlEventOutcome::NotHandled => {}
+@@ -993,37 +1003,40 @@ fn new() -> eyre::Result<Self> {
+                 let _ = disable_raw_mode();
+                 return Err(error.into());
+             }
+         };
+         if let Err(error) = execute!(
+             terminal.backend_mut(),
+             EnterAlternateScreen,
+             EnableMouseCapture,
++            EnableFocusChange,
+             PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+         ) {
+             let _ = disable_raw_mode();
+             let _ = execute!(
+                 terminal.backend_mut(),
+                 DisableMouseCapture,
++                DisableFocusChange,
+                 PopKeyboardEnhancementFlags,
+                 LeaveAlternateScreen
+             );
+             return Err(error.into());
+         }
+         Ok(Self { terminal })
+     }
+ }
+ 
+ impl Drop for TerminalGuard {
+     fn drop(&mut self) {
+         let _ = disable_raw_mode();
+         let _ = execute!(
+             self.terminal.backend_mut(),
+             DisableMouseCapture,
++            DisableFocusChange,
+             PopKeyboardEnhancementFlags,
+             LeaveAlternateScreen
+         );
+         let _ = self.terminal.show_cursor();
+     }
+ }
+ 
+ fn normalize_mouse(mouse: MouseEvent) -> Option<UserInput> {
+@@ -1087,34 +1100,43 @@ fn start_with_reader(
+                 let event = match read_event(TIMER_INTERVAL) {
+                     Ok(Some(event)) => event,
+                     Ok(None) => continue,
+                     Err(error) => {
+                         let _ = events.send(EventEnvelope::new(TerminalFailed(error.to_string())));
+                         return;
+                     }
+                 };
+-                let message = match event {
+-                    Event::Key(key) => normalize_key(key).map(UserInput::Key),
+-                    Event::Mouse(mouse) => mouse_clicks.normalize(mouse),
+-                    Event::Resize(width, height) => Some(UserInput::Resize { width, height }),
+-                    _ => None,
+-                };
+-                if message.is_some_and(|message| events.send(EventEnvelope::new(message)).is_err())
+-                {
++                let message = Self::normalize_event(&event, &mut mouse_clicks);
++                if message.is_some_and(|message| events.send(message).is_err()) {
+                     return;
+                 }
+             }
+         });
+         Self {
+             stop_requested,
+             thread: Some(thread),
+         }
+     }
+ 
++    fn normalize_event(event: &Event, mouse_clicks: &mut MouseClicks) -> Option<EventEnvelope> {
++        match event {
++            Event::Key(key) => normalize_key(*key)
++                .map(UserInput::Key)
++                .map(EventEnvelope::new),
++            Event::Mouse(mouse) => mouse_clicks.normalize(*mouse).map(EventEnvelope::new),
++            Event::Resize(width, height) => Some(EventEnvelope::new(UserInput::Resize {
++                width: *width,
++                height: *height,
++            })),
++            Event::FocusGained => Some(EventEnvelope::new(TerminalFocused)),
++            Event::FocusLost | Event::Paste(_) => None,
++        }
++    }
++
+     fn stop(mut self) {
+         self.stop_and_join();
+     }
+ 
+     fn stop_and_join(&mut self) {
+         self.stop_requested.store(true, Ordering::Relaxed);
+         if let Some(thread) = self.thread.take() {
+             let _ = thread.join();

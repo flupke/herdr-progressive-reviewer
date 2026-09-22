@@ -1,0 +1,23 @@
+diff --git a/crates/reviewer/src/runtime.rs b/crates/reviewer/src/runtime.rs
+index 138787ae..7f00b616 100644
+--- a/crates/reviewer/src/runtime.rs
++++ b/crates/reviewer/src/runtime.rs
+@@ -948,17 +948,17 @@ fn poll(&mut self, messages: &ApplicationMessageSender) -> bool {
+         };
+         let Ok(states) = self.tracker.statuses(&snapshot) else {
+             return false;
+         };
+         let files = snapshot
+             .files
+             .iter()
+             .zip(&states)
+-            .map(|(file, state)| FileSummary::from_changed(file, state.status))
++            .map(|(file, state)| FileSummary::from_review_state(file, *state))
+             .collect();
+         let review_checkpoint = ReviewCheckpoint::new(
+             snapshot.identity.review_unit().clone(),
+             snapshot.identity.snapshot_id(),
+         );
+         let _ = messages.send(RepositoryMetadataChanged {
+             review_checkpoint: review_checkpoint.clone(),
+             description: snapshot.identity.description().to_owned(),

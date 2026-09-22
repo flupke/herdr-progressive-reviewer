@@ -1,0 +1,154 @@
+diff --git a/crates/review-repository/src/diff.rs b/crates/review-repository/src/diff.rs
+index 0834a6e8..5a6c94ae 100644
+--- a/crates/review-repository/src/diff.rs
++++ b/crates/review-repository/src/diff.rs
+@@ -76,28 +76,42 @@ pub enum NoticeKind {
+ }
+ 
+ #[derive(Debug)]
+ struct DiffParser {
+     rows: Vec<DiffRow>,
+     hunk: Option<ActiveHunk>,
+ }
+ 
++#[derive(Clone, Copy, Debug, Eq, PartialEq)]
++enum ConflictMarkerMode {
++    HistoricalDiffRows,
++    CurrentConflictNotices,
++}
++
+ #[derive(Clone, Copy, Debug)]
+ struct ActiveHunk {
+     old_start: u32,
+     old_count: u32,
+     new_start: u32,
+     new_count: u32,
+     old_seen: u32,
+     new_seen: u32,
+ }
+ 
+ impl DiffParser {
++    #[cfg(test)]
+     fn parse(output: &[u8]) -> Vec<DiffRow> {
++        Self::parse_with_conflict_markers(output, ConflictMarkerMode::CurrentConflictNotices)
++    }
++
++    fn parse_with_conflict_markers(
++        output: &[u8],
++        conflict_marker_mode: ConflictMarkerMode,
++    ) -> Vec<DiffRow> {
+         if output
+             .split(|byte| *byte == b'\n')
+             .any(|line| line.len() > MAX_LINE_BYTES)
+         {
+             return vec![DiffRow::Notice {
+                 kind: NoticeKind::Unsupported,
+                 text: "Diff line exceeded 16 MiB; text diff is unavailable".to_owned(),
+             }];
+@@ -109,36 +123,36 @@ fn parse(output: &[u8]) -> Vec<DiffRow> {
+             }];
+         };
+ 
+         let mut parser = Self {
+             rows: Vec::new(),
+             hunk: None,
+         };
+         for line in text.lines() {
+-            parser.push(line);
++            parser.push(line, conflict_marker_mode);
+         }
+         parser.finish_hunk();
+         parser.rows
+     }
+ 
+-    fn push(&mut self, line: &str) {
++    fn push(&mut self, line: &str, conflict_marker_mode: ConflictMarkerMode) {
+         if line.starts_with("diff --git ") {
+             self.finish_hunk();
+             self.rows.push(DiffRow::FileHeader {
+                 old_path: None,
+                 new_path: None,
+                 text: line.to_owned(),
+             });
+         } else if let Some(hunk) = ActiveHunk::parse(line) {
+             self.finish_hunk();
+             self.rows.push(hunk.header());
+             self.hunk = Some(hunk);
+         } else if let Some(hunk) = self.hunk.as_mut() {
+-            hunk.push(line, &mut self.rows);
++            hunk.push(line, conflict_marker_mode, &mut self.rows);
+         } else {
+             self.rows.push(Self::metadata(line));
+         }
+     }
+ 
+     fn finish_hunk(&mut self) {
+         if self.hunk.take().is_some_and(|hunk| !hunk.is_complete()) {
+             self.rows.push(DiffRow::Notice {
+@@ -211,22 +225,29 @@ fn header(self) -> DiffRow {
+         DiffRow::Hunk {
+             old_start: self.old_start,
+             old_count: self.old_count,
+             new_start: self.new_start,
+             new_count: self.new_count,
+         }
+     }
+ 
+-    fn push(&mut self, line: &str, rows: &mut Vec<DiffRow>) {
++    fn push(
++        &mut self,
++        line: &str,
++        conflict_marker_mode: ConflictMarkerMode,
++        rows: &mut Vec<DiffRow>,
++    ) {
+         if line.starts_with("\\ No newline at end of file") {
+             rows.push(DiffRow::Meta {
+                 text: line.to_owned(),
+             });
+-        } else if Self::is_conflict_marker(line) {
++        } else if conflict_marker_mode == ConflictMarkerMode::CurrentConflictNotices
++            && Self::is_conflict_marker(line)
++        {
+             rows.push(DiffRow::Notice {
+                 kind: NoticeKind::Conflict,
+                 text: line.to_owned(),
+             });
+             self.advance(line.as_bytes().first().copied());
+         } else {
+             match line.as_bytes().first().copied() {
+                 Some(b' ') => {
+@@ -295,27 +316,32 @@ pub fn parse_file_diff(output: &[u8], file: &ChangedFile) -> Vec<DiffRow> {
+ 
+     if file.old_kind == FileKind::Gitlink || file.new_kind == FileKind::Gitlink {
+         return vec![DiffRow::Notice {
+             kind: NoticeKind::Unsupported,
+             text: "Git submodule changed; text diff is unavailable".to_owned(),
+         }];
+     }
+ 
+-    let mut rows = DiffParser::parse(output);
++    let conflict_marker_mode = if file.new_kind == FileKind::Conflict {
++        ConflictMarkerMode::CurrentConflictNotices
++    } else {
++        ConflictMarkerMode::HistoricalDiffRows
++    };
++    let mut rows = DiffParser::parse_with_conflict_markers(output, conflict_marker_mode);
+     for row in &mut rows {
+         if let DiffRow::FileHeader {
+             old_path, new_path, ..
+         } = row
+         {
+             old_path.clone_from(&file.old_path);
+             new_path.clone_from(&file.new_path);
+         }
+     }
+-    if file.old_kind == FileKind::Conflict || file.new_kind == FileKind::Conflict {
++    if conflict_marker_mode == ConflictMarkerMode::CurrentConflictNotices {
+         let has_notice = rows.iter().any(|row| {
+             matches!(
+                 row,
+                 DiffRow::Notice {
+                     kind: NoticeKind::Conflict,
+                     ..
+                 }
+             )

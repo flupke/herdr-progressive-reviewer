@@ -1,0 +1,22 @@
+diff --git a/README.md b/README.md
+index 7d3da78d..9750219c 100644
+--- a/README.md
++++ b/README.md
+@@ -5,16 +5,17 @@ # Progressive reviewer
+ 
+ https://github.com/user-attachments/assets/4f0c949d-3eb2-4dd4-bbcc-948ae47b0c41
+ 
+ ## Features
+ 
+ - Incremental reviews: mark files as reviewed and see only changes since your last pass.
+ - Persistent review threads with agent replies, available inline and in a dedicated Threads view.
+ - AI-generated review guides alongside the diff.
++- Experimental Explore interviews: answer policy questions beside working-copy code evidence.
+ - Syntax highlighting, search, and code navigation with language servers.
+ - Mouse support, Vim navigation, and Vim or regular comment editing.
+ 
+ ## Install
+ 
+ On Linux or macOS, install Herdr 0.7.5 or later, Rust, a C compiler, Make and Git.
+ For jj repositories, use jj 0.43.0 or later. Agent features require Codex or Claude Code.
+ 

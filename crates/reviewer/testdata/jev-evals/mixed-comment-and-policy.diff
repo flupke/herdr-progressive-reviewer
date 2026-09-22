@@ -1,0 +1,47 @@
+diff --git a/crates/review-explore/src/coverage.rs b/crates/review-explore/src/coverage.rs
+--- a/crates/review-explore/src/coverage.rs
++++ b/crates/review-explore/src/coverage.rs
+@@ -1,41 +1,42 @@
+ 
++    // Record only answers that actually explored the cited changes.
+     pub(crate) fn credit(&mut self, answer: &ReviewerAnswer, comparison: &Comparison) {
+         if answer.deferred || self.answers.contains_key(&answer.id) {
+             return;
+         }
+         let Some(question) = &answer.question else {
+             return;
+         };
+         let references = question.evidence.iter().chain(&question.supporting);
+         let cited = self.intersections(references, comparison);
+         self.credited = normalize(
+             self.credited
+                 .iter()
+                 .cloned()
+                 .chain(cited.iter().cloned())
+                 .collect(),
+         );
+         self.answers.insert(answer.id.clone(), cited);
+         self.revision += 1;
+     }
+ 
+     pub fn record_significance(&mut self, result: SignificanceResult) -> bool {
+         if self.classifications.contains_key(&result.id)
+             || result.units.is_empty()
+             || !subtract(&result.units, &self.inventory.units).is_empty()
+         {
+             return false;
+         }
+-        if result.outcome == Significance::Insignificant {
++        if result.outcome != Significance::Insignificant {
+             self.excluded = normalize(
+                 self.excluded
+                     .iter()
+                     .cloned()
+                     .chain(result.units.iter().cloned())
+                     .collect(),
+             );
+         }
+         self.classifications.insert(result.id.clone(), result);
+         self.revision += 1;
+         true
+     }

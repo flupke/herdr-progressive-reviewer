@@ -1,0 +1,67 @@
+diff --git a/crates/ui-events/src/lib.rs b/crates/ui-events/src/lib.rs
+index c5b1ce80..c953fca6 100644
+--- a/crates/ui-events/src/lib.rs
++++ b/crates/ui-events/src/lib.rs
+@@ -1,10 +1,17 @@
+ //! Typed events shared by review UI components.
+ 
++mod threads;
++pub use threads::{
++    NewRepliesRequested, ReviewNavigation, ReviewNavigationChanged, ReviewPane,
++    ReviewPaneFocusRequested, ReviewThreadsLoaded, TextPasted, ThreadContext,
++    ThreadContextsChanged, ThreadFilesChanged, ThreadPostFinished, ThreadSelectionChanged,
++};
++
+ use std::collections::HashSet;
+ use std::path::PathBuf;
+ use std::sync::{Arc, RwLock};
+ use std::time::Instant;
+ 
+ use review_guide::{GuideItem, GuideTarget, ReviewCheckpoint};
+ use review_lsp::{Operation, SourceLocation};
+ use review_repository::diff::DiffRow;
+@@ -120,24 +127,31 @@ pub struct SourceContentLoadFailed {
+     pub message: String,
+ }
+ 
+ /// How loaded source is presented and whether it becomes the current file.
+ #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+ pub enum SourceLoadMode {
+     Preview,
+     External,
++    ThreadPeek,
+ }
+ 
+ impl SourceLoadMode {
+     pub fn is_external(self) -> bool {
+         self == Self::External
+     }
+ }
+ 
++/// Restrict LSP responses to a temporary source viewer until it closes.
++#[derive(Clone, Debug, Eq, PartialEq)]
++pub struct SourceSessionChanged {
++    pub snapshot_id: Option<String>,
++}
++
+ /// One source position without its operation-specific toast identifier.
+ #[derive(Clone, Debug, Eq, PartialEq)]
+ pub struct LspQueryContext {
+     pub path: PathBuf,
+     pub line: u32,
+     pub byte_column: usize,
+     pub expected_line: String,
+     pub snapshot_id: String,
+@@ -649,8 +663,12 @@ pub struct HighlightingFinished {
+ }
+ 
+ /// A failed diff load for one repository checkpoint and path.
+ #[derive(Clone, Debug, Eq, PartialEq)]
+ pub struct DiffContentLoadFailed {
+     pub review_checkpoint: ReviewCheckpoint,
+     pub path: String,
+ }
++
++/// A terminal draw completed successfully; visible reply observations may be acknowledged.
++#[derive(Clone, Copy, Debug)]
++pub struct FrameRendered;

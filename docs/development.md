@@ -13,6 +13,12 @@ In addition to the build dependencies, the checks use Herdr, Codex, Claude Code,
 Python 3, `cargo-nextest`, `cccc`, and `jq`. Herdr integration tests run private
 servers with isolated configuration, state and agent paths.
 
+The opt-in [`jev-evals` suite](jev-evals.md) compares Jev hunk-splitting strategies
+against frozen line-level labels. Offline checks and paid live runs are separate;
+neither runs during `make check`. The [history-based study](jev-history-study.md)
+jointly compares prompts, metadata, exclusion rules and token windows on an
+audited corpus from repository commits.
+
 Optional real-language-server tests run in temporary projects:
 
 ```sh

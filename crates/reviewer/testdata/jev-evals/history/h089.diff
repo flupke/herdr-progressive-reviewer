@@ -1,0 +1,216 @@
+diff --git a/crates/components/diff/src/lib.rs b/crates/components/diff/src/lib.rs
+index c962cdec..1040f714 100644
+--- a/crates/components/diff/src/lib.rs
++++ b/crates/components/diff/src/lib.rs
+@@ -92,16 +92,17 @@ pub struct DiffComponent {
+     reviewable_files: ReviewableFiles,
+     review_checkpoint: Option<ReviewCheckpoint>,
+     documents: Vec<LoadedDocument>,
+     selected_path: Option<String>,
+     pending_load_path: Option<String>,
+     preview: Option<LoadedDocument>,
+     pending_preview_location: Option<review_lsp::SourceLocation>,
+     pending_center_path: Option<String>,
++    pending_guide_jump: Option<PendingGuideJump>,
+     search: Option<SearchState>,
+     selection: Option<SelectionState>,
+     viewport_width: u16,
+     viewport_height: u16,
+     drag_anchor: Option<usize>,
+     highlighter: SyntaxHighlighter,
+     repository_root: PathBuf,
+     palette: Palette,
+@@ -113,16 +114,21 @@ pub struct DiffComponent {
+ }
+ 
+ #[derive(Clone, Debug)]
+ struct PendingHistoryNavigation {
+     target: ReviewLocation,
+     previous_history: LocationHistory,
+ }
+ 
++#[derive(Clone, Debug)]
++struct PendingGuideJump {
++    target: review_guide::GuideTarget,
++}
++
+ #[derive(Clone, Debug, Eq, PartialEq)]
+ struct SearchState {
+     query: String,
+     origin: RepositorySearchLocation,
+     editing: bool,
+     waiting_for_repository: bool,
+     matches: Vec<RepositorySearchLocation>,
+ }
+@@ -207,16 +213,17 @@ pub fn new(
+             reviewable_files,
+             review_checkpoint: None,
+             documents: Vec::new(),
+             selected_path: None,
+             pending_load_path: None,
+             preview: None,
+             pending_preview_location: None,
+             pending_center_path: None,
++            pending_guide_jump: None,
+             search: None,
+             selection: None,
+             viewport_width: 80,
+             viewport_height: 24,
+             drag_anchor: None,
+             highlighter,
+             repository_root,
+             palette,
+@@ -1098,16 +1105,19 @@ fn repository_changed(&mut self, event: &RepositoryFilesChanged) -> Vec<Action>
+             .review_checkpoint
+             .as_ref()
+             .is_some_and(|checkpoint| checkpoint == &event.review_checkpoint);
+         if !same_review_unit {
+             self.pending_center_path = None;
+             self.guide_items.clear();
+             self.guide_counters.clear();
+         }
++        if !same_checkpoint {
++            self.pending_guide_jump = None;
++        }
+         let mut previous_documents = std::mem::take(&mut self.documents);
+         self.documents = event
+             .files
+             .iter()
+             .map(|summary| {
+                 let path = summary.path();
+                 let previous_document = previous_documents
+                     .iter()
+@@ -1157,16 +1167,23 @@ fn repository_changed(&mut self, event: &RepositoryFilesChanged) -> Vec<Action>
+             }
+             action.into_iter().collect()
+         } else {
+             self.selected_load_action().into_iter().collect()
+         }
+     }
+ 
+     fn file_selected(&mut self, event: &FileSelected) -> Vec<Action> {
++        if self
++            .pending_guide_jump
++            .as_ref()
++            .is_some_and(|pending| pending.target.path() != event.path)
++        {
++            self.pending_guide_jump = None;
++        }
+         let origin = self.current_review_location();
+         let selected_is_repository_file = self
+             .documents
+             .iter()
+             .any(|document| document.path == event.path && !document.temporary);
+         if selected_is_repository_file && self.documents.iter().any(|document| document.temporary) {
+             self.documents.retain(|document| !document.temporary);
+             self.events.publish(TemporaryFilesChanged::default());
+@@ -1231,16 +1248,19 @@ fn content_loaded(&mut self, event: &DiffContentLoaded) -> Vec<Action> {
+         let center_selected_document =
+             pending_center_completed && self.selected_path.as_deref() == Some(&event.path);
+         if pending_center_completed {
+             self.pending_center_path = None;
+         }
+         if center_selected_document {
+             self.center_jump_target();
+         }
++        if !reload_after_current_load {
++            self.finish_pending_guide_jump(&event.path);
++        }
+         self.refresh_search_matches();
+         if self
+             .search
+             .as_ref()
+             .is_some_and(|search| search.editing || search.waiting_for_repository)
+         {
+             self.find_from_origin();
+         }
+@@ -1254,19 +1274,26 @@ fn content_loaded(&mut self, event: &DiffContentLoaded) -> Vec<Action> {
+         }
+         Vec::new()
+     }
+ 
+     fn content_load_failed(&mut self, event: &DiffContentLoadFailed) -> Vec<Action> {
+         if self.pending_center_path.as_deref() == Some(&event.path) {
+             self.pending_center_path = None;
+         }
++        let pending_guide_jump_matches = self
++            .pending_guide_jump
++            .as_ref()
++            .is_some_and(|pending| pending.target.path() == event.path);
+         let reload_immediately = self
+             .current_document_mut(&event.review_checkpoint, &event.path)
+             .is_some_and(LoadedDocument::fail_diff_load);
++        if pending_guide_jump_matches && !reload_immediately {
++            self.pending_guide_jump = None;
++        }
+         self.finish_repository_search_load_if_complete();
+         if reload_immediately && self.selected_path.as_deref() == Some(event.path.as_str()) {
+             return self.selected_load_action().into_iter().collect();
+         }
+         Vec::new()
+     }
+ 
+     fn finish_repository_search_load_if_complete(&mut self) {
+@@ -1310,21 +1337,61 @@ fn guide_jump_requested(&mut self, event: &GuideJumpRequested) -> Vec<Action> {
+         self.selected_path = Some(path.clone());
+         if let Some(document) = self.selected_document_mut() {
+             document.document.column = 0;
+         }
+         if let Some(row) = event.row {
+             self.set_cursor(row);
+         }
+         self.align_guide_jump_to_viewport_top();
++        let load_was_active = self
++            .selected_document()
++            .is_some_and(LoadedDocument::is_loading);
++        let load_action = self.selected_load_action();
++        if event.row.is_none() || load_was_active || load_action.is_some() {
++            self.pending_guide_jump = Some(PendingGuideJump {
++                target: event.target.clone(),
++            });
++        } else {
++            self.pending_guide_jump = None;
++        }
+         self.events.publish(FileSelectionRequested { path });
+         self.publish_viewports();
+         self.publish_current_location();
+         self.record_current_location_jump(origin);
+-        self.selected_load_action().into_iter().collect()
++        load_action.into_iter().collect()
++    }
++
++    fn finish_pending_guide_jump(&mut self, loaded_path: &str) {
++        let Some(pending) = self.pending_guide_jump.take() else {
++            return;
++        };
++        if pending.target.path() != loaded_path
++            || self.selected_path.as_deref() != Some(loaded_path)
++        {
++            if pending.target.path() != loaded_path {
++                self.pending_guide_jump = Some(pending);
++            }
++            return;
++        }
++        let Some(file_index) = self
++            .documents
++            .iter()
++            .position(|document| document.path == loaded_path)
++        else {
++            return;
++        };
++        let row = self.documents.get(file_index).and_then(|document| {
++            let viewport = document.guide_viewport(file_index);
++            guide_rendering::target_rows(&viewport, &pending.target).map(|rows| rows.0)
++        });
++        if let Some(row) = row {
++            self.set_cursor(row);
++            self.align_guide_jump_to_viewport_top();
++        }
+     }
+ 
+     fn preview_source_location(&mut self, event: &SourceLocationPreviewRequested) -> Vec<Action> {
+         self.preview = None;
+         self.pending_preview_location = Some(event.location.clone());
+         let Some(review_checkpoint) = self.review_checkpoint.clone() else {
+             return Vec::new();
+         };

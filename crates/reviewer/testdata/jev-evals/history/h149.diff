@@ -1,0 +1,46 @@
+diff --git a/crates/review-ui/src/review_view.rs b/crates/review-ui/src/review_view.rs
+index 1d736ee9..c68c9690 100644
+--- a/crates/review-ui/src/review_view.rs
++++ b/crates/review-ui/src/review_view.rs
+@@ -1,21 +1,22 @@
+ //! Ratatui rendering for the complete review state.
+ 
+ use ratatui::buffer::Buffer;
+ use ratatui::layout::Rect;
+ use ratatui::widgets::{Paragraph, Widget};
+ 
+-use crate::app::{Focus, PaneLayout, ReviewApp};
++use crate::app::{ActivePopup, Focus, PaneLayout, ReviewApp};
+ use crate::commit_message::CommitMessageView;
+ use crate::context_menu::ContextMenuView;
+ use crate::diff::DiffView;
+ use crate::files::FilesView;
+ use crate::footer::FooterView;
+ use crate::header::HeaderView;
++use crate::help::ShortcutHelpView;
+ use crate::hover::HoverView;
+ 
+ const MIN_WIDTH: u16 = 40;
+ const MIN_HEIGHT: u16 = 6;
+ 
+ /// A side-effect-free view of [`ReviewApp`].
+ pub struct ReviewView<'a>(pub(super) &'a ReviewApp);
+ 
+@@ -69,13 +70,15 @@ fn render_overlays(&self, area: Rect, buffer: &mut Buffer) {
+             HoverView(self.0, markdown).render(area, buffer);
+         }
+         if let Some(menu) = &self.0.context_menu {
+             ContextMenuView(self.0, menu).render(area, buffer);
+         }
+         self.0
+             .toasts
+             .render(area, buffer, self.0.palette.focus, self.0.palette.deletion);
+-        if self.0.show_commit_message {
+-            CommitMessageView(self.0).render(area, buffer);
++        match self.0.active_popup {
++            Some(ActivePopup::CommitMessage) => CommitMessageView(self.0).render(area, buffer),
++            Some(ActivePopup::ShortcutHelp) => ShortcutHelpView(self.0).render(area, buffer),
++            None => {}
+         }
+     }
+ }

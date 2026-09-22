@@ -1,0 +1,23 @@
+diff --git a/crates/review-ui/src/lib.tests.rs b/crates/review-ui/src/lib.tests.rs
+index 8ac8e25f..74b877ff 100644
+--- a/crates/review-ui/src/lib.tests.rs
++++ b/crates/review-ui/src/lib.tests.rs
+@@ -159,16 +159,18 @@ fn lsp_keys_use_the_visible_current_source() {
+     assert_eq!(app.update(Message::Key(Key::Char('g'))), Action::None);
+     assert!(matches!(
+         app.update(Message::Key(Key::Char('d'))),
+         Action::Lsp {
+             operation: Operation::Definition,
+             ..
+         }
+     ));
++    assert_eq!(app.update(Message::Key(Key::Char('g'))), Action::None);
++    assert_eq!(app.update(Message::Key(Key::Char('R'))), Action::RestartLsp);
+ 
+     app.files[0].column = 0;
+     app.move_word(true);
+     assert_eq!(app.files[0].column, 3);
+     app.files[0].column = 5;
+     app.move_word(false);
+     assert_eq!(app.files[0].column, 3);
+ 

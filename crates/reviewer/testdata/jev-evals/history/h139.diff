@@ -1,0 +1,577 @@
+diff --git a/crates/review-ui/tests/ui_state.rs b/crates/review-ui/tests/ui_state.rs
+index e1177046..e2f4dd14 100644
+--- a/crates/review-ui/tests/ui_state.rs
++++ b/crates/review-ui/tests/ui_state.rs
+@@ -58,17 +58,17 @@ fn screen(app: &ReviewApp, width: u16, height: u16) -> Vec<String> {
+             line
+         })
+         .collect()
+ }
+ 
+ fn wrapped_diff_app(rows: Vec<DiffRow>, width: u16, height: u16) -> ReviewApp {
+     let mut app = ReviewApp::default();
+     app.update(Message::FilesLoaded {
+-        change_id: "qpvuntsm".to_owned(),
++        review_unit: "qpvuntsm".into(),
+         commit_id: "11111111".to_owned(),
+         description: String::new(),
+         files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed)],
+     });
+     app.update(Message::DiffLoaded {
+         commit_id: "11111111".to_owned(),
+         path: "src/lib.rs".to_owned(),
+         rows,
+@@ -255,17 +255,17 @@ fn separate_line_guides_render_inside_one_hunk() {
+     assert!(first_text < second_counter, "{rendered}");
+     assert!(second_counter < second_text, "{rendered}");
+ }
+ 
+ #[test]
+ fn guide_counter_includes_items_for_diffs_that_are_not_loaded() {
+     let mut app = ReviewApp::default();
+     app.update(Message::FilesLoaded {
+-        change_id: "qpvuntsm".to_owned(),
++        review_unit: "qpvuntsm".into(),
+         commit_id: "11111111".to_owned(),
+         description: String::new(),
+         files: vec![
+             ReviewFile::new("src/first.rs", ReviewStatus::Unreviewed),
+             ReviewFile::new("src/second.rs", ReviewStatus::Unreviewed),
+         ],
+     });
+     app.update(Message::DiffLoaded {
+@@ -376,17 +376,17 @@ fn guide_comment_jumps_put_the_explanation_at_the_top() {
+ 
+ #[test]
+ fn reviewed_file_hides_its_review_guide() {
+     let mut app = wrapped_diff_app(rows(), 60, 12);
+     load_single_hunk_guide(&mut app, "This guide is hidden.");
+     assert!(screen(&app, 60, 12).join("\n").contains("This guide"));
+ 
+     app.update(Message::FilesLoaded {
+-        change_id: "qpvuntsm".to_owned(),
++        review_unit: "qpvuntsm".into(),
+         commit_id: "11111111".to_owned(),
+         description: String::new(),
+         files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Reviewed)],
+     });
+ 
+     assert!(!screen(&app, 60, 12).join("\n").contains("This guide"));
+ }
+ 
+@@ -557,17 +557,17 @@ fn wrapped_grapheme_mouse_position_uses_its_terminal_width() {
+     assert_eq!(query.byte_column, 34 + joined_emoji.len());
+ }
+ 
+ #[test]
+ fn state_machine_keeps_selection_until_insert_succeeds() {
+     let mut app = ReviewApp::default();
+     assert_eq!(
+         app.update(Message::FilesLoaded {
+-            change_id: "qpvuntsm".to_owned(),
++            review_unit: "qpvuntsm".into(),
+             commit_id: "11111111".to_owned(),
+             description: "Commit title\n\nCommit body\n".to_owned(),
+             files: vec![
+                 ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed),
+                 ReviewFile::new("README.md", ReviewStatus::Reviewed),
+             ],
+         }),
+         Action::LoadDiff {
+@@ -635,17 +635,17 @@ fn state_machine_keeps_selection_until_insert_succeeds() {
+         Action::SetReviewed {
+             path: "src/lib.rs".to_owned(),
+             reviewed: true,
+         }
+     );
+     assert!(screen(&app, 80, 12).join("\n").contains("No changes"));
+     assert_eq!(app.update(Message::Key(Key::Space)), Action::None);
+     app.update(Message::ReviewFinished {
+-        change_id: "qpvuntsm".to_owned(),
++        review_unit: "qpvuntsm".into(),
+         path: "src/lib.rs".to_owned(),
+         result: Ok(ReviewState {
+             status: ReviewStatus::Unreviewed,
+             warning: Some(ReviewWarning::BaselineExpired),
+         }),
+     });
+     let rendered = screen(&app, 80, 12);
+     assert!(rendered.last().unwrap().contains("? help"));
+@@ -655,17 +655,17 @@ fn state_machine_keeps_selection_until_insert_succeeds() {
+ #[test]
+ fn output_panel_selects_the_target_for_paths_and_diffs() {
+     let mut app = ReviewApp::default();
+     app.update(Message::Resize {
+         width: 80,
+         height: 12,
+     });
+     app.update(Message::FilesLoaded {
+-        change_id: "qpvuntsm".to_owned(),
++        review_unit: "qpvuntsm".into(),
+         commit_id: "11111111".to_owned(),
+         description: "Commit title\n".to_owned(),
+         files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed)],
+     });
+ 
+     assert!(screen(&app, 80, 12)[11].contains("Output: [Active agent] [Clipboard]"));
+     assert_eq!(
+         app.update(Message::Key(Key::Char('o'))),
+@@ -687,17 +687,17 @@ fn output_panel_selects_the_target_for_paths_and_diffs() {
+         Action::SaveOutputTarget(OutputTarget::ActiveAgent)
+     );
+ }
+ 
+ #[test]
+ fn reviewed_file_hides_its_diff() {
+     let mut app = ReviewApp::default();
+     app.update(Message::FilesLoaded {
+-        change_id: "qpvuntsm".to_owned(),
++        review_unit: "qpvuntsm".into(),
+         commit_id: "11111111".to_owned(),
+         description: "Commit title\n\nCommit body\n".to_owned(),
+         files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Reviewed)],
+     });
+     app.update(Message::DiffLoaded {
+         commit_id: "11111111".to_owned(),
+         path: "src/lib.rs".to_owned(),
+         rows: rows(),
+@@ -709,17 +709,17 @@ fn reviewed_file_hides_its_diff() {
+     assert!(screen.join("\n").contains("No changes"));
+     assert!(!screen.join("\n").contains("old();"));
+ }
+ 
+ #[test]
+ fn commit_message_opens_and_closes_from_mouse_or_keyboard() {
+     let mut app = ReviewApp::default();
+     app.update(Message::FilesLoaded {
+-        change_id: "qpvuntsm".to_owned(),
++        review_unit: "qpvuntsm".into(),
+         commit_id: "11111111".to_owned(),
+         description: "Commit title\n\nCommit body\n".to_owned(),
+         files: Vec::new(),
+     });
+ 
+     let header = screen(&app, 80, 12).join("\n");
+     assert!(header.contains("Commit title"));
+     assert!(header.contains("+0 -0 - 0/0 reviewed"));
+@@ -756,17 +756,17 @@ fn commit_message_opens_and_closes_from_mouse_or_keyboard() {
+     });
+     assert!(screen(&app, 80, 12).join("\n").contains("Commit body"));
+ }
+ 
+ #[test]
+ fn optimistic_selection_stays_on_the_next_file_when_review_fails() {
+     let mut app = ReviewApp::default();
+     app.update(Message::FilesLoaded {
+-        change_id: "qpvuntsm".to_owned(),
++        review_unit: "qpvuntsm".into(),
+         commit_id: "11111111".to_owned(),
+         description: "Commit title\n\nCommit body\n".to_owned(),
+         files: vec![
+             ReviewFile::new("first.rs", ReviewStatus::Unreviewed),
+             ReviewFile::new("second.rs", ReviewStatus::Reviewed),
+             ReviewFile::new("third.rs", ReviewStatus::ChangedSinceReview),
+             ReviewFile::new("fourth.rs", ReviewStatus::Unreviewed),
+         ],
+@@ -774,47 +774,47 @@ fn optimistic_selection_stays_on_the_next_file_when_review_fails() {
+ 
+     assert!(matches!(
+         app.update(Message::Key(Key::Space)),
+         Action::SetReviewed { reviewed: true, .. }
+     ));
+     assert!(screen(&app, 80, 12).join("\n").contains("Diff · third.rs"));
+     assert_eq!(
+         app.update(Message::FilesLoaded {
+-            change_id: "qpvuntsm".to_owned(),
++            review_unit: "qpvuntsm".into(),
+             commit_id: "11111111".to_owned(),
+             description: "Commit title\n\nCommit body\n".to_owned(),
+             files: vec![
+                 ReviewFile::new("first.rs", ReviewStatus::Unreviewed),
+                 ReviewFile::new("second.rs", ReviewStatus::Reviewed),
+                 ReviewFile::new("third.rs", ReviewStatus::ChangedSinceReview),
+                 ReviewFile::new("fourth.rs", ReviewStatus::Unreviewed),
+             ],
+         }),
+         Action::LoadDiff {
+             commit_id: "11111111".to_owned(),
+             path: "third.rs".to_owned(),
+         }
+     );
+     assert_eq!(
+         app.update(Message::ReviewFinished {
+-            change_id: "qpvuntsm".to_owned(),
++            review_unit: "qpvuntsm".into(),
+             path: "first.rs".to_owned(),
+             result: Err(()),
+         }),
+         Action::None
+     );
+     assert!(screen(&app, 80, 12).join("\n").contains("Diff · third.rs"));
+ }
+ 
+ #[test]
+ fn added_file_renders_as_plain_file_content() {
+     let mut app = ReviewApp::default();
+     app.update(Message::FilesLoaded {
+-        change_id: "qpvuntsm".to_owned(),
++        review_unit: "qpvuntsm".into(),
+         commit_id: "11111111".to_owned(),
+         description: "Commit title\n\nCommit body\n".to_owned(),
+         files: vec![ReviewFile::new("src/main.rs", ReviewStatus::Unreviewed)],
+     });
+     app.update(Message::DiffLoaded {
+         commit_id: "11111111".to_owned(),
+         path: "src/main.rs".to_owned(),
+         rows: vec![
+@@ -856,17 +856,17 @@ fn added_file_renders_as_plain_file_content() {
+     assert!(!screen.contains('▌'));
+     assert!(screen.contains("1 fn main() {}"));
+ }
+ 
+ #[test]
+ fn deleted_file_renders_as_plain_file_content() {
+     let mut app = ReviewApp::default();
+     app.update(Message::FilesLoaded {
+-        change_id: "qpvuntsm".to_owned(),
++        review_unit: "qpvuntsm".into(),
+         commit_id: "11111111".to_owned(),
+         description: "Commit title\n\nCommit body\n".to_owned(),
+         files: vec![ReviewFile::new("src/main.rs", ReviewStatus::Unreviewed)],
+     });
+     app.update(Message::DiffLoaded {
+         commit_id: "11111111".to_owned(),
+         path: "src/main.rs".to_owned(),
+         rows: vec![
+@@ -894,17 +894,17 @@ fn deleted_file_renders_as_plain_file_content() {
+     assert!(!screen.contains('▌'));
+     assert!(screen.contains("1 fn main() {}"));
+ }
+ 
+ #[test]
+ fn diff_uses_bars_line_numbers_and_expandable_gaps() {
+     let mut app = ReviewApp::default();
+     app.update(Message::FilesLoaded {
+-        change_id: "qpvuntsm".to_owned(),
++        review_unit: "qpvuntsm".into(),
+         commit_id: "11111111".to_owned(),
+         description: "Commit title\n\nCommit body\n".to_owned(),
+         files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed)],
+     });
+     let rows = vec![
+         DiffRow::FileHeader {
+             old_path: None,
+             new_path: None,
+@@ -989,17 +989,17 @@ fn diff_uses_bars_line_numbers_and_expandable_gaps() {
+     assert!(screen(&app, 100, 14).join("\n").contains("3 third"));
+ }
+ 
+ #[test]
+ fn diff_controls_expand_and_contract_all_gaps() {
+     let mut app = ReviewApp::default();
+     let path = "src/a/very/long/path/that/must/leave/room/for/the/buttons/lib.rs";
+     app.update(Message::FilesLoaded {
+-        change_id: "qpvuntsm".to_owned(),
++        review_unit: "qpvuntsm".into(),
+         commit_id: "11111111".to_owned(),
+         description: "Commit title\n\nCommit body\n".to_owned(),
+         files: vec![ReviewFile::new(path, ReviewStatus::Unreviewed)],
+     });
+     app.update(Message::DiffLoaded {
+         commit_id: "11111111".to_owned(),
+         path: path.to_owned(),
+         rows: vec![
+@@ -1084,17 +1084,17 @@ fn diff_controls_expand_and_contract_all_gaps() {
+     assert!(diff.contains("→←"));
+     assert!(diff.contains("1 unmodified lines"));
+ }
+ 
+ #[test]
+ fn marking_a_changed_file_reviewed_replaces_its_baseline() {
+     let mut app = ReviewApp::default();
+     app.update(Message::FilesLoaded {
+-        change_id: "qpvuntsm".to_owned(),
++        review_unit: "qpvuntsm".into(),
+         commit_id: "11111111".to_owned(),
+         description: "Commit title\n\nCommit body\n".to_owned(),
+         files: vec![ReviewFile::new(
+             "src/lib.rs",
+             ReviewStatus::ChangedSinceReview,
+         )],
+     });
+     app.update(Message::DiffLoaded {
+@@ -1110,47 +1110,47 @@ fn marking_a_changed_file_reviewed_replaces_its_baseline() {
+         Action::SetReviewed {
+             path: "src/lib.rs".to_owned(),
+             reviewed: true,
+         }
+     );
+     assert!(screen(&app, 80, 12).join("\n").contains("No changes"));
+     assert_eq!(
+         app.update(Message::ReviewFinished {
+-            change_id: "qpvuntsm".to_owned(),
++            review_unit: "qpvuntsm".into(),
+             path: "src/lib.rs".to_owned(),
+             result: Err(()),
+         }),
+         Action::None
+     );
+     assert!(screen(&app, 80, 12).join("\n").contains("old();"));
+ 
+     assert!(matches!(
+         app.update(Message::Key(Key::Space)),
+         Action::SetReviewed { reviewed: true, .. }
+     ));
+     assert_eq!(
+         app.update(Message::ReviewFinished {
+-            change_id: "qpvuntsm".to_owned(),
++            review_unit: "qpvuntsm".into(),
+             path: "src/lib.rs".to_owned(),
+             result: Ok(ReviewState {
+                 status: ReviewStatus::Reviewed,
+                 warning: None,
+             }),
+         }),
+         Action::None
+     );
+     assert!(screen(&app, 80, 12).join("\n").contains("No changes"));
+ }
+ 
+ #[test]
+ fn mouse_targets_the_hovered_pane_and_click_changes_focus() {
+     let mut app = ReviewApp::default();
+     app.update(Message::FilesLoaded {
+-        change_id: "qpvuntsm".to_owned(),
++        review_unit: "qpvuntsm".into(),
+         commit_id: "11111111".to_owned(),
+         description: "Commit title\n\nCommit body\n".to_owned(),
+         files: vec![
+             ReviewFile::new("first.rs", ReviewStatus::Unreviewed),
+             ReviewFile::new("second.rs", ReviewStatus::Unreviewed),
+         ],
+     });
+     app.update(Message::Resize {
+@@ -1214,17 +1214,17 @@ fn mouse_targets_the_hovered_pane_and_click_changes_focus() {
+         }
+     );
+ }
+ 
+ #[test]
+ fn double_clicking_a_file_marks_it_reviewed() {
+     let mut app = ReviewApp::default();
+     app.update(Message::FilesLoaded {
+-        change_id: "qpvuntsm".to_owned(),
++        review_unit: "qpvuntsm".into(),
+         commit_id: "11111111".to_owned(),
+         description: "Commit title\n".to_owned(),
+         files: vec![
+             ReviewFile::new("first.rs", ReviewStatus::Unreviewed),
+             ReviewFile::new("second.rs", ReviewStatus::Unreviewed),
+         ],
+     });
+     app.update(Message::Resize {
+@@ -1246,17 +1246,17 @@ fn double_clicking_a_file_marks_it_reviewed() {
+     );
+     assert!(screen(&app, 80, 12).join("\n").contains("Diff · second.rs"));
+ }
+ 
+ #[test]
+ fn double_clicking_a_reviewed_file_marks_it_unreviewed() {
+     let mut app = ReviewApp::default();
+     app.update(Message::FilesLoaded {
+-        change_id: "qpvuntsm".to_owned(),
++        review_unit: "qpvuntsm".into(),
+         commit_id: "11111111".to_owned(),
+         description: "Commit title\n".to_owned(),
+         files: vec![ReviewFile::new("reviewed.rs", ReviewStatus::Reviewed)],
+     });
+ 
+     app.update(Message::MouseClick {
+         column: 1,
+         row: 2,
+@@ -1277,17 +1277,17 @@ fn clicking_a_directory_collapses_its_descendants_across_refreshes() {
+     let files = || {
+         vec![
+             ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed),
+             ReviewFile::new("src/main.rs", ReviewStatus::Unreviewed),
+             ReviewFile::new("tests/test.rs", ReviewStatus::Unreviewed),
+         ]
+     };
+     app.update(Message::FilesLoaded {
+-        change_id: "qpvuntsm".to_owned(),
++        review_unit: "qpvuntsm".into(),
+         commit_id: "11111111".to_owned(),
+         description: "Commit title".to_owned(),
+         files: files(),
+     });
+ 
+     assert_eq!(
+         app.update(Message::MouseClick {
+             column: 4,
+@@ -1310,17 +1310,17 @@ fn clicking_a_directory_collapses_its_descendants_across_refreshes() {
+         }
+     );
+     let collapsed = screen(&app, 80, 12).join("\n");
+     assert!(collapsed.contains("▸ src/"));
+     assert!(!collapsed.contains("lib.rs"));
+     assert!(!collapsed.contains("main.rs"));
+ 
+     app.update(Message::FilesLoaded {
+-        change_id: "qpvuntsm".to_owned(),
++        review_unit: "qpvuntsm".into(),
+         commit_id: "22222222".to_owned(),
+         description: "Commit title".to_owned(),
+         files: files(),
+     });
+     assert!(screen(&app, 80, 12).join("\n").contains("▸ src/"));
+ 
+     app.update(Message::MouseClick {
+         column: 1,
+@@ -1338,66 +1338,66 @@ fn files_that_need_review_expand_their_parent_directories() {
+     let mut app = ReviewApp::default();
+     let files = |status| {
+         vec![
+             ReviewFile::new("src/deep/lib.rs", status),
+             ReviewFile::new("tests/test.rs", ReviewStatus::Reviewed),
+         ]
+     };
+     app.update(Message::FilesLoaded {
+-        change_id: "qpvuntsm".to_owned(),
++        review_unit: "qpvuntsm".into(),
+         commit_id: "11111111".to_owned(),
+         description: String::new(),
+         files: files(ReviewStatus::Reviewed),
+     });
+     app.update(Message::MouseClick {
+         column: 1,
+         row: 2,
+         insert_path: false,
+     });
+ 
+     app.update(Message::FilesLoaded {
+-        change_id: "qpvuntsm".to_owned(),
++        review_unit: "qpvuntsm".into(),
+         commit_id: "22222222".to_owned(),
+         description: String::new(),
+         files: files(ReviewStatus::ChangedSinceReview),
+     });
+     assert!(screen(&app, 80, 12).join("\n").contains("▾ src/"));
+     assert!(screen(&app, 80, 12).join("\n").contains("lib.rs"));
+ 
+     app.update(Message::FilesLoaded {
+-        change_id: "qpvuntsm".to_owned(),
++        review_unit: "qpvuntsm".into(),
+         commit_id: "33333333".to_owned(),
+         description: String::new(),
+         files: files(ReviewStatus::Reviewed),
+     });
+     app.update(Message::MouseClick {
+         column: 1,
+         row: 2,
+         insert_path: false,
+     });
+     app.update(Message::ReviewFinished {
+-        change_id: "qpvuntsm".to_owned(),
++        review_unit: "qpvuntsm".into(),
+         path: "src/deep/lib.rs".to_owned(),
+         result: Ok(ReviewState {
+             status: ReviewStatus::Unreviewed,
+             warning: None,
+         }),
+     });
+     let rendered = screen(&app, 80, 12).join("\n");
+     assert!(rendered.contains("▾ src/"));
+     assert!(rendered.contains("▾ deep/"));
+     assert!(rendered.contains("lib.rs"));
+ }
+ 
+ #[test]
+ fn dragging_the_separator_resizes_the_file_pane() {
+     let mut app = ReviewApp::default();
+     app.update(Message::FilesLoaded {
+-        change_id: "qpvuntsm".to_owned(),
++        review_unit: "qpvuntsm".into(),
+         commit_id: "11111111".to_owned(),
+         description: "Commit title\n\nCommit body\n".to_owned(),
+         files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed)],
+     });
+     app.update(Message::Resize {
+         width: 80,
+         height: 12,
+     });
+@@ -1421,17 +1421,17 @@ fn dragging_the_separator_resizes_the_file_pane() {
+ #[test]
+ fn dragging_diff_lines_inserts_them_on_release() {
+     let mut app = ReviewApp::default();
+     assert_eq!(
+         app.update(Message::Key(Key::Char('o'))),
+         Action::SaveOutputTarget(OutputTarget::Clipboard)
+     );
+     app.update(Message::FilesLoaded {
+-        change_id: "qpvuntsm".to_owned(),
++        review_unit: "qpvuntsm".into(),
+         commit_id: "11111111".to_owned(),
+         description: "Commit title\n\nCommit body\n".to_owned(),
+         files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed)],
+     });
+     app.update(Message::DiffLoaded {
+         commit_id: "11111111".to_owned(),
+         path: "src/lib.rs".to_owned(),
+         rows: rows(),
+@@ -1476,17 +1476,17 @@ fn dragging_diff_lines_inserts_them_on_release() {
+         }
+     );
+ }
+ 
+ #[test]
+ fn mouse_wheel_scrolls_the_diff_viewport_regardless_of_focus() {
+     let mut app = ReviewApp::default();
+     app.update(Message::FilesLoaded {
+-        change_id: "qpvuntsm".to_owned(),
++        review_unit: "qpvuntsm".into(),
+         commit_id: "11111111".to_owned(),
+         description: "Commit title\n\nCommit body\n".to_owned(),
+         files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed)],
+     });
+     app.update(Message::DiffLoaded {
+         commit_id: "11111111".to_owned(),
+         path: "src/lib.rs".to_owned(),
+         rows: (0..10)
+@@ -1509,17 +1509,17 @@ fn mouse_wheel_scrolls_the_diff_viewport_regardless_of_focus() {
+ 
+     app.update(Message::MouseScroll {
+         column: 70,
+         row: 2,
+         delta: 2,
+     });
+     assert!(!screen(&app, 80, 8).join("\n").contains("line-0"));
+     app.update(Message::FilesLoaded {
+-        change_id: "qpvuntsm".to_owned(),
++        review_unit: "qpvuntsm".into(),
+         commit_id: "11111111".to_owned(),
+         description: "Commit title\n\nCommit body\n".to_owned(),
+         files: vec![ReviewFile::new("src/lib.rs", ReviewStatus::Unreviewed)],
+     });
+     app.update(Message::Resize {
+         width: 80,
+         height: 8,
+     });
+@@ -1550,17 +1550,17 @@ fn test_backend_renders_wide_narrow_and_minimum_layouts() {
+         ),
+         ReviewFile::new("assets/logo.bin", ReviewStatus::Unreviewed),
+     ];
+     files.extend(
+         (2..200)
+             .map(|index| ReviewFile::new(format!("src/file-{index}.rs"), ReviewStatus::Reviewed)),
+     );
+     app.update(Message::FilesLoaded {
+-        change_id: "qpvuntsm".to_owned(),
++        review_unit: "qpvuntsm".into(),
+         commit_id: "11111111".to_owned(),
+         description: "Commit title\n\nCommit body\n".to_owned(),
+         files,
+     });
+     app.update(Message::DiffLoaded {
+         commit_id: "11111111".to_owned(),
+         path: "assets/logo.bin".to_owned(),
+         rows: vec![DiffRow::Notice {

@@ -1,0 +1,64 @@
+diff --git a/docs/mcp.md b/docs/mcp.md
+index 7df265ac..4400f1e3 100644
+--- a/docs/mcp.md
++++ b/docs/mcp.md
+@@ -239,16 +239,23 @@ ## Review access and tools
+ references). No source registration is needed. Evidence also explains what it
+ establishes and how it could change the answer.
+ 
+ Send each complete structured turn with `submit_question`, using the supplied review
+ value and the result in `update`. Refresh an already-running agent's MCP tool catalog
+ after upgrading; Explore exposes `submit_question` and `submit_conclusion`. The old
+ `submit_explore` name has been removed. `submit_question` requires a next question
+ and cannot carry a conclusion.
++Successful question results include a `coverage` object with its ledger revision,
++exact unassigned gaps, gaps awaiting an answer, full totals and `has_more` when the
++bounded list is truncated. Credit comes from the exact answered question's essential
++and supporting changed regions; explicit Defer earns none. The agent should use
++the uncovered locations to ask coherent follow-up questions, including old-side
++deletions and non-line changes. Jev exclusions, when enabled by a reviewer-process
++`TYPESAFE_API_KEY`, are exempt from the completion condition and remain inspectable.
+ The durable `instance` is distinct from renewable `review` access. Access is never
+ saved with the pass. Reopening rotates it; the next explicit reviewer action supplies
+ current access through the existing wakeup. Each call checks the pinned native
+ conversation, then validates against the latest stored pass under its lock, atomically
+ saves the update and deduplication record, publishes it to the UI, and waits for UI
+ application before acknowledging it. Validation errors leave the request open for repair;
+ transport retries must reuse the identical semantic payload (with current `review` access after reconnection). A response saved before a lost acknowledgement is restored locally; it is not regenerated. Accepted retries return
+ `accepted: true, applied: false`. Cancelled, obsolete or changed accepted payloads
+@@ -258,28 +265,34 @@ ## Review access and tools
+ 
+ ```json
+ {
+   "review": "temporary-access",
+   "instance": "pass-id",
+   "request": "turn-id",
+   "checkpoint": {"review_unit": "unit", "checkpoint": "commit"},
+   "interpretation": null,
+-  "summary": "Review outcome and uncertainty; further human Files inspection is required.",
++  "summary": "Review outcome, decisions and remaining uncertainty.",
+   "to_be_implemented": "1. First agreed task.\n2. Second agreed task.",
+   "future_work": "Deferred or optional work outside this implementation scope."
+ }
+ ```
+ 
+ The three sections are separate strings. Use an empty string for no implementation
+ or future work. The final answer still needs its attributed interpretation when it
+ records a decision; the same exact-answer and retry rules apply. There are no
+ question, evidence, reply, topic or agenda fields in a conclusion submission.
+ Summary and future work are displayed separately. Only `to_be_implemented` seeds
+ the editable task box. Submitting a conclusion does not start implementation.
++A conclusion with uncovered required changes or incomplete inventory returns
++`coverage_incomplete` and exact remaining locations without consuming its request
++or answer. A valid conclusion saves a recoverable completion record, marks only
++the pass's changed files at its captured checkpoint, and acknowledges success
++after local marking finishes. Repeating an accepted conclusion does not reapply
++marks. Subsequent edits appear in Files against that reviewed baseline.
+ The human's **Implement** action sends the edited box contents through the shared
+ reviewer-to-agent delivery queue, authorizing those tasks and their validation.
+ It waits for the pinned agent conversation, supports cancelling queued delivery,
+ and reports delivery failures without discarding edits. Authorization saves the exact
+ edited scope and logical delivery ID before queuing. The shared dispatcher saves an
+ attempt marker before the external call and records the authoritative outcome before
+ reporting success. Reopening never replays pending work. An unfinished attempt is
+ shown as delivery unknown, not as a cancelled or definitely unsent request.

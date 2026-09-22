@@ -1,0 +1,63 @@
+diff --git a/crates/review-lsp/src/language.tests.rs b/crates/review-lsp/src/language.tests.rs
+new file mode 100644
+index 00000000..224c24ab
+--- /dev/null
++++ b/crates/review-lsp/src/language.tests.rs
+@@ -0,0 +1,57 @@
++use std::path::Path;
++
++use super::{Language, LanguageServer, Project};
++
++#[test]
++fn source_extensions_select_the_server_and_document_language() {
++    for (path, id, server) in [
++        ("lib.rs", "rust", LanguageServer::RustAnalyzer),
++        ("lib.EX", "elixir", LanguageServer::Expert),
++        ("mix.exs", "elixir", LanguageServer::Expert),
++        ("page.html.heex", "heex", LanguageServer::Expert),
++        ("page.eex", "eelixir", LanguageServer::Expert),
++        ("index.ts", "typescript", LanguageServer::TypeScript),
++        ("index.mts", "typescript", LanguageServer::TypeScript),
++        ("index.cts", "typescript", LanguageServer::TypeScript),
++        ("types.d.ts", "typescript", LanguageServer::TypeScript),
++        ("view.tsx", "typescriptreact", LanguageServer::TypeScript),
++        ("index.js", "javascript", LanguageServer::TypeScript),
++        ("index.mjs", "javascript", LanguageServer::TypeScript),
++        ("index.cjs", "javascript", LanguageServer::TypeScript),
++        ("view.jsx", "javascriptreact", LanguageServer::TypeScript),
++    ] {
++        let language = Language::for_path(Path::new(path)).unwrap();
++        assert_eq!((language.id, language.server), (id, server), "{path}");
++    }
++    for path in ["README.md", "Cargo.toml", "no-extension"] {
++        assert!(Language::for_path(Path::new(path)).is_none());
++    }
++}
++
++#[test]
++fn projects_use_the_outer_workspace_marker_within_the_repository() {
++    let directory = tempfile::tempdir().unwrap();
++    for (folder, marker, source) in [
++        ("crates", "Cargo.toml", "lib.rs"),
++        ("backend", "mix.exs", "lib.ex"),
++        ("frontend", "package.json", "index.ts"),
++    ] {
++        let root = directory.path().join(folder);
++        std::fs::create_dir_all(root.join("nested/src")).unwrap();
++        std::fs::write(root.join(marker), "").unwrap();
++        std::fs::write(root.join("nested").join(marker), "").unwrap();
++        let project =
++            Project::for_document(directory.path(), &root.join("nested/src").join(source)).unwrap();
++        assert_eq!(project.root, root);
++    }
++}
++
++#[test]
++fn project_discovery_stops_at_the_repository_and_has_a_fallback() {
++    let directory = tempfile::tempdir().unwrap();
++    let repository = directory.path().join("repository");
++    std::fs::create_dir(&repository).unwrap();
++    std::fs::write(directory.path().join("mix.exs"), "").unwrap();
++    let project = Project::for_document(&repository, &repository.join("file.ex")).unwrap();
++    assert_eq!(project.root, repository);
++}

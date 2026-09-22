@@ -1,0 +1,23 @@
+diff --git a/crates/components/diff/src/render.rs b/crates/components/diff/src/render.rs
+index 1305bb39..098d846c 100644
+--- a/crates/components/diff/src/render.rs
++++ b/crates/components/diff/src/render.rs
+@@ -203,17 +203,17 @@ pub(super) fn source_position_after_visual_delta(
+         let row = self.rows.get(visual_row)?;
+         Some((row.source_row, row.source_display_offset))
+     }
+ 
+     pub(super) fn visible_row_count(&self) -> usize {
+         self.rows.len()
+     }
+ 
+-    fn cursor_visual_row(&self, file: &LoadedDocument) -> usize {
++    pub(super) fn cursor_visual_row(&self, file: &LoadedDocument) -> usize {
+         let source_display_column = file
+             .document
+             .diff
+             .source_position(file.document.cursor)
+             .map_or(0, |(_, line)| {
+                 source_display_width(&line, file.document.column)
+             });
+         self.rows

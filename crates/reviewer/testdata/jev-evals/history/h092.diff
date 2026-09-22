@@ -1,0 +1,61 @@
+diff --git a/crates/review-ui/src/application.tests.rs b/crates/review-ui/src/application.tests.rs
+index df69a338..e11950a4 100644
+--- a/crates/review-ui/src/application.tests.rs
++++ b/crates/review-ui/src/application.tests.rs
+@@ -478,16 +478,56 @@ fn mounted_components_render_through_the_application() {
+         .content()
+         .iter()
+         .map(ratatui::buffer::Cell::symbol)
+         .collect::<String>();
+     assert!(rendered.contains("Files"));
+     assert!(rendered.contains("Diff"));
+ }
+ 
++#[test]
++fn current_diff_row_stays_visible_across_the_pane_when_files_are_focused() {
++    let theme = Theme::default();
++    let mut application = ReviewApplication::new(theme, Some(24), PathBuf::new());
++    let review_checkpoint = ReviewCheckpoint::new("change", "checkpoint");
++    publish_repository(
++        &mut application,
++        review_checkpoint.clone(),
++        String::new(),
++        vec![FileSummary::new("src/lib.rs", ReviewStatus::Unreviewed)],
++    );
++    application.publish(ui_events::DiffContentLoaded {
++        review_checkpoint,
++        path: "src/lib.rs".to_owned(),
++        rows: vec![DiffRow::Add {
++            new_line: 1,
++            text: "+current_row".to_owned(),
++        }],
++        old_content: None,
++        new_content: None,
++    });
++
++    let mut terminal = Terminal::new(TestBackend::new(80, 12)).unwrap();
++    terminal
++        .draw(|frame| frame.render_widget(application.frame(), frame.area()))
++        .unwrap();
++    let buffer = terminal.backend().buffer();
++    let (cursor_column, row) = rendered_text_position(&application, "current_row", 80, 12)
++        .expect("the current diff row must be visible");
++
++    assert_eq!(buffer[(cursor_column, row)].bg, theme.palette.cursor);
++    assert_eq!(buffer[(78, row)].bg, theme.palette.cursor);
++    // Diff metadata is not source text, so the `c` is source column zero.
++    assert!(
++        !buffer[(cursor_column, row)]
++            .modifier
++            .contains(ratatui::style::Modifier::REVERSED)
++    );
++}
++
+ #[test]
+ fn external_source_is_added_to_and_removed_from_the_files_component() {
+     let mut application = application();
+     application.update(UserInput::Resize {
+         width: 80,
+         height: 12,
+     });
+     publish_repository(

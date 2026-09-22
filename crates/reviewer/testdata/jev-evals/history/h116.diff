@@ -1,0 +1,25 @@
+diff --git a/crates/components/files/src/lib.rs b/crates/components/files/src/lib.rs
+index 4b333f7e..1d2aaff3 100644
+--- a/crates/components/files/src/lib.rs
++++ b/crates/components/files/src/lib.rs
+@@ -569,16 +569,20 @@ fn expand_file_parents(&mut self, path: &str) {
+         }
+     }
+ 
+     fn keep_selected_visible(&mut self) {
+         let Some(row) = self.tree.row_for_file(self.selected) else {
+             self.scroll = 0;
+             return;
+         };
++        if self.tree.visible_files().next() == Some(self.selected) {
++            self.scroll = row.saturating_add(1).saturating_sub(self.page_rows);
++            return;
++        }
+         if row < self.scroll {
+             self.scroll = row;
+         } else if row >= self.scroll.saturating_add(self.page_rows) {
+             self.scroll = row.saturating_add(1).saturating_sub(self.page_rows);
+         }
+     }
+ 
+     fn render_row(&self, row: &FileTreeRow, width: usize, palette: Palette) -> Line<'static> {

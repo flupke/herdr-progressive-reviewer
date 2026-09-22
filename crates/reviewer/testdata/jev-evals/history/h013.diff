@@ -1,0 +1,75 @@
+diff --git a/crates/components/diff/src/evidence_size.rs b/crates/components/diff/src/evidence_size.rs
+new file mode 100644
+index 00000000..159e19d2
+--- /dev/null
++++ b/crates/components/diff/src/evidence_size.rs
+@@ -0,0 +1,69 @@
++//! Reuse native evidence measurements while their text and geometry are unchanged.
++use std::{cell::RefCell, sync::Arc};
++
++use review_explore::SourceSide;
++use review_guide::GuideLineRange;
++
++use crate::{DiffComponent, LoadedDocument};
++
++#[derive(Default)]
++pub(super) struct EvidenceSizeCache(RefCell<Option<Measurement>>);
++
++struct Measurement {
++    // The presentation already invalidates this immutable text projection when
++    // content or expanded rows change. Highlight colors do not change geometry.
++    document: Arc<text_search::Document>,
++    width: u16,
++    side: SourceSide,
++    range: Option<GuideLineRange>,
++    outlines: Vec<(SourceSide, GuideLineRange)>,
++    height: u16,
++}
++
++impl Measurement {
++    fn same_geometry(&self, other: &Self) -> bool {
++        Arc::ptr_eq(&self.document, &other.document)
++            && self.width == other.width
++            && self.side == other.side
++            && self.range == other.range
++            && self.outlines == other.outlines
++    }
++}
++
++impl DiffComponent {
++    pub(super) fn measure_evidence_height(
++        &self,
++        file: &LoadedDocument,
++        width: u16,
++        side: SourceSide,
++        range: Option<&GuideLineRange>,
++    ) -> u16 {
++        let measure = || {
++            self.renderer(self.palette, None, false)
++                .evidence_height(file, width, side, range)
++        };
++        // Inline conversations and editors can grow without changing source text.
++        // Keep their full native measurement, including wrapping and outlines.
++        if self.comments.has_for(file) {
++            return measure();
++        }
++        let mut next = Measurement {
++            document: file.document.diff.search_document(),
++            width,
++            side,
++            range: range.cloned(),
++            outlines: self.explore.ranges(file),
++            height: 0,
++        };
++        let mut cached = self.explore.size.0.borrow_mut();
++        if let Some(previous) = cached.as_ref()
++            && previous.same_geometry(&next)
++        {
++            return previous.height;
++        }
++        next.height = measure();
++        let height = next.height;
++        *cached = Some(next);
++        height
++    }
++}

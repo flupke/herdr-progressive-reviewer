@@ -1,0 +1,2820 @@
+[
+  {
+    "id": "h000",
+    "commit": "21d15023a5ed4039e7940005c178d7e49cea2434",
+    "commit_group": 0,
+    "split": "development",
+    "path": "docs/usage.md",
+    "subject": "Show Explore explanations inline and clarify coverage progress",
+    "lines": 25,
+    "significant_lines": 0,
+    "categories": {
+      "documentation": 25
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h001",
+    "commit": "21d15023a5ed4039e7940005c178d7e49cea2434",
+    "commit_group": 0,
+    "split": "development",
+    "path": "crates/review-explore-runner/src/interview.md",
+    "subject": "Show Explore explanations inline and clarify coverage progress",
+    "lines": 25,
+    "significant_lines": 25,
+    "categories": {
+      "code": 25
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h002",
+    "commit": "21d15023a5ed4039e7940005c178d7e49cea2434",
+    "commit_group": 0,
+    "split": "development",
+    "path": "crates/components/explore/Cargo.toml",
+    "subject": "Show Explore explanations inline and clarify coverage progress",
+    "lines": 1,
+    "significant_lines": 1,
+    "categories": {
+      "code": 1
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h003",
+    "commit": "21d15023a5ed4039e7940005c178d7e49cea2434",
+    "commit_group": 0,
+    "split": "development",
+    "path": "crates/review-explore/src/coverage.rs",
+    "subject": "Show Explore explanations inline and clarify coverage progress",
+    "lines": 147,
+    "significant_lines": 51,
+    "categories": {
+      "formatting": 10,
+      "code": 51,
+      "comment": 3,
+      "test": 83
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h004",
+    "commit": "21d15023a5ed4039e7940005c178d7e49cea2434",
+    "commit_group": 0,
+    "split": "development",
+    "path": "crates/components/explore/src/render.rs",
+    "subject": "Show Explore explanations inline and clarify coverage progress",
+    "lines": 142,
+    "significant_lines": 142,
+    "categories": {
+      "code": 142
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h005",
+    "commit": "26c2d94d0a6648612e8810a8ae683d1a717f590a",
+    "commit_group": 0,
+    "split": "development",
+    "path": "docs/mcp.md",
+    "subject": "Gate Explore completion on answered diff coverage",
+    "lines": 15,
+    "significant_lines": 0,
+    "categories": {
+      "documentation": 15
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h006",
+    "commit": "26c2d94d0a6648612e8810a8ae683d1a717f590a",
+    "commit_group": 0,
+    "split": "development",
+    "path": "Cargo.lock",
+    "subject": "Gate Explore completion on answered diff coverage",
+    "lines": 411,
+    "significant_lines": 0,
+    "categories": {
+      "lockfile": 411
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h007",
+    "commit": "26c2d94d0a6648612e8810a8ae683d1a717f590a",
+    "commit_group": 0,
+    "split": "development",
+    "path": "crates/reviewer/src/runtime/explore/storage.rs",
+    "subject": "Gate Explore completion on answered diff coverage",
+    "lines": 16,
+    "significant_lines": 16,
+    "categories": {
+      "code": 16
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h008",
+    "commit": "26c2d94d0a6648612e8810a8ae683d1a717f590a",
+    "commit_group": 0,
+    "split": "development",
+    "path": "crates/review-store/Cargo.toml",
+    "subject": "Gate Explore completion on answered diff coverage",
+    "lines": 1,
+    "significant_lines": 1,
+    "categories": {
+      "code": 1
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h009",
+    "commit": "26c2d94d0a6648612e8810a8ae683d1a717f590a",
+    "commit_group": 0,
+    "split": "development",
+    "path": "crates/reviewer/src/runtime/explore.rs",
+    "subject": "Gate Explore completion on answered diff coverage",
+    "lines": 172,
+    "significant_lines": 168,
+    "categories": {
+      "module": 1,
+      "code": 168,
+      "formatting": 3
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h010",
+    "commit": "984c70629cffa3e3501077a1f583959fa7c21ee9",
+    "commit_group": 0,
+    "split": "development",
+    "path": "docs/explore-milestone-1-demo.md",
+    "subject": "Improve Explore layout, editing and responsiveness",
+    "lines": 3,
+    "significant_lines": 0,
+    "categories": {
+      "documentation": 3
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h011",
+    "commit": "984c70629cffa3e3501077a1f583959fa7c21ee9",
+    "commit_group": 0,
+    "split": "development",
+    "path": "crates/review-ui/tests/ui_state.rs",
+    "subject": "Improve Explore layout, editing and responsiveness",
+    "lines": 229,
+    "significant_lines": 0,
+    "categories": {
+      "test": 227,
+      "formatting": 2
+    },
+    "annotation_evidence": [
+      "Test scope: Cargo integration-test directory"
+    ]
+  },
+  {
+    "id": "h012",
+    "commit": "984c70629cffa3e3501077a1f583959fa7c21ee9",
+    "commit_group": 0,
+    "split": "development",
+    "path": "crates/ui-actions/src/lib.rs",
+    "subject": "Improve Explore layout, editing and responsiveness",
+    "lines": 4,
+    "significant_lines": 3,
+    "categories": {
+      "comment": 1,
+      "code": 3
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h013",
+    "commit": "984c70629cffa3e3501077a1f583959fa7c21ee9",
+    "commit_group": 0,
+    "split": "development",
+    "path": "crates/components/diff/src/evidence_size.rs",
+    "subject": "Improve Explore layout, editing and responsiveness",
+    "lines": 69,
+    "significant_lines": 54,
+    "categories": {
+      "comment": 5,
+      "import": 4,
+      "formatting": 6,
+      "code": 54
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h014",
+    "commit": "9c853744b69124303c444aebef1acdd40b73562d",
+    "commit_group": 1,
+    "split": "validation",
+    "path": "docs/explore-slice-2-handoff.md",
+    "subject": "Persist Explore investigations and recover interrupted delivery",
+    "lines": 87,
+    "significant_lines": 0,
+    "categories": {
+      "documentation": 87
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h015",
+    "commit": "9c853744b69124303c444aebef1acdd40b73562d",
+    "commit_group": 1,
+    "split": "validation",
+    "path": "crates/review-explore-runner/src/tests.rs",
+    "subject": "Persist Explore investigations and recover interrupted delivery",
+    "lines": 165,
+    "significant_lines": 0,
+    "categories": {
+      "test": 164,
+      "formatting": 1
+    },
+    "annotation_evidence": [
+      "Test scope: crates/review-explore-runner/src/lib.rs: #[cfg(test)] module owner"
+    ]
+  },
+  {
+    "id": "h016",
+    "commit": "9c853744b69124303c444aebef1acdd40b73562d",
+    "commit_group": 1,
+    "split": "validation",
+    "path": "crates/reviewer/Cargo.toml",
+    "subject": "Persist Explore investigations and recover interrupted delivery",
+    "lines": 1,
+    "significant_lines": 1,
+    "categories": {
+      "code": 1
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h017",
+    "commit": "9c853744b69124303c444aebef1acdd40b73562d",
+    "commit_group": 1,
+    "split": "validation",
+    "path": "crates/review-explore-runner/Cargo.toml",
+    "subject": "Persist Explore investigations and recover interrupted delivery",
+    "lines": 3,
+    "significant_lines": 2,
+    "categories": {
+      "formatting": 1,
+      "code": 2
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h018",
+    "commit": "9c853744b69124303c444aebef1acdd40b73562d",
+    "commit_group": 1,
+    "split": "validation",
+    "path": "crates/components/explore/src/conclusion.rs",
+    "subject": "Persist Explore investigations and recover interrupted delivery",
+    "lines": 197,
+    "significant_lines": 186,
+    "categories": {
+      "code": 186,
+      "formatting": 9,
+      "comment": 1,
+      "import": 1
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h019",
+    "commit": "d76bfdd805d5775c4432054e75c3f9c4c4c430b9",
+    "commit_group": 1,
+    "split": "validation",
+    "path": "README.md",
+    "subject": "Add an adaptive Explore review over the working copy",
+    "lines": 1,
+    "significant_lines": 0,
+    "categories": {
+      "documentation": 1
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h020",
+    "commit": "d76bfdd805d5775c4432054e75c3f9c4c4c430b9",
+    "commit_group": 1,
+    "split": "validation",
+    "path": "plan/explore-milestone-1-adaptive-interview-update.md",
+    "subject": "Add an adaptive Explore review over the working copy",
+    "lines": 254,
+    "significant_lines": 0,
+    "categories": {
+      "documentation": 254
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h021",
+    "commit": "d76bfdd805d5775c4432054e75c3f9c4c4c430b9",
+    "commit_group": 1,
+    "split": "validation",
+    "path": "crates/ui-events/Cargo.toml",
+    "subject": "Add an adaptive Explore review over the working copy",
+    "lines": 1,
+    "significant_lines": 1,
+    "categories": {
+      "code": 1
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h022",
+    "commit": "d76bfdd805d5775c4432054e75c3f9c4c4c430b9",
+    "commit_group": 1,
+    "split": "validation",
+    "path": "crates/reviewer/src/runtime/comments.rs",
+    "subject": "Add an adaptive Explore review over the working copy",
+    "lines": 4,
+    "significant_lines": 4,
+    "categories": {
+      "code": 4
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h023",
+    "commit": "d76bfdd805d5775c4432054e75c3f9c4c4c430b9",
+    "commit_group": 1,
+    "split": "validation",
+    "path": "crates/review-explore/src/interview.rs",
+    "subject": "Add an adaptive Explore review over the working copy",
+    "lines": 368,
+    "significant_lines": 336,
+    "categories": {
+      "import": 6,
+      "formatting": 21,
+      "code": 336,
+      "comment": 5
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h024",
+    "commit": "295f4f9064aedc979bf5e3a37fb1d4c678b73f71",
+    "commit_group": 1,
+    "split": "validation",
+    "path": "crates/components/locations/src/lib.tests.rs",
+    "subject": "Send reviewer prompts directly through Herdr",
+    "lines": 8,
+    "significant_lines": 0,
+    "categories": {
+      "test": 8
+    },
+    "annotation_evidence": [
+      "Test scope: crates/components/locations/src/lib.rs: #[cfg(test)] module owner"
+    ]
+  },
+  {
+    "id": "h025",
+    "commit": "295f4f9064aedc979bf5e3a37fb1d4c678b73f71",
+    "commit_group": 1,
+    "split": "validation",
+    "path": "crates/reviewer/src/runtime.tests.rs",
+    "subject": "Send reviewer prompts directly through Herdr",
+    "lines": 184,
+    "significant_lines": 0,
+    "categories": {
+      "test": 182,
+      "formatting": 2
+    },
+    "annotation_evidence": [
+      "Test scope: crates/reviewer/src/runtime.rs: #[cfg(test)] module owner"
+    ]
+  },
+  {
+    "id": "h026",
+    "commit": "295f4f9064aedc979bf5e3a37fb1d4c678b73f71",
+    "commit_group": 1,
+    "split": "validation",
+    "path": "crates/components/threads/src/lib.rs",
+    "subject": "Send reviewer prompts directly through Herdr",
+    "lines": 2,
+    "significant_lines": 2,
+    "categories": {
+      "code": 2
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h027",
+    "commit": "295f4f9064aedc979bf5e3a37fb1d4c678b73f71",
+    "commit_group": 1,
+    "split": "validation",
+    "path": "crates/herdr-client/src/protocol.rs",
+    "subject": "Send reviewer prompts directly through Herdr",
+    "lines": 68,
+    "significant_lines": 51,
+    "categories": {
+      "comment": 10,
+      "code": 51,
+      "formatting": 7
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h028",
+    "commit": "295f4f9064aedc979bf5e3a37fb1d4c678b73f71",
+    "commit_group": 1,
+    "split": "validation",
+    "path": "crates/reviewer/src/runtime.rs",
+    "subject": "Send reviewer prompts directly through Herdr",
+    "lines": 201,
+    "significant_lines": 176,
+    "categories": {
+      "module": 1,
+      "import": 18,
+      "code": 176,
+      "formatting": 4,
+      "comment": 2
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h029",
+    "commit": "3f84ddb537afd758c1d23752ac2222f21492f22a",
+    "commit_group": 2,
+    "split": "development",
+    "path": "docs/language-servers.md",
+    "subject": "Add persistent review threads with agent replies through MCP",
+    "lines": 37,
+    "significant_lines": 0,
+    "categories": {
+      "documentation": 37
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h030",
+    "commit": "3f84ddb537afd758c1d23752ac2222f21492f22a",
+    "commit_group": 2,
+    "split": "development",
+    "path": "Cargo.lock",
+    "subject": "Add persistent review threads with agent replies through MCP",
+    "lines": 1510,
+    "significant_lines": 0,
+    "categories": {
+      "lockfile": 1510
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h031",
+    "commit": "3f84ddb537afd758c1d23752ac2222f21492f22a",
+    "commit_group": 2,
+    "split": "development",
+    "path": "vendor/ratatui-markdown/examples/custom_code_block.rs",
+    "subject": "Add persistent review threads with agent replies through MCP",
+    "lines": 132,
+    "significant_lines": 112,
+    "categories": {
+      "code": 112,
+      "module": 1,
+      "formatting": 11,
+      "import": 8
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h032",
+    "commit": "3f84ddb537afd758c1d23752ac2222f21492f22a",
+    "commit_group": 2,
+    "split": "development",
+    "path": "crates/ui-events/src/lib.rs",
+    "subject": "Add persistent review threads with agent replies through MCP",
+    "lines": 18,
+    "significant_lines": 7,
+    "categories": {
+      "module": 1,
+      "import": 5,
+      "formatting": 3,
+      "code": 7,
+      "comment": 2
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h033",
+    "commit": "3f84ddb537afd758c1d23752ac2222f21492f22a",
+    "commit_group": 2,
+    "split": "development",
+    "path": "vendor/ratatui-markdown/examples/mermaid_image.rs",
+    "subject": "Add persistent review threads with agent replies through MCP",
+    "lines": 700,
+    "significant_lines": 606,
+    "categories": {
+      "code": 606,
+      "module": 1,
+      "formatting": 65,
+      "import": 28
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h034",
+    "commit": "df777a822cfe92a4e3d9f40089c026548028c57e",
+    "commit_group": 2,
+    "split": "development",
+    "path": "crates/reviewer/src/runtime/terminal.tests.rs",
+    "subject": "Hide stray cursors after clicks and focus changes",
+    "lines": 110,
+    "significant_lines": 0,
+    "categories": {
+      "test": 101,
+      "formatting": 9
+    },
+    "annotation_evidence": [
+      "Test scope: crates/reviewer/src/runtime/terminal.rs: #[cfg(test)] module owner"
+    ]
+  },
+  {
+    "id": "h035",
+    "commit": "df777a822cfe92a4e3d9f40089c026548028c57e",
+    "commit_group": 2,
+    "split": "development",
+    "path": "crates/reviewer/src/runtime/terminal.rs",
+    "subject": "Hide stray cursors after clicks and focus changes",
+    "lines": 23,
+    "significant_lines": 12,
+    "categories": {
+      "comment": 3,
+      "code": 12,
+      "formatting": 3,
+      "test": 5
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h036",
+    "commit": "df777a822cfe92a4e3d9f40089c026548028c57e",
+    "commit_group": 2,
+    "split": "development",
+    "path": "crates/reviewer/src/runtime.rs",
+    "subject": "Hide stray cursors after clicks and focus changes",
+    "lines": 48,
+    "significant_lines": 39,
+    "categories": {
+      "import": 8,
+      "code": 39,
+      "formatting": 1
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h037",
+    "commit": "308a670e878fc4bcfcdebdfec0e8b30aa4cb8eac",
+    "commit_group": 2,
+    "split": "development",
+    "path": "crates/reviewer/src/runtime/guide.tests.rs",
+    "subject": "Preserve review guides regardless of explanation order",
+    "lines": 69,
+    "significant_lines": 0,
+    "categories": {
+      "test": 66,
+      "formatting": 3
+    },
+    "annotation_evidence": [
+      "Test scope: crates/reviewer/src/runtime/guide.rs: #[cfg(test)] module owner"
+    ]
+  },
+  {
+    "id": "h038",
+    "commit": "308a670e878fc4bcfcdebdfec0e8b30aa4cb8eac",
+    "commit_group": 2,
+    "split": "development",
+    "path": "crates/review-guide/src/lib.rs",
+    "subject": "Preserve review guides regardless of explanation order",
+    "lines": 60,
+    "significant_lines": 58,
+    "categories": {
+      "code": 58,
+      "comment": 2
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h039",
+    "commit": "14385193b4f8bdfdac3d6fc5023542b612477c33",
+    "commit_group": 3,
+    "split": "development",
+    "path": "crates/review-ui/tests/ui_state.rs",
+    "subject": "Add gy to navigate to a symbol's type definition",
+    "lines": 50,
+    "significant_lines": 0,
+    "categories": {
+      "test": 48,
+      "formatting": 2
+    },
+    "annotation_evidence": [
+      "Test scope: Cargo integration-test directory"
+    ]
+  },
+  {
+    "id": "h040",
+    "commit": "14385193b4f8bdfdac3d6fc5023542b612477c33",
+    "commit_group": 3,
+    "split": "development",
+    "path": "crates/review-lsp/src/session.rs",
+    "subject": "Add gy to navigate to a symbol's type definition",
+    "lines": 33,
+    "significant_lines": 33,
+    "categories": {
+      "code": 33
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h041",
+    "commit": "14385193b4f8bdfdac3d6fc5023542b612477c33",
+    "commit_group": 3,
+    "split": "development",
+    "path": "crates/review-lsp/src/api.rs",
+    "subject": "Add gy to navigate to a symbol's type definition",
+    "lines": 6,
+    "significant_lines": 3,
+    "categories": {
+      "comment": 3,
+      "code": 3
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h042",
+    "commit": "d5c1022d70d3ebbd13ad5fc8cc9191208d212843",
+    "commit_group": 3,
+    "split": "development",
+    "path": "crates/components/diff/src/lib.tests.rs",
+    "subject": "Keep the diff cursor inside the visible viewport",
+    "lines": 3,
+    "significant_lines": 0,
+    "categories": {
+      "test": 2,
+      "formatting": 1
+    },
+    "annotation_evidence": [
+      "Test scope: crates/components/diff/src/lib.rs: #[cfg(test)] module owner"
+    ]
+  },
+  {
+    "id": "h043",
+    "commit": "d5c1022d70d3ebbd13ad5fc8cc9191208d212843",
+    "commit_group": 3,
+    "split": "development",
+    "path": "crates/components/diff/src/document.rs",
+    "subject": "Keep the diff cursor inside the visible viewport",
+    "lines": 11,
+    "significant_lines": 10,
+    "categories": {
+      "code": 10,
+      "formatting": 1
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h044",
+    "commit": "d5c1022d70d3ebbd13ad5fc8cc9191208d212843",
+    "commit_group": 3,
+    "split": "development",
+    "path": "crates/components/diff/src/context.rs",
+    "subject": "Keep the diff cursor inside the visible viewport",
+    "lines": 12,
+    "significant_lines": 9,
+    "categories": {
+      "import": 2,
+      "code": 9,
+      "formatting": 1
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h045",
+    "commit": "2c2c5df31ed2340d6d4cdce8c260de4b9264db34",
+    "commit_group": 3,
+    "split": "development",
+    "path": "crates/components/diff/src/lib.tests.rs",
+    "subject": "Keep the cursor hunk in place when folding context",
+    "lines": 9,
+    "significant_lines": 0,
+    "categories": {
+      "test": 8,
+      "formatting": 1
+    },
+    "annotation_evidence": [
+      "Test scope: crates/components/diff/src/lib.rs: #[cfg(test)] module owner"
+    ]
+  },
+  {
+    "id": "h046",
+    "commit": "2c2c5df31ed2340d6d4cdce8c260de4b9264db34",
+    "commit_group": 3,
+    "split": "development",
+    "path": "crates/components/diff/src/context.rs",
+    "subject": "Keep the cursor hunk in place when folding context",
+    "lines": 75,
+    "significant_lines": 64,
+    "categories": {
+      "import": 3,
+      "formatting": 8,
+      "code": 64
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h047",
+    "commit": "2c2c5df31ed2340d6d4cdce8c260de4b9264db34",
+    "commit_group": 3,
+    "split": "development",
+    "path": "crates/components/diff/src/render.rs",
+    "subject": "Keep the cursor hunk in place when folding context",
+    "lines": 2,
+    "significant_lines": 2,
+    "categories": {
+      "code": 2
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h048",
+    "commit": "9794bf1872d61604aa9bcd925562b489d91ee9a5",
+    "commit_group": 4,
+    "split": "validation",
+    "path": "crates/review-ui/tests/ui_state.rs",
+    "subject": "Make / a global search shortcut",
+    "lines": 19,
+    "significant_lines": 0,
+    "categories": {
+      "test": 18,
+      "formatting": 1
+    },
+    "annotation_evidence": [
+      "Test scope: Cargo integration-test directory"
+    ]
+  },
+  {
+    "id": "h049",
+    "commit": "9794bf1872d61604aa9bcd925562b489d91ee9a5",
+    "commit_group": 4,
+    "split": "validation",
+    "path": "crates/review-ui/src/application.rs",
+    "subject": "Make / a global search shortcut",
+    "lines": 16,
+    "significant_lines": 16,
+    "categories": {
+      "code": 16
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h050",
+    "commit": "9794bf1872d61604aa9bcd925562b489d91ee9a5",
+    "commit_group": 4,
+    "split": "validation",
+    "path": "crates/ui-shortcuts/src/lib.rs",
+    "subject": "Make / a global search shortcut",
+    "lines": 2,
+    "significant_lines": 2,
+    "categories": {
+      "code": 2
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h051",
+    "commit": "fe9d5f8e91e03837e32e698e3dd3c5917a7d3c5c",
+    "commit_group": 4,
+    "split": "validation",
+    "path": "Cargo.lock",
+    "subject": "Keep search responsive during background work",
+    "lines": 2,
+    "significant_lines": 0,
+    "categories": {
+      "lockfile": 2
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h052",
+    "commit": "fe9d5f8e91e03837e32e698e3dd3c5917a7d3c5c",
+    "commit_group": 4,
+    "split": "validation",
+    "path": "crates/components/diff/src/lib.rs",
+    "subject": "Keep search responsive during background work",
+    "lines": 69,
+    "significant_lines": 55,
+    "categories": {
+      "import": 12,
+      "code": 55,
+      "formatting": 2
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h053",
+    "commit": "fe9d5f8e91e03837e32e698e3dd3c5917a7d3c5c",
+    "commit_group": 4,
+    "split": "validation",
+    "path": "crates/components/diff/src/document.rs",
+    "subject": "Keep search responsive during background work",
+    "lines": 37,
+    "significant_lines": 33,
+    "categories": {
+      "code": 33,
+      "formatting": 4
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h054",
+    "commit": "fe9d5f8e91e03837e32e698e3dd3c5917a7d3c5c",
+    "commit_group": 4,
+    "split": "validation",
+    "path": "crates/reviewer/src/runtime.rs",
+    "subject": "Keep search responsive during background work",
+    "lines": 97,
+    "significant_lines": 86,
+    "categories": {
+      "module": 4,
+      "formatting": 2,
+      "code": 86,
+      "import": 3,
+      "test": 2
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h055",
+    "commit": "9372b8b28c2a1894e66eaaf491144d329e434bbc",
+    "commit_group": 4,
+    "split": "validation",
+    "path": "crates/components/diff/src/lib.tests.rs",
+    "subject": "Search large diffs with embedded ripgrep libraries",
+    "lines": 143,
+    "significant_lines": 0,
+    "categories": {
+      "formatting": 6,
+      "test": 137
+    },
+    "annotation_evidence": [
+      "Test scope: crates/components/diff/src/lib.rs: #[cfg(test)] module owner"
+    ]
+  },
+  {
+    "id": "h056",
+    "commit": "9372b8b28c2a1894e66eaaf491144d329e434bbc",
+    "commit_group": 4,
+    "split": "validation",
+    "path": "crates/components/diff/src/render.rs",
+    "subject": "Search large diffs with embedded ripgrep libraries",
+    "lines": 7,
+    "significant_lines": 5,
+    "categories": {
+      "import": 2,
+      "code": 5
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h057",
+    "commit": "9372b8b28c2a1894e66eaaf491144d329e434bbc",
+    "commit_group": 4,
+    "split": "validation",
+    "path": "crates/text-search/src/lib.rs",
+    "subject": "Search large diffs with embedded ripgrep libraries",
+    "lines": 164,
+    "significant_lines": 126,
+    "categories": {
+      "comment": 12,
+      "formatting": 19,
+      "import": 5,
+      "module": 2,
+      "code": 126
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h058",
+    "commit": "9372b8b28c2a1894e66eaaf491144d329e434bbc",
+    "commit_group": 4,
+    "split": "validation",
+    "path": "crates/components/diff/src/lib.rs",
+    "subject": "Search large diffs with embedded ripgrep libraries",
+    "lines": 277,
+    "significant_lines": 273,
+    "categories": {
+      "import": 2,
+      "code": 273,
+      "formatting": 2
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h059",
+    "commit": "a0cabdc5af97bac1c29b63b1b05a4e5ac84a7ab3",
+    "commit_group": 5,
+    "split": "development",
+    "path": "README.md",
+    "subject": "Read jj file contents and diffs through jj-lib",
+    "lines": 2,
+    "significant_lines": 0,
+    "categories": {
+      "documentation": 2
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h060",
+    "commit": "a0cabdc5af97bac1c29b63b1b05a4e5ac84a7ab3",
+    "commit_group": 5,
+    "split": "development",
+    "path": "Cargo.toml",
+    "subject": "Read jj file contents and diffs through jj-lib",
+    "lines": 4,
+    "significant_lines": 4,
+    "categories": {
+      "code": 4
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h061",
+    "commit": "a0cabdc5af97bac1c29b63b1b05a4e5ac84a7ab3",
+    "commit_group": 5,
+    "split": "development",
+    "path": "crates/review-repository/src/repository/jj.rs",
+    "subject": "Read jj file contents and diffs through jj-lib",
+    "lines": 52,
+    "significant_lines": 49,
+    "categories": {
+      "import": 2,
+      "code": 49,
+      "formatting": 1
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h062",
+    "commit": "640f7ff454b3b0ca19751702b9261fffaec32c93",
+    "commit_group": 5,
+    "split": "development",
+    "path": "crates/review-state/src/review.tests.rs",
+    "subject": "Keep file opening responsive during guide refresh",
+    "lines": 68,
+    "significant_lines": 0,
+    "categories": {
+      "test": 65,
+      "formatting": 3
+    },
+    "annotation_evidence": [
+      "Test scope: crates/review-state/src/review.rs: #[cfg(test)] module owner"
+    ]
+  },
+  {
+    "id": "h063",
+    "commit": "640f7ff454b3b0ca19751702b9261fffaec32c93",
+    "commit_group": 5,
+    "split": "development",
+    "path": "crates/reviewer/src/runtime.tests.rs",
+    "subject": "Keep file opening responsive during guide refresh",
+    "lines": 141,
+    "significant_lines": 0,
+    "categories": {
+      "test": 136,
+      "formatting": 5
+    },
+    "annotation_evidence": [
+      "Test scope: crates/reviewer/src/runtime.rs: #[cfg(test)] module owner"
+    ]
+  },
+  {
+    "id": "h064",
+    "commit": "640f7ff454b3b0ca19751702b9261fffaec32c93",
+    "commit_group": 5,
+    "split": "development",
+    "path": "crates/review-repository/src/repository/jj.rs",
+    "subject": "Keep file opening responsive during guide refresh",
+    "lines": 1,
+    "significant_lines": 1,
+    "categories": {
+      "code": 1
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h065",
+    "commit": "640f7ff454b3b0ca19751702b9261fffaec32c93",
+    "commit_group": 5,
+    "split": "development",
+    "path": "crates/reviewer/src/runtime/guide.rs",
+    "subject": "Keep file opening responsive during guide refresh",
+    "lines": 57,
+    "significant_lines": 54,
+    "categories": {
+      "code": 54,
+      "comment": 2,
+      "formatting": 1
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h066",
+    "commit": "640f7ff454b3b0ca19751702b9261fffaec32c93",
+    "commit_group": 5,
+    "split": "development",
+    "path": "crates/reviewer/src/runtime.rs",
+    "subject": "Keep file opening responsive during guide refresh",
+    "lines": 347,
+    "significant_lines": 335,
+    "categories": {
+      "module": 1,
+      "code": 335,
+      "formatting": 11
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h067",
+    "commit": "3bf681ef1241babcaf7645c0548d6b4e0b44dae0",
+    "commit_group": 5,
+    "split": "development",
+    "path": "crates/review-guide-runner/src/write-review-guide.md",
+    "subject": "Connect review-guide deltas to the commit objective",
+    "lines": 8,
+    "significant_lines": 8,
+    "categories": {
+      "code": 8
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h068",
+    "commit": "664831869691dd67739ced375b22e376426a02e3",
+    "commit_group": 6,
+    "split": "development",
+    "path": "crates/components/locations/src/lib.tests.rs",
+    "subject": "Show revision identifiers beside the commit subject",
+    "lines": 1,
+    "significant_lines": 0,
+    "categories": {
+      "test": 1
+    },
+    "annotation_evidence": [
+      "Test scope: crates/components/locations/src/lib.rs: #[cfg(test)] module owner"
+    ]
+  },
+  {
+    "id": "h069",
+    "commit": "664831869691dd67739ced375b22e376426a02e3",
+    "commit_group": 6,
+    "split": "development",
+    "path": "crates/review-repository/src/repository.rs",
+    "subject": "Show revision identifiers beside the commit subject",
+    "lines": 30,
+    "significant_lines": 26,
+    "categories": {
+      "comment": 3,
+      "code": 26,
+      "formatting": 1
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h070",
+    "commit": "664831869691dd67739ced375b22e376426a02e3",
+    "commit_group": 6,
+    "split": "development",
+    "path": "crates/ui-events/src/lib.rs",
+    "subject": "Show revision identifiers beside the commit subject",
+    "lines": 2,
+    "significant_lines": 1,
+    "categories": {
+      "comment": 1,
+      "code": 1
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h071",
+    "commit": "27c8bae53d4e1a255657a6159d90f660a34a92f6",
+    "commit_group": 6,
+    "split": "development",
+    "path": "crates/reviewer/src/runtime/terminal.tests.rs",
+    "subject": "Avoid terminal writes for unchanged reviewer frames",
+    "lines": 103,
+    "significant_lines": 0,
+    "categories": {
+      "test": 88,
+      "formatting": 15
+    },
+    "annotation_evidence": [
+      "Test scope: crates/reviewer/src/runtime/terminal.rs: #[cfg(test)] module owner"
+    ]
+  },
+  {
+    "id": "h072",
+    "commit": "27c8bae53d4e1a255657a6159d90f660a34a92f6",
+    "commit_group": 6,
+    "split": "development",
+    "path": "crates/reviewer/src/runtime.rs",
+    "subject": "Avoid terminal writes for unchanged reviewer frames",
+    "lines": 7,
+    "significant_lines": 4,
+    "categories": {
+      "module": 1,
+      "import": 2,
+      "code": 4
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h073",
+    "commit": "27c8bae53d4e1a255657a6159d90f660a34a92f6",
+    "commit_group": 6,
+    "split": "development",
+    "path": "crates/reviewer/src/runtime/terminal.rs",
+    "subject": "Avoid terminal writes for unchanged reviewer frames",
+    "lines": 97,
+    "significant_lines": 71,
+    "categories": {
+      "import": 4,
+      "formatting": 17,
+      "comment": 2,
+      "code": 71,
+      "test": 3
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h074",
+    "commit": "2b88afc761744e0cfaeeafc713199c920b6d220e",
+    "commit_group": 6,
+    "split": "development",
+    "path": "README.md",
+    "subject": "Prefer tsgo for TypeScript navigation",
+    "lines": 8,
+    "significant_lines": 0,
+    "categories": {
+      "documentation": 8
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h075",
+    "commit": "2b88afc761744e0cfaeeafc713199c920b6d220e",
+    "commit_group": 6,
+    "split": "development",
+    "path": "crates/review-lsp/src/language.rs",
+    "subject": "Prefer tsgo for TypeScript navigation",
+    "lines": 19,
+    "significant_lines": 16,
+    "categories": {
+      "code": 16,
+      "formatting": 1,
+      "comment": 2
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h076",
+    "commit": "2b88afc761744e0cfaeeafc713199c920b6d220e",
+    "commit_group": 6,
+    "split": "development",
+    "path": "crates/review-lsp/src/session.rs",
+    "subject": "Prefer tsgo for TypeScript navigation",
+    "lines": 10,
+    "significant_lines": 10,
+    "categories": {
+      "code": 10
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h077",
+    "commit": "60a3a56b35ac1443be3e9c372b882bca8a4571a3",
+    "commit_group": 7,
+    "split": "validation",
+    "path": "crates/review-lsp/src/language.tests.rs",
+    "subject": "Add Elixir and TypeScript language servers",
+    "lines": 57,
+    "significant_lines": 0,
+    "categories": {
+      "test": 53,
+      "formatting": 4
+    },
+    "annotation_evidence": [
+      "Test scope: crates/review-lsp/src/language.rs: #[cfg(test)] module owner"
+    ]
+  },
+  {
+    "id": "h078",
+    "commit": "60a3a56b35ac1443be3e9c372b882bca8a4571a3",
+    "commit_group": 7,
+    "split": "validation",
+    "path": "crates/review-lsp/src/language.rs",
+    "subject": "Add Elixir and TypeScript language servers",
+    "lines": 93,
+    "significant_lines": 78,
+    "categories": {
+      "import": 1,
+      "formatting": 10,
+      "code": 78,
+      "comment": 1,
+      "test": 3
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h079",
+    "commit": "60a3a56b35ac1443be3e9c372b882bca8a4571a3",
+    "commit_group": 7,
+    "split": "validation",
+    "path": "crates/components/overlay/src/lib.rs",
+    "subject": "Add Elixir and TypeScript language servers",
+    "lines": 29,
+    "significant_lines": 28,
+    "categories": {
+      "import": 1,
+      "code": 28
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h080",
+    "commit": "60a3a56b35ac1443be3e9c372b882bca8a4571a3",
+    "commit_group": 7,
+    "split": "validation",
+    "path": "crates/review-lsp/src/session.rs",
+    "subject": "Add Elixir and TypeScript language servers",
+    "lines": 123,
+    "significant_lines": 112,
+    "categories": {
+      "import": 7,
+      "code": 112,
+      "formatting": 4
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h081",
+    "commit": "134a5edc3f78f10a50aa9f9d1d8caa5790355d63",
+    "commit_group": 7,
+    "split": "validation",
+    "path": "crates/review-ui/src/application.tests.rs",
+    "subject": "Make Space a global review shortcut",
+    "lines": 26,
+    "significant_lines": 0,
+    "categories": {
+      "test": 24,
+      "formatting": 2
+    },
+    "annotation_evidence": [
+      "Test scope: crates/review-ui/src/application.rs: #[cfg(test)] module owner"
+    ]
+  },
+  {
+    "id": "h082",
+    "commit": "134a5edc3f78f10a50aa9f9d1d8caa5790355d63",
+    "commit_group": 7,
+    "split": "validation",
+    "path": "crates/ui-shortcuts/src/lib.rs",
+    "subject": "Make Space a global review shortcut",
+    "lines": 15,
+    "significant_lines": 15,
+    "categories": {
+      "code": 15
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h083",
+    "commit": "134a5edc3f78f10a50aa9f9d1d8caa5790355d63",
+    "commit_group": 7,
+    "split": "validation",
+    "path": "crates/components/files/src/lib.rs",
+    "subject": "Make Space a global review shortcut",
+    "lines": 15,
+    "significant_lines": 14,
+    "categories": {
+      "code": 14,
+      "formatting": 1
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h084",
+    "commit": "0e2db483a024e2533776bf3d2446e7c51d168f06",
+    "commit_group": 7,
+    "split": "validation",
+    "path": "crates/review-guide-runner/src/lib.tests.rs",
+    "subject": "Remove redundant reviewer plumbing",
+    "lines": 3,
+    "significant_lines": 0,
+    "categories": {
+      "test": 3
+    },
+    "annotation_evidence": [
+      "Test scope: crates/review-guide-runner/src/lib.rs: #[cfg(test)] module owner"
+    ]
+  },
+  {
+    "id": "h085",
+    "commit": "0e2db483a024e2533776bf3d2446e7c51d168f06",
+    "commit_group": 7,
+    "split": "validation",
+    "path": "crates/review-ui/src/application.rs",
+    "subject": "Remove redundant reviewer plumbing",
+    "lines": 16,
+    "significant_lines": 14,
+    "categories": {
+      "code": 14,
+      "formatting": 2
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h086",
+    "commit": "0e2db483a024e2533776bf3d2446e7c51d168f06",
+    "commit_group": 7,
+    "split": "validation",
+    "path": "crates/reviewer/src/runtime.rs",
+    "subject": "Remove redundant reviewer plumbing",
+    "lines": 4,
+    "significant_lines": 4,
+    "categories": {
+      "code": 4
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h087",
+    "commit": "0e2db483a024e2533776bf3d2446e7c51d168f06",
+    "commit_group": 7,
+    "split": "validation",
+    "path": "crates/component-core/src/lib.rs",
+    "subject": "Remove redundant reviewer plumbing",
+    "lines": 106,
+    "significant_lines": 72,
+    "categories": {
+      "code": 72,
+      "formatting": 4,
+      "test": 30
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h088",
+    "commit": "9633fe43d1e7c991308c5eec7de395d395a8af17",
+    "commit_group": 8,
+    "split": "development",
+    "path": "crates/components/diff/src/lib.tests.rs",
+    "subject": "Keep deferred review-guide jumps aligned",
+    "lines": 167,
+    "significant_lines": 0,
+    "categories": {
+      "test": 158,
+      "formatting": 9
+    },
+    "annotation_evidence": [
+      "Test scope: crates/components/diff/src/lib.rs: #[cfg(test)] module owner"
+    ]
+  },
+  {
+    "id": "h089",
+    "commit": "9633fe43d1e7c991308c5eec7de395d395a8af17",
+    "commit_group": 8,
+    "split": "development",
+    "path": "crates/components/diff/src/lib.rs",
+    "subject": "Keep deferred review-guide jumps aligned",
+    "lines": 69,
+    "significant_lines": 67,
+    "categories": {
+      "code": 67,
+      "formatting": 2
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h090",
+    "commit": "2de32e01f5d7d12fd471dec115c18e0e0ddfe3ca",
+    "commit_group": 8,
+    "split": "development",
+    "path": "crates/review-guide-runner/src/lib.tests.rs",
+    "subject": "Focus review guides on diff deltas",
+    "lines": 2,
+    "significant_lines": 0,
+    "categories": {
+      "test": 2
+    },
+    "annotation_evidence": [
+      "Test scope: crates/review-guide-runner/src/lib.rs: #[cfg(test)] module owner"
+    ]
+  },
+  {
+    "id": "h091",
+    "commit": "2de32e01f5d7d12fd471dec115c18e0e0ddfe3ca",
+    "commit_group": 8,
+    "split": "development",
+    "path": "crates/review-guide-runner/src/write-review-guide.md",
+    "subject": "Focus review guides on diff deltas",
+    "lines": 60,
+    "significant_lines": 60,
+    "categories": {
+      "code": 60
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h092",
+    "commit": "66355834a2e4526ffb2f92fa2b1523cbeec1103d",
+    "commit_group": 8,
+    "split": "development",
+    "path": "crates/review-ui/src/application.tests.rs",
+    "subject": "Navigate between modified diff hunks",
+    "lines": 40,
+    "significant_lines": 0,
+    "categories": {
+      "test": 37,
+      "formatting": 3
+    },
+    "annotation_evidence": [
+      "Test scope: crates/review-ui/src/application.rs: #[cfg(test)] module owner"
+    ]
+  },
+  {
+    "id": "h093",
+    "commit": "66355834a2e4526ffb2f92fa2b1523cbeec1103d",
+    "commit_group": 8,
+    "split": "development",
+    "path": "crates/components/diff/src/render.rs",
+    "subject": "Navigate between modified diff hunks",
+    "lines": 16,
+    "significant_lines": 15,
+    "categories": {
+      "code": 15,
+      "formatting": 1
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h094",
+    "commit": "66355834a2e4526ffb2f92fa2b1523cbeec1103d",
+    "commit_group": 8,
+    "split": "development",
+    "path": "crates/components/diff/src/lib.rs",
+    "subject": "Navigate between modified diff hunks",
+    "lines": 37,
+    "significant_lines": 32,
+    "categories": {
+      "import": 4,
+      "code": 32,
+      "formatting": 1
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h095",
+    "commit": "07274140c8fc5ae41ccaf880fc16f7118b6c9282",
+    "commit_group": 9,
+    "split": "development",
+    "path": "crates/components/files/src/lib.tests.rs",
+    "subject": "Send review output only to the active agent",
+    "lines": 19,
+    "significant_lines": 0,
+    "categories": {
+      "test": 18,
+      "formatting": 1
+    },
+    "annotation_evidence": [
+      "Test scope: crates/components/files/src/lib.rs: #[cfg(test)] module owner"
+    ]
+  },
+  {
+    "id": "h096",
+    "commit": "07274140c8fc5ae41ccaf880fc16f7118b6c9282",
+    "commit_group": 9,
+    "split": "development",
+    "path": "Cargo.lock",
+    "subject": "Send review output only to the active agent",
+    "lines": 304,
+    "significant_lines": 0,
+    "categories": {
+      "lockfile": 304
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h097",
+    "commit": "07274140c8fc5ae41ccaf880fc16f7118b6c9282",
+    "commit_group": 9,
+    "split": "development",
+    "path": "crates/ui-events/Cargo.toml",
+    "subject": "Send review output only to the active agent",
+    "lines": 1,
+    "significant_lines": 1,
+    "categories": {
+      "code": 1
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h098",
+    "commit": "07274140c8fc5ae41ccaf880fc16f7118b6c9282",
+    "commit_group": 9,
+    "split": "development",
+    "path": "crates/components/diff/src/lib.rs",
+    "subject": "Send review output only to the active agent",
+    "lines": 14,
+    "significant_lines": 9,
+    "categories": {
+      "import": 4,
+      "code": 9,
+      "formatting": 1
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h099",
+    "commit": "642919a38ab119c91a48438efa6361f4c4ee6835",
+    "commit_group": 9,
+    "split": "development",
+    "path": "crates/components/files/src/lib.tests.rs",
+    "subject": "Navigate between files that need review",
+    "lines": 63,
+    "significant_lines": 0,
+    "categories": {
+      "test": 59,
+      "formatting": 4
+    },
+    "annotation_evidence": [
+      "Test scope: crates/components/files/src/lib.rs: #[cfg(test)] module owner"
+    ]
+  },
+  {
+    "id": "h100",
+    "commit": "642919a38ab119c91a48438efa6361f4c4ee6835",
+    "commit_group": 9,
+    "split": "development",
+    "path": "crates/ui-shortcuts/src/lib.rs",
+    "subject": "Navigate between files that need review",
+    "lines": 25,
+    "significant_lines": 24,
+    "categories": {
+      "code": 24,
+      "formatting": 1
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h101",
+    "commit": "642919a38ab119c91a48438efa6361f4c4ee6835",
+    "commit_group": 9,
+    "split": "development",
+    "path": "crates/components/diff/src/lib.rs",
+    "subject": "Navigate between files that need review",
+    "lines": 2,
+    "significant_lines": 2,
+    "categories": {
+      "code": 2
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h102",
+    "commit": "fd19bfc9cd401f65c99121cfd69843ef4bd6ad90",
+    "commit_group": 9,
+    "split": "development",
+    "path": "crates/components/diff/src/lib.tests.rs",
+    "subject": "Reload full diff after unreviewing checkpointed files",
+    "lines": 157,
+    "significant_lines": 0,
+    "categories": {
+      "test": 146,
+      "formatting": 11
+    },
+    "annotation_evidence": [
+      "Test scope: crates/components/diff/src/lib.rs: #[cfg(test)] module owner"
+    ]
+  },
+  {
+    "id": "h103",
+    "commit": "fd19bfc9cd401f65c99121cfd69843ef4bd6ad90",
+    "commit_group": 9,
+    "split": "development",
+    "path": "crates/components/diff/Cargo.toml",
+    "subject": "Reload full diff after unreviewing checkpointed files",
+    "lines": 2,
+    "significant_lines": 2,
+    "categories": {
+      "code": 2
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h104",
+    "commit": "fd19bfc9cd401f65c99121cfd69843ef4bd6ad90",
+    "commit_group": 9,
+    "split": "development",
+    "path": "crates/components/diff/src/lib.rs",
+    "subject": "Reload full diff after unreviewing checkpointed files",
+    "lines": 65,
+    "significant_lines": 56,
+    "categories": {
+      "import": 7,
+      "code": 56,
+      "formatting": 2
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h105",
+    "commit": "73c9ffbdef2ed121ce22888794cc7a8e8fedc1a0",
+    "commit_group": 10,
+    "split": "validation",
+    "path": "crates/review-repository/tests/git_snapshot.rs",
+    "subject": "Show checkpoint-relative per-file diff statistics",
+    "lines": 2,
+    "significant_lines": 0,
+    "categories": {
+      "test": 2
+    },
+    "annotation_evidence": [
+      "Test scope: Cargo integration-test directory"
+    ]
+  },
+  {
+    "id": "h106",
+    "commit": "73c9ffbdef2ed121ce22888794cc7a8e8fedc1a0",
+    "commit_group": 10,
+    "split": "validation",
+    "path": "crates/reviewer/src/runtime.rs",
+    "subject": "Show checkpoint-relative per-file diff statistics",
+    "lines": 2,
+    "significant_lines": 2,
+    "categories": {
+      "code": 2
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h107",
+    "commit": "73c9ffbdef2ed121ce22888794cc7a8e8fedc1a0",
+    "commit_group": 10,
+    "split": "validation",
+    "path": "crates/review-state/src/review.rs",
+    "subject": "Show checkpoint-relative per-file diff statistics",
+    "lines": 94,
+    "significant_lines": 83,
+    "categories": {
+      "import": 4,
+      "comment": 4,
+      "code": 83,
+      "formatting": 3
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h108",
+    "commit": "a66b24de68396838c5a919ade20ff748092cfa24",
+    "commit_group": 10,
+    "split": "validation",
+    "path": "crates/review-ui/tests/ui_state.rs",
+    "subject": "Refresh diff when a file becomes unreviewed",
+    "lines": 14,
+    "significant_lines": 0,
+    "categories": {
+      "test": 14
+    },
+    "annotation_evidence": [
+      "Test scope: Cargo integration-test directory"
+    ]
+  },
+  {
+    "id": "h109",
+    "commit": "a66b24de68396838c5a919ade20ff748092cfa24",
+    "commit_group": 10,
+    "split": "validation",
+    "path": "crates/components/diff/src/lib.rs",
+    "subject": "Refresh diff when a file becomes unreviewed",
+    "lines": 6,
+    "significant_lines": 6,
+    "categories": {
+      "code": 6
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h110",
+    "commit": "220ff4f66210b9372da36b53b5fbe297fd062f5f",
+    "commit_group": 10,
+    "split": "validation",
+    "path": "crates/review-repository/src/diff.tests.rs",
+    "subject": "Refresh resolved file conflict state",
+    "lines": 20,
+    "significant_lines": 0,
+    "categories": {
+      "test": 18,
+      "formatting": 2
+    },
+    "annotation_evidence": [
+      "Test scope: crates/review-repository/src/diff.rs: #[cfg(test)] module owner"
+    ]
+  },
+  {
+    "id": "h111",
+    "commit": "220ff4f66210b9372da36b53b5fbe297fd062f5f",
+    "commit_group": 10,
+    "split": "validation",
+    "path": "crates/review-repository/src/diff.rs",
+    "subject": "Refresh resolved file conflict state",
+    "lines": 40,
+    "significant_lines": 35,
+    "categories": {
+      "code": 35,
+      "formatting": 2,
+      "test": 3
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h112",
+    "commit": "220ff4f66210b9372da36b53b5fbe297fd062f5f",
+    "commit_group": 10,
+    "split": "validation",
+    "path": "crates/review-repository/src/repository.rs",
+    "subject": "Refresh resolved file conflict state",
+    "lines": 4,
+    "significant_lines": 4,
+    "categories": {
+      "code": 4
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h113",
+    "commit": "8a5a1418dda0a19370fdf7e4879457ade01b8bf2",
+    "commit_group": 11,
+    "split": "development",
+    "path": "crates/components/diff/src/lib.tests.rs",
+    "subject": "Restore pointer expansion of unchanged sections",
+    "lines": 157,
+    "significant_lines": 0,
+    "categories": {
+      "test": 151,
+      "formatting": 6
+    },
+    "annotation_evidence": [
+      "Test scope: crates/components/diff/src/lib.rs: #[cfg(test)] module owner"
+    ]
+  },
+  {
+    "id": "h114",
+    "commit": "8a5a1418dda0a19370fdf7e4879457ade01b8bf2",
+    "commit_group": 11,
+    "split": "development",
+    "path": "crates/components/diff/src/lib.rs",
+    "subject": "Restore pointer expansion of unchanged sections",
+    "lines": 10,
+    "significant_lines": 10,
+    "categories": {
+      "code": 10
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h115",
+    "commit": "c4a0d99207691a30299863c2f3d307c18b520424",
+    "commit_group": 11,
+    "split": "development",
+    "path": "crates/components/files/src/lib.tests.rs",
+    "subject": "Fix file list scrolling to top",
+    "lines": 38,
+    "significant_lines": 0,
+    "categories": {
+      "test": 35,
+      "formatting": 3
+    },
+    "annotation_evidence": [
+      "Test scope: crates/components/files/src/lib.rs: #[cfg(test)] module owner"
+    ]
+  },
+  {
+    "id": "h116",
+    "commit": "c4a0d99207691a30299863c2f3d307c18b520424",
+    "commit_group": 11,
+    "split": "development",
+    "path": "crates/components/files/src/lib.rs",
+    "subject": "Fix file list scrolling to top",
+    "lines": 4,
+    "significant_lines": 4,
+    "categories": {
+      "code": 4
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h117",
+    "commit": "ab05d725c1a0b6a30343e3e3d77fbf94028a0de7",
+    "commit_group": 11,
+    "split": "development",
+    "path": "crates/review-repository/src/repository/jj_git_diff.tests.rs",
+    "subject": "Batch review baseline comparisons",
+    "lines": 69,
+    "significant_lines": 0,
+    "categories": {
+      "test": 60,
+      "formatting": 9
+    },
+    "annotation_evidence": [
+      "Test scope: crates/review-repository/src/repository/jj_git_diff.rs: #[cfg(test)] module owner"
+    ]
+  },
+  {
+    "id": "h118",
+    "commit": "ab05d725c1a0b6a30343e3e3d77fbf94028a0de7",
+    "commit_group": 11,
+    "split": "development",
+    "path": "crates/review-repository/src/repository.rs",
+    "subject": "Batch review baseline comparisons",
+    "lines": 42,
+    "significant_lines": 33,
+    "categories": {
+      "module": 2,
+      "formatting": 3,
+      "import": 1,
+      "comment": 3,
+      "code": 33
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h119",
+    "commit": "ab05d725c1a0b6a30343e3e3d77fbf94028a0de7",
+    "commit_group": 11,
+    "split": "development",
+    "path": "crates/review-repository/src/repository/jj.rs",
+    "subject": "Batch review baseline comparisons",
+    "lines": 85,
+    "significant_lines": 73,
+    "categories": {
+      "import": 7,
+      "code": 73,
+      "formatting": 5
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h120",
+    "commit": "ea934873d5a0e489001bb296d2ec874535b03c96",
+    "commit_group": 12,
+    "split": "development",
+    "path": "crates/component-modal/src/lib.tests.rs",
+    "subject": "Add an interactive revision selector",
+    "lines": 47,
+    "significant_lines": 0,
+    "categories": {
+      "test": 39,
+      "formatting": 8
+    },
+    "annotation_evidence": [
+      "Test scope: crates/component-modal/src/lib.rs: #[cfg(test)] module owner"
+    ]
+  },
+  {
+    "id": "h121",
+    "commit": "ea934873d5a0e489001bb296d2ec874535b03c96",
+    "commit_group": 12,
+    "split": "development",
+    "path": "crates/components/revision/src/lib.tests.rs",
+    "subject": "Add an interactive revision selector",
+    "lines": 467,
+    "significant_lines": 0,
+    "categories": {
+      "test": 418,
+      "formatting": 49
+    },
+    "annotation_evidence": [
+      "Test scope: crates/components/revision/src/lib.rs: #[cfg(test)] module owner"
+    ]
+  },
+  {
+    "id": "h122",
+    "commit": "ea934873d5a0e489001bb296d2ec874535b03c96",
+    "commit_group": 12,
+    "split": "development",
+    "path": "crates/components/revision/src/lib.rs",
+    "subject": "Add an interactive revision selector",
+    "lines": 319,
+    "significant_lines": 278,
+    "categories": {
+      "import": 18,
+      "module": 2,
+      "code": 278,
+      "formatting": 19,
+      "comment": 2
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h123",
+    "commit": "ea934873d5a0e489001bb296d2ec874535b03c96",
+    "commit_group": 12,
+    "split": "development",
+    "path": "crates/review-repository/src/repository.rs",
+    "subject": "Add an interactive revision selector",
+    "lines": 25,
+    "significant_lines": 15,
+    "categories": {
+      "comment": 8,
+      "code": 15,
+      "formatting": 2
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h124",
+    "commit": "ea934873d5a0e489001bb296d2ec874535b03c96",
+    "commit_group": 12,
+    "split": "development",
+    "path": "crates/components/revision/src/core.rs",
+    "subject": "Add an interactive revision selector",
+    "lines": 463,
+    "significant_lines": 411,
+    "categories": {
+      "comment": 3,
+      "formatting": 30,
+      "import": 19,
+      "code": 411
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h125",
+    "commit": "2c7d6267d5d2b1012237cb0b8a5e8dce991b2d54",
+    "commit_group": 12,
+    "split": "development",
+    "path": "crates/review-ui/src/highlight.tests.rs",
+    "subject": "Move review UI into event-driven components",
+    "lines": 62,
+    "significant_lines": 0,
+    "categories": {
+      "test": 55,
+      "formatting": 7
+    },
+    "annotation_evidence": [
+      "Test scope: crates/review-ui/src/highlight.rs: #[cfg(test)] module owner"
+    ]
+  },
+  {
+    "id": "h126",
+    "commit": "2c7d6267d5d2b1012237cb0b8a5e8dce991b2d54",
+    "commit_group": 12,
+    "split": "development",
+    "path": "plan/component-architecture.md",
+    "subject": "Move review UI into event-driven components",
+    "lines": 816,
+    "significant_lines": 0,
+    "categories": {
+      "documentation": 816
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h127",
+    "commit": "2c7d6267d5d2b1012237cb0b8a5e8dce991b2d54",
+    "commit_group": 12,
+    "split": "development",
+    "path": "crates/components/files/Cargo.toml",
+    "subject": "Move review UI into event-driven components",
+    "lines": 27,
+    "significant_lines": 24,
+    "categories": {
+      "code": 24,
+      "formatting": 3
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h128",
+    "commit": "2c7d6267d5d2b1012237cb0b8a5e8dce991b2d54",
+    "commit_group": 12,
+    "split": "development",
+    "path": "crates/components/overlay/Cargo.toml",
+    "subject": "Move review UI into event-driven components",
+    "lines": 24,
+    "significant_lines": 21,
+    "categories": {
+      "code": 21,
+      "formatting": 3
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h129",
+    "commit": "2c7d6267d5d2b1012237cb0b8a5e8dce991b2d54",
+    "commit_group": 12,
+    "split": "development",
+    "path": "crates/review-ui/src/shortcuts.rs",
+    "subject": "Move review UI into event-driven components",
+    "lines": 509,
+    "significant_lines": 469,
+    "categories": {
+      "import": 1,
+      "formatting": 36,
+      "code": 469,
+      "test": 3
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h130",
+    "commit": "7e6b8144f892c0d3b53b3be43ec63512bad54993",
+    "commit_group": 12,
+    "split": "development",
+    "path": "crates/review-ui/src/lib.tests.rs",
+    "subject": "Search for the word under the cursor",
+    "lines": 38,
+    "significant_lines": 0,
+    "categories": {
+      "test": 32,
+      "formatting": 6
+    },
+    "annotation_evidence": [
+      "Test scope: crates/review-ui/src/lib.rs: #[cfg(test)] module owner"
+    ]
+  },
+  {
+    "id": "h131",
+    "commit": "7e6b8144f892c0d3b53b3be43ec63512bad54993",
+    "commit_group": 12,
+    "split": "development",
+    "path": "crates/review-ui/src/navigation.rs",
+    "subject": "Search for the word under the cursor",
+    "lines": 39,
+    "significant_lines": 37,
+    "categories": {
+      "code": 37,
+      "formatting": 2
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h132",
+    "commit": "7e6b8144f892c0d3b53b3be43ec63512bad54993",
+    "commit_group": 12,
+    "split": "development",
+    "path": "crates/review-ui/src/input.rs",
+    "subject": "Search for the word under the cursor",
+    "lines": 43,
+    "significant_lines": 41,
+    "categories": {
+      "code": 41,
+      "formatting": 2
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h133",
+    "commit": "dcfdac68b72a1eb132c8200e78ff98ec54c190bd",
+    "commit_group": 13,
+    "split": "validation",
+    "path": "crates/review-ui/src/lib.tests.rs",
+    "subject": "Preserve the diff viewport during refresh",
+    "lines": 96,
+    "significant_lines": 0,
+    "categories": {
+      "test": 89,
+      "formatting": 7
+    },
+    "annotation_evidence": [
+      "Test scope: crates/review-ui/src/lib.rs: #[cfg(test)] module owner"
+    ]
+  },
+  {
+    "id": "h134",
+    "commit": "dcfdac68b72a1eb132c8200e78ff98ec54c190bd",
+    "commit_group": 13,
+    "split": "validation",
+    "path": "crates/review-ui/src/diff.rs",
+    "subject": "Preserve the diff viewport during refresh",
+    "lines": 34,
+    "significant_lines": 31,
+    "categories": {
+      "code": 31,
+      "formatting": 3
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h135",
+    "commit": "dcfdac68b72a1eb132c8200e78ff98ec54c190bd",
+    "commit_group": 13,
+    "split": "validation",
+    "path": "crates/review-ui/src/app.rs",
+    "subject": "Preserve the diff viewport during refresh",
+    "lines": 42,
+    "significant_lines": 42,
+    "categories": {
+      "code": 42
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h136",
+    "commit": "73c748b7dad76986f6943c6775c779fe0d156300",
+    "commit_group": 13,
+    "split": "validation",
+    "path": "crates/review-ui/src/lib.tests.rs",
+    "subject": "Keep the selected diff visible during refresh",
+    "lines": 150,
+    "significant_lines": 0,
+    "categories": {
+      "formatting": 13,
+      "test": 137
+    },
+    "annotation_evidence": [
+      "Test scope: crates/review-ui/src/lib.rs: #[cfg(test)] module owner"
+    ]
+  },
+  {
+    "id": "h137",
+    "commit": "73c748b7dad76986f6943c6775c779fe0d156300",
+    "commit_group": 13,
+    "split": "validation",
+    "path": "crates/review-ui/src/app.rs",
+    "subject": "Keep the selected diff visible during refresh",
+    "lines": 37,
+    "significant_lines": 36,
+    "categories": {
+      "code": 36,
+      "formatting": 1
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h138",
+    "commit": "da69130f73a7320ef3d4ea24bfcd2218d8f23f51",
+    "commit_group": 13,
+    "split": "validation",
+    "path": "crates/review-store/src/lib.tests.rs",
+    "subject": "Navigate between jj revisions in the reviewer",
+    "lines": 5,
+    "significant_lines": 0,
+    "categories": {
+      "test": 5
+    },
+    "annotation_evidence": [
+      "Test scope: crates/review-store/src/lib.rs: #[cfg(test)] module owner"
+    ]
+  },
+  {
+    "id": "h139",
+    "commit": "da69130f73a7320ef3d4ea24bfcd2218d8f23f51",
+    "commit_group": 13,
+    "split": "validation",
+    "path": "crates/review-ui/tests/ui_state.rs",
+    "subject": "Navigate between jj revisions in the reviewer",
+    "lines": 64,
+    "significant_lines": 0,
+    "categories": {
+      "test": 64
+    },
+    "annotation_evidence": [
+      "Test scope: Cargo integration-test directory"
+    ]
+  },
+  {
+    "id": "h140",
+    "commit": "da69130f73a7320ef3d4ea24bfcd2218d8f23f51",
+    "commit_group": 13,
+    "split": "validation",
+    "path": "crates/review-store/Cargo.toml",
+    "subject": "Navigate between jj revisions in the reviewer",
+    "lines": 1,
+    "significant_lines": 1,
+    "categories": {
+      "code": 1
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h141",
+    "commit": "da69130f73a7320ef3d4ea24bfcd2218d8f23f51",
+    "commit_group": 13,
+    "split": "validation",
+    "path": "crates/review-ui/src/review_view.rs",
+    "subject": "Navigate between jj revisions in the reviewer",
+    "lines": 4,
+    "significant_lines": 3,
+    "categories": {
+      "import": 1,
+      "code": 3
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h142",
+    "commit": "da69130f73a7320ef3d4ea24bfcd2218d8f23f51",
+    "commit_group": 13,
+    "split": "validation",
+    "path": "crates/review-ui/src/navigation.rs",
+    "subject": "Navigate between jj revisions in the reviewer",
+    "lines": 179,
+    "significant_lines": 173,
+    "categories": {
+      "import": 1,
+      "code": 173,
+      "formatting": 5
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h143",
+    "commit": "82920bcb455dd83d80afaf9faa8072d373eb53f4",
+    "commit_group": 14,
+    "split": "development",
+    "path": "crates/review-guide/src/lib.tests.rs",
+    "subject": "Resume review guides from durable mailboxes",
+    "lines": 74,
+    "significant_lines": 0,
+    "categories": {
+      "test": 72,
+      "formatting": 2
+    },
+    "annotation_evidence": [
+      "Test scope: crates/review-guide/src/lib.rs: #[cfg(test)] module owner"
+    ]
+  },
+  {
+    "id": "h144",
+    "commit": "82920bcb455dd83d80afaf9faa8072d373eb53f4",
+    "commit_group": 14,
+    "split": "development",
+    "path": "crates/review-guide-runner/src/lib.tests.rs",
+    "subject": "Resume review guides from durable mailboxes",
+    "lines": 533,
+    "significant_lines": 0,
+    "categories": {
+      "test": 477,
+      "formatting": 56
+    },
+    "annotation_evidence": [
+      "Test scope: crates/review-guide-runner/src/lib.rs: #[cfg(test)] module owner"
+    ]
+  },
+  {
+    "id": "h145",
+    "commit": "82920bcb455dd83d80afaf9faa8072d373eb53f4",
+    "commit_group": 14,
+    "split": "development",
+    "path": "crates/review-store/Cargo.toml",
+    "subject": "Resume review guides from durable mailboxes",
+    "lines": 1,
+    "significant_lines": 1,
+    "categories": {
+      "code": 1
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h146",
+    "commit": "82920bcb455dd83d80afaf9faa8072d373eb53f4",
+    "commit_group": 14,
+    "split": "development",
+    "path": "crates/herdr-client/src/protocol.rs",
+    "subject": "Resume review guides from durable mailboxes",
+    "lines": 75,
+    "significant_lines": 68,
+    "categories": {
+      "code": 68,
+      "formatting": 3,
+      "comment": 1,
+      "test": 3
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h147",
+    "commit": "82920bcb455dd83d80afaf9faa8072d373eb53f4",
+    "commit_group": 14,
+    "split": "development",
+    "path": "crates/review-guide-runner/src/lib.rs",
+    "subject": "Resume review guides from durable mailboxes",
+    "lines": 758,
+    "significant_lines": 674,
+    "categories": {
+      "import": 14,
+      "code": 674,
+      "comment": 27,
+      "formatting": 36,
+      "test": 7
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h148",
+    "commit": "973e9424d2dc2aca09ad31f243ef343c3a9ae053",
+    "commit_group": 14,
+    "split": "development",
+    "path": "crates/review-ui/tests/ui_state.rs",
+    "subject": "Move shortcut help into a popup",
+    "lines": 53,
+    "significant_lines": 0,
+    "categories": {
+      "test": 47,
+      "formatting": 6
+    },
+    "annotation_evidence": [
+      "Test scope: Cargo integration-test directory"
+    ]
+  },
+  {
+    "id": "h149",
+    "commit": "973e9424d2dc2aca09ad31f243ef343c3a9ae053",
+    "commit_group": 14,
+    "split": "development",
+    "path": "crates/review-ui/src/review_view.rs",
+    "subject": "Move shortcut help into a popup",
+    "lines": 9,
+    "significant_lines": 6,
+    "categories": {
+      "import": 3,
+      "code": 6
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h150",
+    "commit": "973e9424d2dc2aca09ad31f243ef343c3a9ae053",
+    "commit_group": 14,
+    "split": "development",
+    "path": "crates/review-ui/src/commit_message.rs",
+    "subject": "Move shortcut help into a popup",
+    "lines": 15,
+    "significant_lines": 11,
+    "categories": {
+      "import": 4,
+      "code": 11
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h151",
+    "commit": "973e9424d2dc2aca09ad31f243ef343c3a9ae053",
+    "commit_group": 14,
+    "split": "development",
+    "path": "crates/review-ui/src/input.rs",
+    "subject": "Move shortcut help into a popup",
+    "lines": 343,
+    "significant_lines": 320,
+    "categories": {
+      "import": 11,
+      "code": 320,
+      "formatting": 12
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h152",
+    "commit": "973e9424d2dc2aca09ad31f243ef343c3a9ae053",
+    "commit_group": 14,
+    "split": "development",
+    "path": "crates/review-ui/src/shortcuts.rs",
+    "subject": "Move shortcut help into a popup",
+    "lines": 490,
+    "significant_lines": 450,
+    "categories": {
+      "import": 1,
+      "formatting": 36,
+      "code": 450,
+      "test": 3
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h153",
+    "commit": "ba4d6d67ea55095067a3a3ba5db4f7bd91360971",
+    "commit_group": 14,
+    "split": "development",
+    "path": "crates/review-repository/src/repository.tests.rs",
+    "subject": "Cover mutation-sensitive review behavior",
+    "lines": 108,
+    "significant_lines": 0,
+    "categories": {
+      "test": 94,
+      "formatting": 14
+    },
+    "annotation_evidence": [
+      "Test scope: crates/review-repository/src/repository.rs: #[cfg(test)] module owner"
+    ]
+  },
+  {
+    "id": "h154",
+    "commit": "ba4d6d67ea55095067a3a3ba5db4f7bd91360971",
+    "commit_group": 14,
+    "split": "development",
+    "path": "crates/review-ui/src/lib.tests.rs",
+    "subject": "Cover mutation-sensitive review behavior",
+    "lines": 681,
+    "significant_lines": 0,
+    "categories": {
+      "test": 635,
+      "formatting": 46
+    },
+    "annotation_evidence": [
+      "Test scope: crates/review-ui/src/lib.rs: #[cfg(test)] module owner"
+    ]
+  },
+  {
+    "id": "h155",
+    "commit": "ba4d6d67ea55095067a3a3ba5db4f7bd91360971",
+    "commit_group": 14,
+    "split": "development",
+    "path": "crates/herdr-client/Cargo.toml",
+    "subject": "Cover mutation-sensitive review behavior",
+    "lines": 3,
+    "significant_lines": 2,
+    "categories": {
+      "code": 2,
+      "formatting": 1
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h156",
+    "commit": "ba4d6d67ea55095067a3a3ba5db4f7bd91360971",
+    "commit_group": 14,
+    "split": "development",
+    "path": "crates/review-lsp/src/session.rs",
+    "subject": "Cover mutation-sensitive review behavior",
+    "lines": 23,
+    "significant_lines": 18,
+    "categories": {
+      "import": 2,
+      "code": 18,
+      "formatting": 1,
+      "module": 2
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h157",
+    "commit": "ba4d6d67ea55095067a3a3ba5db4f7bd91360971",
+    "commit_group": 14,
+    "split": "development",
+    "path": "crates/review-guide-runner/src/lib.rs",
+    "subject": "Cover mutation-sensitive review behavior",
+    "lines": 289,
+    "significant_lines": 10,
+    "categories": {
+      "code": 10,
+      "test": 249,
+      "formatting": 30
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h158",
+    "commit": "e7b76ba0bdfbd5e3dd6b0357ff3f5e912db8907c",
+    "commit_group": 15,
+    "split": "development",
+    "path": "crates/review-guide/src/lib.rs",
+    "subject": "Enforce Rust complexity limits",
+    "lines": 188,
+    "significant_lines": 181,
+    "categories": {
+      "code": 181,
+      "formatting": 7
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h159",
+    "commit": "e7b76ba0bdfbd5e3dd6b0357ff3f5e912db8907c",
+    "commit_group": 15,
+    "split": "development",
+    "path": "crates/review-repository/src/diff.rs",
+    "subject": "Enforce Rust complexity limits",
+    "lines": 24,
+    "significant_lines": 24,
+    "categories": {
+      "code": 24
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h160",
+    "commit": "e7b76ba0bdfbd5e3dd6b0357ff3f5e912db8907c",
+    "commit_group": 15,
+    "split": "development",
+    "path": "crates/review-ui/src/input.rs",
+    "subject": "Enforce Rust complexity limits",
+    "lines": 264,
+    "significant_lines": 250,
+    "categories": {
+      "code": 250,
+      "formatting": 14
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h161",
+    "commit": "e7b76ba0bdfbd5e3dd6b0357ff3f5e912db8907c",
+    "commit_group": 15,
+    "split": "development",
+    "path": "crates/review-repository/src/repository.rs",
+    "subject": "Enforce Rust complexity limits",
+    "lines": 241,
+    "significant_lines": 232,
+    "categories": {
+      "code": 232,
+      "formatting": 9
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h162",
+    "commit": "2b2d0f7ee2f6eb2102be85ceded6b30372ffc62b",
+    "commit_group": 15,
+    "split": "development",
+    "path": "flake.lock",
+    "subject": "Report excessive Rust complexity",
+    "lines": 18,
+    "significant_lines": 0,
+    "categories": {
+      "lockfile": 18
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h163",
+    "commit": "2b2d0f7ee2f6eb2102be85ceded6b30372ffc62b",
+    "commit_group": 15,
+    "split": "development",
+    "path": "Makefile",
+    "subject": "Report excessive Rust complexity",
+    "lines": 5,
+    "significant_lines": 4,
+    "categories": {
+      "code": 4,
+      "formatting": 1
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h164",
+    "commit": "4d4ee819b9f7f0ba6ffe9a0e4d35f2e57eaca803",
+    "commit_group": 15,
+    "split": "development",
+    "path": "README.md",
+    "subject": "Add agent-written inline review guides",
+    "lines": 1,
+    "significant_lines": 0,
+    "categories": {
+      "documentation": 1
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h165",
+    "commit": "4d4ee819b9f7f0ba6ffe9a0e4d35f2e57eaca803",
+    "commit_group": 15,
+    "split": "development",
+    "path": "crates/reviewer/src/runtime.tests.rs",
+    "subject": "Add agent-written inline review guides",
+    "lines": 640,
+    "significant_lines": 0,
+    "categories": {
+      "test": 598,
+      "formatting": 42
+    },
+    "annotation_evidence": [
+      "Test scope: crates/reviewer/src/runtime.rs: #[cfg(test)] module owner"
+    ]
+  },
+  {
+    "id": "h166",
+    "commit": "4d4ee819b9f7f0ba6ffe9a0e4d35f2e57eaca803",
+    "commit_group": 15,
+    "split": "development",
+    "path": "crates/review-store/Cargo.toml",
+    "subject": "Add agent-written inline review guides",
+    "lines": 3,
+    "significant_lines": 3,
+    "categories": {
+      "code": 3
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h167",
+    "commit": "4d4ee819b9f7f0ba6ffe9a0e4d35f2e57eaca803",
+    "commit_group": 15,
+    "split": "development",
+    "path": "crates/herdr-client/src/protocol.rs",
+    "subject": "Add agent-written inline review guides",
+    "lines": 81,
+    "significant_lines": 63,
+    "categories": {
+      "comment": 13,
+      "code": 63,
+      "formatting": 5
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h168",
+    "commit": "4d4ee819b9f7f0ba6ffe9a0e4d35f2e57eaca803",
+    "commit_group": 15,
+    "split": "development",
+    "path": "crates/review-store/src/guide.rs",
+    "subject": "Add agent-written inline review guides",
+    "lines": 317,
+    "significant_lines": 282,
+    "categories": {
+      "import": 6,
+      "formatting": 22,
+      "code": 282,
+      "comment": 7
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h169",
+    "commit": "6a2b920c8321acfc4e4a947c72bfaf42f5513cfd",
+    "commit_group": 16,
+    "split": "validation",
+    "path": "crates/review-ui/src/presentation.tests.rs",
+    "subject": "Navigate review jump history",
+    "lines": 34,
+    "significant_lines": 0,
+    "categories": {
+      "test": 32,
+      "formatting": 2
+    },
+    "annotation_evidence": [
+      "Test scope: crates/review-ui/src/presentation.rs: #[cfg(test)] module owner"
+    ]
+  },
+  {
+    "id": "h170",
+    "commit": "6a2b920c8321acfc4e4a947c72bfaf42f5513cfd",
+    "commit_group": 16,
+    "split": "validation",
+    "path": "crates/reviewer/src/runtime.rs",
+    "subject": "Navigate review jump history",
+    "lines": 10,
+    "significant_lines": 7,
+    "categories": {
+      "import": 3,
+      "code": 7
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h171",
+    "commit": "6a2b920c8321acfc4e4a947c72bfaf42f5513cfd",
+    "commit_group": 16,
+    "split": "validation",
+    "path": "crates/review-ui/src/input.rs",
+    "subject": "Navigate review jump history",
+    "lines": 61,
+    "significant_lines": 59,
+    "categories": {
+      "code": 59,
+      "formatting": 2
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h172",
+    "commit": "4dec9c8eb36d41d59985b9c8e688099a35c667ed",
+    "commit_group": 16,
+    "split": "validation",
+    "path": "crates/review-ui/src/lib.tests.rs",
+    "subject": "Restart the LSP with gR",
+    "lines": 2,
+    "significant_lines": 0,
+    "categories": {
+      "test": 2
+    },
+    "annotation_evidence": [
+      "Test scope: crates/review-ui/src/lib.rs: #[cfg(test)] module owner"
+    ]
+  },
+  {
+    "id": "h173",
+    "commit": "4dec9c8eb36d41d59985b9c8e688099a35c667ed",
+    "commit_group": 16,
+    "split": "validation",
+    "path": "crates/review-lsp/src/server.rs",
+    "subject": "Restart the LSP with gR",
+    "lines": 99,
+    "significant_lines": 94,
+    "categories": {
+      "import": 2,
+      "code": 94,
+      "formatting": 3
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h174",
+    "commit": "4dec9c8eb36d41d59985b9c8e688099a35c667ed",
+    "commit_group": 16,
+    "split": "validation",
+    "path": "crates/review-ui/src/input.rs",
+    "subject": "Restart the LSP with gR",
+    "lines": 1,
+    "significant_lines": 1,
+    "categories": {
+      "code": 1
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h175",
+    "commit": "5e3621a160dd7f181c4d672a8155a0322d8b30a1",
+    "commit_group": 16,
+    "split": "validation",
+    "path": "crates/review-ui/src/lib.tests.rs",
+    "subject": "Wrap diff lines within the viewport",
+    "lines": 64,
+    "significant_lines": 0,
+    "categories": {
+      "test": 62,
+      "formatting": 2
+    },
+    "annotation_evidence": [
+      "Test scope: crates/review-ui/src/lib.rs: #[cfg(test)] module owner"
+    ]
+  },
+  {
+    "id": "h176",
+    "commit": "5e3621a160dd7f181c4d672a8155a0322d8b30a1",
+    "commit_group": 16,
+    "split": "validation",
+    "path": "crates/review-ui/src/input.rs",
+    "subject": "Wrap diff lines within the viewport",
+    "lines": 97,
+    "significant_lines": 94,
+    "categories": {
+      "import": 1,
+      "code": 94,
+      "formatting": 2
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h177",
+    "commit": "5e3621a160dd7f181c4d672a8155a0322d8b30a1",
+    "commit_group": 16,
+    "split": "validation",
+    "path": "crates/review-ui/Cargo.toml",
+    "subject": "Wrap diff lines within the viewport",
+    "lines": 1,
+    "significant_lines": 1,
+    "categories": {
+      "code": 1
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h178",
+    "commit": "5e3621a160dd7f181c4d672a8155a0322d8b30a1",
+    "commit_group": 16,
+    "split": "validation",
+    "path": "crates/review-ui/src/diff.rs",
+    "subject": "Wrap diff lines within the viewport",
+    "lines": 263,
+    "significant_lines": 240,
+    "categories": {
+      "import": 3,
+      "code": 240,
+      "formatting": 17,
+      "test": 3
+    },
+    "annotation_evidence": []
+  },
+  {
+    "id": "h179",
+    "commit": "2178c0c43b9771d4cec2abc7a4ae46061f56623b",
+    "commit_group": 17,
+    "split": "development",
+    "path": "Makefile",
+    "subject": "Build plugin binaries during production install",
+    "lines": 18,
+    "significant_lines": 17,
+    "categories": {
+      "code": 17,
+      "formatting": 1
+    },
+    "annotation_evidence": []
+  }
+]

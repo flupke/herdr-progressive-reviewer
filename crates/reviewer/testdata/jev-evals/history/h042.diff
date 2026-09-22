@@ -1,0 +1,24 @@
+diff --git a/crates/components/diff/src/lib.tests.rs b/crates/components/diff/src/lib.tests.rs
+index fd779ed9..fc390984 100644
+--- a/crates/components/diff/src/lib.tests.rs
++++ b/crates/components/diff/src/lib.tests.rs
+@@ -16,16 +16,19 @@
+ use super::*;
+ 
+ #[path = "highlighting.tests.rs"]
+ mod highlighting;
+ 
+ #[path = "expansion.tests.rs"]
+ mod expansion;
+ 
++#[path = "scrolling.tests.rs"]
++mod scrolling;
++
+ #[test]
+ fn loaded_content_publishes_its_guide_viewport() {
+     let (mut registry, reviewable_files, _) = registry_with_observer();
+     reviewable_files.replace(["src/lib.rs".to_owned()].into());
+     publish_repository(&mut registry, "checkpoint");
+     registry
+         .publish_envelope(EventEnvelope::new(FileSelected {
+             path: "src/lib.rs".to_owned(),

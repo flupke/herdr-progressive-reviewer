@@ -1,0 +1,23 @@
+diff --git a/crates/components/diff/src/lib.rs b/crates/components/diff/src/lib.rs
+index f19bc3ce..0f8808b5 100644
+--- a/crates/components/diff/src/lib.rs
++++ b/crates/components/diff/src/lib.rs
+@@ -548,17 +548,17 @@ fn scroll(&mut self, delta: isize) {
+     fn run_shortcut(&mut self, command: ShortcutCommand) -> Vec<Action> {
+         match command {
+             ShortcutCommand::Navigation(command) => self.run_navigation_shortcut(command),
+             ShortcutCommand::Search(command) => self.search(command),
+             ShortcutCommand::Source(command) => self.source(command),
+             ShortcutCommand::Application(command) => self.run_application_shortcut(command),
+             ShortcutCommand::Lsp(LspShortcut::Restart) => vec![Action::RestartLsp],
+             ShortcutCommand::Lsp(command) => self.lsp(command),
+-            ShortcutCommand::Guide(_) => Vec::new(),
++            ShortcutCommand::Guide(_) | ShortcutCommand::File(_) => Vec::new(),
+         }
+     }
+ 
+     fn run_navigation_shortcut(&mut self, command: NavigationShortcut) -> Vec<Action> {
+         match command {
+             NavigationShortcut::GoToPreviousLocation => {
+                 self.navigate_location_history(LocationHistoryDirection::Previous)
+             }
