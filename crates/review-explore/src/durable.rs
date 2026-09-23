@@ -116,6 +116,15 @@ pub struct ReviewCompletion {
     pub exclusions_enabled: bool,
     #[serde(default)]
     pub summary: crate::CoverageSummary,
+    /// Unanswered checkpoint geometry captured before file marks are applied.
+    #[serde(default)]
+    pub unexplored: Option<UnexploredAtConclusion>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
+pub struct UnexploredAtConclusion {
+    pub required: Vec<crate::CoverageUnit>,
+    pub jev_excluded: Vec<crate::CoverageUnit>,
 }
 
 /// Domain and deduplication state are committed together, separate from editor autosaves.

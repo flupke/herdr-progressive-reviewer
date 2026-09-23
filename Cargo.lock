@@ -963,6 +963,7 @@ dependencies = [
  "comment-editor",
  "component-core",
  "diff-component",
+ "files-component",
  "markdown-rendering",
  "ratatui 0.30.2",
  "review-explore",
@@ -3848,6 +3849,7 @@ dependencies = [
 name = "review-explore"
 version = "0.2.0"
 dependencies = [
+ "base64 0.22.1",
  "eyre",
  "herdr-client",
  "review-guide",
@@ -3861,6 +3863,7 @@ dependencies = [
  "tempfile",
  "test-case",
  "uuid",
+ "zstd",
 ]
 
 [[package]]

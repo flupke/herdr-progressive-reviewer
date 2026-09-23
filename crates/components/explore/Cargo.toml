@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 diff-component = { path = "../diff" }
+files-component = { path = "../files" }
 review-explore = { path = "../../review-explore" }
 review-guide = { path = "../../review-guide" }
 component-core = { path = "../../component-core" }

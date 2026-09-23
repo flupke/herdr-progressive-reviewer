@@ -249,6 +249,21 @@ impl ExploreComponent {
         focused: bool,
         diff: &DiffComponent,
     ) {
+        if self.conclusion_preview.is_some() {
+            self.render_conclusion_preview(area, buffer, palette, focused, diff);
+            return;
+        }
+        self.render_conversation(area, buffer, palette, focused, diff);
+    }
+
+    fn render_conversation(
+        &self,
+        area: Rect,
+        buffer: &mut Buffer,
+        palette: Palette,
+        focused: bool,
+        diff: &DiffComponent,
+    ) {
         let layout = self.conversation_layout(area, diff, palette);
         layout.navigation.render(buffer, palette);
         layout.render_frame(buffer, palette);

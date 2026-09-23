@@ -208,6 +208,17 @@ fn assert_explicit_conclusion(cited_lines: u32, expected_percent: u8) {
     assert_eq!(feedback.summary.remaining, u64::from(2 - cited_lines));
     assert!(pass.completion.as_ref().unwrap().completed);
     assert_eq!(pass.completion.as_ref().unwrap().summary, feedback.summary);
+    assert_eq!(
+        pass.completion
+            .as_ref()
+            .unwrap()
+            .unexplored
+            .as_ref()
+            .unwrap()
+            .required,
+        pass.coverage.remaining(false),
+        "completion freezes unanswered changes before marking the files"
+    );
     let restored = store
         .load_explore(&"aabb".into(), &kickoff.instance)
         .unwrap()

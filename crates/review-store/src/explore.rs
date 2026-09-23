@@ -153,6 +153,14 @@ impl ReviewStore {
             completed: false,
             exclusions_enabled,
             summary: feedback.summary.clone(),
+            unexplored: Some(review_explore::UnexploredAtConclusion {
+                required: pass.coverage.remaining(exclusions_enabled),
+                jev_excluded: if exclusions_enabled {
+                    pass.coverage.unexplored_exclusions()
+                } else {
+                    Vec::new()
+                },
+            }),
         })
     }
 

@@ -10,6 +10,8 @@ use review_repository::{
 };
 use sha2::{Digest, Sha256};
 
+mod compressed_diffs;
+
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ManifestEntry {
     pub file: usize,
@@ -25,7 +27,7 @@ pub struct Comparison {
     pub files: Vec<ChangedFile>,
     #[serde(skip)]
     pub context: Vec<FrozenFile>,
-    #[serde(skip)]
+    #[serde(default, with = "compressed_diffs")]
     pub diffs: Vec<Vec<u8>>,
     pub manifest: Vec<ManifestEntry>,
     #[serde(skip)]

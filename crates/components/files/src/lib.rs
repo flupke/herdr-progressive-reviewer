@@ -28,6 +28,8 @@ use unicode_width::UnicodeWidthStr;
 
 mod tree;
 use tree::{FileTree, FileTreeRow};
+mod preview;
+pub use preview::{FilePreviewList, PreviewFile};
 mod badges;
 use badges::FileBadges;
 
@@ -456,28 +458,10 @@ impl FilesComponent {
     }
 
     fn move_selection(&mut self, input: NavigationShortcut) {
-        let visible = self.tree.visible_files().collect::<Vec<_>>();
-        let current = visible
-            .iter()
-            .position(|file| *file == self.selected)
-            .unwrap_or(0);
-        let target = match input {
-            NavigationShortcut::MoveUp => current.saturating_sub(1),
-            NavigationShortcut::MoveDown => current.saturating_add(1),
-            NavigationShortcut::GoToFirst => 0,
-            NavigationShortcut::GoToLast => visible.len().saturating_sub(1),
-            NavigationShortcut::MoveHalfPageUp => {
-                current.saturating_sub(self.page_rows.div_ceil(2))
-            }
-            NavigationShortcut::MoveHalfPageDown => {
-                current.saturating_add(self.page_rows.div_ceil(2))
-            }
-            _ => current,
-        }
-        .min(visible.len().saturating_sub(1));
-        if let Some(file) = visible.get(target) {
-            self.selected = *file;
-        }
+        self.selected = self
+            .tree
+            .navigate(self.selected, input, self.page_rows)
+            .unwrap_or(self.selected);
         self.keep_selected_visible();
     }
 

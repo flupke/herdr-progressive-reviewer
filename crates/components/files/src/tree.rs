@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use ui_shortcuts::NavigationShortcut;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) enum FileTreeRow {
@@ -163,6 +164,30 @@ impl FileTree {
             FileTreeRow::File { file, .. } => Some(*file),
             FileTreeRow::Directory { .. } => None,
         })
+    }
+
+    pub(super) fn navigate(
+        &self,
+        selected: usize,
+        input: NavigationShortcut,
+        page_rows: usize,
+    ) -> Option<usize> {
+        let visible = self.visible_files().collect::<Vec<_>>();
+        let current = visible
+            .iter()
+            .position(|file| *file == selected)
+            .unwrap_or(0);
+        let target = match input {
+            NavigationShortcut::MoveUp => current.saturating_sub(1),
+            NavigationShortcut::MoveDown => current.saturating_add(1),
+            NavigationShortcut::GoToFirst => 0,
+            NavigationShortcut::GoToLast => visible.len().saturating_sub(1),
+            NavigationShortcut::MoveHalfPageUp => current.saturating_sub(page_rows.div_ceil(2)),
+            NavigationShortcut::MoveHalfPageDown => current.saturating_add(page_rows.div_ceil(2)),
+            _ => current,
+        }
+        .min(visible.len().saturating_sub(1));
+        visible.get(target).copied()
     }
 }
 

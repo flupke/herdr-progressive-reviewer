@@ -45,6 +45,90 @@ fn no_post(actions: &[Action]) {
 }
 
 #[test]
+fn conclusion_previews_unexplored_files_and_reopens_the_checkpoint_diff() {
+    let (mut fixture, request) = ExploreUi::new();
+    let mut pass = pass(&fixture, &request);
+    let question = pass.exploration.questions.last().unwrap().clone();
+    let answer = pass
+        .exploration
+        .request(
+            Some(review_explore::AnswerInput {
+                text: "Answered".into(),
+                ..Default::default()
+            }),
+            Some(&question),
+        )
+        .unwrap();
+    let mut update = fixture.response(&answer, 1);
+    update.next = None;
+    update.conclusion = Some(conclusion("The concept review is complete."));
+    pass.submit(&update, false).unwrap();
+    pass.completion = Some(review_explore::ReviewCompletion {
+        request: answer.request,
+        baseline: request.checkpoint.checkpoint.clone(),
+        marks: vec![],
+        completed: true,
+        exclusions_enabled: false,
+        summary: pass.coverage.summary(false),
+        unexplored: Some(review_explore::UnexploredAtConclusion {
+            required: pass.coverage.remaining(false),
+            jev_excluded: vec![],
+        }),
+    });
+    fixture.files.write(
+        "policy.rs",
+        b"pub fn policy() -> bool { false } // later implementation\n",
+    );
+    restore(&mut fixture, &pass, None);
+    assert!(fixture.text().contains("[Preview unexplored code]"));
+    fixture.click("[Preview unexplored code]");
+    let text = fixture.text();
+    assert!(text.contains("Not explored · Files"), "{text}");
+    assert!(
+        text.contains("policy.rs") && text.contains("tests.rs"),
+        "{text}"
+    );
+    let viewer = fixture
+        .app
+        .event_bus
+        .get::<DiffComponent>(fixture.app.diff_component)
+        .unwrap();
+    assert!(
+        text.contains("continuation_alpha"),
+        "checkpoint diff was not displayed: {:?} {:?} {text}",
+        viewer
+            .evidence_view(ui_events::EvidenceView::Coverage)
+            .and_then(DiffComponent::evidence_path),
+        viewer
+            .evidence_view(ui_events::EvidenceView::Coverage)
+            .and_then(DiffComponent::evidence_limitation)
+    );
+    assert!(!text.contains("later implementation"), "{text}");
+    fixture.app.update(UserInput::Key(Key::Down));
+    let diff = fixture
+        .app
+        .event_bus
+        .get::<DiffComponent>(fixture.app.diff_component)
+        .unwrap();
+    assert_eq!(
+        diff.evidence_view(ui_events::EvidenceView::Coverage)
+            .and_then(DiffComponent::evidence_path),
+        Some("tests.rs")
+    );
+    fixture.app.update(UserInput::Resize {
+        width: 60,
+        height: 25,
+    });
+    let narrow = fixture.text();
+    assert!(
+        narrow.contains("Not explored · Files") && narrow.contains("Checkpoint diff"),
+        "{narrow}"
+    );
+    fixture.click("[Back to conclusion]");
+    assert!(fixture.text().contains("The concept review is complete."));
+}
+
+#[test]
 fn coverage_diff_uses_the_selected_file_after_restoring_multiple_files() {
     let (mut fixture, request) = ExploreUi::new();
     let pass = pass(&fixture, &request);
@@ -100,6 +184,7 @@ fn inspect_jev_exclusions_reveals_the_regions_beside_the_control() {
         completed: true,
         exclusions_enabled: true,
         summary: pass.coverage.summary(true),
+        unexplored: None,
     });
     restore(&mut fixture, &pass, None);
     assert!(!fixture.text().contains("Jev exclusions"));

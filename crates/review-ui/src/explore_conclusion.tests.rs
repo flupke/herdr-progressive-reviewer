@@ -207,6 +207,7 @@ fn a_receipt_from_a_previous_attempt_cannot_finish_the_current_implementation() 
         completed: true,
         exclusions_enabled: false,
         summary: review_explore::CoverageSummary::default(),
+        unexplored: None,
     });
     pass.binding = Some(
         serde_json::from_value(serde_json::json!({

@@ -106,6 +106,7 @@ impl ExploreComponent {
                 self.begin_edit(control);
             }
             Control::Map => self.map = !self.map,
+            Control::PreviewUnexplored => self.open_conclusion_preview(),
             Control::Coverage
             | Control::JevDebug
             | Control::CoverageFile(_)
@@ -403,6 +404,10 @@ impl ExploreComponent {
     }
 
     fn key(&mut self, key: Key) -> Vec<Action> {
+        if self.conclusion_preview.is_some() {
+            self.preview_key(key);
+            return Vec::new();
+        }
         match key {
             Key::Alt('j') => self.resize_by(2),
             Key::Alt('k') => self.resize_by(-2),
@@ -599,6 +604,14 @@ impl ExploreComponent {
     }
 
     fn pointer(&mut self, input: PointerInput) -> Vec<Action> {
+        if self.conclusion_preview.is_some() {
+            self.preview_pointer(input);
+            return Vec::new();
+        }
+        self.pointer_conversation(input)
+    }
+
+    fn pointer_conversation(&mut self, input: PointerInput) -> Vec<Action> {
         if self.resize_pointer(input) {
             return Vec::new();
         }
@@ -647,7 +660,9 @@ impl ExploreComponent {
 
     fn viewer_pointer(&mut self, window: super::flow::Window, mut input: PointerInput) {
         if window.view == EvidenceView::Coverage {
-            if let Some(index) = self.coverage_file {
+            if self.conclusion_preview.is_none()
+                && let Some(index) = self.coverage_file
+            {
                 self.publish_coverage_view(index, false);
             }
         } else {

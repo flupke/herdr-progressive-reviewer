@@ -1,4 +1,4 @@
-//! Durable interviews over the complete working-copy change, without source archives.
+//! Durable interviews over the complete working-copy change, retaining compact diff patches.
 
 mod coverage;
 mod durable;
@@ -11,7 +11,7 @@ pub use coverage::{
 };
 pub use durable::{
     CompletionMark, ConversationBinding, DispatchId, DispatchResult, DispatchState, ExplorePass,
-    ImplementationDelivery, InterviewDelivery, PriorMark, ReviewCompletion,
+    ImplementationDelivery, InterviewDelivery, PriorMark, ReviewCompletion, UnexploredAtConclusion,
 };
 pub use presentation::{
     EditorFocus, EvidencePosition, ExploreDraft, ExplorePage, ExploreViewState, QuestionReading,

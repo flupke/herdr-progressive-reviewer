@@ -28,6 +28,7 @@ fn implementation(
             completed: true,
             exclusions_enabled: false,
             summary: review_explore::CoverageSummary::default(),
+            unexplored: None,
         });
         Ok(())
     });

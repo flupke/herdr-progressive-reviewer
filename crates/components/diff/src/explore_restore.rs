@@ -1,4 +1,4 @@
-//! Reopen only the selected evidence file, using the existing working-copy/history readers.
+//! Reopen selected evidence from a stored patch, or the legacy repository readers.
 use crate::{DiffComponent, LoadedDocument};
 use review_explore::{CodeLocation, Comparison, SourceSide};
 use review_repository::{
@@ -14,6 +14,20 @@ impl DiffComponent {
         index: usize,
     ) -> eyre::Result<LoadedDocument> {
         let file = &comparison.files[index];
+        if let Some(patch) = comparison
+            .diffs
+            .get(index)
+            .filter(|patch| !patch.is_empty())
+        {
+            let loaded = Arc::new(ui_events::DiffContentLoaded {
+                review_checkpoint: comparison.checkpoint.clone(),
+                path: file.review_path().display(),
+                rows: parse_file_diff(patch, file),
+                old_content: None,
+                new_content: None,
+            });
+            return Ok(self.comparison_content_document(file, loaded));
+        }
         let snapshot = Snapshot {
             identity: comparison
                 .base

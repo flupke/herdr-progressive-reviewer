@@ -16,6 +16,7 @@ mod adaptive;
 mod choices;
 mod composer;
 mod conclusion;
+mod conclusion_preview;
 mod controls;
 mod evidence;
 mod flow;
@@ -56,6 +57,7 @@ enum Control {
     Fit(EvidenceView),
     Edit,
     EditImplementation,
+    PreviewUnexplored,
     Implement,
     CancelImplementation,
 }
@@ -159,6 +161,8 @@ pub struct ExploreComponent {
     coverage: Option<review_explore::CoverageLedger>,
     completion_done: bool,
     completion_policy: Option<bool>,
+    conclusion_unexplored: Option<(String, review_explore::UnexploredAtConclusion)>,
+    conclusion_preview: Option<conclusion_preview::ConclusionPreview>,
     jev_enabled: bool,
     scroll: Cell<usize>,
     reveal: Cell<Option<Reveal>>,
@@ -198,6 +202,8 @@ impl ExploreComponent {
             coverage: None,
             completion_done: false,
             completion_policy: None,
+            conclusion_unexplored: None,
+            conclusion_preview: None,
             jev_enabled: std::env::var("TYPESAFE_API_KEY").is_ok_and(|key| !key.trim().is_empty()),
             scroll: Cell::new(0),
             reveal: Cell::new(None),
@@ -286,6 +292,8 @@ impl ExploreComponent {
                 self.coverage_next.clear();
                 self.completion_done = false;
                 self.completion_policy = None;
+                self.conclusion_unexplored = None;
+                self.conclusion_preview = None;
                 self.exploration = Some(Exploration::new(comparison.clone()));
                 self.selected = 0;
                 self.turns.clear();

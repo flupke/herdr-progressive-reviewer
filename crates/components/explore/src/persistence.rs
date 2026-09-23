@@ -450,6 +450,13 @@ impl ExploreComponent {
 
     fn restore_coverage(&mut self, pass: &review_explore::ExplorePass) {
         self.coverage = Some(pass.coverage.clone());
+        self.conclusion_unexplored = pass.completion.as_ref().and_then(|completion| {
+            completion
+                .unexplored
+                .clone()
+                .map(|unexplored| (completion.request.clone(), unexplored))
+        });
+        self.conclusion_preview = None;
         self.completion_done = pass
             .completion
             .as_ref()

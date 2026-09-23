@@ -60,6 +60,23 @@ impl ExploreComponent {
             .request
             .clone();
         let content = exploration.conclusion.clone().expect("accepted conclusion");
+        if !self.durable.enabled
+            && self.conclusion_unexplored.is_none()
+            && let Some(coverage) = &self.coverage
+        {
+            let exclusions_enabled = self.completion_policy.unwrap_or(self.jev_enabled);
+            self.conclusion_unexplored = Some((
+                request.clone(),
+                review_explore::UnexploredAtConclusion {
+                    required: coverage.remaining(exclusions_enabled),
+                    jev_excluded: if exclusions_enabled {
+                        coverage.unexplored_exclusions()
+                    } else {
+                        Vec::new()
+                    },
+                },
+            ));
+        }
         self.conclusions.insert(
             request.clone(),
             ConclusionView {
@@ -98,6 +115,7 @@ impl ExploreComponent {
             return;
         }
         self.save_draft();
+        self.conclusion_preview = None;
         self.compose_scope = ComposeScope::Conclusion;
         self.general_context = Some(request);
         self.restore_draft();
@@ -221,6 +239,24 @@ impl ExploreComponent {
             layout.text(&view.content.future_work, palette.text, None);
         }
         layout.gap();
+        if let Some((request, unexplored)) = &self.conclusion_unexplored
+            && request == &view.request
+        {
+            let count = unexplored.required.len() + unexplored.jev_excluded.len();
+            layout.text(
+                format!("{count} unexplored changed regions at this checkpoint"),
+                if count > 0 {
+                    palette.warning
+                } else {
+                    palette.dim
+                },
+                None,
+            );
+            if count > 0 {
+                layout.controls([("Preview unexplored code".into(), Control::PreviewUnexplored)]);
+            }
+            layout.gap();
+        }
         layout.text(
             "Further human Files inspection is required.",
             palette.dim,
