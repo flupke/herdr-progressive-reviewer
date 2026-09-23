@@ -112,10 +112,14 @@ investigation option. Explanatory actions have outcome open. The reviewer append
 above (ID none-of-the-above, outcome open); omit it from alternatives. It implies neither
 agreement nor deferral. Free text supplements a choice and may qualify its outcome.
 
-Provide Context in rationale for each substantive question: a short opening paragraph explaining
-the behavior and why the question arises, followed by mechanics, unfamiliar terms or an example
-only when needed. Keep established background brief. An optional visual is a fenced Markdown
-sketch explicitly labelled simplified/proposed.
+Provide Context in rationale for each substantive question. Start with a short, concrete account
+of where the behavior happens, what is being processed, and the normal sequence. Identify the
+failing step or proposed change, what the source shows happens today, and the precise decision
+the reviewer is being asked to make. When several objects or system boundaries are involved,
+explain their relationships and name which component performs each action. Define unfamiliar
+terms in place; do not make the reviewer reconstruct this context from evidence or assessments.
+Keep this orientation brief when already established, but repeat it when the topic changes. An
+optional visual is a fenced Markdown sketch explicitly labelled simplified/proposed.
 
 The UI renders Context, Door, Blast radius, Establishes and For your answer as Markdown # sections
 with all supplied details visible. Supply bodies without those headings, each starting with a
