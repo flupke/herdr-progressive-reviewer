@@ -4,7 +4,7 @@ use review_repository::diff::{DiffRow, parse_file_diff};
 use serde_json::Value;
 #[cfg(all(test, feature = "jev-evals"))]
 use serde_json::json;
-use std::{collections::BTreeMap, io::Read, time::Duration};
+use std::{collections::BTreeMap, io::Read, sync::Mutex, time::Duration};
 
 pub(super) const RUBRIC: &str = "explore-significance-checklist-v2";
 const MODEL: &str = "jev-1.13.0";
@@ -13,6 +13,11 @@ const MAX_CANDIDATES: usize = 32;
 #[cfg(all(test, feature = "jev-evals"))]
 const MAX_STATE_BYTES: usize = 10 * 1024;
 const MAX_RESPONSE_BYTES: u64 = 64 * 1024;
+const PARALLEL_REQUESTS: usize = 32;
+const MAX_RATE_LIMIT_RETRIES: u32 = 3;
+const RATE_LIMIT_BACKOFF_BASE: Duration = Duration::from_millis(250);
+const RATE_LIMIT_BACKOFF_CAP: Duration = Duration::from_secs(2);
+const TYPESAFE_OVERLOADED_STATUS: u16 = 529;
 
 mod optimized;
 mod sections;
@@ -221,7 +226,7 @@ fn context_text(row: &DiffRow) -> Option<&str> {
 pub(super) fn classify(
     key: &str,
     candidates: Vec<optimized::Prepared>,
-    mut record: impl FnMut(SignificanceResult) -> bool,
+    record: impl FnMut(SignificanceResult) -> bool,
 ) -> bool {
     let Ok(client) = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(8))
@@ -229,9 +234,9 @@ pub(super) fn classify(
     else {
         return false;
     };
-    for planned in candidates {
+    classify_with(candidates, record, |planned| {
         let candidate = &planned.candidate;
-        let result = if planned.oversized {
+        if planned.oversized {
             candidate.result(
                 Significance::Oversized,
                 None,
@@ -241,12 +246,57 @@ pub(super) fn classify(
             )
         } else {
             classify_one(&client, key, candidate, &planned.body)
-        };
-        if !record(result) {
-            return false;
         }
+    })
+}
+
+/// Workers wait for the recorder's decision before taking another window. This
+/// bounds both provider calls and completed results while preserving per-window
+/// progress and stopping dispatch when the attempt becomes obsolete.
+fn classify_with(
+    candidates: Vec<optimized::Prepared>,
+    mut record: impl FnMut(SignificanceResult) -> bool,
+    classify_window: impl Fn(&optimized::Prepared) -> SignificanceResult + Sync,
+) -> bool {
+    let total = candidates.len();
+    if total == 0 {
+        return true;
     }
-    true
+    let pending = Mutex::new(candidates.into_iter());
+    std::thread::scope(|scope| {
+        let (completed, results) = std::sync::mpsc::channel();
+        for _ in 0..total.min(PARALLEL_REQUESTS) {
+            let completed = completed.clone();
+            let pending = &pending;
+            let classify_window = &classify_window;
+            scope.spawn(move || {
+                loop {
+                    let planned = pending.lock().unwrap().next();
+                    let Some(planned) = planned else {
+                        break;
+                    };
+                    let result = classify_window(&planned);
+                    let (resume, decision) = std::sync::mpsc::channel();
+                    if completed.send((result, resume)).is_err() || decision.recv() != Ok(true) {
+                        break;
+                    }
+                }
+            });
+        }
+        drop(completed);
+        let mut active = true;
+        let mut recorded = 0;
+        for (result, resume) in results {
+            if active {
+                active = record(result);
+                if active {
+                    recorded += 1;
+                }
+            }
+            let _ = resume.send(active);
+        }
+        active && recorded == total
+    })
 }
 
 fn classify_one(
@@ -302,25 +352,84 @@ fn request_json(
     key: &str,
     body: &Value,
 ) -> Result<Value, String> {
+    retry_rate_limited(|| request_json_once(client, key, body), std::thread::sleep)
+}
+
+fn request_json_once(
+    client: &reqwest::blocking::Client,
+    key: &str,
+    body: &Value,
+) -> Result<Value, ProviderRequestError> {
     let mut response = client
         .post("https://api.typesafe.ai/v1/systemone")
         .bearer_auth(key)
         .json(body)
         .send()
-        .map_err(|_| "Provider request failed or timed out".to_owned())?;
-    if !response.status().is_success() {
-        return Err(format!("Provider HTTP {}", response.status().as_u16()));
+        .map_err(|_| ProviderRequestError::Other("Provider request failed or timed out".into()))?;
+    let status = response.status();
+    if retryable_status(status) {
+        return Err(ProviderRequestError::RateLimited(status.as_u16()));
+    }
+    if !status.is_success() {
+        return Err(ProviderRequestError::Other(format!(
+            "Provider HTTP {}",
+            status.as_u16()
+        )));
     }
     let mut bytes = Vec::new();
     response
         .by_ref()
         .take(MAX_RESPONSE_BYTES + 1)
         .read_to_end(&mut bytes)
-        .map_err(|_| "Provider response is unavailable or oversized".to_owned())?;
+        .map_err(|_| {
+            ProviderRequestError::Other("Provider response is unavailable or oversized".into())
+        })?;
     if bytes.len() as u64 > MAX_RESPONSE_BYTES {
-        return Err("Provider response is unavailable or oversized".into());
+        return Err(ProviderRequestError::Other(
+            "Provider response is unavailable or oversized".into(),
+        ));
     }
-    serde_json::from_slice(&bytes).map_err(|_| "Malformed provider JSON".into())
+    serde_json::from_slice(&bytes)
+        .map_err(|_| ProviderRequestError::Other("Malformed provider JSON".into()))
+}
+
+enum ProviderRequestError {
+    RateLimited(u16),
+    Other(String),
+}
+
+fn retry_rate_limited<T>(
+    mut request: impl FnMut() -> Result<T, ProviderRequestError>,
+    mut wait: impl FnMut(Duration),
+) -> Result<T, String> {
+    let mut retries = 0;
+    loop {
+        match request() {
+            Ok(value) => return Ok(value),
+            Err(ProviderRequestError::RateLimited(_)) if retries < MAX_RATE_LIMIT_RETRIES => {
+                wait(rate_limit_backoff(retries));
+                retries += 1;
+            }
+            Err(ProviderRequestError::RateLimited(status)) => {
+                return Err(format!(
+                    "Provider HTTP {status} after {retries} bounded retries"
+                ));
+            }
+            Err(ProviderRequestError::Other(error)) => return Err(error),
+        }
+    }
+}
+
+fn retryable_status(status: reqwest::StatusCode) -> bool {
+    // TypeSafe recommends the same backoff for 429 rate limits and 529 overloads.
+    status == reqwest::StatusCode::TOO_MANY_REQUESTS
+        || status.as_u16() == TYPESAFE_OVERLOADED_STATUS
+}
+
+fn rate_limit_backoff(retry: u32) -> Duration {
+    RATE_LIMIT_BACKOFF_BASE
+        .saturating_mul(1_u32.checked_shl(retry).unwrap_or(u32::MAX))
+        .min(RATE_LIMIT_BACKOFF_CAP)
 }
 
 fn parse_response(candidate: &Candidate, value: &Value) -> SignificanceResult {
@@ -429,3 +538,6 @@ fn valid_probabilities(
 
 #[cfg(all(test, feature = "jev-evals"))]
 mod evals;
+
+#[cfg(test)]
+mod tests;
