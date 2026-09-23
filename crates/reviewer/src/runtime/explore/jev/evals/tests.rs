@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, path::Path};
 use review_explore::{Significance, SourceSide};
 use serde_json::json;
 
-use super::super::{Candidate, parse_response};
+use super::super::{Candidate, apply_policy, optimized, parse_response};
 use super::{
     dataset::{Dataset, Fixture, LineLabel},
     metrics::Scores,
@@ -172,6 +172,66 @@ fn evaluator_reuses_production_parser_and_rejects_bad_diagnostics() {
     assert_eq!(
         parse_response(&candidate, &raw).outcome,
         Significance::Failed
+    );
+}
+
+#[test]
+fn production_winner_preserves_targets_and_requires_high_exclusion_probability() {
+    let frozen: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../../testdata/jev-evals/study/winner-question.json"
+    ))
+    .unwrap();
+    assert_eq!(optimized::request(&json!({}))["questions"], frozen);
+    let profile: super::study::RequestProfile = serde_json::from_value(json!({
+        "name":"headers", "prompt":"checklist", "metadata":"headers", "questions":frozen
+    }))
+    .unwrap();
+    assert!(profile.is_production_winner(optimized::TOKEN_BUDGET));
+    let fixture = fixtures()
+        .into_iter()
+        .find(|fixture| fixture.case.id == "large-coverage-hunk")
+        .unwrap();
+    let source = optimized::SourceFile {
+        id: fixture.case.id.clone(),
+        file_index: 0,
+        path: &fixture.case.path,
+        language: &fixture.case.language,
+        context: fixture.case.context.clone(),
+        hunks: &fixture.hunks,
+    };
+    let chunks = source.prepare(optimized::TOKEN_BUDGET);
+    let mut actual: Vec<_> = chunks
+        .iter()
+        .flat_map(|chunk| chunk.candidate.units.clone())
+        .collect();
+    let mut expected: Vec<_> = fixture.case.labels.iter().map(LineLabel::unit).collect();
+    actual.sort();
+    expected.sort();
+    assert_eq!(actual, expected);
+    assert!(
+        chunks
+            .iter()
+            .all(|chunk| chunk.oversized || chunk.estimated_tokens <= optimized::TOKEN_BUDGET)
+    );
+    assert!(
+        chunks
+            .iter()
+            .all(|chunk| chunk.body["state"]["file_context"] == fixture.case.context)
+    );
+    let candidate = &chunks[0].candidate;
+    let response = |probability| {
+        json!({"model":"jev-1.13.0","answers":{"significance":{
+            "type":"choice","choice":"insignificant","confidence":0.9,
+            "probabilities":{"significant":1.0-probability,"insignificant":probability,"uncertain":0.0}
+        }}})
+    };
+    assert_eq!(
+        apply_policy(parse_response(candidate, &response(0.849))).outcome,
+        Significance::Uncertain
+    );
+    assert_eq!(
+        apply_policy(parse_response(candidate, &response(0.85))).outcome,
+        Significance::Insignificant
     );
 }
 

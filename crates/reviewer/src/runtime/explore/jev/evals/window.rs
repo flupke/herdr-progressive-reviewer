@@ -5,6 +5,7 @@ use review_repository::diff::DiffRow;
 use serde_json::{Value, json};
 
 use super::super::Candidate;
+pub(super) use super::super::optimized::Boundaries;
 use super::dataset::{Case, coordinate};
 
 /// Target ownership is disjoint; context can overlap any part of the original hunk.
@@ -73,77 +74,5 @@ impl Window<'_> {
             "{instructions}\nFor this request, the exact changed block is ONLY rows with target=true. Other rows are context and may themselves be added or deleted; their kind preserves that distinction. Judge the target rows together. Choose significant if any target change warrants an independent explanation. Context-only changes must not determine the answer by themselves."
         ).into();
         request
-    }
-}
-
-/// Cut at context boundaries. Keep a contiguous before/after replacement paired.
-/// Addition/deletion-only runs can also be cut at blank lines between declarations.
-pub(super) struct Boundaries {
-    pub(super) points: Vec<usize>,
-    weights: Vec<usize>,
-}
-
-impl Boundaries {
-    pub(super) fn new(rows: &[DiffRow]) -> Self {
-        let mut points = vec![0];
-        let mut index = 0;
-        while index < rows.len() {
-            let start = index;
-            let changed = coordinate(&rows[index]).is_some();
-            index += 1;
-            if changed {
-                while index < rows.len()
-                    && coordinate(&rows[index]).is_some()
-                    && !matches!(
-                        (&rows[index - 1], &rows[index]),
-                        (DiffRow::Add { .. }, DiffRow::Delete { .. })
-                    )
-                {
-                    index += 1;
-                }
-                Self::split_single_side(rows, start..index, &mut points);
-            }
-            points.push(index);
-        }
-        let tokenizer = tiktoken_rs::o200k_base_singleton();
-        let mut weights = vec![0];
-        for row in rows {
-            let tokens = tokenizer
-                .encode_ordinary(&Window::row(row, true).to_string())
-                .len();
-            weights.push(weights.last().unwrap() + tokens);
-        }
-        Self { points, weights }
-    }
-
-    fn split_single_side(rows: &[DiffRow], range: Range<usize>, points: &mut Vec<usize>) {
-        let side = coordinate(&rows[range.start]).unwrap().0;
-        if rows[range.clone()]
-            .iter()
-            .any(|row| coordinate(row).unwrap().0 != side)
-        {
-            return;
-        }
-        for index in range.start + 1..range.end {
-            let blank = match &rows[index - 1] {
-                DiffRow::Add { text, .. } | DiffRow::Delete { text, .. } => {
-                    text[1..].trim().is_empty()
-                }
-                _ => false,
-            };
-            if blank {
-                points.push(index);
-            }
-        }
-    }
-
-    pub(super) fn midpoint(&self, range: &Range<usize>) -> Option<usize> {
-        let midpoint =
-            self.weights[range.start] + (self.weights[range.end] - self.weights[range.start]) / 2;
-        self.points
-            .iter()
-            .copied()
-            .filter(|point| *point > range.start && *point < range.end)
-            .min_by_key(|point| self.weights[*point].abs_diff(midpoint))
     }
 }

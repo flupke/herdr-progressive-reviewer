@@ -1,20 +1,31 @@
 //! Optional bounded significance prefilter. Its output can only remove coverage obligations.
 use review_explore::{Comparison, CoverageUnit, Significance, SignificanceResult, SourceSide};
 use review_repository::diff::{DiffRow, parse_file_diff};
-use serde_json::{Value, json};
-use std::{
-    collections::BTreeMap,
-    io::Read,
-    time::{Duration, Instant},
-};
+use serde_json::Value;
+#[cfg(all(test, feature = "jev-evals"))]
+use serde_json::json;
+use std::{collections::BTreeMap, io::Read, time::Duration};
 
-pub(super) const RUBRIC: &str = "explore-significance-v2";
+pub(super) const RUBRIC: &str = "explore-significance-checklist-v1";
 const MODEL: &str = "jev-1.13.0";
+#[cfg(all(test, feature = "jev-evals"))]
 const MAX_CANDIDATES: usize = 32;
+#[cfg(all(test, feature = "jev-evals"))]
 const MAX_STATE_BYTES: usize = 10 * 1024;
 const MAX_RESPONSE_BYTES: u64 = 64 * 1024;
-const JOB_BUDGET: Duration = Duration::from_secs(30);
 
+mod optimized;
+mod sections;
+
+fn coordinate(row: &DiffRow) -> Option<(SourceSide, u32)> {
+    match row {
+        DiffRow::Add { new_line, .. } => Some((SourceSide::New, *new_line)),
+        DiffRow::Delete { old_line, .. } => Some((SourceSide::Old, *old_line)),
+        _ => None,
+    }
+}
+
+#[cfg(all(test, feature = "jev-evals"))]
 const INSTRUCTIONS: &str = "Decide whether THIS exact changed block needs its own explanation in a code review, not whether the surrounding file deserves review. Old changed lines were removed; new changed lines were added. Adjacent context lines are unchanged and only help interpret this block. A change can be insignificant when its local effect is clear but adds no independent review decision: explanatory comments, formatting, routine annotations, or allowing an existing nonessential explanation field to be absent with a default. Significant changes include behavior, policy, state, contracts, dependencies, operations, operational defaults, removed assertions, permissions, and imports with meaningful targets or side effects. A default affecting functional data or compatibility with consequential consumers may still need an explanation. If an unseen consumer, helper, side effect or other context is needed to decide, choose uncertain. Do not infer correctness from a missing source. Answer for this block only.";
 
 #[cfg(not(test))]
@@ -38,19 +49,34 @@ pub(super) struct Candidate {
 }
 
 impl Candidate {
-    pub(super) fn prepare(comparison: &Comparison) -> Vec<Self> {
+    pub(super) fn prepare(comparison: &Comparison) -> Vec<optimized::Prepared> {
         let mut candidates = Vec::new();
         for (file_index, file) in comparison.files.iter().enumerate() {
-            if candidates.len() >= MAX_CANDIDATES {
-                break;
-            }
             if let Some(diff) = comparison.diffs.get(file_index) {
-                Self::prepare_file(file_index, file, diff, &mut candidates);
+                let path = file.review_path().display();
+                let hunks = optimized::hunks(parse_file_diff(diff, file));
+                let frozen = comparison.context.get(file_index);
+                let context = optimized::headers(
+                    frozen.and_then(|file| file.old_content.as_deref()),
+                    frozen.and_then(|file| file.new_content.as_deref()),
+                );
+                candidates.extend(
+                    optimized::SourceFile {
+                        id: format!("f{file_index}"),
+                        file_index,
+                        path: &path,
+                        language: optimized::language(&path),
+                        context,
+                        hunks: &hunks,
+                    }
+                    .prepare(optimized::TOKEN_BUDGET),
+                );
             }
         }
         candidates
     }
 
+    #[cfg(all(test, feature = "jev-evals"))]
     fn prepare_file(
         index: usize,
         file: &review_repository::repository::ChangedFile,
@@ -76,6 +102,7 @@ impl Candidate {
         }
     }
 
+    #[cfg(all(test, feature = "jev-evals"))]
     fn from_block(
         index: usize,
         file: &review_repository::repository::ChangedFile,
@@ -170,7 +197,7 @@ impl Candidate {
             outcome,
             model,
             rubric: RUBRIC.into(),
-            criterion: INSTRUCTIONS.into(),
+            criterion: optimized::CRITERION.into(),
             input_references: self.references.clone(),
             omissions: self.omissions.clone(),
             probabilities,
@@ -180,6 +207,7 @@ impl Candidate {
     }
 }
 
+#[cfg(all(test, feature = "jev-evals"))]
 fn context_text(row: &DiffRow) -> Option<&str> {
     match row {
         DiffRow::Context { text, .. } => Some(text.as_str()),
@@ -189,44 +217,43 @@ fn context_text(row: &DiffRow) -> Option<&str> {
 
 pub(super) fn classify(
     key: &str,
-    candidates: Vec<Candidate>,
+    candidates: Vec<optimized::Prepared>,
     mut record: impl FnMut(SignificanceResult) -> bool,
-) {
+) -> bool {
     let Ok(client) = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(8))
         .build()
     else {
-        return;
+        return false;
     };
-    let started = Instant::now();
-    for candidate in candidates.into_iter().take(MAX_CANDIDATES) {
-        if started.elapsed() >= JOB_BUDGET {
-            break;
-        }
-        let result = if candidate.state.to_string().len() > MAX_STATE_BYTES {
+    for planned in candidates {
+        let candidate = &planned.candidate;
+        let result = if planned.oversized {
             candidate.result(
                 Significance::Oversized,
                 None,
                 BTreeMap::new(),
                 None,
-                Some("Candidate exceeds the 10 KiB byte budget; it remains required".into()),
+                Some(format!("Candidate requires {} estimated tokens, exceeding the {} token budget; it remains required", planned.estimated_tokens, optimized::TOKEN_BUDGET)),
             )
         } else {
-            classify_one(&client, key, &candidate)
+            classify_one(&client, key, candidate, &planned.body)
         };
         if !record(result) {
-            break;
+            return false;
         }
     }
+    true
 }
 
 fn classify_one(
     client: &reqwest::blocking::Client,
     key: &str,
     candidate: &Candidate,
+    body: &Value,
 ) -> SignificanceResult {
-    match request_json(client, key, &candidate.request()) {
-        Ok(value) => parse_response(candidate, &value),
+    match request_json(client, key, body) {
+        Ok(value) => apply_policy(parse_response(candidate, &value)),
         Err(error) => candidate.result(
             Significance::Failed,
             None,
@@ -237,6 +264,24 @@ fn classify_one(
     }
 }
 
+fn apply_policy(mut result: SignificanceResult) -> SignificanceResult {
+    if result.model.as_deref() != Some(MODEL) {
+        result.outcome = Significance::Failed;
+        result.error = Some("Unexpected provider model; classification remains required".into());
+    } else if result.outcome == Significance::Insignificant
+        && result
+            .probabilities
+            .get("insignificant")
+            .copied()
+            .unwrap_or_default()
+            < 0.85
+    {
+        result.outcome = Significance::Uncertain;
+    }
+    result
+}
+
+#[cfg(all(test, feature = "jev-evals"))]
 impl Candidate {
     fn request(&self) -> Value {
         let question = json!({ "type": "choice", "instructions": INSTRUCTIONS,
@@ -302,7 +347,10 @@ fn parse_response(candidate: &Candidate, value: &Value) -> SignificanceResult {
             Some("Missing or unexpected answer IDs".into()),
         );
     };
-    let Some(answer) = answers.get("significance") else {
+    let Some(answer) = answers
+        .get("checklist")
+        .or_else(|| answers.get("significance"))
+    else {
         return candidate.result(
             Significance::Failed,
             Some(model.into()),

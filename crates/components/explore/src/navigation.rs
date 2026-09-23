@@ -194,12 +194,14 @@ impl ExploreComponent {
         let last = history.pages.len() - 1;
         if last == 0 {
             let mut labels = self.coverage_control();
+            labels.extend(self.execution_controls());
             labels.extend(self.saved_controls());
             return Navigation::new(area, labels);
         }
         let position = history.current;
         let mut labels = vec![(history.pages[position].label(self), None)];
         labels.extend(self.coverage_control());
+        labels.extend(self.execution_controls());
         for (label, target, visible) in [
             ("Previous", History::Previous, position > 0),
             ("Next", History::Next, position < last),
@@ -244,5 +246,38 @@ impl ExploreComponent {
             ),
             Some(Control::Coverage),
         )]
+    }
+
+    fn execution_controls(&self) -> Vec<(String, Option<Control>)> {
+        let timing = match self.compose_scope {
+            ComposeScope::Question => self
+                .question()
+                .map(|question| self.execution_time(Some(question))),
+            ComposeScope::Conclusion => Some(self.execution_time(None)),
+            ComposeScope::Opening => None,
+        };
+        let mut labels = timing.map(|label| vec![(label, None)]).unwrap_or_default();
+        if let Some(coverage) = &self.coverage
+            && let Some(label) = Self::jev_progress(coverage)
+        {
+            labels.push((label, None));
+        }
+        labels
+    }
+
+    fn jev_progress(coverage: &review_explore::CoverageLedger) -> Option<String> {
+        if !coverage.classification_started || coverage.jev_total_windows == 0 {
+            return None;
+        }
+        let total = coverage.jev_total_windows;
+        let done = coverage.classifications.len().min(total);
+        let filled = done.saturating_mul(10) / total;
+        let bar = format!("{}{}", "=".repeat(filled), "-".repeat(10 - filled));
+        let label = if coverage.classification_finished {
+            "Jev checked"
+        } else {
+            "Jev filtering"
+        };
+        Some(format!("{label} [{bar}] {done}/{total}"))
     }
 }

@@ -4,7 +4,6 @@ mod dataset;
 mod metrics;
 mod plan;
 mod run;
-mod sections;
 mod study;
 mod window;
 

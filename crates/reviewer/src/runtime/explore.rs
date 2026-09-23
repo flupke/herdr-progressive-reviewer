@@ -22,6 +22,7 @@ pub(super) struct ExploreRuntime {
     agent: Option<PinnedAgent>,
     prompt: Option<PromptCancellation>,
     implementation: Option<PromptCancellation>,
+    jev_active: Option<(String, Arc<std::sync::atomic::AtomicBool>)>,
 }
 
 impl Worker {
@@ -351,7 +352,7 @@ impl Worker {
     }
 
     fn start_jev_if_enabled(
-        &self,
+        &mut self,
         pass: review_explore::ExplorePass,
         messages: &ApplicationMessageSender,
     ) -> review_explore::ExplorePass {
@@ -359,26 +360,22 @@ impl Worker {
             return pass;
         };
         if pass.completion.is_some()
+            || self.jev_running(&pass.exploration.instance)
             || !pass
                 .coverage
                 .needs_classification(jev::RUBRIC, pass.revision)
         {
             return pass;
         }
-        // Saved comparisons omit diff bytes; only recapture when the checkpoint still matches.
-        let comparison = match &self.explore.comparison {
-            Some(comparison) if comparison.diffs.len() == comparison.files.len() => {
-                comparison.clone()
-            }
-            _ => match self.capture_explore() {
-                Ok(comparison) => comparison,
-                Err(_) => return pass,
-            },
-        };
-        if comparison.checkpoint != pass.exploration.comparison.checkpoint {
+        let Some(comparison) = self.jev_comparison(&pass) else {
             return pass;
-        }
-        let candidates = jev::Candidate::prepare(&comparison);
+        };
+        let all_candidates = jev::Candidate::prepare(&comparison);
+        let total_windows = all_candidates.len();
+        let candidates = all_candidates
+            .into_iter()
+            .filter(|candidate| !pass.coverage.classifications.contains_key(candidate.id()))
+            .collect();
         let unit = pass.exploration.comparison.checkpoint.review_unit.clone();
         let instance = pass.exploration.instance.clone();
         let attempt = uuid::Uuid::new_v4().to_string();
@@ -392,6 +389,7 @@ impl Worker {
             }
             pass.coverage
                 .restart_classification(jev::RUBRIC, attempt.clone());
+            pass.coverage.jev_total_windows = total_windows;
             Ok(true)
         }) else {
             return pass;
@@ -399,16 +397,23 @@ impl Worker {
         if !started {
             return pass;
         }
+        let prior_elapsed = pass.coverage.jev_elapsed_ms;
+        let active = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        self.explore.jev_active = Some((instance.clone(), active.clone()));
         let store = self.guide_store.clone();
         let messages = messages.clone();
         std::thread::spawn(move || {
-            jev::classify(&key, candidates, |result| {
+            let started = std::time::Instant::now();
+            let finished = jev::classify(&key, candidates, |result| {
                 match store.update_explore(&unit, &instance, |pass| {
                     if pass.coverage.classification_attempt.as_deref() != Some(&attempt)
                         || pass.completion.is_some()
                     {
                         return Err("obsolete classification attempt".into());
                     }
+                    pass.coverage.jev_elapsed_ms = prior_elapsed.saturating_add(
+                        u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                    );
                     Ok(pass.coverage.record_significance(result))
                 }) {
                     Ok((true, pass)) => {
@@ -425,8 +430,47 @@ impl Worker {
                     Err(_) => false,
                 }
             });
+            if let Ok((_, pass)) = store.update_explore(&unit, &instance, |pass| {
+                if pass.coverage.classification_attempt.as_deref() != Some(&attempt) {
+                    return Ok(false);
+                }
+                pass.coverage.jev_elapsed_ms = prior_elapsed.saturating_add(
+                    u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                );
+                pass.coverage.classification_finished = finished;
+                pass.coverage.revision += 1;
+                Ok(true)
+            }) {
+                let (response, _) = std::sync::mpsc::channel();
+                let _ = messages.send(ui_events::ExploreCommitted {
+                    pass: Arc::new(pass),
+                    applied: true,
+                    response,
+                });
+            }
+            active.store(false, std::sync::atomic::Ordering::Relaxed);
         });
         pass
+    }
+
+    fn jev_running(&self, instance: &str) -> bool {
+        self.explore
+            .jev_active
+            .as_ref()
+            .is_some_and(|(current, active)| {
+                current == instance && active.load(std::sync::atomic::Ordering::Relaxed)
+            })
+    }
+
+    /// Saved comparisons omit diff bytes; recapture only the same checkpoint.
+    fn jev_comparison(&self, pass: &review_explore::ExplorePass) -> Option<Arc<Comparison>> {
+        let comparison = match &self.explore.comparison {
+            Some(comparison) if comparison.diffs.len() == comparison.files.len() => {
+                comparison.clone()
+            }
+            _ => self.capture_explore().ok()?,
+        };
+        (comparison.checkpoint == pass.exploration.comparison.checkpoint).then_some(comparison)
     }
 
     fn publish_explore_marks(

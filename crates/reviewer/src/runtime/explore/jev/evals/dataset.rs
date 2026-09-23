@@ -110,7 +110,7 @@ impl Fixture {
             "{} has an invalid or unsupported diff",
             case.id
         );
-        let hunks = Self::hunks(rows);
+        let hunks = super::super::optimized::hunks(rows);
         let fixture = Self {
             case,
             patch,
@@ -119,23 +119,6 @@ impl Fixture {
         };
         fixture.validate_labels()?;
         Ok(fixture)
-    }
-
-    fn hunks(rows: Vec<DiffRow>) -> Vec<Vec<DiffRow>> {
-        let mut hunks: Vec<Vec<DiffRow>> = Vec::new();
-        for row in rows {
-            if matches!(row, DiffRow::Hunk { .. }) {
-                hunks.push(Vec::new());
-            } else if let Some(hunk) = hunks.last_mut()
-                && matches!(
-                    row,
-                    DiffRow::Add { .. } | DiffRow::Delete { .. } | DiffRow::Context { .. }
-                )
-            {
-                hunk.push(row);
-            }
-        }
-        hunks
     }
 
     pub(super) fn validate_labels(&self) -> Result<()> {

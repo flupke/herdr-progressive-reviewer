@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [features]
-jev-evals = ["dep:serde", "dep:tiktoken-rs"]
+jev-evals = ["dep:serde"]
 
 [dependencies]
 uuid.workspace = true
@@ -42,7 +42,7 @@ sha2.workspace = true
 signal-hook.workspace = true
 syntax-highlighting = { path = "../syntax-highlighting" }
 serde = { workspace = true, optional = true }
-tiktoken-rs = { version = "0.12", optional = true }
+tiktoken-rs = "0.12"
 
 [dev-dependencies]
 rmcp = { workspace = true, features = ["client", "transport-streamable-http-client-reqwest"] }

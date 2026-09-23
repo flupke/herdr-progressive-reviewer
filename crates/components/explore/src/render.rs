@@ -12,6 +12,10 @@ use ratatui::{
 use review_explore::Question;
 use ui_theme::Palette;
 
+fn format_elapsed(milliseconds: u64) -> String {
+    format!("{}.{:01}s", milliseconds / 1000, milliseconds % 1000 / 100)
+}
+
 impl ExploreComponent {
     /// Measure the same document used for painting and input, independently of Files' width.
     pub fn conversation_layout(
@@ -367,6 +371,41 @@ impl ExploreComponent {
         if self.map {
             self.render_map(layout, palette);
         }
+    }
+
+    pub(super) fn execution_time(&self, selected_question: Option<&Question>) -> String {
+        let Some(exploration) = &self.exploration else {
+            return "Jev: — · Agent: —".into();
+        };
+        let position = exploration
+            .conversation
+            .iter()
+            .position(|turn| match selected_question {
+                Some(question) => turn.update.next.as_ref() == Some(question),
+                None => self.general_context.as_ref().is_some_and(|request| {
+                    turn.update.conclusion.is_some() && &turn.update.request == request
+                }),
+            });
+        let agent = position.and_then(|position| {
+            exploration.conversation[..=position]
+                .iter()
+                .try_fold(0u64, |total, turn| {
+                    exploration
+                        .agent_elapsed_ms
+                        .get(&turn.update.request)
+                        .map(|elapsed| total.saturating_add(*elapsed))
+                })
+        });
+        let jev = self
+            .coverage
+            .as_ref()
+            .filter(|coverage| coverage.classification_started)
+            .map(|coverage| coverage.jev_elapsed_ms);
+        format!(
+            "Jev total {} · Agent total {}",
+            jev.map_or_else(|| "—".into(), format_elapsed),
+            agent.map_or_else(|| "—".into(), format_elapsed)
+        )
     }
 
     fn render_jev_debug(&self, layout: &mut ConversationLayout, palette: Palette) {

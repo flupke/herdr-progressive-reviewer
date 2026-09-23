@@ -150,6 +150,9 @@ pub struct Exploration {
     pub findings: Vec<String>,
     pub conclusion: Option<crate::Conclusion>,
     pub conversation: Vec<ConversationTurn>,
+    /// Elapsed time from the reviewer posting a request to its accepted agent response.
+    #[serde(default)]
+    pub agent_elapsed_ms: BTreeMap<String, u64>,
     pub(crate) outstanding: Option<TurnRequest>,
     pub(crate) retry: Option<TurnRequest>,
 }
@@ -167,6 +170,7 @@ impl Exploration {
             findings: Vec::new(),
             conclusion: None,
             conversation: Vec::new(),
+            agent_elapsed_ms: BTreeMap::new(),
             outstanding: None,
             retry: None,
         }

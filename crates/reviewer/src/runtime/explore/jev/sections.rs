@@ -1,6 +1,6 @@
 use review_repository::diff::DiffRow;
 
-use super::dataset::coordinate;
+use super::coordinate;
 
 /// Align matching Rust functions inside a coarse replacement before splitting.
 /// Unrecognized or unmatched sections remain paired as one edit.

@@ -86,6 +86,12 @@ pub struct CoverageLedger {
     #[serde(default)]
     pub classification_rubric: Option<String>,
     pub classifications: BTreeMap<String, SignificanceResult>,
+    #[serde(default)]
+    pub jev_elapsed_ms: u64,
+    #[serde(default)]
+    pub classification_finished: bool,
+    #[serde(default)]
+    pub jev_total_windows: usize,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
@@ -311,7 +317,7 @@ impl CoverageInventory {
 impl CoverageLedger {
     pub fn needs_classification(&self, rubric: &str, conversation_revision: u64) -> bool {
         if self.classification_started {
-            self.classification_rubric.as_deref() != Some(rubric)
+            self.classification_rubric.as_deref() != Some(rubric) || !self.classification_finished
         } else {
             conversation_revision == 0
         }
@@ -427,11 +433,16 @@ impl CoverageLedger {
     }
 
     pub fn restart_classification(&mut self, rubric: &str, attempt: String) {
+        let new_rubric = self.classification_rubric.as_deref() != Some(rubric);
         self.classification_started = true;
         self.classification_attempt = Some(attempt);
         self.classification_rubric = Some(rubric.into());
-        self.classifications.clear();
-        self.excluded.clear();
+        if new_rubric {
+            self.classifications.clear();
+            self.excluded.clear();
+            self.jev_elapsed_ms = 0;
+        }
+        self.classification_finished = false;
         self.revision += 1;
     }
 
@@ -884,7 +895,7 @@ mod tests {
         assert!(ledger.needs_classification("rubric-v1", 0));
         assert!(!ledger.needs_classification("rubric-v1", 1));
         ledger.restart_classification("rubric-v1", "attempt-v1".into());
-        assert!(!ledger.needs_classification("rubric-v1", 1));
+        assert!(ledger.needs_classification("rubric-v1", 1));
         assert!(ledger.needs_classification("rubric-v2", 1));
         assert!(ledger.record_significance(SignificanceResult {
             id: "f0-b0".into(),
@@ -901,6 +912,14 @@ mod tests {
         }));
         assert_eq!(ledger.excluded, vec![unit.clone()]);
 
+        ledger.jev_elapsed_ms = 120;
+        ledger.restart_classification("rubric-v1", "resumed-attempt".into());
+        assert_eq!(ledger.classifications.len(), 1);
+        assert_eq!(ledger.excluded, vec![unit.clone()]);
+        assert_eq!(ledger.jev_elapsed_ms, 120);
+        ledger.classification_finished = true;
+        assert!(!ledger.needs_classification("rubric-v1", 1));
+
         ledger.restart_classification("rubric-v2", "attempt-v2".into());
         assert!(ledger.classifications.is_empty());
         assert!(ledger.excluded.is_empty());
@@ -908,6 +927,7 @@ mod tests {
         assert_eq!(ledger.required_overrides, vec![unit]);
         assert_eq!(ledger.classification_rubric.as_deref(), Some("rubric-v2"));
         assert_eq!(ledger.classification_attempt.as_deref(), Some("attempt-v2"));
+        assert_eq!(ledger.jev_elapsed_ms, 0);
     }
 
     fn comparison(diff: &str, old: Option<&str>, new: Option<&str>) -> Comparison {

@@ -5,12 +5,8 @@ use serde::Serialize;
 use serde_json::Value;
 
 use super::super::{Candidate, MAX_STATE_BYTES};
-use super::{
-    dataset::{Fixture, coordinate},
-    sections::Sections,
-    study::RequestProfile,
-    window::{Boundaries, Window},
-};
+use super::super::{optimized::SplitPlan, sections::Sections};
+use super::{dataset::Fixture, study::RequestProfile, window::Window};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -39,6 +35,27 @@ impl Strategy {
         budget: usize,
         profile: Option<&RequestProfile>,
     ) -> Vec<Chunk> {
+        if self == Self::RecursiveOverlap
+            && profile.is_some_and(|profile| profile.is_production_winner(budget))
+        {
+            return super::super::optimized::SourceFile {
+                id: fixture.case.id.clone(),
+                file_index: 0,
+                path: &fixture.case.path,
+                language: &fixture.case.language,
+                context: fixture.case.context.clone(),
+                hunks: &fixture.hunks,
+            }
+            .prepare(budget)
+            .into_iter()
+            .map(|prepared| Chunk {
+                candidate: prepared.candidate,
+                body: prepared.body,
+                estimated_tokens: prepared.estimated_tokens,
+                oversized: prepared.oversized,
+            })
+            .collect();
+        }
         if self == Self::LegacyBlocks {
             let mut candidates = Vec::new();
             Candidate::prepare_file(0, &fixture.file, fixture.patch.as_bytes(), &mut candidates);
@@ -64,20 +81,23 @@ impl Strategy {
                     fixture,
                     rows: &rows,
                     budget,
-                    boundaries: Boundaries::new(&rows),
                     profile,
                 };
+                let splitter = SplitPlan::new(&rows);
                 let mut targets = Vec::new();
                 if self == Self::WholeHunk {
                     targets.push(0..rows.len());
                 } else {
-                    planner.divide(0..rows.len(), &mut targets);
+                    splitter.divide(0..rows.len(), &mut targets, &|target, context| {
+                        planner.fits(target, context)
+                    });
                 }
                 targets
                     .into_iter()
                     .map(|target| {
                         let context = if self == Self::RecursiveOverlap {
-                            planner.overlap(&target)
+                            splitter
+                                .overlap(&target, &|target, context| planner.fits(target, context))
                         } else {
                             target.clone()
                         };
@@ -114,7 +134,6 @@ struct Planner<'a> {
     fixture: &'a Fixture,
     rows: &'a [DiffRow],
     budget: usize,
-    boundaries: Boundaries,
     profile: Option<&'a RequestProfile>,
 }
 
@@ -144,71 +163,5 @@ impl Planner<'_> {
 
     fn fits(&self, target: &Range<usize>, context: Range<usize>) -> bool {
         !self.chunk(target.clone(), context).oversized
-    }
-
-    fn divide(&self, target: Range<usize>, leaves: &mut Vec<Range<usize>>) {
-        if !self.rows[target.clone()]
-            .iter()
-            .any(|row| coordinate(row).is_some())
-        {
-            return;
-        }
-        if self.fits(&target, target.clone()) {
-            leaves.push(target);
-        } else if let Some(midpoint) = self.boundaries.midpoint(&target) {
-            self.divide(target.start..midpoint, leaves);
-            self.divide(midpoint..target.end, leaves);
-        } else {
-            // An indivisible replacement can remain oversized; never drop its targets.
-            leaves.push(target);
-        }
-    }
-
-    fn overlap(&self, target: &Range<usize>) -> Range<usize> {
-        if !self.fits(target, target.clone()) {
-            return target.clone();
-        }
-        let points = &self.boundaries.points;
-        let left = points.binary_search(&target.start).unwrap();
-        let right = points.binary_search(&target.end).unwrap();
-        let spare = left + points.len() - right - 1;
-        let width = Self::largest(0, spare, |extra| {
-            let range = self.balanced(left, right, extra);
-            self.fits(target, range)
-        });
-        let mut range = self.balanced(left, right, width);
-        let current = points.binary_search(&range.start).unwrap();
-        let extension = Self::largest(0, current, |extra| {
-            self.fits(target, points[current - extra]..range.end)
-        });
-        range.start = points[current - extension];
-        let current = points.binary_search(&range.end).unwrap();
-        let extension = Self::largest(0, points.len() - current - 1, |extra| {
-            self.fits(target, range.start..points[current + extra])
-        });
-        range.end = points[current + extension];
-        range
-    }
-
-    fn balanced(&self, left: usize, right: usize, extra: usize) -> Range<usize> {
-        let points = &self.boundaries.points;
-        let right_capacity = points.len() - right - 1;
-        let left_extra = extra
-            .div_ceil(2)
-            .min(left)
-            .max(extra.saturating_sub(right_capacity));
-        points[left - left_extra]..points[right + extra - left_extra]
-    }
-
-    fn largest(mut low: usize, mut high: usize, fits: impl Fn(usize) -> bool) -> usize {
-        while low < high {
-            let midpoint = low + (high - low).div_ceil(2);
-            if fits(midpoint) {
-                low = midpoint;
-            } else {
-                high = midpoint - 1;
-            }
-        }
-        low
     }
 }

@@ -88,6 +88,8 @@ pub struct InterviewDelivery {
     pub editor_sequence: Option<u64>,
     pub request: TurnRequest,
     pub state: DispatchState,
+    #[serde(default)]
+    pub started_at_ms: Option<u64>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
@@ -179,6 +181,16 @@ impl ExplorePass {
             }
         }
         if applied {
+            if let Some(started) = self
+                .turns
+                .get(&update.request)
+                .and_then(|turn| turn.started_at_ms)
+            {
+                let finished = now_ms();
+                candidate
+                    .agent_elapsed_ms
+                    .insert(update.request.clone(), finished.saturating_sub(started));
+            }
             self.exploration = candidate;
             if update.next.is_some() {
                 self.coverage.revision += 1;
@@ -248,6 +260,7 @@ impl ExplorePass {
             previous.attempt = uuid::Uuid::new_v4().to_string();
             previous.state = DispatchState::Queued;
             previous.request = request.clone();
+            previous.started_at_ms = None;
             self.exploration.outstanding = Some(request.clone());
             self.exploration.retry = Some(request.clone());
             return Ok(false);
@@ -293,6 +306,7 @@ impl ExplorePass {
                 attempt: uuid::Uuid::new_v4().to_string(),
                 request: request.clone(),
                 state: DispatchState::Queued,
+                started_at_ms: None,
             },
         );
         Ok(true)
@@ -390,6 +404,11 @@ impl ExplorePass {
             "Delivery already attempted or cancelled"
         );
         *state = DispatchState::Attempting;
+        if let DispatchId::Interview { request, .. } = id
+            && let Some(turn) = self.turns.get_mut(request)
+        {
+            turn.started_at_ms = Some(now_ms());
+        }
         Ok(())
     }
 
@@ -402,4 +421,14 @@ impl ExplorePass {
             *state = result.state.clone();
         }
     }
+}
+
+fn now_ms() -> u64 {
+    u64::try_from(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis(),
+    )
+    .unwrap_or(u64::MAX)
 }

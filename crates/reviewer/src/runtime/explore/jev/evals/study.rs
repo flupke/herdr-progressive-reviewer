@@ -39,6 +39,12 @@ enum Metadata {
 }
 
 impl RequestProfile {
+    pub(super) fn is_production_winner(&self, budget: usize) -> bool {
+        self.prompt == "checklist"
+            && matches!(self.metadata, Metadata::Headers)
+            && budget == super::super::optimized::TOKEN_BUDGET
+            && self.questions == super::super::optimized::request(&Value::Null)["questions"]
+    }
     pub(super) fn request(&self, candidate: &Candidate, case: &Case) -> Value {
         let mut state = candidate.state.clone();
         match self.metadata {
