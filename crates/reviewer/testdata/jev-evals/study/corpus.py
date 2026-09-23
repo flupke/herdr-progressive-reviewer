@@ -51,12 +51,15 @@ class Corpus:
         return sorted(path.glob("*/planned.jsonl")) if path.is_dir() else [path]
 
     def targets(self, plan):
+        return self.targets_for(plan, FAMILIES, METADATA, BUDGETS)
+
+    def targets_for(self, plan, families, profiles, budgets):
         targets, seen = [], {}
         for path in self.plan_files(plan):
             assert path.with_name("dataset.sha256").read_text().strip() == self.fingerprint(), "stale plan"
             with path.open() as stream:
                 self.read_targets(stream, targets, seen)
-        expected = {(case, family, profile, budget) for case in self.cases for family in FAMILIES for profile in METADATA for budget in BUDGETS}
+        expected = {(case, family, profile, budget) for case in self.cases for family in families for profile in profiles for budget in budgets}
         assert seen.keys() == expected, "missing study cells"
         assert all(lines == self.gold[case].keys() for (case, _, _, _), lines in seen.items()), "missing target lines"
         return targets

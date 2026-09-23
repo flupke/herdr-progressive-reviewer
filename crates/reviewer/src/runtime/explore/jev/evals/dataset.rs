@@ -58,6 +58,7 @@ pub(super) struct Fixture {
     pub(super) patch: String,
     pub(super) file: ChangedFile,
     pub(super) hunks: Vec<Vec<DiffRow>>,
+    pub(super) hunk_starts: Vec<(u32, u32)>,
 }
 
 impl Dataset {
@@ -110,12 +111,14 @@ impl Fixture {
             "{} has an invalid or unsupported diff",
             case.id
         );
+        let hunk_starts = super::super::optimized::hunk_starts(&rows);
         let hunks = super::super::optimized::hunks(rows);
         let fixture = Self {
             case,
             patch,
             file,
             hunks,
+            hunk_starts,
         };
         fixture.validate_labels()?;
         Ok(fixture)

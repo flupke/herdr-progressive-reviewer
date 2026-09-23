@@ -6,7 +6,7 @@ use serde_json::Value;
 use serde_json::json;
 use std::{collections::BTreeMap, io::Read, time::Duration};
 
-pub(super) const RUBRIC: &str = "explore-significance-checklist-v1";
+pub(super) const RUBRIC: &str = "explore-significance-checklist-v2";
 const MODEL: &str = "jev-1.13.0";
 #[cfg(all(test, feature = "jev-evals"))]
 const MAX_CANDIDATES: usize = 32;
@@ -54,7 +54,9 @@ impl Candidate {
         for (file_index, file) in comparison.files.iter().enumerate() {
             if let Some(diff) = comparison.diffs.get(file_index) {
                 let path = file.review_path().display();
-                let hunks = optimized::hunks(parse_file_diff(diff, file));
+                let parsed = parse_file_diff(diff, file);
+                let starts = optimized::hunk_starts(&parsed);
+                let hunks = optimized::hunks(parsed);
                 let frozen = comparison.context.get(file_index);
                 let context = optimized::headers(
                     frozen.and_then(|file| file.old_content.as_deref()),
@@ -68,6 +70,7 @@ impl Candidate {
                         language: optimized::language(&path),
                         context,
                         hunks: &hunks,
+                        hunk_starts: Some(&starts),
                     }
                     .prepare(optimized::TOKEN_BUDGET),
                 );

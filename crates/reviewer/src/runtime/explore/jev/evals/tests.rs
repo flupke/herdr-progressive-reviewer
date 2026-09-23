@@ -198,6 +198,7 @@ fn production_winner_preserves_targets_and_requires_high_exclusion_probability()
         language: &fixture.case.language,
         context: fixture.case.context.clone(),
         hunks: &fixture.hunks,
+        hunk_starts: Some(&fixture.hunk_starts),
     };
     let chunks = source.prepare(optimized::TOKEN_BUDGET);
     let mut actual: Vec<_> = chunks
@@ -232,6 +233,128 @@ fn production_winner_preserves_targets_and_requires_high_exclusion_probability()
     assert_eq!(
         apply_policy(parse_response(candidate, &response(0.85))).outcome,
         Significance::Insignificant
+    );
+}
+
+#[test]
+fn request_formats_preserve_ownership_and_compact_coordinates() {
+    use super::super::optimized::Format;
+    let questions: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../../testdata/jev-evals/study/winner-question.json"
+    ))
+    .unwrap();
+    for fixture in fixtures() {
+        for format in [
+            Format::RowsLegacy,
+            Format::RowsNoOmissions,
+            Format::UnifiedCompact,
+        ] {
+            for budget in [1024, 16_000] {
+                assert_format_for_fixture(&fixture, format, budget, &questions);
+            }
+        }
+    }
+}
+
+fn assert_format_for_fixture(
+    fixture: &super::dataset::Fixture,
+    format: super::super::optimized::Format,
+    budget: usize,
+    questions: &serde_json::Value,
+) {
+    use super::super::optimized::Format;
+    let expected: std::collections::BTreeSet<_> =
+        fixture.case.labels.iter().map(LineLabel::unit).collect();
+    let source = optimized::SourceFile {
+        id: fixture.case.id.clone(),
+        file_index: 0,
+        path: &fixture.case.path,
+        language: &fixture.case.language,
+        context: fixture.case.context.clone(),
+        hunks: &fixture.hunks,
+        hunk_starts: Some(&fixture.hunk_starts),
+    };
+    let mut actual = std::collections::BTreeSet::new();
+    for chunk in source.prepare_with(budget, format) {
+        assert!(chunk.oversized || chunk.estimated_tokens <= budget);
+        for unit in &chunk.candidate.units {
+            assert!(
+                actual.insert(unit.clone()),
+                "duplicate target: {}",
+                fixture.case.id
+            );
+        }
+        let state = &chunk.body["state"];
+        if format == Format::RowsLegacy {
+            assert_eq!(chunk.body["questions"], *questions);
+            assert!(state.get("omissions").is_some());
+        } else {
+            assert!(state.get("omissions").is_none());
+        }
+        if format == Format::UnifiedCompact {
+            assert_compact_chunk(fixture, &chunk);
+        }
+    }
+    assert_eq!(
+        actual, expected,
+        "{} {:?} {budget}",
+        fixture.case.id, format
+    );
+}
+
+fn assert_compact_chunk(
+    fixture: &super::dataset::Fixture,
+    chunk: &super::super::optimized::Prepared,
+) {
+    use review_explore::CoverageUnit;
+    use review_repository::diff::parse_file_diff;
+    let diff = chunk.body["state"]["diff"].as_str().unwrap();
+    let parsed = parse_file_diff(diff.as_bytes(), &fixture.file);
+    let visible: Vec<_> = parsed
+        .iter()
+        .filter(|row| {
+            matches!(
+                row,
+                review_repository::diff::DiffRow::Add { .. }
+                    | review_repository::diff::DiffRow::Delete { .. }
+                    | review_repository::diff::DiffRow::Context { .. }
+            )
+        })
+        .collect();
+    let target_rows: Vec<usize> = chunk.body["state"]
+        .get("target_rows")
+        .map(|rows| {
+            rows.as_array()
+                .unwrap()
+                .iter()
+                .map(|row| row.as_u64().unwrap() as usize)
+                .collect()
+        })
+        .unwrap_or_else(|| {
+            (1..=visible.len())
+                .filter(|index| super::dataset::coordinate(visible[*index - 1]).is_some())
+                .collect()
+        });
+    let parsed_targets: Vec<_> = target_rows
+        .into_iter()
+        .map(|index| {
+            let (side, line) =
+                super::dataset::coordinate(visible[index - 1]).expect("target changed row");
+            CoverageUnit::Lines {
+                file: 0,
+                side,
+                first: line,
+                end: line + 1,
+            }
+        })
+        .collect();
+    assert_eq!(parsed_targets, chunk.candidate.units, "{}", fixture.case.id);
+    assert!(
+        !parsed
+            .iter()
+            .any(|row| matches!(row, review_repository::diff::DiffRow::Notice { .. })),
+        "invalid compact diff: {}",
+        fixture.case.id
     );
 }
 

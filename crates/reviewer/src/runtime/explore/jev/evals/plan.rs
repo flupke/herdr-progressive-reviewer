@@ -36,7 +36,7 @@ impl Strategy {
         profile: Option<&RequestProfile>,
     ) -> Vec<Chunk> {
         if self == Self::RecursiveOverlap
-            && profile.is_some_and(|profile| profile.is_production_winner(budget))
+            && profile.is_some_and(RequestProfile::is_evaluated_checklist)
         {
             return super::super::optimized::SourceFile {
                 id: fixture.case.id.clone(),
@@ -45,8 +45,9 @@ impl Strategy {
                 language: &fixture.case.language,
                 context: fixture.case.context.clone(),
                 hunks: &fixture.hunks,
+                hunk_starts: Some(&fixture.hunk_starts),
             }
-            .prepare(budget)
+            .prepare_with(budget, profile.expect("checked profile").format())
             .into_iter()
             .map(|prepared| Chunk {
                 candidate: prepared.candidate,

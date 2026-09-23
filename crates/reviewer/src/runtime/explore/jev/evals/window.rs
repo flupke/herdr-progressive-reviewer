@@ -37,31 +37,12 @@ impl Window<'_> {
                 "path": self.case.path,
                 "language_hint": self.case.language,
                 "rows": self.rows[self.context.clone()].iter().enumerate().map(|(i, row)| {
-                    Self::row(row, self.target.contains(&(i + self.context.start)))
+                    super::super::optimized::row_json(row, self.target.contains(&(i + self.context.start)))
                 }).collect::<Vec<_>>(),
                 "omissions": omissions,
             }),
             references,
             omissions,
-        }
-    }
-
-    fn row(row: &DiffRow, target: bool) -> Value {
-        match row {
-            DiffRow::Add { new_line, text } => {
-                json!({"kind":"added", "new":new_line, "text":text, "target":target})
-            }
-            DiffRow::Delete { old_line, text } => {
-                json!({"kind":"deleted", "old":old_line, "text":text, "target":target})
-            }
-            DiffRow::Context {
-                old_line,
-                new_line,
-                text,
-            } => {
-                json!({"kind":"unchanged", "old":old_line, "new":new_line, "text":text, "target":false})
-            }
-            _ => unreachable!("a window only contains hunk content"),
         }
     }
 

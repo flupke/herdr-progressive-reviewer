@@ -1,6 +1,6 @@
 //! Factorial study planning reuses the eval's recursive splitter and tokenizer.
 
-use std::{io::Write, path::PathBuf};
+use std::{io::Write, path::PathBuf, time::Instant};
 
 use eyre::{Result, ensure};
 use serde::Deserialize;
@@ -28,7 +28,10 @@ pub(super) struct RequestProfile {
     prompt: String,
     metadata: Metadata,
     questions: Value,
+    #[serde(default)]
+    format: super::super::optimized::Format,
 }
+use super::super::optimized::Format;
 
 #[derive(Clone, Copy, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -40,10 +43,19 @@ enum Metadata {
 
 impl RequestProfile {
     pub(super) fn is_production_winner(&self, budget: usize) -> bool {
+        matches!(self.format, Format::RowsLegacy)
+            && self.is_evaluated_checklist()
+            && budget == super::super::optimized::TOKEN_BUDGET
+    }
+
+    pub(super) fn is_evaluated_checklist(&self) -> bool {
         self.prompt == "checklist"
             && matches!(self.metadata, Metadata::Headers)
-            && budget == super::super::optimized::TOKEN_BUDGET
             && self.questions == super::super::optimized::request(&Value::Null)["questions"]
+    }
+
+    pub(super) fn format(&self) -> Format {
+        self.format
     }
     pub(super) fn request(&self, candidate: &Candidate, case: &Case) -> Value {
         let mut state = candidate.state.clone();
@@ -56,6 +68,9 @@ impl RequestProfile {
             Metadata::Headers => {
                 state["file_context"] = case.context.clone();
             }
+        }
+        if matches!(self.format, Format::RowsNoOmissions) {
+            state.as_object_mut().unwrap().remove("omissions");
         }
         json!({"model":"jev-1.13.0", "state":state, "questions":self.questions})
     }
@@ -92,25 +107,47 @@ impl Study {
                 profile.questions.as_object().is_some_and(|q| !q.is_empty()),
                 "profile questions must be a nonempty object"
             );
+            ensure!(
+                matches!(profile.format, Format::RowsLegacy) || profile.is_evaluated_checklist(),
+                "compact and no-omissions formats require the evaluated checklist and headers"
+            );
         }
         Ok(study)
     }
 
     pub(super) fn export(&self) -> Result<()> {
+        let load_started = Instant::now();
         let (fixtures, fingerprint) = Dataset::load(&self.dataset)?;
+        let load_ms = load_started.elapsed().as_secs_f64() * 1000.0;
         std::fs::create_dir_all(&self.output)?;
+        std::fs::write(
+            self.output.join("planning-setup.json"),
+            serde_json::to_vec(&json!({"corpus_load_ms":load_ms}))?,
+        )?;
         let mut stream = std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
             .open(self.output.join("planned.jsonl"))?;
+        let mut timing_stream = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(self.output.join("planning-timing.jsonl"))?;
         for fixture in &fixtures {
             for profile in &self.profiles {
                 for &budget in &self.budgets {
-                    for (chunk, planned) in Strategy::RecursiveOverlap
-                        .plan_with(fixture, budget, Some(profile))
-                        .into_iter()
-                        .enumerate()
-                    {
+                    let started = Instant::now();
+                    let chunks =
+                        Strategy::RecursiveOverlap.plan_with(fixture, budget, Some(profile));
+                    let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
+                    serde_json::to_writer(
+                        &mut timing_stream,
+                        &json!({
+                            "case":fixture.case.id, "profile":profile.name,
+                            "budget":budget, "elapsed_ms":elapsed_ms,
+                        }),
+                    )?;
+                    timing_stream.write_all(b"\n")?;
+                    for (chunk, planned) in chunks.into_iter().enumerate() {
                         let record = json!({
                             "case":fixture.case.id, "profile":profile.name,
                             "prompt":profile.prompt,

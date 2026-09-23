@@ -52,7 +52,7 @@ class Transport:
                         "elapsed_ms": round((time.monotonic() - start) * 1000)}
             except urllib.error.HTTPError as exc:
                 error = f"HTTP {exc.code}: {exc.read(1500).decode(errors='replace')}"
-                if exc.code not in (429, 500, 502, 503, 504):
+                if exc.code not in (429, 500, 502, 503, 504, 529):
                     break
             except (OSError, ValueError, KeyError, AssertionError) as exc:
                 error = f"{type(exc).__name__}: {exc}"
