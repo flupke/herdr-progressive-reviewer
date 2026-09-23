@@ -168,9 +168,17 @@ impl HistoryPages {
 
 impl ExploreComponent {
     pub(super) fn changed_line_percent(progress: ChangedLineCoverage) -> String {
+        Self::line_percent(progress.explored, progress.total)
+    }
+
+    fn line_percent(count: u64, total: u64) -> String {
+        let progress = ChangedLineCoverage {
+            explored: count,
+            total,
+        };
         match progress.percent_tenths() {
             None => "—".into(),
-            Some(0) if progress.explored > 0 => "<0.1%".into(),
+            Some(0) if count > 0 => "<0.1%".into(),
             Some(tenths) if tenths % 10 == 0 => format!("{}%", tenths / 10),
             Some(tenths) => format!("{}.{:01}%", tenths / 10, tenths % 10),
         }
@@ -257,12 +265,35 @@ impl ExploreComponent {
             ComposeScope::Opening => None,
         };
         let mut labels = timing.map(|label| vec![(label, None)]).unwrap_or_default();
-        if let Some(coverage) = &self.coverage
-            && let Some(label) = Self::jev_progress(coverage)
-        {
-            labels.push((label, None));
+        if let Some(coverage) = &self.coverage {
+            if let Some(label) = Self::jev_filtered_status(
+                coverage,
+                self.completion_policy.unwrap_or(self.jev_enabled),
+            ) {
+                labels.push((label, None));
+            }
+            if let Some(label) = Self::jev_progress(coverage) {
+                labels.push((label, None));
+            }
         }
         labels
+    }
+
+    fn jev_filtered_status(
+        coverage: &review_explore::CoverageLedger,
+        exclusions_enabled: bool,
+    ) -> Option<String> {
+        if !coverage.classification_started || !exclusions_enabled || !coverage.inventory.complete {
+            return None;
+        }
+        let total = coverage.changed_line_coverage(None).total;
+        if total == 0 {
+            return Some("Jev filtered · No changed text lines".into());
+        }
+        Some(format!(
+            "Jev filtered {} of changed lines",
+            Self::line_percent(coverage.jev_filtered_changed_lines(true), total)
+        ))
     }
 
     fn jev_progress(coverage: &review_explore::CoverageLedger) -> Option<String> {
@@ -279,5 +310,49 @@ impl ExploreComponent {
             "Jev filtering"
         };
         Some(format!("{label} [{bar}] {done}/{total}"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ExploreComponent;
+    use review_explore::{CoverageLedger, CoverageUnit, SourceSide};
+
+    #[test]
+    fn top_status_tracks_effective_jev_filtering() {
+        let mut coverage = CoverageLedger::default();
+        coverage.inventory.complete = true;
+        coverage.inventory.units = vec![CoverageUnit::Lines {
+            file: 0,
+            side: SourceSide::New,
+            first: 1,
+            end: 5,
+        }];
+        coverage.excluded = vec![CoverageUnit::Lines {
+            file: 0,
+            side: SourceSide::New,
+            first: 2,
+            end: 4,
+        }];
+        assert_eq!(ExploreComponent::jev_filtered_status(&coverage, true), None);
+        coverage.classification_started = true;
+        assert_eq!(
+            ExploreComponent::jev_filtered_status(&coverage, true),
+            Some("Jev filtered 50% of changed lines".into())
+        );
+        coverage.required_overrides = vec![CoverageUnit::Lines {
+            file: 0,
+            side: SourceSide::New,
+            first: 3,
+            end: 4,
+        }];
+        assert_eq!(
+            ExploreComponent::jev_filtered_status(&coverage, true),
+            Some("Jev filtered 25% of changed lines".into())
+        );
+        assert_eq!(
+            ExploreComponent::jev_filtered_status(&coverage, false),
+            None
+        );
     }
 }

@@ -553,6 +553,18 @@ impl CoverageLedger {
         }
     }
 
+    /// Changed text lines currently removed from required review by Jev.
+    pub fn jev_filtered_changed_lines(&self, exclusions_enabled: bool) -> u64 {
+        if !exclusions_enabled {
+            return 0;
+        }
+        let excluded = subtract(&self.excluded, &self.required_overrides);
+        intersect(&self.inventory.units, &excluded)
+            .iter()
+            .map(CoverageUnit::changed_line_weight)
+            .sum()
+    }
+
     fn summary_for(&self, units: &[CoverageUnit], exclusions_enabled: bool) -> CoverageSummary {
         let excluded = if exclusions_enabled {
             subtract(&self.excluded, &self.required_overrides)
@@ -1186,6 +1198,8 @@ mod tests {
             ledger.changed_line_coverage(Some(0)).percent_tenths(),
             Some(333)
         );
+        assert_eq!(ledger.jev_filtered_changed_lines(true), 2);
+        assert_eq!(ledger.jev_filtered_changed_lines(false), 0);
         let summary = ledger.summary(true);
         assert_eq!(
             (
@@ -1197,6 +1211,7 @@ mod tests {
             (1, 1, 2, Some(100))
         );
         ledger.require_review(vec![excluded]);
+        assert_eq!(ledger.jev_filtered_changed_lines(true), 0);
         let summary = ledger.summary(true);
         assert_eq!(
             (summary.required, summary.remaining, summary.percent),
