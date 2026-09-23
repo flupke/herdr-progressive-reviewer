@@ -126,7 +126,11 @@ and deleted lines cited by answered questions, counted on both sides of the diff
 context and metadata do not enter that percentage. Jev-excluded lines remain in the total
 but are not counted as explored. **Show file diff** displays the selected file below the
 overview and selects it in Files.
-Reaching 100% does not end the discussion or mark files by itself.
+Concept exploration determines when the discussion ends. Reaching 100% does not
+establish that all useful questions have been asked or mark files by itself. Once
+the agent has exhausted its concept agenda, it inspects remaining uncovered regions
+for missed questions. Inspected code that needs no question may remain outside
+answered evidence when the agent concludes; the conclusion explains those gaps.
 **Reply** addresses the displayed question; each question keeps its own unfinished
 text, selected choice and evidence state.
 
@@ -242,8 +246,8 @@ do not imply a fixed total. The reviewer saves conversation and agenda history; 
 
 The expanded map shows those states, prerequisites, entries not yet mapped and scan limitations. Topic
 associations are not proof of coverage. Only answered essential/supporting changed regions
-receive credit; an early conclusion is rejected with remaining locations. A successful
-conclusion marks changed files at the reviewed checkpoint. Explore does not resolve threads.
+receive credit; coverage remains an inspection reminder rather than a completion threshold.
+A successful conclusion marks changed files at the reviewed checkpoint. Explore does not resolve threads.
 
 Setting a nonempty `TYPESAFE_API_KEY` in the reviewer process enables optional Jev
 significance checks. The reviewer sends bounded before/after code snippets and relative

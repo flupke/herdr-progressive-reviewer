@@ -10,11 +10,20 @@ use std::sync::Arc;
 mod delivery;
 
 #[test]
+fn conclusion_with_partial_answer_coverage_marks_exact_baseline_once() {
+    assert_explicit_conclusion(1, 50);
+}
+
+#[test]
+fn full_answer_coverage_still_allows_questions_before_explicit_conclusion() {
+    assert_explicit_conclusion(2, 100);
+}
+
 #[allow(
     clippy::too_many_lines,
     reason = "One end-to-end local finalization transaction"
 )]
-fn coverage_gate_repairs_same_request_and_marks_exact_baseline_once() {
+fn assert_explicit_conclusion(cited_lines: u32, expected_percent: u8) {
     use review_repository::repository::{
         ChangeKind, ChangedFile, DiffStatistics, FileKind, RepoPath, SnapshotId, SnapshotIdentity,
     };
@@ -68,7 +77,13 @@ fn coverage_gate_repairs_same_request_and_marks_exact_baseline_once() {
                 "supporting":[]}, "conclusion":null,"limitations":[],"findings":[]
         })).unwrap()
     };
-    let first = question("q1", &kickoff, 1);
+    let mut first = question("q1", &kickoff, 1);
+    first.next.as_mut().unwrap().evidence[0]
+        .location
+        .lines
+        .as_mut()
+        .unwrap()
+        .last_line = cited_lines;
     let (applied, pass, feedback) = store
         .submit_explore(&"aabb".into(), &kickoff.instance, &first, false)
         .unwrap();
@@ -101,6 +116,20 @@ fn coverage_gate_repairs_same_request_and_marks_exact_baseline_once() {
         replayed, first_receipt,
         "retries retain the original coverage revision"
     );
+    let pass = store
+        .load_explore(&"aabb".into(), &kickoff.instance)
+        .unwrap()
+        .unwrap();
+    assert!(
+        pass.completion.is_none(),
+        "coverage never creates a conclusion"
+    );
+    assert_eq!(pass.coverage.summary(false).percent, Some(expected_percent));
+    assert_eq!(
+        store.load(&"aabb".into(), b"policy.rs").unwrap(),
+        LoadResult::Unreviewed,
+        "answered evidence alone never marks files"
+    );
     let conclusion = InterviewUpdate {
         instance: answer.instance.clone(),
         request: answer.request.clone(),
@@ -114,31 +143,40 @@ fn coverage_gate_repairs_same_request_and_marks_exact_baseline_once() {
         topics: vec![],
         next: None,
         conclusion: Some(Conclusion {
-            summary: "Concluded".into(),
+            summary: "Concepts explored; remaining source inspected with no further question."
+                .into(),
             to_be_implemented: String::new(),
             future_work: String::new(),
         }),
         limitations: vec![],
         findings: vec![],
     };
-    let rejected = store
-        .submit_explore(&"aabb".into(), &kickoff.instance, &conclusion, false)
+    let mut incomplete = pass.clone();
+    incomplete.coverage.inventory.complete = false;
+    incomplete.coverage.inventory.limitations = vec!["Missing comparison geometry".into()];
+    let pending = incomplete.clone();
+    let rejected = incomplete
+        .submit(&conclusion, false)
         .unwrap_err()
         .to_string();
     assert!(rejected.contains("coverage_incomplete"), "{rejected}");
     assert_eq!(
-        store.load(&"aabb".into(), b"policy.rs").unwrap(),
-        LoadResult::Unreviewed
+        incomplete, pending,
+        "inventory failure retains the pending turn"
     );
-    let mut repair = question("q2", &answer, 2);
-    repair.reply = Some(review_explore::Reply {
+    let mut followup = question("q2", &answer, 1);
+    followup.reply = Some(review_explore::Reply {
         text: "Acknowledged".into(),
         evidence: vec![],
     });
     let (_, pass, feedback) = store
-        .submit_explore(&"aabb".into(), &kickoff.instance, &repair, false)
+        .submit_explore(&"aabb".into(), &kickoff.instance, &followup, false)
         .unwrap();
-    assert_eq!(feedback.summary.percent, Some(50));
+    assert_eq!(feedback.summary.percent, Some(expected_percent));
+    assert!(
+        pass.completion.is_none(),
+        "another concept can be explored at 100%"
+    );
     let shown = pass.exploration.questions.last().unwrap().clone();
     let answer2 = pass
         .exploration
@@ -166,8 +204,15 @@ fn coverage_gate_repairs_same_request_and_marks_exact_baseline_once() {
         .submit_explore(&"aabb".into(), &kickoff.instance, &conclusion, false)
         .unwrap();
     assert!(applied);
-    assert_eq!(feedback.summary.percent, Some(100));
+    assert_eq!(feedback.summary.percent, Some(expected_percent));
+    assert_eq!(feedback.summary.remaining, u64::from(2 - cited_lines));
     assert!(pass.completion.as_ref().unwrap().completed);
+    assert_eq!(pass.completion.as_ref().unwrap().summary, feedback.summary);
+    let restored = store
+        .load_explore(&"aabb".into(), &kickoff.instance)
+        .unwrap()
+        .unwrap();
+    assert_eq!(restored, pass, "the coverage receipt survives reopening");
     let LoadResult::Reviewed(record) = store.load(&"aabb".into(), b"policy.rs").unwrap() else {
         panic!("no mark")
     };

@@ -11,7 +11,7 @@ pub struct PreparedTurn {
 impl PreparedTurn {
     pub fn prepare(request: &TurnRequest, comparison: &Comparison, access: &str) -> Self {
         let instructions = if request.answer.is_some() {
-            "Continue Explore with this answer; call submit_question or, when finished, submit_conclusion. Match the question ID/version to your earlier question. Keep review-only scope. Repair any previous response error without changing the answer or decisions."
+            "Continue Explore with this answer; match its question ID/version. Keep review-only scope and preserve the answer and decisions when repairing errors. Use submit_question for useful concept inquiries. Once those are exhausted, inspect remaining coverage gaps for missed questions before submit_conclusion. Coverage alone never ends the interview."
         } else {
             include_str!("interview.md")
         };
@@ -37,7 +37,7 @@ impl PreparedTurn {
         use std::fmt::Write;
         let _ = write!(
             self.prompt,
-            "\n\nCoverage revision {}: {} required change units remain; {} regions in this bounded listing{}.",
+            "\n\nCoverage inspection reminder, revision {}: {} non-exempt change units remain outside answered evidence; {} regions in this bounded listing{}. This is not an interview stopping condition.",
             feedback.revision,
             feedback.summary.remaining,
             feedback.total_gaps,

@@ -149,7 +149,7 @@ impl ExplorePass {
         }
     }
 
-    /// Validate on a candidate so a coverage rejection retains the pending request and answer.
+    /// Validate on a candidate so rejection retains the pending request and answer.
     pub fn submit(
         &mut self,
         update: &InterviewUpdate,
@@ -166,19 +166,6 @@ impl ExplorePass {
                 "coverage_incomplete: {}",
                 self.coverage.inventory.limitations.join("; ")
             );
-            let missing = self.coverage.remaining(exclusions_enabled);
-            if !missing.is_empty() {
-                let feedback =
-                    self.coverage
-                        .feedback(&self.exploration.comparison, &[], exclusions_enabled);
-                eyre::bail!(
-                    "coverage_incomplete: {} required change units remain. Unassigned: {:?}; awaiting an answer: {:?}; has_more: {}",
-                    feedback.summary.remaining,
-                    feedback.unassigned_required,
-                    feedback.awaiting_answer,
-                    feedback.has_more
-                );
-            }
         }
         if applied {
             if let Some(started) = self
