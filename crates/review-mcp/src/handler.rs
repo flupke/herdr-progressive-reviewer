@@ -124,7 +124,7 @@ impl Handler {
     }
 
     #[tool(
-        description = "Submit the next Explore question to the open reviewer. Use submit_conclusion when the interview is finished. Success means validated and applied. Repair validation errors in the same request; retry transport failures with identical arguments."
+        description = "Submit the next Explore question to the open reviewer. Returns coverage_after_answer: projected coverage after a non-deferred answer to this question, using current Jev exclusions. This does not credit the question before the answer arrives. Use submit_conclusion when the interview is finished. Success means validated and applied. Repair validation errors in the same request; retry transport failures with identical arguments."
     )]
     async fn submit_question(
         &self,
@@ -198,9 +198,16 @@ impl Handler {
     fn result(response: Response) -> CallToolResult {
         let value = match response {
             Response::Posted(id) => json!({"message_id": id}),
-            Response::Explore { applied, coverage } => {
-                json!({"accepted":true,"applied":applied,"coverage":coverage})
-            }
+            Response::Explore { applied, coverage } => match coverage {
+                review_explore::CoverageReceipt::AfterAnswer {
+                    coverage_after_answer,
+                } => {
+                    json!({"accepted":true,"applied":applied,"coverage_after_answer":coverage_after_answer})
+                }
+                review_explore::CoverageReceipt::Current(coverage) => {
+                    json!({"accepted":true,"applied":applied,"coverage":coverage})
+                }
+            },
             Response::Threads(threads) => json!({"threads": threads.iter().map(|thread| {
                 json!({"thread_id": thread.id, "path": thread.path(),
                     "in_reply_to": thread.last_comment().map(|message| &message.id),

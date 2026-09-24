@@ -159,11 +159,55 @@ pub struct FileCoverage {
 pub struct CoverageFeedback {
     pub revision: u64,
     pub summary: CoverageSummary,
+    /// Percentage of required changed text lines answered, in tenths.
+    #[serde(default)]
+    pub covered_percent_tenths: Option<u16>,
+    /// Jev-filtered locations still requiring an answer, grouped for quick inspection.
+    #[serde(default)]
+    pub uncovered: Box<UncoveredOverview>,
     pub total_gaps: usize,
     pub has_more: bool,
     pub unassigned_required: Vec<Gap>,
     pub awaiting_answer: Vec<Gap>,
     pub jev: JevFeedback,
+}
+
+/// Saved tool feedback distinguishes a question's projection from actual coverage.
+/// The unwrapped current variant also reads receipts saved before projections existed.
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+#[serde(untagged)]
+pub enum CoverageReceipt {
+    AfterAnswer {
+        coverage_after_answer: CoverageFeedback,
+    },
+    Current(CoverageFeedback),
+}
+
+impl CoverageReceipt {
+    pub fn feedback(&self) -> &CoverageFeedback {
+        match self {
+            Self::AfterAnswer {
+                coverage_after_answer,
+            } => coverage_after_answer,
+            Self::Current(coverage) => coverage,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
+pub struct UncoveredOverview {
+    pub total_files: usize,
+    pub files: Vec<UncoveredArea>,
+    pub files_truncated: bool,
+    pub directories: Vec<UncoveredArea>,
+    pub directories_truncated: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+pub struct UncoveredArea {
+    pub path: String,
+    pub files: usize,
+    pub remaining: u64,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq)]
@@ -398,8 +442,20 @@ impl CoverageLedger {
         let Some(question) = &answer.question else {
             return;
         };
-        let references = question.evidence.iter().chain(&question.supporting);
-        let cited = self.intersections(references, comparison);
+        let cited = self.credit_question(question, comparison);
+        self.answers.insert(answer.id.clone(), cited);
+        self.revision += 1;
+    }
+
+    fn credit_question(
+        &mut self,
+        question: &crate::Question,
+        comparison: &Comparison,
+    ) -> Vec<CoverageUnit> {
+        let cited = self.intersections(
+            question.evidence.iter().chain(&question.supporting),
+            comparison,
+        );
         self.credited = normalize(
             self.credited
                 .iter()
@@ -407,8 +463,20 @@ impl CoverageLedger {
                 .chain(cited.iter().cloned())
                 .collect(),
         );
-        self.answers.insert(answer.id.clone(), cited);
-        self.revision += 1;
+        cited
+    }
+
+    /// Project one non-deferred answer using current Jev results, without saving credit.
+    /// The revision identifies the inputs to the projection, not a future ledger revision.
+    pub(crate) fn feedback_after_answer(
+        &self,
+        comparison: &Comparison,
+        question: &crate::Question,
+        exclusions_enabled: bool,
+    ) -> CoverageFeedback {
+        let mut projected = self.clone();
+        projected.credit_question(question, comparison);
+        projected.feedback(comparison, &[], exclusions_enabled)
     }
 
     pub fn record_significance(&mut self, result: SignificanceResult) -> bool {
@@ -553,6 +621,31 @@ impl CoverageLedger {
         }
     }
 
+    /// Answer progress among changed lines still requiring review after Jev filtering.
+    pub fn required_changed_line_coverage(
+        &self,
+        file: Option<usize>,
+        exclusions_enabled: bool,
+    ) -> ChangedLineCoverage {
+        let excluded = if exclusions_enabled {
+            subtract(&self.excluded, &self.required_overrides)
+        } else {
+            Vec::new()
+        };
+        let required = subtract(&self.inventory.units, &excluded);
+        let count = |units: &[CoverageUnit]| {
+            units
+                .iter()
+                .filter(|unit| file.is_none_or(|index| unit.file_index() == index))
+                .map(CoverageUnit::changed_line_weight)
+                .sum()
+        };
+        ChangedLineCoverage {
+            explored: count(&intersect(&required, &self.credited)),
+            total: count(&required),
+        }
+    }
+
     /// Changed text lines currently removed from required review by Jev.
     pub fn jev_filtered_changed_lines(&self, exclusions_enabled: bool) -> u64 {
         if !exclusions_enabled {
@@ -641,6 +734,7 @@ impl CoverageLedger {
         let waiting = intersect(&remaining, &assigned);
         let unassigned = subtract(&remaining, &assigned);
         let total_gaps = waiting.len() + unassigned.len();
+        let uncovered = Self::uncovered_overview(&remaining, comparison);
         let unassigned_required = unassigned
             .iter()
             .take(LIMIT)
@@ -670,12 +764,85 @@ impl CoverageLedger {
         CoverageFeedback {
             revision: self.revision,
             summary: self.summary(exclusions_enabled),
+            covered_percent_tenths: self
+                .inventory
+                .complete
+                .then(|| {
+                    self.required_changed_line_coverage(None, exclusions_enabled)
+                        .percent_tenths()
+                })
+                .flatten(),
+            uncovered: Box::new(uncovered),
             total_gaps,
             has_more: total_gaps > LIMIT,
             unassigned_required,
             awaiting_answer,
             jev: self.jev_feedback(exclusions_enabled),
         }
+    }
+
+    fn uncovered_overview(
+        remaining: &[CoverageUnit],
+        comparison: &Comparison,
+    ) -> UncoveredOverview {
+        const FILE_LIMIT: usize = 16;
+        const DIRECTORY_LIMIT: usize = 32;
+        let mut by_file = BTreeMap::<usize, u64>::new();
+        for unit in remaining {
+            *by_file.entry(unit.file_index()).or_default() += unit.weight();
+        }
+        let mut by_directory = BTreeMap::<String, (usize, u64)>::new();
+        let mut files = Vec::with_capacity(by_file.len());
+        for (index, remaining) in by_file {
+            let Some(file) = comparison.files.get(index) else {
+                continue;
+            };
+            let path = file.review_path();
+            let directory = Self::directory_group(path);
+            let entry = by_directory.entry(directory).or_default();
+            entry.0 += 1;
+            entry.1 += remaining;
+            files.push(UncoveredArea {
+                path: path.display(),
+                files: 1,
+                remaining,
+            });
+        }
+        let total_files = files.len();
+        files.sort_by(|a, b| b.remaining.cmp(&a.remaining).then(a.path.cmp(&b.path)));
+        let files_truncated = files.len() > FILE_LIMIT;
+        files.truncate(FILE_LIMIT);
+        let mut directories: Vec<_> = by_directory
+            .into_iter()
+            .map(|(path, (files, remaining))| UncoveredArea {
+                path,
+                files,
+                remaining,
+            })
+            .collect();
+        directories.sort_by(|a, b| b.remaining.cmp(&a.remaining).then(a.path.cmp(&b.path)));
+        let directories_truncated = directories.len() > DIRECTORY_LIMIT;
+        directories.truncate(DIRECTORY_LIMIT);
+        UncoveredOverview {
+            total_files,
+            files,
+            files_truncated,
+            directories,
+            directories_truncated,
+        }
+    }
+
+    /// Group nested paths by their first two components; keep root and shallow paths readable.
+    fn directory_group(path: &RepoPath) -> String {
+        let bytes = path.as_bytes();
+        let Some(first_slash) = bytes.iter().position(|byte| *byte == b'/') else {
+            return ".".into();
+        };
+        let end = bytes[first_slash + 1..]
+            .iter()
+            .position(|byte| *byte == b'/')
+            .map_or(first_slash, |second| first_slash + 1 + second);
+        RepoPath::from_bytes(bytes[..end].to_vec()).display()
     }
 
     fn jev_feedback(&self, enabled: bool) -> JevFeedback {
@@ -1192,7 +1359,14 @@ mod tests {
                 explored: 1,
                 total: 3,
             },
-            "Jev exclusions remain in the changed-line denominator"
+            "raw changed-line coverage retains the unfiltered denominator"
+        );
+        assert_eq!(
+            ledger.required_changed_line_coverage(None, true),
+            ChangedLineCoverage {
+                explored: 1,
+                total: 1,
+            },
         );
         assert_eq!(
             ledger.changed_line_coverage(Some(0)).percent_tenths(),
@@ -1218,6 +1392,184 @@ mod tests {
             (3, 2, Some(33))
         );
         assert_eq!(ledger.summary(false).remaining, 2);
+    }
+
+    #[test]
+    fn feedback_excludes_jev_from_coverage_denominator_and_lists_only_required_files() {
+        let mut changed = comparison(
+            "diff --git a/crates/one/a.rs b/crates/one/a.rs\n@@ -0,0 +1,2 @@\n+one\n+two\n",
+            None,
+            Some("crates/one/a.rs"),
+        );
+        let second = comparison(
+            "diff --git a/crates/two/b.rs b/crates/two/b.rs\n@@ -0,0 +1,2 @@\n+three\n+four\n",
+            None,
+            Some("crates/two/b.rs"),
+        );
+        changed.files.extend(second.files);
+        changed.diffs.extend(second.diffs);
+        let mut ledger = CoverageLedger::new(&changed);
+        ledger.credit(
+            &answer(
+                "a",
+                vec![reference("crates/one/a.rs", SourceSide::New, Some((1, 1)))],
+                vec![],
+                false,
+            ),
+            &changed,
+        );
+        ledger.excluded = vec![
+            CoverageUnit::Lines {
+                file: 0,
+                side: SourceSide::New,
+                first: 1,
+                end: 3,
+            },
+            CoverageUnit::Lines {
+                file: 1,
+                side: SourceSide::New,
+                first: 1,
+                end: 2,
+            },
+        ];
+
+        let enabled = ledger.feedback(&changed, &[], true);
+        assert_eq!(enabled.covered_percent_tenths, Some(0));
+        assert_eq!(
+            ledger.required_changed_line_coverage(Some(0), true),
+            ChangedLineCoverage {
+                explored: 0,
+                total: 0,
+            },
+        );
+        assert_eq!(enabled.summary.remaining, 1);
+        assert_eq!(enabled.uncovered.total_files, 1);
+        assert_eq!(enabled.uncovered.files[0].path, "crates/two/b.rs");
+        assert_eq!(enabled.uncovered.files[0].remaining, 1);
+        assert_eq!(enabled.uncovered.directories[0].path, "crates/two");
+        let mut legacy_receipt = serde_json::to_value(&enabled).unwrap();
+        legacy_receipt
+            .as_object_mut()
+            .unwrap()
+            .remove("covered_percent_tenths");
+        legacy_receipt.as_object_mut().unwrap().remove("uncovered");
+        let restored: CoverageFeedback = serde_json::from_value(legacy_receipt).unwrap();
+        assert_eq!(restored.covered_percent_tenths, None);
+        assert_eq!(restored.uncovered.total_files, 0);
+
+        let disabled = ledger.feedback(&changed, &[], false);
+        assert_eq!(disabled.covered_percent_tenths, Some(250));
+        assert_eq!(disabled.uncovered.total_files, 2);
+        assert_eq!(disabled.uncovered.directories.len(), 2);
+
+        ledger.require_review(vec![CoverageUnit::Lines {
+            file: 1,
+            side: SourceSide::New,
+            first: 1,
+            end: 2,
+        }]);
+        let required_again = ledger.feedback(&changed, &[], true);
+        assert_eq!(required_again.covered_percent_tenths, Some(0));
+        assert_eq!(required_again.uncovered.files[0].remaining, 2);
+
+        ledger.require_review(vec![CoverageUnit::Lines {
+            file: 0,
+            side: SourceSide::New,
+            first: 1,
+            end: 2,
+        }]);
+        assert_eq!(
+            ledger.feedback(&changed, &[], true).covered_percent_tenths,
+            Some(333)
+        );
+        assert_eq!(
+            ledger.required_changed_line_coverage(Some(0), true),
+            ChangedLineCoverage {
+                explored: 1,
+                total: 1,
+            },
+        );
+    }
+
+    #[test]
+    fn projected_feedback_matches_answer_credit_without_changing_the_ledger() {
+        let mut changed = comparison(
+            "diff --git a/src/a.rs b/src/a.rs\n@@ -1 +1,3 @@\n-old\n+new\n+more\n+tail\n",
+            Some("src/a.rs"),
+            Some("src/a.rs"),
+        );
+        let filtered = comparison(
+            "diff --git a/other/b.rs b/other/b.rs\n@@ -0,0 +1 @@\n+ignored\n",
+            None,
+            Some("other/b.rs"),
+        );
+        changed.files.extend(filtered.files);
+        changed.diffs.extend(filtered.diffs);
+        let mut ledger = CoverageLedger::new(&changed);
+        ledger.excluded = vec![
+            CoverageUnit::Lines {
+                file: 0,
+                side: SourceSide::New,
+                first: 2,
+                end: 3,
+            },
+            CoverageUnit::Lines {
+                file: 1,
+                side: SourceSide::New,
+                first: 1,
+                end: 2,
+            },
+        ];
+        let answer = answer(
+            "future",
+            vec![reference("src/a.rs", SourceSide::New, Some((1, 2)))],
+            vec![
+                reference("src/a.rs", SourceSide::Old, Some((1, 1))),
+                reference("src/a.rs", SourceSide::New, Some((2, 2))),
+            ],
+            false,
+        );
+        for enabled in [true, false] {
+            let before = ledger.clone();
+            let projected =
+                ledger.feedback_after_answer(&changed, answer.question.as_ref().unwrap(), enabled);
+            assert_eq!(ledger, before, "projection must not credit a real answer");
+            assert!(projected.awaiting_answer.is_empty());
+            assert_eq!(
+                projected.covered_percent_tenths,
+                Some(if enabled { 666 } else { 600 })
+            );
+            assert_eq!(projected.summary.remaining, if enabled { 1 } else { 2 });
+            assert_eq!(projected.uncovered.total_files, if enabled { 1 } else { 2 });
+            let mut answered = ledger.clone();
+            let mut deferred = answer.clone();
+            deferred.deferred = true;
+            answered.credit(&deferred, &changed);
+            assert_eq!(answered, ledger, "deferral never applies projected credit");
+            answered.credit(&answer, &changed);
+            let mut actual = answered.feedback(&changed, &[], enabled);
+            actual.revision = projected.revision;
+            assert_eq!(projected, actual);
+            assert_eq!(
+                answered.feedback_after_answer(
+                    &changed,
+                    answer.question.as_ref().unwrap(),
+                    enabled
+                ),
+                answered.feedback(&changed, &[], enabled),
+                "overlapping questions must not double count"
+            );
+        }
+    }
+
+    #[test]
+    fn legacy_receipts_keep_actual_coverage_when_restored() {
+        let changed = comparison("", None, Some("empty.rs"));
+        let feedback = CoverageLedger::new(&changed).feedback(&changed, &[], false);
+        let stored = serde_json::to_value(&feedback).unwrap();
+        let restored: CoverageReceipt = serde_json::from_value(stored.clone()).unwrap();
+        assert_eq!(restored, CoverageReceipt::Current(feedback));
+        assert_eq!(serde_json::to_value(restored).unwrap(), stored);
     }
 
     #[test]

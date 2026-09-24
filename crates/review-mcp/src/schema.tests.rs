@@ -2,6 +2,43 @@ use super::Handler;
 use serde_json::json;
 
 #[test]
+fn question_results_label_projected_coverage_and_conclusions_keep_actual_coverage() {
+    let coverage: review_explore::CoverageFeedback = serde_json::from_value(json!({
+        "revision": 3,
+        "summary": {"complete":true,"total":2,"required":2,"explored_required":1,
+            "excluded_unexplored":0,"remaining":1,"percent":50,"limitations":[]},
+        "covered_percent_tenths": 500,
+        "total_gaps":1,"has_more":false,"unassigned_required":[],"awaiting_answer":[],
+        "jev":{"mode":"disabled","excluded_unexplored":0,"pending_or_unclassified":0}
+    }))
+    .unwrap();
+    for (receipt, field, absent) in [
+        (
+            review_explore::CoverageReceipt::AfterAnswer {
+                coverage_after_answer: coverage.clone(),
+            },
+            "coverage_after_answer",
+            "coverage",
+        ),
+        (
+            review_explore::CoverageReceipt::Current(coverage.clone()),
+            "coverage",
+            "coverage_after_answer",
+        ),
+    ] {
+        let result = Handler::result(super::Response::Explore {
+            applied: true,
+            coverage: receipt,
+        });
+        let text = result.content[0].as_text().unwrap();
+        let value: serde_json::Value = serde_json::from_str(&text.text).unwrap();
+        assert_eq!(value["accepted"], true);
+        assert_eq!(value[field], serde_json::to_value(&coverage).unwrap());
+        assert!(value.get(absent).is_none());
+    }
+}
+
+#[test]
 fn explore_tool_schemas_describe_the_full_submission_without_a_kickoff_example() {
     let tools = Handler::tools();
     let question = tools

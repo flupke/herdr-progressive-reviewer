@@ -4,12 +4,12 @@ use super::*;
 fn coverage_overview_opens_a_gap_without_losing_the_question_draft() {
     let (mut fixture, request) = ExploreUi::new();
     fixture.respond(&request, 1);
-    assert!(fixture.text().contains("Coverage 0% of changed lines"));
+    assert!(fixture.text().contains("Coverage 0% of required lines"));
     fixture.app.update(UserInput::Key(Key::Char('1')));
     fixture
         .app
         .update(UserInput::Paste("Keep this draft".into()));
-    fixture.click("Coverage 0% of changed lines");
+    fixture.click("Coverage 0% of required lines");
     assert!(fixture.text().contains("Needs answers"));
     fixture.click("Next unexplored region");
     assert_eq!(fixture.app.navigation, ReviewNavigation::Explore);
@@ -25,9 +25,9 @@ fn coverage_overview_opens_a_gap_without_losing_the_question_draft() {
         Some("policy.rs")
     );
     assert!(fixture.text().contains("File diff · policy.rs"));
-    assert!(fixture.text().contains("Coverage 0% of changed lines"));
+    assert!(fixture.text().contains("Coverage 0% of required lines"));
     fixture.click("Close diff");
-    fixture.click("Coverage 0% of changed lines");
+    fixture.click("Coverage 0% of required lines");
     assert!(fixture.text().contains("Keep this draft"));
 }
 
@@ -53,11 +53,11 @@ fn coverage_control_reveals_overview_from_a_scrolled_question_and_restores_scrol
         fixture.app.update(UserInput::Key(Key::PageDown));
     }
     let before = fixture.text();
-    assert!(!before.contains("of changed lines explored"));
-    fixture.click("Coverage 0% of changed lines");
+    assert!(!before.contains("of required changed lines answered"));
+    fixture.click("Coverage 0% of required lines");
     let overview = fixture.text();
     assert!(
-        overview.contains("0% of changed lines explored"),
+        overview.contains("0% of required changed lines answered"),
         "{overview}"
     );
     assert!(overview.contains("Needs answers"), "{overview}");
@@ -73,7 +73,7 @@ fn coverage_control_reveals_overview_from_a_scrolled_question_and_restores_scrol
                 .collect::<String>()
                 .contains("┌ Coverage "))
     );
-    fixture.click("Coverage 0% of changed lines");
+    fixture.click("Coverage 0% of required lines");
     assert_eq!(fixture.text(), before);
 }
 
@@ -81,7 +81,7 @@ fn coverage_control_reveals_overview_from_a_scrolled_question_and_restores_scrol
 fn show_file_diff_reveals_the_selected_diff_inside_coverage() {
     let (mut fixture, request) = ExploreUi::new();
     fixture.respond(&request, 1);
-    fixture.click("Coverage 0% of changed lines");
+    fixture.click("Coverage 0% of required lines");
     fixture.click("[Show file diff]");
     let visible = fixture.text();
     assert!(visible.contains("File diff ·"), "{visible}");
@@ -122,7 +122,7 @@ fn coverage_header_reports_credited_units_even_below_one_percent() {
     });
     let coverage = fixture.text();
     assert!(
-        coverage.contains("Coverage 0.4% of changed lines"),
+        coverage.contains("Coverage 0.4% of required lines"),
         "{coverage}"
     );
 }

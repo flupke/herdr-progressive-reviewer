@@ -68,11 +68,12 @@ impl ExploreComponent {
             return;
         };
         let summary = coverage.summary(self.completion_policy.unwrap_or(self.jev_enabled));
-        let lines = coverage.changed_line_coverage(None);
+        let exclusions_enabled = self.completion_policy.unwrap_or(self.jev_enabled);
+        let lines = coverage.required_changed_line_coverage(None, exclusions_enabled);
         if summary.complete && lines.total > 0 {
             layout.text(
                 format!(
-                    "{} of changed lines explored ({} of {})",
+                    "{} of required changed lines answered ({} of {})",
                     Self::changed_line_percent(lines),
                     lines.explored,
                     lines.total
@@ -81,12 +82,12 @@ impl ExploreComponent {
                 None,
             );
         } else if summary.complete {
-            layout.text("No added or deleted lines in this diff", palette.text, None);
+            layout.text("No required added or deleted lines", palette.text, None);
         } else {
             layout.text("Changed-line count unavailable", palette.warning, None);
         }
         layout.text(
-            "Added and deleted lines count; unchanged context and metadata do not. Lines excluded by Jev remain unexplored.",
+            "Counts answered added/deleted lines divided by lines still requiring review after Jev filtering; context and metadata omitted. Filtering is not human review.",
             palette.dim,
             None,
         );
@@ -175,14 +176,17 @@ impl ExploreComponent {
         remaining: &[review_explore::CoverageUnit],
         palette: Palette,
     ) {
-        let lines = coverage.changed_line_coverage(Some(file.file));
+        let lines = coverage.required_changed_line_coverage(
+            Some(file.file),
+            self.completion_policy.unwrap_or(self.jev_enabled),
+        );
         let progress = if !file.summary.complete {
             "changed-line count unavailable".into()
         } else if lines.total == 0 {
-            "no changed text lines".into()
+            "no required changed text lines".into()
         } else {
             format!(
-                "{} of changed lines explored ({} of {})",
+                "{} of required changed lines answered ({} of {})",
                 Self::changed_line_percent(lines),
                 lines.explored,
                 lines.total

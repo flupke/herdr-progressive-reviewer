@@ -197,7 +197,7 @@ impl crate::ExplorePass {
                 eyre::ensure!(
                     self.coverage_receipts
                         .get(&completion.request)
-                        .is_some_and(|receipt| receipt.summary == completion.summary),
+                        .is_some_and(|receipt| receipt.feedback().summary == completion.summary),
                     "saved completion coverage receipt is inconsistent"
                 );
             }

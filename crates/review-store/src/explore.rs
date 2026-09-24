@@ -2,8 +2,8 @@
 use super::{Error, Result, ReviewStore, StateKey};
 use fs2::FileExt;
 use review_explore::{
-    CompletionMark, CoverageFeedback, ExplorePass, InterviewUpdate, PriorMark, ReviewCompletion,
-    ViewSave,
+    CompletionMark, CoverageFeedback, CoverageReceipt, ExplorePass, InterviewUpdate, PriorMark,
+    ReviewCompletion, ViewSave,
 };
 use review_types::ReviewUnit;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -38,7 +38,7 @@ impl ReviewStore {
         instance: &str,
         update: &InterviewUpdate,
         exclusions_enabled: bool,
-    ) -> Result<(bool, ExplorePass, CoverageFeedback)> {
+    ) -> Result<(bool, ExplorePass, CoverageReceipt)> {
         let _lock = self.explore_lock(unit)?;
         if self
             .load_explore_history(unit)?
@@ -91,7 +91,7 @@ impl ReviewStore {
                 &pass,
                 update,
                 exclusions_enabled,
-                &feedback,
+                feedback.feedback(),
             )?);
         }
         self.save_explore_revision(unit, instance, &mut pass)?;

@@ -1,6 +1,6 @@
 //! Durable investigation state. Sources and runtime capabilities are never stored here.
 use crate::{
-    CoverageFeedback, CoverageLedger, Exploration, ImplementationRequest, InterviewUpdate,
+    CoverageLedger, CoverageReceipt, Exploration, ImplementationRequest, InterviewUpdate,
     TurnRequest,
 };
 use herdr_client::protocol::AgentSession;
@@ -140,7 +140,7 @@ pub struct ExplorePass {
     #[serde(default)]
     pub completion: Option<ReviewCompletion>,
     #[serde(default)]
-    pub coverage_receipts: BTreeMap<String, CoverageFeedback>,
+    pub coverage_receipts: BTreeMap<String, CoverageReceipt>,
 }
 
 impl ExplorePass {
@@ -163,7 +163,7 @@ impl ExplorePass {
         &mut self,
         update: &InterviewUpdate,
         exclusions_enabled: bool,
-    ) -> eyre::Result<(bool, CoverageFeedback)> {
+    ) -> eyre::Result<(bool, CoverageReceipt)> {
         let mut candidate = self.exploration.clone();
         let applied = candidate.submit(update.clone())?;
         if !applied && let Some(receipt) = self.coverage_receipts.get(&update.request) {
@@ -204,9 +204,21 @@ impl ExplorePass {
                 .cloned()
                 .into_iter()
                 .collect::<Vec<_>>();
-        let feedback =
-            self.coverage
-                .feedback(&self.exploration.comparison, &pending, exclusions_enabled);
+        let feedback = if let Some(question) = &update.next {
+            CoverageReceipt::AfterAnswer {
+                coverage_after_answer: self.coverage.feedback_after_answer(
+                    &self.exploration.comparison,
+                    question,
+                    exclusions_enabled,
+                ),
+            }
+        } else {
+            CoverageReceipt::Current(self.coverage.feedback(
+                &self.exploration.comparison,
+                &pending,
+                exclusions_enabled,
+            ))
+        };
         if applied {
             self.coverage_receipts
                 .insert(update.request.clone(), feedback.clone());

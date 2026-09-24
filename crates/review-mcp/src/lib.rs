@@ -46,7 +46,7 @@ pub enum Response {
     Posted(MessageId),
     Explore {
         applied: bool,
-        coverage: review_explore::CoverageFeedback,
+        coverage: review_explore::CoverageReceipt,
     },
 }
 

@@ -210,19 +210,11 @@ impl Worker {
         );
         let comparison = comparison.clone();
         let agent = self.bound_explore_agent()?;
-        let mut prepared = review_explore_runner::PreparedTurn::prepare(
+        let prepared = review_explore_runner::PreparedTurn::prepare(
             request,
             &comparison,
             &self.explore.access,
         );
-        if request.answer.is_some()
-            && let Some(pass) = &self.explore.pass
-        {
-            let feedback = pass
-                .coverage
-                .feedback(&comparison, &[], jev::key().is_some());
-            prepared = prepared.with_coverage(&feedback);
-        }
         self.explore.pending = Some((request.instance.clone(), request.request.clone()));
         self.explore.agent = Some(agent.clone());
         Ok((prepared, agent))

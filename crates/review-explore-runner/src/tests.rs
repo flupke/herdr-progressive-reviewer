@@ -71,6 +71,27 @@ fn kickoff_supplies_scope_and_identity_and_uses_the_mcp_schema() {
 }
 
 #[test]
+fn wakeup_omits_coverage_feedback() {
+    let comparison = comparison();
+    let mut exploration = Exploration::new(Arc::new(comparison.clone()));
+    let mut request = exploration.request(None, None).unwrap();
+    request.answer = Some(answer(&request));
+    let prompt = PreparedTurn::prepare(&request, &comparison, "fresh-access").prompt();
+    for label in [
+        "Coverage inspection reminder",
+        "Uncovered directory groups",
+        "Uncovered files",
+        "Unassigned:",
+        "Awaiting answer:",
+        "covered_percent_tenths",
+        "coverage_after_answer",
+    ] {
+        assert!(!prompt.contains(label), "{label}");
+    }
+    assert!(prompt.contains("Answer ID: answer-id"));
+}
+
+#[test]
 fn wakeup_delivers_full_selected_text_and_comment_with_plain_identity() {
     let comparison = comparison();
     let mut exploration = Exploration::new(Arc::new(comparison.clone()));

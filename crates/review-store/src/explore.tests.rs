@@ -88,8 +88,14 @@ fn assert_explicit_conclusion(cited_lines: u32, expected_percent: u8) {
         .submit_explore(&"aabb".into(), &kickoff.instance, &first, false)
         .unwrap();
     assert!(applied);
-    assert_eq!(feedback.summary.percent, Some(0));
-    assert_eq!(feedback.awaiting_answer.len(), 1);
+    assert!(matches!(
+        feedback,
+        review_explore::CoverageReceipt::AfterAnswer { .. }
+    ));
+    assert_eq!(feedback.feedback().summary.percent, Some(expected_percent));
+    assert!(feedback.feedback().awaiting_answer.is_empty());
+    assert_eq!(pass.coverage.summary(false).percent, Some(0));
+    assert!(pass.coverage.answers.is_empty());
     let first_receipt = feedback.clone();
     let shown = pass.exploration.questions.last().unwrap().clone();
     let answer = pass
@@ -172,7 +178,7 @@ fn assert_explicit_conclusion(cited_lines: u32, expected_percent: u8) {
     let (_, pass, feedback) = store
         .submit_explore(&"aabb".into(), &kickoff.instance, &followup, false)
         .unwrap();
-    assert_eq!(feedback.summary.percent, Some(expected_percent));
+    assert_eq!(feedback.feedback().summary.percent, Some(expected_percent));
     assert!(
         pass.completion.is_none(),
         "another concept can be explored at 100%"
@@ -204,10 +210,20 @@ fn assert_explicit_conclusion(cited_lines: u32, expected_percent: u8) {
         .submit_explore(&"aabb".into(), &kickoff.instance, &conclusion, false)
         .unwrap();
     assert!(applied);
-    assert_eq!(feedback.summary.percent, Some(expected_percent));
-    assert_eq!(feedback.summary.remaining, u64::from(2 - cited_lines));
+    assert!(matches!(
+        feedback,
+        review_explore::CoverageReceipt::Current(_)
+    ));
+    assert_eq!(feedback.feedback().summary.percent, Some(expected_percent));
+    assert_eq!(
+        feedback.feedback().summary.remaining,
+        u64::from(2 - cited_lines)
+    );
     assert!(pass.completion.as_ref().unwrap().completed);
-    assert_eq!(pass.completion.as_ref().unwrap().summary, feedback.summary);
+    assert_eq!(
+        pass.completion.as_ref().unwrap().summary,
+        feedback.feedback().summary
+    );
     assert_eq!(
         pass.completion
             .as_ref()

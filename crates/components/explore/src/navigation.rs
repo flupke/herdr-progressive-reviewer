@@ -235,12 +235,15 @@ impl ExploreComponent {
         };
         let summary = coverage.summary(self.completion_policy.unwrap_or(self.jev_enabled));
         let label = if summary.complete {
-            let lines = coverage.changed_line_coverage(None);
+            let lines = coverage.required_changed_line_coverage(
+                None,
+                self.completion_policy.unwrap_or(self.jev_enabled),
+            );
             if lines.total == 0 {
-                "Coverage · No changed text lines".into()
+                "Coverage · No required changed lines".into()
             } else {
                 format!(
-                    "Coverage {} of changed lines",
+                    "Coverage {} of required lines",
                     Self::changed_line_percent(lines)
                 )
             }
