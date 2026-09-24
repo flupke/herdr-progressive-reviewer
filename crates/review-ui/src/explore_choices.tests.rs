@@ -165,7 +165,7 @@ fn the_question_and_answer_controls_precede_evidence() {
             .unwrap();
         let evidence = rows
             .iter()
-            .position(|row| row.contains("Evidence 1/2"))
+            .position(|row| row.contains("Evidence 2 · Supporting"))
             .unwrap();
         let editor = rows
             .iter()
@@ -178,7 +178,7 @@ fn the_question_and_answer_controls_precede_evidence() {
         assert!(
             rows[question + 1..choice]
                 .iter()
-                .all(|row| row.trim().is_empty())
+                .all(|row| row.trim_matches(['│', ' ']).is_empty())
         );
     }
 }

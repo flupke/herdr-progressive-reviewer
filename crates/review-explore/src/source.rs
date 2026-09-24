@@ -114,11 +114,6 @@ impl Source {
 pub struct EvidenceRef {
     #[serde(flatten)]
     pub location: CodeLocation,
-    /// Establishes section: what the source shows, as a short summary paragraph
-    /// followed by optional Markdown detail. Omit the section heading.
-    pub relationship: String,
-    /// For your answer section: why this snippet could change the answer, as a short
-    /// summary paragraph followed by optional Markdown detail. Omit the section heading.
-    #[serde(default)]
-    pub decision_relevance: String,
+    /// Why this source matters to the question, as a short paragraph with optional detail.
+    pub notes: String,
 }

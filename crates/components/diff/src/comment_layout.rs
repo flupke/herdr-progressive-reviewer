@@ -13,7 +13,6 @@ use ui_theme::Palette;
 use crate::LoadedDocument;
 use crate::comments::{CommentTarget, Comments};
 
-mod button;
 mod controls;
 mod inline;
 mod thread;

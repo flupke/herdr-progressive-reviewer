@@ -49,9 +49,9 @@ fn conversation_redirects_agenda_and_opens_new_evidence_in_the_native_viewer() {
                 last_line: 1,
             }),
         },
-        relationship: "Rebuild uses a shared origin".into(),
-        decision_relevance: "This policy determines whether the proposed recovery is sufficient."
-            .into(),
+        notes:
+            "Rebuild uses a shared origin, determining whether the proposed recovery is sufficient."
+                .into(),
     };
     response.reply = Some(Reply {text:"Rebuild reads authoritative rows. Migration is unnecessary; simultaneous rebuilds still matter.".into(),evidence:vec![evidence.clone()]});
     response.agenda.push(AgendaChange {
@@ -224,10 +224,7 @@ fn question_sections_show_markdown_summaries_and_details_without_expansion() {
     );
     question.visual = Some("Simplified:\n\n```text\norigin -> cache\n```".into());
     question.assessments = Some(cache_assessment(question.evidence[0].clone()));
-    question.evidence[0].relationship =
-        "The **policy** controls reuse.\n\nIt reads `resolved()` before rebuilding.".into();
-    question.evidence[0].decision_relevance =
-        "Your choice controls rebuilding.\n\nConsider simultaneous requests.".into();
+    question.evidence[0].notes = "The **policy** controls reuse.\n\nIt reads `resolved()` before rebuilding. Your choice controls rebuilding.\n\nConsider simultaneous requests.".into();
     publish(&mut fixture, response);
 
     let buffer = fixture.buffer();
@@ -236,20 +233,14 @@ fn question_sections_show_markdown_summaries_and_details_without_expansion() {
         .chunks(usize::from(buffer.area.width))
         .collect();
     let mut previous = 0;
-    for heading in [
-        "Context",
-        "Door",
-        "Blast radius",
-        "Establishes",
-        "For your answer",
-    ] {
+    for heading in ["Context", "Door", "Blast radius"] {
         let index = rows
             .iter()
             .position(|row| {
                 row.iter()
                     .map(ratatui::buffer::Cell::symbol)
                     .collect::<String>()
-                    .trim()
+                    .trim_matches(['│', ' '])
                     == heading
             })
             .unwrap_or_else(|| panic!("missing Markdown heading: {heading}"));
@@ -257,7 +248,7 @@ fn question_sections_show_markdown_summaries_and_details_without_expansion() {
         previous = index;
         let first = rows[index]
             .iter()
-            .find(|cell| cell.symbol() != " ")
+            .find(|cell| cell.symbol() != " " && cell.symbol() != "│")
             .unwrap();
         assert!(first.modifier.contains(ratatui::style::Modifier::BOLD));
     }
@@ -363,7 +354,6 @@ fn resuming_or_revisiting_a_correction_preserves_its_original_answer_link() {
         fixture.app.update(UserInput::Key(Key::Tab));
         if revisit {
             fixture.app.update(UserInput::Key(Key::Char(']')));
-            fixture.click("[Reply]");
             fixture.app.update(UserInput::Paste("Other draft".into()));
             fixture.app.update(UserInput::Key(Key::Tab));
             fixture.app.update(UserInput::Key(Key::Char('[')));
@@ -448,8 +438,7 @@ fn correcting_a_question_from_the_conclusion_composer_keeps_both_contexts_separa
         .app
         .update(UserInput::Paste("Unposted opening context".into()));
     fixture.click("[Previous]");
-    fixture.click("[More]");
-    fixture.click("[Correct]");
+    fixture.app.update(UserInput::Key(Key::Char('x')));
     fixture
         .app
         .update(UserInput::Paste("Question correction".into()));

@@ -53,11 +53,11 @@ impl Durability {
 
 impl ExploreComponent {
     pub(super) fn history_changed(&mut self, event: &ui_events::ExploreHistoryChanged) {
-        self.durable.passes.clone_from(&event.0);
+        self.durable.passes.clone_from(&event.0.passes);
         self.durable.historical = self
             .exploration
             .as_ref()
-            .is_some_and(|pass| event.0.last() != Some(&pass.instance));
+            .is_some_and(|pass| event.0.is_historical(&pass.instance));
     }
 
     fn page(&self) -> ExplorePage {

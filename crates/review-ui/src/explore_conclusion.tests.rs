@@ -78,7 +78,7 @@ fn conclusion_has_its_own_page_and_sends_only_the_edited_tasks_once() {
         "duplicate must not navigate"
     );
     fixture.click("[Conclusion]");
-    let request = implementation(fixture.click_actions("[Implement]"));
+    let request = implementation(fixture.click_actions(" Implement "));
     assert_eq!(
         request.text,
         "Only this edited task — keep exact.\nWith a second line."
@@ -103,15 +103,15 @@ fn conclusion_has_its_own_page_and_sends_only_the_edited_tasks_once() {
             .text()
             .contains("Implementation request sent to the agent.")
     );
-    assert!(!fixture.text().contains("[Implement]"));
+    assert!(!fixture.text().contains(" Implement "));
 }
 
 #[test]
 fn failed_or_cancelled_delivery_keeps_edits_and_ignores_obsolete_acknowledgements() {
     let (mut fixture, request) = ExploreUi::new();
     finish(&mut fixture, &request);
-    let first = implementation(fixture.click_actions("[Implement]"));
-    let actions = fixture.click_actions("[Cancel implementation]");
+    let first = implementation(fixture.click_actions(" Implement "));
+    let actions = fixture.click_actions(" Cancel implementation ");
     assert!(
         actions
             .iter()
@@ -125,7 +125,7 @@ fn failed_or_cancelled_delivery_keeps_edits_and_ignores_obsolete_acknowledgement
             state: review_explore::DispatchState::Cancelled,
         });
     assert!(!fixture.text().contains("Implementation request sent"));
-    let second = implementation(fixture.click_actions("[Implement]"));
+    let second = implementation(fixture.click_actions(" Implement "));
     fixture
         .app
         .publish(ui_events::ExploreImplementationFinished {
@@ -142,7 +142,7 @@ fn failed_or_cancelled_delivery_keeps_edits_and_ignores_obsolete_acknowledgement
             state: review_explore::DispatchState::NotSent("Agent unavailable".into()),
         });
     assert!(fixture.text().contains("Agent unavailable"));
-    let third = implementation(fixture.click_actions("[Implement]"));
+    let third = implementation(fixture.click_actions(" Implement "));
     assert_ne!(third.delivery, second.delivery);
     assert_eq!(third.text, second.text);
 }
@@ -154,7 +154,7 @@ fn opening_stays_separate_and_empty_tasks_do_not_offer_implementation() {
     update.next = None;
     update.conclusion = Some(conclusion("No implementation is agreed."));
     submit(&mut fixture, update);
-    assert!(!fixture.text().contains("[Implement]"));
+    assert!(!fixture.text().contains(" Implement "));
     fixture.click("[Opening]");
     assert!(!fixture.text().contains("To be implemented"));
     assert!(fixture.text().contains("The source supports this context."));
@@ -173,8 +173,8 @@ fn opening_stays_separate_and_empty_tasks_do_not_offer_implementation() {
 fn cancel_racing_with_completed_delivery_reports_that_the_request_was_sent() {
     let (mut fixture, request) = ExploreUi::new();
     finish(&mut fixture, &request);
-    let request = implementation(fixture.click_actions("[Implement]"));
-    fixture.click("[Cancel implementation]");
+    let request = implementation(fixture.click_actions(" Implement "));
+    fixture.click(" Cancel implementation ");
     fixture
         .app
         .publish(ui_events::ExploreImplementationFinished {
@@ -187,14 +187,14 @@ fn cancel_racing_with_completed_delivery_reports_that_the_request_was_sent() {
             .text()
             .contains("Implementation request sent to the agent.")
     );
-    assert!(!fixture.text().contains("[Implement]"));
+    assert!(!fixture.text().contains(" Implement "));
 }
 
 #[test]
 fn a_receipt_from_a_previous_attempt_cannot_finish_the_current_implementation() {
     let (mut fixture, kickoff) = ExploreUi::new();
     let conclusion = finish(&mut fixture, &kickoff);
-    let request = implementation(fixture.click_actions("[Implement]"));
+    let request = implementation(fixture.click_actions(" Implement "));
     let mut exploration = review_explore::Exploration::new(fixture.comparison.clone());
     exploration.instance.clone_from(&kickoff.instance);
     let mut pass = review_explore::ExplorePass::new(exploration);
@@ -233,8 +233,8 @@ fn a_receipt_from_a_previous_attempt_cannot_finish_the_current_implementation() 
             attempt: Some(old.attempt),
             state: review_explore::DispatchState::Cancelled,
         });
-    assert!(fixture.text().contains("[Cancel implementation]"));
-    assert!(!fixture.text().contains("[Implement]"));
+    assert!(fixture.text().contains(" Cancel implementation "));
+    assert!(!fixture.text().contains(" Implement "));
     fixture
         .app
         .publish(ui_events::ExploreImplementationFinished {
@@ -243,7 +243,7 @@ fn a_receipt_from_a_previous_attempt_cannot_finish_the_current_implementation() 
             state: review_explore::DispatchState::Unknown,
         });
     assert!(fixture.text().contains("Delivery outcome unknown"));
-    assert!(!fixture.text().contains("[Implement]") && !fixture.text().contains("[Retry]"));
+    assert!(!fixture.text().contains(" Implement ") && !fixture.text().contains(" Retry "));
 }
 
 #[test]
@@ -329,7 +329,7 @@ fn revised_conclusions_retain_each_edited_list_reply_and_draft_in_posting_order(
         ] {
             assert!(text.contains(expected), "{expected}: {text}");
         }
-        assert!(!text.contains("[Implement]") && !text.contains("Second edited scope:"));
+        assert!(!text.contains(" Implement ") && !text.contains("Second edited scope:"));
         fixture.click("To be implemented");
         assert!(
             !fixture
@@ -340,7 +340,7 @@ fn revised_conclusions_retain_each_edited_list_reply_and_draft_in_posting_order(
         );
         fixture.click("[Latest]");
         assert!(fixture.text().contains("Conclusion 2/2"));
-        let tasks = implementation(fixture.click_actions("[Implement]"));
+        let tasks = implementation(fixture.click_actions(" Implement "));
         assert_eq!(tasks.conclusion, second.request);
         assert!(tasks.text.starts_with("Second edited scope:\n"));
         assert!(!tasks.text.contains("First edited scope") && !tasks.text.contains("context"));

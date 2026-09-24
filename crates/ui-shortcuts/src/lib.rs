@@ -72,6 +72,7 @@ pub enum ApplicationShortcut {
     ChangeFocus,
     OpenFiles,
     OpenThreads,
+    OpenExplore,
     ToggleNavigation,
     NewReplies,
     Clear,
@@ -371,6 +372,7 @@ impl ShortcutSet {
                     ApplicationShortcut::ChangeFocus
                         | ApplicationShortcut::OpenFiles
                         | ApplicationShortcut::OpenThreads
+                        | ApplicationShortcut::OpenExplore
                         | ApplicationShortcut::ToggleNavigation
                         | ApplicationShortcut::NewReplies
                         | ApplicationShortcut::Clear
@@ -391,6 +393,7 @@ impl ShortcutSet {
                             ApplicationShortcut::ChangeFocus
                                 | ApplicationShortcut::OpenFiles
                                 | ApplicationShortcut::OpenThreads
+                                | ApplicationShortcut::OpenExplore
                                 | ApplicationShortcut::ToggleNavigation
                                 | ApplicationShortcut::NewReplies
                                 | ApplicationShortcut::Clear
@@ -420,7 +423,7 @@ impl ShortcutSet {
 
 const SHORTCUTS: &[ShortcutDefinition] = &[
     ShortcutDefinition {
-        description: Some("Open Files / Threads"),
+        description: Some("Open Files / Threads / Explore"),
         bindings: &[
             ShortcutBinding::one(Key::Char('f'), application(ApplicationShortcut::OpenFiles)),
             ShortcutBinding::alias(Key::Char('F'), application(ApplicationShortcut::OpenFiles)),
@@ -431,6 +434,14 @@ const SHORTCUTS: &[ShortcutDefinition] = &[
             ShortcutBinding::alias(
                 Key::Char('T'),
                 application(ApplicationShortcut::OpenThreads),
+            ),
+            ShortcutBinding::one(
+                Key::Char('e'),
+                application(ApplicationShortcut::OpenExplore),
+            ),
+            ShortcutBinding::alias(
+                Key::Char('E'),
+                application(ApplicationShortcut::OpenExplore),
             ),
         ],
     },
@@ -505,10 +516,15 @@ const SHORTCUTS: &[ShortcutDefinition] = &[
                 Key::HalfPageDown,
                 navigation(NavigationShortcut::MoveHalfPageDown),
             ),
+            ShortcutBinding::alias(
+                Key::PageDown,
+                navigation(NavigationShortcut::MoveHalfPageDown),
+            ),
             ShortcutBinding::one(
                 Key::HalfPageUp,
                 navigation(NavigationShortcut::MoveHalfPageUp),
             ),
+            ShortcutBinding::alias(Key::PageUp, navigation(NavigationShortcut::MoveHalfPageUp)),
         ],
     },
     ShortcutDefinition {

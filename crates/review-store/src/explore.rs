@@ -2,13 +2,13 @@
 use super::{Error, Result, ReviewStore, StateKey};
 use fs2::FileExt;
 use review_explore::{
-    CompletionMark, CoverageFeedback, CoverageReceipt, ExplorePass, InterviewUpdate, PriorMark,
-    ReviewCompletion, ViewSave,
+    CompletionMark, CoverageFeedback, CoverageReceipt, ExploreHistory, ExplorePass,
+    InterviewUpdate, PriorMark, ReviewCompletion, ViewSave,
 };
 use review_types::ReviewUnit;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{
-    fs::OpenOptions,
+    fs::{self, OpenOptions},
     io::Read,
     os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
@@ -18,11 +18,6 @@ const VERSION: u32 = 1;
 // A pass grows across many valid 1 MiB submissions. This is not a source archive.
 const MAX_DOMAIN: u64 = 256 * 1024 * 1024;
 const MAX_VIEW: u64 = 16 * 1024 * 1024;
-
-#[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
-pub struct ExploreHistory {
-    pub passes: Vec<String>,
-}
 
 #[derive(Deserialize, Serialize)]
 struct Stored<T> {
@@ -40,13 +35,8 @@ impl ReviewStore {
         exclusions_enabled: bool,
     ) -> Result<(bool, ExplorePass, CoverageReceipt)> {
         let _lock = self.explore_lock(unit)?;
-        if self
-            .load_explore_history(unit)?
-            .passes
-            .last()
-            .map(String::as_str)
-            != Some(instance)
-        {
+        let history = self.load_explore_history(unit)?;
+        if history.is_historical(instance) {
             return Err(Error::Explore(
                 "this pass is history; open the latest pass to continue".into(),
             ));
@@ -311,6 +301,106 @@ impl ReviewStore {
         )
     }
 
+    fn explore_entries(directory: &Path) -> Result<impl Iterator<Item = Result<fs::DirEntry>>> {
+        let entries = fs::read_dir(directory).map_err(|source| Error::StateIo {
+            operation: "scan Explore state",
+            path: directory.to_path_buf(),
+            source,
+        })?;
+        let path = directory.to_path_buf();
+        Ok(entries.map(move |entry| {
+            entry.map_err(|source| Error::StateIo {
+                operation: "scan Explore state",
+                path: path.clone(),
+                source,
+            })
+        }))
+    }
+
+    /// Discard this review's unreadable Explore history without touching review marks or threads.
+    pub fn clear_explore(&self, unit: &ReviewUnit) -> Result<()> {
+        let _lock = self.explore_lock(unit)?;
+        let directory = self.explore_review(unit)?;
+        let index = directory.join("index.json");
+        Self::remove_explore_file(&index)?;
+        for entry in Self::explore_entries(&directory)? {
+            let entry = entry?;
+            if entry.file_name() == "lock" {
+                continue;
+            }
+            Self::remove_explore_file(&entry.path())?;
+        }
+        self.sync_parent(&index)
+    }
+
+    /// Rebuild a damaged index from readable passes, retaining their editor snapshots.
+    pub fn repair_explore_history(&self, unit: &ReviewUnit) -> Result<ExploreHistory> {
+        let _lock = self.explore_lock(unit)?;
+        let directory = self.explore_review(unit)?;
+        let mut passes = Vec::new();
+        for entry in Self::explore_entries(&directory)? {
+            let entry = entry?;
+            let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+                continue;
+            };
+            let Some(instance) = name.strip_suffix(".json") else {
+                continue;
+            };
+            if instance == "index" || Self::explore_id(instance).is_err() {
+                continue;
+            }
+            if self.load_explore(unit, instance).ok().flatten().is_some() {
+                let modified = entry
+                    .metadata()
+                    .and_then(|metadata| metadata.modified())
+                    .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                passes.push((modified, instance.to_owned()));
+            }
+        }
+        passes.sort();
+        let history = ExploreHistory {
+            passes: passes.into_iter().map(|(_, instance)| instance).collect(),
+            latest_editable: false,
+        };
+        self.write_explore(&directory.join("index.json"), &history, MAX_VIEW)?;
+        Ok(history)
+    }
+
+    /// Remove one unreadable pass and its editor state while preserving other passes.
+    pub fn clear_explore_pass(&self, unit: &ReviewUnit, instance: &str) -> Result<()> {
+        let _lock = self.explore_lock(unit)?;
+        let mut history = self.load_explore_history(unit)?;
+        if history.passes.last().is_some_and(|saved| saved == instance) {
+            history.latest_editable = false;
+        }
+        history.passes.retain(|saved| saved != instance);
+        let index = self.explore_review(unit)?.join("index.json");
+        self.write_explore(&index, &history, MAX_VIEW)?;
+        Self::remove_explore_file(&self.explore_path(unit, instance)?)?;
+        Self::remove_explore_file(&self.explore_view_path(unit, instance)?)?;
+        self.sync_parent(&index)
+    }
+
+    /// Discard a damaged editor snapshot while retaining its valid interview.
+    pub fn clear_explore_view(&self, unit: &ReviewUnit, instance: &str) -> Result<()> {
+        let _lock = self.explore_lock(unit)?;
+        let path = self.explore_view_path(unit, instance)?;
+        Self::remove_explore_file(&path)?;
+        self.sync_parent(&path)
+    }
+
+    fn remove_explore_file(path: &Path) -> Result<()> {
+        match fs::remove_file(path) {
+            Ok(()) => Ok(()),
+            Err(source) if source.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(source) => Err(Error::StateIo {
+                operation: "remove Explore state",
+                path: path.to_owned(),
+                source,
+            }),
+        }
+    }
+
     pub fn load_explore(&self, unit: &ReviewUnit, instance: &str) -> Result<Option<ExplorePass>> {
         let pass: Option<ExplorePass> =
             Self::read_explore(&self.explore_path(unit, instance)?, MAX_DOMAIN)?;
@@ -338,6 +428,7 @@ impl ReviewStore {
         }
         self.write_explore(&self.explore_path(unit, instance)?, &pass, MAX_DOMAIN)?;
         history.passes.push(instance.clone());
+        history.latest_editable = true;
         self.write_explore(
             &self.explore_review(unit)?.join("index.json"),
             &history,
@@ -355,7 +446,7 @@ impl ReviewStore {
     ) -> Result<(T, ExplorePass)> {
         let _lock = self.explore_lock(unit)?;
         let history = self.load_explore_history(unit)?;
-        if history.passes.last().map(String::as_str) != Some(instance) {
+        if history.is_historical(instance) {
             return Err(Error::Explore(
                 "this pass is history; open the latest pass to continue".into(),
             ));

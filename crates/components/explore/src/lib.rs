@@ -11,6 +11,7 @@ use ui_events::{
     EvidenceView, ExploreCaptured, ExploreComparisonAccepted, ExploreEvidence, ExploreFinished,
     ReviewNavigation, ReviewNavigationChanged,
 };
+use ui_shortcuts::{ShortcutMatcher, ShortcutSet};
 
 mod adaptive;
 mod choices;
@@ -51,12 +52,8 @@ enum Control {
     Reply(usize),
     GeneralReply,
     SelectChoice(usize),
-    More(usize),
-    References(usize),
-    Supporting(usize),
     Evidence(EvidenceView),
     Primary(EvidenceView),
-    Fit(EvidenceView),
     Edit,
     EditImplementation,
     PreviewUnexplored,
@@ -65,21 +62,6 @@ enum Control {
 }
 
 use review_explore::{ExplorePage as DraftKey, QuestionReading as TurnView};
-
-trait TurnControls {
-    fn toggle(&mut self, control: Control);
-}
-
-impl TurnControls for TurnView {
-    fn toggle(&mut self, control: Control) {
-        match control {
-            Control::More(_) => self.more = !self.more,
-            Control::References(_) => self.references = !self.references,
-            Control::Supporting(_) => self.supporting = !self.supporting,
-            _ => {}
-        }
-    }
-}
 
 #[derive(Clone, Copy, PartialEq)]
 enum Progress {
@@ -144,6 +126,8 @@ pub struct ExploreComponent {
     turns: Vec<TurnView>,
     editor: CommentEditor,
     editing: bool,
+    evidence_list_focused: bool,
+    evidence_keys: ShortcutMatcher,
     drafts: BTreeMap<DraftKey, Draft>,
     editor_target: EditorTarget,
     conclusions: BTreeMap<String, conclusion::ConclusionView>,
@@ -172,8 +156,10 @@ pub struct ExploreComponent {
     scroll: Cell<usize>,
     reveal: Cell<Option<Reveal>>,
     heights: BTreeMap<EvidenceView, u16>,
+    evidence_width: Option<u16>,
     layout: RefCell<ConversationLayout>,
     drag: Option<input::ResizeDrag>,
+    split_drag: bool,
     pointer_view: Option<flow::Window>,
 }
 
@@ -188,6 +174,8 @@ impl ExploreComponent {
             turns: Vec::new(),
             editor: CommentEditor::new("", EditorKeymap::Regular),
             editing: false,
+            evidence_list_focused: false,
+            evidence_keys: ShortcutMatcher::new(ShortcutSet::Files),
             drafts: BTreeMap::new(),
             editor_target: EditorTarget::Answer,
             conclusions: BTreeMap::new(),
@@ -216,8 +204,10 @@ impl ExploreComponent {
             scroll: Cell::new(0),
             reveal: Cell::new(None),
             heights: BTreeMap::new(),
+            evidence_width: None,
             layout: RefCell::default(),
             drag: None,
+            split_drag: false,
             pointer_view: None,
         }
     }
@@ -306,6 +296,7 @@ impl ExploreComponent {
                 self.exploration = Some(Exploration::new(comparison.clone()));
                 self.coverage_dirty = true;
                 self.selected = 0;
+                self.evidence_list_focused = false;
                 self.turns.clear();
                 self.drafts.clear();
                 self.heights.clear();
@@ -439,6 +430,7 @@ impl ExploreComponent {
         self.compose_scope = ComposeScope::Question;
         self.selected = index;
         self.editing = false;
+        self.evidence_list_focused = false;
         self.editor_target = EditorTarget::Answer;
         self.drag = None;
         self.pointer_view = None;
@@ -534,7 +526,7 @@ impl ExploreComponent {
                 }
                 self.status = "Retrying interview turn…".into();
                 self.progress = Progress::Waiting;
-                vec![Action::Explore(Command::Turn(Box::new(request)))]
+                vec![Action::Explore(Command::Retry(Box::new(request)))]
             }
             Err(error) => {
                 self.status = error.to_string();

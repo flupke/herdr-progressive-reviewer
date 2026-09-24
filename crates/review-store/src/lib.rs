@@ -16,7 +16,7 @@ use time::format_description::well_known::Rfc3339;
 const MAX_STATE_FILE_BYTES: u64 = 1024 * 1024;
 
 mod explore;
-pub use explore::ExploreHistory;
+pub use review_explore::ExploreHistory;
 mod checkpoint;
 mod guide;
 mod thread_sources;

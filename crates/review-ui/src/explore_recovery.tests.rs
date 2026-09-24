@@ -123,7 +123,7 @@ fn conclusion_previews_unexplored_files_and_reopens_the_checkpoint_diff() {
     });
     let narrow = fixture.text();
     assert!(
-        narrow.contains("Not explored · Files") && narrow.contains("Required checkpoint changes"),
+        narrow.contains("Not explored") && narrow.contains("Required checkpoint changes"),
         "{narrow}"
     );
     fixture.click("[Back to conclusion]");
@@ -400,7 +400,7 @@ fn restored_question_clamps_a_saved_scroll_past_the_document() {
 
     let text = fixture.text();
     assert!(text.contains("Question 1: keep resolved?"), "{text}");
-    assert!(text.contains("[Reply]"), "{text}");
+    assert!(!text.contains("[Reply]"), "{text}");
 }
 
 #[test]
@@ -545,7 +545,7 @@ fn separate_conclusions_restore_independent_editors_and_old_conclusion_cannot_im
         text.contains("Only edited tasks 0") && text.contains("Independent reply 0"),
         "{text}"
     );
-    assert!(!text.contains("[Implement]"));
+    assert!(!text.contains(" Implement "));
     fixture.click("[Conclusion]");
     let text = fixture.text();
     assert!(
@@ -553,7 +553,7 @@ fn separate_conclusions_restore_independent_editors_and_old_conclusion_cannot_im
         "{text}"
     );
     assert!(text.contains("file marking is pending"));
-    assert!(!text.contains("[Implement]"));
+    assert!(!text.contains(" Implement "));
 }
 
 #[test]

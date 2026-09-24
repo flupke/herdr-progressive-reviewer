@@ -89,7 +89,7 @@ fn explore_tool_schemas_describe_the_full_submission_without_a_kickoff_example()
     assert_eq!(question["alternatives"]["maxItems"], 5);
     assert_eq!(question["evidence"]["items"]["$ref"], "#/$defs/EvidenceRef");
     assert_eq!(
-        definitions["EvidenceRef"]["properties"]["decision_relevance"]["type"],
+        definitions["EvidenceRef"]["properties"]["notes"]["type"],
         "string"
     );
     assert_eq!(

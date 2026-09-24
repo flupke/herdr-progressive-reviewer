@@ -10,8 +10,9 @@ pub use coverage::{
     SignificanceResult, UncoveredArea, UncoveredOverview,
 };
 pub use durable::{
-    CompletionMark, ConversationBinding, DispatchId, DispatchResult, DispatchState, ExplorePass,
-    ImplementationDelivery, InterviewDelivery, PriorMark, ReviewCompletion, UnexploredAtConclusion,
+    CompletionMark, ConversationBinding, DispatchId, DispatchResult, DispatchState, ExploreHistory,
+    ExplorePass, ImplementationDelivery, InterviewDelivery, PriorMark, ReviewCompletion,
+    UnexploredAtConclusion,
 };
 pub use presentation::{
     EditorFocus, EvidencePosition, ExploreDraft, ExplorePage, ExploreViewState, QuestionReading,
@@ -45,6 +46,7 @@ pub use source::{CodeLocation, EvidenceRef, Source, SourceSide};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Command {
     Start,
+    Retry(Box<TurnRequest>),
     SaveView(Box<ViewSave>),
     OpenPass(String),
     Turn(Box<TurnRequest>),

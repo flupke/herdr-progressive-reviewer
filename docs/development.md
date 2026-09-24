@@ -94,8 +94,8 @@ unit identifies the base tree; in jj, the checkpoint identifies the reviewed com
 Submissions require the exact request ID, access value and pinned conversation.
 Answers arrive through the shared prompt delivery; no handoff files are created.
 References from replies, agenda reasons and consequence lenses are
-supporting sources. `Question.evidence` requires both `relationship` and
-`decision_relevance`; `Question.supporting` accepts background references. Sources
+supporting sources. `Question.evidence` and `Question.supporting` require `notes`
+that explain each source's relevance. Sources
 are deduplicated by path, side and range, retaining stable viewer
 identities. Every next question requires two to five distinct alternatives.
 `Question::choices` adds the built-in None of the above choice, with a stable ID

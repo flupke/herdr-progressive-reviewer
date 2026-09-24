@@ -201,7 +201,7 @@ impl Comparison {
     }
 
     pub(crate) fn validate_evidence(&self, evidence: &EvidenceRef) -> bool {
-        !evidence.relationship.trim().is_empty() && self.validate_location(&evidence.location)
+        !evidence.notes.trim().is_empty() && self.validate_location(&evidence.location)
     }
 
     pub(crate) fn maps(&self, entry: &ManifestEntry, location: &CodeLocation) -> bool {

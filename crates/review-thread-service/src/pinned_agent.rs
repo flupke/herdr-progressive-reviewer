@@ -9,6 +9,12 @@ use herdr_client::{
 #[derive(Clone, Debug)]
 pub struct PinnedAgent(Arc<Mutex<Agent>>);
 
+#[derive(Clone, Copy)]
+enum SessionPolicy {
+    Preserve,
+    InspectRetry,
+}
+
 impl PinnedAgent {
     pub fn new(agent: Agent) -> Self {
         Self(Arc::new(Mutex::new(agent)))
@@ -20,6 +26,19 @@ impl PinnedAgent {
 
     /// Missing native identity is transient; a known replacement is an error.
     pub fn current(&self, client: &HerdrClient) -> Result<Option<Agent>, String> {
+        self.current_with_policy(client, SessionPolicy::Preserve)
+    }
+
+    /// Inspect a Retry target without changing the pin before the pass is saved.
+    pub fn retry_target(&self, client: &HerdrClient) -> Result<Option<Agent>, String> {
+        self.current_with_policy(client, SessionPolicy::InspectRetry)
+    }
+
+    fn current_with_policy(
+        &self,
+        client: &HerdrClient,
+        policy: SessionPolicy,
+    ) -> Result<Option<Agent>, String> {
         let mut previous = self
             .0
             .lock()
@@ -40,15 +59,19 @@ impl PinnedAgent {
             let Some(session) = &current.agent_session else {
                 return Ok(None);
             };
-            if session.agent != known.agent
-                || session.kind != known.kind
-                || session.value != known.value
+            if matches!(policy, SessionPolicy::Preserve)
+                && (session.agent != known.agent
+                    || session.kind != known.kind
+                    || session.value != known.value)
             {
                 return Err("The selected pane is now running a different agent conversation; start a new pass".into());
             }
         }
-        // Adopt first native discovery without mistaking reporter metadata for identity.
-        *previous = current.clone();
+        // Ordinary discovery may fill a missing native identity. Retry adopts only after
+        // the pass binding has been saved with the selected target.
+        if matches!(policy, SessionPolicy::Preserve) {
+            *previous = current.clone();
+        }
         Ok(Some(current))
     }
 }

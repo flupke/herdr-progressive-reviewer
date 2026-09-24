@@ -102,12 +102,9 @@ impl ExploreUi {
         );
         actions
             .into_iter()
-            .find_map(|action| {
-                if let Action::Explore(Command::Turn(request)) = action {
-                    Some(*request)
-                } else {
-                    None
-                }
+            .find_map(|action| match action {
+                Action::Explore(Command::Turn(request) | Command::Retry(request)) => Some(*request),
+                _ => None,
             })
             .expect("interview request")
     }
@@ -183,8 +180,7 @@ impl ExploreUi {
                                 last_line: line,
                             }),
                         },
-                        relationship: "Policy behavior".into(),
-                        decision_relevance:
+                        notes:
                             "This policy determines whether the proposed recovery is sufficient."
                                 .into(),
                     })
@@ -274,9 +270,7 @@ fn outlines_keep_wrapping_disjoint_ranges_and_deleted_lines_separate() {
                 last_line: 1,
             }),
         },
-        relationship: "Previous behavior".into(),
-        decision_relevance: "This policy determines whether the proposed recovery is sufficient."
-            .into(),
+        notes: "Previous behavior determines whether the proposed recovery is sufficient.".into(),
     });
     fixture.app.publish(ExploreFinished {
         instance: request.instance,

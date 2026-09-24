@@ -61,7 +61,7 @@ pub struct Question {
     /// Distinct choices; the reviewer adds None of the above automatically.
     #[schemars(length(min = 2, max = 5))]
     pub alternatives: Vec<Alternative>,
-    /// Minimal decision-relevant snippets, each with relationship and `decision_relevance`.
+    /// Minimal decision-relevant snippets, each with notes explaining its relevance.
     pub evidence: Vec<EvidenceRef>,
     /// Additional context, opened on demand rather than promoted into the question.
     #[serde(default)]

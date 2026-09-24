@@ -21,8 +21,9 @@ use ui_events::{
     PointerInputKind, PointerPosition, ReviewNavigation, ReviewNavigationChanged, ReviewPane,
     ReviewableFiles, ViewportChanged,
 };
+use ui_panes::SplitPane;
 
-use crate::layout::{NavigationTabs, PaneLayout};
+use crate::layout::{NavigationTabs, PaneLayout, location_selector_panes};
 use crate::{Action, ApplicationFrame, Theme, UserInput};
 use ui_theme::Palette;
 
@@ -518,8 +519,16 @@ impl ReviewApplication {
         let width = self.width;
         let height = self.height;
         let layout = PaneLayout::for_navigation(width, height, self.file_width, self.navigation);
+        let body = Rect::new(0, 1, width, layout.body_height());
+        let locations_active = self
+            .event_bus
+            .get::<LocationsComponent>(self.locations_component)
+            .is_some_and(LocationsComponent::is_active);
+        let location_panes = (self.navigation == ReviewNavigation::Explore && locations_active)
+            .then(|| location_selector_panes(body, self.file_width));
+        let explore_area = location_panes.as_ref().map_or(body, |panes| panes.right);
         let files_area = if self.navigation == ReviewNavigation::Explore {
-            Some(Rect::new(0, 2, width, height.saturating_sub(3)))
+            Some(explore_area)
         } else {
             layout.files_content_area(self.focus)
         };
@@ -544,17 +553,16 @@ impl ReviewApplication {
             self.component_areas
                 .retain(|component| component.target != self.files_component);
         }
-        self.synchronize_diff_area(layout);
+        self.synchronize_diff_area(layout, explore_area);
         self.component_areas
             .retain(|component| component.target != self.locations_component);
-        if self
-            .event_bus
-            .get::<LocationsComponent>(self.locations_component)
-            .is_some_and(LocationsComponent::is_active)
-        {
+        if locations_active {
             self.component_areas.push(ComponentArea {
                 target: self.locations_component,
-                area: Rect::new(0, 1, files_pane_width, height.saturating_sub(2)),
+                area: location_panes.map_or(
+                    Rect::new(0, 1, files_pane_width, height.saturating_sub(2)),
+                    |panes| panes.left,
+                ),
             });
         }
         self.component_areas
@@ -593,16 +601,15 @@ impl ReviewApplication {
         }
     }
 
-    fn synchronize_diff_area(&mut self, layout: PaneLayout) {
+    fn synchronize_diff_area(&mut self, layout: PaneLayout, explore_area: Rect) {
         let width = self.width;
-        let height = self.height;
         let diff_pane_area = if layout.is_wide() {
-            Rect::new(
+            SplitPane::new(
+                Rect::new(0, 1, width, layout.body_height()),
                 layout.file_width,
-                1,
-                width.saturating_sub(layout.file_width),
-                layout.body_height(),
+                0,
             )
+            .right
         } else {
             Rect::new(0, 1, width, layout.body_height())
         };
@@ -623,11 +630,7 @@ impl ReviewApplication {
                 .get::<DiffComponent>(self.diff_component)
                 .expect("diff stays mounted");
             let viewports = explore
-                .conversation_layout(
-                    Rect::new(0, 2, width, height.saturating_sub(3)),
-                    diff,
-                    self.palette,
-                )
+                .conversation_layout(explore_area, diff, self.palette)
                 .viewports();
             let _ = self.event_bus.publish(viewports);
         } else {
@@ -716,6 +719,9 @@ impl ReviewApplication {
             }
             ui_shortcuts::ApplicationShortcut::OpenThreads => {
                 return self.change_navigation(ReviewNavigation::Threads);
+            }
+            ui_shortcuts::ApplicationShortcut::OpenExplore => {
+                return self.change_navigation(ReviewNavigation::Explore);
             }
             ui_shortcuts::ApplicationShortcut::ToggleNavigation => {
                 return self.change_navigation(self.navigation.next());

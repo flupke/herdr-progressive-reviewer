@@ -118,4 +118,4 @@ pub struct ExploreAutosave {
 }
 
 #[derive(Clone, Debug)]
-pub struct ExploreHistoryChanged(pub Vec<String>);
+pub struct ExploreHistoryChanged(pub review_explore::ExploreHistory);

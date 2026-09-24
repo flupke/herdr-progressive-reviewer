@@ -27,6 +27,7 @@ review-types = { path = "../review-types" }
 syntect.workspace = true
 toasts = { path = "../toasts" }
 ui-actions = { path = "../ui-actions" }
+ui-panes = { path = "../ui-panes" }
 ui-events = { path = "../ui-events" }
 ui-shortcuts = { path = "../ui-shortcuts" }
 ui-theme = { path = "../ui-theme" }

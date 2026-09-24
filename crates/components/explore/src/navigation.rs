@@ -1,10 +1,8 @@
-use super::{ComposeScope, Control, ExploreComponent, controls::Button};
-use ratatui::{
-    buffer::Buffer,
-    layout::Rect,
-    style::Style,
-    widgets::{Paragraph, Widget},
+use super::{
+    ComposeScope, Control, ExploreComponent,
+    controls::{Button, ControlVisual},
 };
+use ratatui::{buffer::Buffer, layout::Rect};
 use review_explore::ChangedLineCoverage;
 use ui_theme::Palette;
 
@@ -34,10 +32,15 @@ impl Navigation {
     fn new(area: Rect, labels: impl IntoIterator<Item = (String, Option<Control>)>) -> Self {
         let mut result = Self::default();
         let width = area.width.saturating_sub(2);
-        for (row, buttons) in Button::wrap(width, labels)
-            .into_iter()
-            .enumerate()
-            .take(usize::from(area.height))
+        for (row, buttons) in Button::wrap(
+            width,
+            labels
+                .into_iter()
+                .map(|(label, control)| (ControlVisual::Text(label), control)),
+        )
+        .into_iter()
+        .enumerate()
+        .take(usize::from(area.height))
         {
             if width == 0 {
                 break;
@@ -70,13 +73,7 @@ impl Navigation {
 
     pub(super) fn render(&self, buffer: &mut Buffer, palette: Palette) {
         for item in &self.items {
-            Paragraph::new(item.button.text.as_str())
-                .style(Style::default().fg(if item.button.control.is_some() {
-                    palette.focus
-                } else {
-                    palette.text
-                }))
-                .render(item.area, buffer);
+            item.button.render(item.area, buffer, palette);
         }
     }
 }

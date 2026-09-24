@@ -120,6 +120,7 @@ impl ExploreComponent {
         self.general_context = Some(request);
         self.restore_draft();
         self.editing = false;
+        self.evidence_list_focused = false;
         self.editor_target = if self.conclusion().is_some_and(|view| view.replying) {
             EditorTarget::Answer
         } else {

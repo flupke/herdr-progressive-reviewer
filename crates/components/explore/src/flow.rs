@@ -1,5 +1,5 @@
 //! Document coordinates and clipping shared by drawing and pointer routing.
-use super::{Control, Reveal, controls::Button};
+use super::{Control, Reveal, controls::Button, evidence::EvidenceList};
 use diff_component::ClippedViewport;
 use markdown_rendering::MarkdownRenderer;
 use ratatui::{
@@ -11,14 +11,16 @@ use ratatui::{
 };
 use std::ops::Range;
 use ui_events::{DiffViewportChanged, EvidenceView, ExploreViewports};
+use ui_panes::SplitPane;
+use ui_shortcuts::NavigationShortcut;
 use ui_theme::Palette;
 
 #[derive(Clone)]
 pub(super) enum Content {
     Text(Text<'static>, Option<Control>),
     Window(EvidenceView),
+    EvidenceSplit(EvidenceList),
     Editor(super::EditorTarget),
-    Resize(EvidenceView),
     Controls(Vec<Button>),
 }
 
@@ -27,6 +29,13 @@ pub(super) struct Item {
     pub(super) top: usize,
     pub(super) height: u16,
     pub(super) content: Content,
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct VisibleContent<'a> {
+    pub(super) item: &'a Item,
+    pub(super) area: Rect,
+    pub(super) skipped: u16,
 }
 
 #[derive(Clone, Copy)]
@@ -42,6 +51,10 @@ impl Window {
             viewport: ClippedViewport::new(visible, skipped, height).with_pinned_header(),
         }
     }
+}
+
+pub(super) fn evidence_panes(area: Rect, width: Option<u16>) -> SplitPane {
+    SplitPane::with_divider(area, width.unwrap_or((area.width / 3).max(26)), 8, 16)
 }
 
 #[derive(Clone, Default)]
@@ -104,11 +117,14 @@ impl ConversationLayout {
         if body.trim().is_empty() {
             return;
         }
-        let lines = MarkdownRenderer::default().render(
-            &format!("# {title}\n\n{body}"),
-            self.area.width,
-            palette,
-        );
+        self.prose(&format!("# {title}\n\n{body}"), palette);
+    }
+
+    pub(super) fn prose(&mut self, body: &str, palette: Palette) {
+        if body.trim().is_empty() {
+            return;
+        }
+        let lines = MarkdownRenderer::default().render(body, self.area.width, palette);
         self.gap();
         self.paragraph(Text::from(lines), None);
     }
@@ -126,7 +142,7 @@ impl ConversationLayout {
     pub(super) fn controls(&mut self, controls: impl IntoIterator<Item = (String, Control)>) {
         let labels = controls
             .into_iter()
-            .map(|(label, control)| (format!("[{label}]"), Some(control)));
+            .map(|(label, control)| (control.visual(label), Some(control)));
         for row in Button::wrap(self.area.width, labels) {
             self.push(Content::Controls(row), 1);
         }
@@ -225,13 +241,22 @@ impl ConversationLayout {
 
     pub(super) fn window_at(&self, column: u16, row: u16) -> Option<Window> {
         self.items.iter().find_map(|item| {
-            let Content::Window(view) = item.content else {
-                return None;
-            };
             let (visible, skipped) = self.visible(item)?;
-            visible
-                .contains((column, row).into())
-                .then_some(Window::new(view, visible, skipped, item.height))
+            match &item.content {
+                Content::Window(view) if visible.contains((column, row).into()) => {
+                    Some(Window::new(*view, visible, skipped, item.height))
+                }
+                Content::EvidenceSplit(list) if list.source_available => {
+                    let right = evidence_panes(visible, list.width).right;
+                    right.contains((column, row).into()).then_some(Window::new(
+                        list.view,
+                        right,
+                        skipped,
+                        item.height,
+                    ))
+                }
+                _ => None,
+            }
         })
     }
 
@@ -240,7 +265,7 @@ impl ConversationLayout {
             return Some(control);
         }
         self.items.iter().find_map(|item| {
-            let (area, _) = self.visible(item)?;
+            let (area, skipped) = self.visible(item)?;
             if !area.contains((column, row).into()) {
                 return None;
             }
@@ -250,7 +275,16 @@ impl ConversationLayout {
                 Content::Editor(super::EditorTarget::Implementation) => {
                     Some(Control::EditImplementation)
                 }
-                Content::Resize(_) | Content::Window(_) => None,
+                Content::EvidenceSplit(list) => list
+                    .control_at(
+                        evidence_panes(area, list.width).left,
+                        column,
+                        row,
+                        skipped,
+                        item.height,
+                    )
+                    .map(Control::Evidence),
+                Content::Window(_) => None,
                 Content::Controls(buttons) => buttons
                     .iter()
                     .find(|button| {
@@ -263,14 +297,46 @@ impl ConversationLayout {
         })
     }
 
+    pub(super) fn evidence_scroll_at(
+        &self,
+        column: u16,
+        row: u16,
+        delta: isize,
+    ) -> Option<EvidenceView> {
+        self.items.iter().find_map(|item| {
+            let Content::EvidenceSplit(list) = &item.content else {
+                return None;
+            };
+            let (visible, _) = self.visible(item)?;
+            list.scroll_at(evidence_panes(visible, list.width).left, column, row, delta)
+        })
+    }
+
+    pub(super) fn evidence_divider_at(&self, column: u16, row: u16) -> bool {
+        self.items.iter().any(|item| {
+            let Content::EvidenceSplit(list) = &item.content else {
+                return false;
+            };
+            self.visible(item)
+                .and_then(|(area, _)| evidence_panes(area, list.width).divider)
+                .is_some_and(|divider| divider.contains((column, row).into()))
+        })
+    }
+
+    pub(super) fn navigate_evidence(&self, input: NavigationShortcut) -> Option<EvidenceView> {
+        self.items.iter().find_map(|item| match &item.content {
+            Content::EvidenceSplit(list) => list.navigate(input, item.height),
+            _ => None,
+        })
+    }
+
     pub(super) fn resize_at(&self, column: u16, row: u16) -> Option<(EvidenceView, u16)> {
-        self.items.iter().enumerate().find_map(|(index, item)| {
+        self.items.iter().find_map(|item| {
             let (area, _) = self.visible(item)?;
             if !area.contains((column, row).into()) {
                 return None;
             }
             match item.content {
-                Content::Resize(view) => Some((view, self.items[index - 1].height)),
                 Content::Window(view)
                     if item.top + usize::from(item.height) - 1
                         == self.scroll + usize::from(row.saturating_sub(self.area.y)) =>
@@ -283,8 +349,12 @@ impl ConversationLayout {
     }
 
     pub(super) fn window_height(&self, view: EvidenceView) -> Option<u16> {
-        self.items.iter().find_map(|item| {
-            matches!(item.content, Content::Window(id) if id == view).then_some(item.height)
+        self.items.iter().find_map(|item| match &item.content {
+            Content::Window(id) if *id == view => Some(item.height),
+            Content::EvidenceSplit(list) if list.source_available && list.view == view => {
+                Some(item.height)
+            }
+            _ => None,
         })
     }
 
@@ -294,13 +364,17 @@ impl ConversationLayout {
             self.items
                 .iter()
                 .filter_map(|item| {
-                    let Content::Window(view) = item.content else {
-                        return None;
+                    let (view, width) = match &item.content {
+                        Content::Window(view) => (*view, self.area.width),
+                        Content::EvidenceSplit(list) if list.source_available => {
+                            (list.view, evidence_panes(self.area, list.width).right.width)
+                        }
+                        _ => return None,
                     };
                     Some((
                         view,
                         DiffViewportChanged {
-                            width: self.area.width.saturating_sub(2),
+                            width: width.saturating_sub(2),
                             height: item.height.saturating_sub(2),
                         },
                     ))

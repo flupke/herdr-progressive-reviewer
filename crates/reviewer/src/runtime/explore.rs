@@ -36,6 +36,7 @@ impl Worker {
             Command::SaveView(view) => self.save_explore_view(*view, messages),
             Command::OpenPass(instance) => self.open_explore(Some(instance), messages),
             Command::Turn(request) => self.explore_turn(*request, messages),
+            Command::Retry(request) => self.retry_explore(*request, messages),
             Command::Implement(request) => self.implement_explore(request, messages),
             Command::RequireReview(units) => self.require_explore_review(*units, messages),
             Command::CancelImplementation => self.explore.implementation = None,
@@ -127,11 +128,36 @@ impl Worker {
     }
 
     fn explore_turn(&mut self, request: TurnRequest, messages: &ApplicationMessageSender) {
+        self.deliver_explore_turn(request, None, messages);
+    }
+
+    fn retry_explore(&mut self, request: TurnRequest, messages: &ApplicationMessageSender) {
+        let agent = match self.retry_explore_agent() {
+            Ok(agent) => agent,
+            Err(error) => {
+                let _ = messages.send(ui_events::ExplorePosted {
+                    request,
+                    result: Err(error.to_string()),
+                });
+                return;
+            }
+        };
+        self.deliver_explore_turn(request, Some(&agent), messages);
+    }
+
+    fn deliver_explore_turn(
+        &mut self,
+        request: TurnRequest,
+        retry_agent: Option<&herdr_client::protocol::Agent>,
+        messages: &ApplicationMessageSender,
+    ) {
         self.explore.prompt = None;
         self.explore.implementation = None;
         // Preserve the posted contribution even when its subsequent wakeup cannot be sent.
-        let _ = self.bound_explore_agent();
-        let persisted = self.persist_explore_request(&request);
+        if retry_agent.is_none() {
+            let _ = self.bound_explore_agent();
+        }
+        let persisted = self.persist_explore_request(&request, retry_agent);
         let pass = match persisted {
             Ok(pass) => pass,
             Err(error) => {
@@ -142,6 +168,9 @@ impl Worker {
                 return;
             }
         };
+        if let Some(agent) = retry_agent {
+            self.explore.agent = Some(PinnedAgent::new(agent.clone()));
+        }
         let pass = self.start_jev_if_enabled(pass, messages);
         self.explore.pass = Some(pass.clone());
         let _ = messages.send(ui_events::ExplorePosted {

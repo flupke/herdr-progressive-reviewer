@@ -1,4 +1,3 @@
-use super::TurnControls;
 use super::navigation::History;
 use super::{ComposeScope, Control, EditorTarget, ExploreComponent, Progress, Reveal};
 use component_core::{AnyInput, ComponentSubscriptions, InputMatcher, InputResolution, InputScope};
@@ -7,7 +6,7 @@ use ui_events::{
     EvidenceView, ExploreEvidenceInput, ExploreFocusCycle, PointerInput, PointerInputKind,
     ReviewPane, ReviewPaneFocusRequested, TextPasted,
 };
-use ui_shortcuts::Key;
+use ui_shortcuts::{Key, ShortcutCommand, ShortcutMatcher, ShortcutSet};
 
 pub(super) struct ResizeDrag {
     view: EvidenceView,
@@ -116,11 +115,11 @@ impl ExploreComponent {
             Control::Correct(turn) => self.correct(turn),
             Control::Reply(turn) => self.edit_turn(turn),
             Control::History(target) => self.visit_history(target),
-            Control::Primary(_) | Control::Evidence(_) | Control::Fit(_) => {
+            Control::Primary(_) | Control::Evidence(_) => {
                 self.navigate_evidence(control);
             }
             Control::SelectChoice(choice) => self.select_choice(choice),
-            control => self.expand(control),
+            _ => {}
         }
     }
 
@@ -128,12 +127,6 @@ impl ExploreComponent {
         match control {
             Control::Primary(view) => self.open_evidence(view, true),
             Control::Evidence(view) => self.open_evidence(view, false),
-            Control::Fit(view) => {
-                self.heights.remove(&view);
-                self.open_evidence(view, true);
-                self.events
-                    .publish(ReviewPaneFocusRequested(ReviewPane::Detail));
-            }
             _ => {}
         }
     }
@@ -195,6 +188,7 @@ impl ExploreComponent {
     pub(super) fn edit_answer(&mut self) {
         self.editor_target = EditorTarget::Answer;
         self.editing = self.can_compose();
+        self.evidence_list_focused = false;
         if self.editing {
             self.reveal.set(Some(Reveal::Editor(EditorTarget::Answer)));
         }
@@ -208,23 +202,13 @@ impl ExploreComponent {
         }
     }
 
-    fn expand(&mut self, control: Control) {
-        match control {
-            Control::More(turn) | Control::References(turn) | Control::Supporting(turn) => {
-                if let Some(state) = self.turns.get_mut(turn) {
-                    state.toggle(control);
-                }
-            }
-            _ => {}
-        }
-    }
-
     pub(super) fn visit_opening(&mut self) {
         if self.compose_scope != ComposeScope::Opening {
             self.save_draft();
             self.compose_scope = super::ComposeScope::Opening;
             self.restore_draft();
             self.editing = false;
+            self.evidence_list_focused = false;
             self.drag = None;
             self.pointer_view = None;
             self.reveal.set(Some(Reveal::Start));
@@ -283,8 +267,7 @@ impl ExploreComponent {
                     side,
                     lines: None,
                 },
-                relationship: "Coverage inspection".into(),
-                decision_relevance: String::new(),
+                notes: "Coverage inspection".into(),
             }],
             primary: 1,
             view: Self::coverage_view(),
@@ -391,6 +374,11 @@ impl ExploreComponent {
             return;
         }
         let pane = if event.from_evidence {
+            self.editing = false;
+            self.evidence_list_focused = true;
+            self.reveal.set(Some(Reveal::Evidence));
+            ReviewPane::Navigation
+        } else if self.evidence_list_focused {
             self.edit_answer();
             ReviewPane::Navigation
         } else if self.editing {
@@ -409,6 +397,9 @@ impl ExploreComponent {
             self.preview_key(key);
             return Vec::new();
         }
+        if let Some(actions) = self.focused_evidence_key(key) {
+            return actions;
+        }
         match key {
             Key::Alt('j') => self.resize_by(2),
             Key::Alt('k') => self.resize_by(-2),
@@ -418,15 +409,7 @@ impl ExploreComponent {
                 self.open_evidence(view, true);
             }
             Key::ControlEnter => {
-                return self.activate(
-                    if self.compose_scope == ComposeScope::Conclusion
-                        && self.editor_target == EditorTarget::Implementation
-                    {
-                        Control::Implement
-                    } else {
-                        Control::Send
-                    },
-                );
+                return self.activate(self.send_control());
             }
             key if self.editing => self.edit_current(|editor| editor.input(key)),
             Key::PageDown => self.scroll_by(5),
@@ -434,6 +417,50 @@ impl ExploreComponent {
             key => return self.command(key),
         }
         Vec::new()
+    }
+
+    fn focused_evidence_key(&mut self, key: Key) -> Option<Vec<Action>> {
+        self.evidence_list_focused
+            .then(|| self.evidence_list_key(key))
+            .flatten()
+    }
+
+    fn send_control(&self) -> Control {
+        if self.compose_scope == ComposeScope::Conclusion
+            && self.editor_target == EditorTarget::Implementation
+        {
+            Control::Implement
+        } else {
+            Control::Send
+        }
+    }
+
+    fn evidence_list_key(&mut self, key: Key) -> Option<Vec<Action>> {
+        match key {
+            Key::Enter => {
+                self.evidence_list_focused = false;
+                self.events
+                    .publish(ReviewPaneFocusRequested(ReviewPane::Detail));
+                return Some(Vec::new());
+            }
+            Key::Escape => {
+                self.evidence_list_focused = false;
+                self.evidence_keys = ShortcutMatcher::new(ShortcutSet::Files);
+                return Some(Vec::new());
+            }
+            _ => {}
+        }
+        match self.evidence_keys.resolve_key(key) {
+            InputResolution::AwaitingMoreInput => Some(Vec::new()),
+            InputResolution::Matched(ShortcutCommand::Navigation(input)) => {
+                let view = self.layout.borrow().navigate_evidence(input);
+                if let Some(view) = view {
+                    self.open_evidence(view, true);
+                }
+                Some(Vec::new())
+            }
+            InputResolution::NoMatch | InputResolution::Matched(_) => None,
+        }
     }
 
     fn command(&mut self, key: Key) -> Vec<Action> {
@@ -528,6 +555,14 @@ impl ExploreComponent {
             .as_ref()
             .and_then(|exploration| exploration.questions.get(self.selected))
             .map_or(0, |question| question.evidence.len());
+        let all_sources = self
+            .exploration
+            .as_ref()
+            .map_or(0, |exploration| exploration.evidence(self.selected).len());
+        let current = self
+            .turns
+            .get(self.selected)
+            .map_or(0, |turn| turn.reference);
         let bindings = [
             ('g', Control::Coverage),
             ('s', Control::Start),
@@ -550,12 +585,14 @@ impl ExploreComponent {
                 'e',
                 Control::Evidence(EvidenceView::Question {
                     turn: self.selected,
-                    reference: (self
-                        .turns
-                        .get(self.selected)
-                        .map_or(0, |turn| turn.reference)
-                        + 1)
-                        % count.max(1),
+                    reference: (current + 1) % count.max(1),
+                }),
+            ),
+            (
+                'E',
+                Control::Evidence(EvidenceView::Question {
+                    turn: self.selected,
+                    reference: (current + 1) % all_sources.max(1),
                 }),
             ),
         ];
@@ -604,6 +641,36 @@ impl ExploreComponent {
         false
     }
 
+    fn split_pointer(&mut self, input: PointerInput) -> bool {
+        if self.split_drag {
+            if input.kind == PointerInputKind::Drag
+                && let Some(position) = input.position
+            {
+                let origin = self.layout.borrow().area.x;
+                self.evidence_width = Some(position.terminal_column.saturating_sub(origin));
+            }
+            if input.kind == PointerInputKind::Release {
+                self.split_drag = false;
+            }
+            return true;
+        }
+        if input.kind == PointerInputKind::Click
+            && let Some(position) = input.position
+            && self
+                .layout
+                .borrow()
+                .evidence_divider_at(position.terminal_column, position.terminal_row)
+        {
+            self.split_drag = true;
+            return true;
+        }
+        false
+    }
+
+    fn pointer_resize(&mut self, input: PointerInput) -> bool {
+        self.split_pointer(input) || self.resize_pointer(input)
+    }
+
     fn pointer(&mut self, input: PointerInput) -> Vec<Action> {
         if self.conclusion_preview.is_some() {
             self.preview_pointer(input);
@@ -613,7 +680,7 @@ impl ExploreComponent {
     }
 
     fn pointer_conversation(&mut self, input: PointerInput) -> Vec<Action> {
-        if self.resize_pointer(input) {
+        if self.pointer_resize(input) {
             return Vec::new();
         }
         if matches!(
@@ -645,16 +712,39 @@ impl ExploreComponent {
             return Vec::new();
         }
         if let PointerInputKind::Scroll(delta) = input.kind {
-            self.scroll_by(delta);
-            return Vec::new();
+            return self.scroll_conversation_at(column, row, delta);
         }
-        let control = self.layout.borrow().control_at(column, row);
-        if matches!(input.kind, PointerInputKind::Click)
-            && let Some(control) = control
-        {
-            self.events
-                .publish(ReviewPaneFocusRequested(ReviewPane::Navigation));
-            return self.activate(control);
+        if let Some(actions) = self.click_conversation_control(input.kind, column, row) {
+            return actions;
+        }
+        Vec::new()
+    }
+
+    fn click_conversation_control(
+        &mut self,
+        kind: PointerInputKind,
+        column: u16,
+        row: u16,
+    ) -> Option<Vec<Action>> {
+        if !matches!(kind, PointerInputKind::Click) {
+            return None;
+        }
+        let control = self.layout.borrow().control_at(column, row)?;
+        if matches!(control, Control::Evidence(_)) {
+            self.editing = false;
+            self.evidence_list_focused = true;
+        }
+        self.events
+            .publish(ReviewPaneFocusRequested(ReviewPane::Navigation));
+        Some(self.activate(control))
+    }
+
+    fn scroll_conversation_at(&mut self, column: u16, row: u16, delta: isize) -> Vec<Action> {
+        let evidence = self.layout.borrow().evidence_scroll_at(column, row, delta);
+        if let Some(view) = evidence {
+            self.open_evidence(view, false);
+        } else {
+            self.scroll_by(delta);
         }
         Vec::new()
     }

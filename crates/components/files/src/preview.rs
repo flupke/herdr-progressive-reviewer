@@ -1,17 +1,12 @@
 //! Read-only changed-file tree for a checkpoint-bound Explore preview.
 use std::{cell::Cell, collections::HashSet};
 
-use ratatui::{
-    buffer::Buffer,
-    layout::Rect,
-    style::{Modifier, Style},
-    text::Line,
-    widgets::{Block, Borders, Paragraph, Widget},
-};
-use ui_shortcuts::{Key, NavigationShortcut};
+use component_core::InputResolution;
+use ratatui::{buffer::Buffer, layout::Rect, style::Style, text::Line};
+use ui_shortcuts::{Key, ShortcutCommand, ShortcutMatcher, ShortcutSet};
 use ui_theme::Palette;
 
-use super::{FileTree, FileTreeRow, shorten};
+use super::{FileList, FileTree, FileTreeRow, shorten};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PreviewFile {
@@ -24,9 +19,11 @@ pub struct PreviewFile {
 pub struct FilePreviewList {
     files: Vec<PreviewFile>,
     tree: FileTree,
+    collapsed_directories: HashSet<String>,
     selected: usize,
     scroll: Cell<usize>,
     area: Cell<Rect>,
+    keys: ShortcutMatcher,
 }
 
 impl FilePreviewList {
@@ -41,9 +38,11 @@ impl FilePreviewList {
         Self {
             files,
             tree,
+            collapsed_directories: HashSet::new(),
             selected: 0,
             scroll: Cell::new(0),
             area: Cell::new(Rect::default()),
+            keys: ShortcutMatcher::new(ShortcutSet::Files),
         }
     }
 
@@ -57,23 +56,12 @@ impl FilePreviewList {
 
     pub fn move_key(&mut self, key: Key) -> bool {
         let before = self.selected;
-        let input = match key {
-            Key::Down | Key::Char('j') => NavigationShortcut::MoveDown,
-            Key::Up | Key::Char('k') => NavigationShortcut::MoveUp,
-            Key::PageDown | Key::HalfPageDown => NavigationShortcut::MoveHalfPageDown,
-            Key::PageUp | Key::HalfPageUp => NavigationShortcut::MoveHalfPageUp,
-            Key::First => NavigationShortcut::GoToFirst,
-            Key::Last => NavigationShortcut::GoToLast,
-            _ => return false,
+        let InputResolution::Matched(ShortcutCommand::Navigation(input)) =
+            self.keys.resolve_key(key)
+        else {
+            return false;
         };
-        self.selected = self
-            .tree
-            .navigate(
-                self.selected,
-                input,
-                usize::from(self.area.get().height.saturating_sub(2).max(1)),
-            )
-            .unwrap_or(before);
+        self.selected = self.list().navigate(input);
         self.show_selected();
         before != self.selected
     }
@@ -87,24 +75,42 @@ impl FilePreviewList {
         {
             return false;
         }
-        let index = self.scroll.get() + usize::from(row - area.y - 1);
-        let Some(file) = self.tree.file_at(index) else {
-            return false;
-        };
-        let changed = file != self.selected;
-        self.selected = file;
-        self.show_selected();
-        changed
+        let index = usize::from(row - area.y - 1);
+        match self.list().row(index).cloned() {
+            Some(FileTreeRow::File { file, .. }) => {
+                let changed = file != self.selected;
+                self.selected = file;
+                self.show_selected();
+                changed
+            }
+            Some(FileTreeRow::Directory { depth, path, .. })
+                if column
+                    == area.x.saturating_add(
+                        1 + u16::try_from(depth.saturating_mul(2)).unwrap_or(u16::MAX),
+                    ) =>
+            {
+                let previous = self.selected;
+                if !self.collapsed_directories.remove(&path) {
+                    self.collapsed_directories.insert(path);
+                }
+                self.tree = FileTree::new(
+                    self.files
+                        .iter()
+                        .map(|file| (file.path.clone(), file.path.clone())),
+                    &self.collapsed_directories,
+                );
+                if self.tree.row_for_file(self.selected).is_none() {
+                    self.selected = self.tree.nearest_visible_file(self.selected).unwrap_or(0);
+                }
+                self.show_selected();
+                self.selected != previous
+            }
+            _ => false,
+        }
     }
 
     pub fn scroll_by(&self, delta: isize) {
-        let visible = usize::from(self.area.get().height.saturating_sub(2).max(1));
-        self.scroll.set(
-            self.scroll
-                .get()
-                .saturating_add_signed(delta)
-                .min(self.tree.rows.len().saturating_sub(visible)),
-        );
+        self.scroll.set(self.list().scroll_by(delta));
     }
 
     pub fn contains(&self, column: u16, row: u16) -> bool {
@@ -114,60 +120,39 @@ impl FilePreviewList {
 
     pub fn render(&self, area: Rect, buffer: &mut Buffer, palette: Palette, focused: bool) {
         self.area.set(area);
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(" Not explored · Files ")
-            .border_style(Style::default().fg(if focused { palette.focus } else { palette.dim }));
-        let inner = block.inner(area);
-        block.render(area, buffer);
-        let visible = usize::from(inner.height.max(1));
-        let rows = self
-            .tree
-            .rows
-            .iter()
-            .skip(self.scroll.get())
-            .take(visible)
-            .map(|row| match row {
-                FileTreeRow::Directory { depth, name, .. } => Line::styled(
-                    shorten(
-                        &format!("{}{name}/", "  ".repeat(*depth)),
-                        usize::from(inner.width),
-                    ),
-                    Style::default()
-                        .fg(palette.dim)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                FileTreeRow::File { depth, name, file } => {
-                    let entry = &self.files[*file];
-                    let label = format!(
-                        "{}{} {name} · {} required",
-                        "  ".repeat(*depth),
-                        if *file == self.selected { '▸' } else { ' ' },
-                        entry.required,
-                    );
-                    Line::styled(
-                        shorten(&label, usize::from(inner.width)),
-                        Style::default().fg(if *file == self.selected {
-                            palette.focus
-                        } else {
-                            palette.text
-                        }),
-                    )
-                }
-            })
-            .collect::<Vec<_>>();
-        Paragraph::new(rows).render(inner, buffer);
+        self.list().render(
+            area,
+            buffer,
+            palette,
+            focused,
+            "Not explored · Files",
+            |depth, name, file, width| {
+                let entry = &self.files[file];
+                let label = format!(
+                    "{}○ {name} · {} required",
+                    "  ".repeat(depth),
+                    entry.required
+                );
+                let style = if file == self.selected {
+                    Style::default().fg(palette.focus).bg(palette.cursor)
+                } else {
+                    Style::default().fg(palette.text)
+                };
+                Line::styled(shorten(&label, width), style)
+            },
+        );
     }
 
     fn show_selected(&self) {
-        let visible = usize::from(self.area.get().height.saturating_sub(2).max(1));
-        if let Some(row) = self.tree.row_for_file(self.selected) {
-            let scroll = self.scroll.get();
-            if row < scroll {
-                self.scroll.set(row);
-            } else if row >= scroll + visible {
-                self.scroll.set(row + 1 - visible);
-            }
+        self.scroll.set(self.list().visible_scroll(self.selected));
+    }
+
+    fn list(&self) -> FileList<'_> {
+        FileList {
+            tree: &self.tree,
+            selected: self.selected,
+            scroll: self.scroll.get(),
+            page_rows: usize::from(self.area.get().height.saturating_sub(2).max(1)),
         }
     }
 }

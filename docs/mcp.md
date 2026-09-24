@@ -240,8 +240,8 @@ references). No source registration is needed. Evidence also explains what it
 establishes and how it could change the answer.
 
 Explore displays Markdown `#` sections for Context (`rationale`, with `visual` appended),
-Door and Blast radius (`assessments`), and Establishes and For your answer (the selected
-evidence's `relationship` and `decision_relevance`). Supply bodies without those headings,
+Door and Blast radius (`assessments`), and Notes (the selected evidence's `notes`).
+Supply bodies without those headings,
 starting with a short summary paragraph and adding detail only when useful. Assessment
 `details` may be omitted or empty; the summary must still give the decisive reason, backed
 by valid evidence or explicit unknowns. All supplied reasoning and unknowns are visible

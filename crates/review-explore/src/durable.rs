@@ -7,6 +7,32 @@ use herdr_client::protocol::AgentSession;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+pub struct ExploreHistory {
+    pub passes: Vec<String>,
+    #[serde(default = "latest_editable")]
+    pub latest_editable: bool,
+}
+
+fn latest_editable() -> bool {
+    true
+}
+
+impl Default for ExploreHistory {
+    fn default() -> Self {
+        Self {
+            passes: Vec::new(),
+            latest_editable: true,
+        }
+    }
+}
+
+impl ExploreHistory {
+    pub fn is_historical(&self, instance: &str) -> bool {
+        !self.latest_editable || self.passes.last().map(String::as_str) != Some(instance)
+    }
+}
+
 /// Native identity alone permits resumption in a restarted pane.
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct ConversationBinding {
@@ -28,6 +54,13 @@ impl ConversationBinding {
                 self.session.agent == session.agent
                     && self.session.kind == session.kind
                     && self.session.value == session.value
+            })
+    }
+
+    pub fn same_agent_kind(&self, agent: &herdr_client::protocol::Agent) -> bool {
+        self.agent == agent.agent
+            && agent.agent_session.as_ref().is_some_and(|session| {
+                self.session.agent == session.agent && self.session.kind == session.kind
             })
     }
 }

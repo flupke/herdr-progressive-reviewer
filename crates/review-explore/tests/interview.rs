@@ -60,9 +60,7 @@ fn question(version: u32) -> Question {
                     last_line: 2,
                 }),
             },
-            relationship: "Policy".into(),
-            decision_relevance:
-                "This policy determines whether the proposed recovery is sufficient.".into(),
+            notes: "This policy determines whether the proposed recovery is sufficient.".into(),
         }],
     }
 }

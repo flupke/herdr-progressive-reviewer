@@ -10,10 +10,12 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Widget},
 };
 use review_explore::{CoverageUnit, EvidenceRef, SourceSide};
+use ui_controls::NavigationLink;
 use ui_events::{
     EvidenceView, ExploreEvidence, ExploreEvidenceInput, PointerInput, PointerInputKind,
     ReviewPane, ReviewPaneFocusRequested,
 };
+use ui_panes::SplitPane;
 use ui_shortcuts::Key;
 use ui_theme::Palette;
 
@@ -108,8 +110,7 @@ impl ExploreComponent {
                 .clone();
                 EvidenceRef {
                     location: review_explore::CodeLocation { path, side, lines },
-                    relationship: "Unexplored at conclusion".into(),
-                    decision_relevance: String::new(),
+                    notes: "Unexplored at conclusion".into(),
                 }
             })
             .collect::<Vec<_>>();
@@ -165,7 +166,8 @@ impl ExploreComponent {
         kind == PointerInputKind::Click
             && self.conclusion_preview.as_ref().is_some_and(|preview| {
                 let header = preview.header.get();
-                row == header.y && column >= header.x && column < header.right()
+                let width = NavigationLink::new("Back to conclusion").text().len();
+                row == header.y && column >= header.x && usize::from(column - header.x) < width
             })
     }
 
@@ -229,62 +231,70 @@ impl ExploreComponent {
             .exploration
             .as_ref()
             .map_or("", |pass| pass.comparison.checkpoint.checkpoint.as_str());
-        Paragraph::new(format!(
-            "[Back to conclusion] · Unexplored code at checkpoint {checkpoint}\n↑/↓ files · Enter diff · b/Esc back from Files"
-        ))
-        .style(Style::default().fg(palette.text))
-        .render(header, buffer);
+        let back = NavigationLink::new("Back to conclusion");
+        let back_width = u16::try_from(back.text().len())
+            .unwrap_or(u16::MAX)
+            .min(header.width);
+        back.render(
+            Rect::new(header.x, header.y, back_width, 1),
+            buffer,
+            palette,
+        );
+        Paragraph::new(format!(" · Unexplored code at checkpoint {checkpoint}"))
+            .style(Style::default().fg(palette.text))
+            .render(
+                Rect::new(
+                    header.x.saturating_add(back_width),
+                    header.y,
+                    header.width.saturating_sub(back_width),
+                    1,
+                ),
+                buffer,
+            );
+        Paragraph::new("↑/↓ files · Enter diff · b/Esc back from Files")
+            .style(Style::default().fg(palette.text))
+            .render(
+                Rect::new(header.x, header.y.saturating_add(1), header.width, 1),
+                buffer,
+            );
         let body = Rect::new(
             area.x,
             area.y.saturating_add(header.height),
             area.width,
             area.height.saturating_sub(header.height),
         );
-        let (left, right) = if body.width >= 72 {
-            let left_width = (body.width / 3).max(22);
-            (
-                Rect::new(body.x, body.y, left_width, body.height),
-                Rect::new(
-                    body.x + left_width,
-                    body.y,
-                    body.width - left_width,
-                    body.height,
-                ),
-            )
-        } else {
-            let list_height = body.height.min(8).min(body.height / 2);
-            (
-                Rect::new(body.x, body.y, body.width, list_height),
-                Rect::new(
-                    body.x,
-                    body.y + list_height,
-                    body.width,
-                    body.height - list_height,
-                ),
-            )
-        };
-        preview.files.render(left, buffer, palette, focused);
-        if right.width == 0 || right.height == 0 {
-            return;
-        }
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(" Required checkpoint changes ")
-            .border_style(Style::default().fg(if focused { palette.dim } else { palette.focus }));
-        let inner = block.inner(right);
-        preview.right.set(inner);
-        block.render(right, buffer);
-        if preview.files.is_empty() {
-            Paragraph::new("No unexplored changed code").render(inner, buffer);
-        } else if let Some(viewer) = diff.evidence_view(EvidenceView::Coverage) {
-            viewer.render_embedded(
-                Window::new(EvidenceView::Coverage, inner, 0, inner.height).viewport,
-                buffer,
-                palette,
-                !focused,
-            );
-        } else {
-            Paragraph::new("Checkpoint diff is loading or unavailable").render(inner, buffer);
-        }
+        SplitPane::new(body, (body.width / 3).max(22), 24).render(
+            buffer,
+            |left, buffer| preview.files.render(left, buffer, palette, focused),
+            |right, buffer| {
+                if right.width == 0 || right.height == 0 {
+                    return;
+                }
+                let block = Block::default()
+                    .borders(Borders::ALL)
+                    .title(" Required checkpoint changes ")
+                    .border_style(Style::default().fg(if focused {
+                        palette.dim
+                    } else {
+                        palette.focus
+                    }));
+                let inner = block.inner(right);
+                preview.right.set(inner);
+                block.render(right, buffer);
+                if preview.files.is_empty() {
+                    Paragraph::new("No unexplored changed code").render(inner, buffer);
+                } else if let Some(viewer) = diff.evidence_view(EvidenceView::Coverage) {
+                    viewer.render_embedded(
+                        Window::new(EvidenceView::Coverage, inner, 0, inner.height).viewport,
+                        buffer,
+                        palette,
+                        !focused,
+                    );
+                } else {
+                    Paragraph::new("Checkpoint diff is loading or unavailable")
+                        .render(inner, buffer);
+                }
+            },
+        );
     }
 }

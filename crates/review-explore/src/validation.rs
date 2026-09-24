@@ -156,13 +156,12 @@ impl Exploration {
                     .evidence
                     .iter()
                     .all(|evidence| comparison.validate_evidence(evidence)
-                        && !evidence.relationship.trim().is_empty()
-                        && !evidence.decision_relevance.trim().is_empty())
+                        && !evidence.notes.trim().is_empty())
                 && question
                     .supporting
                     .iter()
                     .all(|evidence| comparison.validate_evidence(evidence)),
-            "Question evidence needs a valid source/range, what it establishes, and how it could change the answer; keep background references in supporting"
+            "Question evidence and supporting references need valid sources/ranges and nonempty notes"
         );
         let mut locations = HashSet::new();
         eyre::ensure!(

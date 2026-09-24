@@ -3,6 +3,28 @@ use review_explore::{ConversationBinding, Exploration, ExplorePass, ViewSave};
 use review_thread_service::PinnedAgent;
 use std::sync::Arc;
 
+fn empty_restore(passes: Vec<String>) -> ui_events::ExploreRestored {
+    ui_events::ExploreRestored {
+        result: Ok(None),
+        view: None,
+        passes,
+        historical: false,
+        storage_error: None,
+    }
+}
+
+#[derive(Debug)]
+enum ExploreRestoreError {
+    Unreadable(UnreadableExplore),
+    UnknownPass(String),
+}
+
+#[derive(Debug)]
+enum UnreadableExplore {
+    History(String),
+    Pass { instance: String, reason: String },
+}
+
 impl Worker {
     pub(in super::super) fn restore_explore(
         &mut self,
@@ -28,75 +50,192 @@ impl Worker {
         let Some(unit) = self.explore.loaded_unit.clone() else {
             return;
         };
-        let mut event = ui_events::ExploreRestored {
-            result: Ok(None),
-            view: None,
-            passes: vec![],
-            historical: false,
-            storage_error: None,
-        };
-        let result = (|| -> eyre::Result<Option<Arc<ExplorePass>>> {
-            let history = self.guide_store.load_explore_history(&unit)?;
-            let instance = instance.or_else(|| history.passes.last().cloned());
-            event.passes = history.passes;
-            let Some(instance) = instance else {
-                return Ok(None);
-            };
-            eyre::ensure!(
-                event.passes.contains(&instance),
-                "Unknown saved Explore pass"
-            );
-            event.historical = event.passes.last() != Some(&instance);
-            let pass = match self.guide_store.recover_explore_marks(&unit, &instance) {
-                Ok(pass) => pass,
-                Err(error) => {
-                    event.storage_error =
-                        Some(format!("Explore file marking needs recovery: {error}"));
-                    self.guide_store
-                        .load_explore(&unit, &instance)?
-                        .ok_or_else(|| {
-                            eyre::eyre!("Saved Explore pass is missing; history retained")
-                        })?
-                }
-            };
-            event.view = match self.guide_store.load_explore_view(&unit, &instance) {
-                Ok(view) => view,
-                Err(error) => {
-                    event.storage_error = Some(error.to_string());
-                    None
-                }
-            };
-            Ok(Some(Arc::new(pass)))
-        })();
-        match result {
-            Ok(pass) => {
-                self.explore.prompt = None;
-                self.explore.implementation = None;
-                self.explore.agent = None;
-                self.explore.access = uuid::Uuid::new_v4().to_string();
-                self.explore.restored = true;
-                self.explore.historical = event.historical;
-                self.explore.storage_error.clone_from(&event.storage_error);
-                self.explore.comparison = pass
-                    .as_ref()
-                    .map(|pass| pass.exploration.comparison.clone());
-                let pass = pass.map(|pass| {
-                    if !event.historical && event.storage_error.is_none() {
-                        Arc::new(self.start_jev_if_enabled((*pass).clone(), messages))
-                    } else {
-                        pass
-                    }
-                });
-                self.explore.pass = pass.as_deref().cloned();
-                self.explore.last_view.clone_from(&event.view);
-                event.result = Ok(pass);
+        let restored = self.load_explore_for_restore(&unit, instance);
+        let (event, toast) = match restored {
+            Ok((mut event, toast)) => {
+                self.accept_restored_explore(&mut event, messages);
+                (event, toast)
             }
+            Err(ExploreRestoreError::UnknownPass(reason)) => {
+                let _ = messages.send(ui_events::ToastRequested {
+                    text: reason,
+                    kind: toasts::ToastKind::Error,
+                });
+                return;
+            }
+            Err(ExploreRestoreError::Unreadable(failure)) => {
+                self.discard_unreadable_explore(&unit, failure, messages)
+            }
+        };
+        let _ = messages.send(event);
+        if let Some(text) = toast {
+            let _ = messages.send(ui_events::ToastRequested {
+                text,
+                kind: toasts::ToastKind::Error,
+            });
+        }
+    }
+
+    fn load_explore_for_restore(
+        &self,
+        unit: &review_types::ReviewUnit,
+        instance: Option<String>,
+    ) -> Result<(ui_events::ExploreRestored, Option<String>), ExploreRestoreError> {
+        let history = self
+            .guide_store
+            .load_explore_history(unit)
+            .map_err(|error| {
+                ExploreRestoreError::Unreadable(UnreadableExplore::History(error.to_string()))
+            })?;
+        let instance = instance.or_else(|| history.passes.last().cloned());
+        let Some(instance) = instance else {
+            return Ok((empty_restore(history.passes), None));
+        };
+        if !history.passes.contains(&instance) {
+            return Err(ExploreRestoreError::UnknownPass(
+                "Unknown saved Explore pass".into(),
+            ));
+        }
+        let historical = history.is_historical(&instance);
+        let mut restored = empty_restore(history.passes);
+        let mut toast = None;
+        restored.historical = historical;
+        let pass = match self.guide_store.recover_explore_marks(unit, &instance) {
+            Ok(pass) => pass,
             Err(error) => {
-                self.explore.storage_error = Some(error.to_string());
-                event.result = Err(error.to_string());
+                restored.storage_error =
+                    Some(format!("Explore file marking needs recovery: {error}"));
+                self.guide_store
+                    .load_explore(unit, &instance)
+                    .map_err(|error| {
+                        ExploreRestoreError::Unreadable(UnreadableExplore::Pass {
+                            instance: instance.clone(),
+                            reason: error.to_string(),
+                        })
+                    })?
+                    .ok_or_else(|| {
+                        ExploreRestoreError::Unreadable(UnreadableExplore::Pass {
+                            instance: instance.clone(),
+                            reason: "Saved Explore pass is missing".into(),
+                        })
+                    })?
+            }
+        };
+        restored.view = self.load_explore_view_for_restore(
+            unit,
+            &instance,
+            &mut restored.storage_error,
+            &mut toast,
+        );
+        restored.result = Ok(Some(Arc::new(pass)));
+        Ok((restored, toast))
+    }
+
+    fn discard_unreadable_explore(
+        &mut self,
+        unit: &review_types::ReviewUnit,
+        failure: UnreadableExplore,
+        messages: &ApplicationMessageSender,
+    ) -> (ui_events::ExploreRestored, Option<String>) {
+        let (reason, cleared) = match failure {
+            UnreadableExplore::History(reason) => {
+                let result = self.guide_store.repair_explore_history(unit).map(|_| ());
+                (reason, result)
+            }
+            UnreadableExplore::Pass { instance, reason } => {
+                let result = self.guide_store.clear_explore_pass(unit, &instance);
+                (reason, result)
+            }
+        };
+        let mut event = empty_restore(vec![]);
+        match cleared {
+            Ok(()) => {
+                self.explore = super::ExploreRuntime {
+                    loaded_unit: Some(unit.clone()),
+                    restored: true,
+                    access: uuid::Uuid::new_v4().to_string(),
+                    ..Default::default()
+                };
+                match self.load_explore_for_restore(unit, None) {
+                    Ok((mut restored, _)) => {
+                        self.accept_restored_explore(&mut restored, messages);
+                        (
+                            restored,
+                            Some("Unreadable Explore state was cleared; readable history was retained.".into()),
+                        )
+                    }
+                    Err(error) => {
+                        let message = format!(
+                            "Explore state could not be restored after clearing unreadable state: {error:?}"
+                        );
+                        self.explore.storage_error = Some(message.clone());
+                        event.result = Err(message);
+                        (event, None)
+                    }
+                }
+            }
+            Err(clear_error) => {
+                let message = format!(
+                    "Explore state could not be loaded ({reason}) or cleared ({clear_error})"
+                );
+                self.explore.storage_error = Some(message.clone());
+                event.result = Err(message);
+                (event, None)
             }
         }
-        let _ = messages.send(event);
+    }
+
+    fn accept_restored_explore(
+        &mut self,
+        event: &mut ui_events::ExploreRestored,
+        messages: &ApplicationMessageSender,
+    ) {
+        let pass = event.result.as_ref().ok().and_then(Option::as_ref).cloned();
+        self.explore.prompt = None;
+        self.explore.implementation = None;
+        self.explore.agent = None;
+        self.explore.access = uuid::Uuid::new_v4().to_string();
+        self.explore.restored = true;
+        self.explore.historical = event.historical;
+        self.explore.storage_error.clone_from(&event.storage_error);
+        self.explore.comparison = pass
+            .as_ref()
+            .map(|pass| pass.exploration.comparison.clone());
+        let pass = pass.map(|pass| {
+            if !event.historical && event.storage_error.is_none() {
+                Arc::new(self.start_jev_if_enabled((*pass).clone(), messages))
+            } else {
+                pass
+            }
+        });
+        self.explore.pass = pass.as_deref().cloned();
+        self.explore.last_view.clone_from(&event.view);
+        event.result = Ok(pass);
+    }
+
+    fn load_explore_view_for_restore(
+        &self,
+        unit: &review_types::ReviewUnit,
+        instance: &str,
+        storage_error: &mut Option<String>,
+        toast: &mut Option<String>,
+    ) -> Option<ViewSave> {
+        match self.guide_store.load_explore_view(unit, instance) {
+            Ok(view) => view,
+            Err(error) => {
+                match self.guide_store.clear_explore_view(unit, instance) {
+                    Ok(()) => {
+                        *toast = Some("Unreadable Explore editor state was cleared.".to_owned());
+                    }
+                    Err(clear_error) => {
+                        *storage_error = Some(format!(
+                            "Explore editor state could not be loaded ({error}) or cleared ({clear_error})"
+                        ));
+                    }
+                }
+                None
+            }
+        }
     }
 
     pub(super) fn save_explore_view(
@@ -121,6 +260,7 @@ impl Worker {
     pub(super) fn persist_explore_request(
         &mut self,
         request: &review_explore::TurnRequest,
+        retry_agent: Option<&herdr_client::protocol::Agent>,
     ) -> eyre::Result<ExplorePass> {
         eyre::ensure!(
             self.explore.storage_error.is_none(),
@@ -132,6 +272,7 @@ impl Worker {
             "This pass is history; open the latest pass or start a New pass"
         );
         if self.explore.pass.is_none() {
+            eyre::ensure!(retry_agent.is_none(), "No Explore pass to retry");
             let mut exploration = Exploration::new(
                 self.explore
                     .comparison
@@ -155,6 +296,14 @@ impl Worker {
             .guide_store
             .update_explore(&request.checkpoint.review_unit, &request.instance, |pass| {
                 let new = pass.post(request).map_err(|e| e.to_string())?;
+                if let Some(agent) = retry_agent {
+                    if let Some(previous) = &pass.binding
+                        && !previous.same_agent_kind(agent)
+                    {
+                        return Err("The selected pane is running a different agent".into());
+                    }
+                    pass.binding = ConversationBinding::from_agent(agent);
+                }
                 if new
                     && let Some(view) = &self.explore.last_view
                     && view.instance == request.instance
@@ -203,6 +352,33 @@ impl Worker {
         self.explore.agent = Some(agent.clone());
         Ok(agent)
     }
+
+    pub(super) fn retry_explore_agent(&mut self) -> eyre::Result<herdr_client::protocol::Agent> {
+        let selected = if let Some(agent) = &self.explore.agent {
+            agent
+                .retry_target(&self.client)
+                .map_err(eyre::Report::msg)?
+        } else {
+            self.target.resolve(&self.client)?
+        }
+        .ok_or_else(|| eyre::eyre!("Selected implementation agent is unavailable"))?;
+        eyre::ensure!(
+            selected.agent_session.is_some(),
+            "Waiting for the native agent conversation identity"
+        );
+        if let Some(binding) = self
+            .explore
+            .pass
+            .as_ref()
+            .and_then(|pass| pass.binding.as_ref())
+        {
+            eyre::ensure!(
+                binding.same_agent_kind(&selected),
+                "The selected pane is running a different agent"
+            );
+        }
+        Ok(selected)
+    }
 }
 
 impl Worker {
@@ -223,8 +399,8 @@ impl Worker {
         })();
         match result {
             Ok((history, pass)) => {
-                let _ = messages.send(ui_events::ExploreHistoryChanged(history.passes.clone()));
-                self.explore.historical = history.passes.last() != Some(instance);
+                let _ = messages.send(ui_events::ExploreHistoryChanged(history.clone()));
+                self.explore.historical = history.is_historical(instance);
                 if pass.revision <= previous.revision {
                     return;
                 }

@@ -118,7 +118,7 @@ fn overlapping_evidence_ranges_share_one_closed_outline() {
             first_line: 25,
             last_line: 35,
         });
-        overlapping.relationship = "Overlapping decision evidence".into();
+        overlapping.notes = "Overlapping decision evidence".into();
         question.evidence.push(overlapping);
         if reverse {
             question.evidence.reverse();
@@ -130,7 +130,7 @@ fn overlapping_evidence_ranges_share_one_closed_outline() {
             for line in [20, 35] {
                 assert!(text.contains(&format!("source line {line}")), "{text}");
             }
-            fixture.click("Fit evidence");
+            fixture.app.update(UserInput::Key(Key::Alt('0')));
         }
     }
 }
@@ -141,13 +141,13 @@ fn base_evidence_outside_hunks_uses_full_historical_text_and_old_coordinates() {
     let response = primary_range(&fixture, &request, review_explore::SourceSide::Old);
     publish(&mut fixture, response);
     let text = fixture.text();
-    assert!(text.contains("policy.rs · Base"), "{text}");
+    assert!(text.contains("policy.rs:20 (base)"), "{text}");
     assert!(
         text.contains("source line 20") && text.contains("source line 35"),
         "{text}"
     );
     assert!(!text.contains("outside the displayed diff"));
-    fixture.click("Fit evidence");
+    fixture.app.update(UserInput::Key(Key::Alt('0')));
     let actions = fixture.app.update(UserInput::Key(Key::Char('K')));
     assert!(
         !actions
@@ -165,7 +165,7 @@ fn base_evidence_outside_hunks_uses_full_historical_text_and_old_coordinates() {
         },
     });
     assert!(fixture.text().contains("pub fn caller()"));
-    fixture.click("Primary");
+    fixture.app.update(UserInput::Key(Key::Char('b')));
     assert!(fixture.text().contains("source line 35"));
 }
 
@@ -183,7 +183,7 @@ fn uncataloged_base_citation_displays_history_instead_of_live_source() {
     question.evidence[0].location.side = review_explore::SourceSide::Old;
     publish(&mut fixture, response);
     let text = fixture.text();
-    assert!(text.contains("caller.rs · Base"), "{text}");
+    assert!(text.contains("caller.rs:1 (base)"), "{text}");
     assert!(text.contains("pub fn caller()"), "{text}");
     assert!(!text.contains("current_caller"), "{text}");
 }
@@ -202,7 +202,7 @@ fn fit_reveals_both_ends_and_outlines_instead_of_centering_the_first_line() {
         for corner in ["╭", "╰"] {
             assert!(buffer.content.iter().any(|cell| cell.symbol() == corner && cell.fg == ratatui::style::Color::Yellow));
         }
-        fixture.click("Fit evidence");
+        fixture.app.update(UserInput::Key(Key::Alt('0')));
         fixture.app.update(UserInput::Key(Key::Down));
         fixture.app.update(UserInput::Key(Key::Alt('0')));
     }
@@ -220,23 +220,130 @@ fn only_decision_evidence_is_in_the_primary_cycle_and_supporting_sources_stay_av
     question.evidence.truncate(1);
     let mut supporting = question.evidence[0].clone();
     supporting.location.path = review_repository::repository::RepoPath::from_bytes(b"caller.rs");
-    supporting.relationship = "Supporting caller context".into();
-    supporting.decision_relevance.clear();
+    supporting.notes = "Supporting caller context".into();
     question.supporting.push(supporting.clone());
     response.reply.as_mut().unwrap().evidence.push(supporting);
     publish(&mut fixture, response);
     let text = fixture.text();
-    assert!(text.contains("Establishes") && text.contains("Policy behavior"));
-    assert!(text.contains("For your answer"));
-    assert!(text.contains("Evidence 1/1"));
-    assert!(text.contains("Supporting sources 1"));
-    assert!(!text.contains("Supporting caller context"));
+    assert!(text.contains("Notes") && text.contains("This policy determines"));
+    assert!(text.contains("Evidence 1 · Supporting 1"));
+    assert!(text.contains("Supporting 1"));
+    assert!(
+        fixture.point("This policy determines").1 < fixture.point("Evidence 1 · Supporting 1").1
+    );
+    assert!(!text.contains("Fit evidence") && !text.contains("drag to resize"));
+    assert!(fixture.point("policy.rs:1").0 < fixture.point("Diff ·").0);
+    let buffer = fixture.buffer();
+    let (primary_column, primary_row) = fixture.point("policy.rs:1");
+    let (support_column, support_row) = fixture.point("caller.rs:1");
+    assert!(
+        buffer[(primary_column, primary_row)]
+            .modifier
+            .contains(ratatui::style::Modifier::BOLD)
+    );
+    assert_eq!(
+        buffer[(support_column, support_row)].fg,
+        fixture.app.palette.dim
+    );
+    assert_ne!(
+        buffer[(support_column, support_row)].bg,
+        fixture.app.palette.cursor
+    );
+    let selected_width = (primary_column..fixture.point("Diff ·").0)
+        .filter(|column| buffer[(*column, primary_row)].bg == fixture.app.palette.cursor)
+        .count();
+    assert!(selected_width > 25, "the selected row fills its pane");
     assert!(text.contains("1. Keep resolved") && text.contains("2. Inspect the caller"));
     fixture.app.update(UserInput::Key(Key::Char('e')));
-    assert!(fixture.text().contains("Evidence 1/1"));
-    fixture.click("Supporting sources 1");
-    fixture.click("Supporting caller context");
+    assert!(fixture.text().contains("Evidence 1 · Supporting 1"));
+    fixture.app.update(UserInput::Key(Key::Char('E')));
     assert!(fixture.text().contains("pub fn caller()"));
+    fixture.app.update(UserInput::Key(Key::Char('b')));
+    let (column, row) = fixture.point("policy.rs:1");
+    fixture.app.update(UserInput::MouseScroll {
+        column,
+        row,
+        delta: -1,
+    });
+    assert!(fixture.text().contains("pub fn caller()"));
+    fixture.app.update(UserInput::Key(Key::Char('b')));
+    fixture.click("caller.rs:1");
+    assert!(fixture.text().contains("pub fn caller()"));
+}
+
+#[test]
+fn empty_evidence_notes_do_not_leave_a_section_heading() {
+    let (mut fixture, request) = ExploreUi::new();
+    let mut response = fixture.response(&request, 1);
+    response.next.as_mut().unwrap().evidence[0].notes.clear();
+    publish(&mut fixture, response);
+    assert!(!fixture.text().contains("Notes"));
+}
+
+#[test]
+fn evidence_list_uses_file_navigation_shortcuts_when_focused() {
+    let (mut fixture, request) = ExploreUi::new();
+    fixture.app.update(UserInput::Resize {
+        width: 140,
+        height: 90,
+    });
+    let response = fixture.response(&request, 1);
+    publish(&mut fixture, response);
+    fixture.click("policy.rs:1");
+    assert!(fixture.text().contains("Evidence 2 · Supporting 0 (focus)"));
+    fixture.app.update(UserInput::Key(Key::Char('j')));
+    assert!(fixture.text().contains("policy.rs:3"));
+    let (column, row) = fixture.point("policy.rs:3");
+    assert_eq!(
+        fixture.buffer()[(column, row)].bg,
+        fixture.app.palette.cursor
+    );
+    fixture.app.update(UserInput::Key(Key::First));
+    let (column, row) = fixture.point("policy.rs:1");
+    assert_eq!(
+        fixture.buffer()[(column, row)].bg,
+        fixture.app.palette.cursor
+    );
+    fixture.app.update(UserInput::Key(Key::Last));
+    let (column, row) = fixture.point("policy.rs:3");
+    assert_eq!(
+        fixture.buffer()[(column, row)].bg,
+        fixture.app.palette.cursor
+    );
+    fixture.app.update(UserInput::Key(Key::Enter));
+    assert!(!fixture.text().contains("Evidence 2 · Supporting 0 (focus)"));
+}
+
+#[test]
+fn evidence_selector_groups_sources_under_their_file_directories() {
+    let (mut fixture, request) = ExploreUi::new();
+    fixture.app.update(UserInput::Resize {
+        width: 140,
+        height: 90,
+    });
+    let mut response = fixture.response(&request, 1);
+    response.next.as_mut().unwrap().evidence.truncate(1);
+    let mut supporting = response.next.as_ref().unwrap().evidence[0].clone();
+    supporting.location.path =
+        review_repository::repository::RepoPath::from_bytes(b"support/policy.rs");
+    supporting.notes = "Support policy explains the fallback".into();
+    response
+        .next
+        .as_mut()
+        .unwrap()
+        .supporting
+        .push(supporting.clone());
+    response.reply.as_mut().unwrap().evidence.push(supporting);
+    publish(&mut fixture, response);
+    let text = fixture.text();
+    assert!(text.contains("support/"), "{text}");
+    assert!(text.contains("policy.rs:1"), "{text}");
+    let (column, row) = fixture.point("support/");
+    fixture.app.update(UserInput::MouseClick {
+        column,
+        row: row + 1,
+    });
+    assert!(fixture.text().contains("support_policy"));
 }
 
 #[test]
@@ -297,20 +404,12 @@ fn mcp_submission_is_acknowledged_only_after_validation_and_retries_are_idempote
         assert!(!fixture.text().contains("Question 1:"));
     }
     let mut invalid = valid.clone();
-    invalid.next.as_mut().unwrap().evidence[0]
-        .decision_relevance
-        .clear();
+    invalid.next.as_mut().unwrap().evidence[0].notes.clear();
     fixture.app.publish(ui_events::ExploreSubmission {
         update: invalid,
         response: response.clone(),
     });
-    assert!(
-        result
-            .recv()
-            .unwrap()
-            .unwrap_err()
-            .contains("how it could change the answer")
-    );
+    assert!(result.recv().unwrap().unwrap_err().contains("notes"));
     assert!(!fixture.text().contains("Question 1:"));
     for applied in [true, false] {
         let actions = fixture.app.publish(ui_events::ExploreSubmission {

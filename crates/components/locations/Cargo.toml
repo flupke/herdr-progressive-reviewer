@@ -12,9 +12,9 @@ review-lsp = { path = "../../review-lsp" }
 toasts = { path = "../../toasts" }
 ui-actions = { path = "../../ui-actions" }
 ui-events = { path = "../../ui-events" }
+ui-panes = { path = "../../ui-panes" }
 ui-shortcuts = { path = "../../ui-shortcuts" }
 ui-theme = { path = "../../ui-theme" }
-unicode-width.workspace = true
 
 [dev-dependencies]
 review-guide = { path = "../../review-guide" }

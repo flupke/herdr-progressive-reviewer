@@ -71,7 +71,7 @@ fn a_post_ack_reconciles_newer_history_without_losing_the_current_draft() {
     pass.exploration.submit(concluded).unwrap();
     restore(&mut fixture, &pass, None);
     fixture.click("[Previous]");
-    fixture.click("[Reply]");
+    fixture.app.update(UserInput::Key(Key::Enter));
     fixture.app.update(UserInput::Paste("Local context".into()));
     let local = ExploreUi::request(fixture.app.update(UserInput::Key(Key::ControlEnter)));
     fixture
@@ -138,7 +138,7 @@ fn an_old_post_ack_cannot_replace_a_newer_local_post_or_its_status() {
     let old = ExploreUi::request(fixture.app.update(UserInput::Key(Key::Enter)));
     fixture.app.update(UserInput::Key(Key::Char('c')));
     fixture.click("[Previous]");
-    fixture.click("[Reply]");
+    fixture.app.update(UserInput::Key(Key::Enter));
     fixture
         .app
         .update(UserInput::Paste("New contribution".into()));
@@ -248,7 +248,7 @@ fn a_combined_external_refresh_keeps_every_conclusion_and_existing_editor() {
     received.recv().unwrap().unwrap();
     fixture.click("[Previous]");
     assert!(fixture.text().contains("Tasks 3"));
-    assert!(!fixture.text().contains("[Implement]"));
+    assert!(!fixture.text().contains(" Implement "));
     fixture.click("To be implemented");
     fixture
         .app
@@ -265,5 +265,5 @@ fn a_combined_external_refresh_keeps_every_conclusion_and_existing_editor() {
     fixture.click("[Previous]");
     fixture.click("[Previous]");
     assert!(fixture.text().contains("Tasks 2"));
-    assert!(!fixture.text().contains("[Implement]"));
+    assert!(!fixture.text().contains(" Implement "));
 }

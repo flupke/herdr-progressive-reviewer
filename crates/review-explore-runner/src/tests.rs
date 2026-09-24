@@ -134,7 +134,7 @@ fn question_size_does_not_expand_the_wakeup() {
     question["alternatives"][1]["text"] = detailed.clone().into();
     let evidence = serde_json::json!([{
         "path":"src/policy.rs", "side":"new", "lines":{"first_line":1,"last_line":2},
-        "relationship":detailed, "decision_relevance":detailed
+        "notes":detailed
     }]);
     question["evidence"] = evidence.clone();
     question["supporting"] = evidence.clone();

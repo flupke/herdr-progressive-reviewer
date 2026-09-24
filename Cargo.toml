@@ -18,6 +18,8 @@ members = [
     "crates/markdown-rendering",
     "crates/syntax-highlighting",
     "crates/ui-actions",
+    "crates/ui-controls",
+    "crates/ui-panes",
     "crates/ui-events",
     "crates/ui-shortcuts",
     "crates/ui-theme",

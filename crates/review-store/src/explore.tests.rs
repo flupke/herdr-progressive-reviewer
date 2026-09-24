@@ -73,7 +73,7 @@ fn assert_explicit_conclusion(cited_lines: u32, expected_percent: u8) {
             "topics": [{"id":id,"title":"Policy","entries":[],"status":"open"}],
             "next": {"id":id,"version":1,"topic":id,"text":"Explain this line?",
                 "alternatives":[{"id":"keep","text":"Keep it","outcome":"accepted"},{"id":"change","text":"Change it","outcome":"needs_follow_up"}],
-                "evidence":[{"path":"policy.rs","side":"new","lines":{"first_line":line,"last_line":line},"relationship":"Implements policy","decision_relevance":"Changes outcome"}],
+                "evidence":[{"path":"policy.rs","side":"new","lines":{"first_line":line,"last_line":line},"notes":"Implements policy and changes the outcome"}],
                 "supporting":[]}, "conclusion":null,"limitations":[],"findings":[]
         })).unwrap()
     };
@@ -347,7 +347,7 @@ impl Investigation {
             "topics":[{"id":format!("topic{number}"),"title":"Policy", "entries":[],"status":"open"}],
             "next":{"id":format!("q{number}"), "version":1, "topic":format!("topic{number}"),"text":"Which policy?",
                 "alternatives":[{"id":"keep","text":"Keep the complete policy", "outcome":"accepted"},{"id":"change","text":"Change policy", "outcome":"needs_follow_up"}],
-                "evidence":[{"path":"policy.rs","side":"new","lines":{"first_line":1,"last_line":1}, "relationship":"Defines policy", "decision_relevance":"Determines retention"}]},
+                "evidence":[{"path":"policy.rs","side":"new","lines":{"first_line":1,"last_line":1}, "notes":"Defines policy and determines retention"}]},
             "conclusion":null, "limitations":[], "findings":[]
         })).unwrap()
     }
@@ -377,6 +377,182 @@ impl Investigation {
             },
         }
     }
+}
+
+#[test]
+fn clearing_unreadable_explore_state_preserves_review_marks() {
+    let fixture = Investigation::new();
+    let unit = "review".into();
+    let instance = &fixture.pass.exploration.instance;
+    let pass_path = fixture.store.explore_path(&unit, instance).unwrap();
+    let view_path = fixture.store.explore_view_path(&unit, instance).unwrap();
+    fixture
+        .store
+        .save_explore_view(&unit, &fixture.view(1, "draft"))
+        .unwrap();
+    fixture
+        .store
+        .mark(&unit, b"policy.rs", &"a".repeat(40))
+        .unwrap();
+    std::fs::write(&pass_path, b"invalid saved pass").unwrap();
+
+    fixture.store.clear_explore(&unit).unwrap();
+
+    assert!(
+        fixture
+            .store
+            .load_explore_history(&unit)
+            .unwrap()
+            .passes
+            .is_empty()
+    );
+    assert!(!pass_path.exists());
+    assert!(!view_path.exists());
+    assert!(matches!(
+        fixture.store.load(&unit, b"policy.rs").unwrap(),
+        LoadResult::Reviewed(_)
+    ));
+    fixture.store.clear_explore(&unit).unwrap();
+}
+
+#[test]
+fn clearing_unreadable_editor_view_keeps_the_interview() {
+    let fixture = Investigation::new();
+    let unit = "review".into();
+    let instance = &fixture.pass.exploration.instance;
+    let view_path = fixture.store.explore_view_path(&unit, instance).unwrap();
+    std::fs::write(&view_path, b"invalid editor view").unwrap();
+
+    fixture.store.clear_explore_view(&unit, instance).unwrap();
+
+    assert!(!view_path.exists());
+    assert!(
+        fixture
+            .store
+            .load_explore(&unit, instance)
+            .unwrap()
+            .is_some()
+    );
+}
+
+#[test]
+fn clearing_one_unreadable_pass_preserves_other_saved_passes() {
+    let fixture = Investigation::new();
+    let unit = "review".into();
+    let bad = fixture.pass.exploration.instance.clone();
+    let good = ExplorePass::new(Exploration::new(
+        fixture.pass.exploration.comparison.clone(),
+    ));
+    let good_instance = good.exploration.instance.clone();
+    fixture.store.create_explore(good).unwrap();
+    let good_view = review_explore::ViewSave {
+        instance: good_instance.clone(),
+        ..fixture.view(1, "retained editor")
+    };
+    fixture.store.save_explore_view(&unit, &good_view).unwrap();
+    let bad_path = fixture.store.explore_path(&unit, &bad).unwrap();
+    std::fs::write(&bad_path, b"invalid saved pass").unwrap();
+
+    fixture.store.clear_explore_pass(&unit, &bad).unwrap();
+
+    assert!(!bad_path.exists());
+    assert_eq!(
+        fixture.store.load_explore_history(&unit).unwrap().passes,
+        vec![good_instance.clone()]
+    );
+    assert!(
+        fixture
+            .store
+            .load_explore(&unit, &good_instance)
+            .unwrap()
+            .is_some()
+    );
+    assert_eq!(
+        fixture
+            .store
+            .load_explore_view(&unit, &good_instance)
+            .unwrap(),
+        Some(good_view)
+    );
+}
+
+#[test]
+fn repairing_unreadable_index_preserves_readable_passes_and_views() {
+    let fixture = Investigation::new();
+    let unit = "review".into();
+    let instance = fixture.pass.exploration.instance.clone();
+    fixture
+        .store
+        .save_explore_view(&unit, &fixture.view(1, "draft"))
+        .unwrap();
+    let index = fixture
+        .store
+        .explore_review(&unit)
+        .unwrap()
+        .join("index.json");
+    std::fs::write(&index, b"invalid index").unwrap();
+
+    let repaired = fixture.store.repair_explore_history(&unit).unwrap();
+
+    assert_eq!(repaired.passes, vec![instance.clone()]);
+    assert!(!repaired.latest_editable);
+    assert_eq!(fixture.store.load_explore_history(&unit).unwrap(), repaired);
+    assert!(
+        fixture
+            .store
+            .load_explore(&unit, &instance)
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        fixture
+            .store
+            .load_explore_view(&unit, &instance)
+            .unwrap()
+            .is_some()
+    );
+}
+
+#[test]
+fn repaired_history_never_guesses_an_editable_latest_pass() {
+    let fixture = Investigation::new();
+    let unit = "review".into();
+    let second = ExplorePass::new(Exploration::new(
+        fixture.pass.exploration.comparison.clone(),
+    ));
+    fixture.store.create_explore(second).unwrap();
+    let index = fixture
+        .store
+        .explore_review(&unit)
+        .unwrap()
+        .join("index.json");
+    std::fs::write(&index, b"invalid index").unwrap();
+
+    let repaired = fixture.store.repair_explore_history(&unit).unwrap();
+    assert_eq!(repaired.passes.len(), 2);
+    assert!(!repaired.latest_editable);
+    let guessed_latest = repaired.passes.last().unwrap();
+    assert!(
+        fixture
+            .store
+            .update_explore(&unit, guessed_latest, |_| Ok(()))
+            .is_err()
+    );
+
+    let fresh = ExplorePass::new(Exploration::new(
+        fixture.pass.exploration.comparison.clone(),
+    ));
+    let fresh_instance = fresh.exploration.instance.clone();
+    fixture.store.create_explore(fresh).unwrap();
+    let history = fixture.store.load_explore_history(&unit).unwrap();
+    assert!(history.latest_editable);
+    assert_eq!(history.passes.last(), Some(&fresh_instance));
+    assert!(
+        fixture
+            .store
+            .update_explore(&unit, &fresh_instance, |_| Ok(()))
+            .is_ok()
+    );
 }
 
 #[test]

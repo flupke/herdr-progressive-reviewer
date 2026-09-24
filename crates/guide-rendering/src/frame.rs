@@ -1,5 +1,6 @@
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
+use std::ops::Range;
 
 use crate::{GuideBorderCell, GuideRenderedRow, wrap_line};
 
@@ -132,9 +133,25 @@ impl DiffFrame {
 
     /// Wrap a styled content line without coloring the diff gutter.
     pub fn wrapped_content(self, line: &Line<'static>, source_row: usize) -> Vec<GuideRenderedRow> {
+        self.wrapped_content_with_ranges(line, source_row)
+            .into_iter()
+            .map(|(row, _)| row)
+            .collect()
+    }
+
+    /// Return each wrapped row with the columns occupied by its source content.
+    pub fn wrapped_content_with_ranges(
+        self,
+        line: &Line<'static>,
+        source_row: usize,
+    ) -> Vec<(GuideRenderedRow, Range<usize>)> {
         wrap_line(line, self.content_width(), 0)
             .into_iter()
-            .map(|wrapped| self.content(wrapped.style(line.style), source_row))
+            .map(|wrapped| {
+                let start = self.content_column();
+                let range = start..start + wrapped.width();
+                (self.content(wrapped.style(line.style), source_row), range)
+            })
             .collect()
     }
 

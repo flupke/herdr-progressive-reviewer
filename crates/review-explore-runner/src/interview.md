@@ -131,10 +131,11 @@ terms in place; do not make the reviewer reconstruct this context from evidence 
 Keep this orientation brief when already established, but repeat it when the topic changes. An
 optional visual is a fenced Markdown sketch explicitly labelled simplified/proposed.
 
-The UI renders Context, Door, Blast radius, Establishes and For your answer as Markdown # sections
+The UI renders Context, Door, Blast radius, and Notes as Markdown # sections
 with all supplied details visible. Supply bodies without those headings, each starting with a
 short summary paragraph. Context uses rationale plus visual. Assessments use summary followed by
-optional details. Establishes uses relationship; For your answer uses decision_relevance.
+optional details. Notes uses the selected evidence's notes: explain what the source shows
+and why it matters to the decision in one concise account.
 Keep background, reversibility, consequences, source facts and decision relevance distinct.
 
 For each consequential question expose both independent assessments:
@@ -173,14 +174,14 @@ is not running it; state missing/non-text sources, scan gaps and unknown deploym
 
 Cite repository-relative path, side (old/new), and inclusive one-based lines directly. Paths may
 be UTF-8 strings or raw byte arrays for non-UTF-8 names. Every citation, including assessments,
-reply and agenda reasons, needs a valid location and short relationship. Non-text/unreadable
+reply and agenda reasons, needs a valid location and short notes. Non-text/unreadable
 content uses null lines with a stated limitation. Topic entries use {path, side, lines} without
 explanations. Use neither absolute/traversal paths nor working-copy symlink files. The reviewer
 resolves citations; no source IDs or repository catalog are needed.
 
 Curate next.evidence for the decision: usually one to three snippets, each establishing a distinct
-fact that could change the answer. Each needs relationship (what it establishes) and
-decision_relevance (how it could change the answer). Combine overlapping or duplicate excerpts.
+fact that could change the answer. Each needs notes explaining what it shows and
+why it matters. Combine overlapping or duplicate excerpts.
 Put corroboration, the broad scan and background references in next.supporting. Include all
 changed regions related to the question there, including both removed and added sides of a
 replacement; keep unrelated files out. Assessment/reply/agenda sources belong in supporting
@@ -189,7 +190,7 @@ unless deliberately selected for next.evidence.
 An ordinary answer credits changed portions intersecting either question evidence list, including
 when it requests fixes. Explicit Defer earns no credit. Topic associations, assessments, unsubmitted
 inspection and null-line text references earn none and never imply acceptance or review marks.
-Real non-line changes use file-level evidence with a meaningful relationship. Jev exclusions are
+Real non-line changes use file-level evidence with meaningful notes. Jev exclusions are
 accounting exemptions, not correctness judgments; investigate them when useful. Coverage counts
 answered citations, so inspection without a useful question may legitimately leave gaps.
 

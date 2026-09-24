@@ -1,6 +1,7 @@
 //! Application pane layout and focus state.
 
 use ratatui::layout::Rect;
+use ui_panes::SplitPane;
 
 const NARROW_WIDTH: u16 = 72;
 const MINIMUM_DIFF_WIDTH: u16 = 16;
@@ -9,9 +10,17 @@ use ui_events::{ReviewNavigation, ReviewPane};
 
 pub(super) struct NavigationTabs;
 
+pub(super) fn location_selector_panes(body: Rect, preferred_width: Option<u16>) -> SplitPane {
+    SplitPane::new(
+        body,
+        preferred_width.unwrap_or(body.width * 30 / 100).max(18),
+        24.min(body.width / 2),
+    )
+}
+
 impl NavigationTabs {
     pub(super) const FILES: &str = " [F]iles ";
-    pub(super) const EXPLORE: &str = " Explore ";
+    pub(super) const EXPLORE: &str = " [E]xplore ";
     pub(super) const THREADS: &str = " [T]hreads ";
     pub(super) const SEPARATOR: &str = "|";
     pub(super) const UNREAD: &str = "● ";

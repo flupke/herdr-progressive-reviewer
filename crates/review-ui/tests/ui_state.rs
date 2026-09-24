@@ -1546,8 +1546,12 @@ fn dragging_the_separator_resizes_the_file_pane() {
         height: 12,
     });
     let before = screen(&app, 80, 12)[1].find("Diff").unwrap();
+    let separator = screen(&app, 80, 12)[1][..before].chars().count() - 2;
 
-    app.update(UserInput::MouseClick { column: 34, row: 5 });
+    app.update(UserInput::MouseClick {
+        column: u16::try_from(separator).unwrap(),
+        row: 5,
+    });
     app.update(UserInput::MouseDrag { column: 40, row: 5 });
     assert_eq!(
         app.update(UserInput::MouseRelease),
@@ -1561,11 +1565,11 @@ fn dragging_the_separator_resizes_the_file_pane() {
     app.update(UserInput::MouseDrag { column: 0, row: 5 });
     assert_eq!(
         app.update(UserInput::MouseRelease),
-        vec![Action::SaveFilePaneWidth(35)]
+        vec![Action::SaveFilePaneWidth(37)]
     );
     assert!(screen(&app, 80, 12)[1].contains("[F]iles | [T]hreads"));
 
-    app.update(UserInput::MouseClick { column: 35, row: 5 });
+    app.update(UserInput::MouseClick { column: 37, row: 5 });
     app.update(UserInput::MouseDrag { column: 79, row: 5 });
     assert_eq!(
         app.update(UserInput::MouseRelease),

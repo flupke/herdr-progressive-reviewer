@@ -206,6 +206,11 @@ fn threads_open_without_loading_reviewed_or_removed_files_in_wide_and_narrow_lay
         let mut ui = ThreadUi::new(width);
         assert!(ui.text().contains("[F]iles"));
         assert!(ui.text().contains("[T]hreads"));
+        assert!(ui.text().contains("[E]xplore"));
+        ui.key(Key::Char('e'));
+        assert_eq!(ui.app.navigation, ReviewNavigation::Explore);
+        ui.key(Key::Char('f'));
+        assert_eq!(ui.app.navigation, ReviewNavigation::Files);
         ui.key(Key::Tab);
         assert_eq!(ui.app.focus, ReviewPane::Detail);
         assert!(ui.key(Key::Char('t')).is_empty());
@@ -743,15 +748,21 @@ fn filename_opens_files_and_preserves_the_conversation_draft() {
         let buffer = terminal.backend().buffer();
         let (column, row) = (0..ui.height)
             .find_map(|row| {
-                (0..width)
-                    .find(|column| {
-                        buffer[(*column, row)]
-                            .modifier
-                            .contains(ratatui::style::Modifier::UNDERLINED)
-                    })
+                let text = (0..width)
+                    .map(|column| buffer[(column, row)].symbol())
+                    .collect::<String>();
+                text.match_indices("[gone.rs]")
+                    .map(|(byte, _)| u16::try_from(text[..byte].chars().count()).unwrap())
+                    .find(|column| buffer[(*column, row)].fg == ui.app.palette.focus)
                     .map(|column| (column, row))
             })
-            .expect("the filename is an underlined link");
+            .expect("the filename is a navigation link");
+        assert_eq!(buffer[(column, row)].fg, ui.app.palette.focus);
+        assert!(
+            !buffer[(column, row)]
+                .modifier
+                .contains(ratatui::style::Modifier::UNDERLINED)
+        );
         ui.app.update(UserInput::MouseClick {
             column: width - 3,
             row,
@@ -1046,7 +1057,7 @@ fn original_context_always_includes_the_full_saved_range() {
     assert_eq!(
         detail[path_row]
             .trim_matches(|character: char| character == '│' || character.is_whitespace()),
-        "src/lib.rs"
+        "[src/lib.rs]"
     );
     assert!(detail[path_row + 1].contains("────"));
     assert!(detail[path_row + 2].contains("first original line"));

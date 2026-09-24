@@ -1230,8 +1230,7 @@ mod tests {
                     last_line,
                 }),
             },
-            relationship: "Changes the rule".into(),
-            decision_relevance: "Affects choice".into(),
+            notes: "Changes the rule and affects the choice".into(),
         }
     }
 

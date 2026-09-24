@@ -114,7 +114,7 @@ impl ExploreFlow {
 }
 
 #[test]
-fn missing_saved_pass_rejects_mcp_without_recreating_or_crashing_the_worker() {
+fn missing_saved_pass_rejects_mcp_then_clears_explore_on_reopen() {
     let mut flow = ExploreFlow::start(RepoType::Git);
     flow.fixture
         .herdr
@@ -140,10 +140,208 @@ fn missing_saved_pass_rejects_mcp_without_recreating_or_crashing_the_worker() {
             .contains("missing")
     );
     assert!(!path.exists());
-    assert!(flow.reopen().result.is_err());
+    assert!(matches!(flow.reopen().result, Ok(None)));
     assert!(!path.exists());
-    fs::rename(backup, path).unwrap();
-    assert!(flow.reopen().result.unwrap().is_some());
+    assert!(backup.exists());
+    assert!(
+        flow.store()
+            .load_explore_history(&flow.fixture.review_unit)
+            .unwrap()
+            .passes
+            .is_empty()
+    );
+    let toast = flow
+        .fixture
+        .messages
+        .recv_timeout(Duration::from_secs(10))
+        .unwrap();
+    let toast = toast.downcast_ref::<ui_events::ToastRequested>().unwrap();
+    assert_eq!(toast.kind, toasts::ToastKind::Error);
+    assert!(toast.text.contains("Unreadable Explore state was cleared"));
+    flow.finish();
+}
+
+#[test]
+fn unreadable_index_is_rebuilt_from_intact_passes() {
+    let mut flow = ExploreFlow::start(RepoType::Git);
+    flow.turn(None, 1);
+    let directory = fs::read_dir(flow.store().explore_directory())
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    fs::write(directory.join("index.json"), b"invalid index").unwrap();
+
+    let restored = flow.reopen();
+
+    assert!(matches!(restored.result, Ok(Some(_))));
+    assert_eq!(restored.passes, vec![flow.exploration.instance.clone()]);
+    assert!(restored.historical);
+    assert_eq!(
+        flow.store()
+            .load_explore_history(&flow.fixture.review_unit)
+            .unwrap()
+            .passes,
+        restored.passes
+    );
+    let toast = flow
+        .fixture
+        .messages
+        .recv_timeout(Duration::from_secs(10))
+        .unwrap();
+    assert!(toast.downcast_ref::<ui_events::ToastRequested>().is_some());
+    flow.finish();
+}
+
+#[test]
+fn invalid_saved_pass_is_removed_and_the_ui_can_start_again() {
+    let mut flow = ExploreFlow::start(RepoType::Git);
+    flow.turn(None, 1);
+    let directory = fs::read_dir(flow.store().explore_directory())
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let path = directory.join(format!("{}.json", flow.exploration.instance));
+    let mut stored: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    let evidence = stored
+        .pointer_mut("/value/exploration/conversation/0/update/next/evidence/0")
+        .and_then(serde_json::Value::as_object_mut)
+        .expect("stored question evidence");
+    assert!(evidence.remove("notes").is_some());
+    fs::write(&path, serde_json::to_vec(&stored).unwrap()).unwrap();
+    let restored = flow.reopen();
+    assert!(matches!(restored.result, Ok(None)));
+    assert!(restored.passes.is_empty());
+    assert!(!path.exists());
+    let toast = flow
+        .fixture
+        .messages
+        .recv_timeout(Duration::from_secs(10))
+        .unwrap();
+    assert!(toast.downcast_ref::<ui_events::ToastRequested>().is_some());
+    flow.fixture
+        .commands
+        .send(WorkerCommand::Explore(ExploreCommand::Start))
+        .unwrap();
+    let captured = loop {
+        let event = flow
+            .fixture
+            .messages
+            .recv_timeout(Duration::from_secs(10))
+            .unwrap();
+        if let Some(captured) = event.downcast_ref::<ui_events::ExploreCaptured>() {
+            break captured.clone();
+        }
+    };
+    assert!(captured.result.is_ok());
+    flow.finish();
+}
+
+#[test]
+fn unreadable_latest_pass_keeps_earlier_interview_history() {
+    let mut flow = ExploreFlow::start(RepoType::Git);
+    flow.turn(None, 1);
+    let earlier = flow.exploration.instance.clone();
+    let store = flow.store();
+    let next = ExplorePass::new(Exploration::new(
+        flow.saved().exploration.comparison.clone(),
+    ));
+    let unreadable = next.exploration.instance.clone();
+    store.create_explore(next).unwrap();
+    let directory = fs::read_dir(store.explore_directory())
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let path = directory.join(format!("{unreadable}.json"));
+    fs::write(&path, b"invalid saved pass").unwrap();
+
+    let restored = flow.reopen();
+    assert!(matches!(restored.result, Ok(Some(_))));
+    assert_eq!(restored.passes, vec![earlier.clone()]);
+    assert!(restored.historical);
+    assert!(!path.exists());
+    assert_eq!(
+        store
+            .load_explore_history(&flow.fixture.review_unit)
+            .unwrap()
+            .passes,
+        vec![earlier.clone()]
+    );
+    assert!(
+        store
+            .load_explore(&flow.fixture.review_unit, &earlier)
+            .unwrap()
+            .is_some()
+    );
+    flow.finish();
+}
+
+#[test]
+fn invalid_editor_view_is_removed_without_erasing_the_interview() {
+    let mut flow = ExploreFlow::start(RepoType::Git);
+    flow.turn(None, 1);
+    let directory = fs::read_dir(flow.store().explore_directory())
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let view_path = directory.join(format!("{}.view.json", flow.exploration.instance));
+    fs::write(&view_path, b"invalid editor view").unwrap();
+
+    let restored = flow.reopen();
+    assert!(matches!(restored.result, Ok(Some(_))));
+    assert!(restored.view.is_none());
+    assert!(restored.storage_error.is_none());
+    assert!(!view_path.exists());
+    assert_eq!(
+        flow.store()
+            .load_explore_history(&flow.fixture.review_unit)
+            .unwrap()
+            .passes,
+        vec![flow.exploration.instance.clone()]
+    );
+    let toast = flow
+        .fixture
+        .messages
+        .recv_timeout(Duration::from_secs(10))
+        .unwrap();
+    assert!(toast.downcast_ref::<ui_events::ToastRequested>().is_some());
+    flow.finish();
+}
+
+#[test]
+fn an_unknown_pass_request_does_not_clear_valid_explore_state() {
+    let mut flow = ExploreFlow::start(RepoType::Git);
+    flow.turn(None, 1);
+    flow.fixture
+        .commands
+        .send(WorkerCommand::Explore(ExploreCommand::OpenPass(
+            "unknown".into(),
+        )))
+        .unwrap();
+    let toast = loop {
+        let event = flow
+            .fixture
+            .messages
+            .recv_timeout(Duration::from_secs(10))
+            .unwrap();
+        if let Some(toast) = event.downcast_ref::<ui_events::ToastRequested>() {
+            break toast.clone();
+        }
+    };
+    assert!(toast.text.contains("Unknown saved Explore pass"));
+    assert!(
+        flow.store()
+            .load_explore(&flow.fixture.review_unit, &flow.exploration.instance)
+            .unwrap()
+            .is_some()
+    );
     flow.finish();
 }
 
@@ -515,6 +713,94 @@ fn restored_history_blocks_a_different_conversation_and_continues_when_original_
         .unwrap();
     flow.wait_for_prompt(&retry);
     assert_eq!(flow.saved().exploration.answers.len(), 1);
+    flow.finish();
+}
+
+#[test]
+fn explicit_retry_adopts_changed_native_session_in_the_same_pane() {
+    let mut flow = ExploreFlow::start(RepoType::Git);
+    flow.fixture.herdr.report_session("original-conversation");
+    flow.turn(None, 1);
+    let question = flow.exploration.questions[0].clone();
+    let request = flow
+        .exploration
+        .request(
+            Some(AnswerInput {
+                option: Some("keep".into()),
+                text: "Keep the existing policy".into(),
+                ..Default::default()
+            }),
+            Some(&question),
+        )
+        .unwrap();
+    flow.fixture.herdr.stop_agent();
+    flow.fixture.herdr.start_agent();
+    flow.fixture.herdr.report_session("refreshed-conversation");
+    flow.fixture
+        .commands
+        .send(WorkerCommand::Explore(ExploreCommand::Turn(Box::new(
+            request.clone(),
+        ))))
+        .unwrap();
+    loop {
+        let event = flow
+            .fixture
+            .messages
+            .recv_timeout(Duration::from_secs(10))
+            .unwrap();
+        if let Some(event) = event.downcast_ref::<ui_events::ExploreFinished>() {
+            assert!(
+                event
+                    .result
+                    .as_ref()
+                    .unwrap_err()
+                    .contains("different agent conversation")
+            );
+            break;
+        }
+    }
+    assert!(flow.saved().binding.as_ref().is_some_and(|binding| {
+        !binding.matches(
+            &flow
+                .fixture
+                .herdr
+                .client()
+                .get_agent(&flow.fixture.herdr.pane_id)
+                .unwrap()
+                .unwrap(),
+        )
+    }));
+    flow.exploration = flow.reopen().result.unwrap().unwrap().exploration.clone();
+    flow.exploration.pause_delivery();
+    let retry = flow.exploration.retry().unwrap();
+    assert_eq!(retry.answer, request.answer);
+    flow.fixture
+        .commands
+        .send(WorkerCommand::Explore(ExploreCommand::Retry(Box::new(
+            retry.clone(),
+        ))))
+        .unwrap();
+    flow.wait_for_prompt(&retry);
+    let current = flow
+        .fixture
+        .herdr
+        .client()
+        .get_agent(&flow.fixture.herdr.pane_id)
+        .unwrap()
+        .unwrap();
+    assert!(flow.saved().binding.unwrap().matches(&current));
+    let response = serde_json::json!({
+        "instance":retry.instance,"request":retry.request,"checkpoint":retry.checkpoint,
+        "interpretation":{"answer":retry.answer.unwrap().id,"status":"accepted","recap":"Keep the policy","follow_ups":[]},
+        "reply":{"text":"The saved policy still applies.","evidence":[]},
+        "topics":[{"id":"topic2","title":"Remaining policy","entries":[{"path":"reviewed.rs","side":"new","lines":null}],"status":"open"}],
+        "next":{"id":"q2","version":1,"topic":"topic2","text":"Keep the remaining policy?",
+            "alternatives":[{"id":"keep","text":"Keep it","outcome":"accepted"},{"id":"change","text":"Change it","outcome":"needs_follow_up"}],
+            "evidence":[{"path":"reviewed.rs","side":"new","lines":{"first_line":1,"last_line":1},"notes":"Shows the remaining policy"}]},
+        "limitations":[],"findings":[]
+    });
+    let accepted = flow.submit(&response);
+    assert_ne!(accepted.is_error, Some(true), "{accepted:?}");
     flow.finish();
 }
 

@@ -24,6 +24,7 @@ impl ExploreComponent {
         diff: &DiffComponent,
         palette: Palette,
     ) -> ConversationLayout {
+        let area = Block::default().borders(Borders::ALL).inner(area);
         let navigation = self.navigation_bar(area);
         let reserved = navigation.height().saturating_add(1);
         let body = Rect::new(
@@ -243,8 +244,13 @@ impl ExploreComponent {
         focused: bool,
         diff: &DiffComponent,
     ) {
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(if focused { palette.focus } else { palette.dim }));
+        let content = block.inner(area);
+        block.render(area, buffer);
         if self.conclusion_preview.is_some() {
-            self.render_conclusion_preview(area, buffer, palette, focused, diff);
+            self.render_conclusion_preview(content, buffer, palette, focused, diff);
             return;
         }
         self.render_conversation(area, buffer, palette, focused, diff);
@@ -265,55 +271,84 @@ impl ExploreComponent {
             let Some((visible, skipped)) = layout.visible(item) else {
                 continue;
             };
-            match &item.content {
-                Content::Text(text, _) => {
-                    Paragraph::new(text.clone())
-                        .wrap(Wrap { trim: false })
-                        .scroll((skipped, 0))
-                        .render(visible, buffer);
-                }
-                Content::Window(view) => {
-                    if let Some(viewer) = diff.evidence_view(*view) {
-                        viewer.render_embedded(
-                            Window::new(*view, visible, skipped, item.height).viewport,
-                            buffer,
-                            palette,
-                            !focused && *view == self.view_id(),
-                        );
-                    }
-                }
-                Content::Editor(target) => {
-                    self.render_editor(
-                        *target,
-                        ClippedViewport::new(visible, skipped, item.height),
+            self.render_conversation_item(
+                super::flow::VisibleContent {
+                    item,
+                    area: visible,
+                    skipped,
+                },
+                buffer,
+                palette,
+                focused,
+                diff,
+            );
+        }
+    }
+
+    fn render_conversation_item(
+        &self,
+        visible: super::flow::VisibleContent<'_>,
+        buffer: &mut Buffer,
+        palette: Palette,
+        focused: bool,
+        diff: &DiffComponent,
+    ) {
+        let item = visible.item;
+        let area = visible.area;
+        let skipped = visible.skipped;
+        match &item.content {
+            Content::Text(text, _) => {
+                Paragraph::new(text.clone())
+                    .wrap(Wrap { trim: false })
+                    .scroll((skipped, 0))
+                    .render(area, buffer);
+            }
+            Content::Window(view) => {
+                if let Some(viewer) = diff.evidence_view(*view) {
+                    viewer.render_embedded(
+                        Window::new(*view, area, skipped, item.height).viewport,
                         buffer,
                         palette,
-                        focused,
+                        !focused && *view == self.view_id(),
                     );
                 }
-                Content::Resize(_) => Paragraph::new(
-                    "──────────────── drag to resize · Alt-j/k · Alt-0 fit ────────────────",
-                )
-                .style(Style::default().fg(palette.dim))
-                .render(visible, buffer),
-                Content::Controls(buttons) => {
-                    for button in buttons {
-                        let width = visible.width.saturating_sub(button.column);
-                        Paragraph::new(button.text.as_str())
-                            .style(Style::default().fg(palette.focus))
-                            .render(
-                                Rect::new(
-                                    visible.x + button.column.min(visible.width),
-                                    visible.y,
-                                    width,
-                                    1,
-                                ),
-                                buffer,
-                            );
-                    }
-                }
+            }
+            Content::EvidenceSplit(list) => {
+                self.render_evidence_split(list, visible, buffer, palette, focused, diff);
+            }
+            Content::Editor(target) => {
+                self.render_editor(
+                    *target,
+                    ClippedViewport::new(area, skipped, item.height),
+                    buffer,
+                    palette,
+                    focused,
+                );
+            }
+            Content::Controls(buttons) => {
+                super::controls::Button::render_row(buttons, area, buffer, palette);
             }
         }
+    }
+
+    fn render_evidence_split(
+        &self,
+        list: &super::evidence::EvidenceList,
+        visible: super::flow::VisibleContent<'_>,
+        buffer: &mut Buffer,
+        palette: Palette,
+        focused: bool,
+        diff: &DiffComponent,
+    ) {
+        let active = list.view == self.view_id();
+        list.render_split(
+            visible,
+            buffer,
+            diff,
+            palette,
+            !focused && active,
+            focused && self.evidence_list_focused && active,
+        );
     }
 
     fn render_editor(
@@ -374,7 +409,6 @@ impl ExploreComponent {
             self.preceding_reply(index, layout, palette);
             self.answers(index, question, layout, palette);
             Self::question_sections(question, layout, palette);
-            self.turn_controls(index, question, layout, palette);
             self.evidence_block(index, layout, diff, palette);
         }
         if self.map {
@@ -692,39 +726,6 @@ impl ExploreComponent {
             layout.controls([("Retry".into(), Control::Retry)]);
         } else if self.progress == Progress::Ready && self.question().is_none() {
             layout.controls([("Start".into(), Control::Start)]);
-        }
-    }
-
-    fn turn_controls(
-        &self,
-        index: usize,
-        question: &Question,
-        layout: &mut ConversationLayout,
-        palette: Palette,
-    ) {
-        let turn = &self.turns[index];
-        layout.gap();
-        layout.controls([
-            ("Reply".into(), Control::Reply(index)),
-            ("More".into(), Control::More(index)),
-        ]);
-        if turn.more {
-            let mut controls = vec![
-                ("Map / follow-ups".into(), Control::Map),
-                ("New pass".into(), Control::Start),
-            ];
-            if self.exploration.as_ref().is_some_and(|exploration| {
-                exploration
-                    .answers
-                    .iter()
-                    .any(|answer| answer.question.as_ref() == Some(question))
-            }) {
-                controls.push(("Correct".into(), Control::Correct(index)));
-            }
-            layout.gap();
-            layout.controls(controls);
-            layout.gap();
-            layout.text("Up/Down or j/k select an answer; Enter confirms. Tab cycles conversation, evidence, answer. PageUp/Down scroll conversation. Alt-j/k resize evidence; Alt-0 fits it. [ / ] visit questions; e cycles evidence; b returns to primary.",palette.dim,None);
         }
     }
 

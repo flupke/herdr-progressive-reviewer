@@ -131,9 +131,7 @@ fn factual_question_gets_a_direct_reply_new_branch_and_new_source_without_agreem
                 last_line: 1,
             }),
         },
-        relationship: "Every rebuild reaches the shared dependency".into(),
-        decision_relevance: "This policy determines whether the proposed recovery is sufficient."
-            .into(),
+        notes: "Every rebuild reaches the shared dependency, determining whether the proposed recovery is sufficient.".into(),
     };
     response.reply = Some(Reply {
         text: "Each instance fetches from the same origin. No fleet-wide limiter is shown.".into(),
@@ -381,7 +379,7 @@ fn direct_citations_reject_unsafe_paths_and_invalid_lines_without_changing_histo
     evidence.location.path = RepoPath::from_bytes(b"image.bin");
     evidence.location.side = SourceSide::New;
     evidence.location.lines = None;
-    evidence.relationship = "Non-text source; inspection unavailable".into();
+    evidence.notes = "Non-text source; inspection unavailable".into();
     response.reply.as_mut().unwrap().evidence.push(evidence);
     exploration.apply(response).unwrap();
     assert_eq!(exploration.conversation.len(), 2);
