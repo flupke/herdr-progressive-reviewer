@@ -2,7 +2,9 @@ use super::{ComposeScope, Control, Draft, EditorTarget, ExploreComponent, Progre
 use comment_editor::CommentEditor;
 use review_explore::{Command, ExploreDraft, ExplorePage, ExploreViewState, TurnRequest, ViewSave};
 use ui_actions::Action;
-use ui_events::{ExploreCommitted, ExplorePosted, ExploreRestored, ExploreStorageFailed};
+use ui_events::{
+    ExploreCommitted, ExploreCoverageRefresh, ExplorePosted, ExploreRestored, ExploreStorageFailed,
+};
 
 pub(super) struct Durability {
     pub(super) enabled: bool,
@@ -450,6 +452,7 @@ impl ExploreComponent {
 
     fn restore_coverage(&mut self, pass: &review_explore::ExplorePass) {
         self.coverage = Some(pass.coverage.clone());
+        self.jev_progress_expiry.observe(&pass.coverage);
         self.conclusion_unexplored = pass.completion.as_ref().and_then(|completion| {
             completion
                 .unexplored
@@ -466,6 +469,23 @@ impl ExploreComponent {
             .as_ref()
             .filter(|completion| completion.completed)
             .map(|completion| completion.exclusions_enabled);
+        self.coverage_dirty = true;
+    }
+
+    pub(super) fn refresh_coverage(&mut self, _event: &ExploreCoverageRefresh) {
+        if !self.coverage_dirty {
+            return;
+        }
+        let (Some(pass), Some(coverage)) = (&self.exploration, &self.coverage) else {
+            return;
+        };
+        self.coverage_cache.refresh(
+            &pass.instance,
+            coverage,
+            &pass.comparison,
+            self.completion_policy.unwrap_or(self.jev_enabled),
+        );
+        self.coverage_dirty = false;
     }
 
     fn reconcile_history(&mut self, pass: &review_explore::ExplorePass) {

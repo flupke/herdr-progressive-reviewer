@@ -37,27 +37,17 @@ impl ExploreComponent {
         let Some(exploration) = &self.exploration else {
             return;
         };
-        let mut counts = BTreeMap::<usize, (u64, u64)>::new();
-        for (units, excluded) in [
-            (&unexplored.required, false),
-            (&unexplored.jev_excluded, true),
-        ] {
-            for unit in units {
-                let value = match unit {
-                    CoverageUnit::Lines { first, end, .. } => u64::from(end - first),
-                    CoverageUnit::Item { .. } => 1,
-                };
-                let count = counts.entry(unit.file_index()).or_default();
-                if excluded {
-                    count.1 += value;
-                } else {
-                    count.0 += value;
-                }
-            }
+        let mut counts = BTreeMap::<usize, u64>::new();
+        for unit in &unexplored.required {
+            let value = match unit {
+                CoverageUnit::Lines { first, end, .. } => u64::from(end - first),
+                CoverageUnit::Item { .. } => 1,
+            };
+            *counts.entry(unit.file_index()).or_default() += value;
         }
         let files = counts
             .into_iter()
-            .filter_map(|(file, (required, excluded))| {
+            .filter_map(|(file, required)| {
                 exploration
                     .comparison
                     .files
@@ -66,16 +56,10 @@ impl ExploreComponent {
                         file,
                         path: changed.review_path().display(),
                         required,
-                        excluded,
                     })
             })
             .collect();
-        let units = unexplored
-            .required
-            .iter()
-            .chain(&unexplored.jev_excluded)
-            .cloned()
-            .collect();
+        let units = unexplored.required.clone();
         self.conclusion_preview = Some(ConclusionPreview {
             files: FilePreviewList::new(files),
             units,
@@ -135,6 +119,7 @@ impl ExploreComponent {
             evidence,
             view: EvidenceView::Coverage,
             reveal: true,
+            required_only: true,
         });
     }
 
@@ -284,7 +269,7 @@ impl ExploreComponent {
         }
         let block = Block::default()
             .borders(Borders::ALL)
-            .title(" Checkpoint diff ")
+            .title(" Required checkpoint changes ")
             .border_style(Style::default().fg(if focused { palette.dim } else { palette.focus }));
         let inner = block.inner(right);
         preview.right.set(inner);

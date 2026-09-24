@@ -289,6 +289,7 @@ impl ExploreComponent {
             primary: 1,
             view: Self::coverage_view(),
             reveal,
+            required_only: false,
         });
     }
 

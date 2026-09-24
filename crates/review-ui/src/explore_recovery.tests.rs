@@ -18,13 +18,15 @@ fn pass(fixture: &ExploreUi, request: &TurnRequest) -> ExplorePass {
 fn restore(fixture: &mut ExploreUi, pass: &ExplorePass, view: Option<ViewSave>) -> Vec<Action> {
     // Serialization removes comparison buffers, preserving only history/source locators.
     let pass = serde_json::from_slice(&serde_json::to_vec(pass).unwrap()).unwrap();
-    fixture.app.publish(ui_events::ExploreRestored {
+    let actions = fixture.app.publish(ui_events::ExploreRestored {
         result: Ok(Some(Arc::new(pass))),
         view,
         passes: vec![],
         historical: false,
         storage_error: None,
-    })
+    });
+    fixture.app.publish(ui_events::ExploreCoverageRefresh);
+    actions
 }
 
 fn saved(actions: Vec<Action>) -> ViewSave {
@@ -121,11 +123,132 @@ fn conclusion_previews_unexplored_files_and_reopens_the_checkpoint_diff() {
     });
     let narrow = fixture.text();
     assert!(
-        narrow.contains("Not explored · Files") && narrow.contains("Checkpoint diff"),
+        narrow.contains("Not explored · Files") && narrow.contains("Required checkpoint changes"),
         "{narrow}"
     );
     fixture.click("[Back to conclusion]");
     assert!(fixture.text().contains("The concept review is complete."));
+}
+
+#[test]
+fn conclusion_preview_omits_jev_only_files_from_count_tree_and_diff() {
+    let (mut fixture, request) = ExploreUi::new();
+    let mut pass = pass(&fixture, &request);
+    let question = pass.exploration.questions.last().unwrap().clone();
+    let answer = pass
+        .exploration
+        .request(
+            Some(review_explore::AnswerInput {
+                text: "Answered".into(),
+                ..Default::default()
+            }),
+            Some(&question),
+        )
+        .unwrap();
+    let mut update = fixture.response(&answer, 1);
+    update.next = None;
+    update.conclusion = Some(conclusion("Done."));
+    pass.submit(&update, false).unwrap();
+    let required = pass
+        .coverage
+        .inventory
+        .units
+        .iter()
+        .find(|unit| unit.file_index() == 0)
+        .unwrap()
+        .clone();
+    let excluded = pass
+        .coverage
+        .inventory
+        .units
+        .iter()
+        .find(|unit| unit.file_index() == 1)
+        .unwrap()
+        .clone();
+    pass.completion = Some(review_explore::ReviewCompletion {
+        request: answer.request,
+        baseline: request.checkpoint.checkpoint.clone(),
+        marks: vec![],
+        completed: true,
+        exclusions_enabled: true,
+        summary: pass.coverage.summary(true),
+        unexplored: Some(review_explore::UnexploredAtConclusion {
+            required: vec![required],
+            jev_excluded: vec![excluded],
+        }),
+    });
+    restore(&mut fixture, &pass, None);
+    assert!(fixture.text().contains("1 unexplored changed regions"));
+    fixture.click("[Preview unexplored code]");
+    let text = fixture.text();
+    assert!(text.contains("policy.rs ·"), "{text}");
+    assert!(!text.contains("tests.rs"), "{text}");
+    assert!(!text.contains("Jev"), "{text}");
+    let viewer = fixture
+        .app
+        .event_bus
+        .get::<DiffComponent>(fixture.app.diff_component)
+        .unwrap();
+    assert_eq!(
+        viewer
+            .evidence_view(ui_events::EvidenceView::Coverage)
+            .and_then(DiffComponent::evidence_path),
+        Some("policy.rs")
+    );
+}
+
+#[test]
+fn conclusion_preview_hides_jev_lines_inside_a_required_file() {
+    let (mut fixture, request) = ExploreUi::with_versions(
+        b"pub fn policy() {\n    println!(\"old\");\n}\n",
+        b"pub fn policy() {\n    println!(\"required_token\");\n    println!(\"jev_hidden_token\");\n}\n",
+    );
+    let mut pass = pass(&fixture, &request);
+    let question = pass.exploration.questions.last().unwrap().clone();
+    let answer = pass
+        .exploration
+        .request(
+            Some(review_explore::AnswerInput {
+                text: "Answered".into(),
+                ..Default::default()
+            }),
+            Some(&question),
+        )
+        .unwrap();
+    let mut update = fixture.response(&answer, 1);
+    update.next = None;
+    update.conclusion = Some(conclusion("Done."));
+    pass.submit(&update, false).unwrap();
+    let file = pass
+        .exploration
+        .comparison
+        .files
+        .iter()
+        .position(|file| file.review_path().display() == "policy.rs")
+        .unwrap();
+    let changed = |first, end| review_explore::CoverageUnit::Lines {
+        file,
+        side: review_explore::SourceSide::New,
+        first,
+        end,
+    };
+    pass.completion = Some(review_explore::ReviewCompletion {
+        request: answer.request,
+        baseline: request.checkpoint.checkpoint.clone(),
+        marks: vec![],
+        completed: true,
+        exclusions_enabled: true,
+        summary: pass.coverage.summary(true),
+        unexplored: Some(review_explore::UnexploredAtConclusion {
+            required: vec![changed(2, 3)],
+            jev_excluded: vec![changed(3, 4)],
+        }),
+    });
+    restore(&mut fixture, &pass, None);
+    fixture.click("[Preview unexplored code]");
+    let text = fixture.text();
+    assert!(text.contains("required_token"), "{text}");
+    assert!(!text.contains("jev_hidden_token"), "{text}");
 }
 
 #[test]
@@ -302,6 +425,32 @@ fn storage_failure_keeps_text_and_never_shows_an_unsaved_answer_as_posted() {
         "{text}"
     );
     assert!(!text.contains("You:"));
+}
+
+#[test]
+fn sending_an_answer_credits_its_question_and_refreshes_displayed_coverage() {
+    let (mut fixture, kickoff) = ExploreUi::new();
+    let mut pass = pass(&fixture, &kickoff);
+    restore(&mut fixture, &pass, None);
+    assert!(fixture.text().contains("Coverage 0% of required lines"));
+
+    let answer = ExploreUi::request(fixture.app.update(UserInput::Key(Key::ControlEnter)));
+    let before = pass.coverage.counts_revision;
+    pass.post(&answer).unwrap();
+    assert!(pass.coverage.counts_revision > before);
+    assert!(
+        pass.coverage
+            .required_changed_line_coverage(None, false)
+            .explored
+            > 0
+    );
+    fixture.app.publish(ui_events::ExplorePosted {
+        request: answer,
+        result: Ok(Arc::new(pass)),
+    });
+    fixture.app.publish(ui_events::ExploreCoverageRefresh);
+    assert!(fixture.text().contains("of required lines"));
+    assert!(!fixture.text().contains("Coverage 0% of required lines"));
 }
 
 #[test]

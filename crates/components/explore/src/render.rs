@@ -64,12 +64,11 @@ impl ExploreComponent {
         diff: &DiffComponent,
         palette: Palette,
     ) {
-        let (Some(coverage), Some(exploration)) = (&self.coverage, &self.exploration) else {
+        let Some(coverage) = self.coverage_cache.get() else {
             return;
         };
-        let summary = coverage.summary(self.completion_policy.unwrap_or(self.jev_enabled));
-        let exclusions_enabled = self.completion_policy.unwrap_or(self.jev_enabled);
-        let lines = coverage.required_changed_line_coverage(None, exclusions_enabled);
+        let summary = &coverage.summary;
+        let lines = coverage.lines;
         if summary.complete && lines.total > 0 {
             layout.text(
                 format!(
@@ -112,12 +111,7 @@ impl ExploreComponent {
         for limitation in &summary.limitations {
             layout.text(format!("Inventory: {limitation}"), palette.warning, None);
         }
-        let files = coverage.files(
-            &exploration.comparison,
-            self.completion_policy.unwrap_or(self.jev_enabled),
-        );
-        let remaining = coverage.remaining(self.completion_policy.unwrap_or(self.jev_enabled));
-        self.render_coverage_files(layout, coverage, &files, &remaining, palette);
+        self.render_coverage_files(layout, &coverage.files, &coverage.remaining, palette);
         self.render_jev_debug(layout, palette);
         self.render_coverage_diff(layout, diff, palette);
         layout.gap();
@@ -141,8 +135,7 @@ impl ExploreComponent {
     fn render_coverage_files(
         &self,
         layout: &mut ConversationLayout,
-        coverage: &review_explore::CoverageLedger,
-        files: &[review_explore::FileCoverage],
+        files: &[super::coverage::CachedFileCoverage],
         remaining: &[review_explore::CoverageUnit],
         palette: Palette,
     ) {
@@ -155,7 +148,7 @@ impl ExploreComponent {
         ] {
             let group: Vec<_> = files
                 .iter()
-                .filter(|file| Self::coverage_group(file) == predicate)
+                .filter(|file| Self::coverage_group(&file.coverage) == predicate)
                 .collect();
             if group.is_empty() {
                 continue;
@@ -163,7 +156,7 @@ impl ExploreComponent {
             layout.gap();
             layout.text(heading, palette.text, None);
             for file in group {
-                self.render_coverage_file(layout, coverage, file, remaining, palette);
+                self.render_coverage_file(layout, file, remaining, palette);
             }
         }
     }
@@ -171,15 +164,12 @@ impl ExploreComponent {
     fn render_coverage_file(
         &self,
         layout: &mut ConversationLayout,
-        coverage: &review_explore::CoverageLedger,
-        file: &review_explore::FileCoverage,
+        cached: &super::coverage::CachedFileCoverage,
         remaining: &[review_explore::CoverageUnit],
         palette: Palette,
     ) {
-        let lines = coverage.required_changed_line_coverage(
-            Some(file.file),
-            self.completion_policy.unwrap_or(self.jev_enabled),
-        );
+        let file = &cached.coverage;
+        let lines = cached.lines;
         let progress = if !file.summary.complete {
             "changed-line count unavailable".into()
         } else if lines.total == 0 {
@@ -428,10 +418,10 @@ impl ExploreComponent {
     }
 
     fn render_jev_debug(&self, layout: &mut ConversationLayout, palette: Palette) {
-        let (Some(coverage), Some(exploration)) = (&self.coverage, &self.exploration) else {
+        let (Some(coverage), Some(counts)) = (&self.coverage, self.coverage_cache.get()) else {
             return;
         };
-        let exclusions = coverage.exclusion_gaps(&exploration.comparison);
+        let exclusions = &counts.exclusions;
         layout.gap();
         if !self.jev_enabled && !self.completion_done {
             layout.text(
@@ -454,7 +444,7 @@ impl ExploreComponent {
         if !self.jev_debug {
             return;
         }
-        self.render_jev_exclusions(layout, &exclusions, palette);
+        self.render_jev_exclusions(layout, exclusions, palette);
         for result in coverage.classifications.values() {
             Self::render_jev_result(layout, result, palette);
         }

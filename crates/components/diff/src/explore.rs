@@ -18,6 +18,7 @@ pub(super) struct ExploreView {
     pub(super) evidence: Vec<EvidenceRef>,
     pub(super) primary: usize,
     pub(super) selected: usize,
+    pub(super) required_only: bool,
     pub(super) limitation: Option<String>,
     pub(super) fit_pending: bool,
     pub(super) positions: Vec<review_explore::EvidencePosition>,
@@ -234,6 +235,7 @@ impl DiffComponent {
         );
         self.explore.comparison = Some(comparison);
         self.explore.evidence.clear();
+        self.explore.required_only = false;
         self.selected_path = None;
         self.preview = None;
         self.selection = None;
@@ -255,6 +257,7 @@ impl DiffComponent {
         self.explore.comparison = Some(event.comparison.clone());
         self.explore.evidence.clone_from(&event.evidence);
         self.explore.primary = event.primary;
+        self.explore.required_only = event.required_only;
         if !opened && !event.reveal {
             return self.retained_evidence_actions(switched);
         }
@@ -317,6 +320,8 @@ impl DiffComponent {
         self.explore.comparison = Some(event.comparison.clone());
         self.explore.evidence.clone_from(&event.evidence);
         self.explore.selected = 0;
+        self.explore.primary = event.primary;
+        self.explore.required_only = event.required_only;
         self.explore.limitation = None;
         if let Err(error) = self.select_comparison_document(&event.comparison, index) {
             self.explore.limitation = Some(format!("Coverage diff unavailable: {error}"));

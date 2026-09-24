@@ -230,15 +230,12 @@ impl ExploreComponent {
     }
 
     fn coverage_control(&self) -> Vec<(String, Option<Control>)> {
-        let Some(coverage) = &self.coverage else {
+        let Some(coverage) = self.coverage_cache.get() else {
             return Vec::new();
         };
-        let summary = coverage.summary(self.completion_policy.unwrap_or(self.jev_enabled));
+        let summary = &coverage.summary;
         let label = if summary.complete {
-            let lines = coverage.required_changed_line_coverage(
-                None,
-                self.completion_policy.unwrap_or(self.jev_enabled),
-            );
+            let lines = coverage.lines;
             if lines.total == 0 {
                 "Coverage · No required changed lines".into()
             } else {
@@ -268,14 +265,11 @@ impl ExploreComponent {
             ComposeScope::Opening => None,
         };
         let mut labels = timing.map(|label| vec![(label, None)]).unwrap_or_default();
-        if let Some(coverage) = &self.coverage {
-            if let Some(label) = Self::jev_filtered_status(
-                coverage,
-                self.completion_policy.unwrap_or(self.jev_enabled),
-            ) {
+        if let (Some(coverage), Some(counts)) = (&self.coverage, self.coverage_cache.get()) {
+            if let Some(label) = Self::jev_filtered_status(coverage, counts) {
                 labels.push((label, None));
             }
-            if let Some(label) = Self::jev_progress(coverage) {
+            if let Some(label) = self.jev_progress(coverage) {
                 labels.push((label, None));
             }
         }
@@ -284,23 +278,29 @@ impl ExploreComponent {
 
     fn jev_filtered_status(
         coverage: &review_explore::CoverageLedger,
-        exclusions_enabled: bool,
+        counts: &super::coverage::CoverageSnapshot,
     ) -> Option<String> {
-        if !coverage.classification_started || !exclusions_enabled || !coverage.inventory.complete {
+        if !coverage.classification_started
+            || !counts.exclusions_enabled
+            || !counts.summary.complete
+        {
             return None;
         }
-        let total = coverage.changed_line_coverage(None).total;
+        let total = counts.total_lines;
         if total == 0 {
             return Some("Jev filtered · No changed text lines".into());
         }
         Some(format!(
             "Jev filtered {} of changed lines",
-            Self::line_percent(coverage.jev_filtered_changed_lines(true), total)
+            Self::line_percent(counts.filtered_lines, total)
         ))
     }
 
-    fn jev_progress(coverage: &review_explore::CoverageLedger) -> Option<String> {
-        if !coverage.classification_started || coverage.jev_total_windows == 0 {
+    fn jev_progress(&self, coverage: &review_explore::CoverageLedger) -> Option<String> {
+        if !coverage.classification_started
+            || coverage.jev_total_windows == 0
+            || !self.jev_progress_expiry.visible(coverage)
+        {
             return None;
         }
         let total = coverage.jev_total_windows;
@@ -309,53 +309,21 @@ impl ExploreComponent {
         let bar = format!("{}{}", "=".repeat(filled), "-".repeat(10 - filled));
         let label = if coverage.classification_finished {
             "Jev checked"
+        } else if coverage.classification_stopped_at_ms.is_some() {
+            "Jev stopped"
         } else {
             "Jev filtering"
         };
         Some(format!("{label} [{bar}] {done}/{total}"))
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::ExploreComponent;
-    use review_explore::{CoverageLedger, CoverageUnit, SourceSide};
-
-    #[test]
-    fn top_status_tracks_effective_jev_filtering() {
-        let mut coverage = CoverageLedger::default();
-        coverage.inventory.complete = true;
-        coverage.inventory.units = vec![CoverageUnit::Lines {
-            file: 0,
-            side: SourceSide::New,
-            first: 1,
-            end: 5,
-        }];
-        coverage.excluded = vec![CoverageUnit::Lines {
-            file: 0,
-            side: SourceSide::New,
-            first: 2,
-            end: 4,
-        }];
-        assert_eq!(ExploreComponent::jev_filtered_status(&coverage, true), None);
-        coverage.classification_started = true;
-        assert_eq!(
-            ExploreComponent::jev_filtered_status(&coverage, true),
-            Some("Jev filtered 50% of changed lines".into())
-        );
-        coverage.required_overrides = vec![CoverageUnit::Lines {
-            file: 0,
-            side: SourceSide::New,
-            first: 3,
-            end: 4,
-        }];
-        assert_eq!(
-            ExploreComponent::jev_filtered_status(&coverage, true),
-            Some("Jev filtered 25% of changed lines".into())
-        );
-        assert_eq!(
-            ExploreComponent::jev_filtered_status(&coverage, false),
-            None
-        );
+    /// Whether a stopped Jev bar needs its one expiry redraw.
+    pub fn jev_progress_expires_between(
+        &self,
+        previous: std::time::Instant,
+        now: std::time::Instant,
+    ) -> bool {
+        self.mode == ui_events::ReviewNavigation::Explore
+            && self.jev_progress_expiry.changes_between(previous, now)
     }
 }

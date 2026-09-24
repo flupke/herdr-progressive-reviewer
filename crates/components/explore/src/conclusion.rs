@@ -242,7 +242,7 @@ impl ExploreComponent {
         if let Some((request, unexplored)) = &self.conclusion_unexplored
             && request == &view.request
         {
-            let count = unexplored.required.len() + unexplored.jev_excluded.len();
+            let count = unexplored.required.len();
             layout.text(
                 format!("{count} unexplored changed regions at this checkpoint"),
                 if count > 0 {

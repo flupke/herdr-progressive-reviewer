@@ -18,7 +18,6 @@ pub struct PreviewFile {
     pub file: usize,
     pub path: String,
     pub required: u64,
-    pub excluded: u64,
 }
 
 /// File selection, scrolling, and drawing shared with the Files tree's model.
@@ -141,11 +140,10 @@ impl FilePreviewList {
                 FileTreeRow::File { depth, name, file } => {
                     let entry = &self.files[*file];
                     let label = format!(
-                        "{}{} {name} · {} required · {} Jev",
+                        "{}{} {name} · {} required",
                         "  ".repeat(*depth),
                         if *file == self.selected { '▸' } else { ' ' },
                         entry.required,
-                        entry.excluded
                     );
                     Line::styled(
                         shorten(&label, usize::from(inner.width)),

@@ -1,9 +1,12 @@
 //! Transient yellow frames use native presentation coordinates and wrapping.
 use super::{Color, DiffFrame, DiffRenderer, LoadedDocument, Style, WrappedDiffRow};
+use crate::PresentedRow;
 use crate::explore::ExploreView;
 use guide_rendering::FrameRule;
 use review_explore::SourceSide;
 use review_guide::GuideLineRange;
+use review_repository::diff::DiffRow;
+use std::collections::BTreeSet;
 use std::ops::{Range, RangeInclusive};
 
 struct EvidenceRows {
@@ -22,6 +25,75 @@ struct EvidenceSpan {
     rows: RangeInclusive<usize>,
     starts_here: bool,
     ends_here: bool,
+}
+
+/// Keep only required changed rows and the surrounding hunk context in a
+/// conclusion preview. Source rows remain untouched for navigation and frames.
+pub(super) struct RequiredEvidenceRows {
+    visible: Vec<bool>,
+}
+
+impl RequiredEvidenceRows {
+    pub(super) fn new(file: &LoadedDocument, evidence: Option<&ExploreView>) -> Option<Self> {
+        let evidence = evidence.filter(|evidence| evidence.active && evidence.required_only)?;
+        let ranges = evidence.ranges(file);
+        let rows = &file.document.diff.rows;
+        let mut row_hunks = Vec::with_capacity(rows.len());
+        let mut required = vec![false; rows.len()];
+        let mut required_hunks = BTreeSet::new();
+        let mut hunk = 0;
+        for (index, presented) in rows.iter().enumerate() {
+            if let PresentedRow::Diff { source, .. } = presented {
+                match file.document.diff.source_row(*source) {
+                    DiffRow::Hunk { .. } => hunk += 1,
+                    DiffRow::Add { new_line, .. } => {
+                        required[index] = Self::contains(&ranges, SourceSide::New, *new_line);
+                    }
+                    DiffRow::Delete { old_line, .. } => {
+                        required[index] = Self::contains(&ranges, SourceSide::Old, *old_line);
+                    }
+                    _ => {}
+                }
+                if required[index] {
+                    required_hunks.insert(hunk);
+                }
+            }
+            row_hunks.push(hunk);
+        }
+        let side = if file.new_path.is_some() {
+            SourceSide::New
+        } else {
+            SourceSide::Old
+        };
+        let visible = rows
+            .iter()
+            .enumerate()
+            .map(|(index, presented)| match presented {
+                PresentedRow::Diff { source, .. } => match file.document.diff.source_row(*source) {
+                    DiffRow::FileHeader { .. } | DiffRow::Meta { .. } | DiffRow::Notice { .. } => {
+                        true
+                    }
+                    DiffRow::Hunk { .. } | DiffRow::Context { .. } => {
+                        required_hunks.contains(&row_hunks[index])
+                    }
+                    DiffRow::Add { .. } | DiffRow::Delete { .. } => required[index],
+                },
+                PresentedRow::Expanded { line, .. } => Self::contains(&ranges, side, *line),
+                PresentedRow::Gap { .. } => false,
+            })
+            .collect();
+        Some(Self { visible })
+    }
+
+    fn contains(ranges: &[(SourceSide, GuideLineRange)], side: SourceSide, line: u32) -> bool {
+        ranges.iter().any(|(candidate, range)| {
+            *candidate == side && range.first_line <= line && line <= range.last_line
+        })
+    }
+
+    pub(super) fn shows(&self, index: usize) -> bool {
+        self.visible.get(index).copied().unwrap_or(false)
+    }
 }
 
 impl EvidenceSpan {

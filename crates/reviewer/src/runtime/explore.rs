@@ -426,11 +426,12 @@ impl Worker {
                 if pass.coverage.classification_attempt.as_deref() != Some(&attempt) {
                     return Ok(false);
                 }
-                pass.coverage.jev_elapsed_ms = prior_elapsed.saturating_add(
-                    u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                pass.coverage.finish_classification(
+                    finished,
+                    prior_elapsed.saturating_add(
+                        u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                    ),
                 );
-                pass.coverage.classification_finished = finished;
-                pass.coverage.revision += 1;
                 Ok(true)
             }) {
                 let (response, _) = std::sync::mpsc::channel();

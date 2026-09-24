@@ -81,6 +81,9 @@ pub struct CoverageLedger {
     pub excluded: Vec<CoverageUnit>,
     pub required_overrides: Vec<CoverageUnit>,
     pub revision: u64,
+    /// Changes only when data used by coverage counts changes.
+    #[serde(default)]
+    pub counts_revision: u64,
     pub classification_started: bool,
     pub classification_attempt: Option<String>,
     #[serde(default)]
@@ -90,6 +93,9 @@ pub struct CoverageLedger {
     pub jev_elapsed_ms: u64,
     #[serde(default)]
     pub classification_finished: bool,
+    /// Wall-clock time when the latest filtering attempt stopped, successful or not.
+    #[serde(default)]
+    pub classification_stopped_at_ms: Option<u64>,
     #[serde(default)]
     pub jev_total_windows: usize,
 }
@@ -456,13 +462,17 @@ impl CoverageLedger {
             question.evidence.iter().chain(&question.supporting),
             comparison,
         );
-        self.credited = normalize(
+        let credited = normalize(
             self.credited
                 .iter()
                 .cloned()
                 .chain(cited.iter().cloned())
                 .collect(),
         );
+        if self.credited != credited {
+            self.credited = credited;
+            self.counts_revision += 1;
+        }
         cited
     }
 
@@ -487,13 +497,17 @@ impl CoverageLedger {
             return false;
         }
         if result.outcome == Significance::Insignificant {
-            self.excluded = normalize(
+            let excluded = normalize(
                 self.excluded
                     .iter()
                     .cloned()
                     .chain(result.units.iter().cloned())
                     .collect(),
             );
+            if self.excluded != excluded {
+                self.excluded = excluded;
+                self.counts_revision += 1;
+            }
         }
         self.classifications.insert(result.id.clone(), result);
         self.revision += 1;
@@ -507,21 +521,44 @@ impl CoverageLedger {
         self.classification_rubric = Some(rubric.into());
         if new_rubric {
             self.classifications.clear();
-            self.excluded.clear();
+            if !self.excluded.is_empty() {
+                self.excluded.clear();
+                self.counts_revision += 1;
+            }
             self.jev_elapsed_ms = 0;
         }
         self.classification_finished = false;
+        self.classification_stopped_at_ms = None;
+        self.revision += 1;
+    }
+
+    pub fn finish_classification(&mut self, finished: bool, elapsed_ms: u64) {
+        self.jev_elapsed_ms = elapsed_ms;
+        self.classification_finished = finished;
+        self.classification_stopped_at_ms = Some(
+            u64::try_from(
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis(),
+            )
+            .unwrap_or(u64::MAX),
+        );
         self.revision += 1;
     }
 
     pub fn require_review(&mut self, units: Vec<CoverageUnit>) {
-        self.required_overrides = normalize(
+        let overrides = normalize(
             self.required_overrides
                 .iter()
                 .cloned()
                 .chain(units)
                 .collect(),
         );
+        if self.required_overrides != overrides {
+            self.required_overrides = overrides;
+            self.counts_revision += 1;
+        }
         self.revision += 1;
     }
 
@@ -594,12 +631,16 @@ impl CoverageLedger {
     }
 
     pub fn remaining(&self, exclusions_enabled: bool) -> Vec<CoverageUnit> {
+        subtract(&self.required_units(exclusions_enabled), &self.credited)
+    }
+
+    fn required_units(&self, exclusions_enabled: bool) -> Vec<CoverageUnit> {
         let excluded = if exclusions_enabled {
             subtract(&self.excluded, &self.required_overrides)
         } else {
             Vec::new()
         };
-        subtract(&subtract(&self.inventory.units, &excluded), &self.credited)
+        subtract(&self.inventory.units, &excluded)
     }
 
     pub fn summary(&self, exclusions_enabled: bool) -> CoverageSummary {
@@ -627,12 +668,7 @@ impl CoverageLedger {
         file: Option<usize>,
         exclusions_enabled: bool,
     ) -> ChangedLineCoverage {
-        let excluded = if exclusions_enabled {
-            subtract(&self.excluded, &self.required_overrides)
-        } else {
-            Vec::new()
-        };
-        let required = subtract(&self.inventory.units, &excluded);
+        let required = self.required_units(exclusions_enabled);
         let count = |units: &[CoverageUnit]| {
             units
                 .iter()
@@ -644,6 +680,24 @@ impl CoverageLedger {
             explored: count(&intersect(&required, &self.credited)),
             total: count(&required),
         }
+    }
+
+    /// Count all files from one required/answered intersection, in comparison order.
+    pub fn required_changed_line_counts(
+        &self,
+        comparison: &Comparison,
+        exclusions_enabled: bool,
+    ) -> Vec<ChangedLineCoverage> {
+        let required = self.required_units(exclusions_enabled);
+        let explored = intersect(&required, &self.credited);
+        let mut files = vec![ChangedLineCoverage::default(); comparison.files.len()];
+        for unit in &required {
+            files[unit.file_index()].total += unit.changed_line_weight();
+        }
+        for unit in &explored {
+            files[unit.file_index()].explored += unit.changed_line_weight();
+        }
+        files
     }
 
     /// Changed text lines currently removed from required review by Jev.

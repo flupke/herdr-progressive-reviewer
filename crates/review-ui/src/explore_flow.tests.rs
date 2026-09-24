@@ -120,6 +120,7 @@ fn coverage_header_reports_credited_units_even_below_one_percent() {
         historical: false,
         storage_error: None,
     });
+    fixture.app.publish(ui_events::ExploreCoverageRefresh);
     let coverage = fixture.text();
     assert!(
         coverage.contains("Coverage 0.4% of required lines"),
@@ -821,6 +822,7 @@ fn delayed_search_results_stay_with_their_evidence_window() {
             primary: evidence.len(),
             view: EvidenceView::Question { turn: 0, reference },
             reveal: false,
+            required_only: false,
         })
     };
     open(&mut fixture.app, 1);

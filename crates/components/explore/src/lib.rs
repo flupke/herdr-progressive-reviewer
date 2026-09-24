@@ -18,9 +18,11 @@ mod composer;
 mod conclusion;
 mod conclusion_preview;
 mod controls;
+mod coverage;
 mod evidence;
 mod flow;
 mod input;
+mod jev_progress;
 mod navigation;
 mod persistence;
 mod render;
@@ -159,6 +161,9 @@ pub struct ExploreComponent {
     coverage_next: BTreeMap<usize, usize>,
     jev_debug: bool,
     coverage: Option<review_explore::CoverageLedger>,
+    coverage_cache: coverage::CoverageCache,
+    coverage_dirty: bool,
+    jev_progress_expiry: jev_progress::JevProgressExpiry,
     completion_done: bool,
     completion_policy: Option<bool>,
     conclusion_unexplored: Option<(String, review_explore::UnexploredAtConclusion)>,
@@ -200,6 +205,9 @@ impl ExploreComponent {
             coverage_next: BTreeMap::new(),
             jev_debug: false,
             coverage: None,
+            coverage_cache: coverage::CoverageCache::default(),
+            coverage_dirty: false,
+            jev_progress_expiry: jev_progress::JevProgressExpiry::default(),
             completion_done: false,
             completion_policy: None,
             conclusion_unexplored: None,
@@ -294,7 +302,9 @@ impl ExploreComponent {
                 self.completion_policy = None;
                 self.conclusion_unexplored = None;
                 self.conclusion_preview = None;
+                self.jev_progress_expiry = jev_progress::JevProgressExpiry::default();
                 self.exploration = Some(Exploration::new(comparison.clone()));
+                self.coverage_dirty = true;
                 self.selected = 0;
                 self.turns.clear();
                 self.drafts.clear();
@@ -460,6 +470,7 @@ impl ExploreComponent {
                 primary: exploration.questions[turn].evidence.len(),
                 view,
                 reveal,
+                required_only: false,
             });
         }
     }
@@ -563,6 +574,7 @@ impl Component<Action> for ExploreComponent {
         subscriptions.subscribe(Self::restored);
         subscriptions.subscribe(Self::posted);
         subscriptions.subscribe(Self::committed);
+        subscriptions.subscribe(Self::refresh_coverage);
         subscriptions.subscribe(Self::storage_failed);
         subscriptions.subscribe(Self::implementation_saved);
         subscriptions.subscribe(Self::captured);

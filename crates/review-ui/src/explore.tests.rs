@@ -9,7 +9,10 @@ use review_test_support::{
     ReviewRepositoryFixture, complete_repository_snapshot, repository_fixture,
 };
 use std::sync::Arc;
-use ui_events::{ExploreCaptured, ExploreFinished, ReviewNavigation, ReviewNavigationChanged};
+use ui_events::{
+    ExploreCaptured, ExploreCoverageRefresh, ExploreFinished, ExploreRestored, ReviewNavigation,
+    ReviewNavigationChanged,
+};
 
 #[path = "explore_choices.tests.rs"]
 mod choices;
@@ -78,6 +81,7 @@ impl ExploreUi {
         let actions = app.publish(ExploreCaptured {
             result: Ok(comparison.clone()),
         });
+        app.publish(ExploreCoverageRefresh);
         let request = Self::request(actions);
         (
             Self {
@@ -219,6 +223,34 @@ impl ExploreUi {
             .map(ratatui::buffer::Cell::symbol)
             .collect()
     }
+}
+
+#[test]
+fn stopped_jev_bar_schedules_one_idle_expiry_redraw() {
+    use std::time::{Duration, Instant};
+
+    let (mut fixture, request) = ExploreUi::new();
+    let mut pass = review_explore::ExplorePass::new(review_explore::Exploration::new(
+        fixture.comparison.clone(),
+    ));
+    pass.exploration.instance = request.instance;
+    pass.coverage
+        .restart_classification("test", "attempt".into());
+    pass.coverage.jev_total_windows = 2;
+    pass.coverage.finish_classification(false, 100);
+    fixture.app.publish(ExploreRestored {
+        result: Ok(Some(Arc::new(pass))),
+        view: None,
+        passes: vec![],
+        historical: false,
+        storage_error: None,
+    });
+    fixture.app.publish(ExploreCoverageRefresh);
+    assert!(fixture.text().contains("Jev stopped"));
+
+    let now = Instant::now();
+    assert!(!fixture.app.needs_tick(now, now));
+    assert!(fixture.app.needs_tick(now, now + Duration::from_secs(6)));
 }
 
 #[test]
