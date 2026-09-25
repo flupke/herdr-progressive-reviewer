@@ -32,8 +32,6 @@ pub use flow::ConversationLayout;
 #[derive(Clone, Copy, Debug)]
 enum Control {
     Start,
-    PreviousPass,
-    LatestPass,
     NewImplementation,
     Send,
     Defer,
@@ -102,7 +100,6 @@ struct Draft {
 #[derive(Clone, Copy, PartialEq)]
 enum ComposeScope {
     Question,
-    Opening,
     Conclusion,
 }
 
@@ -213,7 +210,7 @@ impl ExploreComponent {
     }
 
     fn general_reply(&self) -> bool {
-        self.compose_scope != ComposeScope::Question
+        self.compose_scope == ComposeScope::Conclusion
     }
 
     fn question(&self) -> Option<&Question> {

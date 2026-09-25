@@ -148,17 +148,15 @@ fn failed_or_cancelled_delivery_keeps_edits_and_ignores_obsolete_acknowledgement
 }
 
 #[test]
-fn opening_stays_separate_and_empty_tasks_do_not_offer_implementation() {
+fn initial_conclusion_keeps_the_opening_reply_without_an_opening_page() {
     let (mut fixture, request) = ExploreUi::new();
     let mut update = fixture.response(&request, 1);
     update.next = None;
     update.conclusion = Some(conclusion("No implementation is agreed."));
     submit(&mut fixture, update);
     assert!(!fixture.text().contains(" Implement "));
-    fixture.click("[Opening]");
-    assert!(!fixture.text().contains("To be implemented"));
+    assert!(!fixture.text().contains("[Opening]"));
     assert!(fixture.text().contains("The source supports this context."));
-    fixture.click("[Conclusion]");
     assert!(fixture.text().contains("No implementation is agreed."));
     fixture
         .app
@@ -338,7 +336,7 @@ fn revised_conclusions_retain_each_edited_list_reply_and_draft_in_posting_order(
                 .iter()
                 .any(|action| matches!(action, Action::Explore(Command::Implement(_))))
         );
-        fixture.click("[Latest]");
+        fixture.click("[Conclusion]");
         assert!(fixture.text().contains("Conclusion 2/2"));
         let tasks = implementation(fixture.click_actions(" Implement "));
         assert_eq!(tasks.conclusion, second.request);

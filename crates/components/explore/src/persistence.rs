@@ -1,4 +1,4 @@
-use super::{ComposeScope, Control, Draft, EditorTarget, ExploreComponent, Progress, TurnView};
+use super::{ComposeScope, Draft, EditorTarget, ExploreComponent, Progress, TurnView};
 use comment_editor::CommentEditor;
 use review_explore::{Command, ExploreDraft, ExplorePage, ExploreViewState, TurnRequest, ViewSave};
 use ui_actions::Action;
@@ -13,7 +13,6 @@ pub(super) struct Durability {
     pub(super) posting: Option<TurnRequest>,
     sequence: u64,
     last: Option<ExploreViewState>,
-    passes: Vec<String>,
     revision: u64,
     persisted: bool,
     pub(super) focus: ui_events::ReviewPane,
@@ -28,7 +27,6 @@ impl Default for Durability {
             posting: None,
             sequence: 0,
             last: None,
-            passes: vec![],
             revision: 0,
             persisted: false,
             focus: ui_events::ReviewPane::Navigation,
@@ -53,7 +51,6 @@ impl Durability {
 
 impl ExploreComponent {
     pub(super) fn history_changed(&mut self, event: &ui_events::ExploreHistoryChanged) {
-        self.durable.passes.clone_from(&event.0.passes);
         self.durable.historical = self
             .exploration
             .as_ref()
@@ -62,12 +59,11 @@ impl ExploreComponent {
 
     fn page(&self) -> ExplorePage {
         match self.compose_scope {
-            ComposeScope::Opening => ExplorePage::Opening,
             ComposeScope::Question => ExplorePage::Question(self.selected),
-            ComposeScope::Conclusion => self
-                .general_context
-                .clone()
-                .map_or(ExplorePage::Opening, ExplorePage::Conclusion),
+            ComposeScope::Conclusion => self.general_context.clone().map_or(
+                ExplorePage::Question(self.selected),
+                ExplorePage::Conclusion,
+            ),
         }
     }
 
@@ -170,7 +166,6 @@ impl ExploreComponent {
 
     pub(super) fn restored(&mut self, event: &ExploreRestored) {
         self.durable.enabled = true;
-        self.durable.passes.clone_from(&event.passes);
         let pass = match &event.result {
             Ok(Some(pass)) => pass,
             Ok(None) => {
@@ -187,7 +182,6 @@ impl ExploreComponent {
         };
         self.durable.error = None;
         self.durable.historical = event.historical;
-        self.durable.passes.clone_from(&event.passes);
         self.durable.sequence = event.view.as_ref().map_or(0, |view| view.sequence);
         self.durable.sequence = self.durable.sequence.max(
             pass.turns
@@ -252,7 +246,7 @@ impl ExploreComponent {
 
     fn recovery_status(&self, pass: &review_explore::ExplorePass) -> String {
         if self.durable.historical {
-            "Earlier pass · open the latest pass to continue.".into()
+            "Earlier pass · start a new pass to continue.".into()
         } else if self.progress == Progress::Retryable {
             let uncertain = pass.exploration.retry_request().is_some_and(|request| {
                 pass.turns.get(&request.request).is_some_and(|delivery| {
@@ -344,7 +338,24 @@ impl ExploreComponent {
                 self.compose_scope = ComposeScope::Conclusion;
                 self.general_context = Some(id.clone());
             }
-            _ => self.compose_scope = ComposeScope::Opening,
+            _ => self.restore_first_page(),
+        }
+    }
+
+    fn restore_first_page(&mut self) {
+        if self.turns.is_empty()
+            && let Some(request) = self
+                .exploration
+                .as_ref()
+                .and_then(|pass| pass.conversation.iter().find(|turn| turn.update.conclusion.is_some()))
+                .map(|turn| &turn.update.request)
+            && self.conclusions.contains_key(request)
+        {
+            self.compose_scope = ComposeScope::Conclusion;
+            self.general_context = Some(request.clone());
+        } else {
+            self.compose_scope = ComposeScope::Question;
+            self.selected = 0;
         }
     }
 
@@ -500,46 +511,5 @@ impl ExploreComponent {
             "Explore storage error: {}. History and current text are retained.",
             event.0
         );
-    }
-
-    pub(super) fn saved_controls(&self) -> Vec<(String, Option<Control>)> {
-        let mut controls = Vec::new();
-        if !self.progress.can_submit() || self.implementation_in_progress() {
-            return controls;
-        }
-        if self.durable.passes.len() > 1 {
-            controls.push(("[Previous pass]".into(), Some(Control::PreviousPass)));
-            if self.durable.historical {
-                controls.push(("[Latest pass]".into(), Some(Control::LatestPass)));
-            }
-        }
-        controls
-    }
-
-    pub(super) fn open_saved(&mut self, control: Control) -> Vec<Action> {
-        if !self.progress.can_submit() || self.implementation_in_progress() {
-            return vec![];
-        }
-        let command = match control {
-            Control::PreviousPass => {
-                let current = self.exploration.as_ref().map(|pass| &pass.instance);
-                let index = self
-                    .durable
-                    .passes
-                    .iter()
-                    .position(|id| Some(id) == current)
-                    .unwrap_or(self.durable.passes.len().saturating_sub(1));
-                self.durable
-                    .passes
-                    .get(index.saturating_sub(1))
-                    .cloned()
-                    .map(Command::OpenPass)
-            }
-            Control::LatestPass => self.durable.passes.last().cloned().map(Command::OpenPass),
-            _ => None,
-        };
-        command
-            .map(|command| vec![Action::Explore(command)])
-            .unwrap_or_default()
     }
 }

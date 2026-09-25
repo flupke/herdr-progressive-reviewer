@@ -23,6 +23,15 @@ fn source_fixture() -> (ExploreUi, TurnRequest) {
     (fixture, request)
 }
 
+#[test]
+fn evidence_starts_below_notes_with_a_blank_row() {
+    let (mut fixture, request) = source_fixture();
+    fixture.respond(&request, 1);
+    let (_, notes_row) = fixture.point("This policy determines");
+    let (_, evidence_row) = fixture.point("Evidence 2 · Supporting");
+    assert!(evidence_row >= notes_row + 2);
+}
+
 fn primary_range(
     fixture: &ExploreUi,
     request: &TurnRequest,

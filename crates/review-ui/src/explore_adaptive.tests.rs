@@ -287,15 +287,10 @@ fn an_initial_stopping_point_exposes_reply_uncertainty_and_remaining_inspection(
     ));
     publish(&mut fixture, response);
     let text = fixture.text();
-    assert!(!text.contains("No source-verifiable policy choice is ready."));
+    assert!(text.contains("No source-verifiable policy choice is ready."));
     assert!(text.contains("Deployment context is missing"));
     assert!(!text.contains("Question 1:"));
-    fixture.click("[Opening]");
-    assert!(
-        fixture
-            .text()
-            .contains("No source-verifiable policy choice is ready.")
-    );
+    assert!(!text.contains("[Opening]"));
 }
 
 #[test]

@@ -34,7 +34,6 @@ impl Worker {
         match command {
             Command::Start => self.start_explore(messages),
             Command::SaveView(view) => self.save_explore_view(*view, messages),
-            Command::OpenPass(instance) => self.open_explore(Some(instance), messages),
             Command::Turn(request) => self.explore_turn(*request, messages),
             Command::Retry(request) => self.retry_explore(*request, messages),
             Command::Implement(request) => self.implement_explore(request, messages),

@@ -21,7 +21,6 @@ fn restore(fixture: &mut ExploreUi, pass: &ExplorePass, view: Option<ViewSave>) 
     let actions = fixture.app.publish(ui_events::ExploreRestored {
         result: Ok(Some(Arc::new(pass))),
         view,
-        passes: vec![],
         historical: false,
         storage_error: None,
     });
@@ -329,32 +328,6 @@ fn inspect_jev_exclusions_reveals_the_regions_beside_the_control() {
 }
 
 #[test]
-fn previous_pass_remains_accessible_when_the_current_pass_has_no_agent_response() {
-    let (mut fixture, kickoff) = ExploreUi::new();
-    let mut exploration = review_explore::Exploration::new(fixture.comparison.clone());
-    exploration.instance.clone_from(&kickoff.instance);
-    let mut pass = ExplorePass::new(exploration);
-    pass.post(&kickoff).unwrap();
-    let actions = fixture.app.publish(ui_events::ExploreRestored {
-        result: Ok(Some(Arc::new(pass))),
-        view: None,
-        passes: vec!["older-pass".into(), kickoff.instance],
-        historical: false,
-        storage_error: None,
-    });
-    no_post(&actions);
-    assert!(fixture.text().contains("[Previous pass]"));
-    assert!(
-        fixture
-            .click_actions("[Previous pass]")
-            .iter()
-            .any(|action| {
-                matches!(action, Action::Explore(Command::OpenPass(id)) if id == "older-pass")
-            })
-    );
-}
-
-#[test]
 fn restore_preserves_choice_comment_cursor_and_does_not_send_or_mark_files() {
     let (mut fixture, request) = ExploreUi::new();
     let pass = pass(&fixture, &request);
@@ -401,6 +374,25 @@ fn restored_question_clamps_a_saved_scroll_past_the_document() {
     let text = fixture.text();
     assert!(text.contains("Question 1: keep resolved?"), "{text}");
     assert!(!text.contains("[Reply]"), "{text}");
+}
+
+#[test]
+fn saved_opening_page_restores_to_the_first_question() {
+    let (mut fixture, request) = ExploreUi::new();
+    let pass = pass(&fixture, &request);
+    let view = ViewSave {
+        instance: pass.exploration.instance.clone(),
+        review_unit: pass.exploration.comparison.checkpoint.review_unit.clone(),
+        sequence: 1,
+        state: ExploreViewState {
+            page: ExplorePage::Opening,
+            ..Default::default()
+        },
+    };
+    no_post(&restore(&mut fixture, &pass, Some(view)));
+    let text = fixture.text();
+    assert!(text.contains("Question 1: keep resolved?"), "{text}");
+    assert!(!text.contains("[Opening]"));
 }
 
 #[test]

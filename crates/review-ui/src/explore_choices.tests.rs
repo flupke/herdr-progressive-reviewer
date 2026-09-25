@@ -174,7 +174,7 @@ fn the_question_and_answer_controls_precede_evidence() {
         assert!(question < choice);
         assert!(choice < editor);
         assert!(editor < evidence);
-        assert!(!fixture.text().contains("The source supports this context."));
+        assert!(fixture.text().contains("The source supports this context."));
         assert!(
             rows[question + 1..choice]
                 .iter()

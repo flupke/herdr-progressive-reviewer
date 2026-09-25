@@ -401,9 +401,6 @@ impl ExploreComponent {
             self.render_conclusion(layout, palette);
             return;
         }
-        if self.compose_scope == ComposeScope::Opening {
-            self.opening(layout, palette);
-        }
         if let Some(question) = self.question() {
             let index = self.selected;
             self.preceding_reply(index, layout, palette);

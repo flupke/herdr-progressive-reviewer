@@ -38,7 +38,6 @@ impl ExploreComponent {
             ComposeScope::Conclusion => {
                 DraftKey::Conclusion(self.general_context.clone().expect("conclusion context"))
             }
-            ComposeScope::Opening => DraftKey::Opening,
         }
     }
 

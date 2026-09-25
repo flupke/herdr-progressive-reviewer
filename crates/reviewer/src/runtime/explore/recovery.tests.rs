@@ -176,14 +176,13 @@ fn unreadable_index_is_rebuilt_from_intact_passes() {
     let restored = flow.reopen();
 
     assert!(matches!(restored.result, Ok(Some(_))));
-    assert_eq!(restored.passes, vec![flow.exploration.instance.clone()]);
     assert!(restored.historical);
     assert_eq!(
         flow.store()
             .load_explore_history(&flow.fixture.review_unit)
             .unwrap()
             .passes,
-        restored.passes
+        vec![flow.exploration.instance.clone()]
     );
     let toast = flow
         .fixture
@@ -214,7 +213,13 @@ fn invalid_saved_pass_is_removed_and_the_ui_can_start_again() {
     fs::write(&path, serde_json::to_vec(&stored).unwrap()).unwrap();
     let restored = flow.reopen();
     assert!(matches!(restored.result, Ok(None)));
-    assert!(restored.passes.is_empty());
+    assert!(
+        flow.store()
+            .load_explore_history(&flow.fixture.review_unit)
+            .unwrap()
+            .passes
+            .is_empty()
+    );
     assert!(!path.exists());
     let toast = flow
         .fixture
@@ -262,7 +267,6 @@ fn unreadable_latest_pass_keeps_earlier_interview_history() {
 
     let restored = flow.reopen();
     assert!(matches!(restored.result, Ok(Some(_))));
-    assert_eq!(restored.passes, vec![earlier.clone()]);
     assert!(restored.historical);
     assert!(!path.exists());
     assert_eq!(
@@ -312,36 +316,6 @@ fn invalid_editor_view_is_removed_without_erasing_the_interview() {
         .recv_timeout(Duration::from_secs(10))
         .unwrap();
     assert!(toast.downcast_ref::<ui_events::ToastRequested>().is_some());
-    flow.finish();
-}
-
-#[test]
-fn an_unknown_pass_request_does_not_clear_valid_explore_state() {
-    let mut flow = ExploreFlow::start(RepoType::Git);
-    flow.turn(None, 1);
-    flow.fixture
-        .commands
-        .send(WorkerCommand::Explore(ExploreCommand::OpenPass(
-            "unknown".into(),
-        )))
-        .unwrap();
-    let toast = loop {
-        let event = flow
-            .fixture
-            .messages
-            .recv_timeout(Duration::from_secs(10))
-            .unwrap();
-        if let Some(toast) = event.downcast_ref::<ui_events::ToastRequested>() {
-            break toast.clone();
-        }
-    };
-    assert!(toast.text.contains("Unknown saved Explore pass"));
-    assert!(
-        flow.store()
-            .load_explore(&flow.fixture.review_unit, &flow.exploration.instance)
-            .unwrap()
-            .is_some()
-    );
     flow.finish();
 }
 

@@ -3,6 +3,14 @@ use review_explore::{Question, ReviewerAnswer};
 use ui_theme::Palette;
 
 impl ExploreComponent {
+    pub(super) fn initial_reply(&self) -> Option<&str> {
+        let turn = self.exploration.as_ref()?.conversation.first()?;
+        (turn.answer.is_none()
+            && turn.update.conclusion.is_some()
+            && self.general_context.as_ref() == Some(&turn.update.request))
+            .then_some(turn.update.reply.as_ref()?.text.as_str())
+    }
+
     pub(super) fn question_sections(
         question: &Question,
         layout: &mut ConversationLayout,
@@ -69,9 +77,11 @@ impl ExploreComponent {
         palette: Palette,
     ) {
         let exploration = self.exploration.as_ref().expect("reply exploration");
-        for turn in exploration.conversation.iter().filter(|turn| {
-            turn.answer.is_some() && turn.update.next.as_ref() == exploration.questions.get(index)
-        }) {
+        for turn in exploration
+            .conversation
+            .iter()
+            .filter(|turn| turn.update.next.as_ref() == exploration.questions.get(index))
+        {
             self.agent_turn(turn, layout, palette);
         }
     }
@@ -98,18 +108,6 @@ impl ExploreComponent {
             );
         }
         layout.gap();
-    }
-
-    pub(super) fn opening(&self, layout: &mut ConversationLayout, palette: Palette) {
-        let exploration = self.exploration.as_ref().expect("opening exploration");
-        if let Some(turn) = exploration
-            .conversation
-            .first()
-            .filter(|turn| turn.answer.is_none())
-            && let Some(reply) = &turn.update.reply
-        {
-            layout.text(&reply.text, palette.text, None);
-        }
     }
 
     pub(super) fn agenda_map(&self, layout: &mut ConversationLayout, palette: Palette) {

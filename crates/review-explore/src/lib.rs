@@ -48,7 +48,6 @@ pub enum Command {
     Start,
     Retry(Box<TurnRequest>),
     SaveView(Box<ViewSave>),
-    OpenPass(String),
     Turn(Box<TurnRequest>),
     Implement(ImplementationRequest),
     RequireReview(Box<Vec<CoverageUnit>>),

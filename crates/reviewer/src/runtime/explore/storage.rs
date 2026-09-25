@@ -3,11 +3,10 @@ use review_explore::{ConversationBinding, Exploration, ExplorePass, ViewSave};
 use review_thread_service::PinnedAgent;
 use std::sync::Arc;
 
-fn empty_restore(passes: Vec<String>) -> ui_events::ExploreRestored {
+fn empty_restore() -> ui_events::ExploreRestored {
     ui_events::ExploreRestored {
         result: Ok(None),
         view: None,
-        passes,
         historical: false,
         storage_error: None,
     }
@@ -16,7 +15,6 @@ fn empty_restore(passes: Vec<String>) -> ui_events::ExploreRestored {
 #[derive(Debug)]
 enum ExploreRestoreError {
     Unreadable(UnreadableExplore),
-    UnknownPass(String),
 }
 
 #[derive(Debug)]
@@ -39,29 +37,18 @@ impl Worker {
             restored: true,
             ..Default::default()
         };
-        self.open_explore(None, messages);
+        self.open_explore(messages);
     }
 
-    pub(super) fn open_explore(
-        &mut self,
-        instance: Option<String>,
-        messages: &ApplicationMessageSender,
-    ) {
+    pub(super) fn open_explore(&mut self, messages: &ApplicationMessageSender) {
         let Some(unit) = self.explore.loaded_unit.clone() else {
             return;
         };
-        let restored = self.load_explore_for_restore(&unit, instance);
+        let restored = self.load_explore_for_restore(&unit);
         let (event, toast) = match restored {
             Ok((mut event, toast)) => {
                 self.accept_restored_explore(&mut event, messages);
                 (event, toast)
-            }
-            Err(ExploreRestoreError::UnknownPass(reason)) => {
-                let _ = messages.send(ui_events::ToastRequested {
-                    text: reason,
-                    kind: toasts::ToastKind::Error,
-                });
-                return;
             }
             Err(ExploreRestoreError::Unreadable(failure)) => {
                 self.discard_unreadable_explore(&unit, failure, messages)
@@ -79,7 +66,6 @@ impl Worker {
     fn load_explore_for_restore(
         &self,
         unit: &review_types::ReviewUnit,
-        instance: Option<String>,
     ) -> Result<(ui_events::ExploreRestored, Option<String>), ExploreRestoreError> {
         let history = self
             .guide_store
@@ -87,17 +73,12 @@ impl Worker {
             .map_err(|error| {
                 ExploreRestoreError::Unreadable(UnreadableExplore::History(error.to_string()))
             })?;
-        let instance = instance.or_else(|| history.passes.last().cloned());
+        let instance = history.passes.last().cloned();
         let Some(instance) = instance else {
-            return Ok((empty_restore(history.passes), None));
+            return Ok((empty_restore(), None));
         };
-        if !history.passes.contains(&instance) {
-            return Err(ExploreRestoreError::UnknownPass(
-                "Unknown saved Explore pass".into(),
-            ));
-        }
         let historical = history.is_historical(&instance);
-        let mut restored = empty_restore(history.passes);
+        let mut restored = empty_restore();
         let mut toast = None;
         restored.historical = historical;
         let pass = match self.guide_store.recover_explore_marks(unit, &instance) {
@@ -147,7 +128,7 @@ impl Worker {
                 (reason, result)
             }
         };
-        let mut event = empty_restore(vec![]);
+        let mut event = empty_restore();
         match cleared {
             Ok(()) => {
                 self.explore = super::ExploreRuntime {
@@ -156,7 +137,7 @@ impl Worker {
                     access: uuid::Uuid::new_v4().to_string(),
                     ..Default::default()
                 };
-                match self.load_explore_for_restore(unit, None) {
+                match self.load_explore_for_restore(unit) {
                     Ok((mut restored, _)) => {
                         self.accept_restored_explore(&mut restored, messages);
                         (
@@ -384,7 +365,7 @@ impl Worker {
 impl Worker {
     pub(in super::super) fn refresh_explore(&mut self, messages: &ApplicationMessageSender) {
         let Some(previous) = &self.explore.pass else {
-            self.open_explore(None, messages);
+            self.open_explore(messages);
             return;
         };
         let unit = &previous.exploration.comparison.checkpoint.review_unit;

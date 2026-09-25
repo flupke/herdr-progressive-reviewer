@@ -237,7 +237,6 @@ fn stopped_jev_bar_schedules_one_idle_expiry_redraw() {
     fixture.app.publish(ExploreRestored {
         result: Ok(Some(Arc::new(pass))),
         view: None,
-        passes: vec![],
         historical: false,
         storage_error: None,
     });

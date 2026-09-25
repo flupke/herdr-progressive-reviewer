@@ -90,7 +90,6 @@ impl Fixture {
             .publish(ExploreRestored {
                 result: Ok(Some(Arc::new(self.pass.clone()))),
                 view: None,
-                passes: vec![],
                 historical: false,
                 storage_error: None,
             })

@@ -88,7 +88,7 @@ fn explore_tabs_share_the_pane_border_and_controls_keep_distinct_styles() {
     assert!(!text.contains("┌ Explore ─"));
 
     let (button_column, button_row) = fixture.point(" Send ");
-    let (link_column, link_row) = fixture.point("[Previous]");
+    let (link_column, link_row) = fixture.point("[Coverage");
     let buffer = fixture.buffer();
     assert_eq!(
         buffer.cell((button_column, button_row)).unwrap().bg,
@@ -215,7 +215,6 @@ fn coverage_header_reports_credited_units_even_below_one_percent() {
     fixture.app.publish(ui_events::ExploreRestored {
         result: Ok(Some(Arc::new(pass))),
         view: None,
-        passes: vec![],
         historical: false,
         storage_error: None,
     });
@@ -430,7 +429,7 @@ fn accepted_mcp_questions_advance_after_input_and_preserve_history_drafts() {
     assert!(text.contains("Question 3:"), "{text}");
     assert!(text.contains("Keep my new thought"), "{text}");
     assert!(!text.contains("Question 4:"), "{text}");
-    fixture.click("[Latest]");
+    fixture.click("[Next]");
     assert!(fixture.text().contains("Question 4:"));
 }
 
@@ -846,7 +845,7 @@ fn large_evidence_is_bounded_and_wheels_scroll_exactly_one_layer() {
     let (mut fixture, request) = ExploreUi::with_policy(policy.as_bytes());
     fixture.app.update(UserInput::Resize {
         width: 100,
-        height: 30,
+        height: 40,
     });
     let mut response = fixture.response(&request, 1);
     let question = response.next.as_mut().unwrap();
@@ -1234,6 +1233,13 @@ fn a_conclusion_is_separate_from_the_viewed_question_and_history_restores_it() {
 fn history_controls_stay_visible_while_scrolling_a_question() {
     let (mut fixture, request) = ExploreUi::new();
     fixture.respond(&request, 1);
+    let first = fixture.text();
+    for control in ["[Previous]", "[Opening]", "[Previous pass]", "[Next]"] {
+        assert!(
+            !first.contains(control),
+            "{control} should not appear on the first question"
+        );
+    }
     fixture.app.update(UserInput::Paste("First context".into()));
     let request = ExploreUi::request(fixture.app.update(UserInput::Key(Key::ControlEnter)));
     fixture.respond(&request, 2);
@@ -1250,12 +1256,12 @@ fn history_controls_stay_visible_while_scrolling_a_question() {
     assert!(fixture.text().contains("Question 1/2"));
     fixture.click("[Next]");
     assert!(fixture.text().contains("Question 2/2"));
-    fixture.click("[Opening]");
-    assert!(!fixture.text().contains("Question 2/2"));
+    fixture.click("[Previous]");
+    assert!(fixture.text().contains("Question 1/2"));
+    assert!(!fixture.text().contains("[Opening]"));
     assert!(!fixture.text().contains("[Previous]"));
     fixture.app.update(UserInput::Key(Key::Char('[')));
-    assert!(!fixture.text().contains("Question 1/2"));
-    assert!(!fixture.text().contains("Question 2/2"));
-    fixture.app.update(UserInput::Key(Key::Char(']')));
     assert!(fixture.text().contains("Question 1/2"));
+    fixture.app.update(UserInput::Key(Key::Char(']')));
+    assert!(fixture.text().contains("Question 2/2"));
 }

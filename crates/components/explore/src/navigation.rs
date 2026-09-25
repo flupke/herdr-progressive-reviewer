@@ -17,7 +17,6 @@ pub(super) enum History {
     Previous,
     Next,
     Latest,
-    Opening,
     Conclusion,
 }
 
@@ -79,7 +78,6 @@ impl Navigation {
 }
 
 enum Page {
-    Opening,
     Question(usize),
     Conclusion { request: String, number: usize },
 }
@@ -87,7 +85,6 @@ enum Page {
 impl Page {
     fn is_selected(&self, component: &ExploreComponent) -> bool {
         match self {
-            Self::Opening => component.compose_scope == ComposeScope::Opening,
             Self::Question(index) => {
                 component.compose_scope == ComposeScope::Question && *index == component.selected
             }
@@ -100,7 +97,6 @@ impl Page {
 
     fn label(&self, component: &ExploreComponent) -> String {
         match self {
-            Self::Opening => "Opening".into(),
             Self::Question(index) => format!("Question {}/{}", index + 1, component.turns.len()),
             Self::Conclusion { number, .. } if component.conclusions.len() > 1 => {
                 format!("Conclusion {number}/{}", component.conclusions.len())
@@ -119,7 +115,7 @@ struct HistoryPages {
 
 impl HistoryPages {
     fn new(component: &ExploreComponent) -> Self {
-        let mut pages = vec![Page::Opening];
+        let mut pages = Vec::new();
         let mut question = 0;
         let mut conclusions = 0;
         let mut conclusion = None;
@@ -151,14 +147,13 @@ impl HistoryPages {
         }
     }
 
-    fn destination(&self, target: History) -> usize {
-        let last = self.pages.len() - 1;
+    fn destination(&self, target: History) -> Option<usize> {
+        let last = self.pages.len().checked_sub(1)?;
         match target {
-            History::Opening => 0,
-            History::Previous => self.current.saturating_sub(1),
-            History::Next => (self.current + 1).min(last),
-            History::Latest => last,
-            History::Conclusion => self.conclusion.unwrap_or(self.current),
+            History::Previous => Some(self.current.saturating_sub(1)),
+            History::Next => Some((self.current + 1).min(last)),
+            History::Latest => Some(last),
+            History::Conclusion => self.conclusion,
         }
     }
 }
@@ -183,12 +178,13 @@ impl ExploreComponent {
 
     pub(super) fn visit_history(&mut self, target: History) {
         let history = HistoryPages::new(self);
-        let destination = history.destination(target);
+        let Some(destination) = history.destination(target) else {
+            return;
+        };
         if destination == history.current {
             return;
         }
         match &history.pages[destination] {
-            Page::Opening => self.visit_opening(),
             Page::Question(index) => self.select(*index),
             Page::Conclusion { request, .. } => self.visit_conclusion_at(request.clone()),
         }
@@ -196,33 +192,37 @@ impl ExploreComponent {
 
     pub(super) fn navigation_bar(&self, area: Rect) -> Navigation {
         let history = HistoryPages::new(self);
-        let last = history.pages.len() - 1;
-        if last == 0 {
+        let Some(last) = history.pages.len().checked_sub(1) else {
             let mut labels = self.coverage_control();
             labels.extend(self.execution_controls());
-            labels.extend(self.saved_controls());
             return Navigation::new(area, labels);
-        }
+        };
         let position = history.current;
         let mut labels = vec![(history.pages[position].label(self), None)];
         labels.extend(self.coverage_control());
         labels.extend(self.execution_controls());
         for (label, target, visible) in [
             ("Previous", History::Previous, position > 0),
-            ("Next", History::Next, position < last),
-            ("Latest", History::Latest, position < last),
+            (
+                "Next",
+                History::Next,
+                position < last && history.conclusion != Some(position + 1),
+            ),
+            (
+                "Latest",
+                History::Latest,
+                position.saturating_add(1) < last && history.conclusion != Some(last),
+            ),
             (
                 "Conclusion",
                 History::Conclusion,
                 history.conclusion.is_some_and(|index| index != position),
             ),
-            ("Opening", History::Opening, position > 0),
         ] {
             if visible {
                 labels.push((format!("[{label}]"), Some(Control::History(target))));
             }
         }
-        labels.extend(self.saved_controls());
         Navigation::new(area, labels)
     }
 
@@ -259,7 +259,6 @@ impl ExploreComponent {
                 .question()
                 .map(|question| self.execution_time(Some(question))),
             ComposeScope::Conclusion => Some(self.execution_time(None)),
-            ComposeScope::Opening => None,
         };
         let mut labels = timing.map(|label| vec![(label, None)]).unwrap_or_default();
         if let (Some(coverage), Some(counts)) = (&self.coverage, self.coverage_cache.get()) {

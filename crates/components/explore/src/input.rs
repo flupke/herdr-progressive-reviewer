@@ -42,9 +42,7 @@ impl ExploreComponent {
             self.reset_warning = false;
         }
         match control {
-            Control::Start | Control::PreviousPass | Control::LatestPass => {
-                return self.start_or_open(control);
-            }
+            Control::Start => return self.start(),
             Control::Implement | Control::NewImplementation => {
                 if matches!(control, Control::NewImplementation) {
                     self.new_implementation();
@@ -59,14 +57,6 @@ impl ExploreComponent {
             control => self.navigate(control),
         }
         Vec::new()
-    }
-
-    fn start_or_open(&mut self, control: Control) -> Vec<Action> {
-        if matches!(control, Control::Start) {
-            self.start()
-        } else {
-            self.open_saved(control)
-        }
     }
 
     fn require_review(&self, index: usize) -> Vec<Action> {
@@ -199,19 +189,6 @@ impl ExploreComponent {
             Control::GeneralReply => self.edit_general(),
             Control::EditImplementation => self.edit_implementation(),
             _ => self.edit_answer(),
-        }
-    }
-
-    pub(super) fn visit_opening(&mut self) {
-        if self.compose_scope != ComposeScope::Opening {
-            self.save_draft();
-            self.compose_scope = super::ComposeScope::Opening;
-            self.restore_draft();
-            self.editing = false;
-            self.evidence_list_focused = false;
-            self.drag = None;
-            self.pointer_view = None;
-            self.reveal.set(Some(Reveal::Start));
         }
     }
 

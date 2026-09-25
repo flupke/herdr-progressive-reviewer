@@ -11,7 +11,6 @@ pub struct ExploreCaptured {
 pub struct ExploreRestored {
     pub result: Result<Option<Arc<review_explore::ExplorePass>>, String>,
     pub view: Option<review_explore::ViewSave>,
-    pub passes: Vec<String>,
     pub historical: bool,
     /// Ancillary editor damage does not prevent reading intact accepted history.
     pub storage_error: Option<String>,

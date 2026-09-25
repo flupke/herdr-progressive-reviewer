@@ -44,12 +44,6 @@ impl ExploreComponent {
         !self.durable.enabled || self.completion_done
     }
 
-    pub(super) fn implementation_in_progress(&self) -> bool {
-        self.conclusions
-            .values()
-            .any(|view| view.delivery.is_pending())
-    }
-
     pub(super) fn accept_conclusion(&mut self) {
         let exploration = self.exploration.as_ref().expect("active exploration");
         let request = exploration
@@ -222,6 +216,10 @@ impl ExploreComponent {
         let Some(view) = self.conclusion() else {
             return;
         };
+        if let Some(reply) = self.initial_reply() {
+            layout.text(reply, palette.text, None);
+            layout.gap();
+        }
         layout.text("Summary", palette.focus, None);
         layout.text(&view.content.summary, palette.text, None);
         layout.gap();

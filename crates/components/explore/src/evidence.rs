@@ -274,6 +274,9 @@ impl ExploreComponent {
             return;
         };
         layout.section("Notes", &reference.notes, palette);
+        if !reference.notes.trim().is_empty() {
+            layout.gap();
+        }
         let code_start = layout.height;
         let mut list = EvidenceList::new(exploration, index, reference_index, self.evidence_width);
         if let Some(viewer) = diff.evidence_view(view) {

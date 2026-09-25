@@ -4,12 +4,18 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// Question indices address the immutable posted question/version list within a pass.
-#[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, Ord, PartialOrd)]
 pub enum ExplorePage {
-    #[default]
+    /// Kept only to read saved views written before the Opening page was removed.
     Opening,
     Question(usize),
     Conclusion(String),
+}
+
+impl Default for ExplorePage {
+    fn default() -> Self {
+        Self::Question(0)
+    }
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
@@ -108,7 +114,7 @@ impl crate::ExplorePass {
                             .questions
                             .len()
                             .checked_sub(1)
-                            .map_or(ExplorePage::Opening, ExplorePage::Question)
+                            .map_or(ExplorePage::Question(0), ExplorePage::Question)
                     },
                     |id| ExplorePage::Conclusion(id.to_owned()),
                 ),
