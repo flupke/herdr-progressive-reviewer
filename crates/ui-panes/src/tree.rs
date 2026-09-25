@@ -1,7 +1,8 @@
 use std::collections::HashSet;
+use ui_shortcuts::NavigationShortcut;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) enum FileTreeRow {
+pub enum FileTreeRow {
     Directory {
         depth: usize,
         name: String,
@@ -16,15 +17,12 @@ pub(super) enum FileTreeRow {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(super) struct FileTree {
-    pub(super) rows: Vec<FileTreeRow>,
+pub struct FileTree {
+    pub rows: Vec<FileTreeRow>,
 }
 
 impl FileTree {
-    pub(super) fn new(
-        files: impl Iterator<Item = (String, String)>,
-        collapsed: &HashSet<String>,
-    ) -> Self {
+    pub fn new(files: impl Iterator<Item = (String, String)>, collapsed: &HashSet<String>) -> Self {
         let mut tree = Self::expanded(files);
         tree.compact();
         tree.collapse(collapsed);
@@ -134,20 +132,13 @@ impl FileTree {
         });
     }
 
-    pub(super) fn file_at(&self, row: usize) -> Option<usize> {
-        match self.rows.get(row)? {
-            FileTreeRow::File { file, .. } => Some(*file),
-            FileTreeRow::Directory { .. } => None,
-        }
-    }
-
-    pub(super) fn row_for_file(&self, file: usize) -> Option<usize> {
+    pub fn row_for_file(&self, file: usize) -> Option<usize> {
         self.rows.iter().position(
             |row| matches!(row, FileTreeRow::File { file: candidate, .. } if *candidate == file),
         )
     }
 
-    pub(super) fn nearest_visible_file(&self, file: usize) -> Option<usize> {
+    pub fn nearest_visible_file(&self, file: usize) -> Option<usize> {
         let mut previous = None;
         for candidate in self.visible_files() {
             if candidate >= file {
@@ -158,11 +149,35 @@ impl FileTree {
         previous
     }
 
-    pub(super) fn visible_files(&self) -> impl DoubleEndedIterator<Item = usize> + '_ {
+    pub fn visible_files(&self) -> impl DoubleEndedIterator<Item = usize> + '_ {
         self.rows.iter().filter_map(|row| match row {
             FileTreeRow::File { file, .. } => Some(*file),
             FileTreeRow::Directory { .. } => None,
         })
+    }
+
+    pub fn navigate(
+        &self,
+        selected: usize,
+        input: NavigationShortcut,
+        page_rows: usize,
+    ) -> Option<usize> {
+        let visible = self.visible_files().collect::<Vec<_>>();
+        let current = visible
+            .iter()
+            .position(|file| *file == selected)
+            .unwrap_or(0);
+        let target = match input {
+            NavigationShortcut::MoveUp => current.saturating_sub(1),
+            NavigationShortcut::MoveDown => current.saturating_add(1),
+            NavigationShortcut::GoToFirst => 0,
+            NavigationShortcut::GoToLast => visible.len().saturating_sub(1),
+            NavigationShortcut::MoveHalfPageUp => current.saturating_sub(page_rows.div_ceil(2)),
+            NavigationShortcut::MoveHalfPageDown => current.saturating_add(page_rows.div_ceil(2)),
+            _ => current,
+        }
+        .min(visible.len().saturating_sub(1));
+        visible.get(target).copied()
     }
 }
 

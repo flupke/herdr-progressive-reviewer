@@ -3,7 +3,9 @@
 use serde::{Deserialize, Serialize};
 
 /// The stable identity of one logical review.
-#[derive(Clone, Debug, Default, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[derive(
+    Clone, Debug, Default, Deserialize, Eq, Hash, PartialEq, Serialize, schemars::JsonSchema,
+)]
 #[serde(transparent)]
 pub struct ReviewUnit(String);
 
@@ -29,4 +31,15 @@ impl From<&str> for ReviewUnit {
     fn from(value: &str) -> Self {
         Self(value.to_owned())
     }
+}
+
+/// Portable editor content and reading position; no component, cache or undo machinery.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
+pub struct TextEditorState {
+    pub text: String,
+    pub row: usize,
+    pub column: usize,
+    pub scroll: usize,
+    pub vim: bool,
+    pub normal: bool,
 }

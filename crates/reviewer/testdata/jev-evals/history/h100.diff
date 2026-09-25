@@ -1,0 +1,121 @@
+diff --git a/crates/ui-shortcuts/src/lib.rs b/crates/ui-shortcuts/src/lib.rs
+index 54351d8e..7f38e1ec 100644
+--- a/crates/ui-shortcuts/src/lib.rs
++++ b/crates/ui-shortcuts/src/lib.rs
+@@ -23,23 +23,30 @@ pub enum Key {
+     Enter,
+     Space,
+     Quit,
+ }
+ 
+ #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+ pub enum ShortcutCommand {
+     Application(ApplicationShortcut),
++    File(FileShortcut),
+     Guide(GuideShortcut),
+     Lsp(LspShortcut),
+     Navigation(NavigationShortcut),
+     Search(SearchShortcut),
+     Source(SourceShortcut),
+ }
+ 
++#[derive(Clone, Copy, Debug, Eq, PartialEq)]
++pub enum FileShortcut {
++    GoToNextUnreviewed,
++    GoToPreviousUnreviewed,
++}
++
+ #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+ pub enum ApplicationShortcut {
+     ChangeFocus,
+     ChangeOutputTarget,
+     Clear,
+     Insert,
+     MarkReviewed,
+     OpenHelp,
+@@ -247,16 +254,17 @@ pub enum ShortcutLookup {
+ }
+ 
+ /// The shortcut group owned by one input subscription.
+ #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+ pub enum ShortcutSet {
+     Application,
+     Diff,
+     Files,
++    FilesGlobal,
+     Guide,
+     Overlay,
+     Revision,
+     Status,
+ }
+ 
+ /// Stateful matching for one shortcut subscription.
+ pub struct ShortcutMatcher {
+@@ -338,16 +346,17 @@ const fn includes(self, command: ShortcutCommand) -> bool {
+                             ApplicationShortcut::ChangeFocus
+                                 | ApplicationShortcut::Clear
+                                 | ApplicationShortcut::MarkReviewed
+                                 | ApplicationShortcut::Quit
+                         )
+                     )
+             }
+             Self::Files => is_files_shortcut(command),
++            Self::FilesGlobal => matches!(command, ShortcutCommand::File(_)),
+             Self::Guide => matches!(command, ShortcutCommand::Guide(_)),
+             Self::Overlay => matches!(
+                 command,
+                 ShortcutCommand::Application(
+                     ApplicationShortcut::ShowCommitMessage | ApplicationShortcut::OpenHelp
+                 )
+             ),
+             Self::Revision => is_revision_shortcut(command),
+@@ -540,16 +549,31 @@ const fn includes(self, command: ShortcutCommand) -> bool {
+             ),
+             ShortcutBinding::two(
+                 Key::Char(']'),
+                 Key::Char('r'),
+                 guide(GuideShortcut::GoToNextComment),
+             ),
+         ],
+     },
++    ShortcutDefinition {
++        description: Some("Go to previous / next unreviewed file"),
++        bindings: &[
++            ShortcutBinding::two(
++                Key::Char('['),
++                Key::Char('f'),
++                ShortcutCommand::File(FileShortcut::GoToPreviousUnreviewed),
++            ),
++            ShortcutBinding::two(
++                Key::Char(']'),
++                Key::Char('f'),
++                ShortcutCommand::File(FileShortcut::GoToNextUnreviewed),
++            ),
++        ],
++    },
+     ShortcutDefinition {
+         description: Some("Show the commit message"),
+         bindings: &[
+             ShortcutBinding::alias(
+                 Key::CommitMessage,
+                 application(ApplicationShortcut::ShowCommitMessage),
+             ),
+             ShortcutBinding::one(
+@@ -630,16 +654,17 @@ const fn is_revision_shortcut(command: ShortcutCommand) -> bool {
+         )
+     )
+ }
+ 
+ const fn is_component_global_shortcut(command: ShortcutCommand) -> bool {
+     matches!(
+         command,
+         ShortcutCommand::Guide(_)
++            | ShortcutCommand::File(_)
+             | ShortcutCommand::Navigation(
+                 NavigationShortcut::GoToParentRevision
+                     | NavigationShortcut::GoToChildRevision
+                     | NavigationShortcut::OpenRevisionSelector
+             )
+             | ShortcutCommand::Application(
+                 ApplicationShortcut::ShowCommitMessage
+                     | ApplicationShortcut::OpenHelp

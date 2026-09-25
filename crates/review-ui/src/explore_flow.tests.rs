@@ -1,4 +1,230 @@
 use super::*;
+
+#[test]
+fn lsp_references_open_beside_explore_source_and_restore_the_full_pane() {
+    let (mut fixture, request) = ExploreUi::new();
+    fixture.respond(&request, 1);
+    fixture.app.publish(ui_events::SourceSessionChanged {
+        snapshot_id: Some("location-layout-test".into()),
+    });
+    fixture.app.publish(LspEvent::Locations {
+        toast_id: toasts::ToastId::generate(),
+        operation: Operation::References,
+        snapshot_id: "location-layout-test".into(),
+        locations: ["caller.rs", "policy.rs"]
+            .into_iter()
+            .map(|path| SourceLocation {
+                path: fixture.files.root().join(path),
+                line: 0,
+                byte_column: 0,
+                end_line: 0,
+                end_byte_column: 1,
+            })
+            .collect(),
+    });
+
+    let selector = fixture
+        .app
+        .component_areas
+        .iter()
+        .find(|area| area.target == fixture.app.locations_component)
+        .unwrap()
+        .area;
+    let explore = fixture
+        .app
+        .component_areas
+        .iter()
+        .find(|area| area.target == fixture.app.explore_component)
+        .unwrap()
+        .area;
+    assert_eq!(selector.right(), explore.x);
+    assert_eq!(explore.right(), fixture.app.width);
+    let top = fixture
+        .buffer()
+        .content
+        .chunks(usize::from(fixture.app.width))
+        .nth(1)
+        .unwrap()
+        .iter()
+        .map(ratatui::buffer::Cell::symbol)
+        .collect::<String>();
+    assert!(top.contains("References (focus)"), "{top}");
+    assert!(top.contains("[E]xplore"), "{top}");
+    let source_side = fixture
+        .buffer()
+        .content
+        .chunks(usize::from(fixture.app.width))
+        .map(|row| {
+            row.iter()
+                .skip(usize::from(explore.x))
+                .map(ratatui::buffer::Cell::symbol)
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(source_side.contains("fn caller"), "{source_side}");
+
+    fixture.app.update(UserInput::Key(Key::Escape));
+    assert_eq!(
+        fixture
+            .app
+            .component_areas
+            .iter()
+            .find(|area| area.target == fixture.app.explore_component)
+            .unwrap()
+            .area
+            .width,
+        fixture.app.width
+    );
+}
+
+#[test]
+fn explore_tabs_share_the_pane_border_and_controls_keep_distinct_styles() {
+    let (mut fixture, request) = ExploreUi::new();
+    fixture.respond(&request, 1);
+    let text = fixture.text();
+    assert!(text.contains("[E]xplore"));
+    assert!(text.contains("┌ [F]iles | [T]hreads | [E]xplore ─"));
+    assert!(!text.contains("┌ Explore ─"));
+
+    let (button_column, button_row) = fixture.point(" Send ");
+    let (link_column, link_row) = fixture.point("[Coverage");
+    let buffer = fixture.buffer();
+    assert_eq!(
+        buffer.cell((button_column, button_row)).unwrap().bg,
+        fixture.app.palette.insertion
+    );
+    let link = buffer.cell((link_column, link_row)).unwrap();
+    assert_eq!(link.fg, fixture.app.palette.focus);
+    assert!(!link.modifier.contains(ratatui::style::Modifier::UNDERLINED));
+}
+
+#[test]
+fn coverage_overview_opens_a_gap_without_losing_the_question_draft() {
+    let (mut fixture, request) = ExploreUi::new();
+    fixture.respond(&request, 1);
+    assert!(fixture.text().contains("Coverage 0% of required lines"));
+    fixture.app.update(UserInput::Key(Key::Char('1')));
+    fixture
+        .app
+        .update(UserInput::Paste("Keep this draft".into()));
+    fixture.click("Coverage 0% of required lines");
+    assert!(fixture.text().contains("Needs answers"));
+    fixture.click("Next unexplored region");
+    assert_eq!(fixture.app.navigation, ReviewNavigation::Explore);
+    let coverage = fixture
+        .app
+        .event_bus
+        .get::<DiffComponent>(fixture.app.diff_component)
+        .unwrap();
+    assert_eq!(
+        coverage
+            .evidence_view(EvidenceView::Coverage)
+            .and_then(DiffComponent::evidence_path),
+        Some("policy.rs")
+    );
+    assert!(fixture.text().contains("File diff · policy.rs"));
+    assert!(fixture.text().contains("Coverage 0% of required lines"));
+    fixture.click("Close diff");
+    fixture.click("Coverage 0% of required lines");
+    assert!(fixture.text().contains("Keep this draft"));
+}
+
+#[test]
+fn coverage_keyboard_opens_the_pass_diff_without_editing_the_answer() {
+    let (mut fixture, request) = ExploreUi::new();
+    fixture.respond(&request, 1);
+    fixture.app.update(UserInput::Key(Key::Char('g')));
+    fixture.app.update(UserInput::Key(Key::Alt('n')));
+    assert!(fixture.text().contains("File diff · policy.rs"));
+    assert_eq!(fixture.app.navigation, ReviewNavigation::Explore);
+}
+
+#[test]
+fn coverage_control_reveals_overview_from_a_scrolled_question_and_restores_scroll() {
+    let (mut fixture, request) = ExploreUi::new();
+    fixture.respond(&request, 1);
+    fixture.app.update(UserInput::Resize {
+        width: 140,
+        height: 18,
+    });
+    for _ in 0..8 {
+        fixture.app.update(UserInput::Key(Key::PageDown));
+    }
+    let before = fixture.text();
+    assert!(!before.contains("of required changed lines answered"));
+    fixture.click("Coverage 0% of required lines");
+    let overview = fixture.text();
+    assert!(
+        overview.contains("0% of required changed lines answered"),
+        "{overview}"
+    );
+    assert!(overview.contains("Needs answers"), "{overview}");
+    assert!(!overview.contains("Question 1 ·"));
+    assert!(
+        fixture
+            .buffer()
+            .content
+            .chunks(usize::from(fixture.app.width))
+            .any(|row| row
+                .iter()
+                .map(ratatui::buffer::Cell::symbol)
+                .collect::<String>()
+                .contains("┌ Coverage "))
+    );
+    fixture.click("Coverage 0% of required lines");
+    assert_eq!(fixture.text(), before);
+}
+
+#[test]
+fn show_file_diff_reveals_the_selected_diff_inside_coverage() {
+    let (mut fixture, request) = ExploreUi::new();
+    fixture.respond(&request, 1);
+    fixture.click("Coverage 0% of required lines");
+    fixture.click("[Show file diff]");
+    let visible = fixture.text();
+    assert!(visible.contains("File diff ·"), "{visible}");
+    assert!(visible.contains("[Close diff]"), "{visible}");
+}
+
+#[test]
+fn coverage_header_reports_credited_units_even_below_one_percent() {
+    let mut policy = b"pub fn policy() -> bool { true }\n".to_vec();
+    for _ in 0..400 {
+        policy.extend_from_slice(b"// changed line\n");
+    }
+    let (mut fixture, kickoff) = ExploreUi::with_policy(&policy);
+    let mut exploration = review_explore::Exploration::new(fixture.comparison.clone());
+    exploration.instance.clone_from(&kickoff.instance);
+    let mut pass = review_explore::ExplorePass::new(exploration);
+    pass.post(&kickoff).unwrap();
+    pass.submit(&fixture.response(&kickoff, 1), false).unwrap();
+    let question = pass.exploration.questions[0].clone();
+    let answer = pass
+        .exploration
+        .clone()
+        .request(
+            Some(review_explore::AnswerInput {
+                option: Some("inspect".into()),
+                ..Default::default()
+            }),
+            Some(&question),
+        )
+        .unwrap();
+    pass.post(&answer).unwrap();
+    fixture.app.publish(ui_events::ExploreRestored {
+        result: Ok(Some(Arc::new(pass))),
+        view: None,
+        historical: false,
+        storage_error: None,
+    });
+    fixture.app.publish(ui_events::ExploreCoverageRefresh);
+    let coverage = fixture.text();
+    assert!(
+        coverage.contains("Coverage 0.4% of required lines"),
+        "{coverage}"
+    );
+}
 use std::fmt::Write as _;
 use ui_events::EvidenceView;
 
@@ -52,9 +278,13 @@ impl ExploreUi {
     }
 
     fn switch_comment_reference(&mut self, command: char) {
-        for key in [Key::Tab, Key::Tab, Key::Char(command), Key::Tab] {
-            self.app.update(UserInput::Key(key));
-        }
+        let path = if command == 'b' {
+            "policy.rs:1"
+        } else {
+            "policy.rs:3"
+        };
+        self.click(path);
+        self.app.update(UserInput::Key(Key::Enter));
     }
 
     fn shared_comment_draft(&mut self, cached_draft: bool) -> review_threads::ReviewThreads {
@@ -110,14 +340,14 @@ impl ExploreUi {
     fn inline_height(&self, turn: usize) -> u16 {
         self.inline_sizes()
             .iter()
-            .find(|(id, _)| id.turn == turn)
+            .find(|(id, _)| matches!(id, EvidenceView::Question { turn: index, .. } if *index == turn))
             .unwrap()
             .1
             .height
             + 2
     }
 
-    fn point(&self, needle: &str) -> (u16, u16) {
+    pub(super) fn point(&self, needle: &str) -> (u16, u16) {
         let buffer = self.buffer();
         buffer
             .content
@@ -149,7 +379,7 @@ impl ExploreUi {
             .event_bus
             .get::<DiffComponent>(self.app.diff_component)
             .unwrap()
-            .evidence_view(EvidenceView { turn, reference })
+            .evidence_view(EvidenceView::Question { turn, reference })
             .unwrap()
             .evidence_path()
             .unwrap()
@@ -172,7 +402,7 @@ fn accepted_mcp_questions_advance_after_input_and_preserve_history_drafts() {
         assert!(!text.contains("Next question ready"), "{text}");
 
         fixture.click("2. Inspect the caller");
-        let (column, row) = fixture.point("[Send]");
+        let (column, row) = fixture.point(" Send ");
         request = ExploreUi::request(fixture.app.update(UserInput::MouseClick { column, row }));
         fixture.app.update(UserInput::MouseRelease);
         // Incidental activity used to suppress the next accepted question.
@@ -199,7 +429,7 @@ fn accepted_mcp_questions_advance_after_input_and_preserve_history_drafts() {
     assert!(text.contains("Question 3:"), "{text}");
     assert!(text.contains("Keep my new thought"), "{text}");
     assert!(!text.contains("Question 4:"), "{text}");
-    fixture.click("[Latest]");
+    fixture.click("[Next]");
     assert!(fixture.text().contains("Question 4:"));
 }
 
@@ -270,8 +500,7 @@ fn assert_evidence_restores_saved_drafts(side: review_explore::SourceSide) {
                 last_line: 1,
             }),
         },
-        relationship: "Unchanged caller".into(),
-        decision_relevance: "This policy determines whether the proposed recovery is sufficient."
+        notes: "The unchanged caller determines whether the proposed recovery is sufficient."
             .into(),
     };
     let actions = fixture.app.publish(ExploreFinished {
@@ -293,7 +522,7 @@ fn assert_evidence_restores_saved_drafts(side: review_explore::SourceSide) {
             draft.post(),
             "restoration preserves publication and source identities"
         );
-        for key in [Key::Tab, Key::Tab, Key::Char('e')] {
+        for key in [Key::Tab, Key::Tab, Key::Tab, Key::Char('e')] {
             ExploreUi::assert_no_comment_writes(&fixture.app.update(UserInput::Key(key)));
         }
     }
@@ -331,7 +560,7 @@ fn opening_historical_caller_maps_inherited_comments_without_reloading() {
     });
     ExploreUi::assert_no_comment_writes(&actions);
     let text = fixture.text();
-    assert!(text.contains("caller.rs · Base"), "{text}");
+    assert!(text.contains("caller.rs:1 (base)"), "{text}");
     assert!(text.contains(&draft.text), "{text}");
     assert!(!text.contains("original context"), "{text}");
 }
@@ -348,6 +577,7 @@ fn cancelled_drafts_do_not_reappear_in_fresh_evidence_views_from_stale_books() {
         result: Ok(book.clone()),
     });
     fixture.respond(&request, 1);
+    fixture.app.update(UserInput::Key(Key::Tab));
     assert!(fixture.text().contains(&draft.text));
     fixture.click("Cancel");
     assert!(!fixture.text().contains(&draft.text));
@@ -372,7 +602,7 @@ fn preparation_and_delivery_failure_stay_in_the_conversation() {
     let (mut fixture, request) = ExploreUi::new();
     let text = fixture.text();
     assert!(text.contains("Waiting for the implementation agent"));
-    for absent in ["Diff ·", "Your answer", "[More]", "[Send]"] {
+    for absent in ["Diff ·", "Your answer", "[More]", " Send "] {
         assert!(!text.contains(absent));
     }
     fixture.respond(&request, 1);
@@ -391,39 +621,39 @@ fn preparation_and_delivery_failure_stay_in_the_conversation() {
         result: Err("Delivery unavailable".into()),
     });
     assert!(fixture.text().contains("Delivery unavailable"));
-    assert!(fixture.text().contains("[Retry]"));
+    assert!(fixture.text().contains(" Retry "));
     fixture.app.update(UserInput::Key(Key::Enter));
     assert!(fixture.text().contains("Keep this exact answer."));
 }
 
 #[test]
-fn evidence_fits_wrapping_and_resizes_without_using_files_sidebar_width() {
+fn evidence_fits_wrapping_and_keyboard_resizes_without_using_files_sidebar_width() {
     let (mut fixture, request) = ExploreUi::new();
+    fixture.app.update(UserInput::Resize {
+        width: 140,
+        height: 60,
+    });
     fixture.app.file_width = Some(39);
     fixture.respond(&request, 1);
     let fitted = fixture.inline_height(0);
     assert!(fitted <= (fixture.app.height - 5) / 2);
-    assert_eq!(fixture.inline_sizes()[0].1.width, 136);
+    assert_eq!(fixture.inline_sizes()[0].1.width, 88);
     fixture.app.update(UserInput::Key(Key::Alt('j')));
     assert_eq!(fixture.inline_height(0), fitted + 2);
-    let (column, row) = fixture.point("drag to resize");
-    fixture.app.update(UserInput::MouseClick {
-        column,
-        row: row - 1,
-    });
-    fixture.app.update(UserInput::MouseDrag {
-        column,
-        row: row + 2,
-    });
+    let enlarged = fixture.inline_height(0);
+    let (diff_title, title_row) = fixture.point("Diff ·");
+    let column = diff_title.saturating_sub(2);
+    let row = title_row + enlarged - 1;
+    fixture.app.update(UserInput::MouseClick { column, row });
     fixture.app.update(UserInput::MouseRelease);
-    assert_eq!(fixture.inline_height(0), fitted + 5);
+    assert_eq!(fixture.inline_height(0), fitted + 2);
     fixture.app.update(UserInput::Resize {
         width: 55,
         height: 45,
     });
     assert_eq!(
         fixture.inline_height(0),
-        fitted + 5,
+        fitted + 2,
         "manual height survives reflow"
     );
     fixture.app.update(UserInput::Key(Key::Alt('0')));
@@ -436,6 +666,31 @@ fn evidence_fits_wrapping_and_resizes_without_using_files_sidebar_width() {
         height: 45,
     });
     assert_eq!(fixture.inline_height(0), fitted);
+    assert_eq!(fixture.app.file_width, Some(39));
+}
+
+#[test]
+fn evidence_divider_drag_resizes_the_source_without_changing_files_width() {
+    let (mut fixture, request) = ExploreUi::new();
+    fixture.app.update(UserInput::Resize {
+        width: 140,
+        height: 65,
+    });
+    fixture.app.file_width = Some(39);
+    fixture.respond(&request, 1);
+    let initial = fixture.inline_sizes()[0].1.width;
+    let (diff_title, row) = fixture.point("Diff ·");
+    let divider = diff_title.saturating_sub(3);
+    fixture.app.update(UserInput::MouseClick {
+        column: divider,
+        row,
+    });
+    fixture.app.update(UserInput::MouseDrag {
+        column: divider + 5,
+        row,
+    });
+    fixture.app.update(UserInput::MouseRelease);
+    assert_eq!(fixture.inline_sizes()[0].1.width, initial - 5);
     assert_eq!(fixture.app.file_width, Some(39));
 }
 
@@ -467,9 +722,7 @@ fn history_pages_retain_independent_evidence_and_drafts() {
                 last_line: 1,
             }),
         },
-        relationship: "Test behavior".into(),
-        decision_relevance: "This policy determines whether the proposed recovery is sufficient."
-            .into(),
+        notes: "Test behavior determines whether the proposed recovery is sufficient.".into(),
     }];
     fixture.app.publish(ExploreFinished {
         instance: request.instance,
@@ -592,7 +845,7 @@ fn large_evidence_is_bounded_and_wheels_scroll_exactly_one_layer() {
     let (mut fixture, request) = ExploreUi::with_policy(policy.as_bytes());
     fixture.app.update(UserInput::Resize {
         width: 100,
-        height: 32,
+        height: 40,
     });
     let mut response = fixture.response(&request, 1);
     let question = response.next.as_mut().unwrap();
@@ -629,13 +882,13 @@ fn large_evidence_is_bounded_and_wheels_scroll_exactly_one_layer() {
         question_position,
         "the diff wheel must not move the conversation"
     );
-    let before = fixture.point("line_005");
+    let before = fixture.point("line_003");
     fixture.app.update(UserInput::MouseScroll {
         column: 0,
         row: 4,
         delta: 2,
     });
-    let after = fixture.point("line_005");
+    let after = fixture.point("line_003");
     assert_eq!(
         before.1.saturating_sub(after.1),
         2,
@@ -694,8 +947,9 @@ fn delayed_search_results_stay_with_their_evidence_window() {
             comparison: fixture.comparison.clone(),
             evidence: evidence.clone(),
             primary: evidence.len(),
-            view: EvidenceView { turn: 0, reference },
+            view: EvidenceView::Question { turn: 0, reference },
             reveal: false,
+            required_only: false,
         })
     };
     open(&mut fixture.app, 1);
@@ -760,7 +1014,7 @@ fn cancelling_a_new_capture_keeps_the_previous_evidence_viewer() {
     fixture.app.update(UserInput::Key(Key::Char('n')));
     fixture.app.update(UserInput::Key(Key::Char('n')));
     fixture.app.update(UserInput::Key(Key::Char('c')));
-    assert!(!fixture.text().contains("[Send]"));
+    assert!(!fixture.text().contains(" Send "));
     for key in [
         Key::ControlEnter,
         Key::Char('1'),
@@ -928,8 +1182,7 @@ fn replying_from_history_answers_the_displayed_question() {
     let request = ExploreUi::request(fixture.app.update(UserInput::Key(Key::ControlEnter)));
     fixture.respond(&request, 2);
     fixture.app.update(UserInput::Key(Key::Char('[')));
-    fixture.click("[Reply]");
-    fixture.click("Your answer");
+    fixture.app.update(UserInput::Key(Key::Enter));
     fixture
         .app
         .update(UserInput::Paste("About the first question".into()));
@@ -980,6 +1233,13 @@ fn a_conclusion_is_separate_from_the_viewed_question_and_history_restores_it() {
 fn history_controls_stay_visible_while_scrolling_a_question() {
     let (mut fixture, request) = ExploreUi::new();
     fixture.respond(&request, 1);
+    let first = fixture.text();
+    for control in ["[Previous]", "[Opening]", "[Previous pass]", "[Next]"] {
+        assert!(
+            !first.contains(control),
+            "{control} should not appear on the first question"
+        );
+    }
     fixture.app.update(UserInput::Paste("First context".into()));
     let request = ExploreUi::request(fixture.app.update(UserInput::Key(Key::ControlEnter)));
     fixture.respond(&request, 2);
@@ -996,12 +1256,12 @@ fn history_controls_stay_visible_while_scrolling_a_question() {
     assert!(fixture.text().contains("Question 1/2"));
     fixture.click("[Next]");
     assert!(fixture.text().contains("Question 2/2"));
-    fixture.click("[Opening]");
-    assert!(!fixture.text().contains("Question 2/2"));
+    fixture.click("[Previous]");
+    assert!(fixture.text().contains("Question 1/2"));
+    assert!(!fixture.text().contains("[Opening]"));
     assert!(!fixture.text().contains("[Previous]"));
     fixture.app.update(UserInput::Key(Key::Char('[')));
-    assert!(!fixture.text().contains("Question 1/2"));
-    assert!(!fixture.text().contains("Question 2/2"));
-    fixture.app.update(UserInput::Key(Key::Char(']')));
     assert!(fixture.text().contains("Question 1/2"));
+    fixture.app.update(UserInput::Key(Key::Char(']')));
+    assert!(fixture.text().contains("Question 2/2"));
 }

@@ -58,7 +58,7 @@ impl ExploreFlow {
             "interpretation":interpretation, "reply":{"text":"I checked the policy.","evidence":[]},
             "topics":[{"id":format!("topic{version}"),"title":"Policy consequence","entries":[{"path":"reviewed.rs","side":"new","lines":null}],"status":"open"}],
             "next":{"id":format!("q{version}"),"version":1,"topic":format!("topic{version}"),"text":"Keep resolved conversations resolved?",
-                "rationale":null,"visual":null,"alternatives":[{"id":"keep","text":"Keep resolved","outcome":"accepted"},{"id":"change","text":"Reopen","outcome":"needs_follow_up"}],"evidence":[{"path":"reviewed.rs","side":"new","lines":{"first_line":1,"last_line":1},"relationship":"Implements policy","decision_relevance":"This determines whether completed conversations should reopen"}]},
+                "rationale":null,"visual":null,"alternatives":[{"id":"keep","text":"Keep resolved","outcome":"accepted"},{"id":"change","text":"Reopen","outcome":"needs_follow_up"}],"evidence":[{"path":"reviewed.rs","side":"new","lines":{"first_line":1,"last_line":1},"notes":"Implements the policy that determines whether completed conversations should reopen"}]},
             "conclusion":null,"limitations":[],"findings":[]
         });
         for field in ["instance", "request"] {

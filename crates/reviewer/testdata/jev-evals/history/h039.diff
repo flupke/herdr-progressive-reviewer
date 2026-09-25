@@ -1,0 +1,71 @@
+diff --git a/crates/review-ui/tests/ui_state.rs b/crates/review-ui/tests/ui_state.rs
+index e04cb028..a9d0a6f8 100644
+--- a/crates/review-ui/tests/ui_state.rs
++++ b/crates/review-ui/tests/ui_state.rs
+@@ -505,16 +505,66 @@ fn stale_review_guide_explanations_are_dimmed() {
+     assert!(stale_text_cells.iter().all(|cell| cell.bg == Color::Reset));
+     assert!(
+         stale_text_cells
+             .iter()
+             .all(|cell| cell.fg == Color::LightYellow)
+     );
+ }
+ 
++#[test]
++fn gy_queries_the_cursor_type_and_jumps_to_a_single_definition() {
++    let source = "let value = Thing;";
++    let mut app = wrapped_diff_application(
++        vec![
++            DiffRow::Context {
++                old_line: 1,
++                new_line: 1,
++                text: " struct Thing;".to_owned(),
++            },
++            DiffRow::Context {
++                old_line: 2,
++                new_line: 2,
++                text: format!(" {source}"),
++            },
++        ],
++        80,
++        12,
++    );
++    app.update(UserInput::Key(Key::Down));
++    app.update(UserInput::Key(Key::Char('w')));
++    assert!(app.update(UserInput::Key(Key::Char('g'))).is_empty());
++    let actions = app.update(UserInput::Key(Key::Char('y')));
++    let [Action::Lsp { operation, query }] = actions.as_slice() else {
++        panic!("gy must query the type definition");
++    };
++    assert_eq!(*operation, review_lsp::Operation::TypeDefinition);
++    assert_eq!((query.line, query.byte_column), (1, 4));
++    assert_eq!(query.expected_line, source);
++
++    app.publish(review_lsp::Event::Locations {
++        toast_id: query.toast_id,
++        operation: *operation,
++        snapshot_id: query.snapshot_id.clone(),
++        locations: vec![review_lsp::SourceLocation {
++            path: query.path.clone(),
++            line: 0,
++            byte_column: 7,
++            end_line: 0,
++            end_byte_column: 12,
++        }],
++    });
++    let actions = app.update(UserInput::Key(Key::Char('K')));
++    let [Action::Lsp { query, .. }] = actions.as_slice() else {
++        panic!("a single type definition must jump directly to the source");
++    };
++    assert_eq!((query.line, query.byte_column), (0, 7));
++    assert_eq!(query.expected_line, "struct Thing;");
++}
++
+ #[test]
+ fn long_diff_lines_wrap_without_horizontal_scrolling() {
+     let source = format!("start-{}-visible-tail", "middle".repeat(30));
+     let mut app = wrapped_diff_application(
+         vec![DiffRow::Context {
+             old_line: 1,
+             new_line: 1,
+             text: format!(" {source}"),

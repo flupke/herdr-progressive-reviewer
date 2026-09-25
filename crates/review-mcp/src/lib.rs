@@ -19,9 +19,12 @@ pub enum Operation {
     GetThread(ThreadId),
     GetNewMessages,
     Reply(Post),
+    SubmitQuestion(Box<review_explore::InterviewUpdate>),
+    SubmitConclusion(Box<review_explore::ConclusionSubmission>),
 }
 
 /// An in-process request from an MCP handler to the reviewer-owned service.
+#[derive(Debug)]
 pub struct Request {
     /// An opaque capability supplied in the reviewer's Herdr wakeup message.
     pub access: String,
@@ -30,7 +33,7 @@ pub struct Request {
 }
 
 impl Request {
-    /// Finish a request after its changes have been durably saved.
+    /// Finish a request after the authoritative owner has accepted its result.
     pub fn respond(self, result: Result<Response, String>) {
         let _ = self.response.send(result);
     }
@@ -41,6 +44,10 @@ impl Request {
 pub enum Response {
     Threads(Vec<ReviewThread>),
     Posted(MessageId),
+    Explore {
+        applied: bool,
+        coverage: review_explore::CoverageReceipt,
+    },
 }
 
 #[cfg(test)]

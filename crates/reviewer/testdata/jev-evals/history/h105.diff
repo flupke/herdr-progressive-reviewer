@@ -1,0 +1,23 @@
+diff --git a/crates/review-repository/tests/git_snapshot.rs b/crates/review-repository/tests/git_snapshot.rs
+index 9d365b52..d19c2d1e 100644
+--- a/crates/review-repository/tests/git_snapshot.rs
++++ b/crates/review-repository/tests/git_snapshot.rs
+@@ -40,17 +40,17 @@ fn snapshots_git_worktrees_without_changing_the_real_index() {
+             ("modified.txt", ChangeKind::Modified),
+             ("old-name.txt => new-name.txt", ChangeKind::Renamed),
+         ]
+     );
+     assert_eq!(
+         snapshot
+             .files
+             .iter()
+-            .map(|file| (file.lines_added, file.lines_removed))
++            .map(|file| (file.statistics.lines_added, file.statistics.lines_removed))
+             .collect::<Vec<_>>(),
+         [(1, 0), (0, 1), (1, 1), (0, 0)]
+     );
+     let modified = snapshot
+         .files
+         .iter()
+         .find(|file| file.display_path == "modified.txt")
+         .unwrap();

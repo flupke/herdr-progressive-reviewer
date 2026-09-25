@@ -1,0 +1,23 @@
+diff --git a/crates/ui-shortcuts/src/lib.rs b/crates/ui-shortcuts/src/lib.rs
+index 2231970d..8bd38565 100644
+--- a/crates/ui-shortcuts/src/lib.rs
++++ b/crates/ui-shortcuts/src/lib.rs
+@@ -337,17 +337,17 @@ impl ShortcutSet {
+     const fn includes(self, command: ShortcutCommand) -> bool {
+         match self {
+             Self::Application => matches!(
+                 command,
+                 ShortcutCommand::Application(
+                     ApplicationShortcut::ChangeFocus
+                         | ApplicationShortcut::Clear
+                         | ApplicationShortcut::Quit
+-                )
++                ) | ShortcutCommand::Search(SearchShortcut::Begin)
+             ),
+             Self::Diff => {
+                 !is_component_global_shortcut(command)
+                     && !matches!(
+                         command,
+                         ShortcutCommand::Application(
+                             ApplicationShortcut::ChangeFocus
+                                 | ApplicationShortcut::Clear

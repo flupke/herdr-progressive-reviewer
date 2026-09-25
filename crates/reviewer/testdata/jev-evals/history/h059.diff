@@ -1,0 +1,23 @@
+diff --git a/README.md b/README.md
+index c7fdd466..9d901b20 100644
+--- a/README.md
++++ b/README.md
+@@ -50,16 +50,18 @@ ## Language servers
+ Optional real-server tests run in temporary projects:
+ 
+ ```sh
+ cargo test -p review-lsp --test language_servers -- --ignored
+ ```
+ 
+ ## Development install
+ 
++Requires Rust 1.89 or newer, a C compiler, and Make.
++
+ Build both programs and link this directory:
+ 
+ ```sh
+ make install
+ ```
+ 
+ The Herdr action list then contains `open`, `close`, and `toggle`.
+ 

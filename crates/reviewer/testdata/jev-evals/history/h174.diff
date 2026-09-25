@@ -1,0 +1,22 @@
+diff --git a/crates/review-ui/src/input.rs b/crates/review-ui/src/input.rs
+index c9b3ea7b..3e3d0813 100644
+--- a/crates/review-ui/src/input.rs
++++ b/crates/review-ui/src/input.rs
+@@ -35,16 +35,17 @@ pub(super) fn key(&mut self, key: Key) -> Action {
+             return self.search_key(key);
+         }
+         if self.awaiting_g_command {
+             self.awaiting_g_command = false;
+             return match key {
+                 Key::Char('g') => self.navigate_to(0),
+                 Key::Char('d') => self.lsp(Operation::Definition),
+                 Key::Char('r') => self.lsp(Operation::References),
++                Key::Char('R') => Action::RestartLsp,
+                 _ => Action::None,
+             };
+         }
+         self.main_view_key(key)
+     }
+ 
+     fn main_view_key(&mut self, key: Key) -> Action {
+         match key {

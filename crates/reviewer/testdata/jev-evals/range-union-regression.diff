@@ -1,0 +1,45 @@
+diff --git a/crates/review-explore/src/coverage.rs b/crates/review-explore/src/coverage.rs
+--- a/crates/review-explore/src/coverage.rs
++++ b/crates/review-explore/src/coverage.rs
+@@ -1,40 +1,40 @@
+ fn normalize(mut units: Vec<CoverageUnit>) -> Vec<CoverageUnit> {
+     units.sort();
+     let mut result: Vec<CoverageUnit> = Vec::new();
+     for unit in units {
+         if let (
+             Some(CoverageUnit::Lines {
+                 file: left_file,
+                 side: left_side,
+                 first: _,
+                 end: left_end,
+             }),
+             CoverageUnit::Lines {
+                 file,
+                 side,
+                 first,
+                 end,
+             },
+         ) = (result.last_mut(), &unit)
+             && left_file == file
+             && left_side == side
+             && *first <= *left_end
+         {
+-            *left_end = (*left_end).max(*end);
++            *left_end = (*left_end).min(*end);
+         } else if result.last() != Some(&unit) {
+             result.push(unit);
+         }
+     }
+     result
+ }
+ 
+ fn intersect(left: &[CoverageUnit], right: &[CoverageUnit]) -> Vec<CoverageUnit> {
+     let mut result = Vec::new();
+     for a in left {
+         for b in right {
+             match (a, b) {
+                 (
+                     CoverageUnit::Lines {
+                         file: af,
+                         side: as_,
+                         first: a0,

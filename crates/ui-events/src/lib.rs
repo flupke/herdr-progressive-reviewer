@@ -1,6 +1,14 @@
 //! Typed events shared by review UI components.
 
+mod explore;
 mod threads;
+pub use explore::{
+    EvidenceView, ExploreAutosave, ExploreCaptured, ExploreCommitted, ExploreComparisonAccepted,
+    ExploreCoverageRefresh, ExploreEvidence, ExploreEvidenceInput, ExploreFinished,
+    ExploreFocusCycle, ExploreHistoryChanged, ExploreImplementationFinished,
+    ExploreImplementationSaved, ExplorePositionsRestored, ExplorePosted, ExploreRestored,
+    ExploreStorageFailed, ExploreSubmission, ExploreViewports,
+};
 pub use threads::{
     NewRepliesRequested, ReviewNavigation, ReviewNavigationChanged, ReviewPane,
     ReviewPaneFocusRequested, ReviewThreadsLoaded, TextPasted, ThreadContext,

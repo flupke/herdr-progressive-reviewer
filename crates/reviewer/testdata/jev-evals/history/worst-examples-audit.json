@@ -1,0 +1,241 @@
+{
+  "scope": "Deduplicated significant gold coordinates in examples attached to development worst10 rows in frozen shortlist.json; no other false exclusions or heldout cases assessed.",
+  "reviewed_examples": 50,
+  "unique_cases": 8,
+  "unique_significant_coordinates": 31,
+  "annotation_errors": [],
+  "cases": [
+    {
+      "case": "h001",
+      "path": "crates/review-explore-runner/src/interview.md",
+      "commit": "21d15023a5ed4039e7940005c178d7e49cea2434",
+      "verdict": "genuine_false_exclusion",
+      "reason": "The changed interview.md text is an agent instruction loaded at runtime by crates/review-explore-runner/src/lib.rs:16 via include_str!; wording changes alter requested output.",
+      "significant_coordinates": [
+        {
+          "side": "new",
+          "line": 51,
+          "source": "Write for a reviewer with no assumed familiarity with this implementation. Keep questions and"
+        },
+        {
+          "side": "new",
+          "line": 52,
+          "source": "choices concise and in plain language, with the decision and its essential conditions explicit."
+        },
+        {
+          "side": "new",
+          "line": 53,
+          "source": "Use rationale as Context: start with a short paragraph explaining the behavior under discussion"
+        },
+        {
+          "side": "new",
+          "line": 54,
+          "source": "and why the question arises. Follow with optional explanation of the mechanics and unfamiliar"
+        },
+        {
+          "side": "new",
+          "line": 55,
+          "source": "terms needed to decide; use a concrete example when helpful. Understanding the question must"
+        },
+        {
+          "side": "new",
+          "line": 96,
+          "source": "Keep summaries compact and include the decisive reason; put further reasoning in optional"
+        },
+        {
+          "side": "new",
+          "line": 97,
+          "source": "details (omit or leave empty when unnecessary) and uncertainties in unknowns. Unsupported"
+        },
+        {
+          "side": "new",
+          "line": 115,
+          "source": "Free text is always possible. Provide Context for each substantive question; keep it brief when"
+        },
+        {
+          "side": "new",
+          "line": 116,
+          "source": "the background is already established. An optional small terminal sketch uses a fenced Markdown"
+        },
+        {
+          "side": "new",
+          "line": 117,
+          "source": "block and is explicitly labelled simplified/proposed. Do not turn a direct answer into an"
+        },
+        {
+          "side": "new",
+          "line": 118,
+          "source": "unnecessary approval form."
+        },
+        {
+          "side": "old",
+          "line": 80,
+          "source": "Keep summaries compact; put reasoning in details and uncertainties in unknowns. Unsupported"
+        },
+        {
+          "side": "old",
+          "line": 98,
+          "source": "Free text is always possible. Rationale is optional; an optional small terminal sketch is explicitly"
+        }
+      ]
+    },
+    {
+      "case": "h002",
+      "path": "crates/components/explore/Cargo.toml",
+      "commit": "21d15023a5ed4039e7940005c178d7e49cea2434",
+      "verdict": "genuine_false_exclusion",
+      "reason": "The new markdown-rendering dependency changes the explore component Cargo manifest.",
+      "significant_coordinates": [
+        {
+          "side": "new",
+          "line": 18,
+          "source": "markdown-rendering = { path = \"../../markdown-rendering\" }"
+        }
+      ]
+    },
+    {
+      "case": "h008",
+      "path": "crates/review-store/Cargo.toml",
+      "commit": "26c2d94d0a6648612e8810a8ae683d1a717f590a",
+      "verdict": "genuine_false_exclusion",
+      "reason": "The new review-repository dependency changes the review-store Cargo manifest.",
+      "significant_coordinates": [
+        {
+          "side": "new",
+          "line": 27,
+          "source": "review-repository = { path = \"../review-repository\" }"
+        }
+      ]
+    },
+    {
+      "case": "h012",
+      "path": "crates/ui-actions/src/lib.rs",
+      "commit": "984c70629cffa3e3501077a1f583959fa7c21ee9",
+      "verdict": "genuine_false_exclusion",
+      "reason": "Removing the Output variant changes the Action enum and its data contract.",
+      "significant_coordinates": [
+        {
+          "side": "old",
+          "line": 62,
+          "source": "    Output {"
+        },
+        {
+          "side": "old",
+          "line": 63,
+          "source": "        text: String,"
+        },
+        {
+          "side": "old",
+          "line": 64,
+          "source": "    },"
+        }
+      ]
+    },
+    {
+      "case": "h047",
+      "path": "crates/components/diff/src/render.rs",
+      "commit": "2c2c5df31ed2340d6d4cdce8c260de4b9264db34",
+      "verdict": "genuine_false_exclusion",
+      "reason": "Changing cursor_visual_row from private to pub(super) changes Rust method visibility across the parent module.",
+      "significant_coordinates": [
+        {
+          "side": "new",
+          "line": 211,
+          "source": "    pub(super) fn cursor_visual_row(&self, file: &LoadedDocument) -> usize {"
+        },
+        {
+          "side": "old",
+          "line": 211,
+          "source": "    fn cursor_visual_row(&self, file: &LoadedDocument) -> usize {"
+        }
+      ]
+    },
+    {
+      "case": "h066",
+      "path": "crates/reviewer/src/runtime.rs",
+      "commit": "640f7ff454b3b0ca19751702b9261fffaec32c93",
+      "verdict": "genuine_false_exclusion",
+      "reason": "Adding .. to the runtime struct destructuring pattern changes accepted fields and is executable Rust syntax.",
+      "significant_coordinates": [
+        {
+          "side": "new",
+          "line": 676,
+          "source": "            .."
+        }
+      ]
+    },
+    {
+      "case": "h067",
+      "path": "crates/review-guide-runner/src/write-review-guide.md",
+      "commit": "3bf681ef1241babcaf7645c0548d6b4e0b44dae0",
+      "verdict": "genuine_false_exclusion",
+      "reason": "The changed write-review-guide.md text is an agent instruction loaded at runtime by crates/review-guide-runner/src/lib.rs:19 via include_str!.",
+      "significant_coordinates": [
+        {
+          "side": "new",
+          "line": 55,
+          "source": "Each item must explain one distinct delta and its contribution to the commit's"
+        },
+        {
+          "side": "new",
+          "line": 56,
+          "source": "objective. Lead with the concrete change, then connect it to the behavior it"
+        },
+        {
+          "side": "new",
+          "line": 57,
+          "source": "enables or the failure it prevents. The item is complete when the reviewer can"
+        },
+        {
+          "side": "new",
+          "line": 58,
+          "source": "understand both what changed and why it belongs in this commit."
+        },
+        {
+          "side": "old",
+          "line": 55,
+          "source": "Each item must explain one distinct delta. Lead with what the change adds,"
+        }
+      ]
+    },
+    {
+      "case": "h091",
+      "path": "crates/review-guide-runner/src/write-review-guide.md",
+      "commit": "2de32e01f5d7d12fd471dec115c18e0e0ddfe3ca",
+      "verdict": "genuine_false_exclusion",
+      "reason": "The changed write-review-guide.md text is an agent instruction loaded at runtime by crates/review-guide-runner/src/lib.rs:19 via include_str!.",
+      "significant_coordinates": [
+        {
+          "side": "new",
+          "line": 24,
+          "source": "- the exact frozen checkpoint diff whose delta you must explain;"
+        },
+        {
+          "side": "new",
+          "line": 36,
+          "source": "## Find the delta"
+        },
+        {
+          "side": "new",
+          "line": 38,
+          "source": "The guide explains the delta introduced by the frozen diff."
+        },
+        {
+          "side": "new",
+          "line": 40,
+          "source": "Read the complete frozen diff for the requested scope. Identify each"
+        },
+        {
+          "side": "new",
+          "line": 41,
+          "source": "non-obvious change in behavior, data flow, ownership, or safety. Compare the"
+        }
+      ]
+    }
+  ],
+  "explanation_for_report": "The listed worst rows are genuine false exclusions under the frozen policy. The highest-error methods, sum_clipped and noisy_or, combine separate category yes/no scores: e.g. h001 interview.md (runtime prompt) received comment=0.63, formatting=0.19, import=0.02, out_of_scope_file=0.03; sum_clipped=0.87 and noisy_or\u22480.715 both pass a 0.5 exclusion gate. These are heuristic aggregations of overlapping judgments, not calibrated independent probabilities. The reviewed examples also include Cargo dependencies, removed enum fields, changed method visibility, and executable Rust pattern syntax.",
+  "limitations": [
+    "The shortlist retains at most five example chunks per worst row; this audit does not verify every false exclusion contributing to the aggregate worst10 counts.",
+    "Model answers were read only to illustrate scoring; significance verdicts come from patch text, historical include_str! call sites, and the stated review policy."
+  ]
+}

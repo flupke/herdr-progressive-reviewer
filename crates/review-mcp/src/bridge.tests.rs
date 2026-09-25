@@ -31,7 +31,15 @@ fn one_client_keeps_its_tools_across_closed_open_and_reopened_reviewers() {
             let client = ClientInfo::default().serve(agent).await.unwrap();
             let bridge = serving.await.unwrap();
             let tools = client.list_all_tools().await.unwrap();
-            assert_eq!(tools.len(), 4);
+            assert_eq!(tools.len(), 6);
+            let conclusion = tools.iter().find(|tool| tool.name == "submit_conclusion").unwrap();
+            for section in ["summary", "to_be_implemented", "future_work"] {
+                assert_eq!(conclusion.input_schema["properties"][section]["type"], "string");
+                assert!(conclusion.input_schema["required"].as_array().unwrap().iter().any(|field| field == section));
+            }
+            assert!(conclusion.input_schema["properties"].get("update").is_none());
+            assert!(conclusion.input_schema["properties"].get("next").is_none());
+            assert!(tools.iter().all(|tool| !matches!(tool.name.as_ref(), "read_explore" | "get_explore" | "get_explore_answer" | "submit_explore")));
             let calls = Arc::new(Mutex::new(Vec::new()));
             let message_id =
                 review_threads::MessageId::parse("13b2c529-d4c5-4af9-8c36-8f447a9975d7").unwrap();
@@ -97,7 +105,7 @@ fn repository_discovery_failure_does_not_remove_the_tool_catalog() {
             });
             let client = ClientInfo::default().serve(agent).await.unwrap();
             let bridge = serving.await.unwrap();
-            assert_eq!(client.list_all_tools().await.unwrap().len(), 4);
+            assert_eq!(client.list_all_tools().await.unwrap().len(), 6);
             let response = client
                 .call_tool(
                     CallToolRequestParams::new("list_threads")

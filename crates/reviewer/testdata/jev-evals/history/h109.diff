@@ -1,0 +1,45 @@
+diff --git a/crates/components/diff/src/lib.rs b/crates/components/diff/src/lib.rs
+index cc6caded..7ff97b17 100644
+--- a/crates/components/diff/src/lib.rs
++++ b/crates/components/diff/src/lib.rs
+@@ -1169,16 +1169,19 @@ fn animation_tick(&mut self, _event: &AnimationTick) -> Vec<Action> {
+             return Vec::new();
+         }
+         self.selected_load_action().into_iter().collect()
+     }
+ 
+     fn selected_load_action(&mut self) -> Option<Action> {
+         let review_checkpoint = self.review_checkpoint.clone()?;
+         let selected_path = self.selected_path.as_deref()?;
++        if !self.reviewable_files.contains(selected_path) {
++            return None;
++        }
+         let document = self
+             .documents
+             .iter_mut()
+             .find(|document| document.path == selected_path)?;
+         document.start_diff_load().map(|path| Action::LoadDiff {
+             review_checkpoint,
+             path,
+         })
+@@ -1600,18 +1603,19 @@ fn current_review_location(&self) -> Option<ReviewLocation> {
+ 
+     fn publish_current_location(&self) {
+         self.events.publish(CurrentReviewLocationChanged {
+             location: self.current_review_location(),
+         });
+     }
+ 
+     #[allow(clippy::trivially_copy_pass_by_ref)]
+-    fn reviewable_files_changed(&mut self, _event: &ReviewableFilesChanged) {
++    fn reviewable_files_changed(&mut self, _event: &ReviewableFilesChanged) -> Vec<Action> {
+         self.publish_viewports();
++        self.selected_load_action().into_iter().collect()
+     }
+ 
+     fn publish_viewports(&self) {
+         let viewports = self
+             .documents
+             .iter()
+             .enumerate()
+             .filter(|(_, document)| self.reviewable_files.contains(&document.path))

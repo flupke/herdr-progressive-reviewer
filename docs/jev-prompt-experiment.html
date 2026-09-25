@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Jev exclusion experiment</title>
+  <style>
+    :root { color-scheme: dark; --bg:#0d1420; --panel:#172235; --ink:#eef4ff; --muted:#a9b8cf; --line:#34445e; --cyan:#79ddeb; --amber:#f7c876; --green:#8cddb1; }
+    * { box-sizing:border-box } body { margin:0; background:radial-gradient(circle at 80% -10%,#213856 0,transparent 40%),var(--bg); color:var(--ink); font:16px/1.55 system-ui,sans-serif; }
+    main { width:min(1080px,calc(100% - 36px)); margin:0 auto; padding:52px 0 80px; }
+    h1,h2,h3 { line-height:1.15; letter-spacing:-.025em } h1 { font-size:clamp(2.4rem,6vw,4.4rem); margin:.15em 0 } h2 { font-size:1.8rem; margin:0 0 .6em } h3 { font-size:1.12rem; margin:.1em 0 .5em }
+    p { max-width:72ch } a { color:var(--cyan) } .eyebrow { text-transform:uppercase; letter-spacing:.16em; font-size:.76rem; font-weight:800; color:var(--cyan) }
+    .lede { font-size:1.25rem; color:var(--muted); max-width:66ch } .chips { display:flex; flex-wrap:wrap; gap:9px; margin:27px 0 48px } .chip { border:1px solid var(--line); border-radius:99px; padding:6px 12px; color:var(--muted); font-size:.88rem }
+    section { margin:58px 0 } .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:16px } .card { background:var(--panel); border:1px solid var(--line); border-radius:15px; padding:21px; }
+    .card p { margin-bottom:0; color:var(--muted) } .step { color:var(--cyan); font:700 .84rem ui-monospace,monospace; margin-bottom:10px }
+    .warning { border-left:4px solid var(--amber); padding:12px 18px; background:#332b24; border-radius:0 9px 9px 0; }
+    pre { white-space:pre-wrap; overflow-wrap:anywhere; background:#0a101b; border:1px solid var(--line); padding:17px; border-radius:12px; color:#d4e8fc; font:13px/1.55 ui-monospace,monospace; }
+    details { background:var(--panel); border:1px solid var(--line); border-radius:12px; margin:10px 0; padding:14px 18px; } summary { cursor:pointer; font-weight:700 }
+    label { font-weight:700; display:inline-block; margin-right:10px } select { background:#263a54; color:var(--ink); border:1px solid var(--cyan); border-radius:6px; padding:7px; font:inherit }
+    .table-wrap { overflow:auto; border:1px solid var(--line); border-radius:12px; margin-top:18px } table { border-collapse:collapse; width:100%; min-width:650px } th,td { padding:12px 16px; border-bottom:1px solid var(--line); text-align:left } th { color:var(--muted); font-size:.8rem; text-transform:uppercase; letter-spacing:.07em } tr:last-child td { border-bottom:0 } td strong { color:var(--green) }
+    .meter { height:7px; width:110px; background:#334158; border-radius:99px; display:inline-block; vertical-align:middle; margin-left:7px } .meter span { display:block; height:100%; border-radius:99px; background:var(--green) }
+    .foot { color:var(--muted); border-top:1px solid var(--line); padding-top:20px; font-size:.9rem }
+  </style>
+</head>
+<body><main>
+  <p class="note">Follow-up: <a href="jev-history-study.html">the larger history-based study</a> compares prompt, metadata, threshold rules and token windows, with a frozen top 10 and false-exclusion examples.</p>
+  <div class="eyebrow">Explore · Jev evaluator · 23 September 2026</div>
+  <h1>What may Jev safely skip?</h1>
+  <p class="lede">We tested whether a narrow category query and a conservative probability gate can identify review material the reviewer considers uninteresting, while leaving everything else for a human.</p>
+  <div class="chips"><span class="chip">153 Jev calls</span><span class="chip">17 recursive hunk chunks</span><span class="chip">3 repeats</span><span class="chip">0 provider errors</span><span class="chip">Production unchanged</span></div>
+
+  <section><h2>1. Define the target before tuning</h2>
+    <div class="grid">
+      <div class="card"><div class="step">LABEL AUDIT</div><h3>Two labels were wrong</h3><p>Two <code>#[serde(default)]</code> additions were first called insignificant. They change which saved records deserialize successfully, so their changed lines are now significant. These post-audit cases were kept out of tuning.</p></div>
+      <div class="card"><div class="step">REVIEWER POLICY</div><h3>“Interesting” is a scope decision</h3><p>The reviewer wants to skip comment-only, import/re-export/module-only, formatting-only, test-only, prose-doc-only, generated-output-only and lockfile-only changes. A mixed hunk stays in review. Hand-written config and manifests remain in scope.</p></div>
+      <div class="card"><div class="step">SAFETY RULE</div><h3>Uncertain means required</h3><p>An exclusion requires strong evidence that every target edit is in a skipped category. A fitting but uncertain hunk may be split at most twice without overlap; any unresolved part remains reviewable. That uncertainty split is proposed, not yet tested.</p></div>
+    </div>
+    <p class="warning">An import or module declaration can alter runtime behavior. The reviewer explicitly chose to exclude these lines anyway. The experiment measures agreement with that review policy, not semantic inertness.</p>
+  </section>
+
+  <section><h2>2. Keep the unit meaningful and bounded</h2>
+    <div class="grid">
+      <div class="card"><div class="step">INPUT</div><h3>A full diff hunk first</h3><p>The opt-in Rust evaluator makes the hunk the initial target. It includes path, Rust hint, old/new rows, and an omission note. Context rows are marked separately from rows being judged.</p></div>
+      <div class="card"><div class="step">SIZE</div><h3>Estimate tokens, not bytes</h3><p>The planner tokenizes the serialized request with <code>o200k_base</code> and uses a 14,000 estimated-token ceiling. Jev reported at most 15,083 actual input tokens in this run, under its 32k limit.</p></div>
+      <div class="card"><div class="step">SPLIT</div><h3>Recursive, without overlap</h3><p>If a hunk does not fit, cut near half its estimated tokens at a legal boundary and repeat. Old/new replacements stay paired. An indivisible oversized piece stays required for human review.</p></div>
+    </div>
+    <pre aria-label="Simplified recursive splitting algorithm">plan(hunk):
+    if token_count(serialized_request(hunk)) ≤ 14,000: send(hunk)
+    else if legal midpoint exists:
+        plan(left_half); plan(right_half)
+    else: keep_for_human_review(hunk)</pre>
+  </section>
+
+  <section><h2>3. Compare questions on the same chunks</h2>
+    <p>Each prompt saw the same 17 frozen candidates three times. A candidate is safe to exclude only if <em>every</em> target changed line is outside review scope. The category request batches three independent yes/no questions in one Jev call; each answer is its yes probability, with no separate confidence field.</p>
+    <details><summary>Show the scope-aware Choice prompt</summary><pre>Classify only the changed target lines, using unchanged lines to understand them. The reviewer excludes whole blocks consisting only of comments, imports, use/re-export or module declarations, formatting, test-only code, prose docs, generated output, or lockfile changes. These categories are excluded even if an import or test can change behavior. If any target edit is outside those categories, choose significant, including a changed return value, serialized-data contract, runtime text, or review rule. For a mixed block choose significant. If category membership is unclear, choose uncertain. Judge ONLY rows with target=true; all other rows are context, even if added or deleted. Old changed lines were deleted; new changed lines were added.
+
+Criteria:
+significant — At least one target edit is outside the reviewer's excluded categories.
+insignificant — Every target edit belongs to an excluded category, including behavior-changing imports.
+uncertain — The supplied source cannot establish the category of every target edit.</pre></details>
+    <details><summary>Show the three category yes/no questions</summary><pre>is_comment_diff: Are ALL edits in rows with target=true exclusively comments or documentation, with no executable, attribute, or declaration edit?
+is_import_diff: Are ALL edits in rows with target=true exclusively import statements, use or pub use re-exports, or mod/pub mod declarations? Include changed import targets and aliases.
+is_formatting_diff: Are ALL edits in rows with target=true exclusively formatting or syntactic presentation that preserves the same executable behavior, data contract, and user-facing text?
+
+All three: Other rows are context, even if changed.</pre></details>
+    <details><summary>Show the current production query used as baseline</summary><pre>Decide whether THIS exact changed block needs its own explanation in a code review. It treats explanatory comments, formatting and routine annotations as potentially insignificant, while listing behavior, contracts, dependencies and meaningful imports as significant. For split windows, only target=true rows count. The full exact baseline request is preserved in the run log.</pre></details>
+  </section>
+
+  <section><h2>4. Tune the exclusion gate</h2>
+    <p>Development cases were used to pick the conservative 0.90 gate. Holdout cases were then inspected separately. The counts below are <em>judgments across three repeats</em>, not independent source changes.</p>
+    <label for="threshold">Exclude when probability is at least</label><select id="threshold"><option value="0.5">0.50</option><option value="0.7">0.70</option><option value="0.8">0.80</option><option value="0.9" selected>0.90</option><option value="0.95">0.95</option><option value="0.99">0.99</option></select>
+    <div class="table-wrap"><table><thead><tr><th>Query</th><th>Development excluded</th><th>Development false exclusions</th><th>Holdout excluded</th><th>Holdout false exclusions</th></tr></thead><tbody id="scores"></tbody></table></div>
+    <p id="threshold-note" class="foot"></p>
+  </section>
+
+  <section><h2>5. What the result supports</h2>
+    <div class="grid"><div class="card"><div class="step">OBSERVED</div><h3>0.90 worked on this set</h3><p>Both revised queries excluded all 12 development and all 6 holdout negative judgments, with zero false exclusions among 33 positive judgments. The old query missed six negative judgments, including the behavior-changing import that the reviewer chose to skip.</p></div>
+    <div class="card"><div class="step">BOUNDARY</div><h3>This is not a safety guarantee</h3><p>Fixtures and labels were agent-authored; three repeats and related old/new lines are correlated. Test-only edits, docs, generated output and lockfiles lack dedicated examples. The proposed uncertainty split was not evaluated.</p></div>
+    <div class="card"><div class="step">NEXT</div><h3>Keep production unchanged</h3><p>The trial suggests a 0.90 category gate is worth a larger independently labelled evaluation. It does not justify silently switching production exclusion behavior yet.</p></div></div>
+  </section>
+  <p class="foot">Source: <a href="jev-prompt-experiment-results.md">results and commands</a> · <a href="../crates/reviewer/testdata/jev-evals/prompt_experiment.py">exact experiment script</a> · <a href="../crates/reviewer/testdata/jev-evals/curation.json">curation</a> · <a href="../crates/reviewer/src/runtime/explore/jev/evals/plan.rs">recursive planner</a>. Raw Jev responses remain local under <code>target/jev-prompt-evals/</code>.</p>
+</main>
+<script>
+const data = [{"variant":"baseline","split":"development","threshold":0.5,"positive":21,"negative":12,"false_exclusions":0,"correct_exclusions":9},{"variant":"baseline","split":"development","threshold":0.7,"positive":21,"negative":12,"false_exclusions":0,"correct_exclusions":9},{"variant":"baseline","split":"development","threshold":0.8,"positive":21,"negative":12,"false_exclusions":0,"correct_exclusions":9},{"variant":"baseline","split":"development","threshold":0.9,"positive":21,"negative":12,"false_exclusions":0,"correct_exclusions":9},{"variant":"baseline","split":"development","threshold":0.95,"positive":21,"negative":12,"false_exclusions":0,"correct_exclusions":9},{"variant":"baseline","split":"development","threshold":0.99,"positive":21,"negative":12,"false_exclusions":0,"correct_exclusions":9},{"variant":"baseline","split":"holdout","threshold":0.5,"positive":12,"negative":6,"false_exclusions":0,"correct_exclusions":3},{"variant":"baseline","split":"holdout","threshold":0.7,"positive":12,"negative":6,"false_exclusions":0,"correct_exclusions":3},{"variant":"baseline","split":"holdout","threshold":0.8,"positive":12,"negative":6,"false_exclusions":0,"correct_exclusions":3},{"variant":"baseline","split":"holdout","threshold":0.9,"positive":12,"negative":6,"false_exclusions":0,"correct_exclusions":3},{"variant":"baseline","split":"holdout","threshold":0.95,"positive":12,"negative":6,"false_exclusions":0,"correct_exclusions":3},{"variant":"baseline","split":"holdout","threshold":0.99,"positive":12,"negative":6,"false_exclusions":0,"correct_exclusions":3},{"variant":"semantic_safety","split":"development","threshold":0.5,"positive":21,"negative":12,"false_exclusions":0,"correct_exclusions":12},{"variant":"semantic_safety","split":"development","threshold":0.7,"positive":21,"negative":12,"false_exclusions":0,"correct_exclusions":12},{"variant":"semantic_safety","split":"development","threshold":0.8,"positive":21,"negative":12,"false_exclusions":0,"correct_exclusions":12},{"variant":"semantic_safety","split":"development","threshold":0.9,"positive":21,"negative":12,"false_exclusions":0,"correct_exclusions":12},{"variant":"semantic_safety","split":"development","threshold":0.95,"positive":21,"negative":12,"false_exclusions":0,"correct_exclusions":12},{"variant":"semantic_safety","split":"development","threshold":0.99,"positive":21,"negative":12,"false_exclusions":0,"correct_exclusions":9},{"variant":"semantic_safety","split":"holdout","threshold":0.5,"positive":12,"negative":6,"false_exclusions":0,"correct_exclusions":6},{"variant":"semantic_safety","split":"holdout","threshold":0.7,"positive":12,"negative":6,"false_exclusions":0,"correct_exclusions":6},{"variant":"semantic_safety","split":"holdout","threshold":0.8,"positive":12,"negative":6,"false_exclusions":0,"correct_exclusions":6},{"variant":"semantic_safety","split":"holdout","threshold":0.9,"positive":12,"negative":6,"false_exclusions":0,"correct_exclusions":6},{"variant":"semantic_safety","split":"holdout","threshold":0.95,"positive":12,"negative":6,"false_exclusions":0,"correct_exclusions":2},{"variant":"semantic_safety","split":"holdout","threshold":0.99,"positive":12,"negative":6,"false_exclusions":0,"correct_exclusions":0},{"variant":"category_nouls","split":"development","threshold":0.5,"positive":21,"negative":12,"false_exclusions":0,"correct_exclusions":12},{"variant":"category_nouls","split":"development","threshold":0.7,"positive":21,"negative":12,"false_exclusions":0,"correct_exclusions":12},{"variant":"category_nouls","split":"development","threshold":0.8,"positive":21,"negative":12,"false_exclusions":0,"correct_exclusions":12},{"variant":"category_nouls","split":"development","threshold":0.9,"positive":21,"negative":12,"false_exclusions":0,"correct_exclusions":12},{"variant":"category_nouls","split":"development","threshold":0.95,"positive":21,"negative":12,"false_exclusions":0,"correct_exclusions":6},{"variant":"category_nouls","split":"development","threshold":0.99,"positive":21,"negative":12,"false_exclusions":0,"correct_exclusions":0},{"variant":"category_nouls","split":"holdout","threshold":0.5,"positive":12,"negative":6,"false_exclusions":0,"correct_exclusions":6},{"variant":"category_nouls","split":"holdout","threshold":0.7,"positive":12,"negative":6,"false_exclusions":0,"correct_exclusions":6},{"variant":"category_nouls","split":"holdout","threshold":0.8,"positive":12,"negative":6,"false_exclusions":0,"correct_exclusions":6},{"variant":"category_nouls","split":"holdout","threshold":0.9,"positive":12,"negative":6,"false_exclusions":0,"correct_exclusions":6},{"variant":"category_nouls","split":"holdout","threshold":0.95,"positive":12,"negative":6,"false_exclusions":0,"correct_exclusions":0},{"variant":"category_nouls","split":"holdout","threshold":0.99,"positive":12,"negative":6,"false_exclusions":0,"correct_exclusions":0}];
+const names = {baseline:'Current Choice', semantic_safety:'Scope-aware Choice', category_nouls:'Category yes/no'};
+const select = document.getElementById('threshold');
+function render() {
+  const t = Number(select.value);
+  const rows = ['baseline','semantic_safety','category_nouls'].map(variant => {
+    const dev = data.find(x => x.variant === variant && x.split === 'development' && x.threshold === t);
+    const hold = data.find(x => x.variant === variant && x.split === 'holdout' && x.threshold === t);
+    const cell = x => `${x.correct_exclusions}/${x.negative}<span class="meter"><span style="width:${100*x.correct_exclusions/x.negative}%"></span></span>`;
+    return `<tr><td>${names[variant]}</td><td>${cell(dev)}</td><td>${dev.false_exclusions}/${dev.positive}</td><td>${cell(hold)}</td><td>${hold.false_exclusions}/${hold.positive}</td></tr>`;
+  });
+  document.getElementById('scores').innerHTML = rows.join('');
+  document.getElementById('threshold-note').textContent = t < .9 ? 'Lower gates excluded no additional positives in this small sample, but they have less safety margin on unseen code.' : t > .9 ? 'A stricter gate leaves more uninteresting chunks for a human to review.' : 'At 0.90, both revised queries excluded every labeled negative judgment in this curated set.';
+}
+select.addEventListener('change', render); render();
+</script>
+</body></html>

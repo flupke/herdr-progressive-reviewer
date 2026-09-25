@@ -1,0 +1,20 @@
+diff --git a/crates/review-explore-runner/Cargo.toml b/crates/review-explore-runner/Cargo.toml
+index 373ae3f3..cf70a3e0 100644
+--- a/crates/review-explore-runner/Cargo.toml
++++ b/crates/review-explore-runner/Cargo.toml
+@@ -2,13 +2,14 @@
+ name = "review-explore-runner"
+ version.workspace = true
+ edition.workspace = true
+ rust-version.workspace = true
+ license.workspace = true
+ 
+ [dependencies]
+ review-explore = { path = "../review-explore" }
++
++[dev-dependencies]
+ serde_json.workspace = true
+-eyre.workspace = true
+ 
+ [lints]
+ workspace = true

@@ -1,0 +1,22 @@
+diff --git a/crates/ui-events/Cargo.toml b/crates/ui-events/Cargo.toml
+index bae12a14..7a516f7f 100644
+--- a/crates/ui-events/Cargo.toml
++++ b/crates/ui-events/Cargo.toml
+@@ -1,16 +1,17 @@
+ [package]
+ name = "ui-events"
+ version.workspace = true
+ edition.workspace = true
+ rust-version.workspace = true
+ license.workspace = true
+ 
+ [dependencies]
++review-explore = { path = "../review-explore" }
+ review-threads = { path = "../review-threads" }
+ review-guide = { path = "../review-guide" }
+ review-lsp = { path = "../review-lsp" }
+ review-repository = { path = "../review-repository" }
+ review-state = { path = "../review-state" }
+ review-types = { path = "../review-types" }
+ syntax-highlighting = { path = "../syntax-highlighting" }
+ toasts = { path = "../toasts" }

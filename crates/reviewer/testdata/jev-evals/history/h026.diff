@@ -1,0 +1,23 @@
+diff --git a/crates/components/threads/src/lib.rs b/crates/components/threads/src/lib.rs
+index feaf43e7..a183972f 100644
+--- a/crates/components/threads/src/lib.rs
++++ b/crates/components/threads/src/lib.rs
+@@ -360,17 +360,17 @@ fn review_saved(&mut self, event: &ui_events::ReviewStateSaved) {
+         }
+     }
+ 
+     fn navigate_pointer(&mut self, input: PointerInput) {
+         if let PointerInputKind::Scroll(delta) = input.kind {
+             self.move_selection(delta);
+         } else if matches!(
+             input.kind,
+-            PointerInputKind::Click { .. } | PointerInputKind::DoubleClick
++            PointerInputKind::Click | PointerInputKind::DoubleClick
+         ) && let Some(position) = input.position
+         {
+             let row = usize::from(position.component_row);
+             if row >= self.viewport_rows {
+                 return;
+             }
+             if row == self.viewport_rows - 1 {
+                 self.click_filter(usize::from(position.component_column));

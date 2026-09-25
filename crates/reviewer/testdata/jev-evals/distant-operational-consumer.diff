@@ -1,0 +1,61 @@
+diff --git a/crates/review-explore/src/coverage.rs b/crates/review-explore/src/coverage.rs
+--- a/crates/review-explore/src/coverage.rs
++++ b/crates/review-explore/src/coverage.rs
+@@ -1,56 +1,56 @@
+ use serde::Deserialize;
+ 
+ fn require_answer() -> bool { true }
+ 
+ #[derive(Deserialize)]
+ struct SavedReview {
+     summary: String,
+-    #[serde(default = "require_answer")]
++    #[serde(default)]
+     require_human_answer: bool,
+ }
+ 
+ impl SavedReview {
+     fn heading_0(&self) -> &str {
+         self.summary.as_str()
+     }
+ 
+     fn heading_1(&self) -> &str {
+         self.summary.as_str()
+     }
+ 
+     fn heading_2(&self) -> &str {
+         self.summary.as_str()
+     }
+ 
+     fn heading_3(&self) -> &str {
+         self.summary.as_str()
+     }
+ 
+     fn heading_4(&self) -> &str {
+         self.summary.as_str()
+     }
+ 
+     fn heading_5(&self) -> &str {
+         self.summary.as_str()
+     }
+ 
+     fn heading_6(&self) -> &str {
+         self.summary.as_str()
+     }
+ 
+     fn heading_7(&self) -> &str {
+         self.summary.as_str()
+     }
+ 
+     fn heading_8(&self) -> &str {
+         self.summary.as_str()
+     }
+ 
+     fn heading_9(&self) -> &str {
+         self.summary.as_str()
+     }
+ 
+     fn can_finish(&self, unanswered: usize) -> bool {
+         !self.require_human_answer || unanswered == 0
+     }
+ }

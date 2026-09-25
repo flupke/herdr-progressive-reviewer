@@ -3,16 +3,17 @@
 use ratatui::text::{Line, Span};
 use review_threads::{Resolution, ReviewThread};
 
-use super::{CommentRow, button::ButtonStyle, thread::ThreadLayout};
+use super::{CommentRow, thread::ThreadLayout};
 use crate::{
     comments::{CommentTarget, ConversationButton, EditorAction},
     conversation::ConversationAction,
 };
+use ui_controls::{ActionButton, ButtonTone};
 
 struct ThreadControl {
     label: String,
     action: ConversationAction,
-    style: ButtonStyle,
+    style: ButtonTone,
 }
 
 impl ThreadControl {
@@ -21,7 +22,7 @@ impl ThreadControl {
         short: &str,
         width: usize,
         action: ConversationAction,
-        style: ButtonStyle,
+        style: ButtonTone,
     ) -> Self {
         let label = if Line::raw(full.as_str()).width() <= width {
             full
@@ -37,8 +38,8 @@ impl ThreadControl {
 
     fn editor(action: EditorAction, width: usize) -> Self {
         let (label, style) = match action {
-            EditorAction::Submit => (" Post ", ButtonStyle::Primary),
-            EditorAction::Cancel => (" Cancel ", ButtonStyle::Secondary),
+            EditorAction::Submit => (" Post ", ButtonTone::Primary),
+            EditorAction::Cancel => (" Cancel ", ButtonTone::Secondary),
         };
         Self::new(
             label.into(),
@@ -60,7 +61,7 @@ impl ThreadControl {
             &format!(" {verb} "),
             width,
             ConversationAction::Resolve(thread.id.clone()),
-            ButtonStyle::Secondary,
+            ButtonTone::Secondary,
         )
     }
 
@@ -88,7 +89,7 @@ impl ThreadLayout {
                     " Retry ",
                     width,
                     ConversationAction::Retry(thread.id.clone()),
-                    ButtonStyle::Secondary,
+                    ButtonTone::Secondary,
                 ));
             }
             controls.push(ThreadControl::resolution(thread, width));
@@ -127,10 +128,10 @@ impl ThreadLayout {
                 action: control.action.clone(),
                 columns: start..start + control.width(),
             });
-            line.spans.push(Span::styled(
-                control.label.clone(),
-                control.style.style(self.palette),
-            ));
+            line.spans.push(
+                ActionButton::new(control.label.trim(), control.style)
+                    .span_with_text(control.label.clone(), self.palette),
+            );
         }
         rows.extend(
             self.frame

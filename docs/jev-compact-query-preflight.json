@@ -1,0 +1,37 @@
+{
+  "manifest_sha256": "c8d608b050e67826438e8fce20f1b85799c6093206c225ec7779dd870000ded1",
+  "corpus_sha256": "755f21ce854534f64f14042ea09da40204a39055d94a4eda1388e6296ca663d2",
+  "plan_sha256": {
+    "/home/flupke/src/herdr-progressive-reviewer/target/jev-compact-two-arm-plan/planned.jsonl": "d1f8e2001f93dff53ee0a9be4c0e78696d82aef18ddee32543d4330341641711"
+  },
+  "question_sha256": {
+    "rows_legacy": "dec1ee3d02c63dfc86e771f911fff4544c9175400aed9493f096c0f38674b4bf",
+    "unified_compact": "0bef6ded3bbabf823788c82d00ad0a1258b714844ce23a818a19b3c26f857616"
+  },
+  "previous_winner": {
+    "previous_plan_sha256": "f581652374435831acf048b5fc5d9073c12619c1a457c6526fec22b977d96560",
+    "same_chunks": true,
+    "same_payloads": true,
+    "same_ownership": true,
+    "same_cost_and_size": true
+  },
+  "plan": {
+    "rows_legacy": {
+      "cases": 180,
+      "chunks": 655,
+      "calls": 655,
+      "oversized_chunks": 0,
+      "estimated_tokens": 1221809,
+      "changed_lines": 18997
+    },
+    "unified_compact": {
+      "cases": 180,
+      "chunks": 652,
+      "calls": 652,
+      "oversized_chunks": 0,
+      "estimated_tokens": 684843,
+      "changed_lines": 18997
+    }
+  },
+  "total_new_calls": 1307
+}

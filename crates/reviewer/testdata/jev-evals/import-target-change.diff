@@ -1,0 +1,14 @@
+diff --git a/crates/review-explore/src/import_eval.rs b/crates/review-explore/src/import_eval.rs
+--- a/crates/review-explore/src/import_eval.rs
++++ b/crates/review-explore/src/import_eval.rs
+@@ -1,9 +1,9 @@
+ mod policy {
+     pub fn deny_all() -> bool { false }
+     pub fn allow_all() -> bool { true }
+ }
+-use policy::deny_all as may_finish;
++use policy::allow_all as may_finish;
+ 
+ pub fn can_finish() -> bool {
+     may_finish()
+ }

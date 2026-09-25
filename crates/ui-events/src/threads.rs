@@ -26,6 +26,18 @@ pub enum ReviewNavigation {
     #[default]
     Files,
     Threads,
+    Explore,
+}
+
+impl ReviewNavigation {
+    #[allow(clippy::return_self_not_must_use)]
+    pub fn next(self) -> Self {
+        match self {
+            Self::Files => Self::Threads,
+            Self::Threads => Self::Explore,
+            Self::Explore => Self::Files,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

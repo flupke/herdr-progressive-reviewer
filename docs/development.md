@@ -13,6 +13,12 @@ In addition to the build dependencies, the checks use Herdr, Codex, Claude Code,
 Python 3, `cargo-nextest`, `cccc`, and `jq`. Herdr integration tests run private
 servers with isolated configuration, state and agent paths.
 
+The opt-in [`jev-evals` suite](jev-evals.md) compares Jev hunk-splitting strategies
+against frozen line-level labels. Offline checks and paid live runs are separate;
+neither runs during `make check`. The [history-based study](jev-history-study.md)
+jointly compares prompts, metadata, exclusion rules and token windows on an
+audited corpus from repository commits.
+
 Optional real-language-server tests run in temporary projects:
 
 ```sh
@@ -88,8 +94,8 @@ unit identifies the base tree; in jj, the checkpoint identifies the reviewed com
 Submissions require the exact request ID, access value and pinned conversation.
 Answers arrive through the shared prompt delivery; no handoff files are created.
 References from replies, agenda reasons and consequence lenses are
-supporting sources. `Question.evidence` requires both `relationship` and
-`decision_relevance`; `Question.supporting` accepts background references. Sources
+supporting sources. `Question.evidence` and `Question.supporting` require `notes`
+that explain each source's relevance. Sources
 are deduplicated by path, side and range, retaining stable viewer
 identities. Every next question requires two to five distinct alternatives.
 `Question::choices` adds the built-in None of the above choice, with a stable ID

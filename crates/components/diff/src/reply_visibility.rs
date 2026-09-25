@@ -10,7 +10,7 @@ use ratatui::{
 use review_threads::{MessageId, ThreadCommand};
 use review_types::ReviewUnit;
 
-use crate::{Action, DiffComponent};
+use crate::{Action, ClippedViewport, DiffComponent};
 
 #[derive(Default)]
 pub(super) struct ReplyVisibility {
@@ -39,6 +39,17 @@ struct SeenReply {
 }
 
 impl ReplyVisibility {
+    pub(super) fn project(&mut self, viewport: ClippedViewport) {
+        for reply in self.pending.values_mut() {
+            reply.visible.retain_mut(|row| {
+                let Some(area) = viewport.project_row(row.area) else {
+                    return false;
+                };
+                row.area = area;
+                true
+            });
+        }
+    }
     pub(super) fn observe<'a>(
         &mut self,
         rows: impl Iterator<Item = (Option<&'a MessageId>, &'a Line<'static>)>,
@@ -117,6 +128,9 @@ impl ReplyVisibility {
 impl DiffComponent {
     /// Start observations for a fresh frame, including frames with no detail pane.
     pub fn begin_reply_frame(&self) {
+        for viewer in self.embedded.saved.values() {
+            viewer.begin_reply_frame();
+        }
         let unit = self
             .comments
             .book
@@ -134,22 +148,38 @@ impl DiffComponent {
 
     /// Capture rendered reply rows before application overlays are drawn.
     pub fn capture_reply_frame(&self, buffer: &Buffer) {
+        for viewer in self.embedded.saved.values() {
+            viewer.capture_reply_frame(buffer);
+        }
         self.reply_visibility.borrow_mut().capture(buffer);
     }
 
     /// Exclude rows covered by a popup, menu, notification, or other overlay.
     pub fn finish_reply_frame(&self, buffer: &Buffer) {
+        for viewer in self.embedded.saved.values() {
+            viewer.finish_reply_frame(buffer);
+        }
         self.reply_visibility.borrow_mut().finish(buffer);
     }
 
     #[allow(clippy::trivially_copy_pass_by_ref)]
     pub(super) fn replies_displayed(&mut self, _: &ui_events::FrameRendered) -> Vec<Action> {
+        self.displayed_reply_actions()
+    }
+
+    fn displayed_reply_actions(&mut self) -> Vec<Action> {
+        let mut actions: Vec<_> = self
+            .embedded
+            .saved
+            .values_mut()
+            .flat_map(|viewer| viewer.displayed_reply_actions())
+            .collect();
         let Some(book) = &self.comments.book else {
-            return Vec::new();
+            return actions;
         };
         let visibility = self.reply_visibility.get_mut();
         if visibility.unit.as_ref() != Some(&book.review_unit) {
-            return Vec::new();
+            return actions;
         }
         let messages = visibility
             .completed()
@@ -160,11 +190,12 @@ impl DiffComponent {
             })
             .collect::<Vec<_>>();
         if messages.is_empty() {
-            return Vec::new();
+            return actions;
         }
-        vec![Action::Thread(ThreadCommand::MarkRepliesRead {
+        actions.push(Action::Thread(ThreadCommand::MarkRepliesRead {
             review_unit: book.review_unit.clone(),
             messages,
-        })]
+        }));
+        actions
     }
 }

@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+review-types = { path = "../review-types" }
 crossterm.workspace = true
 edtui.workspace = true
 ratatui.workspace = true

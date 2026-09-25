@@ -1,0 +1,61 @@
+diff --git a/crates/review-lsp/src/api.rs b/crates/review-lsp/src/api.rs
+index 336e5b94..8ca65893 100644
+--- a/crates/review-lsp/src/api.rs
++++ b/crates/review-lsp/src/api.rs
+@@ -9,33 +9,37 @@
+ #[repr(usize)]
+ pub enum Operation {
+     /// Show documentation at the position.
+     Hover,
+     /// Find definitions at the position.
+     Definition,
+     /// Find references at the position.
+     References,
++    /// Find type definitions at the position.
++    TypeDefinition,
+ }
+ 
+ impl Operation {
+     /// Return the title for this operation's results.
+     pub fn title(self) -> &'static str {
+         match self {
+             Self::Hover => "Documentation",
+             Self::Definition => "Definitions",
++            Self::TypeDefinition => "Type definitions",
+             Self::References => "References",
+         }
+     }
+ 
+     /// Return the progress message for this operation.
+     pub fn progress_text(self) -> &'static str {
+         match self {
+             Self::Hover => "Loading documentation…",
+             Self::Definition => "Finding definition…",
++            Self::TypeDefinition => "Finding type definition…",
+             Self::References => "Finding references…",
+         }
+     }
+ 
+     /// Remove locations that this operation must not show.
+     pub fn filter_locations(
+         self,
+         root: &Path,
+@@ -145,17 +149,17 @@ pub enum Event {
+     Hover {
+         /// ID of the completed toast.
+         toast_id: ToastId,
+         /// Review snapshot ID of the request.
+         snapshot_id: String,
+         /// Markdown content, when the position has documentation.
+         markdown: Option<String>,
+     },
+-    /// Definition or reference locations arrived.
++    /// Definition, type definition, or reference locations arrived.
+     Locations {
+         /// ID of the completed toast.
+         toast_id: ToastId,
+         /// Operation that produced the locations.
+         operation: Operation,
+         /// Review snapshot ID of the request.
+         snapshot_id: String,
+         /// Normalized file locations.

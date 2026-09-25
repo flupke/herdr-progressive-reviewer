@@ -1,0 +1,84 @@
+diff --git a/crates/reviewer/src/runtime.rs b/crates/reviewer/src/runtime.rs
+index f2abd56a..6383294c 100644
+--- a/crates/reviewer/src/runtime.rs
++++ b/crates/reviewer/src/runtime.rs
+@@ -6,17 +6,18 @@
+ use std::sync::Arc;
+ use std::sync::atomic::{AtomicBool, Ordering};
+ use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+ use std::thread::{self, JoinHandle};
+ use std::time::{Duration, Instant};
+ 
+ use crossterm::event::{
+     self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers,
+-    MouseButton, MouseEvent, MouseEventKind,
++    KeyboardEnhancementFlags, MouseButton, MouseEvent, MouseEventKind, PopKeyboardEnhancementFlags,
++    PushKeyboardEnhancementFlags,
+ };
+ use crossterm::execute;
+ use crossterm::terminal::{
+     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
+ };
+ use herdr_client::client::HerdrClient;
+ use herdr_client::protocol::{AgentTarget, InsertResult, PaneId, PluginContext, WorkspaceId};
+ use ratatui::Terminal;
+@@ -525,36 +526,39 @@ fn new() -> eyre::Result<Self> {
+             Err(error) => {
+                 let _ = disable_raw_mode();
+                 return Err(error.into());
+             }
+         };
+         if let Err(error) = execute!(
+             terminal.backend_mut(),
+             EnterAlternateScreen,
+-            EnableMouseCapture
++            EnableMouseCapture,
++            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+         ) {
+             let _ = disable_raw_mode();
+             let _ = execute!(
+                 terminal.backend_mut(),
+                 DisableMouseCapture,
++                PopKeyboardEnhancementFlags,
+                 LeaveAlternateScreen
+             );
+             return Err(error.into());
+         }
+         Ok(Self { terminal })
+     }
+ }
+ 
+ impl Drop for TerminalGuard {
+     fn drop(&mut self) {
+         let _ = disable_raw_mode();
+         let _ = execute!(
+             self.terminal.backend_mut(),
+             DisableMouseCapture,
++            PopKeyboardEnhancementFlags,
+             LeaveAlternateScreen
+         );
+         let _ = self.terminal.show_cursor();
+     }
+ }
+ 
+ fn normalize_mouse(mouse: MouseEvent) -> Option<Message> {
+     let (column, row) = (mouse.column, mouse.row);
+@@ -647,16 +651,18 @@ fn normalize_at(&mut self, mouse: MouseEvent, now: Instant) -> Option<Message> {
+     }
+ }
+ 
+ fn normalize_key(key: KeyEvent) -> Option<Key> {
+     if key.modifiers.contains(KeyModifiers::CONTROL) {
+         return match key.code {
+             KeyCode::Char('d') => Some(Key::HalfPageDown),
+             KeyCode::Char('u') => Some(Key::HalfPageUp),
++            KeyCode::Char('o') => Some(Key::PreviousLocation),
++            KeyCode::Char('i') => Some(Key::NextLocation),
+             _ => None,
+         };
+     }
+     match key.code {
+         KeyCode::Tab => Some(Key::Tab),
+         KeyCode::Down => Some(Key::Down),
+         KeyCode::Up => Some(Key::Up),
+         KeyCode::Home => Some(Key::First),

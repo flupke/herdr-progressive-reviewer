@@ -1,0 +1,397 @@
+diff --git a/crates/review-lsp/src/session.rs b/crates/review-lsp/src/session.rs
+index f19392c9..cea559da 100644
+--- a/crates/review-lsp/src/session.rs
++++ b/crates/review-lsp/src/session.rs
+@@ -1,14 +1,14 @@
+ use std::collections::HashMap;
+ use std::ffi::OsStr;
+ use std::fs;
+ use std::io::{BufReader, BufWriter};
+ use std::path::{Path, PathBuf};
+-use std::process::{Child, ChildStdin, Command as ProcessCommand, Stdio};
++use std::process::ChildStdin;
+ use std::thread;
+ use std::time::{Duration, Instant};
+ 
+ use crossbeam_channel::{Receiver, unbounded};
+ use lsp_server::{ErrorCode, Message, Notification, Request, RequestId, Response};
+ use lsp_types::notification::Notification as _;
+ use lsp_types::request::Request as _;
+ use lsp_types::{
+@@ -16,32 +16,34 @@
+     GotoDefinitionParams, GotoDefinitionResponse, HoverClientCapabilities, HoverParams,
+     InitializeParams, InitializeResult, InitializedParams, Location, MarkupKind,
+     PartialResultParams, Position, PositionEncodingKind, ReferenceContext, ReferenceParams,
+     TextDocumentClientCapabilities, TextDocumentContentChangeEvent, TextDocumentIdentifier,
+     TextDocumentItem, TextDocumentPositionParams, Uri, VersionedTextDocumentIdentifier,
+     WorkDoneProgressParams, WorkspaceFolder,
+ };
+ 
+-use crate::api::{Event, Operation, Query, SourceLocation};
++use crate::api::{Event, Operation, Query, ServerStartup, SourceLocation};
++use crate::language::{Language, LanguageServer, Project};
++use crate::process::{ServerProcess, StderrOutput};
++use crate::reader::MessageReader;
+ use crate::source::{ServerLocation, encoded_column, hover_markdown, path_uri};
+ 
+ const INITIALIZE_TIMEOUT: Duration = Duration::from_secs(30);
+ const STARTUP_TIMEOUT: Duration = Duration::from_secs(300);
+ const SERVER_STATUS_METHOD: &str = "experimental/serverStatus";
+ 
+ #[derive(serde::Deserialize)]
+ struct ServerStatus {
+     quiescent: bool,
+ }
+ 
+ pub(super) enum Inbound {
+     Message(Message),
+     Failed(String),
+-    Closed,
+ }
+ 
+ enum State {
+     Initializing {
+         id: RequestId,
+         deadline: Instant,
+     },
+     Quiescing {
+@@ -64,94 +66,99 @@ enum State {
+     ShuttingDown {
+         id: RequestId,
+         deadline: Instant,
+     },
+     Stopped,
+ }
+ 
+ pub(super) struct Session {
+-    _analyzer_process_guard: AnalyzerProcess,
++    process: ServerProcess,
++    server: LanguageServer,
++    startup: ServerStartup,
+     input: BufWriter<ChildStdin>,
+     inbound: Receiver<Inbound>,
+     next_id: i32,
+     encoding: PositionEncodingKind,
+     documents: HashMap<PathBuf, (String, i32)>,
+     state: State,
+ }
+ 
+-struct AnalyzerProcess(Child);
+-
+-impl AnalyzerProcess {
+-    fn start(root: &Path) -> Result<Self, String> {
+-        ProcessCommand::new("rust-analyzer")
+-            .current_dir(root)
+-            .stdin(Stdio::piped())
+-            .stdout(Stdio::piped())
+-            .stderr(Stdio::null())
+-            .spawn()
+-            .map(Self)
+-            .map_err(|error| format!("could not start rust-analyzer: {error}"))
+-    }
+-}
+-
+-impl Drop for AnalyzerProcess {
+-    fn drop(&mut self) {
+-        let _ = self.0.kill();
+-        let _ = self.0.wait();
+-    }
+-}
+-
+ impl Session {
+-    pub(super) fn start(root: &Path, now: Instant) -> Result<Self, String> {
+-        let mut process = AnalyzerProcess::start(root)?;
++    pub(super) fn start(
++        project: &Project,
++        startup: ServerStartup,
++        now: Instant,
++    ) -> Result<Self, String> {
++        let mut process = ServerProcess::start(project)?;
+         let input = process
+-            .0
++            .child
+             .stdin
+             .take()
+-            .ok_or_else(|| "rust-analyzer stdin is unavailable".to_owned())?;
++            .ok_or_else(|| "language server stdin is unavailable".to_owned())?;
+         let output = process
+-            .0
++            .child
+             .stdout
+             .take()
+-            .ok_or_else(|| "rust-analyzer stdout is unavailable".to_owned())?;
++            .ok_or_else(|| "language server stdout is unavailable".to_owned())?;
++        let stderr = process
++            .child
++            .stderr
++            .take()
++            .ok_or_else(|| "language server stderr is unavailable".to_owned())?;
++        let diagnostics = StderrOutput::capture(stderr);
+         let (sender, inbound) = unbounded();
++        let server = project.server;
+         thread::spawn(move || {
+-            let mut output = BufReader::new(output);
++            let mut output = MessageReader::new(BufReader::new(output), server);
+             loop {
+-                match Message::read(&mut output) {
++                match output.read() {
+                     Ok(Some(message)) => {
+                         if sender.send(Inbound::Message(message)).is_err() {
+                             return;
+                         }
+                     }
+                     Ok(None) => {
+-                        let _ = sender.send(Inbound::Closed);
++                        let _ = sender.send(Inbound::Failed(diagnostics.failure(server.command())));
+                         return;
+                     }
+                     Err(error) => {
+                         let _ = sender.send(Inbound::Failed(error.to_string()));
+                         return;
+                     }
+                 }
+             }
+         });
+         let mut session = Self {
+-            _analyzer_process_guard: process,
++            process,
++            server: project.server,
++            startup,
+             input: BufWriter::new(input),
+             inbound,
+             next_id: 1,
+             encoding: PositionEncodingKind::UTF16,
+             documents: HashMap::new(),
+             state: State::Stopped,
+         };
+-        session.initialize(root, now)?;
++        if let Err(error) = session.initialize(&project.root, now) {
++            return Err(session.startup_failure(error));
++        }
+         Ok(session)
+     }
+ 
++    fn startup_failure(&self, write_error: String) -> String {
++        let deadline = Instant::now() + Duration::from_millis(200);
++        while let Ok(message) = self.inbound.recv_deadline(deadline) {
++            if let Inbound::Failed(error) = message {
++                return error;
++            }
++        }
++        write_error
++    }
++
+     pub(super) fn inbound(&self) -> &Receiver<Inbound> {
+         &self.inbound
+     }
+ 
+     pub(super) fn is_ready(&self) -> bool {
+         matches!(self.state, State::Ready)
+     }
+ 
+@@ -172,20 +179,22 @@ pub(super) fn next_deadline(&self) -> Option<Instant> {
+             | State::Quiescing { deadline }
+             | State::Querying { deadline, .. }
+             | State::ShuttingDown { deadline, .. } => Some(deadline),
+             State::Retrying { retry_at, .. } => Some(retry_at),
+             State::Ready | State::Stopped => None,
+         }
+     }
+ 
++    #[allow(deprecated)] // TypeScript still uses rootUri to find its project dependencies.
+     fn initialize(&mut self, root: &Path, now: Instant) -> Result<(), String> {
+         let uri = path_uri(root)?;
+         let capabilities = ClientCapabilities {
+-            experimental: Some(serde_json::json!({ "serverStatusNotification": true })),
++            experimental: (self.server == LanguageServer::RustAnalyzer)
++                .then(|| serde_json::json!({ "serverStatusNotification": true })),
+             general: Some(lsp_types::GeneralClientCapabilities {
+                 position_encodings: Some(vec![
+                     PositionEncodingKind::UTF8,
+                     PositionEncodingKind::UTF16,
+                 ]),
+                 ..Default::default()
+             }),
+             text_document: Some(TextDocumentClientCapabilities {
+@@ -194,16 +203,18 @@ fn initialize(&mut self, root: &Path, now: Instant) -> Result<(), String> {
+                     ..Default::default()
+                 }),
+                 ..Default::default()
+             }),
+             ..Default::default()
+         };
+         let params = InitializeParams {
+             process_id: Some(std::process::id()),
++            root_uri: Some(uri.clone()),
++            initialization_options: self.server.initialization_options(),
+             capabilities,
+             workspace_folders: Some(vec![WorkspaceFolder {
+                 uri: uri.clone(),
+                 name: root
+                     .file_name()
+                     .and_then(OsStr::to_str)
+                     .unwrap_or("workspace")
+                     .to_owned(),
+@@ -213,17 +224,22 @@ fn initialize(&mut self, root: &Path, now: Instant) -> Result<(), String> {
+                 version: None,
+             }),
+             ..Default::default()
+         };
+         let id = RequestId::from(0);
+         self.write(&Request::new(id.clone(), "initialize".to_owned(), params).into())?;
+         self.state = State::Initializing {
+             id,
+-            deadline: now + INITIALIZE_TIMEOUT,
++            deadline: now
++                + if self.process.uses_direnv {
++                    STARTUP_TIMEOUT
++                } else {
++                    INITIALIZE_TIMEOUT
++                },
+         };
+         Ok(())
+     }
+ 
+     pub(super) fn request(
+         &mut self,
+         operation: Operation,
+         query: Query,
+@@ -333,17 +349,20 @@ fn sync_document(&mut self, path: &Path, uri: Uri, text: &str) -> Result<(), Str
+             }
+         } else {
+             self.write(
+                 &Notification::new(
+                     lsp_types::notification::DidOpenTextDocument::METHOD.to_owned(),
+                     DidOpenTextDocumentParams {
+                         text_document: TextDocumentItem::new(
+                             uri,
+-                            "rust".to_owned(),
++                            Language::for_path(path)
++                                .ok_or("No language server supports this file")?
++                                .id
++                                .to_owned(),
+                             1,
+                             text.to_owned(),
+                         ),
+                     },
+                 )
+                 .into(),
+             )?;
+             self.documents.insert(path.to_owned(), (text.to_owned(), 1));
+@@ -383,24 +402,23 @@ pub(super) fn handle(
+                     || !matches!(self.state, State::Quiescing { .. })
+                 {
+                     return Ok(None);
+                 }
+                 let status: ServerStatus = serde_json::from_value(notification.params)
+                     .map_err(|error| format!("invalid rust-analyzer status: {error}"))?;
+                 if status.quiescent {
+                     self.state = State::Ready;
+-                    Ok(Some(Event::Ready))
++                    Ok(Some(Event::Ready(self.startup)))
+                 } else {
+                     Ok(None)
+                 }
+             }
+             Inbound::Message(Message::Response(response)) => self.handle_response(response, now),
+             Inbound::Failed(error) => Err(error),
+-            Inbound::Closed => Err("rust-analyzer stopped".to_owned()),
+         }
+     }
+ 
+     fn handle_response(
+         &mut self,
+         response: Response,
+         now: Instant,
+     ) -> Result<Option<Event>, String> {
+@@ -414,20 +432,25 @@ fn handle_response(
+                     .unwrap_or(PositionEncodingKind::UTF16);
+                 self.write(
+                     &Notification::new(
+                         lsp_types::notification::Initialized::METHOD.to_owned(),
+                         InitializedParams {},
+                     )
+                     .into(),
+                 )?;
+-                self.state = State::Quiescing {
+-                    deadline: now + STARTUP_TIMEOUT,
+-                };
+-                Ok(None)
++                if self.server == LanguageServer::RustAnalyzer {
++                    self.state = State::Quiescing {
++                        deadline: now + STARTUP_TIMEOUT,
++                    };
++                    Ok(None)
++                } else {
++                    self.state = State::Ready;
++                    Ok(Some(Event::Ready(self.startup)))
++                }
+             }
+             State::Querying {
+                 id,
+                 operation,
+                 query,
+                 attempt,
+                 ..
+             } if response.id == id => {
+@@ -500,20 +523,20 @@ fn query_event(&self, operation: Operation, query: Query, response: Response) ->
+             message,
+         })
+     }
+ 
+     pub(super) fn handle_deadline(&mut self, now: Instant) -> Result<Option<Event>, String> {
+         let state = std::mem::replace(&mut self.state, State::Stopped);
+         match state {
+             State::Initializing { deadline, .. } if now >= deadline => {
+-                Err("rust-analyzer did not respond".to_owned())
++                Err(format!("{} did not respond", self.server.command()))
+             }
+             State::Quiescing { deadline } if now >= deadline => {
+-                Err("rust-analyzer did not finish startup".to_owned())
++                Err(format!("{} did not finish startup", self.server.command()))
+             }
+             State::Retrying {
+                 operation,
+                 query,
+                 attempt,
+                 retry_at,
+             } if now >= retry_at => {
+                 self.state = State::Retrying {
+@@ -527,17 +550,17 @@ pub(super) fn handle_deadline(&mut self, now: Instant) -> Result<Option<Event>,
+             }
+             State::Querying {
+                 query, deadline, ..
+             } if now >= deadline => {
+                 self.state = State::Ready;
+                 Ok(Some(Event::Failed {
+                     toast_id: Some(query.toast_id),
+                     snapshot_id: Some(query.snapshot_id),
+-                    message: "rust-analyzer did not respond".to_owned(),
++                    message: format!("{} did not respond", self.server.command()),
+                 }))
+             }
+             State::ShuttingDown { deadline, .. } if now >= deadline => {
+                 self.write(&Notification::new("exit".to_owned(), ()).into())?;
+                 self.state = State::Stopped;
+                 Ok(None)
+             }
+             state => {
+@@ -584,17 +607,17 @@ fn respond(&mut self, request: Request) -> Result<(), String> {
+             }
+         };
+         self.write(&Response::new_ok(request.id, result).into())
+     }
+ 
+     fn write(&mut self, message: &Message) -> Result<(), String> {
+         message
+             .write(&mut self.input)
+-            .map_err(|error| format!("could not write to rust-analyzer: {error}"))
++            .map_err(|error| format!("could not write to {}: {error}", self.server.command()))
+     }
+ }
+ 
+ fn response_value<R: serde::de::DeserializeOwned>(response: Response) -> Result<R, String> {
+     match response.response_result {
+         Ok(value) => serde_json::from_value(value).map_err(|error| error.to_string()),
+         Err(error) => Err(error.message),
+     }

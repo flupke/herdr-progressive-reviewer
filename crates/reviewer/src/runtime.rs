@@ -719,6 +719,7 @@ where
             }
         }
         if redraw {
+            self.dispatch_event(&EventEnvelope::new(ui_events::ExploreCoverageRefresh))?;
             self.redraw()?;
         }
         Ok(false)

@@ -100,7 +100,7 @@ so large unchanged assets do not impose a repository-wide capture limit.
 
 **Explore progress is saved automatically.** Opening the same checkout and logical
 review restores its latest pass: exact questions, answers, corrections, agenda,
-conclusions, separate task/reply drafts, choice selection and reading position.
+conclusions, coverage, separate task/reply drafts, choice selection and reading position.
 Reopening sends no prompt and never starts implementation. The next normal action
 continues with the original native agent conversation, including a resumed instance.
 If that conversation is unavailable or cannot yet be identified, history and edits
@@ -117,6 +117,20 @@ Explore shows one question at a time across the full content width. Its evidence
 answers and recap scroll together. **Previous** and **Next** (or `[` / `]`) visit
 question and conclusion history in posting order; **Latest** returns to the newest question or active conclusion. These controls stay
 visible while scrolling. **Opening** shows the initial context. **Conclusion** opens the separate conclusion page.
+The pinned **Coverage** control shows the share of required changed lines and file-change items
+credited to answered questions. Click it for a file overview and open a file's full diff.
+Essential and collapsed supporting references count only after you answer that exact question;
+explicit **Defer** earns no coverage. An unanswered assignment remains outstanding. The
+boxed overview groups files by remaining review work. Its percentage is the share of added
+and deleted lines cited by answered questions, counted on both sides of the diff; unchanged
+context and metadata do not enter that percentage. Jev-excluded lines remain in the total
+but are not counted as explored. **Show file diff** displays the selected file below the
+overview and selects it in Files.
+Concept exploration determines when the discussion ends. Reaching 100% does not
+establish that all useful questions have been asked or mark files by itself. Once
+the agent has exhausted its concept agenda, it inspects remaining uncovered regions
+for missed questions. Inspected code that needs no question may remain outside
+answered evidence when the agent concludes; the conclusion explains those gaps.
 **Reply** addresses the displayed question; each question keeps its own unfinished
 text, selected choice and evidence state.
 
@@ -132,15 +146,19 @@ edited box. A delivered request is not sent again automatically. **Delivery outc
 unknown** means a crash or transport failure may have interrupted confirmation:
 check the original agent conversation before deliberately sending a new request.
 A sent status confirms delivery, not implementation completion. **Reply** continues the interview
-about the conclusion, without authorizing code changes. Further human Files
-inspection remains required.
+about the conclusion, without authorizing code changes. A valid conclusion marks the pass's
+changed files reviewed at its captured checkpoint. Subsequent edits appear in Files against
+that baseline. Explore does not resolve ordinary threads.
 The preparation state shows the actual pending status and Cancel. Delivery
 errors and Retry appear beside the affected turn.
 
 On follow-up turns, the agent's reply appears above the question. The question is
 followed by its choices and the text field for optional details.
-The Door and Blast radius assessments and their detail controls
-follow, then the evidence. The provisional map stays on the **Opening** page. Every question
+The **Context**, **Door** and **Blast radius** Markdown sections follow, then the
+evidence with **Establishes** and **For your answer** sections. Each starts with a short
+summary paragraph, followed by any useful detail directly in the conversation. Context explains
+the behavior and unfamiliar terms, with depth adapted to what you already know.
+The provisional map stays on the **Opening** page. Every question
 offers two to five alternatives plus **None of the above**, with the first selected by default.
 Use `Up` / `Down` or `j` / `k`, click a choice, or press its number to select it.
 The text field adds optional details to the selected choice; changing the choice keeps
@@ -163,7 +181,7 @@ to inspect and correct, not a semantic guarantee.
 | `d` | Defer the question |
 | `[` / `]` | Previous / next question |
 | `e` / `b` | Next evidence reference / primary evidence |
-| `m` / `v` | Expand map and follow-ups / details |
+| `m` | Expand map and follow-ups |
 | `PageUp` / `PageDown` | Scroll the conversation when it has focus |
 | Mouse wheel | Scroll code over a diff; scroll the conversation outside it |
 | `Alt-j` / `Alt-k` | Grow / shrink the selected evidence window |
@@ -213,11 +231,11 @@ reported without truncation. Stored passes can grow across many responses (up to
 records report an error and retain their original bytes. Request and answer identities still protect against
 cancelled, duplicate or unrelated responses; they do not establish source freshness.
 
-Consequential questions show separate **Door** and **Blast radius** summaries.
+Consequential questions show separate **Door** and **Blast radius** sections.
 The first assesses whether effects can actually be undone, including rollback or
 rebuild conditions; the second describes plausible harm, propagation and bounds.
-**Consequence details** (or **Why this matters**) expands the reasoning and
-unknowns; **Supporting sources** opens its citations in the same native viewer.
+Additional reasoning and unknowns appear below their summaries without an expansion button.
+**Supporting sources** opens their citations in the same native viewer.
 These are evidence-backed agent judgments, not risk scores or guaranteed safety.
 
 The agenda is provisional. Context can add, refine, reorder, retire or supersede
@@ -227,5 +245,13 @@ original decision; deferrals and conditions remain outstanding. New questions
 do not imply a fixed total. The reviewer saves conversation and agenda history; the agent retains context in its own conversation.
 
 The expanded map shows those states, prerequisites, entries not yet mapped and scan limitations. Topic
-associations are not proof of inspection. Explore never marks files reviewed
-or resolves threads. Return to **Files** for the remaining human inspection.
+associations are not proof of coverage. Only answered essential/supporting changed regions
+receive credit; coverage remains an inspection reminder rather than a completion threshold.
+A successful conclusion marks changed files at the reviewed checkpoint. Explore does not resolve threads.
+
+Setting a nonempty `TYPESAFE_API_KEY` in the reviewer process enables optional Jev
+significance checks. The reviewer sends bounded before/after code snippets and relative
+paths to TypeSafe AI. Missing or whitespace-only keys make every change required.
+Uncertain, failed and oversized checks remain required. The Jev area in expanded Coverage
+shows excluded regions and lets you choose **Require review**; this returns an
+uncovered exclusion to the required work without erasing earlier answer coverage.

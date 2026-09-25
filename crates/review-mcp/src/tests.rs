@@ -75,7 +75,7 @@ fn a_closed_reviewer_is_unavailable_and_a_new_client_can_reconnect_after_reopeni
                 ))
                 .await
                 .unwrap();
-            assert_eq!(client.list_all_tools().await.unwrap().len(), 4);
+            assert_eq!(client.list_all_tools().await.unwrap().len(), 6);
             client.cancel().await.unwrap();
             drop(server);
             assert!(TcpStream::connect(fixture.endpoint.address()).is_err());

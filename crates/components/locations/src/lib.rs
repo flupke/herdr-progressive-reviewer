@@ -7,7 +7,6 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::Line;
-use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 use review_lsp::{Event as LspEvent, Operation, SourceLocation};
 use ui_actions::Action;
 use ui_events::{
@@ -15,9 +14,9 @@ use ui_events::{
     PointerInputKind, RepositoryMetadataChanged, SourceLocationAccepted,
     SourceLocationPreviewRequested, ToastRequested,
 };
+use ui_panes::SelectionPane;
 use ui_shortcuts::Key;
 use ui_theme::Palette;
-use unicode_width::UnicodeWidthStr;
 
 /// LSP result-list state, input, and rendering.
 pub struct LocationsComponent {
@@ -56,23 +55,16 @@ impl LocationsComponent {
         } else {
             self.palette.dim
         };
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(format!(
+        SelectionPane::new(area, list.scroll).render(
+            buffer,
+            format!(
                 " {}{} ",
                 list.operation.title(),
                 if focused { " (focus)" } else { "" }
-            ))
-            .border_style(Style::default().fg(border_color));
-        let inner = block.inner(area);
-        block.render(area, buffer);
-        let lines = list
-            .locations
-            .iter()
-            .enumerate()
-            .skip(list.scroll)
-            .take(usize::from(inner.height))
-            .map(|(index, location)| {
+            ),
+            Style::default().fg(border_color),
+            &list.locations,
+            |index, location, width| {
                 let text = format!(
                     "{}:{}:{}",
                     location.display_path(&self.repository_root),
@@ -88,10 +80,9 @@ impl LocationsComponent {
                     .fg(self.palette.focus)
                     .add_modifier(Modifier::BOLD)
                     .bg(background);
-                Line::styled(shorten(&text, usize::from(inner.width)), style)
-            })
-            .collect::<Vec<_>>();
-        Paragraph::new(lines).render(inner, buffer);
+                Line::styled(ui_panes::shorten(&text, usize::from(width)), style)
+            },
+        );
     }
 
     #[allow(clippy::trivially_copy_pass_by_ref)]
@@ -189,9 +180,8 @@ impl LocationsComponent {
                 let Some(position) = input.position else {
                     return;
                 };
-                let selected = list
-                    .scroll
-                    .saturating_add(usize::from(position.component_row.saturating_sub(1)));
+                let selected =
+                    SelectionPane::index_for_component_row(list.scroll, position.component_row);
                 self.move_selection_to(selected);
                 if input.kind == PointerInputKind::DoubleClick {
                     if let Some(location) = self.selected_location() {
@@ -254,27 +244,6 @@ impl LocationsComponent {
                 .publish(LocationListVisibilityChanged { visible: false });
         }
     }
-}
-
-fn shorten(text: &str, width: usize) -> String {
-    if UnicodeWidthStr::width(text) <= width {
-        return text.to_owned();
-    }
-    if width <= 1 {
-        return "…".chars().take(width).collect();
-    }
-    let mut result = String::new();
-    let mut used = 0;
-    for character in text.chars() {
-        let character_width = UnicodeWidthStr::width(character.to_string().as_str());
-        if used + character_width >= width {
-            break;
-        }
-        result.push(character);
-        used += character_width;
-    }
-    result.push('…');
-    result
 }
 
 impl Component<Action> for LocationsComponent {

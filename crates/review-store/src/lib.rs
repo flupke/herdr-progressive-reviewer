@@ -15,6 +15,8 @@ use time::format_description::well_known::Rfc3339;
 
 const MAX_STATE_FILE_BYTES: u64 = 1024 * 1024;
 
+mod explore;
+pub use review_explore::ExploreHistory;
 mod checkpoint;
 mod guide;
 mod thread_sources;
@@ -31,6 +33,9 @@ pub enum Error {
     /// A conversation change could not be applied to the latest stored history.
     #[error("{0}")]
     ThreadUpdate(String),
+    /// Explore storage or a mutation cannot safely continue.
+    #[error("Explore storage: {0}")]
+    Explore(String),
     /// State could not be read or changed.
     #[error("{operation} failed for review state at {path:?}: {source}")]
     StateIo {
@@ -241,11 +246,30 @@ impl ReviewStore {
     }
 
     fn create_dir(&self, path: &Path) -> Result<()> {
+        let created: Vec<_> = self
+            .state_root
+            .ancestors()
+            .filter(|path| !path.as_os_str().is_empty())
+            .take_while(|path| !path.exists())
+            .collect();
         fs::create_dir_all(&self.state_root).map_err(|source| Error::StateIo {
             operation: "create review state directory",
             path: self.state_root.clone(),
             source,
         })?;
+        for directory in created {
+            let parent = directory
+                .parent()
+                .filter(|path| !path.as_os_str().is_empty())
+                .unwrap_or_else(|| Path::new("."));
+            File::open(parent)
+                .and_then(|file| file.sync_all())
+                .map_err(|source| Error::StateIo {
+                    operation: "sync created state directory parent",
+                    path: parent.to_owned(),
+                    source,
+                })?;
+        }
         let relative = path
             .strip_prefix(&self.state_root)
             .map_err(|_| Error::InvalidStateKey {
@@ -256,7 +280,7 @@ impl ReviewStore {
         for component in relative.components() {
             directory.push(component);
             match fs::create_dir(&directory) {
-                Ok(()) => {}
+                Ok(()) => self.sync_parent(&directory)?,
                 Err(source) if source.kind() == std::io::ErrorKind::AlreadyExists => {}
                 Err(source) => {
                     return Err(Error::StateIo {

@@ -1,0 +1,46 @@
+diff --git a/crates/review-ui/src/commit_message.rs b/crates/review-ui/src/commit_message.rs
+index 376e7d4d..55c4d01c 100644
+--- a/crates/review-ui/src/commit_message.rs
++++ b/crates/review-ui/src/commit_message.rs
+@@ -1,14 +1,14 @@
+ use ratatui::buffer::Buffer;
+ use ratatui::layout::Rect;
+-use ratatui::widgets::{Clear, Paragraph, Widget, Wrap};
++use ratatui::widgets::Widget;
+ 
+ use crate::ReviewApp;
+-use crate::render::pane_block;
++use crate::popup::PopupView;
+ 
+ pub(super) struct CommitMessageView<'a>(pub(super) &'a ReviewApp);
+ 
+ impl CommitMessageView<'_> {
+     pub(super) fn area(area: Rect) -> Rect {
+         let width = area.width.saturating_mul(4) / 5;
+         let height = area.height.saturating_mul(4) / 5;
+         Rect::new(
+@@ -18,19 +18,18 @@ pub(super) fn area(area: Rect) -> Rect {
+             height,
+         )
+     }
+ }
+ 
+ impl Widget for CommitMessageView<'_> {
+     fn render(self, area: Rect, buffer: &mut Buffer) {
+         let popup = Self::area(area);
+-        Clear.render(popup, buffer);
+-        Paragraph::new(if self.0.description.is_empty() {
++        let content = if self.0.description.is_empty() {
+             "(no description set)"
+         } else {
+             &self.0.description
+-        })
+-        .block(pane_block(self.0, "Commit message", true))
+-        .wrap(Wrap { trim: false })
+-        .render(popup, buffer);
++        };
++        PopupView::new(self.0, "Commit message", content)
++            .wrap()
++            .render(popup, buffer);
+     }
+ }

@@ -1,6 +1,9 @@
 [workspace]
 exclude = ["vendor/ratatui-markdown"]
 members = [
+    "crates/review-explore",
+    "crates/review-explore-runner",
+    "crates/components/explore",
     "crates/component-core",
     "crates/component-modal",
     "crates/components/diff",
@@ -15,6 +18,8 @@ members = [
     "crates/markdown-rendering",
     "crates/syntax-highlighting",
     "crates/ui-actions",
+    "crates/ui-controls",
+    "crates/ui-panes",
     "crates/ui-events",
     "crates/ui-shortcuts",
     "crates/ui-theme",
@@ -68,11 +73,13 @@ ratatui = { version = "0.30", default-features = false, features = ["underline-c
 ratatui-legacy = { package = "ratatui", version = "0.29", default-features = false }
 ratatui-markdown = { version = "=0.3.6", default-features = false, features = ["markdown"] }
 rmcp = { version = "3.3", default-features = false, features = ["server", "macros", "transport-streamable-http-server"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["blocking", "json", "rustls"] }
 grep-matcher = "0.1"
 grep-regex = "0.1"
 grep-searcher = "0.1"
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
+schemars = "1.2"
 sha2 = "0.10"
 signal-hook = "0.3"
 strip-ansi-escapes = "0.2"

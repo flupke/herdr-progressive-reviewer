@@ -1,4 +1,7 @@
 use std::ops::{Range, RangeInclusive};
+#[path = "evidence.rs"]
+mod evidence;
+use evidence::{EvidenceFrames, RequiredEvidenceRows};
 
 use guide_rendering::{
     DiffFrame, GuideBorderCell, GuideLayout, GuideOverlay, GuideOverlayRow, GuideRenderedRow,
@@ -10,6 +13,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 use review_lsp::SourceLocation;
 use review_repository::diff::{DiffRow, NoticeKind};
+use review_threads::MessageId;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
@@ -26,6 +30,7 @@ const MIN_DIFF_CONTROLS_WIDTH: u16 = 32;
 
 pub(super) struct DiffRenderer<'a> {
     comments: Option<&'a crate::comments::Comments>,
+    evidence: Option<&'a crate::explore::ExploreView>,
     palette: Palette,
     file: Option<&'a LoadedDocument>,
     guide_layout: Option<GuideLayout<'a>>,
@@ -81,6 +86,11 @@ impl<'a> DiffRenderer<'a> {
             .collect()
     }
 
+    pub(super) fn with_evidence(mut self, evidence: &'a crate::explore::ExploreView) -> Self {
+        self.evidence = Some(evidence);
+        self
+    }
+
     pub(super) fn with_comments(mut self, comments: &'a crate::comments::Comments) -> Self {
         self.comments = Some(comments);
         self
@@ -97,6 +107,7 @@ impl<'a> DiffRenderer<'a> {
     ) -> Self {
         Self {
             comments: None,
+            evidence: None,
             palette,
             file,
             guide_layout,
@@ -121,6 +132,16 @@ struct CodeRenderContext<'a> {
 /// Visual row mapping for one rendered diff viewport.
 pub(super) struct DiffViewport {
     rows: Vec<WrappedDiffRow>,
+}
+
+pub(super) struct VisibleRowAnchor {
+    identity: VisibleRowIdentity,
+    screen_row: usize,
+}
+
+enum VisibleRowIdentity {
+    Source { row: usize, display_offset: usize },
+    Message { id: MessageId, occurrence: usize },
 }
 
 pub(super) struct DiffRenderResult {
@@ -233,6 +254,60 @@ impl DiffViewport {
 
     pub(super) fn scroll(&self, file: &LoadedDocument) -> usize {
         file.document.scroll.min(self.rows.len().saturating_sub(1))
+    }
+
+    pub(super) fn visible_anchor(&self, scroll: usize, height: usize) -> Option<VisibleRowAnchor> {
+        let visible = self.rows.iter().enumerate().skip(scroll).take(height);
+        let (index, row) = visible
+            .clone()
+            .find(|(_, row)| row.is_source_row)
+            .or_else(|| visible.clone().find(|(_, row)| row.message_id().is_some()))?;
+        let identity = if row.is_source_row {
+            VisibleRowIdentity::Source {
+                row: row.source_row,
+                display_offset: row.source_display_offset,
+            }
+        } else {
+            let id = row.message_id()?.clone();
+            let occurrence = self.rows[..index]
+                .iter()
+                .filter(|row| row.message_id() == Some(&id))
+                .count();
+            VisibleRowIdentity::Message { id, occurrence }
+        };
+        Some(VisibleRowAnchor {
+            identity,
+            screen_row: index - scroll,
+        })
+    }
+
+    pub(super) fn scroll_for_anchor(
+        &self,
+        anchor: &VisibleRowAnchor,
+        height: usize,
+    ) -> Option<usize> {
+        let position = match &anchor.identity {
+            VisibleRowIdentity::Source {
+                row,
+                display_offset,
+            } => self.rows.iter().position(|candidate| {
+                candidate.is_source_row
+                    && candidate.source_row == *row
+                    && candidate.source_display_offset == *display_offset
+            }),
+            VisibleRowIdentity::Message { id, occurrence } => self
+                .rows
+                .iter()
+                .enumerate()
+                .filter(|(_, candidate)| candidate.message_id() == Some(id))
+                .nth(*occurrence)
+                .map(|(index, _)| index),
+        }?;
+        Some(
+            position
+                .saturating_sub(anchor.screen_row)
+                .min(self.rows.len().saturating_sub(height)),
+        )
     }
 
     pub(super) fn scroll_with_cursor_visible(&self, file: &LoadedDocument, height: usize) -> usize {
@@ -559,7 +634,19 @@ impl DiffRenderer<'_> {
         width: u16,
         focused: bool,
     ) -> DiffViewport {
+        let evidence = EvidenceFrames::new(file, width, self.evidence);
+        self.viewport_with_frames(file, width, focused, &evidence)
+    }
+
+    fn viewport_with_frames(
+        &self,
+        file: &LoadedDocument,
+        width: u16,
+        focused: bool,
+        evidence: &EvidenceFrames,
+    ) -> DiffViewport {
         let selection = self.selection.clone();
+        let required_rows = RequiredEvidenceRows::new(file, self.evidence);
         let line_number_width = file.document.diff.line_number_width();
         let show_markers = !file.document.diff.shows_whole_file();
         let guide_layout = self.guide_layout.as_ref();
@@ -580,6 +667,7 @@ impl DiffRenderer<'_> {
             .rows
             .iter()
             .enumerate()
+            .filter(|(index, _)| required_rows.as_ref().is_none_or(|rows| rows.shows(*index)))
             .flat_map(|(index, presented)| {
                 let mut wrapped = Vec::new();
                 if let Some(layout) = guide_layout {
@@ -638,6 +726,7 @@ impl DiffRenderer<'_> {
                         .zip(enclosing_status)
                         .map(|(layout, status)| layout.frame(width, line_number_width, status))
                 });
+                let enclosing_frame = enclosing_frame.or_else(|| evidence.frame_at(index));
                 wrapped.extend(WrappedDiffRow::wrap_source(
                     &styled_line,
                     index,
@@ -653,7 +742,9 @@ impl DiffRenderer<'_> {
             })
             .collect();
         let rows = Self::insert_comment_rows(rows, comment_layout);
-        DiffViewport { rows }
+        DiffViewport {
+            rows: evidence.outline(rows),
+        }
     }
 
     fn insert_comment_rows(
@@ -1088,6 +1179,12 @@ fn diff_controls_are_visible(width: u16, file: Option<&LoadedDocument>) -> bool 
 }
 
 impl WrappedDiffRow {
+    fn message_id(&self) -> Option<&MessageId> {
+        self.comment
+            .as_ref()
+            .and_then(crate::comments::CommentTarget::id)
+    }
+
     fn wrap_source(
         line: &Line<'static>,
         index: usize,

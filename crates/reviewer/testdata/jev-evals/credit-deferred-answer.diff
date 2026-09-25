@@ -1,0 +1,26 @@
+diff --git a/crates/review-explore/src/coverage.rs b/crates/review-explore/src/coverage.rs
+--- a/crates/review-explore/src/coverage.rs
++++ b/crates/review-explore/src/coverage.rs
+@@ -1,21 +1,21 @@
+ 
+     pub(crate) fn credit(&mut self, answer: &ReviewerAnswer, comparison: &Comparison) {
+-        if answer.deferred || self.answers.contains_key(&answer.id) {
++        if self.answers.contains_key(&answer.id) {
+             return;
+         }
+         let Some(question) = &answer.question else {
+             return;
+         };
+         let references = question.evidence.iter().chain(&question.supporting);
+         let cited = self.intersections(references, comparison);
+         self.credited = normalize(
+             self.credited
+                 .iter()
+                 .cloned()
+                 .chain(cited.iter().cloned())
+                 .collect(),
+         );
+         self.answers.insert(answer.id.clone(), cited);
+         self.revision += 1;
+     }
+ 

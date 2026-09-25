@@ -9,6 +9,7 @@ license.workspace = true
 gix-imara-diff.workspace = true
 review-types = { path = "../review-types" }
 serde.workspace = true
+schemars.workspace = true
 thiserror.workspace = true
 
 [lints]

@@ -1,0 +1,56 @@
+diff --git a/crates/components/locations/src/lib.tests.rs b/crates/components/locations/src/lib.tests.rs
+index d1749b9c..096c1e55 100644
+--- a/crates/components/locations/src/lib.tests.rs
++++ b/crates/components/locations/src/lib.tests.rs
+@@ -15,17 +15,17 @@
+ use super::LocationsComponent;
+ 
+ #[test]
+ fn pointer_selection_previews_the_location_at_the_clicked_row() {
+     let (mut event_bus, target) = location_list(Operation::References);
+ 
+     let results = event_bus
+         .dispatch_hovered_input(
+-            &EventEnvelope::new(pointer_input(PointerInputKind::Click { insert: false }, 3)),
++            &EventEnvelope::new(pointer_input(PointerInputKind::Click, 3)),
+             target,
+         )
+         .expect("pointer selection must dispatch")
+         .into_results();
+ 
+     assert_eq!(output_texts(results), ["preview:2"]);
+ }
+ 
+@@ -140,17 +140,17 @@ fn dispatch_key(
+         .into_results()
+ }
+ 
+ fn output_texts(results: Vec<component_core::DispatchResult<Action>>) -> Vec<String> {
+     results
+         .into_iter()
+         .flat_map(component_core::DispatchResult::into_actions)
+         .filter_map(|action| match action {
+-            Action::Output { text, .. } => Some(text),
++            Action::EditRevision { change_id: text } => Some(text.as_str().to_owned()),
+             _ => None,
+         })
+         .collect()
+ }
+ 
+ #[derive(Default)]
+ struct LocationOutput {
+     observed_events: usize,
+@@ -178,10 +178,12 @@ impl Component<Action> for LocationOutput {
+     fn register_subscriptions(subscriptions: &mut ComponentSubscriptions<'_, Self, Action>) {
+         subscriptions.subscribe(Self::preview);
+         subscriptions.subscribe(Self::accepted);
+         subscriptions.subscribe(Self::visibility);
+     }
+ }
+ 
+ fn output(text: String) -> Vec<Action> {
+-    vec![Action::Output { text }]
++    vec![Action::EditRevision {
++        change_id: text.into(),
++    }]
+ }

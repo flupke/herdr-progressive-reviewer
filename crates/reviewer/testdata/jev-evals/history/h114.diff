@@ -1,0 +1,33 @@
+diff --git a/crates/components/diff/src/lib.rs b/crates/components/diff/src/lib.rs
+index eaf1fc31..cc6caded 100644
+--- a/crates/components/diff/src/lib.rs
++++ b/crates/components/diff/src/lib.rs
+@@ -447,19 +447,27 @@ fn pointer_input(&mut self, input: PointerInput) -> Vec<Action> {
+         self.publish_viewports();
+         Vec::new()
+     }
+ 
+     fn start_pointer_selection(&mut self, position: Option<DiffPointerPosition>) {
+         let Some(position) = position else {
+             return;
+         };
+-        self.drag_anchor = Some(position.row);
+         self.position_cursor(position);
+         self.selection = None;
++        if self
++            .displayed_document_mut()
++            .is_some_and(|document| document.document.diff.expand(document.document.cursor))
++        {
++            self.drag_anchor = None;
++            self.keep_cursor_visible();
++            return;
++        }
++        self.drag_anchor = Some(position.row);
+     }
+ 
+     fn extend_pointer_selection(&mut self, position: Option<DiffPointerPosition>) {
+         let Some(position) = position else {
+             return;
+         };
+         let anchor = *self.drag_anchor.get_or_insert(position.row);
+         self.position_cursor(position);

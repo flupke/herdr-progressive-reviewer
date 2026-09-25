@@ -1,0 +1,156 @@
+diff --git a/crates/components/diff/src/lib.tests.rs b/crates/components/diff/src/lib.tests.rs
+index 1d74780f..2d6045e3 100644
+--- a/crates/components/diff/src/lib.tests.rs
++++ b/crates/components/diff/src/lib.tests.rs
+@@ -2121,8 +2121,151 @@ fn output_texts(results: Vec<DispatchResult<Action>>) -> Vec<String> {
+ }
+ 
+ fn decoration_texts(results: Vec<DispatchResult<Action>>) -> Vec<String> {
+     output_texts(results)
+         .into_iter()
+         .filter(|text| text.starts_with("notice:"))
+         .collect()
+ }
++
++struct LargeSearchFixture {
++    registry: ComponentEventBus<Action>,
++    target: ComponentTarget,
++}
++
++impl LargeSearchFixture {
++    fn new() -> Self {
++        let (mut registry, reviewable, target) = registry_with_observer();
++        reviewable.replace(["src/large.rs".to_owned()].into());
++        registry.mount(|_| SearchStatusObserver);
++        registry.mount(|_| FullLocationObserver);
++        registry
++            .publish(RepositoryFilesChanged {
++                review_checkpoint: ReviewCheckpoint::new("change", "checkpoint"),
++                files: vec![FileSummary::new("src/large.rs", ReviewStatus::Unreviewed)],
++            })
++            .unwrap();
++        registry
++            .publish(FileSelected {
++                path: "src/large.rs".to_owned(),
++            })
++            .unwrap();
++        registry
++            .publish(DiffContentLoaded {
++                review_checkpoint: ReviewCheckpoint::new("change", "checkpoint"),
++                path: "src/large.rs".to_owned(),
++                rows: vec![
++                    DiffRow::Delete {
++                        old_line: 1,
++                        text: "-needle deleted".to_owned(),
++                    },
++                    DiffRow::Add {
++                        new_line: 1,
++                        text: format!("+{} needle", "x".repeat(70_000)),
++                    },
++                ],
++                old_content: None,
++                new_content: None,
++            })
++            .unwrap();
++        Self { registry, target }
++    }
++
++    fn type_query(&mut self, query: &str) -> text_search::Request {
++        dispatch_key(&mut self.registry, self.target, Key::Char('/'));
++        let mut request = None;
++        for character in query.chars() {
++            for action in dispatch_key(&mut self.registry, self.target, Key::Char(character))
++                .into_iter()
++                .flat_map(DispatchResult::into_actions)
++            {
++                if let Action::Search(Some(next)) = action {
++                    request = Some(next);
++                }
++            }
++        }
++        request.expect("large search must request background work")
++    }
++}
++
++#[test]
++fn large_search_waits_for_results_and_keeps_deleted_text_searchable() {
++    let mut fixture = LargeSearchFixture::new();
++    let request = fixture.type_query("needle");
++    assert!(request.is_large());
++    dispatch_key(&mut fixture.registry, fixture.target, Key::Enter);
++    let results = request.search();
++    assert_eq!(results.matches.len(), 2);
++    let output = output_texts(fixture.registry.publish(results).unwrap());
++    assert!(
++        output.contains(&"search:needle:2/2".to_owned()),
++        "{output:?}"
++    );
++    let output = output_texts(dispatch_key(
++        &mut fixture.registry,
++        fixture.target,
++        Key::Char('n'),
++    ));
++    assert!(output.contains(&"search:needle:1/2".to_owned()));
++}
++
++#[test]
++fn superseded_and_cancelled_background_results_cannot_move_the_cursor() {
++    let mut fixture = LargeSearchFixture::new();
++    let old = fixture.type_query("needle");
++    dispatch_key(&mut fixture.registry, fixture.target, Key::Enter);
++    let current = fixture.type_query("deleted");
++    assert_ne!(old.id, current.id);
++    assert!(
++        fixture
++            .registry
++            .publish(old.search())
++            .unwrap()
++            .into_iter()
++            .all(|result| result.into_actions().is_empty())
++    );
++    let cancelled = dispatch_key(&mut fixture.registry, fixture.target, Key::Escape);
++    assert!(
++        cancelled
++            .into_iter()
++            .flat_map(DispatchResult::into_actions)
++            .any(|action| action == Action::Search(None))
++    );
++    assert!(
++        fixture
++            .registry
++            .publish(current.search())
++            .unwrap()
++            .into_iter()
++            .all(|result| result.into_actions().is_empty())
++    );
++}
++
++#[test]
++fn unchanged_repository_refresh_preserves_large_search_progress() {
++    let mut fixture = LargeSearchFixture::new();
++    let request = fixture.type_query("needle");
++    dispatch_key(&mut fixture.registry, fixture.target, Key::Enter);
++    fixture.registry.publish(request.search()).unwrap();
++    dispatch_key(&mut fixture.registry, fixture.target, Key::Char('n'));
++    let refreshed = fixture
++        .registry
++        .publish(RepositoryFilesChanged {
++            review_checkpoint: ReviewCheckpoint::new("change", "checkpoint"),
++            files: vec![FileSummary::new("src/large.rs", ReviewStatus::Unreviewed)],
++        })
++        .unwrap();
++    let actions = refreshed
++        .into_iter()
++        .flat_map(DispatchResult::into_actions)
++        .collect::<Vec<_>>();
++    assert!(
++        actions
++            .iter()
++            .any(|action| matches!(action, Action::Output { text } if text == "search:needle:1/2"))
++    );
++    assert!(
++        !actions
++            .iter()
++            .any(|action| matches!(action, Action::Search(_)))
++    );
++}

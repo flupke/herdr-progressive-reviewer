@@ -1,0 +1,628 @@
+diff --git a/crates/review-ui/tests/ui_state.rs b/crates/review-ui/tests/ui_state.rs
+index b79c7d55..00cba4f5 100644
+--- a/crates/review-ui/tests/ui_state.rs
++++ b/crates/review-ui/tests/ui_state.rs
+@@ -5,19 +5,18 @@
+ use review_repository::{
+     diff::{DiffRow, NoticeKind},
+     repository::DiffStatistics,
+ };
+ use review_state::{ReviewState, ReviewStatus};
+ use review_ui::{Action, Key, ReviewApplication, UserInput};
+ use std::time::Instant;
+ use ui_events::{
+-    AnimationTick, FileSummary, OutputDeliveryFinished, RepositoryFilesChanged,
+-    RepositoryMetadataChanged, ReviewGuideChanged, ReviewGuideStatusChanged, ReviewStateSaved,
+-    ToastExpirationTick,
++    AnimationTick, FileSummary, RepositoryFilesChanged, RepositoryMetadataChanged,
++    ReviewGuideChanged, ReviewGuideStatusChanged, ReviewStateSaved, ToastExpirationTick,
+ };
+ 
+ fn rows() -> Vec<DiffRow> {
+     vec![
+         DiffRow::FileHeader {
+             old_path: None,
+             new_path: None,
+             text: "diff --git a/src/lib.rs b/src/lib.rs".to_owned(),
+@@ -92,21 +91,17 @@ fn click_on_text(screen: &[String], text: &str) -> UserInput {
+             line.find(text).map(|column| {
+                 (
+                     u16::try_from(row).unwrap(),
+                     u16::try_from(line[..column].chars().count()).unwrap(),
+                 )
+             })
+         })
+         .unwrap_or_else(|| panic!("{text:?} must be visible in {screen:?}"));
+-    UserInput::MouseClick {
+-        column,
+-        row,
+-        insert_path: false,
+-    }
++    UserInput::MouseClick { column, row }
+ }
+ 
+ fn publish_repository(
+     application: &mut ReviewApplication,
+     review_checkpoint: ReviewCheckpoint,
+     description: String,
+     files: Vec<FileSummary>,
+ ) -> Vec<Action> {
+@@ -615,21 +610,17 @@ fn wrapped_continuation_mouse_targets_its_source_position() {
+                 old_line: 2,
+                 new_line: 2,
+                 text: " second logical line".to_owned(),
+             },
+         ],
+         40,
+         8,
+     );
+-    app.update(UserInput::MouseClick {
+-        column: 10,
+-        row: 3,
+-        insert_path: false,
+-    });
++    app.update(UserInput::MouseClick { column: 10, row: 3 });
+ 
+     let actions = app.update(UserInput::Key(Key::Char('K')));
+     let [Action::Lsp { query, .. }] = actions.as_slice() else {
+         panic!("wrapped source position must support LSP navigation");
+     };
+     assert_eq!(query.line, 0);
+     assert_eq!(query.byte_column, 39);
+ }
+@@ -690,31 +681,27 @@ fn wrapped_grapheme_mouse_position_uses_its_terminal_width() {
+         vec![DiffRow::Context {
+             old_line: 1,
+             new_line: 1,
+             text: format!(" {source}"),
+         }],
+         40,
+         8,
+     );
+-    app.update(UserInput::MouseClick {
+-        column: 7,
+-        row: 3,
+-        insert_path: false,
+-    });
++    app.update(UserInput::MouseClick { column: 7, row: 3 });
+ 
+     let actions = app.update(UserInput::Key(Key::Char('K')));
+     let [Action::Lsp { query, .. }] = actions.as_slice() else {
+         panic!("wrapped grapheme position must support LSP navigation");
+     };
+     assert_eq!(query.byte_column, 34 + joined_emoji.len());
+ }
+ 
+ #[test]
+-fn state_machine_keeps_selection_until_insert_succeeds() {
++fn stale_diffs_are_ignored_and_selected_text_is_not_sent_on_enter() {
+     let mut app = ReviewApplication::default();
+     assert_eq!(
+         publish_repository(
+             &mut app,
+             ReviewCheckpoint::new("qpvuntsm", "11111111"),
+             "Commit title\n\nCommit body\n".to_owned(),
+             vec![
+                 FileSummary::new("src/lib.rs", ReviewStatus::Unreviewed),
+@@ -761,71 +748,29 @@ fn state_machine_keeps_selection_until_insert_succeeds() {
+         old_content: None,
+         new_content: None,
+     });
+ 
+     app.update(UserInput::Key(Key::Tab));
+     app.update(UserInput::Key(Key::Visual));
+     app.update(UserInput::Key(Key::Down));
+     app.update(UserInput::Key(Key::Visual));
+-    assert_eq!(
+-        app.update(UserInput::Key(Key::Enter)),
+-        vec![Action::Output {
+-            text: concat!(
+-                "diff --git a/src/lib.rs b/src/lib.rs\n",
+-                "--- a/src/lib.rs\n",
+-                "+++ b/src/lib.rs\n",
+-                "@@ -1,2 +1,1 @@\n",
+-                " fn run() {\n",
+-                "-    old();"
+-            )
+-            .to_owned(),
+-        }]
+-    );
+-
+-    app.publish(OutputDeliveryFinished { delivered: false });
+-    assert!(matches!(
+-        app.update(UserInput::Key(Key::Enter)).as_slice(),
+-        [Action::Output { .. }]
+-    ));
+-    app.publish(OutputDeliveryFinished { delivered: false });
+-    let rendered = screen(&app, 80, 12);
+-    assert!(rendered.last().unwrap().contains("? help"));
+-    assert!(!rendered.join("\n").contains("No agent chat"));
+-    assert!(matches!(
+-        app.update(UserInput::Key(Key::Enter)).as_slice(),
+-        [Action::Output { .. }]
+-    ));
+-    app.publish(OutputDeliveryFinished { delivered: true });
+-    assert!(!screen(&app, 80, 12).join("\n").contains("Inserted into"));
+     assert!(app.update(UserInput::Key(Key::Enter)).is_empty());
+ }
+ 
+ #[test]
+-fn output_uses_only_the_active_agent() {
++fn enter_on_a_filename_does_not_send_text() {
+     let mut app = ReviewApplication::default();
+-    app.update(UserInput::Resize {
+-        width: 80,
+-        height: 12,
+-    });
+     publish_repository(
+         &mut app,
+         ReviewCheckpoint::new("qpvuntsm", "11111111"),
+         "Commit title\n".to_owned(),
+         vec![FileSummary::new("src/lib.rs", ReviewStatus::Unreviewed)],
+     );
+-
+-    assert!(screen(&app, 80, 12)[11].starts_with("? help"));
+-    assert!(app.update(UserInput::Key(Key::Char('o'))).is_empty());
+-    assert_eq!(
+-        app.update(UserInput::Key(Key::Enter)),
+-        vec![Action::Output {
+-            text: "src/lib.rs".to_owned(),
+-        }]
+-    );
++    assert!(app.update(UserInput::Key(Key::Enter)).is_empty());
+ }
+ 
+ #[test]
+ fn global_search_focuses_the_diff_and_shows_the_query_and_current_match() {
+     let mut application = wrapped_diff_application(
+         vec![
+             DiffRow::Hunk {
+                 old_start: 0,
+@@ -936,35 +881,23 @@ fn commit_message_opens_and_closes_from_mouse_or_keyboard() {
+     app.update(UserInput::Resize {
+         width: 80,
+         height: 12,
+     });
+     let popup = screen(&app, 80, 12).join("\n");
+     assert!(popup.contains("Commit message"));
+     assert!(popup.contains("Commit body"));
+ 
+-    app.update(UserInput::MouseClick {
+-        column: 40,
+-        row: 6,
+-        insert_path: false,
+-    });
++    app.update(UserInput::MouseClick { column: 40, row: 6 });
+     assert!(screen(&app, 80, 12).join("\n").contains("Commit body"));
+ 
+-    app.update(UserInput::MouseClick {
+-        column: 0,
+-        row: 11,
+-        insert_path: false,
+-    });
++    app.update(UserInput::MouseClick { column: 0, row: 11 });
+     assert!(!screen(&app, 80, 12).join("\n").contains("Commit body"));
+ 
+-    app.update(UserInput::MouseClick {
+-        column: 2,
+-        row: 0,
+-        insert_path: false,
+-    });
++    app.update(UserInput::MouseClick { column: 2, row: 0 });
+     assert!(screen(&app, 80, 12).join("\n").contains("Commit body"));
+ }
+ 
+ #[test]
+ fn optimistic_selection_stays_on_the_next_file_when_review_fails() {
+     let mut app = ReviewApplication::default();
+     publish_repository(
+         &mut app,
+@@ -1197,21 +1130,17 @@ fn diff_uses_bars_line_numbers_and_expandable_gaps() {
+         app.update(UserInput::Key(Key::Down));
+     }
+     app.update(UserInput::Key(Key::Char('l')));
+     let expanded = screen(&app, 100, 14).join("\n");
+     assert!(expanded.contains("3 third"));
+     assert!(!expanded.contains("… 3 unmodified lines"));
+ 
+     load(&mut app);
+-    app.update(UserInput::MouseClick {
+-        column: 70,
+-        row: 5,
+-        insert_path: false,
+-    });
++    app.update(UserInput::MouseClick { column: 70, row: 5 });
+     assert!(screen(&app, 100, 14).join("\n").contains("3 third"));
+ }
+ 
+ #[test]
+ fn diff_controls_expand_and_contract_all_gaps() {
+     let mut app = ReviewApplication::default();
+     let path = "src/a/very/long/path/that/must/leave/room/for/the/buttons/lib.rs";
+     publish_repository(
+@@ -1255,55 +1184,39 @@ fn diff_controls_expand_and_contract_all_gaps() {
+         height: 14,
+     });
+ 
+     let collapsed = screen(&app, 100, 14).join("\n");
+     assert!(collapsed.contains("←→"));
+     assert!(collapsed.contains("→←"));
+     assert!(collapsed.contains('👁'));
+     assert!(collapsed.contains("1 unmodified lines"));
+-    app.update(UserInput::MouseClick {
+-        column: 87,
+-        row: 1,
+-        insert_path: false,
+-    });
++    app.update(UserInput::MouseClick { column: 87, row: 1 });
+     assert!(
+         !screen(&app, 100, 14)
+             .join("\n")
+             .contains("unmodified lines")
+     );
+-    app.update(UserInput::MouseClick {
+-        column: 92,
+-        row: 1,
+-        insert_path: false,
+-    });
++    app.update(UserInput::MouseClick { column: 92, row: 1 });
+     assert!(
+         screen(&app, 100, 14)
+             .join("\n")
+             .contains("1 unmodified lines")
+     );
+ 
+-    app.update(UserInput::MouseClick {
+-        column: 96,
+-        row: 1,
+-        insert_path: false,
+-    });
++    app.update(UserInput::MouseClick { column: 96, row: 1 });
+     let file = screen(&app, 100, 14).join("\n");
+     assert!(file.contains("File ·"));
+     assert!(file.contains("[x]"));
+     assert!(!file.contains("←→"));
+     assert!(!file.contains("→←"));
+     assert!(file.contains("2 middle"));
+     assert!(!file.contains("unmodified lines"));
+ 
+-    app.update(UserInput::MouseClick {
+-        column: 97,
+-        row: 1,
+-        insert_path: false,
+-    });
++    app.update(UserInput::MouseClick { column: 97, row: 1 });
+     let diff = screen(&app, 100, 14).join("\n");
+     assert!(diff.contains("Diff ·"));
+     assert!(diff.contains("←→"));
+     assert!(diff.contains("→←"));
+     assert!(diff.contains("1 unmodified lines"));
+ }
+ 
+ #[test]
+@@ -1402,64 +1315,42 @@ fn mouse_targets_the_hovered_pane_and_click_changes_focus() {
+     );
+     assert_eq!(
+         publish_tick(&mut app, Instant::now()),
+         vec![Action::LoadDiff {
+             review_checkpoint: ReviewCheckpoint::new("qpvuntsm", "11111111"),
+             path: "second.rs".to_owned(),
+         }]
+     );
+-    app.update(UserInput::MouseClick {
+-        column: 70,
+-        row: 2,
+-        insert_path: false,
+-    });
++    app.update(UserInput::MouseClick { column: 70, row: 2 });
+     assert!(
+         application_screen(&app, 80, 12)
+             .join("\n")
+             .contains("Diff · second.rs (focus)")
+     );
+     app.update(UserInput::MouseScroll {
+         column: 1,
+         row: 2,
+         delta: -1,
+     });
+     assert!(
+         application_screen(&app, 80, 12)
+             .join("\n")
+             .contains("Diff · first.rs (focus)")
+     );
+-    app.update(UserInput::MouseClick {
+-        column: 1,
+-        row: 3,
+-        insert_path: false,
+-    });
++    app.update(UserInput::MouseClick { column: 1, row: 3 });
+     assert!(
+         application_screen(&app, 80, 12)
+             .join("\n")
+             .contains("Diff · second.rs")
+     );
++    assert!(app.update(UserInput::Key(Key::Enter)).is_empty());
+     assert_eq!(
+-        app.update(UserInput::Key(Key::Enter)),
+-        vec![Action::Output {
+-            text: "second.rs".to_owned(),
+-        }]
+-    );
+-    assert_eq!(
+-        app.update(UserInput::MouseClick {
+-            column: 1,
+-            row: 2,
+-            insert_path: true,
+-        }),
+-        vec![
+-            Action::Output {
+-                text: "first.rs".to_owned(),
+-            },
+-            Action::OpenLspDocument("first.rs".into())
+-        ]
++        app.update(UserInput::MouseControlClick { column: 1, row: 2 }),
++        vec![Action::OpenLspDocument("first.rs".into())]
+     );
+ }
+ 
+ #[test]
+ fn double_clicking_a_file_marks_it_reviewed() {
+     let mut app = ReviewApplication::default();
+     publish_repository(
+         &mut app,
+@@ -1470,21 +1361,17 @@ fn double_clicking_a_file_marks_it_reviewed() {
+             FileSummary::new("second.rs", ReviewStatus::Unreviewed),
+         ],
+     );
+     app.update(UserInput::Resize {
+         width: 80,
+         height: 12,
+     });
+ 
+-    app.update(UserInput::MouseClick {
+-        column: 1,
+-        row: 2,
+-        insert_path: false,
+-    });
++    app.update(UserInput::MouseClick { column: 1, row: 2 });
+     assert_eq!(
+         app.update(UserInput::MouseDoubleClick { column: 1, row: 2 }),
+         vec![
+             Action::SetReviewed {
+                 path: "first.rs".to_owned(),
+                 reviewed: true,
+             },
+             Action::OpenLspDocument("second.rs".into())
+@@ -1502,21 +1389,17 @@ fn double_clicking_a_reviewed_file_marks_it_unreviewed() {
+     let mut app = ReviewApplication::default();
+     publish_repository(
+         &mut app,
+         ReviewCheckpoint::new("qpvuntsm", "11111111"),
+         "Commit title\n".to_owned(),
+         vec![FileSummary::new("reviewed.rs", ReviewStatus::Reviewed)],
+     );
+ 
+-    app.update(UserInput::MouseClick {
+-        column: 1,
+-        row: 2,
+-        insert_path: false,
+-    });
++    app.update(UserInput::MouseClick { column: 1, row: 2 });
+     assert_eq!(
+         app.update(UserInput::MouseDoubleClick { column: 1, row: 2 }),
+         vec![
+             Action::SetReviewed {
+                 path: "reviewed.rs".to_owned(),
+                 reviewed: false,
+             },
+             Action::LoadDiff {
+@@ -1543,33 +1426,25 @@ fn clicking_a_directory_collapses_its_descendants_across_refreshes() {
+     });
+     publish_repository(
+         &mut app,
+         ReviewCheckpoint::new("qpvuntsm", "11111111"),
+         "Commit title".to_owned(),
+         files(),
+     );
+ 
+-    app.update(UserInput::MouseClick {
+-        column: 4,
+-        row: 2,
+-        insert_path: false,
+-    });
++    app.update(UserInput::MouseClick { column: 4, row: 2 });
+     assert!(
+         application_screen(&app, 80, 12)
+             .join("\n")
+             .contains("lib.rs")
+     );
+ 
+     assert_eq!(
+-        app.update(UserInput::MouseClick {
+-            column: 1,
+-            row: 2,
+-            insert_path: false,
+-        }),
++        app.update(UserInput::MouseClick { column: 1, row: 2 }),
+         [Action::OpenLspDocument("tests/test.rs".into())]
+     );
+     assert_eq!(
+         publish_tick(&mut app, Instant::now()),
+         vec![Action::LoadDiff {
+             review_checkpoint: ReviewCheckpoint::new("qpvuntsm", "11111111"),
+             path: "tests/test.rs".to_owned(),
+         }]
+@@ -1586,21 +1461,17 @@ fn clicking_a_directory_collapses_its_descendants_across_refreshes() {
+         files(),
+     );
+     assert!(
+         application_screen(&app, 80, 12)
+             .join("\n")
+             .contains("▸ src/")
+     );
+ 
+-    app.update(UserInput::MouseClick {
+-        column: 1,
+-        row: 2,
+-        insert_path: false,
+-    });
++    app.update(UserInput::MouseClick { column: 1, row: 2 });
+     let expanded = application_screen(&app, 80, 12).join("\n");
+     assert!(expanded.contains("▾ src/"));
+     assert!(expanded.contains("lib.rs"));
+     assert!(expanded.contains("main.rs"));
+ }
+ 
+ #[test]
+ fn files_that_need_review_expand_their_parent_directories() {
+@@ -1616,21 +1487,17 @@ fn files_that_need_review_expand_their_parent_directories() {
+         height: 12,
+     });
+     publish_repository(
+         &mut app,
+         ReviewCheckpoint::new("qpvuntsm", "11111111"),
+         String::new(),
+         files(ReviewStatus::Reviewed),
+     );
+-    app.update(UserInput::MouseClick {
+-        column: 1,
+-        row: 2,
+-        insert_path: false,
+-    });
++    app.update(UserInput::MouseClick { column: 1, row: 2 });
+ 
+     publish_repository(
+         &mut app,
+         ReviewCheckpoint::new("qpvuntsm", "22222222"),
+         String::new(),
+         files(ReviewStatus::ChangedSinceReview),
+     );
+     let expanded_after_refresh = application_screen(&app, 80, 12).join("\n");
+@@ -1645,21 +1512,17 @@ fn files_that_need_review_expand_their_parent_directories() {
+     );
+ 
+     publish_repository(
+         &mut app,
+         ReviewCheckpoint::new("qpvuntsm", "33333333"),
+         String::new(),
+         files(ReviewStatus::Reviewed),
+     );
+-    app.update(UserInput::MouseClick {
+-        column: 1,
+-        row: 2,
+-        insert_path: false,
+-    });
++    app.update(UserInput::MouseClick { column: 1, row: 2 });
+     app.publish(ReviewStateSaved {
+         review_unit: "qpvuntsm".into(),
+         path: "src/deep/lib.rs".to_owned(),
+         result: Ok(ReviewState {
+             status: ReviewStatus::Unreviewed,
+             warning: None,
+             current_diff_statistics: DiffStatistics::default(),
+         }),
+@@ -1679,47 +1542,35 @@ fn dragging_the_separator_resizes_the_file_pane() {
+         vec![FileSummary::new("src/lib.rs", ReviewStatus::Unreviewed)],
+     );
+     app.update(UserInput::Resize {
+         width: 80,
+         height: 12,
+     });
+     let before = screen(&app, 80, 12)[1].find("Diff").unwrap();
+ 
+-    app.update(UserInput::MouseClick {
+-        column: 34,
+-        row: 5,
+-        insert_path: false,
+-    });
++    app.update(UserInput::MouseClick { column: 34, row: 5 });
+     app.update(UserInput::MouseDrag { column: 40, row: 5 });
+     assert_eq!(
+         app.update(UserInput::MouseRelease),
+         vec![Action::SaveFilePaneWidth(40)]
+     );
+ 
+     let after = screen(&app, 80, 12)[1].find("Diff").unwrap();
+     assert!(after > before);
+ 
+-    app.update(UserInput::MouseClick {
+-        column: 40,
+-        row: 5,
+-        insert_path: false,
+-    });
++    app.update(UserInput::MouseClick { column: 40, row: 5 });
+     app.update(UserInput::MouseDrag { column: 0, row: 5 });
+     assert_eq!(
+         app.update(UserInput::MouseRelease),
+         vec![Action::SaveFilePaneWidth(35)]
+     );
+     assert!(screen(&app, 80, 12)[1].contains("[F]iles | [T]hreads"));
+ 
+-    app.update(UserInput::MouseClick {
+-        column: 35,
+-        row: 5,
+-        insert_path: false,
+-    });
++    app.update(UserInput::MouseClick { column: 35, row: 5 });
+     app.update(UserInput::MouseDrag { column: 79, row: 5 });
+     assert_eq!(
+         app.update(UserInput::MouseRelease),
+         vec![Action::SaveFilePaneWidth(64)]
+     );
+ }
+ 
+ #[test]
+@@ -1742,28 +1593,20 @@ fn dragging_diff_lines_opens_an_inline_comment_on_release() {
+         old_content: Some(b"fn run() {\n    old();\n".to_vec()),
+         new_content: Some(b"fn run() {\n    new();\n".to_vec()),
+     });
+     app.update(UserInput::Resize {
+         width: 80,
+         height: 12,
+     });
+ 
+-    app.update(UserInput::MouseClick {
+-        column: 70,
+-        row: 2,
+-        insert_path: false,
+-    });
++    app.update(UserInput::MouseClick { column: 70, row: 2 });
+     assert!(app.update(UserInput::MouseRelease).is_empty());
+ 
+-    app.update(UserInput::MouseClick {
+-        column: 70,
+-        row: 2,
+-        insert_path: false,
+-    });
++    app.update(UserInput::MouseClick { column: 70, row: 2 });
+     assert_eq!(app.update(UserInput::MouseDrag { column: 70, row: 4 }), []);
+     assert!(app.update(UserInput::MouseRelease).is_empty());
+     assert!(
+         application_screen(&app, 80, 12)
+             .join("\n")
+             .contains("Vim · INSERT")
+     );
+     app.update(UserInput::Paste("Please explain this range".into()));
+@@ -1886,21 +1729,17 @@ fn mouse_wheel_scrolls_the_diff_viewport_regardless_of_focus() {
+         vec![FileSummary::new("src/lib.rs", ReviewStatus::Unreviewed)],
+     );
+     app.update(UserInput::Resize {
+         width: 80,
+         height: 8,
+     });
+     assert!(!screen(&app, 80, 8).join("\n").contains("line-0"));
+ 
+-    app.update(UserInput::MouseClick {
+-        column: 70,
+-        row: 2,
+-        insert_path: false,
+-    });
++    app.update(UserInput::MouseClick { column: 70, row: 2 });
+     app.update(UserInput::MouseScroll {
+         column: 70,
+         row: 2,
+         delta: 2,
+     });
+     let screen = screen(&app, 80, 8).join("\n");
+     assert!(!screen.contains("line-2"));
+     assert!(screen.contains("Diff · src/lib.rs (focus)"));

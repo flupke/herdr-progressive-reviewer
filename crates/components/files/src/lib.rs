@@ -7,7 +7,6 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 use review_guide::ReviewCheckpoint;
 use review_repository::repository::ChangeKind;
 use review_state::{ReviewState, ReviewStatus};
@@ -26,8 +25,9 @@ use ui_shortcuts::{
 use ui_theme::Palette;
 use unicode_width::UnicodeWidthStr;
 
-mod tree;
-use tree::{FileTree, FileTreeRow};
+use ui_panes::{FileList, FileTree, FileTreeRow, shorten};
+mod preview;
+pub use preview::{FilePreviewList, PreviewFile};
 mod badges;
 use badges::FileBadges;
 
@@ -92,23 +92,14 @@ impl FilesComponent {
 
     /// Render the complete files pane from component-owned state.
     pub fn render(&self, area: Rect, buffer: &mut Buffer, palette: Palette, focused: bool) {
-        let border_color = if focused { palette.focus } else { palette.dim };
-        let focus_suffix = if focused { " (focus)" } else { "" };
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(format!(" Files{focus_suffix} "))
-            .border_style(Style::default().fg(border_color));
-        let content_area = block.inner(area);
-        block.render(area, buffer);
-        let lines = self
-            .tree
-            .rows
-            .iter()
-            .skip(self.scroll)
-            .take(usize::from(content_area.height))
-            .map(|row| self.render_row(row, usize::from(content_area.width), palette))
-            .collect::<Vec<_>>();
-        Paragraph::new(lines).render(content_area, buffer);
+        self.file_list().render(
+            area,
+            buffer,
+            palette,
+            focused,
+            "Files",
+            |depth, name, file, width| self.render_file(depth, name, file, width, palette),
+        );
     }
 
     fn selection(&self) -> Option<FileSelected> {
@@ -405,10 +396,8 @@ impl FilesComponent {
             return Vec::new();
         };
         let previous_selected_path = self.selected_path();
-        let row = self
-            .scroll
-            .saturating_add(usize::from(position.component_row));
-        if let Some(file) = self.tree.file_at(row) {
+        let row = usize::from(position.component_row);
+        if let Some(FileTreeRow::File { file, .. }) = self.file_list().row(row).cloned() {
             self.selected = file;
             self.keep_selected_visible();
             if double_click {
@@ -420,14 +409,14 @@ impl FilesComponent {
             self.publish_selection_if_changed(previous_selected_path.as_deref());
             return Vec::new();
         }
-        let Some(FileTreeRow::Directory { depth, path, .. }) = self.tree.rows.get(row) else {
+        let Some(FileTreeRow::Directory { depth, path, .. }) = self.file_list().row(row).cloned()
+        else {
             return Vec::new();
         };
         let expected_column = u16::try_from(depth.saturating_mul(2)).unwrap_or(u16::MAX);
         if position.component_column != expected_column {
             return Vec::new();
         }
-        let path = path.clone();
         self.toggle_directory(path);
         self.publish_selection_if_changed(previous_selected_path.as_deref());
         Vec::new()
@@ -456,28 +445,7 @@ impl FilesComponent {
     }
 
     fn move_selection(&mut self, input: NavigationShortcut) {
-        let visible = self.tree.visible_files().collect::<Vec<_>>();
-        let current = visible
-            .iter()
-            .position(|file| *file == self.selected)
-            .unwrap_or(0);
-        let target = match input {
-            NavigationShortcut::MoveUp => current.saturating_sub(1),
-            NavigationShortcut::MoveDown => current.saturating_add(1),
-            NavigationShortcut::GoToFirst => 0,
-            NavigationShortcut::GoToLast => visible.len().saturating_sub(1),
-            NavigationShortcut::MoveHalfPageUp => {
-                current.saturating_sub(self.page_rows.div_ceil(2))
-            }
-            NavigationShortcut::MoveHalfPageDown => {
-                current.saturating_add(self.page_rows.div_ceil(2))
-            }
-            _ => current,
-        }
-        .min(visible.len().saturating_sub(1));
-        if let Some(file) = visible.get(target) {
-            self.selected = *file;
-        }
+        self.selected = self.file_list().navigate(input);
         self.keep_selected_visible();
     }
 
@@ -569,44 +537,15 @@ impl FilesComponent {
     }
 
     fn keep_selected_visible(&mut self) {
-        let Some(row) = self.tree.row_for_file(self.selected) else {
-            self.scroll = 0;
-            return;
-        };
-        if self.tree.visible_files().next() == Some(self.selected) {
-            self.scroll = row.saturating_add(1).saturating_sub(self.page_rows);
-            return;
-        }
-        if row < self.scroll {
-            self.scroll = row;
-        } else if row >= self.scroll.saturating_add(self.page_rows) {
-            self.scroll = row.saturating_add(1).saturating_sub(self.page_rows);
-        }
+        self.scroll = self.file_list().visible_scroll(self.selected);
     }
 
-    fn render_row(&self, row: &FileTreeRow, width: usize, palette: Palette) -> Line<'static> {
-        match row {
-            FileTreeRow::Directory {
-                depth,
-                name,
-                collapsed,
-                ..
-            } => {
-                let label = format!(
-                    "{}{} {name}/",
-                    "  ".repeat(*depth),
-                    if *collapsed { '▸' } else { '▾' }
-                );
-                Line::styled(
-                    shorten(&label, width),
-                    Style::default()
-                        .fg(palette.dim)
-                        .add_modifier(Modifier::BOLD),
-                )
-            }
-            FileTreeRow::File { depth, name, file } => {
-                self.render_file(*depth, name, *file, width, palette)
-            }
+    fn file_list(&self) -> FileList<'_> {
+        FileList {
+            tree: &self.tree,
+            selected: self.selected,
+            scroll: self.scroll,
+            page_rows: self.page_rows,
         }
     }
 
@@ -758,27 +697,6 @@ fn file_color(file: &FileSummary, palette: Palette) -> Color {
         ChangeKind::Modified => palette.focus,
         ChangeKind::Renamed | ChangeKind::TypeChanged | ChangeKind::Conflict => palette.warning,
     }
-}
-
-fn shorten(text: &str, width: usize) -> String {
-    if UnicodeWidthStr::width(text) <= width {
-        return text.to_owned();
-    }
-    if width <= 1 {
-        return "…".chars().take(width).collect();
-    }
-    let mut result = String::new();
-    let mut used: usize = 0;
-    for character in text.chars() {
-        let character_width = UnicodeWidthStr::width(character.to_string().as_str());
-        if used.saturating_add(character_width) >= width {
-            break;
-        }
-        result.push(character);
-        used += character_width;
-    }
-    result.push('…');
-    result
 }
 
 #[cfg(test)]

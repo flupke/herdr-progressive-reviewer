@@ -1,0 +1,17 @@
+diff --git a/crates/review-explore/src/consequence.rs b/crates/review-explore/src/consequence.rs
+--- a/crates/review-explore/src/consequence.rs
++++ b/crates/review-explore/src/consequence.rs
+@@ -1,12 +1,12 @@
+ 
+ impl Door {
+     pub fn label(self) -> &'static str {
+         match self {
+-            Self::OneWay => "One-way / hard to reverse",
++            Self::OneWay => "Two-way",
+             Self::TwoWay => "Two-way",
+             Self::Mixed => "Mixed",
+             Self::Unknown => "Unknown",
+         }
+     }
+ }
+ 

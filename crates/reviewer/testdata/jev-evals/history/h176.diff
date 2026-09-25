@@ -1,0 +1,267 @@
+diff --git a/crates/review-ui/src/input.rs b/crates/review-ui/src/input.rs
+index 4226a6ad..c9b3ea7b 100644
+--- a/crates/review-ui/src/input.rs
++++ b/crates/review-ui/src/input.rs
+@@ -1,12 +1,13 @@
+ use crate::app::{
+     Action, ContextMenu, DiffControl, DragState, Focus, Key, MIN_PANE_WIDTH, PaneLayout,
+     PendingReview, ReviewApp, Search, Selection, display_column_to_byte,
+ };
++use crate::diff::DiffView;
+ use crate::presentation::SearchDirection;
+ use crate::{commit_message, footer};
+ use ratatui::layout::{Position, Rect};
+ use review_lsp::Operation;
+ use review_state::ReviewStatus;
+ use review_store::OutputTarget;
+ 
+ impl ReviewApp {
+@@ -121,18 +122,18 @@ fn main_view_key(&mut self, key: Key) -> Action {
+             }
+             Key::Down | Key::Char('j') => self.navigate(1),
+             Key::Up | Key::Char('k') => self.navigate(-1),
+             Key::First => self.navigate_to(0),
+             Key::Last | Key::Char('G') => {
+                 let last = self.focus_len().saturating_sub(1);
+                 self.navigate_to(last)
+             }
+-            Key::HalfPageDown => self.navigate(self.half_page_rows()),
+-            Key::HalfPageUp => self.navigate(-self.half_page_rows()),
++            Key::HalfPageDown => self.navigate_half_page(self.half_page_rows()),
++            Key::HalfPageUp => self.navigate_half_page(-self.half_page_rows()),
+             Key::Char(_) | Key::Backspace | Key::Visual | Key::Expand => Action::None,
+         }
+     }
+ 
+     fn search_key(&mut self, key: Key) -> Action {
+         match key {
+             Key::Char(character) => {
+                 if let Some(search) = &mut self.search {
+@@ -241,17 +242,17 @@ fn move_diff_cursor(&mut self, target: Option<usize>) {
+             return;
+         };
+         let page = self.page_rows();
+         if let Some(file) = self.files.get_mut(self.selected_file) {
+             file.clear_source_location();
+             file.jump_to_row(target, page);
+         }
+         self.selection = None;
+-        self.keep_file_visible();
++        self.keep_visible();
+     }
+ 
+     fn toggle_review(&mut self) -> Action {
+         if self.review_in_flight.is_some() {
+             return Action::None;
+         }
+         let Some(file) = self.files.get_mut(self.selected_file) else {
+             return Action::None;
+@@ -360,16 +361,46 @@ fn navigate(&mut self, delta: isize) -> Action {
+                 .file_tree
+                 .visible_file_position(self.selected_file)
+                 .unwrap_or(0),
+             Focus::Diff => self.selected().map_or(0, |file| file.cursor),
+         };
+         self.navigate_to(current.saturating_add_signed(delta))
+     }
+ 
++    fn navigate_half_page(&mut self, delta: isize) -> Action {
++        if self.focus != Focus::Diff {
++            return self.navigate(delta);
++        }
++        let layout = self.layout();
++        let target = self.selected().and_then(|file| {
++            DiffView(self)
++                .viewport(file, layout.diff_content_width(), false)
++                .source_position_after_visual_delta(file, delta)
++        });
++        let Some((source_row, source_column)) = target else {
++            return Action::None;
++        };
++        let Some(file) = self.files.get_mut(self.selected_file) else {
++            return Action::None;
++        };
++        file.cursor = source_row;
++        file.clear_source_location();
++        if let Some((_, line)) = file.diff.source_position(source_row) {
++            file.column = display_column_to_byte(&line, source_column);
++        }
++        if let Some(selection) = &mut self.selection
++            && !selection.fixed
++        {
++            selection.cursor = source_row;
++        }
++        self.keep_visible();
++        Action::None
++    }
++
+     fn navigate_to(&mut self, target: usize) -> Action {
+         let mut selected_changed = false;
+         match self.focus {
+             Focus::Files => {
+                 let target = target.min(self.file_tree.visible_file_count().saturating_sub(1));
+                 let Some(target) = self.file_tree.visible_file_at(target) else {
+                     return Action::None;
+                 };
+@@ -417,19 +448,27 @@ fn navigate_to(&mut self, target: usize) -> Action {
+         }
+     }
+ 
+     pub(super) fn mouse_scroll(&mut self, column: u16, row: u16, delta: isize) -> Action {
+         let Some(hovered) = self.hovered_focus(column, row) else {
+             return Action::None;
+         };
+         if hovered == Focus::Diff {
+-            let page = self.page_rows();
+-            if let Some(file) = self.files.get_mut(self.selected_file) {
+-                file.scroll_by(delta, page);
++            let layout = self.layout();
++            let page = layout.page_rows();
++            let scroll = self.displayed().map(|file| {
++                let viewport = DiffView(self).viewport(file, layout.diff_content_width(), false);
++                viewport
++                    .scroll(file, page)
++                    .saturating_add_signed(delta)
++                    .min(viewport.len().saturating_sub(page))
++            });
++            if let Some(file) = self.displayed_mut() {
++                file.scroll = scroll.unwrap_or(0);
+             }
+             return Action::None;
+         }
+         if self.locations.is_some() {
+             return self.move_location(delta);
+         }
+         let focused = self.focus;
+         self.focus = hovered;
+@@ -462,16 +501,22 @@ pub(super) fn mouse_click(&mut self, column: u16, row: u16, insert_path: bool) -
+             self.show_commit_message = !self.show_commit_message;
+             return Action::None;
+         }
+         if row == self.height.saturating_sub(2)
+             && let Some(target) = footer::FooterView::output_target_at(column)
+         {
+             return self.set_output_target(target);
+         }
++        if self.preview.is_some()
++            && !layout.is_separator(column, row)
++            && layout.focus_at(self.focus, column, row) == Some(Focus::Diff)
++        {
++            return Action::None;
++        }
+         if let Some(control) = layout.diff_control_at(self.focus, column, row, self.selected()) {
+             return self.diff_control_click(control);
+         }
+         self.drag = if layout.is_separator(column, row) {
+             DragState::Resize { moved: false }
+         } else {
+             DragState::None
+         };
+@@ -584,41 +629,61 @@ fn diff_control_click(&mut self, control: DiffControl) -> Action {
+             file.scroll = 0;
+             file.clear_source_location();
+             self.keep_visible();
+         }
+         Action::None
+     }
+ 
+     fn position_diff_cursor(&mut self, layout: PaneLayout, column: u16, row: u16) {
+-        let page_row = usize::from(row - 2);
+-        let code_column = layout.source_column(column, self.selected());
++        let Some((source_row, source_column)) = self.diff_position(layout, column, row) else {
++            return;
++        };
+         let Some(file) = self.files.get_mut(self.selected_file) else {
+             return;
+         };
+-        file.cursor = (file.scroll + page_row).min(file.diff.len().saturating_sub(1));
++        file.cursor = source_row;
+         file.clear_source_location();
+-        if let Some(display_column) = code_column
++        if let Some(display_column) = source_column
+             && let Some((_, line)) = file.diff.source_position(file.cursor)
+         {
+             file.column = display_column_to_byte(&line, display_column);
+         }
+     }
+ 
++    fn diff_position(
++        &self,
++        layout: PaneLayout,
++        column: u16,
++        row: u16,
++    ) -> Option<(usize, Option<usize>)> {
++        let file = self.selected()?;
++        let viewport = DiffView(self).viewport(file, layout.diff_content_width(), false);
++        let visual_row = viewport
++            .scroll(file, layout.page_rows())
++            .saturating_add(usize::from(row.saturating_sub(2)));
++        let source_row = viewport.source_row_at(visual_row)?;
++        let pane_column = usize::from(column.saturating_sub(layout.diff_content_start_column()));
++        let source_column =
++            viewport.source_column_at(visual_row, pane_column, file.diff.line_number_width());
++        Some((source_row, source_column))
++    }
++
+     pub(super) fn mouse_control_click(&mut self, column: u16, row: u16) -> Action {
+         if self.hovered_focus(column, row) == Some(Focus::Diff) {
+             self.mouse_right_click(column, row)
+         } else {
+             self.mouse_click(column, row, true)
+         }
+     }
+ 
+     pub(super) fn mouse_right_click(&mut self, column: u16, row: u16) -> Action {
+         let layout = self.layout();
+-        if layout.focus_at(self.focus, column, row) != Some(Focus::Diff)
++        if self.preview.is_some()
++            || layout.focus_at(self.focus, column, row) != Some(Focus::Diff)
+             || !layout.contains_pane_content(row)
+         {
+             self.context_menu = None;
+             return Action::None;
+         }
+         self.focus = Focus::Diff;
+         self.position_diff_cursor(layout, column, row);
+         let enabled = self.current_source().is_some();
+@@ -654,32 +719,38 @@ pub(super) fn mouse_double_click(&mut self, column: u16, row: u16) -> Action {
+         let row = self.file_scroll + usize::from(row - 2);
+         if self.file_tree.file_at(row) != Some(self.selected_file) {
+             return Action::None;
+         }
+         self.toggle_review()
+     }
+ 
+     pub(super) fn mouse_drag(&mut self, column: u16, row: u16) -> Action {
++        if self.preview.is_some() && matches!(self.drag, DragState::Select { .. }) {
++            self.drag = DragState::None;
++            return Action::None;
++        }
+         let layout = self.layout();
+         match self.drag {
+             DragState::Resize { .. } if layout.is_wide() && layout.contains_body(column, row) => {
+                 self.file_width = Some(column.clamp(MIN_PANE_WIDTH, self.width - MIN_PANE_WIDTH));
+                 self.drag = DragState::Resize { moved: true };
+                 self.keep_visible();
+             }
+             DragState::Select { anchor, .. }
+                 if layout.focus_at(self.focus, column, row) == Some(Focus::Diff)
+                     && layout.contains_pane_content(row) =>
+             {
++                let Some((source_row, _)) = self.diff_position(layout, column, row) else {
++                    return Action::None;
++                };
+                 let Some(file) = self.files.get_mut(self.selected_file) else {
+                     return Action::None;
+                 };
+-                file.cursor =
+-                    (file.scroll + usize::from(row - 2)).min(file.diff.len().saturating_sub(1));
++                file.cursor = source_row;
+                 file.clear_source_location();
+                 self.selection = Some(Selection {
+                     anchor,
+                     cursor: file.cursor,
+                     fixed: true,
+                 });
+                 self.drag = DragState::Select {
+                     anchor,

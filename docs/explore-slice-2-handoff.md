@@ -1,0 +1,87 @@
+# Explore slice 2 handoff
+
+Explore now retains its investigation across reviewer restarts. Reopen the same
+checkout and logical review: the newest pass, selected page, evidence position,
+choices, comments, and each conclusion's independent task/reply editors restore
+locally. Reopening sends no agent prompt. Previous pass exposes retained history;
+New pass starts separately. One agent and one reviewer are supported per repository.
+Each pass has one editor-state file, with no window IDs, alternate draft picker,
+or legacy-format migration.
+
+The implementation is in jj change `opwprozuwostnopzxtvpwkxrsorostlo`, based on
+`8e4256d35f20f72dcea5b13dbe96d1cca5cbfc63`. See
+[recovery semantics](explore-slice-2-recovery.md) for storage and delivery details.
+
+## What persists and how continuation works
+
+- Exact questions/options, contributions/corrections, decisions, agenda changes and
+  their attribution, assessments, distinct conclusions, and evidence locators.
+- Stable pass identity and verified native conversation identity. Runtime access is
+  renewed, never stored; continuation requires the same native conversation.
+- Immutable implementation authorization with the exact edited task text. Queued
+  requests remain paused; delivered requests are not repeated; an interrupted
+  external attempt is unknown and cannot use routine Retry. Delivery does not
+  establish task completion.
+- Domain changes and deduplication commit before dependent sending/acknowledgement.
+  MCP still waits for UI application. Editor saves cannot replace
+  conversation history; normal close drains queued saves. Abrupt death can lose
+  unflushed keystrokes.
+
+Source remains the working copy, with historical references read lazily through the
+existing readers. No repository snapshots, freshness scans, or context-fetch MCP
+tools were added. The source-unchanged assumption applies across restarts; use New
+pass after source changes. Explore does not mark Files reviewed or infer completion
+from an implementation delivery.
+
+Answer wakeups use labeled plain text, preserving the full selected option and exact
+comment alongside the turn identifiers. MCP tools advertise their full nested schemas
+from the shared Rust types; kickoff instructions no longer duplicate schema examples.
+
+## Validation
+
+`NEXTEST_TEST_THREADS=8 make check` passed: **800 tests passed, 5 skipped**. This also
+ran complexity, formatting, workspace checking, Clippy, and documentation tests.
+Socket tests first encountered the expected sandbox `EPERM`; the same full command
+was retried with escalation, using private Herdr instances throughout.
+
+Deterministic tests cover queued/attempting/delivered implementation crash boundaries,
+cancel/send races, obsolete receipts, exact retry identity, native conversation
+replacement/resumption, durable MCP acceptance with lost UI acknowledgement,
+concurrent posts and editor saves, damaged storage, growing histories beyond a
+single MCP response, unavailable evidence, and history/editor ownership. Added
+regressions exercise late post acknowledgements, edits while posting, a new pass's
+first autosave, and navigation after receiving newer question history.
+
+The fresh **real Codex agent** demonstration used a disposable four-file cache
+fixture and private Herdr server, socket, state, and agent home. It recorded two
+questions, four reviewer contributions, an attributed branch retirement, and three
+separate conclusions. Two restart comparisons preserved exact domain/history,
+selected page, task edits, and reply drafts with unchanged native identity and
+unchanged user-message/agent-turn counts. A normal follow-up after the second
+restart was accepted in the same conversation and produced the third conclusion.
+The earlier conclusion retained its own editors and had no Implement control.
+Fixture source remained unchanged and Files remained 0/2 reviewed.
+
+That demonstration preceded the single-reviewer storage simplification. Its saved
+evidence remains a historical observation; deterministic restart tests cover the
+current single editor-state file, including edits after reopening and a second restart.
+
+[Sanitized demo evidence](explore-slice-2-demo-evidence.json) records the exact texts,
+retirement, IDs, and restart counts. It also records the limitations: harness input
+that lost editor focus exposed a new-pass save-order defect, repaired here; the
+original follow-up survived an explicit retry. A later unintended extra pass was
+cancelled and is excluded from acceptance evidence. No real Implement request was
+sent. Implementation crash guarantees come from deterministic tests, not the live
+model demonstration.
+
+## Workflow and remaining boundary
+
+Standards and Spec reviews passed after repairing their findings. The change was
+described with `describe-commit`, and `make install` passed. Its sandboxed attempt
+built the release binaries but hit `EPERM` while linking the Herdr plugin; rerunning
+the same command with escalation completed installation. The private demo server
+was stopped and its copied agent credentials removed. No required fixes remain.
+
+This slice stops at durable investigation and honest delivery recovery. It adds no
+cross-conversation reconstruction, source reconciliation, task-completion tracking,
+automatic replay, or implementation/review loop.

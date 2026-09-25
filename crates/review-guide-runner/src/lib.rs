@@ -8,7 +8,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 
-use herdr_client::protocol::{Agent, AgentPrompter};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use review_guide::{
     FrozenFile, GuideResponse, GuideScope, GuideSnapshot, ReviewCheckpoint, ValidationError,
@@ -95,11 +94,6 @@ pub enum Error {
         operation: &'static str,
         message: String,
     },
-}
-
-/// Synchronous guide submission over one typed Herdr client.
-pub struct GuideRunner<'a, C> {
-    client: &'a C,
 }
 
 /// One repository snapshot and its deterministic response mailbox.
@@ -340,14 +334,7 @@ impl GuideResponseWatchCancellation {
     }
 }
 
-impl<'a, C> GuideRunner<'a, C>
-where
-    C: AgentPrompter,
-{
-    pub fn new(client: &'a C) -> Self {
-        Self { client }
-    }
-
+impl PreparedGuide {
     /// Replace the mailbox input with one repository snapshot.
     pub fn prepare(
         repository_snapshot: GuideRepositorySnapshot,
@@ -361,27 +348,20 @@ where
         })
     }
 
-    /// Submit the prompt to the selected implementation agent.
-    pub fn submit_prepared(&self, agent: &Agent, prepared: &PreparedGuide) -> Result<(), Error> {
-        let prompt = render_prompt(
-            &prepared.repository_snapshot,
-            &prepared.mailbox.directory.join(DIFF_FILE),
-            &prepared.mailbox.directory.join(RESPONSE_TEMPORARY_FILE),
-            &prepared.mailbox.directory.join(RESPONSE_FILE),
-        );
-        self.client
-            .prompt_agent(&agent.pane_id, &prompt)
-            .map_err(|error| operation("submit review guide prompt", error))
+    /// Build the request for the reviewer's shared prompt dispatcher.
+    pub fn prompt(&self) -> String {
+        render_prompt(
+            &self.repository_snapshot,
+            &self.mailbox.directory.join(DIFF_FILE),
+            &self.mailbox.directory.join(RESPONSE_TEMPORARY_FILE),
+            &self.mailbox.directory.join(RESPONSE_FILE),
+        )
     }
 
     /// Wait with an existing interruptible watch, then validate the response.
-    pub fn finish_prepared_with_watch(
-        &self,
-        prepared: &PreparedGuide,
-        watch: GuideResponseWatch,
-    ) -> Result<GuideResult, Error> {
+    pub fn finish_with_watch(&self, watch: GuideResponseWatch) -> Result<GuideResult, Error> {
         match watch.wait()? {
-            GuideResponseWaitOutcome::ResponseChanged => prepared.mailbox.load_completed_guide(),
+            GuideResponseWaitOutcome::ResponseChanged => self.mailbox.load_completed_guide(),
             GuideResponseWaitOutcome::Cancelled => Err(Error::ResponseWaitCancelled),
         }
     }
