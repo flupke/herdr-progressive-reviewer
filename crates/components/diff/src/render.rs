@@ -13,6 +13,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 use review_lsp::SourceLocation;
 use review_repository::diff::{DiffRow, NoticeKind};
+use review_threads::MessageId;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
@@ -133,6 +134,16 @@ pub(super) struct DiffViewport {
     rows: Vec<WrappedDiffRow>,
 }
 
+pub(super) struct VisibleRowAnchor {
+    identity: VisibleRowIdentity,
+    screen_row: usize,
+}
+
+enum VisibleRowIdentity {
+    Source { row: usize, display_offset: usize },
+    Message { id: MessageId, occurrence: usize },
+}
+
 pub(super) struct DiffRenderResult {
     pub(super) guide_overlay: GuideOverlay,
     pub(super) pointer_viewport: Option<DiffPointerViewport>,
@@ -243,6 +254,60 @@ impl DiffViewport {
 
     pub(super) fn scroll(&self, file: &LoadedDocument) -> usize {
         file.document.scroll.min(self.rows.len().saturating_sub(1))
+    }
+
+    pub(super) fn visible_anchor(&self, scroll: usize, height: usize) -> Option<VisibleRowAnchor> {
+        let visible = self.rows.iter().enumerate().skip(scroll).take(height);
+        let (index, row) = visible
+            .clone()
+            .find(|(_, row)| row.is_source_row)
+            .or_else(|| visible.clone().find(|(_, row)| row.message_id().is_some()))?;
+        let identity = if row.is_source_row {
+            VisibleRowIdentity::Source {
+                row: row.source_row,
+                display_offset: row.source_display_offset,
+            }
+        } else {
+            let id = row.message_id()?.clone();
+            let occurrence = self.rows[..index]
+                .iter()
+                .filter(|row| row.message_id() == Some(&id))
+                .count();
+            VisibleRowIdentity::Message { id, occurrence }
+        };
+        Some(VisibleRowAnchor {
+            identity,
+            screen_row: index - scroll,
+        })
+    }
+
+    pub(super) fn scroll_for_anchor(
+        &self,
+        anchor: &VisibleRowAnchor,
+        height: usize,
+    ) -> Option<usize> {
+        let position = match &anchor.identity {
+            VisibleRowIdentity::Source {
+                row,
+                display_offset,
+            } => self.rows.iter().position(|candidate| {
+                candidate.is_source_row
+                    && candidate.source_row == *row
+                    && candidate.source_display_offset == *display_offset
+            }),
+            VisibleRowIdentity::Message { id, occurrence } => self
+                .rows
+                .iter()
+                .enumerate()
+                .filter(|(_, candidate)| candidate.message_id() == Some(id))
+                .nth(*occurrence)
+                .map(|(index, _)| index),
+        }?;
+        Some(
+            position
+                .saturating_sub(anchor.screen_row)
+                .min(self.rows.len().saturating_sub(height)),
+        )
     }
 
     pub(super) fn scroll_with_cursor_visible(&self, file: &LoadedDocument, height: usize) -> usize {
@@ -1114,6 +1179,12 @@ fn diff_controls_are_visible(width: u16, file: Option<&LoadedDocument>) -> bool 
 }
 
 impl WrappedDiffRow {
+    fn message_id(&self) -> Option<&MessageId> {
+        self.comment
+            .as_ref()
+            .and_then(crate::comments::CommentTarget::id)
+    }
+
     fn wrap_source(
         line: &Line<'static>,
         index: usize,

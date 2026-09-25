@@ -511,14 +511,24 @@ impl DiffComponent {
         {
             return actions;
         }
+        let mut visible_anchor = None;
         if let Ok(book) = &event.result {
             self.comments.recover_drafts(book);
             let editing = self.comments.editing.is_some();
+            let height = usize::from(self.viewport_height);
+            visible_anchor = (editing && !self.conversation.active)
+                .then(|| {
+                    let file = self.displayed_document()?;
+                    self.displayed_viewport()?
+                        .visible_anchor(file.document.scroll, height)
+                })
+                .flatten();
             actions.extend(self.comments.reconcile_posts(book));
             self.comments.book = Some(book.clone());
             if editing && self.comments.editing.is_none() {
                 self.selection = None;
-                self.keep_comment_visible();
+            } else {
+                visible_anchor = None;
             }
             self.restore_saved_editor();
             if self
@@ -531,6 +541,16 @@ impl DiffComponent {
             }
         }
         self.refresh_comment_documents();
+        // The posted thread is placed in the diff only after its anchor is remapped.
+        let scroll = visible_anchor.and_then(|anchor| {
+            self.displayed_viewport()?
+                .scroll_for_anchor(&anchor, usize::from(self.viewport_height))
+        });
+        if let Some(scroll) = scroll
+            && let Some(file) = self.displayed_document_mut()
+        {
+            file.document.scroll = scroll;
+        }
         self.refresh_conversation_context();
         actions
     }
