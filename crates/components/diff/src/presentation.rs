@@ -147,44 +147,33 @@ impl DiffPresentation {
         self.source_hunks[*source]
     }
 
-    pub(super) fn guide_viewport(&self, path: String, file_index: usize) -> DisplayedDiffViewport {
+    pub(super) fn target_viewport(&self, path: String, file_index: usize) -> DisplayedDiffViewport {
         let rows = self
             .rows
             .iter()
-            .enumerate()
-            .map(|(index, row)| {
+            .map(|row| {
                 let PresentedRow::Diff { source, .. } = row else {
                     return DisplayedDiffRow::default();
                 };
-                let hunk = self.hunk_number(index);
                 match self.source_row(*source) {
                     DiffRow::Context {
                         old_line, new_line, ..
                     } => DisplayedDiffRow {
-                        hunk,
                         old_line: Some(*old_line),
                         new_line: Some(*new_line),
-                        changed: false,
                     },
                     DiffRow::Delete { old_line, .. } => DisplayedDiffRow {
-                        hunk,
                         old_line: Some(*old_line),
                         new_line: None,
-                        changed: true,
                     },
                     DiffRow::Add { new_line, .. } => DisplayedDiffRow {
-                        hunk,
                         old_line: None,
                         new_line: Some(*new_line),
-                        changed: true,
                     },
                     DiffRow::FileHeader { .. }
                     | DiffRow::Meta { .. }
                     | DiffRow::Hunk { .. }
-                    | DiffRow::Notice { .. } => DisplayedDiffRow {
-                        hunk,
-                        ..DisplayedDiffRow::default()
-                    },
+                    | DiffRow::Notice { .. } => DisplayedDiffRow::default(),
                 }
             })
             .collect();

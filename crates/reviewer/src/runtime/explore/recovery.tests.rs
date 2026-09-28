@@ -49,7 +49,7 @@ impl ExploreFlow {
                 self.fixture.repository.clone(),
                 store.clone(),
             )),
-            guide_store: store,
+            store,
             client: self.fixture.herdr.client(),
             target: AgentTarget::new(
                 self.fixture.herdr.workspace_id.clone(),
@@ -57,7 +57,6 @@ impl ExploreFlow {
             ),
             snapshot: None,
             commands: commands.clone(),
-            guide: guide::GuideRequestCoordinator::default(),
             explore: explore::ExploreRuntime::default(),
             prompts: comments.prompt_sender(),
             documents: mpsc::channel().0,

@@ -32,24 +32,24 @@ fn unknown_keys_and_incomplete_sequences_do_not_run_commands() {
 
 #[test]
 fn shortcut_matcher_resolves_a_sequence_for_its_subscription() {
-    let mut matcher = ShortcutMatcher::new(ShortcutSet::Guide);
+    let mut matcher = ShortcutMatcher::new(ShortcutSet::Hunk);
 
     assert_eq!(
-        matcher.resolve_key(Key::Char('r')),
+        matcher.resolve_key(Key::Char(']')),
         InputResolution::AwaitingMoreInput
     );
     assert_eq!(
-        matcher.resolve_key(Key::Char('f')),
-        InputResolution::Matched(ShortcutCommand::Guide(GuideShortcut::GenerateSelectedFile))
+        matcher.resolve_key(Key::Char('h')),
+        InputResolution::Matched(ShortcutCommand::Hunk(HunkShortcut::GoToNextModified))
     );
 }
 
 #[test]
 fn shortcut_matcher_retries_a_failed_sequence_as_new_input() {
-    let mut matcher = ShortcutMatcher::new(ShortcutSet::Guide);
+    let mut matcher = ShortcutMatcher::new(ShortcutSet::Hunk);
 
     assert_eq!(
-        matcher.resolve_key(Key::Char('r')),
+        matcher.resolve_key(Key::Char('[')),
         InputResolution::AwaitingMoreInput
     );
     assert_eq!(
@@ -57,21 +57,8 @@ fn shortcut_matcher_retries_a_failed_sequence_as_new_input() {
         InputResolution::AwaitingMoreInput
     );
     assert_eq!(
-        matcher.resolve_key(Key::Char('r')),
-        InputResolution::Matched(ShortcutCommand::Guide(GuideShortcut::GoToNextComment))
-    );
-}
-
-#[test]
-fn help_labels_are_generated_from_visible_bindings() {
-    let full_guide = SHORTCUTS
-        .iter()
-        .find(|definition| definition.description == Some("Generate a file / full review guide"))
-        .and_then(ShortcutDefinition::help_line);
-
-    assert_eq!(
-        full_guide,
-        Some(("rf / ra".to_owned(), "Generate a file / full review guide"))
+        matcher.resolve_key(Key::Char('h')),
+        InputResolution::Matched(ShortcutCommand::Hunk(HunkShortcut::GoToNextModified))
     );
 }
 

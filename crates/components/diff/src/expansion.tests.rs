@@ -56,26 +56,6 @@ impl ContextExpansion {
                 new_content: Some(content.into_bytes()),
             })
             .unwrap();
-        registry
-            .publish(GuideLayoutChanged {
-                items: vec![GuideItem {
-                    target: GuideTarget::Lines {
-                        path: "src/lib.rs".to_owned(),
-                        old: None,
-                        new: Some(GuideLineRange {
-                            first_line: 25,
-                            last_line: 28,
-                        }),
-                    },
-                    text: "Review the current hunk.".to_owned(),
-                    status: GuideItemStatus::Matched,
-                }],
-                counters: vec![Some(ui_events::GuideCounter {
-                    number: 1,
-                    total: 1,
-                })],
-            })
-            .unwrap();
         Self { registry, target }
     }
 
@@ -108,7 +88,7 @@ impl ContextExpansion {
     }
 
     fn screen(&self) -> Vec<String> {
-        rendered_diff_with_guides_lines(&self.registry, self.target)
+        rendered_diff_lines(&self.registry, self.target)
     }
 
     fn pointer(&mut self, kind: PointerInputKind, row: u16, column: u16) {
@@ -142,10 +122,7 @@ impl HunkAnchor {
             .screen()
             .into_iter()
             .enumerate()
-            .filter(|(_, text)| {
-                text.contains(&format!("line {line}"))
-                    || (line == 25 && text.contains("Review the current hunk."))
-            })
+            .filter(|(_, text)| text.contains(&format!("line {line}")))
             .collect();
         assert!(!screen_rows.is_empty());
         Self {

@@ -1,10 +1,10 @@
 //! Compact, checkpoint-bound accounting for changed lines and non-text changes.
 use crate::{CodeLocation, Comparison, EvidenceRef, ReviewerAnswer, SourceSide};
-use review_guide::GuideLineRange;
 use review_repository::{
     diff::{DiffRow, NoticeKind, parse_file_diff},
     repository::{ChangeKind, FileKind, RepoPath},
 };
+use review_source::SourceLineRange;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -242,7 +242,7 @@ pub struct GapQuery {
     /// Durable pass identity from the Explore wakeup.
     pub instance: String,
     /// Exact reviewed checkpoint; stale comparisons cannot be paged.
-    pub checkpoint: review_guide::ReviewCheckpoint,
+    pub checkpoint: review_source::ReviewCheckpoint,
     /// Current coverage revision returned by `submit_question` or an answer wakeup.
     pub revision: u64,
     /// Effective Jev policy from the same feedback, to detect policy changes.
@@ -1128,7 +1128,7 @@ impl CoverageLedger {
                     }
                     .expect("changed side"),
                     side: *side,
-                    lines: Some(GuideLineRange {
+                    lines: Some(SourceLineRange {
                         first_line: *first,
                         last_line: end - 1,
                     }),
@@ -1357,7 +1357,7 @@ mod tests {
     fn comparison(diff: &str, old: Option<&str>, new: Option<&str>) -> Comparison {
         Comparison {
             repository_root: "/tmp".into(),
-            checkpoint: review_guide::ReviewCheckpoint::new("review", "aabb"),
+            checkpoint: review_source::ReviewCheckpoint::new("review", "aabb"),
             files: vec![ChangedFile {
                 old_path: old.map(|path| RepoPath::from_bytes(path.as_bytes())),
                 new_path: new.map(|path| RepoPath::from_bytes(path.as_bytes())),
@@ -1416,7 +1416,7 @@ mod tests {
             location: CodeLocation {
                 path: RepoPath::from_bytes(path.as_bytes()),
                 side,
-                lines: lines.map(|(first_line, last_line)| GuideLineRange {
+                lines: lines.map(|(first_line, last_line)| SourceLineRange {
                     first_line,
                     last_line,
                 }),
@@ -1433,7 +1433,7 @@ mod tests {
     ) -> ReviewerAnswer {
         ReviewerAnswer {
             id: id.into(),
-            checkpoint: review_guide::ReviewCheckpoint::new("review", "aabb"),
+            checkpoint: review_source::ReviewCheckpoint::new("review", "aabb"),
             question: Some(Question {
                 id: "q".into(),
                 version: 1,

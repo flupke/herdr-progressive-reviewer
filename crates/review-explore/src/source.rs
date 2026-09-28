@@ -3,8 +3,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use review_guide::GuideLineRange;
 use review_repository::repository::{RepoPath, Repository, Snapshot, SnapshotIdentity};
+use review_source::SourceLineRange;
 use serde::{Deserialize, Serialize};
 
 #[derive(
@@ -35,7 +35,7 @@ pub struct CodeLocation {
     pub path: RepoPath,
     pub side: SourceSide,
     /// One-based inclusive lines. None identifies the whole file.
-    pub lines: Option<GuideLineRange>,
+    pub lines: Option<SourceLineRange>,
 }
 
 impl CodeLocation {

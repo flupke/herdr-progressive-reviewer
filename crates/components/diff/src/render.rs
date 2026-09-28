@@ -3,9 +3,7 @@ use std::ops::{Range, RangeInclusive};
 mod evidence;
 use evidence::{EvidenceFrames, RequiredEvidenceRows};
 
-use guide_rendering::{
-    DiffFrame, GuideBorderCell, GuideLayout, GuideOverlay, GuideOverlayRow, GuideRenderedRow,
-};
+use diff_rendering::{DiffFrame, FrameBorderCell, FrameOverlay, FrameOverlayRow, FramedRow};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Alignment, Rect};
 use ratatui::style::{Color, Modifier, Style};
@@ -33,7 +31,6 @@ pub(super) struct DiffRenderer<'a> {
     evidence: Option<&'a crate::explore::ExploreView>,
     palette: Palette,
     file: Option<&'a LoadedDocument>,
-    guide_layout: Option<GuideLayout<'a>>,
     focused: bool,
     reviewable: bool,
     search_query: Option<&'a str>,
@@ -48,7 +45,7 @@ impl<'a> DiffRenderer<'a> {
         number_width: usize,
         palette: Palette,
     ) -> Vec<crate::comment_layout::CommentRow> {
-        let renderer = Self::new(palette, None, None, false, false, None, None);
+        let renderer = Self::new(palette, None, false, false, None, None);
         let frame = DiffFrame::new(width, number_width, Style::default().fg(palette.focus));
         rows.iter()
             .enumerate()
@@ -73,9 +70,9 @@ impl<'a> DiffRenderer<'a> {
                 )
                 .into_iter()
                 .map(|row| crate::comment_layout::CommentRow {
-                    rendered: GuideRenderedRow {
+                    rendered: FramedRow {
                         line: row.line,
-                        border_cells: row.guide_border_cells,
+                        border_cells: row.frame_border_cells,
                         source_row: row.source_row,
                     },
                     target: None,
@@ -99,7 +96,6 @@ impl<'a> DiffRenderer<'a> {
     pub(super) fn new(
         palette: Palette,
         file: Option<&'a LoadedDocument>,
-        guide_layout: Option<GuideLayout<'a>>,
         focused: bool,
         reviewable: bool,
         search_query: Option<&'a str>,
@@ -110,7 +106,6 @@ impl<'a> DiffRenderer<'a> {
             evidence: None,
             palette,
             file,
-            guide_layout,
             focused,
             reviewable,
             search_query,
@@ -145,7 +140,7 @@ enum VisibleRowIdentity {
 }
 
 pub(super) struct DiffRenderResult {
-    pub(super) guide_overlay: GuideOverlay,
+    pub(super) frame_overlay: FrameOverlay,
     pub(super) pointer_viewport: Option<DiffPointerViewport>,
 }
 
@@ -168,55 +163,11 @@ struct WrappedDiffRow {
     comment: Option<crate::comments::CommentTarget>,
     editor: bool,
     line: Line<'static>,
-    guide_line: Option<Line<'static>>,
-    guide_border_cells: Vec<GuideBorderCell>,
+    overlay_line: Option<Line<'static>>,
+    frame_border_cells: Vec<FrameBorderCell>,
     source_row: usize,
     source_display_offset: usize,
     is_source_row: bool,
-}
-
-fn wrapped_guide_row(row: GuideRenderedRow) -> WrappedDiffRow {
-    WrappedDiffRow {
-        comment: None,
-        editor: false,
-        reply: None,
-        line: Line::raw(" ".repeat(row.line.width())),
-        guide_line: Some(row.line),
-        guide_border_cells: row.border_cells,
-        source_row: row.source_row,
-        source_display_offset: 0,
-        is_source_row: false,
-    }
-}
-
-fn append_guide_rows_before(
-    rows: &mut Vec<WrappedDiffRow>,
-    layout: &GuideLayout<'_>,
-    source_row: usize,
-    width: u16,
-    line_number_width: usize,
-) {
-    rows.extend(
-        layout
-            .rows_before(source_row, width, line_number_width)
-            .into_iter()
-            .map(wrapped_guide_row),
-    );
-}
-
-fn append_guide_rows_after(
-    rows: &mut Vec<WrappedDiffRow>,
-    layout: &GuideLayout<'_>,
-    source_row: usize,
-    width: u16,
-    line_number_width: usize,
-) {
-    rows.extend(
-        layout
-            .rows_after(source_row, width, line_number_width)
-            .into_iter()
-            .map(wrapped_guide_row),
-    );
 }
 
 impl DiffViewport {
@@ -332,7 +283,7 @@ impl DiffViewport {
             .min(self.rows.len().saturating_sub(height))
     }
 
-    pub(super) fn scroll_with_guide_top_aligned(&self, file: &LoadedDocument) -> usize {
+    pub(super) fn scroll_with_target_top_aligned(&self, file: &LoadedDocument) -> usize {
         self.rows
             .iter()
             .position(|row| row.source_row == file.document.cursor)
@@ -497,13 +448,13 @@ impl DiffRenderer<'_> {
         let inner = self.render_pane(area, buffer, focused, file);
         let Some(file) = file else {
             return DiffRenderResult {
-                guide_overlay: GuideOverlay::empty(),
+                frame_overlay: FrameOverlay::empty(),
                 pointer_viewport: None,
             };
         };
         if self.render_empty_review(file, inner, buffer) {
             return DiffRenderResult {
-                guide_overlay: GuideOverlay::empty(),
+                frame_overlay: FrameOverlay::empty(),
                 pointer_viewport: None,
             };
         }
@@ -542,18 +493,18 @@ impl DiffRenderer<'_> {
             .collect::<Vec<_>>();
         Paragraph::new(lines).render(inner, buffer);
         DiffRenderResult {
-            guide_overlay: GuideOverlay::new(
+            frame_overlay: FrameOverlay::new(
                 inner,
                 visible_rows
                     .into_iter()
                     .enumerate()
                     .filter_map(|(row, visible)| {
                         let row = u16::try_from(row).ok()?;
-                        (!visible.guide_border_cells.is_empty() || visible.guide_line.is_some())
-                            .then(|| GuideOverlayRow {
+                        (!visible.frame_border_cells.is_empty() || visible.overlay_line.is_some())
+                            .then(|| FrameOverlayRow {
                                 row,
-                                line: visible.guide_line.clone(),
-                                border_cells: visible.guide_border_cells.clone(),
+                                line: visible.overlay_line.clone(),
+                                border_cells: visible.frame_border_cells.clone(),
                             })
                     })
                     .collect(),
@@ -649,7 +600,6 @@ impl DiffRenderer<'_> {
         let required_rows = RequiredEvidenceRows::new(file, self.evidence);
         let line_number_width = file.document.diff.line_number_width();
         let show_markers = !file.document.diff.shows_whole_file();
-        let guide_layout = self.guide_layout.as_ref();
         let include_code = !self.hides_reviewed_diff(file);
         let comment_layout = self
             .comments
@@ -670,9 +620,6 @@ impl DiffRenderer<'_> {
             .filter(|(index, _)| required_rows.as_ref().is_none_or(|rows| rows.shows(*index)))
             .flat_map(|(index, presented)| {
                 let mut wrapped = Vec::new();
-                if let Some(layout) = guide_layout {
-                    append_guide_rows_before(&mut wrapped, layout, index, width, line_number_width);
-                }
                 let source_line = file
                     .document
                     .diff
@@ -716,17 +663,10 @@ impl DiffRenderer<'_> {
                     style = style.bg(self.palette.cursor);
                 }
                 let styled_line = line.style(style);
-                let enclosing_status =
-                    guide_layout.and_then(|layout| layout.enclosing_status(index));
                 let comment_frame = comment_layout
                     .as_ref()
                     .and_then(|layout| layout.frame_at(index));
-                let enclosing_frame = comment_frame.or_else(|| {
-                    guide_layout
-                        .zip(enclosing_status)
-                        .map(|(layout, status)| layout.frame(width, line_number_width, status))
-                });
-                let enclosing_frame = enclosing_frame.or_else(|| evidence.frame_at(index));
+                let enclosing_frame = comment_frame.or_else(|| evidence.frame_at(index));
                 wrapped.extend(WrappedDiffRow::wrap_source(
                     &styled_line,
                     index,
@@ -735,9 +675,6 @@ impl DiffRenderer<'_> {
                     enclosing_frame,
                     is_current_row.then_some(self.palette.cursor),
                 ));
-                if let Some(layout) = guide_layout {
-                    append_guide_rows_after(&mut wrapped, layout, index, width, line_number_width);
-                }
                 wrapped
             })
             .collect();
@@ -1213,19 +1150,19 @@ impl WrappedDiffRow {
 
     fn source(
         line: Line<'static>,
-        guide_border_cells: Vec<GuideBorderCell>,
+        frame_border_cells: Vec<FrameBorderCell>,
         source_row: usize,
         source_display_offset: usize,
     ) -> Self {
         Self {
             line,
-            guide_border_cells,
+            frame_border_cells,
             source_row,
             source_display_offset,
             comment: None,
             editor: false,
             reply: None,
-            guide_line: None,
+            overlay_line: None,
             is_source_row: true,
         }
     }
@@ -1236,8 +1173,8 @@ impl WrappedDiffRow {
             comment: row.target,
             reply: row.reply,
             editor: row.editor,
-            guide_line: None,
-            guide_border_cells: row.rendered.border_cells,
+            overlay_line: None,
+            frame_border_cells: row.rendered.border_cells,
             source_row: row.rendered.source_row,
             source_display_offset: 0,
             is_source_row: false,

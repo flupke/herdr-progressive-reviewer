@@ -1,6 +1,6 @@
 use super::*;
 use ratatui::buffer::Buffer;
-use review_guide::{DiffRangeAnchor, GuideAnchorKind};
+use review_source::{AnchorKind, DiffRangeAnchor};
 use review_threads::{MessageId, Post, Resolution, ReviewThreads, ThreadCommand, ThreadId};
 use ui_events::{ReviewNavigation, ReviewThreadsLoaded, ThreadPostFinished};
 
@@ -46,7 +46,7 @@ impl ThreadUi {
                     new_path: Some(path.into()),
                     old_lines: None,
                     new_lines: Some(0..8),
-                    target_kind: GuideAnchorKind::Lines,
+                    target_kind: AnchorKind::Lines,
                     source_hunk_count: 1,
                     old_content: None,
                     new_content: Some(b"original\n".to_vec()),
@@ -930,9 +930,6 @@ fn bottom_filters_keep_resolved_history_in_all_with_boxed_entries() {
 #[test]
 fn unread_dots_are_red_on_the_tab_file_and_thread_card_until_read() {
     let mut ui = ThreadUi::new(110);
-    ui.app.publish(ui_events::GuidePathsChanged {
-        paths: vec!["src/lib.rs".into()],
-    });
     ui.answer(0, "00000000-0000-4000-8000-000000000041", "Unread answer");
     let buffer = ui.buffer();
     let file = ui
@@ -941,7 +938,7 @@ fn unread_dots_are_red_on_the_tab_file_and_thread_card_until_read() {
         .find(|line| line.contains("✓ lib.rs"))
         .unwrap()
         .to_owned();
-    assert!(file.contains("lib.rs 📄  💬  ●"), "{file}");
+    assert!(file.contains("lib.rs 💬  ●"), "{file}");
     let tab_dot = (0..34)
         .find(|column| buffer[(*column, 1)].symbol() == "●")
         .unwrap();

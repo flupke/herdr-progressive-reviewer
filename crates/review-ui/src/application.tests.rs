@@ -2,20 +2,18 @@ use std::path::PathBuf;
 use std::time::Instant;
 use ui_events::{
     AnimationTick, FileSummary, RepositoryFilesChanged, RepositoryMetadataChanged,
-    ReviewGuideChanged, RevisionCandidatesLoaded, RevisionEditFailed, RevisionHistoryLoadId,
-    RevisionHistoryLoaded, SourceContentLoaded, ToastExpirationTick,
+    RevisionCandidatesLoaded, RevisionEditFailed, RevisionHistoryLoadId, RevisionHistoryLoaded,
+    SourceContentLoaded, ToastExpirationTick,
 };
 
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
-use review_guide::{
-    GuideItem, GuideItemStatus, GuideLineRange, GuideScope, GuideTarget, ReviewCheckpoint,
-};
 use review_lsp::{Event as LspEvent, Operation, SourceLocation};
 use review_repository::diff::DiffRow;
 use review_repository::repository::{
     ChangeId, RevisionCandidate, RevisionDirection, RevisionHistoryLine,
 };
+use review_source::{ReviewCheckpoint, SourceLineRange};
 use review_state::ReviewStatus;
 use review_types::ReviewUnit;
 use toasts::ToastId;
@@ -189,119 +187,6 @@ fn space_marks_the_selected_file_reviewed_from_either_pane() {
 }
 
 #[test]
-fn guide_prefixes_do_not_block_revision_navigation() {
-    let mut parent_application = application();
-    publish_repository(
-        &mut parent_application,
-        ReviewCheckpoint::new(ReviewUnit::from("change"), "commit".to_owned()),
-        String::new(),
-        vec![FileSummary::new("src/lib.rs", ReviewStatus::Unreviewed)],
-    );
-    assert!(
-        parent_application
-            .update(UserInput::Key(Key::Tab))
-            .is_empty()
-    );
-
-    assert!(
-        parent_application
-            .update(UserInput::Key(Key::Char('[')))
-            .is_empty()
-    );
-    assert_eq!(
-        parent_application.update(UserInput::Key(Key::Char('v'))),
-        vec![Action::LoadRevisionCandidates(RevisionDirection::Parents)]
-    );
-
-    let mut child_application = application();
-    publish_repository(
-        &mut child_application,
-        ReviewCheckpoint::new(ReviewUnit::from("change"), "commit".to_owned()),
-        String::new(),
-        vec![FileSummary::new("src/lib.rs", ReviewStatus::Unreviewed)],
-    );
-    assert!(
-        child_application
-            .update(UserInput::Key(Key::Tab))
-            .is_empty()
-    );
-    assert!(
-        child_application
-            .update(UserInput::Key(Key::Char(']')))
-            .is_empty()
-    );
-    assert_eq!(
-        child_application.update(UserInput::Key(Key::Char('v'))),
-        vec![Action::LoadRevisionCandidates(RevisionDirection::Children)]
-    );
-}
-
-#[test]
-fn completed_guide_shortcuts_do_not_leave_stale_revision_prefixes() {
-    let mut application = application();
-    publish_repository(
-        &mut application,
-        ReviewCheckpoint::new("change", "commit"),
-        String::new(),
-        vec![FileSummary::new("src/lib.rs", ReviewStatus::Unreviewed)],
-    );
-
-    assert!(
-        application
-            .update(UserInput::Key(Key::Char('r')))
-            .is_empty()
-    );
-    assert_eq!(
-        application.update(UserInput::Key(Key::Char('f'))),
-        [Action::GenerateReviewGuide {
-            scope: GuideScope::File {
-                path: "src/lib.rs".to_owned(),
-            },
-        }]
-    );
-    assert!(
-        application
-            .update(UserInput::Key(Key::Char('[')))
-            .is_empty()
-    );
-    assert_eq!(
-        application.update(UserInput::Key(Key::Char('v'))),
-        [Action::LoadRevisionCandidates(RevisionDirection::Parents)]
-    );
-}
-
-#[test]
-fn completed_guide_navigation_does_not_block_the_next_revision_shortcut() {
-    let mut application = application();
-    publish_repository(
-        &mut application,
-        ReviewCheckpoint::new("change", "commit"),
-        String::new(),
-        vec![FileSummary::new("src/lib.rs", ReviewStatus::Unreviewed)],
-    );
-
-    assert!(
-        application
-            .update(UserInput::Key(Key::Char('[')))
-            .is_empty()
-    );
-    assert!(
-        application
-            .update(UserInput::Key(Key::Char('r')))
-            .is_empty()
-    );
-    assert!(
-        application
-            .update(UserInput::Key(Key::Char(']')))
-            .is_empty()
-    );
-    assert_eq!(
-        application.update(UserInput::Key(Key::Char('v'))),
-        [Action::LoadRevisionCandidates(RevisionDirection::Children)]
-    );
-}
-
-#[test]
 fn revision_navigation_works_while_the_files_pane_has_focus() {
     let mut application = application();
     publish_repository(
@@ -432,40 +317,6 @@ fn popup_shortcuts_close_the_popup_while_the_diff_pane_has_focus() {
     assert!(rendered_application(&application).contains("Commit message"));
     application.update(UserInput::Key(Key::Char('c')));
     assert!(!rendered_application(&application).contains("Commit message"));
-}
-
-#[test]
-fn guide_navigation_clears_the_shared_shortcut_prefix() {
-    for prefix in ['[', ']'] {
-        let mut review_application = application();
-        publish_repository(
-            &mut review_application,
-            ReviewCheckpoint::new(ReviewUnit::from("change"), "commit".to_owned()),
-            String::new(),
-            vec![FileSummary::new("src/lib.rs", ReviewStatus::Unreviewed)],
-        );
-        assert!(
-            review_application
-                .update(UserInput::Key(Key::Tab))
-                .is_empty()
-        );
-
-        assert!(
-            review_application
-                .update(UserInput::Key(Key::Char(prefix)))
-                .is_empty()
-        );
-        assert!(
-            review_application
-                .update(UserInput::Key(Key::Char('r')))
-                .is_empty()
-        );
-        assert!(
-            review_application
-                .update(UserInput::Key(Key::Char('g')))
-                .is_empty()
-        );
-    }
 }
 
 fn application_with_ordered_input_components() -> ReviewApplication {
@@ -733,78 +584,6 @@ fn location_click_uses_the_visible_row_after_pointer_scrolling() {
             [Action::LoadSource { location, .. }] if location.line == 2
         ),
         "unexpected actions: {actions:?}"
-    );
-}
-
-#[test]
-fn diff_pointer_selection_accounts_for_rendered_guide_rows() {
-    let theme = Theme::default();
-    let mut application = ReviewApplication::new(theme, Some(24), PathBuf::new());
-    let review_checkpoint = ReviewCheckpoint::new("change", "checkpoint");
-    application.update(UserInput::Resize {
-        width: 80,
-        height: 16,
-    });
-    publish_repository(
-        &mut application,
-        review_checkpoint.clone(),
-        String::new(),
-        vec![FileSummary::new("src/lib.rs", ReviewStatus::Unreviewed)],
-    );
-    application.publish(ui_events::DiffContentLoaded {
-        review_checkpoint: review_checkpoint.clone(),
-        path: "src/lib.rs".to_owned(),
-        rows: vec![
-            DiffRow::Add {
-                new_line: 1,
-                text: "+first_pointer_target".to_owned(),
-            },
-            DiffRow::Add {
-                new_line: 2,
-                text: "+second_pointer_target".to_owned(),
-            },
-            DiffRow::Add {
-                new_line: 3,
-                text: "+third_pointer_target".to_owned(),
-            },
-        ],
-        old_content: None,
-        new_content: None,
-    });
-    application.publish(ReviewGuideChanged {
-        review_checkpoint,
-        items: vec![GuideItem {
-            target: GuideTarget::Lines {
-                path: "src/lib.rs".to_owned(),
-                old: None,
-                new: Some(GuideLineRange {
-                    first_line: 1,
-                    last_line: 1,
-                }),
-            },
-            text: "Guide text that inserts visual rows before the source.".to_owned(),
-            status: GuideItemStatus::Matched,
-        }],
-    });
-    application.update(UserInput::Key(Key::Tab));
-
-    let (word_column, row) = rendered_text_position(&application, "third_pointer_target", 80, 16)
-        .expect("the third source row must be visible");
-    let column = word_column + 5;
-    application.update(UserInput::MouseClick { column, row });
-
-    let mut terminal = Terminal::new(TestBackend::new(80, 16)).unwrap();
-    terminal
-        .draw(|frame| frame.render_widget(application.frame(), frame.area()))
-        .unwrap();
-    assert_eq!(
-        terminal.backend().buffer()[(column, row)].bg,
-        theme.palette.cursor
-    );
-    assert!(
-        terminal.backend().buffer()[(column, row)]
-            .modifier
-            .contains(ratatui::style::Modifier::REVERSED)
     );
 }
 

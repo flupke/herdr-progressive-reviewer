@@ -39,7 +39,6 @@ pub enum ShortcutCommand {
     Application(ApplicationShortcut),
     Comment(CommentShortcut),
     File(FileShortcut),
-    Guide(GuideShortcut),
     Hunk(HunkShortcut),
     Lsp(LspShortcut),
     Navigation(NavigationShortcut),
@@ -81,14 +80,6 @@ pub enum ApplicationShortcut {
     Quit,
     ShowCommitMessage,
     StartSelection,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum GuideShortcut {
-    GenerateFull,
-    GenerateSelectedFile,
-    GoToNextComment,
-    GoToPreviousComment,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -135,10 +126,6 @@ pub enum SourceShortcut {
 
 const fn application(command: ApplicationShortcut) -> ShortcutCommand {
     ShortcutCommand::Application(command)
-}
-
-const fn guide(command: GuideShortcut) -> ShortcutCommand {
-    ShortcutCommand::Guide(command)
 }
 
 const fn lsp(command: LspShortcut) -> ShortcutCommand {
@@ -290,7 +277,6 @@ pub enum ShortcutSet {
     Diff,
     Files,
     FilesGlobal,
-    Guide,
     Hunk,
     Overlay,
     Revision,
@@ -407,7 +393,6 @@ impl ShortcutSet {
                 ShortcutCommand::File(_)
                     | ShortcutCommand::Application(ApplicationShortcut::MarkReviewed)
             ),
-            Self::Guide => matches!(command, ShortcutCommand::Guide(_)),
             Self::Hunk => matches!(command, ShortcutCommand::Hunk(_)),
             Self::Overlay => matches!(
                 command,
@@ -646,36 +631,6 @@ const SHORTCUTS: &[ShortcutDefinition] = &[
         ],
     },
     ShortcutDefinition {
-        description: Some("Generate a file / full review guide"),
-        bindings: &[
-            ShortcutBinding::two(
-                Key::Char('r'),
-                Key::Char('f'),
-                guide(GuideShortcut::GenerateSelectedFile),
-            ),
-            ShortcutBinding::two(
-                Key::Char('r'),
-                Key::Char('a'),
-                guide(GuideShortcut::GenerateFull),
-            ),
-        ],
-    },
-    ShortcutDefinition {
-        description: Some("Go to previous / next guide comment"),
-        bindings: &[
-            ShortcutBinding::two(
-                Key::Char('['),
-                Key::Char('r'),
-                guide(GuideShortcut::GoToPreviousComment),
-            ),
-            ShortcutBinding::two(
-                Key::Char(']'),
-                Key::Char('r'),
-                guide(GuideShortcut::GoToNextComment),
-            ),
-        ],
-    },
-    ShortcutDefinition {
         description: Some("Go to previous / next modified hunk"),
         bindings: &[
             ShortcutBinding::two(
@@ -786,7 +741,6 @@ const fn is_component_global_shortcut(command: ShortcutCommand) -> bool {
     matches!(
         command,
         ShortcutCommand::Comment(CommentShortcut::Previous | CommentShortcut::Next)
-            | ShortcutCommand::Guide(_)
             | ShortcutCommand::File(_)
             | ShortcutCommand::Hunk(_)
             | ShortcutCommand::Navigation(

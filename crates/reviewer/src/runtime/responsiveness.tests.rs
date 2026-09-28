@@ -5,6 +5,7 @@ use std::process::{Command, Stdio};
 
 use ratatui::backend::TestBackend;
 use review_repository::diff::DiffRow;
+use review_state::ReviewStatus;
 use ui_events::HighlightingFinished;
 
 #[test]
@@ -43,7 +44,7 @@ fn file_selection_loads_on_the_next_tick_without_further_activity() {
 }
 
 #[test]
-fn idle_ticks_skip_frames_but_input_animation_and_toast_expiration_still_render() {
+fn idle_ticks_skip_frames_but_input_and_toast_expiration_still_render() {
     let root = tempfile::tempdir().unwrap();
     let mut scenario = Scenario::new(root.path().into());
     let inputs = scenario.interactive.clone();
@@ -64,28 +65,6 @@ fn idle_ticks_skip_frames_but_input_animation_and_toast_expiration_still_render(
     assert!(!runtime.cycle().unwrap());
     assert_eq!(runtime.terminal.get_frame().count(), frames + 1);
 
-    let mut status = ui_events::ReviewGuideStatusChanged {
-        review_checkpoint: ReviewCheckpoint::new("change", "checkpoint"),
-        generating: true,
-        message: None,
-    };
-    runtime
-        .dispatch_event(&EventEnvelope::new(status.clone()))
-        .unwrap();
-    inputs
-        .send(EventEnvelope::new(ApplicationTick(Instant::now())))
-        .unwrap();
-    assert!(!runtime.cycle().unwrap());
-    assert_eq!(runtime.terminal.get_frame().count(), frames + 2);
-
-    status.generating = false;
-    runtime.dispatch_event(&EventEnvelope::new(status)).unwrap();
-    inputs
-        .send(EventEnvelope::new(ApplicationTick(Instant::now())))
-        .unwrap();
-    assert!(!runtime.cycle().unwrap());
-    assert_eq!(runtime.terminal.get_frame().count(), frames + 2);
-
     runtime
         .dispatch_event(&EventEnvelope::new(ui_events::ToastRequested {
             text: "Saved".into(),
@@ -99,7 +78,7 @@ fn idle_ticks_skip_frames_but_input_animation_and_toast_expiration_still_render(
         )))
         .unwrap();
     assert!(!runtime.cycle().unwrap());
-    assert_eq!(runtime.terminal.get_frame().count(), frames + 4);
+    assert_eq!(runtime.terminal.get_frame().count(), frames + 3);
     assert!(
         !runtime
             .app

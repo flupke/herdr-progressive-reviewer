@@ -1,11 +1,11 @@
-//! Inline conversation frames share the guides' gutter, borders, and scrolling.
+//! Inline conversation frames share the diff gutter, borders, and scrolling.
 
 use std::collections::BTreeMap;
 use std::ops::RangeInclusive;
 
-use guide_rendering::{DiffFrame, FrameRule, GuideRenderedRow};
+use diff_rendering::{DiffFrame, FrameRule, FramedRow};
 use ratatui::style::Style;
-use review_guide::FrozenHunk;
+use review_source::FrozenHunk;
 use review_threads::{MessageId, Resolution, ReviewThread};
 use ui_events::PresentationLocation;
 use ui_theme::Palette;
@@ -19,7 +19,7 @@ mod thread;
 use thread::ThreadLayout;
 
 pub(super) struct CommentRow {
-    pub(super) rendered: GuideRenderedRow,
+    pub(super) rendered: FramedRow,
     pub(super) target: Option<CommentTarget>,
     pub(super) editor: bool,
     pub(super) reply: Option<MessageId>,
@@ -327,7 +327,7 @@ fn anchor_rows(
 }
 
 impl CommentRow {
-    fn new(rendered: GuideRenderedRow, id: Option<&MessageId>) -> Self {
+    fn new(rendered: FramedRow, id: Option<&MessageId>) -> Self {
         Self {
             rendered,
             target: id.cloned().map(CommentTarget::Message),

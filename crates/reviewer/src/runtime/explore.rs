@@ -62,7 +62,7 @@ impl Worker {
         }
         let unit = pass.exploration.comparison.checkpoint.review_unit.clone();
         let instance = pass.exploration.instance.clone();
-        let result = self.guide_store.update_explore(&unit, &instance, |pass| {
+        let result = self.store.update_explore(&unit, &instance, |pass| {
             if pass.completion.is_some() {
                 return Err("Explore is already finalizing".into());
             }
@@ -201,7 +201,7 @@ impl Worker {
         };
         let observer = dispatch::DurableDispatch {
             began: std::sync::atomic::AtomicBool::default(),
-            store: self.guide_store.clone(),
+            store: self.store.clone(),
             unit: request.checkpoint.review_unit.clone(),
             instance: request.instance.clone(),
             id: review_explore::DispatchId::Interview {
@@ -278,7 +278,7 @@ impl Worker {
             return;
         }
         if let Some(pass) = &self.explore.pass {
-            let result = self.guide_store.update_explore(
+            let result = self.store.update_explore(
                 &pass.exploration.comparison.checkpoint.review_unit,
                 &event.instance,
                 |pass| {
@@ -360,7 +360,7 @@ impl Worker {
             request.respond(Err("Explore response belongs to another instance".into()));
             return;
         }
-        let committed = self.guide_store.submit_explore(
+        let committed = self.store.submit_explore(
             &update.checkpoint.review_unit,
             &update.instance,
             update,
@@ -479,7 +479,7 @@ impl Worker {
         let unit = pass.exploration.comparison.checkpoint.review_unit.clone();
         let instance = pass.exploration.instance.clone();
         let attempt = uuid::Uuid::new_v4().to_string();
-        let Ok((started, pass)) = self.guide_store.update_explore(&unit, &instance, |pass| {
+        let Ok((started, pass)) = self.store.update_explore(&unit, &instance, |pass| {
             if pass.completion.is_some()
                 || !pass
                     .coverage
@@ -500,7 +500,7 @@ impl Worker {
         let prior_elapsed = pass.coverage.jev_elapsed_ms;
         let active = Arc::new(std::sync::atomic::AtomicBool::new(true));
         self.explore.jev_active = Some((instance.clone(), active.clone()));
-        let store = self.guide_store.clone();
+        let store = self.store.clone();
         let messages = messages.clone();
         std::thread::spawn(move || {
             let started = std::time::Instant::now();
@@ -628,7 +628,7 @@ impl Worker {
             .as_ref()
             .ok_or_else(|| eyre::eyre!("No Explore pass"))?;
         self.explore.pass = Some(
-            self.guide_store
+            self.store
                 .load_explore(
                     &pass.exploration.comparison.checkpoint.review_unit,
                     &pass.exploration.instance,
@@ -647,7 +647,7 @@ impl Worker {
         let session = review_explore::ConversationBinding::from_agent(&agent);
         let pass = self.explore.pass.as_ref().expect("active pass");
         if pass.last_agent_session != session {
-            self.guide_store.update_explore(
+            self.store.update_explore(
                 &pass.exploration.comparison.checkpoint.review_unit,
                 &pass.exploration.instance,
                 |pass| {
@@ -666,7 +666,7 @@ impl Worker {
         if self.explore.historical {
             return true;
         }
-        if let Err(error) = self.guide_store.update_explore(
+        if let Err(error) = self.store.update_explore(
             &pass.exploration.comparison.checkpoint.review_unit,
             &pass.exploration.instance,
             |pass| {

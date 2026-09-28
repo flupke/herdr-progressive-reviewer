@@ -10,7 +10,7 @@ fn legacy_answers_do_not_wake_an_idle_agent_after_reopening() {
             new_path: Some("file.rs".into()),
             old_lines: None,
             new_lines: Some(0..1),
-            target_kind: GuideAnchorKind::Lines,
+            target_kind: AnchorKind::Lines,
             source_hunk_count: 1,
             old_content: None,
             new_content: None,

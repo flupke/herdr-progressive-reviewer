@@ -192,7 +192,7 @@ fn comments_follow_the_active_agent(retrieved: bool) {
             if retrieved {
                 value(&client, "get_new_messages", json!({"review": access})).await;
             }
-            let mut guide_target = fixture.target.clone();
+            let mut agent_target = fixture.target.clone();
             let second = fixture.second_agent();
             fixture.focus_agent(&second);
             fixture.server.run_cli(&[
@@ -204,7 +204,7 @@ fn comments_follow_the_active_agent(retrieved: bool) {
                 &second.pane_id.0,
             ]);
             assert_eq!(
-                guide_target
+                agent_target
                     .resolve(&fixture.server.client())
                     .unwrap()
                     .unwrap()

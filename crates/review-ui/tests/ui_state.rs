@@ -1,17 +1,17 @@
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
-use ratatui::style::{Color, Modifier};
-use review_guide::{GuideItem, GuideItemStatus, GuideLineRange, GuideTarget, ReviewCheckpoint};
+use ratatui::style::Color;
 use review_repository::{
     diff::{DiffRow, NoticeKind},
     repository::DiffStatistics,
 };
+use review_source::ReviewCheckpoint;
 use review_state::{ReviewState, ReviewStatus};
 use review_ui::{Action, Key, ReviewApplication, UserInput};
 use std::time::Instant;
 use ui_events::{
     AnimationTick, FileSummary, RepositoryFilesChanged, RepositoryMetadataChanged,
-    ReviewGuideChanged, ReviewGuideStatusChanged, ReviewStateSaved, ToastExpirationTick,
+    ReviewStateSaved, ToastExpirationTick,
 };
 
 fn rows() -> Vec<DiffRow> {
@@ -141,388 +141,6 @@ fn wrapped_diff_application(rows: Vec<DiffRow>, width: u16, height: u16) -> Revi
     application.update(UserInput::Resize { width, height });
     application.update(UserInput::Key(Key::Tab));
     application
-}
-
-fn load_single_hunk_guide_in_application(application: &mut ReviewApplication, text: &str) {
-    application.publish(ReviewGuideChanged {
-        review_checkpoint: ReviewCheckpoint::new("qpvuntsm", "11111111"),
-        items: vec![GuideItem {
-            target: GuideTarget::Hunks {
-                path: "src/lib.rs".to_owned(),
-                first_hunk: 1,
-                last_hunk: 1,
-            },
-            text: text.to_owned(),
-            status: GuideItemStatus::Matched,
-        }],
-    });
-}
-
-#[test]
-fn review_guide_wraps_only_changed_hunk_rows_with_the_explanation_at_the_top() {
-    let mut guide_rows = rows();
-    let DiffRow::Add { text, .. } = guide_rows.last_mut().unwrap() else {
-        unreachable!();
-    };
-    *text = format!("+{}", " wrapped-source".repeat(8));
-    let mut app = wrapped_diff_application(guide_rows, 42, 20);
-    load_single_hunk_guide_in_application(
-        &mut app,
-        "This central explanation wraps at spaces and stays visible.",
-    );
-
-    let rendered = application_screen(&app, 42, 20);
-    let joined = rendered.join("\n");
-    assert!(joined.contains("wrapped-source"));
-    assert!(joined.contains("╭─"));
-    assert!(joined.contains("├─"));
-    assert!(joined.contains("╰─"));
-    assert!(joined.contains("╮│"), "{joined}");
-    assert!(joined.contains("┤│"), "{joined}");
-    assert!(joined.contains("╯│"), "{joined}");
-    assert!(!joined.contains("▌│"), "{joined}");
-    assert!(joined.contains("│▌ 2│ wrapped-source"), "{joined}");
-    assert!(
-        joined.contains("│   │  This central explanation"),
-        "{joined}"
-    );
-    assert!(joined.contains("This central explanation"));
-    assert!(joined.contains("wraps"));
-    assert!(joined.contains("spaces and stays visible"));
-    assert!(
-        joined.find("fn run()").unwrap() < joined.find("This central explanation").unwrap(),
-        "{joined}"
-    );
-    assert!(
-        rendered
-            .iter()
-            .filter(|line| line.contains("wrapped-source"))
-            .all(|line| line.ends_with("││")),
-        "{joined}"
-    );
-    assert!(rendered.iter().all(|line| line.chars().count() == 42));
-}
-
-#[test]
-fn guide_border_overlay_preserves_changed_row_backgrounds() {
-    let mut app = wrapped_diff_application(rows(), 60, 20);
-    load_single_hunk_guide_in_application(&mut app, "A short explanation.");
-    let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
-    terminal
-        .draw(|frame| frame.render_widget(app.frame(), frame.area()))
-        .unwrap();
-    let buffer = terminal.backend().buffer();
-
-    let colored_border_cells = buffer
-        .content()
-        .iter()
-        .filter(|cell| {
-            cell.symbol() == "│" && cell.fg == Color::LightYellow && cell.bg != Color::Reset
-        })
-        .collect::<Vec<_>>();
-    assert!(
-        colored_border_cells.len() >= 2,
-        "colored border cells: {colored_border_cells:?}"
-    );
-}
-
-#[test]
-fn file_with_a_review_guide_has_a_comment_marker() {
-    let mut app = ReviewApplication::default();
-    publish_repository(
-        &mut app,
-        ReviewCheckpoint::new("qpvuntsm", "11111111"),
-        String::new(),
-        vec![FileSummary::new("src/lib.rs", ReviewStatus::Unreviewed)],
-    );
-    assert!(!application_screen(&app, 100, 12).join("\n").contains(" 📄"));
-
-    app.publish(ReviewGuideChanged {
-        review_checkpoint: ReviewCheckpoint::new("qpvuntsm", "11111111"),
-        items: vec![GuideItem {
-            target: GuideTarget::Hunks {
-                path: "src/lib.rs".to_owned(),
-                first_hunk: 1,
-                last_hunk: 1,
-            },
-            text: "A short explanation.".to_owned(),
-            status: GuideItemStatus::Matched,
-        }],
-    });
-
-    assert!(
-        application_screen(&app, 100, 12)
-            .iter()
-            .any(|line| line.contains("lib.rs") && line.contains(" 📄"))
-    );
-}
-
-#[test]
-fn guide_generation_spinner_is_at_the_right_of_the_status_line() {
-    let mut app = wrapped_diff_application(rows(), 80, 12);
-    app.publish(ReviewGuideStatusChanged {
-        review_checkpoint: ReviewCheckpoint::new("qpvuntsm", "11111111"),
-        generating: true,
-        message: None,
-    });
-    let mut terminal = Terminal::new(TestBackend::new(80, 12)).unwrap();
-    terminal
-        .draw(|frame| frame.render_widget(app.frame(), frame.area()))
-        .unwrap();
-    let buffer = terminal.backend().buffer();
-    let first = (0..80)
-        .map(|column| buffer[(column, 11)].symbol())
-        .collect::<String>();
-    assert!(first.starts_with("? help"), "{first}");
-    assert!(first.ends_with("⠋ Generating guide"), "{first}");
-    assert_ne!(buffer[(0, 11)].fg, Color::LightYellow);
-    assert_eq!(buffer[(79, 11)].fg, Color::LightYellow);
-
-    publish_tick(&mut app, Instant::now());
-    let second = application_screen(&app, 80, 12)[11].clone();
-    assert!(second.ends_with("⠙ Generating guide"), "{second}");
-}
-
-#[test]
-fn separate_line_guides_render_inside_one_hunk() {
-    let mut guide_rows = vec![DiffRow::Hunk {
-        old_start: 0,
-        old_count: 0,
-        new_start: 1,
-        new_count: 6,
-    }];
-    guide_rows.extend((1..=6).map(|line| DiffRow::Add {
-        new_line: line,
-        text: format!("+line_{line}"),
-    }));
-    let mut app = wrapped_diff_application(guide_rows, 60, 24);
-    app.publish(ReviewGuideChanged {
-        review_checkpoint: ReviewCheckpoint::new("qpvuntsm", "11111111"),
-        items: [
-            (5, 6, "Second idea."),
-            (50, 50, "Unmapped idea."),
-            (1, 2, "First idea."),
-        ]
-        .into_iter()
-        .map(|(first_line, last_line, text)| GuideItem {
-            target: GuideTarget::Lines {
-                path: "src/lib.rs".to_owned(),
-                old: None,
-                new: Some(GuideLineRange {
-                    first_line,
-                    last_line,
-                }),
-            },
-            text: text.to_owned(),
-            status: GuideItemStatus::Matched,
-        })
-        .collect(),
-    });
-
-    let rendered = application_screen(&app, 60, 24).join("\n");
-
-    assert!(rendered.contains("First idea."), "{rendered}");
-    assert!(rendered.contains("Second idea."), "{rendered}");
-    assert!(!rendered.contains("Unmapped idea."), "{rendered}");
-    assert!(rendered.contains("line_3"), "{rendered}");
-    assert!(rendered.contains("line_4"), "{rendered}");
-    assert_eq!(rendered.matches('╭').count(), 2, "{rendered}");
-    assert_eq!(rendered.matches('╰').count(), 2, "{rendered}");
-    assert!(rendered.contains(" 1/2 ╮"), "{rendered}");
-    assert!(rendered.contains(" 2/2 ╮"), "{rendered}");
-    assert!(!rendered.contains("/3"), "{rendered}");
-    let first_counter = rendered.find(" 1/2 ╮").unwrap();
-    let first_text = rendered.find("First idea.").unwrap();
-    let second_counter = rendered.find(" 2/2 ╮").unwrap();
-    let second_text = rendered.find("Second idea.").unwrap();
-    assert!(first_counter < first_text, "{rendered}");
-    assert!(first_text < second_counter, "{rendered}");
-    assert!(second_counter < second_text, "{rendered}");
-}
-
-#[test]
-fn guide_counter_includes_items_for_diffs_that_are_not_loaded() {
-    let mut app = ReviewApplication::default();
-    publish_repository(
-        &mut app,
-        ReviewCheckpoint::new("qpvuntsm", "11111111"),
-        String::new(),
-        vec![
-            FileSummary::new("src/first.rs", ReviewStatus::Unreviewed),
-            FileSummary::new("src/second.rs", ReviewStatus::Unreviewed),
-        ],
-    );
-    app.publish(ui_events::DiffContentLoaded {
-        review_checkpoint: ReviewCheckpoint::new("qpvuntsm", "11111111"),
-        path: "src/first.rs".to_owned(),
-        rows: rows(),
-        old_content: None,
-        new_content: None,
-    });
-    app.publish(ReviewGuideChanged {
-        review_checkpoint: ReviewCheckpoint::new("qpvuntsm", "11111111"),
-        items: ["src/first.rs", "src/second.rs"]
-            .into_iter()
-            .map(|path| GuideItem {
-                target: GuideTarget::Hunks {
-                    path: path.to_owned(),
-                    first_hunk: 1,
-                    last_hunk: 1,
-                },
-                text: format!("Guide for {path}"),
-                status: GuideItemStatus::Matched,
-            })
-            .collect(),
-    });
-    app.update(UserInput::Resize {
-        width: 60,
-        height: 12,
-    });
-    app.update(UserInput::Key(Key::Tab));
-
-    let rendered = application_screen(&app, 60, 12).join("\n");
-
-    assert!(rendered.contains(" 1/2 ╮"), "{rendered}");
-}
-
-#[test]
-fn gg_keeps_the_top_of_a_guided_hunk_at_the_top() {
-    let mut guide_rows = vec![DiffRow::Hunk {
-        old_start: 0,
-        old_count: 0,
-        new_start: 1,
-        new_count: 30,
-    }];
-    guide_rows.extend((1..=30).map(|line| DiffRow::Add {
-        new_line: line,
-        text: format!("+line_{line}"),
-    }));
-    let mut app = wrapped_diff_application(guide_rows, 60, 12);
-    load_single_hunk_guide_in_application(&mut app, "Top explanation.");
-
-    app.update(UserInput::Key(Key::Char('G')));
-    app.update(UserInput::Key(Key::Char('g')));
-    app.update(UserInput::Key(Key::Char('g')));
-
-    let rendered = application_screen(&app, 60, 12).join("\n");
-    assert!(rendered.contains("Top explanation."), "{rendered}");
-    assert!(rendered.contains("line_1"), "{rendered}");
-    assert!(!rendered.contains("line_30"), "{rendered}");
-}
-
-#[test]
-fn guide_comment_jumps_align_the_top_border_with_the_viewport_top() {
-    let mut guide_rows = vec![DiffRow::Hunk {
-        old_start: 1,
-        old_count: 30,
-        new_start: 1,
-        new_count: 30,
-    }];
-    guide_rows.extend((1..=30).map(|line| DiffRow::Context {
-        old_line: line,
-        new_line: line,
-        text: format!(" line_{line}"),
-    }));
-    let mut app = wrapped_diff_application(guide_rows, 60, 12);
-    app.publish(ReviewGuideChanged {
-        review_checkpoint: ReviewCheckpoint::new("qpvuntsm", "11111111"),
-        items: vec![GuideItem {
-            target: GuideTarget::Lines {
-                path: "src/lib.rs".to_owned(),
-                old: None,
-                new: Some(GuideLineRange {
-                    first_line: 25,
-                    last_line: 25,
-                }),
-            },
-            text: "Late explanation.".to_owned(),
-            status: GuideItemStatus::Matched,
-        }],
-    });
-
-    app.update(UserInput::Key(Key::Char(']')));
-    app.update(UserInput::Key(Key::Char('r')));
-    let next = application_screen(&app, 60, 12);
-    assert!(next[2].contains('╭'), "{}", next.join("\n"));
-    assert!(next[3].contains("Late explanation."), "{}", next.join("\n"));
-    assert!(next[5].contains("line_25"), "{}", next.join("\n"));
-
-    app.update(UserInput::Key(Key::Char('G')));
-    app.update(UserInput::Key(Key::Char('[')));
-    app.update(UserInput::Key(Key::Char('r')));
-    let previous = application_screen(&app, 60, 12);
-    assert!(previous[2].contains('╭'), "{}", previous.join("\n"));
-    assert!(
-        previous[3].contains("Late explanation."),
-        "{}",
-        previous.join("\n")
-    );
-    assert!(previous[5].contains("line_25"), "{}", previous.join("\n"));
-}
-
-#[test]
-fn reviewed_file_hides_its_review_guide() {
-    let mut app = wrapped_diff_application(rows(), 60, 12);
-    load_single_hunk_guide_in_application(&mut app, "This guide is hidden.");
-    assert!(
-        application_screen(&app, 60, 12)
-            .join("\n")
-            .contains("This guide")
-    );
-
-    publish_repository(
-        &mut app,
-        ReviewCheckpoint::new("qpvuntsm", "11111111"),
-        String::new(),
-        vec![FileSummary::new("src/lib.rs", ReviewStatus::Reviewed)],
-    );
-
-    assert!(
-        !application_screen(&app, 60, 12)
-            .join("\n")
-            .contains("This guide")
-    );
-}
-
-#[test]
-fn stale_review_guide_explanations_are_dimmed() {
-    let mut app = wrapped_diff_application(rows(), 60, 12);
-    app.publish(ReviewGuideChanged {
-        review_checkpoint: ReviewCheckpoint::new("qpvuntsm", "11111111"),
-        items: vec![GuideItem {
-            target: GuideTarget::Hunks {
-                path: "src/lib.rs".to_owned(),
-                first_hunk: 1,
-                last_hunk: 1,
-            },
-            text: "ZZZ carried explanation".to_owned(),
-            status: GuideItemStatus::Stale,
-        }],
-    });
-    let mut terminal = Terminal::new(TestBackend::new(60, 12)).unwrap();
-    terminal
-        .draw(|frame| frame.render_widget(app.frame(), frame.area()))
-        .unwrap();
-
-    let stale_text_cells = terminal
-        .backend()
-        .buffer()
-        .content()
-        .iter()
-        .filter(|cell| cell.symbol() == "Z")
-        .collect::<Vec<_>>();
-    assert!(!stale_text_cells.is_empty());
-    assert!(
-        stale_text_cells
-            .iter()
-            .all(|cell| cell.modifier.contains(Modifier::DIM))
-    );
-    assert!(stale_text_cells.iter().all(|cell| cell.bg == Color::Reset));
-    assert!(
-        stale_text_cells
-            .iter()
-            .all(|cell| cell.fg == Color::LightYellow)
-    );
 }
 
 #[test]
@@ -1652,7 +1270,7 @@ fn dragging_diff_lines_opens_an_inline_comment_on_release() {
                 .content()
                 .iter()
                 .any(|cell| cell.symbol() == symbol && cell.fg == color),
-            "comment border {symbol} must be visible without a review guide"
+            "comment border {symbol} must be visible"
         );
     }
     app.update(UserInput::Key(Key::Tab));
@@ -1752,13 +1370,13 @@ fn mouse_wheel_scrolls_the_diff_viewport_regardless_of_focus() {
 fn unread_threads(checkpoint: &ReviewCheckpoint, path: &str) -> review_threads::ReviewThreads {
     let mut book = review_threads::ReviewThreads::new(checkpoint.review_unit.clone());
     let post = review_threads::Post::start(
-        review_guide::DiffRangeAnchor {
+        review_source::DiffRangeAnchor {
             source_checkpoint: checkpoint.checkpoint.clone(),
             old_path: None,
             new_path: Some(path.into()),
             old_lines: None,
             new_lines: None,
-            target_kind: review_guide::GuideAnchorKind::Hunks,
+            target_kind: review_source::AnchorKind::Hunks,
             source_hunk_count: 0,
             old_content: None,
             new_content: None,
@@ -1882,8 +1500,9 @@ fn question_mark_opens_shortcut_help_and_escape_closes_it() {
     assert!(app.update(UserInput::Key(Key::Char('?'))).is_empty());
     let popup = screen(&app, 80, 24).join("\n");
     assert!(popup.contains("Keyboard shortcuts"));
-    assert!(popup.contains("rf / ra"));
-    assert!(popup.contains("[r / ]r"));
+    assert!(popup.contains("[h / ]h"));
+    assert!(popup.contains("[f / ]f"));
+    assert!(!popup.contains("Review guide"));
 
     assert!(app.update(UserInput::Key(Key::Escape)).is_empty());
     assert!(

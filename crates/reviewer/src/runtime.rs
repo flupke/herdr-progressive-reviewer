@@ -6,7 +6,6 @@ mod comment_service;
 mod document;
 mod events;
 mod explore;
-mod guide;
 mod highlighting;
 mod terminal;
 mod timing;
@@ -38,33 +37,26 @@ use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
 use herdr_client::client::HerdrClient;
-use herdr_client::protocol::{Agent, AgentTarget, HerdrEvent, PaneId, PluginContext, WorkspaceId};
+use herdr_client::protocol::{AgentTarget, HerdrEvent, PaneId, PluginContext, WorkspaceId};
 use ratatui::Terminal;
 use ratatui::backend::Backend;
-use review_guide::{FrozenFile, FrozenHunk, GuideScope, ReviewCheckpoint};
-use review_guide_runner::{
-    GuideMailbox, GuideRepositorySnapshot, GuideResponseVersion, GuideResponseWaitOutcome,
-    GuideResponseWatchCancellation, GuideResult, PreparedGuide,
-};
 use review_lsp::SourceLocation;
 use review_repository::diff::parse_file_diff;
 use review_repository::repository::{
-    ChangeId, ChangedFile, PollResult, RepoPath, Repository, RevisionDirection, Snapshot,
+    ChangeId, ChangedFile, PollResult, Repository, RevisionDirection, Snapshot,
 };
-use review_state::{MarkResult, ReviewStatus, ReviewTracker};
+use review_source::ReviewCheckpoint;
+use review_state::{MarkResult, ReviewTracker};
 use review_store::ReviewStore;
-use review_types::ReviewUnit;
 use review_ui::{Action, Key, ReviewApplication, SourceLoadMode, Theme, UserInput};
-use sha2::{Digest, Sha256};
 use signal_hook::consts::signal::{SIGHUP, SIGINT, SIGTERM};
 use signal_hook::flag;
 use terminal::{CursorBackend, TerminalBackend};
 use ui_events::{
     AnimationTick, DiffContentLoadFailed, DiffContentLoaded, FileSummary, RepositoryFilesChanged,
     RepositoryMetadataChanged, RepositoryRefreshFinished, RepositoryRefreshStarted,
-    ReviewGuideChanged, ReviewStateSaved, RevisionCandidatesLoaded, RevisionEditFailed,
-    RevisionHistoryLoadId, RevisionHistoryLoaded, SourceContentLoadFailed, SourceContentLoaded,
-    ToastExpirationTick,
+    ReviewStateSaved, RevisionCandidatesLoaded, RevisionEditFailed, RevisionHistoryLoadId,
+    RevisionHistoryLoaded, SourceContentLoadFailed, SourceContentLoaded, ToastExpirationTick,
 };
 
 use crate::watcher::RepositoryWatcher;
@@ -90,12 +82,11 @@ pub struct Runtime {
 struct Worker {
     repository: Repository,
     tracker: Arc<ReviewTracker>,
-    guide_store: ReviewStore,
+    store: ReviewStore,
     client: HerdrClient,
     target: AgentTarget,
     snapshot: Option<Snapshot>,
     commands: Sender<WorkerCommand>,
-    guide: guide::GuideRequestCoordinator,
     explore: explore::ExploreRuntime,
     prompts: comments::PromptSender,
     documents: Sender<document::Command>,
@@ -117,12 +108,6 @@ enum WorkerCommand {
     SetReviewed {
         path: String,
         reviewed: bool,
-    },
-    GenerateReviewGuide(GuideScope),
-    GuideFinished(Box<guide::FinishedGuide>),
-    ImportReviewGuide {
-        review_unit: ReviewUnit,
-        wait_token: u64,
     },
     Quit,
 }
@@ -460,8 +445,7 @@ impl Runtime {
     ) -> eyre::Result<BackgroundWorkers> {
         let target = AgentTarget::new(self.workspace_id.clone(), self.initial_agent.clone());
         let store = ReviewStore::open(&self.state_dir, self.repository.root())?;
-        let guide_store = ReviewStore::open(&self.state_dir, self.repository.root())?;
-        let tracker = Arc::new(ReviewTracker::new(self.repository.clone(), store));
+        let tracker = Arc::new(ReviewTracker::new(self.repository.clone(), store.clone()));
         let (command_sender, command_receiver) = mpsc::channel();
         let (documents, document_receiver) = mpsc::channel();
         let mut document_worker = document::DocumentWorker {
@@ -476,7 +460,7 @@ impl Runtime {
         });
         let messages = ApplicationMessageSender(events.clone());
         let comments = self.start_comments(
-            guide_store.clone(),
+            store.clone(),
             messages.clone(),
             target.clone(),
             command_sender.clone(),
@@ -484,12 +468,11 @@ impl Runtime {
         let mut worker = Worker {
             repository: self.repository.clone(),
             tracker,
-            guide_store,
+            store,
             client: self.client.clone(),
             target: target.clone(),
             snapshot: None,
             commands: command_sender.clone(),
-            guide: guide::GuideRequestCoordinator::default(),
             explore: explore::ExploreRuntime::default(),
             prompts: comments.prompt_sender(),
             documents: documents.clone(),
@@ -605,9 +588,7 @@ impl RuntimeActionDispatcher<'_> {
             action @ (Action::LoadRevisionCandidates(_)
             | Action::LoadRevisionHistory { .. }
             | Action::EditRevision { .. }) => Self::revision_worker_command(action),
-            action @ (Action::SetReviewed { .. } | Action::GenerateReviewGuide { .. }) => {
-                Self::review_worker_command(action)
-            }
+            action @ Action::SetReviewed { .. } => Self::review_worker_command(action),
             Action::Thread(_)
             | Action::Highlight(_)
             | Action::OpenLspDocument(_)
@@ -678,7 +659,6 @@ impl RuntimeActionDispatcher<'_> {
     fn review_worker_command(action: Action) -> WorkerCommand {
         match action {
             Action::SetReviewed { path, reviewed } => WorkerCommand::SetReviewed { path, reviewed },
-            Action::GenerateReviewGuide { scope } => WorkerCommand::GenerateReviewGuide(scope),
             _ => unreachable!("review conversion accepts only review actions"),
         }
     }
@@ -841,38 +821,6 @@ where
 }
 
 impl Worker {
-    fn guide_operation<Result>(
-        &mut self,
-        operation: impl FnOnce(
-            &mut guide::GuideRequestCoordinator,
-            &mut guide::GuideOperationContext<'_>,
-        ) -> Result,
-    ) -> Result {
-        let Self {
-            repository,
-            tracker,
-            guide_store,
-            client,
-            target,
-            snapshot,
-            commands,
-            guide,
-            prompts,
-            ..
-        } = self;
-        let mut context = guide::GuideOperationContext {
-            repository,
-            tracker,
-            guide_store,
-            client,
-            target,
-            prompts,
-            snapshot: snapshot.as_ref(),
-            commands,
-        };
-        operation(guide, &mut context)
-    }
-
     fn run(&mut self, commands: &Receiver<WorkerCommand>, messages: &ApplicationMessageSender) {
         let mut next = None;
         while let Some(mut command) = next.take().or_else(|| commands.recv().ok()) {
@@ -911,11 +859,6 @@ impl Worker {
             WorkerCommand::SetReviewed { path, reviewed } => {
                 self.set_reviewed(messages, path, reviewed);
                 true
-            }
-            command @ (WorkerCommand::GenerateReviewGuide(_)
-            | WorkerCommand::GuideFinished(_)
-            | WorkerCommand::ImportReviewGuide { .. }) => {
-                self.handle_guide_command(command, messages)
             }
             WorkerCommand::ExploreChanged => {
                 self.refresh_explore(messages);
@@ -979,35 +922,6 @@ impl Worker {
         let _ = messages.send(RevisionEditFailed { message: failure });
     }
 
-    fn handle_guide_command(
-        &mut self,
-        command: WorkerCommand,
-        messages: &ApplicationMessageSender,
-    ) -> bool {
-        match command {
-            WorkerCommand::GenerateReviewGuide(scope) => {
-                self.guide_operation(|guide, context| {
-                    guide.generate_review_guide(context, messages, &scope);
-                });
-            }
-            WorkerCommand::GuideFinished(finished) => {
-                self.guide_operation(|guide, context| {
-                    guide.finish_review_guide(context, messages, *finished);
-                });
-            }
-            WorkerCommand::ImportReviewGuide {
-                review_unit,
-                wait_token,
-            } => {
-                self.guide_operation(|guide, context| {
-                    guide.response_ready(context, messages, &review_unit, wait_token);
-                });
-            }
-            _ => unreachable!("only guide commands are delegated here"),
-        }
-        true
-    }
-
     fn poll(&mut self, messages: &ApplicationMessageSender) -> bool {
         let snapshot = match self.repository.poll() {
             Ok(PollResult::Complete(snapshot)) => snapshot,
@@ -1038,40 +952,9 @@ impl Worker {
             review_checkpoint,
             files,
         });
-        if let Ok(Some(guide)) = self.guide_store.load_guide(snapshot.identity.review_unit()) {
-            let items = if guide.review_checkpoint.checkpoint == snapshot.identity.snapshot_id() {
-                guide.items
-            } else {
-                let unreviewed_files = snapshot
-                    .files
-                    .iter()
-                    .zip(&states)
-                    .filter(|(_, state)| state.status != ReviewStatus::Reviewed)
-                    .map(|(file, _)| file)
-                    .collect::<Vec<_>>();
-                let current_files = self.guide_operation(|_guide, context| {
-                    guide::GuideRequestCoordinator::frozen_files(
-                        context,
-                        &snapshot,
-                        &unreviewed_files,
-                    )
-                });
-                review_guide::map_anchored_items(&guide.anchored_items, &current_files)
-            };
-            let _ = messages.send(ReviewGuideChanged {
-                review_checkpoint: ReviewCheckpoint::new(
-                    snapshot.identity.review_unit().clone(),
-                    snapshot.identity.snapshot_id(),
-                ),
-                items,
-            });
-        }
         let review_unit = snapshot.identity.review_unit().clone();
         self.restore_explore(&review_unit, messages);
         self.snapshot = Some(snapshot);
-        self.guide_operation(|guide, context| {
-            guide.import_completed_guide(context, messages, &review_unit);
-        });
         true
     }
 

@@ -13,7 +13,7 @@ fn external_events_change_visible_header_output() {
     let target = bus.mount(StatusComponent::new);
     bus.publish(RepositoryMetadataChanged {
         display_id: "\x1b[31mab\x1b[90mcd1234\x1b[0m".to_owned(),
-        review_checkpoint: review_guide::ReviewCheckpoint::new("change", "snapshot"),
+        review_checkpoint: review_source::ReviewCheckpoint::new("change", "snapshot"),
         description: "Component migration\nbody".to_owned(),
     })
     .unwrap();
@@ -77,7 +77,7 @@ fn long_subject_leaves_revision_id_and_statistics_visible() {
     let target = bus.mount(StatusComponent::new);
     bus.publish(RepositoryMetadataChanged {
         display_id: "abcd1234".to_owned(),
-        review_checkpoint: review_guide::ReviewCheckpoint::new("change", "snapshot"),
+        review_checkpoint: review_source::ReviewCheckpoint::new("change", "snapshot"),
         description: "A long subject repeated many times ".repeat(10),
     })
     .unwrap();

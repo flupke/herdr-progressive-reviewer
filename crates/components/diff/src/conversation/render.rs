@@ -1,4 +1,4 @@
-use guide_rendering::{DiffFrame, FrameRule, GuideOverlay, GuideOverlayRow};
+use diff_rendering::{DiffFrame, FrameOverlay, FrameOverlayRow, FrameRule};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -149,13 +149,13 @@ impl DiffComponent {
         );
         for (row, content) in viewport.visible(scroll).into_iter().enumerate() {
             targets.push(content.target);
-            overlay.push(GuideOverlayRow {
+            overlay.push(FrameOverlayRow {
                 row: u16::try_from(row).unwrap_or(u16::MAX),
                 line: Some(content.rendered.line),
                 border_cells: content.rendered.border_cells,
             });
         }
-        GuideOverlay::new(body, overlay).render(buffer);
+        FrameOverlay::new(body, overlay).render(buffer);
         self.conversation.targets.replace(targets);
     }
 

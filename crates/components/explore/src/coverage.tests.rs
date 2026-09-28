@@ -22,7 +22,7 @@ fn comparison() -> Arc<Comparison> {
         })
         .collect();
     Arc::new(Comparison {
-        checkpoint: review_guide::ReviewCheckpoint::new("review", "checkpoint"),
+        checkpoint: review_source::ReviewCheckpoint::new("review", "checkpoint"),
         repository_root: "/tmp".into(),
         files,
         diffs: vec![

@@ -160,7 +160,7 @@ and logical review. When Herdr reports a native session ID, access is bound to
 that session. Otherwise it is bound to the agent's foreground process group,
 so notifications and **Retry agent** can still reach an agent without a native
 session ID.
-Guide generation and comment delivery share one active-agent selection:
+Explore and comment delivery share one active-agent selection:
 the most recently focused live agent in this workspace, with the existing single-agent
 fallback. Focus changes, posts, retries and reopening use that selection; reviews do
 not store a separate recipient. Waking a different agent retires the previous
@@ -315,7 +315,7 @@ means the request was sent, not that implementation has finished.
 ## Runtime and verification
 
 An idle reviewer keeps its existing frame. Input and background updates repaint
-it; timers also process deferred file loads, guide animation and toast deadlines.
+it; timers also process deferred file loads and toast deadlines.
 The conversation worker sleeps until an event arrives when no comments need
 notification. Repository and current-file peek refreshes use filesystem events
 (inotify on Linux), with no periodic repository scans. The displayed source is watched

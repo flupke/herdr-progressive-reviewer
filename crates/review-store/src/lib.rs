@@ -18,7 +18,6 @@ const MAX_STATE_FILE_BYTES: u64 = 1024 * 1024;
 mod explore;
 pub use review_explore::ExploreHistory;
 mod checkpoint;
-mod guide;
 mod thread_sources;
 mod threads;
 

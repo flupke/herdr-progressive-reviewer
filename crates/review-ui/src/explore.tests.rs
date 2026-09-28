@@ -176,7 +176,7 @@ impl ExploreUi {
                         location: review_explore::CodeLocation {
                             path: source.path.clone(),
                             side: source.side,
-                            lines: Some(GuideLineRange {
+                            lines: Some(SourceLineRange {
                                 first_line: line,
                                 last_line: line,
                             }),
@@ -265,7 +265,7 @@ fn outlines_keep_wrapping_disjoint_ranges_and_deleted_lines_separate() {
         location: review_explore::CodeLocation {
             path: old.path.clone(),
             side: old.side,
-            lines: Some(GuideLineRange {
+            lines: Some(SourceLineRange {
                 first_line: 1,
                 last_line: 1,
             }),
@@ -334,7 +334,7 @@ fn clipped_evidence_keeps_continuations_open_at_the_viewport_edges() {
     let mut response = fixture.response(&request, 1);
     let question = response.next.as_mut().unwrap();
     question.evidence.truncate(1);
-    question.evidence[0].location.lines = Some(GuideLineRange {
+    question.evidence[0].location.lines = Some(SourceLineRange {
         first_line: 1,
         last_line: 3,
     });

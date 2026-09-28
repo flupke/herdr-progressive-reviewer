@@ -44,7 +44,7 @@ impl SourcePeek {
             area.height.saturating_sub(1),
         );
         self.viewer
-            .render(body, buffer, palette, focused, None)
+            .render(body, buffer, palette, focused)
             .render(buffer);
         if let Some(status) = &self.status {
             Paragraph::new(status.as_str()).render(

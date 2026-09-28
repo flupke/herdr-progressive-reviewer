@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::ops::Range;
 
 use comment_editor::{CommentEditor, EditorKeymap};
-use review_guide::{DiffRangeAnchor, FrozenHunk, GuideAnchorKind};
+use review_source::{AnchorKind, DiffRangeAnchor, FrozenHunk};
 use review_threads::{
     Draft, DraftTarget, MessageId, Post, ReviewThread, ReviewThreads, ThreadCommand, ThreadId,
     ThreadSource,
@@ -363,7 +363,7 @@ impl DiffComponent {
                             .or_else(|| new.as_ref().map(|_| file.path.clone())),
                         old_lines: old,
                         new_lines: new,
-                        target_kind: GuideAnchorKind::Lines,
+                        target_kind: AnchorKind::Lines,
                         source_hunk_count: 0,
                         old_content: content.old_content.clone(),
                         new_content: content.new_content.clone(),

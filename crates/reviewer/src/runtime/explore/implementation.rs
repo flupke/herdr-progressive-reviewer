@@ -26,7 +26,7 @@ impl Worker {
         ));
         let observer = DurableDispatch {
             began: std::sync::atomic::AtomicBool::default(),
-            store: self.guide_store.clone(),
+            store: self.store.clone(),
             unit: pass.exploration.comparison.checkpoint.review_unit.clone(),
             instance: request.instance.clone(),
             id: review_explore::DispatchId::Implementation {
@@ -69,7 +69,7 @@ impl Worker {
             .clone()
             .ok_or_else(|| eyre::eyre!("No Explore pass"))?;
         let ((), pass) = self
-            .guide_store
+            .store
             .update_explore(&unit, &request.instance, |pass| {
                 pass.authorize(request).map_err(|error| error.to_string())?;
                 pass.implementations

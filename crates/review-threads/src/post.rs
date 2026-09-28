@@ -1,4 +1,4 @@
-use review_guide::DiffRangeAnchor;
+use review_source::DiffRangeAnchor;
 
 use crate::{Message, MessageId, ThreadId, ThreadSource};
 use std::sync::Arc;

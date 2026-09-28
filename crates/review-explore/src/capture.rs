@@ -3,11 +3,11 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
 use crate::{CodeLocation, EvidenceRef, Source, SourceSide};
-use review_guide::{FrozenFile, FrozenHunk, ReviewCheckpoint};
 use review_repository::{
     diff::{DiffRow, parse_file_diff},
     repository::{ChangedFile, RepoPath, Repository, Snapshot, SnapshotIdentity},
 };
+use review_source::{FrozenFile, FrozenHunk, ReviewCheckpoint};
 use sha2::{Digest, Sha256};
 
 mod compressed_diffs;

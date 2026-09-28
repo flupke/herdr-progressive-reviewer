@@ -2,7 +2,6 @@
 
 use diff_component::DiffComponent;
 use files_component::FilesComponent;
-use guide_component::GuideComponent;
 use locations_component::LocationsComponent;
 use overlay_component::OverlayComponent;
 use ratatui::buffer::Buffer;
@@ -31,7 +30,6 @@ pub struct ApplicationFrame<'a> {
     pub(super) threads: &'a ThreadsComponent,
     pub(super) explore: &'a explore_component::ExploreComponent,
     pub(super) diff: &'a DiffComponent,
-    pub(super) guide: &'a GuideComponent,
     pub(super) locations: &'a LocationsComponent,
     pub(super) status: &'a StatusComponent,
     pub(super) overlay: &'a OverlayComponent,
@@ -191,17 +189,9 @@ impl ApplicationFrame<'_> {
     }
 
     fn render_diff(&self, area: Rect, buffer: &mut Buffer) {
-        let viewport = self.diff.displayed_guide_viewport();
-        let guide_layout = viewport
-            .as_ref()
-            .map(|viewport| self.guide.layout(viewport, self.palette.guide));
-        let overlay = self.diff.render(
-            area,
-            buffer,
-            self.palette,
-            self.focus == ReviewPane::Detail,
-            guide_layout,
-        );
+        let overlay =
+            self.diff
+                .render(area, buffer, self.palette, self.focus == ReviewPane::Detail);
         overlay.render(buffer);
     }
 }

@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use component_core::{Component, ComponentEventBus, ComponentSubscriptions, EventEnvelope};
-use review_guide::ReviewCheckpoint;
 use review_lsp::{Event as LspEvent, Operation, SourceLocation};
+use review_source::ReviewCheckpoint;
 use toasts::ToastId;
 use ui_actions::Action;
 use ui_events::{

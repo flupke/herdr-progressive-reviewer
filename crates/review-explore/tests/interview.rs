@@ -1,6 +1,6 @@
 use review_explore::*;
-use review_guide::{GuideLineRange, ReviewCheckpoint};
 use review_repository::repository::ChangedFile;
+use review_source::{ReviewCheckpoint, SourceLineRange};
 use std::sync::Arc;
 
 fn exploration() -> Exploration {
@@ -55,7 +55,7 @@ fn question(version: u32) -> Question {
             location: review_explore::CodeLocation {
                 path: review_repository::repository::RepoPath::from_bytes(b"policy.rs"),
                 side: review_explore::SourceSide::Old,
-                lines: Some(GuideLineRange {
+                lines: Some(SourceLineRange {
                     first_line: 1,
                     last_line: 2,
                 }),
@@ -291,7 +291,7 @@ fn unsafe_evidence_and_wrong_comparisons_preserve_last_question() {
     }
     for (first_line, last_line) in [(0, 1), (2, 1), (1, 500)] {
         let mut next = question(2);
-        next.evidence[0].location.lines = Some(GuideLineRange {
+        next.evidence[0].location.lines = Some(SourceLineRange {
             first_line,
             last_line,
         });

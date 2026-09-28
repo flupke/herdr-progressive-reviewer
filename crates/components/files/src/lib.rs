@@ -7,14 +7,14 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use review_guide::ReviewCheckpoint;
 use review_repository::repository::ChangeKind;
+use review_source::ReviewCheckpoint;
 use review_state::{ReviewState, ReviewStatus};
 use review_types::ReviewUnit;
 use ui_actions::Action;
 use ui_events::{
     FileDecorationsChanged, FileSelected, FileSelectionRequested, FileSummary,
-    FilesOverviewChanged, FilesViewportChanged, GuidePathsChanged, PointerInput, PointerInputKind,
+    FilesOverviewChanged, FilesViewportChanged, PointerInput, PointerInputKind,
     RepositoryFilesChanged, ReviewStateSaved, ReviewableFiles, ReviewableFilesChanged,
     TemporaryFilesChanged,
 };
@@ -43,7 +43,6 @@ pub struct FilesComponent {
     selected: usize,
     scroll: usize,
     page_rows: usize,
-    guide_paths: HashSet<String>,
     notice_paths: HashSet<String>,
     search_match_paths: HashSet<String>,
     pending_review: Option<PendingReview>,
@@ -80,7 +79,6 @@ impl FilesComponent {
             selected: 0,
             scroll: 0,
             page_rows: 1,
-            guide_paths: HashSet::new(),
             notice_paths: HashSet::new(),
             search_match_paths: HashSet::new(),
             pending_review: None,
@@ -133,7 +131,6 @@ impl FilesComponent {
     fn repository_changed(&mut self, event: &RepositoryFilesChanged) {
         let same_review_unit =
             self.review_checkpoint.review_unit == event.review_checkpoint.review_unit;
-        let same_checkpoint = self.review_checkpoint == event.review_checkpoint;
         let previous_selected_path = same_review_unit.then(|| self.selected_path()).flatten();
         if !same_review_unit {
             self.threads = None;
@@ -141,9 +138,6 @@ impl FilesComponent {
             self.collapsed_directories.clear();
             self.scroll = 0;
             self.pending_review = None;
-        }
-        if !same_review_unit || !same_checkpoint {
-            self.guide_paths.clear();
         }
         if same_review_unit {
             let paths_to_expand = event
@@ -302,10 +296,6 @@ impl FilesComponent {
         self.rebuild_tree();
         self.keep_selected_visible();
         self.publish_selection_if_changed(selected.as_deref());
-    }
-
-    fn guide_paths_changed(&mut self, event: &GuidePathsChanged) {
-        self.guide_paths = event.paths.iter().cloned().collect();
     }
 
     fn decorations_changed(&mut self, event: &FileDecorationsChanged) {
@@ -575,11 +565,7 @@ impl FilesComponent {
             .map_or_else(review_threads::ThreadCounts::default, |book| {
                 book.counts_for(|thread| self.current_thread_path(thread.path()) == path)
             });
-        let badges = FileBadges {
-            guide: self.guide_paths.contains(&path),
-            threads: counts,
-        }
-        .line(palette);
+        let badges = FileBadges { threads: counts }.line(palette);
         let statistics = FileStatistics::new(file);
         let prefix = shorten(
             &prefix,
@@ -630,7 +616,6 @@ impl Component<Action> for FilesComponent {
         subscriptions.subscribe(Self::review_state_saved);
         subscriptions.subscribe(Self::temporary_files_changed);
         subscriptions.subscribe(Self::thread_files_changed);
-        subscriptions.subscribe(Self::guide_paths_changed);
         subscriptions.subscribe(Self::decorations_changed);
         subscriptions.subscribe(Self::viewport_changed);
         subscriptions.subscribe(Self::selection_requested);

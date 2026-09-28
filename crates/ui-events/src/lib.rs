@@ -20,10 +20,10 @@ use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
 
-use review_guide::{GuideItem, GuideTarget, ReviewCheckpoint};
 use review_lsp::{Operation, SourceLocation};
 use review_repository::diff::DiffRow;
 use review_repository::repository::ChangedFile;
+use review_source::{DiffTarget, ReviewCheckpoint};
 use review_state::{ReviewState, ReviewStatus};
 use review_types::ReviewUnit;
 use toasts::ToastKind;
@@ -532,51 +532,14 @@ pub struct ReviewStateSaved {
     pub result: Result<ReviewState, ()>,
 }
 
-/// Paths that currently have visible guide comments.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct GuidePathsChanged {
-    pub paths: Vec<String>,
-}
-
-/// Guide generation state for one exact repository checkpoint.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ReviewGuideStatusChanged {
-    pub review_checkpoint: ReviewCheckpoint,
-    pub generating: bool,
-    pub message: Option<String>,
-}
-
-/// One complete guide for an exact repository checkpoint.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ReviewGuideChanged {
-    pub review_checkpoint: ReviewCheckpoint,
-    pub items: Vec<GuideItem>,
-}
-
-/// The position of one visible guide item in the complete guide.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct GuideCounter {
-    pub number: usize,
-    pub total: usize,
-}
-
-/// The guide data needed to lay out comments in the displayed diff.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct GuideLayoutChanged {
-    pub items: Vec<GuideItem>,
-    pub counters: Vec<Option<GuideCounter>>,
-}
-
-/// One presented diff row that can anchor a guide target.
+/// One presented diff row that can anchor a source target.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct DisplayedDiffRow {
-    pub hunk: Option<usize>,
     pub old_line: Option<u32>,
     pub new_line: Option<u32>,
-    pub changed: bool,
 }
 
-/// The guide-relevant shape of one displayed diff document.
+/// The source-target shape of one displayed diff document.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct DisplayedDiffViewport {
     pub path: String,
@@ -585,7 +548,7 @@ pub struct DisplayedDiffViewport {
     pub can_show_file: bool,
 }
 
-/// Guide-relevant diff viewports and the current navigation position.
+/// Displayed diff viewports and the current navigation position.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct DisplayedDiffViewportsChanged {
     pub viewports: Vec<DisplayedDiffViewport>,
@@ -593,12 +556,12 @@ pub struct DisplayedDiffViewportsChanged {
     pub current_row: usize,
 }
 
-/// A request to show one guide target at its current diff position.
+/// A request to show one source target at its current diff position.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct GuideJumpRequested {
+pub struct DiffTargetJumpRequested {
     pub file_index: usize,
     pub row: Option<usize>,
-    pub target: GuideTarget,
+    pub target: DiffTarget,
 }
 
 /// One animation tick for visible components.

@@ -2,10 +2,10 @@ use component_core::{ComponentEventBus, EventEnvelope};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use ratatui::style::Color;
-use review_guide::ReviewCheckpoint;
 use review_repository::repository::{
     ChangeId, RevisionCandidate, RevisionDirection, RevisionHistoryLine,
 };
+use review_source::ReviewCheckpoint;
 use review_types::ReviewUnit;
 use ui_events::{
     CurrentReviewLocationChanged, RepositoryFilesChanged, RepositoryRefreshFinished,

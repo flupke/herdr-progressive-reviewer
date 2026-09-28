@@ -7,7 +7,7 @@ mod conclusion;
 mod recovery;
 
 struct ExploreFlow {
-    fixture: GuideFlowFixture,
+    fixture: ReviewFlowFixture,
     exploration: Exploration,
     prompt_offset: usize,
     endpoint: review_mcp::Endpoint,
@@ -16,7 +16,7 @@ struct ExploreFlow {
 
 impl ExploreFlow {
     fn start(kind: RepoType) -> Self {
-        let fixture = GuideFlowFixture::start(kind);
+        let fixture = ReviewFlowFixture::start(kind);
         fixture
             .commands
             .send(WorkerCommand::Explore(ExploreCommand::Start))

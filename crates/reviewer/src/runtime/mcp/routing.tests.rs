@@ -12,11 +12,11 @@ impl ConversationFixture {
         });
         app.publish(ui_events::RepositoryMetadataChanged {
             display_id: "review".into(),
-            review_checkpoint: review_guide::ReviewCheckpoint::new("review", "now"),
+            review_checkpoint: review_source::ReviewCheckpoint::new("review", "now"),
             description: "Reply notification".into(),
         });
         app.publish(ui_events::RepositoryFilesChanged {
-            review_checkpoint: review_guide::ReviewCheckpoint::new("review", "now"),
+            review_checkpoint: review_source::ReviewCheckpoint::new("review", "now"),
             files: vec![ui_events::FileSummary::new(
                 "src/lib.rs",
                 review_state::ReviewStatus::Reviewed,

@@ -94,7 +94,7 @@ impl ExploreComponent {
                         side, first, end, ..
                     } => (
                         *side,
-                        Some(review_guide::GuideLineRange {
+                        Some(review_source::SourceLineRange {
                             first_line: *first,
                             last_line: end - 1,
                         }),

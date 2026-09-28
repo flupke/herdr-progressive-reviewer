@@ -8,7 +8,7 @@ license.workspace = true
 [dependencies]
 review-explore = { path = "../review-explore" }
 review-threads = { path = "../review-threads" }
-review-guide = { path = "../review-guide" }
+review-source = { path = "../review-source" }
 review-lsp = { path = "../review-lsp" }
 review-repository = { path = "../review-repository" }
 review-state = { path = "../review-state" }

@@ -1,5 +1,5 @@
 use super::*;
-use review_guide::DiffRangeAnchor;
+use review_source::DiffRangeAnchor;
 
 #[test]
 fn saved_recipient_fields_do_not_change_history_or_pending_work() {
@@ -141,7 +141,7 @@ fn start(text: &str) -> Post {
             new_path: Some("gone.rs".into()),
             old_lines: None,
             new_lines: Some(0..1),
-            target_kind: review_guide::GuideAnchorKind::Lines,
+            target_kind: review_source::AnchorKind::Lines,
             source_hunk_count: 1,
             old_content: None,
             new_content: Some(b"original\n".to_vec()),

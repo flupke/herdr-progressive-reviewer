@@ -1,5 +1,5 @@
 use crate::{Exploration, Interpretation, InterviewUpdate};
-use review_guide::ReviewCheckpoint;
+use review_source::ReviewCheckpoint;
 use serde::{Deserialize, Serialize};
 
 /// Only the agreed implementation scope is editable and sent by the Implement action.

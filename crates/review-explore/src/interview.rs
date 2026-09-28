@@ -1,7 +1,7 @@
 use crate::{
     AgendaChange, Assessments, CodeLocation, Comparison, ConversationTurn, EvidenceRef, Reply,
 };
-use review_guide::ReviewCheckpoint;
+use review_source::ReviewCheckpoint;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, sync::Arc};
 

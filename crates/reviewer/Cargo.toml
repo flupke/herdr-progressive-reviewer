@@ -24,8 +24,7 @@ ignore.workspace = true
 notify.workspace = true
 ratatui = { workspace = true, features = ["crossterm"] }
 review-repository = { path = "../review-repository" }
-review-guide = { path = "../review-guide" }
-review-guide-runner = { path = "../review-guide-runner" }
+review-source = { path = "../review-source" }
 review-lsp = { path = "../review-lsp" }
 review-state = { path = "../review-state" }
 review-threads = { path = "../review-threads" }

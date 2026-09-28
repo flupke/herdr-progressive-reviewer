@@ -1,5 +1,5 @@
 [package]
-name = "guide-rendering"
+name = "diff-rendering"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -7,7 +7,7 @@ license.workspace = true
 
 [dependencies]
 ratatui.workspace = true
-review-guide = { path = "../review-guide" }
+review-source = { path = "../review-source" }
 ui-events = { path = "../ui-events" }
 unicode-width.workspace = true
 

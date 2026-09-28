@@ -331,10 +331,10 @@ impl LoadedDocument {
         self.document.load_state.require_reload();
     }
 
-    pub(super) fn guide_viewport(&self, file_index: usize) -> DisplayedDiffViewport {
+    pub(super) fn target_viewport(&self, file_index: usize) -> DisplayedDiffViewport {
         self.document
             .diff
-            .guide_viewport(self.path.clone(), file_index)
+            .target_viewport(self.path.clone(), file_index)
     }
 
     pub(super) fn presented_row(&self) -> usize {

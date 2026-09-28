@@ -44,7 +44,7 @@ fn conversation_redirects_agenda_and_opens_new_evidence_in_the_native_viewer() {
         location: review_explore::CodeLocation {
             path: review_repository::repository::RepoPath::from_bytes(b"target/origin.rs"),
             side: review_explore::SourceSide::New,
-            lines: Some(GuideLineRange {
+            lines: Some(SourceLineRange {
                 first_line: 1,
                 last_line: 1,
             }),

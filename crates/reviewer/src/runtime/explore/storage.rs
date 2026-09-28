@@ -67,12 +67,9 @@ impl Worker {
         &self,
         unit: &review_types::ReviewUnit,
     ) -> Result<(ui_events::ExploreRestored, Option<String>), ExploreRestoreError> {
-        let history = self
-            .guide_store
-            .load_explore_history(unit)
-            .map_err(|error| {
-                ExploreRestoreError::Unreadable(UnreadableExplore::History(error.to_string()))
-            })?;
+        let history = self.store.load_explore_history(unit).map_err(|error| {
+            ExploreRestoreError::Unreadable(UnreadableExplore::History(error.to_string()))
+        })?;
         let instance = history.passes.last().cloned();
         let Some(instance) = instance else {
             return Ok((empty_restore(), None));
@@ -81,12 +78,12 @@ impl Worker {
         let mut restored = empty_restore();
         let mut toast = None;
         restored.historical = historical;
-        let pass = match self.guide_store.recover_explore_marks(unit, &instance) {
+        let pass = match self.store.recover_explore_marks(unit, &instance) {
             Ok(pass) => pass,
             Err(error) => {
                 restored.storage_error =
                     Some(format!("Explore file marking needs recovery: {error}"));
-                self.guide_store
+                self.store
                     .load_explore(unit, &instance)
                     .map_err(|error| {
                         ExploreRestoreError::Unreadable(UnreadableExplore::Pass {
@@ -120,11 +117,11 @@ impl Worker {
     ) -> (ui_events::ExploreRestored, Option<String>) {
         let (reason, cleared) = match failure {
             UnreadableExplore::History(reason) => {
-                let result = self.guide_store.repair_explore_history(unit).map(|_| ());
+                let result = self.store.repair_explore_history(unit).map(|_| ());
                 (reason, result)
             }
             UnreadableExplore::Pass { instance, reason } => {
-                let result = self.guide_store.clear_explore_pass(unit, &instance);
+                let result = self.store.clear_explore_pass(unit, &instance);
                 (reason, result)
             }
         };
@@ -201,10 +198,10 @@ impl Worker {
         storage_error: &mut Option<String>,
         toast: &mut Option<String>,
     ) -> Option<ViewSave> {
-        match self.guide_store.load_explore_view(unit, instance) {
+        match self.store.load_explore_view(unit, instance) {
             Ok(view) => view,
             Err(error) => {
-                match self.guide_store.clear_explore_view(unit, instance) {
+                match self.store.clear_explore_view(unit, instance) {
                     Ok(()) => {
                         *toast = Some("Unreadable Explore editor state was cleared.".to_owned());
                     }
@@ -228,7 +225,7 @@ impl Worker {
             return;
         }
         let unit = view.review_unit.clone();
-        let result = self.guide_store.save_explore_view(&unit, &view);
+        let result = self.store.save_explore_view(&unit, &view);
         if self.explore.loaded_unit.as_ref() == Some(&unit) {
             self.explore.last_view = Some(view);
         }
@@ -271,10 +268,10 @@ impl Worker {
                 .as_ref()
                 .and_then(ConversationBinding::from_agent);
             self.explore.loaded_unit = Some(request.checkpoint.review_unit.clone());
-            return Ok(self.guide_store.create_explore(pass)?);
+            return Ok(self.store.create_explore(pass)?);
         }
         Ok(self
-            .guide_store
+            .store
             .update_explore(&request.checkpoint.review_unit, &request.instance, |pass| {
                 let new = pass.post(request).map_err(|e| e.to_string())?;
                 if let Some(agent) = retry_agent {
@@ -329,9 +326,9 @@ impl Worker {
         let unit = &previous.exploration.comparison.checkpoint.review_unit;
         let instance = &previous.exploration.instance;
         let result = (|| -> eyre::Result<_> {
-            let history = self.guide_store.load_explore_history(unit)?;
+            let history = self.store.load_explore_history(unit)?;
             let pass = self
-                .guide_store
+                .store
                 .load_explore(unit, instance)?
                 .ok_or_else(|| eyre::eyre!("Saved Explore pass disappeared"))?;
             Ok((history, pass))

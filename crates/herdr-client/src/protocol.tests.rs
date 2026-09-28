@@ -63,18 +63,18 @@ fn shared_target_handles_use_the_same_focus_history() {
         agent("first-agent", "workspace"),
         agent("second-agent", "workspace"),
     ]);
-    let mut guides = AgentTarget::new(workspace_id(), Some(PaneId("first-agent".into())));
-    let mut comments = guides.clone();
+    let mut explore = AgentTarget::new(workspace_id(), Some(PaneId("first-agent".into())));
+    let mut comments = explore.clone();
     comments.observe_focus(&PaneId("second-agent".into()));
     assert_eq!(
-        guides.resolve(&reader).unwrap(),
+        explore.resolve(&reader).unwrap(),
         comments.resolve(&reader).unwrap()
     );
     assert_eq!(
-        guides.resolve(&reader).unwrap().unwrap().pane_id.0,
+        explore.resolve(&reader).unwrap().unwrap().pane_id.0,
         "second-agent"
     );
-    guides.observe_focus(&PaneId("first-agent".into()));
+    explore.observe_focus(&PaneId("first-agent".into()));
     assert_eq!(
         comments.resolve(&reader).unwrap().unwrap().pane_id.0,
         "first-agent"

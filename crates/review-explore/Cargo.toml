@@ -9,7 +9,7 @@ license.workspace = true
 review-types = { path = "../review-types" }
 herdr-client = { path = "../herdr-client" }
 review-repository = { path = "../review-repository" }
-review-guide = { path = "../review-guide" }
+review-source = { path = "../review-source" }
 serde.workspace = true
 serde_json.workspace = true
 schemars.workspace = true

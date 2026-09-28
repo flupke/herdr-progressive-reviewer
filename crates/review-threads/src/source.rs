@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-use review_guide::DiffRangeAnchor;
+use review_source::DiffRangeAnchor;
 use serde::{Deserialize, Serialize};
 
 use crate::{ReviewThread, ReviewThreads};
