@@ -1,7 +1,7 @@
 use std::os::unix::fs::MetadataExt;
 use std::sync::Arc;
 
-use review_guide::{DiffRangeAnchor, GuideAnchorKind};
+use review_source::{AnchorKind, DiffRangeAnchor};
 use review_threads::{Draft, MessageId, Post, ThreadSource};
 
 use super::*;
@@ -14,7 +14,7 @@ fn source() -> Arc<ThreadSource> {
             new_path: Some("source.rs".into()),
             old_lines: None,
             new_lines: Some(0..1),
-            target_kind: GuideAnchorKind::Lines,
+            target_kind: AnchorKind::Lines,
             source_hunk_count: 1,
             old_content: None,
             new_content: Some(vec![b'x'; 2_000_000]),

@@ -126,7 +126,7 @@ fn factual_question_gets_a_direct_reply_new_branch_and_new_source_without_agreem
         location: review_explore::CodeLocation {
             path: review_repository::repository::RepoPath::from_bytes(b"origin.rs"),
             side: review_explore::SourceSide::New,
-            lines: Some(GuideLineRange {
+            lines: Some(SourceLineRange {
                 first_line: 1,
                 last_line: 1,
             }),

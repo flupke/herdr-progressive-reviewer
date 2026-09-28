@@ -17,7 +17,7 @@ ui-shortcuts = { path = "../../ui-shortcuts" }
 ui-theme = { path = "../../ui-theme" }
 
 [dev-dependencies]
-review-guide = { path = "../../review-guide" }
+review-source = { path = "../../review-source" }
 
 [lints]
 workspace = true

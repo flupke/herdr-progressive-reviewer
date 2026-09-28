@@ -8,9 +8,11 @@ use herdr_client::protocol::HerdrReader;
 use ratatui::backend::TestBackend;
 use review_repository::diff::DiffRow;
 use review_repository::repository::RepoType;
+use review_state::ReviewStatus;
 use review_test_support::{
     ReviewRepositoryFixture, complete_repository_snapshot, repository_fixture,
 };
+use review_types::ReviewUnit;
 
 #[path = "runtime/mcp.tests.rs"]
 mod mcp;
@@ -20,9 +22,9 @@ mod agent_input;
 #[path = "runtime/explore.tests.rs"]
 mod explore_flow;
 
-const GUIDE_E2E_AGENT_SOURCE: &str = "progressive-reviewer-e2e";
+const AGENT_E2E_AGENT_SOURCE: &str = "progressive-reviewer-e2e";
 // Test against the installed binary's rules, without background network updates.
-const GUIDE_E2E_CONFIG: &str = "onboarding = false\n\
+const AGENT_E2E_CONFIG: &str = "onboarding = false\n\
     [update]\nversion_check = false\nmanifest_check = false\n";
 
 #[test]
@@ -52,7 +54,7 @@ fn source_loading_prefers_frozen_content_when_a_deleted_path_is_recreated() {
     let worker = Worker {
         repository: repository.clone(),
         tracker: Arc::new(tracker),
-        guide_store: ReviewStore::open(state_directory.path(), repository.root()).unwrap(),
+        store: ReviewStore::open(state_directory.path(), repository.root()).unwrap(),
         client: HerdrClient::new(
             state_directory.path().join("unused.sock"),
             "progressive-reviewer-test".to_owned(),
@@ -61,7 +63,6 @@ fn source_loading_prefers_frozen_content_when_a_deleted_path_is_recreated() {
         target: AgentTarget::new(WorkspaceId("test-workspace".to_owned()), None),
         snapshot: Some(snapshot.clone()),
         commands,
-        guide: guide::GuideRequestCoordinator::default(),
         explore: explore::ExploreRuntime::default(),
         prompts: comment_service::test_worker(
             &ReviewStore::open(state_directory.path(), repository.root()).unwrap(),
@@ -164,7 +165,7 @@ impl IsolatedHerdrServer {
         fs::create_dir_all(config_path.parent().unwrap()).unwrap();
         fs::create_dir_all(&runtime_directory).unwrap();
         fs::create_dir_all(&state_directory).unwrap();
-        fs::write(&config_path, GUIDE_E2E_CONFIG).unwrap();
+        fs::write(&config_path, AGENT_E2E_CONFIG).unwrap();
 
         let binary = std::env::var_os("HERDR_BIN_PATH")
             .map_or_else(|| PathBuf::from("herdr"), PathBuf::from);
@@ -188,15 +189,15 @@ impl IsolatedHerdrServer {
         let mut child = child;
         Self::wait_until_ready(&directory, &socket_path, &mut child);
 
-        let prompt_environment = format!("REVIEW_GUIDE_E2E_PROMPT_PATH={}", prompt_path.display());
-        let binary_environment = format!("REVIEW_GUIDE_E2E_HERDR_BIN={}", binary.display());
-        let agent_environment = format!("REVIEW_GUIDE_E2E_AGENT={agent}");
+        let prompt_environment = format!("REVIEW_AGENT_E2E_PROMPT_PATH={}", prompt_path.display());
+        let binary_environment = format!("REVIEW_AGENT_E2E_HERDR_BIN={}", binary.display());
+        let agent_environment = format!("REVIEW_AGENT_E2E_AGENT={agent}");
         let session_environment = format!(
-            "REVIEW_GUIDE_E2E_AGENT_SESSION={}",
+            "REVIEW_AGENT_E2E_AGENT_SESSION={}",
             session.unwrap_or_default()
         );
         let report_environment = format!(
-            "REVIEW_GUIDE_E2E_REPORT_LIFECYCLE={}",
+            "REVIEW_AGENT_E2E_REPORT_LIFECYCLE={}",
             match lifecycle {
                 AgentLifecycle::Reported => "1",
                 AgentLifecycle::Native => "0",
@@ -211,7 +212,7 @@ impl IsolatedHerdrServer {
                 "--cwd",
                 &repository_root.to_string_lossy(),
                 "--label",
-                "review-guide-e2e",
+                "review-source-e2e",
                 "--env",
                 &prompt_environment,
                 "--env",
@@ -263,7 +264,7 @@ impl IsolatedHerdrServer {
             &self.pane_id.0,
             &self.agent_binary.to_string_lossy(),
             "--exact",
-            "runtime::tests::guide_e2e_agent_process",
+            "runtime::tests::e2e_agent_process",
             "--nocapture",
         ]);
     }
@@ -371,7 +372,7 @@ impl IsolatedHerdrServer {
             "report-agent",
             &self.pane_id.0,
             "--source",
-            GUIDE_E2E_AGENT_SOURCE,
+            AGENT_E2E_AGENT_SOURCE,
             "--agent",
             &self.agent,
             "--state",
@@ -385,7 +386,7 @@ impl IsolatedHerdrServer {
             "release-agent",
             &self.pane_id.0,
             "--source",
-            GUIDE_E2E_AGENT_SOURCE,
+            AGENT_E2E_AGENT_SOURCE,
             "--agent",
             &self.agent,
         ]);
@@ -415,25 +416,25 @@ impl Drop for IsolatedHerdrServer {
 }
 
 #[test]
-fn guide_e2e_agent_process() {
-    let Some(prompt_path) = std::env::var_os("REVIEW_GUIDE_E2E_PROMPT_PATH") else {
+fn e2e_agent_process() {
+    let Some(prompt_path) = std::env::var_os("REVIEW_AGENT_E2E_PROMPT_PATH") else {
         return;
     };
     // Match a native TUI: the terminal must not submit pasted newlines, echo
     // input, or truncate long lines through its canonical input buffer.
     crossterm::terminal::enable_raw_mode().unwrap();
     crossterm::execute!(io::stdout(), crossterm::event::EnableBracketedPaste).unwrap();
-    let binary = std::env::var_os("REVIEW_GUIDE_E2E_HERDR_BIN").unwrap();
+    let binary = std::env::var_os("REVIEW_AGENT_E2E_HERDR_BIN").unwrap();
     let pane_id = std::env::var("HERDR_PANE_ID").unwrap();
-    let agent = std::env::var("REVIEW_GUIDE_E2E_AGENT").unwrap();
-    if std::env::var("REVIEW_GUIDE_E2E_REPORT_LIFECYCLE").as_deref() != Ok("0") {
+    let agent = std::env::var("REVIEW_AGENT_E2E_AGENT").unwrap();
+    if std::env::var("REVIEW_AGENT_E2E_REPORT_LIFECYCLE").as_deref() != Ok("0") {
         let status = Command::new(&binary)
             .args([
                 "pane",
                 "report-agent",
                 &pane_id,
                 "--source",
-                GUIDE_E2E_AGENT_SOURCE,
+                AGENT_E2E_AGENT_SOURCE,
                 "--agent",
                 &agent,
                 "--state",
@@ -443,7 +444,7 @@ fn guide_e2e_agent_process() {
             .unwrap();
         assert!(status.success());
     }
-    if let Ok(session) = std::env::var("REVIEW_GUIDE_E2E_AGENT_SESSION")
+    if let Ok(session) = std::env::var("REVIEW_AGENT_E2E_AGENT_SESSION")
         && !session.is_empty()
     {
         let status = Command::new(&binary)
@@ -516,95 +517,6 @@ fn guide_e2e_agent_process() {
         };
         print!("\x1b[2J\x1b[H{}", screen.replace('\n', "\r\n"));
         io::stdout().flush().unwrap();
-    }
-}
-
-fn prompt_field(prompt: &str, label: &str) -> String {
-    prompt
-        .lines()
-        .find_map(|line| line.strip_prefix(label))
-        .and_then(|value| value.strip_prefix('`'))
-        .and_then(|value| value.strip_suffix('`'))
-        .unwrap()
-        .to_owned()
-}
-
-fn write_guide_response(prompt: &str, text: &str) {
-    let temporary_path = PathBuf::from(prompt_field(prompt, "- Temporary response: "));
-    let response_path = PathBuf::from(prompt_field(prompt, "- Final response: "));
-    std::fs::write(
-        &temporary_path,
-        serde_json::to_vec(&serde_json::json!({
-            "schema_version": 1,
-            "items": [{
-                "target": {
-                    "kind": "lines",
-                    "path": "reviewed.rs",
-                    "old": null,
-                    "new": {
-                        "first_line": 1,
-                        "last_line": 1,
-                    },
-                },
-                "text": text,
-            }],
-        }))
-        .unwrap(),
-    )
-    .unwrap();
-    std::fs::rename(temporary_path, response_path).unwrap();
-}
-
-fn respond_to_delivered_guide(
-    prompt_path: PathBuf,
-    prompt_offset: u64,
-    response_text: String,
-    delivered: mpsc::SyncSender<()>,
-    write_response: Receiver<()>,
-) -> JoinHandle<u64> {
-    thread::spawn(move || {
-        let deadline = Instant::now() + Duration::from_secs(5);
-        let prompt_offset = usize::try_from(prompt_offset).unwrap();
-        while Instant::now() < deadline {
-            if let Ok(all_prompts) = fs::read_to_string(&prompt_path)
-                && let Some(prompt) = all_prompts.get(prompt_offset..)
-                && prompt.contains("- Final response: `")
-            {
-                delivered.send(()).unwrap();
-                write_response.recv().unwrap();
-                write_guide_response(prompt, &response_text);
-                return fs::metadata(prompt_path).unwrap().len();
-            }
-            thread::sleep(Duration::from_millis(25));
-        }
-        panic!("Herdr did not deliver the review-guide prompt to the agent");
-    })
-}
-
-fn receive_guide(
-    messages: &ApplicationMessageReceiver,
-    expected_review_unit: &ReviewUnit,
-    expected_checkpoint: &str,
-    expected_text: &str,
-) {
-    loop {
-        let envelope = messages.recv_timeout(Duration::from_secs(5)).unwrap();
-        if let Some(event) = envelope.downcast_ref::<ReviewGuideChanged>() {
-            assert!(
-                event
-                    .review_checkpoint
-                    .matches(expected_review_unit, expected_checkpoint)
-            );
-            assert_eq!(event.items.len(), 1);
-            assert_eq!(event.items[0].text, expected_text);
-            return;
-        }
-        if let Some(event) = envelope.downcast_ref::<ui_events::ReviewGuideStatusChanged>()
-            && !event.generating
-            && event.message.is_some()
-        {
-            panic!("guide request failed: {:?}", event.message)
-        }
     }
 }
 
@@ -687,32 +599,7 @@ fn herdr_event_subscription_stops_without_a_new_server_event() {
     subscription.thread.join().unwrap().unwrap();
 }
 
-fn forward_until_agent_detection(events: &Receiver<HerdrEvent>, expected_released: bool) {
-    loop {
-        let event = events
-            .recv_timeout(Duration::from_secs(5))
-            .unwrap_or_else(|error| {
-                panic!("waiting for agent detection with released={expected_released}: {error}")
-            });
-        let is_expected = matches!(
-            event,
-            HerdrEvent::AgentDetected { released, .. } if released == expected_released
-        );
-        if is_expected {
-            return;
-        }
-    }
-}
-
-fn churn_agent_lifecycle(herdr: &IsolatedHerdrServer, events: &Receiver<HerdrEvent>) {
-    herdr.stop_agent();
-    forward_until_agent_detection(events, true);
-    herdr.start_agent();
-    herdr.wait_for_agent(None);
-    forward_until_agent_detection(events, false);
-}
-
-struct GuideFlowFixture {
+struct ReviewFlowFixture {
     repository_files: Box<dyn ReviewRepositoryFixture>,
     state_directory: tempfile::TempDir,
     repository: Repository,
@@ -720,16 +607,13 @@ struct GuideFlowFixture {
     commands: Sender<WorkerCommand>,
     messages: ApplicationMessageReceiver,
     worker_thread: JoinHandle<()>,
-    events: Receiver<HerdrEvent>,
     review_unit: ReviewUnit,
-    checkpoint: String,
-    prompt_length: u64,
     endpoint: review_mcp::Endpoint,
     comments: comments::Worker,
     _port: review_test_support::TestPort,
 }
 
-impl GuideFlowFixture {
+impl ReviewFlowFixture {
     fn start(repository_type: RepoType) -> Self {
         let repository_files = repository_fixture(repository_type);
         repository_files.write("reviewed.rs", b"pub fn reviewed() {}\n");
@@ -739,8 +623,7 @@ impl GuideFlowFixture {
             .with_state_root(state_directory.path());
         let herdr = IsolatedHerdrServer::start_native(repository_files.root());
         let store = ReviewStore::open(state_directory.path(), repository.root()).unwrap();
-        let guide_store = ReviewStore::open(state_directory.path(), repository.root()).unwrap();
-        let tracker = ReviewTracker::new(repository.clone(), store);
+        let tracker = ReviewTracker::new(repository.clone(), store.clone());
         let (commands, command_receiver) = mpsc::channel();
         let port = review_test_support::TestPort::new();
         let endpoint =
@@ -748,7 +631,7 @@ impl GuideFlowFixture {
                 .unwrap();
         let prompt_commands = commands.clone();
         let comments = comments::Worker::start(
-            guide_store.clone(),
+            store.clone(),
             herdr.client(),
             AgentTarget::new(herdr.workspace_id.clone(), Some(herdr.pane_id.clone())),
             Ok(endpoint),
@@ -778,38 +661,28 @@ impl GuideFlowFixture {
         let mut worker = Worker {
             repository: repository.clone(),
             tracker: Arc::new(tracker),
-            guide_store,
+            store,
             client: herdr.client(),
             target: AgentTarget::new(herdr.workspace_id.clone(), Some(herdr.pane_id.clone())),
             snapshot: None,
             commands: commands.clone(),
-            guide: guide::GuideRequestCoordinator::default(),
             explore: explore::ExploreRuntime::default(),
             prompts: comments.prompt_sender(),
             documents: mpsc::channel().0,
         };
         let (message_sender, messages) = application_message_channel();
         let worker_thread = thread::spawn(move || worker.run(&command_receiver, &message_sender));
-
         commands.send(WorkerCommand::Poll).unwrap();
-        let (review_unit, checkpoint) = loop {
+        let review_unit = loop {
             let envelope = messages.recv_timeout(Duration::from_secs(5)).unwrap();
             if let Some(RepositoryMetadataChanged {
                 review_checkpoint, ..
             }) = envelope.downcast_ref::<RepositoryMetadataChanged>()
             {
-                break (
-                    review_checkpoint.review_unit.clone(),
-                    review_checkpoint.checkpoint.clone(),
-                );
+                break review_checkpoint.review_unit.clone();
             }
         };
-        let events = AgentEventSubscription::start(&herdr).events;
-
         Self {
-            endpoint,
-            comments,
-            _port: port,
             repository_files,
             state_directory,
             repository,
@@ -817,166 +690,12 @@ impl GuideFlowFixture {
             commands,
             messages,
             worker_thread,
-            events,
             review_unit,
-            checkpoint,
-            prompt_length: 0,
-        }
-    }
-
-    fn request_first_guide_after_agent_churn(&mut self) {
-        self.request_guide("First explanation", |fixture| {
-            churn_agent_lifecycle(&fixture.herdr, &fixture.events);
-        });
-    }
-
-    fn request_guide(&mut self, response_text: &str, after_prompt_delivery: impl FnOnce(&Self)) {
-        self.herdr.report_agent("idle");
-        let (prompt_delivered_sender, prompt_delivered_receiver) = mpsc::sync_channel(0);
-        let (write_response_sender, write_response_receiver) = mpsc::channel();
-        let response_writer = respond_to_delivered_guide(
-            self.herdr.directory.path().join("prompt.txt"),
-            self.prompt_length,
-            response_text.to_owned(),
-            prompt_delivered_sender,
-            write_response_receiver,
-        );
-        self.commands
-            .send(WorkerCommand::GenerateReviewGuide(GuideScope::All))
-            .unwrap();
-        prompt_delivered_receiver
-            .recv_timeout(Duration::from_secs(5))
-            .unwrap();
-        after_prompt_delivery(self);
-        write_response_sender.send(()).unwrap();
-        receive_guide(
-            &self.messages,
-            &self.review_unit,
-            &self.checkpoint,
-            response_text,
-        );
-        self.prompt_length = response_writer.join().unwrap();
-    }
-
-    fn confirm_refresh_does_not_generate_guide(&self) {
-        self.commands.send(WorkerCommand::Poll).unwrap();
-        receive_guide(
-            &self.messages,
-            &self.review_unit,
-            &self.checkpoint,
-            "First explanation",
-        );
-        assert_eq!(
-            fs::metadata(self.herdr.directory.path().join("prompt.txt"))
-                .unwrap()
-                .len(),
-            self.prompt_length,
-            "repository refresh must not request another guide"
-        );
-    }
-
-    fn replace_guide(&mut self) {
-        self.request_guide("Replacement explanation", |_| {});
-    }
-
-    fn assert_replacement_is_stored(self) {
-        let Self {
-            repository_files,
-            state_directory,
-            repository,
-            herdr,
-            commands,
-            messages: _,
-            worker_thread,
-            events,
-            review_unit,
-            checkpoint,
-            prompt_length: _,
+            endpoint,
             comments,
-            _port,
-            endpoint: _,
-        } = self;
-        drop(events);
-        commands.send(WorkerCommand::Quit).unwrap();
-        worker_thread.join().unwrap();
-        let stored = ReviewStore::open(state_directory.path(), repository.root())
-            .unwrap()
-            .load_guide(&review_unit)
-            .unwrap()
-            .unwrap();
-        assert_eq!(stored.review_checkpoint.checkpoint, checkpoint);
-        assert_eq!(stored.items.len(), 1);
-        assert_eq!(stored.items[0].text, "Replacement explanation");
-        drop((comments, herdr, repository_files));
-    }
-}
-
-#[test_case::test_case(RepoType::Git; "git")]
-#[test_case::test_case(RepoType::Jj; "jj")]
-fn guide_flow_survives_agent_churn_and_replaces_results(repository_type: RepoType) {
-    let mut fixture = GuideFlowFixture::start(repository_type);
-    fixture.request_first_guide_after_agent_churn();
-    fixture.confirm_refresh_does_not_generate_guide();
-    fixture.replace_guide();
-    fixture.assert_replacement_is_stored();
-}
-
-#[test]
-fn replacing_a_pending_guide_ignores_its_response_when_preparation_fails() {
-    let mut fixture = GuideFlowFixture::start(RepoType::Git);
-    fixture
-        .commands
-        .send(WorkerCommand::GenerateReviewGuide(GuideScope::All))
-        .unwrap();
-    let deadline = Instant::now() + Duration::from_secs(5);
-    let first_prompt = loop {
-        let prompt = fs::read_to_string(fixture.herdr.directory.path().join("prompt.txt"))
-            .unwrap_or_default();
-        if prompt.contains("- Final response: `") {
-            break prompt;
-        }
-        assert!(Instant::now() < deadline, "guide prompt was not delivered");
-        thread::sleep(Duration::from_millis(25));
-    };
-    fixture.prompt_length = u64::try_from(first_prompt.len()).unwrap();
-    fixture
-        .commands
-        .send(WorkerCommand::GenerateReviewGuide(GuideScope::File {
-            path: "missing.rs".into(),
-        }))
-        .unwrap();
-    loop {
-        let event = fixture
-            .messages
-            .recv_timeout(Duration::from_secs(5))
-            .unwrap();
-        if let Some(status) = event.downcast_ref::<ui_events::ReviewGuideStatusChanged>()
-            && !status.generating
-        {
-            assert!(
-                status
-                    .message
-                    .as_ref()
-                    .unwrap()
-                    .contains("no visible unreviewed file")
-            );
-            break;
+            _port: port,
         }
     }
-    // The failed replacement still supersedes the old response watcher.
-    write_guide_response(&first_prompt, "Late answer to a cancelled request");
-    thread::sleep(Duration::from_millis(350));
-    assert_eq!(
-        fs::read_to_string(fixture.herdr.directory.path().join("prompt.txt")).unwrap(),
-        first_prompt
-    );
-    assert!(!fixture.messages.try_iter().any(|event| {
-        event
-            .downcast_ref::<ui_events::ReviewGuideStatusChanged>()
-            .is_some()
-    }));
-    fixture.replace_guide();
-    fixture.assert_replacement_is_stored();
 }
 
 #[test_case::test_case(RepoType::Git; "git")]
@@ -994,7 +713,7 @@ fn disk_content_changes_replace_the_visible_diff(repository_type: RepoType) {
     let mut worker = Worker {
         repository: repository.clone(),
         tracker: Arc::new(tracker),
-        guide_store: ReviewStore::open(state_directory.path(), repository.root()).unwrap(),
+        store: ReviewStore::open(state_directory.path(), repository.root()).unwrap(),
         client: HerdrClient::new(
             state_directory.path().join("unused.sock"),
             "progressive-reviewer-test".to_owned(),
@@ -1003,7 +722,6 @@ fn disk_content_changes_replace_the_visible_diff(repository_type: RepoType) {
         target: AgentTarget::new(WorkspaceId("test-workspace".to_owned()), None),
         snapshot: None,
         commands,
-        guide: guide::GuideRequestCoordinator::default(),
         explore: explore::ExploreRuntime::default(),
         prompts: comment_service::test_worker(
             &ReviewStore::open(state_directory.path(), repository.root()).unwrap(),

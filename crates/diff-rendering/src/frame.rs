@@ -2,9 +2,9 @@ use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use std::ops::Range;
 
-use crate::{GuideBorderCell, GuideRenderedRow, wrap_line};
+use crate::{FrameBorderCell, FramedRow, wrap_line};
 
-/// A gutter-aligned frame shared by guides and review conversations.
+/// A gutter-aligned frame for review conversations and source evidence.
 #[derive(Clone, Copy)]
 pub struct DiffFrame {
     width: u16,
@@ -52,7 +52,7 @@ impl DiffFrame {
     }
 
     /// Frame an existing diff line without replacing its colors.
-    pub fn enclose_line(self, line: &mut Line<'static>) -> Vec<GuideBorderCell> {
+    pub fn enclose_line(self, line: &mut Line<'static>) -> Vec<FrameBorderCell> {
         let width = usize::from(self.width);
         let available = width.saturating_sub(line.width());
         if available > 0 {
@@ -68,7 +68,7 @@ impl DiffFrame {
         cells
     }
 
-    pub fn rule(self, kind: FrameRule<'_>, source_row: usize) -> GuideRenderedRow {
+    pub fn rule(self, kind: FrameRule<'_>, source_row: usize) -> FramedRow {
         let (left, right, label) = match kind {
             FrameRule::Top(label) => ('╭', '╮', label.unwrap_or_default()),
             FrameRule::Middle => ('├', '┤', ""),
@@ -84,7 +84,7 @@ impl DiffFrame {
         } else {
             left.to_string()
         };
-        GuideRenderedRow {
+        FramedRow {
             line: Line::raw(" ".repeat(usize::from(self.width))),
             border_cells: rule
                 .chars()
@@ -96,25 +96,8 @@ impl DiffFrame {
         }
     }
 
-    /// Wrap text inside the same padded content columns as review guides.
-    pub(super) fn text(self, text: &str, style: Style, source_row: usize) -> Vec<GuideRenderedRow> {
-        let indent = self.content_column();
-        let content = Line::from(vec![
-            Span::styled(" ".repeat(indent), style),
-            Span::styled(text.to_owned(), style),
-        ]);
-        wrap_line(&content, self.width.saturating_sub(1), indent)
-            .into_iter()
-            .map(|mut line| GuideRenderedRow {
-                border_cells: self.enclose_line(&mut line),
-                line,
-                source_row,
-            })
-            .collect()
-    }
-
     /// Place a rendered line inside the padded content columns, preserving its style.
-    fn content(self, mut line: Line<'static>, source_row: usize) -> GuideRenderedRow {
+    fn content(self, mut line: Line<'static>, source_row: usize) -> FramedRow {
         let style = std::mem::take(&mut line.style);
         for span in &mut line.spans {
             span.style = style.patch(span.style);
@@ -124,7 +107,7 @@ impl DiffFrame {
             .insert(1, Span::styled(" ".repeat(self.padding), style));
         let padding = usize::from(self.width.saturating_sub(1)).saturating_sub(line.width());
         line.spans.push(Span::styled(" ".repeat(padding), style));
-        GuideRenderedRow {
+        FramedRow {
             border_cells: self.enclose_line(&mut line),
             line,
             source_row,
@@ -132,7 +115,7 @@ impl DiffFrame {
     }
 
     /// Wrap a styled content line without coloring the diff gutter.
-    pub fn wrapped_content(self, line: &Line<'static>, source_row: usize) -> Vec<GuideRenderedRow> {
+    pub fn wrapped_content(self, line: &Line<'static>, source_row: usize) -> Vec<FramedRow> {
         self.wrapped_content_with_ranges(line, source_row)
             .into_iter()
             .map(|(row, _)| row)
@@ -144,7 +127,7 @@ impl DiffFrame {
         self,
         line: &Line<'static>,
         source_row: usize,
-    ) -> Vec<(GuideRenderedRow, Range<usize>)> {
+    ) -> Vec<(FramedRow, Range<usize>)> {
         wrap_line(line, self.content_width(), 0)
             .into_iter()
             .map(|wrapped| {
@@ -155,8 +138,8 @@ impl DiffFrame {
             .collect()
     }
 
-    fn cell(self, column: usize, symbol: char) -> GuideBorderCell {
-        GuideBorderCell {
+    fn cell(self, column: usize, symbol: char) -> FrameBorderCell {
+        FrameBorderCell {
             column,
             symbol,
             style: self.style,

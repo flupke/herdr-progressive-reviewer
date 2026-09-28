@@ -10,7 +10,6 @@ explore-component = { path = "../components/explore" }
 component-core = { path = "../component-core" }
 diff-component = { path = "../components/diff" }
 files-component = { path = "../components/files" }
-guide-component = { path = "../components/guide" }
 locations-component = { path = "../components/locations" }
 overlay-component = { path = "../components/overlay" }
 revision-component = { path = "../components/revision" }
@@ -20,7 +19,7 @@ eyre.workspace = true
 ratatui = { workspace = true, features = ["crossterm"] }
 ratatui-markdown.workspace = true
 review-lsp = { path = "../review-lsp" }
-review-guide = { path = "../review-guide" }
+review-source = { path = "../review-source" }
 review-repository = { path = "../review-repository" }
 review-state = { path = "../review-state" }
 review-types = { path = "../review-types" }

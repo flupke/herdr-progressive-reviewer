@@ -50,7 +50,7 @@ impl ExploreView {
     pub(super) fn ranges(
         &self,
         file: &LoadedDocument,
-    ) -> Vec<(SourceSide, review_guide::GuideLineRange)> {
+    ) -> Vec<(SourceSide, review_source::SourceLineRange)> {
         let Some(comparison) = &self.comparison else {
             return Vec::new();
         };

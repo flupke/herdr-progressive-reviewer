@@ -17,8 +17,8 @@ use toasts::{ToastId, ToastKind, ToastState};
 use ui_actions::Action;
 use ui_events::{
     CommitMessageToggleRequested, ContextMenuRequested, LspQueryContext, LspQueryRequested,
-    PointerInputKind, RepositoryMetadataChanged, ReviewGuideStatusChanged, ToastExpirationTick,
-    ToastRequested, ViewportChanged,
+    PointerInputKind, RepositoryMetadataChanged, ToastExpirationTick, ToastRequested,
+    ViewportChanged,
 };
 use ui_shortcuts::{ApplicationShortcut, Key, ShortcutCommand, ShortcutMatcher, ShortcutSet};
 use ui_theme::{Palette, Theme};
@@ -111,12 +111,6 @@ impl OverlayComponent {
     fn toggle_commit_message(&mut self, _event: &CommitMessageToggleRequested) {
         self.active_modal = (self.active_modal != Some(ModalOverlay::CommitMessage))
             .then_some(ModalOverlay::CommitMessage);
-    }
-
-    fn guide_status_changed(&mut self, event: &ReviewGuideStatusChanged) {
-        if let Some(message) = &event.message {
-            self.toasts.push(message, ToastKind::Error);
-        }
     }
 
     fn toast_requested(&mut self, event: &ToastRequested) {
@@ -349,7 +343,6 @@ impl Component<Action> for OverlayComponent {
         subscriptions.subscribe(Self::source_session_changed);
         subscriptions.subscribe(Self::viewport_changed);
         subscriptions.subscribe(Self::toggle_commit_message);
-        subscriptions.subscribe(Self::guide_status_changed);
         subscriptions.subscribe(Self::toast_requested);
         subscriptions.subscribe(Self::context_menu_requested);
         subscriptions.subscribe(Self::lsp_query_requested);

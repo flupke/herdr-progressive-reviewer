@@ -12,7 +12,7 @@ review-threads = { path = "../review-threads" }
 base64.workspace = true
 getrandom.workspace = true
 libc.workspace = true
-review-guide = { path = "../review-guide" }
+review-source = { path = "../review-source" }
 review-types = { path = "../review-types" }
 serde.workspace = true
 serde_json.workspace = true

@@ -125,6 +125,3 @@ fn reads_do_not_follow_symbolic_links() {
 
 #[path = "checkpoint.tests.rs"]
 mod checkpoint_tests;
-
-#[path = "guide.tests.rs"]
-mod guide_tests;

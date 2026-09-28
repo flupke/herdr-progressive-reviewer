@@ -191,7 +191,7 @@ impl CommentFixture {
     fn render_in(&self, area: Rect) -> Buffer {
         let mut buffer = Buffer::empty(area);
         self.component()
-            .render(area, &mut buffer, Theme::default().palette, true, None)
+            .render(area, &mut buffer, Theme::default().palette, true)
             .render(&mut buffer);
         buffer
     }
@@ -1028,7 +1028,7 @@ fn comments_share_an_anchor_frame_but_keep_independent_messages() {
     let mut buffer = Buffer::empty(area);
     fixture
         .component()
-        .render(area, &mut buffer, Theme::default().palette, true, None)
+        .render(area, &mut buffer, Theme::default().palette, true)
         .render(&mut buffer);
     let rendered = buffer
         .content()

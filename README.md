@@ -9,7 +9,6 @@ https://github.com/user-attachments/assets/4f0c949d-3eb2-4dd4-bbcc-948ae47b0c41
 
 - Incremental reviews: mark files as reviewed and see only changes since your last pass.
 - Persistent review threads with agent replies, available inline and in a dedicated Threads view.
-- AI-generated review guides alongside the diff.
 - Experimental Explore interviews: answer policy questions beside working-copy code evidence.
 - Syntax highlighting, search, and code navigation with language servers.
 - Mouse support, Vim navigation, and Vim or regular comment editing.
@@ -45,13 +44,13 @@ description = "toggle progressive reviewer"
 Run `herdr server reload-config` in a terminal to load the shortcut. In Herdr,
 focus an agent pane in the repository you want to review, then press `prefix+d`
 (`Ctrl-b`, then `d` with the default prefix). The last focused agent in the
-workspace receives your comments and generates review guides.
+workspace receives your comments and Explore questions.
 
 Select a file to inspect its diff. Select code to comment, then click **Post** or
 press `Ctrl-Enter`. Replies appear in the same thread. Press `Space` to mark a
 file as reviewed and `?` to see the keyboard shortcuts.
 
-See the [usage guide](docs/usage.md) for threads, editing and review guides,
+See the [usage guide](docs/usage.md) for threads, editing and Explore,
 [language server setup](docs/language-servers.md) for code navigation, and
 [agent connection help](docs/mcp.md) for troubleshooting.
 Contributor instructions are in [Development](docs/development.md).

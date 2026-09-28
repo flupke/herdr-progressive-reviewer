@@ -2,10 +2,10 @@
 use super::{Color, DiffFrame, DiffRenderer, LoadedDocument, Style, WrappedDiffRow};
 use crate::PresentedRow;
 use crate::explore::ExploreView;
-use guide_rendering::FrameRule;
+use diff_rendering::FrameRule;
 use review_explore::SourceSide;
-use review_guide::GuideLineRange;
 use review_repository::diff::DiffRow;
+use review_source::SourceLineRange;
 use std::collections::BTreeSet;
 use std::ops::{Range, RangeInclusive};
 
@@ -85,7 +85,7 @@ impl RequiredEvidenceRows {
         Some(Self { visible })
     }
 
-    fn contains(ranges: &[(SourceSide, GuideLineRange)], side: SourceSide, line: u32) -> bool {
+    fn contains(ranges: &[(SourceSide, SourceLineRange)], side: SourceSide, line: u32) -> bool {
         ranges.iter().any(|(candidate, range)| {
             *candidate == side && range.first_line <= line && line <= range.last_line
         })
@@ -97,7 +97,7 @@ impl RequiredEvidenceRows {
 }
 
 impl EvidenceSpan {
-    fn new(file: &LoadedDocument, side: SourceSide, range: &GuideLineRange) -> Option<Self> {
+    fn new(file: &LoadedDocument, side: SourceSide, range: &SourceLineRange) -> Option<Self> {
         let mut matching = (0..file.document.diff.len()).filter_map(|row| {
             let line = file.document.diff.evidence_line(row, side)?;
             (range.first_line <= line && line <= range.last_line).then_some((row, line))
@@ -169,7 +169,7 @@ impl EvidenceFrames {
         &self,
         file: &LoadedDocument,
         side: SourceSide,
-        range: Option<&GuideLineRange>,
+        range: Option<&SourceLineRange>,
     ) -> Option<RangeInclusive<usize>> {
         let selected = EvidenceSpan::new(file, side, range?)?;
         let outline = self.spans.iter().find(|span| {
@@ -196,7 +196,7 @@ impl DiffRenderer<'_> {
         width: u16,
         height: u16,
         side: SourceSide,
-        range: Option<&GuideLineRange>,
+        range: Option<&SourceLineRange>,
     ) -> usize {
         self.evidence_rows(file, width, side, range)
             .scroll(usize::from(height))
@@ -207,7 +207,7 @@ impl DiffRenderer<'_> {
         file: &LoadedDocument,
         width: u16,
         side: SourceSide,
-        range: Option<&GuideLineRange>,
+        range: Option<&SourceLineRange>,
     ) -> EvidenceRows {
         let width = width.max(1);
         let frames = EvidenceFrames::new(file, width, self.evidence);
@@ -261,7 +261,7 @@ impl EvidenceFrames {
                     row.source_row,
                 ));
             }
-            row.guide_border_cells
+            row.frame_border_cells
                 .extend(frame.enclose_line(&mut row.line));
             let source_row = row.source_row;
             outlined.push(row);

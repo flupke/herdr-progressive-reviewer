@@ -1,4 +1,4 @@
-use guide_rendering::{DiffFrame, FrameRule};
+use diff_rendering::{DiffFrame, FrameRule};
 use markdown_rendering::MarkdownRenderer;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;

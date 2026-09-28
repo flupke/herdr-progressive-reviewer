@@ -41,7 +41,7 @@ fn primary_range(
     let question = response.next.as_mut().unwrap();
     question.evidence.truncate(1);
     question.evidence[0].location.side = side;
-    question.evidence[0].location.lines = Some(GuideLineRange {
+    question.evidence[0].location.lines = Some(SourceLineRange {
         first_line: 20,
         last_line: 35,
     });
@@ -99,7 +99,7 @@ fn evidence_outlines_enclose_interleaved_diff_sides_and_wrapped_rows() {
             height: 120,
         });
         let mut response = primary_range(&fixture, &request, side);
-        response.next.as_mut().unwrap().evidence[0].location.lines = Some(GuideLineRange {
+        response.next.as_mut().unwrap().evidence[0].location.lines = Some(SourceLineRange {
             first_line: 2,
             last_line: 7,
         });
@@ -118,12 +118,12 @@ fn overlapping_evidence_ranges_share_one_closed_outline() {
         let (mut fixture, request) = source_fixture();
         let mut response = primary_range(&fixture, &request, review_explore::SourceSide::New);
         let question = response.next.as_mut().unwrap();
-        question.evidence[0].location.lines = Some(GuideLineRange {
+        question.evidence[0].location.lines = Some(SourceLineRange {
             first_line: 20,
             last_line: 30,
         });
         let mut overlapping = question.evidence[0].clone();
-        overlapping.location.lines = Some(GuideLineRange {
+        overlapping.location.lines = Some(SourceLineRange {
             first_line: 25,
             last_line: 35,
         });

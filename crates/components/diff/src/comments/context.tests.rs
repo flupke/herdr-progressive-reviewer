@@ -1,5 +1,5 @@
 use super::*;
-use review_guide::{DiffRangeAnchor, GuideAnchorKind};
+use review_source::{AnchorKind, DiffRangeAnchor};
 
 #[test]
 fn saved_diff_renders_line_numbers_changes_and_syntax_with_or_without_full_source() {
@@ -12,7 +12,7 @@ fn saved_diff_renders_line_numbers_changes_and_syntax_with_or_without_full_sourc
                 new_path: Some("src/lib.rs".into()),
                 old_lines: Some(0..1),
                 new_lines: Some(0..1),
-                target_kind: GuideAnchorKind::Lines,
+                target_kind: AnchorKind::Lines,
                 source_hunk_count: 1,
                 old_content: full_source.then(|| b"fn old() {}\n".to_vec()),
                 new_content: full_source.then(|| b"fn new() {}\n".to_vec()),

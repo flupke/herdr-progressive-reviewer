@@ -92,7 +92,7 @@ pub trait HerdrWriter: Send + Sync {
     fn close_plugin_pane(&self, pane_id: &PaneId) -> Result<()>;
 }
 
-/// Agent-aware prompt submission needed by review-guide generation.
+/// Agent-aware prompt submission needed by review-source generation.
 pub trait AgentPrompter: Send + Sync {
     /// Submit one complete prompt through Herdr's agent-aware boundary.
     fn prompt_agent(&self, pane_id: &PaneId, text: &str) -> Result<()>;

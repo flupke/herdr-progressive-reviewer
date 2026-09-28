@@ -10,7 +10,7 @@ review-explore = { path = "../review-explore" }
 review-threads = { path = "../review-threads" }
 review-types = { path = "../review-types" }
 text-search = { path = "../text-search" }
-review-guide = { path = "../review-guide" }
+review-source = { path = "../review-source" }
 review-lsp = { path = "../review-lsp" }
 review-repository = { path = "../review-repository" }
 ui-events = { path = "../ui-events" }

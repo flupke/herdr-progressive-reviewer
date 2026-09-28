@@ -3,17 +3,15 @@
 See the [README](../README.md) for installation and opening the reviewer.
 Press `?` in the reviewer for the full shortcut list.
 
-## Review files and generate guides
+## Review files
 
 Select a file to inspect its diff. Press `Space` to mark it as reviewed;
 subsequent changes appear as a new diff since your last pass. Use `[f` and `]f` to
 move between unreviewed files, and `[h` and `]h` to move between changed hunks.
 
-Press `rf` to ask the active agent for a guide to the selected file, or `ra` for
-all visible unreviewed files. Navigate guide comments with `[r` and `]r`.
-Guides and review comments use the same agent: the last focused
-agent in the Herdr workspace. Focus another agent to switch; pending comments
-follow that selection, while completed answers and conversation history remain.
+Review comments use the last focused agent in the Herdr workspace. Focus
+another agent to switch; pending comments follow that selection, while
+completed answers and conversation history remain.
 
 ## Post comments and replies
 
@@ -69,7 +67,7 @@ agent answer; late replies are kept without reopening the thread. Unresolve
 makes unanswered comments eligible for delivery again. Use **Retry agent** if
 the agent stopped before answering.
 
-File badges show 📄 for guides and 💬 for unresolved conversations. A red `●`
+File badges show 💬 for unresolved conversations. A red `●`
 marks unread replies beside the filename and in the Threads tab, including late
 replies on resolved threads. A reply is marked read once every part has been
 visible, including when you scroll through a reply taller than the pane.

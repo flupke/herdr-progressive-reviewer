@@ -10,12 +10,11 @@ use ratatui::widgets::{Paragraph, Widget};
 use ui_actions::Action;
 use ui_events::{
     CommitMessageToggleRequested, FilesOverviewChanged, PointerInput, PointerInputKind,
-    RepositoryMetadataChanged, ReviewGuideStatusChanged, SearchStatusChanged,
+    RepositoryMetadataChanged, SearchStatusChanged,
 };
 use ui_theme::Palette;
 use unicode_width::UnicodeWidthStr;
 
-const GUIDE_SPINNER: &[char] = &['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 const MIN_TERMINAL_WIDTH: u16 = 40;
 const MIN_TERMINAL_HEIGHT: u16 = 6;
 
@@ -26,14 +25,9 @@ pub struct StatusComponent {
     display_id: Line<'static>,
     overview: FilesOverviewChanged,
     search: SearchStatusChanged,
-    guide_spinner_frame: Option<usize>,
 }
 
 impl StatusComponent {
-    pub fn is_animating(&self) -> bool {
-        self.guide_spinner_frame.is_some()
-    }
-
     pub fn new(events: EventPublisher) -> Self {
         Self {
             events,
@@ -41,7 +35,6 @@ impl StatusComponent {
             display_id: Line::default(),
             overview: FilesOverviewChanged::default(),
             search: SearchStatusChanged::default(),
-            guide_spinner_frame: None,
         }
     }
 
@@ -99,15 +92,6 @@ impl StatusComponent {
 
     pub fn render_footer(&self, area: Rect, buffer: &mut Buffer, palette: Palette) {
         let mut statuses = Vec::new();
-        if let Some(frame) = self.guide_spinner_frame {
-            statuses.push(Span::styled(
-                format!(
-                    "{} Generating guide",
-                    GUIDE_SPINNER[frame % GUIDE_SPINNER.len()]
-                ),
-                Style::default().fg(palette.guide),
-            ));
-        }
         if self.search.query.is_some() {
             statuses.push(Span::raw(format!(
                 "[{}/{}]",
@@ -173,17 +157,6 @@ impl StatusComponent {
         self.search.clone_from(event);
     }
 
-    fn guide_status_changed(&mut self, event: &ReviewGuideStatusChanged) {
-        self.guide_spinner_frame = event.generating.then_some(0);
-    }
-
-    #[allow(clippy::trivially_copy_pass_by_ref)]
-    fn tick(&mut self, _event: &ui_events::AnimationTick) {
-        if let Some(frame) = &mut self.guide_spinner_frame {
-            *frame = frame.saturating_add(1);
-        }
-    }
-
     fn pointer_input(&mut self, input: PointerInput) -> Vec<Action> {
         if !matches!(input.kind, PointerInputKind::Click) {
             return Vec::new();
@@ -216,8 +189,6 @@ impl Component<Action> for StatusComponent {
         subscriptions.subscribe(Self::repository_changed);
         subscriptions.subscribe(Self::overview_changed);
         subscriptions.subscribe(Self::search_changed);
-        subscriptions.subscribe(Self::guide_status_changed);
-        subscriptions.subscribe(Self::tick);
         subscriptions.subscribe_input(InputScope::Hovered, AnyInput, Self::pointer_input);
     }
 }

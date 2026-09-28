@@ -1,5 +1,5 @@
 [package]
-name = "review-guide"
+name = "review-source"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,7 +10,6 @@ gix-imara-diff.workspace = true
 review-types = { path = "../review-types" }
 serde.workspace = true
 schemars.workspace = true
-thiserror.workspace = true
 
 [lints]
 workspace = true

@@ -782,14 +782,14 @@ version = "0.2.0"
 dependencies = [
  "comment-editor",
  "component-core",
+ "diff-rendering",
  "eyre",
- "guide-rendering",
  "markdown-rendering",
  "ratatui 0.30.2",
  "review-explore",
- "review-guide",
  "review-lsp",
  "review-repository",
+ "review-source",
  "review-state",
  "review-threads",
  "review-types",
@@ -805,6 +805,16 @@ dependencies = [
  "unicode-segmentation",
  "unicode-width 0.2.0",
  "uuid",
+]
+
+[[package]]
+name = "diff-rendering"
+version = "0.2.0"
+dependencies = [
+ "ratatui 0.30.2",
+ "review-source",
+ "ui-events",
+ "unicode-width 0.2.0",
 ]
 
 [[package]]
@@ -968,8 +978,8 @@ dependencies = [
  "markdown-rendering",
  "ratatui 0.30.2",
  "review-explore",
- "review-guide",
  "review-repository",
+ "review-source",
  "ui-actions",
  "ui-controls",
  "ui-events",
@@ -1059,8 +1069,8 @@ version = "0.2.0"
 dependencies = [
  "component-core",
  "ratatui 0.30.2",
- "review-guide",
  "review-repository",
+ "review-source",
  "review-state",
  "review-test-support",
  "review-threads",
@@ -2084,30 +2094,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "guide-component"
-version = "0.2.0"
-dependencies = [
- "component-core",
- "guide-rendering",
- "ratatui 0.30.2",
- "review-guide",
- "review-types",
- "ui-actions",
- "ui-events",
- "ui-shortcuts",
-]
-
-[[package]]
-name = "guide-rendering"
-version = "0.2.0"
-dependencies = [
- "ratatui 0.30.2",
- "review-guide",
- "ui-events",
- "unicode-width 0.2.0",
-]
-
-[[package]]
 name = "hash32"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2842,8 +2828,8 @@ version = "0.2.0"
 dependencies = [
  "component-core",
  "ratatui 0.30.2",
- "review-guide",
  "review-lsp",
+ "review-source",
  "toasts",
  "ui-actions",
  "ui-events",
@@ -3216,8 +3202,8 @@ dependencies = [
  "component-modal",
  "markdown-rendering",
  "ratatui 0.30.2",
- "review-guide",
  "review-lsp",
+ "review-source",
  "syntax-highlighting",
  "toasts",
  "ui-actions",
@@ -3856,8 +3842,8 @@ dependencies = [
  "base64 0.22.1",
  "eyre",
  "herdr-client",
- "review-guide",
  "review-repository",
+ "review-source",
  "review-test-support",
  "review-types",
  "schemars",
@@ -3876,32 +3862,6 @@ version = "0.2.0"
 dependencies = [
  "review-explore",
  "serde_json",
-]
-
-[[package]]
-name = "review-guide"
-version = "0.2.0"
-dependencies = [
- "gix-imara-diff",
- "review-types",
- "schemars",
- "serde",
- "thiserror 2.0.19",
-]
-
-[[package]]
-name = "review-guide-runner"
-version = "0.2.0"
-dependencies = [
- "libc",
- "notify",
- "review-guide",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tempfile",
- "thiserror 2.0.19",
- "zstd",
 ]
 
 [[package]]
@@ -3968,6 +3928,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "review-source"
+version = "0.2.0"
+dependencies = [
+ "gix-imara-diff",
+ "review-types",
+ "schemars",
+ "serde",
+]
+
+[[package]]
 name = "review-state"
 version = "0.2.0"
 dependencies = [
@@ -3989,8 +3959,8 @@ dependencies = [
  "herdr-client",
  "libc",
  "review-explore",
- "review-guide",
  "review-repository",
+ "review-source",
  "review-threads",
  "review-types",
  "serde",
@@ -4031,7 +4001,7 @@ dependencies = [
 name = "review-threads"
 version = "0.2.0"
 dependencies = [
- "review-guide",
+ "review-source",
  "review-types",
  "serde",
  "serde_json",
@@ -4055,15 +4025,14 @@ dependencies = [
  "explore-component",
  "eyre",
  "files-component",
- "guide-component",
  "locations-component",
  "overlay-component",
  "ratatui 0.30.2",
  "ratatui-markdown",
  "review-explore",
- "review-guide",
  "review-lsp",
  "review-repository",
+ "review-source",
  "review-state",
  "review-test-support",
  "review-threads",
@@ -4102,12 +4071,11 @@ dependencies = [
  "reqwest",
  "review-explore",
  "review-explore-runner",
- "review-guide",
- "review-guide-runner",
  "review-lsp",
  "review-mcp",
  "review-mcp-config",
  "review-repository",
+ "review-source",
  "review-state",
  "review-store",
  "review-test-support",
@@ -4139,8 +4107,8 @@ dependencies = [
  "component-core",
  "component-modal",
  "ratatui 0.30.2",
- "review-guide",
  "review-repository",
+ "review-source",
  "review-types",
  "toasts",
  "ui-actions",
@@ -4684,7 +4652,7 @@ dependencies = [
  "ansi-to-tui",
  "component-core",
  "ratatui 0.30.2",
- "review-guide",
+ "review-source",
  "ui-actions",
  "ui-events",
  "ui-shortcuts",
@@ -5014,7 +4982,6 @@ version = "0.2.0"
 dependencies = [
  "component-core",
  "ratatui 0.30.2",
- "review-guide",
  "review-threads",
  "review-types",
  "ui-actions",
@@ -5339,9 +5306,9 @@ name = "ui-actions"
 version = "0.2.0"
 dependencies = [
  "review-explore",
- "review-guide",
  "review-lsp",
  "review-repository",
+ "review-source",
  "review-threads",
  "review-types",
  "text-search",
@@ -5361,9 +5328,9 @@ name = "ui-events"
 version = "0.2.0"
 dependencies = [
  "review-explore",
- "review-guide",
  "review-lsp",
  "review-repository",
+ "review-source",
  "review-state",
  "review-threads",
  "review-types",

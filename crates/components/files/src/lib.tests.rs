@@ -1,13 +1,13 @@
 use component_core::{ComponentEventBus, ComponentSubscriptions, ComponentTarget, EventEnvelope};
 use ratatui::{Terminal, backend::TestBackend, style::Color};
-use review_guide::ReviewCheckpoint;
 use review_repository::repository::{ChangedFile, DiffStatistics, Repository};
+use review_source::ReviewCheckpoint;
 use review_state::ReviewStatus;
 use review_test_support::{GitFixture, ReviewRepositoryFixture, complete_repository_snapshot};
 use ui_actions::Action;
 use ui_events::{
-    FileSelected, FileSummary, FilesOverviewChanged, FilesViewportChanged, GuidePathsChanged,
-    PointerInput, PointerInputKind, PointerPosition, RepositoryFilesChanged, ReviewStateSaved,
+    FileSelected, FileSummary, FilesOverviewChanged, FilesViewportChanged, PointerInput,
+    PointerInputKind, PointerPosition, RepositoryFilesChanged, ReviewStateSaved,
 };
 use ui_shortcuts::Key;
 
@@ -202,7 +202,6 @@ fn rendering_shows_review_state_and_line_statistics() {
                     warning: Color::Yellow,
                     insertion: Color::Green,
                     deletion: Color::Red,
-                    guide: Color::Yellow,
                     ..Theme::default().palette
                 },
                 true,
@@ -410,34 +409,6 @@ fn repository_refresh_publishes_selection_from_the_files_component() {
     }));
 }
 
-#[test]
-fn new_repository_checkpoint_removes_old_guide_decorations() {
-    let mut registry = ComponentEventBus::<Action>::new();
-    let target = registry.mount(FilesComponent::new);
-    let files = vec![FileSummary::new("src/lib.rs", ReviewStatus::Unreviewed)];
-    registry
-        .publish_envelope(EventEnvelope::new(RepositoryFilesChanged {
-            review_checkpoint: ReviewCheckpoint::new("change", "first"),
-            files: files.clone(),
-        }))
-        .expect("repository event must dispatch");
-    registry
-        .publish_envelope(EventEnvelope::new(GuidePathsChanged {
-            paths: vec!["src/lib.rs".to_owned()],
-        }))
-        .expect("guide event must dispatch");
-    assert!(rendered_files(&registry, target).contains(" 📄"));
-
-    registry
-        .publish_envelope(EventEnvelope::new(RepositoryFilesChanged {
-            review_checkpoint: ReviewCheckpoint::new("change", "second"),
-            files,
-        }))
-        .expect("repository event must dispatch");
-
-    assert!(!rendered_files(&registry, target).contains(" 📄"));
-}
-
 fn rendered_files(registry: &ComponentEventBus<Action>, target: ComponentTarget) -> String {
     let mut terminal = Terminal::new(TestBackend::new(30, 4)).expect("terminal must open");
     terminal
@@ -465,7 +436,6 @@ fn palette() -> Palette {
         warning: Color::Yellow,
         insertion: Color::Green,
         deletion: Color::Red,
-        guide: Color::Yellow,
         ..Theme::default().palette
     }
 }

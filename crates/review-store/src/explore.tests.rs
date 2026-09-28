@@ -32,7 +32,7 @@ fn assert_explicit_conclusion(cited_lines: u32, expected_percent: u8) {
     let store = ReviewStore::open(directory.path().join("state"), directory.path()).unwrap();
     let comparison = Arc::new(Comparison {
         repository_root: directory.path().to_owned(),
-        checkpoint: review_guide::ReviewCheckpoint::new("aabb", "ccdd"),
+        checkpoint: review_source::ReviewCheckpoint::new("aabb", "ccdd"),
         files: vec![ChangedFile {
             old_path: None,
             new_path: Some(RepoPath::from_bytes(b"policy.rs".as_slice())),
@@ -160,7 +160,7 @@ fn assert_explicit_conclusion(cited_lines: u32, expected_percent: u8) {
             sources: vec![review_explore::CodeLocation {
                 path: review_repository::repository::RepoPath::from_bytes(b"policy.rs"),
                 side: review_explore::SourceSide::New,
-                lines: Some(review_guide::GuideLineRange {
+                lines: Some(review_source::SourceLineRange {
                     first_line: 2,
                     last_line: 2,
                 }),
@@ -348,7 +348,7 @@ impl Investigation {
         let store = ReviewStore::open(directory.path().join("state"), directory.path()).unwrap();
         let comparison = Comparison {
             repository_root: directory.path().to_owned(),
-            checkpoint: review_guide::ReviewCheckpoint::new("review", "checkpoint"),
+            checkpoint: review_source::ReviewCheckpoint::new("review", "checkpoint"),
             files: vec![],
             context: vec![],
             diffs: vec![],

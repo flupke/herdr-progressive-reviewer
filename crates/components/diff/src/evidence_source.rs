@@ -1,7 +1,7 @@
 //! Reveal complete evidence ranges, including historical lines outside diff hunks.
 use super::{DiffComponent, LoadedDocument, presentation::DiffPresentation};
 use review_explore::{Source, SourceSide};
-use review_guide::GuideLineRange;
+use review_source::SourceLineRange;
 use std::{os::unix::ffi::OsStrExt, sync::Arc};
 use ui_actions::Action;
 use ui_events::{DiffContentLoaded, HighlightRequest, PresentationLocation};
@@ -11,7 +11,7 @@ impl DiffComponent {
         &mut self,
         source: &Source,
         content: &str,
-        lines: Option<&GuideLineRange>,
+        lines: Option<&SourceLineRange>,
     ) -> Vec<Action> {
         let line = lines.map_or(0, |range| range.first_line - 1);
         if source.side == SourceSide::Old {
@@ -46,7 +46,7 @@ impl DiffComponent {
         &mut self,
         source: &Source,
         content: &str,
-        range: &GuideLineRange,
+        range: &SourceLineRange,
         first: PresentationLocation,
     ) {
         let missing = !self.contains_evidence_range(source.side, range);
@@ -64,7 +64,7 @@ impl DiffComponent {
         }
     }
 
-    fn contains_evidence_range(&self, side: SourceSide, range: &GuideLineRange) -> bool {
+    fn contains_evidence_range(&self, side: SourceSide, range: &SourceLineRange) -> bool {
         let document = &self
             .selected_document()
             .expect("evidence document")

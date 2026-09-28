@@ -1,4 +1,4 @@
-//! File reads run independently of repository refresh and guide generation.
+//! File reads run independently of repository refresh and agent delivery.
 
 use super::{
     ApplicationMessageSender, Arc, ChangedFile, DiffContentLoadFailed, DiffContentLoaded,

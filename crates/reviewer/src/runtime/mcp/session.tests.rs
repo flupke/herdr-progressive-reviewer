@@ -23,10 +23,10 @@ impl ConversationFixture {
             "run",
             &self.server.pane_id.0,
             "env",
-            &format!("REVIEW_GUIDE_E2E_AGENT_SESSION={session}"),
+            &format!("REVIEW_AGENT_E2E_AGENT_SESSION={session}"),
             &self.server.agent_binary.to_string_lossy(),
             "--exact",
-            "runtime::tests::guide_e2e_agent_process",
+            "runtime::tests::e2e_agent_process",
             "--nocapture",
         ]);
         self.server

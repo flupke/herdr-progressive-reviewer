@@ -33,7 +33,6 @@ pub struct Palette {
     pub cursor: Color,
     pub deletion_bg: Color,
     pub insertion_bg: Color,
-    pub guide: Color,
 }
 
 #[derive(Clone, Copy)]
@@ -208,7 +207,6 @@ impl Palette {
             cursor: Self::blend(anchors.base, pole, 14),
             deletion_bg: Self::blend(anchors.base, anchors.red, tint),
             insertion_bg: Self::blend(anchors.base, anchors.green, tint),
-            guide: Color::LightYellow,
         }
     }
 

@@ -156,7 +156,7 @@ impl DiffComponent {
         else {
             return;
         };
-        let scroll = self.renderer(self.palette, None, false).evidence_scroll(
+        let scroll = self.renderer(self.palette, false).evidence_scroll(
             file,
             viewport.width,
             viewport.height,
@@ -189,7 +189,7 @@ impl DiffComponent {
     ) {
         let area = viewport.area();
         let mut window = Buffer::empty(area);
-        self.render(area, &mut window, palette, focused, None)
+        self.render(area, &mut window, palette, focused)
             .render(&mut window);
         viewport.draw(&window, buffer);
         self.reply_visibility.borrow_mut().project(viewport);

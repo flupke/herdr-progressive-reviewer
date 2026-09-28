@@ -212,10 +212,10 @@ impl ExploreComponent {
         };
         let path = file.review_path().display();
         self.publish_coverage_view(index, true);
-        self.events.publish(ui_events::GuideJumpRequested {
+        self.events.publish(ui_events::DiffTargetJumpRequested {
             file_index: index,
             row: None,
-            target: review_guide::GuideTarget::File { path },
+            target: review_source::DiffTarget::File { path },
         });
     }
 
@@ -284,11 +284,11 @@ impl ExploreComponent {
             review_explore::CoverageUnit::Lines {
                 side, first, end, ..
             } => {
-                let range = Some(review_guide::GuideLineRange {
+                let range = Some(review_source::SourceLineRange {
                     first_line: *first,
                     last_line: end - 1,
                 });
-                review_guide::GuideTarget::Lines {
+                review_source::DiffTarget::Lines {
                     path,
                     old: if *side == review_explore::SourceSide::Old {
                         range.clone()
@@ -302,10 +302,10 @@ impl ExploreComponent {
                     },
                 }
             }
-            review_explore::CoverageUnit::Item { .. } => review_guide::GuideTarget::File { path },
+            review_explore::CoverageUnit::Item { .. } => review_source::DiffTarget::File { path },
         };
         self.open_coverage_file(file_index);
-        self.events.publish(ui_events::GuideJumpRequested {
+        self.events.publish(ui_events::DiffTargetJumpRequested {
             file_index: unit.file_index(),
             row: None,
             target,

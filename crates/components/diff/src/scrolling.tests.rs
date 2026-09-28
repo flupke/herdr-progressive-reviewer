@@ -59,29 +59,6 @@ impl Scrolling {
             .document;
         (document.cursor, document.column, document.scroll)
     }
-
-    fn guide(&mut self) {
-        self.registry
-            .publish(GuideLayoutChanged {
-                items: vec![GuideItem {
-                    target: GuideTarget::Lines {
-                        path: "src/lib.rs".to_owned(),
-                        old: None,
-                        new: Some(GuideLineRange {
-                            first_line: 3,
-                            last_line: 3,
-                        }),
-                    },
-                    text: "A review guide.".to_owned(),
-                    status: GuideItemStatus::Matched,
-                }],
-                counters: vec![Some(ui_events::GuideCounter {
-                    number: 1,
-                    total: 1,
-                })],
-            })
-            .unwrap();
-    }
 }
 
 #[test]
@@ -164,28 +141,6 @@ fn scrolling_wrapped_unicode_keeps_grapheme_and_byte_positions_aligned() {
     assert_eq!(fixture.position(), (0, 10, 1));
     fixture.scroll(1);
     assert_eq!(fixture.position(), (0, 10 + family.len() + 1, 2));
-}
-
-#[test]
-fn scrolling_chooses_diff_lines_past_guide_rows_at_both_edges() {
-    let mut fixture = Scrolling::new(context_rows(10), 78, 5);
-    fixture.guide();
-    fixture.scroll(2);
-    assert_eq!(fixture.position(), (2, 0, 2));
-    fixture.key(Key::Last);
-    fixture.scroll(-100);
-    assert_eq!(fixture.position(), (1, 0, 0));
-}
-
-#[test]
-fn a_new_guide_keeps_the_cursor_in_the_remaining_visible_diff() {
-    let mut fixture = Scrolling::new(context_rows(10), 78, 5);
-    for _ in 0..3 {
-        fixture.key(Key::Down);
-    }
-    assert_eq!(fixture.position(), (3, 0, 0));
-    fixture.guide();
-    assert_eq!(fixture.position(), (1, 0, 0));
 }
 
 #[test]

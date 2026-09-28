@@ -249,13 +249,13 @@ impl ExploreUi {
         let mut draft = review_threads::Draft::start(
             path.into(),
             Arc::new(review_threads::ThreadSource {
-                anchor: review_guide::DiffRangeAnchor {
+                anchor: review_source::DiffRangeAnchor {
                     source_checkpoint: self.comparison.checkpoint.checkpoint.clone(),
                     old_path: None,
                     new_path: Some(path.into()),
                     old_lines: None,
                     new_lines: Some(0..1),
-                    target_kind: review_guide::GuideAnchorKind::Lines,
+                    target_kind: review_source::AnchorKind::Lines,
                     source_hunk_count: 1,
                     old_content: None,
                     new_content: Some(source.read(self.files.root()).unwrap()),
@@ -506,7 +506,7 @@ fn assert_evidence_restores_saved_drafts(side: review_explore::SourceSide) {
         location: review_explore::CodeLocation {
             path: caller.path.clone(),
             side,
-            lines: Some(GuideLineRange {
+            lines: Some(SourceLineRange {
                 first_line: 1,
                 last_line: 1,
             }),
@@ -744,7 +744,7 @@ fn history_pages_retain_independent_evidence_and_drafts() {
         location: review_explore::CodeLocation {
             path: source.path.clone(),
             side: source.side,
-            lines: Some(GuideLineRange {
+            lines: Some(SourceLineRange {
                 first_line: 1,
                 last_line: 1,
             }),
@@ -883,7 +883,7 @@ fn large_evidence_is_bounded_and_wheels_scroll_exactly_one_layer() {
         .as_mut()
         .unwrap()
         .last_line = 120;
-    question.evidence[1].location.lines = Some(GuideLineRange {
+    question.evidence[1].location.lines = Some(SourceLineRange {
         first_line: 230,
         last_line: 230,
     });

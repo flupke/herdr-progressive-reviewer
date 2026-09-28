@@ -16,7 +16,7 @@ ui-theme = { path = "../../ui-theme" }
 unicode-width.workspace = true
 
 [dev-dependencies]
-review-guide = { path = "../../review-guide" }
+review-source = { path = "../../review-source" }
 
 [lints]
 workspace = true

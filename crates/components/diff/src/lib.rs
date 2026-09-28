@@ -8,17 +8,17 @@ use std::sync::Arc;
 use component_core::{
     Component, ComponentSubscriptions, EventPublisher, InputMatcher, InputResolution, InputScope,
 };
-use guide_rendering::{GuideLayout, GuideOverlay};
+use diff_rendering::FrameOverlay;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use review_guide::ReviewCheckpoint;
+use review_source::ReviewCheckpoint;
 use review_state::ReviewStatus;
 use ui_actions::Action;
 use ui_events::{
     AnimationTick, CurrentReviewLocationChanged, DiffContentLoadFailed, DiffContentLoaded,
-    DiffInputClearRequested, DiffViewportChanged, DisplayedDiffViewportsChanged,
-    FileDecorationsChanged, FileSelected, FileSelectionRequested, FileSummary, GuideJumpRequested,
-    GuideLayoutChanged, HighlightRequest, HighlightingFinished, LocationListVisibilityChanged,
+    DiffInputClearRequested, DiffTargetJumpRequested, DiffViewportChanged,
+    DisplayedDiffViewportsChanged, FileDecorationsChanged, FileSelected, FileSelectionRequested,
+    FileSummary, HighlightRequest, HighlightingFinished, LocationListVisibilityChanged,
     PointerInput, PointerInputKind, RepositoryFilesChanged, ReviewLocation, ReviewLocationJumped,
     ReviewLocationRestoreRequested, ReviewStateSaved, ReviewableFiles, ReviewableFilesChanged,
     RevisionEditFailed, SearchStatusChanged, SourceContentLoadFailed, SourceContentLoaded,
@@ -74,10 +74,10 @@ enum DiffControl {
 enum ScrollPlacement {
     KeepCursorVisible,
     CenterCursor,
-    AlignGuideTop,
+    AlignTargetTop,
 }
 
-/// Loaded diff documents and their guide-facing viewport projection.
+/// Loaded diff documents and their source-target viewport projection.
 pub struct DiffComponent {
     embedded: embedded::EmbeddedViews,
     explore: explore::ExploreView,
@@ -94,7 +94,7 @@ pub struct DiffComponent {
     preview: Option<LoadedDocument>,
     pending_preview_location: Option<review_lsp::SourceLocation>,
     pending_center_path: Option<String>,
-    pending_guide_jump: Option<review_guide::GuideTarget>,
+    pending_target_jump: Option<review_source::DiffTarget>,
     search: Option<SearchState>,
     next_search_id: Rc<Cell<u64>>,
     selection: Option<SelectionState>,
@@ -106,8 +106,6 @@ pub struct DiffComponent {
     palette: Palette,
     location_history: LocationHistory,
     pending_history_navigation: Option<PendingHistoryNavigation>,
-    guide_items: Vec<review_guide::GuideItem>,
-    guide_counters: Vec<Option<ui_events::GuideCounter>>,
     rendered_pointer_viewport: RefCell<Option<DiffPointerViewport>>,
 }
 
@@ -215,7 +213,7 @@ impl DiffComponent {
             preview: None,
             pending_preview_location: None,
             pending_center_path: None,
-            pending_guide_jump: None,
+            pending_target_jump: None,
             search: None,
             next_search_id: Rc::new(Cell::new(0)),
             selection: None,
@@ -227,38 +225,35 @@ impl DiffComponent {
             palette,
             location_history: LocationHistory::default(),
             pending_history_navigation: None,
-            guide_items: Vec::new(),
-            guide_counters: Vec::new(),
             rendered_pointer_viewport: RefCell::new(None),
             reply_visibility: RefCell::default(),
         }
     }
 
-    /// Draw the selected diff document and return its positioned guide layer.
+    /// Draw the selected diff document and return its positioned frame layer.
     pub fn render(
         &self,
         area: Rect,
         buffer: &mut Buffer,
         palette: Palette,
         focused: bool,
-        guide_layout: Option<GuideLayout<'_>>,
-    ) -> GuideOverlay {
+    ) -> FrameOverlay {
         if let Some(peek) = &self.conversation.peek {
             peek.render(area, buffer, palette, focused);
-            return GuideOverlay::empty();
+            return FrameOverlay::empty();
         }
         if self.conversation.active {
             self.render_conversation(area, buffer, palette, focused);
-            return GuideOverlay::empty();
+            return FrameOverlay::empty();
         }
-        let result = self.renderer(palette, guide_layout, focused).render(
+        let result = self.renderer(palette, focused).render(
             area,
             buffer,
             &mut self.reply_visibility.borrow_mut(),
         );
         self.rendered_pointer_viewport
             .replace(result.pointer_viewport);
-        result.guide_overlay
+        result.frame_overlay
     }
 
     /// Map one pointer position through the same visual layout as rendering.
@@ -280,7 +275,7 @@ impl DiffComponent {
         } else {
             let file = self.displayed_document()?;
             let viewport = self
-                .renderer(palette, None, focused)
+                .renderer(palette, focused)
                 .viewport(file, width, focused);
             let visual_row = viewport.scroll(file).saturating_add(screen_row);
             (
@@ -355,38 +350,6 @@ impl DiffComponent {
         } else {
             self.selected_document_mut()
         }
-    }
-
-    fn guide_layout<'a>(&'a self, document: &LoadedDocument) -> Option<GuideLayout<'a>> {
-        if self.preview.is_some() {
-            return None;
-        }
-        let file_index = self
-            .documents
-            .iter()
-            .position(|candidate| candidate.path == document.path)?;
-        let viewport = document.guide_viewport(file_index);
-        Some(GuideLayout::new(
-            &self.guide_items,
-            &self.guide_counters,
-            viewport.rows.len(),
-            self.palette.guide,
-            |target| guide_rendering::target_rows(&viewport, target),
-        ))
-    }
-
-    /// Return the displayed guide projection for frame composition.
-    pub fn displayed_guide_viewport(&self) -> Option<ui_events::DisplayedDiffViewport> {
-        if self.preview.is_some() {
-            return None;
-        }
-        let document = self.displayed_document()?;
-        let file_index = self
-            .documents
-            .iter()
-            .position(|candidate| candidate.path == document.path)
-            .unwrap_or_default();
-        Some(document.guide_viewport(file_index))
     }
 
     #[allow(clippy::trivially_copy_pass_by_ref)]
@@ -574,9 +537,9 @@ impl DiffComponent {
         let Some(document) = self.displayed_document() else {
             return;
         };
-        let viewport = self
-            .renderer(self.palette, self.guide_layout(document), true)
-            .viewport(document, self.viewport_width, true);
+        let viewport =
+            self.renderer(self.palette, true)
+                .viewport(document, self.viewport_width, true);
         let maximum = viewport.visible_row_count().saturating_sub(height);
         let document = self.displayed_document_mut().expect("the document exists");
         document.document.scroll = document
@@ -590,7 +553,7 @@ impl DiffComponent {
     fn displayed_viewport(&self) -> Option<DiffViewport> {
         let document = self.displayed_document()?;
         Some(
-            self.renderer(self.palette, self.guide_layout(document), true)
+            self.renderer(self.palette, true)
                 .viewport(document, self.viewport_width, true),
         )
     }
@@ -662,7 +625,7 @@ impl DiffComponent {
                 self.navigate_modified_hunk(command);
                 Vec::new()
             }
-            ShortcutCommand::Guide(_) | ShortcutCommand::File(_) => Vec::new(),
+            ShortcutCommand::File(_) => Vec::new(),
         }
     }
 
@@ -769,8 +732,7 @@ impl DiffComponent {
 
     fn navigate_visual_rows(&mut self, delta: isize) {
         let target = self.selected_document().and_then(|document| {
-            let guide_layout = self.guide_layout(document);
-            self.renderer(self.palette, guide_layout, true)
+            self.renderer(self.palette, true)
                 .viewport(document, self.viewport_width, true)
                 .source_position_after_visual_delta(document, delta)
         });
@@ -829,19 +791,16 @@ impl DiffComponent {
         self.place_scroll(ScrollPlacement::CenterCursor);
     }
 
-    fn align_guide_jump_to_viewport_top(&mut self) {
-        self.place_scroll(ScrollPlacement::AlignGuideTop);
+    fn align_target_jump_to_viewport_top(&mut self) {
+        self.place_scroll(ScrollPlacement::AlignTargetTop);
     }
 
     fn place_scroll(&mut self, placement: ScrollPlacement) {
         let height = usize::from(self.viewport_height);
         let scroll = self.displayed_document().map(|document| {
-            let guide_layout = self.guide_layout(document);
-            let viewport = self.renderer(self.palette, guide_layout, true).viewport(
-                document,
-                self.viewport_width,
-                true,
-            );
+            let viewport =
+                self.renderer(self.palette, true)
+                    .viewport(document, self.viewport_width, true);
             match placement {
                 ScrollPlacement::KeepCursorVisible => {
                     viewport.scroll_with_cursor_visible(document, height)
@@ -849,7 +808,9 @@ impl DiffComponent {
                 ScrollPlacement::CenterCursor => {
                     viewport.scroll_with_cursor_centered(document, height)
                 }
-                ScrollPlacement::AlignGuideTop => viewport.scroll_with_guide_top_aligned(document),
+                ScrollPlacement::AlignTargetTop => {
+                    viewport.scroll_with_target_top_aligned(document)
+                }
             }
         });
         let Some(document) = self.displayed_document_mut() else {
@@ -1254,16 +1215,10 @@ impl DiffComponent {
         }]
     }
 
-    fn renderer<'a>(
-        &'a self,
-        palette: Palette,
-        guide_layout: Option<GuideLayout<'a>>,
-        focused: bool,
-    ) -> DiffRenderer<'a> {
+    fn renderer(&self, palette: Palette, focused: bool) -> DiffRenderer<'_> {
         DiffRenderer::new(
             palette,
             self.displayed_document(),
-            guide_layout,
             focused,
             self.explore.active
                 || self
@@ -1296,11 +1251,9 @@ impl DiffComponent {
         self.prepare_review_switch(same_review_unit);
         if !same_review_unit {
             self.pending_center_path = None;
-            self.guide_items.clear();
-            self.guide_counters.clear();
         }
         if !same_checkpoint {
-            self.pending_guide_jump = None;
+            self.pending_target_jump = None;
         }
         let mut previous_documents = std::mem::take(&mut self.documents);
         self.documents = event
@@ -1385,11 +1338,11 @@ impl DiffComponent {
         }
         let newly_selected = self.selected_path.as_deref() != Some(&event.path);
         if self
-            .pending_guide_jump
+            .pending_target_jump
             .as_ref()
             .is_some_and(|target| target.path() != event.path)
         {
-            self.pending_guide_jump = None;
+            self.pending_target_jump = None;
         }
         let origin = self.current_review_location();
         let selected_is_repository_file = self
@@ -1488,7 +1441,7 @@ impl DiffComponent {
             self.center_jump_target();
         }
         if !reload_after_current_load {
-            self.finish_pending_guide_jump(&event.path);
+            self.finish_pending_target_jump(&event.path);
         }
         let search_action = self.refresh_search_matches();
         if self
@@ -1554,15 +1507,15 @@ impl DiffComponent {
         if self.pending_center_path.as_deref() == Some(&event.path) {
             self.pending_center_path = None;
         }
-        let pending_guide_jump_matches = self
-            .pending_guide_jump
+        let pending_target_jump_matches = self
+            .pending_target_jump
             .as_ref()
             .is_some_and(|target| target.path() == event.path);
         let reload_immediately = self
             .current_document_mut(&event.review_checkpoint, &event.path)
             .is_some_and(LoadedDocument::fail_diff_load);
-        if pending_guide_jump_matches && !reload_immediately {
-            self.pending_guide_jump = None;
+        if pending_target_jump_matches && !reload_immediately {
+            self.pending_target_jump = None;
         }
         self.finish_repository_search_load_if_complete();
         if reload_immediately && self.selected_path.as_deref() == Some(event.path.as_str()) {
@@ -1591,16 +1544,7 @@ impl DiffComponent {
             .find(|document| document.path == path)
     }
 
-    fn guide_layout_changed(&mut self, event: &GuideLayoutChanged) {
-        if self.guide_items == event.items && self.guide_counters == event.counters {
-            return;
-        }
-        self.guide_items.clone_from(&event.items);
-        self.guide_counters.clone_from(&event.counters);
-        self.contain_displayed_cursor();
-    }
-
-    fn guide_jump_requested(&mut self, event: &GuideJumpRequested) -> Vec<Action> {
+    fn target_jump_requested(&mut self, event: &DiffTargetJumpRequested) -> Vec<Action> {
         let origin = self.current_review_location();
         let Some(document) = self.documents.get(event.file_index) else {
             return Vec::new();
@@ -1612,22 +1556,22 @@ impl DiffComponent {
         }
         let row = event.row.or_else(|| {
             self.selected_document().and_then(|document| {
-                let viewport = document.guide_viewport(event.file_index);
-                guide_rendering::target_rows(&viewport, &event.target).map(|rows| rows.0)
+                let viewport = document.target_viewport(event.file_index);
+                diff_rendering::target_rows(&viewport, &event.target).map(|rows| rows.0)
             })
         });
         if let Some(row) = row {
             self.set_cursor(row);
         }
-        self.align_guide_jump_to_viewport_top();
+        self.align_target_jump_to_viewport_top();
         let load_was_active = self
             .selected_document()
             .is_some_and(LoadedDocument::is_loading);
         let load_action = self.selected_load_action();
         if row.is_none() || load_was_active || load_action.is_some() {
-            self.pending_guide_jump = Some(event.target.clone());
+            self.pending_target_jump = Some(event.target.clone());
         } else {
-            self.pending_guide_jump = None;
+            self.pending_target_jump = None;
         }
         self.publish_file_selection(path);
         self.publish_viewports();
@@ -1636,13 +1580,13 @@ impl DiffComponent {
         load_action.into_iter().collect()
     }
 
-    fn finish_pending_guide_jump(&mut self, loaded_path: &str) {
-        let Some(pending) = self.pending_guide_jump.take() else {
+    fn finish_pending_target_jump(&mut self, loaded_path: &str) {
+        let Some(pending) = self.pending_target_jump.take() else {
             return;
         };
         if pending.path() != loaded_path || self.selected_path.as_deref() != Some(loaded_path) {
             if pending.path() != loaded_path {
-                self.pending_guide_jump = Some(pending);
+                self.pending_target_jump = Some(pending);
             }
             return;
         }
@@ -1654,12 +1598,12 @@ impl DiffComponent {
             return;
         };
         let row = self.documents.get(file_index).and_then(|document| {
-            let viewport = document.guide_viewport(file_index);
-            guide_rendering::target_rows(&viewport, &pending).map(|rows| rows.0)
+            let viewport = document.target_viewport(file_index);
+            diff_rendering::target_rows(&viewport, &pending).map(|rows| rows.0)
         });
         if let Some(row) = row {
             self.set_cursor(row);
-            self.align_guide_jump_to_viewport_top();
+            self.align_target_jump_to_viewport_top();
         }
     }
 
@@ -2062,7 +2006,7 @@ impl DiffComponent {
             .iter()
             .enumerate()
             .filter(|(_, document)| self.reviewable_files.contains(&document.path))
-            .map(|(file_index, document)| document.guide_viewport(file_index))
+            .map(|(file_index, document)| document.target_viewport(file_index))
             .collect();
         let current_file_index = self
             .selected_path
@@ -2192,8 +2136,7 @@ impl Component<Action> for DiffComponent {
         subscriptions.subscribe(Self::review_state_saved);
         subscriptions.subscribe(Self::viewport_changed);
         subscriptions.subscribe(|component, event| component.source_view_mut().clear_input(event));
-        subscriptions.subscribe(Self::guide_layout_changed);
-        subscriptions.subscribe(Self::guide_jump_requested);
+        subscriptions.subscribe(Self::target_jump_requested);
         subscriptions.subscribe(|component, event| {
             component.source_view_mut().preview_source_location(event)
         });

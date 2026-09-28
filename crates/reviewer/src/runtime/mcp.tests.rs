@@ -4,8 +4,8 @@ use std::time::{Duration, Instant};
 use herdr_client::protocol::{
     AgentPrompter, AgentStatus, AgentTarget, HerdrEvent, HerdrReader, HerdrWriter,
 };
-use review_guide::{DiffRangeAnchor, GuideAnchorKind};
 use review_mcp::Endpoint;
+use review_source::{AnchorKind, DiffRangeAnchor};
 use review_store::ReviewStore;
 use review_thread_service::{Command, Event, Worker};
 use review_threads::{Post, ThreadCommand, ThreadId};
@@ -163,16 +163,16 @@ impl ConversationFixture {
                 "right",
                 "--no-focus",
                 "--env",
-                &format!("REVIEW_GUIDE_E2E_PROMPT_PATH={}", prompt_path.display()),
+                &format!("REVIEW_AGENT_E2E_PROMPT_PATH={}", prompt_path.display()),
                 "--env",
                 &format!(
-                    "REVIEW_GUIDE_E2E_HERDR_BIN={}",
+                    "REVIEW_AGENT_E2E_HERDR_BIN={}",
                     self.server.binary.display()
                 ),
                 "--env",
-                &format!("REVIEW_GUIDE_E2E_AGENT={}", self.server.agent),
+                &format!("REVIEW_AGENT_E2E_AGENT={}", self.server.agent),
                 "--env",
-                "REVIEW_GUIDE_E2E_AGENT_SESSION=session",
+                "REVIEW_AGENT_E2E_AGENT_SESSION=session",
             ],
         );
         let pane = split["result"]["pane"]["pane_id"]
@@ -184,7 +184,7 @@ impl ConversationFixture {
             pane,
             &self.server.agent_binary.to_string_lossy(),
             "--exact",
-            "runtime::tests::guide_e2e_agent_process",
+            "runtime::tests::e2e_agent_process",
             "--nocapture",
         ]);
         let deadline = Instant::now() + Duration::from_secs(5);
@@ -239,7 +239,7 @@ impl ConversationFixture {
                     new_path: Some(path.into()),
                     old_lines: None,
                     new_lines: Some(1..2),
-                    target_kind: GuideAnchorKind::Lines,
+                    target_kind: AnchorKind::Lines,
                     source_hunk_count: 1,
                     old_content: None,
                     new_content: Some(b"original\n".to_vec()),

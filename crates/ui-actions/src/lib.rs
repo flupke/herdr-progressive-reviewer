@@ -1,8 +1,8 @@
 //! External work requested by review UI components.
 
-use review_guide::{GuideScope, ReviewCheckpoint};
 use review_lsp::{Operation, Query, SourceLocation};
 use review_repository::repository::{ChangeId, RevisionDirection};
+use review_source::ReviewCheckpoint;
 
 pub use ui_events::{RevisionHistoryLoadId, SourceLoadMode};
 
@@ -57,10 +57,6 @@ pub enum Action {
     SetReviewed {
         path: String,
         reviewed: bool,
-    },
-    /// Generate a guide through the active implementation agent.
-    GenerateReviewGuide {
-        scope: GuideScope,
     },
     /// Save the file-pane width in terminal columns.
     SaveFilePaneWidth(u16),

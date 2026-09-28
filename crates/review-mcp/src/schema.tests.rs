@@ -71,7 +71,7 @@ fn explore_tool_schemas_describe_the_full_submission_without_a_kickoff_example()
         "Inspection",
         "CodeLocation",
         "ReviewCheckpoint",
-        "GuideLineRange",
+        "SourceLineRange",
     ] {
         assert_eq!(definitions[name]["type"], "object", "{name}");
         assert!(

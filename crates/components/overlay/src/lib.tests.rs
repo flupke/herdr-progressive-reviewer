@@ -88,7 +88,7 @@ fn commit_message_renders_from_repository_event() {
     .unwrap();
     bus.publish(RepositoryMetadataChanged {
         display_id: "abcd1234".to_owned(),
-        review_checkpoint: review_guide::ReviewCheckpoint::new("change", "snapshot"),
+        review_checkpoint: review_source::ReviewCheckpoint::new("change", "snapshot"),
         description: "Explain the component migration".to_owned(),
     })
     .unwrap();
@@ -119,7 +119,7 @@ fn stale_hover_results_do_not_replace_the_current_overlay() {
     let target = bus.mount(|_| OverlayComponent::new(ui_theme::Theme::default()));
     bus.publish(RepositoryMetadataChanged {
         display_id: "abcd1234".to_owned(),
-        review_checkpoint: review_guide::ReviewCheckpoint::new("change", "current"),
+        review_checkpoint: review_source::ReviewCheckpoint::new("change", "current"),
         description: String::new(),
     })
     .unwrap();
@@ -147,7 +147,7 @@ fn stale_lsp_failures_do_not_create_toasts() {
     let target = bus.mount(|_| OverlayComponent::new(ui_theme::Theme::default()));
     bus.publish(RepositoryMetadataChanged {
         display_id: "abcd1234".to_owned(),
-        review_checkpoint: review_guide::ReviewCheckpoint::new("change", "current"),
+        review_checkpoint: review_source::ReviewCheckpoint::new("change", "current"),
         description: String::new(),
     })
     .unwrap();

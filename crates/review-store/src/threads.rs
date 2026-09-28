@@ -24,6 +24,26 @@ struct StoredThreads<S = std::sync::Arc<review_threads::ThreadSource>> {
 }
 
 impl ReviewStore {
+    fn atomic_compressed_json(
+        &self,
+        target: &std::path::Path,
+        value: &impl Serialize,
+        operation: &'static str,
+    ) -> Result<()> {
+        let json = serde_json::to_vec(value).map_err(|source| Error::StateJson {
+            operation,
+            path: target.to_owned(),
+            source,
+        })?;
+        let bytes =
+            zstd::stream::encode_all(json.as_slice(), 3).map_err(|source| Error::StateIo {
+                operation,
+                path: target.to_owned(),
+                source,
+            })?;
+        self.atomic_write(target, &bytes, operation)
+    }
+
     /// Apply a change to the latest history under a lock shared by reviewer processes.
     pub fn update_threads<T>(
         &self,
@@ -137,7 +157,7 @@ impl ReviewStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use review_guide::{DiffRangeAnchor, GuideAnchorKind};
+    use review_source::{AnchorKind, DiffRangeAnchor};
     use review_threads::{MessageId, Post};
 
     #[test]
@@ -151,7 +171,7 @@ mod tests {
                 new_path: Some("a.rs".into()),
                 old_lines: None,
                 new_lines: Some(1..2),
-                target_kind: GuideAnchorKind::Lines,
+                target_kind: AnchorKind::Lines,
                 source_hunk_count: 1,
                 old_content: None,
                 new_content: None,
@@ -221,7 +241,7 @@ mod tests {
                 new_path: Some("gone.rs".into()),
                 old_lines: None,
                 new_lines: Some(0..1),
-                target_kind: GuideAnchorKind::Lines,
+                target_kind: AnchorKind::Lines,
                 source_hunk_count: 1,
                 old_content: None,
                 new_content: Some(vec![b'x'; 2_000_000]),
@@ -269,7 +289,7 @@ mod tests {
                     new_path: Some("file.rs".into()),
                     old_lines: None,
                     new_lines: Some(0..1),
-                    target_kind: GuideAnchorKind::Lines,
+                    target_kind: AnchorKind::Lines,
                     source_hunk_count: 1,
                     old_content: None,
                     new_content: Some(b"retained source".to_vec()),

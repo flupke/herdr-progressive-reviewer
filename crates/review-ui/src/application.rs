@@ -9,7 +9,6 @@ use component_core::{
 use diff_component::{DiffComponent, SyntaxHighlighter};
 use explore_component::ExploreComponent;
 use files_component::FilesComponent;
-use guide_component::GuideComponent;
 use locations_component::LocationsComponent;
 use overlay_component::OverlayComponent;
 use ratatui::layout::Rect;
@@ -37,7 +36,6 @@ pub struct ReviewApplication {
     threads_component: ComponentTarget,
     explore_component: ComponentTarget,
     diff_component: ComponentTarget,
-    guide_component: ComponentTarget,
     locations_component: ComponentTarget,
     status_component: ComponentTarget,
     overlay_component: ComponentTarget,
@@ -84,10 +82,6 @@ impl ReviewApplication {
             .is_some_and(|explore| explore.jev_progress_expires_between(previous, now))
             || self
                 .event_bus
-                .get::<StatusComponent>(self.status_component)
-                .is_some_and(StatusComponent::is_animating)
-            || self
-                .event_bus
                 .get::<OverlayComponent>(self.overlay_component)
                 .is_some_and(|overlay| overlay.changes_between(previous, now))
             || self
@@ -113,7 +107,6 @@ impl ReviewApplication {
                 theme.palette,
             )
         });
-        let guide = event_bus.mount(GuideComponent::new);
         let locations = event_bus
             .mount(|events| LocationsComponent::new(events, repository_root, theme.palette));
         let status = event_bus.mount(StatusComponent::new);
@@ -130,7 +123,6 @@ impl ReviewApplication {
             threads_component: threads,
             explore_component: explore,
             diff_component: diff,
-            guide_component: guide,
             locations_component: locations,
             status_component: status,
             overlay_component: overlay,
@@ -388,10 +380,6 @@ impl ReviewApplication {
                 .event_bus
                 .get::<ExploreComponent>(self.explore_component)
                 .expect("Explore stays mounted"),
-            guide: self
-                .event_bus
-                .get::<GuideComponent>(self.guide_component)
-                .expect("the guide component must stay mounted"),
             locations: self
                 .event_bus
                 .get::<LocationsComponent>(self.locations_component)
