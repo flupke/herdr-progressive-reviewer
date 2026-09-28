@@ -151,7 +151,7 @@ fn resolution_stops_mcp_work_and_wakeups_but_preserves_late_answers() {
 
 impl ConversationFixture {
     fn second_prompts(&self) -> String {
-        fs::read_to_string(self.server.directory.path().join("second-prompt.txt")).unwrap()
+        fs::read_to_string(self.server.server.root().join("second-prompt.txt")).unwrap()
     }
 
     fn second_access(&self, wakeups: usize) -> String {

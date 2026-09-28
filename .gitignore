@@ -1,4 +1,5 @@
 /target/
+/tests/tui/target/
 /bin/
 /dist/
 /.direnv/

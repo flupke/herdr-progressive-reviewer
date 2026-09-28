@@ -1,0 +1,34 @@
+[package]
+name = "reviewer-tui-tests"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+publish = false
+
+# Ratatui 0.29 pins unicode-width 0.2.0; tui-test requires 0.2.2.
+[workspace]
+resolver = "3"
+
+[dependencies]
+anyhow = "1.0"
+herdr-client = { path = "../../crates/herdr-client" }
+notify = "8.2"
+review-repository = { path = "../../crates/review-repository" }
+review-test-support = { path = "../../crates/review-test-support" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+signal-hook = "0.3"
+tui-test-rs = "=0.1.0-beta.5"
+
+[dev-dependencies]
+tempfile = "3.20"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+missing_errors_doc = "allow"
+module_name_repetitions = "allow"
+must_use_candidate = "allow"

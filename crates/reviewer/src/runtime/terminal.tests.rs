@@ -88,6 +88,30 @@ impl Fixture {
 }
 
 #[test]
+fn vision_mode_marks_each_completed_paint_including_unchanged_frames() {
+    let output = CapturedOutput::default();
+    let mut terminal = Terminal::with_options(
+        TerminalBackend::new(output.clone()).with_frame_capture(),
+        TerminalOptions {
+            viewport: Viewport::Fixed(Rect::new(0, 0, 20, 3)),
+        },
+    )
+    .unwrap();
+    for _ in 0..2 {
+        terminal
+            .draw(|frame| frame.render_widget(Paragraph::new("visible"), frame.area()))
+            .unwrap();
+    }
+    let bytes = output.0.borrow();
+    let text = String::from_utf8_lossy(&bytes);
+    assert_eq!(text.matches("\x1b[?2026h").count(), 2);
+    assert_eq!(text.matches("\x1b[?2026l").count(), 2);
+    assert!(text.ends_with("\x1b[?2026l"));
+    assert!(text.find("\x1b[?2026h").unwrap() < text.find("visible").unwrap());
+    assert!(text.find("visible").unwrap() < text.find("\x1b[?2026l").unwrap());
+}
+
+#[test]
 fn unchanged_frames_produce_no_terminal_output() {
     let mut fixture = Fixture::new();
     fixture.draw("Review this file", Style::default());

@@ -167,7 +167,7 @@ impl ExploreFlow {
     fn wait_for_prompt(&mut self, request: &review_explore::TurnRequest) {
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
-            let text = fs::read_to_string(self.fixture.herdr.directory.path().join("prompt.txt"))
+            let text = fs::read_to_string(self.fixture.herdr.server.root().join("prompt.txt"))
                 .unwrap_or_default();
             if let Some(prompt) = text.get(self.prompt_offset..)
                 && let Some(access) = prompt
@@ -254,7 +254,7 @@ fn explore_turn_prompts_a_working_agent_once() {
     let request = flow.enqueue();
     flow.wait_for_prompt(&request);
     thread::sleep(Duration::from_millis(350));
-    let text = fs::read_to_string(flow.fixture.herdr.directory.path().join("prompt.txt")).unwrap();
+    let text = fs::read_to_string(flow.fixture.herdr.server.root().join("prompt.txt")).unwrap();
     assert_eq!(text.matches("Explore request: ").count(), 1);
     flow.finish();
 }

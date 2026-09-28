@@ -2,7 +2,7 @@ use super::*;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
+use std::process::Command;
 
 use herdr_client::protocol::HerdrReader;
 use ratatui::backend::TestBackend;
@@ -10,7 +10,7 @@ use review_repository::diff::DiffRow;
 use review_repository::repository::RepoType;
 use review_state::ReviewStatus;
 use review_test_support::{
-    ReviewRepositoryFixture, complete_repository_snapshot, repository_fixture,
+    HerdrTestServer, ReviewRepositoryFixture, complete_repository_snapshot, repository_fixture,
 };
 use review_types::ReviewUnit;
 
@@ -23,9 +23,6 @@ mod agent_input;
 mod explore_flow;
 
 const AGENT_E2E_AGENT_SOURCE: &str = "progressive-reviewer-e2e";
-// Test against the installed binary's rules, without background network updates.
-const AGENT_E2E_CONFIG: &str = "onboarding = false\n\
-    [update]\nversion_check = false\nmanifest_check = false\n";
 
 #[test]
 fn source_loading_prefers_frozen_content_when_a_deleted_path_is_recreated() {
@@ -121,15 +118,11 @@ enum AgentLifecycle {
 }
 
 struct IsolatedHerdrServer {
-    directory: tempfile::TempDir,
-    binary: PathBuf,
-    socket_path: PathBuf,
-    state_directory: PathBuf,
+    server: HerdrTestServer,
     workspace_id: WorkspaceId,
     pane_id: PaneId,
     agent_binary: PathBuf,
     agent: String,
-    child: Child,
 }
 
 impl IsolatedHerdrServer {
@@ -155,42 +148,11 @@ impl IsolatedHerdrServer {
         session: Option<&str>,
         lifecycle: AgentLifecycle,
     ) -> Self {
-        let directory = tempfile::tempdir().unwrap();
-        let config_directory = directory.path().join("config");
-        let runtime_directory = directory.path().join("runtime");
-        let state_directory = directory.path().join("state");
-        let config_path = config_directory.join("herdr/config.toml");
-        let socket_path = directory.path().join("herdr.sock");
-        let prompt_path = directory.path().join("prompt.txt");
-        fs::create_dir_all(config_path.parent().unwrap()).unwrap();
-        fs::create_dir_all(&runtime_directory).unwrap();
-        fs::create_dir_all(&state_directory).unwrap();
-        fs::write(&config_path, AGENT_E2E_CONFIG).unwrap();
-
-        let binary = std::env::var_os("HERDR_BIN_PATH")
-            .map_or_else(|| PathBuf::from("herdr"), PathBuf::from);
-        let server_output = File::create(directory.path().join("server.log")).unwrap();
-        let child = Command::new(&binary)
-            .arg("server")
-            .current_dir(repository_root)
-            .env("HERDR_SOCKET_PATH", &socket_path)
-            .env("HERDR_CONFIG_PATH", &config_path)
-            .env("XDG_CONFIG_HOME", &config_directory)
-            .env("XDG_RUNTIME_DIR", &runtime_directory)
-            .env("XDG_STATE_HOME", &state_directory)
-            .env("SHELL", "/bin/sh")
-            .env_remove("HERDR_CLIENT_SOCKET_PATH")
-            .env_remove("HERDR_ENV")
-            .stdin(Stdio::null())
-            .stdout(server_output.try_clone().unwrap())
-            .stderr(server_output)
-            .spawn()
-            .unwrap_or_else(|error| panic!("could not start {}: {error}", binary.display()));
-        let mut child = child;
-        Self::wait_until_ready(&directory, &socket_path, &mut child);
-
+        let server = HerdrTestServer::start(repository_root);
+        let prompt_path = server.root().join("prompt.txt");
         let prompt_environment = format!("REVIEW_AGENT_E2E_PROMPT_PATH={}", prompt_path.display());
-        let binary_environment = format!("REVIEW_AGENT_E2E_HERDR_BIN={}", binary.display());
+        let binary_environment =
+            format!("REVIEW_AGENT_E2E_HERDR_BIN={}", server.binary().display());
         let agent_environment = format!("REVIEW_AGENT_E2E_AGENT={agent}");
         let session_environment = format!(
             "REVIEW_AGENT_E2E_AGENT_SESSION={}",
@@ -203,29 +165,25 @@ impl IsolatedHerdrServer {
                 AgentLifecycle::Native => "0",
             }
         );
-        let workspace = Self::run_cli_json_with(
-            &binary,
-            &socket_path,
-            &[
-                "workspace",
-                "create",
-                "--cwd",
-                &repository_root.to_string_lossy(),
-                "--label",
-                "review-source-e2e",
-                "--env",
-                &prompt_environment,
-                "--env",
-                &binary_environment,
-                "--env",
-                &agent_environment,
-                "--env",
-                &session_environment,
-                "--env",
-                &report_environment,
-                "--no-focus",
-            ],
-        );
+        let workspace = server.run_cli_json(&[
+            "workspace",
+            "create",
+            "--cwd",
+            &repository_root.to_string_lossy(),
+            "--label",
+            "review-source-e2e",
+            "--env",
+            &prompt_environment,
+            "--env",
+            &binary_environment,
+            "--env",
+            &agent_environment,
+            "--env",
+            &session_environment,
+            "--env",
+            &report_environment,
+            "--no-focus",
+        ]);
         let workspace_id = WorkspaceId(
             workspace["result"]["workspace"]["workspace_id"]
                 .as_str()
@@ -239,18 +197,14 @@ impl IsolatedHerdrServer {
                 .to_owned(),
         );
         let current_test_binary = std::env::current_exe().unwrap();
-        let agent_binary = directory.path().join(agent);
+        let agent_binary = server.root().join(agent);
         fs::copy(current_test_binary, &agent_binary).unwrap();
         let server = Self {
-            directory,
-            binary,
-            socket_path,
-            state_directory,
+            server,
             workspace_id,
             pane_id,
             agent_binary,
             agent: agent.into(),
-            child,
         };
         server.start_agent();
         server.wait_for_agent(session);
@@ -292,27 +246,7 @@ impl IsolatedHerdrServer {
     }
 
     fn client(&self) -> HerdrClient {
-        HerdrClient::new(
-            self.socket_path.clone(),
-            "herdr.progressive-reviewer".to_owned(),
-            self.state_directory.clone(),
-        )
-    }
-
-    fn wait_until_ready(directory: &tempfile::TempDir, socket_path: &Path, child: &mut Child) {
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while Instant::now() < deadline {
-            if socket_path.exists() && std::os::unix::net::UnixStream::connect(socket_path).is_ok()
-            {
-                return;
-            }
-            if child.try_wait().unwrap().is_some() {
-                break;
-            }
-            thread::sleep(Duration::from_millis(25));
-        }
-        let log = fs::read_to_string(directory.path().join("server.log")).unwrap_or_default();
-        panic!("isolated Herdr server did not become ready:\n{log}");
+        self.server.client()
     }
 
     fn wait_for_agent(&self, session: Option<&str>) {
@@ -338,32 +272,8 @@ impl IsolatedHerdrServer {
         );
     }
 
-    fn run_cli_json_with(
-        binary: &Path,
-        socket_path: &Path,
-        arguments: &[&str],
-    ) -> serde_json::Value {
-        let output = Self::run_cli_with(binary, socket_path, arguments);
-        serde_json::from_slice(&output.stdout).unwrap()
-    }
-
     fn run_cli(&self, arguments: &[&str]) -> std::process::Output {
-        Self::run_cli_with(&self.binary, &self.socket_path, arguments)
-    }
-
-    fn run_cli_with(binary: &Path, socket_path: &Path, arguments: &[&str]) -> std::process::Output {
-        let output = Command::new(binary)
-            .args(arguments)
-            .env("HERDR_SOCKET_PATH", socket_path)
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "herdr {} failed:\n{}",
-            arguments.join(" "),
-            String::from_utf8_lossy(&output.stderr)
-        );
-        output
+        self.server.run_cli(arguments)
     }
 
     fn report_agent(&self, state: &str) {
@@ -405,13 +315,6 @@ impl IsolatedHerdrServer {
             session,
         ]);
         self.wait_for_agent(Some(session));
-    }
-}
-
-impl Drop for IsolatedHerdrServer {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
     }
 }
 

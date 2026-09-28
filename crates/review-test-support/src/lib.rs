@@ -14,6 +14,8 @@ use review_repository::repository::{PollResult, RepoType, Repository, Snapshot};
 
 mod port;
 pub use port::TestPort;
+mod herdr;
+pub use herdr::HerdrTestServer;
 
 /// The repository layout for a jj integration fixture.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

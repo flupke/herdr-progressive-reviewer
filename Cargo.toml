@@ -1,5 +1,5 @@
 [workspace]
-exclude = ["vendor/ratatui-markdown"]
+exclude = ["vendor/ratatui-markdown", "tests/tui"]
 members = [
     "crates/review-explore",
     "crates/review-explore-runner",

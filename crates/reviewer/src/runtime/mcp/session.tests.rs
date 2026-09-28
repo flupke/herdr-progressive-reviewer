@@ -90,7 +90,7 @@ fn mcp_notifies_agents_without_native_sessions_and_retries_with_the_same_access(
         client.cancel().await.unwrap();
     });
     let second_prompts =
-        fs::read_to_string(fixture.server.directory.path().join("second-prompt.txt")).unwrap();
+        fs::read_to_string(fixture.server.server.root().join("second-prompt.txt")).unwrap();
     assert!(second_prompts.is_empty());
     assert_eq!(fixture.prompts().matches("Logical review: ").count(), 2);
 }

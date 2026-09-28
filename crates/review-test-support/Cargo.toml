@@ -8,7 +8,9 @@ publish = false
 
 [dependencies]
 fs2.workspace = true
+herdr-client = { path = "../herdr-client" }
 review-repository = { path = "../review-repository" }
+serde_json.workspace = true
 tempfile.workspace = true
 
 [lints]

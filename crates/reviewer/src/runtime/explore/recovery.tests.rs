@@ -83,7 +83,7 @@ impl ExploreFlow {
     pub(super) fn native_status(&self, status: AgentStatus) {
         self.fixture.herdr.release_agent();
         fs::write(
-            self.fixture.herdr.directory.path().join("prompt.state"),
+            self.fixture.herdr.server.root().join("prompt.state"),
             if status == AgentStatus::Working {
                 "⠋ Working"
             } else {
@@ -342,7 +342,7 @@ fn same_conversation_restores_without_a_prompt_and_retry_keeps_posted_answer_ide
         ))))
         .unwrap();
     flow.wait_for_prompt(&request);
-    let before = fs::read(flow.fixture.herdr.directory.path().join("prompt.txt")).unwrap();
+    let before = fs::read(flow.fixture.herdr.server.root().join("prompt.txt")).unwrap();
     let restored = flow.reopen();
     let pass = restored.result.unwrap().unwrap();
     assert_eq!(
@@ -354,7 +354,7 @@ fn same_conversation_restores_without_a_prompt_and_retry_keeps_posted_answer_ide
         request.request
     );
     assert_eq!(
-        fs::read(flow.fixture.herdr.directory.path().join("prompt.txt")).unwrap(),
+        fs::read(flow.fixture.herdr.server.root().join("prompt.txt")).unwrap(),
         before
     );
     flow.exploration = pass.exploration.clone();
@@ -410,7 +410,7 @@ fn conclusion_edits_survive_restart_and_old_access_is_rejected() {
     flow.store()
         .save_explore_view(&flow.fixture.review_unit, &view)
         .unwrap();
-    let before = fs::read(flow.fixture.herdr.directory.path().join("prompt.txt")).unwrap();
+    let before = fs::read(flow.fixture.herdr.server.root().join("prompt.txt")).unwrap();
     let restored = flow.reopen();
     assert_eq!(restored.view, Some(view.clone()));
     assert_eq!(
@@ -423,7 +423,7 @@ fn conclusion_edits_survive_restart_and_old_access_is_rejected() {
         "access must be renewed, not restored from disk"
     );
     assert_eq!(
-        fs::read(flow.fixture.herdr.directory.path().join("prompt.txt")).unwrap(),
+        fs::read(flow.fixture.herdr.server.root().join("prompt.txt")).unwrap(),
         before
     );
     let mut edited = view;
@@ -434,7 +434,7 @@ fn conclusion_edits_survive_restart_and_old_access_is_rejected() {
         .unwrap();
     assert_eq!(flow.reopen().view, Some(edited));
     assert_eq!(
-        fs::read(flow.fixture.herdr.directory.path().join("prompt.txt")).unwrap(),
+        fs::read(flow.fixture.herdr.server.root().join("prompt.txt")).unwrap(),
         before
     );
     flow.finish();
@@ -449,7 +449,7 @@ fn implementation_crash_boundaries_keep_authorized_scope_and_never_replay_on_res
         .exploration
         .implementation("Exactly this authorized text".into())
         .unwrap();
-    let before = fs::read(flow.fixture.herdr.directory.path().join("prompt.txt")).unwrap();
+    let before = fs::read(flow.fixture.herdr.server.root().join("prompt.txt")).unwrap();
     let store = flow.store();
     store
         .update_explore(&flow.fixture.review_unit, &request.instance, |pass| {
@@ -482,7 +482,7 @@ fn implementation_crash_boundaries_keep_authorized_scope_and_never_replay_on_res
             }
         );
         assert_eq!(
-            fs::read(flow.fixture.herdr.directory.path().join("prompt.txt")).unwrap(),
+            fs::read(flow.fixture.herdr.server.root().join("prompt.txt")).unwrap(),
             before
         );
     }
@@ -520,11 +520,11 @@ fn lost_ui_ack_is_durable_and_identical_retry_with_fresh_access_does_not_append(
     assert_eq!(result.is_error, Some(true));
     let recorded = flow.saved().exploration.conversation;
     assert_eq!(recorded.len(), 2);
-    let before = fs::read(flow.fixture.herdr.directory.path().join("prompt.txt")).unwrap();
+    let before = fs::read(flow.fixture.herdr.server.root().join("prompt.txt")).unwrap();
     let restored = flow.reopen().result.unwrap().unwrap();
     assert_eq!(restored.exploration.conversation, recorded);
     assert_eq!(
-        fs::read(flow.fixture.herdr.directory.path().join("prompt.txt")).unwrap(),
+        fs::read(flow.fixture.herdr.server.root().join("prompt.txt")).unwrap(),
         before
     );
     flow.exploration = restored.exploration.clone();

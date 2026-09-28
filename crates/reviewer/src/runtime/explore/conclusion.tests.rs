@@ -78,8 +78,7 @@ fn conclusion_uses_its_own_mcp_contract_and_implement_prompts_a_working_agent() 
     let mut invalid = payload.clone();
     invalid["to_be_implemented"] = "changed".into();
     assert_eq!(flow.call("submit_conclusion", invalid).is_error, Some(true));
-    let before =
-        fs::read_to_string(flow.fixture.herdr.directory.path().join("prompt.txt")).unwrap();
+    let before = fs::read_to_string(flow.fixture.herdr.server.root().join("prompt.txt")).unwrap();
     assert_eq!(
         before.len(),
         flow.prompt_offset,
@@ -99,7 +98,7 @@ fn conclusion_uses_its_own_mcp_contract_and_implement_prompts_a_working_agent() 
     let delivered = flow.wait_for_implementation();
     assert_eq!(delivered.request, request);
     assert_eq!(delivered.state, review_explore::DispatchState::Delivered);
-    let text = fs::read_to_string(flow.fixture.herdr.directory.path().join("prompt.txt")).unwrap();
+    let text = fs::read_to_string(flow.fixture.herdr.server.root().join("prompt.txt")).unwrap();
     let prompt = &text[before.len()..];
     assert!(prompt.contains(&request.text));
     assert!(
@@ -125,14 +124,14 @@ fn cancelling_after_implementation_delivery_does_not_repeat_the_prompt() {
         flow.wait_for_implementation().state,
         review_explore::DispatchState::Delivered
     );
-    let prompts = fs::read(flow.fixture.herdr.directory.path().join("prompt.txt")).unwrap();
+    let prompts = fs::read(flow.fixture.herdr.server.root().join("prompt.txt")).unwrap();
     flow.fixture
         .commands
         .send(WorkerCommand::Explore(ExploreCommand::CancelImplementation))
         .unwrap();
     flow.call("submit_conclusion", payload);
     assert_eq!(
-        fs::read(flow.fixture.herdr.directory.path().join("prompt.txt")).unwrap(),
+        fs::read(flow.fixture.herdr.server.root().join("prompt.txt")).unwrap(),
         prompts
     );
     flow.finish();
@@ -147,7 +146,7 @@ fn restored_conclusion_prompts_selected_agent_without_a_native_conversation_id()
     flow.fixture.herdr.start_agent();
     flow.fixture.herdr.wait_for_agent(None);
     flow.exploration = flow.reopen().result.unwrap().unwrap().exploration.clone();
-    let before = fs::read(flow.fixture.herdr.directory.path().join("prompt.txt"))
+    let before = fs::read(flow.fixture.herdr.server.root().join("prompt.txt"))
         .unwrap()
         .len();
     let request = flow
@@ -163,7 +162,7 @@ fn restored_conclusion_prompts_selected_agent_without_a_native_conversation_id()
     let delivered = flow.wait_for_implementation();
     assert_eq!(delivered.request, request);
     assert_eq!(delivered.state, review_explore::DispatchState::Delivered);
-    let text = fs::read_to_string(flow.fixture.herdr.directory.path().join("prompt.txt")).unwrap();
+    let text = fs::read_to_string(flow.fixture.herdr.server.root().join("prompt.txt")).unwrap();
     assert!(text[before..].contains("Implement the edited task list."));
     flow.finish();
 }

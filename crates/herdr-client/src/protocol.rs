@@ -99,7 +99,7 @@ pub trait AgentPrompter: Send + Sync {
 }
 
 /// The immutable action context supplied by Herdr.
-#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 pub struct PluginContext {
     /// The workspace in which the action started.
     #[serde(default)]

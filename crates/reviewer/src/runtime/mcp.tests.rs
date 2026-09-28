@@ -68,11 +68,11 @@ impl ConversationFixture {
         ]);
         let port = review_test_support::TestPort::new();
         let endpoint = Endpoint::for_repository(repository.path(), Some(port.number())).unwrap();
-        let store = ReviewStore::open(&server.state_directory, repository.path()).unwrap();
+        let store = ReviewStore::open(server.server.state_directory(), repository.path()).unwrap();
         let (sender, events) = mpsc::channel();
         let target = AgentTarget::new(server.workspace_id.clone(), Some(server.pane_id.clone()));
         let worker = Worker::start(
-            ReviewStore::open(&server.state_directory, repository.path()).unwrap(),
+            ReviewStore::open(server.server.state_directory(), repository.path()).unwrap(),
             server.client(),
             target.clone(),
             Ok(endpoint),
@@ -151,30 +151,26 @@ impl ConversationFixture {
     }
 
     fn second_agent(&self) -> herdr_client::protocol::Agent {
-        let prompt_path = self.server.directory.path().join("second-prompt.txt");
-        let split = IsolatedHerdrServer::run_cli_json_with(
-            &self.server.binary,
-            &self.server.socket_path,
-            &[
-                "pane",
-                "split",
-                &self.server.pane_id.0,
-                "--direction",
-                "right",
-                "--no-focus",
-                "--env",
-                &format!("REVIEW_AGENT_E2E_PROMPT_PATH={}", prompt_path.display()),
-                "--env",
-                &format!(
-                    "REVIEW_AGENT_E2E_HERDR_BIN={}",
-                    self.server.binary.display()
-                ),
-                "--env",
-                &format!("REVIEW_AGENT_E2E_AGENT={}", self.server.agent),
-                "--env",
-                "REVIEW_AGENT_E2E_AGENT_SESSION=session",
-            ],
-        );
+        let prompt_path = self.server.server.root().join("second-prompt.txt");
+        let split = self.server.server.run_cli_json(&[
+            "pane",
+            "split",
+            &self.server.pane_id.0,
+            "--direction",
+            "right",
+            "--no-focus",
+            "--env",
+            &format!("REVIEW_AGENT_E2E_PROMPT_PATH={}", prompt_path.display()),
+            "--env",
+            &format!(
+                "REVIEW_AGENT_E2E_HERDR_BIN={}",
+                self.server.server.binary().display()
+            ),
+            "--env",
+            &format!("REVIEW_AGENT_E2E_AGENT={}", self.server.agent),
+            "--env",
+            "REVIEW_AGENT_E2E_AGENT_SESSION=session",
+        ]);
         let pane = split["result"]["pane"]["pane_id"]
             .as_str()
             .unwrap_or_else(|| panic!("split: {split}"));
@@ -257,7 +253,7 @@ impl ConversationFixture {
         } else {
             "✳ Ready"
         };
-        fs::write(self.server.directory.path().join("prompt.state"), title).unwrap();
+        fs::write(self.server.server.root().join("prompt.state"), title).unwrap();
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
             if self
@@ -277,7 +273,7 @@ impl ConversationFixture {
     }
 
     fn prompts(&self) -> String {
-        fs::read_to_string(self.server.directory.path().join("prompt.txt")).unwrap_or_default()
+        fs::read_to_string(self.server.server.root().join("prompt.txt")).unwrap_or_default()
     }
 
     fn wait_for_screen(&self, matches: impl Fn(&str) -> bool) -> String {
@@ -380,7 +376,7 @@ fn mcp_posts_notify_a_working_focused_agent_without_recognizing_its_composer(age
     fixture.status(AgentStatus::Working);
     client.focus_agent(&fixture.server.pane_id).unwrap();
     fs::write(
-        fixture.server.directory.path().join("prompt.screen"),
+        fixture.server.server.root().join("prompt.screen"),
         "An unfamiliar agent input layout",
     )
     .unwrap();
@@ -571,7 +567,7 @@ fn mcp_agent_detection_does_not_reassign_retrieved_comments() {
         value(&client, "list_threads", json!({"review": access})).await;
         thread::sleep(Duration::from_millis(350));
         let prompt =
-            fs::read_to_string(fixture.server.directory.path().join("second-prompt.txt")).unwrap();
+            fs::read_to_string(fixture.server.server.root().join("second-prompt.txt")).unwrap();
         assert!(
             prompt.is_empty(),
             "agent detection reassigned old comments: {prompt}"

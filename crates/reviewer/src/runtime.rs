@@ -993,7 +993,11 @@ impl Worker {
 impl TerminalGuard {
     fn new() -> eyre::Result<Self> {
         enable_raw_mode()?;
-        let mut terminal = match Terminal::new(TerminalBackend::new(stdout())) {
+        let mut backend = TerminalBackend::new(stdout());
+        if env::var_os("HERDR_REVIEWER_VISION").is_some() {
+            backend = backend.with_frame_capture();
+        }
+        let mut terminal = match Terminal::new(backend) {
             Ok(terminal) => terminal,
             Err(error) => {
                 let _ = disable_raw_mode();

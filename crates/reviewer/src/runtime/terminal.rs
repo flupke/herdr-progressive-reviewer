@@ -1,5 +1,7 @@
 use std::io::{self, Write};
 
+use crossterm::QueueableCommand;
+use crossterm::terminal::{BeginSynchronizedUpdate, EndSynchronizedUpdate};
 use ratatui::backend::{Backend, ClearType, CrosstermBackend, WindowSize};
 use ratatui::buffer::Cell;
 use ratatui::layout::{Position, Size};
@@ -13,6 +15,8 @@ pub(super) trait CursorBackend: Backend {
 pub(super) struct TerminalBackend<W: Write> {
     inner: CrosstermBackend<W>,
     cursor_hidden: Option<bool>,
+    capture_frames: bool,
+    frame_open: bool,
 }
 
 impl<W: Write> TerminalBackend<W> {
@@ -20,7 +24,14 @@ impl<W: Write> TerminalBackend<W> {
         Self {
             inner: CrosstermBackend::new(writer),
             cursor_hidden: None,
+            capture_frames: false,
+            frame_open: false,
         }
+    }
+
+    pub(super) fn with_frame_capture(mut self) -> Self {
+        self.capture_frames = true;
+        self
     }
 }
 
@@ -43,6 +54,10 @@ impl<W: Write> Backend for TerminalBackend<W> {
     where
         I: Iterator<Item = (u16, u16, &'a Cell)>,
     {
+        if self.capture_frames {
+            self.inner.queue(BeginSynchronizedUpdate)?;
+            self.frame_open = true;
+        }
         let mut content = content.peekable();
         if content.peek().is_some() {
             // Reassert visibility before painting: the host may have exposed the
@@ -99,6 +114,10 @@ impl<W: Write> Backend for TerminalBackend<W> {
     }
 
     fn flush(&mut self) -> io::Result<()> {
+        if self.frame_open {
+            self.inner.queue(EndSynchronizedUpdate)?;
+            self.frame_open = false;
+        }
         Backend::flush(&mut self.inner)
     }
 }
