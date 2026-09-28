@@ -84,7 +84,6 @@ fn conclusion_previews_unexplored_files_and_reopens_the_checkpoint_diff() {
     pass.completion = Some(review_explore::ReviewCompletion {
         request: answer.request,
         baseline: request.checkpoint.checkpoint.clone(),
-        marks: vec![],
         completed: true,
         exclusions_enabled: false,
         summary: pass.coverage.summary(false),
@@ -185,7 +184,6 @@ fn conclusion_preview_omits_jev_only_files_from_count_tree_and_diff() {
     pass.completion = Some(review_explore::ReviewCompletion {
         request: answer.request,
         baseline: request.checkpoint.checkpoint.clone(),
-        marks: vec![],
         completed: true,
         exclusions_enabled: true,
         summary: pass.coverage.summary(true),
@@ -253,7 +251,6 @@ fn conclusion_preview_hides_jev_lines_inside_a_required_file() {
     pass.completion = Some(review_explore::ReviewCompletion {
         request: answer.request,
         baseline: request.checkpoint.checkpoint.clone(),
-        marks: vec![],
         completed: true,
         exclusions_enabled: true,
         summary: pass.coverage.summary(true),
@@ -321,7 +318,6 @@ fn inspect_jev_exclusions_reveals_the_regions_beside_the_control() {
     pass.completion = Some(review_explore::ReviewCompletion {
         request: request.request.clone(),
         baseline: request.checkpoint.checkpoint.clone(),
-        marks: vec![],
         completed: true,
         exclusions_enabled: true,
         summary: pass.coverage.summary(true),
@@ -615,7 +611,7 @@ fn separate_conclusions_restore_independent_editors_and_old_conclusion_cannot_im
         text.contains("Only edited tasks 1") && text.contains("Independent reply 1"),
         "{text}"
     );
-    assert!(text.contains("file marking is pending"));
+    assert!(text.contains("conclusion finalization is pending"));
     assert!(!text.contains(" Implement "));
 }
 

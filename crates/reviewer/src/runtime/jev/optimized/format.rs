@@ -9,7 +9,7 @@ use std::{fmt::Write, ops::Range};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[cfg_attr(all(test, feature = "jev-evals"), derive(serde::Deserialize))]
 #[cfg_attr(all(test, feature = "jev-evals"), serde(rename_all = "snake_case"))]
-pub(in crate::runtime::explore::jev) enum Format {
+pub(in crate::runtime::jev) enum Format {
     RowsLegacy,
     RowsNoOmissions,
     UnifiedCompact,
@@ -21,7 +21,7 @@ impl Default for Format {
     }
 }
 
-pub(in crate::runtime::explore::jev) fn row_json(row: &DiffRow, target: bool) -> Value {
+pub(in crate::runtime::jev) fn row_json(row: &DiffRow, target: bool) -> Value {
     match row {
         DiffRow::Add { new_line, text } => {
             json!({"kind":"added","new":new_line,"text":text,"target":target})

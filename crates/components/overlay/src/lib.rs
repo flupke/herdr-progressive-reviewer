@@ -1,6 +1,7 @@
 //! Modal overlays and application notifications.
 
 mod commit_message;
+mod confirmation;
 mod context_menu;
 mod hover;
 mod popup;
@@ -24,6 +25,7 @@ use ui_shortcuts::{ApplicationShortcut, Key, ShortcutCommand, ShortcutMatcher, S
 use ui_theme::{Palette, Theme};
 
 use commit_message::CommitMessageOverlay;
+use confirmation::{ConfirmationOverlay, Decision};
 use context_menu::SourceContextMenu;
 use hover::HoverOverlay;
 use shortcut_help::ShortcutHelpOverlay;
@@ -32,6 +34,7 @@ use shortcut_help::ShortcutHelpOverlay;
 enum ModalOverlay {
     CommitMessage,
     ShortcutHelp,
+    Confirmation,
 }
 
 /// Application overlays with their input, state, and rendering.
@@ -41,6 +44,7 @@ pub struct OverlayComponent {
     active_modal: Option<ModalOverlay>,
     commit_message: CommitMessageOverlay,
     shortcut_help: ShortcutHelpOverlay,
+    confirmation: Option<ConfirmationOverlay>,
     hover: HoverOverlay,
     source_context_menu: Option<SourceContextMenu>,
     toasts: ToastState,
@@ -61,6 +65,7 @@ impl OverlayComponent {
             active_modal: None,
             commit_message: CommitMessageOverlay::default(),
             shortcut_help: ShortcutHelpOverlay::default(),
+            confirmation: None,
             hover: HoverOverlay::new(SyntaxHighlighter::new(theme.syntax, theme.palette.text)),
             source_context_menu: None,
             toasts: ToastState::default(),
@@ -83,6 +88,11 @@ impl OverlayComponent {
             Some(ModalOverlay::ShortcutHelp) => {
                 self.shortcut_help.render(area, buffer, self.palette);
             }
+            Some(ModalOverlay::Confirmation) => {
+                if let Some(confirmation) = &self.confirmation {
+                    confirmation.render(area, buffer, self.palette);
+                }
+            }
             None => {}
         }
         if let Some(menu) = &self.source_context_menu {
@@ -96,6 +106,14 @@ impl OverlayComponent {
     }
 
     fn repository_changed(&mut self, event: &RepositoryMetadataChanged) {
+        if let Some(ConfirmationOverlay {
+            action: Action::UnreviewAll(checkpoint),
+            ..
+        }) = &self.confirmation
+            && checkpoint != &event.review_checkpoint
+        {
+            self.dismiss_modal();
+        }
         self.commit_message.replace_description(&event.description);
         self.snapshot_id
             .clone_from(&event.review_checkpoint.checkpoint);
@@ -115,6 +133,32 @@ impl OverlayComponent {
 
     fn toast_requested(&mut self, event: &ToastRequested) {
         self.toasts.push(&event.text, event.kind);
+    }
+
+    fn unreview_all_requested(&mut self, event: &ui_events::UnreviewAllRequested) {
+        self.hover.close();
+        self.source_context_menu = None;
+        self.confirmation = Some(ConfirmationOverlay {
+            title: "Unreview all files",
+            question: "Set all files to unreviewed?",
+            action: Action::UnreviewAll(event.0.clone()),
+        });
+        self.active_modal = Some(ModalOverlay::Confirmation);
+    }
+
+    fn confirmation_decision(&mut self, decision: Option<Decision>) -> Vec<Action> {
+        let Some(decision) = decision else {
+            return Vec::new();
+        };
+        let confirmation = self.confirmation.take();
+        self.active_modal = None;
+        match decision {
+            Decision::Confirm => confirmation
+                .map(|confirmation| confirmation.action)
+                .into_iter()
+                .collect(),
+            Decision::Cancel => Vec::new(),
+        }
     }
 
     fn context_menu_requested(&mut self, event: &ContextMenuRequested) {
@@ -199,11 +243,11 @@ impl OverlayComponent {
         if self.source_context_menu.is_some() {
             return self.source_context_menu_key(key);
         }
-        if self.hover.is_open() {
-            return self.hover_key(key);
-        }
         if let Some(active_modal) = self.active_modal {
             return self.modal_key(active_modal, key);
+        }
+        if self.hover.is_open() {
+            return self.hover_key(key);
         }
         Vec::new()
     }
@@ -221,6 +265,9 @@ impl OverlayComponent {
                 }
             }
             ModalOverlay::ShortcutHelp => self.shortcut_help_key(key),
+            ModalOverlay::Confirmation => {
+                return self.confirmation_decision(ConfirmationOverlay::key(key));
+            }
         }
         Vec::new()
     }
@@ -243,6 +290,9 @@ impl OverlayComponent {
             self.dismiss_modal();
             return Vec::new();
         };
+        if self.active_modal == Some(ModalOverlay::Confirmation) {
+            return self.confirmation_decision(ConfirmationOverlay::pointer(self.viewport, input));
+        }
         if !matches!(input.kind, PointerInputKind::Click) {
             return Vec::new();
         }
@@ -264,6 +314,7 @@ impl OverlayComponent {
             return;
         }
         self.active_modal = None;
+        self.confirmation = None;
         self.hover.close();
     }
 
@@ -274,6 +325,7 @@ impl OverlayComponent {
         match self.active_modal {
             Some(ModalOverlay::CommitMessage) => Some(CommitMessageOverlay::area(self.viewport)),
             Some(ModalOverlay::ShortcutHelp) => Some(ShortcutHelpOverlay::area(self.viewport)),
+            Some(ModalOverlay::Confirmation) => Some(ConfirmationOverlay::area(self.viewport)),
             None if self.hover.is_open() => Some(HoverOverlay::area(self.viewport)),
             None => None,
         }
@@ -344,6 +396,7 @@ impl Component<Action> for OverlayComponent {
         subscriptions.subscribe(Self::viewport_changed);
         subscriptions.subscribe(Self::toggle_commit_message);
         subscriptions.subscribe(Self::toast_requested);
+        subscriptions.subscribe(Self::unreview_all_requested);
         subscriptions.subscribe(Self::context_menu_requested);
         subscriptions.subscribe(Self::lsp_query_requested);
         subscriptions.subscribe(Self::expiration_tick);

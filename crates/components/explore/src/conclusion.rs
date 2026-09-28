@@ -288,7 +288,7 @@ impl ExploreComponent {
         let view = self.conclusion().expect("conclusion view");
         if !self.marking_ready() {
             layout.text(
-                "Explore file marking is pending; restore or retry the accepted conclusion before implementing.",
+                "Explore conclusion finalization is pending; restore or retry the accepted conclusion before implementing.",
                 palette.warning,
                 None,
             );

@@ -532,6 +532,10 @@ pub struct ReviewStateSaved {
     pub result: Result<ReviewState, ()>,
 }
 
+/// Ask for confirmation before clearing this comparison's file review marks.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UnreviewAllRequested(pub ReviewCheckpoint);
+
 /// One presented diff row that can anchor a source target.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct DisplayedDiffRow {

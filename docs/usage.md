@@ -9,6 +9,21 @@ Select a file to inspect its diff. Press `Space` to mark it as reviewed;
 subsequent changes appear as a new diff since your last pass. Use `[f` and `]f` to
 move between unreviewed files, and `[h` and `]h` to move between changed hunks.
 
+Press `rf` in Files or its diff pane to automatically mark files whose changes
+Jev classifies entirely as insignificant. This uses the same classification policy
+as Explore and requires `TYPESAFE_API_KEY` in the reviewer process. It checks each
+unreviewed file's full change in the current comparison, including files changed
+since an earlier review. Classification runs in the background; a notification
+reports the result. Significant, uncertain, failed, oversized, unclassified, and
+metadata changes remain for review. Changing the comparison or manually changing
+review marks cancels the run. Automatic marks use the classified checkpoint, so
+later edits need review again. `Space` can undo an automatic mark.
+
+Press `rU` (lowercase `r`, then uppercase `U`) to set all files in the current
+change to unreviewed. The confirmation dialog accepts `y` to confirm and `n` or
+`Esc` to cancel. Confirming cancels any running Jev autoreview and clears file
+review marks; discussions and other changes' review marks are retained.
+
 Review comments use the last focused agent in the Herdr workspace. Focus
 another agent to switch; pending comments follow that selection, while
 completed answers and conversation history remain.
@@ -147,9 +162,9 @@ edited box. A delivered request is not sent again automatically. **Delivery outc
 unknown** means a crash or transport failure may have interrupted confirmation:
 check the original agent conversation before deliberately sending a new request.
 A sent status confirms delivery, not implementation completion. **Reply** continues the interview
-about the conclusion, without authorizing code changes. A valid conclusion marks the pass's
-changed files reviewed at its captured checkpoint. Subsequent edits appear in Files against
-that baseline. Explore does not resolve ordinary threads.
+about the conclusion, without authorizing code changes. A valid conclusion preserves
+file review marks. Use `Space` for manual marking or `rf` in Files for Jev
+classification. Explore does not resolve ordinary threads.
 The preparation state shows the actual pending status and Cancel. Delivery
 errors and Retry appear beside the affected turn.
 
@@ -249,7 +264,8 @@ do not imply a fixed total. The reviewer saves conversation and agenda history; 
 The expanded map shows those states, prerequisites, entries not yet mapped and scan limitations. Topic
 associations are not proof of coverage. Only answered essential/supporting changed regions
 receive credit; coverage remains an inspection reminder rather than a completion threshold.
-A successful conclusion marks changed files at the reviewed checkpoint. Explore does not resolve threads.
+A successful conclusion saves the discussion outcome and preserves file review marks.
+Explore does not resolve threads.
 
 Setting a nonempty `TYPESAFE_API_KEY` in the reviewer process enables optional Jev
 significance checks. The reviewer sends bounded before/after code snippets and relative

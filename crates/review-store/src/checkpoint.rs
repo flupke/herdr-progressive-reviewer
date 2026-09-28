@@ -119,12 +119,24 @@ impl ReviewStore {
         }
     }
 
+    /// Clear all file review marks for one logical review, including absent paths.
+    /// Conversations and other reviews are stored outside this directory.
+    pub fn unreview_all(&self, review_unit: &ReviewUnit) -> Result<()> {
+        ReviewUnitKey::validate(review_unit)?;
+        let target = self.record_directory(review_unit);
+        match fs::remove_dir_all(&target) {
+            Ok(()) => self.sync_parent(&target),
+            Err(source) if source.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(source) => Err(Error::StateIo {
+                operation: "clear file review marks",
+                path: target,
+                source,
+            }),
+        }
+    }
+
     fn write_record(&self, review_unit: &ReviewUnit, record: &ReviewRecord) -> Result<()> {
-        let directory = self
-            .repository_dir
-            .join("changes")
-            .join(review_unit.as_str())
-            .join("paths");
+        let directory = self.record_directory(review_unit);
         self.create_dir(&directory)?;
         let target = directory.join(format!("{}.json", StateKey::hash(&record.path).0));
         if let Some(existing) = Self::read_stored(&target)?
@@ -150,11 +162,15 @@ impl ReviewStore {
     }
 
     pub(super) fn record_path(&self, review_unit: &ReviewUnit, path: &[u8]) -> PathBuf {
+        self.record_directory(review_unit)
+            .join(format!("{}.json", StateKey::hash(path).0))
+    }
+
+    fn record_directory(&self, review_unit: &ReviewUnit) -> PathBuf {
         self.repository_dir
             .join("changes")
             .join(review_unit.as_str())
             .join("paths")
-            .join(format!("{}.json", StateKey::hash(path).0))
     }
 }
 
@@ -223,3 +239,6 @@ impl StatePath {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests;

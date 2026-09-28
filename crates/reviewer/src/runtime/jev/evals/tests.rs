@@ -178,7 +178,7 @@ fn evaluator_reuses_production_parser_and_rejects_bad_diagnostics() {
 #[test]
 fn production_winner_preserves_targets_and_requires_high_exclusion_probability() {
     let frozen: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../../testdata/jev-evals/study/winner-question.json"
+        "../../../../testdata/jev-evals/study/winner-question.json"
     ))
     .unwrap();
     assert_eq!(optimized::request(&json!({}))["questions"], frozen);
@@ -240,7 +240,7 @@ fn production_winner_preserves_targets_and_requires_high_exclusion_probability()
 fn request_formats_preserve_ownership_and_compact_coordinates() {
     use super::super::optimized::Format;
     let questions: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../../testdata/jev-evals/study/winner-question.json"
+        "../../../../testdata/jev-evals/study/winner-question.json"
     ))
     .unwrap();
     for fixture in fixtures() {

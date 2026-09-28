@@ -1,12 +1,15 @@
 //! Terminal and worker integration for the review pane.
 
 use review_thread_service as comments;
+mod auto_review;
 #[path = "runtime/comments.rs"]
 mod comment_service;
 mod document;
 mod events;
 mod explore;
 mod highlighting;
+mod jev;
+mod review_marks;
 mod terminal;
 mod timing;
 
@@ -88,6 +91,7 @@ struct Worker {
     snapshot: Option<Snapshot>,
     commands: Sender<WorkerCommand>,
     explore: explore::ExploreRuntime,
+    auto_review: Option<Arc<AtomicBool>>,
     prompts: comments::PromptSender,
     documents: Sender<document::Command>,
 }
@@ -109,6 +113,9 @@ enum WorkerCommand {
         path: String,
         reviewed: bool,
     },
+    AutoReview(ReviewCheckpoint),
+    UnreviewAll(ReviewCheckpoint),
+    AutoReviewFinished(Box<auto_review::AutoReview>),
     Quit,
 }
 
@@ -474,6 +481,7 @@ impl Runtime {
             snapshot: None,
             commands: command_sender.clone(),
             explore: explore::ExploreRuntime::default(),
+            auto_review: None,
             prompts: comments.prompt_sender(),
             documents: documents.clone(),
         };
@@ -588,7 +596,9 @@ impl RuntimeActionDispatcher<'_> {
             action @ (Action::LoadRevisionCandidates(_)
             | Action::LoadRevisionHistory { .. }
             | Action::EditRevision { .. }) => Self::revision_worker_command(action),
-            action @ Action::SetReviewed { .. } => Self::review_worker_command(action),
+            action @ (Action::SetReviewed { .. }
+            | Action::AutoReview(_)
+            | Action::UnreviewAll(_)) => Self::review_worker_command(action),
             Action::Thread(_)
             | Action::Highlight(_)
             | Action::OpenLspDocument(_)
@@ -659,6 +669,8 @@ impl RuntimeActionDispatcher<'_> {
     fn review_worker_command(action: Action) -> WorkerCommand {
         match action {
             Action::SetReviewed { path, reviewed } => WorkerCommand::SetReviewed { path, reviewed },
+            Action::AutoReview(checkpoint) => WorkerCommand::AutoReview(checkpoint),
+            Action::UnreviewAll(checkpoint) => WorkerCommand::UnreviewAll(checkpoint),
             _ => unreachable!("review conversion accepts only review actions"),
         }
     }
@@ -856,8 +868,11 @@ impl Worker {
             | WorkerCommand::LoadRevisionCandidates(_)
             | WorkerCommand::LoadRevisionHistory(_)
             | WorkerCommand::EditRevision(_)) => self.handle_repository_command(command, messages),
-            WorkerCommand::SetReviewed { path, reviewed } => {
-                self.set_reviewed(messages, path, reviewed);
+            command @ (WorkerCommand::SetReviewed { .. }
+            | WorkerCommand::AutoReview(_)
+            | WorkerCommand::AutoReviewFinished(_)
+            | WorkerCommand::UnreviewAll(_)) => {
+                self.handle_review_command(command, messages);
                 true
             }
             WorkerCommand::ExploreChanged => {
@@ -940,6 +955,13 @@ impl Worker {
             snapshot.identity.review_unit().clone(),
             snapshot.identity.snapshot_id(),
         );
+        if self
+            .snapshot
+            .as_ref()
+            .is_some_and(|previous| previous.identity != snapshot.identity)
+        {
+            self.cancel_auto_review();
+        }
         let _ = self
             .documents
             .send(document::Command::Snapshot(snapshot.clone()));

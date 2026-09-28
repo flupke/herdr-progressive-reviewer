@@ -78,11 +78,11 @@ impl Worker {
         let mut restored = empty_restore();
         let mut toast = None;
         restored.historical = historical;
-        let pass = match self.store.recover_explore_marks(unit, &instance) {
+        let pass = match self.store.recover_explore_completion(unit, &instance) {
             Ok(pass) => pass,
             Err(error) => {
                 restored.storage_error =
-                    Some(format!("Explore file marking needs recovery: {error}"));
+                    Some(format!("Explore conclusion needs recovery: {error}"));
                 self.store
                     .load_explore(unit, &instance)
                     .map_err(|error| {

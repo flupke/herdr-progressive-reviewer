@@ -328,6 +328,21 @@ impl FilesComponent {
             ShortcutCommand::Application(ApplicationShortcut::MarkReviewed) => {
                 self.toggle_review().into_iter().collect()
             }
+            ShortcutCommand::Application(ApplicationShortcut::AutoReview)
+                if self.navigation == ui_events::ReviewNavigation::Files
+                    && !self.review_checkpoint.review_unit.is_empty() =>
+            {
+                vec![Action::AutoReview(self.review_checkpoint.clone())]
+            }
+            ShortcutCommand::Application(ApplicationShortcut::UnreviewAll)
+                if self.navigation == ui_events::ReviewNavigation::Files
+                    && !self.review_checkpoint.review_unit.is_empty() =>
+            {
+                self.events.publish(ui_events::UnreviewAllRequested(
+                    self.review_checkpoint.clone(),
+                ));
+                Vec::new()
+            }
             ShortcutCommand::File(shortcut) => {
                 self.move_to_unreviewed_file(shortcut);
                 Vec::new()

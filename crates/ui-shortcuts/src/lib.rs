@@ -76,6 +76,8 @@ pub enum ApplicationShortcut {
     NewReplies,
     Clear,
     MarkReviewed,
+    AutoReview,
+    UnreviewAll,
     OpenHelp,
     Quit,
     ShowCommitMessage,
@@ -391,7 +393,11 @@ impl ShortcutSet {
             Self::FilesGlobal => matches!(
                 command,
                 ShortcutCommand::File(_)
-                    | ShortcutCommand::Application(ApplicationShortcut::MarkReviewed)
+                    | ShortcutCommand::Application(
+                        ApplicationShortcut::MarkReviewed
+                            | ApplicationShortcut::AutoReview
+                            | ApplicationShortcut::UnreviewAll
+                    )
             ),
             Self::Hunk => matches!(command, ShortcutCommand::Hunk(_)),
             Self::Overlay => matches!(
@@ -594,6 +600,22 @@ const SHORTCUTS: &[ShortcutDefinition] = &[
         ],
     },
     ShortcutDefinition {
+        description: Some("Jev: mark insignificant files reviewed"),
+        bindings: &[ShortcutBinding::two(
+            Key::Char('r'),
+            Key::Char('f'),
+            application(ApplicationShortcut::AutoReview),
+        )],
+    },
+    ShortcutDefinition {
+        description: Some("Set all files to unreviewed (confirm)"),
+        bindings: &[ShortcutBinding::two(
+            Key::Char('r'),
+            Key::Char('U'),
+            application(ApplicationShortcut::UnreviewAll),
+        )],
+    },
+    ShortcutDefinition {
         description: Some("Search / word, next match, previous match"),
         bindings: &[
             ShortcutBinding::one(Key::Char('/'), search(SearchShortcut::Begin)),
@@ -752,6 +774,8 @@ const fn is_component_global_shortcut(command: ShortcutCommand) -> bool {
                 ApplicationShortcut::ShowCommitMessage
                     | ApplicationShortcut::OpenHelp
                     | ApplicationShortcut::MarkReviewed
+                    | ApplicationShortcut::AutoReview
+                    | ApplicationShortcut::UnreviewAll
             )
     )
 }

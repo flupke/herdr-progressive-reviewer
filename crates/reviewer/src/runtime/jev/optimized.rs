@@ -24,15 +24,15 @@ pub(super) struct SourceFile<'a> {
     pub(super) hunk_starts: Option<&'a [(u32, u32)]>,
 }
 
-pub(in crate::runtime::explore) struct Prepared {
-    pub(in crate::runtime::explore) candidate: Candidate,
-    pub(in crate::runtime::explore) body: Value,
-    pub(in crate::runtime::explore) estimated_tokens: usize,
-    pub(in crate::runtime::explore) oversized: bool,
+pub(in crate::runtime) struct Prepared {
+    pub(super) candidate: Candidate,
+    pub(super) body: Value,
+    pub(super) estimated_tokens: usize,
+    pub(super) oversized: bool,
 }
 
 impl Prepared {
-    pub(in crate::runtime::explore) fn id(&self) -> &str {
+    pub(in crate::runtime) fn id(&self) -> &str {
         &self.candidate.id
     }
 }

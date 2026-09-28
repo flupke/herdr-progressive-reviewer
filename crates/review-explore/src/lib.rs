@@ -10,9 +10,8 @@ pub use coverage::{
     JevMode, Significance, SignificanceResult, UncoveredArea, UncoveredOverview,
 };
 pub use durable::{
-    CompletionMark, ConversationBinding, DispatchId, DispatchResult, DispatchState, ExploreHistory,
-    ExplorePass, ImplementationDelivery, InterviewDelivery, PriorMark, ReviewCompletion,
-    UnexploredAtConclusion,
+    ConversationBinding, DispatchId, DispatchResult, DispatchState, ExploreHistory, ExplorePass,
+    ImplementationDelivery, InterviewDelivery, ReviewCompletion, UnexploredAtConclusion,
 };
 pub use presentation::{
     EditorFocus, EvidencePosition, ExploreDraft, ExplorePage, ExploreViewState, QuestionReading,

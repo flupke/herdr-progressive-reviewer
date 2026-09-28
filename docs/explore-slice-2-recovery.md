@@ -66,8 +66,8 @@ lazily through existing working-copy/history readers. Native source views remain
 available when a comparison diff cannot be reopened. Missing files, historical
 revisions, or line ranges are local evidence limitations, not reasons to erase the
 discussion. The source-unchanged assumption applies across closing and reopening;
-use New pass when source has changed. Only an accepted conclusion marks the
-changed files reviewed at the captured checkpoint.
+use New pass when source has changed. Conclusions preserve file review marks;
+marking is a separate action in Files.
 
 ## Validation record
 

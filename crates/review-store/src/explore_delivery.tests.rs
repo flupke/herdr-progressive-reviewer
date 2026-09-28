@@ -24,7 +24,6 @@ fn implementation(
         pass.completion = Some(review_explore::ReviewCompletion {
             request: turn.request.clone(),
             baseline: "checkpoint".into(),
-            marks: vec![],
             completed: true,
             exclusions_enabled: false,
             summary: review_explore::CoverageSummary::default(),

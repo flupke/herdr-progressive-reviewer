@@ -61,6 +61,7 @@ fn source_loading_prefers_frozen_content_when_a_deleted_path_is_recreated() {
         snapshot: Some(snapshot.clone()),
         commands,
         explore: explore::ExploreRuntime::default(),
+        auto_review: None,
         prompts: comment_service::test_worker(
             &ReviewStore::open(state_directory.path(), repository.root()).unwrap(),
         )
@@ -570,6 +571,7 @@ impl ReviewFlowFixture {
             snapshot: None,
             commands: commands.clone(),
             explore: explore::ExploreRuntime::default(),
+            auto_review: None,
             prompts: comments.prompt_sender(),
             documents: mpsc::channel().0,
         };
@@ -626,6 +628,7 @@ fn disk_content_changes_replace_the_visible_diff(repository_type: RepoType) {
         snapshot: None,
         commands,
         explore: explore::ExploreRuntime::default(),
+        auto_review: None,
         prompts: comment_service::test_worker(
             &ReviewStore::open(state_directory.path(), repository.root()).unwrap(),
         )

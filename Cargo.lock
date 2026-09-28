@@ -3207,6 +3207,7 @@ dependencies = [
  "syntax-highlighting",
  "toasts",
  "ui-actions",
+ "ui-controls",
  "ui-events",
  "ui-shortcuts",
  "ui-theme",

@@ -175,24 +175,6 @@ impl crate::ExplorePass {
                 }) && self.exploration.comparison.checkpoint.checkpoint == completion.baseline,
                 "saved completion lost its conclusion or baseline"
             );
-            let expected: std::collections::BTreeSet<_> = self
-                .exploration
-                .comparison
-                .files
-                .iter()
-                .map(|file| file.review_path().as_bytes().to_vec())
-                .collect();
-            let actual: std::collections::BTreeSet<_> = completion
-                .marks
-                .iter()
-                .map(|mark| mark.path.clone())
-                .collect();
-            eyre::ensure!(
-                expected == actual
-                    && actual.len() == completion.marks.len()
-                    && (!completion.completed || completion.marks.iter().all(|mark| mark.applied)),
-                "saved completion has incorrect file targets"
-            );
             if completion.summary.inventory_complete {
                 eyre::ensure!(
                     self.coverage_receipts

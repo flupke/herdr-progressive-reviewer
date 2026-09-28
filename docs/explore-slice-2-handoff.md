@@ -31,8 +31,8 @@ The implementation is in jj change `opwprozuwostnopzxtvpwkxrsorostlo`, based on
 Source remains the working copy, with historical references read lazily through the
 existing readers. No repository snapshots, freshness scans, or context-fetch MCP
 tools were added. The source-unchanged assumption applies across restarts; use New
-pass after source changes. Only an accepted conclusion marks its changed files
-reviewed; implementation delivery does not establish completion.
+pass after source changes. Conclusions preserve file review marks; marking is a
+separate action in Files. Implementation delivery does not establish completion.
 
 Answer wakeups use labeled plain text, preserving the full selected option and exact
 comment alongside the turn identifiers. MCP tools advertise their full nested schemas

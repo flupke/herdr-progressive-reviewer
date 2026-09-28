@@ -243,5 +243,5 @@ Offline annotation/rule checks:
 
 ```sh
 python -m unittest discover -s crates/reviewer/testdata/jev-evals/study -p 'test_*.py'
-cargo test -p reviewer --features jev-evals runtime::explore::jev::evals
+cargo test -p reviewer --features jev-evals runtime::jev::evals
 ```

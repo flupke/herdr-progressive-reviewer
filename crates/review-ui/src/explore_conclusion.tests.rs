@@ -217,7 +217,6 @@ fn a_receipt_from_a_previous_attempt_cannot_finish_the_current_implementation() 
     pass.completion = Some(review_explore::ReviewCompletion {
         request: kickoff.request.clone(),
         baseline: kickoff.checkpoint.checkpoint.clone(),
-        marks: vec![],
         completed: true,
         exclusions_enabled: false,
         summary: review_explore::CoverageSummary::default(),

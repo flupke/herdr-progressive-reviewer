@@ -187,6 +187,115 @@ fn space_marks_the_selected_file_reviewed_from_either_pane() {
 }
 
 #[test]
+fn rf_requests_jev_review_from_files_and_diff_without_optimistic_marks() {
+    for focus_diff in [false, true] {
+        let mut application = application();
+        let checkpoint = ReviewCheckpoint::new("change", "checkpoint");
+        publish_repository(
+            &mut application,
+            checkpoint.clone(),
+            String::new(),
+            vec![FileSummary::new("src/lib.rs", ReviewStatus::Unreviewed)],
+        );
+        if focus_diff {
+            application.update(UserInput::Key(Key::Tab));
+        }
+        assert!(application.update(UserInput::Key(Key::Alt('a'))).is_empty());
+        assert!(
+            application
+                .update(UserInput::Key(Key::Char('r')))
+                .is_empty()
+        );
+        assert_eq!(
+            application.update(UserInput::Key(Key::Char('f'))),
+            vec![Action::AutoReview(checkpoint)],
+        );
+        assert!(
+            application
+                .update(UserInput::Key(Key::Space))
+                .contains(&Action::SetReviewed {
+                    path: "src/lib.rs".into(),
+                    reviewed: true,
+                })
+        );
+    }
+}
+
+#[test]
+fn unreview_all_requires_explicit_confirmation_from_either_pane() {
+    for focus_diff in [false, true] {
+        for answer in [Key::Char('y'), Key::Char('n'), Key::Escape] {
+            let mut application = application();
+            let checkpoint = ReviewCheckpoint::new("change", "checkpoint");
+            publish_repository(
+                &mut application,
+                checkpoint.clone(),
+                String::new(),
+                vec![FileSummary::new("src/lib.rs", ReviewStatus::Reviewed)],
+            );
+            if focus_diff {
+                application.update(UserInput::Key(Key::Tab));
+            }
+            assert!(
+                application
+                    .update(UserInput::Key(Key::Char('r')))
+                    .is_empty()
+            );
+            assert!(
+                application
+                    .update(UserInput::Key(Key::Char('U')))
+                    .is_empty()
+            );
+            let screen = rendered_application(&application);
+            assert!(screen.contains("Set all files to unreviewed?"));
+            assert!(screen.contains("[y] Yes") && screen.contains("[n] No"));
+            for key in [Key::Space, Key::Enter, Key::Char('q'), Key::Char('f')] {
+                assert!(application.update(UserInput::Key(key)).is_empty());
+                assert!(
+                    rendered_application(&application).contains("Set all files to unreviewed?")
+                );
+            }
+            let actions = application.update(UserInput::Key(answer));
+            if answer == Key::Char('y') {
+                assert_eq!(actions, vec![Action::UnreviewAll(checkpoint)]);
+            } else {
+                assert!(actions.is_empty());
+            }
+            assert!(!rendered_application(&application).contains("Set all files to unreviewed?"));
+            assert!(
+                application
+                    .update(UserInput::Key(Key::Char('y')))
+                    .is_empty()
+            );
+        }
+    }
+}
+
+#[test]
+fn a_changed_comparison_dismisses_the_unreview_confirmation() {
+    let mut application = application();
+    for checkpoint in ["before", "after"] {
+        publish_repository(
+            &mut application,
+            ReviewCheckpoint::new("change", checkpoint),
+            String::new(),
+            vec![FileSummary::new("src/lib.rs", ReviewStatus::Reviewed)],
+        );
+        if checkpoint == "before" {
+            application.update(UserInput::Key(Key::Char('r')));
+            application.update(UserInput::Key(Key::Char('U')));
+            assert!(rendered_application(&application).contains("Set all files to unreviewed?"));
+        }
+    }
+    assert!(!rendered_application(&application).contains("Set all files to unreviewed?"));
+    assert!(
+        application
+            .update(UserInput::Key(Key::Char('y')))
+            .is_empty()
+    );
+}
+
+#[test]
 fn revision_navigation_works_while_the_files_pane_has_focus() {
     let mut application = application();
     publish_repository(

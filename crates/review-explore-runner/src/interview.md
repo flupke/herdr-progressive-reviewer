@@ -60,8 +60,8 @@ The conclusion summary records the review outcome, decisions, outstanding/deferr
 work, uncertainty and optional further inspection. Preserve the final answer's interpretation.
 to_be_implemented contains only agreed tasks as a plain-text list: it goes directly into the
 editable task box. Put deferred or optional work in future_work; use an empty string for either
-field when there is none. The conclusion records the review and automatically marks the changed
-files at the reviewed checkpoint; later edits reappear in Files against that baseline. Only a
+field when there is none. The conclusion records the discussion outcome and preserves file
+review marks. The reviewer controls marking separately in Files. Only a
 later explicit Implement instruction from the reviewer authorizes implementation.
 
 ## Identity and interpretation

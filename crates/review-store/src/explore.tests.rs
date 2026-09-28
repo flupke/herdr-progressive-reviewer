@@ -10,12 +10,12 @@ use std::sync::Arc;
 mod delivery;
 
 #[test]
-fn conclusion_with_partial_answer_coverage_marks_exact_baseline_once() {
+fn conclusion_with_partial_answer_coverage_leaves_files_unreviewed() {
     assert_explicit_conclusion(1, 50);
 }
 
 #[test]
-fn full_answer_coverage_still_allows_questions_before_explicit_conclusion() {
+fn full_answer_coverage_allows_questions_and_conclusion_preserves_existing_marks() {
     assert_explicit_conclusion(2, 100);
 }
 
@@ -259,6 +259,12 @@ fn assert_explicit_conclusion(cited_lines: u32, expected_percent: u8) {
             before
         );
     }
+    if cited_lines == 2 {
+        store
+            .mark(&"aabb".into(), b"policy.rs", "aabb0011")
+            .unwrap();
+    }
+    let prior_mark = store.load(&"aabb".into(), b"policy.rs").unwrap();
     let (applied, pass, feedback) = store
         .submit_explore(&"aabb".into(), &kickoff.instance, &conclusion, false)
         .unwrap();
@@ -289,17 +295,18 @@ fn assert_explicit_conclusion(cited_lines: u32, expected_percent: u8) {
             .unwrap()
             .required,
         pass.coverage.remaining(false),
-        "completion freezes unanswered changes before marking the files"
+        "completion freezes unanswered changes independently of file review marks"
     );
     let restored = store
         .load_explore(&"aabb".into(), &kickoff.instance)
         .unwrap()
         .unwrap();
     assert_eq!(restored, pass, "the coverage receipt survives reopening");
-    let LoadResult::Reviewed(record) = store.load(&"aabb".into(), b"policy.rs").unwrap() else {
-        panic!("no mark")
-    };
-    assert_eq!(record.baseline_commit_id, "ccdd");
+    assert_eq!(
+        store.load(&"aabb".into(), b"policy.rs").unwrap(),
+        prior_mark
+    );
+    assert_legacy_completion_preserves_marks(&store, &pass, &prior_mark);
     store.unreview(&"aabb".into(), b"policy.rs").unwrap();
     let (applied, _, _) = store
         .submit_explore(&"aabb".into(), &kickoff.instance, &conclusion, false)
@@ -320,7 +327,7 @@ fn assert_explicit_conclusion(cited_lines: u32, expected_percent: u8) {
     let (applied, _, _) = store
         .submit_explore(&"aabb".into(), &kickoff.instance, &later, false)
         .unwrap();
-    assert!(applied, "the conversation remains open after marking");
+    assert!(applied, "the conversation remains open after concluding");
     assert!(
         store
             .load_explore(&"aabb".into(), &kickoff.instance)
@@ -333,6 +340,30 @@ fn assert_explicit_conclusion(cited_lines: u32, expected_percent: u8) {
         LoadResult::Unreviewed,
         "later conversation must not recreate completed marks"
     );
+}
+
+fn assert_legacy_completion_preserves_marks(
+    store: &ReviewStore,
+    pass: &ExplorePass,
+    prior: &LoadResult,
+) {
+    let unit = &pass.exploration.comparison.checkpoint.review_unit;
+    let instance = &pass.exploration.instance;
+    let mut legacy = serde_json::to_value(pass).unwrap();
+    legacy["completion"]["completed"] = false.into();
+    legacy["completion"]["marks"] = serde_json::json!([{
+        "path": b"policy.rs", "prior": null, "applied": false
+    }]);
+    store
+        .write_explore(
+            &store.explore_path(unit, instance).unwrap(),
+            &legacy,
+            MAX_DOMAIN,
+        )
+        .unwrap();
+    let recovered = store.recover_explore_completion(unit, instance).unwrap();
+    assert!(recovered.completion.unwrap().completed);
+    assert_eq!(&store.load(unit, b"policy.rs").unwrap(), prior);
 }
 
 struct Investigation {

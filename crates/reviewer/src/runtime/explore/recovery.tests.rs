@@ -58,6 +58,7 @@ impl ExploreFlow {
             snapshot: None,
             commands: commands.clone(),
             explore: explore::ExploreRuntime::default(),
+            auto_review: None,
             prompts: comments.prompt_sender(),
             documents: mpsc::channel().0,
         };

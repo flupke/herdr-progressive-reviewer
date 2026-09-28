@@ -1,11 +1,10 @@
 //! Durable Explore commands using the shared dispatcher and authoritative UI acknowledgement.
-use super::{ApplicationMessageSender, Worker, WorkerCommand};
+use super::{ApplicationMessageSender, Worker, WorkerCommand, jev};
 use review_explore::{Command, Comparison, TurnRequest};
 use review_thread_service::{PinnedAgent, PromptCancellation};
 use std::sync::Arc;
 mod dispatch;
 mod implementation;
-mod jev;
 mod storage;
 
 #[derive(Debug, Default)]
@@ -373,7 +372,6 @@ impl Worker {
                 return;
             }
         };
-        self.publish_explore_marks(&pass, messages);
         self.explore.pass = Some(pass.clone());
         if pass
             .completion
@@ -572,38 +570,6 @@ impl Worker {
             _ => self.capture_explore().ok()?,
         };
         (comparison.checkpoint == pass.exploration.comparison.checkpoint).then_some(comparison)
-    }
-
-    fn publish_explore_marks(
-        &self,
-        pass: &review_explore::ExplorePass,
-        messages: &ApplicationMessageSender,
-    ) {
-        let Some(completion) = &pass.completion else {
-            return;
-        };
-        if !completion.completed {
-            return;
-        }
-        let Some(snapshot) = &self.snapshot else {
-            return;
-        };
-        if snapshot.identity.review_unit() != &pass.exploration.comparison.checkpoint.review_unit {
-            return;
-        }
-        for mark in &completion.marks {
-            if let Some(file) = snapshot
-                .files
-                .iter()
-                .find(|file| file.review_path().as_bytes() == mark.path)
-            {
-                let _ = messages.send(ui_events::ReviewStateSaved {
-                    review_unit: snapshot.identity.review_unit().clone(),
-                    path: file.review_path().display(),
-                    result: self.tracker.status(snapshot, file).map_err(|_| ()),
-                });
-            }
-        }
     }
 
     fn authorize_explore(&mut self, access: &str) -> eyre::Result<()> {

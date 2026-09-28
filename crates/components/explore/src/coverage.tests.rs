@@ -230,7 +230,6 @@ fn completed_policy_and_pass_identity_invalidate_matching_revisions() {
     fixture.pass.completion = Some(review_explore::ReviewCompletion {
         request: "conclusion".into(),
         baseline: "checkpoint".into(),
-        marks: vec![],
         completed: true,
         exclusions_enabled: false,
         summary: fixture.pass.coverage.summary(false),

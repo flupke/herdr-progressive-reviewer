@@ -296,11 +296,11 @@ Summary and future work are displayed separately. Only `to_be_implemented` seeds
 the editable task box. Submitting a conclusion does not start implementation.
 A conclusion can retain gaps in answered evidence after the final source inspection;
 its coverage receipt preserves those gaps. An incomplete change inventory still returns
-`coverage_incomplete` without consuming the request or answer, because checkpoint
-marking needs a trustworthy inventory. A valid conclusion saves a recoverable completion
-record, marks only the pass's changed files at its captured checkpoint, and acknowledges success
-after local marking finishes. Repeating an accepted conclusion does not reapply
-marks. Subsequent edits appear in Files against that reviewed baseline.
+`coverage_incomplete` without consuming the request or answer, because source inspection
+needs a trustworthy inventory. A valid conclusion saves its outcome and coverage receipt
+before acknowledging success. It preserves file review marks, including on retries
+and reopening. The human can mark files explicitly with `Space`, or use `rf`
+in Files to mark files classified entirely as insignificant by Jev.
 The human's **Implement** action sends the edited box contents through the shared
 reviewer-to-agent delivery queue, authorizing those tasks and their validation.
 It waits for the pinned agent conversation, supports cancelling queued delivery,

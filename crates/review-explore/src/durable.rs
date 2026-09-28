@@ -117,31 +117,17 @@ pub struct InterviewDelivery {
     pub started_at_ms: Option<u64>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
-pub struct PriorMark {
-    pub baseline: String,
-    pub reviewed_at: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
-pub struct CompletionMark {
-    pub path: Vec<u8>,
-    pub prior: Option<PriorMark>,
-    pub applied: bool,
-}
-
-/// A saved local transaction; completion is acknowledged only after every path is marked.
+/// A saved conclusion and coverage receipt, independent of file review marks.
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct ReviewCompletion {
     pub request: String,
     pub baseline: String,
-    pub marks: Vec<CompletionMark>,
     pub completed: bool,
     #[serde(default)]
     pub exclusions_enabled: bool,
     #[serde(default)]
     pub summary: crate::CoverageSummary,
-    /// Unanswered checkpoint geometry captured before file marks are applied.
+    /// Unanswered checkpoint geometry captured when the conclusion is accepted.
     #[serde(default)]
     pub unexplored: Option<UnexploredAtConclusion>,
 }
@@ -309,7 +295,7 @@ impl ExplorePass {
             self.completion
                 .as_ref()
                 .is_none_or(|completion| completion.completed),
-            "Explore conclusion finalization is pending; recover file marking before posting"
+            "Explore conclusion finalization is pending; restore or retry before posting"
         );
         eyre::ensure!(
             request.instance == self.exploration.instance
@@ -402,7 +388,7 @@ impl ExplorePass {
             self.completion
                 .as_ref()
                 .is_some_and(|completion| completion.completed),
-            "Explore file marking is not complete"
+            "Explore conclusion finalization is not complete"
         );
         eyre::ensure!(
             request.instance == self.exploration.instance

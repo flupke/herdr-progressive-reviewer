@@ -58,6 +58,10 @@ pub enum Action {
         path: String,
         reviewed: bool,
     },
+    /// Classify this comparison and mark files containing only insignificant changes.
+    AutoReview(ReviewCheckpoint),
+    /// Clear this comparison's file review marks after user confirmation.
+    UnreviewAll(ReviewCheckpoint),
     /// Save the file-pane width in terminal columns.
     SaveFilePaneWidth(u16),
     /// Stop the application.

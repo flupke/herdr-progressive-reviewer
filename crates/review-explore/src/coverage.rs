@@ -311,6 +311,22 @@ pub struct JevFeedback {
 }
 
 impl CoverageInventory {
+    fn file_complete(&self, comparison: &Comparison, index: usize) -> bool {
+        if self.complete {
+            return true;
+        }
+        let (Some(file), Some(diff)) = (comparison.files.get(index), comparison.diffs.get(index))
+        else {
+            return false;
+        };
+        let mut inventory = Self {
+            complete: true,
+            ..Self::default()
+        };
+        inventory.capture_file(index, file, diff);
+        inventory.complete
+    }
+
     fn capture(comparison: &Comparison) -> Self {
         let mut result = Self {
             complete: comparison.diffs.len() == comparison.files.len(),
@@ -925,6 +941,20 @@ impl CoverageLedger {
             answered_required_units_percent,
             limitations: self.inventory.limitations.clone(),
         }
+    }
+
+    /// Files whose entire enumerable change is excluded by Jev. Answer coverage
+    /// cannot make a file eligible, and unsupported files do not block other files.
+    pub fn fully_excluded_files(&self, comparison: &Comparison) -> Vec<usize> {
+        self.files(comparison, true)
+            .into_iter()
+            .filter(|file| {
+                file.summary.total > 0
+                    && file.summary.required == 0
+                    && self.inventory.file_complete(comparison, file.file)
+            })
+            .map(|file| file.file)
+            .collect()
     }
 
     pub fn files(&self, comparison: &Comparison, exclusions_enabled: bool) -> Vec<FileCoverage> {
