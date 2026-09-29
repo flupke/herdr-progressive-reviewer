@@ -43,12 +43,8 @@ impl ExploreComponent {
         }
         match control {
             Control::Start => return self.start(),
-            Control::Implement | Control::NewImplementation => {
-                if matches!(control, Control::NewImplementation) {
-                    self.new_implementation();
-                }
-                return self.implement();
-            }
+            Control::Implement => return self.implement(),
+            Control::NewImplementation => return self.new_implementation(),
             Control::Send | Control::Defer => return self.answer(control),
             Control::Cancel => return self.cancel(),
             Control::Retry => return self.retry(),

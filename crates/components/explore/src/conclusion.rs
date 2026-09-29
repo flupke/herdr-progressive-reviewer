@@ -12,21 +12,35 @@ use ui_theme::Palette;
 
 enum Delivery {
     Ready,
-    Pending(String),
-    Cancelling(String),
-    Sent,
+    Pending(review_explore::ImplementationRequest),
+    Cancelling(review_explore::ImplementationRequest),
+    Sent(review_explore::ImplementationRequest),
     Failed(String),
     Paused(review_explore::ImplementationRequest),
     Unknown(review_explore::ImplementationRequest),
 }
 
 impl Delivery {
-    fn is_pending(&self) -> bool {
-        matches!(self, Self::Pending(_) | Self::Cancelling(_))
+    /// The request whose text is fixed because the agent may have received it.
+    fn submitted(&self) -> Option<&review_explore::ImplementationRequest> {
+        match self {
+            Self::Pending(request)
+            | Self::Cancelling(request)
+            | Self::Sent(request)
+            | Self::Unknown(request) => Some(request),
+            Self::Ready | Self::Failed(_) | Self::Paused(_) => None,
+        }
     }
 
-    fn can_submit(&self) -> bool {
-        !self.is_pending() && !matches!(self, Self::Sent | Self::Unknown(_))
+    fn can_edit(&self) -> bool {
+        self.submitted().is_none()
+    }
+
+    fn pending_delivery(&self) -> Option<&str> {
+        match self {
+            Self::Pending(request) | Self::Cancelling(request) => Some(&request.delivery),
+            _ => None,
+        }
     }
 }
 
@@ -37,6 +51,27 @@ pub(super) struct ConclusionView {
     pub(super) replying: bool,
     delivery: Delivery,
     attempt: Option<String>,
+}
+
+impl ConclusionView {
+    pub(super) fn can_edit(&self) -> bool {
+        self.delivery.can_edit()
+    }
+
+    fn render_instructions(&self, layout: &mut ConversationLayout, palette: Palette) {
+        if let Some(request) = self.delivery.submitted() {
+            layout.text("To be implemented · read-only", palette.focus, None);
+            layout.text(&request.text, palette.text, None);
+        } else {
+            let rows = Paragraph::new(self.editor.text())
+                .wrap(Wrap { trim: false })
+                .line_count(layout.area.width.saturating_sub(2).max(1));
+            let height = u16::try_from(rows.saturating_add(4))
+                .unwrap_or(u16::MAX)
+                .clamp(6, layout.area.height.saturating_sub(6).max(6));
+            layout.push(Content::Editor(EditorTarget::Implementation), height);
+        }
+    }
 }
 
 impl ExploreComponent {
@@ -125,11 +160,14 @@ impl ExploreComponent {
         self.reveal.set(Some(Reveal::Start));
     }
 
+    pub(super) fn target_editable(&self) -> bool {
+        self.editor_target == EditorTarget::Answer
+            || self.conclusion().is_some_and(ConclusionView::can_edit)
+    }
+
     pub(super) fn edit_implementation(&mut self) {
         if self.compose_scope == ComposeScope::Conclusion
-            && self
-                .conclusion()
-                .is_some_and(|view| !view.delivery.is_pending())
+            && self.conclusion().is_some_and(ConclusionView::can_edit)
         {
             self.editor_target = EditorTarget::Implementation;
             self.editing = true;
@@ -141,8 +179,8 @@ impl ExploreComponent {
     pub(super) fn implementation_changed(&mut self) {
         if self.editor_target == EditorTarget::Implementation
             && let Some(view) = self.conclusion_mut()
-            && !view.delivery.is_pending()
-            && !matches!(view.delivery, Delivery::Paused(_) | Delivery::Unknown(_))
+            && view.can_edit()
+            && !matches!(view.delivery, Delivery::Paused(_))
         {
             view.delivery = Delivery::Ready;
         }
@@ -160,7 +198,7 @@ impl ExploreComponent {
         let Some(view) = self.conclusion() else {
             return vec![];
         };
-        if !view.delivery.can_submit() {
+        if !view.can_edit() {
             return vec![];
         }
         let exploration = self.exploration.as_ref().expect("conclusion exploration");
@@ -172,7 +210,7 @@ impl ExploreComponent {
         let view = self.conclusion_mut().expect("selected conclusion");
         match result {
             Ok(request) => {
-                view.delivery = Delivery::Pending(request.delivery.clone());
+                view.delivery = Delivery::Pending(request.clone());
                 view.attempt = None;
                 self.editing = false;
                 vec![Action::Explore(review_explore::Command::Implement(request))]
@@ -186,9 +224,9 @@ impl ExploreComponent {
 
     pub(super) fn cancel_implementation(&mut self) -> Vec<Action> {
         if let Some(view) = self.conclusion_mut()
-            && let Delivery::Pending(id) = &view.delivery
+            && let Delivery::Pending(request) = &view.delivery
         {
-            view.delivery = Delivery::Cancelling(id.clone());
+            view.delivery = Delivery::Cancelling(request.clone());
             return vec![Action::Explore(
                 review_explore::Command::CancelImplementation,
             )];
@@ -205,7 +243,7 @@ impl ExploreComponent {
             return;
         }
         if let Some(view) = self.conclusions.get_mut(&event.request.conclusion)
-            && matches!(&view.delivery, Delivery::Pending(id) | Delivery::Cancelling(id) if id == &event.request.delivery)
+            && view.delivery.pending_delivery() == Some(event.request.delivery.as_str())
             && view.attempt == event.attempt
         {
             view.delivery = Delivery::from_state(&event.request, &event.state);
@@ -223,13 +261,7 @@ impl ExploreComponent {
         layout.text("Summary", palette.focus, None);
         layout.text(&view.content.summary, palette.text, None);
         layout.gap();
-        let rows = Paragraph::new(view.editor.text())
-            .wrap(Wrap { trim: false })
-            .line_count(layout.area.width.saturating_sub(2).max(1));
-        let height = u16::try_from(rows.saturating_add(4))
-            .unwrap_or(u16::MAX)
-            .clamp(6, layout.area.height.saturating_sub(6).max(6));
-        layout.push(Content::Editor(EditorTarget::Implementation), height);
+        view.render_instructions(layout, palette);
         layout.gap();
         self.implementation_controls(layout, palette);
         if !view.content.future_work.is_empty() {
@@ -347,7 +379,7 @@ impl ExploreComponent {
                     Control::NewImplementation,
                 )]);
             }
-            Delivery::Sent => layout.text(
+            Delivery::Sent(_) => layout.text(
                 "Implementation request sent to the agent.",
                 palette.text,
                 None,
@@ -387,7 +419,8 @@ impl ExploreComponent {
             else {
                 continue;
             };
-            let pending_here = matches!(&view.delivery, Delivery::Pending(id) | Delivery::Cancelling(id) if id == &record.request.delivery);
+            let pending_here =
+                view.delivery.pending_delivery() == Some(record.request.delivery.as_str());
             if pending_here
                 && matches!(
                     record.state,
@@ -402,11 +435,22 @@ impl ExploreComponent {
         }
     }
 
-    pub(super) fn new_implementation(&mut self) {
-        if let Some(view) = self.conclusion_mut()
-            && !view.delivery.is_pending()
-        {
-            view.delivery = Delivery::Ready;
+    pub(super) fn new_implementation(&mut self) -> Vec<Action> {
+        let Some(view) = self.conclusion_mut() else {
+            return vec![];
+        };
+        match view.delivery {
+            // The hidden editor text may differ from the request the agent may hold.
+            Delivery::Unknown(_) => {
+                view.delivery = Delivery::Ready;
+                self.edit_implementation();
+                vec![]
+            }
+            Delivery::Paused(_) => {
+                view.delivery = Delivery::Ready;
+                self.implement()
+            }
+            _ => vec![],
         }
     }
 
@@ -453,7 +497,7 @@ impl ExploreComponent {
             return;
         }
         if let Some(view) = self.conclusions.get_mut(&record.request.conclusion)
-            && matches!(&view.delivery, Delivery::Pending(id) | Delivery::Cancelling(id) if id == &record.request.delivery)
+            && view.delivery.pending_delivery() == Some(record.request.delivery.as_str())
         {
             view.attempt = Some(record.attempt.clone());
             // A queued result is not a recovered paused request in this running process.
@@ -477,7 +521,7 @@ impl Delivery {
         match state.recovered() {
             DispatchState::Queued => Self::Paused(request.clone()),
             DispatchState::Attempting | DispatchState::Unknown => Self::Unknown(request.clone()),
-            DispatchState::Delivered => Self::Sent,
+            DispatchState::Delivered => Self::Sent(request.clone()),
             DispatchState::Cancelled => {
                 Self::Failed("Implementation request cancelled before sending.".into())
             }

@@ -51,6 +51,144 @@ fn implementation(actions: Vec<Action>) -> ImplementationRequest {
         .expect("explicit implementation request")
 }
 
+fn authorized_pass(
+    fixture: &ExploreUi,
+    kickoff: &TurnRequest,
+    conclusion: InterviewUpdate,
+    request: &ImplementationRequest,
+) -> review_explore::ExplorePass {
+    let mut exploration = review_explore::Exploration::new(fixture.comparison.clone());
+    exploration.instance.clone_from(&kickoff.instance);
+    let mut pass = review_explore::ExplorePass::new(exploration);
+    pass.post(kickoff).unwrap();
+    pass.exploration.submit(conclusion).unwrap();
+    pass.completion = Some(review_explore::ReviewCompletion {
+        request: kickoff.request.clone(),
+        baseline: kickoff.checkpoint.checkpoint.clone(),
+        completed: true,
+        exclusions_enabled: false,
+        summary: review_explore::CoverageSummary::default(),
+        unexplored: None,
+    });
+    pass.last_agent_session = Some(
+        serde_json::from_value(serde_json::json!({
+            "agent": "codex",
+            "session": {"source": "native", "agent": "codex", "kind": "id", "value": "conversation"}
+        }))
+        .unwrap(),
+    );
+    pass.authorize(request).unwrap();
+    pass
+}
+
+/// Restores a saved request as if the app restarted while it was in `state`.
+fn restart_with_delivery(
+    fixture: &mut ExploreUi,
+    kickoff: &TurnRequest,
+    state: review_explore::DispatchState,
+) -> ImplementationRequest {
+    let conclusion = finish(fixture, kickoff);
+    let request = implementation(fixture.click_actions(" Implement "));
+    let mut pass = authorized_pass(fixture, kickoff, conclusion, &request);
+    pass.implementations
+        .get_mut(&request.delivery)
+        .unwrap()
+        .state = state;
+    fixture.app.publish(ui_events::ExploreRestored {
+        result: Ok(Some(std::sync::Arc::new(pass))),
+        view: None,
+        historical: false,
+        storage_error: None,
+    });
+    request
+}
+
+#[test]
+fn sending_a_saved_request_shows_its_text_instead_of_later_edits() {
+    let (mut fixture, kickoff) = ExploreUi::new();
+    let saved = restart_with_delivery(
+        &mut fixture,
+        &kickoff,
+        review_explore::DispatchState::Queued,
+    );
+    assert!(
+        fixture
+            .text()
+            .contains("Saved implementation request is paused")
+    );
+    fixture.click("To be implemented");
+    fixture
+        .app
+        .update(UserInput::Paste("Unsent edit:\n".into()));
+    let sent = implementation(fixture.click_actions(" Send saved implementation request "));
+    assert_eq!(sent.text, saved.text);
+    fixture
+        .app
+        .publish(ui_events::ExploreImplementationFinished {
+            request: sent,
+            attempt: None,
+            state: review_explore::DispatchState::Delivered,
+        });
+    let text = fixture.text();
+    assert!(text.contains("To be implemented · read-only"), "{text}");
+    assert!(text.contains("1. Preserve resolved state."), "{text}");
+    assert!(!text.contains("Unsent edit"), "{text}");
+}
+
+#[test]
+fn a_sent_request_restored_after_restart_shows_its_text_read_only() {
+    let (mut fixture, kickoff) = ExploreUi::new();
+    restart_with_delivery(
+        &mut fixture,
+        &kickoff,
+        review_explore::DispatchState::Delivered,
+    );
+    fixture.click("To be implemented");
+    fixture.app.update(UserInput::Paste("Blocked edit".into()));
+    let text = fixture.text();
+    assert!(
+        text.contains("Implementation request sent to the agent."),
+        "{text}"
+    );
+    assert!(text.contains("To be implemented · read-only"), "{text}");
+    assert!(text.contains("1. Preserve resolved state."), "{text}");
+    assert!(!text.contains("Blocked edit"), "{text}");
+}
+
+#[test]
+fn unknown_delivery_is_read_only_until_a_new_request_is_started() {
+    let (mut fixture, kickoff) = ExploreUi::new();
+    restart_with_delivery(
+        &mut fixture,
+        &kickoff,
+        review_explore::DispatchState::Attempting,
+    );
+    let text = fixture.text();
+    assert!(text.contains("Delivery outcome unknown"), "{text}");
+    assert!(text.contains("To be implemented · read-only"), "{text}");
+    assert!(text.contains("1. Preserve resolved state."), "{text}");
+    fixture.click("To be implemented");
+    fixture.app.update(UserInput::Paste("Blocked edit".into()));
+    assert!(!fixture.text().contains("Blocked edit"));
+    assert!(
+        !fixture
+            .click_actions(" New implementation request ")
+            .iter()
+            .any(|action| matches!(action, Action::Explore(Command::Implement(_))))
+    );
+    fixture
+        .app
+        .update(UserInput::Paste("Resent scope:\n".into()));
+    let text = fixture.text();
+    assert!(!text.contains("read-only"), "{text}");
+    let resent = implementation(fixture.app.update(UserInput::Key(Key::ControlEnter)));
+    assert!(
+        resent
+            .text
+            .starts_with("Resent scope:\n1. Preserve resolved state.")
+    );
+}
+
 #[test]
 fn conclusion_has_its_own_page_and_sends_only_the_edited_tasks_once() {
     let (mut fixture, request) = ExploreUi::new();
@@ -108,6 +246,63 @@ fn conclusion_has_its_own_page_and_sends_only_the_edited_tasks_once() {
 }
 
 #[test]
+fn submitted_instructions_stay_read_only_in_both_editor_keymaps() {
+    for keymap in [
+        comment_editor::EditorKeymap::Regular,
+        comment_editor::EditorKeymap::Vim,
+    ] {
+        let (mut fixture, kickoff) = ExploreUi::new();
+        fixture.app.set_editor_keymap(keymap);
+        finish(&mut fixture, &kickoff);
+        fixture
+            .app
+            .update(UserInput::Paste("Exact submitted scope:\n".into()));
+        let request = implementation(fixture.app.update(UserInput::Key(Key::ControlEnter)));
+        for delivered in [false, true] {
+            if delivered {
+                fixture
+                    .app
+                    .publish(ui_events::ExploreImplementationFinished {
+                        request: request.clone(),
+                        attempt: None,
+                        state: review_explore::DispatchState::Delivered,
+                    });
+            }
+            fixture.click("To be implemented");
+            for key in [Key::Enter, Key::Char('i'), Key::Delete, Key::Backspace] {
+                fixture.app.update(UserInput::Key(key));
+            }
+            fixture
+                .app
+                .update(UserInput::Paste("Unsent modification".into()));
+            fixture.app.update(UserInput::Key(Key::Tab));
+            fixture
+                .app
+                .update(UserInput::Paste("Another modification".into()));
+            assert!(
+                !fixture
+                    .app
+                    .update(UserInput::Key(Key::ControlEnter))
+                    .iter()
+                    .any(|action| matches!(action, Action::Explore(Command::Implement(_))))
+            );
+            let text = fixture.text();
+            assert!(text.contains("To be implemented · read-only"), "{text}");
+            assert!(text.contains("Exact submitted scope:"), "{text}");
+            assert!(text.contains("1. Preserve resolved state."), "{text}");
+            assert!(!text.contains("modification"), "{text}");
+            assert!(!text.contains("F2 ·") && !text.contains("Ctrl-Enter Implement"));
+        }
+        fixture.click("[Reply]");
+        fixture
+            .app
+            .update(UserInput::Paste("Follow-up question".into()));
+        let reply = ExploreUi::request(fixture.app.update(UserInput::Key(Key::ControlEnter)));
+        assert_eq!(reply.answer.unwrap().text, "Follow-up question");
+    }
+}
+
+#[test]
 fn failed_or_cancelled_delivery_keeps_edits_and_ignores_obsolete_acknowledgements() {
     let (mut fixture, request) = ExploreUi::new();
     finish(&mut fixture, &request);
@@ -143,9 +338,16 @@ fn failed_or_cancelled_delivery_keeps_edits_and_ignores_obsolete_acknowledgement
             state: review_explore::DispatchState::NotSent("Agent unavailable".into()),
         });
     assert!(fixture.text().contains("Agent unavailable"));
-    let third = implementation(fixture.click_actions(" Implement "));
+    fixture.click("To be implemented");
+    fixture
+        .app
+        .update(UserInput::Paste("Revised after failure:\n".into()));
+    let third = implementation(fixture.app.update(UserInput::Key(Key::ControlEnter)));
     assert_ne!(third.delivery, second.delivery);
-    assert_eq!(third.text, second.text);
+    assert_eq!(
+        third.text,
+        format!("Revised after failure:\n{}", second.text)
+    );
 }
 
 #[test]
@@ -209,27 +411,7 @@ fn a_receipt_from_a_previous_attempt_cannot_finish_the_current_implementation() 
     let (mut fixture, kickoff) = ExploreUi::new();
     let conclusion = finish(&mut fixture, &kickoff);
     let request = implementation(fixture.click_actions(" Implement "));
-    let mut exploration = review_explore::Exploration::new(fixture.comparison.clone());
-    exploration.instance.clone_from(&kickoff.instance);
-    let mut pass = review_explore::ExplorePass::new(exploration);
-    pass.post(&kickoff).unwrap();
-    pass.exploration.submit(conclusion).unwrap();
-    pass.completion = Some(review_explore::ReviewCompletion {
-        request: kickoff.request.clone(),
-        baseline: kickoff.checkpoint.checkpoint.clone(),
-        completed: true,
-        exclusions_enabled: false,
-        summary: review_explore::CoverageSummary::default(),
-        unexplored: None,
-    });
-    pass.last_agent_session = Some(
-        serde_json::from_value(serde_json::json!({
-            "agent": "codex",
-            "session": {"source": "native", "agent": "codex", "kind": "id", "value": "conversation"}
-        }))
-        .unwrap(),
-    );
-    pass.authorize(&request).unwrap();
+    let mut pass = authorized_pass(&fixture, &kickoff, conclusion, &request);
     let old = pass.implementations[&request.delivery].clone();
     fixture
         .app

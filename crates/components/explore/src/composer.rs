@@ -6,7 +6,11 @@ impl ExploreComponent {
         let editor = match self.editor_target {
             super::EditorTarget::Answer => &mut self.editor,
             super::EditorTarget::Implementation => {
-                &mut self.conclusion_mut().expect("implementation editor").editor
+                let view = self.conclusion_mut().expect("implementation editor");
+                if !view.can_edit() {
+                    return;
+                }
+                &mut view.editor
             }
         };
         let before = editor.text();

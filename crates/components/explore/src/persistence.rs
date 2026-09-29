@@ -305,7 +305,7 @@ impl ExploreComponent {
             _ => EditorTarget::Answer,
         };
         self.restore_draft();
-        self.editing = state.editing && self.can_compose();
+        self.editing = state.editing && self.can_compose() && self.target_editable();
         self.scroll.set(state.scroll);
         self.map = state.map;
         self.coverage_overview = state.coverage_overview;
