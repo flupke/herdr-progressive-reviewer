@@ -945,6 +945,24 @@ impl DiffComponent {
             }
             _ => return Vec::new(),
         }
+        self.search_query_changed()
+    }
+
+    fn paste(&mut self, input: &ui_events::TextPasted) -> Vec<Action> {
+        if self.conversation.is_peeking() {
+            return self.source_view_mut().paste(input);
+        }
+        if self.editor_is_visible() {
+            return self.comment_paste(input);
+        }
+        let Some(search) = self.search.as_mut().filter(|search| search.editing) else {
+            return Vec::new();
+        };
+        search.query.push_str(&input.0.replace(['\n', '\r'], " "));
+        self.search_query_changed()
+    }
+
+    fn search_query_changed(&mut self) -> Vec<Action> {
         let action = self.refresh_search_matches();
         self.find_from_origin();
         self.publish_decorations();
@@ -2142,7 +2160,7 @@ impl Component<Action> for DiffComponent {
         subscriptions.subscribe_input(
             InputScope::Focused,
             component_core::AnyInput,
-            |component, input: ui_events::TextPasted| component.comment_paste(&input),
+            |component, input: ui_events::TextPasted| component.paste(&input),
         );
         subscriptions.subscribe(Self::post_finished);
         subscriptions.subscribe(Self::repository_changed);

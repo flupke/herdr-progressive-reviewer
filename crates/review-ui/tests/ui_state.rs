@@ -488,6 +488,40 @@ fn global_search_focuses_the_diff_and_shows_the_query_and_current_match() {
 }
 
 #[test]
+fn pasting_into_diff_search_updates_the_query_and_matches() {
+    let mut application = wrapped_diff_application(
+        vec![
+            DiffRow::Add {
+                new_line: 1,
+                text: "+un café".to_owned(),
+            },
+            DiffRow::Add {
+                new_line: 2,
+                text: "+Unicode cafés".to_owned(),
+            },
+        ],
+        80,
+        12,
+    );
+
+    application.update(UserInput::Key(Key::Char('/')));
+    application.update(UserInput::Paste("café".to_owned()));
+    let status = screen(&application, 80, 12)[11].clone();
+    assert!(status.starts_with("/café"), "{status}");
+    assert!(status.ends_with("[1/2]"), "{status}");
+
+    application.update(UserInput::Key(Key::Char('s')));
+    assert!(screen(&application, 80, 12)[11].ends_with("[1/1]"));
+
+    application.update(UserInput::Key(Key::Escape));
+    application.update(UserInput::Key(Key::Char('/')));
+    application.update(UserInput::Paste("Unicode\n".to_owned()));
+    let status = screen(&application, 80, 12)[11].clone();
+    assert!(status.starts_with("/Unicode "), "{status}");
+    assert!(status.ends_with("[1/1]"), "{status}");
+}
+
+#[test]
 fn reviewed_file_hides_its_diff() {
     let mut app = ReviewApplication::default();
     publish_repository(

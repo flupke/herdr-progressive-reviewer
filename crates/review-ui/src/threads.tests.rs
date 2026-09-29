@@ -1151,9 +1151,10 @@ fn peek_uses_native_highlighting_navigation_and_lsp_without_changing_files() {
     });
     assert!(ui.text().contains("fn definition() {}"));
     ui.key(Key::Char('/'));
-    for character in "definition".chars() {
+    for character in "defin".chars() {
         ui.key(Key::Char(character));
     }
+    ui.app.update(UserInput::Paste("ition".into()));
     ui.key(Key::Enter);
     assert!(ui.text().contains("/definition"));
     ui.key(Key::Escape);
