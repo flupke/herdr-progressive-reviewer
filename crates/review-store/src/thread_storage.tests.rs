@@ -111,7 +111,7 @@ fn drafts_survive_restart_without_publishing_and_posting_removes_them_atomically
     assert_eq!(store.load_threads(&unit).unwrap().drafts(), [reply.clone()]);
     store
         .update_threads(&unit, |book| {
-            book.discard_draft(&reply.target);
+            book.discard_draft(reply.thread_id());
             Ok(())
         })
         .unwrap();

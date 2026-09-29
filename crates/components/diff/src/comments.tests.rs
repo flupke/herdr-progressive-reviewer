@@ -19,6 +19,10 @@ impl CommentFixture {
     }
 
     fn with_book(book: ReviewThreads) -> Self {
+        Self::with_rows(book, changed_rows(), b"changed\n")
+    }
+
+    fn with_rows(book: ReviewThreads, rows: Vec<DiffRow>, new_content: &[u8]) -> Self {
         let (mut registry, reviewable_files, target) = registry_with_observer();
         reviewable_files.replace(["src/lib.rs".to_owned()].into());
         publish_repository(&mut registry, "checkpoint");
@@ -51,11 +55,11 @@ impl CommentFixture {
                             text: "+++ b/src/lib.rs".into(),
                         },
                     ],
-                    changed_rows(),
+                    rows,
                 ]
                 .concat(),
                 old_content: Some(Vec::new()),
-                new_content: Some(b"changed\n".to_vec()),
+                new_content: Some(new_content.to_vec()),
             })
             .unwrap();
         registry
@@ -91,8 +95,10 @@ impl CommentFixture {
                     self.book.save_draft(draft.clone()).unwrap();
                     continue;
                 }
-                Action::Thread(review_threads::ThreadCommand::DiscardDraft { target, .. }) => {
-                    self.book.discard_draft(target);
+                Action::Thread(review_threads::ThreadCommand::DiscardDraft {
+                    thread_id, ..
+                }) => {
+                    self.book.discard_draft(thread_id);
                     continue;
                 }
                 _ => {}
@@ -167,6 +173,17 @@ impl CommentFixture {
             .publish(ui_events::TextPasted(text.into()))
             .unwrap();
         self.key(Key::ControlEnter)
+    }
+
+    fn paste(&mut self, text: &str) {
+        let actions = self
+            .registry
+            .publish(ui_events::TextPasted(text.into()))
+            .unwrap()
+            .into_iter()
+            .flat_map(DispatchResult::into_actions)
+            .collect::<Vec<_>>();
+        self.accept(&actions);
     }
 
     fn book(&self) -> &ReviewThreads {
@@ -673,6 +690,11 @@ fn recovered_editors_restore_without_posting_and_cancel_discards_the_saved_draft
             "{}",
             restarted.text()
         );
+        if !reply {
+            // Recovered new-thread drafts stay collapsed until the reviewer opens one.
+            restarted.assert_editor(false);
+            restarted.click_text("Recovered draft");
+        }
         assert_eq!(restarted.book.threads().len(), usize::from(reply));
         for character in " edited".chars() {
             restarted.key(Key::Char(character));
@@ -746,9 +768,163 @@ fn a_recovered_file_draft_remains_accessible_after_the_file_leaves_the_diff() {
     );
     assert!(restarted.text().contains("Keep this draft"));
     assert!(restarted.book.threads().is_empty());
+    restarted.click_text("Keep this draft");
     restarted.click_text("Cancel");
     assert!(restarted.book.drafts().is_empty());
     assert!(restarted.component().documents.is_empty());
+}
+
+fn two_added_lines() -> Vec<DiffRow> {
+    vec![
+        DiffRow::Hunk {
+            old_start: 1,
+            old_count: 0,
+            new_start: 1,
+            new_count: 2,
+        },
+        DiffRow::Add {
+            new_line: 1,
+            text: "+first".to_owned(),
+        },
+        DiffRow::Add {
+            new_line: 2,
+            text: "+second".to_owned(),
+        },
+    ]
+}
+
+#[test]
+fn a_file_keeps_several_drafts_and_reopens_the_one_under_the_cursor() {
+    let mut fixture = CommentFixture::with_rows(
+        ReviewThreads::new("change".into()),
+        two_added_lines(),
+        b"first\nsecond\n",
+    );
+    fixture.key(Key::Last);
+    fixture.key(Key::Char('a'));
+    fixture.paste("Second note");
+    fixture.click_text("second");
+    fixture.assert_editor(false);
+    assert!(fixture.text().contains("Second note"), "{}", fixture.text());
+    fixture.key(Key::Char('k'));
+    fixture.key(Key::Char('a'));
+    fixture.paste("First note");
+    assert_eq!(fixture.book.drafts().len(), 2);
+    fixture.click_text("Second note");
+    let parked = fixture
+        .component()
+        .comments
+        .parked_file_editors()
+        .map(|parked| parked.draft.text.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(parked, ["First note"]);
+    assert_eq!(
+        fixture
+            .component()
+            .comments
+            .editing
+            .as_ref()
+            .unwrap()
+            .editor
+            .text(),
+        "Second note"
+    );
+    fixture.key(Key::ControlEnter);
+    assert_eq!(fixture.book().threads().len(), 1);
+    assert_eq!(fixture.book.drafts().len(), 1);
+    assert_eq!(fixture.book.drafts()[0].text, "First note");
+}
+
+#[test]
+fn an_unfocused_draft_keeps_buttons_that_act_on_it() {
+    let mut fixture = CommentFixture::new();
+    fixture.key(Key::Last);
+    fixture.key(Key::Char('a'));
+    fixture.paste("Parked note");
+    fixture.click_text("changed");
+    fixture.assert_editor(false);
+    let text = fixture.text();
+    assert!(
+        text.contains("Draft · click to edit") && text.contains("Cancel"),
+        "{text}"
+    );
+    fixture.click_text("Post");
+    assert_eq!(fixture.book().threads().len(), 1);
+    assert_eq!(fixture.book().threads()[0].messages[0].text, "Parked note");
+    assert!(fixture.book.drafts().is_empty());
+}
+
+#[test]
+fn an_empty_editor_disappears_when_it_loses_focus() {
+    let mut fixture = CommentFixture::new();
+    fixture.key(Key::Last);
+    fixture.key(Key::Char('a'));
+    fixture.assert_editor(true);
+    fixture.click_text("changed");
+    fixture.assert_editor(false);
+    assert!(!fixture.text().contains("Draft · click to edit"));
+    assert_eq!(
+        fixture.component().comments.parked_file_editors().count(),
+        0
+    );
+}
+
+#[test]
+fn a_recovered_draft_leaves_the_keyboard_to_the_diff_until_it_is_opened() {
+    let mut fixture = CommentFixture::new();
+    fixture.key(Key::Last);
+    fixture.key(Key::Char('a'));
+    fixture.paste("Saved note");
+    let mut restarted = CommentFixture::with_book(fixture.book.clone());
+    for key in [
+        Key::Char('j'),
+        Key::Char('k'),
+        Key::Char('w'),
+        Key::Char('e'),
+    ] {
+        assert!(
+            !restarted
+                .key(key)
+                .iter()
+                .any(|action| matches!(action, Action::Thread(_))),
+        );
+    }
+    restarted.assert_editor(false);
+    assert!(restarted.text().contains("Draft · click to edit"));
+    restarted.key(Key::Last);
+    restarted.key(Key::Char('a'));
+    restarted.assert_editor(true);
+    assert!(!restarted.text().contains("Draft · click to edit"));
+    assert_eq!(restarted.book.drafts().len(), 1);
+    assert_eq!(restarted.book.drafts()[0].text, "Saved note");
+}
+
+#[test]
+fn a_saved_reply_shows_in_its_reply_field_until_it_is_reopened() {
+    let mut fixture = CommentFixture::new();
+    fixture.add("Published question");
+    fixture.click_text("Reply…");
+    fixture.paste("Pending reply");
+    let mut restarted = CommentFixture::with_book(fixture.book.clone());
+    restarted.assert_editor(false);
+    assert!(
+        restarted.text().contains("Draft · click to edit"),
+        "{}",
+        restarted.text()
+    );
+    restarted.click_text("Pending reply");
+    restarted.assert_editor(true);
+    assert_eq!(
+        restarted
+            .component()
+            .comments
+            .editing
+            .as_ref()
+            .unwrap()
+            .editor
+            .text(),
+        "Pending reply"
+    );
 }
 
 #[test]

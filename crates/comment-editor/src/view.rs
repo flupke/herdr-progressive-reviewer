@@ -90,6 +90,7 @@ impl EditorViewport {
         area: Rect,
         buffer: &mut Buffer,
         palette: Palette,
+        focused: bool,
     ) {
         if self.width != area.width {
             self.reset_motion();
@@ -125,7 +126,7 @@ impl EditorViewport {
             row.line
                 .clone()
                 .render(Rect::new(area.x, y, area.width, 1), buffer);
-            if let Some(column) = row.cursor {
+            if let Some(column) = row.cursor.filter(|_| focused) {
                 buffer[(area.x + u16::try_from(column).unwrap_or_default(), y)]
                     .set_style(Style::default().fg(palette.cursor).bg(palette.focus));
             }

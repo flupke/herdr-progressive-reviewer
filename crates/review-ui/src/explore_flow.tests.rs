@@ -526,7 +526,8 @@ fn assert_evidence_restores_saved_drafts(side: review_explore::SourceSide) {
         if reference == 1 {
             assert!(fixture.text().contains("pub fn caller()"));
         }
-        fixture.app.update(UserInput::Key(Key::Tab));
+        // A saved draft stays collapsed until the reviewer opens it.
+        fixture.click(&draft.text);
         let post = ExploreUi::posted_comment(fixture.app.update(UserInput::Key(Key::ControlEnter)));
         assert_eq!(
             post,
@@ -590,6 +591,7 @@ fn cancelled_drafts_do_not_reappear_in_fresh_evidence_views_from_stale_books() {
     fixture.respond(&request, 1);
     fixture.app.update(UserInput::Key(Key::Tab));
     assert!(fixture.text().contains(&draft.text));
+    fixture.click("Saved comment for policy.rs");
     let (column, row) = fixture.point("Diff ·");
     for _ in 0..8 {
         if fixture.text().contains("Cancel") {
@@ -1142,6 +1144,7 @@ fn shared_comment_drafts_clear_or_keep_divergent_text_after_another_view_posts()
         let unit = fixture.comparison.checkpoint.review_unit.clone();
         let mut book = fixture.shared_comment_draft(cached_draft);
         if modified {
+            fixture.click("Shared source draft");
             fixture
                 .app
                 .update(UserInput::Paste(" independently changed".into()));

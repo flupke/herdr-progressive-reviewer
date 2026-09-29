@@ -55,7 +55,7 @@ fn vim_half_pages_move_within_a_wrapped_paragraph() {
 fn render(editor: &CommentEditor, width: u16, height: u16) -> Buffer {
     let area = Rect::new(0, 0, width, height);
     let mut buffer = Buffer::empty(area);
-    editor.render(area, &mut buffer, ui_theme::Theme::default().palette);
+    editor.render(area, &mut buffer, ui_theme::Theme::default().palette, true);
     buffer
 }
 

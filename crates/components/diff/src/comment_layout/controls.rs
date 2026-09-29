@@ -1,7 +1,7 @@
 //! Right-aligned thread controls share rendering and pointer geometry.
 
 use ratatui::text::{Line, Span};
-use review_threads::{Resolution, ReviewThread};
+use review_threads::{Resolution, ReviewThread, ThreadId};
 
 use super::{CommentRow, thread::ThreadLayout};
 use crate::{
@@ -9,6 +9,13 @@ use crate::{
     conversation::ConversationAction,
 };
 use ui_controls::{ActionButton, ButtonTone};
+
+/// The draft whose Cancel and Post buttons a control row carries.
+#[derive(Clone, Copy)]
+pub(super) struct DraftControls<'a> {
+    pub(super) draft: &'a ThreadId,
+    pub(super) focused: bool,
+}
 
 struct ThreadControl {
     label: String,
@@ -36,7 +43,7 @@ impl ThreadControl {
         }
     }
 
-    fn editor(action: EditorAction, width: usize) -> Self {
+    fn editor(action: EditorAction, draft: &ThreadId, width: usize) -> Self {
         let (label, style) = match action {
             EditorAction::Submit => (" Post ", ButtonTone::Primary),
             EditorAction::Cancel => (" Cancel ", ButtonTone::Secondary),
@@ -45,7 +52,7 @@ impl ThreadControl {
             label.into(),
             label,
             width,
-            ConversationAction::Editor(action),
+            ConversationAction::Editor(action, draft.clone()),
             style,
         )
     }
@@ -75,7 +82,7 @@ impl ThreadLayout {
         self,
         rows: &mut Vec<CommentRow>,
         thread: Option<&ReviewThread>,
-        editing: bool,
+        draft: Option<DraftControls<'_>>,
     ) {
         let width = usize::from(self.frame.content_width());
         if width == 0 {
@@ -83,7 +90,7 @@ impl ThreadLayout {
         }
         let mut controls = Vec::new();
         if let Some(thread) = thread {
-            if !editing && thread.resolution == Resolution::Open {
+            if draft.is_none() && thread.resolution == Resolution::Open {
                 controls.push(ThreadControl::new(
                     " Retry agent ".into(),
                     " Retry ",
@@ -94,10 +101,10 @@ impl ThreadLayout {
             }
             controls.push(ThreadControl::resolution(thread, width));
         }
-        if editing {
+        if let Some(draft) = draft {
             controls.extend(
                 [EditorAction::Cancel, EditorAction::Submit]
-                    .map(|action| ThreadControl::editor(action, width)),
+                    .map(|action| ThreadControl::editor(action, draft.draft, width)),
             );
         }
         if controls.is_empty() {
@@ -105,7 +112,7 @@ impl ThreadLayout {
         }
         let total = controls.iter().map(ThreadControl::width).sum::<usize>() + controls.len() - 1;
         for group in controls.chunks(if total <= width { controls.len() } else { 1 }) {
-            self.control_row(rows, group, width, editing);
+            self.control_row(rows, group, width, draft.is_some_and(|draft| draft.focused));
         }
     }
 

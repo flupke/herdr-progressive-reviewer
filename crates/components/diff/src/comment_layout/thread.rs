@@ -10,7 +10,8 @@ use ui_theme::Palette;
 use unicode_width::UnicodeWidthStr;
 
 use super::CommentRow;
-use crate::comments::{CommentTarget, Comments};
+use super::controls::DraftControls;
+use crate::comments::{CommentTarget, Comments, EditingComment};
 
 #[derive(Clone, Copy)]
 pub(super) struct ThreadLayout {
@@ -18,6 +19,17 @@ pub(super) struct ThreadLayout {
     pub(super) source_row: usize,
     pub(super) palette: Palette,
     pub(super) outdated: bool,
+}
+
+impl ThreadLayout {
+    pub(super) fn new(frame: DiffFrame, source_row: usize, palette: Palette) -> Self {
+        Self {
+            frame,
+            source_row,
+            palette,
+            outdated: false,
+        }
+    }
 }
 
 impl Comments {
@@ -39,31 +51,29 @@ impl Comments {
                 .iter()
                 .any(|comment| editing.draft.reply_to.as_ref() == Some(&comment.id))
         });
-        if replying {
+        if let Some(editing) = self.editing.as_ref().filter(|_| replying) {
             layout.separator(&mut rows, None);
-            self.editor_rows(&mut rows, layout.source_row, layout.frame, layout.palette);
+            self.editor_rows(&mut rows, editing, true, layout);
+        } else if let Some(parked) = self.parked_reply(&thread.id) {
+            layout.separator(&mut rows, None);
+            self.editor_rows(&mut rows, parked, false, layout);
         } else if let Some(comment) = thread.messages.last() {
             layout.separator(&mut rows, Some(&comment.id));
             layout.reply_field(&mut rows, &comment.id);
-            layout.controls(&mut rows, Some(thread), false);
+            layout.controls(&mut rows, Some(thread), None);
         }
         rows
     }
 
+    /// Only the focused editor takes keys; the others keep their text and reopen on click.
     pub(super) fn editor_rows(
         &self,
         rows: &mut Vec<CommentRow>,
-        source_row: usize,
-        frame: DiffFrame,
-        palette: Palette,
+        editing: &EditingComment,
+        focused: bool,
+        layout: ThreadLayout,
     ) {
-        let Some(editing) = &self.editing else { return };
-        let layout = ThreadLayout {
-            frame,
-            source_row,
-            palette,
-            outdated: false,
-        };
+        let (frame, palette) = (layout.frame, layout.palette);
         let start = rows.len();
         let mut buttons = Vec::new();
         let thread = editing.draft.reply_to.as_ref().and_then(|id| {
@@ -71,18 +81,24 @@ impl Comments {
                 .as_ref()
                 .and_then(|book| book.thread_for_message(id))
         });
-        layout.controls(&mut buttons, thread, true);
+        let draft = DraftControls {
+            draft: editing.draft.thread_id(),
+            focused,
+        };
+        layout.controls(&mut buttons, thread, Some(draft));
         let extra_button_rows = u16::try_from(buttons.len().saturating_sub(1)).unwrap_or(u16::MAX);
         let id = None;
         let status = if editing.posting.is_some() {
             "Posting…"
-        } else if frame.content_width() >= 24 {
+        } else if frame.content_width() < 24 {
+            ""
+        } else if focused {
             "Ctrl-Enter post"
         } else {
-            ""
+            "Draft · click to edit"
         };
         layout.header(rows, Author::Reviewer, status, id);
-        layout.field_border(rows, true, true, id);
+        layout.field_border(rows, true, focused, id);
         let area = Rect::new(
             0,
             0,
@@ -90,7 +106,7 @@ impl Comments {
             self.editor_height.saturating_sub(extra_button_rows).max(1),
         );
         let mut buffer = Buffer::empty(area);
-        editing.editor.render(area, &mut buffer, palette);
+        editing.editor.render(area, &mut buffer, palette, focused);
         for y in 0..area.height {
             let mut spans = Vec::new();
             let mut x = 0;
@@ -101,12 +117,17 @@ impl Comments {
                     u16::try_from(cell.symbol().width().max(1)).unwrap_or(u16::MAX),
                 );
             }
-            layout.field_line(rows, Line::from(spans), true, id);
+            layout.field_line(rows, Line::from(spans), focused, id);
         }
-        layout.editor_border(rows, &editing.editor, id);
+        if focused {
+            layout.editor_border(rows, &editing.editor, id);
+        } else {
+            layout.field_border(rows, false, false, id);
+        }
+        let target = (!focused).then(|| CommentTarget::Draft(editing.draft.thread_id().clone()));
         for row in &mut rows[start..] {
-            row.editor = true;
-            row.target = None;
+            row.editor = focused;
+            row.target.clone_from(&target);
         }
         rows.extend(buttons);
     }

@@ -400,7 +400,7 @@ impl ExploreComponent {
             EditorTarget::Answer => &self.editor,
             EditorTarget::Implementation => &self.conclusion().expect("conclusion editor").editor,
         };
-        text_editor.render(inner, &mut editor, palette);
+        text_editor.render(inner, &mut editor, palette, true);
         if area.height > 1 {
             text_editor
                 .status_border(inner.width, border, palette)

@@ -14,7 +14,7 @@ impl Comments {
     ) -> Vec<CommentRow> {
         if thread.resolution == Resolution::Resolved {
             let mut rows = layout.collapsed(thread);
-            layout.controls(&mut rows, Some(thread), false);
+            layout.controls(&mut rows, Some(thread), None);
             rows
         } else {
             self.thread_rows(thread, layout)

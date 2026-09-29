@@ -1,7 +1,9 @@
-//! Unposted editors survive conversation and review navigation.
+//! Unposted editors survive conversation and review navigation. A file can hold several new
+//! thread drafts; each one is identified by the thread it will start.
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::ops::RangeInclusive;
 use std::rc::Rc;
 
 use comment_editor::{CommentEditor, KeymapSetting};
@@ -11,11 +13,13 @@ use ui_actions::Action;
 use ui_events::ThreadPostFinished;
 
 use super::{Comments, EditingComment};
+use crate::LoadedDocument;
+use crate::comment_layout::draft_rows;
 
 #[derive(Default)]
 pub(super) struct Drafts {
-    parked: HashMap<(ReviewUnit, DraftTarget), EditingComment>,
-    file_editor: Option<DraftTarget>,
+    parked: HashMap<(ReviewUnit, ThreadId), EditingComment>,
+    file_editor: Option<ThreadId>,
     recovered: HashSet<(ReviewUnit, MessageId)>,
     cancelled: Rc<RefCell<HashSet<(ReviewUnit, MessageId)>>>,
 }
@@ -32,29 +36,42 @@ impl Drafts {
     }
 
     fn reconcile_posts(&mut self, book: &ReviewThreads, actions: &mut Vec<Action>) {
-        self.parked.retain(|(unit, _), editing| {
-            unit != &book.review_unit || editing.retain_after_posts(book, actions)
-        });
+        // A divergent new-thread draft is renewed under another thread, so rebuild its key.
+        let file_editor = &mut self.file_editor;
+        self.parked = std::mem::take(&mut self.parked)
+            .into_iter()
+            .filter_map(|((unit, thread), mut editing)| {
+                if unit == book.review_unit && !editing.retain_after_posts(book, actions) {
+                    return None;
+                }
+                let renewed = editing.draft.thread_id().clone();
+                if file_editor.as_ref() == Some(&thread) {
+                    *file_editor = Some(renewed.clone());
+                }
+                Some(((unit, renewed), editing))
+            })
+            .collect();
     }
 
     pub(super) fn recover(
         &mut self,
         book: &ReviewThreads,
         keymap: &KeymapSetting,
-        active: Option<&DraftTarget>,
+        active: Option<&ThreadId>,
     ) {
         for draft in book.drafts() {
             // A cached book cannot suppress later drafts or resurrect cancelled ones.
             let identity = (book.review_unit.clone(), draft.message_id().clone());
             let unseen = self.recovered.insert(identity.clone());
             if !unseen
-                || active == Some(&draft.target)
+                || draft.text.trim().is_empty()
+                || active == Some(draft.thread_id())
                 || self.cancelled.borrow().contains(&identity)
             {
                 continue;
             }
             self.parked
-                .entry((book.review_unit.clone(), draft.target.clone()))
+                .entry((book.review_unit.clone(), draft.thread_id().clone()))
                 .or_insert_with(|| EditingComment {
                     posting: None,
                     editor: CommentEditor::new(&draft.text, keymap),
@@ -129,23 +146,79 @@ impl Comments {
             })
     }
 
+    /// New-thread editors of the current review that do not have focus.
+    pub(crate) fn parked_file_editors(&self) -> impl Iterator<Item = &EditingComment> {
+        self.drafts
+            .parked
+            .iter()
+            .filter(|((unit, _), _)| {
+                self.book
+                    .as_ref()
+                    .is_some_and(|book| &book.review_unit == unit)
+            })
+            .map(|(_, editing)| editing)
+            .filter(|editing| editing.draft.is_new_thread())
+    }
+
+    /// A reply that is saved for `thread` but not being edited.
+    pub(crate) fn parked_reply(&self, thread: &ThreadId) -> Option<&EditingComment> {
+        let book = self.book.as_ref()?;
+        self.drafts
+            .parked
+            .get(&(book.review_unit.clone(), thread.clone()))
+            .filter(|editing| !editing.draft.is_new_thread())
+    }
+
+    /// The open or parked new-thread draft of `file` anchored on any of `rows`.
+    pub(crate) fn file_draft_at(
+        &self,
+        file: &LoadedDocument,
+        rows: &RangeInclusive<usize>,
+    ) -> Option<ThreadId> {
+        self.editing
+            .iter()
+            .map(|editing| &editing.draft)
+            .filter(|draft| draft.is_new_thread())
+            .chain(self.parked_file_editors().map(|parked| &parked.draft))
+            .filter(|draft| self.matches_path(file, draft.path()))
+            .find(|draft| {
+                draft_rows(draft, file).is_some_and(|anchored| {
+                    anchored.start() <= rows.end() && rows.start() <= anchored.end()
+                })
+            })
+            .map(|draft| draft.thread_id().clone())
+    }
+
+    /// Remove focus from the open editor. An editor with no text has nothing to keep.
     pub(crate) fn park_editor(&mut self) {
         if let Some(book) = &self.book
             && let Some(editing) = self.editing.take()
+            && (editing.posting.is_some() || !editing.editor.text().trim().is_empty())
         {
             self.drafts.parked.insert(
-                (book.review_unit.clone(), editing.draft.target.clone()),
+                (book.review_unit.clone(), editing.draft.thread_id().clone()),
                 editing,
             );
         }
     }
 
-    pub(in crate::comments) fn activate_editor(&mut self, target: DraftTarget) {
+    /// Keep an editor from another file out of the file being shown.
+    pub(crate) fn park_editor_outside(&mut self, path: &str) {
+        if self
+            .editing
+            .as_ref()
+            .is_some_and(|editing| self.paths.resolve(editing.draft.path()) != path)
+        {
+            self.park_editor();
+        }
+    }
+
+    pub(in crate::comments) fn activate_editor(&mut self, thread: ThreadId) {
         if self
             .book
             .as_ref()
             .zip(self.editing.as_ref())
-            .is_some_and(|(_, editing)| editing.draft.target == target)
+            .is_some_and(|(_, editing)| editing.draft.thread_id() == &thread)
         {
             return;
         }
@@ -154,7 +227,7 @@ impl Comments {
             self.editing = self
                 .drafts
                 .parked
-                .remove(&(book.review_unit.clone(), target));
+                .remove(&(book.review_unit.clone(), thread));
         }
     }
 
@@ -163,7 +236,7 @@ impl Comments {
             .book
             .as_ref()
             .zip(self.editing.as_ref())
-            .map(|(_, editing)| editing.draft.target.clone());
+            .map(|(_, editing)| editing.draft.thread_id().clone());
         self.park_editor();
     }
 
@@ -175,15 +248,6 @@ impl Comments {
     }
 
     pub(crate) fn restore_thread_editor(&mut self, id: ThreadId) {
-        self.activate_editor(DraftTarget::Thread(id));
-    }
-
-    pub(crate) fn restore_file_editor(&mut self, path: &str) {
-        let original = self
-            .draft_paths()
-            .find(|original| self.paths.resolve(original) == path)
-            .unwrap_or(path)
-            .to_owned();
-        self.activate_editor(DraftTarget::File(original));
+        self.activate_editor(id);
     }
 }

@@ -34,7 +34,7 @@ pub(super) struct ConversationView {
 pub(super) enum ConversationAction {
     Back,
     Reply,
-    Editor(crate::comments::EditorAction),
+    Editor(crate::comments::EditorAction, ThreadId),
     Resolve(ThreadId),
     Retry(ThreadId),
     Peek,
@@ -219,7 +219,7 @@ impl DiffComponent {
             ConversationAction::Resolve(id) => return self.resolve_thread(&id),
             ConversationAction::Retry(id) => return self.retry_thread(id),
             ConversationAction::Reply => self.reply_to_conversation(),
-            ConversationAction::Editor(action) => return self.finish_comment(action),
+            ConversationAction::Editor(action, draft) => return self.finish_draft(draft, action),
         }
         Vec::new()
     }

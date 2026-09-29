@@ -187,14 +187,19 @@ impl CommentEditor {
         }
     }
 
-    /// Render an independent editor viewport suitable for insertion into a diff.
-    pub fn render(&self, area: Rect, buffer: &mut Buffer, palette: Palette) {
+    /// Render an independent editor viewport suitable for insertion into a diff. An unfocused
+    /// editor keeps its text and scroll position but draws no cursor.
+    pub fn render(&self, area: Rect, buffer: &mut Buffer, palette: Palette, focused: bool) {
         if area.is_empty() {
             return;
         }
-        self.viewport
-            .borrow_mut()
-            .render(&mut self.state.borrow_mut(), area, buffer, palette);
+        self.viewport.borrow_mut().render(
+            &mut self.state.borrow_mut(),
+            area,
+            buffer,
+            palette,
+            focused,
+        );
     }
 
     /// A bottom border carrying the editing mode on the left and the keymap hint on the right.
@@ -418,7 +423,7 @@ mod tests {
             editor.input(Key::Last);
             editor.input(Key::Char('x'));
             let mut buffer = Buffer::empty(area);
-            editor.render(area, &mut buffer, palette);
+            editor.render(area, &mut buffer, palette, true);
             let visible = buffer
                 .content()
                 .iter()

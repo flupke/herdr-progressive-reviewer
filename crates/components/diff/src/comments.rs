@@ -6,8 +6,7 @@ use std::ops::Range;
 use comment_editor::{CommentEditor, KeymapSetting};
 use review_source::{AnchorKind, DiffRangeAnchor, FrozenHunk};
 use review_threads::{
-    Draft, DraftTarget, MessageId, Post, ReviewThread, ReviewThreads, ThreadCommand, ThreadId,
-    ThreadSource,
+    Draft, MessageId, Post, ReviewThread, ReviewThreads, ThreadCommand, ThreadId, ThreadSource,
 };
 use ui_actions::Action;
 use ui_events::{ReviewThreadsLoaded, TextPasted, ThreadPostFinished};
@@ -34,6 +33,7 @@ pub(super) struct Comments {
 pub(super) enum CommentTarget {
     Message(MessageId),
     Reply(MessageId),
+    Draft(ThreadId),
     Conversation(crate::conversation::ConversationAction),
     ConversationButtons(Vec<ConversationButton>),
 }
@@ -54,7 +54,7 @@ impl CommentTarget {
     pub(super) fn id(&self) -> Option<&MessageId> {
         match self {
             Self::Message(id) | Self::Reply(id) => Some(id),
-            Self::Conversation(_) | Self::ConversationButtons(_) => None,
+            Self::Draft(_) | Self::Conversation(_) | Self::ConversationButtons(_) => None,
         }
     }
 }
@@ -101,7 +101,9 @@ impl Comments {
         self.drafts.recover(
             book,
             &self.keymap,
-            self.editing.as_ref().map(|editing| &editing.draft.target),
+            self.editing
+                .as_ref()
+                .map(|editing| editing.draft.thread_id()),
         );
     }
 
@@ -172,7 +174,7 @@ impl Comments {
         else {
             return;
         };
-        self.activate_editor(DraftTarget::Thread(thread_id));
+        self.activate_editor(thread_id);
         if self.editing.is_some() {
             return;
         }
@@ -280,7 +282,7 @@ impl DiffComponent {
                         .remember_cancellation(&book.review_unit, &editing.draft);
                     Action::Thread(ThreadCommand::DiscardDraft {
                         review_unit: book.review_unit.clone(),
-                        target: editing.draft.target.clone(),
+                        thread_id: editing.draft.thread_id().clone(),
                     })
                 });
                 self.comments.selected.clone_from(&editing.draft.reply_to);
@@ -307,12 +309,6 @@ impl DiffComponent {
     }
 
     pub(super) fn add_comment(&mut self) {
-        if let Some(path) = &self.selected_path {
-            self.comments.restore_file_editor(path);
-        }
-        if self.comments.editing.is_some() {
-            return;
-        }
         if self.comments.book.is_none() {
             self.events.publish(ui_events::ToastRequested {
                 text: "Comments are still loading".into(),
@@ -328,6 +324,10 @@ impl DiffComponent {
             file.document.cursor..=file.document.cursor,
             SelectionState::range,
         );
+        if let Some(thread) = self.comments.file_draft_at(file, &range) {
+            self.open_draft(thread);
+            return;
+        }
         let mut old = None;
         let mut new = None;
         for row in range.clone() {
@@ -377,7 +377,20 @@ impl DiffComponent {
                 }),
             ),
         };
+        self.comments.park_editor();
         self.comments.editing = Some(editing);
+        self.selection = None;
+        self.keep_comment_visible();
+    }
+
+    /// Buttons of an unfocused editor act on their own draft.
+    pub(super) fn finish_draft(&mut self, draft: ThreadId, action: EditorAction) -> Vec<Action> {
+        self.comments.activate_editor(draft);
+        self.finish_comment(action)
+    }
+
+    fn open_draft(&mut self, thread: ThreadId) {
+        self.comments.activate_editor(thread);
         self.selection = None;
         self.keep_comment_visible();
     }
@@ -573,12 +586,6 @@ impl DiffComponent {
         {
             self.comments.restore_thread_editor(thread.id.clone());
         }
-        if self.comments.editing.is_none()
-            && !self.conversation.active
-            && let Some(path) = &self.selected_path
-        {
-            self.comments.restore_file_editor(path);
-        }
     }
 
     pub(super) fn post_finished(&mut self, event: &ThreadPostFinished) -> Vec<Action> {
@@ -712,6 +719,7 @@ impl DiffComponent {
             }
             CommentTarget::Message(id) => self.open_comment(id),
             CommentTarget::Reply(id) => self.start_comment(id),
+            CommentTarget::Draft(thread) => self.open_draft(thread),
         }
         Vec::new()
     }

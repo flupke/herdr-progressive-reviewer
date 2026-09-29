@@ -1,6 +1,6 @@
 use review_types::ReviewUnit;
 
-use crate::{Draft, DraftTarget, MessageId, Post, Resolution, ThreadId};
+use crate::{Draft, MessageId, Post, Resolution, ThreadId};
 
 /// Review-thread work carried unchanged from the UI to the conversation owner.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -12,7 +12,7 @@ pub enum ThreadCommand {
     },
     DiscardDraft {
         review_unit: ReviewUnit,
-        target: DraftTarget,
+        thread_id: ThreadId,
     },
     Post {
         review_unit: ReviewUnit,

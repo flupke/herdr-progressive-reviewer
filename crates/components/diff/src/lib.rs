@@ -487,6 +487,9 @@ impl DiffComponent {
             return;
         };
         self.selection = None;
+        if !self.conversation.active {
+            self.comments.park_editor();
+        }
         if self.expand_context(position.row) {
             self.drag_anchor = None;
             self.publish_current_location();
@@ -1402,7 +1405,7 @@ impl DiffComponent {
         let load_immediately = self.selected_path.is_none();
         self.selected_path = Some(event.path.clone());
         if newly_selected && !self.conversation.active {
-            self.comments.restore_file_editor(&event.path);
+            self.comments.park_editor_outside(&event.path);
         }
         if newly_selected {
             self.contain_displayed_cursor();

@@ -133,6 +133,32 @@ fn legacy_answers_do_not_become_ready_again_after_a_final_read_or_upgrade() {
     }
 }
 
+#[test]
+fn a_file_keeps_each_new_thread_draft_and_saving_replaces_only_the_same_one() {
+    let mut book = ReviewThreads::new("change".into());
+    let source = Arc::new(ThreadSource {
+        anchor: start("unused").source.as_ref().unwrap().anchor.clone(),
+        excerpt: "+original".into(),
+    });
+    let mut first = crate::Draft::start("gone.rs".into(), source.clone());
+    let mut second = crate::Draft::start("gone.rs".into(), source);
+    first.text = "First".into();
+    second.text = "Second".into();
+    book.save_draft(first.clone()).unwrap();
+    book.save_draft(second.clone()).unwrap();
+    first.text = "First, edited".into();
+    book.save_draft(first.clone()).unwrap();
+    let mut texts = book
+        .drafts()
+        .iter()
+        .map(|draft| draft.text.as_str())
+        .collect::<Vec<_>>();
+    texts.sort_unstable();
+    assert_eq!(texts, ["First, edited", "Second"]);
+    book.discard_draft(second.thread_id());
+    assert_eq!(book.drafts(), [first]);
+}
+
 fn start(text: &str) -> Post {
     Post::start(
         DiffRangeAnchor {

@@ -6,7 +6,7 @@ use std::ops::RangeInclusive;
 use diff_rendering::{DiffFrame, FrameRule, FramedRow};
 use ratatui::style::Style;
 use review_source::FrozenHunk;
-use review_threads::{MessageId, Resolution, ReviewThread};
+use review_threads::{Draft, MessageId, Resolution, ReviewThread};
 use ui_events::PresentationLocation;
 use ui_theme::Palette;
 
@@ -200,6 +200,9 @@ impl Comments {
     pub(super) fn has_for(&self, file: &LoadedDocument) -> bool {
         self.inline_editor_visible_in(file)
             || self
+                .parked_file_editors()
+                .any(|parked| self.matches_path(file, parked.draft.path()))
+            || self
                 .threads()
                 .any(|thread| self.matches_path(file, thread.path()))
     }
@@ -218,26 +221,25 @@ impl Comments {
         );
         let mut layout = CommentLayout::new(frame, include_code);
         if let Some(editing) = &self.editing
-            && editing.draft.reply_to.is_none()
+            && editing.draft.is_new_thread()
             && self.matches_path(file, editing.draft.path())
         {
-            let range = file
-                .content
-                .as_ref()
-                .and_then(|content| {
-                    editing.draft.source.anchor.map_lines(
-                        content.old_content.as_deref(),
-                        content.new_content.as_deref(),
-                    )
-                })
-                .and_then(|range| anchor_rows(&range, file));
-            let source_row = range
-                .as_ref()
-                .map_or(file.document.diff.len().saturating_sub(1), |range| {
-                    *range.end()
-                });
+            let range = draft_rows(&editing.draft, file);
+            let source_row = anchor_end(range.as_ref(), file);
             let mut rows = Vec::new();
-            self.editor_rows(&mut rows, source_row, frame, palette);
+            let thread = ThreadLayout::new(frame, source_row, palette);
+            self.editor_rows(&mut rows, editing, true, thread);
+            layout.push_thread(range, source_row, rows, None);
+        }
+        for parked in self
+            .parked_file_editors()
+            .filter(|parked| self.matches_path(file, parked.draft.path()))
+        {
+            let range = draft_rows(&parked.draft, file);
+            let source_row = anchor_end(range.as_ref(), file);
+            let mut rows = Vec::new();
+            let thread = ThreadLayout::new(frame, source_row, palette);
+            self.editor_rows(&mut rows, parked, false, thread);
             layout.push_thread(range, source_row, rows, None);
         }
         for thread in self
@@ -245,11 +247,7 @@ impl Comments {
             .filter(|thread| self.matches_path(file, thread.path()))
         {
             let range = self.thread_range(thread, file);
-            let source_row = range
-                .as_ref()
-                .map_or(file.document.diff.len().saturating_sub(1), |range| {
-                    *range.end()
-                });
+            let source_row = anchor_end(range.as_ref(), file);
             let rows = self.inline_thread_rows(
                 thread,
                 ThreadLayout {
@@ -273,6 +271,25 @@ impl Comments {
         layout.enclose_ranges();
         layout
     }
+}
+
+/// The row a frame hangs from, or the end of the file when its anchor is gone.
+fn anchor_end(range: Option<&RangeInclusive<usize>>, file: &LoadedDocument) -> usize {
+    range.map_or(file.document.diff.len().saturating_sub(1), |range| {
+        *range.end()
+    })
+}
+
+pub(super) fn draft_rows(draft: &Draft, file: &LoadedDocument) -> Option<RangeInclusive<usize>> {
+    file.content
+        .as_ref()
+        .and_then(|content| {
+            draft.source.anchor.map_lines(
+                content.old_content.as_deref(),
+                content.new_content.as_deref(),
+            )
+        })
+        .and_then(|range| anchor_rows(&range, file))
 }
 
 fn anchor_rows(

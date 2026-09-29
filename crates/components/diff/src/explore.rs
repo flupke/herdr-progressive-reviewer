@@ -142,7 +142,7 @@ impl DiffComponent {
             self.documents
                 .push(self.comparison_document(comparison, index));
         }
-        self.comments.restore_file_editor(&path);
+        self.comments.park_editor_outside(&path);
         self.selected_path = Some(path);
         self.preview = None;
         Ok(())
@@ -391,7 +391,7 @@ impl DiffComponent {
             document.document.reveal_location(&location);
             document.disk_path = Some(location.path.clone());
             if mode.is_external() {
-                self.comments.restore_file_editor(&document.path);
+                self.comments.park_editor_outside(&document.path);
                 self.selected_path = Some(document.path.clone());
                 self.preview = None;
                 self.center_jump_target();
@@ -427,7 +427,7 @@ impl DiffComponent {
                 old_content: None,
                 new_content: Some(event.content),
             }));
-            self.comments.restore_file_editor(&path);
+            self.comments.park_editor_outside(&path);
         }
         actions
     }

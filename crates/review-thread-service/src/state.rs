@@ -110,10 +110,10 @@ impl State {
             }
             ThreadCommand::DiscardDraft {
                 review_unit,
-                target,
+                thread_id,
             } => {
                 let result = self.update_draft(&review_unit, |book| {
-                    book.discard_draft(&target);
+                    book.discard_draft(&thread_id);
                     Ok(())
                 });
                 self.report(result);

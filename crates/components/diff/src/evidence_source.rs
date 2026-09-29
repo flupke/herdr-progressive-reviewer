@@ -19,7 +19,7 @@ impl DiffComponent {
             if !self.documents.iter().any(|document| document.path == path) {
                 self.documents.push(LoadedDocument::new(path.clone()));
             }
-            self.comments.restore_file_editor(&path);
+            self.comments.park_editor_outside(&path);
             self.selected_path = Some(path);
             self.preview = None;
             self.show_base_evidence(source, content, line);

@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Message, MessageId, Post, ReviewThread, ReviewThreads, ThreadId, ThreadSource};
 
-/// One unposted editor per file selection or existing conversation.
+/// Where an unposted editor belongs: a new thread in a file or a reply to an existing one.
 #[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 pub enum DraftTarget {
     File(String),
@@ -27,10 +27,20 @@ impl Draft {
         &self.id
     }
 
+    /// Starts a thread of its own rather than replying to an existing one.
+    pub fn is_new_thread(&self) -> bool {
+        matches!(self.target, DraftTarget::File(_))
+    }
+
+    /// Identifies the draft: a reply's existing thread, or the thread a new draft will start.
+    pub fn thread_id(&self) -> &ThreadId {
+        &self.thread
+    }
+
     /// Preserve a divergent editor after another copy has published the original identity.
     pub fn renew_publication(&mut self) {
         self.id = Message::reviewer(String::new()).id;
-        if matches!(self.target, DraftTarget::File(_)) {
+        if self.is_new_thread() {
             self.thread = ThreadId(uuid::Uuid::new_v4().to_string());
         }
     }
@@ -77,7 +87,7 @@ impl Draft {
         Post {
             thread_id: self.thread.clone(),
             message,
-            source: matches!(self.target, DraftTarget::File(_)).then(|| self.source.clone()),
+            source: self.is_new_thread().then(|| self.source.clone()),
         }
     }
 }
@@ -112,13 +122,13 @@ impl ReviewThreads {
         if self.message(&draft.id).is_some() {
             return Err("This draft has already been posted".into());
         }
-        self.discard_draft(&draft.target);
+        self.discard_draft(&draft.thread);
         self.drafts.push(draft);
         Ok(())
     }
 
-    pub fn discard_draft(&mut self, target: &DraftTarget) {
-        self.drafts.retain(|draft| &draft.target != target);
+    pub fn discard_draft(&mut self, thread: &ThreadId) {
+        self.drafts.retain(|draft| &draft.thread != thread);
     }
 
     pub(super) fn discard_posted_draft(&mut self, id: &MessageId) {
