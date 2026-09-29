@@ -9,7 +9,7 @@ Hover, definitions, type definitions, and references use these executables:
 | --- | --- |
 | Rust (`.rs`) | `rust-analyzer` |
 | Elixir (`.ex`, `.exs`, `.eex`, `.heex`) | `expert --stdio` |
-| TypeScript (`.ts`, `.tsx`, `.mts`, `.cts`) and JavaScript (`.js`, `.jsx`, `.mjs`, `.cjs`) | `tsgo --lsp --stdio`, falling back to `typescript-language-server --stdio` |
+| TypeScript (`.ts`, `.tsx`, `.mts`, `.cts`) and JavaScript (`.js`, `.jsx`, `.mjs`, `.cjs`) | `tsgo --lsp --stdio`, TypeScript 7 `tsc --lsp --stdio`, or `typescript-language-server --stdio` |
 
 Install [Expert](https://github.com/elixir-lang/expert/blob/main/pages/installation.md)
 and [tsgo](https://github.com/microsoft/typescript-go) or
@@ -20,9 +20,11 @@ separately or provide them through your project's direnv environment. When
 `PATH` directly. Direnv approval and setup failures are reported without
 falling back to the inherited environment. Startup allows up to five minutes
 for direnv and Nix to prepare dependencies. `gR` loads the environment again.
-TypeScript server selection happens after loading that environment: `tsgo`
-is preferred whenever it is on `PATH`. The fallback is used only when `tsgo`
-is absent, not when it fails to start.
+TypeScript server selection happens after loading that environment. The
+nearest `node_modules/.bin` above the project root is searched before `PATH`,
+and native servers come first: `tsgo`, then `tsc` from TypeScript 7 or later,
+then `typescript-language-server`. A later choice is used only when earlier
+ones are absent, not when they fail to start.
 
 The reviewer starts each server when a supported file is opened or queried.
 It discovers the repository from the focused Herdr pane's working directory.

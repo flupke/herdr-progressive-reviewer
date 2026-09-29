@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
 
+const TYPESCRIPT_SERVER: &str = include_str!("typescript_server.sh");
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(super) enum LanguageServer {
     RustAnalyzer,
@@ -27,14 +29,7 @@ impl LanguageServer {
         match self {
             Self::RustAnalyzer => &[],
             Self::Expert => &["--stdio"],
-            // Select inside the loaded environment, then replace the shell so
-            // the session owns the server process and its protocol streams.
-            Self::TypeScript => &[
-                "-c",
-                "if command -v tsgo >/dev/null 2>&1; then exec tsgo --lsp --stdio; \
-                 elif command -v typescript-language-server >/dev/null 2>&1; then exec typescript-language-server --stdio; \
-                 else echo 'Install tsgo or typescript-language-server in the project environment' >&2; exit 127; fi",
-            ],
+            Self::TypeScript => &["-c", TYPESCRIPT_SERVER],
         }
     }
 

@@ -86,12 +86,49 @@ fn typescript_prefers_tsgo_and_falls_back_when_it_is_absent() {
 }
 
 #[test]
+fn typescript_uses_project_node_modules_from_a_parent_directory() {
+    let mut fixture = Fixture::for_server(LanguageServer::TypeScript);
+    // The project root sits below the directory that owns node_modules.
+    let bin = fixture.directory.path().join("node_modules/.bin");
+    fs::create_dir_all(&bin).unwrap();
+    executable(
+        &bin.join("typescript-language-server"),
+        "#!/bin/sh\nprintf 'local-tls:%s' \"$*\"\n",
+    );
+    executable(
+        &bin.join("tsc"),
+        "#!/bin/sh\n[ \"$1\" = --version ] && { echo 'Version 5.9.3'; exit; }\nexit 1\n",
+    );
+    let (_, stdout, stderr, success) = fixture.output();
+    assert!(success, "{stderr}");
+    assert_eq!(
+        stdout, "local-tls:--stdio",
+        "TypeScript 5 tsc cannot serve LSP"
+    );
+
+    executable(
+        &bin.join("tsc"),
+        "#!/bin/sh\n[ \"$1\" = --version ] && { echo 'Version 7.0.2'; exit; }\nprintf 'native:%s' \"$*\"\n",
+    );
+    let (_, stdout, stderr, success) = fixture.output();
+    assert!(success, "{stderr}");
+    assert_eq!(stdout, "native:--lsp --stdio");
+
+    executable(
+        &bin.join("tsgo"),
+        "#!/bin/sh\nprintf 'local-tsgo:%s' \"$*\"\n",
+    );
+    let (_, stdout, _, _) = fixture.output();
+    assert_eq!(stdout, "local-tsgo:--lsp --stdio");
+}
+
+#[test]
 fn missing_typescript_servers_report_both_install_options() {
     let mut fixture = Fixture::for_server(LanguageServer::TypeScript);
     let (_, stdout, stderr, success) = fixture.output();
     assert!(!success);
     assert!(stdout.is_empty());
-    assert!(stderr.contains("Install tsgo or typescript-language-server"));
+    assert!(stderr.contains("Install tsgo, TypeScript 7 or typescript-language-server"));
 }
 
 #[test]
@@ -159,6 +196,23 @@ fn missing_server_error_survives_a_long_nix_path() {
     assert_eq!(
         StderrOutput::summary(&stderr),
         "direnv: error command 'typescript-language-server' not found"
+    );
+}
+
+#[test]
+fn server_errors_are_not_hidden_by_direnv_loading_messages() {
+    let input = "direnv: loading ~/project/.envrc\n\
+        direnv: loading https://raw.githubusercontent.com/nix-community/nix-direnv/3.1.1/direnvrc (sha256-p+fzQdrms/hDa7g+soShAybJNo4bN4SIAeSfqNKgD5I=)\n\
+        direnv: using flake path:////home/user/project/nix --accept-flake-config\n\
+        Install tsgo, TypeScript 7 or typescript-language-server in the project environment\n";
+    let stderr = StderrOutput::read_tail(input.as_bytes());
+    assert_eq!(
+        StderrOutput::summary(&stderr),
+        "Install tsgo, TypeScript 7 or typescript-language-server in the project environment"
+    );
+    assert_eq!(
+        StderrOutput::summary("direnv: loading .envrc"),
+        "direnv: loading .envrc"
     );
 }
 

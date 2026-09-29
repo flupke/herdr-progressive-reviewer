@@ -112,10 +112,13 @@ impl StderrOutput {
         let diagnostic = stderr
             .lines()
             .find(|line| line.starts_with("direnv: error"))
-            .map_or(stderr, |line| {
+            .map(|line| {
                 line.split_once(" on PATH ")
                     .map_or(line, |(error, _)| error)
-            });
+            })
+            // direnv's loading progress and Nix warnings come before the server's reason.
+            .or_else(|| stderr.lines().rfind(|line| !line.starts_with("direnv:")))
+            .unwrap_or(stderr);
         let single_line = diagnostic.split_whitespace().collect::<Vec<_>>().join(" ");
         let mut chars = single_line.chars();
         let mut summary: String = chars.by_ref().take(300).collect();
