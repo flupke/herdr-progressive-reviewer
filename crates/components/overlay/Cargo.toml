@@ -18,6 +18,7 @@ ui-controls = { path = "../../ui-controls" }
 ui-events = { path = "../../ui-events" }
 ui-shortcuts = { path = "../../ui-shortcuts" }
 ui-theme = { path = "../../ui-theme" }
+unicode-width.workspace = true
 
 [dev-dependencies]
 review-source = { path = "../../review-source" }

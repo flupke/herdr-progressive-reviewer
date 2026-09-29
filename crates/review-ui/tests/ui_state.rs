@@ -1525,10 +1525,10 @@ fn test_backend_renders_wide_narrow_and_minimum_layouts() {
 
 #[test]
 fn question_mark_opens_shortcut_help_and_escape_closes_it() {
-    let mut app = wrapped_diff_application(rows(), 80, 24);
+    let mut app = wrapped_diff_application(rows(), 100, 30);
 
     assert!(app.update(UserInput::Key(Key::Char('?'))).is_empty());
-    let popup = screen(&app, 80, 24).join("\n");
+    let popup = screen(&app, 100, 30).join("\n");
     assert!(popup.contains("Keyboard shortcuts"));
     assert!(popup.contains("[h / ]h"));
     assert!(popup.contains("[f / ]f"));
@@ -1536,7 +1536,7 @@ fn question_mark_opens_shortcut_help_and_escape_closes_it() {
 
     assert!(app.update(UserInput::Key(Key::Escape)).is_empty());
     assert!(
-        !screen(&app, 80, 24)
+        !screen(&app, 100, 30)
             .join("\n")
             .contains("Keyboard shortcuts")
     );
@@ -1548,11 +1548,16 @@ fn shortcut_help_scrolls_on_short_terminals() {
 
     app.update(UserInput::Key(Key::Char('?')));
     assert!(!screen(&app, 80, 6).join("\n").contains("Quit"));
-    for _ in 0..ui_shortcuts::help_line_count() {
+    let mut popup = screen(&app, 80, 6).join("\n");
+    loop {
         app.update(UserInput::Key(Key::Down));
+        let scrolled = screen(&app, 80, 6).join("\n");
+        if scrolled == popup {
+            break;
+        }
+        popup = scrolled;
     }
 
-    let popup = screen(&app, 80, 6).join("\n");
     assert!(popup.contains("Visit previous / next interview turn"));
     assert!(popup.contains("Fit Explore evidence"));
 }

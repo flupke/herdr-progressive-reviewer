@@ -3211,6 +3211,7 @@ dependencies = [
  "ui-events",
  "ui-shortcuts",
  "ui-theme",
+ "unicode-width 0.2.0",
 ]
 
 [[package]]

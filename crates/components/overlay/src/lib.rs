@@ -122,7 +122,7 @@ impl OverlayComponent {
     #[allow(clippy::trivially_copy_pass_by_ref)]
     fn viewport_changed(&mut self, event: &ViewportChanged) {
         self.viewport = Rect::new(0, 0, event.width, event.height);
-        self.shortcut_help.resize(event.height);
+        self.shortcut_help.resize(self.viewport);
     }
 
     #[allow(clippy::trivially_copy_pass_by_ref)]
@@ -377,7 +377,7 @@ impl OverlayComponent {
     }
 
     fn shortcut_help_key(&mut self, key: Key) {
-        if self.shortcut_help.handle_key(key, self.viewport.height) {
+        if self.shortcut_help.handle_key(key, self.viewport) {
             self.active_modal = None;
         }
     }

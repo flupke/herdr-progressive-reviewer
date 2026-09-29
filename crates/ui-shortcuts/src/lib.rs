@@ -823,11 +823,6 @@ pub fn help_lines() -> impl Iterator<Item = (String, &'static str)> {
         ])
 }
 
-/// Return the number of visible shortcut help lines.
-pub fn help_line_count() -> usize {
-    help_lines().count()
-}
-
 pub fn closes_help(key: Key) -> bool {
     SHORTCUTS
         .iter()
