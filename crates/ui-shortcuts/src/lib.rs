@@ -585,7 +585,7 @@ const SHORTCUTS: &[ShortcutDefinition] = &[
                 Key::Visual,
                 application(ApplicationShortcut::StartSelection),
             ),
-            ShortcutBinding::alias(
+            ShortcutBinding::one(
                 Key::Char('V'),
                 application(ApplicationShortcut::StartSelection),
             ),

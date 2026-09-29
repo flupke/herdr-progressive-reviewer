@@ -395,6 +395,16 @@ fn submitting_whitespace_cancels_a_reply_in_either_view() {
 }
 
 #[test]
+fn the_v_shortcut_shown_in_help_selects_diff_lines() {
+    let mut fixture = CommentFixture::new();
+    fixture.key(Key::Last);
+    fixture.key(Key::Char('V'));
+    fixture.assert_editor(false);
+    fixture.key(Key::Char('V'));
+    fixture.assert_editor(true);
+}
+
+#[test]
 fn finalized_selection_opens_editor_with_vim_escape_and_explicit_post() {
     let mut fixture = CommentFixture::new();
     fixture

@@ -98,3 +98,11 @@ fn help_close_label_is_generated_from_close_bindings() {
     assert!(closes_help(Key::Escape));
     assert!(!closes_help(Key::Char('q')));
 }
+
+#[test]
+fn every_help_line_names_its_keys() {
+    for (keys, description) in help_lines() {
+        assert!(!keys.is_empty(), "{description:?} needs a visible shortcut");
+    }
+    assert!(help_lines().any(|line| line == ("V".to_owned(), "Select diff lines")));
+}
