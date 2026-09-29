@@ -477,7 +477,13 @@ impl DiffComponent {
         if let Some(file) = self.displayed_document_mut() {
             let scroll = &mut file.document.scroll;
             if editing {
-                *scroll = (*scroll).max(range.end().saturating_add(1).saturating_sub(height));
+                let bottom = range.end().saturating_add(1).saturating_sub(height);
+                // Show the whole editor when it fits, otherwise as much of it as possible.
+                *scroll = if bottom <= *range.start() {
+                    (*scroll).clamp(bottom, *range.start())
+                } else {
+                    bottom
+                };
             } else if *range.start() < *scroll || *range.end() >= scroll.saturating_add(height) {
                 *scroll = range
                     .start()

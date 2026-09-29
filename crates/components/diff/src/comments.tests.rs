@@ -1129,3 +1129,27 @@ fn inline_replies_are_read_only_after_their_whole_body_has_been_displayed() {
 
 #[path = "comments/context.tests.rs"]
 mod context;
+
+#[test]
+fn comment_draft_returns_into_view_after_a_minimum_size_round_trip() {
+    for small_height in [2, 6] {
+        let mut fixture = CommentFixture::new();
+        fixture.key(Key::Last);
+        fixture.key(Key::Char('a'));
+        fixture
+            .registry
+            .publish(ui_events::TextPasted("clean direct minimum".into()))
+            .unwrap();
+        CommentFixture::text_position(&fixture.render_thread(), "clean direct minimum");
+        for (width, height) in [(38, small_height), (98, 26)] {
+            fixture
+                .registry
+                .publish(DiffViewportChanged { width, height })
+                .unwrap();
+        }
+        fixture.key(Key::Char('!'));
+
+        let buffer = fixture.render_in(Rect::new(0, 0, 100, 28));
+        CommentFixture::text_position(&buffer, "clean direct minimum!");
+    }
+}
