@@ -1302,13 +1302,22 @@ fn dragging_diff_lines_opens_an_inline_comment_on_release() {
             .join("\n")
             .contains("Vim · NORMAL")
     );
-    assert!(app.update(UserInput::Key(Key::EditorMode)).is_empty());
+    assert_eq!(
+        app.update(UserInput::Key(Key::EditorMode)),
+        [Action::SaveEditorKeymap(
+            comment_editor::EditorKeymap::Regular
+        )]
+    );
     assert!(app.update(UserInput::Key(Key::Escape)).is_empty());
+    let screen = application_screen(&app, 80, 12).join("\n");
+    assert!(screen.contains("╰─ Regular editing ─"), "{screen}");
+    app.set_editor_keymap(comment_editor::EditorKeymap::Vim);
     assert!(
         application_screen(&app, 80, 12)
             .join("\n")
-            .contains("Regular editing")
+            .contains("╰─ Vim · INSERT ─")
     );
+    app.set_editor_keymap(comment_editor::EditorKeymap::Regular);
     app.update(UserInput::Key(Key::Last));
     app.update(UserInput::Key(Key::Char('j')));
     let submit = click_on_text(&application_screen(&app, 80, 12), "Post");

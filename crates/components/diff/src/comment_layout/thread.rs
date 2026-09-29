@@ -1,3 +1,4 @@
+use comment_editor::CommentEditor;
 use diff_rendering::{DiffFrame, FrameRule};
 use markdown_rendering::MarkdownRenderer;
 use ratatui::buffer::Buffer;
@@ -102,7 +103,7 @@ impl Comments {
             }
             layout.field_line(rows, Line::from(spans), true, id);
         }
-        layout.field_border(rows, false, true, id);
+        layout.editor_border(rows, &editing.editor, id);
         for row in &mut rows[start..] {
             row.editor = true;
             row.target = None;
@@ -238,25 +239,54 @@ impl ThreadLayout {
         active: bool,
         id: Option<&MessageId>,
     ) {
-        let (left, right) = if top { ('╭', '╮') } else { ('╰', '╯') };
-        let width = usize::from(self.frame.content_width()) + 2;
-        let color = if active {
+        let border = self.border_style(active);
+        let rule = Line::styled("─".repeat(self.border_width()), border);
+        self.framed_border(rows, top, rule, border, id);
+    }
+
+    /// Close an active editor field with its mode and keymap hint in the border.
+    fn editor_border(
+        self,
+        rows: &mut Vec<CommentRow>,
+        editor: &CommentEditor,
+        id: Option<&MessageId>,
+    ) {
+        let border = self.border_style(true);
+        let width = u16::try_from(self.border_width()).unwrap_or(u16::MAX);
+        let status = editor.status_border(width, border, self.palette);
+        self.framed_border(rows, false, status, border, id);
+    }
+
+    fn border_width(self) -> usize {
+        usize::from(self.frame.content_width()) + 2
+    }
+
+    fn border_style(self, active: bool) -> Style {
+        Style::default().fg(if active {
             self.palette.focus
         } else {
             self.palette.dim
-        };
+        })
+    }
+
+    fn framed_border(
+        self,
+        rows: &mut Vec<CommentRow>,
+        top: bool,
+        mut middle: Line<'static>,
+        border: Style,
+        id: Option<&MessageId>,
+    ) {
+        let (left, right) = if top { ('╭', '╮') } else { ('╰', '╯') };
+        middle
+            .spans
+            .insert(0, Span::styled(left.to_string(), border));
+        middle.spans.push(Span::styled(right.to_string(), border));
         Self {
             frame: self.frame.with_padding(0),
             ..self
         }
-        .line(
-            rows,
-            Line::styled(
-                format!("{left}{}{right}", "─".repeat(width)),
-                Style::default().fg(color),
-            ),
-            id,
-        );
+        .line(rows, middle, id);
     }
 
     fn field_line(

@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+comment-editor = { path = "../comment-editor" }
 explore-component = { path = "../components/explore" }
 component-core = { path = "../component-core" }
 diff-component = { path = "../components/diff" }

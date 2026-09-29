@@ -170,7 +170,7 @@ impl ExploreComponent {
             Ok(Some(pass)) => pass,
             Ok(None) => {
                 let mode = self.mode;
-                *self = Self::new(self.events.clone());
+                *self = Self::with_keymap(self.events.clone(), self.keymap.clone());
                 self.mode = mode;
                 self.durable.enabled = true;
                 return;
@@ -280,14 +280,14 @@ impl ExploreComponent {
             self.drafts.insert(
                 page.clone(),
                 Draft {
-                    editor: CommentEditor::restore(&saved.editor),
+                    editor: CommentEditor::restore(&saved.editor, &self.keymap),
                     correction: saved.correction.clone(),
                 },
             );
         }
         for (id, text) in &state.tasks {
             if let Some(view) = self.conclusions.get_mut(id) {
-                view.editor = CommentEditor::restore(text);
+                view.editor = CommentEditor::restore(text, &self.keymap);
             }
         }
         for (id, replying) in &state.replies {
@@ -373,7 +373,7 @@ impl ExploreComponent {
         };
         if self.page() == page {
             if self.editor.text() == answer.text && self.correction == answer.corrects {
-                self.editor = CommentEditor::new("", self.editor.keymap());
+                self.editor = CommentEditor::new("", &self.keymap);
                 self.correction = None;
             }
         } else if self.drafts.get(&page).is_some_and(|draft| {

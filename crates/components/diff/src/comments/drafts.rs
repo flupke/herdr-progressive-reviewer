@@ -4,7 +4,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use comment_editor::{CommentEditor, EditorKeymap};
+use comment_editor::{CommentEditor, KeymapSetting};
 use review_threads::{Draft, DraftTarget, MessageId, ReviewThreads, ThreadCommand, ThreadId};
 use review_types::ReviewUnit;
 use ui_actions::Action;
@@ -40,7 +40,7 @@ impl Drafts {
     pub(super) fn recover(
         &mut self,
         book: &ReviewThreads,
-        keymap: EditorKeymap,
+        keymap: &KeymapSetting,
         active: Option<&DraftTarget>,
     ) {
         for draft in book.drafts() {

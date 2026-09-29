@@ -4024,6 +4024,7 @@ dependencies = [
 name = "review-ui"
 version = "0.2.0"
 dependencies = [
+ "comment-editor",
  "component-core",
  "diff-component",
  "explore-component",

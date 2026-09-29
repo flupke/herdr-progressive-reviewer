@@ -362,6 +362,22 @@ impl ExploreComponent {
         );
     }
 
+    fn editor_title(&self, target: EditorTarget, editing: bool) -> String {
+        let title = match target {
+            EditorTarget::Answer if self.selected_choice().is_some() => {
+                "Your answer · optional details"
+            }
+            EditorTarget::Answer => "Your answer",
+            EditorTarget::Implementation => "To be implemented",
+        };
+        let hint = match (editing, target) {
+            (false, _) => "",
+            (true, EditorTarget::Implementation) => " · Ctrl-Enter Implement · Tab conversation",
+            (true, EditorTarget::Answer) => " · Ctrl-Enter Send · Tab conversation",
+        };
+        format!(" {title}{hint} ")
+    }
+
     fn render_editor(
         &self,
         target: EditorTarget,
@@ -373,37 +389,26 @@ impl ExploreComponent {
         let area = viewport.area();
         let mut editor = Buffer::empty(area);
         let editing = self.editing && focused && self.editor_target == target;
-        let title = match target {
-            EditorTarget::Answer => format!(
-                "Your answer{}",
-                if self.selected_choice().is_some() {
-                    " · optional details"
-                } else {
-                    ""
-                }
-            ),
-            EditorTarget::Implementation => "To be implemented".into(),
-        };
-        let hint = if editing {
-            if target == EditorTarget::Implementation {
-                " · Ctrl-Enter Implement · Tab conversation"
-            } else {
-                " · Ctrl-Enter Send · Tab conversation"
-            }
-        } else {
-            ""
-        };
+        let border = Style::default().fg(if editing { palette.focus } else { palette.dim });
         let block = Block::default()
             .borders(Borders::ALL)
-            .title(format!(" {title}{hint} "))
-            .border_style(Style::default().fg(if editing { palette.focus } else { palette.dim }));
+            .title(self.editor_title(target, editing))
+            .border_style(border);
         let inner = block.inner(area);
         block.render(area, &mut editor);
-        match target {
+        let text_editor = match target {
             EditorTarget::Answer => &self.editor,
             EditorTarget::Implementation => &self.conclusion().expect("conclusion editor").editor,
+        };
+        text_editor.render(inner, &mut editor, palette);
+        if area.height > 1 {
+            text_editor
+                .status_border(inner.width, border, palette)
+                .render(
+                    Rect::new(inner.x, area.bottom() - 1, inner.width, 1),
+                    &mut editor,
+                );
         }
-        .render(inner, &mut editor, palette);
         viewport.draw(&editor, buffer);
     }
 

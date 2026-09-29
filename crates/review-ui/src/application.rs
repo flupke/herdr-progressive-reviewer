@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 
+use comment_editor::{EditorKeymap, KeymapSetting};
 use component_core::{
     ApplicationEvent, ComponentEventBus, ComponentTarget, DispatchError, DispatchResult,
     EventEnvelope, InputResolution, IntoDispatchResult,
@@ -55,6 +56,8 @@ pub struct ReviewApplication {
     application_shortcuts: ui_shortcuts::ShortcutMatcher,
     file_pane_resize: Option<FilePaneResize>,
     watched_source: Option<PathBuf>,
+    editor_keymap: KeymapSetting,
+    saved_editor_keymap: EditorKeymap,
 }
 
 #[derive(Clone, Copy)]
@@ -98,6 +101,7 @@ impl ReviewApplication {
         let files = event_bus.mount(|events| {
             FilesComponent::with_reviewable_files(events, reviewable_files.clone())
         });
+        let editor_keymap = KeymapSetting::default();
         let diff = event_bus.mount(|events| {
             DiffComponent::new(
                 events,
@@ -106,12 +110,14 @@ impl ReviewApplication {
                 repository_root.clone(),
                 theme.palette,
             )
+            .with_editor_keymap(editor_keymap.clone())
         });
         let locations = event_bus
             .mount(|events| LocationsComponent::new(events, repository_root, theme.palette));
         let status = event_bus.mount(StatusComponent::new);
         let threads = event_bus.mount(ThreadsComponent::new);
-        let explore = event_bus.mount(ExploreComponent::new);
+        let explore =
+            event_bus.mount(|events| ExploreComponent::with_keymap(events, editor_keymap.clone()));
         let overlay = event_bus.mount(|_| OverlayComponent::new(theme));
         let revision = event_bus.mount(|events| RevisionComponent::new(events, theme.palette));
         Self {
@@ -144,7 +150,15 @@ impl ReviewApplication {
             ),
             file_pane_resize: None,
             watched_source: None,
+            saved_editor_keymap: editor_keymap.get(),
+            editor_keymap,
         }
+    }
+
+    /// Apply the saved keymap shared by every text editor.
+    pub fn set_editor_keymap(&mut self, keymap: EditorKeymap) {
+        self.editor_keymap.set(keymap);
+        self.saved_editor_keymap = keymap;
     }
 
     /// Deliver one terminal input through the component registry.
@@ -338,6 +352,11 @@ impl ReviewApplication {
         if source != self.watched_source.as_deref() {
             self.watched_source = source.map(std::path::Path::to_owned);
             actions.push(Action::WatchSource(self.watched_source.clone()));
+        }
+        let keymap = self.editor_keymap.get();
+        if keymap != self.saved_editor_keymap {
+            self.saved_editor_keymap = keymap;
+            actions.push(Action::SaveEditorKeymap(keymap));
         }
         let positions = self
             .event_bus

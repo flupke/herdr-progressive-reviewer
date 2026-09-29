@@ -75,7 +75,7 @@ impl ExploreComponent {
             request.clone(),
             ConclusionView {
                 request: request.clone(),
-                editor: CommentEditor::new(&content.to_be_implemented, self.editor.keymap()),
+                editor: CommentEditor::new(&content.to_be_implemented, &self.keymap),
                 content,
                 replying: false,
                 delivery: Delivery::Ready,
@@ -434,7 +434,7 @@ impl ExploreComponent {
                 ConclusionView {
                     request: turn.update.request.clone(),
                     content: content.clone(),
-                    editor: CommentEditor::new(&content.to_be_implemented, self.editor.keymap()),
+                    editor: CommentEditor::new(&content.to_be_implemented, &self.keymap),
                     replying: false,
                     delivery,
                     attempt: None,

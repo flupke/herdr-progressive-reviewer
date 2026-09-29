@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::ops::Range;
 
-use comment_editor::{CommentEditor, EditorKeymap};
+use comment_editor::{CommentEditor, KeymapSetting};
 use review_source::{AnchorKind, DiffRangeAnchor, FrozenHunk};
 use review_threads::{
     Draft, DraftTarget, MessageId, Post, ReviewThread, ReviewThreads, ThreadCommand, ThreadId,
@@ -26,7 +26,7 @@ pub(super) struct Comments {
     mapped: HashMap<ThreadId, Option<FrozenHunk>>,
     pub(super) paths: review_threads::ThreadPaths,
     pub(super) editor_height: u16,
-    keymap: EditorKeymap,
+    keymap: KeymapSetting,
     drafts: Drafts,
 }
 
@@ -69,7 +69,7 @@ impl Default for Comments {
             mapped: HashMap::new(),
             paths: review_threads::ThreadPaths::default(),
             editor_height: 5,
-            keymap: EditorKeymap::default(),
+            keymap: KeymapSetting::default(),
             drafts: Drafts::default(),
         }
     }
@@ -82,8 +82,14 @@ pub(super) struct EditingComment {
 }
 
 impl Comments {
-    pub(super) fn share_draft_cancellations(&mut self, other: &Self) {
+    /// Share draft cancellations and the editor keymap with a nested viewer.
+    pub(super) fn share_editing_state(&mut self, other: &Self) {
         self.drafts.share_cancellations(&other.drafts);
+        self.keymap = other.keymap.clone();
+    }
+
+    pub(super) fn use_keymap(&mut self, keymap: KeymapSetting) {
+        self.keymap = keymap;
     }
 
     pub(super) fn inherit_book(&mut self, book: &ReviewThreads) {
@@ -94,7 +100,7 @@ impl Comments {
     fn recover_drafts(&mut self, book: &ReviewThreads) {
         self.drafts.recover(
             book,
-            self.keymap,
+            &self.keymap,
             self.editing.as_ref().map(|editing| &editing.draft.target),
         );
     }
@@ -180,7 +186,7 @@ impl Comments {
         self.editing = Some(EditingComment {
             posting: None,
             draft: Draft::reply(thread, id.clone()),
-            editor: CommentEditor::new("", self.keymap),
+            editor: CommentEditor::new("", &self.keymap),
         });
         self.selected = Some(id);
     }
@@ -221,7 +227,6 @@ impl DiffComponent {
             && editing.posting.is_none()
         {
             editing.editor.input(key);
-            self.comments.keymap = editing.editor.keymap();
         }
         self.save_comment_draft()
     }
@@ -346,7 +351,7 @@ impl DiffComponent {
         let excerpt = file.document.diff.comment_excerpt(range);
         let editing = EditingComment {
             posting: None,
-            editor: CommentEditor::new("", self.comments.keymap),
+            editor: CommentEditor::new("", &self.comments.keymap),
             draft: Draft::start(
                 file.path.clone(),
                 std::sync::Arc::new(ThreadSource {

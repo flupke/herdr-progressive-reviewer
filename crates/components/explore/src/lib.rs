@@ -1,5 +1,5 @@
 //! One interview question at a time, with retained history and native evidence windows.
-use comment_editor::{CommentEditor, EditorKeymap};
+use comment_editor::{CommentEditor, KeymapSetting};
 use component_core::{Component, ComponentSubscriptions, EventPublisher};
 use review_explore::{AnswerInput, Command, Exploration, Question};
 use std::{
@@ -122,6 +122,7 @@ pub struct ExploreComponent {
     selected: usize,
     turns: Vec<TurnView>,
     editor: CommentEditor,
+    keymap: KeymapSetting,
     editing: bool,
     evidence_list_focused: bool,
     evidence_keys: ShortcutMatcher,
@@ -161,15 +162,17 @@ pub struct ExploreComponent {
 }
 
 impl ExploreComponent {
-    pub fn new(events: EventPublisher) -> Self {
+    /// Create the component with editors that share an application-wide keymap.
+    pub fn with_keymap(events: EventPublisher, keymap: KeymapSetting) -> Self {
         Self {
+            editor: CommentEditor::new("", &keymap),
+            keymap,
             events,
             durable: persistence::Durability::default(),
             exploration: None,
             mode: ReviewNavigation::Files,
             selected: 0,
             turns: Vec::new(),
-            editor: CommentEditor::new("", EditorKeymap::Regular),
             editing: false,
             evidence_list_focused: false,
             evidence_keys: ShortcutMatcher::new(ShortcutSet::Files),
@@ -243,7 +246,7 @@ impl ExploreComponent {
         match result {
             Ok(request) => {
                 if contributed && !self.durable.enabled {
-                    self.editor = CommentEditor::new("", self.editor.keymap());
+                    self.editor = CommentEditor::new("", &self.keymap);
                     self.drafts.remove(&self.draft_key());
                     self.correction = None;
                 }
@@ -303,7 +306,7 @@ impl ExploreComponent {
                 self.conclusions.clear();
                 self.editor_target = EditorTarget::Answer;
                 self.scroll.set(0);
-                self.editor = CommentEditor::new("", self.editor.keymap());
+                self.editor = CommentEditor::new("", &self.keymap);
                 self.events
                     .publish(ExploreComparisonAccepted(comparison.clone()));
                 self.request(None)

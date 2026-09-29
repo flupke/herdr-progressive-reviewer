@@ -72,7 +72,8 @@ impl Fixture {
     fn new() -> Self {
         let mut bus = ComponentEventBus::new();
         let target = bus.mount(|events| {
-            let mut component = ExploreComponent::new(events);
+            let mut component =
+                ExploreComponent::with_keymap(events, comment_editor::KeymapSetting::default());
             component.jev_enabled = true;
             component
         });

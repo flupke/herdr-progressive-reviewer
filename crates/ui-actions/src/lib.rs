@@ -69,6 +69,8 @@ pub enum Action {
     },
     /// Save the file-pane width in terminal columns.
     SaveFilePaneWidth(u16),
+    /// Save the keymap shared by every text editor.
+    SaveEditorKeymap(review_types::EditorKeymap),
     /// Stop the application.
     Quit,
 }

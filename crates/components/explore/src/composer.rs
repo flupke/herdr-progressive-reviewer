@@ -43,8 +43,7 @@ impl ExploreComponent {
 
     pub(super) fn save_draft(&mut self) {
         if self.can_compose() {
-            let keymap = self.editor.keymap();
-            let editor = std::mem::replace(&mut self.editor, CommentEditor::new("", keymap));
+            let editor = std::mem::replace(&mut self.editor, CommentEditor::new("", &self.keymap));
             self.drafts.insert(
                 self.draft_key(),
                 Draft {
@@ -60,7 +59,7 @@ impl ExploreComponent {
             self.editor = draft.editor;
             self.correction = draft.correction;
         } else {
-            self.editor = CommentEditor::new("", self.editor.keymap());
+            self.editor = CommentEditor::new("", &self.keymap);
             self.correction = None;
         }
     }

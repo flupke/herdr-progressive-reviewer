@@ -62,6 +62,7 @@ impl ExploreUi {
         let snapshot = complete_repository_snapshot(&repository);
         let comparison = Arc::new(Comparison::prepare(&repository, &snapshot).unwrap());
         let mut app = ReviewApplication::new(Theme::default(), None, files.root().into());
+        app.set_editor_keymap(comment_editor::EditorKeymap::Regular);
         app.update(UserInput::Resize {
             width: 140,
             height: 45,

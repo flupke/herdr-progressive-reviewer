@@ -281,6 +281,7 @@ impl Runtime {
         let root = self.repository.root().to_owned();
         let mut terminal = TerminalGuard::new()?;
         let mut app = ReviewApplication::new(self.theme, file_pane_width, root.clone());
+        app.set_editor_keymap(settings.editor_keymap()?);
         let area = terminal.terminal.size()?;
         let _ = app.update(UserInput::Resize {
             width: area.width,
@@ -561,8 +562,8 @@ impl RuntimeActionDispatcher<'_> {
                 self.dispatch_document_action(action)?;
                 return Ok(false);
             }
-            Action::SaveFilePaneWidth(columns) => {
-                self.settings.save_file_pane_width(columns)?;
+            action @ (Action::SaveFilePaneWidth(_) | Action::SaveEditorKeymap(_)) => {
+                self.save_setting(&action)?;
                 return Ok(false);
             }
             action @ (Action::OpenLspDocument(_) | Action::Lsp { .. } | Action::RestartLsp) => {
@@ -573,6 +574,15 @@ impl RuntimeActionDispatcher<'_> {
         };
         self.commands.send(Self::worker_command(action))?;
         Ok(false)
+    }
+
+    fn save_setting(&self, action: &Action) -> eyre::Result<()> {
+        match action {
+            Action::SaveFilePaneWidth(columns) => self.settings.save_file_pane_width(*columns)?,
+            Action::SaveEditorKeymap(keymap) => self.settings.save_editor_keymap(*keymap)?,
+            _ => unreachable!("setting dispatch accepts only setting actions"),
+        }
+        Ok(())
     }
 
     fn dispatch_lsp_action(&self, action: Action) -> eyre::Result<()> {
@@ -620,6 +630,7 @@ impl RuntimeActionDispatcher<'_> {
             | Action::LoadSource { .. }
             | Action::Quit
             | Action::SaveFilePaneWidth(_)
+            | Action::SaveEditorKeymap(_)
             | Action::OpenInEditor { .. }
             | Action::Lsp { .. }
             | Action::RestartLsp => unreachable!("local actions are handled before conversion"),

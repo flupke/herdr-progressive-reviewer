@@ -76,6 +76,7 @@ pub enum Error {
 #[serde(default)]
 struct Settings {
     file_pane_width: Option<u16>,
+    editor_keymap: review_types::EditorKeymap,
 }
 
 /// Review state for one canonical repository.
@@ -126,6 +127,18 @@ impl ReviewStore {
     pub fn save_file_pane_width(&self, columns: u16) -> Result<()> {
         let mut settings = self.settings()?;
         settings.file_pane_width = Some(columns);
+        self.atomic_json(&self.settings_path(), &settings, "write settings")
+    }
+
+    /// Get the keymap shared by every text editor.
+    pub fn editor_keymap(&self) -> Result<review_types::EditorKeymap> {
+        Ok(self.settings()?.editor_keymap)
+    }
+
+    /// Save the keymap shared by every text editor.
+    pub fn save_editor_keymap(&self, keymap: review_types::EditorKeymap) -> Result<()> {
+        let mut settings = self.settings()?;
+        settings.editor_keymap = keymap;
         self.atomic_json(&self.settings_path(), &settings, "write settings")
     }
 

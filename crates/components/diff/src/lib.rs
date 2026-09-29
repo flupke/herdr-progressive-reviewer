@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 
+use comment_editor::KeymapSetting;
 use component_core::{
     Component, ComponentSubscriptions, EventPublisher, InputMatcher, InputResolution, InputScope,
 };
@@ -228,6 +229,13 @@ impl DiffComponent {
             rendered_pointer_viewport: RefCell::new(None),
             reply_visibility: RefCell::default(),
         }
+    }
+
+    /// Share the application-wide editor keymap with this component's comment editors.
+    #[must_use]
+    pub fn with_editor_keymap(mut self, keymap: KeymapSetting) -> Self {
+        self.comments.use_keymap(keymap);
+        self
     }
 
     /// Draw the selected diff document and return its positioned frame layer.

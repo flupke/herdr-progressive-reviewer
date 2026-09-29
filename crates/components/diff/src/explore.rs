@@ -165,7 +165,7 @@ impl DiffComponent {
                     self.palette,
                 );
                 viewer.next_search_id = self.next_search_id.clone();
-                viewer.comments.share_draft_cancellations(&self.comments);
+                viewer.comments.share_editing_state(&self.comments);
                 viewer.explore.active = active;
                 Box::new(viewer)
             });

@@ -1,4 +1,5 @@
 use super::*;
+use comment_editor::EditorKeymap;
 
 impl ExploreUi {
     fn assert_editor_key(&mut self, key: Key, mode: &str) {
@@ -53,6 +54,23 @@ fn escape_uses_shared_editor_modes_without_submitting_or_changing_choices() {
     let answer = request.answer.unwrap();
     assert_eq!(answer.text, "Answer draftj");
     assert_eq!(answer.option.unwrap().id, "inspect");
+}
+
+#[test]
+fn switching_the_keymap_saves_it_for_every_editor() {
+    let (mut fixture, request) = ExploreUi::new();
+    fixture.respond(&request, 1);
+    fixture.app.update(UserInput::Paste("Answer draft".into()));
+    for keymap in [EditorKeymap::Vim, EditorKeymap::Regular] {
+        let actions = fixture.app.update(UserInput::Key(Key::EditorMode));
+        assert_eq!(actions, [Action::SaveEditorKeymap(keymap)]);
+    }
+    assert!(
+        fixture
+            .app
+            .update(UserInput::Key(Key::Char('x')))
+            .is_empty()
+    );
 }
 
 #[test]

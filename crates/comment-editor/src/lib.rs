@@ -1,6 +1,7 @@
 //! Inline multiline editor for review comments.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
+use std::rc::Rc;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use edtui::actions::{Execute, InsertChar, LineBreak, SwitchMode};
@@ -9,7 +10,6 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::Widget;
 use ui_shortcuts::Key;
 use ui_theme::Palette;
 
@@ -21,40 +21,56 @@ use view::EditorViewport;
 #[path = "wrapping.tests.rs"]
 mod wrapping_tests;
 
+pub use review_types::EditorKeymap;
+
 /// An editor with its own undo history, Vim state, and scroll position.
 pub struct CommentEditor {
     state: RefCell<EditorState>,
     handler: EditorEventHandler,
+    /// The keymap `handler` implements; it follows `setting` before each key.
     keymap: EditorKeymap,
+    setting: KeymapSetting,
     viewport: RefCell<EditorViewport>,
 }
 
-/// Choose modal Vim commands or regular, always-inserting text input.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum EditorKeymap {
-    #[default]
-    Vim,
-    Regular,
+/// The keymap chosen for every editor that shares this setting.
+///
+/// Clones share one value, so switching the keymap in one editor switches all of them.
+#[derive(Clone, Debug, Default)]
+pub struct KeymapSetting(Rc<Cell<EditorKeymap>>);
+
+impl KeymapSetting {
+    pub fn new(keymap: EditorKeymap) -> Self {
+        Self(Rc::new(Cell::new(keymap)))
+    }
+
+    pub fn get(&self) -> EditorKeymap {
+        self.0.get()
+    }
+
+    pub fn set(&self, keymap: EditorKeymap) {
+        self.0.set(keymap);
+    }
 }
 
-impl EditorKeymap {
-    fn handler(self) -> EditorEventHandler {
-        match self {
-            Self::Vim => EditorEventHandler::vim_mode(),
-            Self::Regular => EditorEventHandler::emacs_mode(),
-        }
+fn keymap_handler(keymap: EditorKeymap) -> EditorEventHandler {
+    match keymap {
+        EditorKeymap::Vim => EditorEventHandler::vim_mode(),
+        EditorKeymap::Regular => EditorEventHandler::emacs_mode(),
     }
 }
 
 impl CommentEditor {
-    pub fn new(text: &str, keymap: EditorKeymap) -> Self {
+    pub fn new(text: &str, setting: &KeymapSetting) -> Self {
         let text = clean_text(text);
         let mut state = EditorState::new(Lines::from(text.as_str()));
         SwitchMode(EditorMode::Insert).execute(&mut state);
+        let keymap = setting.get();
         Self {
             state: RefCell::new(state),
-            handler: keymap.handler(),
+            handler: keymap_handler(keymap),
             keymap,
+            setting: setting.clone(),
             viewport: RefCell::default(),
         }
     }
@@ -66,26 +82,18 @@ impl CommentEditor {
             row: state.cursor.row,
             column: state.cursor.col,
             scroll: state.viewport_offset().1,
-            vim: self.keymap == EditorKeymap::Vim,
             normal: state.mode == EditorMode::Normal,
         }
     }
 
-    pub fn restore(saved: &review_types::TextEditorState) -> Self {
-        let mut editor = Self::new(
-            &saved.text,
-            if saved.vim {
-                EditorKeymap::Vim
-            } else {
-                EditorKeymap::Regular
-            },
-        );
+    pub fn restore(saved: &review_types::TextEditorState, setting: &KeymapSetting) -> Self {
+        let mut editor = Self::new(&saved.text, setting);
         let state = editor.state.get_mut();
         let lines: Vec<_> = saved.text.split('\n').collect();
         let row = saved.row.min(lines.len().saturating_sub(1));
         let column = saved.column.min(lines[row].chars().count());
         state.cursor = edtui::Index2::new(row, column);
-        if saved.vim && saved.normal {
+        if editor.keymap == EditorKeymap::Vim && saved.normal {
             SwitchMode(EditorMode::Normal).execute(state);
         }
         state.set_viewport_offset(0, saved.scroll.min(row));
@@ -105,11 +113,8 @@ impl CommentEditor {
         }
     }
 
-    pub fn keymap(&self) -> EditorKeymap {
-        self.keymap
-    }
-
     pub fn input(&mut self, key: Key) {
+        self.follow_setting();
         if key == Key::EditorMode {
             self.toggle_keymap();
         } else if let Some(event) = editor_key(key) {
@@ -127,24 +132,40 @@ impl CommentEditor {
     }
 
     fn toggle_keymap(&mut self) {
+        let keymap = match self.keymap {
+            EditorKeymap::Vim => EditorKeymap::Regular,
+            EditorKeymap::Regular => EditorKeymap::Vim,
+        };
+        self.switch_keymap(keymap, true);
+        self.setting.set(keymap);
+    }
+
+    /// Adopt a keymap another editor switched to, keeping this editor inserting.
+    fn follow_setting(&mut self) {
+        let keymap = self.setting.get();
+        if keymap != self.keymap {
+            self.switch_keymap(keymap, false);
+        }
+    }
+
+    /// Change keymaps, entering Vim Normal mode only when `vim_normal` asks for it.
+    fn switch_keymap(&mut self, keymap: EditorKeymap, vim_normal: bool) {
         let state = self.state.get_mut();
         let cursor = state.cursor;
         // Finish the current insert/search/selection and discard pending Vim keys.
         self.handler = EditorEventHandler::vim_mode();
         self.handler
             .on_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE), state);
-        self.keymap = match self.keymap {
-            EditorKeymap::Vim => {
-                SwitchMode(EditorMode::Insert).execute(state);
-                state.cursor = cursor;
-                EditorKeymap::Regular
-            }
-            EditorKeymap::Regular => EditorKeymap::Vim,
-        };
-        self.handler = self.keymap.handler();
+        if keymap == EditorKeymap::Regular || !vim_normal {
+            SwitchMode(EditorMode::Insert).execute(state);
+            state.cursor = cursor;
+        }
+        self.keymap = keymap;
+        self.handler = keymap_handler(keymap);
     }
 
     pub fn paste(&mut self, text: &str) {
+        self.follow_setting();
         let text = clean_text(text);
         let state = self.state.get_mut();
         if state.mode != EditorMode::Insert {
@@ -171,38 +192,50 @@ impl CommentEditor {
         if area.is_empty() {
             return;
         }
-        let footer_height = u16::from(area.height > 1);
-        self.viewport.borrow_mut().render(
-            &mut self.state.borrow_mut(),
-            Rect::new(area.x, area.y, area.width, area.height - footer_height),
-            buffer,
-            palette,
-        );
-        if footer_height > 0 {
-            self.status_line(area.width, palette)
-                .render(Rect::new(area.x, area.bottom() - 1, area.width, 1), buffer);
-        }
+        self.viewport
+            .borrow_mut()
+            .render(&mut self.state.borrow_mut(), area, buffer, palette);
     }
 
-    fn status_line(&self, width: u16, palette: Palette) -> Line<'static> {
-        let active = Style::default().fg(palette.warning);
-        let inactive = Style::default().fg(palette.dim);
-        let (mode, hint) = match self.keymap {
+    /// A bottom border carrying the editing mode on the left and the keymap hint on the right.
+    ///
+    /// `width` counts the border cells between the caller's corners. Labels that do not fit
+    /// are dropped, hint first.
+    pub fn status_border(&self, width: u16, border: Style, palette: Palette) -> Line<'static> {
+        let mode = if self.keymap == self.setting.get() {
+            self.mode()
+        } else {
+            // follow_setting switches to Insert before the next key.
+            "Insert"
+        };
+        let (mode, hint) = match self.setting.get() {
             EditorKeymap::Vim => (
-                format!("Vim · {}", self.mode().to_uppercase()),
+                format!("Vim · {}", mode.to_uppercase()),
                 "F2 · Regular editing",
             ),
             EditorKeymap::Regular => ("Regular editing".to_owned(), "F2 · Vim editing"),
         };
-        let mut line = Line::from(Span::styled(mode, active));
-        let hint = Span::styled(hint, inactive);
-        if line.width() + hint.width() < usize::from(width) {
-            line.spans.push(Span::raw(
-                " ".repeat(usize::from(width) - line.width() - hint.width()),
-            ));
-            line.spans.push(hint);
+        let mut labels = vec![
+            Span::styled(format!(" {mode} "), Style::default().fg(palette.warning)),
+            Span::styled(format!(" {hint} "), Style::default().fg(palette.dim)),
+        ];
+        let width = usize::from(width);
+        let labels_width = |labels: &[Span<'_>]| labels.iter().map(Span::width).sum::<usize>();
+        while !labels.is_empty() && labels_width(&labels) + labels.len() + 1 > width {
+            labels.pop();
         }
-        line
+        let rule = |count: usize| Span::styled("─".repeat(count), border);
+        if labels.is_empty() {
+            return Line::from(rule(width));
+        }
+        // The first gap after the mode takes the spare width, pushing the hint right.
+        let spare = width - labels_width(&labels) - labels.len() - 1;
+        let mut spans = vec![rule(1)];
+        for (index, label) in labels.into_iter().enumerate() {
+            spans.push(label);
+            spans.push(rule(1 + if index == 0 { spare } else { 0 }));
+        }
+        Line::from(spans)
     }
 }
 
@@ -260,7 +293,7 @@ mod tests {
     #[test]
     fn ctrl_s_does_not_search_move_or_edit_in_either_keymap() {
         for keymap in [EditorKeymap::Vim, EditorKeymap::Regular] {
-            let mut editor = CommentEditor::new("abc abc", keymap);
+            let mut editor = CommentEditor::new("abc abc", &KeymapSetting::new(keymap));
             editor.input(Key::Right);
             let cursor = editor.state.borrow().cursor;
             let mode = editor.mode();
@@ -275,10 +308,10 @@ mod tests {
 
     #[test]
     fn switching_keymaps_preserves_the_draft_and_changes_escape_and_typing() {
-        let mut editor = CommentEditor::new("abc", EditorKeymap::Vim);
+        let mut editor = CommentEditor::new("abc", &KeymapSetting::new(EditorKeymap::Vim));
         editor.input(Key::Right);
         editor.input(Key::EditorMode);
-        assert_eq!(editor.keymap(), EditorKeymap::Regular);
+        assert_eq!(editor.keymap, EditorKeymap::Regular);
         editor.input(Key::Escape);
         assert_eq!(editor.mode(), "Insert");
         editor.input(Key::Char('x'));
@@ -287,7 +320,7 @@ mod tests {
         assert_eq!(editor.text(), "abc");
 
         editor.input(Key::EditorMode);
-        assert_eq!(editor.keymap(), EditorKeymap::Vim);
+        assert_eq!(editor.keymap, EditorKeymap::Vim);
         assert_eq!(editor.mode(), "Normal");
         editor.input(Key::First);
         editor.input(Key::Char('x'));
@@ -297,8 +330,33 @@ mod tests {
     }
 
     #[test]
+    fn switching_one_editor_switches_every_editor_sharing_the_setting() {
+        let setting = KeymapSetting::new(EditorKeymap::Vim);
+        let mut first = CommentEditor::new("", &setting);
+        let mut second = CommentEditor::new("ab", &setting);
+        let palette = ui_theme::Theme::default().palette;
+        first.input(Key::EditorMode);
+        assert_eq!(setting.get(), EditorKeymap::Regular);
+        assert!(
+            second
+                .status_border(40, Style::default(), palette)
+                .to_string()
+                .starts_with("─ Regular editing")
+        );
+        second.input(Key::Escape);
+        second.input(Key::Char('x'));
+        assert_eq!(second.text(), "xab");
+
+        second.input(Key::EditorMode);
+        let later = CommentEditor::new("", &setting);
+        assert_eq!(later.keymap, EditorKeymap::Vim);
+        first.input(Key::Char('y'));
+        assert_eq!(first.text(), "y", "a followed editor keeps inserting");
+    }
+
+    #[test]
     fn switching_keymaps_cancels_pending_vim_commands_and_search() {
-        let mut editor = CommentEditor::new("abc", EditorKeymap::Vim);
+        let mut editor = CommentEditor::new("abc", &KeymapSetting::new(EditorKeymap::Vim));
         editor.input(Key::Escape);
         editor.input(Key::Char('d'));
         editor.input(Key::EditorMode);
@@ -315,33 +373,40 @@ mod tests {
     }
 
     #[test]
-    fn footer_highlights_the_active_keymap_and_shows_the_vim_state() {
-        let mut editor = CommentEditor::new("draft", EditorKeymap::Vim);
+    fn status_border_highlights_the_active_keymap_and_shows_the_vim_state() {
+        let mut editor = CommentEditor::new("draft", &KeymapSetting::new(EditorKeymap::Vim));
         let palette = ui_theme::Theme::default().palette;
-        let area = Rect::new(0, 0, 40, 3);
-        let mut buffer = Buffer::empty(area);
-        editor.render(area, &mut buffer, palette);
-        let footer = |buffer: &Buffer| {
-            (0..area.width)
-                .map(|x| buffer[(x, 2)].symbol())
-                .collect::<String>()
-        };
-        assert!(footer(&buffer).starts_with("Vim · INSERT"));
-        assert!(footer(&buffer).ends_with("F2 · Regular editing"));
-        assert_eq!(buffer[(0, 2)].fg, palette.warning);
-        assert_eq!(buffer[(39, 2)].fg, palette.dim);
+        let border = Style::default().fg(palette.focus);
+        let text = |line: &Line<'_>| line.to_string();
+        let line = editor.status_border(40, border, palette);
+        assert_eq!(line.width(), 40);
+        assert!(text(&line).starts_with("─ Vim · INSERT ─"));
+        assert!(text(&line).ends_with("─ F2 · Regular editing ─"));
+        assert_eq!(line.spans[1].style.fg, Some(palette.warning));
+        assert_eq!(line.spans[3].style.fg, Some(palette.dim));
+        assert_eq!(line.spans[0].style, border);
 
         editor.input(Key::Escape);
-        editor.render(area, &mut buffer, palette);
-        assert!(footer(&buffer).starts_with("Vim · NORMAL"));
+        assert!(text(&editor.status_border(40, border, palette)).starts_with("─ Vim · NORMAL"));
         editor.input(Key::EditorMode);
-        buffer.reset();
-        editor.render(area, &mut buffer, palette);
-        assert!(footer(&buffer).starts_with("Regular editing"));
-        assert!(footer(&buffer).ends_with("F2 · Vim editing"));
-        assert_eq!(buffer[(0, 2)].fg, palette.warning);
-        assert_eq!(buffer[(39, 2)].fg, palette.dim);
+        let line = editor.status_border(40, border, palette);
+        assert!(text(&line).starts_with("─ Regular editing ─"));
+        assert!(text(&line).ends_with("─ F2 · Vim editing ─"));
         assert_eq!(editor.text(), "draft");
+    }
+
+    #[test]
+    fn narrow_status_borders_drop_the_hint_then_the_mode() {
+        let editor = CommentEditor::new("", &KeymapSetting::new(EditorKeymap::Regular));
+        let palette = ui_theme::Theme::default().palette;
+        for (width, expected) in [
+            (20, "─ Regular editing ──"),
+            (19, "─ Regular editing ─"),
+            (18, "──────────────────"),
+        ] {
+            let line = editor.status_border(width, Style::default(), palette);
+            assert_eq!(line.to_string(), expected);
+        }
     }
 
     #[test]
@@ -349,7 +414,7 @@ mod tests {
         let palette = ui_theme::Theme::default().palette;
         let area = Rect::new(0, 0, 16, 1);
         for keymap in [EditorKeymap::Vim, EditorKeymap::Regular] {
-            let mut editor = CommentEditor::new("draft", keymap);
+            let mut editor = CommentEditor::new("draft", &KeymapSetting::new(keymap));
             editor.input(Key::Last);
             editor.input(Key::Char('x'));
             let mut buffer = Buffer::empty(area);
@@ -367,7 +432,8 @@ mod tests {
 
     #[test]
     fn change_word_preserves_spacing_and_repeats_the_replacement() {
-        let mut editor = CommentEditor::new("one two three", EditorKeymap::Vim);
+        let mut editor =
+            CommentEditor::new("one two three", &KeymapSetting::new(EditorKeymap::Vim));
         editor.input(Key::Escape);
         for character in "cwX".chars() {
             editor.input(Key::Char(character));
@@ -384,7 +450,8 @@ mod tests {
 
     #[test]
     fn delete_word_can_be_repeated_and_undone() {
-        let mut editor = CommentEditor::new("one two three", EditorKeymap::Vim);
+        let mut editor =
+            CommentEditor::new("one two three", &KeymapSetting::new(EditorKeymap::Vim));
         editor.input(Key::Escape);
         for character in "dw".chars() {
             editor.input(Key::Char(character));
@@ -398,7 +465,7 @@ mod tests {
 
     #[test]
     fn editing_and_vim_undo_preserve_multiline_unicode_text() {
-        let mut editor = CommentEditor::new("", EditorKeymap::Vim);
+        let mut editor = CommentEditor::new("", &KeymapSetting::new(EditorKeymap::Vim));
         for key in [Key::Char('é'), Key::Enter, Key::Char('界')] {
             editor.input(key);
         }
@@ -411,7 +478,7 @@ mod tests {
 
     #[test]
     fn bracketed_paste_inserts_at_the_insert_cursor() {
-        let mut editor = CommentEditor::new("ac", EditorKeymap::Vim);
+        let mut editor = CommentEditor::new("ac", &KeymapSetting::new(EditorKeymap::Vim));
         editor.input(Key::Right);
         editor.paste("b\nsecond");
         assert_eq!(editor.text(), "ab\nsecondc");
@@ -419,7 +486,7 @@ mod tests {
 
     #[test]
     fn paste_at_start_and_end_handles_leading_newlines() {
-        let mut editor = CommentEditor::new("middle", EditorKeymap::Vim);
+        let mut editor = CommentEditor::new("middle", &KeymapSetting::new(EditorKeymap::Vim));
         editor.paste("\nfirst\n");
         assert_eq!(editor.text(), "\nfirst\nmiddle");
         editor.input(Key::Last);
