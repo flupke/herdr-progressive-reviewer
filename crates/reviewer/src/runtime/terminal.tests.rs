@@ -68,6 +68,7 @@ impl Fixture {
         RuntimeEventLoop {
             target: AgentTarget::new(herdr_client::protocol::WorkspaceId("test".into()), None),
             source_watches: None,
+            terminal_events: None,
             last_frame: std::time::Instant::now(),
             comments: &crate::runtime::comment_service::test_worker(&settings),
             terminal: &mut self.terminal,

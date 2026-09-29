@@ -5,6 +5,7 @@ mod auto_review;
 #[path = "runtime/comments.rs"]
 mod comment_service;
 mod document;
+mod editor;
 mod events;
 mod explore;
 mod highlighting;
@@ -124,6 +125,7 @@ struct TerminalGuard {
 }
 
 struct TerminalEventProducer {
+    events: EventSender<EventEnvelope>,
     stop_requested: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
 }
@@ -136,6 +138,7 @@ struct RuntimeEventProducers {
 struct RuntimeEventLoop<'a, B: Backend> {
     target: AgentTarget,
     source_watches: Option<&'a crate::watcher::SourceWatchRequests>,
+    terminal_events: Option<&'a mut TerminalEventProducer>,
     last_frame: Instant,
     comments: &'a comments::Worker,
     terminal: &'a mut Terminal<B>,
@@ -298,7 +301,7 @@ impl Runtime {
             event_sender.clone(),
             Arc::clone(&producer_stop_requested),
         ));
-        let terminal_events = TerminalEventProducer::start(input_sender);
+        let mut terminal_events = TerminalEventProducer::start(input_sender);
         let watcher = RepositoryWatcher::new(self.repository.root(), self.repository.repo_type());
         let changed = workers.commands.clone();
         let explore_events = event_sender.clone();
@@ -336,6 +339,7 @@ impl Runtime {
         let result = RuntimeEventLoop {
             target: workers.target.clone(),
             source_watches: Some(&source_watches),
+            terminal_events: Some(&mut terminal_events),
             last_frame: Instant::now(),
             comments: &workers.comments,
             terminal: &mut terminal.terminal,
@@ -512,9 +516,16 @@ impl Runtime {
 }
 
 impl RuntimeActionDispatcher<'_> {
-    fn dispatch_all(&self, actions: Vec<Action>) -> eyre::Result<bool> {
+    /// Run actions in order; the caller owns the terminal the editor needs.
+    fn dispatch_all(
+        &self,
+        actions: Vec<Action>,
+        mut open_in_editor: impl FnMut(&Path, Option<u32>) -> eyre::Result<()>,
+    ) -> eyre::Result<bool> {
         for action in actions {
-            if self.dispatch(action)? {
+            if let Action::OpenInEditor { path, line } = action {
+                open_in_editor(&path, line)?;
+            } else if self.dispatch(action)? {
                 return Ok(true);
             }
         }
@@ -609,6 +620,7 @@ impl RuntimeActionDispatcher<'_> {
             | Action::LoadSource { .. }
             | Action::Quit
             | Action::SaveFilePaneWidth(_)
+            | Action::OpenInEditor { .. }
             | Action::Lsp { .. }
             | Action::RestartLsp => unreachable!("local actions are handled before conversion"),
         }
@@ -759,7 +771,7 @@ where
             ControlEventOutcome::Stop => return Ok(true),
         }
         let actions = self.application_actions(event);
-        RuntimeActionDispatcher {
+        let dispatcher = RuntimeActionDispatcher {
             source_watches: self.source_watches,
             comments: self.comments,
             commands: self.commands,
@@ -769,8 +781,25 @@ where
             settings: self.settings,
             repository_root: self.repository_root,
             lsp: self.lsp,
+        };
+        dispatcher.dispatch_all(actions, |path, line| self.open_in_editor(path, line))
+    }
+
+    fn open_in_editor(&mut self, path: &Path, line: Option<u32>) -> eyre::Result<()> {
+        let Some(terminal_events) = self.terminal_events.as_deref_mut() else {
+            return Ok(());
+        };
+        terminal_events.suspend();
+        let result = editor::open(path, line)?;
+        terminal_events.resume();
+        self.terminal.clear()?;
+        if let Err(error) = result {
+            let _ = self.app.publish(ui_events::ToastRequested {
+                text: format!("Could not open {}: {error}", path.display()),
+                kind: toasts::ToastKind::Error,
+            });
         }
-        .dispatch_all(actions)
+        Ok(())
     }
 
     fn handle_control_event(&mut self, event: &EventEnvelope) -> eyre::Result<ControlEventOutcome> {
@@ -1026,23 +1055,9 @@ impl TerminalGuard {
                 return Err(error.into());
             }
         };
-        if let Err(error) = execute!(
-            terminal.backend_mut(),
-            EnterAlternateScreen,
-            EnableMouseCapture,
-            EnableFocusChange,
-            crossterm::event::EnableBracketedPaste,
-            PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
-        ) {
+        if let Err(error) = enter_terminal_modes(terminal.backend_mut()) {
             let _ = disable_raw_mode();
-            let _ = execute!(
-                terminal.backend_mut(),
-                DisableMouseCapture,
-                DisableFocusChange,
-                crossterm::event::DisableBracketedPaste,
-                PopKeyboardEnhancementFlags,
-                LeaveAlternateScreen
-            );
+            let _ = leave_terminal_modes(terminal.backend_mut());
             return Err(error.into());
         }
         Ok(Self { terminal })
@@ -1052,16 +1067,31 @@ impl TerminalGuard {
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
         let _ = disable_raw_mode();
-        let _ = execute!(
-            self.terminal.backend_mut(),
-            DisableMouseCapture,
-            DisableFocusChange,
-            crossterm::event::DisableBracketedPaste,
-            PopKeyboardEnhancementFlags,
-            LeaveAlternateScreen
-        );
+        let _ = leave_terminal_modes(self.terminal.backend_mut());
         let _ = self.terminal.show_cursor();
     }
+}
+
+fn enter_terminal_modes(writer: &mut impl io::Write) -> io::Result<()> {
+    execute!(
+        writer,
+        EnterAlternateScreen,
+        EnableMouseCapture,
+        EnableFocusChange,
+        crossterm::event::EnableBracketedPaste,
+        PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+    )
+}
+
+fn leave_terminal_modes(writer: &mut impl io::Write) -> io::Result<()> {
+    execute!(
+        writer,
+        DisableMouseCapture,
+        DisableFocusChange,
+        crossterm::event::DisableBracketedPaste,
+        PopKeyboardEnhancementFlags,
+        LeaveAlternateScreen
+    )
 }
 
 fn normalize_mouse(mouse: MouseEvent) -> Option<UserInput> {
@@ -1110,6 +1140,7 @@ impl TerminalEventProducer {
     ) -> Self {
         let stop_requested = Arc::new(AtomicBool::new(false));
         let reader_stop_requested = Arc::clone(&stop_requested);
+        let sender = events.clone();
         let thread = thread::spawn(move || {
             let mut mouse_clicks = MouseClicks::default();
             while !reader_stop_requested.load(Ordering::Relaxed) {
@@ -1128,9 +1159,19 @@ impl TerminalEventProducer {
             }
         });
         Self {
+            events: sender,
             stop_requested,
             thread: Some(thread),
         }
+    }
+
+    /// Stop reading so a child process owns terminal input.
+    fn suspend(&mut self) {
+        self.stop_and_join();
+    }
+
+    fn resume(&mut self) {
+        *self = Self::start(self.events.clone());
     }
 
     fn normalize_event(event: Event, mouse_clicks: &mut MouseClicks) -> Option<EventEnvelope> {

@@ -216,6 +216,7 @@ impl Scenario {
         RuntimeEventLoop {
             target: AgentTarget::new(herdr_client::protocol::WorkspaceId("test".into()), None),
             source_watches: None,
+            terminal_events: None,
             last_frame: Instant::now(),
             comments: &self.comments,
             terminal: &mut self.terminal,

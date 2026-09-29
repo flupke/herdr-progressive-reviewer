@@ -681,6 +681,7 @@ impl DiffComponent {
                 self.start_selection();
                 Vec::new()
             }
+            ApplicationShortcut::OpenInEditor => self.open_in_editor(),
             _ => Vec::new(),
         }
     }
@@ -1167,6 +1168,32 @@ impl DiffComponent {
         Vec::new()
     }
 
+    fn open_in_editor(&self) -> Vec<Action> {
+        let Some(document) = self.displayed_document() else {
+            return Vec::new();
+        };
+        let line = document
+            .document
+            .diff
+            .source_position(document.document.cursor)
+            .map(|(line, _)| line);
+        vec![Action::OpenInEditor {
+            path: self.document_disk_path(document),
+            line,
+        }]
+    }
+
+    fn document_disk_path(&self, document: &LoadedDocument) -> PathBuf {
+        document.disk_path.clone().unwrap_or_else(|| {
+            let path = PathBuf::from(&document.path);
+            if path.is_absolute() {
+                path
+            } else {
+                self.repository_root.join(path)
+            }
+        })
+    }
+
     fn lsp(&self, command: LspShortcut) -> Vec<Action> {
         if self.explore.active && !self.explore_lsp_ready() {
             return Vec::new();
@@ -1194,14 +1221,7 @@ impl DiffComponent {
         while !expected_line.is_char_boundary(byte_column) {
             byte_column = byte_column.saturating_sub(1);
         }
-        let path = document.disk_path.clone().unwrap_or_else(|| {
-            let path = PathBuf::from(&document.path);
-            if path.is_absolute() {
-                path
-            } else {
-                self.repository_root.join(path)
-            }
-        });
+        let path = self.document_disk_path(document);
         vec![Action::Lsp {
             operation,
             query: review_lsp::Query {
@@ -2170,6 +2190,11 @@ impl Component<Action> for DiffComponent {
         subscriptions.subscribe_input(
             InputScope::Global,
             ShortcutMatcher::new(ShortcutSet::Hunk),
+            Self::run_shortcut,
+        );
+        subscriptions.subscribe_input(
+            InputScope::Global,
+            ShortcutMatcher::new(ShortcutSet::Editor),
             Self::run_shortcut,
         );
         subscriptions.subscribe_input(

@@ -62,6 +62,11 @@ pub enum Action {
     AutoReview(ReviewCheckpoint),
     /// Clear this comparison's file review marks after user confirmation.
     UnreviewAll(ReviewCheckpoint),
+    /// Suspend the UI and open a file in the user's editor at a zero-based line.
+    OpenInEditor {
+        path: std::path::PathBuf,
+        line: Option<u32>,
+    },
     /// Save the file-pane width in terminal columns.
     SaveFilePaneWidth(u16),
     /// Stop the application.

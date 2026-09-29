@@ -913,7 +913,9 @@ fn dispatch_all_executes_earlier_actions_before_quit() {
 
     assert!(
         dispatcher
-            .dispatch_all(vec![Action::SaveFilePaneWidth(42), Action::Quit])
+            .dispatch_all(vec![Action::SaveFilePaneWidth(42), Action::Quit], |_, _| {
+                unreachable!("no editor action")
+            })
             .unwrap()
     );
     assert_eq!(settings.file_pane_width().unwrap(), Some(42));
@@ -948,6 +950,7 @@ fn event_loop_routes_external_events_from_the_central_channel() {
     RuntimeEventLoop {
         target: AgentTarget::new(herdr_client::protocol::WorkspaceId("test".into()), None),
         source_watches: None,
+        terminal_events: None,
         last_frame: Instant::now(),
         comments: &comment_service::test_worker(&settings),
         highlighting: &highlighting_worker(),

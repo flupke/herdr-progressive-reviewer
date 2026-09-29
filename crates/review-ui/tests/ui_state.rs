@@ -194,6 +194,36 @@ fn gy_queries_the_cursor_type_and_jumps_to_a_single_definition() {
 }
 
 #[test]
+fn shift_e_opens_the_current_file_at_the_cursor_line_from_either_pane() {
+    let mut app = wrapped_diff_application(
+        vec![
+            DiffRow::Context {
+                old_line: 1,
+                new_line: 1,
+                text: " first".to_owned(),
+            },
+            DiffRow::Context {
+                old_line: 2,
+                new_line: 2,
+                text: " second".to_owned(),
+            },
+        ],
+        80,
+        12,
+    );
+    app.update(UserInput::Key(Key::Down));
+    for _ in 0..2 {
+        let actions = app.update(UserInput::Key(Key::Char('E')));
+        let [Action::OpenInEditor { path, line }] = actions.as_slice() else {
+            panic!("E must open the current file, got {actions:?}");
+        };
+        assert!(path.ends_with("src/lib.rs"));
+        assert_eq!(*line, Some(1));
+        app.update(UserInput::Key(Key::Tab));
+    }
+}
+
+#[test]
 fn long_diff_lines_wrap_without_horizontal_scrolling() {
     let source = format!("start-{}-visible-tail", "middle".repeat(30));
     let mut app = wrapped_diff_application(

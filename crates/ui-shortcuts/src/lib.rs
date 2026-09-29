@@ -82,6 +82,7 @@ pub enum ApplicationShortcut {
     Quit,
     ShowCommitMessage,
     StartSelection,
+    OpenInEditor,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -277,6 +278,7 @@ pub enum ShortcutSet {
     Comments,
     Application,
     Diff,
+    Editor,
     Files,
     FilesGlobal,
     Hunk,
@@ -400,6 +402,10 @@ impl ShortcutSet {
                     )
             ),
             Self::Hunk => matches!(command, ShortcutCommand::Hunk(_)),
+            Self::Editor => matches!(
+                command,
+                ShortcutCommand::Application(ApplicationShortcut::OpenInEditor)
+            ),
             Self::Overlay => matches!(
                 command,
                 ShortcutCommand::Application(
@@ -428,10 +434,6 @@ const SHORTCUTS: &[ShortcutDefinition] = &[
             ),
             ShortcutBinding::one(
                 Key::Char('e'),
-                application(ApplicationShortcut::OpenExplore),
-            ),
-            ShortcutBinding::alias(
-                Key::Char('E'),
                 application(ApplicationShortcut::OpenExplore),
             ),
         ],
@@ -683,6 +685,13 @@ const SHORTCUTS: &[ShortcutDefinition] = &[
         ],
     },
     ShortcutDefinition {
+        description: Some("Open the current file in $EDITOR"),
+        bindings: &[ShortcutBinding::one(
+            Key::Char('E'),
+            application(ApplicationShortcut::OpenInEditor),
+        )],
+    },
+    ShortcutDefinition {
         description: Some("Show the commit message"),
         bindings: &[
             ShortcutBinding::alias(
@@ -776,6 +785,7 @@ const fn is_component_global_shortcut(command: ShortcutCommand) -> bool {
                     | ApplicationShortcut::MarkReviewed
                     | ApplicationShortcut::AutoReview
                     | ApplicationShortcut::UnreviewAll
+                    | ApplicationShortcut::OpenInEditor
             )
     )
 }
