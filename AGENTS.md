@@ -53,3 +53,17 @@ with sandbox escalation.
 
 Do not enable project-wide network access. Do not replace the real Herdr
 server with a mock only to avoid the sandbox restriction.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues for flupke/herdr-progressive-reviewer (via `gh`). See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default five-role vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: root `CONTEXT.md` plus `docs/adr/`. See `docs/agents/domain.md`.

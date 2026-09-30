@@ -31,10 +31,10 @@ _Avoid_: agent prompt
 A thread message from an agent responding to the conversation. It may address
 several review comments.
 
-**Unposted text**:
+**Draft**:
 Review-comment text that the author is still composing. It is not part of the
 shared review thread.
-_Avoid_: draft status, queued comment, saved-but-unsent comment
+_Avoid_: unposted text, queued comment, saved-but-unsent comment
 
 **Posting**:
 The reviewer's publication of a comment to a review thread.
