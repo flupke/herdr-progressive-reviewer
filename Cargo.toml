@@ -14,6 +14,7 @@ members = [
     "crates/components/overlay",
     "crates/components/revision",
     "crates/diff-rendering",
+    "crates/diff-search",
     "crates/markdown-rendering",
     "crates/syntax-highlighting",
     "crates/ui-actions",

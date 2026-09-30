@@ -164,7 +164,6 @@ impl DiffComponent {
                     self.repository_root.clone(),
                     self.palette,
                 );
-                viewer.next_search_id = self.next_search_id.clone();
                 viewer.comments.share_drafts(&self.comments);
                 viewer.explore.active = active;
                 Box::new(viewer)
@@ -239,7 +238,7 @@ impl DiffComponent {
         self.selected_path = None;
         self.preview = None;
         self.selection = None;
-        self.search = None;
+        self.search = diff_search::Search::default();
     }
 
     pub(super) fn explore_evidence(&mut self, event: &ExploreEvidence) -> Vec<Action> {

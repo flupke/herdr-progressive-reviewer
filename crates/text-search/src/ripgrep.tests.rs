@@ -4,10 +4,9 @@ use std::cell::Cell;
 use std::sync::Arc;
 
 fn request(query: &str) -> Request {
-    Request {
-        id: 42,
-        query: query.to_owned(),
-        documents: vec![
+    Request::new(
+        query.to_owned(),
+        vec![
             Arc::new(Document::from_rows([
                 "removed: needle NEEDLE needle".to_owned(),
                 "a+b.c[0] -needle".to_owned(),
@@ -20,7 +19,7 @@ fn request(query: &str) -> Request {
                 "embedded\0needle".to_owned(),
             ])),
         ],
-    }
+    )
 }
 
 #[test]
@@ -138,4 +137,12 @@ fn dense_search_collects_every_occurrence() {
     let actual = Engine::default().search(&request, || false).unwrap();
     assert_eq!(actual.matches.len(), 40_000);
     assert_eq!(actual, request.search());
+}
+
+#[test]
+fn every_request_has_its_own_id() {
+    let first = request("needle");
+    let second = request("needle");
+    assert_ne!(first.id(), second.id());
+    assert_eq!(first.search().id, first.id());
 }

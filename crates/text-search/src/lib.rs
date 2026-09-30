@@ -2,6 +2,7 @@
 
 use std::ops::Range;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use grep_matcher::Matcher;
 use grep_regex::{RegexMatcher, RegexMatcherBuilder};
@@ -94,12 +95,28 @@ impl Query {
 /// Immutable inputs for one query; the ID distinguishes superseded results.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Request {
-    pub id: u64,
+    id: u64,
     pub query: String,
     pub documents: Vec<Arc<Document>>,
 }
 
 impl Request {
+    /// A request whose ID no other request in this process shares, so results
+    /// from the one shared worker reach only the search that asked for them.
+    pub fn new(query: String, documents: Vec<Arc<Document>>) -> Self {
+        static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+        Self {
+            id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
+            query,
+            documents,
+        }
+    }
+
+    /// The identity that completed [`Results`] carry back.
+    pub fn id(&self) -> u64 {
+        self.id
+    }
+
     /// Whether the immutable document inputs still have the same identity and order.
     pub fn same_documents(&self, documents: &[Arc<Document>]) -> bool {
         self.documents.len() == documents.len()

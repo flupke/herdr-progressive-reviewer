@@ -219,6 +219,16 @@ pub(super) struct LoadedDocument {
     pub(super) comments_only: bool,
 }
 
+impl diff_search::SearchedDocument for LoadedDocument {
+    fn path(&self) -> &str {
+        &self.path
+    }
+
+    fn text(&self) -> std::sync::Arc<text_search::Document> {
+        self.document.diff.search_document()
+    }
+}
+
 impl LoadedDocument {
     pub(super) fn from_summary(summary: &ui_events::FileSummary) -> Self {
         let mut document = Self::new(summary.path());

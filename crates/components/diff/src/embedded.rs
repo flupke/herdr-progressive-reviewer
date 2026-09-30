@@ -23,7 +23,7 @@ impl DiffComponent {
     }
 
     pub(super) fn retain_search_results(&mut self, results: &text_search::Results) {
-        self.finish_search(results, false);
+        self.search.retain(results, &self.documents);
         for viewer in self.retained_viewers_mut() {
             viewer.retain_search_results(results);
         }
@@ -37,18 +37,10 @@ impl DiffComponent {
         actions
     }
 
-    pub(super) fn resume_evidence_search(&mut self) -> Option<Action> {
+    pub(super) fn resume_evidence_search(&mut self) -> Vec<Action> {
         self.publish_search_status();
-        // The shared worker may have replaced this request while another window was active.
-        if let Some(request) = self
-            .search
-            .as_ref()
-            .and_then(|search| search.pending.clone())
-        {
-            Some(Action::Search(Some(request)))
-        } else {
-            self.refresh_search_matches()
-        }
+        let intents = self.search.resume(&self.documents);
+        self.apply_search(intents)
     }
 
     /// Borrow the real viewer retained for an opened evidence block.
@@ -74,7 +66,6 @@ impl DiffComponent {
                 self.repository_root.clone(),
                 self.palette,
             );
-            next.next_search_id = self.next_search_id.clone();
             next.explore.active = true;
             next.install_comparison(event.comparison.clone());
             next.comments.share_drafts(&self.comments);

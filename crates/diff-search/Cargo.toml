@@ -1,0 +1,13 @@
+[package]
+name = "diff-search"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+text-search = { path = "../text-search" }
+ui-events = { path = "../ui-events" }
+
+[lints]
+workspace = true

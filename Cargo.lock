@@ -783,6 +783,7 @@ dependencies = [
  "comment-editor",
  "component-core",
  "diff-rendering",
+ "diff-search",
  "eyre",
  "markdown-rendering",
  "ratatui 0.30.2",
@@ -816,6 +817,14 @@ dependencies = [
  "review-source",
  "ui-events",
  "unicode-width 0.2.0",
+]
+
+[[package]]
+name = "diff-search"
+version = "0.2.0"
+dependencies = [
+ "text-search",
+ "ui-events",
 ]
 
 [[package]]

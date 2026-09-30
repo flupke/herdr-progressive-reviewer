@@ -3,7 +3,6 @@
 use std::cell::OnceCell;
 use std::ops::RangeInclusive;
 use std::sync::Arc;
-pub(super) use text_search::Position as SearchMatch;
 
 use review_explore::SourceSide;
 use review_repository::diff::DiffRow;
@@ -17,12 +16,6 @@ pub(super) enum PresentedRow {
     Diff { source: usize, tokens: Vec<Token> },
     Gap { start: u32, lines: Vec<Vec<Token>> },
     Expanded { line: u32, tokens: Vec<Token> },
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum SearchDirection {
-    Forward,
-    Backward,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

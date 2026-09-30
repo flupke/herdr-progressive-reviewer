@@ -999,7 +999,7 @@ fn delayed_search_results_stay_with_their_evidence_window() {
     let actions = open(&mut fixture.app, 0);
     assert!(
         actions.iter().any(
-            |action| matches!(action, Action::Search(Some(request)) if request.id == search.id)
+            |action| matches!(action, Action::Search(Some(request)) if request.id() == search.id())
         ),
         "reopening resumes work cancelled by another viewer"
     );

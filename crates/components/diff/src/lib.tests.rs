@@ -10,7 +10,7 @@ use review_repository::{
 use review_source::ReviewCheckpoint;
 use review_state::{ReviewState, ReviewStatus};
 use two_face::theme::EmbeddedThemeName;
-use ui_events::{FileSummary, PointerPosition};
+use ui_events::{FileSummary, PointerPosition, SearchStatusChanged};
 use ui_theme::Theme;
 
 use super::*;
@@ -2114,7 +2114,7 @@ fn superseded_and_cancelled_background_results_cannot_move_the_cursor() {
     let old = fixture.type_query("needle");
     dispatch_key(&mut fixture.registry, fixture.target, Key::Enter);
     let current = fixture.type_query("deleted");
-    assert_ne!(old.id, current.id);
+    assert_ne!(old.id(), current.id());
     assert!(
         fixture
             .registry

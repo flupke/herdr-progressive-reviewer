@@ -71,12 +71,8 @@ fn delayed_colors_preserve_search_text_navigation_and_expanded_views() {
             document.diff.expand_all();
         }
         let text = document.diff.search_document();
-        let results = text_search::Request {
-            id: 1,
-            query: "needle".to_owned(),
-            documents: vec![Arc::clone(&text)],
-        }
-        .search();
+        let results =
+            text_search::Request::new("needle".to_owned(), vec![Arc::clone(&text)]).search();
         assert_eq!(results.matches.len(), 1);
         document.cursor = results.matches[0].position.row;
         document.column = results.matches[0].position.column;
@@ -159,11 +155,10 @@ fn loading_an_unselected_diff_does_not_start_highlighting_or_lsp() {
         .find(|loaded| loaded.path == "a.rs")
         .unwrap();
     assert_eq!(
-        text_search::Request {
-            id: 1,
-            query: "needle".to_owned(),
-            documents: vec![loaded.document.diff.search_document()],
-        }
+        text_search::Request::new(
+            "needle".to_owned(),
+            vec![loaded.document.diff.search_document()],
+        )
         .search()
         .matches
         .len(),
