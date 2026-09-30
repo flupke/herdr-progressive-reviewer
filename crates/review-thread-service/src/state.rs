@@ -6,7 +6,7 @@ use herdr_client::client::HerdrClient;
 use herdr_client::protocol::{Agent, AgentTarget, HerdrEvent, PaneId};
 use review_mcp::{Operation, Response};
 use review_store::ReviewStore;
-use review_threads::{Post, Resolution, ReviewThreads, ThreadCommand};
+use review_threads::{Post, Resolution, ReviewThreads, SavedDrafts, ThreadCommand};
 use review_types::ReviewUnit;
 
 use crate::{Command, Event, Input, access::Access, notification::Notification, wakeup::Wakeup};
@@ -105,15 +105,16 @@ impl State {
         match command {
             ThreadCommand::Load(unit) => self.load_review(unit),
             ThreadCommand::SaveDraft { review_unit, draft } => {
-                let result = self.update_draft(&review_unit, |book| book.save_draft(draft));
+                let result =
+                    self.update_drafts(&review_unit, |drafts, threads| drafts.save(draft, threads));
                 self.report(result);
             }
             ThreadCommand::DiscardDraft {
                 review_unit,
                 thread_id,
             } => {
-                let result = self.update_draft(&review_unit, |book| {
-                    book.discard_draft(&thread_id);
+                let result = self.update_drafts(&review_unit, |drafts, _| {
+                    drafts.discard(&thread_id);
                     Ok(())
                 });
                 self.report(result);
@@ -160,14 +161,26 @@ impl State {
 
     fn load_review(&mut self, unit: ReviewUnit) {
         let mut result = self.load(&unit);
+        let mut drafts = SavedDrafts::default();
         if result.is_ok() {
+            drafts = self.drafts_to_restore(&unit);
             self.resume(&unit);
             result = Ok(self.books[&unit].clone());
         }
         (self.publish)(Event::Loaded(ui_events::ReviewThreadsLoaded {
             review_unit: unit,
             result,
+            drafts,
         }));
+    }
+
+    /// The latest drafts saved for `unit`, as every reviewer process sees them.
+    /// Unreadable drafts are reported but never hide the threads; they stay on disk.
+    fn drafts_to_restore(&self, unit: &ReviewUnit) -> SavedDrafts {
+        self.store.load_drafts(unit).unwrap_or_else(|error| {
+            (self.publish)(Event::Error(format!("Could not load drafts: {error}")));
+            SavedDrafts::default()
+        })
     }
 
     fn set_resolution(
@@ -189,6 +202,12 @@ impl State {
         let message_id = post.message().id.clone();
         let result = self.update(review_unit, |book| book.post(post).map(|_| ()));
         let posted = result.is_ok();
+        if posted {
+            // Updating the drafts forgets every draft whose post the threads now hold. A
+            // crash before this write cannot restore the draft: loading forgets it too.
+            let forgotten = self.update_drafts(review_unit, |_, _| Ok(()));
+            self.report(forgotten);
+        }
         (self.publish)(Event::Posted(ui_events::ThreadPostFinished {
             review_unit: review_unit.clone(),
             message_id,
@@ -220,25 +239,26 @@ impl State {
             .map_err(|error| error.to_string())?;
         let previous = self.books.insert(book.review_unit.clone(), book.clone());
         if previous.as_ref() != Some(&book) {
+            let drafts = self.drafts_to_restore(&book.review_unit);
             (self.publish)(Event::Loaded(ui_events::ReviewThreadsLoaded {
                 review_unit: book.review_unit.clone(),
                 result: Ok(book),
+                drafts,
             }));
         }
         Ok(result)
     }
 
-    fn update_draft(
+    /// Change the saved drafts. The posted threads are never rewritten for a draft.
+    fn update_drafts(
         &mut self,
         unit: &ReviewUnit,
-        update: impl FnOnce(&mut ReviewThreads) -> Result<(), String>,
+        update: impl FnOnce(&mut SavedDrafts, &ReviewThreads) -> Result<(), String>,
     ) -> Result<(), String> {
-        let ((), book) = self
-            .store
-            .update_threads(unit, update)
-            .map_err(|error| error.to_string())?;
-        self.books.insert(unit.clone(), book);
-        Ok(())
+        self.store
+            .update_drafts(unit, update)
+            .map(|((), _)| ())
+            .map_err(|error| error.to_string())
     }
 
     fn refresh_target(&mut self) {

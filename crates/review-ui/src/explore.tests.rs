@@ -409,6 +409,7 @@ fn ordinary_comments_keep_comparison_context_and_do_not_mark_files_reviewed() {
     fixture.app.publish(ui_events::ReviewThreadsLoaded {
         review_unit: review_unit.clone(),
         result: Ok(review_threads::ReviewThreads::new(review_unit)),
+        drafts: review_threads::SavedDrafts::default(),
     });
     fixture.app.update(UserInput::Key(Key::Tab));
     fixture.app.update(UserInput::Key(Key::Char('a')));

@@ -93,10 +93,7 @@ impl Draft {
 }
 
 impl<S> Draft<S> {
-    pub(super) fn try_map_source<T, E>(
-        self,
-        map: &mut impl FnMut(S) -> Result<T, E>,
-    ) -> Result<Draft<T>, E> {
+    fn try_map_source<T, E>(self, map: &mut impl FnMut(S) -> Result<T, E>) -> Result<Draft<T>, E> {
         Ok(Draft {
             target: self.target,
             source: map(self.source)?,
@@ -108,30 +105,85 @@ impl<S> Draft<S> {
     }
 }
 
-impl ReviewThreads {
+/// The drafts saved for one review. They are stored apart from its threads, so saving
+/// one never rewrites posted messages, and a draft whose post reached the threads is
+/// no longer a draft.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(transparent)]
+pub struct SavedDrafts<S = Arc<ThreadSource>> {
+    drafts: Vec<Draft<S>>,
+}
+
+impl<S> Default for SavedDrafts<S> {
+    fn default() -> Self {
+        Self { drafts: Vec::new() }
+    }
+}
+
+impl SavedDrafts {
     pub fn drafts(&self) -> &[Draft] {
         &self.drafts
     }
 
-    pub fn save_draft(&mut self, draft: Draft) -> Result<(), String> {
+    /// Keep `draft`, replacing the saved draft of the same thread.
+    pub fn save(&mut self, draft: Draft, threads: &ReviewThreads) -> Result<(), String> {
         if let DraftTarget::Thread(id) = &draft.target
-            && self.thread(id).is_none()
+            && threads.thread(id).is_none()
         {
             return Err("The draft's review thread no longer exists".into());
         }
-        if self.message(&draft.id).is_some() {
+        if threads.message(&draft.id).is_some() {
             return Err("This draft has already been posted".into());
         }
-        self.discard_draft(&draft.thread);
-        self.drafts.push(draft);
+        self.keep(draft);
         Ok(())
     }
 
-    pub fn discard_draft(&mut self, thread: &ThreadId) {
+    /// Keep `draft` without checking it against the threads, replacing the saved draft of
+    /// the same thread. Restoring older saved drafts must not lose one whose thread is gone.
+    pub fn keep(&mut self, draft: Draft) {
+        self.discard(&draft.thread);
+        self.drafts.push(draft);
+    }
+
+    pub fn discard(&mut self, thread: &ThreadId) {
         self.drafts.retain(|draft| &draft.thread != thread);
     }
 
-    pub(super) fn discard_posted_draft(&mut self, id: &MessageId) {
-        self.drafts.retain(|draft| &draft.id != id);
+    /// Forget the drafts whose publication `threads` holds. Posting writes the threads
+    /// before it discards the draft, so this also covers a post interrupted between them.
+    pub fn forget_posted(&mut self, threads: &ReviewThreads) {
+        self.drafts
+            .retain(|draft| threads.message(&draft.id).is_none());
+    }
+}
+
+impl<S> SavedDrafts<S> {
+    pub fn is_empty(&self) -> bool {
+        self.drafts.is_empty()
+    }
+
+    /// Exchange loaded context for durable references (or hydrate those references)
+    /// without changing any draft.
+    pub fn try_map_sources<T, E>(
+        self,
+        mut map: impl FnMut(S) -> Result<T, E>,
+    ) -> Result<SavedDrafts<T>, E> {
+        Ok(SavedDrafts {
+            drafts: self
+                .drafts
+                .into_iter()
+                .map(|draft| draft.try_map_source(&mut map))
+                .collect::<Result<_, E>>()?,
+        })
+    }
+}
+
+impl<S> IntoIterator for SavedDrafts<S> {
+    type Item = Draft<S>;
+    type IntoIter = std::vec::IntoIter<Draft<S>>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.drafts.into_iter()
     }
 }

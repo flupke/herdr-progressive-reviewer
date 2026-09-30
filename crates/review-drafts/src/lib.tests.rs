@@ -50,13 +50,13 @@ fn posted(submission: Option<Submission>) -> Post {
     }
 }
 
-/// A saved review holding `drafts`, as the thread owner would load it.
-fn book_with(drafts: &[&Draft]) -> ReviewThreads {
-    let mut book = ReviewThreads::new(unit());
+/// The drafts saved for the review, as the thread owner would load them.
+fn saved_with(drafts: &[&Draft]) -> SavedDrafts {
+    let mut saved = SavedDrafts::default();
     for draft in drafts {
-        book.save_draft((*draft).clone()).unwrap();
+        saved.keep((*draft).clone());
     }
-    book
+    saved
 }
 
 fn texts(drafts: &Drafts) -> Vec<String> {
@@ -171,11 +171,11 @@ fn saved_drafts_are_recovered_once_and_cancelled_ones_stay_gone() {
     let recovered = saved(&commands).unwrap().clone();
     let mut blank = new_thread("lib.rs");
     blank.text = " ".into();
-    let book = book_with(&[&recovered, &blank]);
+    let saved_drafts = saved_with(&[&recovered, &blank]);
 
     let mut restarted = Drafts::default();
-    restarted.recover(&book);
-    restarted.recover(&book);
+    restarted.recover(&unit(), &saved_drafts);
+    restarted.recover(&unit(), &saved_drafts);
     assert_eq!(
         texts(&restarted),
         ["Recovered"],
@@ -190,17 +190,17 @@ fn saved_drafts_are_recovered_once_and_cancelled_ones_stay_gone() {
     );
 
     let mut cancelling = Drafts::default();
-    cancelling.recover(&book);
+    cancelling.recover(&unit(), &saved_drafts);
     let (id, _) = cancelling.in_review(&unit()).next().unwrap();
     cancelling.cancel(id).unwrap();
-    cancelling.recover(&book);
+    cancelling.recover(&unit(), &saved_drafts);
     assert!(
         texts(&cancelling).is_empty(),
         "a stale review cannot resurrect it"
     );
 
     let mut other_review = Drafts::default();
-    other_review.recover(&book);
+    other_review.recover(&unit(), &saved_drafts);
     assert!(other_review.in_review(&"other".into()).next().is_none());
 }
 
@@ -210,7 +210,7 @@ fn a_draft_posted_elsewhere_settles_or_is_renewed_with_its_edits() {
         let mut drafts = Drafts::default();
         let id = drafts.start(unit(), new_thread("lib.rs"));
         let draft = saved(&typed(&mut drafts, id, "Shared")).unwrap().clone();
-        let stale = book_with(&[&draft]);
+        let stale = saved_with(&[&draft]);
         if edited {
             typed(&mut drafts, id, " and more");
         }
@@ -218,7 +218,7 @@ fn a_draft_posted_elsewhere_settles_or_is_renewed_with_its_edits() {
         book.post(draft.post()).unwrap();
 
         let commands = drafts.reconcile(&book);
-        drafts.recover(&stale);
+        drafts.recover(&unit(), &stale);
         if edited {
             let renewed = saved(&commands).expect("the edited text is saved again");
             assert_ne!(renewed.message_id(), draft.message_id());

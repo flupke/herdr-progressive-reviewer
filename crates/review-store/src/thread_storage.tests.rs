@@ -76,54 +76,6 @@ fn small_updates_share_context_and_do_not_rewrite_it() {
 }
 
 #[test]
-fn drafts_survive_restart_without_publishing_and_posting_removes_them_atomically() {
-    let directory = tempfile::tempdir().unwrap();
-    let store = ReviewStore::open(directory.path().join("state"), directory.path()).unwrap();
-    let unit = "change".into();
-    let mut draft = Draft::start("source.rs".into(), source());
-    draft.text = "Unposted\nmultiline question".into();
-    let post = draft.post();
-    let thread = post.thread_id().clone();
-    store
-        .update_threads(&unit, |book| book.save_draft(draft.clone()))
-        .unwrap();
-    drop(store);
-    let store = ReviewStore::open(directory.path().join("state"), directory.path()).unwrap();
-    let recovered = store.load_threads(&unit).unwrap();
-    assert!(recovered.threads().is_empty());
-    assert!(!recovered.has_new_messages());
-    assert_eq!(recovered.drafts(), [draft]);
-    assert_eq!(recovered.drafts()[0].post(), post);
-    store
-        .update_threads(&unit, |book| book.post(post.clone()))
-        .unwrap();
-    store.update_threads(&unit, |book| book.post(post)).unwrap();
-    let posted = store.load_threads(&unit).unwrap();
-    assert!(posted.drafts().is_empty());
-    let mut reply = Draft::reply(
-        posted.thread(&thread).unwrap(),
-        posted.threads()[0].messages[0].id.clone(),
-    );
-    reply.text = "Do not publish me".into();
-    store
-        .update_threads(&unit, |book| book.save_draft(reply.clone()))
-        .unwrap();
-    assert_eq!(store.load_threads(&unit).unwrap().drafts(), [reply.clone()]);
-    store
-        .update_threads(&unit, |book| {
-            book.discard_draft(reply.thread_id());
-            Ok(())
-        })
-        .unwrap();
-    let cancelled = ReviewStore::open(directory.path().join("state"), directory.path())
-        .unwrap()
-        .load_threads(&unit)
-        .unwrap();
-    assert!(cancelled.drafts().is_empty());
-    assert_eq!(cancelled.threads()[0].messages.len(), 1);
-}
-
-#[test]
 fn damaged_or_missing_context_never_replaces_the_history() {
     let directory = tempfile::tempdir().unwrap();
     let store = ReviewStore::open(directory.path().join("state"), directory.path()).unwrap();

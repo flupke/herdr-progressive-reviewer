@@ -1,15 +1,17 @@
-use review_threads::{MessageId, ReviewThreads, ThreadId};
+use review_threads::{MessageId, ReviewThreads, SavedDrafts, ThreadId};
 use review_types::ReviewUnit;
 
 /// Paste input delivered to the focused component.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TextPasted(pub String);
 
-/// The persisted thread history for a logical review.
+/// The persisted thread history for a logical review, with the drafts saved apart from it.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReviewThreadsLoaded {
     pub review_unit: ReviewUnit,
     pub result: Result<ReviewThreads, String>,
+    /// Restoring a saved draft reopens its editor; it never posts it.
+    pub drafts: SavedDrafts,
 }
 
 /// The durable outcome of an explicit reviewer post.

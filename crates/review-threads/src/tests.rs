@@ -14,12 +14,6 @@ fn saved_recipient_fields_do_not_change_history_or_pending_work() {
         question,
     ))
     .unwrap();
-    let mut draft = crate::Draft::reply(
-        book.thread(&thread).unwrap(),
-        book.thread(&thread).unwrap().messages[0].id.clone(),
-    );
-    draft.text = "Private text".into();
-    book.save_draft(draft).unwrap();
     let mut saved = serde_json::to_value(&book).unwrap();
     saved["recipient"] =
         serde_json::json!({"pane_id": "retired-agent", "workspace_id": "old-workspace"});
@@ -135,7 +129,8 @@ fn legacy_answers_do_not_become_ready_again_after_a_final_read_or_upgrade() {
 
 #[test]
 fn a_file_keeps_each_new_thread_draft_and_saving_replaces_only_the_same_one() {
-    let mut book = ReviewThreads::new("change".into());
+    let book = ReviewThreads::new("change".into());
+    let mut drafts = crate::SavedDrafts::default();
     let source = Arc::new(ThreadSource {
         anchor: start("unused").source.as_ref().unwrap().anchor.clone(),
         excerpt: "+original".into(),
@@ -144,19 +139,39 @@ fn a_file_keeps_each_new_thread_draft_and_saving_replaces_only_the_same_one() {
     let mut second = crate::Draft::start("gone.rs".into(), source);
     first.text = "First".into();
     second.text = "Second".into();
-    book.save_draft(first.clone()).unwrap();
-    book.save_draft(second.clone()).unwrap();
+    drafts.save(first.clone(), &book).unwrap();
+    drafts.save(second.clone(), &book).unwrap();
     first.text = "First, edited".into();
-    book.save_draft(first.clone()).unwrap();
-    let mut texts = book
+    drafts.save(first.clone(), &book).unwrap();
+    let mut texts = drafts
         .drafts()
         .iter()
         .map(|draft| draft.text.as_str())
         .collect::<Vec<_>>();
     texts.sort_unstable();
     assert_eq!(texts, ["First, edited", "Second"]);
-    book.discard_draft(second.thread_id());
-    assert_eq!(book.drafts(), [first]);
+    drafts.discard(second.thread_id());
+    assert_eq!(drafts.drafts(), [first]);
+}
+
+#[test]
+fn a_posted_draft_is_no_longer_saved_and_cannot_be_saved_again() {
+    let mut book = ReviewThreads::new("change".into());
+    let mut drafts = crate::SavedDrafts::default();
+    let source = Arc::new(ThreadSource {
+        anchor: start("unused").source.as_ref().unwrap().anchor.clone(),
+        excerpt: "+original".into(),
+    });
+    let mut posted = crate::Draft::start("file.rs".into(), source.clone());
+    let mut kept = crate::Draft::start("file.rs".into(), source);
+    posted.text = "Posted".into();
+    kept.text = "Kept".into();
+    drafts.save(posted.clone(), &book).unwrap();
+    drafts.save(kept.clone(), &book).unwrap();
+    book.post(posted.post()).unwrap();
+    drafts.forget_posted(&book);
+    assert_eq!(drafts.drafts(), [kept]);
+    assert!(drafts.save(posted, &book).is_err());
 }
 
 fn start(text: &str) -> Post {

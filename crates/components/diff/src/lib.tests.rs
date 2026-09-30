@@ -849,6 +849,7 @@ fn dragging_source_rows_opens_an_editor_with_the_selected_diff() {
         .publish(ui_events::ReviewThreadsLoaded {
             review_unit: "change".into(),
             result: Ok(review_threads::ReviewThreads::new("change".into())),
+            drafts: review_threads::SavedDrafts::default(),
         })
         .unwrap();
     let rows = vec![

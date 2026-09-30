@@ -335,14 +335,29 @@ recipients, preserving completed answers during handoff. The next changed update
 migrates version 2 or 3 to version 4 without dropping any history.
 
 Version 4 stores immutable original code in compressed, content-addressed context
-files. The conversation index contains messages, read/answer progress and
-unposted drafts, with references to that context. Small updates rewrite the index
-without recompressing original files, and open views share cached context. Nothing is
-pruned, including resolved history. Former recipient fields are ignored when reading
-existing indexes. State remains separate for each canonical checkout.
-A successful post removes its draft in the same atomic index update. Recovery opens
-unposted text for editing; it never publishes or notifies an agent. Cancel and submitting
-trimmed-empty text discard the saved draft. Older comment and queue files remain untouched. E2E tests use a real isolated Herdr server, a
+files. The conversation index contains messages and read/answer progress, with
+references to that context. Small updates rewrite the index without recompressing
+original files, and open views share cached context. Nothing is pruned, including
+resolved history. Former recipient fields are ignored when reading existing indexes.
+State remains separate for each canonical checkout.
+
+Drafts are not part of the shared review thread, so they live in a separate
+compressed draft file for each logical review (`drafts/<review hash>.json.zst`, version
+1), with its own lock and references to the same context files. Saving or discarding
+a draft never rewrites the conversation index. A post is written to the index first;
+the posted draft is discarded afterwards. Loading drafts always drops any draft
+whose message ID is already in the index, so a posted comment never comes back as a
+draft, including after a crash between the two writes. Recovery opens unposted text
+for editing; it never publishes or notifies an agent. Cancel and submitting
+trimmed-empty text discard the saved draft.
+
+Earlier builds kept drafts inside the conversation index. The first load moves them
+to the draft file: it writes the draft file, then rewrites the index without them, still
+as version 4. An interrupted move leaves the drafts in both files and the next load
+repeats it without duplicates. Earlier builds still load the migrated index and show
+no drafts; drafts they save go back into the index and are moved again, replacing the
+draft file's copy for the same thread. An unreadable draft file is reported but
+never hides the threads, and drafts still inside the index stay there. Older comment and queue files remain untouched. E2E tests use a real isolated Herdr server, a
 real MCP HTTP client, and deterministic agent processes with private paths.
 The native client tests check preinstalled user registrations without project
 configuration or MCP reload, including forwarding a custom port. They cover

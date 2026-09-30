@@ -25,6 +25,7 @@ impl ConversationFixture {
         app.publish(ui_events::ReviewThreadsLoaded {
             review_unit: "review".into(),
             result: Ok(self.store.load_threads(&"review".into()).unwrap()),
+            drafts: review_threads::SavedDrafts::default(),
         });
         app.update(UserInput::Key(Key::Char('t')));
         app.update(UserInput::Key(Key::Enter));

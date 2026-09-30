@@ -43,11 +43,6 @@ impl<S> ReviewThreads<S> {
             .collect::<Result<_, E>>()?;
         Ok(ReviewThreads {
             review_unit: self.review_unit,
-            drafts: self
-                .drafts
-                .into_iter()
-                .map(|draft| draft.try_map_source(&mut map))
-                .collect::<Result<_, E>>()?,
             threads,
             sequence: self.sequence,
             readers: self.readers,

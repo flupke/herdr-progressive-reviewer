@@ -7,7 +7,9 @@
 use std::collections::BTreeMap;
 
 use comment_editor::{CommentEditor, KeymapSetting};
-use review_threads::{Draft, MessageId, ReviewThread, ReviewThreads, ThreadCommand, ThreadId};
+use review_threads::{
+    Draft, MessageId, ReviewThread, ReviewThreads, SavedDrafts, ThreadCommand, ThreadId,
+};
 use review_types::ReviewUnit;
 use ui_keys::Key;
 
@@ -241,10 +243,9 @@ impl Drafts {
         }
     }
 
-    /// Reopen the drafts `book` saved that this reviewer does not hold yet.
-    pub fn recover(&mut self, book: &ReviewThreads) {
-        let unit = &book.review_unit;
-        for draft in book.drafts() {
+    /// Reopen the drafts `saved` for `unit` that this reviewer does not hold yet.
+    pub fn recover(&mut self, unit: &ReviewUnit, saved: &SavedDrafts) {
+        for draft in saved.drafts() {
             let known = self
                 .slots
                 .values()

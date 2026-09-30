@@ -1,12 +1,9 @@
-use fs2::FileExt;
-use review_threads::ReviewThreads;
+use review_threads::{ReviewThreads, SavedDrafts};
 use review_types::ReviewUnit;
 use serde::{Deserialize, Serialize};
-use std::fs::OpenOptions;
-use std::os::unix::fs::OpenOptionsExt;
 
 use super::thread_sources::StoredSource;
-use super::{Error, Result, ReviewStore, StateKey};
+use super::{Error, Result, ReviewStore};
 
 #[cfg(test)]
 #[path = "thread_storage.tests.rs"]
@@ -17,14 +14,36 @@ struct Version {
     version: u8,
 }
 
+/// Version 4 stays the written version: builds that predate the separate draft store
+/// still load this document, and simply see no drafts in it.
 #[derive(Deserialize, Serialize)]
 struct StoredThreads<S = std::sync::Arc<review_threads::ThreadSource>> {
     version: u8,
     conversations: ReviewThreads<S>,
 }
 
+/// Drafts that earlier builds saved inside the thread document.
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "S: Deserialize<'de>"))]
+struct EmbeddedDrafts<S> {
+    conversations: EmbeddedDraftList<S>,
+}
+
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "S: Deserialize<'de>"))]
+struct EmbeddedDraftList<S> {
+    #[serde(default)]
+    drafts: SavedDrafts<S>,
+}
+
+/// A decoded thread document, with any drafts it still carries from earlier builds.
+struct ThreadDocument {
+    threads: ReviewThreads,
+    embedded_drafts: SavedDrafts,
+}
+
 impl ReviewStore {
-    fn atomic_compressed_json(
+    pub(super) fn atomic_compressed_json(
         &self,
         target: &std::path::Path,
         value: &impl Serialize,
@@ -51,29 +70,19 @@ impl ReviewStore {
         update: impl FnOnce(&mut ReviewThreads) -> std::result::Result<T, String>,
     ) -> Result<(T, ReviewThreads)> {
         let path = self.threads_path(review_unit)?.with_extension("lock");
-        self.create_dir(&self.repository_dir.join("conversations"))?;
-        let lock = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .read(true)
-            .write(true)
-            .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW)
-            .open(&path)
-            .map_err(|source| Error::StateIo {
-                operation: "open conversation lock",
-                path: path.clone(),
-                source,
-            })?;
-        lock.lock_exclusive().map_err(|source| Error::StateIo {
-            operation: "lock conversation",
-            path,
-            source,
-        })?;
-        let mut book = self.load_threads(review_unit)?;
+        let _lock = self.exclusive_lock(&path, "lock conversation")?;
+        let document = self.read_thread_document(review_unit)?;
+        let migrating = !document.embedded_drafts.is_empty();
+        if migrating {
+            // The draft store is written first: an interruption before the thread document
+            // is rewritten leaves the drafts in both places, and the next load merges the
+            // same drafts again.
+            self.adopt_embedded_drafts(review_unit, document.embedded_drafts)?;
+        }
+        let mut book = document.threads;
         let original = book.clone();
         let result = update(&mut book).map_err(Error::ThreadUpdate)?;
-        if book != original {
+        if migrating || book != original {
             self.save_threads(&book)?;
         }
         Ok((result, book))
@@ -94,41 +103,58 @@ impl ReviewStore {
         )
     }
 
-    /// Restore conversations even when their original paths no longer exist.
+    /// Restore conversations even when their original paths no longer exist. The first
+    /// load of a document that still carries drafts moves them to the draft store.
     pub fn load_threads(&self, review_unit: &ReviewUnit) -> Result<ReviewThreads> {
+        let document = self.read_thread_document(review_unit)?;
+        if document.embedded_drafts.is_empty() {
+            return Ok(document.threads);
+        }
+        // A draft store this build cannot read must not hide the threads. The drafts stay
+        // in the thread document, and changing the threads reports the problem instead.
+        Ok(self
+            .update_threads(review_unit, |_| Ok(()))
+            .map_or(document.threads, |((), threads)| threads))
+    }
+
+    fn read_thread_document(&self, review_unit: &ReviewUnit) -> Result<ThreadDocument> {
         let path = self.threads_path(review_unit)?;
         let Some(bytes) = Self::read_bytes(&path, "read review threads", None)? else {
-            return Ok(ReviewThreads::new(review_unit.clone()));
+            return Ok(ThreadDocument {
+                threads: ReviewThreads::new(review_unit.clone()),
+                embedded_drafts: SavedDrafts::default(),
+            });
         };
         let json = Self::decode_thread_json(&path, &bytes)?;
-        let version: Version =
-            serde_json::from_slice(&json).map_err(|source| Error::StateJson {
-                operation: "decode review threads",
-                path: path.clone(),
-                source,
-            })?;
+        let decode = |source| Error::StateJson {
+            operation: "decode review threads",
+            path: path.clone(),
+            source,
+        };
+        let version: Version = serde_json::from_slice(&json).map_err(decode)?;
         if version.version == 4 {
             let stored: StoredThreads<StoredSource> =
-                serde_json::from_slice(&json).map_err(|source| Error::StateJson {
-                    operation: "decode review threads",
-                    path,
-                    source,
-                })?;
+                serde_json::from_slice(&json).map_err(decode)?;
+            let embedded: EmbeddedDrafts<StoredSource> =
+                serde_json::from_slice(&json).map_err(decode)?;
             if &stored.conversations.review_unit != review_unit {
                 return Err(Error::InvalidStateKey {
                     field: "thread review unit",
                 });
             }
-            return stored
-                .conversations
-                .try_map_sources(|source| self.load_thread_source(source));
+            return Ok(ThreadDocument {
+                threads: stored
+                    .conversations
+                    .try_map_sources(|source| self.load_thread_source(source))?,
+                embedded_drafts: embedded
+                    .conversations
+                    .drafts
+                    .try_map_sources(|source| self.load_thread_source(source))?,
+            });
         }
-        let mut stored: StoredThreads =
-            serde_json::from_slice(&json).map_err(|source| Error::StateJson {
-                operation: "decode review threads",
-                path,
-                source,
-            })?;
+        let mut stored: StoredThreads = serde_json::from_slice(&json).map_err(decode)?;
+        let embedded: EmbeddedDrafts<std::sync::Arc<review_threads::ThreadSource>> =
+            serde_json::from_slice(&json).map_err(decode)?;
         if !matches!(stored.version, 2 | 3) || &stored.conversations.review_unit != review_unit {
             return Err(Error::InvalidStateKey {
                 field: "thread storage version or review unit",
@@ -138,19 +164,14 @@ impl ReviewStore {
             stored.conversations.recover_retrieved_comments();
         }
         stored.conversations.migrate_answered_positions();
-        Ok(stored.conversations)
+        Ok(ThreadDocument {
+            threads: stored.conversations,
+            embedded_drafts: embedded.conversations.drafts,
+        })
     }
 
     fn threads_path(&self, review_unit: &ReviewUnit) -> Result<std::path::PathBuf> {
-        if review_unit.is_empty() {
-            return Err(Error::InvalidStateKey {
-                field: "review unit",
-            });
-        }
-        Ok(self.repository_dir.join("conversations").join(format!(
-            "{}.json.zst",
-            StateKey::hash(review_unit.as_str().as_bytes()).0
-        )))
+        self.review_record_path("conversations", review_unit)
     }
 }
 

@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 pub use attention::{Resolution, ThreadCounts};
 pub use command::ThreadCommand;
-pub use draft::{Draft, DraftTarget};
+pub use draft::{Draft, DraftTarget, SavedDrafts};
 pub use message::{Author, Message, MessageId};
 pub use paths::ThreadPaths;
 pub use post::Post;
@@ -72,8 +72,6 @@ impl ReviewThread {
 #[serde(bound(deserialize = "S: Deserialize<'de>"))]
 pub struct ReviewThreads<S = Arc<ThreadSource>> {
     pub review_unit: ReviewUnit,
-    #[serde(default)]
-    drafts: Vec<Draft<S>>,
     threads: Vec<ReviewThread<S>>,
     sequence: u64,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -86,7 +84,6 @@ impl ReviewThreads {
     pub fn new(review_unit: ReviewUnit) -> Self {
         Self {
             review_unit,
-            drafts: Vec::new(),
             threads: Vec::new(),
             sequence: 0,
             readers: BTreeMap::new(),
@@ -292,7 +289,6 @@ impl ReviewThreads {
             thread.messages.push(post.message);
         }
         self.sequence = next;
-        self.discard_posted_draft(&id);
         Ok(id)
     }
 }

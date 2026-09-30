@@ -299,16 +299,22 @@ impl ExploreUi {
         self.app.update(UserInput::Key(Key::Enter));
     }
 
-    fn shared_comment_draft(&mut self, cached_draft: bool) -> review_threads::ReviewThreads {
-        let mut book =
+    fn shared_comment_draft(
+        &mut self,
+        cached_draft: bool,
+    ) -> (review_threads::ReviewThreads, review_threads::SavedDrafts) {
+        let book =
             review_threads::ReviewThreads::new(self.comparison.checkpoint.review_unit.clone());
+        let mut drafts = review_threads::SavedDrafts::default();
         if cached_draft {
-            book.save_draft(self.saved_evidence_draft("caller.rs"))
+            drafts
+                .save(self.saved_evidence_draft("caller.rs"), &book)
                 .unwrap();
         }
         self.app.publish(ui_events::ReviewThreadsLoaded {
             review_unit: book.review_unit.clone(),
             result: Ok(book.clone()),
+            drafts: drafts.clone(),
         });
         self.app.update(UserInput::Key(Key::Tab));
         self.app.update(UserInput::Key(Key::Char('a')));
@@ -317,15 +323,16 @@ impl ExploreUi {
             .update(UserInput::Paste("Shared source draft".into()))
         {
             if let Action::Thread(review_threads::ThreadCommand::SaveDraft { draft, .. }) = action {
-                book.save_draft(draft).unwrap();
+                drafts.save(draft, &book).unwrap();
             }
         }
         self.switch_comment_reference('e');
         self.app.publish(ui_events::ReviewThreadsLoaded {
             review_unit: book.review_unit.clone(),
             result: Ok(book.clone()),
+            drafts: drafts.clone(),
         });
-        book
+        (book, drafts)
     }
 
     pub(super) fn inline_sizes(&self) -> Vec<(EvidenceView, ui_events::DiffViewportChanged)> {
@@ -488,14 +495,16 @@ fn evidence_opened_after_threads_load_restores_saved_drafts_without_reloading() 
 fn assert_evidence_restores_saved_drafts(side: review_explore::SourceSide) {
     let (mut fixture, request) = ExploreUi::new();
     let drafts = ["policy.rs", "caller.rs"].map(|path| fixture.saved_evidence_draft(path));
-    let mut book =
+    let book =
         review_threads::ReviewThreads::new(fixture.comparison.checkpoint.review_unit.clone());
+    let mut saved = review_threads::SavedDrafts::default();
     for draft in &drafts {
-        book.save_draft(draft.clone()).unwrap();
+        saved.save(draft.clone(), &book).unwrap();
     }
     fixture.app.publish(ui_events::ReviewThreadsLoaded {
         review_unit: book.review_unit.clone(),
         result: Ok(book),
+        drafts: saved,
     });
     let mut response = fixture.response(&request, 1);
     let caller = fixture
@@ -558,6 +567,7 @@ fn opening_historical_caller_maps_inherited_comments_without_reloading() {
     fixture.app.publish(ui_events::ReviewThreadsLoaded {
         review_unit: book.review_unit.clone(),
         result: Ok(book),
+        drafts: review_threads::SavedDrafts::default(),
     });
     let mut response = fixture.response(&request, 1);
     let question = response.next.as_mut().unwrap();
@@ -581,12 +591,14 @@ fn opening_historical_caller_maps_inherited_comments_without_reloading() {
 fn cancelled_drafts_do_not_reappear_in_fresh_evidence_views_from_stale_books() {
     let (mut fixture, request) = ExploreUi::new();
     let draft = fixture.saved_evidence_draft("policy.rs");
-    let mut book =
+    let book =
         review_threads::ReviewThreads::new(fixture.comparison.checkpoint.review_unit.clone());
-    book.save_draft(draft.clone()).unwrap();
+    let mut saved = review_threads::SavedDrafts::default();
+    saved.save(draft.clone(), &book).unwrap();
     fixture.app.publish(ui_events::ReviewThreadsLoaded {
         review_unit: book.review_unit.clone(),
         result: Ok(book.clone()),
+        drafts: saved.clone(),
     });
     fixture.respond(&request, 1);
     fixture.app.update(UserInput::Key(Key::Tab));
@@ -608,6 +620,7 @@ fn cancelled_drafts_do_not_reappear_in_fresh_evidence_views_from_stale_books() {
     fixture.app.publish(ui_events::ReviewThreadsLoaded {
         review_unit: book.review_unit.clone(),
         result: Ok(book),
+        drafts: saved,
     });
     assert!(!fixture.text().contains(&draft.text));
     fixture.switch_comment_reference('e');
@@ -829,6 +842,7 @@ fn native_search_selection_and_comment_editor_survive_window_resizing() {
     fixture.app.publish(ui_events::ReviewThreadsLoaded {
         review_unit: unit.clone(),
         result: Ok(review_threads::ReviewThreads::new(unit)),
+        drafts: review_threads::SavedDrafts::default(),
     });
     fixture
         .app
@@ -1100,6 +1114,7 @@ fn a_post_finishing_in_files_clears_the_parked_evidence_editor() {
     fixture.app.publish(ui_events::ReviewThreadsLoaded {
         review_unit: unit.clone(),
         result: Ok(book.clone()),
+        drafts: review_threads::SavedDrafts::default(),
     });
     fixture.app.update(UserInput::Key(Key::Tab));
     fixture.app.update(UserInput::Key(Key::Char('a')));
@@ -1119,6 +1134,7 @@ fn a_post_finishing_in_files_clears_the_parked_evidence_editor() {
     fixture.app.publish(ui_events::ReviewThreadsLoaded {
         review_unit: unit.clone(),
         result: Ok(book),
+        drafts: review_threads::SavedDrafts::default(),
     });
     fixture.app.publish(ui_events::ThreadPostFinished {
         review_unit: unit,
@@ -1142,7 +1158,7 @@ fn evidence_views_share_one_draft_and_posting_it_clears_every_view() {
         let (mut fixture, request) = ExploreUi::new();
         fixture.respond(&request, 1);
         let unit = fixture.comparison.checkpoint.review_unit.clone();
-        let mut book = fixture.shared_comment_draft(cached_draft);
+        let (mut book, mut drafts) = fixture.shared_comment_draft(cached_draft);
         if modified {
             fixture.click("Shared source draft");
             fixture
@@ -1160,9 +1176,11 @@ fn evidence_views_share_one_draft_and_posting_it_clears_every_view() {
             modified
         );
         book.post(original.clone()).unwrap();
+        drafts.forget_posted(&book);
         let actions = fixture.app.publish(ui_events::ReviewThreadsLoaded {
             review_unit: unit.clone(),
             result: Ok(book.clone()),
+            drafts,
         });
         ExploreUi::assert_no_comment_writes(&actions);
         fixture.app.publish(ui_events::ThreadPostFinished {

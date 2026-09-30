@@ -116,14 +116,14 @@ impl Comments {
         pending
     }
 
+    /// Drafts are shared, so the viewer that loaded `book` already recovered its drafts.
     pub(super) fn inherit_book(&mut self, book: &ReviewThreads) {
-        self.recover(book);
         self.book = Some(book.clone());
     }
 
-    /// Reopen the drafts `book` saved that no viewer holds yet.
-    fn recover(&self, book: &ReviewThreads) {
-        self.drafts.borrow_mut().recover(book);
+    /// Reopen the drafts saved for `unit` that no viewer holds yet.
+    fn recover(&self, unit: &review_types::ReviewUnit, saved: &review_threads::SavedDrafts) {
+        self.drafts.borrow_mut().recover(unit, saved);
     }
 
     pub(super) fn threads(&self) -> impl Iterator<Item = &ReviewThread> {
@@ -543,7 +543,7 @@ impl DiffComponent {
         }
         let mut visible_anchor = None;
         if let Ok(book) = &event.result {
-            self.comments.recover(book);
+            self.comments.recover(&event.review_unit, &event.drafts);
             // Another viewer may already have settled the shared draft this one edits.
             let editing = self.comments.focus.is_some();
             let height = usize::from(self.viewport_height);

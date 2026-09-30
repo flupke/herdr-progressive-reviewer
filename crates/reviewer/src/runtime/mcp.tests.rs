@@ -96,7 +96,7 @@ impl ConversationFixture {
         fixture
     }
 
-    fn reopen(&mut self, unit: &str) {
+    fn reopen(&mut self, unit: &str) -> review_threads::SavedDrafts {
         drop(self.worker.take());
         assert!(std::net::TcpStream::connect(self.endpoint.address()).is_err());
         let (sender, events) = mpsc::channel();
@@ -110,7 +110,7 @@ impl ConversationFixture {
                 let _ = sender.send(event);
             },
         ));
-        self.reload(unit);
+        self.reload(unit)
     }
 
     fn focus_agent(&self, agent: &herdr_client::protocol::Agent) {
@@ -122,7 +122,8 @@ impl ConversationFixture {
             .send(Command::ActiveAgentChanged);
     }
 
-    fn reload(&self, unit: &str) {
+    /// The drafts restored with the review.
+    fn reload(&self, unit: &str) -> review_threads::SavedDrafts {
         self.worker
             .as_ref()
             .unwrap()
@@ -131,7 +132,7 @@ impl ConversationFixture {
             match self.events.recv_timeout(Duration::from_secs(5)).unwrap() {
                 Event::Loaded(event) if event.review_unit.as_str() == unit => {
                     event.result.unwrap();
-                    return;
+                    return event.drafts;
                 }
                 Event::Error(error) => panic!("{error}"),
                 _ => {}
@@ -535,6 +536,56 @@ fn mcp_reopening_sends_fresh_access_only_for_unread_comments(agent: &str) {
             .reply_count(),
         1
     );
+}
+
+#[test]
+fn drafts_are_restored_after_reopening_until_they_are_posted() {
+    let mut fixture = ConversationFixture::start("codex");
+    let mut draft = review_threads::Draft::start(
+        "draft.rs".into(),
+        std::sync::Arc::new(review_threads::ThreadSource {
+            anchor: DiffRangeAnchor {
+                source_checkpoint: "original".into(),
+                old_path: None,
+                new_path: Some("draft.rs".into()),
+                old_lines: None,
+                new_lines: Some(1..2),
+                target_kind: AnchorKind::Lines,
+                source_hunk_count: 1,
+                old_content: None,
+                new_content: Some(b"original\n".to_vec()),
+                diff_hash: String::new(),
+            },
+            excerpt: "+original".into(),
+        }),
+    );
+    draft.text = "Still composing".into();
+    fixture
+        .worker
+        .as_ref()
+        .unwrap()
+        .send(Command::Thread(ThreadCommand::SaveDraft {
+            review_unit: "review".into(),
+            draft: draft.clone(),
+        }));
+    assert_eq!(fixture.reopen("review").drafts(), [draft.clone()]);
+    assert!(
+        fixture
+            .store
+            .load_threads(&"review".into())
+            .unwrap()
+            .threads()
+            .is_empty()
+    );
+    fixture.post("review", draft.post());
+    assert!(
+        fixture
+            .store
+            .load_drafts(&"review".into())
+            .unwrap()
+            .is_empty()
+    );
+    assert!(fixture.reopen("review").is_empty());
 }
 
 #[test]

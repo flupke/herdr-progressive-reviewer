@@ -1271,6 +1271,7 @@ fn dragging_diff_lines_opens_an_inline_comment_on_release() {
     app.publish(ui_events::ReviewThreadsLoaded {
         review_unit: "qpvuntsm".into(),
         result: Ok(review_threads::ReviewThreads::new("qpvuntsm".into())),
+        drafts: review_threads::SavedDrafts::default(),
     });
     app.publish(ui_events::DiffContentLoaded {
         review_checkpoint: ReviewCheckpoint::new("qpvuntsm", "11111111"),
@@ -1368,6 +1369,7 @@ fn acknowledge_comment(
                 app.publish(ui_events::ReviewThreadsLoaded {
                     review_unit: review_unit.clone(),
                     result: Ok(book.clone()),
+                    drafts: review_threads::SavedDrafts::default(),
                 });
                 app.publish(ui_events::ThreadPostFinished {
                     review_unit: review_unit.clone(),
@@ -1520,6 +1522,7 @@ fn test_backend_renders_wide_narrow_and_minimum_layouts() {
     app.publish(ui_events::ReviewThreadsLoaded {
         review_unit: book.review_unit.clone(),
         result: Ok(book),
+        drafts: review_threads::SavedDrafts::default(),
     });
 
     let wide = application_screen(&app, 120, 30).join("\n");

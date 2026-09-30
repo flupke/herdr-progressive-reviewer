@@ -77,6 +77,7 @@ impl ThreadUi {
         self.app.publish(ReviewThreadsLoaded {
             review_unit: self.book.review_unit.clone(),
             result: Ok(self.book.clone()),
+            drafts: review_threads::SavedDrafts::default(),
         });
     }
 

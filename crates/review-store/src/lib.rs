@@ -18,6 +18,7 @@ const MAX_STATE_FILE_BYTES: u64 = 1024 * 1024;
 mod explore;
 pub use review_explore::ExploreHistory;
 mod checkpoint;
+mod drafts;
 mod thread_sources;
 mod threads;
 
@@ -251,6 +252,50 @@ impl ReviewStore {
             let _ = fs::remove_file(&temporary);
         }
         result
+    }
+
+    /// The compressed record of `kind` (a directory) for one logical review.
+    fn review_record_path(
+        &self,
+        kind: &str,
+        review_unit: &review_types::ReviewUnit,
+    ) -> Result<PathBuf> {
+        if review_unit.is_empty() {
+            return Err(Error::InvalidStateKey {
+                field: "review unit",
+            });
+        }
+        Ok(self.repository_dir.join(kind).join(format!(
+            "{}.json.zst",
+            StateKey::hash(review_unit.as_str().as_bytes()).0
+        )))
+    }
+
+    /// Hold an exclusive lock, shared by reviewer processes, until the file is dropped.
+    fn exclusive_lock(&self, path: &Path, operation: &'static str) -> Result<File> {
+        let parent = path.parent().ok_or(Error::InvalidStateKey {
+            field: "lock parent",
+        })?;
+        self.create_dir(parent)?;
+        let lock = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(path)
+            .map_err(|source| Error::StateIo {
+                operation,
+                path: path.to_owned(),
+                source,
+            })?;
+        fs2::FileExt::lock_exclusive(&lock).map_err(|source| Error::StateIo {
+            operation,
+            path: path.to_owned(),
+            source,
+        })?;
+        Ok(lock)
     }
 
     fn settings_path(&self) -> PathBuf {
