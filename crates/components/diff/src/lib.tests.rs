@@ -927,9 +927,9 @@ fn dragging_source_rows_opens_an_editor_with_the_selected_diff() {
             .any(|text| text.contains("@@"))
     );
     let component = registry.get::<DiffComponent>(diff_target).unwrap();
-    let editing = component.comments.editing.as_ref().unwrap();
-    assert!(editing.draft.source.excerpt.contains("-    old();"));
-    assert!(editing.draft.source.excerpt.contains("+    new();"));
+    let editing = component.comments.focused().unwrap();
+    assert!(editing.draft().source.excerpt.contains("-    old();"));
+    assert!(editing.draft().source.excerpt.contains("+    new();"));
 }
 
 #[test]

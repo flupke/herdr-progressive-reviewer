@@ -200,8 +200,8 @@ impl Comments {
     pub(super) fn has_for(&self, file: &LoadedDocument) -> bool {
         self.inline_editor_visible_in(file)
             || self
-                .parked_file_editors()
-                .any(|parked| self.matches_path(file, parked.draft.path()))
+                .parked_file_drafts(&self.drafts())
+                .any(|(_, parked)| self.matches_path(file, parked.draft().path()))
             || self
                 .threads()
                 .any(|thread| self.matches_path(file, thread.path()))
@@ -220,26 +220,24 @@ impl Comments {
             Style::default().fg(palette.focus),
         );
         let mut layout = CommentLayout::new(frame, include_code);
-        if let Some(editing) = &self.editing
-            && editing.draft.is_new_thread()
-            && self.matches_path(file, editing.draft.path())
+        let drafts = self.drafts();
+        let focused = self
+            .focused_id()
+            .and_then(|id| drafts.get(id).map(|open| (id, open, true)));
+        let parked = self
+            .parked_file_drafts(&drafts)
+            .map(|(id, open)| (id, open, false));
+        for (id, open, focused) in focused
+            .into_iter()
+            .filter(|(_, open, _)| open.draft().is_new_thread())
+            .chain(parked)
+            .filter(|(_, open, _)| self.matches_path(file, open.draft().path()))
         {
-            let range = draft_rows(&editing.draft, file);
+            let range = draft_rows(open.draft(), file);
             let source_row = anchor_end(range.as_ref(), file);
             let mut rows = Vec::new();
             let thread = ThreadLayout::new(frame, source_row, palette);
-            self.editor_rows(&mut rows, editing, true, thread);
-            layout.push_thread(range, source_row, rows, None);
-        }
-        for parked in self
-            .parked_file_editors()
-            .filter(|parked| self.matches_path(file, parked.draft.path()))
-        {
-            let range = draft_rows(&parked.draft, file);
-            let source_row = anchor_end(range.as_ref(), file);
-            let mut rows = Vec::new();
-            let thread = ThreadLayout::new(frame, source_row, palette);
-            self.editor_rows(&mut rows, parked, false, thread);
+            self.editor_rows(&mut rows, (id, open), focused, thread);
             layout.push_thread(range, source_row, rows, None);
         }
         for thread in self

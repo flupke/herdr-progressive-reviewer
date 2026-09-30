@@ -10,6 +10,7 @@ eyre.workspace = true
 uuid.workspace = true
 review-explore = { path = "../../review-explore" }
 comment-editor = { path = "../../comment-editor" }
+review-drafts = { path = "../../review-drafts" }
 review-threads = { path = "../../review-threads" }
 review-types = { path = "../../review-types" }
 text-search = { path = "../../text-search" }

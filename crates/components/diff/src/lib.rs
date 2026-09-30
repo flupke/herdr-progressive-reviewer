@@ -374,7 +374,7 @@ impl DiffComponent {
                 height: event.height.saturating_sub(1),
             });
         }
-        self.comments.editor_height = self.viewport_height.saturating_sub(6).clamp(1, 5);
+        self.comments.fit_editors(self.viewport_height);
         if changed && self.conversation.active {
             self.keep_conversation_composer_visible();
         } else if changed {
@@ -1286,7 +1286,8 @@ impl DiffComponent {
             self.explore.latest = Some(event.clone());
             return Vec::new();
         }
-        self.comments.paths = FileSummary::thread_paths(&event.files);
+        self.comments
+            .use_paths(FileSummary::thread_paths(&event.files));
         self.conversation.refresh_files();
         self.preview = None;
         self.pending_preview_location = None;
@@ -1502,8 +1503,7 @@ impl DiffComponent {
         }
         self.finish_repository_search_load_if_complete();
         self.contain_loaded_cursor(&event.path);
-        if self.comments.pending_path.as_deref() == Some(&event.path) {
-            self.comments.pending_path = None;
+        if self.comments.take_pending_path(&event.path) {
             self.keep_comment_visible();
         }
         self.publish_viewports();

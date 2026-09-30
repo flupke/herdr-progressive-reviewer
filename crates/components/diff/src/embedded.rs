@@ -77,11 +77,10 @@ impl DiffComponent {
             next.next_search_id = self.next_search_id.clone();
             next.explore.active = true;
             next.install_comparison(event.comparison.clone());
-            next.comments.share_editing_state(&self.comments);
+            next.comments.share_drafts(&self.comments);
             if let Some(book) = self
                 .comments
-                .book
-                .as_ref()
+                .book()
                 .filter(|book| book.review_unit == event.comparison.checkpoint.review_unit)
             {
                 next.comments.inherit_book(book);

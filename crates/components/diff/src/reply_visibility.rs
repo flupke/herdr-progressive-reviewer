@@ -131,11 +131,7 @@ impl DiffComponent {
         for viewer in self.embedded.saved.values() {
             viewer.begin_reply_frame();
         }
-        let unit = self
-            .comments
-            .book
-            .as_ref()
-            .map(|book| book.review_unit.clone());
+        let unit = self.comments.book().map(|book| book.review_unit.clone());
         let mut visibility = self.reply_visibility.borrow_mut();
         if visibility.unit != unit {
             *visibility = ReplyVisibility {
@@ -174,7 +170,7 @@ impl DiffComponent {
             .values_mut()
             .flat_map(|viewer| viewer.displayed_reply_actions())
             .collect();
-        let Some(book) = &self.comments.book else {
+        let Some(book) = self.comments.book() else {
             return actions;
         };
         let visibility = self.reply_visibility.get_mut();

@@ -169,7 +169,7 @@ impl DiffComponent {
             self.palette,
         );
         viewer.next_search_id = std::rc::Rc::clone(&self.next_search_id);
-        viewer.comments.share_editing_state(&self.comments);
+        viewer.comments.share_drafts(&self.comments);
         viewer.source_session = Some(request.clone());
         viewer.review_checkpoint.clone_from(&self.review_checkpoint);
         viewer.viewport_width = self.viewport_width;

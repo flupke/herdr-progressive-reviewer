@@ -178,7 +178,7 @@ fn posting_a_question_keeps_visible_code_below_it_in_place() {
         fixture.key(Key::Down);
     }
     fixture.key(Key::Char('a'));
-    assert!(fixture.component().comments.editing.is_some());
+    assert!(fixture.component().comments.focused().is_some());
     fixture
         .registry
         .publish(ui_events::TextPasted(

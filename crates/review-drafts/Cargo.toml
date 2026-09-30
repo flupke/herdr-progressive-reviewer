@@ -1,0 +1,18 @@
+[package]
+name = "review-drafts"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+comment-editor = { path = "../comment-editor" }
+review-threads = { path = "../review-threads" }
+review-types = { path = "../review-types" }
+ui-keys = { path = "../ui-keys" }
+
+[dev-dependencies]
+review-source = { path = "../review-source" }
+
+[lints]
+workspace = true

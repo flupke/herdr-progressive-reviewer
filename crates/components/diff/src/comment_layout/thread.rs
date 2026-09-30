@@ -11,7 +11,8 @@ use unicode_width::UnicodeWidthStr;
 
 use super::CommentRow;
 use super::controls::DraftControls;
-use crate::comments::{CommentTarget, Comments, EditingComment};
+use crate::comments::{CommentTarget, Comments};
+use review_drafts::{DraftId, OpenDraft};
 
 #[derive(Clone, Copy)]
 pub(super) struct ThreadLayout {
@@ -45,16 +46,15 @@ impl Comments {
             }
             layout.comment_rows(&mut rows, thread, comment, index == 0 && layout.outdated);
         }
-        let replying = self.editing.as_ref().is_some_and(|editing| {
-            thread
-                .messages
-                .iter()
-                .any(|comment| editing.draft.reply_to.as_ref() == Some(&comment.id))
-        });
-        if let Some(editing) = self.editing.as_ref().filter(|_| replying) {
+        let drafts = self.drafts();
+        let replying = self
+            .focused_id()
+            .filter(|_| self.replies_to(thread))
+            .and_then(|id| drafts.get(id).map(|open| (id, open)));
+        if let Some(editing) = replying {
             layout.separator(&mut rows, None);
             self.editor_rows(&mut rows, editing, true, layout);
-        } else if let Some(parked) = self.parked_reply(&thread.id) {
+        } else if let Some(parked) = self.parked_reply(&drafts, &thread.id) {
             layout.separator(&mut rows, None);
             self.editor_rows(&mut rows, parked, false, layout);
         } else if let Some(comment) = thread.messages.last() {
@@ -69,26 +69,26 @@ impl Comments {
     pub(super) fn editor_rows(
         &self,
         rows: &mut Vec<CommentRow>,
-        editing: &EditingComment,
+        (draft_id, editing): (DraftId, &OpenDraft),
         focused: bool,
         layout: ThreadLayout,
     ) {
         let (frame, palette) = (layout.frame, layout.palette);
         let start = rows.len();
         let mut buttons = Vec::new();
-        let thread = editing.draft.reply_to.as_ref().and_then(|id| {
-            self.book
-                .as_ref()
-                .and_then(|book| book.thread_for_message(id))
-        });
+        let thread = editing
+            .draft()
+            .reply_to
+            .as_ref()
+            .and_then(|reply_to| self.book()?.thread_for_message(reply_to));
         let draft = DraftControls {
-            draft: editing.draft.thread_id(),
+            draft: draft_id,
             focused,
         };
         layout.controls(&mut buttons, thread, Some(draft));
         let extra_button_rows = u16::try_from(buttons.len().saturating_sub(1)).unwrap_or(u16::MAX);
         let id = None;
-        let status = if editing.posting.is_some() {
+        let status = if editing.is_posting() {
             "Posting…"
         } else if frame.content_width() < 24 {
             ""
@@ -103,10 +103,12 @@ impl Comments {
             0,
             0,
             frame.content_width().max(1),
-            self.editor_height.saturating_sub(extra_button_rows).max(1),
+            self.editor_height()
+                .saturating_sub(extra_button_rows)
+                .max(1),
         );
         let mut buffer = Buffer::empty(area);
-        editing.editor.render(area, &mut buffer, palette, focused);
+        editing.editor().render(area, &mut buffer, palette, focused);
         for y in 0..area.height {
             let mut spans = Vec::new();
             let mut x = 0;
@@ -120,11 +122,11 @@ impl Comments {
             layout.field_line(rows, Line::from(spans), focused, id);
         }
         if focused {
-            layout.editor_border(rows, &editing.editor, id);
+            layout.editor_border(rows, editing.editor(), id);
         } else {
             layout.field_border(rows, false, false, id);
         }
-        let target = (!focused).then(|| CommentTarget::Draft(editing.draft.thread_id().clone()));
+        let target = (!focused).then_some(CommentTarget::Draft(draft_id));
         for row in &mut rows[start..] {
             row.editor = focused;
             row.target.clone_from(&target);

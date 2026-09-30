@@ -702,10 +702,9 @@ fn recovered_editors_restore_without_posting_and_cancel_discards_the_saved_draft
         let edited = restarted
             .component()
             .comments
-            .editing
-            .as_ref()
+            .focused()
             .unwrap()
-            .editor
+            .editor()
             .text();
         assert!(edited.contains("edited"));
         restarted
@@ -719,10 +718,9 @@ fn recovered_editors_restore_without_posting_and_cancel_discards_the_saved_draft
             restarted
                 .component()
                 .comments
-                .editing
-                .as_ref()
+                .focused()
                 .unwrap()
-                .editor
+                .editor()
                 .text(),
             edited
         );
@@ -811,21 +809,19 @@ fn a_file_keeps_several_drafts_and_reopens_the_one_under_the_cursor() {
     fixture.paste("First note");
     assert_eq!(fixture.book.drafts().len(), 2);
     fixture.click_text("Second note");
-    let parked = fixture
-        .component()
-        .comments
-        .parked_file_editors()
-        .map(|parked| parked.draft.text.clone())
+    let comments = &fixture.component().comments;
+    let parked = comments
+        .parked_file_drafts(&comments.drafts())
+        .map(|(_, parked)| parked.draft().text.clone())
         .collect::<Vec<_>>();
     assert_eq!(parked, ["First note"]);
     assert_eq!(
         fixture
             .component()
             .comments
-            .editing
-            .as_ref()
+            .focused()
             .unwrap()
-            .editor
+            .editor()
             .text(),
         "Second note"
     );
@@ -863,10 +859,8 @@ fn an_empty_editor_disappears_when_it_loses_focus() {
     fixture.click_text("changed");
     fixture.assert_editor(false);
     assert!(!fixture.text().contains("Draft · click to edit"));
-    assert_eq!(
-        fixture.component().comments.parked_file_editors().count(),
-        0
-    );
+    let comments = &fixture.component().comments;
+    assert_eq!(comments.parked_file_drafts(&comments.drafts()).count(), 0);
 }
 
 #[test]
@@ -918,10 +912,9 @@ fn a_saved_reply_shows_in_its_reply_field_until_it_is_reopened() {
         restarted
             .component()
             .comments
-            .editing
-            .as_ref()
+            .focused()
             .unwrap()
-            .editor
+            .editor()
             .text(),
         "Pending reply"
     );

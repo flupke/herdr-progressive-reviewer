@@ -1,7 +1,8 @@
 //! Right-aligned thread controls share rendering and pointer geometry.
 
 use ratatui::text::{Line, Span};
-use review_threads::{Resolution, ReviewThread, ThreadId};
+use review_drafts::DraftId;
+use review_threads::{Resolution, ReviewThread};
 
 use super::{CommentRow, thread::ThreadLayout};
 use crate::{
@@ -12,8 +13,8 @@ use ui_controls::{ActionButton, ButtonTone};
 
 /// The draft whose Cancel and Post buttons a control row carries.
 #[derive(Clone, Copy)]
-pub(super) struct DraftControls<'a> {
-    pub(super) draft: &'a ThreadId,
+pub(super) struct DraftControls {
+    pub(super) draft: DraftId,
     pub(super) focused: bool,
 }
 
@@ -43,7 +44,7 @@ impl ThreadControl {
         }
     }
 
-    fn editor(action: EditorAction, draft: &ThreadId, width: usize) -> Self {
+    fn editor(action: EditorAction, draft: DraftId, width: usize) -> Self {
         let (label, style) = match action {
             EditorAction::Submit => (" Post ", ButtonTone::Primary),
             EditorAction::Cancel => (" Cancel ", ButtonTone::Secondary),
@@ -52,7 +53,7 @@ impl ThreadControl {
             label.into(),
             label,
             width,
-            ConversationAction::Editor(action, draft.clone()),
+            ConversationAction::Editor(action, draft),
             style,
         )
     }
@@ -82,7 +83,7 @@ impl ThreadLayout {
         self,
         rows: &mut Vec<CommentRow>,
         thread: Option<&ReviewThread>,
-        draft: Option<DraftControls<'_>>,
+        draft: Option<DraftControls>,
     ) {
         let width = usize::from(self.frame.content_width());
         if width == 0 {

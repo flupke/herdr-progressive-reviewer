@@ -165,7 +165,7 @@ impl DiffComponent {
                     self.palette,
                 );
                 viewer.next_search_id = self.next_search_id.clone();
-                viewer.comments.share_editing_state(&self.comments);
+                viewer.comments.share_drafts(&self.comments);
                 viewer.explore.active = active;
                 Box::new(viewer)
             });
@@ -220,18 +220,19 @@ impl DiffComponent {
         self.documents = (0..comparison.files.len())
             .map(|index| self.comparison_document(&comparison, index))
             .collect();
-        self.comments.paths = ui_events::FileSummary::thread_paths(
-            &comparison
-                .files
-                .iter()
-                .map(|file| {
-                    ui_events::FileSummary::from_review_state(
-                        file,
-                        review_state::ReviewState::unreviewed(file.statistics, None),
-                    )
-                })
-                .collect::<Vec<_>>(),
-        );
+        self.comments
+            .use_paths(ui_events::FileSummary::thread_paths(
+                &comparison
+                    .files
+                    .iter()
+                    .map(|file| {
+                        ui_events::FileSummary::from_review_state(
+                            file,
+                            review_state::ReviewState::unreviewed(file.statistics, None),
+                        )
+                    })
+                    .collect::<Vec<_>>(),
+            ));
         self.explore.comparison = Some(comparison);
         self.explore.evidence.clear();
         self.explore.required_only = false;

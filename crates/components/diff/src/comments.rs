@@ -1,12 +1,16 @@
 //! Thread state and the diff component's comment commands.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ops::Range;
+use std::rc::Rc;
 
-use comment_editor::{CommentEditor, KeymapSetting};
+use comment_editor::KeymapSetting;
+use review_drafts::{DraftId, Drafts, Submission};
 use review_source::{AnchorKind, DiffRangeAnchor, FrozenHunk};
 use review_threads::{
-    Draft, MessageId, Post, ReviewThread, ReviewThreads, ThreadCommand, ThreadId, ThreadSource,
+    Draft, MessageId, ReviewThread, ReviewThreads, ThreadCommand, ThreadId, ThreadPaths,
+    ThreadSource,
 };
 use ui_actions::Action;
 use ui_events::{ReviewThreadsLoaded, TextPasted, ThreadPostFinished};
@@ -14,26 +18,27 @@ use ui_shortcuts::{CommentShortcut, Key};
 
 use crate::{DiffComponent, LoadedDocument, SelectionState};
 
-mod drafts;
-use drafts::Drafts;
+mod focus;
 
 pub(super) struct Comments {
-    pub(super) book: Option<ReviewThreads>,
-    pub(super) editing: Option<EditingComment>,
-    pub(super) selected: Option<MessageId>,
-    pub(super) pending_path: Option<String>,
+    book: Option<ReviewThreads>,
+    /// Shared with every nested viewer, so each draft has one owner.
+    drafts: Rc<RefCell<Drafts>>,
+    focus: Option<DraftId>,
+    /// The file editor to restore when the conversation view closes.
+    file_focus: Option<DraftId>,
+    selected: Option<MessageId>,
+    pending_path: Option<String>,
     mapped: HashMap<ThreadId, Option<FrozenHunk>>,
-    pub(super) paths: review_threads::ThreadPaths,
-    pub(super) editor_height: u16,
-    keymap: KeymapSetting,
-    drafts: Drafts,
+    paths: ThreadPaths,
+    editor_height: u16,
 }
 
 #[derive(Clone)]
 pub(super) enum CommentTarget {
     Message(MessageId),
     Reply(MessageId),
-    Draft(ThreadId),
+    Draft(DraftId),
     Conversation(crate::conversation::ConversationAction),
     ConversationButtons(Vec<ConversationButton>),
 }
@@ -63,48 +68,62 @@ impl Default for Comments {
     fn default() -> Self {
         Self {
             book: None,
-            editing: None,
+            drafts: Rc::default(),
+            focus: None,
+            file_focus: None,
             selected: None,
             pending_path: None,
             mapped: HashMap::new(),
-            paths: review_threads::ThreadPaths::default(),
+            paths: ThreadPaths::default(),
             editor_height: 5,
-            keymap: KeymapSetting::default(),
-            drafts: Drafts::default(),
         }
     }
 }
 
-pub(super) struct EditingComment {
-    pub(super) posting: Option<MessageId>,
-    pub(super) draft: Draft,
-    pub(super) editor: CommentEditor,
-}
-
 impl Comments {
-    /// Share draft cancellations and the editor keymap with a nested viewer.
-    pub(super) fn share_editing_state(&mut self, other: &Self) {
-        self.drafts.share_cancellations(&other.drafts);
-        self.keymap = other.keymap.clone();
+    /// Let a nested viewer edit the same drafts as this one.
+    pub(super) fn share_drafts(&mut self, other: &Self) {
+        self.drafts = Rc::clone(&other.drafts);
     }
 
     pub(super) fn use_keymap(&mut self, keymap: KeymapSetting) {
-        self.keymap = keymap;
+        self.drafts.borrow_mut().use_keymap(keymap);
+    }
+
+    pub(super) fn use_paths(&mut self, paths: ThreadPaths) {
+        self.paths = paths;
+    }
+
+    /// Size editors for a viewport of `height` rows.
+    pub(super) fn fit_editors(&mut self, height: u16) {
+        self.editor_height = height.saturating_sub(6).clamp(1, 5);
+    }
+
+    pub(super) fn editor_height(&self) -> u16 {
+        self.editor_height
+    }
+
+    pub(super) fn book(&self) -> Option<&ReviewThreads> {
+        self.book.as_ref()
+    }
+
+    /// Whether `path` finished loading after comment navigation asked for it.
+    pub(super) fn take_pending_path(&mut self, path: &str) -> bool {
+        let pending = self.pending_path.as_deref() == Some(path);
+        if pending {
+            self.pending_path = None;
+        }
+        pending
     }
 
     pub(super) fn inherit_book(&mut self, book: &ReviewThreads) {
-        self.recover_drafts(book);
+        self.recover(book);
         self.book = Some(book.clone());
     }
 
-    fn recover_drafts(&mut self, book: &ReviewThreads) {
-        self.drafts.recover(
-            book,
-            &self.keymap,
-            self.editing
-                .as_ref()
-                .map(|editing| editing.draft.thread_id()),
-        );
+    /// Reopen the drafts `book` saved that no viewer holds yet.
+    fn recover(&self, book: &ReviewThreads) {
+        self.drafts.borrow_mut().recover(book);
     }
 
     pub(super) fn threads(&self) -> impl Iterator<Item = &ReviewThread> {
@@ -117,12 +136,23 @@ impl Comments {
     }
 
     pub(super) fn inline_editor_visible_in(&self, file: &LoadedDocument) -> bool {
-        self.editing.as_ref().is_some_and(|editing| {
-            self.matches_path(file, editing.draft.path())
-                && editing.draft.reply_to.as_ref().is_none_or(|id| {
+        self.focused().is_some_and(|open| {
+            let draft = open.draft();
+            self.matches_path(file, draft.path())
+                && draft.reply_to.as_ref().is_none_or(|id| {
                     self.open_threads()
                         .any(|thread| thread.messages.iter().any(|message| &message.id == id))
                 })
+        })
+    }
+
+    /// Whether this viewer edits a reply to one of `thread`'s messages.
+    pub(super) fn replies_to(&self, thread: &ReviewThread) -> bool {
+        self.focused().is_some_and(|open| {
+            thread
+                .messages
+                .iter()
+                .any(|message| open.draft().reply_to.as_ref() == Some(&message.id))
         })
     }
 
@@ -153,44 +183,87 @@ impl Comments {
         self.mapped.get(thread).and_then(Option::as_ref)
     }
 
-    fn prepare_post(&mut self) -> Option<Post> {
-        let editing = self.editing.as_mut()?;
-        if editing.posting.is_some() {
-            return None;
+    pub(super) fn start_reply(&mut self, id: MessageId) {
+        let Some(book) = &self.book else { return };
+        let Some(thread) = book.thread_for_message(&id) else {
+            return;
+        };
+        let mut drafts = self.drafts.borrow_mut();
+        let existing = drafts.for_thread(&book.review_unit, &thread.id);
+        let started = drafts.start_reply(book.review_unit.clone(), thread, id.clone());
+        drop(drafts);
+        if let Some(draft) = existing.or(started) {
+            self.activate(draft);
         }
-        self.book.as_ref()?;
-        editing.draft.text = editing.editor.text();
-        let post = editing.draft.post();
-        editing.posting = Some(post.message().id.clone());
-        Some(post)
+        if started.is_some() {
+            self.selected = Some(id);
+        }
     }
 
-    pub(super) fn start_reply(&mut self, id: MessageId) {
-        let Some(thread_id) = self
-            .book
-            .as_ref()
-            .and_then(|book| book.thread_for_message(&id))
-            .map(|thread| thread.id.clone())
-        else {
-            return;
+    /// Change the focused draft's text, returning the save it needs.
+    fn edit(
+        &mut self,
+        edit: impl FnOnce(&mut Drafts, DraftId) -> Option<ThreadCommand>,
+    ) -> Option<ThreadCommand> {
+        let id = self.focused_id()?;
+        edit(&mut self.drafts.borrow_mut(), id)
+    }
+
+    /// Submit or cancel the focused draft. A draft that is no longer composed
+    /// returns focus to the message it answered.
+    fn finish(&mut self, action: EditorAction) -> Option<Submission> {
+        let id = self.focused_id()?;
+        let reply_to = self
+            .focused()
+            .and_then(|open| open.draft().reply_to.clone());
+        let submission = match action {
+            EditorAction::Submit => self.drafts.borrow_mut().submit(id)?,
+            EditorAction::Cancel => Submission::Cancelled(self.drafts.borrow_mut().cancel(id)?),
         };
-        self.activate_editor(thread_id);
-        if self.editing.is_some() {
-            return;
+        if let Submission::Cancelled(_) = submission {
+            self.focus = None;
+            self.selected = reply_to;
         }
-        let Some(thread) = self
-            .book
-            .as_ref()
-            .and_then(|book| book.thread_for_message(&id))
-        else {
-            return;
-        };
-        self.editing = Some(EditingComment {
-            posting: None,
-            draft: Draft::reply(thread, id.clone()),
-            editor: CommentEditor::new("", &self.keymap),
-        });
-        self.selected = Some(id);
+        Some(submission)
+    }
+
+    /// Adopt a loaded `book`: settle the drafts it shows posted and return the
+    /// saves of drafts renewed meanwhile.
+    fn accept_book(&mut self, book: &ReviewThreads) -> Vec<ThreadCommand> {
+        let renewed = self.drafts.borrow_mut().reconcile(book);
+        self.book = Some(book.clone());
+        renewed
+    }
+
+    fn post_finished(&self, event: &ThreadPostFinished) {
+        let mut drafts = self.drafts.borrow_mut();
+        if event.result.is_ok() {
+            drafts.post_succeeded(&event.review_unit, &event.message_id);
+        } else {
+            drafts.post_failed(&event.review_unit, &event.message_id);
+        }
+    }
+
+    fn start_thread(&mut self, draft: Draft) {
+        let Some(book) = &self.book else { return };
+        let id = self
+            .drafts
+            .borrow_mut()
+            .start(book.review_unit.clone(), draft);
+        self.activate(id);
+    }
+
+    /// Once the focused draft has been posted, select its message instead.
+    fn release_posted(&mut self) -> bool {
+        let posted = self
+            .focus
+            .and_then(|id| self.drafts.borrow().posted_as(id).cloned());
+        let released = posted.is_some();
+        if released {
+            self.focus = None;
+            self.selected = posted;
+        }
+        released
     }
 }
 
@@ -223,74 +296,21 @@ impl DiffComponent {
         if key == Key::ControlEnter {
             return self.finish_comment(EditorAction::Submit);
         }
-        if let Some(editing) = &mut self.comments.editing
-            && editing.posting.is_none()
-        {
-            editing.editor.input(key);
-        }
-        self.save_comment_draft()
-    }
-
-    fn save_comment_draft(&mut self) -> Vec<Action> {
-        let Some(editing) = &mut self.comments.editing else {
-            return Vec::new();
-        };
-        let Some(book) = &self.comments.book else {
-            return Vec::new();
-        };
-        let text = editing.editor.text();
-        if editing.draft.text == text {
-            return Vec::new();
-        }
-        editing.draft.text = text;
-        vec![Action::Thread(ThreadCommand::SaveDraft {
-            review_unit: book.review_unit.clone(),
-            draft: editing.draft.clone(),
-        })]
+        let save = self.comments.edit(|drafts, id| drafts.input(id, key));
+        save.map(Action::Thread).into_iter().collect()
     }
 
     pub(super) fn finish_comment(&mut self, action: EditorAction) -> Vec<Action> {
-        let Some(editing) = &self.comments.editing else {
-            return Vec::new();
-        };
-        if editing.posting.is_some() {
-            return Vec::new();
-        }
-        match action {
-            EditorAction::Submit if !editing.editor.text().trim().is_empty() => {
-                let Some(post) = self.comments.prepare_post() else {
-                    return Vec::new();
-                };
-                let review_unit = self
-                    .comments
-                    .book
-                    .as_ref()
-                    .expect("posting requires a review")
-                    .review_unit
-                    .clone();
-                vec![Action::Thread(review_threads::ThreadCommand::Post {
-                    review_unit,
-                    post,
-                })]
-            }
-            EditorAction::Submit | EditorAction::Cancel => {
-                let discard = self.comments.book.as_ref().map(|book| {
-                    self.comments
-                        .drafts
-                        .remember_cancellation(&book.review_unit, &editing.draft);
-                    Action::Thread(ThreadCommand::DiscardDraft {
-                        review_unit: book.review_unit.clone(),
-                        thread_id: editing.draft.thread_id().clone(),
-                    })
-                });
-                self.comments.selected.clone_from(&editing.draft.reply_to);
-                self.comments.editing = None;
+        match self.comments.finish(action) {
+            Some(Submission::Posting(post)) => vec![Action::Thread(post)],
+            Some(Submission::Cancelled(discard)) => {
                 if !self.conversation.active {
                     self.selection = None;
                 }
                 self.refresh_comment_documents();
-                discard.into_iter().collect()
+                vec![Action::Thread(discard)]
             }
+            None => Vec::new(),
         }
     }
 
@@ -298,12 +318,8 @@ impl DiffComponent {
         if !self.editor_is_visible() {
             return Vec::new();
         }
-        if let Some(editing) = &mut self.comments.editing
-            && editing.posting.is_none()
-        {
-            editing.editor.paste(&input.0);
-        }
-        self.save_comment_draft()
+        let save = self.comments.edit(|drafts, id| drafts.paste(id, &input.0));
+        save.map(Action::Thread).into_iter().collect()
     }
 
     pub(super) fn add_comment(&mut self) {
@@ -347,48 +363,43 @@ impl DiffComponent {
             return;
         }
         let excerpt = file.document.diff.comment_excerpt(range);
-        let editing = EditingComment {
-            posting: None,
-            editor: CommentEditor::new("", &self.comments.keymap),
-            draft: Draft::start(
-                file.path.clone(),
-                std::sync::Arc::new(ThreadSource {
-                    excerpt,
-                    anchor: DiffRangeAnchor {
-                        source_checkpoint: content.review_checkpoint.checkpoint.clone(),
-                        old_path: file
-                            .old_path
-                            .clone()
-                            .or_else(|| old.as_ref().map(|_| file.path.clone())),
-                        new_path: file
-                            .new_path
-                            .clone()
-                            .or_else(|| new.as_ref().map(|_| file.path.clone())),
-                        old_lines: old,
-                        new_lines: new,
-                        target_kind: AnchorKind::Lines,
-                        source_hunk_count: 0,
-                        old_content: content.old_content.clone(),
-                        new_content: content.new_content.clone(),
-                        diff_hash: String::new(),
-                    },
-                }),
-            ),
-        };
-        self.comments.park_editor();
-        self.comments.editing = Some(editing);
+        let draft = Draft::start(
+            file.path.clone(),
+            std::sync::Arc::new(ThreadSource {
+                excerpt,
+                anchor: DiffRangeAnchor {
+                    source_checkpoint: content.review_checkpoint.checkpoint.clone(),
+                    old_path: file
+                        .old_path
+                        .clone()
+                        .or_else(|| old.as_ref().map(|_| file.path.clone())),
+                    new_path: file
+                        .new_path
+                        .clone()
+                        .or_else(|| new.as_ref().map(|_| file.path.clone())),
+                    old_lines: old,
+                    new_lines: new,
+                    target_kind: AnchorKind::Lines,
+                    source_hunk_count: 0,
+                    old_content: content.old_content.clone(),
+                    new_content: content.new_content.clone(),
+                    diff_hash: String::new(),
+                },
+            }),
+        );
+        self.comments.start_thread(draft);
         self.selection = None;
         self.keep_comment_visible();
     }
 
     /// Buttons of an unfocused editor act on their own draft.
-    pub(super) fn finish_draft(&mut self, draft: ThreadId, action: EditorAction) -> Vec<Action> {
-        self.comments.activate_editor(draft);
+    pub(super) fn finish_draft(&mut self, draft: DraftId, action: EditorAction) -> Vec<Action> {
+        self.comments.activate(draft);
         self.finish_comment(action)
     }
 
-    fn open_draft(&mut self, thread: ThreadId) {
-        self.comments.activate_editor(thread);
+    fn open_draft(&mut self, draft: DraftId) {
+        self.comments.activate(draft);
         self.selection = None;
         self.keep_comment_visible();
     }
@@ -482,14 +493,11 @@ impl DiffComponent {
         let Some(viewport) = self.displayed_viewport() else {
             return;
         };
-        let Some(range) = viewport.comment_range(
-            self.comments.selected.as_ref(),
-            self.comments.editing.is_some(),
-        ) else {
+        let editing = self.comments.focused_id().is_some();
+        let Some(range) = viewport.comment_range(self.comments.selected.as_ref(), editing) else {
             return;
         };
         let height = usize::from(self.viewport_height);
-        let editing = self.comments.editing.is_some();
         if let Some(file) = self.displayed_document_mut() {
             let scroll = &mut file.document.scroll;
             if editing {
@@ -535,8 +543,9 @@ impl DiffComponent {
         }
         let mut visible_anchor = None;
         if let Ok(book) = &event.result {
-            self.comments.recover_drafts(book);
-            let editing = self.comments.editing.is_some();
+            self.comments.recover(book);
+            // Another viewer may already have settled the shared draft this one edits.
+            let editing = self.comments.focus.is_some();
             let height = usize::from(self.viewport_height);
             visible_anchor = (editing && !self.conversation.active)
                 .then(|| {
@@ -545,9 +554,9 @@ impl DiffComponent {
                         .visible_anchor(file.document.scroll, height)
                 })
                 .flatten();
-            actions.extend(self.comments.reconcile_posts(book));
-            self.comments.book = Some(book.clone());
-            if editing && self.comments.editing.is_none() {
+            let renewed = self.comments.accept_book(book);
+            actions.extend(renewed.into_iter().map(Action::Thread));
+            if self.comments.release_posted() {
                 self.selection = None;
             } else {
                 visible_anchor = None;
@@ -578,11 +587,11 @@ impl DiffComponent {
     }
 
     fn restore_saved_editor(&mut self) {
-        if self.comments.editing.is_none()
+        if self.comments.focused_id().is_none()
             && self.conversation.active
-            && let Some(thread) = self.conversation_thread()
+            && let Some(thread) = self.conversation_thread().map(|thread| thread.id.clone())
         {
-            self.comments.restore_thread_editor(thread.id.clone());
+            self.comments.restore_thread_editor(&thread);
         }
     }
 
@@ -601,31 +610,17 @@ impl DiffComponent {
         for viewer in self.retained_viewers_mut() {
             viewer.update_finished_post(event);
         }
+        self.comments.post_finished(event);
         let current = self
             .review_checkpoint
             .as_ref()
             .is_some_and(|checkpoint| checkpoint.review_unit == event.review_unit);
-        if current
-            && self
-                .comments
-                .editing
-                .as_ref()
-                .and_then(|editing| editing.posting.as_ref())
-                == Some(&event.message_id)
-        {
-            if event.result.is_ok() {
-                self.comments.editing = None;
-                self.comments.selected = Some(event.message_id.clone());
-                if !self.conversation.active {
-                    self.selection = None;
-                }
-                self.keep_comment_visible();
-            } else if let Some(editing) = &mut self.comments.editing {
-                editing.posting = None;
+        if current && self.comments.release_posted() {
+            if !self.conversation.active {
+                self.selection = None;
             }
+            self.keep_comment_visible();
         }
-
-        self.comments.drafts.post_finished(event);
     }
 
     pub(super) fn refresh_comment_documents(&mut self) {
@@ -634,11 +629,12 @@ impl DiffComponent {
             previous.drain(..).partition(|file| file.comments_only);
         self.documents = current;
         let mut paths = Vec::new();
+        let draft_paths = self.comments.draft_paths();
         for path in self
             .comments
             .threads()
             .map(ReviewThread::path)
-            .chain(self.comments.draft_paths())
+            .chain(draft_paths.iter().map(String::as_str))
         {
             if self
                 .documents

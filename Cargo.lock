@@ -786,6 +786,7 @@ dependencies = [
  "eyre",
  "markdown-rendering",
  "ratatui 0.30.2",
+ "review-drafts",
  "review-explore",
  "review-lsp",
  "review-repository",
@@ -3835,6 +3836,17 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-streams",
  "web-sys",
+]
+
+[[package]]
+name = "review-drafts"
+version = "0.2.0"
+dependencies = [
+ "comment-editor",
+ "review-source",
+ "review-threads",
+ "review-types",
+ "ui-keys",
 ]
 
 [[package]]

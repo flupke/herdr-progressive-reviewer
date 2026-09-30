@@ -1137,7 +1137,7 @@ fn a_post_finishing_in_files_clears_the_parked_evidence_editor() {
 }
 
 #[test]
-fn shared_comment_drafts_clear_or_keep_divergent_text_after_another_view_posts() {
+fn evidence_views_share_one_draft_and_posting_it_clears_every_view() {
     for (modified, cached_draft) in [(false, false), (true, false), (false, true), (true, true)] {
         let (mut fixture, request) = ExploreUi::new();
         fixture.respond(&request, 1);
@@ -1147,56 +1147,44 @@ fn shared_comment_drafts_clear_or_keep_divergent_text_after_another_view_posts()
             fixture.click("Shared source draft");
             fixture
                 .app
-                .update(UserInput::Paste(" independently changed".into()));
+                .update(UserInput::Paste(" edited in another view".into()));
         }
         fixture.switch_comment_reference('b');
+        if modified {
+            assert!(fixture.text().contains("edited in another view"));
+        }
         let original =
             ExploreUi::posted_comment(fixture.app.update(UserInput::Key(Key::ControlEnter)));
+        assert_eq!(
+            original.message().text.contains("edited in another view"),
+            modified
+        );
         book.post(original.clone()).unwrap();
         let actions = fixture.app.publish(ui_events::ReviewThreadsLoaded {
             review_unit: unit.clone(),
             result: Ok(book.clone()),
         });
-        for action in actions {
-            if let Action::Thread(review_threads::ThreadCommand::SaveDraft { draft, .. }) = action {
-                assert!(modified);
-                assert_ne!(draft.message_id(), &original.message().id);
-                assert!(draft.text.contains("independently changed"));
-                book.save_draft(draft).unwrap();
-            }
-        }
-        if modified {
-            assert!(
-                book.drafts()
-                    .iter()
-                    .any(|draft| draft.text.contains("independently changed")
-                        && draft.message_id() != &original.message().id)
-            );
-        }
+        ExploreUi::assert_no_comment_writes(&actions);
         fixture.app.publish(ui_events::ThreadPostFinished {
             review_unit: unit,
             message_id: original.message().id.clone(),
             result: Ok(()),
         });
         fixture.switch_comment_reference('e');
-        if !modified {
-            let actions = fixture.app.update(UserInput::Key(Key::ControlEnter));
-            assert!(!actions.iter().any(|action| matches!(
-                action,
-                Action::Thread(review_threads::ThreadCommand::Post { .. })
-            )));
-            fixture.app.update(UserInput::Key(Key::Char('a')));
-            fixture
-                .app
-                .update(UserInput::Paste("Fresh source comment".into()));
-        }
+        let actions = fixture.app.update(UserInput::Key(Key::ControlEnter));
+        assert!(!actions.iter().any(|action| matches!(
+            action,
+            Action::Thread(review_threads::ThreadCommand::Post { .. })
+        )));
+        fixture.app.update(UserInput::Key(Key::Char('a')));
+        fixture
+            .app
+            .update(UserInput::Paste("Fresh source comment".into()));
         let next = ExploreUi::posted_comment(fixture.app.update(UserInput::Key(Key::ControlEnter)));
         assert_ne!(next.message().id, original.message().id);
-        if modified {
-            assert!(next.message().text.contains("independently changed"));
-        }
+        assert_eq!(next.message().text, "Fresh source comment");
         book.post(next)
-            .expect("the remaining editor must be publishable with its own identity");
+            .expect("the next comment must be publishable with its own identity");
     }
 }
 

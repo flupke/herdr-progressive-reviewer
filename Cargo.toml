@@ -31,6 +31,7 @@ members = [
     "crates/review-store",
     "crates/review-test-support",
     "crates/review-types",
+    "crates/review-drafts",
     "crates/review-threads",
     "crates/review-mcp",
     "crates/review-mcp-config",

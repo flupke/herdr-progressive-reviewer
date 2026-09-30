@@ -35,7 +35,7 @@ pub(super) struct ConversationView {
 pub(super) enum ConversationAction {
     Back,
     Reply,
-    Editor(crate::comments::EditorAction, ThreadId),
+    Editor(crate::comments::EditorAction, review_drafts::DraftId),
     Resolve(ThreadId),
     Retry(ThreadId),
     Peek,
@@ -106,7 +106,7 @@ impl DiffComponent {
     }
 
     pub(super) fn publish_thread_contexts(&self) {
-        if let Some(book) = &self.comments.book {
+        if let Some(book) = self.comments.book() {
             self.events.publish(ui_events::ThreadContextsChanged {
                 review_unit: book.review_unit.clone(),
                 contexts: book
@@ -119,8 +119,7 @@ impl DiffComponent {
     }
     pub(super) fn conversation_thread(&self) -> Option<&ReviewThread> {
         self.comments
-            .book
-            .as_ref()?
+            .book()?
             .thread(self.conversation.selected.as_ref()?)
     }
 
@@ -128,16 +127,13 @@ impl DiffComponent {
         if self.conversation.is_peeking() {
             return false;
         }
-        let Some(editing) = &self.comments.editing else {
+        if self.comments.focused().is_none() {
             return false;
-        };
+        }
         if self.conversation.active {
-            return self.conversation_thread().is_some_and(|thread| {
-                thread
-                    .messages
-                    .iter()
-                    .any(|message| editing.draft.reply_to.as_ref() == Some(&message.id))
-            });
+            return self
+                .conversation_thread()
+                .is_some_and(|thread| self.comments.replies_to(thread));
         }
         self.selected_document()
             .is_some_and(|file| self.comments.inline_editor_visible_in(file))
@@ -150,7 +146,7 @@ impl DiffComponent {
             if active {
                 self.comments.enter_conversations();
                 if let Some(id) = &self.conversation.selected {
-                    self.comments.restore_thread_editor(id.clone());
+                    self.comments.restore_thread_editor(id);
                 }
             } else {
                 self.comments.leave_conversations();
@@ -167,7 +163,7 @@ impl DiffComponent {
             self.close_peek();
             if self.conversation.active {
                 if let Some(id) = &event.thread_id {
-                    self.comments.restore_thread_editor(id.clone());
+                    self.comments.restore_thread_editor(id);
                 } else {
                     self.comments.park_editor();
                     self.conversation.original = None;
@@ -179,7 +175,7 @@ impl DiffComponent {
     }
 
     fn read_conversation(&self) -> Vec<Action> {
-        let Some(book) = &self.comments.book else {
+        let Some(book) = self.comments.book() else {
             return Vec::new();
         };
         let Some(thread) = self
@@ -241,7 +237,7 @@ impl DiffComponent {
     }
 
     fn resolve_thread(&self, id: &ThreadId) -> Vec<Action> {
-        let Some(book) = &self.comments.book else {
+        let Some(book) = self.comments.book() else {
             return Vec::new();
         };
         let Some(thread) = book.thread(id) else {
@@ -259,7 +255,7 @@ impl DiffComponent {
     }
 
     fn retry_thread(&self, thread_id: ThreadId) -> Vec<Action> {
-        self.comments.book.as_ref().map_or_else(Vec::new, |book| {
+        self.comments.book().map_or_else(Vec::new, |book| {
             vec![Action::Thread(ThreadCommand::Retry {
                 review_unit: book.review_unit.clone(),
                 thread_id,
