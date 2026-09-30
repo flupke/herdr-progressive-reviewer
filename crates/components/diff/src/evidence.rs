@@ -9,9 +9,10 @@ use review_source::SourceLineRange;
 use std::collections::BTreeSet;
 use std::ops::{Range, RangeInclusive};
 
-struct EvidenceRows {
-    range: Range<usize>,
-    total: usize,
+/// Visual rows showing one evidence range, out of all the document's rows.
+pub(crate) struct EvidenceRows {
+    pub(crate) range: Range<usize>,
+    pub(crate) total: usize,
 }
 
 /// Project citations onto displayed rows before wrapping. Opposite-side changes
@@ -179,30 +180,8 @@ impl EvidenceFrames {
     }
 }
 
-impl EvidenceRows {
-    fn scroll(&self, height: usize) -> usize {
-        let before = height.saturating_sub(self.range.len()).min(3);
-        self.range
-            .start
-            .saturating_sub(before)
-            .min(self.total.saturating_sub(height))
-    }
-}
-
 impl DiffRenderer<'_> {
-    pub(crate) fn evidence_scroll(
-        &self,
-        file: &LoadedDocument,
-        width: u16,
-        height: u16,
-        side: SourceSide,
-        range: Option<&SourceLineRange>,
-    ) -> usize {
-        self.evidence_rows(file, width, side, range)
-            .scroll(usize::from(height))
-    }
-
-    fn evidence_rows(
+    pub(crate) fn evidence_rows(
         &self,
         file: &LoadedDocument,
         width: u16,

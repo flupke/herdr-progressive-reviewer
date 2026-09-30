@@ -47,6 +47,7 @@ mod render;
 mod reply_visibility;
 
 pub use clipped_viewport::ClippedViewport;
+use diff_position::Position;
 use diff_search::{Direction as SearchDirection, Edit as SearchEdit, Intent as SearchIntent};
 use diff_search::{Location as SearchLocation, Search};
 use document::LoadedDocument;
@@ -230,7 +231,9 @@ impl DiffComponent {
             let viewport = self
                 .renderer(palette, focused)
                 .viewport(file, width, focused);
-            let visual_row = viewport.scroll(file).saturating_add(screen_row);
+            let visual_row = viewport
+                .top(file.document.position())
+                .saturating_add(screen_row);
             (
                 viewport.source_row_at(visual_row)?,
                 viewport.source_column_at(
@@ -482,21 +485,7 @@ impl DiffComponent {
     }
 
     fn scroll(&mut self, delta: isize) {
-        let height = usize::from(self.viewport_height);
-        let Some(document) = self.displayed_document() else {
-            return;
-        };
-        let viewport =
-            self.renderer(self.palette, true)
-                .viewport(document, self.viewport_width, true);
-        let maximum = viewport.visible_row_count().saturating_sub(height);
-        let document = self.displayed_document_mut().expect("the document exists");
-        document.document.scroll = document
-            .document
-            .scroll
-            .saturating_add_signed(delta)
-            .min(maximum);
-        self.contain_cursor(&viewport);
+        self.move_screen(|position, rows, height| position.scroll_by(delta, rows, height));
     }
 
     fn displayed_viewport(&self) -> Option<DiffViewport> {
@@ -508,37 +497,47 @@ impl DiffComponent {
     }
 
     fn contain_displayed_cursor(&mut self) {
-        if let Some(viewport) = self.displayed_viewport() {
-            self.contain_cursor(&viewport);
+        self.move_screen(|position, rows, height| position.contain_cursor(rows, height));
+    }
+
+    /// Apply one screen operation to the displayed document's position. When
+    /// it moves the cursor onto the screen, the selection follows, the new
+    /// location is published, and the cursor is contained once more in the
+    /// layout for its new place: moving an end-of-line cursor can remove a
+    /// wrapped row.
+    fn move_screen(
+        &mut self,
+        operation: impl FnOnce(&mut Position, &render::DocumentRows<'_>, usize) -> bool,
+    ) {
+        if self.apply_screen_operation(operation) {
+            self.apply_screen_operation(|position, rows, height| {
+                position.contain_cursor(rows, height)
+            });
         }
     }
 
-    fn contain_cursor(&mut self, viewport: &DiffViewport) {
-        if self.move_cursor_into_viewport(viewport)
-            && let Some(updated) = self.displayed_viewport()
-        {
-            // Moving an end-of-line cursor can remove a wrapped row.
-            self.move_cursor_into_viewport(&updated);
+    /// Apply one screen operation to the displayed document's position.
+    /// Returns whether it moved the cursor, after following that move with
+    /// the selection and publishing the new location.
+    fn apply_screen_operation(
+        &mut self,
+        operation: impl FnOnce(&mut Position, &render::DocumentRows<'_>, usize) -> bool,
+    ) -> bool {
+        let height = usize::from(self.viewport_height);
+        let Some(viewport) = self.displayed_viewport() else {
+            return false;
+        };
+        let document = self.displayed_document_mut().expect("the document exists");
+        let (position, rows) = document.document.on_screen(&viewport);
+        if !operation(position, &rows, height) {
+            return false;
         }
-    }
-
-    fn move_cursor_into_viewport(&mut self, viewport: &DiffViewport) -> bool {
-        let Some(document) = self.displayed_document() else {
-            return false;
-        };
-        let Some(position) =
-            viewport.visible_cursor_position(document, usize::from(self.viewport_height))
-        else {
-            return false;
-        };
-        self.displayed_document_mut()
-            .expect("the document exists")
-            .document
-            .place_cursor(position);
+        let row = position.cursor();
+        document.document.clear_source_location();
         if let Some(selection) = &mut self.selection
             && !selection.fixed
         {
-            selection.cursor = position.row;
+            selection.cursor = row;
         }
         self.publish_current_location();
         self.publish_search_status();
@@ -610,7 +609,7 @@ impl DiffComponent {
         let Some(document) = self.selected_document() else {
             return;
         };
-        let current_row = document.document.cursor;
+        let current_row = document.document.position().cursor();
         let modified_hunk_rows = document.document.diff.modified_hunk_rows();
         let target = match command {
             HunkShortcut::GoToNextModified => modified_hunk_rows
@@ -646,19 +645,17 @@ impl DiffComponent {
         let Some(document) = self.selected_document() else {
             return;
         };
-        let current_row = document.document.cursor;
-        let last_row = document.document.diff.len().saturating_sub(1);
+        let current_row = document.document.position().cursor();
         let half_page =
             isize::try_from(usize::from(self.viewport_height) / 2).unwrap_or(isize::MAX);
         let target_row = match command {
             MovementShortcut::MoveDown => current_row.saturating_add(1),
             MovementShortcut::MoveUp => current_row.saturating_sub(1),
             MovementShortcut::GoToFirst => 0,
-            MovementShortcut::GoToLast => last_row,
+            MovementShortcut::GoToLast => document.document.diff.len().saturating_sub(1),
             MovementShortcut::MoveHalfPageDown => return self.navigate_visual_rows(half_page),
             MovementShortcut::MoveHalfPageUp => return self.navigate_visual_rows(-half_page),
         };
-        let target_row = target_row.min(last_row);
         if matches!(
             command,
             MovementShortcut::GoToFirst | MovementShortcut::GoToLast
@@ -682,7 +679,9 @@ impl DiffComponent {
         if let Some(document) = self.selected_document_mut()
             && let Some((_, line)) = document.document.diff.source_position(row)
         {
-            document.document.column = display_column_to_byte(&line, column);
+            document
+                .document
+                .set_column(display_column_to_byte(&line, column));
         }
         self.keep_cursor_visible();
     }
@@ -702,7 +701,7 @@ impl DiffComponent {
     fn jump_cursor_to_column(&mut self, target: usize, column: Option<usize>) {
         self.set_cursor(target);
         if let (Some(column), Some(document)) = (column, self.selected_document_mut()) {
-            document.document.column = column;
+            document.document.set_column(column);
         }
         self.center_jump_target();
         self.publish_viewports();
@@ -711,14 +710,16 @@ impl DiffComponent {
     }
 
     fn set_cursor(&mut self, target: usize) {
+        let mut cursor = target;
         if let Some(document) = self.selected_document_mut() {
-            document.document.cursor = target.min(document.document.diff.len().saturating_sub(1));
+            document.document.move_cursor(target);
             document.document.clear_source_location();
+            cursor = document.document.position().cursor();
         }
         if let Some(selection) = &mut self.selection
             && !selection.fixed
         {
-            selection.cursor = target;
+            selection.cursor = cursor;
         }
     }
 
@@ -736,34 +737,22 @@ impl DiffComponent {
 
     fn place_scroll(&mut self, placement: ScrollPlacement) {
         let height = usize::from(self.viewport_height);
-        let scroll = self.displayed_document().map(|document| {
-            let viewport =
-                self.renderer(self.palette, true)
-                    .viewport(document, self.viewport_width, true);
-            match placement {
-                ScrollPlacement::KeepCursorVisible => {
-                    viewport.scroll_with_cursor_visible(document, height)
-                }
-                ScrollPlacement::CenterCursor => {
-                    viewport.scroll_with_cursor_centered(document, height)
-                }
-                ScrollPlacement::AlignTargetTop => {
-                    viewport.scroll_with_target_top_aligned(document)
-                }
-            }
-        });
-        let Some(document) = self.displayed_document_mut() else {
+        let Some(viewport) = self.displayed_viewport() else {
             return;
         };
-        if let Some(scroll) = scroll {
-            document.document.scroll = scroll;
+        let document = self.displayed_document_mut().expect("the document exists");
+        let (position, rows) = document.document.on_screen(&viewport);
+        match placement {
+            ScrollPlacement::KeepCursorVisible => position.keep_cursor_visible(&rows, height),
+            ScrollPlacement::CenterCursor => position.center_cursor(&rows, height),
+            ScrollPlacement::AlignTargetTop => position.align_cursor_top(&rows),
         }
     }
 
     fn start_selection(&mut self) {
         let Some(cursor) = self
             .selected_document()
-            .map(|document| document.document.cursor)
+            .map(|document| document.document.position().cursor())
         else {
             return;
         };
@@ -921,8 +910,8 @@ impl DiffComponent {
         let (_, line) = document
             .document
             .diff
-            .source_position(document.document.cursor)?;
-        let mut column = document.document.column.min(line.len());
+            .source_position(document.document.position().cursor())?;
+        let mut column = document.document.position().column().min(line.len());
         while !line.is_char_boundary(column) {
             column = column.saturating_sub(1);
         }
@@ -942,38 +931,27 @@ impl DiffComponent {
         let Some(document) = self.selected_document() else {
             return Vec::new();
         };
-        let row = document.document.cursor;
+        let row = document.document.position().cursor();
         if command == SourceShortcut::ExpandOrMoveRight && self.expand_context(row) {
             self.publish_viewports();
             self.publish_current_location();
             return Vec::new();
         }
         let document = self.selected_document_mut().expect("the document exists");
-        let source_line = document.document.diff.source_text(document.document.cursor);
+        let source_line = document.document.diff.source_text(row);
         let Some(source_line) = source_line.as_deref() else {
             return Vec::new();
         };
-        match command {
-            SourceShortcut::MoveLeft => {
-                document.document.column =
-                    previous_character_column(source_line, document.document.column);
-            }
-            SourceShortcut::ExpandOrMoveRight => {
-                document.document.column =
-                    next_character_column(source_line, document.document.column);
-            }
-            SourceShortcut::MoveToStartOfLine => document.document.column = 0,
-            SourceShortcut::MoveToEndOfLine => {
-                document.document.column = source_line.len();
-            }
-            SourceShortcut::MoveToNextWord => {
-                document.document.column = next_word_column(source_line, document.document.column);
-            }
-            SourceShortcut::MoveToPreviousWord => {
-                document.document.column =
-                    previous_word_column(source_line, document.document.column);
-            }
-        }
+        let column = document.document.position().column();
+        let column = match command {
+            SourceShortcut::MoveLeft => previous_character_column(source_line, column),
+            SourceShortcut::ExpandOrMoveRight => next_character_column(source_line, column),
+            SourceShortcut::MoveToStartOfLine => 0,
+            SourceShortcut::MoveToEndOfLine => source_line.len(),
+            SourceShortcut::MoveToNextWord => next_word_column(source_line, column),
+            SourceShortcut::MoveToPreviousWord => previous_word_column(source_line, column),
+        };
+        document.document.set_column(column);
         self.keep_cursor_visible();
         self.publish_viewports();
         self.publish_current_location();
@@ -987,7 +965,7 @@ impl DiffComponent {
         let line = document
             .document
             .diff
-            .source_position(document.document.cursor)
+            .source_position(document.document.position().cursor())
             .map(|(line, _)| line);
         vec![Action::OpenInEditor {
             path: self.document_disk_path(document),
@@ -1025,11 +1003,15 @@ impl DiffComponent {
         let Some((line, expected_line)) = document
             .document
             .diff
-            .source_position(document.document.cursor)
+            .source_position(document.document.position().cursor())
         else {
             return Vec::new();
         };
-        let mut byte_column = document.document.column.min(expected_line.len());
+        let mut byte_column = document
+            .document
+            .position()
+            .column()
+            .min(expected_line.len());
         while !expected_line.is_char_boundary(byte_column) {
             byte_column = byte_column.saturating_sub(1);
         }
@@ -1372,7 +1354,7 @@ impl DiffComponent {
         let path = document.path.clone();
         self.selected_path = Some(path.clone());
         if let Some(document) = self.selected_document_mut() {
-            document.document.column = 0;
+            document.document.set_column(0);
         }
         let row = event.row.or_else(|| {
             self.selected_document().and_then(|document| {
@@ -1758,12 +1740,12 @@ impl DiffComponent {
         Some(ReviewLocation::LoadedDocument {
             review_unit,
             path: document.path.clone(),
-            cursor: document.document.cursor,
+            cursor: document.document.position().cursor(),
             presentation_location: document
                 .document
                 .diff
-                .presentation_location(document.document.cursor),
-            column: document.document.column,
+                .presentation_location(document.document.position().cursor()),
+            column: document.document.position().column(),
         })
     }
 
@@ -1893,8 +1875,8 @@ impl DiffComponent {
             document_index,
             path: document.path.clone(),
             position: text_search::Position {
-                row: document.document.cursor,
-                column: document.document.column,
+                row: document.document.position().cursor(),
+                column: document.document.position().column(),
             },
         })
     }

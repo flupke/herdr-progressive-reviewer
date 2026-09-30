@@ -18,7 +18,8 @@ use unicode_width::UnicodeWidthStr;
 use ui_theme::Palette;
 
 use crate::comment_layout::CommentLayout;
-use crate::{DiffPointerPosition, LoadedDocument, PresentedRow, Token};
+use crate::{DiffPresentation, LoadedDocument, PresentedRow, Token};
+use diff_position::{Layout, Position};
 
 pub(super) const TAB_DISPLAY_WIDTH: usize = 4;
 const DIFF_CONTROLS_TITLE: &str = "[←→] [→←] [👁 ]";
@@ -170,6 +171,13 @@ struct WrappedDiffRow {
     is_source_row: bool,
 }
 
+impl VisibleRowAnchor {
+    /// Screen row the anchored row was on.
+    pub(super) fn screen_row(&self) -> usize {
+        self.screen_row
+    }
+}
+
 impl DiffViewport {
     fn comments_only(layout: Option<CommentLayout>) -> Self {
         Self {
@@ -203,10 +211,6 @@ impl DiffViewport {
         Some(start..=rows.next_back().unwrap_or(start))
     }
 
-    pub(super) fn scroll(&self, file: &LoadedDocument) -> usize {
-        file.document.scroll.min(self.rows.len().saturating_sub(1))
-    }
-
     pub(super) fn visible_anchor(&self, scroll: usize, height: usize) -> Option<VisibleRowAnchor> {
         let visible = self.rows.iter().enumerate().skip(scroll).take(height);
         let (index, row) = visible
@@ -232,12 +236,9 @@ impl DiffViewport {
         })
     }
 
-    pub(super) fn scroll_for_anchor(
-        &self,
-        anchor: &VisibleRowAnchor,
-        height: usize,
-    ) -> Option<usize> {
-        let position = match &anchor.identity {
+    /// Visual row that `anchor` identifies in this layout.
+    pub(super) fn anchor_row(&self, anchor: &VisibleRowAnchor) -> Option<usize> {
+        match &anchor.identity {
             VisibleRowIdentity::Source {
                 row,
                 display_offset,
@@ -253,41 +254,7 @@ impl DiffViewport {
                 .filter(|(_, candidate)| candidate.message_id() == Some(id))
                 .nth(*occurrence)
                 .map(|(index, _)| index),
-        }?;
-        Some(
-            position
-                .saturating_sub(anchor.screen_row)
-                .min(self.rows.len().saturating_sub(height)),
-        )
-    }
-
-    pub(super) fn scroll_with_cursor_visible(&self, file: &LoadedDocument, height: usize) -> usize {
-        let last = self.rows.len().saturating_sub(height);
-        let mut scroll = file.document.scroll.min(last);
-        let cursor = self.cursor_visual_row(file);
-        if cursor < scroll {
-            scroll = cursor;
-        } else if cursor >= scroll.saturating_add(height) {
-            scroll = cursor + 1 - height;
         }
-        scroll
-    }
-
-    pub(super) fn scroll_with_cursor_centered(
-        &self,
-        file: &LoadedDocument,
-        height: usize,
-    ) -> usize {
-        self.cursor_visual_row(file)
-            .saturating_sub(height / 2)
-            .min(self.rows.len().saturating_sub(height))
-    }
-
-    pub(super) fn scroll_with_target_top_aligned(&self, file: &LoadedDocument) -> usize {
-        self.rows
-            .iter()
-            .position(|row| row.source_row == file.document.cursor)
-            .unwrap_or_else(|| self.cursor_visual_row(file))
     }
 
     pub(super) fn source_row_at(&self, visual_row: usize) -> Option<usize> {
@@ -316,7 +283,7 @@ impl DiffViewport {
         delta: isize,
     ) -> Option<(usize, usize)> {
         let visual_row = self
-            .cursor_visual_row(file)
+            .cursor_visual_row(&file.document.diff, file.document.position())
             .saturating_add_signed(delta)
             .min(self.rows.len().saturating_sub(1));
         let index = if delta >= 0 {
@@ -331,33 +298,20 @@ impl DiffViewport {
         Some((row.source_row, row.source_display_offset))
     }
 
-    pub(super) fn visible_row_count(&self) -> usize {
-        self.rows.len()
+    /// First visual row on screen for `position`.
+    pub(super) fn top(&self, position: &Position) -> usize {
+        position.top(self.rows.len())
     }
 
-    pub(super) fn visible_cursor_position(
+    fn column_on_row(
         &self,
-        file: &LoadedDocument,
-        height: usize,
-    ) -> Option<DiffPointerPosition> {
-        let cursor = self.cursor_visual_row(file);
-        let scroll = self.scroll(file);
-        let visible = scroll..scroll.saturating_add(height).min(self.rows.len());
-        if visible.contains(&cursor) {
-            return None;
-        }
-        let target = visible
-            .filter(|index| self.rows[*index].is_source_row)
-            .min_by_key(|index| index.abs_diff(cursor))?;
-        Some(DiffPointerPosition {
-            row: self.rows[target].source_row,
-            column: Some(self.column_on_row(file, cursor, target)),
-        })
-    }
-
-    fn column_on_row(&self, file: &LoadedDocument, cursor: usize, target: usize) -> usize {
+        diff: &DiffPresentation,
+        position: &Position,
+        cursor: usize,
+        target: usize,
+    ) -> usize {
         let row = &self.rows[target];
-        let column = Self::cursor_display_column(file)
+        let column = Self::cursor_display_column(diff, position)
             .saturating_sub(self.rows[cursor].source_display_offset);
         let end = self
             .rows
@@ -365,9 +319,7 @@ impl DiffViewport {
             .filter(|next| next.is_source_row && next.source_row == row.source_row)
             .map_or_else(
                 || {
-                    file.document
-                        .diff
-                        .source_position(row.source_row)
+                    diff.source_position(row.source_row)
                         .map_or(0, |(_, line)| source_display_width(&line, line.len()))
                 },
                 |next| next.source_display_offset,
@@ -378,23 +330,21 @@ impl DiffViewport {
             .max(row.source_display_offset)
     }
 
-    fn cursor_display_column(file: &LoadedDocument) -> usize {
-        file.document
-            .diff
-            .source_position(file.document.cursor)
+    fn cursor_display_column(diff: &DiffPresentation, position: &Position) -> usize {
+        diff.source_position(position.cursor())
             .map_or(0, |(_, line)| {
-                source_display_width(&line, file.document.column)
+                source_display_width(&line, position.column())
             })
     }
 
-    pub(super) fn cursor_visual_row(&self, file: &LoadedDocument) -> usize {
-        let source_display_column = Self::cursor_display_column(file);
+    pub(super) fn cursor_visual_row(&self, diff: &DiffPresentation, position: &Position) -> usize {
+        let source_display_column = Self::cursor_display_column(diff, position);
         self.rows
             .iter()
             .enumerate()
             .filter(|(_, row)| {
                 row.is_source_row
-                    && row.source_row == file.document.cursor
+                    && row.source_row == position.cursor()
                     && row.source_display_offset <= source_display_column
             })
             .map(|(index, _)| index)
@@ -402,9 +352,53 @@ impl DiffViewport {
             .or_else(|| {
                 self.rows
                     .iter()
-                    .position(|row| row.source_row == file.document.cursor)
+                    .position(|row| row.source_row == position.cursor())
             })
             .unwrap_or(0)
+    }
+}
+
+/// One document laid out on screen, as its position sees it.
+pub(super) struct DocumentRows<'a> {
+    viewport: &'a DiffViewport,
+    diff: &'a DiffPresentation,
+}
+
+impl<'a> DocumentRows<'a> {
+    pub(super) fn new(viewport: &'a DiffViewport, diff: &'a DiffPresentation) -> Self {
+        Self { viewport, diff }
+    }
+}
+
+impl Layout for DocumentRows<'_> {
+    fn row_count(&self) -> usize {
+        self.viewport.rows.len()
+    }
+
+    fn cursor_row(&self, position: &Position) -> usize {
+        self.viewport.cursor_visual_row(self.diff, position)
+    }
+
+    fn first_row_of(&self, row: usize) -> Option<usize> {
+        self.viewport
+            .rows
+            .iter()
+            .position(|candidate| candidate.source_row == row)
+    }
+
+    fn nearest_cursor(&self, position: &Position, rows: Range<usize>) -> Option<(usize, usize)> {
+        let cursor = self.cursor_row(position);
+        let target = rows
+            .filter(|index| self.viewport.rows[*index].is_source_row)
+            .min_by_key(|index| index.abs_diff(cursor))?;
+        let row = self.viewport.rows[target].source_row;
+        let display_column = self
+            .viewport
+            .column_on_row(self.diff, position, cursor, target);
+        let column = self.diff.source_position(row).map_or(0, |(_, line)| {
+            crate::display_column_to_byte(&line, display_column)
+        });
+        Some((row, column))
     }
 }
 
@@ -459,7 +453,7 @@ impl DiffRenderer<'_> {
             };
         }
         let viewport = self.viewport(file, inner.width, focused);
-        let scroll = viewport.scroll(file);
+        let scroll = viewport.top(file.document.position());
         replies.observe(
             viewport
                 .rows
@@ -611,6 +605,7 @@ impl DiffRenderer<'_> {
             .comments
             .is_some_and(|comments| comments.inline_editor_visible_in(file));
         let focused = focused && !editing;
+        let position = file.document.position();
         let rows: Vec<_> = file
             .document
             .diff
@@ -628,8 +623,7 @@ impl DiffRenderer<'_> {
                 let context = |tokens| CodeRenderContext {
                     tokens,
                     number_width: line_number_width,
-                    cursor: (focused && index == file.document.cursor)
-                        .then_some(file.document.column),
+                    cursor: (focused && index == position.cursor()).then_some(position.column()),
                     source_line,
                     source_location: file.document.source_location.as_ref(),
                 };
@@ -658,7 +652,7 @@ impl DiffRenderer<'_> {
                 {
                     style = style.bg(self.palette.selection);
                 }
-                let is_current_row = !editing && index == file.document.cursor;
+                let is_current_row = !editing && index == position.cursor();
                 if is_current_row {
                     style = style.bg(self.palette.cursor);
                 }

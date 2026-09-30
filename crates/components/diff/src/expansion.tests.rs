@@ -128,9 +128,9 @@ impl HunkAnchor {
         Self {
             location: document
                 .diff
-                .presentation_location(document.cursor)
+                .presentation_location(document.position().cursor())
                 .unwrap(),
-            column: document.column,
+            column: document.position().column(),
             screen_rows,
         }
     }
@@ -138,10 +138,12 @@ impl HunkAnchor {
     fn assert_preserved(&self, fixture: &ContextExpansion) {
         let document = fixture.document();
         assert_eq!(
-            document.diff.presentation_location(document.cursor),
+            document
+                .diff
+                .presentation_location(document.position().cursor()),
             Some(self.location)
         );
-        assert_eq!(document.column, self.column);
+        assert_eq!(document.position().column(), self.column);
         let screen = fixture.screen();
         for (row, text) in &self.screen_rows {
             assert_eq!(&screen[*row], text);
@@ -225,7 +227,7 @@ fn contracting_context_under_the_cursor_does_not_reopen_it() {
     fixture.control(DiffControl::ContractAll);
     let document = fixture.document();
     assert!(matches!(
-        document.diff.rows[document.cursor],
+        document.diff.rows[document.position().cursor()],
         PresentedRow::Gap { start: 6, .. }
     ));
     assert!(

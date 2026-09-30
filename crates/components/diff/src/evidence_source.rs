@@ -59,8 +59,8 @@ impl DiffComponent {
             document.document.diff.show_file();
         }
         if let Some(row) = document.document.diff.reveal_presentation_location(first) {
-            document.document.cursor = row;
-            document.document.column = 0;
+            document.document.move_cursor(row);
+            document.document.set_column(0);
         }
     }
 
@@ -99,7 +99,7 @@ impl DiffComponent {
             content.old_content.as_deref(),
             None,
         )));
-        document.document.cursor = line as usize;
+        document.document.move_cursor(line as usize);
         document
             .document
             .prepare_highlighting(HighlightRequest::Diff(content.clone()));

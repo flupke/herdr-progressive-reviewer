@@ -127,7 +127,8 @@ fn posting_a_question_does_not_move_the_diff_scroll() {
         .selected_document()
         .unwrap()
         .document
-        .scroll;
+        .position()
+        .scroll();
     assert!(before > 0);
     fixture.key(Key::ControlEnter);
     let after = fixture
@@ -135,7 +136,8 @@ fn posting_a_question_does_not_move_the_diff_scroll() {
         .selected_document()
         .unwrap()
         .document
-        .scroll;
+        .position()
+        .scroll();
     assert_eq!(after, before);
 }
 

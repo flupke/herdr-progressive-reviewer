@@ -436,7 +436,7 @@ impl DiffComponent {
         if self.selected_document().is_some_and(|file| {
             file.document
                 .diff
-                .source_position(file.document.cursor)
+                .source_position(file.document.position().cursor())
                 .is_none()
         }) {
             self.explore_notice("LSP is available on new-side source lines only; old/deleted coordinates are not sent to the current document.");

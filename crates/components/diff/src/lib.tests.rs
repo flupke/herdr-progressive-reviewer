@@ -650,15 +650,15 @@ fn modified_hunk_shortcuts_wrap_and_center_the_target() {
 
     let component = registry.get::<DiffComponent>(diff_target).unwrap();
     let document = component.selected_document().unwrap();
-    assert_eq!(document.document.cursor, 7);
-    assert_eq!(document.document.scroll, 3);
+    assert_eq!(document.document.position().cursor(), 7);
+    assert_eq!(document.document.position().scroll(), 3);
 
     dispatch_global_shortcut(&mut registry, other_target, '[', 'h');
 
     let component = registry.get::<DiffComponent>(diff_target).unwrap();
     let document = component.selected_document().unwrap();
-    assert_eq!(document.document.cursor, 0);
-    assert_eq!(document.document.scroll, 0);
+    assert_eq!(document.document.position().cursor(), 0);
+    assert_eq!(document.document.position().scroll(), 0);
 }
 
 #[test]

@@ -1,36 +1,33 @@
 use ui_events::PresentationLocation;
 
+use diff_position::ScreenAnchor;
+
 use crate::document::DiffDocument;
+use crate::render::DiffViewport;
 use crate::{DiffComponent, DiffPresentation, PresentedRow};
 
+/// The cursor's place in the document and on screen, kept while context folds.
 struct CursorAnchor {
     location: PresentationLocation,
     column: usize,
-    visual_row: usize,
-    scroll: usize,
+    screen: ScreenAnchor,
 }
 
 impl CursorAnchor {
-    fn new(document: &DiffDocument, visual_row: usize) -> Option<Self> {
+    fn new(document: &DiffDocument, viewport: &DiffViewport) -> Option<Self> {
+        let position = document.position();
         Some(Self {
-            location: document.diff.presentation_location(document.cursor)?,
-            column: document.column,
-            visual_row,
-            scroll: document.scroll,
+            location: document.diff.presentation_location(position.cursor())?,
+            column: position.column(),
+            screen: position.screen_anchor(&document.laid_out(viewport)),
         })
     }
 
     fn restore_cursor(&self, document: &mut DiffDocument) {
         if let Some(row) = document.diff.row_at_location(self.location) {
-            document.cursor = row;
-            document.column = self.column;
+            document.move_cursor(row);
+            document.set_column(self.column);
         }
-    }
-
-    fn scroll(&self, visual_row: usize) -> usize {
-        self.scroll
-            .saturating_add(visual_row)
-            .saturating_sub(self.visual_row)
     }
 }
 
@@ -49,12 +46,11 @@ impl DiffComponent {
         &mut self,
         change: impl FnOnce(&mut DiffPresentation) -> bool,
     ) -> bool {
-        let Some(document) = self.displayed_document() else {
+        let Some(viewport) = self.displayed_viewport() else {
             return false;
         };
-        let viewport = self.displayed_viewport().expect("the document exists");
-        let anchor = CursorAnchor::new(&document.document, viewport.cursor_visual_row(document));
         let document = self.displayed_document_mut().expect("the document exists");
+        let anchor = CursorAnchor::new(&document.document, &viewport);
         if !change(&mut document.document.diff) {
             return false;
         }
@@ -62,7 +58,8 @@ impl DiffComponent {
             anchor.restore_cursor(&mut document.document);
             let viewport = self.displayed_viewport().expect("the document exists");
             let document = self.displayed_document_mut().expect("the document exists");
-            document.document.scroll = anchor.scroll(viewport.cursor_visual_row(document));
+            let (position, rows) = document.document.on_screen(&viewport);
+            position.return_to(anchor.screen, &rows);
         }
         true
     }

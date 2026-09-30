@@ -74,26 +74,12 @@ fn delayed_colors_preserve_search_text_navigation_and_expanded_views() {
         let results =
             text_search::Request::new("needle".to_owned(), vec![Arc::clone(&text)]).search();
         assert_eq!(results.matches.len(), 1);
-        document.cursor = results.matches[0].position.row;
-        document.column = results.matches[0].position.column;
-        document.scroll = 1;
-        let location = (
-            document.cursor,
-            document.column,
-            document.scroll,
-            document.diff.len(),
-        );
+        let found = results.matches[0].position;
+        document.restore(Position::new(found.row, found.column, 1));
+        let location = (*document.position(), document.diff.len());
         let plain_rows = document.diff.rows.clone();
         document.finish_highlighting(&fixture.result());
-        assert_eq!(
-            (
-                document.cursor,
-                document.column,
-                document.scroll,
-                document.diff.len()
-            ),
-            location
-        );
+        assert_eq!((*document.position(), document.diff.len()), location);
         assert_eq!(document.diff.is_file_view(), file_view);
         assert!(Arc::ptr_eq(&text, &document.diff.search_document()));
         assert_ne!(
@@ -101,7 +87,10 @@ fn delayed_colors_preserve_search_text_navigation_and_expanded_views() {
             "syntax colors should be applied"
         );
         assert_eq!(
-            document.diff.source_text(document.cursor).as_deref(),
+            document
+                .diff
+                .source_text(document.position().cursor())
+                .as_deref(),
             Some("fn needle() {}")
         );
         if file_view {

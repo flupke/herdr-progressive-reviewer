@@ -782,6 +782,7 @@ version = "0.2.0"
 dependencies = [
  "comment-editor",
  "component-core",
+ "diff-position",
  "diff-rendering",
  "diff-search",
  "eyre",
@@ -808,6 +809,10 @@ dependencies = [
  "unicode-width 0.2.0",
  "uuid",
 ]
+
+[[package]]
+name = "diff-position"
+version = "0.2.0"
 
 [[package]]
 name = "diff-rendering"

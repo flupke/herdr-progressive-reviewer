@@ -57,7 +57,8 @@ impl Scrolling {
             .displayed_document()
             .unwrap()
             .document;
-        (document.cursor, document.column, document.scroll)
+        let position = document.position();
+        (position.cursor(), position.column(), position.scroll())
     }
 }
 

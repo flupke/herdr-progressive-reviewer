@@ -334,10 +334,10 @@ impl DiffComponent {
             return;
         };
         let Some(content) = &file.content else { return };
-        let range = self.selection.map_or(
-            file.document.cursor..=file.document.cursor,
-            SelectionState::range,
-        );
+        let cursor = file.document.position().cursor();
+        let range = self
+            .selection
+            .map_or(cursor..=cursor, SelectionState::range);
         if let Some(thread) = self.comments.file_draft_at(file, &range) {
             self.open_draft(thread);
             return;
@@ -442,7 +442,9 @@ impl DiffComponent {
         }
         threads
             .iter()
-            .filter(|thread| self.comments.thread_row(thread, file).0 == file.document.cursor)
+            .filter(|thread| {
+                self.comments.thread_row(thread, file).0 == file.document.position().cursor()
+            })
             .flat_map(|thread| &thread.messages)
             .last()
             .map(|comment| comment.id.clone())
@@ -499,21 +501,8 @@ impl DiffComponent {
         };
         let height = usize::from(self.viewport_height);
         if let Some(file) = self.displayed_document_mut() {
-            let scroll = &mut file.document.scroll;
-            if editing {
-                let bottom = range.end().saturating_add(1).saturating_sub(height);
-                // Show the whole editor when it fits, otherwise as much of it as possible.
-                *scroll = if bottom <= *range.start() {
-                    (*scroll).clamp(bottom, *range.start())
-                } else {
-                    bottom
-                };
-            } else if *range.start() < *scroll || *range.end() >= scroll.saturating_add(height) {
-                *scroll = range
-                    .start()
-                    .saturating_sub(1)
-                    .min(viewport.visible_row_count().saturating_sub(height));
-            }
+            let (position, rows) = file.document.on_screen(&viewport);
+            position.reveal_comment(range, editing, &rows, height);
         }
     }
 
@@ -551,7 +540,7 @@ impl DiffComponent {
                 .then(|| {
                     let file = self.displayed_document()?;
                     self.displayed_viewport()?
-                        .visible_anchor(file.document.scroll, height)
+                        .visible_anchor(file.document.position().scroll(), height)
                 })
                 .flatten();
             let renewed = self.comments.accept_book(book);
@@ -573,14 +562,17 @@ impl DiffComponent {
         }
         self.refresh_comment_documents();
         // The posted thread is placed in the diff only after its anchor is remapped.
-        let scroll = visible_anchor.and_then(|anchor| {
-            self.displayed_viewport()?
-                .scroll_for_anchor(&anchor, usize::from(self.viewport_height))
+        let pinned = visible_anchor.and_then(|anchor| {
+            let viewport = self.displayed_viewport()?;
+            let row = viewport.anchor_row(&anchor)?;
+            Some((viewport, row, anchor.screen_row()))
         });
-        if let Some(scroll) = scroll
+        let height = usize::from(self.viewport_height);
+        if let Some((viewport, row, screen_row)) = pinned
             && let Some(file) = self.displayed_document_mut()
         {
-            file.document.scroll = scroll;
+            let (position, rows) = file.document.on_screen(&viewport);
+            position.pin(row, screen_row, &rows, height);
         }
         self.refresh_conversation_context();
         actions

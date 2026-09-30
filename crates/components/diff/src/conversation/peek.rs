@@ -1,5 +1,6 @@
 //! A private native source viewer preserves the Files document and reply draft.
 
+use diff_position::Position;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -16,16 +17,9 @@ use crate::DiffComponent;
 pub(crate) struct SourcePeek {
     request: String,
     location: SourceLocation,
-    position: Option<PeekPosition>,
+    position: Option<Position>,
     pub(crate) viewer: Box<DiffComponent>,
     status: Option<String>,
-}
-
-#[derive(Clone, Copy)]
-struct PeekPosition {
-    cursor: usize,
-    scroll: usize,
-    column: usize,
 }
 
 impl SourcePeek {
@@ -81,11 +75,7 @@ impl DiffComponent {
             return Vec::new();
         };
         if let Some(file) = peek.viewer.selected_document() {
-            peek.position = Some(PeekPosition {
-                cursor: file.document.cursor,
-                scroll: file.document.scroll,
-                column: file.document.column,
-            });
+            peek.position = Some(*file.document.position());
             if let Some(path) = &file.disk_path {
                 peek.location.path.clone_from(path);
             }
@@ -214,11 +204,7 @@ impl DiffComponent {
         }
         let mut source = event.clone();
         if let Some(file) = peek.viewer.selected_document() {
-            peek.position = Some(PeekPosition {
-                cursor: file.document.cursor,
-                scroll: file.document.scroll,
-                column: file.document.column,
-            });
+            peek.position = Some(*file.document.position());
         }
         source.mode = SourceLoadMode::External;
         // Only reveal a range when the saved anchor still maps to disk content.
@@ -230,13 +216,7 @@ impl DiffComponent {
         if let Some(position) = peek.position {
             let height = usize::from(peek.viewer.viewport_height);
             if let Some(file) = peek.viewer.selected_document_mut() {
-                file.document.cursor = position
-                    .cursor
-                    .min(file.document.diff.len().saturating_sub(1));
-                file.document.scroll = position
-                    .scroll
-                    .min(file.document.diff.len().saturating_sub(height));
-                file.document.column = position.column;
+                file.document.restore_filling_screen(position, height);
             }
         }
         if let Some(range) = highlight {

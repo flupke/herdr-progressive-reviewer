@@ -16,6 +16,7 @@ review-types = { path = "../../review-types" }
 text-search = { path = "../../text-search" }
 component-core = { path = "../../component-core" }
 diff-rendering = { path = "../../diff-rendering" }
+diff-position = { path = "../../diff-position" }
 diff-search = { path = "../../diff-search" }
 markdown-rendering = { path = "../../markdown-rendering" }
 ratatui.workspace = true

@@ -6,6 +6,8 @@ use review_lsp::SourceLocation;
 use ui_events::DisplayedDiffViewport;
 
 use crate::presentation::DiffPresentation;
+use crate::render::{DiffViewport, DocumentRows};
+use diff_position::Position;
 use ui_actions::SourceLoadMode;
 use ui_events::PresentationLocation;
 
@@ -13,9 +15,7 @@ use ui_events::PresentationLocation;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct DiffDocument {
     pub(super) diff: DiffPresentation,
-    pub(super) cursor: usize,
-    pub(super) scroll: usize,
-    pub(super) column: usize,
+    position: Position,
     pub(super) source_location: Option<SourceLocation>,
     highlighting: Option<PendingHighlight>,
     load_state: DiffLoadState,
@@ -83,13 +83,64 @@ impl DiffLoadState {
 }
 
 impl DiffDocument {
+    /// Where the reader is in this document.
+    pub(super) fn position(&self) -> &Position {
+        &self.position
+    }
+
+    /// The position with this document laid out on `viewport`, for the
+    /// position's screen operations.
+    pub(super) fn on_screen<'a>(
+        &'a mut self,
+        viewport: &'a DiffViewport,
+    ) -> (&'a mut Position, DocumentRows<'a>) {
+        (&mut self.position, DocumentRows::new(viewport, &self.diff))
+    }
+
+    /// This document laid out on `viewport`.
+    pub(super) fn laid_out<'a>(&'a self, viewport: &'a DiffViewport) -> DocumentRows<'a> {
+        DocumentRows::new(viewport, &self.diff)
+    }
+
+    /// Move the cursor to `row`, keeping it inside the document.
+    pub(super) fn move_cursor(&mut self, row: usize) {
+        self.position.move_to(row, self.diff.len());
+    }
+
+    /// Move the cursor to a byte column of its line.
+    pub(super) fn set_column(&mut self, column: usize) {
+        self.position.set_column(column);
+    }
+
+    /// Take a saved position, fitted to this document.
+    pub(super) fn restore(&mut self, saved: Position) {
+        self.position.restore(saved, self.diff.len());
+    }
+
+    /// Take a saved position, keeping a full screen of `height` rows.
+    pub(super) fn restore_filling_screen(&mut self, saved: Position, height: usize) {
+        self.position
+            .restore_filling_screen(saved, self.diff.len(), height);
+    }
+
+    /// Reveal visual evidence `rows` out of `total` on a screen of `height`.
+    pub(super) fn reveal_evidence(
+        &mut self,
+        rows: std::ops::Range<usize>,
+        total: usize,
+        height: usize,
+    ) {
+        self.position.reveal_evidence(rows, total, height);
+    }
+
     pub(super) fn place_cursor(&mut self, position: crate::DiffPointerPosition) {
-        self.cursor = position.row.min(self.diff.len().saturating_sub(1));
+        self.move_cursor(position.row);
         if let Some(column) = position.column {
-            self.column = self
+            let column = self
                 .diff
-                .source_position(self.cursor)
+                .source_position(self.position.cursor())
                 .map_or(0, |(_, line)| crate::display_column_to_byte(&line, column));
+            self.position.set_column(column);
         }
         self.clear_source_location();
     }
@@ -97,9 +148,7 @@ impl DiffDocument {
     fn new() -> Self {
         Self {
             diff: DiffPresentation::default(),
-            cursor: 0,
-            scroll: 0,
-            column: 0,
+            position: Position::default(),
             source_location: None,
             highlighting: None,
             load_state: DiffLoadState::Idle,
@@ -107,9 +156,7 @@ impl DiffDocument {
     }
 
     fn preserve_navigation_from(&mut self, previous: &Self) {
-        self.cursor = previous.cursor;
-        self.scroll = previous.scroll;
-        self.column = previous.column;
+        self.position = previous.position;
     }
 
     fn preserve_loaded_content_from(&mut self, previous: &Self, content_is_current: bool) {
@@ -125,18 +172,20 @@ impl DiffDocument {
 
     fn replace_diff(&mut self, diff: DiffPresentation) -> bool {
         self.highlighting = None;
-        let cursor_location = self.diff.presentation_location(self.cursor);
-        let scroll_location = self.diff.presentation_location(self.scroll);
-        let fallback_cursor = self.cursor;
-        let fallback_scroll = self.scroll;
-        let column = self.column;
+        let previous = self.position;
+        let cursor_location = self.diff.presentation_location(previous.cursor());
+        let scroll_location = self.diff.presentation_location(previous.scroll());
         let source_location = self.source_location.clone();
         self.diff = diff;
         let reload_required = self.load_state.finish_load();
-        self.restore_presentation_location(cursor_location, fallback_cursor, column);
-        self.scroll = scroll_location
+        let cursor = cursor_location
             .and_then(|location| self.diff.reveal_presentation_location(location))
-            .unwrap_or_else(|| fallback_scroll.min(self.diff.len().saturating_sub(1)));
+            .unwrap_or(previous.cursor());
+        let scroll = scroll_location
+            .and_then(|location| self.diff.reveal_presentation_location(location))
+            .unwrap_or(previous.scroll());
+        self.restore(Position::new(cursor, previous.column(), scroll));
+        self.clear_source_location();
         if let Some(source_location) = source_location {
             let _ = self.reveal_location(&source_location);
         }
@@ -171,12 +220,12 @@ impl DiffDocument {
     }
 
     pub(super) fn reveal_location(&mut self, location: &SourceLocation) -> bool {
-        self.column = location.byte_column;
+        self.position.set_column(location.byte_column);
         self.source_location = Some(location.clone());
         let Some(row) = self.diff.reveal_line(location.line) else {
             return false;
         };
-        self.cursor = row;
+        self.move_cursor(row);
         true
     }
 
@@ -188,10 +237,10 @@ impl DiffDocument {
     ) {
         let row = location
             .and_then(|location| self.diff.reveal_presentation_location(location))
-            .unwrap_or_else(|| fallback_row.min(self.diff.len().saturating_sub(1)));
-        self.column = column;
+            .unwrap_or(fallback_row);
+        self.position.set_column(column);
         self.clear_source_location();
-        self.cursor = row;
+        self.move_cursor(row);
     }
 
     pub(super) fn clear_source_location(&mut self) {
@@ -295,11 +344,11 @@ impl LoadedDocument {
     pub(super) fn cursor_location(&self) -> Option<SourceLocation> {
         self.document
             .diff
-            .source_position(self.document.cursor)
+            .source_position(self.document.position.cursor())
             .map_or_else(
                 || self.document.source_location.clone(),
                 |(line, _)| {
-                    let byte_column = self.document.column;
+                    let byte_column = self.document.position.column();
                     Some(SourceLocation {
                         path: self
                             .disk_path
@@ -348,7 +397,7 @@ impl LoadedDocument {
     }
 
     pub(super) fn presented_row(&self) -> usize {
-        self.document.cursor
+        self.document.position.cursor()
     }
 
     pub(super) fn has_notice(&self) -> bool {

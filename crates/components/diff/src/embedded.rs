@@ -121,10 +121,11 @@ impl DiffComponent {
         {
             let saved = self.embedded.restored.remove(index);
             if let Some(file) = self.displayed_document_mut() {
-                let maximum = file.document.diff.len().saturating_sub(1);
-                file.document.scroll = saved.scroll.min(maximum);
-                file.document.cursor = saved.cursor.min(maximum);
-                file.document.column = saved.column;
+                file.document.restore(diff_position::Position::new(
+                    saved.cursor,
+                    saved.column,
+                    saved.scroll,
+                ));
             }
             self.explore.fit_pending = false;
         }
@@ -146,17 +147,16 @@ impl DiffComponent {
         else {
             return;
         };
-        let scroll = self.renderer(self.palette, false).evidence_scroll(
+        let rows = self.renderer(self.palette, false).evidence_rows(
             file,
             viewport.width,
-            viewport.height,
             source.side,
             evidence.location.lines.as_ref(),
         );
         self.displayed_document_mut()
             .expect("evidence document")
             .document
-            .scroll = scroll;
+            .reveal_evidence(rows.range, rows.total, usize::from(viewport.height));
     }
 
     /// Displayed source may differ from the question's immutable evidence after navigation.
@@ -217,9 +217,9 @@ impl DiffComponent {
                 result.push(review_explore::EvidencePosition {
                     turn,
                     reference,
-                    scroll: file.document.scroll,
-                    cursor: file.document.cursor,
-                    column: file.document.column,
+                    scroll: file.document.position().scroll(),
+                    cursor: file.document.position().cursor(),
+                    column: file.document.position().column(),
                 });
             }
         }
