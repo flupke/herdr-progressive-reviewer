@@ -7,7 +7,7 @@ use jj_lib::diff_presentation::unified::{DiffLineType, GitDiffPart, unified_diff
 use jj_lib::merge::Diff;
 
 use super::git_path::GitPath;
-use super::{ChangeKind, ChangedFile};
+use crate::repository::{ChangeKind, ChangedFile};
 
 pub(super) struct GitPatch<'a> {
     file: &'a ChangedFile,

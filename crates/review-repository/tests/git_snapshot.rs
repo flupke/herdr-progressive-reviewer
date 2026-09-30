@@ -1,7 +1,9 @@
 use std::fs;
 
 use review_repository::diff::{DiffRow, parse_file_diff};
-use review_repository::repository::{ChangeKind, Repository};
+use review_repository::repository::{
+    ChangeId, ChangeKind, MetadataScope, MetadataWatch, Repository, RevisionDirection,
+};
 use review_test_support::{GitFixture, complete_repository_snapshot};
 
 #[test]
@@ -90,4 +92,51 @@ fn header_id_handles_an_unborn_git_branch() {
             .display_id(),
         String::from_utf8(head.stdout).unwrap().trim()
     );
+}
+
+#[test]
+fn git_working_trees_have_no_revisions_to_select_or_edit() {
+    let git = GitFixture::new();
+    let repository = Repository::discover(git.root()).unwrap();
+
+    for direction in [RevisionDirection::Parents, RevisionDirection::Children] {
+        assert!(
+            repository
+                .revision_candidates(direction)
+                .unwrap()
+                .is_empty()
+        );
+    }
+    assert!(repository.revision_history().unwrap().is_empty());
+    assert!(
+        !repository
+            .edit_revision(&ChangeId::from("HEAD".to_owned()))
+            .unwrap()
+    );
+}
+
+#[test]
+fn git_watch_plan_covers_refs_and_git_excludes() {
+    let git = GitFixture::new();
+    let repository = Repository::discover(git.root()).unwrap();
+    let git_directory = fs::canonicalize(git.root().join(".git")).unwrap();
+
+    let plan = repository.watch_plan();
+
+    assert_eq!(plan.root, repository.root());
+    assert_eq!(
+        plan.metadata,
+        [
+            MetadataWatch {
+                directory: git_directory.clone(),
+                scope: MetadataScope::Entries,
+            },
+            MetadataWatch {
+                directory: git_directory.join("refs"),
+                scope: MetadataScope::Subtree,
+            },
+        ]
+    );
+    let excludes = plan.git_excludes.unwrap();
+    assert_eq!(excludes.last(), Some(&git_directory.join("info/exclude")));
 }

@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::git_path::GitPath;
-use super::{DiffStatistics, RepoPath};
+use crate::repository::{DiffStatistics, RepoPath};
 use crate::{Error, Result};
 
 pub(super) const DESCRIPTION_DIFF_PATHS: &[u8] =
@@ -217,5 +217,5 @@ impl<'a> JjGitDiffParser<'a> {
 }
 
 #[cfg(test)]
-#[path = "jj_git_diff.tests.rs"]
+#[path = "git_diff.tests.rs"]
 mod tests;

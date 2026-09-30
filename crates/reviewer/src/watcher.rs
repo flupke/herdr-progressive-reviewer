@@ -1,6 +1,5 @@
 //! Filesystem-triggered repository refreshes.
 
-use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -9,10 +8,10 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use ignore::WalkBuilder;
-use ignore::gitignore::{Gitignore, GitignoreBuilder, gitconfig_excludes_path};
+use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use notify::event::{CreateKind, ModifyKind, RemoveKind};
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use review_repository::repository::RepoType;
+use review_repository::repository::{MetadataScope, MetadataWatch, WatchPlan};
 
 const DEBOUNCE: Duration = Duration::from_millis(100);
 
@@ -39,28 +38,22 @@ impl SourceWatchRequests {
 
 struct IgnoreRules {
     root: PathBuf,
-    repo_type: RepoType,
     directories: Vec<PathBuf>,
     gitignores: Vec<(PathBuf, Gitignore)>,
-    external_files: Vec<PathBuf>,
+    /// Git's global and repository exclude files, when the repository applies them.
+    git_excludes: Option<Vec<PathBuf>>,
 }
 
 impl IgnoreRules {
-    fn discover(root: &Path, repo_type: RepoType) -> Self {
-        let external_files = Self::external_files(root, repo_type);
-        Self::discover_subtree(root, root, repo_type, &external_files)
+    fn discover(plan: &WatchPlan) -> Self {
+        Self::discover_subtree(&plan.root, &plan.root, plan.git_excludes.as_deref())
     }
 
-    fn discover_subtree(
-        root: &Path,
-        subtree: &Path,
-        repo_type: RepoType,
-        external_files: &[PathBuf],
-    ) -> Self {
-        let walk = Self::walk_builder(root, subtree, repo_type);
+    fn discover_subtree(root: &Path, subtree: &Path, git_excludes: Option<&[PathBuf]>) -> Self {
+        let walk = Self::walk_builder(root, subtree, git_excludes.is_some());
         let mut directories = Vec::new();
         let mut gitignores = Vec::new();
-        for path in external_files {
+        for path in git_excludes.unwrap_or_default() {
             Self::add_gitignore_file(&mut gitignores, root, path);
         }
         for entry in walk.build().filter_map(Result::ok) {
@@ -78,40 +71,25 @@ impl IgnoreRules {
         gitignores.sort_by_key(|(path, _)| path.components().count());
         Self {
             root: root.to_owned(),
-            repo_type,
             directories,
             gitignores,
-            external_files: external_files.to_owned(),
+            git_excludes: git_excludes.map(<[PathBuf]>::to_vec),
         }
     }
 
-    fn external_files(root: &Path, repo_type: RepoType) -> Vec<PathBuf> {
-        match repo_type {
-            RepoType::Jj => Vec::new(),
-            RepoType::Git => {
-                let mut paths = gitconfig_excludes_path().into_iter().collect::<Vec<_>>();
-                if let Some(git) = MetadataWatches::git_directory(root) {
-                    let common =
-                        MetadataWatches::resolve_directory_or_link_file(&git.join("commondir"))
-                            .unwrap_or(git);
-                    paths.push(common.join("info/exclude"));
-                }
-                paths
-            }
-        }
+    fn external_files(&self) -> &[PathBuf] {
+        self.git_excludes.as_deref().unwrap_or_default()
     }
 
-    fn walk_builder(root: &Path, subtree: &Path, repo_type: RepoType) -> WalkBuilder {
+    fn walk_builder(root: &Path, subtree: &Path, git_excludes: bool) -> WalkBuilder {
         let walk_subtree = subtree.to_owned();
         let mut walk = WalkBuilder::new(root);
         walk.hidden(false)
             .ignore(false)
             .parents(false)
-            .require_git(false);
-        match repo_type {
-            RepoType::Git => walk.git_global(true).git_exclude(true),
-            RepoType::Jj => walk.git_global(false).git_exclude(false),
-        };
+            .require_git(false)
+            .git_global(git_excludes)
+            .git_exclude(git_excludes);
         walk.filter_entry(move |entry| {
             !is_repository_metadata(entry.path())
                 && (entry.path().starts_with(&walk_subtree)
@@ -170,7 +148,7 @@ impl IgnoreRules {
     fn external_watch_directories(&self) -> Vec<PathBuf> {
         let mut directories = Vec::new();
         for directory in self
-            .external_files
+            .external_files()
             .iter()
             .filter_map(|path| path.ancestors().skip(1).find(|parent| parent.is_dir()))
         {
@@ -203,11 +181,6 @@ struct MetadataWatches {
     watches: Vec<MetadataWatch>,
 }
 
-struct MetadataWatch {
-    directory: PathBuf,
-    mode: RecursiveMode,
-}
-
 pub(super) struct RepositoryWatcher {
     commands: Sender<WatchCommand>,
     state: Arc<WatchState>,
@@ -215,16 +188,14 @@ pub(super) struct RepositoryWatcher {
 }
 
 impl RepositoryWatcher {
-    pub(super) fn new(root: &Path, repo_type: RepoType) -> Self {
+    pub(super) fn new(plan: WatchPlan) -> Self {
         let state = Arc::new(WatchState::default());
         let (commands, command_receiver) = mpsc::channel();
-        let root = root.to_owned();
         let thread_state = Arc::clone(&state);
         let event_commands = commands.clone();
         thread::spawn(move || {
-            let mut watcher =
-                ActiveWatcher::start(&root, repo_type, &thread_state, &event_commands);
-            let mut source = SourceWatch::new(root, event_commands.clone());
+            let mut watcher = ActiveWatcher::start(&plan, &thread_state, &event_commands);
+            let mut source = SourceWatch::new(plan.root, event_commands.clone());
             let mut state_watch = state::StateWatch::default();
             while let Ok(command) = command_receiver.recv() {
                 let result = match command {
@@ -300,13 +271,12 @@ impl Drop for RepositoryWatcher {
 
 impl ActiveWatcher {
     fn start(
-        root: &Path,
-        repo_type: RepoType,
+        plan: &WatchPlan,
         state: &Arc<WatchState>,
         commands: &Sender<WatchCommand>,
     ) -> Option<Self> {
-        let rules = IgnoreRules::discover(root, repo_type);
-        let metadata = MetadataWatches::discover(root);
+        let rules = IgnoreRules::discover(plan);
+        let metadata = MetadataWatches::new(plan);
         let external_directories = rules.external_watch_directories();
         let callback_commands = commands.clone();
         let watcher =
@@ -327,7 +297,11 @@ impl ActiveWatcher {
                     watcher.watch(directory, RecursiveMode::NonRecursive)?;
                 }
                 for target in &metadata.watches {
-                    watcher.watch(&target.directory, target.mode)?;
+                    let mode = match target.scope {
+                        MetadataScope::Entries => RecursiveMode::NonRecursive,
+                        MetadataScope::Subtree => RecursiveMode::Recursive,
+                    };
+                    watcher.watch(&target.directory, mode)?;
                 }
                 Ok(watcher)
             });
@@ -378,7 +352,7 @@ impl ActiveWatcher {
     fn changes_external_rules(&self, event: &Event) -> bool {
         event.paths.iter().any(|path| {
             self.rules
-                .external_files
+                .external_files()
                 .iter()
                 .any(|external| external == path || external.starts_with(path))
         })
@@ -448,8 +422,7 @@ impl ActiveWatcher {
         let discovered = IgnoreRules::discover_subtree(
             &self.rules.root,
             subtree,
-            self.rules.repo_type,
-            &self.rules.external_files,
+            self.rules.git_excludes.as_deref(),
         );
         for directory in &discovered.directories {
             self.watcher.watch(directory, RecursiveMode::NonRecursive)?;
@@ -462,7 +435,7 @@ impl ActiveWatcher {
                 .filter(|(path, _)| path.starts_with(subtree)),
         );
         if subtree == self.rules.root {
-            self.rules.external_files = discovered.external_files;
+            self.rules.git_excludes = discovered.git_excludes;
         }
         self.rules
             .gitignores
@@ -472,68 +445,17 @@ impl ActiveWatcher {
 }
 
 impl MetadataWatches {
-    fn discover(root: &Path) -> Self {
-        let mut metadata = Self {
-            watches: Vec::new(),
-        };
-
-        if let Some(op_heads) = Self::jj_operation_heads(root) {
-            metadata.add(op_heads, RecursiveMode::Recursive);
-        } else if let Some(git) = Self::git_directory(root) {
-            let common = Self::resolve_directory_or_link_file(&git.join("commondir"))
-                .unwrap_or_else(|| git.clone());
-            metadata.add(git, RecursiveMode::NonRecursive);
-            metadata.add(common.clone(), RecursiveMode::NonRecursive);
-            metadata.add(common.join("refs"), RecursiveMode::Recursive);
-        }
-
-        metadata
-    }
-
-    fn git_directory(root: &Path) -> Option<PathBuf> {
-        let path = root.join(".git");
-        if path.is_dir() {
-            return fs::canonicalize(&path).ok();
-        }
-        let contents = fs::read_to_string(&path).ok()?;
-        let value = contents.trim().strip_prefix("gitdir:")?.trim();
-        let directory = path.parent()?.join(value);
-        fs::canonicalize(directory).ok()
-    }
-
-    fn jj_operation_heads(root: &Path) -> Option<PathBuf> {
-        let repository = Self::resolve_directory_or_link_file(&root.join(".jj/repo"))?;
-        fs::canonicalize(repository.join("op_heads")).ok()
-    }
-
-    fn resolve_directory_or_link_file(path: &Path) -> Option<PathBuf> {
-        if path.is_dir() {
-            return fs::canonicalize(path).ok();
-        }
-        let value = fs::read_to_string(path).ok()?;
-        fs::canonicalize(path.parent()?.join(value.trim())).ok()
-    }
-
-    fn add(&mut self, directory: PathBuf, mode: RecursiveMode) {
-        let Ok(directory) = fs::canonicalize(directory) else {
-            return;
-        };
-        if !self
-            .watches
-            .iter()
-            .any(|target| target.directory == directory)
-        {
-            self.watches.push(MetadataWatch { directory, mode });
+    fn new(plan: &WatchPlan) -> Self {
+        Self {
+            watches: plan.metadata.clone(),
         }
     }
 
     fn includes(&self, event: &Event) -> bool {
-        event.paths.iter().any(|path| {
-            self.watches.iter().any(|target| match target.mode {
-                RecursiveMode::Recursive => path.starts_with(&target.directory),
-                RecursiveMode::NonRecursive => path.parent() == Some(target.directory.as_path()),
-            })
-        })
+        event
+            .paths
+            .iter()
+            .any(|path| self.watches.iter().any(|target| target.includes(path)))
     }
 }
 

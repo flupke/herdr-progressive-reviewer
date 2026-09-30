@@ -1,5 +1,7 @@
 use review_repository::diff::{DiffRow, NoticeKind, parse_file_diff};
-use review_repository::repository::{ChangeKind, FileKind, Interdiff, RepoType, Repository};
+use review_repository::repository::{
+    ChangeKind, FileKind, Interdiff, MetadataScope, MetadataWatch, RepoType, Repository,
+};
 use review_test_support::{JjFixture, JjLayout, complete_repository_snapshot, repository_fixture};
 use test_case::test_case;
 
@@ -43,6 +45,26 @@ fn discovers_a_nested_git_repository_before_an_enclosing_jj_repository() {
     assert!(output.status.success());
 
     assert_eq!(Repository::discover(&nested).unwrap().root(), nested);
+}
+
+#[test_case(JjLayout::NonColocated; "non_colocated")]
+#[test_case(JjLayout::Colocated; "colocated")]
+fn jj_watch_plan_follows_operation_heads_and_ignores_git_excludes(layout: JjLayout) {
+    let context = JjRepositoryTestContext::new(layout);
+    let operation_heads =
+        std::fs::canonicalize(context.fixture.root().join(".jj/repo/op_heads")).unwrap();
+
+    let plan = context.repository.watch_plan();
+
+    assert_eq!(plan.root, context.repository.root());
+    assert_eq!(
+        plan.metadata,
+        [MetadataWatch {
+            directory: operation_heads,
+            scope: MetadataScope::Subtree,
+        }]
+    );
+    assert_eq!(plan.git_excludes, None);
 }
 
 #[test_case(JjLayout::NonColocated; "non_colocated")]

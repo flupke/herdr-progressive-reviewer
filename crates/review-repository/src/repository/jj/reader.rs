@@ -17,8 +17,8 @@ use jj_lib::repo_path::RepoPath as JjPath;
 use jj_lib::settings::UserSettings;
 use jj_lib::workspace::Workspace;
 
-use super::jj_patch::GitPatch;
-use super::{COMMAND_OUTPUT_LIMIT, ChangedFile, RepoPath, Repository, Snapshot};
+use super::patch::GitPatch;
+use crate::repository::{COMMAND_OUTPUT_LIMIT, ChangedFile, RepoPath, Repository, Snapshot};
 use crate::{Error, Result};
 
 pub(super) struct JjReader {

@@ -3973,6 +3973,7 @@ name = "review-repository"
 version = "0.2.0"
 dependencies = [
  "futures",
+ "ignore",
  "jj-lib",
  "review-test-support",
  "review-types",

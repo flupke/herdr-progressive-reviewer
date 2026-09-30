@@ -7,14 +7,19 @@ use std::path::{Path, PathBuf};
 use std::process::Output;
 use std::sync::{Arc, Mutex};
 
+use ignore::gitignore::gitconfig_excludes_path;
 use sha2::{Digest, Sha256};
 
+use super::watch::{MetadataScope, resolve_directory_or_link_file};
 use super::{
-    BaselineComparison, BaselineComparisonPlan, BaselineComparisonResults, ChangedFile, Interdiff,
-    RepoPath, Repository, RepositoryBackend, RepositoryProcess, Snapshot, SnapshotIdentity,
-    trim_line_ending,
+    BaselineComparison, BaselineComparisonPlan, BaselineComparisonResults, Cancellation, ChangeId,
+    ChangedFile, Interdiff, RepoPath, RepoType, Repository, RepositoryBackend, RepositoryProcess,
+    RevisionCandidate, RevisionDirection, RevisionHistoryLine, Snapshot, SnapshotIdentity,
+    WatchPlan, path_from_output, trim_line_ending,
 };
 use crate::{Error, Result};
+
+mod records;
 
 #[derive(Debug)]
 pub(super) struct GitBackend {
@@ -31,11 +36,73 @@ struct GitCache {
 }
 
 impl GitBackend {
-    pub(super) fn new(repository_objects: PathBuf) -> Self {
-        Self {
-            repository_objects,
-            cache: Mutex::new(None),
+    /// Find the Git working tree that contains `start`, if any.
+    pub(super) fn working_tree_root(
+        start: &Path,
+        cancellation: &Cancellation,
+    ) -> Result<Option<PathBuf>> {
+        let output = RepositoryProcess::new("git", start, "discover Git repository", cancellation)
+            .output(["rev-parse", "--show-toplevel"])?;
+        if !output.status.success() {
+            return Ok(None);
         }
+        path_from_output(
+            &output.stdout,
+            "discover Git repository",
+            "git rev-parse returned an empty path",
+        )
+        .map(Some)
+    }
+
+    /// Open the backend for the working tree at `root`.
+    pub(super) fn discover(root: &Path, cancellation: &Cancellation) -> Result<Self> {
+        let objects =
+            RepositoryProcess::new("git", root, "discover Git object directory", cancellation)
+                .output([
+                    "rev-parse",
+                    "--path-format=absolute",
+                    "--git-path",
+                    "objects",
+                ])?;
+        if !objects.status.success() {
+            return Err(Error::CommandFailed {
+                operation: "discover Git object directory".to_owned(),
+                code: objects.status.code(),
+            });
+        }
+        Ok(Self {
+            repository_objects: path_from_output(
+                &objects.stdout,
+                "discover Git object directory",
+                "git rev-parse returned an empty object path",
+            )?,
+            cache: Mutex::new(None),
+        })
+    }
+
+    /// Watch HEAD, the index and refs of the plan's working tree.
+    ///
+    /// Returns the common Git directory, or `None` when the working tree has no Git directory.
+    pub(super) fn watch_metadata(plan: &mut WatchPlan) -> Option<PathBuf> {
+        let git = Self::git_directory(&plan.root)?;
+        let common =
+            resolve_directory_or_link_file(&git.join("commondir")).unwrap_or_else(|| git.clone());
+        plan.add_metadata(&git, MetadataScope::Entries);
+        plan.add_metadata(&common, MetadataScope::Entries);
+        plan.add_metadata(&common.join("refs"), MetadataScope::Subtree);
+        Some(common)
+    }
+
+    /// Resolve the Git directory of the working tree at `root`, following a `.git` link file.
+    fn git_directory(root: &Path) -> Option<PathBuf> {
+        let path = root.join(".git");
+        if path.is_dir() {
+            return std::fs::canonicalize(&path).ok();
+        }
+        let contents = std::fs::read_to_string(&path).ok()?;
+        let value = contents.trim().strip_prefix("gitdir:")?.trim();
+        let directory = path.parent()?.join(value);
+        std::fs::canonicalize(directory).ok()
     }
 
     fn cache(&self) -> Result<Arc<GitCache>> {
@@ -162,6 +229,21 @@ impl GitBackend {
 }
 
 impl RepositoryBackend for GitBackend {
+    fn repo_type(&self) -> RepoType {
+        RepoType::Git
+    }
+
+    /// Watch HEAD, the index and refs, and apply Git's global and repository excludes.
+    fn watch_plan(&self, root: &Path) -> WatchPlan {
+        let mut plan = WatchPlan::new(root);
+        let mut excludes = gitconfig_excludes_path().into_iter().collect::<Vec<_>>();
+        if let Some(common) = Self::watch_metadata(&mut plan) {
+            excludes.push(common.join("info/exclude"));
+        }
+        plan.git_excludes = Some(excludes);
+        plan
+    }
+
     fn set_state_root(&self, repository_root: &Path, state_root: &Path) {
         let digest = Sha256::digest(repository_root.as_os_str().as_bytes());
         let repository_key = digest.iter().fold(String::new(), |mut key, byte| {
@@ -339,6 +421,23 @@ impl RepositoryBackend for GitBackend {
         }
         Ok(results)
     }
+
+    // A Git working tree has no revisions for the reviewer to select or edit.
+    fn revision_candidates(
+        &self,
+        _repository: &Repository,
+        _direction: RevisionDirection,
+    ) -> Result<Vec<RevisionCandidate>> {
+        Ok(Vec::new())
+    }
+
+    fn revision_history(&self, _repository: &Repository) -> Result<Vec<RevisionHistoryLine>> {
+        Ok(Vec::new())
+    }
+
+    fn edit_revision(&self, _repository: &Repository, _change_id: &ChangeId) -> Result<bool> {
+        Ok(false)
+    }
 }
 
 impl GitBackend {
@@ -391,3 +490,7 @@ impl Drop for GitCache {
         let _ = std::fs::remove_file(lock);
     }
 }
+
+#[cfg(test)]
+#[path = "git.tests.rs"]
+mod tests;

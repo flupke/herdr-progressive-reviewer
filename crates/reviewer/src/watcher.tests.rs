@@ -4,8 +4,26 @@ use tempfile::tempdir;
 
 use super::*;
 
+/// A jj-style plan: only working-tree `.gitignore` files hide paths.
+fn working_tree_plan(root: &Path) -> WatchPlan {
+    WatchPlan {
+        root: root.to_owned(),
+        metadata: Vec::new(),
+        git_excludes: None,
+    }
+}
+
+/// A Git-style plan: the repository exclude file also hides paths.
+fn git_plan(root: &Path) -> WatchPlan {
+    WatchPlan {
+        git_excludes: Some(vec![root.join(".git/info/exclude")]),
+        ..working_tree_plan(root)
+    }
+}
+
 #[test]
 fn displayed_ignored_tracked_source_refreshes_on_edit_delete_and_recreation() {
+    use review_repository::repository::Repository;
     use review_test_support::{GitFixture, ReviewRepositoryFixture};
 
     let files = GitFixture::new();
@@ -13,7 +31,8 @@ fn displayed_ignored_tracked_source_refreshes_on_edit_delete_and_recreation() {
     files.commit_all("track the source before ignoring its directory");
     files.write(".gitignore", b"ignored/\n");
     let path = files.root().join("ignored/nested/source.rs");
-    let mut watcher = RepositoryWatcher::new(files.root(), RepoType::Git);
+    let mut watcher =
+        RepositoryWatcher::new(Repository::discover(files.root()).unwrap().watch_plan());
     watcher.source_requests().watch(Some(&path));
     wait_for_source_refresh(&mut watcher);
 
@@ -121,7 +140,7 @@ fn disk_content_change_schedules_a_repository_poll() {
     let root = directory.path();
     let path = root.join("source.rs");
     fs::write(&path, "fn before() {}\n").unwrap();
-    let mut watcher = RepositoryWatcher::new(root, RepoType::Jj);
+    let mut watcher = RepositoryWatcher::new(working_tree_plan(root));
     let ready_deadline = Instant::now() + Duration::from_secs(1);
     while !watcher.state.watching.load(Ordering::Relaxed) {
         assert!(Instant::now() < ready_deadline, "watcher did not start");
@@ -162,7 +181,7 @@ fn ignored_and_repository_metadata_paths_are_not_watched() {
     for path in ["kept", "ignored", ".git", ".jj"] {
         fs::create_dir(root.join(path)).unwrap();
     }
-    let rules = IgnoreRules::discover(root, RepoType::Jj);
+    let rules = IgnoreRules::discover(&working_tree_plan(root));
 
     assert!(rules.directories.contains(&root.to_owned()));
     assert!(rules.directories.contains(&root.join("kept")));
@@ -180,7 +199,7 @@ fn standard_git_excludes_are_not_watched() {
     fs::create_dir_all(root.join(".git/info")).unwrap();
     fs::write(root.join(".git/info/exclude"), "ignored/\n").unwrap();
     fs::create_dir(root.join("ignored")).unwrap();
-    let rules = IgnoreRules::discover(root, RepoType::Git);
+    let rules = IgnoreRules::discover(&git_plan(root));
 
     assert!(!rules.directories.contains(&root.join("ignored")));
     assert!(!rules.includes(&root.join("ignored"), true));
@@ -194,7 +213,7 @@ fn repository_root_stops_parent_gitignore_rules() {
     fs::create_dir(&root).unwrap();
     fs::create_dir(root.join(".git")).unwrap();
     fs::create_dir(root.join("ignored")).unwrap();
-    let rules = IgnoreRules::discover(&root, RepoType::Git);
+    let rules = IgnoreRules::discover(&git_plan(&root));
 
     assert!(rules.directories.contains(&root.join("ignored")));
     assert!(rules.includes(&root.join("ignored"), true));
@@ -220,32 +239,35 @@ fn failed_watcher_reports_once_without_periodic_scans() {
 }
 
 #[test]
-fn watches_only_repository_metadata_that_signals_state_changes() {
+fn metadata_events_follow_the_planned_recursion() {
     let directory = tempdir().unwrap();
     let root = directory.path().join("work");
-    let git = root.join(".git");
-    let jj = directory.path().join("jj-repo");
-    fs::create_dir_all(git.join("refs/heads")).unwrap();
-    fs::create_dir_all(git.join("objects/ab")).unwrap();
-    fs::create_dir_all(root.join(".jj")).unwrap();
-    fs::create_dir_all(jj.join("op_heads/heads")).unwrap();
-    fs::write(root.join(".jj/repo"), "../../jj-repo").unwrap();
-    let metadata = MetadataWatches::discover(&root);
+    let git = directory.path().join("git");
+    let operations = directory.path().join("op_heads");
+    let plan = WatchPlan {
+        metadata: vec![
+            MetadataWatch {
+                directory: git.clone(),
+                scope: MetadataScope::Entries,
+            },
+            MetadataWatch {
+                directory: operations.clone(),
+                scope: MetadataScope::Subtree,
+            },
+        ],
+        ..working_tree_plan(&root)
+    };
+    let metadata = MetadataWatches::new(&plan);
 
     let event_at = |path| {
         let mut event = Event::new(EventKind::Modify(ModifyKind::Any));
         event.paths.push(path);
         event
     };
-    assert!(metadata.includes(&event_at(jj.join("op_heads/heads/operation"))));
-    assert!(!metadata.includes(&event_at(git.join("refs/heads/main"))));
+    assert!(metadata.includes(&event_at(operations.join("heads/operation"))));
+    assert!(metadata.includes(&event_at(git.join("HEAD"))));
     assert!(!metadata.includes(&event_at(git.join("objects/ab/object"))));
     assert!(!metadata.includes(&event_at(root.join("source.rs"))));
-
-    fs::remove_file(root.join(".jj/repo")).unwrap();
-    fs::create_dir(root.join(".jj/repo")).unwrap();
-    let metadata = MetadataWatches::discover(&root);
-    assert!(metadata.includes(&event_at(git.join("refs/heads/main"))));
 }
 
 #[test]
@@ -265,18 +287,17 @@ fn jj_uses_only_gitignores_under_the_repository_root() {
     for path in ["parent-ignored", "git-ignored", "local-ignored"] {
         fs::create_dir(root.join(path)).unwrap();
     }
-    let rules = IgnoreRules::discover(&root, RepoType::Jj);
+    let rules = IgnoreRules::discover(&working_tree_plan(&root));
 
     assert!(rules.directories.contains(&root.join("parent-ignored")));
     assert!(rules.directories.contains(&root.join("git-ignored")));
     assert!(!rules.directories.contains(&root.join("local-ignored")));
-    assert!(rules.external_files.is_empty());
+    assert_eq!(rules.git_excludes, None);
 
     fs::remove_dir(root.join(".jj")).unwrap();
-    let refreshed =
-        IgnoreRules::discover_subtree(&root, &root, rules.repo_type, &rules.external_files);
+    let refreshed = IgnoreRules::discover_subtree(&root, &root, rules.git_excludes.as_deref());
     assert!(refreshed.directories.contains(&root.join("git-ignored")));
-    assert!(refreshed.external_files.is_empty());
+    assert_eq!(refreshed.git_excludes, None);
 }
 
 #[test]
@@ -292,7 +313,7 @@ fn refreshes_only_the_changed_subtree() {
     fs::create_dir(&right).unwrap();
     let state = Arc::new(WatchState::default());
     let (commands, _events) = mpsc::channel();
-    let mut watcher = ActiveWatcher::start(root, RepoType::Git, &state, &commands).unwrap();
+    let mut watcher = ActiveWatcher::start(&git_plan(root), &state, &commands).unwrap();
     let new_directory = left.join("new");
     fs::create_dir(&new_directory).unwrap();
 
@@ -314,7 +335,7 @@ fn external_ignore_change_refreshes_watches() {
     fs::create_dir(&ignored).unwrap();
     let state = Arc::new(WatchState::default());
     let (commands, _events) = mpsc::channel();
-    let mut watcher = ActiveWatcher::start(root, RepoType::Git, &state, &commands).unwrap();
+    let mut watcher = ActiveWatcher::start(&git_plan(root), &state, &commands).unwrap();
     assert!(watcher.rules.directories.contains(&ignored));
 
     fs::create_dir(root.join(".git/info")).unwrap();
@@ -338,7 +359,7 @@ fn unrelated_paths_do_not_change_external_ignore_rules() {
     fs::create_dir_all(root.join(".git/info")).unwrap();
     let state = Arc::new(WatchState::default());
     let (commands, _events) = mpsc::channel();
-    let watcher = ActiveWatcher::start(root, RepoType::Git, &state, &commands).unwrap();
+    let watcher = ActiveWatcher::start(&git_plan(root), &state, &commands).unwrap();
     let mut event = Event::new(EventKind::Modify(ModifyKind::Any));
     event.paths.push(root.join("source.rs"));
 
@@ -353,7 +374,7 @@ fn directory_create_events_refresh_the_changed_subtree_only() {
     fs::create_dir(&parent).unwrap();
     let state = Arc::new(WatchState::default());
     let (commands, _events) = mpsc::channel();
-    let mut watcher = ActiveWatcher::start(root, RepoType::Jj, &state, &commands).unwrap();
+    let mut watcher = ActiveWatcher::start(&working_tree_plan(root), &state, &commands).unwrap();
     let child = parent.join("child");
     fs::create_dir(&child).unwrap();
     let mut event = Event::new(EventKind::Create(CreateKind::Folder));
@@ -370,7 +391,7 @@ fn content_modify_events_do_not_refresh_directory_rules() {
     let root = directory.path();
     let state = Arc::new(WatchState::default());
     let (commands, _events) = mpsc::channel();
-    let mut watcher = ActiveWatcher::start(root, RepoType::Jj, &state, &commands).unwrap();
+    let mut watcher = ActiveWatcher::start(&working_tree_plan(root), &state, &commands).unwrap();
     let absent = root.join("absent");
     watcher.rules.directories.push(absent.clone());
     let mut event = Event::new(EventKind::Modify(ModifyKind::Data(
@@ -393,7 +414,7 @@ fn ignored_gitignore_changes_refresh_its_subtree() {
     fs::create_dir(&ignored).unwrap();
     let state = Arc::new(WatchState::default());
     let (commands, _events) = mpsc::channel();
-    let mut watcher = ActiveWatcher::start(root, RepoType::Jj, &state, &commands).unwrap();
+    let mut watcher = ActiveWatcher::start(&working_tree_plan(root), &state, &commands).unwrap();
     assert!(!watcher.rules.directories.contains(&ignored));
 
     fs::write(&gitignore, "").unwrap();

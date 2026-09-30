@@ -1,4 +1,4 @@
-use super::RepoPath;
+use crate::repository::RepoPath;
 
 pub(super) struct GitPath<'a> {
     prefix: &'static str,

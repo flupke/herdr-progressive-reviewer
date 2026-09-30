@@ -151,7 +151,7 @@ impl Runtime {
 
         let (event_sender, events) = unbounded();
         let (input_sender, inputs) = unbounded();
-        let watcher = RepositoryWatcher::new(self.repository.root(), self.repository.repo_type());
+        let watcher = RepositoryWatcher::new(self.repository.watch_plan());
         let mut effects = Effects::start(
             Setup {
                 repository: self.repository.clone(),

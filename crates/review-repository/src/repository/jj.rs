@@ -1,20 +1,31 @@
 //! Jujutsu change snapshots.
 
-use super::jj_reader::JjReader;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::os::unix::ffi::OsStringExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::process::Output;
 use std::sync::{Arc, Mutex};
 
-use super::jj_git_diff::{DESCRIPTION_DIFF_PATHS, JjGitDiffParser};
+use super::git::GitBackend;
+use super::watch::{MetadataScope, resolve_directory_or_link_file};
 use super::{
-    BaselineComparison, BaselineComparisonPlan, BaselineComparisonResults, ChangeId, ChangedFile,
-    Interdiff, RepoPath, Repository, RepositoryBackend, RevisionCandidate, RevisionDirection,
-    RevisionHistoryLine, Snapshot, SnapshotIdentity,
+    BaselineComparison, BaselineComparisonPlan, BaselineComparisonResults, Cancellation, ChangeId,
+    ChangedFile, Interdiff, RepoPath, RepoType, Repository, RepositoryBackend, RepositoryProcess,
+    RevisionCandidate, RevisionDirection, RevisionHistoryLine, Snapshot, SnapshotIdentity,
+    WatchPlan, path_from_output,
 };
 use crate::{Error, Result};
 
-pub(super) const IDENTITY_TEMPLATE: &str = r#"change_id ++ "\0" ++ commit_id ++ "\0" ++ description ++ "\0" ++ change_id.shortest(8) ++ "\0""#;
+mod git_diff;
+mod git_path;
+mod patch;
+mod reader;
+mod records;
+
+use git_diff::{DESCRIPTION_DIFF_PATHS, JjGitDiffParser};
+use reader::JjReader;
+
+const IDENTITY_TEMPLATE: &str = r#"change_id ++ "\0" ++ commit_id ++ "\0" ++ description ++ "\0" ++ change_id.shortest(8) ++ "\0""#;
 const FILE_TEMPLATE: &str = concat!(
     r#"source.path() ++ "\0" ++ target.path() ++ "\0" ++ "#,
     r#"source.file_type() ++ "\0" ++ target.file_type() ++ "\0" ++ "#,
@@ -45,6 +56,28 @@ pub(super) struct JjBackend {
 }
 
 impl JjBackend {
+    /// Find the jj workspace that contains `start`, if any.
+    pub(super) fn workspace_root(
+        start: &Path,
+        cancellation: &Cancellation,
+    ) -> Result<Option<PathBuf>> {
+        let Ok(output) =
+            RepositoryProcess::new("jj", start, "discover jj repository", cancellation)
+                .output(["root"])
+        else {
+            return Ok(None);
+        };
+        if !output.status.success() {
+            return Ok(None);
+        }
+        path_from_output(
+            &output.stdout,
+            "discover jj repository",
+            "jj root returned an empty path",
+        )
+        .map(Some)
+    }
+
     fn reader(&self, repository: &Repository) -> Result<Arc<JjReader>> {
         let mut reader = self.reader.lock().map_err(|_| Error::JjLibrary {
             operation: "lock repository reader",
@@ -59,10 +92,42 @@ impl JjBackend {
 }
 
 impl RepositoryBackend for JjBackend {
+    fn repo_type(&self) -> RepoType {
+        RepoType::Jj
+    }
+
     fn set_state_root(&self, _repository_root: &Path, _state_root: &Path) {}
 
+    /// Watch jj operation heads; every jj command that changes the repository adds one.
+    ///
+    /// Without readable operation heads, fall back to the colocated Git metadata.
+    fn watch_plan(&self, root: &Path) -> WatchPlan {
+        let mut plan = WatchPlan::new(root);
+        let operation_heads = resolve_directory_or_link_file(&root.join(".jj/repo"))
+            .and_then(|repository| std::fs::canonicalize(repository.join("op_heads")).ok());
+        match operation_heads {
+            Some(operation_heads) => plan.add_metadata(&operation_heads, MetadataScope::Subtree),
+            None => {
+                GitBackend::watch_metadata(&mut plan);
+            }
+        }
+        plan
+    }
+
     fn current_identity(&self, repository: &Repository) -> Result<SnapshotIdentity> {
-        repository.read_jj_identity(false)
+        SnapshotIdentity::parse_jj(
+            &repository
+                .run_jj([
+                    "--color=always",
+                    "log",
+                    "--no-graph",
+                    "-r",
+                    "@",
+                    "-T",
+                    IDENTITY_TEMPLATE,
+                ])?
+                .stdout,
+        )
     }
 
     fn read_files(
@@ -70,7 +135,7 @@ impl RepositoryBackend for JjBackend {
         repository: &Repository,
         identity: &SnapshotIdentity,
     ) -> Result<Vec<ChangedFile>> {
-        ChangedFile::parse_all(
+        ChangedFile::parse_jj(
             &repository
                 .run_jj([
                     OsString::from("diff"),
@@ -89,7 +154,7 @@ impl RepositoryBackend for JjBackend {
         identity: &SnapshotIdentity,
         files: &mut [ChangedFile],
     ) -> Result<()> {
-        ChangedFile::add_stats(
+        ChangedFile::add_jj_stats(
             files,
             &repository
                 .run_jj([
@@ -203,6 +268,88 @@ impl RepositoryBackend for JjBackend {
         }
         Ok(results)
     }
+
+    fn revision_candidates(
+        &self,
+        repository: &Repository,
+        direction: RevisionDirection,
+    ) -> Result<Vec<RevisionCandidate>> {
+        let revset = match direction {
+            RevisionDirection::Parents => "parents(@) & mutable()",
+            RevisionDirection::Children => "children(@) & mutable()",
+        };
+        let output = repository.run_jj([
+            "--ignore-working-copy",
+            "log",
+            "--no-graph",
+            "-r",
+            revset,
+            "-T",
+            REVISION_CANDIDATE_TEMPLATE,
+        ])?;
+        parse_revision_candidates(&output.stdout)
+    }
+
+    fn revision_history(&self, repository: &Repository) -> Result<Vec<RevisionHistoryLine>> {
+        let output = repository.run_jj([
+            "--ignore-working-copy",
+            "--color=always",
+            "log",
+            "-r",
+            REVISION_HISTORY_REVSET,
+            "-T",
+            REVISION_HISTORY_TEMPLATE,
+        ])?;
+        parse_revision_history(&output.stdout)
+    }
+
+    fn edit_revision(&self, repository: &Repository, change_id: &ChangeId) -> Result<bool> {
+        let revset = format!("{} & mutable()", change_id.as_str());
+        let editable = repository
+            .run_jj([
+                "--ignore-working-copy",
+                "log",
+                "--no-graph",
+                "-r",
+                &revset,
+                "-T",
+                r#"change_id ++ "\n""#,
+            ])?
+            .stdout;
+        if editable.is_empty() {
+            return Ok(false);
+        }
+        repository
+            .run_jj(["edit", change_id.as_str()])
+            .map(|_| true)
+    }
+}
+
+impl Repository {
+    /// Run jj in the workspace and reject a failed command.
+    pub(super) fn run_jj<I, S>(&self, arguments: I) -> Result<Output>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
+        let output = self.output_jj(arguments)?;
+        if !output.status.success() {
+            return Err(Error::CommandFailed {
+                operation: "read jj repository".to_owned(),
+                code: output.status.code(),
+            });
+        }
+        Ok(output)
+    }
+
+    fn output_jj<I, S>(&self, arguments: I) -> Result<Output>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
+        RepositoryProcess::new("jj", &self.root, "read jj repository", &self.cancellation)
+            .output(arguments)
+    }
 }
 
 fn baseline_exists(repository: &Repository, baseline: &str) -> Result<bool> {
@@ -259,39 +406,6 @@ fn strip_description_diff(mut diff: Vec<u8>) -> Vec<u8> {
         diff.drain(..block_end);
     }
     diff
-}
-
-pub(super) fn revision_candidates(
-    repository: &Repository,
-    direction: RevisionDirection,
-) -> Result<Vec<RevisionCandidate>> {
-    let revset = match direction {
-        RevisionDirection::Parents => "parents(@) & mutable()",
-        RevisionDirection::Children => "children(@) & mutable()",
-    };
-    let output = repository.run_jj([
-        "--ignore-working-copy",
-        "log",
-        "--no-graph",
-        "-r",
-        revset,
-        "-T",
-        REVISION_CANDIDATE_TEMPLATE,
-    ])?;
-    parse_revision_candidates(&output.stdout)
-}
-
-pub(super) fn revision_history(repository: &Repository) -> Result<Vec<RevisionHistoryLine>> {
-    let output = repository.run_jj([
-        "--ignore-working-copy",
-        "--color=always",
-        "log",
-        "-r",
-        REVISION_HISTORY_REVSET,
-        "-T",
-        REVISION_HISTORY_TEMPLATE,
-    ])?;
-    parse_revision_history(&output.stdout)
 }
 
 fn parse_revision_history(output: &[u8]) -> Result<Vec<RevisionHistoryLine>> {

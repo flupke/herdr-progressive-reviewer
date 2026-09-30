@@ -1,9 +1,10 @@
 use review_test_support::{JjFixture, JjLayout};
 
-use super::{
-    parse_revision_candidates, parse_revision_history, revision_candidates, revision_history,
+use super::{JjBackend, parse_revision_candidates, parse_revision_history};
+use crate::repository::{
+    ChangeId, ChangeKind, ChangedFile, MetadataScope, MetadataWatch, Repository, RepositoryBackend,
+    RevisionDirection, SnapshotId, SnapshotIdentity,
 };
-use crate::repository::{ChangeId, Repository, RevisionDirection};
 
 #[test]
 fn revision_candidate_records_preserve_graph_order() {
@@ -61,7 +62,9 @@ fn revision_candidates_and_edits_follow_the_real_jj_graph() {
     let second_child = fixture.change_id();
     fixture.edit(&parent);
 
-    let children = revision_candidates(&repository, RevisionDirection::Children).unwrap();
+    let children = repository
+        .revision_candidates(RevisionDirection::Children)
+        .unwrap();
     assert_eq!(children.len(), 2);
     assert!(children.iter().any(|child| {
         child.change_id.as_str() == first_child && child.description == "first child"
@@ -77,7 +80,9 @@ fn revision_candidates_and_edits_follow_the_real_jj_graph() {
     assert!(repository.edit_revision(&first_child.change_id).unwrap());
     assert_eq!(fixture.change_id(), first_child.change_id.as_str());
 
-    let parents = revision_candidates(&repository, RevisionDirection::Parents).unwrap();
+    let parents = repository
+        .revision_candidates(RevisionDirection::Parents)
+        .unwrap();
     assert_eq!(parents.len(), 1);
     assert_eq!(parents[0].change_id.as_str(), parent);
 }
@@ -91,7 +96,7 @@ fn revision_history_uses_the_real_jj_graph_and_stops_at_the_immutable_boundary()
     fixture.new_change("second mutable change");
     let second = fixture.change_id();
 
-    let history = revision_history(&repository).unwrap();
+    let history = repository.revision_history().unwrap();
     let change_ids = history
         .iter()
         .filter_map(|line| line.change_id.as_ref().map(ChangeId::as_str))
@@ -136,7 +141,7 @@ fn revision_history_includes_mutable_children_after_editing_an_ancestor() {
     let mutable_child = fixture.change_id();
     fixture.jj(["edit", &mutable_parent]);
 
-    let history = revision_history(&repository).unwrap();
+    let history = repository.revision_history().unwrap();
 
     assert!(history.iter().any(|line| {
         !line.is_immutable
@@ -166,7 +171,7 @@ fn revision_history_includes_immutable_children_of_the_boundary() {
     ]);
     fixture.jj(["new", "root()", "-m", "current mutable change"]);
 
-    let history = revision_history(&repository).unwrap();
+    let history = repository.revision_history().unwrap();
 
     for immutable_child in [first_immutable_child, second_immutable_child] {
         assert!(history.iter().any(|line| {
@@ -177,4 +182,85 @@ fn revision_history_includes_immutable_children_of_the_boundary() {
                     .is_some_and(|change_id| change_id.as_str() == immutable_child)
         }));
     }
+}
+
+#[test]
+fn jj_file_records_require_complete_groups_and_terminators() {
+    let output = b"z-old\0z-new\0file\0file\0modified\0a-old\0a-new\0file\0file\0renamed\0";
+    let files = ChangedFile::parse_jj(output).unwrap();
+
+    assert_eq!(files.len(), 2);
+    assert_eq!(files[0].display_path, "a-old => a-new");
+    assert_eq!(files[1].display_path, "z-old => z-new");
+    assert!(ChangedFile::parse_jj(&output[..output.len() - 1]).is_err());
+    assert!(ChangedFile::parse_jj(b"path\0path\0file\0file\0").is_err());
+}
+
+#[test]
+fn resolved_jj_conflict_is_a_modified_file() {
+    let file = ChangedFile::parse_jj(b"file\0file\0conflict\0file\0modified\0")
+        .unwrap()
+        .pop()
+        .unwrap();
+
+    assert_eq!(file.change, ChangeKind::Modified);
+}
+
+#[test]
+fn jj_statistics_require_complete_groups_and_update_matching_files() {
+    let mut files = ChangedFile::parse_jj(b"file\0file\0file\0file\0modified\0").unwrap();
+
+    ChangedFile::add_jj_stats(&mut files, b"file\0\x31\x32\0\x33\0").unwrap();
+
+    assert_eq!(files[0].statistics.lines_added, 12);
+    assert_eq!(files[0].statistics.lines_removed, 3);
+    assert!(ChangedFile::add_jj_stats(&mut files, b"file\0\x31\x32\0").is_err());
+    assert!(ChangedFile::add_jj_stats(&mut files, b"file\0not-a-number\0\x33\0").is_err());
+}
+
+#[test]
+fn jj_snapshot_identity_requires_two_nonempty_ids_and_a_terminator() {
+    assert_eq!(
+        SnapshotIdentity::parse_jj(b"change\0commit\0description\0short\0").unwrap(),
+        SnapshotIdentity::Jj {
+            change_id: ChangeId::from("change".to_owned()),
+            snapshot_id: SnapshotId::from("commit".to_owned()),
+            description: "description".to_owned(),
+            display_id: "short".to_owned(),
+        }
+    );
+    for invalid in [
+        &b"\0commit\0description\0"[..],
+        &b"change\0\0description\0"[..],
+        &b"change\0commit\0description"[..],
+        &b"change\0commit\0description\0extra"[..],
+    ] {
+        assert!(SnapshotIdentity::parse_jj(invalid).is_err(), "{invalid:?}");
+    }
+}
+
+#[test]
+fn watch_plan_falls_back_to_git_metadata_without_operation_heads() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    std::fs::create_dir_all(root.join(".git/refs")).unwrap();
+    std::fs::create_dir(root.join(".jj")).unwrap();
+    let git = std::fs::canonicalize(root.join(".git")).unwrap();
+
+    let plan = JjBackend::default().watch_plan(root);
+
+    assert_eq!(
+        plan.metadata,
+        [
+            MetadataWatch {
+                directory: git.clone(),
+                scope: MetadataScope::Entries,
+            },
+            MetadataWatch {
+                directory: git.join("refs"),
+                scope: MetadataScope::Subtree,
+            },
+        ]
+    );
+    assert_eq!(plan.git_excludes, None);
 }

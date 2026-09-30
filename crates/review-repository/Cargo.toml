@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 futures.workspace = true
+ignore.workspace = true
 jj-lib.workspace = true
 review-types = { path = "../review-types" }
 serde.workspace = true
