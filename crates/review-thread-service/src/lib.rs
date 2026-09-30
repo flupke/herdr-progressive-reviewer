@@ -1,6 +1,7 @@
 //! One serial owner for UI posts, MCP replies, persistence, and agent notifications.
 
 mod access;
+mod agent_identity;
 mod delivery;
 mod notification;
 mod pinned_agent;

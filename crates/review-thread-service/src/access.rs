@@ -1,34 +1,9 @@
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, PoisonError};
 
-use herdr_client::protocol::{Agent, AgentPort, AgentSession};
+use herdr_client::protocol::{Agent, AgentPort};
 use review_types::ReviewUnit;
 
-#[derive(Clone)]
-enum AgentIdentity {
-    NativeSession(AgentSession),
-    ForegroundProcessGroup {
-        group: u32,
-        native_session: Arc<OnceLock<AgentSession>>,
-    },
-}
-
-impl AgentIdentity {
-    fn matches_session(&self, current: Option<&AgentSession>) -> bool {
-        match self {
-            Self::NativeSession(expected) => current == Some(expected),
-            Self::ForegroundProcessGroup { native_session, .. } => {
-                match (current, native_session.get()) {
-                    (Some(current), Some(expected)) => current == expected,
-                    (Some(current), None) => {
-                        native_session.get_or_init(|| current.clone()) == current
-                    }
-                    (None, Some(_)) => false,
-                    (None, None) => true,
-                }
-            }
-        }
-    }
-}
+use crate::agent_identity::{AgentIdentity, IdentityError, IdentityRules, Verdict};
 
 /// Access to one logical review for the selected agent process or native session.
 #[derive(Clone)]
@@ -36,7 +11,8 @@ pub(super) struct Access {
     pub(super) token: String,
     pub(super) review_unit: ReviewUnit,
     pub(super) agent: Agent,
-    identity: AgentIdentity,
+    /// Clones share one identity, so a session adopted through any clone binds them all.
+    identity: Arc<Mutex<AgentIdentity>>,
 }
 
 impl Access {
@@ -45,19 +21,14 @@ impl Access {
         agent: Agent,
         port: &dyn AgentPort,
     ) -> Result<Self, String> {
-        let identity = if let Some(session) = &agent.agent_session {
-            AgentIdentity::NativeSession(session.clone())
-        } else {
-            AgentIdentity::ForegroundProcessGroup {
-                group: Self::process_group(port, &agent)?,
-                native_session: Arc::new(OnceLock::new()),
-            }
-        };
+        let identity = AgentIdentity::new(&agent, IdentityRules::REVIEW_ACCESS)
+            .bind_process_without_session(port)
+            .map_err(Self::identity_error)?;
         Ok(Self {
             token: uuid::Uuid::new_v4().to_string(),
             review_unit,
             agent,
-            identity,
+            identity: Arc::new(Mutex::new(identity)),
         })
     }
 
@@ -75,31 +46,23 @@ impl Access {
         Ok(current)
     }
 
+    /// A missing native session does not match: access values are bearer tokens.
     pub(super) fn matches_agent(
         &self,
         port: &dyn AgentPort,
         agent: &Agent,
     ) -> Result<bool, String> {
-        if agent.pane_id != self.agent.pane_id
-            || agent.workspace_id != self.agent.workspace_id
-            || agent.agent != self.agent.agent
-        {
-            return Ok(false);
-        }
-        if let AgentIdentity::ForegroundProcessGroup { group, .. } = &self.identity
-            && Self::process_group(port, agent)? != *group
-        {
-            return Ok(false);
-        }
-        Ok(self.identity.matches_session(agent.agent_session.as_ref()))
+        let verdict = self
+            .identity
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .check(port, agent)
+            .map_err(Self::identity_error)?;
+        Ok(verdict == Verdict::Same)
     }
 
-    fn process_group(port: &dyn AgentPort, agent: &Agent) -> Result<u32, String> {
-        port.pane_process_info(&agent.pane_id)
-            .map_err(|error| error.to_string())?
-            .foreground_process_group_id
-            .filter(|group| *group != 0)
-            .ok_or("Herdr did not identify the selected agent process".into())
+    fn identity_error(error: IdentityError) -> String {
+        error.into_message("Herdr did not identify the selected agent process")
     }
 
     pub(super) fn prompt(&self) -> String {
@@ -112,47 +75,5 @@ impl Access {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn access_matches_a_resumed_session_but_not_a_different_session_or_pane() {
-        let port = herdr_client::memory::InMemoryAgents::default();
-        let agent: Agent = serde_json::from_value(serde_json::json!({
-            "pane_id": "pane", "tab_id": "tab", "workspace_id": "workspace",
-            "agent": "codex", "agent_status": "idle",
-            "agent_session": {"source": "herdr:codex", "agent": "codex", "kind": "id", "value": "original"},
-        })).unwrap();
-        let access = Access::new("review".into(), agent.clone(), &port).unwrap();
-        let mut resumed = agent.clone();
-        resumed.agent_status = herdr_client::protocol::AgentStatus::Working;
-        assert!(access.matches_agent(&port, &resumed).unwrap());
-        resumed.agent_session.as_mut().unwrap().value = "replacement".into();
-        assert!(!access.matches_agent(&port, &resumed).unwrap());
-        resumed = agent.clone();
-        resumed.pane_id.0 = "another-pane".into();
-        assert!(!access.matches_agent(&port, &resumed).unwrap());
-        resumed = agent;
-        resumed.workspace_id.0 = "another-workspace".into();
-        assert!(!access.matches_agent(&port, &resumed).unwrap());
-    }
-
-    #[test]
-    fn process_identity_adopts_the_first_native_session_and_rejects_replacement() {
-        let identity = AgentIdentity::ForegroundProcessGroup {
-            group: 42,
-            native_session: Arc::new(OnceLock::new()),
-        };
-        let resumed: AgentSession = serde_json::from_value(serde_json::json!({
-            "source": "herdr:codex", "agent": "codex", "kind": "id", "value": "resumed"
-        }))
-        .unwrap();
-        let mut replacement = resumed.clone();
-        replacement.value = "replacement".into();
-        assert!(identity.matches_session(None));
-        assert!(identity.matches_session(Some(&resumed)));
-        assert!(identity.clone().matches_session(Some(&resumed)));
-        assert!(!identity.matches_session(Some(&replacement)));
-        assert!(!identity.matches_session(None));
-    }
-}
+#[path = "access.tests.rs"]
+mod tests;
