@@ -26,9 +26,9 @@ use ui_events::{
     SourceLocationAccepted, SourceLocationPreviewRequested, TemporaryFilesChanged, ToastRequested,
 };
 use ui_shortcuts::{
-    DiffGlobalShortcut, DiffPaneCommand, DiffShortcut, HunkShortcut, Key, LocationShortcut,
-    LspShortcut, MovementShortcut, SearchMatchShortcut, SearchShortcut, ShortcutMatcher,
-    SourceShortcut,
+    ConversationCommand, ConversationShortcut, DiffGlobalShortcut, DiffPaneCommand, DiffShortcut,
+    HunkShortcut, Key, LocationShortcut, LspShortcut, MovementShortcut, SearchMatchShortcut,
+    SearchShortcut, ShortcutMatcher, SourceShortcut,
 };
 
 mod clipped_viewport;
@@ -399,12 +399,11 @@ impl DiffComponent {
     }
 
     fn keyboard_input(&mut self, input: DiffKeyboardInput) -> Vec<Action> {
-        if !matches!(input, DiffKeyboardInput::ConversationKey(_)) && self.conversation.is_peeking()
-        {
+        if !matches!(input, DiffKeyboardInput::Conversation(_)) && self.conversation.is_peeking() {
             return self.source_view_mut().keyboard_input(input);
         }
         match input {
-            DiffKeyboardInput::ConversationKey(key) => self.conversation_key(key),
+            DiffKeyboardInput::Conversation(command) => self.conversation_command(command),
             DiffKeyboardInput::CommentKey(key) => self.comment_key(key),
             DiffKeyboardInput::SearchKey(key) => self.edit_search(key),
             DiffKeyboardInput::Shortcut(command) => self.run_shortcut(command),
@@ -2227,19 +2226,21 @@ impl Component<Action> for DiffComponent {
 #[derive(Clone, Copy)]
 enum DiffKeyboardInput {
     CommentKey(Key),
-    ConversationKey(Key),
+    Conversation(ConversationCommand),
     SearchKey(Key),
     Shortcut(DiffPaneCommand),
 }
 
 struct DiffKeyboardInputMatcher {
     shortcuts: ShortcutMatcher<DiffPaneCommand>,
+    conversation: ShortcutMatcher<ConversationCommand>,
 }
 
 impl DiffKeyboardInputMatcher {
     const fn new() -> Self {
         Self {
             shortcuts: ShortcutMatcher::new(),
+            conversation: ShortcutMatcher::new(),
         }
     }
 }
@@ -2249,14 +2250,16 @@ impl InputMatcher<DiffComponent, Key> for DiffKeyboardInputMatcher {
 
     fn resolve(&mut self, component: &DiffComponent, key: &Key) -> InputResolution<Self::Output> {
         if component.conversation.is_peeking()
-            && *key == Key::Escape
+            && conversation::ConversationView::goes_back(*key)
             && !component
                 .source_view()
                 .search
                 .as_ref()
                 .is_some_and(|search| search.editing)
         {
-            return InputResolution::Matched(DiffKeyboardInput::ConversationKey(*key));
+            return InputResolution::Matched(DiffKeyboardInput::Conversation(
+                ConversationCommand::Conversation(ConversationShortcut::Back),
+            ));
         }
         self.resolve_view(component.source_view(), *key)
     }
@@ -2275,11 +2278,10 @@ impl DiffKeyboardInputMatcher {
             return InputResolution::Matched(DiffKeyboardInput::CommentKey(key));
         }
         if component.conversation.active {
-            return if conversation::ConversationView::handles_key(key) {
-                InputResolution::Matched(DiffKeyboardInput::ConversationKey(key))
-            } else {
-                InputResolution::NoMatch
-            };
+            return self
+                .conversation
+                .resolve_key(key)
+                .map(DiffKeyboardInput::Conversation);
         }
         if component
             .search
@@ -2288,13 +2290,9 @@ impl DiffKeyboardInputMatcher {
         {
             return InputResolution::Matched(DiffKeyboardInput::SearchKey(key));
         }
-        match self.shortcuts.resolve_key(key) {
-            InputResolution::NoMatch => InputResolution::NoMatch,
-            InputResolution::AwaitingMoreInput => InputResolution::AwaitingMoreInput,
-            InputResolution::Matched(command) => {
-                InputResolution::Matched(DiffKeyboardInput::Shortcut(command))
-            }
-        }
+        self.shortcuts
+            .resolve_key(key)
+            .map(DiffKeyboardInput::Shortcut)
     }
 }
 

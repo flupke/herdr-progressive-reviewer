@@ -2,13 +2,14 @@
 
 use std::cell::RefCell;
 
+use component_core::InputResolution;
 use review_threads::{Resolution, ReviewThread, ThreadCommand, ThreadId};
 use ui_actions::Action;
 use ui_events::{
     PointerInput, PointerInputKind, ReviewNavigation, ReviewNavigationChanged, ReviewPane,
     ReviewPaneFocusRequested, ThreadSelectionChanged,
 };
-use ui_shortcuts::Key;
+use ui_shortcuts::{ConversationCommand, ConversationShortcut, Key, ShortcutMatcher};
 
 use crate::DiffComponent;
 use crate::comments::CommentTarget;
@@ -59,24 +60,11 @@ impl ConversationView {
         self.unavailable.clear();
         self.original = None;
     }
-    pub(super) fn handles_key(key: Key) -> bool {
-        matches!(
-            key,
-            Key::Down
-                | Key::Up
-                | Key::PageDown
-                | Key::PageUp
-                | Key::HalfPageDown
-                | Key::HalfPageUp
-                | Key::First
-                | Key::Last
-                | Key::Enter
-                | Key::Escape
-                | Key::Left
-                | Key::Right
-                | Key::Space
-                | Key::Char('j' | 'k' | 'h' | 'l' | 'a' | 'A' | 'r' | 'p' | 'u')
-        )
+    /// Whether `key` is bound to leaving the conversation view, which closes
+    /// an open source peek before the peek's own keys apply.
+    pub(super) fn goes_back(key: Key) -> bool {
+        ShortcutMatcher::<ConversationShortcut>::new().resolve_key(key)
+            == InputResolution::Matched(ConversationShortcut::Back)
     }
 }
 
@@ -279,43 +267,50 @@ impl DiffComponent {
         })
     }
 
-    pub(super) fn conversation_key(&mut self, key: Key) -> Vec<Action> {
-        let page = isize::try_from(self.viewport_height)
-            .unwrap_or(isize::MAX)
-            .saturating_sub(2)
-            .max(1);
-        match key {
-            Key::Down | Key::Char('j') => self.scroll_conversation(1),
-            Key::Up | Key::Char('k') => self.scroll_conversation(-1),
-            Key::PageDown | Key::HalfPageDown | Key::Space => self.scroll_conversation(page),
-            Key::PageUp | Key::HalfPageUp => self.scroll_conversation(-page),
-            Key::First => self.scroll_conversation(isize::MIN),
-            Key::Last => self.scroll_conversation(isize::MAX),
-            _ => return self.conversation_action_key(key),
+    pub(super) fn conversation_command(&mut self, command: ConversationCommand) -> Vec<Action> {
+        match command {
+            ConversationCommand::Movement(command) => {
+                self.scroll_conversation(command.row_delta(self.conversation_page()));
+                Vec::new()
+            }
+            ConversationCommand::Conversation(command) => self.run_conversation_shortcut(command),
         }
-        Vec::new()
     }
 
-    fn conversation_action_key(&mut self, key: Key) -> Vec<Action> {
-        let action = match key {
-            Key::Escape if self.conversation.peek.is_some() => ConversationAction::ClosePeek,
-            Key::Escape => ConversationAction::Back,
-            Key::Char('a' | 'A') if self.conversation.peek.is_none() => ConversationAction::Reply,
-            Key::Char('r') if self.conversation.peek.is_none() => {
+    fn conversation_page(&self) -> isize {
+        isize::try_from(self.viewport_height)
+            .unwrap_or(isize::MAX)
+            .saturating_sub(2)
+            .max(1)
+    }
+
+    fn run_conversation_shortcut(&mut self, command: ConversationShortcut) -> Vec<Action> {
+        let peeking = self.conversation.peek.is_some();
+        let action = match command {
+            ConversationShortcut::Back if peeking => ConversationAction::ClosePeek,
+            ConversationShortcut::Back => ConversationAction::Back,
+            ConversationShortcut::Reply if !peeking => ConversationAction::Reply,
+            ConversationShortcut::ToggleResolution if !peeking => {
                 return self
                     .conversation
                     .selected
                     .as_ref()
                     .map_or_else(Vec::new, |id| self.resolve_thread(id));
             }
-            Key::Char('p') => ConversationAction::Peek,
-            Key::Char('u') | Key::Enter => ConversationAction::Read,
-            Key::Left | Key::Char('h') => {
+            ConversationShortcut::Peek => ConversationAction::Peek,
+            ConversationShortcut::MarkRead => ConversationAction::Read,
+            ConversationShortcut::FocusThreads => {
                 self.events
                     .publish(ReviewPaneFocusRequested(ReviewPane::Navigation));
                 return Vec::new();
             }
-            _ => return Vec::new(),
+            ConversationShortcut::ScrollPageDown => {
+                self.scroll_conversation(self.conversation_page());
+                return Vec::new();
+            }
+            ConversationShortcut::Reply | ConversationShortcut::ToggleResolution => {
+                return Vec::new();
+            }
         };
         self.conversation_action(action)
     }

@@ -5,10 +5,11 @@ mod matcher;
 mod table;
 
 pub use commands::{
-    ApplicationCommand, ApplicationShortcut, CommentShortcut, DiffGlobalShortcut, DiffPaneCommand,
-    DiffShortcut, FilesShortcut, HunkShortcut, LocationShortcut, LspShortcut, MovementShortcut,
-    OverlayShortcut, RevisionShortcut, SearchMatchShortcut, SearchShortcut, ShortcutCommand,
-    ShortcutSubscription, SourceShortcut,
+    ApplicationCommand, ApplicationShortcut, CommentShortcut, ConversationCommand,
+    ConversationShortcut, DiffGlobalShortcut, DiffPaneCommand, DiffShortcut, FilesShortcut,
+    HunkShortcut, LocationShortcut, LspShortcut, MovementShortcut, OverlayShortcut,
+    RevisionShortcut, SearchMatchShortcut, SearchShortcut, ShortcutCommand, ShortcutSubscription,
+    SourceShortcut, ThreadsCommand, ThreadsShortcut,
 };
 pub use matcher::ShortcutMatcher;
 use table::{SHORTCUTS, ShortcutDefinition, ShortcutSequence, bindings};

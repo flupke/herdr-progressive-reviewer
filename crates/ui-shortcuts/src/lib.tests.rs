@@ -14,6 +14,8 @@ fn owner_count(command: ShortcutCommand) -> usize {
         FilesShortcut::select(command).is_some(),
         OverlayShortcut::select(command).is_some(),
         RevisionShortcut::select(command).is_some(),
+        ThreadsShortcut::select(command).is_some(),
+        ConversationShortcut::select(command).is_some(),
     ]
     .into_iter()
     .filter(|owned| *owned)
@@ -91,12 +93,46 @@ fn owning_scopes_resolve_their_bindings_without_conflicts() {
     assert_subscription_is_consistent::<FilesShortcut>();
     assert_subscription_is_consistent::<OverlayShortcut>();
     assert_subscription_is_consistent::<RevisionShortcut>();
+    assert_subscription_is_consistent::<ThreadsShortcut>();
+    assert_subscription_is_consistent::<ConversationShortcut>();
 }
 
 #[test]
 fn combined_subscriptions_resolve_their_bindings_without_conflicts() {
     assert_subscription_is_consistent::<ApplicationCommand>();
     assert_subscription_is_consistent::<DiffPaneCommand>();
+    assert_subscription_is_consistent::<ThreadsCommand>();
+    assert_subscription_is_consistent::<ConversationCommand>();
+}
+
+/// The diff, the Threads list and the conversation view resolve movement
+/// from the same table entries, so rebinding one moves all three.
+#[test]
+fn list_and_conversation_views_share_the_diff_movement_bindings() {
+    for (binding, movement) in subscribed_bindings::<MovementShortcut>() {
+        assert_eq!(
+            resolve::<DiffPaneCommand>(binding.sequence),
+            InputResolution::Matched(DiffPaneCommand::Movement(movement))
+        );
+        assert_eq!(
+            resolve::<ThreadsCommand>(binding.sequence),
+            InputResolution::Matched(ThreadsCommand::Movement(movement))
+        );
+        assert_eq!(
+            resolve::<ConversationCommand>(binding.sequence),
+            InputResolution::Matched(ConversationCommand::Movement(movement))
+        );
+    }
+}
+
+#[test]
+fn threads_and_conversation_help_comes_from_the_table() {
+    let lines = help_lines().collect::<Vec<_>>();
+    assert!(lines.contains(&("1 / 2".to_owned(), "Threads: show Unresolved / All")));
+    assert!(lines.contains(&(
+        "Esc".to_owned(),
+        "Conversation: close the peek, or return to Files"
+    )));
 }
 
 #[test]

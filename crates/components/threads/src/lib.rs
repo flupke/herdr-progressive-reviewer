@@ -12,7 +12,7 @@ use ui_events::{
     RepositoryFilesChanged, ReviewNavigation, ReviewNavigationChanged, ReviewPane,
     ReviewPaneFocusRequested, ReviewThreadsLoaded, ThreadSelectionChanged,
 };
-use ui_shortcuts::Key;
+use ui_shortcuts::{Key, SearchShortcut, ShortcutMatcher, ThreadsCommand, ThreadsShortcut};
 
 mod render;
 
@@ -164,23 +164,20 @@ impl ThreadsComponent {
         self.select(self.visible().first().map(|thread| thread.id.clone()));
     }
 
-    fn key(&mut self, key: Key) -> Vec<Action> {
-        if self.searching {
-            self.edit_search(key);
-            return Vec::new();
-        }
-        match key {
-            Key::Down | Key::Char('j') => self.move_selection(1),
-            Key::Up | Key::Char('k') => self.move_selection(-1),
-            Key::PageDown | Key::HalfPageDown => {
-                self.move_selection(isize::try_from(self.page_rows()).unwrap_or(isize::MAX));
+    fn handle_input(&mut self, input: ThreadsInput) -> Vec<Action> {
+        match input {
+            ThreadsInput::SearchText(key) => self.edit_search(key),
+            ThreadsInput::Command(ThreadsCommand::Movement(command)) => {
+                let page = isize::try_from(self.page_rows()).unwrap_or(isize::MAX);
+                self.move_selection(command.row_delta(page));
             }
-            Key::PageUp | Key::HalfPageUp => {
-                self.move_selection(-isize::try_from(self.page_rows()).unwrap_or(isize::MAX));
+            ThreadsInput::Command(ThreadsCommand::Search(SearchShortcut::Begin)) => {
+                self.searching = true;
+                self.keep_selected_visible();
             }
-            Key::First => self.move_selection(isize::MIN),
-            Key::Last => self.move_selection(isize::MAX),
-            _ => self.action_key(key),
+            ThreadsInput::Command(ThreadsCommand::Threads(command)) => {
+                self.run_threads_shortcut(command);
+            }
         }
         Vec::new()
     }
@@ -206,20 +203,15 @@ impl ThreadsComponent {
         self.reset_selection();
     }
 
-    fn action_key(&mut self, key: Key) {
-        match key {
-            Key::Char('/') => {
-                self.searching = true;
-                self.keep_selected_visible();
-            }
-            Key::Char('1') => self.choose_filter(Filter::Unresolved),
-            Key::Char('2') => self.choose_filter(Filter::All),
-            Key::Enter | Key::Right | Key::Char('l') => {
+    fn run_threads_shortcut(&mut self, command: ThreadsShortcut) {
+        match command {
+            ThreadsShortcut::ShowUnresolved => self.choose_filter(Filter::Unresolved),
+            ThreadsShortcut::ShowAll => self.choose_filter(Filter::All),
+            ThreadsShortcut::OpenConversation => {
                 self.select(self.selected.clone());
                 self.events
                     .publish(ReviewPaneFocusRequested(ReviewPane::Detail));
             }
-            _ => {}
         }
     }
 
@@ -401,31 +393,31 @@ impl ThreadsComponent {
     }
 }
 
-struct ThreadKeys;
+/// A focused key: search text while the query is being edited, otherwise a
+/// command from the shortcut table.
+#[derive(Clone, Copy)]
+enum ThreadsInput {
+    SearchText(Key),
+    Command(ThreadsCommand),
+}
+
+#[derive(Default)]
+struct ThreadKeys {
+    commands: ShortcutMatcher<ThreadsCommand>,
+}
 
 impl InputMatcher<ThreadsComponent, Key> for ThreadKeys {
-    type Output = Key;
-    fn resolve(&mut self, component: &ThreadsComponent, key: &Key) -> InputResolution<Key> {
-        if component.searching
-            || matches!(
-                key,
-                Key::Down
-                    | Key::Up
-                    | Key::PageDown
-                    | Key::PageUp
-                    | Key::HalfPageDown
-                    | Key::HalfPageUp
-                    | Key::First
-                    | Key::Last
-                    | Key::Enter
-                    | Key::Right
-                    | Key::Char('j' | 'k' | 'l' | '/' | '1' | '2')
-            )
-        {
-            InputResolution::Matched(*key)
-        } else {
-            InputResolution::NoMatch
+    type Output = ThreadsInput;
+
+    fn resolve(
+        &mut self,
+        component: &ThreadsComponent,
+        key: &Key,
+    ) -> InputResolution<ThreadsInput> {
+        if component.searching {
+            return InputResolution::Matched(ThreadsInput::SearchText(*key));
         }
+        self.commands.resolve_key(*key).map(ThreadsInput::Command)
     }
 }
 
@@ -440,7 +432,11 @@ impl Component<Action> for ThreadsComponent {
         subscriptions.subscribe(Self::focus_requested);
         subscriptions.subscribe(Self::new_replies);
         subscriptions.subscribe(Self::viewport_changed);
-        subscriptions.subscribe_input(InputScope::Focused, ThreadKeys, Self::key);
+        subscriptions.subscribe_input(
+            InputScope::Focused,
+            ThreadKeys::default(),
+            Self::handle_input,
+        );
         subscriptions.subscribe_input(
             InputScope::Focused,
             AnyInput,

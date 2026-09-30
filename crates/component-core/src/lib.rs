@@ -133,6 +133,17 @@ pub enum InputResolution<T> {
     Matched(T),
 }
 
+impl<T> InputResolution<T> {
+    /// Convert a matched value, keeping the other outcomes.
+    pub fn map<U>(self, convert: impl FnOnce(T) -> U) -> InputResolution<U> {
+        match self {
+            Self::NoMatch => InputResolution::NoMatch,
+            Self::AwaitingMoreInput => InputResolution::AwaitingMoreInput,
+            Self::Matched(value) => InputResolution::Matched(convert(value)),
+        }
+    }
+}
+
 /// Resolve raw input before a component handler runs.
 pub trait InputMatcher<C, E>: 'static {
     /// The value passed to the component handler after a match.

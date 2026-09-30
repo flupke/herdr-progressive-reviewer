@@ -289,6 +289,23 @@ fn replies_preserve_each_composer_and_post_to_its_original_thread() {
 }
 
 #[test]
+fn threads_list_follows_the_shared_movement_bindings() {
+    let mut ui = ThreadUi::new(110);
+    ui.key(Key::Char('t'));
+    ui.key(Key::Char('G'));
+    ui.key(Key::Enter);
+    ui.key(Key::Char('r'));
+    assert_eq!(
+        ui.book.thread(&ui.ids[1]).unwrap().resolution,
+        Resolution::Resolved
+    );
+    assert_eq!(
+        ui.book.thread(&ui.ids[0]).unwrap().resolution,
+        Resolution::Open
+    );
+}
+
+#[test]
 fn late_replies_on_resolved_threads_are_findable_without_moving_focus() {
     let mut ui = ThreadUi::new(110);
     ui.key(Key::Char('t'));

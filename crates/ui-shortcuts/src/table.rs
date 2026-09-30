@@ -2,9 +2,10 @@
 
 use crate::Key;
 use crate::commands::{
-    ApplicationShortcut, CommentShortcut, DiffGlobalShortcut, DiffShortcut, FilesShortcut,
-    HunkShortcut, LocationShortcut, LspShortcut, MovementShortcut, OverlayShortcut,
+    ApplicationShortcut, CommentShortcut, ConversationShortcut, DiffGlobalShortcut, DiffShortcut,
+    FilesShortcut, HunkShortcut, LocationShortcut, LspShortcut, MovementShortcut, OverlayShortcut,
     RevisionShortcut, SearchMatchShortcut, SearchShortcut, ShortcutCommand, SourceShortcut,
+    ThreadsShortcut,
 };
 
 const fn application(command: ApplicationShortcut) -> ShortcutCommand {
@@ -61,6 +62,14 @@ const fn overlay(command: OverlayShortcut) -> ShortcutCommand {
 
 const fn revision(command: RevisionShortcut) -> ShortcutCommand {
     ShortcutCommand::Revision(command)
+}
+
+const fn threads(command: ThreadsShortcut) -> ShortcutCommand {
+    ShortcutCommand::Threads(command)
+}
+
+const fn conversation(command: ConversationShortcut) -> ShortcutCommand {
+    ShortcutCommand::Conversation(command)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -426,6 +435,73 @@ pub(crate) const SHORTCUTS: &[ShortcutDefinition] = &[
         bindings: &[ShortcutBinding::one(
             Key::Char('E'),
             diff_global(DiffGlobalShortcut::OpenInEditor),
+        )],
+    },
+    ShortcutDefinition {
+        description: Some("Threads: show Unresolved / All"),
+        bindings: &[
+            ShortcutBinding::one(Key::Char('1'), threads(ThreadsShortcut::ShowUnresolved)),
+            ShortcutBinding::one(Key::Char('2'), threads(ThreadsShortcut::ShowAll)),
+        ],
+    },
+    ShortcutDefinition {
+        description: Some("Threads: open the selected conversation"),
+        bindings: &[
+            ShortcutBinding::one(Key::Enter, threads(ThreadsShortcut::OpenConversation)),
+            ShortcutBinding::one(Key::Right, threads(ThreadsShortcut::OpenConversation)),
+            ShortcutBinding::one(Key::Char('l'), threads(ThreadsShortcut::OpenConversation)),
+        ],
+    },
+    ShortcutDefinition {
+        description: Some("Conversation: reply"),
+        bindings: &[
+            ShortcutBinding::one(Key::Char('a'), conversation(ConversationShortcut::Reply)),
+            ShortcutBinding::one(Key::Char('A'), conversation(ConversationShortcut::Reply)),
+        ],
+    },
+    ShortcutDefinition {
+        description: Some("Conversation: resolve or reopen the thread"),
+        bindings: &[ShortcutBinding::one(
+            Key::Char('r'),
+            conversation(ConversationShortcut::ToggleResolution),
+        )],
+    },
+    ShortcutDefinition {
+        description: Some("Conversation: peek at the commented source"),
+        bindings: &[ShortcutBinding::one(
+            Key::Char('p'),
+            conversation(ConversationShortcut::Peek),
+        )],
+    },
+    ShortcutDefinition {
+        description: Some("Conversation: mark replies read"),
+        bindings: &[
+            ShortcutBinding::one(Key::Char('u'), conversation(ConversationShortcut::MarkRead)),
+            ShortcutBinding::one(Key::Enter, conversation(ConversationShortcut::MarkRead)),
+        ],
+    },
+    ShortcutDefinition {
+        description: Some("Conversation: return to the thread list"),
+        bindings: &[
+            ShortcutBinding::one(
+                Key::Char('h'),
+                conversation(ConversationShortcut::FocusThreads),
+            ),
+            ShortcutBinding::one(Key::Left, conversation(ConversationShortcut::FocusThreads)),
+        ],
+    },
+    ShortcutDefinition {
+        description: Some("Conversation: close the peek, or return to Files"),
+        bindings: &[ShortcutBinding::one(
+            Key::Escape,
+            conversation(ConversationShortcut::Back),
+        )],
+    },
+    ShortcutDefinition {
+        description: None,
+        bindings: &[ShortcutBinding::alias(
+            Key::Space,
+            conversation(ConversationShortcut::ScrollPageDown),
         )],
     },
     ShortcutDefinition {
