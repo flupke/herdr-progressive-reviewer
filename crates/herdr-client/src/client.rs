@@ -13,8 +13,9 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::protocol::{
-    Agent, AgentPrompter, AgentStatus, EntrypointId, HerdrEvent, HerdrReader, HerdrWriter,
-    OpenPluginPane, PaneId, PluginPane, SessionSnapshot, TabId, WorkspaceId, method,
+    Agent, AgentPort, AgentStatus, EntrypointId, HerdrEvent, HerdrReader, HerdrWriter,
+    OpenPluginPane, PaneId, PaneProcessInfo, PluginPane, SessionSnapshot, TabId, WorkspaceId,
+    method,
 };
 use crate::{Error, Result};
 
@@ -176,12 +177,6 @@ impl HerdrClient {
         )?;
         let read: PaneReadWire = Self::parse(&result, "read", method::AGENT_READ)?;
         Ok(read.text)
-    }
-
-    /// Inspect the processes currently owning a pane, without reading their environment.
-    pub fn pane_process_info(&self, pane_id: &PaneId) -> Result<crate::protocol::PaneProcessInfo> {
-        let result = self.request("pane.process_info", &json!({"pane_id": pane_id.0}))?;
-        Self::parse(&result, "process_info", "pane.process_info")
     }
 
     /// Build a client for an explicitly configured Herdr connection.
@@ -449,7 +444,7 @@ fn validate_response(
     }
 }
 
-impl HerdrReader for HerdrClient {
+impl AgentPort for HerdrClient {
     fn session_snapshot(&self) -> Result<SessionSnapshot> {
         let result = self.request(method::SESSION_SNAPSHOT, &json!({}))?;
         Self::parse(&result, "snapshot", method::SESSION_SNAPSHOT)
@@ -471,6 +466,21 @@ impl HerdrReader for HerdrClient {
         }
     }
 
+    fn pane_process_info(&self, pane_id: &PaneId) -> Result<PaneProcessInfo> {
+        let result = self.request("pane.process_info", &json!({"pane_id": pane_id.0}))?;
+        Self::parse(&result, "process_info", "pane.process_info")
+    }
+
+    fn prompt_agent(&self, pane_id: &PaneId, text: &str) -> Result<()> {
+        self.request(
+            method::AGENT_PROMPT,
+            &json!({"target": pane_id.0, "text": text}),
+        )?;
+        Ok(())
+    }
+}
+
+impl HerdrReader for HerdrClient {
     fn read_agent_screen(&self, pane_id: &PaneId) -> Result<String> {
         self.agent_screen(pane_id)
     }
@@ -531,16 +541,6 @@ impl HerdrWriter for HerdrClient {
     fn close_plugin_pane(&self, pane_id: &PaneId) -> Result<()> {
         self.request(method::PLUGIN_PANE_CLOSE, &json!({"pane_id": pane_id.0}))?;
         self.remove_pane(pane_id)
-    }
-}
-
-impl AgentPrompter for HerdrClient {
-    fn prompt_agent(&self, pane_id: &PaneId, text: &str) -> Result<()> {
-        self.request(
-            method::AGENT_PROMPT,
-            &json!({"target": pane_id.0, "text": text}),
-        )?;
-        Ok(())
     }
 }
 

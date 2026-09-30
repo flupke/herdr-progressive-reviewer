@@ -17,6 +17,8 @@ ui-events = { path = "../ui-events" }
 uuid.workspace = true
 
 [dev-dependencies]
+herdr-client = { path = "../herdr-client", features = ["memory"] }
+review-source = { path = "../review-source" }
 tempfile.workspace = true
 
 [lints]

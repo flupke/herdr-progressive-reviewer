@@ -1,9 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use herdr_client::{
-    client::HerdrClient,
-    protocol::{Agent, HerdrReader},
-};
+use herdr_client::protocol::{Agent, AgentPort};
 
 /// A conversation identity shared by queued delivery and subsequent MCP access checks.
 #[derive(Clone, Debug)]
@@ -18,11 +15,11 @@ struct Pin {
 }
 
 impl Pin {
-    fn verify_process(&self, client: &HerdrClient, agent: &Agent) -> Result<(), String> {
+    fn verify_process(&self, port: &dyn AgentPort, agent: &Agent) -> Result<(), String> {
         let Some(group) = self.process_group else {
             return Ok(());
         };
-        let current = client
+        let current = port
             .pane_process_info(&agent.pane_id)
             .map_err(|error| error.to_string())?
             .foreground_process_group_id;
@@ -73,11 +70,10 @@ impl PinnedAgent {
         })))
     }
 
-    pub fn for_retry(agent: Agent, client: &HerdrClient) -> Result<Self, String> {
+    pub fn for_retry(agent: Agent, port: &dyn AgentPort) -> Result<Self, String> {
         let process_group = if agent.agent_session.is_none() {
             Some(
-                client
-                    .pane_process_info(&agent.pane_id)
+                port.pane_process_info(&agent.pane_id)
                     .map_err(|error| error.to_string())?
                     .foreground_process_group_id
                     .filter(|group| *group != 0)
@@ -107,12 +103,12 @@ impl PinnedAgent {
     }
 
     /// Missing native identity is transient; a known replacement is an error.
-    pub fn current(&self, client: &HerdrClient) -> Result<Option<Agent>, String> {
+    pub fn current(&self, port: &dyn AgentPort) -> Result<Option<Agent>, String> {
         let mut previous = self
             .0
             .lock()
             .map_err(|_| "The selected agent identity is unavailable")?;
-        let current = client
+        let current = port
             .get_agent(&previous.agent.pane_id)
             .map_err(|error| error.to_string())?
             .ok_or("The selected agent is no longer available")?;
@@ -124,7 +120,7 @@ impl PinnedAgent {
                 "The selected pane is now running a different agent; start a new pass".into(),
             );
         }
-        previous.verify_process(client, &current)?;
+        previous.verify_process(port, &current)?;
         if !previous.session_ready(&current)? {
             return Ok(None);
         }

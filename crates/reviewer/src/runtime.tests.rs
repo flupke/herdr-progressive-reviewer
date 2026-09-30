@@ -4,7 +4,7 @@ use std::io::Write;
 use std::path::Path;
 use std::process::Command;
 
-use herdr_client::protocol::HerdrReader;
+use herdr_client::protocol::AgentPort;
 use ratatui::backend::TestBackend;
 use review_repository::diff::DiffRow;
 use review_repository::repository::RepoType;

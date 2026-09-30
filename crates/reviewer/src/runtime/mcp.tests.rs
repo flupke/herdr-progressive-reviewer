@@ -2,7 +2,7 @@ use super::{IsolatedHerdrServer, fs, mpsc, thread};
 use std::time::{Duration, Instant};
 
 use herdr_client::protocol::{
-    AgentPrompter, AgentStatus, AgentTarget, HerdrEvent, HerdrReader, HerdrWriter,
+    AgentPort, AgentStatus, AgentTarget, HerdrEvent, HerdrReader, HerdrWriter,
 };
 use review_mcp::Endpoint;
 use review_source::{AnchorKind, DiffRangeAnchor};

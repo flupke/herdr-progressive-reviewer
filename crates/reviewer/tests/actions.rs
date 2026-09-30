@@ -2,8 +2,8 @@ use std::sync::Mutex;
 
 use herdr_client::Result;
 use herdr_client::protocol::{
-    Agent, EntrypointId, HerdrReader, HerdrWriter, OpenPluginPane, PaneId, PanePlacement,
-    PluginContext, PluginPane, SessionSnapshot, TabId, WorkspaceId,
+    EntrypointId, HerdrReader, HerdrWriter, OpenPluginPane, PaneId, PanePlacement, PluginContext,
+    PluginPane, TabId, WorkspaceId,
 };
 use review_repository::repository::RepoType;
 use review_test_support::repository_fixture;
@@ -12,8 +12,6 @@ use test_case::test_case;
 
 #[derive(Debug, Default)]
 struct FakeHerdr {
-    session: Mutex<SessionSnapshot>,
-    agents: Mutex<Vec<Agent>>,
     panes: Mutex<Vec<PluginPane>>,
     opened: Mutex<Vec<OpenPluginPane>>,
     focused: Mutex<Vec<PaneId>>,
@@ -22,24 +20,6 @@ struct FakeHerdr {
 }
 
 impl HerdrReader for FakeHerdr {
-    fn session_snapshot(&self) -> Result<SessionSnapshot> {
-        Ok(self.session.lock().unwrap().clone())
-    }
-
-    fn list_agents(&self) -> Result<Vec<Agent>> {
-        Ok(self.agents.lock().unwrap().clone())
-    }
-
-    fn get_agent(&self, pane_id: &PaneId) -> Result<Option<Agent>> {
-        Ok(self
-            .agents
-            .lock()
-            .unwrap()
-            .iter()
-            .find(|agent| agent.pane_id == *pane_id)
-            .cloned())
-    }
-
     fn read_agent_screen(&self, _pane_id: &PaneId) -> Result<String> {
         unreachable!()
     }

@@ -1,7 +1,6 @@
 use std::sync::{Arc, OnceLock};
 
-use herdr_client::client::HerdrClient;
-use herdr_client::protocol::{Agent, AgentSession, HerdrReader};
+use herdr_client::protocol::{Agent, AgentPort, AgentSession};
 use review_types::ReviewUnit;
 
 #[derive(Clone)]
@@ -44,13 +43,13 @@ impl Access {
     pub(super) fn new(
         review_unit: ReviewUnit,
         agent: Agent,
-        client: &HerdrClient,
+        port: &dyn AgentPort,
     ) -> Result<Self, String> {
         let identity = if let Some(session) = &agent.agent_session {
             AgentIdentity::NativeSession(session.clone())
         } else {
             AgentIdentity::ForegroundProcessGroup {
-                group: Self::process_group(client, &agent)?,
+                group: Self::process_group(port, &agent)?,
                 native_session: Arc::new(OnceLock::new()),
             }
         };
@@ -62,12 +61,12 @@ impl Access {
         })
     }
 
-    pub(super) fn current_agent(&self, client: &HerdrClient) -> Result<Agent, String> {
-        let current = client
+    pub(super) fn current_agent(&self, port: &dyn AgentPort) -> Result<Agent, String> {
+        let current = port
             .get_agent(&self.agent.pane_id)
             .map_err(|error| error.to_string())?
             .ok_or("The selected agent has exited")?;
-        if !self.matches_agent(client, &current)? {
+        if !self.matches_agent(port, &current)? {
             return Err(
                 "The selected pane has changed agent processes or sessions; retry from the reviewer to receive fresh access"
                     .into(),
@@ -78,7 +77,7 @@ impl Access {
 
     pub(super) fn matches_agent(
         &self,
-        client: &HerdrClient,
+        port: &dyn AgentPort,
         agent: &Agent,
     ) -> Result<bool, String> {
         if agent.pane_id != self.agent.pane_id
@@ -88,16 +87,15 @@ impl Access {
             return Ok(false);
         }
         if let AgentIdentity::ForegroundProcessGroup { group, .. } = &self.identity
-            && Self::process_group(client, agent)? != *group
+            && Self::process_group(port, agent)? != *group
         {
             return Ok(false);
         }
         Ok(self.identity.matches_session(agent.agent_session.as_ref()))
     }
 
-    fn process_group(client: &HerdrClient, agent: &Agent) -> Result<u32, String> {
-        client
-            .pane_process_info(&agent.pane_id)
+    fn process_group(port: &dyn AgentPort, agent: &Agent) -> Result<u32, String> {
+        port.pane_process_info(&agent.pane_id)
             .map_err(|error| error.to_string())?
             .foreground_process_group_id
             .filter(|group| *group != 0)
@@ -119,28 +117,24 @@ mod tests {
 
     #[test]
     fn access_matches_a_resumed_session_but_not_a_different_session_or_pane() {
-        let client = HerdrClient::new(
-            "/nonexistent/reviewer-test.sock".into(),
-            "reviewer-test".into(),
-            "/nonexistent".into(),
-        );
+        let port = herdr_client::memory::InMemoryAgents::default();
         let agent: Agent = serde_json::from_value(serde_json::json!({
             "pane_id": "pane", "tab_id": "tab", "workspace_id": "workspace",
             "agent": "codex", "agent_status": "idle",
             "agent_session": {"source": "herdr:codex", "agent": "codex", "kind": "id", "value": "original"},
         })).unwrap();
-        let access = Access::new("review".into(), agent.clone(), &client).unwrap();
+        let access = Access::new("review".into(), agent.clone(), &port).unwrap();
         let mut resumed = agent.clone();
         resumed.agent_status = herdr_client::protocol::AgentStatus::Working;
-        assert!(access.matches_agent(&client, &resumed).unwrap());
+        assert!(access.matches_agent(&port, &resumed).unwrap());
         resumed.agent_session.as_mut().unwrap().value = "replacement".into();
-        assert!(!access.matches_agent(&client, &resumed).unwrap());
+        assert!(!access.matches_agent(&port, &resumed).unwrap());
         resumed = agent.clone();
         resumed.pane_id.0 = "another-pane".into();
-        assert!(!access.matches_agent(&client, &resumed).unwrap());
+        assert!(!access.matches_agent(&port, &resumed).unwrap());
         resumed = agent;
         resumed.workspace_id.0 = "another-workspace".into();
-        assert!(!access.matches_agent(&client, &resumed).unwrap());
+        assert!(!access.matches_agent(&port, &resumed).unwrap());
     }
 
     #[test]

@@ -10,8 +10,7 @@ mod wakeup;
 use std::sync::mpsc::{self, Sender};
 use std::thread::{self, JoinHandle};
 
-use herdr_client::client::HerdrClient;
-use herdr_client::protocol::{AgentTarget, HerdrEvent};
+use herdr_client::protocol::{AgentPort, AgentTarget, HerdrEvent};
 use review_mcp::Endpoint;
 use review_store::ReviewStore;
 use review_threads::ThreadCommand;
@@ -68,7 +67,7 @@ impl Worker {
 
     pub fn start(
         store: ReviewStore,
-        client: HerdrClient,
+        port: impl AgentPort + 'static,
         target: AgentTarget,
         endpoint: Result<Endpoint, String>,
         publish: impl Fn(Event) + Send + 'static,
@@ -87,7 +86,7 @@ impl Worker {
             if let Err(error) = &server {
                 publish(Event::Error(error.clone()));
             }
-            State::new(store, client, target, available, Box::new(publish)).run(&receiver);
+            State::new(store, Box::new(port), target, available, Box::new(publish)).run(&receiver);
             drop(server);
         });
         Self {

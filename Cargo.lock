@@ -4017,6 +4017,7 @@ version = "0.2.0"
 dependencies = [
  "herdr-client",
  "review-mcp",
+ "review-source",
  "review-store",
  "review-threads",
  "review-types",

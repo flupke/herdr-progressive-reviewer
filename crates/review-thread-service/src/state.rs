@@ -2,8 +2,7 @@ use std::collections::HashMap;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::time::Duration;
 
-use herdr_client::client::HerdrClient;
-use herdr_client::protocol::{Agent, AgentTarget, HerdrEvent, PaneId};
+use herdr_client::protocol::{Agent, AgentPort, AgentTarget, HerdrEvent, PaneId};
 use review_mcp::{Operation, Response};
 use review_store::ReviewStore;
 use review_threads::{Post, Resolution, ReviewThreads, SavedDrafts, ThreadCommand};
@@ -13,7 +12,7 @@ use crate::{Command, Event, Input, access::Access, notification::Notification, w
 
 pub(super) struct State {
     store: ReviewStore,
-    client: HerdrClient,
+    port: Box<dyn AgentPort>,
     target: AgentTarget,
     available: bool,
     books: HashMap<ReviewUnit, ReviewThreads>,
@@ -27,14 +26,14 @@ pub(super) struct State {
 impl State {
     pub(super) fn new(
         store: ReviewStore,
-        client: HerdrClient,
+        port: Box<dyn AgentPort>,
         target: AgentTarget,
         available: bool,
         publish: Box<dyn Fn(Event) + Send>,
     ) -> Self {
         Self {
             store,
-            client,
+            port,
             target,
             available,
             books: HashMap::new(),
@@ -75,7 +74,7 @@ impl State {
         ) {
             (self.publish)(Event::Explore(request));
         } else {
-            let result = self.request(&request);
+            let result = self.request(&request.access, &request.operation);
             request.respond(result);
         }
     }
@@ -294,11 +293,11 @@ impl State {
 
     fn grant(&mut self, unit: &ReviewUnit, agent: Agent) -> Result<Access, String> {
         for access in self.access.values() {
-            if access.review_unit == *unit && access.matches_agent(&self.client, &agent)? {
+            if access.review_unit == *unit && access.matches_agent(&*self.port, &agent)? {
                 return Ok(access.clone());
             }
         }
-        let access = Access::new(unit.clone(), agent, &self.client)?;
+        let access = Access::new(unit.clone(), agent, &*self.port)?;
         self.cancel_wakeups(unit);
         self.access
             .retain(|_, previous| previous.review_unit != *unit);
@@ -331,14 +330,14 @@ impl State {
             .request(sequence, retry);
     }
 
-    fn request(&mut self, request: &review_mcp::Request) -> Result<Response, String> {
+    fn request(&mut self, access: &str, operation: &Operation) -> Result<Response, String> {
         let access =
-            self.access.get(&request.access).cloned().ok_or(
+            self.access.get(access).cloned().ok_or(
                 "Unknown review access value; use the value in the latest reviewer wakeup",
             )?;
-        access.current_agent(&self.client)?;
+        access.current_agent(&*self.port)?;
         let book = self.load(&access.review_unit)?;
-        match &request.operation {
+        match operation {
             Operation::SubmitQuestion(_)
             | Operation::SubmitConclusion(_)
             | Operation::GetCoverageGaps(_) => {
@@ -399,7 +398,7 @@ impl State {
             .filter(|access| {
                 &access.agent.pane_id == pane
                     && !self.wakeups.contains_key(&access.token)
-                    && access.current_agent(&self.client).is_ok()
+                    && access.current_agent(&*self.port).is_ok()
             })
             .cloned()
             .collect::<Vec<_>>();
@@ -419,7 +418,7 @@ impl State {
     }
 
     fn poll(&mut self) {
-        self.prompts.poll(&self.client);
+        self.prompts.poll(&*self.port);
         for unit in self.notifications.keys().cloned().collect::<Vec<_>>() {
             if let Err(error) = self.prepare_notification(&unit) {
                 self.notifications.remove(&unit);
@@ -456,7 +455,7 @@ impl State {
         }
         let agent = self
             .target
-            .resolve(&self.client)
+            .resolve(&*self.port)
             .map_err(|error| error.to_string())?
             .ok_or("Focus an implementation agent to receive the saved comments")?;
         let access = self.grant(unit, agent)?;
@@ -478,10 +477,10 @@ impl State {
         }
         let current = self
             .target
-            .resolve(&self.client)
+            .resolve(&*self.port)
             .map_err(|error| error.to_string())?
             .ok_or("Focus an implementation agent to receive the saved comments")?;
-        if !access.matches_agent(&self.client, &current)? {
+        if !access.matches_agent(&*self.port, &current)? {
             let unit = access.review_unit.clone();
             self.wakeups.remove(token);
             return self.schedule(&unit, false);
@@ -491,7 +490,7 @@ impl State {
         };
         if wakeup.needs_poll() {
             wakeup.sent();
-            crate::delivery::prompt_agent(&self.client, &current, &access.prompt())?;
+            crate::delivery::prompt_agent(&*self.port, &current, &access.prompt())?;
         }
         Ok(())
     }
@@ -502,3 +501,7 @@ impl State {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "state.tests.rs"]
+mod tests;

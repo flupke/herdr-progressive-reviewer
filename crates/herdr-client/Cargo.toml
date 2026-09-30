@@ -5,6 +5,10 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+# An in-memory `AgentPort` adapter for tests that need no Herdr server.
+memory = []
+
 [dependencies]
 serde.workspace = true
 serde_json.workspace = true

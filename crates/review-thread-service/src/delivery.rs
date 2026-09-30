@@ -5,14 +5,12 @@ use std::sync::{
     mpsc::{self, Receiver, Sender},
 };
 
-use herdr_client::client::HerdrClient;
-use herdr_client::protocol::{Agent, AgentPrompter};
+use herdr_client::protocol::{Agent, AgentPort};
 
 use crate::{Input, PinnedAgent};
 
-pub(super) fn prompt_agent(client: &HerdrClient, agent: &Agent, text: &str) -> Result<(), String> {
-    client
-        .prompt_agent(&agent.pane_id, text)
+pub(super) fn prompt_agent(port: &dyn AgentPort, agent: &Agent, text: &str) -> Result<(), String> {
+    port.prompt_agent(&agent.pane_id, text)
         .map_err(|error| error.to_string())
 }
 
@@ -108,11 +106,11 @@ impl PromptRequest {
         let _ = self.response.send(result);
     }
 
-    fn deliver(&self, client: &HerdrClient) -> Result<bool, PromptError> {
+    fn deliver(&self, port: &dyn AgentPort) -> Result<bool, PromptError> {
         if self.cancelled.load(Ordering::Acquire) {
             return Err(PromptError::Cancelled);
         }
-        let Some(agent) = self.agent.current(client).map_err(PromptError::Delivery)? else {
+        let Some(agent) = self.agent.current(port).map_err(PromptError::Delivery)? else {
             return Ok(false);
         };
         if self.cancelled.load(Ordering::Acquire) {
@@ -125,7 +123,7 @@ impl PromptRequest {
         }
         self.agent.seal_attempt().map_err(PromptError::Delivery)?;
         // After the durable attempt marker, authoritative success wins a cancellation race.
-        prompt_agent(client, &agent, &self.text).map_err(PromptError::Unknown)?;
+        prompt_agent(port, &agent, &self.text).map_err(PromptError::Unknown)?;
         Ok(true)
     }
 }
@@ -142,8 +140,8 @@ impl PromptQueue {
         !self.0.is_empty()
     }
 
-    pub(super) fn poll(&mut self, client: &HerdrClient) {
-        self.0.retain(|request| match request.deliver(client) {
+    pub(super) fn poll(&mut self, port: &dyn AgentPort) {
+        self.0.retain(|request| match request.deliver(port) {
             Ok(false) => true,
             result => {
                 request.finish(result.map(|_| ()));

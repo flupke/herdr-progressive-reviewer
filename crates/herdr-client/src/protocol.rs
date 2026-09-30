@@ -59,9 +59,13 @@ pub enum PanePlacement {
     Split,
 }
 
-/// Read operations needed by the reviewer.
-pub trait HerdrReader: Send + Sync {
-    /// Get a session snapshot.
+/// The agent host that review delivery talks to: it resolves the target agent,
+/// reports agent and process identity, and submits prompts.
+///
+/// [`crate::client::HerdrClient`] is the production adapter. The `memory` feature
+/// adds an in-memory adapter for tests that need no Herdr server.
+pub trait AgentPort: Send + Sync {
+    /// Get a session snapshot, used to seed target resolution from the current focus.
     fn session_snapshot(&self) -> Result<SessionSnapshot>;
 
     /// List live agents.
@@ -70,6 +74,15 @@ pub trait HerdrReader: Send + Sync {
     /// Resolve a live agent by pane ID.
     fn get_agent(&self, pane_id: &PaneId) -> Result<Option<Agent>>;
 
+    /// Inspect the processes currently owning a pane, without reading their environment.
+    fn pane_process_info(&self, pane_id: &PaneId) -> Result<PaneProcessInfo>;
+
+    /// Submit one complete prompt through Herdr's agent-aware boundary.
+    fn prompt_agent(&self, pane_id: &PaneId, text: &str) -> Result<()>;
+}
+
+/// Pane read operations needed by the reviewer.
+pub trait HerdrReader: Send + Sync {
     /// Read the visible text in an agent pane.
     fn read_agent_screen(&self, pane_id: &PaneId) -> Result<String>;
 
@@ -90,12 +103,6 @@ pub trait HerdrWriter: Send + Sync {
 
     /// Close a plugin-owned pane.
     fn close_plugin_pane(&self, pane_id: &PaneId) -> Result<()>;
-}
-
-/// Agent-aware prompt submission needed by review-source generation.
-pub trait AgentPrompter: Send + Sync {
-    /// Submit one complete prompt through Herdr's agent-aware boundary.
-    fn prompt_agent(&self, pane_id: &PaneId, text: &str) -> Result<()>;
 }
 
 /// The immutable action context supplied by Herdr.
@@ -254,8 +261,8 @@ impl AgentTarget {
     }
 
     /// Seed the target from the current session focus.
-    fn initialize(&mut self, reader: &impl HerdrReader) -> Result<()> {
-        let snapshot = reader.session_snapshot()?;
+    fn initialize(&mut self, port: &(impl AgentPort + ?Sized)) -> Result<()> {
+        let snapshot = port.session_snapshot()?;
         if snapshot.focused_workspace_id.as_ref() == Some(&self.workspace_id)
             && let Some(pane_id) = snapshot.focused_pane_id
         {
@@ -275,9 +282,9 @@ impl AgentTarget {
     }
 
     /// Resolve the current same-workspace implementation agent.
-    pub fn resolve(&mut self, reader: &impl HerdrReader) -> Result<Option<Agent>> {
-        let agents = reader.list_agents()?;
-        self.initialize(reader)?;
+    pub fn resolve(&mut self, port: &(impl AgentPort + ?Sized)) -> Result<Option<Agent>> {
+        let agents = port.list_agents()?;
+        self.initialize(port)?;
         if let Some(agent) = self.current_agent(&agents) {
             return Ok(Some(agent));
         }
