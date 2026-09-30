@@ -1,375 +1,12 @@
 use super::*;
-use crate::LoadResult;
 use review_explore::{
     AnswerInput, Comparison, Conclusion, Exploration, ExplorePass, InterviewUpdate, Question,
     Topic, TopicStatus,
 };
 use std::sync::Arc;
 
-#[path = "explore_delivery.tests.rs"]
-mod delivery;
-
-#[test]
-fn conclusion_with_partial_answer_coverage_leaves_files_unreviewed() {
-    assert_explicit_conclusion(1, 50);
-}
-
-#[test]
-fn full_answer_coverage_allows_questions_and_conclusion_preserves_existing_marks() {
-    assert_explicit_conclusion(2, 100);
-}
-
-#[allow(
-    clippy::too_many_lines,
-    reason = "One end-to-end local finalization transaction"
-)]
-fn assert_explicit_conclusion(cited_lines: u32, expected_percent: u8) {
-    use review_repository::repository::{
-        ChangeKind, ChangedFile, DiffStatistics, FileKind, RepoPath, SnapshotId, SnapshotIdentity,
-    };
-    let directory = tempfile::tempdir().unwrap();
-    std::fs::write(directory.path().join("policy.rs"), "first\nsecond\n").unwrap();
-    let store = ReviewStore::open(directory.path().join("state"), directory.path()).unwrap();
-    let comparison = Arc::new(Comparison {
-        repository_root: directory.path().to_owned(),
-        checkpoint: review_source::ReviewCheckpoint::new("aabb", "ccdd"),
-        files: vec![ChangedFile {
-            old_path: None,
-            new_path: Some(RepoPath::from_bytes(b"policy.rs".as_slice())),
-            old_kind: FileKind::Absent,
-            new_kind: FileKind::File,
-            change: ChangeKind::Added,
-            display_path: "policy.rs".into(),
-            statistics: DiffStatistics {
-                lines_added: 2,
-                lines_removed: 0,
-            },
-        }],
-        context: vec![],
-        diffs: vec![
-            b"diff --git a/policy.rs b/policy.rs\n@@ -0,0 +1,2 @@\n+first\n+second\n".to_vec(),
-        ],
-        manifest: vec![],
-        sources: vec![],
-        base: Some(SnapshotIdentity::Git {
-            base_tree: "aabb".into(),
-            display_id: "base".into(),
-            snapshot_id: SnapshotId::from("ccdd".to_owned()),
-        }),
-    });
-    let mut exploration = Exploration::new(comparison);
-    let kickoff = exploration.request(None, None).unwrap();
-    let mut pass = ExplorePass::new(Exploration::new(exploration.comparison.clone()));
-    pass.exploration.instance = kickoff.instance.clone();
-    pass.post(&kickoff).unwrap();
-    store.create_explore(pass).unwrap();
-    let question = |id: &str,
-                    request: &review_explore::TurnRequest,
-                    line: u32|
-     -> InterviewUpdate {
-        serde_json::from_value(serde_json::json!({
-            "instance": request.instance, "request": request.request, "checkpoint": request.checkpoint,
-            "interpretation": null, "reply": null, "agenda": [],
-            "topics": [{"id":id,"title":"Policy","entries":[],"status":"open"}],
-            "next": {"id":id,"version":1,"topic":id,"text":"Explain this line?",
-                "alternatives":[{"id":"keep","text":"Keep it","outcome":"accepted"},{"id":"change","text":"Change it","outcome":"needs_follow_up"}],
-                "evidence":[{"path":"policy.rs","side":"new","lines":{"first_line":line,"last_line":line},"notes":"Implements policy and changes the outcome"}],
-                "supporting":[]}, "conclusion":null,"limitations":[],"findings":[]
-        })).unwrap()
-    };
-    let mut first = question("q1", &kickoff, 1);
-    first.next.as_mut().unwrap().evidence[0]
-        .location
-        .lines
-        .as_mut()
-        .unwrap()
-        .last_line = cited_lines;
-    let (applied, pass, feedback) = store
-        .submit_explore(&"aabb".into(), &kickoff.instance, &first, false)
-        .unwrap();
-    assert!(applied);
-    assert!(matches!(
-        feedback,
-        review_explore::CoverageReceipt::AfterAnswer { .. }
-    ));
-    assert_eq!(
-        feedback.feedback().summary.answered_required_units_percent,
-        Some(expected_percent)
-    );
-    assert!(feedback.feedback().awaiting_answer.is_empty());
-    assert_eq!(
-        pass.coverage.summary(false).answered_required_units_percent,
-        Some(0)
-    );
-    assert_eq!(
-        pass.coverage.changed_line_coverage(None).explored,
-        0,
-        "projected feedback credits nothing"
-    );
-    let first_receipt = feedback.clone();
-    let shown = pass.exploration.questions.last().unwrap().clone();
-    let answer = pass
-        .exploration
-        .clone()
-        .request(
-            Some(AnswerInput {
-                text: "Discussed".into(),
-                ..Default::default()
-            }),
-            Some(&shown),
-        )
-        .unwrap();
-    store
-        .update_explore(&"aabb".into(), &kickoff.instance, |pass| {
-            pass.post(&answer).map_err(|error| error.to_string())
-        })
-        .unwrap();
-    let (applied, _, replayed) = store
-        .submit_explore(&"aabb".into(), &kickoff.instance, &first, false)
-        .unwrap();
-    assert!(!applied);
-    assert_eq!(
-        replayed, first_receipt,
-        "retries retain the original coverage revision"
-    );
-    let pass = store
-        .load_explore(&"aabb".into(), &kickoff.instance)
-        .unwrap()
-        .unwrap();
-    assert!(
-        pass.completion.is_none(),
-        "coverage never creates a conclusion"
-    );
-    assert_eq!(
-        pass.coverage.summary(false).answered_required_units_percent,
-        Some(expected_percent)
-    );
-    assert_eq!(
-        store.load(&"aabb".into(), b"policy.rs").unwrap(),
-        LoadResult::Unreviewed,
-        "answered evidence alone never marks files"
-    );
-    let conclusion = InterviewUpdate {
-        instance: answer.instance.clone(),
-        request: answer.request.clone(),
-        checkpoint: answer.checkpoint.clone(),
-        interpretation: None,
-        reply: Some(review_explore::Reply {
-            text: "Acknowledged".into(),
-            evidence: vec![],
-        }),
-        agenda: vec![],
-        topics: vec![],
-        inspections: vec![review_explore::Inspection {
-            sources: vec![review_explore::CodeLocation {
-                path: review_repository::repository::RepoPath::from_bytes(b"policy.rs"),
-                side: review_explore::SourceSide::New,
-                lines: Some(review_source::SourceLineRange {
-                    first_line: 2,
-                    last_line: 2,
-                }),
-            }],
-            behavior: "Second policy line after the answer".into(),
-            finding: "This line does not introduce another decision".into(),
-            uncertainty: String::new(),
-            disposition: review_explore::InspectionDisposition::NoFurtherInquiry {
-                reason: "Its behavior is already established by the answered first line".into(),
-            },
-        }],
-        next: None,
-        conclusion: Some(Conclusion {
-            summary: "Concepts explored; remaining source inspected with no further question."
-                .into(),
-            to_be_implemented: String::new(),
-            future_work: String::new(),
-        }),
-        limitations: vec![],
-        findings: vec![],
-    };
-    let mut incomplete = pass.clone();
-    let mut without_geometry = (*incomplete.exploration.comparison).clone();
-    without_geometry.diffs.clear();
-    incomplete.coverage = review_explore::CoverageLedger::new(&without_geometry);
-    let pending = incomplete.clone();
-    let rejected = incomplete
-        .submit(&conclusion, false)
-        .unwrap_err()
-        .to_string();
-    assert!(rejected.contains("coverage_incomplete"), "{rejected}");
-    assert_eq!(
-        incomplete, pending,
-        "inventory failure retains the pending turn"
-    );
-    let mut followup = question("q2", &answer, 1);
-    followup.reply = Some(review_explore::Reply {
-        text: "Acknowledged".into(),
-        evidence: vec![],
-    });
-    let (_, pass, feedback) = store
-        .submit_explore(&"aabb".into(), &kickoff.instance, &followup, false)
-        .unwrap();
-    assert_eq!(
-        feedback.feedback().summary.answered_required_units_percent,
-        Some(expected_percent)
-    );
-    assert!(
-        pass.completion.is_none(),
-        "another concept can be explored at 100%"
-    );
-    let shown = pass.exploration.questions.last().unwrap().clone();
-    let answer2 = pass
-        .exploration
-        .clone()
-        .request(
-            Some(AnswerInput {
-                text: "Also discussed".into(),
-                ..Default::default()
-            }),
-            Some(&shown),
-        )
-        .unwrap();
-    store
-        .update_explore(&"aabb".into(), &kickoff.instance, |pass| {
-            pass.post(&answer2).map_err(|error| error.to_string())
-        })
-        .unwrap();
-    let mut conclusion = conclusion;
-    conclusion.request = answer2.request.clone();
-    conclusion.reply = Some(review_explore::Reply {
-        text: "Acknowledged".into(),
-        evidence: vec![],
-    });
-    if cited_lines == 1 {
-        let mut without_inspection = conclusion.clone();
-        without_inspection.inspections.clear();
-        let before = store
-            .load_explore(&"aabb".into(), &kickoff.instance)
-            .unwrap()
-            .unwrap();
-        let error = store
-            .submit_explore(
-                &"aabb".into(),
-                &kickoff.instance,
-                &without_inspection,
-                false,
-            )
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("inspection_incomplete"), "{error}");
-        assert_eq!(
-            store
-                .load_explore(&"aabb".into(), &kickoff.instance)
-                .unwrap()
-                .unwrap(),
-            before
-        );
-    }
-    if cited_lines == 2 {
-        store
-            .mark(&"aabb".into(), b"policy.rs", "aabb0011")
-            .unwrap();
-    }
-    let prior_mark = store.load(&"aabb".into(), b"policy.rs").unwrap();
-    let (applied, pass, feedback) = store
-        .submit_explore(&"aabb".into(), &kickoff.instance, &conclusion, false)
-        .unwrap();
-    assert!(applied);
-    assert!(matches!(
-        feedback,
-        review_explore::CoverageReceipt::Current(_)
-    ));
-    assert_eq!(
-        feedback.feedback().summary.answered_required_units_percent,
-        Some(expected_percent)
-    );
-    assert_eq!(
-        feedback.feedback().summary.remaining,
-        u64::from(2 - cited_lines)
-    );
-    assert!(pass.completion.as_ref().unwrap().completed);
-    assert_eq!(
-        pass.completion.as_ref().unwrap().summary,
-        feedback.feedback().summary
-    );
-    assert_eq!(
-        pass.completion
-            .as_ref()
-            .unwrap()
-            .unexplored
-            .as_ref()
-            .unwrap()
-            .required,
-        pass.coverage.remaining(false),
-        "completion freezes unanswered changes independently of file review marks"
-    );
-    let restored = store
-        .load_explore(&"aabb".into(), &kickoff.instance)
-        .unwrap()
-        .unwrap();
-    assert_eq!(restored, pass, "the coverage receipt survives reopening");
-    assert_eq!(
-        store.load(&"aabb".into(), b"policy.rs").unwrap(),
-        prior_mark
-    );
-    assert_legacy_completion_preserves_marks(&store, &pass, &prior_mark);
-    store.unreview(&"aabb".into(), b"policy.rs").unwrap();
-    let (applied, _, _) = store
-        .submit_explore(&"aabb".into(), &kickoff.instance, &conclusion, false)
-        .unwrap();
-    assert!(!applied);
-    assert_eq!(
-        store.load(&"aabb".into(), b"policy.rs").unwrap(),
-        LoadResult::Unreviewed,
-        "accepted retry must not recreate a manually removed mark"
-    );
-    let followup = pass.exploration.clone().request(None, None).unwrap();
-    store
-        .update_explore(&"aabb".into(), &kickoff.instance, |pass| {
-            pass.post(&followup).map_err(|error| error.to_string())
-        })
-        .unwrap();
-    let later = question("q3", &followup, 1);
-    let (applied, _, _) = store
-        .submit_explore(&"aabb".into(), &kickoff.instance, &later, false)
-        .unwrap();
-    assert!(applied, "the conversation remains open after concluding");
-    assert!(
-        store
-            .load_explore(&"aabb".into(), &kickoff.instance)
-            .unwrap()
-            .is_some(),
-        "a later response must leave a readable pass"
-    );
-    assert_eq!(
-        store.load(&"aabb".into(), b"policy.rs").unwrap(),
-        LoadResult::Unreviewed,
-        "later conversation must not recreate completed marks"
-    );
-}
-
-fn assert_legacy_completion_preserves_marks(
-    store: &ReviewStore,
-    pass: &ExplorePass,
-    prior: &LoadResult,
-) {
-    let unit = &pass.exploration.comparison.checkpoint.review_unit;
-    let instance = &pass.exploration.instance;
-    let mut legacy = serde_json::to_value(pass).unwrap();
-    legacy["completion"]["completed"] = false.into();
-    legacy["completion"]["marks"] = serde_json::json!([{
-        "path": b"policy.rs", "prior": null, "applied": false
-    }]);
-    store
-        .write_explore(
-            &store.explore_path(unit, instance).unwrap(),
-            &legacy,
-            MAX_DOMAIN,
-        )
-        .unwrap();
-    let recovered = store.recover_explore_completion(unit, instance).unwrap();
-    assert!(recovered.completion.unwrap().completed);
-    assert_eq!(&store.load(unit, b"policy.rs").unwrap(), prior);
-}
+#[path = "explore_format.tests.rs"]
+mod format;
 
 struct Investigation {
     directory: tempfile::TempDir,
@@ -393,7 +30,16 @@ impl Investigation {
             base: None,
         };
         let pass = ExplorePass::new(Exploration::new(Arc::new(comparison)));
-        store.create_explore(pass.clone()).unwrap();
+        let records = store.lock_explore(&"review".into()).unwrap();
+        records.create_pass(&pass).unwrap();
+        assert!(records.create_pass(&pass).is_err());
+        records
+            .save_history(&ExploreHistory {
+                passes: vec![pass.exploration.instance.clone()],
+                latest_editable: true,
+            })
+            .unwrap();
+        drop(records);
         Self {
             directory,
             store,
@@ -407,7 +53,9 @@ impl Investigation {
     ) -> T {
         let (value, pass) = self
             .store
-            .update_explore(&"review".into(), &self.pass.exploration.instance, f)
+            .lock_explore(&"review".into())
+            .unwrap()
+            .update_pass(&self.pass.exploration.instance, f)
             .unwrap();
         self.pass = pass;
         value
@@ -469,182 +117,6 @@ impl Investigation {
             },
         }
     }
-}
-
-#[test]
-fn clearing_unreadable_explore_state_preserves_review_marks() {
-    let fixture = Investigation::new();
-    let unit = "review".into();
-    let instance = &fixture.pass.exploration.instance;
-    let pass_path = fixture.store.explore_path(&unit, instance).unwrap();
-    let view_path = fixture.store.explore_view_path(&unit, instance).unwrap();
-    fixture
-        .store
-        .save_explore_view(&unit, &fixture.view(1, "draft"))
-        .unwrap();
-    fixture
-        .store
-        .mark(&unit, b"policy.rs", &"a".repeat(40))
-        .unwrap();
-    std::fs::write(&pass_path, b"invalid saved pass").unwrap();
-
-    fixture.store.clear_explore(&unit).unwrap();
-
-    assert!(
-        fixture
-            .store
-            .load_explore_history(&unit)
-            .unwrap()
-            .passes
-            .is_empty()
-    );
-    assert!(!pass_path.exists());
-    assert!(!view_path.exists());
-    assert!(matches!(
-        fixture.store.load(&unit, b"policy.rs").unwrap(),
-        LoadResult::Reviewed(_)
-    ));
-    fixture.store.clear_explore(&unit).unwrap();
-}
-
-#[test]
-fn clearing_unreadable_editor_view_keeps_the_interview() {
-    let fixture = Investigation::new();
-    let unit = "review".into();
-    let instance = &fixture.pass.exploration.instance;
-    let view_path = fixture.store.explore_view_path(&unit, instance).unwrap();
-    std::fs::write(&view_path, b"invalid editor view").unwrap();
-
-    fixture.store.clear_explore_view(&unit, instance).unwrap();
-
-    assert!(!view_path.exists());
-    assert!(
-        fixture
-            .store
-            .load_explore(&unit, instance)
-            .unwrap()
-            .is_some()
-    );
-}
-
-#[test]
-fn clearing_one_unreadable_pass_preserves_other_saved_passes() {
-    let fixture = Investigation::new();
-    let unit = "review".into();
-    let bad = fixture.pass.exploration.instance.clone();
-    let good = ExplorePass::new(Exploration::new(
-        fixture.pass.exploration.comparison.clone(),
-    ));
-    let good_instance = good.exploration.instance.clone();
-    fixture.store.create_explore(good).unwrap();
-    let good_view = review_explore::ViewSave {
-        instance: good_instance.clone(),
-        ..fixture.view(1, "retained editor")
-    };
-    fixture.store.save_explore_view(&unit, &good_view).unwrap();
-    let bad_path = fixture.store.explore_path(&unit, &bad).unwrap();
-    std::fs::write(&bad_path, b"invalid saved pass").unwrap();
-
-    fixture.store.clear_explore_pass(&unit, &bad).unwrap();
-
-    assert!(!bad_path.exists());
-    assert_eq!(
-        fixture.store.load_explore_history(&unit).unwrap().passes,
-        vec![good_instance.clone()]
-    );
-    assert!(
-        fixture
-            .store
-            .load_explore(&unit, &good_instance)
-            .unwrap()
-            .is_some()
-    );
-    assert_eq!(
-        fixture
-            .store
-            .load_explore_view(&unit, &good_instance)
-            .unwrap(),
-        Some(good_view)
-    );
-}
-
-#[test]
-fn repairing_unreadable_index_preserves_readable_passes_and_views() {
-    let fixture = Investigation::new();
-    let unit = "review".into();
-    let instance = fixture.pass.exploration.instance.clone();
-    fixture
-        .store
-        .save_explore_view(&unit, &fixture.view(1, "draft"))
-        .unwrap();
-    let index = fixture
-        .store
-        .explore_review(&unit)
-        .unwrap()
-        .join("index.json");
-    std::fs::write(&index, b"invalid index").unwrap();
-
-    let repaired = fixture.store.repair_explore_history(&unit).unwrap();
-
-    assert_eq!(repaired.passes, vec![instance.clone()]);
-    assert!(!repaired.latest_editable);
-    assert_eq!(fixture.store.load_explore_history(&unit).unwrap(), repaired);
-    assert!(
-        fixture
-            .store
-            .load_explore(&unit, &instance)
-            .unwrap()
-            .is_some()
-    );
-    assert!(
-        fixture
-            .store
-            .load_explore_view(&unit, &instance)
-            .unwrap()
-            .is_some()
-    );
-}
-
-#[test]
-fn repaired_history_never_guesses_an_editable_latest_pass() {
-    let fixture = Investigation::new();
-    let unit = "review".into();
-    let second = ExplorePass::new(Exploration::new(
-        fixture.pass.exploration.comparison.clone(),
-    ));
-    fixture.store.create_explore(second).unwrap();
-    let index = fixture
-        .store
-        .explore_review(&unit)
-        .unwrap()
-        .join("index.json");
-    std::fs::write(&index, b"invalid index").unwrap();
-
-    let repaired = fixture.store.repair_explore_history(&unit).unwrap();
-    assert_eq!(repaired.passes.len(), 2);
-    assert!(!repaired.latest_editable);
-    let guessed_latest = repaired.passes.last().unwrap();
-    assert!(
-        fixture
-            .store
-            .update_explore(&unit, guessed_latest, |_| Ok(()))
-            .is_err()
-    );
-
-    let fresh = ExplorePass::new(Exploration::new(
-        fixture.pass.exploration.comparison.clone(),
-    ));
-    let fresh_instance = fresh.exploration.instance.clone();
-    fixture.store.create_explore(fresh).unwrap();
-    let history = fixture.store.load_explore_history(&unit).unwrap();
-    assert!(history.latest_editable);
-    assert_eq!(history.passes.last(), Some(&fresh_instance));
-    assert!(
-        fixture
-            .store
-            .update_explore(&unit, &fresh_instance, |_| Ok(()))
-            .is_ok()
-    );
 }
 
 #[test]
@@ -744,94 +216,6 @@ fn adaptive_history_and_separate_conclusions_round_trip_without_source_buffers()
 }
 
 #[test]
-fn accepted_output_survives_lost_ack_and_conflicting_retries_cannot_rewrite_it() {
-    let mut fixture = Investigation::new();
-    let request = fixture.request(None, None);
-    let update = Investigation::update(&request, 1);
-    assert!(fixture.submit(update.clone()));
-    let revision = fixture.pass.revision;
-    assert!(!fixture.submit(update.clone()));
-    assert_eq!(fixture.pass.revision, revision);
-    let mut conflict = update;
-    conflict.next.as_mut().unwrap().text = "Replacement".into();
-    let result = fixture.store.update_explore(
-        &"review".into(),
-        &fixture.pass.exploration.instance,
-        |pass| pass.exploration.submit(conflict).map_err(|e| e.to_string()),
-    );
-    assert!(result.is_err());
-    assert_eq!(
-        fixture
-            .store
-            .load_explore(&"review".into(), &request.instance)
-            .unwrap()
-            .unwrap(),
-        fixture.pass
-    );
-}
-
-#[test]
-fn one_view_keeps_latest_edits_without_rewriting_domain() {
-    let fixture = Investigation::new();
-    let path = fixture
-        .store
-        .explore_path(&"review".into(), &fixture.pass.exploration.instance)
-        .unwrap();
-    let before = std::fs::read(&path).unwrap();
-    for (sequence, text) in [(1, "First edits"), (2, "Latest edits")] {
-        fixture
-            .store
-            .save_explore_view(&"review".into(), &fixture.view(sequence, text))
-            .unwrap();
-    }
-    fixture
-        .store
-        .save_explore_view(&"review".into(), &fixture.view(1, "stale"))
-        .unwrap();
-    let view = fixture
-        .store
-        .load_explore_view(&"review".into(), &fixture.pass.exploration.instance)
-        .unwrap()
-        .unwrap();
-    assert_eq!(view.sequence, 2);
-    assert_eq!(view.state.tasks["conclusion"].text, "Latest edits");
-    assert!(!path.with_extension("views").exists());
-    assert_eq!(std::fs::read(path).unwrap(), before);
-}
-
-#[test]
-fn new_pass_keeps_previous_records_and_blocks_stale_domain_mutations() {
-    let fixture = Investigation::new();
-    let old = fixture.pass.exploration.instance.clone();
-    let new = ExplorePass::new(Exploration::new(
-        fixture.pass.exploration.comparison.clone(),
-    ));
-    fixture.store.create_explore(new.clone()).unwrap();
-    assert_eq!(
-        fixture
-            .store
-            .load_explore_history(&"review".into())
-            .unwrap()
-            .passes,
-        vec![old.clone(), new.exploration.instance]
-    );
-    assert!(
-        fixture
-            .store
-            .update_explore(&"review".into(), &old, |_| Ok(()))
-            .is_err()
-    );
-    assert_eq!(
-        fixture
-            .store
-            .load_explore(&"review".into(), &old)
-            .unwrap()
-            .unwrap(),
-        fixture.pass
-    );
-}
-
-#[test]
 fn corrupt_unsupported_and_oversized_records_are_errors_and_remain_untouched() {
     let fixture = Investigation::new();
     let path = fixture
@@ -856,11 +240,9 @@ fn corrupt_unsupported_and_oversized_records_are_errors_and_remain_untouched() {
         assert!(
             fixture
                 .store
-                .update_explore(
-                    &"review".into(),
-                    &fixture.pass.exploration.instance,
-                    |_| Ok(())
-                )
+                .lock_explore(&"review".into())
+                .unwrap()
+                .update_pass(&fixture.pass.exploration.instance, |_| Ok(()))
                 .is_err()
         );
         assert_eq!(std::fs::read(&path).unwrap(), bytes);
@@ -952,4 +334,140 @@ fn broken_agenda_references_are_storage_errors_and_preserve_the_record() {
         );
         assert_eq!(std::fs::read(&path).unwrap(), bytes);
     }
+}
+
+#[test]
+fn simultaneous_updates_see_the_latest_revision_instead_of_overwriting_each_other() {
+    let fixture = Investigation::new();
+    let barrier = Arc::new(std::sync::Barrier::new(2));
+    let workers: Vec<_> = (0..2)
+        .map(|_| {
+            let request = fixture
+                .pass
+                .exploration
+                .clone()
+                .request(None, None)
+                .unwrap();
+            let store = fixture.store.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                store
+                    .lock_explore(&"review".into())
+                    .unwrap()
+                    .update_pass(&request.instance, |pass| {
+                        pass.post(&request).map_err(|e| e.to_string())
+                    })
+                    .is_ok()
+            })
+        })
+        .collect();
+    assert_eq!(
+        workers
+            .into_iter()
+            .map(|worker| usize::from(worker.join().unwrap()))
+            .sum::<usize>(),
+        1
+    );
+    let pass = fixture
+        .store
+        .load_explore(&"review".into(), &fixture.pass.exploration.instance)
+        .unwrap()
+        .unwrap();
+    assert_eq!(pass.turns.len(), 1);
+    assert!(pass.exploration.pending_request().is_some());
+}
+
+#[test]
+fn an_unchanged_update_writes_nothing_and_a_change_takes_the_next_revision() {
+    let mut fixture = Investigation::new();
+    let path = fixture
+        .store
+        .explore_path(&"review".into(), &fixture.pass.exploration.instance)
+        .unwrap();
+    let before = std::fs::read(&path).unwrap();
+    fixture.mutate(|_| Ok(()));
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    assert_eq!(fixture.pass.revision, 0);
+
+    fixture.request(None, None);
+    assert_eq!(fixture.pass.revision, 1);
+    assert_ne!(std::fs::read(&path).unwrap(), before);
+}
+
+#[test]
+fn a_saved_view_leaves_the_pass_untouched_and_belongs_to_its_review() {
+    let fixture = Investigation::new();
+    let path = fixture
+        .store
+        .explore_path(&"review".into(), &fixture.pass.exploration.instance)
+        .unwrap();
+    let before = std::fs::read(&path).unwrap();
+    let records = fixture.store.lock_explore(&"review".into()).unwrap();
+    let view = fixture.view(1, "Latest edits");
+    records.save_view(&view).unwrap();
+    let foreign = ViewSave {
+        review_unit: "different-review".into(),
+        ..fixture.view(2, "Another review")
+    };
+    assert!(records.save_view(&foreign).is_err());
+    drop(records);
+
+    assert_eq!(
+        fixture
+            .store
+            .load_explore_view(&"review".into(), &view.instance)
+            .unwrap(),
+        Some(view)
+    );
+    assert!(!path.with_extension("views").exists());
+    assert_eq!(std::fs::read(path).unwrap(), before);
+}
+
+#[test]
+fn removing_one_pass_and_its_view_keeps_other_records_and_lists_unreadable_files() {
+    let fixture = Investigation::new();
+    let unit: ReviewUnit = "review".into();
+    let removed = fixture.pass.exploration.instance.clone();
+    let kept = ExplorePass::new(Exploration::new(
+        fixture.pass.exploration.comparison.clone(),
+    ));
+    let kept_view = ViewSave {
+        instance: kept.exploration.instance.clone(),
+        ..fixture.view(1, "retained editor")
+    };
+    let records = fixture.store.lock_explore(&unit).unwrap();
+    records.create_pass(&kept).unwrap();
+    records.save_view(&kept_view).unwrap();
+    records
+        .save_view(&fixture.view(1, "removed editor"))
+        .unwrap();
+    std::fs::write(
+        fixture.store.explore_path(&unit, &removed).unwrap(),
+        b"invalid saved pass",
+    )
+    .unwrap();
+    let mut listed: Vec<_> = records
+        .pass_files()
+        .unwrap()
+        .into_iter()
+        .map(|(instance, _)| instance)
+        .collect();
+    listed.sort();
+    let mut expected = vec![removed.clone(), kept.exploration.instance.clone()];
+    expected.sort();
+    assert_eq!(listed, expected);
+
+    records.remove_pass(&removed).unwrap();
+    records.remove_view(&removed).unwrap();
+    records.remove_view(&removed).unwrap();
+    records.sync().unwrap();
+
+    assert!(records.pass(&removed).unwrap().is_none());
+    assert!(records.view(&removed).unwrap().is_none());
+    assert_eq!(
+        records.pass(&kept.exploration.instance).unwrap(),
+        Some(kept)
+    );
+    assert_eq!(records.view(&kept_view.instance).unwrap(), Some(kept_view));
 }

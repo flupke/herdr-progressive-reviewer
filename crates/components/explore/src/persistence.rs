@@ -3,7 +3,8 @@ use comment_editor::CommentEditor;
 use review_explore::{Command, ExploreDraft, ExplorePage, ExploreViewState, TurnRequest, ViewSave};
 use ui_actions::Action;
 use ui_events::{
-    ExploreCommitted, ExploreCoverageRefresh, ExplorePosted, ExploreRestored, ExploreStorageFailed,
+    ExploreCommitted, ExploreCoverageRefresh, ExplorePosted, ExploreProgress, ExploreRestored,
+    ExploreStorageFailed,
 };
 
 pub(super) struct Durability {
@@ -230,12 +231,9 @@ impl ExploreComponent {
             .as_mut()
             .expect("restored")
             .pause_delivery();
-        self.progress = if pass.exploration.retry_request().is_some() {
-            Progress::Retryable
-        } else {
-            Progress::Ready
-        };
-        self.status = self.recovery_status(pass);
+        let (progress, status) = self.recovered(event.progress);
+        self.progress = progress;
+        self.status = status.into();
         self.status_turn = self.question().map(|_| self.selected);
         self.reveal.set(Some(super::Reveal::RestoreScroll));
         self.durable.last = Some(self.saved_view(state.code));
@@ -244,26 +242,23 @@ impl ExploreComponent {
         }
     }
 
-    fn recovery_status(&self, pass: &review_explore::ExplorePass) -> String {
+    /// What the reviewer can do with a restored pass, and the status line saying so.
+    fn recovered(&self, progress: ExploreProgress) -> (Progress, &'static str) {
+        let (progress, status) = match progress {
+            ExploreProgress::Ready => (Progress::Ready, ""),
+            ExploreProgress::Interrupted => (
+                Progress::Retryable,
+                "Interview turn interrupted. Retry keeps the posted answer; reopening has sent nothing.",
+            ),
+            ExploreProgress::DeliveryUncertain => (
+                Progress::Retryable,
+                "Previous prompt delivery is uncertain. Retry keeps the posted answer; reopening has sent nothing.",
+            ),
+        };
         if self.durable.historical {
-            "Earlier pass · start a new pass to continue.".into()
-        } else if self.progress == Progress::Retryable {
-            let uncertain = pass.exploration.retry_request().is_some_and(|request| {
-                pass.turns.get(&request.request).is_some_and(|delivery| {
-                    matches!(
-                        delivery.state,
-                        review_explore::DispatchState::Attempting
-                            | review_explore::DispatchState::Unknown
-                    )
-                })
-            });
-            if uncertain {
-                "Previous prompt delivery is uncertain. Retry keeps the posted answer; reopening has sent nothing.".into()
-            } else {
-                "Interview turn interrupted. Retry keeps the posted answer; reopening has sent nothing.".into()
-            }
+            (progress, "Earlier pass · start a new pass to continue.")
         } else {
-            String::new()
+            (progress, status)
         }
     }
 

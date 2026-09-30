@@ -79,7 +79,7 @@ impl ExploreSession {
         };
         let observer = DurableDispatch {
             began: std::sync::atomic::AtomicBool::default(),
-            store: self.store.clone(),
+            passes: self.passes.clone(),
             unit: request.checkpoint.review_unit.clone(),
             instance: request.instance.clone(),
             id: review_explore::DispatchId::Interview {
@@ -150,7 +150,7 @@ impl ExploreSession {
             return;
         }
         if let Some(pass) = &self.state.pass {
-            let result = self.store.update_explore(
+            let result = self.passes.update(
                 &pass.exploration.comparison.checkpoint.review_unit,
                 &event.instance,
                 |pass| {
@@ -215,11 +215,11 @@ impl ExploreSession {
                 .as_ref()
                 .and_then(ConversationBinding::from_agent);
             self.state.loaded_unit = Some(request.checkpoint.review_unit.clone());
-            return Ok(self.store.create_explore(pass)?);
+            return Ok(self.passes.create(pass)?);
         }
         Ok(self
-            .store
-            .update_explore(&request.checkpoint.review_unit, &request.instance, |pass| {
+            .passes
+            .update(&request.checkpoint.review_unit, &request.instance, |pass| {
                 let new = pass.post(request).map_err(|e| e.to_string())?;
                 if let Some(agent) = retry_agent {
                     pass.last_agent_session = ConversationBinding::from_agent(agent);

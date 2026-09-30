@@ -48,7 +48,7 @@ impl ExploreSession {
             request.respond(Err("Explore response belongs to another instance".into()));
             return;
         }
-        let committed = self.store.submit_explore(
+        let committed = self.passes.submit(
             &update.checkpoint.review_unit,
             &update.instance,
             update,
@@ -155,8 +155,8 @@ impl ExploreSession {
             .as_ref()
             .ok_or_else(|| eyre::eyre!("No Explore pass"))?;
         self.state.pass = Some(
-            self.store
-                .load_explore(
+            self.passes
+                .pass(
                     &pass.exploration.comparison.checkpoint.review_unit,
                     &pass.exploration.instance,
                 )?
@@ -174,7 +174,7 @@ impl ExploreSession {
         let session = review_explore::ConversationBinding::from_agent(&agent);
         let pass = self.state.pass.as_ref().expect("active pass");
         if pass.last_agent_session != session {
-            self.store.update_explore(
+            self.passes.update(
                 &pass.exploration.comparison.checkpoint.review_unit,
                 &pass.exploration.instance,
                 |pass| {

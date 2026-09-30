@@ -24,7 +24,7 @@ impl ExploreSession {
         ));
         let observer = DurableDispatch {
             began: std::sync::atomic::AtomicBool::default(),
-            store: self.store.clone(),
+            passes: self.passes.clone(),
             unit: pass.exploration.comparison.checkpoint.review_unit.clone(),
             instance: request.instance.clone(),
             id: review_explore::DispatchId::Implementation {
@@ -66,16 +66,14 @@ impl ExploreSession {
             .loaded_unit
             .clone()
             .ok_or_else(|| eyre::eyre!("No Explore pass"))?;
-        let ((), pass) = self
-            .store
-            .update_explore(&unit, &request.instance, |pass| {
-                pass.authorize(request).map_err(|error| error.to_string())?;
-                pass.implementations
-                    .get_mut(&request.delivery)
-                    .expect("authorized")
-                    .state = review_explore::DispatchState::Queued;
-                Ok(())
-            })?;
+        let ((), pass) = self.passes.update(&unit, &request.instance, |pass| {
+            pass.authorize(request).map_err(|error| error.to_string())?;
+            pass.implementations
+                .get_mut(&request.delivery)
+                .expect("authorized")
+                .state = review_explore::DispatchState::Queued;
+            Ok(())
+        })?;
         self.state.pass = Some(pass.clone());
         Ok((agent, pass))
     }

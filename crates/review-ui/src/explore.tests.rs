@@ -242,6 +242,7 @@ fn stopped_jev_bar_schedules_one_idle_expiry_redraw() {
         view: None,
         historical: false,
         storage_error: None,
+        progress: ui_events::ExploreProgress::Ready,
     });
     fixture.app.publish(ExploreCoverageRefresh);
     assert!(fixture.text().contains("Jev stopped"));

@@ -6,8 +6,8 @@ pub use explore::{
     EvidenceView, ExploreAutosave, ExploreCaptured, ExploreCommitted, ExploreComparisonAccepted,
     ExploreCoverageRefresh, ExploreEvidence, ExploreEvidenceInput, ExploreFinished,
     ExploreHistoryChanged, ExploreImplementationFinished, ExploreImplementationSaved,
-    ExplorePositionsRestored, ExplorePosted, ExploreRestored, ExploreStorageFailed,
-    ExploreSubmission, ExploreViewports,
+    ExplorePositionsRestored, ExplorePosted, ExploreProgress, ExploreRestored,
+    ExploreStorageFailed, ExploreSubmission, ExploreViewports,
 };
 pub use threads::{
     NewRepliesRequested, ReviewNavigation, ReviewNavigationChanged, ReviewPane,

@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use review_explore::ViewSave;
+use review_explore::{DispatchState, ExplorePass, ViewSave};
 use review_types::ReviewUnit;
 
 use crate::{ExploreSession, State, publish_committed};
@@ -13,6 +13,26 @@ fn empty_restore() -> ui_events::ExploreRestored {
         view: None,
         historical: false,
         storage_error: None,
+        progress: ui_events::ExploreProgress::Ready,
+    }
+}
+
+/// Where a restored pass's interview stands. A turn whose prompt attempt began may
+/// have reached the agent even though no outcome was saved.
+fn restored_progress(pass: &ExplorePass) -> ui_events::ExploreProgress {
+    let Some(request) = pass.exploration.retry_request() else {
+        return ui_events::ExploreProgress::Ready;
+    };
+    let uncertain = pass.turns.get(&request.request).is_some_and(|delivery| {
+        matches!(
+            delivery.state,
+            DispatchState::Attempting | DispatchState::Unknown
+        )
+    });
+    if uncertain {
+        ui_events::ExploreProgress::DeliveryUncertain
+    } else {
+        ui_events::ExploreProgress::Interrupted
     }
 }
 
@@ -54,8 +74,8 @@ impl ExploreSession {
         unit: &ReviewUnit,
     ) -> Result<(ui_events::ExploreRestored, Option<String>), RestoreError> {
         let history = self
-            .store
-            .load_explore_history(unit)
+            .passes
+            .history(unit)
             .map_err(|error| RestoreError::Unreadable(Unreadable::History(error.to_string())))?;
         let instance = history.passes.last().cloned();
         let Some(instance) = instance else {
@@ -65,13 +85,13 @@ impl ExploreSession {
         let mut restored = empty_restore();
         let mut toast = None;
         restored.historical = historical;
-        let pass = match self.store.recover_explore_completion(unit, &instance) {
+        let pass = match self.passes.recover_completion(unit, &instance) {
             Ok(pass) => pass,
             Err(error) => {
                 restored.storage_error =
                     Some(format!("Explore conclusion needs recovery: {error}"));
-                self.store
-                    .load_explore(unit, &instance)
+                self.passes
+                    .pass(unit, &instance)
                     .map_err(|error| {
                         RestoreError::Unreadable(Unreadable::Pass {
                             instance: instance.clone(),
@@ -88,6 +108,7 @@ impl ExploreSession {
         };
         restored.view =
             self.load_view_for_restore(unit, &instance, &mut restored.storage_error, &mut toast);
+        restored.progress = restored_progress(&pass);
         restored.result = Ok(Some(Arc::new(pass)));
         Ok((restored, toast))
     }
@@ -99,11 +120,11 @@ impl ExploreSession {
     ) -> (ui_events::ExploreRestored, Option<String>) {
         let (reason, cleared) = match failure {
             Unreadable::History(reason) => {
-                let result = self.store.repair_explore_history(unit).map(|_| ());
+                let result = self.passes.repair_history(unit).map(|_| ());
                 (reason, result)
             }
             Unreadable::Pass { instance, reason } => {
-                let result = self.store.clear_explore_pass(unit, &instance);
+                let result = self.passes.clear_pass(unit, &instance);
                 (reason, result)
             }
         };
@@ -174,10 +195,10 @@ impl ExploreSession {
         storage_error: &mut Option<String>,
         toast: &mut Option<String>,
     ) -> Option<ViewSave> {
-        match self.store.load_explore_view(unit, instance) {
+        match self.passes.view(unit, instance) {
             Ok(view) => view,
             Err(error) => {
-                match self.store.clear_explore_view(unit, instance) {
+                match self.passes.clear_view(unit, instance) {
                     Ok(()) => {
                         *toast = Some("Unreadable Explore editor state was cleared.".to_owned());
                     }
@@ -197,7 +218,7 @@ impl ExploreSession {
             return;
         }
         let unit = view.review_unit.clone();
-        let result = self.store.save_explore_view(&unit, &view);
+        let result = self.passes.save_view(&unit, &view);
         if self.state.loaded_unit.as_ref() == Some(&unit) {
             self.state.last_view = Some(view);
         }
@@ -218,10 +239,10 @@ impl ExploreSession {
         let unit = &previous.exploration.comparison.checkpoint.review_unit;
         let instance = &previous.exploration.instance;
         let result = (|| -> eyre::Result<_> {
-            let history = self.store.load_explore_history(unit)?;
+            let history = self.passes.history(unit)?;
             let pass = self
-                .store
-                .load_explore(unit, instance)?
+                .passes
+                .pass(unit, instance)?
                 .ok_or_else(|| eyre::eyre!("Saved Explore pass disappeared"))?;
             Ok((history, pass))
         })();

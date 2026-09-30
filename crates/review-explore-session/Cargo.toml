@@ -23,6 +23,7 @@ uuid.workspace = true
 [dev-dependencies]
 crossbeam-channel.workspace = true
 herdr-client = { path = "../herdr-client", features = ["memory"] }
+review-source = { path = "../review-source" }
 review-test-support = { path = "../review-test-support" }
 serde_json.workspace = true
 tempfile.workspace = true

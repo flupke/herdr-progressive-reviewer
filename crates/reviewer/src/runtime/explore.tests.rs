@@ -3,8 +3,6 @@ use review_explore::{AnswerInput, Command as ExploreCommand, Exploration, TopicS
 
 #[path = "explore/conclusion.tests.rs"]
 mod conclusion;
-#[path = "explore/recovery.tests.rs"]
-mod recovery;
 
 fn explore_command(command: ExploreCommand) -> WorkerCommand {
     WorkerCommand::Explore(explore_session::Input::Command(command))
@@ -211,6 +209,48 @@ impl ExploreFlow {
                     .try_iter()
                     .filter_map(|event| event.downcast_ref::<ui_events::ExploreFinished>().cloned())
                     .collect::<Vec<_>>()
+            );
+            thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    fn saved(&self) -> review_explore::ExplorePass {
+        ReviewStore::open(
+            self.fixture.state_directory.path(),
+            self.fixture.repository.root(),
+        )
+        .unwrap()
+        .load_explore(&self.fixture.review_unit, &self.exploration.instance)
+        .unwrap()
+        .unwrap()
+    }
+
+    fn native_status(&self, status: herdr_client::protocol::AgentStatus) {
+        self.fixture.herdr.release_agent();
+        fs::write(
+            self.fixture.herdr.server.root().join("prompt.state"),
+            if status == herdr_client::protocol::AgentStatus::Working {
+                "⠋ Working"
+            } else {
+                "✳ Ready"
+            },
+        )
+        .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let current = self
+                .fixture
+                .herdr
+                .client()
+                .get_agent(&self.fixture.herdr.pane_id)
+                .unwrap()
+                .unwrap();
+            if current.agent_status == status {
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "Native lifecycle did not become {status:?}: {current:?}"
             );
             thread::sleep(Duration::from_millis(20));
         }

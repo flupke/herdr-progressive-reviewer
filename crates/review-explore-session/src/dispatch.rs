@@ -1,13 +1,13 @@
+use crate::records::SavedPasses;
 use component_core::ApplicationEventSender;
 use review_explore::{DispatchId, DispatchResult, DispatchState};
-use review_store::ReviewStore;
 use review_thread_service::{DispatchObserver, PromptError};
 use review_types::ReviewUnit;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Records each prompt attempt in the saved pass before and after delivery.
 pub(crate) struct DurableDispatch {
-    pub(crate) store: ReviewStore,
+    pub(crate) passes: SavedPasses,
     pub(crate) unit: ReviewUnit,
     pub(crate) instance: String,
     pub(crate) id: DispatchId,
@@ -17,8 +17,8 @@ pub(crate) struct DurableDispatch {
 
 impl DispatchObserver for DurableDispatch {
     fn before_attempt(&self, agent: &herdr_client::protocol::Agent) -> Result<(), String> {
-        self.store
-            .update_explore(&self.unit, &self.instance, |pass| {
+        self.passes
+            .update(&self.unit, &self.instance, |pass| {
                 pass.begin_dispatch(&self.id, agent)
                     .map_err(|e| e.to_string())
             })
@@ -28,7 +28,7 @@ impl DispatchObserver for DurableDispatch {
 
     fn finished(&self, result: &Result<(), PromptError>) -> Result<(), String> {
         let state = Self::outcome(result);
-        match self.store.finish_explore_dispatch(
+        match self.passes.finish_dispatch(
             &self.unit,
             &self.instance,
             &DispatchResult {

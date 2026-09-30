@@ -505,7 +505,8 @@ struct ReviewFlowFixture {
     worker_thread: JoinHandle<()>,
     review_unit: ReviewUnit,
     endpoint: review_mcp::Endpoint,
-    comments: comments::Worker,
+    /// Delivers prompts for as long as the fixture runs.
+    _comments: comments::Worker,
     _port: review_test_support::TestPort,
 }
 
@@ -590,7 +591,7 @@ impl ReviewFlowFixture {
             worker_thread,
             review_unit,
             endpoint,
-            comments,
+            _comments: comments,
             _port: port,
         }
     }

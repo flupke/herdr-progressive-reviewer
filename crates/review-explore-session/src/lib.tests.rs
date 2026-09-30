@@ -22,17 +22,26 @@ use super::*;
 
 const PANE: &str = "agent-pane";
 const RUBRIC: &str = "test-rubric";
+const CONCLUSION: &str = "Keep the policy.";
+
+#[path = "recovery.tests.rs"]
+mod recovery;
 
 /// One session driven directly, as the reviewer's worker drives it.
 struct Harness {
     session: ExploreSession,
     events: crossbeam_channel::Receiver<EventEnvelope>,
+    event_sender: crossbeam_channel::Sender<EventEnvelope>,
     inbox: mpsc::Receiver<Input>,
+    inbox_sender: mpsc::Sender<Input>,
     agents: InMemoryAgents,
     store: ReviewStore,
+    repository: Repository,
+    exclusion: ExclusionPolicy,
+    unit: ReviewUnit,
     exploration: Option<Exploration>,
     delivered: usize,
-    _threads: review_thread_service::Worker,
+    threads: review_thread_service::Worker,
     _files: Box<dyn ReviewRepositoryFixture>,
     _state: TempDir,
 }
@@ -48,12 +57,11 @@ impl Harness {
         let store = ReviewStore::open(state.path(), repository.root()).unwrap();
         let agents = InMemoryAgents::default();
         agents.upsert_agent(agent());
-        let target = AgentTarget::new(workspace(), Some(PaneId(PANE.into())));
         // The thread service owns prompt delivery; it has no MCP listener here.
         let threads = review_thread_service::Worker::start(
             store.clone(),
             agents.clone(),
-            target.clone(),
+            target(),
             Err("No MCP listener in this test".into()),
             |_| Err("No MCP listener in this test".into()),
             |_| {},
@@ -64,34 +72,57 @@ impl Harness {
             .identity
             .review_unit()
             .clone();
-        let mut session = ExploreSession::new(Collaborators {
-            repository,
-            store: store.clone(),
-            agents: Arc::new(agents.clone()),
-            target,
-            prompts: threads.prompt_sender(),
-            exclusion,
-            events: ApplicationEventSender::new(event_sender),
-            inbox: Inbox::new(move |input| {
-                let _ = inbox_sender.send(input);
+        let mut harness = Self {
+            session: ExploreSession::new(Collaborators {
+                repository: repository.clone(),
+                store: store.clone(),
+                agents: Arc::new(agents.clone()),
+                target: target(),
+                prompts: threads.prompt_sender(),
+                exclusion: exclusion.clone(),
+                events: ApplicationEventSender::new(event_sender.clone()),
+                inbox: Inbox::new(|_| {}),
             }),
-        });
-        session.checkpoint_changed(&unit);
-        let harness = Self {
-            session,
             events,
+            event_sender,
             inbox,
+            inbox_sender,
             agents,
             store,
+            repository,
+            exclusion,
+            unit,
             exploration: None,
             delivered: 0,
-            _threads: threads,
+            threads,
             _files: files,
             _state: state,
         };
-        let restored = harness.next::<ui_events::ExploreRestored>();
+        let restored = harness.reopen();
         assert!(matches!(restored.result, Ok(None)));
         harness
+    }
+
+    /// Replace the session as a restarted reviewer would, keeping only saved state,
+    /// the agents and the prompts already delivered.
+    fn reopen(&mut self) -> ui_events::ExploreRestored {
+        while self.events.try_recv().is_ok() {}
+        let inbox = self.inbox_sender.clone();
+        self.session = ExploreSession::new(Collaborators {
+            repository: self.repository.clone(),
+            store: self.store.clone(),
+            agents: Arc::new(self.agents.clone()),
+            target: target(),
+            prompts: self.threads.prompt_sender(),
+            exclusion: self.exclusion.clone(),
+            events: ApplicationEventSender::new(self.event_sender.clone()),
+            inbox: Inbox::new(move |input| {
+                let _ = inbox.send(input);
+            }),
+        });
+        let unit = self.unit.clone();
+        self.session.checkpoint_changed(&unit);
+        self.next::<ui_events::ExploreRestored>()
     }
 
     fn next<E: component_core::ApplicationEvent + Clone>(&self) -> E {
@@ -159,6 +190,16 @@ impl Harness {
 
     /// Submit as the agent and acknowledge each committed pass as the UI does.
     fn submit(&mut self, access: &str, operation: Operation) -> Result<Response, String> {
+        self.submit_acknowledged(access, operation, true)
+    }
+
+    /// Submit as the agent; without `acknowledge` the UI drops each committed pass.
+    fn submit_acknowledged(
+        &mut self,
+        access: &str,
+        operation: Operation,
+        acknowledge: bool,
+    ) -> Result<Response, String> {
         let (request, mut pending) = Request::new(access.to_owned(), operation);
         self.session.handle(Input::Submission(Box::new(request)));
         let deadline = Instant::now() + Duration::from_secs(20);
@@ -169,11 +210,74 @@ impl Harness {
             assert!(Instant::now() < deadline, "the session did not respond");
             if let Ok(event) = self.events.recv_timeout(Duration::from_millis(10))
                 && let Some(committed) = event.downcast_ref::<ui_events::ExploreCommitted>()
+                && acknowledge
             {
                 self.exploration = Some(committed.pass.exploration.clone());
                 committed.response.send(Ok(committed.applied)).unwrap();
             }
         }
+    }
+
+    /// Answer the latest question as the reviewer, then post it.
+    fn answer(&mut self, text: &str) -> (TurnRequest, String) {
+        let request = self.request(Some(AnswerInput {
+            option: Some("keep".into()),
+            text: text.into(),
+            ..AnswerInput::default()
+        }));
+        let access = self.turn(&request);
+        (request, access)
+    }
+
+    /// Ask the first question, answer it and let the agent conclude.
+    fn conclude(&mut self) -> (TurnRequest, String) {
+        self.capture();
+        let first = self.request(None);
+        let access = self.turn(&first);
+        assert!(applied(self.submit(&access, question(&first, 1))));
+        let (request, access) = self.answer("Keep it.");
+        assert!(applied(
+            self.submit(&access, conclusion(&request, CONCLUSION))
+        ));
+        (request, access)
+    }
+
+    /// Adopt a restored pass as the UI does: its interrupted turn waits for Retry.
+    fn adopt(&mut self, restored: &ui_events::ExploreRestored) {
+        let pass = restored.result.as_ref().unwrap().as_ref().unwrap();
+        let mut exploration = pass.exploration.clone();
+        exploration.pause_delivery();
+        self.exploration = Some(exploration);
+    }
+
+    fn review_directory(&self) -> std::path::PathBuf {
+        std::fs::read_dir(self.store.explore_directory())
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path()
+    }
+
+    fn pass_path(&self) -> std::path::PathBuf {
+        self.review_directory()
+            .join(format!("{}.json", self.exploration().instance))
+    }
+
+    /// Change the saved pass as an earlier, interrupted process left it.
+    fn damage(&self, change: impl FnOnce(&mut ExplorePass)) {
+        self.store
+            .lock_explore(&self.unit)
+            .unwrap()
+            .update_pass(&self.exploration().instance, |pass| {
+                change(pass);
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    fn history(&self) -> review_explore::ExploreHistory {
+        self.store.load_explore_history(&self.unit).unwrap()
     }
 
     fn saved(&self) -> ExplorePass {
@@ -186,6 +290,10 @@ impl Harness {
             .unwrap()
             .unwrap()
     }
+}
+
+fn target() -> AgentTarget {
+    AgentTarget::new(workspace(), Some(PaneId(PANE.into())))
 }
 
 fn workspace() -> WorkspaceId {
@@ -229,6 +337,19 @@ fn question(request: &TurnRequest, version: u32) -> Operation {
     }))
     .unwrap();
     Operation::SubmitQuestion(Box::new(update))
+}
+
+fn conclusion(request: &TurnRequest, summary: &str) -> Operation {
+    let submission = serde_json::from_value(serde_json::json!({
+        "review": "", "instance": request.instance, "request": request.request,
+        "checkpoint": request.checkpoint,
+        "interpretation": request.answer.as_ref().map(|answer| serde_json::json!({
+            "answer": answer.id, "status": "accepted", "recap": "Keep the policy.", "follow_ups": []
+        })),
+        "summary": summary, "to_be_implemented": "Add a regression test.", "future_work": "Later."
+    }))
+    .unwrap();
+    Operation::SubmitConclusion(Box::new(submission))
 }
 
 fn applied(result: Result<Response, String>) -> bool {

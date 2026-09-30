@@ -29,7 +29,7 @@ impl ExploreSession {
         let unit = pass.exploration.comparison.checkpoint.review_unit.clone();
         let instance = pass.exploration.instance.clone();
         let attempt = uuid::Uuid::new_v4().to_string();
-        let Ok((started, pass)) = self.store.update_explore(&unit, &instance, |pass| {
+        let Ok((started, pass)) = self.passes.update(&unit, &instance, |pass| {
             if pass.completion.is_some()
                 || !pass.coverage.needs_classification(&rubric, pass.revision)
             {
@@ -50,7 +50,7 @@ impl ExploreSession {
             .map_or(0, |progress| progress.elapsed_ms);
         let active = Arc::new(AtomicBool::new(true));
         self.state.classification = Some((instance.clone(), active.clone()));
-        let store = self.store.clone();
+        let passes = self.passes.clone();
         let events = self.events.clone();
         std::thread::spawn(move || {
             let started = std::time::Instant::now();
@@ -60,7 +60,7 @@ impl ExploreSession {
                 )
             };
             let finished = plan.run(|result| {
-                match store.update_explore(&unit, &instance, |pass| {
+                match passes.update(&unit, &instance, |pass| {
                     if !pass.coverage.is_current_attempt(&attempt) || pass.completion.is_some() {
                         return Err("obsolete classification attempt".into());
                     }
@@ -73,7 +73,7 @@ impl ExploreSession {
                     Err(_) => false,
                 }
             });
-            if let Ok((_, pass)) = store.update_explore(&unit, &instance, |pass| {
+            if let Ok((_, pass)) = passes.update(&unit, &instance, |pass| {
                 if !pass.coverage.is_current_attempt(&attempt) {
                     return Ok(false);
                 }

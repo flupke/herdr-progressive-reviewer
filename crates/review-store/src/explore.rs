@@ -1,10 +1,11 @@
-//! Versioned Explore domain transactions and one editor autosave per pass.
+//! The Explore record format and exclusive, locked access to one review's records.
+//!
+//! Each review keeps a history index, one file per pass and one editor view per pass.
+//! The store only reads, writes and removes them; what a change means belongs to the
+//! Explore session.
 use super::{Error, Result, ReviewStore, StateKey};
 use fs2::FileExt;
-use review_explore::{
-    CoverageFeedback, CoverageReceipt, ExploreHistory, ExplorePass, InterviewUpdate,
-    ReviewCompletion, ViewSave,
-};
+use review_explore::{ExploreHistory, ExplorePass, ViewSave};
 use review_types::ReviewUnit;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{
@@ -12,6 +13,7 @@ use std::{
     io::Read,
     os::unix::fs::OpenOptionsExt,
     path::{Path, PathBuf},
+    time::SystemTime,
 };
 
 const VERSION: u32 = 1;
@@ -25,140 +27,129 @@ struct Stored<T> {
     value: T,
 }
 
-impl ReviewStore {
-    /// Serially accept an Explore response without changing file review marks.
-    pub fn submit_explore(
-        &self,
-        unit: &ReviewUnit,
-        instance: &str,
-        update: &InterviewUpdate,
-        exclusions_enabled: bool,
-    ) -> Result<(bool, ExplorePass, CoverageReceipt)> {
-        let _lock = self.explore_lock(unit)?;
-        let history = self.load_explore_history(unit)?;
-        if history.is_historical(instance) {
-            return Err(Error::Explore(
-                "this pass is history; open the latest pass to continue".into(),
-            ));
+/// One review's Explore records, exclusively locked until this value is dropped.
+///
+/// Every read-modify-write of a review's records happens through one of these, so
+/// callers never save a stale copy over a concurrent change.
+pub struct ExploreRecords<'a> {
+    store: &'a ReviewStore,
+    unit: ReviewUnit,
+    directory: PathBuf,
+    _lock: fs::File,
+}
+
+impl ExploreRecords<'_> {
+    pub fn history(&self) -> Result<ExploreHistory> {
+        self.store.load_explore_history(&self.unit)
+    }
+
+    pub fn save_history(&self, history: &ExploreHistory) -> Result<()> {
+        self.store
+            .write_explore(&self.directory.join("index.json"), history, MAX_VIEW)
+    }
+
+    pub fn pass(&self, instance: &str) -> Result<Option<ExplorePass>> {
+        self.store.load_explore(&self.unit, instance)
+    }
+
+    /// Save a pass that has no record yet. A saved pass only changes through
+    /// [`Self::update_pass`], so no caller writes a stale whole-pass copy.
+    pub fn create_pass(&self, pass: &ExplorePass) -> Result<()> {
+        if self.pass(&pass.exploration.instance)?.is_some() {
+            return Err(Error::Explore("pass already exists".into()));
         }
+        self.save_pass(pass)
+    }
+
+    fn save_pass(&self, pass: &ExplorePass) -> Result<()> {
+        if pass.exploration.comparison.checkpoint.review_unit != self.unit {
+            return Err(Error::Explore("pass belongs to another review".into()));
+        }
+        self.store.write_explore(
+            &self
+                .store
+                .explore_path(&self.unit, &pass.exploration.instance)?,
+            pass,
+            MAX_DOMAIN,
+        )
+    }
+
+    /// Change a saved pass, writing it with the next revision only when it changed.
+    pub fn update_pass<T>(
+        &self,
+        instance: &str,
+        update: impl FnOnce(&mut ExplorePass) -> std::result::Result<T, String>,
+    ) -> Result<(T, ExplorePass)> {
         let mut pass = self
-            .load_explore(unit, instance)?
+            .pass(instance)?
             .ok_or_else(|| Error::Explore("saved pass is missing".into()))?;
-        if let Some(completion) = &pass.completion
-            && !completion.completed
-        {
-            let accepted = pass
-                .exploration
-                .conversation
-                .iter()
-                .find(|turn| turn.update.request == completion.request)
-                .is_some_and(|turn| &turn.update == update);
-            if !accepted {
-                return Err(Error::Explore(
-                    "Explore conclusion finalization is pending; retry the identical payload"
-                        .into(),
-                ));
+        let original = pass.clone();
+        let result = update(&mut pass).map_err(Error::Explore)?;
+        if pass != original {
+            pass.revision = pass
+                .revision
+                .checked_add(1)
+                .ok_or_else(|| Error::Explore("revision exhausted".into()))?;
+            self.save_pass(&pass)?;
+        }
+        Ok((result, pass))
+    }
+
+    pub fn view(&self, instance: &str) -> Result<Option<ViewSave>> {
+        self.store.load_explore_view(&self.unit, instance)
+    }
+
+    pub fn save_view(&self, view: &ViewSave) -> Result<()> {
+        if view.review_unit != self.unit {
+            return Err(Error::Explore("editor belongs to another review".into()));
+        }
+        self.store.write_explore(
+            &self.store.explore_view_path(&self.unit, &view.instance)?,
+            view,
+            MAX_VIEW,
+        )
+    }
+
+    /// Remove a pass file; a missing file is already removed.
+    pub fn remove_pass(&self, instance: &str) -> Result<()> {
+        ReviewStore::remove_explore_file(&self.store.explore_path(&self.unit, instance)?)
+    }
+
+    /// Remove an editor view file; a missing file is already removed.
+    pub fn remove_view(&self, instance: &str) -> Result<()> {
+        ReviewStore::remove_explore_file(&self.store.explore_view_path(&self.unit, instance)?)
+    }
+
+    /// Make earlier removals durable.
+    pub fn sync(&self) -> Result<()> {
+        self.store.sync_parent(&self.directory.join("index.json"))
+    }
+
+    /// The identity and modification time of every pass file, readable or not.
+    pub fn pass_files(&self) -> Result<Vec<(String, SystemTime)>> {
+        let mut passes = Vec::new();
+        for entry in ReviewStore::explore_entries(&self.directory)? {
+            let entry = entry?;
+            let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+                continue;
+            };
+            let Some(instance) = name.strip_suffix(".json") else {
+                continue;
+            };
+            if instance == "index" || ReviewStore::explore_id(instance).is_err() {
+                continue;
             }
-            self.finish_explore_completion(unit, instance, &mut pass)?;
-            let feedback = pass
-                .coverage_receipts
-                .get(&update.request)
-                .cloned()
-                .ok_or_else(|| {
-                    Error::Explore("accepted conclusion has no coverage receipt".into())
-                })?;
-            return Ok((false, pass, feedback));
+            let modified = entry
+                .metadata()
+                .and_then(|metadata| metadata.modified())
+                .unwrap_or(SystemTime::UNIX_EPOCH);
+            passes.push((instance.to_owned(), modified));
         }
-        let (applied, feedback) = pass
-            .submit(update, exclusions_enabled)
-            .map_err(|error| Error::Explore(error.to_string()))?;
-        if !applied {
-            return Ok((false, pass, feedback));
-        }
-        if update.conclusion.is_some() && pass.completion.is_none() {
-            pass.completion = Some(Self::prepare_explore_completion(
-                &pass,
-                update,
-                exclusions_enabled,
-                feedback.feedback(),
-            ));
-        }
-        self.save_explore_revision(unit, instance, &mut pass)?;
-        Ok((true, pass, feedback))
+        Ok(passes)
     }
+}
 
-    fn prepare_explore_completion(
-        pass: &ExplorePass,
-        update: &InterviewUpdate,
-        exclusions_enabled: bool,
-        feedback: &CoverageFeedback,
-    ) -> ReviewCompletion {
-        let comparison = &pass.exploration.comparison;
-        ReviewCompletion {
-            request: update.request.clone(),
-            baseline: comparison.checkpoint.checkpoint.clone(),
-            completed: true,
-            exclusions_enabled,
-            summary: feedback.summary.clone(),
-            unexplored: Some(review_explore::UnexploredAtConclusion {
-                required: pass.coverage.remaining(exclusions_enabled),
-                jev_excluded: if exclusions_enabled {
-                    pass.coverage.unexplored_exclusions()
-                } else {
-                    Vec::new()
-                },
-            }),
-        }
-    }
-
-    /// Finalize a legacy pending conclusion without applying its old file-mark transaction.
-    pub fn recover_explore_completion(
-        &self,
-        unit: &ReviewUnit,
-        instance: &str,
-    ) -> Result<ExplorePass> {
-        let _lock = self.explore_lock(unit)?;
-        let mut pass = self
-            .load_explore(unit, instance)?
-            .ok_or_else(|| Error::Explore("saved pass is missing".into()))?;
-        if pass
-            .completion
-            .as_ref()
-            .is_some_and(|record| !record.completed)
-        {
-            self.finish_explore_completion(unit, instance, &mut pass)?;
-        }
-        Ok(pass)
-    }
-
-    fn finish_explore_completion(
-        &self,
-        unit: &ReviewUnit,
-        instance: &str,
-        pass: &mut ExplorePass,
-    ) -> Result<()> {
-        let Some(completion) = &mut pass.completion else {
-            return Ok(());
-        };
-        if completion.completed {
-            return Ok(());
-        }
-        completion.completed = true;
-        self.save_explore_revision(unit, instance, pass)
-    }
-
-    fn save_explore_revision(
-        &self,
-        unit: &ReviewUnit,
-        instance: &str,
-        pass: &mut ExplorePass,
-    ) -> Result<()> {
-        pass.revision = pass
-            .revision
-            .checked_add(1)
-            .ok_or_else(|| Error::Explore("revision exhausted".into()))?;
-        self.write_explore(&self.explore_path(unit, instance)?, pass, MAX_DOMAIN)
-    }
+impl ReviewStore {
     /// Watch this namespace with the existing filesystem event infrastructure.
     pub fn explore_directory(&self) -> PathBuf {
         self.repository_dir.join("explore-v1")
@@ -240,78 +231,6 @@ impl ReviewStore {
         }))
     }
 
-    /// Discard this review's unreadable Explore history without touching review marks or threads.
-    pub fn clear_explore(&self, unit: &ReviewUnit) -> Result<()> {
-        let _lock = self.explore_lock(unit)?;
-        let directory = self.explore_review(unit)?;
-        let index = directory.join("index.json");
-        Self::remove_explore_file(&index)?;
-        for entry in Self::explore_entries(&directory)? {
-            let entry = entry?;
-            if entry.file_name() == "lock" {
-                continue;
-            }
-            Self::remove_explore_file(&entry.path())?;
-        }
-        self.sync_parent(&index)
-    }
-
-    /// Rebuild a damaged index from readable passes, retaining their editor snapshots.
-    pub fn repair_explore_history(&self, unit: &ReviewUnit) -> Result<ExploreHistory> {
-        let _lock = self.explore_lock(unit)?;
-        let directory = self.explore_review(unit)?;
-        let mut passes = Vec::new();
-        for entry in Self::explore_entries(&directory)? {
-            let entry = entry?;
-            let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
-                continue;
-            };
-            let Some(instance) = name.strip_suffix(".json") else {
-                continue;
-            };
-            if instance == "index" || Self::explore_id(instance).is_err() {
-                continue;
-            }
-            if self.load_explore(unit, instance).ok().flatten().is_some() {
-                let modified = entry
-                    .metadata()
-                    .and_then(|metadata| metadata.modified())
-                    .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-                passes.push((modified, instance.to_owned()));
-            }
-        }
-        passes.sort();
-        let history = ExploreHistory {
-            passes: passes.into_iter().map(|(_, instance)| instance).collect(),
-            latest_editable: false,
-        };
-        self.write_explore(&directory.join("index.json"), &history, MAX_VIEW)?;
-        Ok(history)
-    }
-
-    /// Remove one unreadable pass and its editor state while preserving other passes.
-    pub fn clear_explore_pass(&self, unit: &ReviewUnit, instance: &str) -> Result<()> {
-        let _lock = self.explore_lock(unit)?;
-        let mut history = self.load_explore_history(unit)?;
-        if history.passes.last().is_some_and(|saved| saved == instance) {
-            history.latest_editable = false;
-        }
-        history.passes.retain(|saved| saved != instance);
-        let index = self.explore_review(unit)?.join("index.json");
-        self.write_explore(&index, &history, MAX_VIEW)?;
-        Self::remove_explore_file(&self.explore_path(unit, instance)?)?;
-        Self::remove_explore_file(&self.explore_view_path(unit, instance)?)?;
-        self.sync_parent(&index)
-    }
-
-    /// Discard a damaged editor snapshot while retaining its valid interview.
-    pub fn clear_explore_view(&self, unit: &ReviewUnit, instance: &str) -> Result<()> {
-        let _lock = self.explore_lock(unit)?;
-        let path = self.explore_view_path(unit, instance)?;
-        Self::remove_explore_file(&path)?;
-        self.sync_parent(&path)
-    }
-
     fn remove_explore_file(path: &Path) -> Result<()> {
         match fs::remove_file(path) {
             Ok(()) => Ok(()),
@@ -341,110 +260,15 @@ impl ReviewStore {
         Ok(pass)
     }
 
-    pub fn create_explore(&self, pass: ExplorePass) -> Result<ExplorePass> {
-        let unit = &pass.exploration.comparison.checkpoint.review_unit;
-        let _lock = self.explore_lock(unit)?;
-        let mut history = self.load_explore_history(unit)?;
-        let instance = &pass.exploration.instance;
-        if self.load_explore(unit, instance)?.is_some() {
-            return Err(Error::Explore("pass already exists".into()));
-        }
-        self.write_explore(&self.explore_path(unit, instance)?, &pass, MAX_DOMAIN)?;
-        history.passes.push(instance.clone());
-        history.latest_editable = true;
-        self.write_explore(
-            &self.explore_review(unit)?.join("index.json"),
-            &history,
-            MAX_VIEW,
-        )?;
-        Ok(pass)
-    }
-
-    /// Read-modify-write under the shared lock; callers never save stale whole-pass copies.
-    pub fn update_explore<T>(
-        &self,
-        unit: &ReviewUnit,
-        instance: &str,
-        update: impl FnOnce(&mut ExplorePass) -> std::result::Result<T, String>,
-    ) -> Result<(T, ExplorePass)> {
-        let _lock = self.explore_lock(unit)?;
-        let history = self.load_explore_history(unit)?;
-        if history.is_historical(instance) {
-            return Err(Error::Explore(
-                "this pass is history; open the latest pass to continue".into(),
-            ));
-        }
-        self.mutate_explore(unit, instance, update)
-    }
-
-    /// A started external call may complete after New pass. Only its result can change history.
-    pub fn finish_explore_dispatch(
-        &self,
-        unit: &ReviewUnit,
-        instance: &str,
-        result: &review_explore::DispatchResult,
-    ) -> Result<ExplorePass> {
-        let _lock = self.explore_lock(unit)?;
-        if !self
-            .load_explore_history(unit)?
-            .passes
-            .iter()
-            .any(|id| id == instance)
-        {
-            return Err(Error::Explore("saved pass is missing".into()));
-        }
-        self.mutate_explore(unit, instance, |pass| {
-            pass.finish_dispatch(result);
-            Ok(())
+    /// Lock one review's Explore records for a read-modify-write.
+    pub fn lock_explore(&self, unit: &ReviewUnit) -> Result<ExploreRecords<'_>> {
+        let lock = self.explore_lock(unit)?;
+        Ok(ExploreRecords {
+            store: self,
+            unit: unit.clone(),
+            directory: self.explore_review(unit)?,
+            _lock: lock,
         })
-        .map(|((), pass)| pass)
-    }
-
-    // Caller holds the per-review lock. No public whole-pass writes.
-    fn mutate_explore<T>(
-        &self,
-        unit: &ReviewUnit,
-        instance: &str,
-        update: impl FnOnce(&mut ExplorePass) -> std::result::Result<T, String>,
-    ) -> Result<(T, ExplorePass)> {
-        let mut pass = self
-            .load_explore(unit, instance)?
-            .ok_or_else(|| Error::Explore("saved pass is missing".into()))?;
-        let original = pass.clone();
-        let result = update(&mut pass).map_err(Error::Explore)?;
-        if pass != original {
-            pass.revision = pass
-                .revision
-                .checked_add(1)
-                .ok_or_else(|| Error::Explore("revision exhausted".into()))?;
-            self.write_explore(&self.explore_path(unit, instance)?, &pass, MAX_DOMAIN)?;
-        }
-        Ok((result, pass))
-    }
-
-    /// Save the single reviewer's editor state without rewriting domain history.
-    pub fn save_explore_view(&self, unit: &ReviewUnit, view: &ViewSave) -> Result<()> {
-        if &view.review_unit != unit {
-            return Err(Error::Explore("editor belongs to another review".into()));
-        }
-        let _lock = self.explore_lock(unit)?;
-        // Editor records never rewrite domain history; avoid rereading a long pass per keystroke.
-        let history = self.load_explore_history(unit)?;
-        if !history.passes.contains(&view.instance) {
-            return Err(Error::Explore("saved pass is missing".into()));
-        }
-        let path = self.explore_view_path(unit, &view.instance)?;
-        if let Some(previous) = Self::read_explore::<ViewSave>(&path, MAX_VIEW)? {
-            if previous.sequence == view.sequence && previous != *view {
-                return Err(Error::Explore(
-                    "editor sequence already has different content; original retained".into(),
-                ));
-            }
-            if previous.sequence >= view.sequence {
-                return Ok(());
-            }
-        }
-        self.write_explore(&path, view, MAX_VIEW)
     }
 
     fn explore_view_path(&self, unit: &ReviewUnit, instance: &str) -> Result<PathBuf> {

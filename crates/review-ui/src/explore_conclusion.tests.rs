@@ -99,6 +99,7 @@ fn restart_with_delivery(
         view: None,
         historical: false,
         storage_error: None,
+        progress: ui_events::ExploreProgress::Ready,
     });
     request
 }

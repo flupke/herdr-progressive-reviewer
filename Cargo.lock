@@ -3908,6 +3908,7 @@ dependencies = [
  "review-explore-runner",
  "review-mcp",
  "review-repository",
+ "review-source",
  "review-store",
  "review-test-support",
  "review-thread-service",

@@ -112,6 +112,7 @@ impl Fixture {
                 view: None,
                 historical: false,
                 storage_error: None,
+                progress: ui_events::ExploreProgress::Ready,
             })
             .unwrap();
         self.flush();

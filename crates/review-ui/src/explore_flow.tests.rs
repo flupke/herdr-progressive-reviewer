@@ -229,6 +229,8 @@ fn coverage_header_reports_credited_units_even_below_one_percent() {
         view: None,
         historical: false,
         storage_error: None,
+        // The answer was posted, but the agent never replied.
+        progress: ui_events::ExploreProgress::Interrupted,
     });
     fixture.app.publish(ui_events::ExploreCoverageRefresh);
     let coverage = fixture.text();

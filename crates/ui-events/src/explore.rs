@@ -14,6 +14,20 @@ pub struct ExploreRestored {
     pub historical: bool,
     /// Ancillary editor damage does not prevent reading intact accepted history.
     pub storage_error: Option<String>,
+    /// Where the restored interview stands; reopening never sends anything itself.
+    pub progress: ExploreProgress,
+}
+
+/// Where a restored interview stands, decided by the Explore session.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum ExploreProgress {
+    /// No turn is waiting; the reviewer can answer or start a new pass.
+    #[default]
+    Ready,
+    /// A posted turn was not answered; Retry sends it again.
+    Interrupted,
+    /// A posted turn's prompt may already have reached the agent.
+    DeliveryUncertain,
 }
 
 #[derive(Clone, Debug)]

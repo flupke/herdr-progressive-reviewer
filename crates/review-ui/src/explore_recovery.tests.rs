@@ -23,6 +23,7 @@ fn restore(fixture: &mut ExploreUi, pass: &ExplorePass, view: Option<ViewSave>) 
         view,
         historical: false,
         storage_error: None,
+        progress: ui_events::ExploreProgress::Ready,
     });
     fixture.app.publish(ui_events::ExploreCoverageRefresh);
     actions
@@ -445,6 +446,7 @@ fn historical_question_offers_a_new_pass_after_pass_navigation_is_removed() {
         view: None,
         historical: true,
         storage_error: None,
+        progress: ui_events::ExploreProgress::Ready,
     }));
     let text = fixture.text();
     assert!(
@@ -742,4 +744,37 @@ fn post_ack_only_consumes_its_original_editor_when_history_is_opened_while_savin
         "Same text, different owner"
     );
     assert!(!view.state.drafts.iter().any(|(page, draft)| *page == ExplorePage::Question(1) && !draft.editor.text.is_empty()));
+}
+
+#[test]
+fn restored_progress_from_the_session_decides_the_recovery_status() {
+    for (progress, status) in [
+        (
+            ui_events::ExploreProgress::DeliveryUncertain,
+            Some("Previous prompt delivery is uncertain."),
+        ),
+        (
+            ui_events::ExploreProgress::Interrupted,
+            Some("Interview turn interrupted."),
+        ),
+        (ui_events::ExploreProgress::Ready, None),
+    ] {
+        let (mut fixture, request) = ExploreUi::new();
+        let pass = pass(&fixture, &request);
+        no_post(&fixture.app.publish(ui_events::ExploreRestored {
+            result: Ok(Some(Arc::new(pass))),
+            view: None,
+            historical: false,
+            storage_error: None,
+            progress,
+        }));
+        let text = fixture.text();
+        match status {
+            Some(status) => assert!(text.contains(status), "{progress:?}: {text}"),
+            None => assert!(
+                !text.contains("Retry keeps the posted answer"),
+                "{progress:?}: {text}"
+            ),
+        }
+    }
 }

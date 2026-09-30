@@ -7,6 +7,7 @@
 mod agent;
 mod dispatch;
 mod implementation;
+mod records;
 mod restore;
 mod significance;
 mod submission;
@@ -69,7 +70,7 @@ pub struct Collaborators {
 /// The Explore session of one reviewer process.
 pub struct ExploreSession {
     repository: Repository,
-    store: ReviewStore,
+    passes: records::SavedPasses,
     agents: Arc<dyn AgentPort>,
     target: AgentTarget,
     prompts: PromptSender,
@@ -139,7 +140,7 @@ impl ExploreSession {
         } = collaborators;
         Self {
             repository,
-            store,
+            passes: records::SavedPasses::new(store),
             agents,
             target,
             prompts,
@@ -235,7 +236,7 @@ impl ExploreSession {
         }
         let unit = pass.exploration.comparison.checkpoint.review_unit.clone();
         let instance = pass.exploration.instance.clone();
-        let result = self.store.update_explore(&unit, &instance, |pass| {
+        let result = self.passes.update(&unit, &instance, |pass| {
             if pass.completion.is_some() {
                 return Err("Explore is already finalizing".into());
             }
@@ -266,7 +267,7 @@ impl ExploreSession {
         if self.state.historical {
             return true;
         }
-        if let Err(error) = self.store.update_explore(
+        if let Err(error) = self.passes.update(
             &pass.exploration.comparison.checkpoint.review_unit,
             &pass.exploration.instance,
             |pass| {
