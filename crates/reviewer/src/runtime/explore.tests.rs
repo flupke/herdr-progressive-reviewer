@@ -4,8 +4,10 @@ use review_explore::{AnswerInput, Command as ExploreCommand, Exploration, TopicS
 #[path = "explore/conclusion.tests.rs"]
 mod conclusion;
 
-fn explore_command(command: ExploreCommand) -> WorkerCommand {
-    WorkerCommand::Explore(explore_session::Input::Command(command))
+impl ReviewFlowFixture {
+    fn explore(&self, command: ExploreCommand) {
+        self.runtime.perform([Action::Explore(command)]);
+    }
 }
 
 struct ExploreFlow {
@@ -18,14 +20,11 @@ struct ExploreFlow {
 
 impl ExploreFlow {
     fn start(kind: RepoType) -> Self {
-        let fixture = ReviewFlowFixture::start(kind);
-        fixture
-            .commands
-            .send(explore_command(ExploreCommand::Start))
-            .unwrap();
+        let mut fixture = ReviewFlowFixture::start(kind);
+        fixture.explore(ExploreCommand::Start);
         let comparison = loop {
             let event = fixture
-                .messages
+                .runtime
                 .recv_timeout(Duration::from_secs(10))
                 .unwrap();
             if let Some(event) = event.downcast_ref::<ui_events::ExploreCaptured>() {
@@ -46,11 +45,7 @@ impl ExploreFlow {
         let question = self.exploration.questions.last().cloned();
         let request = self.exploration.request(answer, question.as_ref()).unwrap();
         self.fixture
-            .commands
-            .send(explore_command(ExploreCommand::Turn(Box::new(
-                request.clone(),
-            ))))
-            .unwrap();
+            .explore(ExploreCommand::Turn(Box::new(request.clone())));
         self.wait_for_prompt(&request);
         let interpretation = request.answer.as_ref().map(|answer| serde_json::json!({
             "answer":answer.id,"status":"needs_follow_up","recap":"Recorded: keep resolved; add regression test — follow-up.","follow_ups":["Add regression test"]
@@ -151,10 +146,7 @@ impl ExploreFlow {
                 break result;
             }
             assert!(Instant::now() < deadline, "MCP response timed out");
-            if let Ok(event) = self
-                .fixture
-                .messages
-                .recv_timeout(Duration::from_millis(20))
+            if let Some(event) = self.fixture.runtime.recv_timeout(Duration::from_millis(20))
                 && let Some(event) = event.downcast_ref::<ui_events::ExploreCommitted>()
                 && acknowledge
             {
@@ -196,7 +188,9 @@ impl ExploreFlow {
                 } else {
                     assert!(prompt.contains("Submit the first question directly"));
                     assert!(prompt.contains(&request.checkpoint.checkpoint));
-                    assert!(prompt.contains(self.fixture.repository.root().to_str().unwrap()));
+                    assert!(
+                        prompt.contains(self.fixture.runtime.repository.root().to_str().unwrap())
+                    );
                 }
                 self.prompt_offset = text.len();
                 return;
@@ -205,8 +199,9 @@ impl ExploreFlow {
                 Instant::now() < deadline,
                 "Explore prompt was not delivered: {:?}",
                 self.fixture
-                    .messages
-                    .try_iter()
+                    .runtime
+                    .drain_events()
+                    .iter()
                     .filter_map(|event| event.downcast_ref::<ui_events::ExploreFinished>().cloned())
                     .collect::<Vec<_>>()
             );
@@ -216,8 +211,8 @@ impl ExploreFlow {
 
     fn saved(&self) -> review_explore::ExplorePass {
         ReviewStore::open(
-            self.fixture.state_directory.path(),
-            self.fixture.repository.root(),
+            self.fixture.runtime.state.path(),
+            self.fixture.runtime.repository.root(),
         )
         .unwrap()
         .load_explore(&self.fixture.review_unit, &self.exploration.instance)
@@ -257,18 +252,13 @@ impl ExploreFlow {
     }
 
     fn finish(self) {
-        self.fixture.commands.send(WorkerCommand::Quit).unwrap();
-        self.fixture.worker_thread.join().unwrap();
+        drop(self.fixture);
     }
 
     fn enqueue(&mut self) -> review_explore::TurnRequest {
         let request = self.exploration.request(None, None).unwrap();
         self.fixture
-            .commands
-            .send(explore_command(ExploreCommand::Turn(Box::new(
-                request.clone(),
-            ))))
-            .unwrap();
+            .explore(ExploreCommand::Turn(Box::new(request.clone())));
         // A rejected submission confirms preparation reached the serial runtime owner.
         let result = self.submit(&Self::empty_update(&request));
         assert_eq!(result.is_error, Some(true));
@@ -322,9 +312,10 @@ fn selected_agent_receives_working_copy_turns_without_freshness_checks(kind: Rep
         TopicStatus::NeedsFollowUp
     );
     flow.fixture
-        .repository_files
+        .runtime
+        .files
         .write("unchanged-caller.rs", b"external edit\n");
-    flow.fixture.commands.send(WorkerCommand::Poll).unwrap();
+    flow.fixture.runtime.effects.refresh().unwrap();
     // This milestone assumes code stays unchanged; edits do not block another turn.
     flow.turn(
         Some(AnswerInput {
@@ -377,11 +368,7 @@ fn late_session_detection_preserves_the_interview_and_a_new_send_selects_the_rep
         )
         .unwrap();
     flow.fixture
-        .commands
-        .send(explore_command(ExploreCommand::Turn(Box::new(
-            request.clone(),
-        ))))
-        .unwrap();
+        .explore(ExploreCommand::Turn(Box::new(request.clone())));
     flow.wait_for_prompt(&request);
     assert!(
         flow.saved().last_agent_session.unwrap().matches(
@@ -402,10 +389,7 @@ fn cancelled_explore_access_rejects_submissions_without_changing_history() {
     let mut flow = ExploreFlow::start(RepoType::Git);
     flow.turn(None, 1);
     let previous = serde_json::to_value(&flow.exploration.conversation[0].update).unwrap();
-    flow.fixture
-        .commands
-        .send(explore_command(ExploreCommand::Cancel))
-        .unwrap();
+    flow.fixture.explore(ExploreCommand::Cancel);
     let rejected = flow.submit(&previous);
     assert_eq!(rejected.is_error, Some(true));
     assert!(

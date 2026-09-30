@@ -1,6 +1,9 @@
 //! Confirmed bulk review-mark changes and their UI updates.
 
-use super::{ApplicationEventSender, ReviewCheckpoint, ReviewStateSaved, Worker};
+use super::worker::Worker;
+use component_core::ApplicationEventSender;
+use review_source::ReviewCheckpoint;
+use ui_events::ReviewStateSaved;
 
 impl Worker {
     pub(super) fn unreview_all(

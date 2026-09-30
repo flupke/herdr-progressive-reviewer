@@ -1,10 +1,18 @@
 //! File reads run independently of repository refresh and agent delivery.
 
-use super::{
-    ApplicationEventSender, Arc, ChangedFile, DiffContentLoadFailed, DiffContentLoaded,
-    DocumentLoad, EventEnvelope, Path, Receiver, Repository, ReviewCheckpoint, ReviewTracker,
-    Snapshot, SourceContentLoadFailed, SourceContentLoaded, SourceLoadMode, SourceLocation,
-    parse_file_diff,
+use std::path::Path;
+use std::sync::Arc;
+use std::sync::mpsc::Receiver;
+
+use component_core::{ApplicationEventSender, EventEnvelope};
+use review_lsp::SourceLocation;
+use review_repository::diff::parse_file_diff;
+use review_repository::repository::{ChangedFile, Repository, Snapshot};
+use review_source::ReviewCheckpoint;
+use review_state::ReviewTracker;
+use review_ui::{DocumentLoad, SourceLoadMode};
+use ui_events::{
+    DiffContentLoadFailed, DiffContentLoaded, SourceContentLoadFailed, SourceContentLoaded,
 };
 
 #[derive(Debug)]
@@ -47,18 +55,13 @@ impl DocumentWorker {
             }
             DocumentLoad::Source {
                 snapshot_id,
-                mut location,
+                location,
                 mode,
-            } => {
-                if location.path.is_relative() {
-                    location.path = self.repository.root().join(&location.path);
-                }
-                self.load_source(messages, snapshot_id, location, mode);
-            }
+            } => self.load_source(messages, snapshot_id, location, mode),
         }
     }
 
-    pub(super) fn load_source(
+    fn load_source(
         &self,
         messages: &ApplicationEventSender,
         snapshot_id: String,
@@ -99,7 +102,7 @@ impl DocumentWorker {
         let _ = messages.send_envelope(event);
     }
 
-    pub(super) fn load_diff(
+    fn load_diff(
         &self,
         messages: &ApplicationEventSender,
         review_checkpoint: ReviewCheckpoint,

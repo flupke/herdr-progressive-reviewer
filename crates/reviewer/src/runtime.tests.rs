@@ -1,18 +1,22 @@
 use super::*;
 use std::fs::{self, File};
 use std::io::Write;
-use std::path::Path;
 use std::process::Command;
+use std::sync::mpsc::{self, Receiver};
 
-use herdr_client::protocol::AgentPort;
+use effects::fixture::EffectsFixture;
+use herdr_client::protocol::{AgentPort, HerdrEvent};
 use ratatui::backend::TestBackend;
 use review_repository::diff::DiffRow;
 use review_repository::repository::RepoType;
+use review_source::ReviewCheckpoint;
 use review_state::ReviewStatus;
-use review_test_support::{
-    HerdrTestServer, ReviewRepositoryFixture, complete_repository_snapshot, repository_fixture,
-};
+use review_test_support::{HerdrTestServer, repository_fixture};
 use review_types::ReviewUnit;
+use review_ui::{DocumentAction, DocumentLoad};
+use ui_events::{
+    DiffContentLoaded, FileSummary, RepositoryFilesChanged, RepositoryRefreshFinished,
+};
 
 #[path = "runtime/mcp.tests.rs"]
 mod mcp;
@@ -23,86 +27,6 @@ mod agent_input;
 mod explore_flow;
 
 const AGENT_E2E_AGENT_SOURCE: &str = "progressive-reviewer-e2e";
-
-#[test]
-fn source_loading_prefers_frozen_content_when_a_deleted_path_is_recreated() {
-    let repository_files = repository_fixture(RepoType::Git);
-    let deleted_content = b"fn deleted_from_worktree() {}\n";
-    repository_files.write("deleted.rs", deleted_content);
-    repository_files.new_change("add the file that the next change deletes");
-    repository_files.remove("deleted.rs");
-    let state_directory = tempfile::tempdir().unwrap();
-    let repository = Repository::discover(repository_files.root())
-        .unwrap()
-        .with_state_root(state_directory.path());
-    let snapshot = complete_repository_snapshot(&repository);
-    let tracker = ReviewTracker::new(
-        repository.clone(),
-        ReviewStore::open(state_directory.path(), repository.root()).unwrap(),
-    );
-    let location = SourceLocation {
-        path: repository.root().join("deleted.rs"),
-        line: 0,
-        byte_column: 0,
-        end_line: 0,
-        end_byte_column: 0,
-    };
-    let (commands, _command_receiver) = mpsc::channel();
-    let (message_sender, messages) = application_message_channel();
-    let store = ReviewStore::open(state_directory.path(), repository.root()).unwrap();
-    let worker = Worker {
-        repository: repository.clone(),
-        tracker: Arc::new(tracker),
-        explore: offline_explore_session(&repository, &store, &message_sender),
-        store,
-        snapshot: Some(snapshot.clone()),
-        commands,
-        exclusion: ExclusionPolicy::disabled(),
-        auto_review: None,
-        documents: mpsc::channel().0,
-    };
-    std::fs::write(&location.path, "fn recreated_after_snapshot() {}\n").unwrap();
-
-    document_worker(&worker).load_source(
-        &message_sender,
-        snapshot.identity.snapshot_id().to_owned(),
-        location.clone(),
-        SourceLoadMode::External,
-    );
-
-    let event = messages.recv_timeout(Duration::from_secs(1)).unwrap();
-    assert!(matches!(
-        event.downcast_ref::<SourceContentLoaded>(),
-        Some(SourceContentLoaded {
-            snapshot_id,
-            location: loaded_location,
-            content,
-            mode: SourceLoadMode::External,
-        }) if snapshot_id == snapshot.identity.snapshot_id()
-            && *loaded_location == location
-            && content == deleted_content
-    ));
-    document_worker(&worker).load_source(
-        &message_sender,
-        snapshot.identity.snapshot_id().to_owned(),
-        location.clone(),
-        SourceLoadMode::ThreadPeek,
-    );
-    let event = messages.recv_timeout(Duration::from_secs(1)).unwrap();
-    assert_eq!(
-        event.downcast_ref::<SourceContentLoaded>().unwrap().content,
-        b"fn recreated_after_snapshot() {}\n"
-    );
-    std::fs::remove_file(&location.path).unwrap();
-    document_worker(&worker).load_source(
-        &message_sender,
-        snapshot.identity.snapshot_id().to_owned(),
-        location,
-        SourceLoadMode::ThreadPeek,
-    );
-    let event = messages.recv_timeout(Duration::from_secs(1)).unwrap();
-    assert!(event.downcast_ref::<SourceContentLoadFailed>().is_some());
-}
 
 #[derive(Clone, Copy)]
 enum AgentLifecycle {
@@ -496,17 +420,11 @@ fn herdr_event_subscription_stops_without_a_new_server_event() {
 }
 
 struct ReviewFlowFixture {
-    repository_files: Box<dyn ReviewRepositoryFixture>,
-    state_directory: tempfile::TempDir,
-    repository: Repository,
+    /// Declared first so the workers stop before the Herdr server.
+    runtime: EffectsFixture,
     herdr: IsolatedHerdrServer,
-    commands: Sender<WorkerCommand>,
-    messages: ApplicationMessageReceiver,
-    worker_thread: JoinHandle<()>,
     review_unit: ReviewUnit,
     endpoint: review_mcp::Endpoint,
-    /// Delivers prompts for as long as the fixture runs.
-    _comments: comments::Worker,
     _port: review_test_support::TestPort,
 }
 
@@ -514,26 +432,11 @@ impl ReviewFlowFixture {
     fn start(repository_type: RepoType) -> Self {
         let repository_files = repository_fixture(repository_type);
         repository_files.write("reviewed.rs", b"pub fn reviewed() {}\n");
-        let state_directory = tempfile::tempdir().unwrap();
-        let repository = Repository::discover(repository_files.root())
-            .unwrap()
-            .with_state_root(state_directory.path());
         let herdr = IsolatedHerdrServer::start_native(repository_files.root());
-        let store = ReviewStore::open(state_directory.path(), repository.root()).unwrap();
-        let tracker = ReviewTracker::new(repository.clone(), store.clone());
-        let (commands, command_receiver) = mpsc::channel();
         let port = review_test_support::TestPort::new();
         let endpoint =
             review_mcp::Endpoint::for_repository(repository_files.root(), Some(port.number()))
                 .unwrap();
-        let comments = comments::Worker::start(
-            store.clone(),
-            herdr.client(),
-            AgentTarget::new(herdr.workspace_id.clone(), Some(herdr.pane_id.clone())),
-            Ok(endpoint),
-            explore_route(commands.clone()),
-            |_| {},
-        );
         herdr.report_agent("idle");
         herdr.run_cli(&[
             "pane",
@@ -551,47 +454,18 @@ impl ReviewFlowFixture {
             "--pane",
             &herdr.pane_id.0,
         ]);
-        let (message_sender, messages) = application_message_channel();
-        let mut worker = Worker {
-            repository: repository.clone(),
-            tracker: Arc::new(tracker),
-            explore: live_explore_session(
-                &repository,
-                &store,
-                &herdr,
-                &comments,
-                &commands,
-                &message_sender,
-            ),
-            store,
-            snapshot: None,
-            commands: commands.clone(),
-            exclusion: ExclusionPolicy::disabled(),
-            auto_review: None,
-            documents: mpsc::channel().0,
-        };
-        let worker_thread = thread::spawn(move || worker.run(&command_receiver, &message_sender));
-        commands.send(WorkerCommand::Poll).unwrap();
-        let review_unit = loop {
-            let envelope = messages.recv_timeout(Duration::from_secs(5)).unwrap();
-            if let Some(RepositoryMetadataChanged {
-                review_checkpoint, ..
-            }) = envelope.downcast_ref::<RepositoryMetadataChanged>()
-            {
-                break review_checkpoint.review_unit.clone();
-            }
-        };
+        let mut runtime = EffectsFixture::start(repository_files, |setup| {
+            setup.agents = herdr.client();
+            setup.target =
+                AgentTarget::new(herdr.workspace_id.clone(), Some(herdr.pane_id.clone()));
+            setup.endpoint = Ok(endpoint);
+        });
+        let review_unit = runtime.refreshed_checkpoint().review_unit;
         Self {
-            repository_files,
-            state_directory,
-            repository,
+            runtime,
             herdr,
-            commands,
-            messages,
-            worker_thread,
             review_unit,
             endpoint,
-            _comments: comments,
             _port: port,
         }
     }
@@ -602,126 +476,57 @@ impl ReviewFlowFixture {
 fn disk_content_changes_replace_the_visible_diff(repository_type: RepoType) {
     let repository_files = repository_fixture(repository_type);
     repository_files.write("src/lib.rs", b"pub fn before_refresh() {}\n");
-    let state_directory = tempfile::tempdir().unwrap();
-    let repository = Repository::discover(repository_files.root())
-        .unwrap()
-        .with_state_root(state_directory.path());
-    let store = ReviewStore::open(state_directory.path(), repository.root()).unwrap();
-    let tracker = ReviewTracker::new(repository.clone(), store);
-    let (commands, _command_receiver) = mpsc::channel();
-    let (message_sender, messages) = application_message_channel();
-    let store = ReviewStore::open(state_directory.path(), repository.root()).unwrap();
-    let mut worker = Worker {
-        repository: repository.clone(),
-        tracker: Arc::new(tracker),
-        explore: offline_explore_session(&repository, &store, &message_sender),
-        store,
-        snapshot: None,
-        commands,
-        exclusion: ExclusionPolicy::disabled(),
-        auto_review: None,
-        documents: mpsc::channel().0,
-    };
+    let mut fixture = EffectsFixture::start(repository_files, |_| {});
     let mut application = ReviewApplication::default();
 
-    assert!(worker.poll(&message_sender));
-    let initial_actions = publish_pending_worker_events(&mut application, &messages);
-    load_requested_diffs(&worker, &message_sender, initial_actions);
-    publish_pending_worker_events(&mut application, &messages);
+    let initial_actions = publish_refresh(&mut fixture, &mut application);
+    load_requested_diffs(&mut fixture, &mut application, initial_actions);
     assert!(rendered_review_application(&application).contains("before_refresh"));
 
-    repository_files.write("src/lib.rs", b"pub fn after_refresh() {}\n");
-    assert!(worker.poll(&message_sender));
-    let refresh_actions = publish_pending_worker_events(&mut application, &messages);
+    fixture
+        .files
+        .write("src/lib.rs", b"pub fn after_refresh() {}\n");
+    let refresh_actions = publish_refresh(&mut fixture, &mut application);
     assert!(matches!(
         refresh_actions.as_slice(),
         [Action::Document(DocumentAction::Load(
             DocumentLoad::Diff { .. }
         ))]
     ));
-    load_requested_diffs(&worker, &message_sender, refresh_actions);
-    publish_pending_worker_events(&mut application, &messages);
+    load_requested_diffs(&mut fixture, &mut application, refresh_actions);
 
     let rendered = rendered_review_application(&application);
     assert!(rendered.contains("after_refresh"), "{rendered}");
     assert!(!rendered.contains("before_refresh"), "{rendered}");
 }
 
-/// A session for workers whose tests never prompt an agent.
-pub(super) fn offline_explore_session(
-    repository: &Repository,
-    store: &ReviewStore,
-    events: &ApplicationEventSender,
-) -> ExploreSession {
-    ExploreSession::new(explore_session::Collaborators {
-        repository: repository.clone(),
-        store: store.clone(),
-        agents: Arc::new(HerdrClient::new(
-            "/nonexistent/reviewer-test.sock".into(),
-            "reviewer-test".into(),
-            "/nonexistent".into(),
-        )),
-        target: AgentTarget::new(WorkspaceId("test".into()), None),
-        prompts: comment_service::test_worker(store).prompt_sender(),
-        exclusion: ExclusionPolicy::disabled(),
-        events: events.clone(),
-        inbox: explore_inbox(mpsc::channel().0),
-    })
-}
-
-/// A session prompting the isolated Herdr agent through `comments`.
-fn live_explore_session(
-    repository: &Repository,
-    store: &ReviewStore,
-    herdr: &IsolatedHerdrServer,
-    comments: &comments::Worker,
-    commands: &Sender<WorkerCommand>,
-    events: &ApplicationEventSender,
-) -> ExploreSession {
-    ExploreSession::new(explore_session::Collaborators {
-        repository: repository.clone(),
-        store: store.clone(),
-        agents: Arc::new(herdr.client()),
-        target: AgentTarget::new(herdr.workspace_id.clone(), Some(herdr.pane_id.clone())),
-        prompts: comments.prompt_sender(),
-        exclusion: ExclusionPolicy::disabled(),
-        events: events.clone(),
-        inbox: explore_inbox(commands.clone()),
-    })
-}
-
-/// Deliver agent Explore calls to the worker, as the running reviewer does.
-fn explore_route(
-    commands: Sender<WorkerCommand>,
-) -> impl Fn(review_mcp::Request) -> Result<(), String> + Send + Sync + 'static {
-    move |request| {
-        commands
-            .send(WorkerCommand::Explore(explore_session::Input::Submission(
-                Box::new(request),
-            )))
-            .map_err(|_| "The reviewer is closed".to_owned())
-    }
-}
-
-fn publish_pending_worker_events(
+/// Publish a refresh's events and return the document loads they request.
+fn publish_refresh(
+    fixture: &mut EffectsFixture,
     application: &mut ReviewApplication,
-    messages: &ApplicationMessageReceiver,
 ) -> Vec<Action> {
-    messages
-        .try_iter()
-        .flat_map(|event| application.publish_envelope(&event))
+    fixture
+        .refresh()
+        .iter()
+        .flat_map(|event| application.publish_envelope(event))
+        .filter(|action| matches!(action, Action::Document(DocumentAction::Load(_))))
         .collect()
 }
 
-fn load_requested_diffs(worker: &Worker, messages: &ApplicationEventSender, actions: Vec<Action>) {
-    for action in actions {
-        if let Action::Document(DocumentAction::Load(DocumentLoad::Diff {
-            review_checkpoint,
-            path,
-        })) = action
-        {
-            document_worker(worker).load_diff(messages, review_checkpoint, path);
+/// Perform the loads and publish events until the last diff arrives.
+fn load_requested_diffs(
+    fixture: &mut EffectsFixture,
+    application: &mut ReviewApplication,
+    actions: Vec<Action>,
+) {
+    let mut pending = actions.len();
+    fixture.perform(actions);
+    while pending > 0 {
+        let event = fixture.next_event();
+        if event.downcast_ref::<DiffContentLoaded>().is_some() {
+            pending -= 1;
         }
+        application.publish_envelope(&event);
     }
 }
 
@@ -875,97 +680,38 @@ fn consecutive_plain_clicks_at_one_position_become_a_double_click() {
 }
 
 #[test]
-fn runtime_executors_save_settings_open_the_editor_and_stop_on_quit() {
-    let repository = tempfile::tempdir().unwrap();
-    let state = tempfile::tempdir().unwrap();
-    let settings = ReviewStore::open(state.path(), repository.path()).unwrap();
-    let lsp = review_lsp::Worker::start(repository.path().to_owned());
-    let (commands, _command_receiver) = mpsc::channel();
-
-    let search = text_search::Worker::start(|_| {});
-    let mut opened = Vec::new();
-    let mut dispatcher = RuntimeActionDispatcher {
-        source_watches: None,
-        comments: &comment_service::test_worker(&settings),
-        highlighting: &highlighting_worker(),
-        search: &search,
-        commands: &commands,
-        documents: &mpsc::channel().0,
-        settings: &settings,
-        repository_root: repository.path(),
-        lsp: &lsp,
-        open_in_editor: &mut |path, line| {
-            opened.push((path.to_owned(), line));
-            Ok(())
-        },
-    };
-
-    let flow = dispatcher
-        .run_all(vec![
-            Action::Settings(SettingsAction::SaveFilePaneWidth(42)),
-            Action::Terminal(TerminalAction::OpenInEditor {
-                path: PathBuf::from("src/lib.rs"),
-                line: Some(7),
-            }),
-            Action::Terminal(TerminalAction::Quit),
-            Action::Settings(SettingsAction::SaveFilePaneWidth(7)),
-        ])
-        .unwrap();
-
-    assert_eq!(flow, ControlFlow::Break(()));
-    assert_eq!(settings.file_pane_width().unwrap(), Some(42));
-    assert_eq!(opened, [(PathBuf::from("src/lib.rs"), Some(7))]);
-}
-
-#[test]
 fn event_loop_routes_external_events_from_the_central_channel() {
-    let repository = tempfile::tempdir().unwrap();
-    let state = tempfile::tempdir().unwrap();
-    let settings = ReviewStore::open(state.path(), repository.path()).unwrap();
-    let lsp = review_lsp::Worker::start(repository.path().to_owned());
+    let mut fixture = EffectsFixture::new(RepoType::Git);
     let mut terminal = Terminal::new(TestBackend::new(80, 20)).unwrap();
     let mut app = ReviewApplication::default();
-    let (commands, command_receiver) = mpsc::channel();
-    let (event_sender, events) = unbounded();
     let focused_pane = PaneId("focused-agent".to_owned());
-    event_sender
-        .send(EventEnvelope::new(HerdrEvent::PaneFocused(
-            focused_pane.clone(),
-        )))
-        .unwrap();
-    event_sender
-        .send(EventEnvelope::new(RepositoryRefreshDue))
-        .unwrap();
-    event_sender
-        .send(EventEnvelope::new(ApplicationTick(Instant::now())))
-        .unwrap();
-    event_sender
-        .send(EventEnvelope::new(StopRequested))
-        .unwrap();
+    for event in [
+        EventEnvelope::new(HerdrEvent::PaneFocused(focused_pane)),
+        EventEnvelope::new(RepositoryRefreshDue),
+        EventEnvelope::new(ApplicationTick(Instant::now())),
+        EventEnvelope::new(StopRequested),
+    ] {
+        fixture.background.send(event).unwrap();
+    }
 
     RuntimeEventLoop {
-        target: AgentTarget::new(herdr_client::protocol::WorkspaceId("test".into()), None),
-        source_watches: None,
+        effects: &mut fixture.effects,
         terminal_events: None,
-        last_frame: Instant::now(),
-        comments: &comment_service::test_worker(&settings),
-        highlighting: &highlighting_worker(),
-        timings: &timing::Recorder::default(),
-        search: &text_search::Worker::start(|_| {}),
         terminal: &mut terminal,
         app: &mut app,
-        commands: &commands,
-        documents: &mpsc::channel().0,
-        events: &mut events::Inbox::new(events, crossbeam_channel::never()),
-        lsp: &lsp,
-        repository_root: repository.path(),
-        settings: &settings,
+        events: &mut fixture.inbox,
+        timings: &timing::Recorder::default(),
+        last_frame: Instant::now(),
     }
     .run()
     .unwrap();
 
-    let commands = command_receiver.try_iter().collect::<Vec<_>>();
-    assert!(matches!(commands.as_slice(), [WorkerCommand::Poll]));
+    let refresh = fixture.events_until::<RepositoryRefreshFinished>();
+    assert!(
+        refresh
+            .iter()
+            .any(|event| event.downcast_ref::<RepositoryFilesChanged>().is_some())
+    );
 }
 
 #[test]
@@ -976,7 +722,7 @@ fn runtime_event_producers_join_active_lsp_adapter() {
     let stop_requested = Arc::new(AtomicBool::new(false));
     let mut producers = RuntimeEventProducers::new(Arc::clone(&stop_requested));
     producers.push(Runtime::start_lsp_events(
-        &lsp,
+        lsp.event_receiver(),
         event_sender.clone(),
         stop_requested,
     ));
@@ -1106,118 +852,4 @@ fn hunk_navigation_rows() -> Vec<DiffRow> {
             text: "+second change".to_owned(),
         },
     ]
-}
-
-fn document_worker(worker: &Worker) -> document::DocumentWorker {
-    document::DocumentWorker {
-        repository: worker.repository.clone(),
-        tracker: Arc::clone(&worker.tracker),
-        snapshot: worker.snapshot.clone(),
-    }
-}
-
-#[test]
-fn document_requests_complete_while_repository_work_is_pending() {
-    let files = repository_fixture(RepoType::Git);
-    files.write("changed.rs", b"fn original() {}\n");
-    files.new_change("original");
-    files.write("changed.rs", b"fn updated() {}\n");
-    let state = tempfile::tempdir().unwrap();
-    let repository = Repository::discover(files.root())
-        .unwrap()
-        .with_state_root(state.path());
-    let snapshot = complete_repository_snapshot(&repository);
-    let checkpoint = ReviewCheckpoint::new(
-        snapshot.identity.review_unit().clone(),
-        snapshot.identity.snapshot_id(),
-    );
-    let settings = ReviewStore::open(state.path(), repository.root()).unwrap();
-    let tracker = Arc::new(ReviewTracker::new(
-        repository.clone(),
-        ReviewStore::open(state.path(), repository.root()).unwrap(),
-    ));
-    let mut worker = document::DocumentWorker {
-        repository: repository.clone(),
-        tracker,
-        snapshot: None,
-    };
-    let (documents, document_receiver) = mpsc::channel();
-    let (sender, messages) = application_message_channel();
-    let document_thread = thread::spawn(move || worker.run(&document_receiver, &sender));
-    documents
-        .send(document::Command::Snapshot(snapshot))
-        .unwrap();
-    // Leave repository work pending throughout the file requests.
-    let (commands, command_receiver) = mpsc::channel();
-    commands.send(WorkerCommand::Poll).unwrap();
-    let lsp = review_lsp::Worker::start(repository.root().to_owned());
-    let search = text_search::Worker::start(|_| {});
-    let mut dispatcher = RuntimeActionDispatcher {
-        source_watches: None,
-        comments: &comment_service::test_worker(&settings),
-        highlighting: &highlighting_worker(),
-        search: &search,
-        commands: &commands,
-        documents: &documents,
-        settings: &settings,
-        repository_root: repository.root(),
-        lsp: &lsp,
-        open_in_editor: &mut |_, _| Ok(()),
-    };
-    for action in [
-        Action::Document(DocumentAction::Load(DocumentLoad::Diff {
-            review_checkpoint: checkpoint.clone(),
-            path: "changed.rs".to_owned(),
-        })),
-        Action::Document(DocumentAction::Load(DocumentLoad::Diffs {
-            review_checkpoint: checkpoint.clone(),
-            paths: vec!["changed.rs".to_owned()],
-        })),
-    ] {
-        assert!(dispatcher.run(action).unwrap().is_continue());
-        let event = messages.recv_timeout(Duration::from_secs(5)).unwrap();
-        let loaded = event.downcast_ref::<DiffContentLoaded>().unwrap();
-        assert_eq!(loaded.review_checkpoint, checkpoint);
-        assert_eq!(
-            loaded.new_content.as_deref(),
-            Some(b"fn updated() {}\n".as_slice())
-        );
-    }
-    assert!(
-        dispatcher
-            .run(Action::Document(DocumentAction::Load(
-                DocumentLoad::Source {
-                    snapshot_id: checkpoint.checkpoint.clone(),
-                    location: SourceLocation {
-                        path: PathBuf::from("changed.rs"),
-                        line: 0,
-                        byte_column: 0,
-                        end_line: 0,
-                        end_byte_column: 0,
-                    },
-                    mode: SourceLoadMode::External,
-                }
-            )))
-            .unwrap()
-            .is_continue()
-    );
-    let event = messages.recv_timeout(Duration::from_secs(5)).unwrap();
-    let loaded = event.downcast_ref::<SourceContentLoaded>().unwrap();
-    assert_eq!(loaded.content, b"fn updated() {}\n");
-    assert_eq!(loaded.location.path, repository.root().join("changed.rs"));
-    assert!(matches!(
-        command_receiver.try_recv(),
-        Ok(WorkerCommand::Poll)
-    ));
-    assert!(command_receiver.try_recv().is_err());
-    documents.send(document::Command::Quit).unwrap();
-    document_thread.join().unwrap();
-}
-
-fn highlighting_worker() -> highlighting::Worker {
-    let theme = Theme::default();
-    highlighting::Worker::start(
-        syntax_highlighting::SyntaxHighlighter::new(theme.syntax, theme.palette.text),
-        |_| {},
-    )
 }

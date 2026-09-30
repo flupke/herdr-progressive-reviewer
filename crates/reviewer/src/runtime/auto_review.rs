@@ -1,6 +1,7 @@
 //! Explicit Jev classification and review marks for one immutable comparison.
 
-use super::{ApplicationEventSender, Worker, WorkerCommand};
+use super::worker::{Worker, WorkerCommand};
+use component_core::ApplicationEventSender;
 use review_explore::{
     Comparison, CoverageLedger, ExclusionPolicy, Significance, SignificanceClassifier,
 };

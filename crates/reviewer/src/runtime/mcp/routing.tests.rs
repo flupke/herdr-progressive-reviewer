@@ -1,5 +1,4 @@
 use super::*;
-use crate::runtime::{ActionExecutors, RuntimeActionDispatcher, WorkerCommand, highlighting};
 use review_ui::{Action, Theme};
 
 impl ConversationFixture {
@@ -43,32 +42,19 @@ impl ConversationFixture {
     }
 }
 
+/// Posts from the Threads view reach the agent's next fetch.
 #[test]
-fn mcp_receives_ui_posts_while_repository_work_is_pending() {
+fn mcp_receives_ui_posts_before_and_after_the_final_fetch() {
     let fixture = ConversationFixture::start("codex");
     let thread = fixture.new_thread("review", "src/lib.rs", "Initial question");
     let access = fixture.access(1);
-    let (commands, pending_repository_work) = mpsc::channel();
-    commands.send(WorkerCommand::Poll).unwrap();
-    let (documents, _pending_documents) = mpsc::channel();
-    let theme = Theme::default();
-    let highlighting = highlighting::Worker::start(
-        syntax_highlighting::SyntaxHighlighter::new(theme.syntax, theme.palette.text),
-        |_| {},
-    );
-    let search = text_search::Worker::start(|_| {});
-    let lsp = review_lsp::Worker::start(fixture.repository.path().to_owned());
-    let mut dispatcher = RuntimeActionDispatcher {
-        source_watches: None,
-        comments: fixture.worker.as_ref().unwrap(),
-        commands: &commands,
-        documents: &documents,
-        search: &search,
-        highlighting: &highlighting,
-        settings: &fixture.store,
-        repository_root: fixture.repository.path(),
-        lsp: &lsp,
-        open_in_editor: &mut |_, _| Ok(()),
+    let post = |action: Action| match action {
+        Action::Thread(command) => fixture
+            .worker
+            .as_ref()
+            .unwrap()
+            .send(Command::Thread(command)),
+        action => panic!("unexpected action {action:?}"),
     };
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -84,17 +70,11 @@ fn mcp_receives_ui_posts_while_repository_work_is_pending() {
             fixture.status(AgentStatus::Working);
             let initial = value(&client, "get_new_messages", json!({"review": access})).await;
             assert_eq!(initial["threads"].as_array().unwrap().len(), 1);
-            let post = Post::reply(thread.clone(), "Posted before the final fetch".into());
-            assert!(
-                dispatcher
-                    .run(Action::Thread(ThreadCommand::Post {
-                        review_unit: "review".into(),
-                        post,
-                    }))
-                    .unwrap()
-                    .is_continue()
-            );
-            // The repository queue remains undrained throughout this exchange.
+            let reply = Post::reply(thread.clone(), "Posted before the final fetch".into());
+            post(Action::Thread(ThreadCommand::Post {
+                review_unit: "review".into(),
+                post: reply,
+            }));
             let updated = value(&client, "get_new_messages", json!({"review": access})).await;
             assert_eq!(
                 updated["threads"][0]["messages"][1]["text"],
@@ -110,7 +90,7 @@ fn mcp_receives_ui_posts_while_repository_work_is_pending() {
             assert_eq!(empty["threads"], json!([]));
             fixture.status(AgentStatus::Idle);
             for action in fixture.reply_from_threads("Posted after the final fetch") {
-                assert!(dispatcher.run(action).unwrap().is_continue());
+                post(action);
             }
             fixture.wait_for_wakeups(2);
             let late = value(&client, "get_new_messages", json!({"review": access})).await;
@@ -120,12 +100,4 @@ fn mcp_receives_ui_posts_while_repository_work_is_pending() {
             );
             client.cancel().await.unwrap();
         });
-    assert!(matches!(
-        pending_repository_work.try_recv(),
-        Ok(WorkerCommand::Poll)
-    ));
-    assert!(
-        pending_repository_work.try_recv().is_err(),
-        "thread posts bypass repository work"
-    );
 }

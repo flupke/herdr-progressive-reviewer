@@ -1,0 +1,418 @@
+//! Everything the runtime does outside the application: background workers, their
+//! channels and their lifecycle.
+//!
+//! The event loop hands actions to [`Effects`] and receives every result as an event
+//! on the [`Outputs`] channels. Explore coverage refresh and autosave still come from
+//! the application as actions; this is where their effects would move.
+
+use std::ops::ControlFlow;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::mpsc::{self, Sender};
+use std::thread::{self, JoinHandle};
+
+use component_core::{ApplicationEventSender, EventEnvelope};
+use crossbeam_channel::{Receiver as EventReceiver, Sender as EventSender};
+use herdr_client::client::HerdrClient;
+use herdr_client::protocol::{AgentTarget, HerdrEvent, PaneId};
+use review_explore::ExclusionPolicy;
+use review_explore_session::{self as explore_session, ExploreSession};
+use review_repository::repository::Repository;
+use review_state::ReviewTracker;
+use review_store::ReviewStore;
+use review_thread_service as comments;
+use review_ui::{
+    Action, DocumentAction, DocumentLoad, LspAction, RepositoryAction, SettingsAction,
+    TerminalAction, Theme,
+};
+
+use super::actions::ActionExecutors;
+use super::document;
+use super::highlighting;
+use super::route::WorkerStopped;
+use super::worker::{Worker, WorkerCommand};
+use crate::watcher::SourceWatchRequests;
+
+/// What the effects need from the process that runs them.
+pub(super) struct Setup {
+    pub(super) repository: Repository,
+    pub(super) store: ReviewStore,
+    pub(super) target: AgentTarget,
+    pub(super) agents: HerdrClient,
+    pub(super) endpoint: Result<review_mcp::Endpoint, String>,
+    pub(super) theme: Theme,
+    pub(super) exclusion: ExclusionPolicy,
+    pub(super) source_watches: Option<SourceWatchRequests>,
+}
+
+/// Where effects deliver their results.
+pub(super) struct Outputs {
+    /// Results of slow or unrequested work.
+    pub(super) background: EventSender<EventEnvelope>,
+    /// Results the user waits for, which overtake background results.
+    pub(super) interactive: EventSender<EventEnvelope>,
+}
+
+/// The running workers, reached only through actions and a few runtime signals.
+///
+/// Dropping it stops the workers and waits for them.
+pub(super) struct Effects {
+    repository_root: PathBuf,
+    target: AgentTarget,
+    store: ReviewStore,
+    source_watches: Option<SourceWatchRequests>,
+    commands: Sender<WorkerCommand>,
+    documents: Sender<document::Command>,
+    /// Taken first on drop, so agent delivery stops before repository work does.
+    front: Option<FrontWorkers>,
+    lsp: review_lsp::Worker,
+    threads: Vec<JoinHandle<()>>,
+}
+
+/// Workers that answer the UI directly, stopped before repository work.
+struct FrontWorkers {
+    comments: comments::Worker,
+    search: text_search::Worker,
+    highlighting: highlighting::Worker,
+}
+
+/// Runs terminal actions, which need the terminal the event loop owns.
+type TerminalExecutor<'a> = dyn FnMut(TerminalAction) -> eyre::Result<ControlFlow<()>> + 'a;
+
+impl Effects {
+    pub(super) fn start(setup: Setup, outputs: &Outputs) -> Self {
+        let Setup {
+            repository,
+            store,
+            target,
+            agents,
+            endpoint,
+            theme,
+            exclusion,
+            source_watches,
+        } = setup;
+        let messages = ApplicationEventSender::new(outputs.background.clone());
+        let tracker = Arc::new(ReviewTracker::new(repository.clone(), store.clone()));
+        let (commands, command_receiver) = mpsc::channel();
+        let (documents, document_receiver) = mpsc::channel();
+        let mut document_worker = document::DocumentWorker {
+            repository: repository.clone(),
+            tracker: Arc::clone(&tracker),
+            snapshot: None,
+        };
+        let document_messages = messages.clone();
+        let document_thread = thread::spawn(move || {
+            document_worker.run(&document_receiver, &document_messages);
+            let _ = document_messages.send(WorkerStopped);
+        });
+        let comments = start_comments(
+            &store,
+            agents.clone(),
+            target.clone(),
+            endpoint,
+            &commands,
+            messages.clone(),
+        );
+        let explore = ExploreSession::new(explore_session::Collaborators {
+            repository: repository.clone(),
+            store: store.clone(),
+            agents: Arc::new(agents),
+            target: target.clone(),
+            prompts: comments.prompt_sender(),
+            exclusion: exclusion.clone(),
+            events: messages.clone(),
+            inbox: inbox_for(commands.clone()),
+        });
+        let mut worker = Worker {
+            repository: repository.clone(),
+            tracker,
+            store: store.clone(),
+            snapshot: None,
+            commands: commands.clone(),
+            explore,
+            exclusion,
+            auto_review: None,
+            documents: documents.clone(),
+        };
+        let worker_thread = thread::spawn(move || {
+            worker.run(&command_receiver, &messages);
+            let _ = messages.send(WorkerStopped);
+        });
+        let highlights = outputs.background.clone();
+        let search_results = outputs.interactive.clone();
+        Self {
+            repository_root: repository.root().to_owned(),
+            target,
+            store,
+            source_watches,
+            commands,
+            documents,
+            front: Some(FrontWorkers {
+                comments,
+                search: text_search::Worker::start(move |results| {
+                    let _ = search_results.send(EventEnvelope::new(results));
+                }),
+                highlighting: highlighting::Worker::start(
+                    syntax_highlighting::SyntaxHighlighter::new(theme.syntax, theme.palette.text),
+                    move |result| {
+                        let _ = highlights.send(EventEnvelope::new(result));
+                    },
+                ),
+            }),
+            lsp: review_lsp::Worker::start(repository.root().to_owned()),
+            threads: vec![worker_thread, document_thread],
+        }
+    }
+
+    /// Run actions in order until one stops the runtime.
+    pub(super) fn perform_all(
+        &self,
+        actions: Vec<Action>,
+        terminal: &mut TerminalExecutor<'_>,
+    ) -> eyre::Result<ControlFlow<()>> {
+        Performer {
+            effects: self,
+            terminal,
+        }
+        .run_all(actions)
+    }
+
+    /// Poll the repository; results arrive after earlier repository work.
+    pub(super) fn refresh(&self) -> eyre::Result<()> {
+        self.commands.send(WorkerCommand::Poll)?;
+        Ok(())
+    }
+
+    /// The user focused a pane, which later prompts prefer as their agent.
+    pub(super) fn agent_focused(&mut self, pane_id: &PaneId) {
+        self.target.observe_focus(pane_id);
+        self.front()
+            .comments
+            .send(comments::Command::ActiveAgentChanged);
+    }
+
+    /// Let agent delivery see Herdr traffic.
+    pub(super) fn observe(&self, event: &HerdrEvent) {
+        self.front()
+            .comments
+            .send(comments::Command::Observe(event.clone()));
+    }
+
+    fn front(&self) -> &FrontWorkers {
+        self.front.as_ref().expect("front workers run until drop")
+    }
+
+    /// Where inputs for the Explore session join repository work.
+    pub(super) fn explore_inbox(&self) -> explore_session::Inbox {
+        inbox_for(self.commands.clone())
+    }
+
+    /// Language-server events, which the runtime forwards on its own schedule.
+    pub(super) fn lsp_events(&self) -> EventReceiver<review_lsp::Event> {
+        self.lsp.event_receiver()
+    }
+
+    fn load_documents(&self, load: DocumentLoad) -> eyre::Result<()> {
+        match load {
+            // One command per path keeps each diff ordered against later snapshots.
+            DocumentLoad::Diffs {
+                review_checkpoint,
+                paths,
+            } => {
+                for path in paths {
+                    self.documents
+                        .send(document::Command::Load(DocumentLoad::Diff {
+                            review_checkpoint: review_checkpoint.clone(),
+                            path,
+                        }))?;
+                }
+            }
+            DocumentLoad::Source {
+                snapshot_id,
+                mut location,
+                mode,
+            } => {
+                location.path = self.resolve(location.path);
+                self.documents
+                    .send(document::Command::Load(DocumentLoad::Source {
+                        snapshot_id,
+                        location,
+                        mode,
+                    }))?;
+            }
+            load @ DocumentLoad::Diff { .. } => {
+                self.documents.send(document::Command::Load(load))?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Paths from the application are relative to the repository root.
+    fn resolve(&self, path: PathBuf) -> PathBuf {
+        if path.is_relative() {
+            self.repository_root.join(path)
+        } else {
+            path
+        }
+    }
+
+    /// Keep later repository work pending until the hold drops.
+    #[cfg(test)]
+    pub(super) fn hold_repository_work(&self) -> EventSender<()> {
+        let (hold, release) = crossbeam_channel::bounded(0);
+        self.commands
+            .send(WorkerCommand::Hold(release))
+            .expect("the repository worker is running");
+        hold
+    }
+
+    #[cfg(test)]
+    pub(super) fn replace_highlighting(&mut self, highlighting: highlighting::Worker) {
+        self.front.as_mut().unwrap().highlighting = highlighting;
+    }
+}
+
+impl Drop for Effects {
+    fn drop(&mut self) {
+        // No prompt or MCP request reaches the Explore session while it winds down.
+        drop(self.front.take());
+        let _ = self.commands.send(WorkerCommand::Quit);
+        let _ = self.documents.send(document::Command::Quit);
+        for thread in self.threads.drain(..) {
+            let _ = thread.join();
+        }
+    }
+}
+
+/// Route inputs the Explore session produces later back to the worker's serial order.
+fn inbox_for(commands: Sender<WorkerCommand>) -> explore_session::Inbox {
+    explore_session::Inbox::new(move |input| {
+        let _ = commands.send(WorkerCommand::Explore(input));
+    })
+}
+
+/// Conversation traffic bypasses slow repository operations.
+fn start_comments(
+    store: &ReviewStore,
+    agents: HerdrClient,
+    target: AgentTarget,
+    endpoint: Result<review_mcp::Endpoint, String>,
+    commands: &Sender<WorkerCommand>,
+    messages: ApplicationEventSender,
+) -> comments::Worker {
+    let commands = commands.clone();
+    comments::Worker::start(
+        store.clone(),
+        agents,
+        target,
+        endpoint,
+        move |request| {
+            commands
+                .send(WorkerCommand::Explore(explore_session::Input::Submission(
+                    Box::new(request),
+                )))
+                .map_err(|_| "The reviewer is closed".to_owned())
+        },
+        move |event| match event {
+            comments::Event::Loaded(event) => {
+                let _ = messages.send(event);
+            }
+            comments::Event::Posted(event) => {
+                let _ = messages.send(event);
+            }
+            comments::Event::Error(text) => {
+                let _ = messages.send(ui_events::ToastRequested {
+                    text,
+                    kind: toasts::ToastKind::Error,
+                });
+            }
+        },
+    )
+}
+
+/// Hands each action group to the worker that runs it.
+struct Performer<'a, 't> {
+    effects: &'a Effects,
+    terminal: &'a mut TerminalExecutor<'t>,
+}
+
+impl ActionExecutors for Performer<'_, '_> {
+    fn explore(&mut self, command: review_explore::Command) -> eyre::Result<()> {
+        self.effects
+            .commands
+            .send(WorkerCommand::Explore(explore_session::Input::Command(
+                command,
+            )))?;
+        Ok(())
+    }
+
+    fn thread(&mut self, command: review_threads::ThreadCommand) -> eyre::Result<()> {
+        self.effects
+            .front()
+            .comments
+            .send(comments::Command::Thread(command));
+        Ok(())
+    }
+
+    fn document(&mut self, action: DocumentAction) -> eyre::Result<()> {
+        let effects = self.effects;
+        match action {
+            DocumentAction::Load(load) => effects.load_documents(load)?,
+            DocumentAction::Highlight(request) => effects
+                .front()
+                .highlighting
+                .submit(request)
+                .map_err(eyre::Report::msg)?,
+            DocumentAction::Search(request) => effects.front().search.submit(request),
+            DocumentAction::WatchSource(path) => {
+                if let Some(watches) = &effects.source_watches {
+                    watches.watch(path.as_deref());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn lsp(&mut self, action: LspAction) -> eyre::Result<()> {
+        let effects = self.effects;
+        match action {
+            LspAction::OpenDocument(path) => effects.lsp.open_document(path),
+            LspAction::Request {
+                operation,
+                mut query,
+            } => {
+                query.path = effects.resolve(query.path);
+                effects.lsp.request(operation, query)
+            }
+            LspAction::Restart => effects.lsp.restart(),
+        }
+        .map_err(eyre::Report::msg)
+    }
+
+    fn settings(&mut self, action: SettingsAction) -> eyre::Result<()> {
+        let settings = &self.effects.store;
+        match action {
+            SettingsAction::SaveFilePaneWidth(columns) => settings.save_file_pane_width(columns)?,
+            SettingsAction::SaveEditorKeymap(keymap) => settings.save_editor_keymap(keymap)?,
+        }
+        Ok(())
+    }
+
+    fn repository(&mut self, action: RepositoryAction) -> eyre::Result<()> {
+        self.effects
+            .commands
+            .send(WorkerCommand::Repository(action))?;
+        Ok(())
+    }
+
+    fn terminal(&mut self, action: TerminalAction) -> eyre::Result<ControlFlow<()>> {
+        (self.terminal)(action)
+    }
+}
+
+#[cfg(test)]
+pub(super) mod fixture;
+
+#[cfg(test)]
+#[path = "effects.tests.rs"]
+mod tests;

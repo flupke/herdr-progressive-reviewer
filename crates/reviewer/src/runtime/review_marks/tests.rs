@@ -1,14 +1,45 @@
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Mutex};
+
+use review_explore::{Comparison, ExclusionPolicy, SignificanceClassifier, SignificancePlan};
+use review_repository::repository::RepoType;
+use review_state::ReviewStatus;
+use review_store::LoadResult;
+use review_test_support::repository_fixture;
+use review_ui::{Action, RepositoryAction};
+
 use super::*;
-use crate::runtime::tests::offline_explore_session;
-use review_repository::repository::{RepoType, Repository};
-use review_state::{ReviewStatus, ReviewTracker};
-use review_store::{LoadResult, ReviewStore};
-use review_test_support::{complete_repository_snapshot, repository_fixture};
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-    mpsc,
-};
+use crate::runtime::effects::fixture::EffectsFixture;
+
+/// Holds classification open until the test releases it.
+struct GatedClassifier(Mutex<Option<Receiver<()>>>);
+
+impl GatedClassifier {
+    fn new() -> (Self, Sender<()>) {
+        let (release, gate) = mpsc::channel();
+        (Self(Mutex::new(Some(gate))), release)
+    }
+}
+
+impl SignificanceClassifier for GatedClassifier {
+    fn rubric(&self) -> &'static str {
+        "gated"
+    }
+
+    fn plan(&self, _: &Comparison, _: &dyn Fn(&str) -> bool) -> SignificancePlan {
+        let gate = self.0.lock().unwrap().take();
+        SignificancePlan::new(0, move |_| {
+            if let Some(gate) = gate {
+                let _ = gate.recv();
+            }
+            true
+        })
+    }
+}
+
+fn toast(fixture: &mut EffectsFixture) -> ui_events::ToastRequested {
+    fixture.wait_for::<ui_events::ToastRequested>()
+}
 
 #[test_case::test_case(RepoType::Git; "git")]
 #[test_case::test_case(RepoType::Jj; "jj")]
@@ -16,18 +47,14 @@ fn bulk_reset_rejects_stale_confirmation_cancels_jev_and_refreshes_diff_marks(ki
     let files = repository_fixture(kind);
     files.write("one.rs", b"initial one\n");
     files.write("two.rs", b"initial two\n");
-    let state = tempfile::tempdir().unwrap();
-    let repository = Repository::discover(files.root())
-        .unwrap()
-        .with_state_root(state.path());
-    let snapshot = complete_repository_snapshot(&repository);
-    let checkpoint = ReviewCheckpoint::new(
-        snapshot.identity.review_unit().clone(),
-        snapshot.identity.snapshot_id(),
-    );
-    let store = ReviewStore::open(state.path(), files.root()).unwrap();
+    let (classifier, release) = GatedClassifier::new();
+    let mut fixture = EffectsFixture::start(files, |setup| {
+        setup.exclusion = ExclusionPolicy::enabled(Arc::new(classifier));
+    });
+    let checkpoint = fixture.refreshed_checkpoint();
     for path in ["one.rs", "two.rs"] {
-        store
+        fixture
+            .store
             .mark(
                 &checkpoint.review_unit,
                 path.as_bytes(),
@@ -35,47 +62,40 @@ fn bulk_reset_rejects_stale_confirmation_cancels_jev_and_refreshes_diff_marks(ki
             )
             .unwrap();
     }
-    let active = Arc::new(AtomicBool::new(true));
-    let (sender, receiver) = crate::runtime::application_message_channel();
-    let mut worker = Worker {
-        repository: repository.clone(),
-        tracker: Arc::new(ReviewTracker::new(repository.clone(), store.clone())),
-        store: store.clone(),
-        snapshot: Some(snapshot),
-        commands: mpsc::channel().0,
-        explore: offline_explore_session(&repository, &store, &sender),
-        exclusion: review_explore::ExclusionPolicy::disabled(),
-        auto_review: Some(active.clone()),
-        documents: mpsc::channel().0,
-    };
-    files.write("one.rs", b"changed after the dialog opened\n");
-    worker.unreview_all(&checkpoint, &sender);
+    fixture
+        .files
+        .write("one.rs", b"changed after the dialog opened\n");
+
+    fixture.perform([Action::Repository(RepositoryAction::UnreviewAll(
+        checkpoint.clone(),
+    ))]);
+
+    assert_eq!(toast(&mut fixture).kind, toasts::ToastKind::Error);
     assert!(matches!(
-        store.load(&checkpoint.review_unit, b"two.rs").unwrap(),
+        fixture
+            .store
+            .load(&checkpoint.review_unit, b"two.rs")
+            .unwrap(),
         LoadResult::Reviewed(_)
     ));
-    assert!(receiver.try_iter().any(|event| {
-        event
-            .downcast_ref::<ui_events::ToastRequested>()
-            .is_some_and(|toast| toast.kind == toasts::ToastKind::Error)
-    }));
 
-    let active = Arc::new(AtomicBool::new(true));
-    worker.auto_review = Some(active.clone());
-    let current = worker.snapshot.as_ref().unwrap();
-    let checkpoint = ReviewCheckpoint::new(
-        current.identity.review_unit().clone(),
-        current.identity.snapshot_id(),
-    );
-    worker.unreview_all(&checkpoint, &sender);
-    assert!(!active.load(Ordering::Relaxed));
-    let refreshed: Vec<_> = receiver
-        .try_iter()
-        .filter_map(|event| event.downcast_ref::<ReviewStateSaved>().cloned())
+    let checkpoint = fixture.refreshed_checkpoint();
+    fixture.perform([Action::Repository(RepositoryAction::AutoReview(
+        checkpoint.clone(),
+    ))]);
+    assert!(toast(&mut fixture).text.starts_with("Jev: classifying"));
+    fixture.perform([Action::Repository(RepositoryAction::UnreviewAll(
+        checkpoint.clone(),
+    ))]);
+    let events = fixture.events_until::<ui_events::ToastRequested>();
+    let refreshed: Vec<_> = events
+        .iter()
+        .filter_map(|event| event.downcast_ref::<ReviewStateSaved>())
         .collect();
     for path in ["one.rs", "two.rs"] {
         assert_eq!(
-            store
+            fixture
+                .store
                 .load(&checkpoint.review_unit, path.as_bytes())
                 .unwrap(),
             LoadResult::Unreviewed
@@ -88,4 +108,11 @@ fn bulk_reset_rejects_stale_confirmation_cancels_jev_and_refreshes_diff_marks(ki
                     .is_ok_and(|state| state.status == ReviewStatus::Unreviewed)
         }));
     }
+    drop(release);
+    assert!(
+        toast(&mut fixture)
+            .text
+            .starts_with("Automatic review cancelled"),
+        "the reset cancels the running Jev review"
+    );
 }

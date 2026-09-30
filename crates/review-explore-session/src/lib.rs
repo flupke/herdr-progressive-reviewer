@@ -50,7 +50,8 @@ impl Inbox {
         Self(Arc::new(deliver))
     }
 
-    fn deliver(&self, input: Input) {
+    /// Hand `input` to the owner, behind the inputs it already holds.
+    pub fn deliver(&self, input: Input) {
         (self.0)(input);
     }
 }

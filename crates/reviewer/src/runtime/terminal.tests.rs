@@ -7,10 +7,12 @@ use ratatui::widgets::Paragraph;
 use ratatui::{Terminal, TerminalOptions, Viewport};
 
 use super::*;
+use crate::runtime::effects::fixture::EffectsFixture;
 use crate::runtime::{
-    AgentTarget, ApplicationTick, EventEnvelope, HerdrEvent, PaneId, RuntimeEventLoop,
-    TerminalEventProducer, TerminalFocused, Theme, UserInput, events, highlighting, timing,
+    ApplicationTick, EventEnvelope, PaneId, RuntimeEventLoop, TerminalEventProducer,
+    TerminalFocused, UserInput, timing,
 };
+use herdr_client::protocol::HerdrEvent;
 
 #[derive(Clone, Default)]
 struct CapturedOutput(Rc<RefCell<Vec<u8>>>);
@@ -57,31 +59,15 @@ impl Fixture {
     }
 
     fn handle_event(&mut self, event: &EventEnvelope) {
-        let directory = tempfile::tempdir().unwrap();
-        let root = directory.path();
-        let settings = review_store::ReviewStore::open(root.join("state"), root).unwrap();
-        let theme = Theme::default();
-        let highlighting = highlighting::Worker::start(
-            syntax_highlighting::SyntaxHighlighter::new(theme.syntax, theme.palette.text),
-            |_| {},
-        );
-        RuntimeEventLoop {
-            target: AgentTarget::new(herdr_client::protocol::WorkspaceId("test".into()), None),
-            source_watches: None,
+        let mut fixture = EffectsFixture::new(review_repository::repository::RepoType::Git);
+        let _ = RuntimeEventLoop {
+            effects: &mut fixture.effects,
             terminal_events: None,
-            last_frame: std::time::Instant::now(),
-            comments: &crate::runtime::comment_service::test_worker(&settings),
             terminal: &mut self.terminal,
             app: &mut review_ui::ReviewApplication::default(),
-            commands: &std::sync::mpsc::channel().0,
-            documents: &std::sync::mpsc::channel().0,
-            search: &text_search::Worker::start(|_| {}),
-            highlighting: &highlighting,
-            events: &mut events::Inbox::new(crossbeam_channel::never(), crossbeam_channel::never()),
+            events: &mut fixture.inbox,
             timings: &timing::Recorder::default(),
-            lsp: &review_lsp::Worker::start(root.to_owned()),
-            repository_root: root,
-            settings: &settings,
+            last_frame: std::time::Instant::now(),
         }
         .handle_event(event)
         .unwrap();

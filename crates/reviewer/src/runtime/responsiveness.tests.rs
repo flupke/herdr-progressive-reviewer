@@ -1,58 +1,45 @@
 use super::*;
-use component_core::ApplicationEvent;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::process::{Command, Stdio};
+use std::sync::mpsc::{self, Receiver, Sender};
 
+use effects::fixture::EffectsFixture;
+use herdr_client::protocol::HerdrEvent;
 use ratatui::backend::TestBackend;
 use review_repository::diff::DiffRow;
-use review_state::ReviewStatus;
-use ui_events::HighlightingFinished;
+use review_repository::repository::RepoType;
+use review_source::ReviewCheckpoint;
+use ui_events::{DiffContentLoadFailed, DiffContentLoaded, HighlightingFinished};
 
 #[test]
 fn file_selection_loads_on_the_next_tick_without_further_activity() {
-    let root = tempfile::tempdir().unwrap();
-    let mut scenario = Scenario::new(root.path().into());
-    scenario.deliver(RepositoryFilesChanged {
-        review_checkpoint: ReviewCheckpoint::new("change", "checkpoint"),
-        files: ["first.txt", "second.txt"]
-            .into_iter()
-            .map(|path| FileSummary::new(path, ReviewStatus::Unreviewed))
-            .collect(),
-    });
-    scenario.pending_documents.try_iter().for_each(drop);
+    let mut scenario = Scenario::new();
+    scenario.fixture.files.write("first.txt", b"first file\n");
+    scenario.fixture.files.write("second.txt", b"second file\n");
+    scenario.fixture.effects.refresh().unwrap();
+    scenario.wait_for_repository_screen("first file");
+
     scenario.deliver(UserInput::Key(Key::Down));
-    assert!(scenario.pending_documents.try_recv().is_err());
-    let inputs = scenario.interactive.clone();
-    {
-        let mut runtime = scenario.event_loop();
-        inputs
-            .send(EventEnvelope::new(ApplicationTick(Instant::now())))
-            .unwrap();
-        assert!(!runtime.cycle().unwrap());
-        let frames = runtime.terminal.get_frame().count();
-        inputs
-            .send(EventEnvelope::new(ApplicationTick(Instant::now())))
-            .unwrap();
-        assert!(!runtime.cycle().unwrap());
-        assert_eq!(runtime.terminal.get_frame().count(), frames);
-    }
-    let commands = scenario.pending_documents.try_iter().collect::<Vec<_>>();
+    let pending = scenario.pending_events(Duration::from_millis(200));
     assert!(
-        matches!(
-            commands.as_slice(),
-            [document::Command::Load(DocumentLoad::Diff { path, .. })]
-                if path == "second.txt"
-        ),
-        "{commands:?}"
+        !pending.iter().any(|event| {
+            event.downcast_ref::<DiffContentLoaded>().is_some()
+                || event.downcast_ref::<DiffContentLoadFailed>().is_some()
+        }),
+        "moving the selection alone loads nothing"
     );
+    for event in pending {
+        scenario.fixture.background.send(event).unwrap();
+    }
+
+    scenario.wait_for_repository_screen("second file");
 }
 
 #[test]
 fn idle_ticks_skip_frames_but_input_and_toast_expiration_still_render() {
-    let root = tempfile::tempdir().unwrap();
-    let mut scenario = Scenario::new(root.path().into());
-    let inputs = scenario.interactive.clone();
+    let mut scenario = Scenario::new();
+    let inputs = scenario.fixture.interactive.clone();
     let mut runtime = scenario.event_loop();
     runtime.redraw().unwrap();
     let frames = runtime.terminal.get_frame().count();
@@ -93,9 +80,8 @@ fn idle_ticks_skip_frames_but_input_and_toast_expiration_still_render() {
 
 #[test]
 fn agent_detection_events_and_batched_idle_ticks_do_not_repaint() {
-    let root = tempfile::tempdir().unwrap();
-    let mut scenario = Scenario::new(root.path().into());
-    let events = scenario.background.clone();
+    let mut scenario = Scenario::new();
+    let events = scenario.fixture.background.clone();
     let mut runtime = scenario.event_loop();
     runtime.redraw().unwrap();
     let frames = runtime.terminal.get_frame().count();
@@ -131,14 +117,14 @@ fn agent_detection_events_and_batched_idle_ticks_do_not_repaint() {
     assert_eq!(runtime.terminal.get_frame().count(), frames + 1);
 }
 
+/// Highlight results wait until the test releases them.
 struct DelayedHighlights {
-    worker: highlighting::Worker,
     started: Receiver<()>,
     release: Sender<()>,
 }
 
 impl DelayedHighlights {
-    fn new(events: EventSender<EventEnvelope>) -> Self {
+    fn start(events: EventSender<EventEnvelope>) -> (Self, highlighting::Worker) {
         let (started, entered) = mpsc::channel();
         let (release, gate) = mpsc::channel();
         let theme = Theme::default();
@@ -150,11 +136,13 @@ impl DelayedHighlights {
                 let _ = events.send(EventEnvelope::new(result));
             },
         );
-        Self {
+        (
+            Self {
+                started: entered,
+                release,
+            },
             worker,
-            started: entered,
-            release,
-        }
+        )
     }
 }
 
@@ -165,114 +153,73 @@ impl Drop for DelayedHighlights {
 }
 
 struct Scenario {
-    comments: comments::Worker,
-    _state: tempfile::TempDir,
-    root: PathBuf,
-    settings: ReviewStore,
+    // Declared first so stalled highlights are released before the workers stop.
+    highlighting: DelayedHighlights,
+    fixture: EffectsFixture,
     terminal: Terminal<TestBackend>,
     app: ReviewApplication,
-    lsp: review_lsp::Worker,
-    highlighting: DelayedHighlights,
-    search: text_search::Worker,
-    commands: Sender<WorkerCommand>,
-    _repository_commands: Receiver<WorkerCommand>,
-    documents: Sender<document::Command>,
-    pending_documents: Receiver<document::Command>,
-    background: EventSender<EventEnvelope>,
-    interactive: EventSender<EventEnvelope>,
-    inbox: events::Inbox,
     timings: timing::Recorder,
 }
 
 impl Scenario {
-    fn new(root: PathBuf) -> Self {
-        let state = tempfile::tempdir().unwrap();
-        let settings = ReviewStore::open(state.path(), &root).unwrap();
-        let (background, events) = unbounded();
-        let (interactive, inputs) = unbounded();
-        let (commands, repository_commands) = mpsc::channel();
-        let (documents, document_commands) = mpsc::channel();
-        let results = interactive.clone();
-        let search = text_search::Worker::start(move |result| {
-            let _ = results.send(EventEnvelope::new(result));
-        });
+    fn new() -> Self {
+        let mut fixture = EffectsFixture::new(RepoType::Git);
+        let (highlighting, worker) = DelayedHighlights::start(fixture.background.clone());
+        fixture.effects.replace_highlighting(worker);
+        let root = fixture.repository.root().to_owned();
         Self {
-            comments: comment_service::test_worker(&settings),
-            _state: state,
-            app: ReviewApplication::new(Theme::default(), None, root.clone()),
-            lsp: review_lsp::Worker::start(root.clone()),
-            root,
-            settings,
+            highlighting,
+            fixture,
             terminal: Terminal::new(TestBackend::new(100, 20)).unwrap(),
-            highlighting: DelayedHighlights::new(background.clone()),
-            search,
-            commands,
-            _repository_commands: repository_commands,
-            documents,
-            pending_documents: document_commands,
-            background,
-            interactive,
-            inbox: events::Inbox::new(events, inputs),
+            app: ReviewApplication::new(Theme::default(), None, root),
             timings: timing::Recorder::from_env().unwrap(),
         }
     }
 
     fn event_loop(&mut self) -> RuntimeEventLoop<'_, TestBackend> {
         RuntimeEventLoop {
-            target: AgentTarget::new(herdr_client::protocol::WorkspaceId("test".into()), None),
-            source_watches: None,
+            effects: &mut self.fixture.effects,
             terminal_events: None,
-            last_frame: Instant::now(),
-            comments: &self.comments,
             terminal: &mut self.terminal,
             app: &mut self.app,
-            commands: &self.commands,
-            documents: &self.documents,
-            search: &self.search,
-            highlighting: &self.highlighting.worker,
-            events: &mut self.inbox,
+            events: &mut self.fixture.inbox,
             timings: &self.timings,
-            lsp: &self.lsp,
-            repository_root: &self.root,
-            settings: &self.settings,
+            last_frame: Instant::now(),
         }
     }
 
-    fn deliver(&mut self, event: impl ApplicationEvent) {
-        assert!(
-            !self
-                .event_loop()
-                .handle_event(&EventEnvelope::new(event))
-                .unwrap()
-        );
+    fn deliver(&mut self, event: impl component_core::ApplicationEvent) {
+        let flow = self
+            .event_loop()
+            .handle_event(&EventEnvelope::new(event))
+            .unwrap();
+        assert!(flow.is_continue());
+    }
+
+    /// Events that arrive within `timeout`, taken before the event loop sees them.
+    fn pending_events(&mut self, timeout: Duration) -> Vec<EventEnvelope> {
+        let deadline = Instant::now() + timeout;
+        std::iter::from_fn(|| {
+            self.fixture
+                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+        })
+        .collect()
     }
 
     fn prepare(&mut self) {
-        self.deliver(RepositoryFilesChanged {
-            review_checkpoint: ReviewCheckpoint::new("change", "checkpoint"),
-            files: vec![FileSummary::new("source.rs", ReviewStatus::Unreviewed)],
-        });
         let lines = ["prefix needle".to_owned(), "second needle".to_owned()]
             .into_iter()
             .chain((0..1_000).map(|_| format!("// {}", "x".repeat(80))))
             .collect::<Vec<_>>();
-        self.deliver(DiffContentLoaded {
-            review_checkpoint: ReviewCheckpoint::new("change", "checkpoint"),
-            path: "source.rs".to_owned(),
-            rows: lines
-                .iter()
-                .enumerate()
-                .map(|(index, line)| DiffRow::Add {
-                    new_line: u32::try_from(index + 1).unwrap(),
-                    text: format!("+{line}"),
-                })
-                .collect(),
-            old_content: None,
-            new_content: Some(format!("{}\n", lines.join("\n")).into_bytes()),
-        });
+        self.fixture
+            .files
+            .write("source.rs", format!("{}\n", lines.join("\n")).as_bytes());
+        self.fixture.effects.refresh().unwrap();
+        self.wait_for_repository_screen("prefix needle");
         let startup = self
-            .lsp
-            .event_receiver()
+            .fixture
+            .effects
+            .lsp_events()
             .recv_timeout(Duration::from_secs(3))
             .unwrap();
         assert!(matches!(startup, review_lsp::Event::Initializing(_)));
@@ -298,12 +245,13 @@ impl Scenario {
             new_content: None,
         });
         for _ in 0..5_000 {
-            self.background.send(stale.clone()).unwrap();
+            self.fixture.background.send(stale.clone()).unwrap();
         }
     }
 
     fn key(&self, key: Key) {
-        self.interactive
+        self.fixture
+            .interactive
             .send(EventEnvelope::new(UserInput::Key(key)))
             .unwrap();
     }
@@ -319,14 +267,24 @@ impl Scenario {
     }
 
     fn wait_for_screen(&mut self, text: &str) {
-        let deadline = Instant::now() + Duration::from_secs(2);
+        self.wait_for_screen_within(text, Duration::from_secs(2));
+    }
+
+    /// Wait for repository work, which is setup rather than measured latency.
+    fn wait_for_repository_screen(&mut self, text: &str) {
+        self.wait_for_screen_within(text, Duration::from_secs(10));
+    }
+
+    fn wait_for_screen_within(&mut self, text: &str, timeout: Duration) {
+        let deadline = Instant::now() + timeout;
         while !self.screen().contains(text) {
             assert!(
                 Instant::now() < deadline,
                 "missing {text}: {}",
                 self.screen()
             );
-            self.background
+            self.fixture
+                .background
                 .send(EventEnvelope::new(ApplicationTick(Instant::now())))
                 .unwrap();
             assert!(!self.event_loop().cycle().unwrap());
@@ -343,19 +301,19 @@ impl Scenario {
         }
         self.wait_for_screen("/needle");
         assert!(
-            !self.background.is_empty(),
+            !self.fixture.background.is_empty(),
             "a frame must be drawn before the backlog drains"
         );
         self.wait_for_screen("[1/2]");
         assert!(
-            !self.background.is_empty(),
+            !self.fixture.background.is_empty(),
             "search results must get through the backlog"
         );
         self.key(Key::Enter);
         self.key(Key::Char('n'));
         self.wait_for_screen("[2/2]");
         assert!(
-            self.lsp.try_recv().is_none(),
+            self.fixture.effects.lsp_events().is_empty(),
             "the language server must still be starting"
         );
         assert!(
@@ -373,7 +331,6 @@ fn search_and_frames_progress_while_lsp_startup_and_highlights_are_stalled() {
     let direnv = bin.join("direnv");
     fs::write(&direnv, "#!/bin/sh\nexec sleep 30\n").unwrap();
     fs::set_permissions(&direnv, fs::Permissions::from_mode(0o755)).unwrap();
-    fs::write(directory.path().join("source.rs"), "fn real_file() {}\n").unwrap();
     let inherited_path = env::var_os("PATH").unwrap_or_default();
     let path =
         env::join_paths(std::iter::once(bin).chain(env::split_paths(&inherited_path))).unwrap();
@@ -430,6 +387,6 @@ fn search_and_frames_progress_while_lsp_startup_and_highlights_are_stalled() {
 #[test]
 #[ignore = "runs in a child process with a private language-server launcher"]
 fn stalled_startup_process() {
-    let root = env::var_os("HERDR_RESPONSIVENESS_TEST").expect("parent test supplies the fixture");
-    Scenario::new(root.into()).check_search();
+    env::var_os("HERDR_RESPONSIVENESS_TEST").expect("parent test supplies the launcher");
+    Scenario::new().check_search();
 }

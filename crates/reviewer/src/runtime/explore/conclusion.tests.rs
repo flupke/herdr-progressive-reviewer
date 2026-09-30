@@ -18,11 +18,7 @@ impl ExploreFlow {
             )
             .unwrap();
         self.fixture
-            .commands
-            .send(explore_command(ExploreCommand::Turn(Box::new(
-                request.clone(),
-            ))))
-            .unwrap();
+            .explore(ExploreCommand::Turn(Box::new(request.clone())));
         self.wait_for_prompt(&request);
         let input = serde_json::json!({
             "review": request.instance, "instance": request.instance, "request": request.request, "checkpoint": request.checkpoint,
@@ -36,11 +32,11 @@ impl ExploreFlow {
         input
     }
 
-    fn wait_for_implementation(&self) -> ui_events::ExploreImplementationFinished {
+    fn wait_for_implementation(&mut self) -> ui_events::ExploreImplementationFinished {
         loop {
             let event = self
                 .fixture
-                .messages
+                .runtime
                 .recv_timeout(Duration::from_secs(10))
                 .unwrap();
             if let Some(event) = event.downcast_ref::<ui_events::ExploreImplementationFinished>() {
@@ -90,9 +86,7 @@ fn conclusion_uses_its_own_mcp_contract_and_implement_prompts_a_working_agent() 
         .implementation("Only this edited task — preserve\n{{TURN}} literally.".into())
         .unwrap();
     flow.fixture
-        .commands
-        .send(explore_command(ExploreCommand::Implement(request.clone())))
-        .unwrap();
+        .explore(ExploreCommand::Implement(request.clone()));
     let delivered = flow.wait_for_implementation();
     assert_eq!(delivered.request, request);
     assert_eq!(delivered.state, review_explore::DispatchState::Delivered);
@@ -114,19 +108,13 @@ fn cancelling_after_implementation_delivery_does_not_repeat_the_prompt() {
         .exploration
         .implementation("Authorized task".into())
         .unwrap();
-    flow.fixture
-        .commands
-        .send(explore_command(ExploreCommand::Implement(request)))
-        .unwrap();
+    flow.fixture.explore(ExploreCommand::Implement(request));
     assert_eq!(
         flow.wait_for_implementation().state,
         review_explore::DispatchState::Delivered
     );
     let prompts = fs::read(flow.fixture.herdr.server.root().join("prompt.txt")).unwrap();
-    flow.fixture
-        .commands
-        .send(explore_command(ExploreCommand::CancelImplementation))
-        .unwrap();
+    flow.fixture.explore(ExploreCommand::CancelImplementation);
     flow.call("submit_conclusion", payload);
     assert_eq!(
         fs::read(flow.fixture.herdr.server.root().join("prompt.txt")).unwrap(),
