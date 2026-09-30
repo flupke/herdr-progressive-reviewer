@@ -110,7 +110,7 @@ impl ReviewStore {
         Ok(source)
     }
 
-    fn thread_source_path(&self, key: &str) -> Result<PathBuf> {
+    pub(super) fn thread_source_path(&self, key: &str) -> Result<PathBuf> {
         if key.len() != 64 || !key.bytes().all(|byte| byte.is_ascii_hexdigit()) {
             return Err(Error::InvalidStateKey {
                 field: "thread context",

@@ -19,6 +19,9 @@ mod explore;
 pub use review_explore::ExploreHistory;
 mod checkpoint;
 mod drafts;
+mod source_references;
+#[cfg(test)]
+mod stored_fixtures;
 mod thread_sources;
 mod threads;
 
@@ -70,6 +73,17 @@ pub enum Error {
         /// The record path that must not be replaced.
         path: PathBuf,
     },
+}
+
+impl Error {
+    /// Report invalid JSON found at `path` by `operation`.
+    fn json(operation: &'static str, path: &Path) -> impl Fn(serde_json::Error) -> Self {
+        move |source| Self::StateJson {
+            operation,
+            path: path.to_owned(),
+            source,
+        }
+    }
 }
 
 /// Persistent global reviewer settings.

@@ -1,4 +1,5 @@
 use std::ops::Deref;
+use std::sync::Arc;
 
 use review_source::DiffRangeAnchor;
 use serde::{Deserialize, Serialize};
@@ -20,33 +21,9 @@ impl Deref for ReviewThread {
     }
 }
 
-impl<S> ReviewThreads<S> {
-    /// Exchange loaded context for durable references (or hydrate those references)
-    /// without copying or changing any conversation history or attention state.
-    pub fn try_map_sources<T, E>(
-        self,
-        mut map: impl FnMut(S) -> Result<T, E>,
-    ) -> Result<ReviewThreads<T>, E> {
-        let threads = self
-            .threads
-            .into_iter()
-            .map(|thread| {
-                Ok(ReviewThread {
-                    id: thread.id,
-                    source: map(thread.source)?,
-                    messages: thread.messages,
-                    resolution: thread.resolution,
-                    seen_reply_through: thread.seen_reply_through,
-                    seen_replies: thread.seen_replies,
-                })
-            })
-            .collect::<Result<_, E>>()?;
-        Ok(ReviewThreads {
-            review_unit: self.review_unit,
-            threads,
-            sequence: self.sequence,
-            readers: self.readers,
-            answered: self.answered,
-        })
+impl ReviewThreads {
+    /// Each thread's source, in thread order.
+    pub fn sources_mut(&mut self) -> impl Iterator<Item = &mut Arc<ThreadSource>> {
+        self.threads.iter_mut().map(|thread| &mut thread.source)
     }
 }

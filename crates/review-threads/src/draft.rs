@@ -13,9 +13,9 @@ pub enum DraftTarget {
 
 /// Saved separately from messages; restoring a draft never posts it.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct Draft<S = Arc<ThreadSource>> {
+pub struct Draft {
     pub target: DraftTarget,
-    pub source: S,
+    pub source: Arc<ThreadSource>,
     pub reply_to: Option<MessageId>,
     pub text: String,
     id: MessageId,
@@ -92,32 +92,13 @@ impl Draft {
     }
 }
 
-impl<S> Draft<S> {
-    fn try_map_source<T, E>(self, map: &mut impl FnMut(S) -> Result<T, E>) -> Result<Draft<T>, E> {
-        Ok(Draft {
-            target: self.target,
-            source: map(self.source)?,
-            reply_to: self.reply_to,
-            text: self.text,
-            id: self.id,
-            thread: self.thread,
-        })
-    }
-}
-
 /// The drafts saved for one review. They are stored apart from its threads, so saving
 /// one never rewrites posted messages, and a draft whose post reached the threads is
 /// no longer a draft.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(transparent)]
-pub struct SavedDrafts<S = Arc<ThreadSource>> {
-    drafts: Vec<Draft<S>>,
-}
-
-impl<S> Default for SavedDrafts<S> {
-    fn default() -> Self {
-        Self { drafts: Vec::new() }
-    }
+pub struct SavedDrafts {
+    drafts: Vec<Draft>,
 }
 
 impl SavedDrafts {
@@ -156,32 +137,20 @@ impl SavedDrafts {
         self.drafts
             .retain(|draft| threads.message(&draft.id).is_none());
     }
-}
 
-impl<S> SavedDrafts<S> {
     pub fn is_empty(&self) -> bool {
         self.drafts.is_empty()
     }
 
-    /// Exchange loaded context for durable references (or hydrate those references)
-    /// without changing any draft.
-    pub fn try_map_sources<T, E>(
-        self,
-        mut map: impl FnMut(S) -> Result<T, E>,
-    ) -> Result<SavedDrafts<T>, E> {
-        Ok(SavedDrafts {
-            drafts: self
-                .drafts
-                .into_iter()
-                .map(|draft| draft.try_map_source(&mut map))
-                .collect::<Result<_, E>>()?,
-        })
+    /// Each draft's source, in draft order.
+    pub fn sources_mut(&mut self) -> impl Iterator<Item = &mut Arc<ThreadSource>> {
+        self.drafts.iter_mut().map(|draft| &mut draft.source)
     }
 }
 
-impl<S> IntoIterator for SavedDrafts<S> {
-    type Item = Draft<S>;
-    type IntoIter = std::vec::IntoIter<Draft<S>>;
+impl IntoIterator for SavedDrafts {
+    type Item = Draft;
+    type IntoIter = std::vec::IntoIter<Draft>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.drafts.into_iter()

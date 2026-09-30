@@ -1,39 +1,87 @@
-use review_threads::{ReviewThreads, SavedDrafts};
+use std::sync::Arc;
+
+use review_threads::{ReviewThreads, SavedDrafts, ThreadSource};
 use review_types::ReviewUnit;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
-use super::thread_sources::StoredSource;
+use super::source_references::{SourceForm, SourceSlot, WithSources};
 use super::{Error, Result, ReviewStore};
+
+mod legacy;
 
 #[cfg(test)]
 #[path = "thread_storage.tests.rs"]
 mod storage_tests;
 
-#[derive(Deserialize)]
-struct Version {
-    version: u8,
-}
+#[cfg(test)]
+#[path = "thread_formats.tests.rs"]
+mod format_tests;
 
 /// Version 4 stays the written version: builds that predate the separate draft store
 /// still load this document, and simply see no drafts in it.
+const VERSION: u8 = 4;
+
+/// The thread document: the conversations are borrowed to write it, and stay JSON until
+/// they are migrated and their sources restored when reading it.
 #[derive(Deserialize, Serialize)]
-struct StoredThreads<S = std::sync::Arc<review_threads::ThreadSource>> {
+struct StoredThreads<Conversations> {
     version: u8,
-    conversations: ReviewThreads<S>,
+    conversations: Conversations,
 }
 
-/// Drafts that earlier builds saved inside the thread document.
-#[derive(Deserialize)]
-#[serde(bound(deserialize = "S: Deserialize<'de>"))]
-struct EmbeddedDrafts<S> {
-    conversations: EmbeddedDraftList<S>,
+/// A thread document version this build reads.
+#[derive(Clone, Copy)]
+enum StoredVersion {
+    /// Versions 2 and 3 carry sources inline and track delivery per recipient.
+    Legacy(u8),
+    Current,
 }
 
+impl StoredVersion {
+    fn parse(version: u8) -> Result<Self> {
+        match version {
+            VERSION => Ok(Self::Current),
+            2 | 3 => Ok(Self::Legacy(version)),
+            _ => Err(Error::InvalidStateKey {
+                field: "thread storage version or review unit",
+            }),
+        }
+    }
+
+    fn source_form(self) -> SourceForm {
+        match self {
+            Self::Legacy(_) => SourceForm::Inline,
+            Self::Current => SourceForm::Referenced,
+        }
+    }
+
+    fn foreign_review_unit(self) -> Error {
+        Error::InvalidStateKey {
+            field: match self {
+                Self::Legacy(_) => "thread storage version or review unit",
+                Self::Current => "thread review unit",
+            },
+        }
+    }
+}
+
+/// The review a stored thread document belongs to.
 #[derive(Deserialize)]
-#[serde(bound(deserialize = "S: Deserialize<'de>"))]
-struct EmbeddedDraftList<S> {
-    #[serde(default)]
-    drafts: SavedDrafts<S>,
+struct Owner {
+    review_unit: ReviewUnit,
+}
+
+impl WithSources for ReviewThreads {
+    const SLOT: SourceSlot = SourceSlot::Merged;
+
+    fn sources_mut(&mut self) -> impl Iterator<Item = &mut Arc<ThreadSource>> {
+        ReviewThreads::sources_mut(self)
+    }
+
+    fn records(json: &mut Value) -> Option<&mut Vec<Value>> {
+        json.get_mut("threads")?.as_array_mut()
+    }
 }
 
 /// A decoded thread document, with any drafts it still carries from earlier builds.
@@ -43,23 +91,17 @@ struct ThreadDocument {
 }
 
 impl ReviewStore {
-    pub(super) fn atomic_compressed_json(
+    pub(super) fn atomic_compressed_bytes(
         &self,
         target: &std::path::Path,
-        value: &impl Serialize,
+        json: &[u8],
         operation: &'static str,
     ) -> Result<()> {
-        let json = serde_json::to_vec(value).map_err(|source| Error::StateJson {
+        let bytes = zstd::stream::encode_all(json, 3).map_err(|source| Error::StateIo {
             operation,
             path: target.to_owned(),
             source,
         })?;
-        let bytes =
-            zstd::stream::encode_all(json.as_slice(), 3).map_err(|source| Error::StateIo {
-                operation,
-                path: target.to_owned(),
-                source,
-            })?;
         self.atomic_write(target, &bytes, operation)
     }
 
@@ -91,13 +133,13 @@ impl ReviewStore {
     /// Persist all conversations for a logical review independently of its current diff.
     fn save_threads(&self, conversations: &ReviewThreads) -> Result<()> {
         let path = self.threads_path(&conversations.review_unit)?;
-        self.atomic_compressed_json(
+        let detached = self.detach(conversations)?;
+        self.atomic_referencing_json(
             &path,
+            &detached,
             &StoredThreads {
-                version: 4,
-                conversations: conversations
-                    .clone()
-                    .try_map_sources(|source| self.save_thread_source(&source))?,
+                version: VERSION,
+                conversations: &detached.value,
             },
             "write review threads",
         )
@@ -118,6 +160,7 @@ impl ReviewStore {
     }
 
     fn read_thread_document(&self, review_unit: &ReviewUnit) -> Result<ThreadDocument> {
+        const OPERATION: &str = "decode review threads";
         let path = self.threads_path(review_unit)?;
         let Some(bytes) = Self::read_bytes(&path, "read review threads", None)? else {
             return Ok(ThreadDocument {
@@ -126,47 +169,28 @@ impl ReviewStore {
             });
         };
         let json = Self::decode_thread_json(&path, &bytes)?;
-        let decode = |source| Error::StateJson {
-            operation: "decode review threads",
-            path: path.clone(),
-            source,
-        };
-        let version: Version = serde_json::from_slice(&json).map_err(decode)?;
-        if version.version == 4 {
-            let stored: StoredThreads<StoredSource> =
-                serde_json::from_slice(&json).map_err(decode)?;
-            let embedded: EmbeddedDrafts<StoredSource> =
-                serde_json::from_slice(&json).map_err(decode)?;
-            if &stored.conversations.review_unit != review_unit {
-                return Err(Error::InvalidStateKey {
-                    field: "thread review unit",
-                });
-            }
-            return Ok(ThreadDocument {
-                threads: stored
-                    .conversations
-                    .try_map_sources(|source| self.load_thread_source(source))?,
-                embedded_drafts: embedded
-                    .conversations
-                    .drafts
-                    .try_map_sources(|source| self.load_thread_source(source))?,
-            });
+        let decode = Error::json(OPERATION, &path);
+        let stored: StoredThreads<Value> = serde_json::from_slice(&json).map_err(&decode)?;
+        let version = StoredVersion::parse(stored.version)?;
+        let mut conversations = stored.conversations;
+        let owner = Owner::deserialize(&conversations).map_err(&decode)?;
+        if &owner.review_unit != review_unit {
+            return Err(version.foreign_review_unit());
         }
-        let mut stored: StoredThreads = serde_json::from_slice(&json).map_err(decode)?;
-        let embedded: EmbeddedDrafts<std::sync::Arc<review_threads::ThreadSource>> =
-            serde_json::from_slice(&json).map_err(decode)?;
-        if !matches!(stored.version, 2 | 3) || &stored.conversations.review_unit != review_unit {
-            return Err(Error::InvalidStateKey {
-                field: "thread storage version or review unit",
-            });
+        // Earlier builds kept drafts inside the thread document, in the same source form.
+        let embedded = conversations
+            .as_object_mut()
+            .and_then(|fields| fields.remove("drafts"));
+        if let StoredVersion::Legacy(number) = version {
+            legacy::migrate(&mut conversations, number).map_err(&decode)?;
         }
-        if stored.version == 2 {
-            stored.conversations.recover_retrieved_comments();
-        }
-        stored.conversations.migrate_answered_positions();
+        let form = version.source_form();
         Ok(ThreadDocument {
-            threads: stored.conversations,
-            embedded_drafts: embedded.conversations.drafts,
+            threads: self.attach(conversations, form, &path, OPERATION)?,
+            embedded_drafts: match embedded {
+                Some(drafts) => self.attach(drafts, form, &path, OPERATION)?,
+                None => SavedDrafts::default(),
+            },
         })
     }
 
@@ -294,97 +318,6 @@ mod tests {
                 .len(),
             0
         );
-    }
-
-    #[test]
-    fn legacy_recovery_only_delivers_comments_still_waiting_for_an_answer() {
-        for late_before_reply in [false, true] {
-            let directory = tempfile::tempdir().unwrap();
-            let store =
-                ReviewStore::open(directory.path().join("state"), directory.path()).unwrap();
-            let mut book = ReviewThreads::new("change".into());
-            let post = Post::start(
-                DiffRangeAnchor {
-                    source_checkpoint: "original".into(),
-                    old_path: None,
-                    new_path: Some("file.rs".into()),
-                    old_lines: None,
-                    new_lines: Some(0..1),
-                    target_kind: AnchorKind::Lines,
-                    source_hunk_count: 1,
-                    old_content: None,
-                    new_content: Some(b"retained source".to_vec()),
-                    diff_hash: String::new(),
-                },
-                "+retained source".into(),
-                "Already answered".into(),
-            );
-            let thread = post.thread_id().clone();
-            book.post(post).unwrap();
-            if late_before_reply {
-                book.post(Post::reply(thread.clone(), "Fetched but unanswered".into()))
-                    .unwrap();
-            }
-            book.post(Post::agent_reply(
-                thread.clone(),
-                MessageId::parse("1f27f5d0-0e04-4a13-aa1a-ef8dbf96366c").unwrap(),
-                "Existing answer".into(),
-            ))
-            .unwrap();
-            if !late_before_reply {
-                book.post(Post::reply(thread.clone(), "Fetched but unanswered".into()))
-                    .unwrap();
-            }
-            let mut legacy = serde_json::to_value(&book).unwrap();
-            legacy["readers"] = serde_json::json!({"agent": {serde_json::to_value(&thread).unwrap().as_str().unwrap(): book.sequence()}});
-            let path = store.threads_path(&book.review_unit).unwrap();
-            store
-                .atomic_compressed_json(
-                    &path,
-                    &serde_json::json!({"version": 2, "conversations": legacy}),
-                    "write fixture",
-                )
-                .unwrap();
-            let recovered = store.load_threads(&book.review_unit).unwrap();
-            assert_eq!(recovered.threads(), book.threads());
-            assert_eq!(
-                recovered.new_messages().len(),
-                usize::from(!late_before_reply)
-            );
-            assert_eq!(recovered.has_new_messages(), !late_before_reply);
-            if late_before_reply {
-                // Without an exact boundary, legacy replies cover preceding
-                // comments, just as the thread's visible Waiting status does.
-                assert!(!recovered.thread(&thread).unwrap().is_waiting());
-                continue;
-            }
-            let comment = recovered
-                .thread(&thread)
-                .unwrap()
-                .last_comment()
-                .unwrap()
-                .id
-                .clone();
-            store
-                .update_threads(&book.review_unit, |book| {
-                    book.answer(Post::answer(
-                        thread.clone(),
-                        MessageId::parse("b5c06df5-6b11-4134-9fb7-d18b4c310097").unwrap(),
-                        "Recovered answer".into(),
-                        comment,
-                    ))
-                })
-                .unwrap();
-            let saved = store.load_threads(&book.review_unit).unwrap();
-            assert_eq!(saved.threads()[0].messages.len(), 4);
-            assert_eq!(saved.threads()[0].anchor, book.threads()[0].anchor);
-            assert!(!saved.has_new_messages());
-            let stored: serde_json::Value = serde_json::from_slice(
-                &zstd::stream::decode_all(std::fs::read(path).unwrap().as_slice()).unwrap(),
-            )
-            .unwrap();
-            assert_eq!(stored["version"], 4);
-        }
     }
 
     #[test]

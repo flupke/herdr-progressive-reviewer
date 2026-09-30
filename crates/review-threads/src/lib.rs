@@ -29,10 +29,10 @@ pub struct ThreadId(String);
 
 /// A conversation that survives changes to, or deletion of, its anchor.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct ReviewThread<S = Arc<ThreadSource>> {
+pub struct ReviewThread {
     pub id: ThreadId,
     #[serde(flatten)]
-    pub source: S,
+    pub source: Arc<ThreadSource>,
     pub messages: Vec<Message>,
     #[serde(default)]
     pub resolution: Resolution,
@@ -69,13 +69,10 @@ impl ReviewThread {
 
 /// Conversation history and completed work shared by every recipient of a logical review.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(bound(deserialize = "S: Deserialize<'de>"))]
-pub struct ReviewThreads<S = Arc<ThreadSource>> {
+pub struct ReviewThreads {
     pub review_unit: ReviewUnit,
-    threads: Vec<ReviewThread<S>>,
+    threads: Vec<ReviewThread>,
     sequence: u64,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    readers: BTreeMap<String, BTreeMap<ThreadId, u64>>,
     #[serde(default)]
     answered: BTreeMap<ThreadId, u64>,
 }
@@ -86,7 +83,6 @@ impl ReviewThreads {
             review_unit,
             threads: Vec::new(),
             sequence: 0,
-            readers: BTreeMap::new(),
             answered: BTreeMap::new(),
         }
     }
@@ -128,63 +124,6 @@ impl ReviewThreads {
         thread.resolution == Resolution::Open
             && thread.is_waiting()
             && thread.has_comments_after(self.answered.get(&thread.id).copied().unwrap_or_default())
-    }
-
-    /// Completed answers belong to the review, including after a recipient handoff.
-    pub fn migrate_answered_positions(&mut self) {
-        for positions in std::mem::take(&mut self.readers).into_values() {
-            for (thread, through) in positions {
-                let position = self.answered.entry(thread).or_default();
-                *position = (*position).max(through);
-            }
-        }
-        // Older Retry actions could erase a recipient's cursor. Exact answer
-        // boundaries still prove completion even when that cursor is missing.
-        for thread in &self.threads {
-            let through = thread
-                .messages
-                .iter()
-                .filter(|message| message.author == Author::Agent)
-                .filter_map(|message| message.in_reply_to.as_ref())
-                .filter_map(|id| {
-                    thread
-                        .messages
-                        .iter()
-                        .find(|message| message.id == *id && message.author == Author::Reviewer)
-                })
-                .map(|message| message.sequence)
-                .max()
-                .unwrap_or_default();
-            let position = self.answered.entry(thread.id.clone()).or_default();
-            *position = (*position).max(through);
-        }
-    }
-
-    /// Discard retrieval cursors that cannot prove an answer was saved.
-    pub fn recover_retrieved_comments(&mut self) {
-        for positions in self.readers.values_mut() {
-            for (id, through) in positions {
-                let answered = self
-                    .threads
-                    .iter()
-                    .find(|thread| thread.id == *id)
-                    .and_then(|thread| {
-                        thread
-                            .messages
-                            .iter()
-                            .rev()
-                            .find(|message| message.author == Author::Agent)
-                    })
-                    .map_or(0, |message| message.sequence);
-                // A read at or after the last answer may have fetched comments
-                // that arrived while that answer was being written. The old
-                // format has no snapshot boundary. Pending work must also have
-                // an unanswered comment, as shown by the conversation itself.
-                if *through >= answered {
-                    *through = 0;
-                }
-            }
-        }
     }
 
     /// Return complete conversations containing reviewer comments awaiting a reply.

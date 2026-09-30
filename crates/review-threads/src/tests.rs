@@ -2,33 +2,6 @@ use super::*;
 use review_source::DiffRangeAnchor;
 
 #[test]
-fn saved_recipient_fields_do_not_change_history_or_pending_work() {
-    let mut book = ReviewThreads::new("change".into());
-    let post = start("Completed question");
-    let thread = post.thread_id().clone();
-    let question = book.post(post).unwrap();
-    book.answer(Post::answer(
-        thread.clone(),
-        MessageId::parse(&uuid::Uuid::new_v4().to_string()).unwrap(),
-        "Completed answer".into(),
-        question,
-    ))
-    .unwrap();
-    let mut saved = serde_json::to_value(&book).unwrap();
-    saved["recipient"] =
-        serde_json::json!({"pane_id": "retired-agent", "workspace_id": "old-workspace"});
-    let restored: ReviewThreads = serde_json::from_value(saved).unwrap();
-    assert_eq!(restored, book);
-    assert!(restored.new_messages().is_empty());
-    assert!(
-        serde_json::to_value(restored)
-            .unwrap()
-            .get("recipient")
-            .is_none()
-    );
-}
-
-#[test]
 fn resolving_stops_pending_delivery_and_late_answers_do_not_reopen_it() {
     let mut book = ReviewThreads::new("change".into());
     let post = start("Question");
@@ -57,74 +30,6 @@ fn resolving_stops_pending_delivery_and_late_answers_do_not_reopen_it() {
     book.post(Post::reply(thread, "New follow-up".into()))
         .unwrap();
     assert_eq!(book.new_messages()[0].messages.len(), 3);
-}
-
-#[test]
-fn legacy_answers_survive_handoff_without_consuming_later_comments() {
-    let mut book = ReviewThreads::new("change".into());
-    let post = start("Question");
-    let thread = post.thread_id().clone();
-    book.post(post).unwrap();
-    answer(&mut book, &thread, "Done");
-    let mut json = serde_json::to_value(&book).unwrap();
-    json["readers"] = serde_json::json!({"old-agent": json["answered"].clone()});
-    json.as_object_mut().unwrap().remove("answered");
-    let mut migrated: ReviewThreads = serde_json::from_value(json).unwrap();
-    migrated.migrate_answered_positions();
-    assert!(migrated.new_messages().is_empty());
-    migrated
-        .post(Post::reply(thread, "Only unanswered work".into()))
-        .unwrap();
-    assert_eq!(migrated.new_messages()[0].messages.len(), 3);
-}
-
-#[test]
-fn migration_recovers_exact_answers_after_legacy_retry_erased_the_cursor() {
-    let mut book = ReviewThreads::new("change".into());
-    let post = start("Question");
-    let thread = post.thread_id().clone();
-    book.post(post).unwrap();
-    answer(&mut book, &thread, "Done");
-    book.answered.clear();
-    book.migrate_answered_positions();
-    assert!(book.new_messages().is_empty());
-    book.post(Post::reply(thread, "Later question".into()))
-        .unwrap();
-    book.answered.clear();
-    book.migrate_answered_positions();
-    assert_eq!(book.new_messages()[0].messages.len(), 3);
-}
-
-#[test]
-fn legacy_answers_do_not_become_ready_again_after_a_final_read_or_upgrade() {
-    let mut book = ReviewThreads::new("change".into());
-    let post = start("Question");
-    let thread = post.thread_id().clone();
-    book.post(post).unwrap();
-    book.post(agent_reply(&thread, "Legacy answer")).unwrap();
-    // Version 2 advanced this cursor again on the agent's final empty fetch.
-    book.readers.insert(
-        "old-agent".into(),
-        BTreeMap::from([(thread.clone(), book.sequence())]),
-    );
-    book.recover_retrieved_comments();
-    book.migrate_answered_positions();
-    for book in [
-        book.clone(),
-        serde_json::from_value(serde_json::to_value(book).unwrap()).unwrap(),
-    ] {
-        assert!(!book.thread(&thread).unwrap().is_waiting());
-        assert!(!book.has_new_messages());
-        assert!(book.new_messages().is_empty());
-        assert_eq!(book.pending_comment_sequence(), None);
-        assert!(book.retry(&thread).is_err());
-        let mut followed_up = book;
-        followed_up
-            .post(Post::reply(thread.clone(), "Later question".into()))
-            .unwrap();
-        assert!(followed_up.thread(&thread).unwrap().is_waiting());
-        assert_eq!(followed_up.new_messages().len(), 1);
-    }
 }
 
 #[test]
@@ -367,23 +272,6 @@ fn resolution_and_reviewer_reads_are_independent_of_answer_acknowledgement() {
     assert!(!book.has_new_messages());
     book.set_resolution(&thread, Resolution::Open).unwrap();
     assert_eq!(book.counts().open, 1);
-}
-
-#[test]
-fn histories_without_attention_metadata_default_to_open_and_unread() {
-    let mut book = ReviewThreads::new("change".into());
-    let post = start("Question");
-    let thread = post.thread_id().clone();
-    book.post(post).unwrap();
-    book.post(agent_reply(&thread, "Answer")).unwrap();
-    let mut stored = serde_json::to_value(&book).unwrap();
-    let row = stored["threads"][0].as_object_mut().unwrap();
-    row.remove("resolution");
-    row.remove("seen_reply_through");
-    row.remove("seen_replies");
-    let restored: ReviewThreads = serde_json::from_value(stored).unwrap();
-    assert_eq!(restored.counts().open, 1);
-    assert_eq!(restored.counts().unread, 1);
 }
 
 #[test]

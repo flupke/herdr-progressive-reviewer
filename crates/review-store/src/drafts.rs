@@ -2,12 +2,14 @@
 //! Saving one never rewrites posted messages.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
-use review_threads::{ReviewThreads, SavedDrafts};
+use review_threads::{ReviewThreads, SavedDrafts, ThreadSource};
 use review_types::ReviewUnit;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
-use super::thread_sources::StoredSource;
+use super::source_references::{SourceForm, SourceSlot, WithSources};
 use super::{Error, Result, ReviewStore};
 
 #[cfg(test)]
@@ -16,12 +18,25 @@ mod tests;
 
 const VERSION: u8 = 1;
 
+/// The draft document: `Unit` and `Drafts` are borrowed to write it, and the drafts stay
+/// JSON until their sources are restored when reading it.
 #[derive(Deserialize, Serialize)]
-#[serde(bound(deserialize = "S: Deserialize<'de>", serialize = "S: Serialize"))]
-struct StoredDrafts<S> {
+struct StoredDrafts<Unit, Drafts> {
     version: u8,
-    review_unit: ReviewUnit,
-    drafts: SavedDrafts<S>,
+    review_unit: Unit,
+    drafts: Drafts,
+}
+
+impl WithSources for SavedDrafts {
+    const SLOT: SourceSlot = SourceSlot::Field("source");
+
+    fn sources_mut(&mut self) -> impl Iterator<Item = &mut Arc<ThreadSource>> {
+        SavedDrafts::sources_mut(self)
+    }
+
+    fn records(json: &mut Value) -> Option<&mut Vec<Value>> {
+        json.as_array_mut()
+    }
 }
 
 impl ReviewStore {
@@ -80,31 +95,30 @@ impl ReviewStore {
             return Ok(SavedDrafts::default());
         };
         let json = Self::decode_thread_json(&path, &bytes)?;
-        let stored: StoredDrafts<StoredSource> =
-            serde_json::from_slice(&json).map_err(|source| Error::StateJson {
-                operation: "decode drafts",
-                path,
-                source,
-            })?;
+        let stored: StoredDrafts<ReviewUnit, Value> =
+            serde_json::from_slice(&json).map_err(Error::json("decode drafts", &path))?;
         if stored.version != VERSION || &stored.review_unit != review_unit {
             return Err(Error::InvalidStateKey {
                 field: "draft storage version or review unit",
             });
         }
-        stored
-            .drafts
-            .try_map_sources(|source| self.load_thread_source(source))
+        self.attach(
+            stored.drafts,
+            SourceForm::Referenced,
+            &path,
+            "decode drafts",
+        )
     }
 
     fn save_drafts(&self, review_unit: &ReviewUnit, drafts: &SavedDrafts) -> Result<()> {
-        self.atomic_compressed_json(
+        let detached = self.detach(drafts)?;
+        self.atomic_referencing_json(
             &self.drafts_path(review_unit)?,
+            &detached,
             &StoredDrafts {
                 version: VERSION,
-                review_unit: review_unit.clone(),
-                drafts: drafts
-                    .clone()
-                    .try_map_sources(|source| self.save_thread_source(&source))?,
+                review_unit,
+                drafts: &detached.value,
             },
             "write drafts",
         )

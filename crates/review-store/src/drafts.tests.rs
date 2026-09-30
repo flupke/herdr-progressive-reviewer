@@ -6,6 +6,7 @@ use review_threads::{Draft, ThreadSource};
 use serde_json::json;
 
 use super::*;
+use crate::stored_fixtures::{CONTEXT_KEY, DRAFTS_V1, THREADS_V4, inline_source, inline_thread};
 
 fn source() -> Arc<ThreadSource> {
     Arc::new(ThreadSource {
@@ -147,41 +148,30 @@ struct EmbeddedFixture {
 
 impl EmbeddedFixture {
     fn write(store: &ReviewStore) -> Self {
-        let unit: ReviewUnit = "change".into();
-        let mut book = review_threads::ReviewThreads::new(unit.clone());
-        let posted = draft("Posted question");
-        book.post(posted.post()).unwrap();
-        let thread = &book.threads()[0];
-        let context = serde_json::to_value(store.save_thread_source(&source()).unwrap()).unwrap();
-        let mut conversations = serde_json::to_value(
-            book.clone()
-                .try_map_sources(|source| store.save_thread_source(&source))
-                .unwrap(),
-        )
-        .unwrap();
-        conversations["drafts"] = json!([
+        store.write_context_fixture();
+        let mut document: serde_json::Value = serde_json::from_str(THREADS_V4).unwrap();
+        document["conversations"]["drafts"] = json!([
             {
                 "target": {"File": "source.rs"},
-                "source": context,
+                "source": {"context": CONTEXT_KEY},
                 "reply_to": null,
                 "text": "Unposted\nquestion",
                 "id": "5d1b9a9e-8f43-4a4c-9d55-3f7d0b1c2e01",
                 "thread": "9a7c3f10-2b8e-4f6d-a1c4-0e5b7d9f2a33",
             },
             {
-                "target": {"Thread": thread.id},
-                "source": context,
-                "reply_to": thread.messages[0].id,
+                "target": {"Thread": "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f"},
+                "source": {"context": CONTEXT_KEY},
+                "reply_to": "33333333-3333-4333-8333-333333333333",
                 "text": "Unposted reply",
                 "id": "0c2e4a6b-8d1f-4e3a-b5c7-d9e1f3a5b7c9",
-                "thread": thread.id,
+                "thread": "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f",
             },
         ]);
-        let document = json!({"version": 4, "conversations": conversations});
         let fixture = Self {
             new_thread: serde_json::from_value(Self::hydrated(&document, 0)).unwrap(),
             reply: serde_json::from_value(Self::hydrated(&document, 1)).unwrap(),
-            unit,
+            unit: "change".into(),
             document,
         };
         fixture.restore(store);
@@ -190,22 +180,43 @@ impl EmbeddedFixture {
 
     fn hydrated(document: &serde_json::Value, index: usize) -> serde_json::Value {
         let mut draft = document["conversations"]["drafts"][index].clone();
-        draft["source"] = serde_json::to_value(source()).unwrap();
+        draft["source"] = inline_source();
         draft
     }
 
     /// Put the embedded drafts back, as if the migration stopped before rewriting it.
     fn restore(&self, store: &ReviewStore) {
-        store
-            .atomic_compressed_json(
-                &store
-                    .review_record_path("conversations", &self.unit)
-                    .unwrap(),
-                &self.document,
-                "write fixture",
-            )
-            .unwrap();
+        store.write_json_fixture(&store.threads_fixture_path(), &self.document.to_string());
     }
+}
+
+#[test]
+fn a_version_1_draft_document_loads_and_is_written_back_byte_for_byte() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = open(&directory);
+    let unit: ReviewUnit = "change".into();
+    store.write_context_fixture();
+    store.write_json_fixture(&store.threads_fixture_path(), THREADS_V4);
+    let path = store.drafts_path(&unit).unwrap();
+    store.write_json_fixture(&path, DRAFTS_V1);
+
+    let threads = store.load_threads(&unit).unwrap();
+    let drafts = store.load_drafts(&unit).unwrap();
+    let [reply, new_thread] = drafts.drafts() else {
+        panic!("the fixture holds two drafts");
+    };
+    assert_eq!(reply.text, "Unposted \"reply\"\n");
+    assert_eq!(reply.thread_id(), &threads.threads()[1].id);
+    assert!(new_thread.is_new_thread());
+    assert_eq!(new_thread.path(), "source.rs");
+    assert!(
+        Arc::ptr_eq(&reply.source, &threads.threads()[1].source)
+            && Arc::ptr_eq(&new_thread.source, &reply.source),
+        "drafts and threads with the same source share one loaded copy"
+    );
+
+    store.save_drafts(&unit, &drafts).unwrap();
+    assert_eq!(ReviewStore::decoded_fixture(&path), DRAFTS_V1);
 }
 
 #[test]
@@ -216,7 +227,7 @@ fn drafts_saved_inside_the_thread_document_move_to_the_draft_store_on_first_load
     let expected = [fixture.new_thread.clone(), fixture.reply.clone()];
 
     let threads = store.load_threads(&fixture.unit).unwrap();
-    assert_eq!(threads.threads().len(), 1);
+    assert_eq!(threads.threads().len(), 2);
     assert_eq!(store.read_drafts(&fixture.unit).unwrap().drafts(), expected);
     let migrated = decoded(
         &store
@@ -296,7 +307,7 @@ fn an_unreadable_draft_store_never_hides_the_threads_or_loses_embedded_drafts() 
     std::fs::write(&drafts, "unreadable").unwrap();
 
     let threads = store.load_threads(&fixture.unit).unwrap();
-    assert_eq!(threads.threads().len(), 1);
+    assert_eq!(threads.threads().len(), 2);
     assert!(store.load_drafts(&fixture.unit).is_err());
     assert!(store.update_threads(&fixture.unit, |_| Ok(())).is_err());
     let index = store
@@ -311,31 +322,35 @@ fn drafts_inside_a_version_3_thread_document_move_to_the_draft_store() {
     let directory = tempfile::tempdir().unwrap();
     let store = open(&directory);
     let unit: ReviewUnit = "change".into();
-    let mut book = review_threads::ReviewThreads::new(unit.clone());
-    book.post(draft("Posted question").post()).unwrap();
-    let mut conversations = serde_json::to_value(&book).unwrap();
-    conversations["drafts"] = json!([{
-        "target": {"File": "source.rs"},
-        "source": serde_json::to_value(source()).unwrap(),
-        "reply_to": null,
-        "text": "Inline draft",
-        "id": "3f0c1d2e-4b5a-4c6d-8e7f-9a0b1c2d3e4f",
-        "thread": "7e6d5c4b-3a2f-4e1d-9c0b-a1b2c3d4e5f6",
-    }]);
-    let index = store.review_record_path("conversations", &unit).unwrap();
-    store
-        .atomic_compressed_json(
-            &index,
-            &json!({"version": 3, "conversations": conversations}),
-            "write fixture",
-        )
-        .unwrap();
+    let index = store.threads_fixture_path();
+    store.write_json_fixture(
+        &index,
+        &json!({"version": 3, "conversations": {
+            "review_unit": "change",
+            "threads": [inline_thread(json!({
+                "id": "0b6f2a4e-1c3d-4e5f-8a9b-0c1d2e3f4a5b",
+                "messages": [{"id": "11111111-1111-4111-8111-111111111111", "author": "reviewer", "text": "Posted question", "sequence": 1}],
+            }))],
+            "sequence": 1,
+            "drafts": [{
+                "target": {"File": "source.rs"},
+                "source": inline_source(),
+                "reply_to": null,
+                "text": "Inline draft",
+                "id": "3f0c1d2e-4b5a-4c6d-8e7f-9a0b1c2d3e4f",
+                "thread": "7e6d5c4b-3a2f-4e1d-9c0b-a1b2c3d4e5f6",
+            }],
+        }})
+        .to_string(),
+    );
 
-    assert_eq!(store.load_threads(&unit).unwrap().threads(), book.threads());
+    let threads = store.load_threads(&unit).unwrap();
+    assert_eq!(threads.threads().len(), 1);
+    assert_eq!(threads.threads()[0].messages[0].text, "Posted question");
     let drafts = store.load_drafts(&unit).unwrap();
     assert_eq!(drafts.drafts().len(), 1);
     assert_eq!(drafts.drafts()[0].text, "Inline draft");
-    assert_eq!(drafts.drafts()[0].source, source());
+    assert_eq!(*drafts.drafts()[0].source, *threads.threads()[0].source);
     let migrated = decoded(&index);
     assert_eq!(migrated["version"], 4);
     assert!(migrated["conversations"].get("drafts").is_none());
