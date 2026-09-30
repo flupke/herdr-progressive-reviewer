@@ -48,28 +48,20 @@ fn source_loading_prefers_frozen_content_when_a_deleted_path_is_recreated() {
         end_byte_column: 0,
     };
     let (commands, _command_receiver) = mpsc::channel();
+    let (message_sender, messages) = application_message_channel();
+    let store = ReviewStore::open(state_directory.path(), repository.root()).unwrap();
     let worker = Worker {
         repository: repository.clone(),
         tracker: Arc::new(tracker),
-        store: ReviewStore::open(state_directory.path(), repository.root()).unwrap(),
-        client: HerdrClient::new(
-            state_directory.path().join("unused.sock"),
-            "progressive-reviewer-test".to_owned(),
-            state_directory.path().to_owned(),
-        ),
-        target: AgentTarget::new(WorkspaceId("test-workspace".to_owned()), None),
+        explore: offline_explore_session(&repository, &store, &message_sender),
+        store,
         snapshot: Some(snapshot.clone()),
         commands,
-        explore: explore::ExploreRuntime::default(),
+        exclusion: ExclusionPolicy::disabled(),
         auto_review: None,
-        prompts: comment_service::test_worker(
-            &ReviewStore::open(state_directory.path(), repository.root()).unwrap(),
-        )
-        .prompt_sender(),
         documents: mpsc::channel().0,
     };
     std::fs::write(&location.path, "fn recreated_after_snapshot() {}\n").unwrap();
-    let (message_sender, messages) = application_message_channel();
 
     document_worker(&worker).load_source(
         &message_sender,
@@ -533,17 +525,13 @@ impl ReviewFlowFixture {
         let endpoint =
             review_mcp::Endpoint::for_repository(repository_files.root(), Some(port.number()))
                 .unwrap();
-        let prompt_commands = commands.clone();
         let comments = comments::Worker::start(
             store.clone(),
             herdr.client(),
             AgentTarget::new(herdr.workspace_id.clone(), Some(herdr.pane_id.clone())),
             Ok(endpoint),
-            move |event| {
-                if let comments::Event::Explore(request) = event {
-                    let _ = prompt_commands.send(WorkerCommand::ExploreMcp(Box::new(request)));
-                }
-            },
+            explore_route(commands.clone()),
+            |_| {},
         );
         herdr.report_agent("idle");
         herdr.run_cli(&[
@@ -562,20 +550,25 @@ impl ReviewFlowFixture {
             "--pane",
             &herdr.pane_id.0,
         ]);
+        let (message_sender, messages) = application_message_channel();
         let mut worker = Worker {
             repository: repository.clone(),
             tracker: Arc::new(tracker),
+            explore: live_explore_session(
+                &repository,
+                &store,
+                &herdr,
+                &comments,
+                &commands,
+                &message_sender,
+            ),
             store,
-            client: herdr.client(),
-            target: AgentTarget::new(herdr.workspace_id.clone(), Some(herdr.pane_id.clone())),
             snapshot: None,
             commands: commands.clone(),
-            explore: explore::ExploreRuntime::default(),
+            exclusion: ExclusionPolicy::disabled(),
             auto_review: None,
-            prompts: comments.prompt_sender(),
             documents: mpsc::channel().0,
         };
-        let (message_sender, messages) = application_message_channel();
         let worker_thread = thread::spawn(move || worker.run(&command_receiver, &message_sender));
         commands.send(WorkerCommand::Poll).unwrap();
         let review_unit = loop {
@@ -615,27 +608,19 @@ fn disk_content_changes_replace_the_visible_diff(repository_type: RepoType) {
     let store = ReviewStore::open(state_directory.path(), repository.root()).unwrap();
     let tracker = ReviewTracker::new(repository.clone(), store);
     let (commands, _command_receiver) = mpsc::channel();
+    let (message_sender, messages) = application_message_channel();
+    let store = ReviewStore::open(state_directory.path(), repository.root()).unwrap();
     let mut worker = Worker {
         repository: repository.clone(),
         tracker: Arc::new(tracker),
-        store: ReviewStore::open(state_directory.path(), repository.root()).unwrap(),
-        client: HerdrClient::new(
-            state_directory.path().join("unused.sock"),
-            "progressive-reviewer-test".to_owned(),
-            state_directory.path().to_owned(),
-        ),
-        target: AgentTarget::new(WorkspaceId("test-workspace".to_owned()), None),
+        explore: offline_explore_session(&repository, &store, &message_sender),
+        store,
         snapshot: None,
         commands,
-        explore: explore::ExploreRuntime::default(),
+        exclusion: ExclusionPolicy::disabled(),
         auto_review: None,
-        prompts: comment_service::test_worker(
-            &ReviewStore::open(state_directory.path(), repository.root()).unwrap(),
-        )
-        .prompt_sender(),
         documents: mpsc::channel().0,
     };
-    let (message_sender, messages) = application_message_channel();
     let mut application = ReviewApplication::default();
 
     assert!(worker.poll(&message_sender));
@@ -659,6 +644,62 @@ fn disk_content_changes_replace_the_visible_diff(repository_type: RepoType) {
     assert!(!rendered.contains("before_refresh"), "{rendered}");
 }
 
+/// A session for workers whose tests never prompt an agent.
+pub(super) fn offline_explore_session(
+    repository: &Repository,
+    store: &ReviewStore,
+    events: &ApplicationEventSender,
+) -> ExploreSession {
+    ExploreSession::new(explore_session::Collaborators {
+        repository: repository.clone(),
+        store: store.clone(),
+        agents: Arc::new(HerdrClient::new(
+            "/nonexistent/reviewer-test.sock".into(),
+            "reviewer-test".into(),
+            "/nonexistent".into(),
+        )),
+        target: AgentTarget::new(WorkspaceId("test".into()), None),
+        prompts: comment_service::test_worker(store).prompt_sender(),
+        exclusion: ExclusionPolicy::disabled(),
+        events: events.clone(),
+        inbox: explore_inbox(mpsc::channel().0),
+    })
+}
+
+/// A session prompting the isolated Herdr agent through `comments`.
+fn live_explore_session(
+    repository: &Repository,
+    store: &ReviewStore,
+    herdr: &IsolatedHerdrServer,
+    comments: &comments::Worker,
+    commands: &Sender<WorkerCommand>,
+    events: &ApplicationEventSender,
+) -> ExploreSession {
+    ExploreSession::new(explore_session::Collaborators {
+        repository: repository.clone(),
+        store: store.clone(),
+        agents: Arc::new(herdr.client()),
+        target: AgentTarget::new(herdr.workspace_id.clone(), Some(herdr.pane_id.clone())),
+        prompts: comments.prompt_sender(),
+        exclusion: ExclusionPolicy::disabled(),
+        events: events.clone(),
+        inbox: explore_inbox(commands.clone()),
+    })
+}
+
+/// Deliver agent Explore calls to the worker, as the running reviewer does.
+fn explore_route(
+    commands: Sender<WorkerCommand>,
+) -> impl Fn(review_mcp::Request) -> Result<(), String> + Send + Sync + 'static {
+    move |request| {
+        commands
+            .send(WorkerCommand::Explore(explore_session::Input::Submission(
+                Box::new(request),
+            )))
+            .map_err(|_| "The reviewer is closed".to_owned())
+    }
+}
+
 fn publish_pending_worker_events(
     application: &mut ReviewApplication,
     messages: &ApplicationMessageReceiver,
@@ -669,11 +710,7 @@ fn publish_pending_worker_events(
         .collect()
 }
 
-fn load_requested_diffs(
-    worker: &Worker,
-    messages: &ApplicationMessageSender,
-    actions: Vec<Action>,
-) {
+fn load_requested_diffs(worker: &Worker, messages: &ApplicationEventSender, actions: Vec<Action>) {
     for action in actions {
         if let Action::LoadDiff {
             review_checkpoint,

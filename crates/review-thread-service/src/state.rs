@@ -57,25 +57,12 @@ impl State {
                 Ok(Input::Ui(command)) => self.command(command),
                 Ok(Input::Prompt(request)) => self.prompts.push(request),
                 Ok(Input::Mcp(request)) => {
-                    self.dispatch_mcp(request);
+                    let result = self.request(&request.access, &request.operation);
+                    request.respond(result);
                 }
                 Err(RecvTimeoutError::Timeout) => {}
             }
             self.poll();
-        }
-    }
-
-    fn dispatch_mcp(&mut self, request: review_mcp::Request) {
-        if matches!(
-            request.operation,
-            Operation::SubmitQuestion(_)
-                | Operation::SubmitConclusion(_)
-                | Operation::GetCoverageGaps(_)
-        ) {
-            (self.publish)(Event::Explore(request));
-        } else {
-            let result = self.request(&request.access, &request.operation);
-            request.respond(result);
         }
     }
 

@@ -72,7 +72,7 @@ impl AutoReview {
             units,
             outcome,
             model: Some("jev-1.13.0".into()),
-            rubric: jev::RUBRIC.into(),
+            rubric: super::super::jev::RUBRIC.into(),
             criterion: String::new(),
             input_references: vec![],
             omissions: vec![],

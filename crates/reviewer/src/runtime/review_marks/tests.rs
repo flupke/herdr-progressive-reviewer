@@ -1,9 +1,5 @@
 use super::*;
-use crate::runtime::{comment_service, explore};
-use herdr_client::{
-    client::HerdrClient,
-    protocol::{AgentTarget, WorkspaceId},
-};
+use crate::runtime::tests::offline_explore_session;
 use review_repository::repository::{RepoType, Repository};
 use review_state::{ReviewStatus, ReviewTracker};
 use review_store::{LoadResult, ReviewStore};
@@ -40,24 +36,18 @@ fn bulk_reset_rejects_stale_confirmation_cancels_jev_and_refreshes_diff_marks(ki
             .unwrap();
     }
     let active = Arc::new(AtomicBool::new(true));
+    let (sender, receiver) = crate::runtime::application_message_channel();
     let mut worker = Worker {
         repository: repository.clone(),
-        tracker: Arc::new(ReviewTracker::new(repository, store.clone())),
+        tracker: Arc::new(ReviewTracker::new(repository.clone(), store.clone())),
         store: store.clone(),
-        client: HerdrClient::new(
-            state.path().join("unused.sock"),
-            "review-reset-test".into(),
-            state.path().to_owned(),
-        ),
-        target: AgentTarget::new(WorkspaceId("private-test".into()), None),
         snapshot: Some(snapshot),
         commands: mpsc::channel().0,
-        explore: explore::ExploreRuntime::default(),
+        explore: offline_explore_session(&repository, &store, &sender),
+        exclusion: review_explore::ExclusionPolicy::disabled(),
         auto_review: Some(active.clone()),
-        prompts: comment_service::test_worker(&store).prompt_sender(),
         documents: mpsc::channel().0,
     };
-    let (sender, receiver) = crate::runtime::application_message_channel();
     files.write("one.rs", b"changed after the dialog opened\n");
     worker.unreview_all(&checkpoint, &sender);
     assert!(matches!(

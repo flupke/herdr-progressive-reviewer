@@ -40,8 +40,6 @@ enum Input {
 
 /// Conversation updates emitted after the authoritative state changes.
 pub enum Event {
-    /// Explore has its own in-memory decision owner; it never changes ordinary threads.
-    Explore(review_mcp::Request),
     Loaded(ui_events::ReviewThreadsLoaded),
     Posted(ui_events::ThreadPostFinished),
     Error(String),
@@ -66,11 +64,14 @@ impl Worker {
         }
     }
 
+    /// Serve MCP at `endpoint`. Explore operations go straight to `explore`, which
+    /// belongs to the Explore session; this worker handles only review threads.
     pub fn start(
         store: ReviewStore,
         port: impl AgentPort + 'static,
         target: AgentTarget,
         endpoint: Result<Endpoint, String>,
+        explore: impl Fn(review_mcp::Request) -> Result<(), String> + Send + Sync + 'static,
         publish: impl Fn(Event) + Send + 'static,
     ) -> Self {
         let (sender, receiver) = mpsc::channel();
@@ -78,6 +79,9 @@ impl Worker {
         let thread = thread::spawn(move || {
             let server = endpoint.and_then(|endpoint| {
                 review_mcp::Server::start(endpoint, move |request| {
+                    if request.operation.belongs_to_explore() {
+                        return explore(request);
+                    }
                     requests
                         .send(Input::Mcp(request))
                         .map_err(|_| "The reviewer is closed".into())

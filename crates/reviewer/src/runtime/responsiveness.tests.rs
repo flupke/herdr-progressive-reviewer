@@ -1,4 +1,5 @@
 use super::*;
+use component_core::ApplicationEvent;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::process::{Command, Stdio};

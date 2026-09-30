@@ -6,6 +6,10 @@ mod conclusion;
 #[path = "explore/recovery.tests.rs"]
 mod recovery;
 
+fn explore_command(command: ExploreCommand) -> WorkerCommand {
+    WorkerCommand::Explore(explore_session::Input::Command(command))
+}
+
 struct ExploreFlow {
     fixture: ReviewFlowFixture,
     exploration: Exploration,
@@ -19,7 +23,7 @@ impl ExploreFlow {
         let fixture = ReviewFlowFixture::start(kind);
         fixture
             .commands
-            .send(WorkerCommand::Explore(ExploreCommand::Start))
+            .send(explore_command(ExploreCommand::Start))
             .unwrap();
         let comparison = loop {
             let event = fixture
@@ -45,7 +49,7 @@ impl ExploreFlow {
         let request = self.exploration.request(answer, question.as_ref()).unwrap();
         self.fixture
             .commands
-            .send(WorkerCommand::Explore(ExploreCommand::Turn(Box::new(
+            .send(explore_command(ExploreCommand::Turn(Box::new(
                 request.clone(),
             ))))
             .unwrap();
@@ -221,7 +225,7 @@ impl ExploreFlow {
         let request = self.exploration.request(None, None).unwrap();
         self.fixture
             .commands
-            .send(WorkerCommand::Explore(ExploreCommand::Turn(Box::new(
+            .send(explore_command(ExploreCommand::Turn(Box::new(
                 request.clone(),
             ))))
             .unwrap();
@@ -334,7 +338,7 @@ fn late_session_detection_preserves_the_interview_and_a_new_send_selects_the_rep
         .unwrap();
     flow.fixture
         .commands
-        .send(WorkerCommand::Explore(ExploreCommand::Turn(Box::new(
+        .send(explore_command(ExploreCommand::Turn(Box::new(
             request.clone(),
         ))))
         .unwrap();
@@ -360,7 +364,7 @@ fn cancelled_explore_access_rejects_submissions_without_changing_history() {
     let previous = serde_json::to_value(&flow.exploration.conversation[0].update).unwrap();
     flow.fixture
         .commands
-        .send(WorkerCommand::Explore(ExploreCommand::Cancel))
+        .send(explore_command(ExploreCommand::Cancel))
         .unwrap();
     let rejected = flow.submit(&previous);
     assert_eq!(rejected.is_error, Some(true));

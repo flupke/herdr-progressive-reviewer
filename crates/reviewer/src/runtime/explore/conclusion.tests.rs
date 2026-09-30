@@ -19,7 +19,7 @@ impl ExploreFlow {
             .unwrap();
         self.fixture
             .commands
-            .send(WorkerCommand::Explore(ExploreCommand::Turn(Box::new(
+            .send(explore_command(ExploreCommand::Turn(Box::new(
                 request.clone(),
             ))))
             .unwrap();
@@ -91,9 +91,7 @@ fn conclusion_uses_its_own_mcp_contract_and_implement_prompts_a_working_agent() 
         .unwrap();
     flow.fixture
         .commands
-        .send(WorkerCommand::Explore(ExploreCommand::Implement(
-            request.clone(),
-        )))
+        .send(explore_command(ExploreCommand::Implement(request.clone())))
         .unwrap();
     let delivered = flow.wait_for_implementation();
     assert_eq!(delivered.request, request);
@@ -118,7 +116,7 @@ fn cancelling_after_implementation_delivery_does_not_repeat_the_prompt() {
         .unwrap();
     flow.fixture
         .commands
-        .send(WorkerCommand::Explore(ExploreCommand::Implement(request)))
+        .send(explore_command(ExploreCommand::Implement(request)))
         .unwrap();
     assert_eq!(
         flow.wait_for_implementation().state,
@@ -127,7 +125,7 @@ fn cancelling_after_implementation_delivery_does_not_repeat_the_prompt() {
     let prompts = fs::read(flow.fixture.herdr.server.root().join("prompt.txt")).unwrap();
     flow.fixture
         .commands
-        .send(WorkerCommand::Explore(ExploreCommand::CancelImplementation))
+        .send(explore_command(ExploreCommand::CancelImplementation))
         .unwrap();
     flow.call("submit_conclusion", payload);
     assert_eq!(
@@ -155,9 +153,7 @@ fn restored_conclusion_prompts_selected_agent_without_a_native_conversation_id()
         .unwrap();
     flow.fixture
         .commands
-        .send(WorkerCommand::Explore(ExploreCommand::Implement(
-            request.clone(),
-        )))
+        .send(explore_command(ExploreCommand::Implement(request.clone())))
         .unwrap();
     let delivered = flow.wait_for_implementation();
     assert_eq!(delivered.request, request);

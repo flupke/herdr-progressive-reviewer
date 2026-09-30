@@ -76,6 +76,7 @@ impl ConversationFixture {
             server.client(),
             target.clone(),
             Ok(endpoint),
+            |_| Err("No Explore session in this test".into()),
             move |event| {
                 let _ = sender.send(event);
             },
@@ -106,6 +107,7 @@ impl ConversationFixture {
             self.server.client(),
             self.target.clone(),
             Ok(self.endpoint),
+            |_| Err("No Explore session in this test".into()),
             move |event| {
                 let _ = sender.send(event);
             },

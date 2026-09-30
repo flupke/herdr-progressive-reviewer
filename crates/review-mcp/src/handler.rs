@@ -10,7 +10,6 @@ use rmcp::{
 };
 use serde::Deserialize;
 use serde_json::json;
-use tokio::sync::oneshot;
 
 use crate::{Operation, Request, Response};
 
@@ -193,12 +192,8 @@ impl Handler {
         access: String,
         operation: Operation,
     ) -> Result<CallToolResult, ErrorData> {
-        let (response, received) = oneshot::channel();
-        if let Err(error) = (self.dispatch)(Request {
-            access,
-            operation,
-            response,
-        }) {
+        let (request, received) = Request::new(access, operation);
+        if let Err(error) = (self.dispatch)(request) {
             return Ok(CallToolResult::error(vec![ContentBlock::text(error)]));
         }
         let result = tokio::time::timeout(Duration::from_secs(15), received)

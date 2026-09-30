@@ -33,7 +33,33 @@ pub struct Request {
     response: oneshot::Sender<Result<Response, String>>,
 }
 
+impl Operation {
+    /// Explore operations belong to the Explore session, not to review threads.
+    pub fn belongs_to_explore(&self) -> bool {
+        matches!(
+            self,
+            Self::SubmitQuestion(_) | Self::SubmitConclusion(_) | Self::GetCoverageGaps(_)
+        )
+    }
+}
+
+/// The owner's eventual answer to one [`Request`].
+pub type PendingResponse = oneshot::Receiver<Result<Response, String>>;
+
 impl Request {
+    /// A request whose answer arrives on the returned receiver once the owner responds.
+    pub fn new(access: String, operation: Operation) -> (Self, PendingResponse) {
+        let (response, received) = oneshot::channel();
+        (
+            Self {
+                access,
+                operation,
+                response,
+            },
+            received,
+        )
+    }
+
     /// Finish a request after the authoritative owner has accepted its result.
     pub fn respond(self, result: Result<Response, String>) {
         let _ = self.response.send(result);

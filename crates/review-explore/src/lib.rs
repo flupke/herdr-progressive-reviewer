@@ -2,6 +2,7 @@
 
 mod coverage;
 mod durable;
+mod exclusion;
 mod presentation;
 mod recovery;
 pub use coverage::{
@@ -14,6 +15,7 @@ pub use durable::{
     ConversationBinding, DispatchId, DispatchResult, DispatchState, ExploreHistory, ExplorePass,
     ImplementationDelivery, InterviewDelivery, ReviewCompletion, UnexploredAtConclusion,
 };
+pub use exclusion::{ExclusionPolicy, SignificanceClassifier, SignificancePlan};
 pub use presentation::{
     EditorFocus, EvidencePosition, ExploreDraft, ExplorePage, ExploreViewState, QuestionReading,
     ViewSave,

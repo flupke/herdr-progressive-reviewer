@@ -1,12 +1,12 @@
 //! Confirmed bulk review-mark changes and their UI updates.
 
-use super::{ApplicationMessageSender, ReviewCheckpoint, ReviewStateSaved, Worker, WorkerCommand};
+use super::{ApplicationEventSender, ReviewCheckpoint, ReviewStateSaved, Worker, WorkerCommand};
 
 impl Worker {
     pub(super) fn handle_review_command(
         &mut self,
         command: WorkerCommand,
-        messages: &ApplicationMessageSender,
+        messages: &ApplicationEventSender,
     ) {
         match command {
             WorkerCommand::SetReviewed { path, reviewed } => {
@@ -20,7 +20,7 @@ impl Worker {
         }
     }
 
-    fn unreview_all(&mut self, checkpoint: &ReviewCheckpoint, messages: &ApplicationMessageSender) {
+    fn unreview_all(&mut self, checkpoint: &ReviewCheckpoint, messages: &ApplicationEventSender) {
         let result = self.clear_review_marks(checkpoint);
         // Even a partial storage failure must be reflected in Files and loaded diffs.
         self.poll(messages);

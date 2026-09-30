@@ -1,10 +1,18 @@
 //! Optional bounded significance prefilter. Its output can only remove coverage obligations.
-use review_explore::{Comparison, CoverageUnit, Significance, SignificanceResult, SourceSide};
+use review_explore::{
+    Comparison, CoverageUnit, ExclusionPolicy, Significance, SignificanceClassifier,
+    SignificancePlan, SignificanceResult, SourceSide,
+};
 use review_repository::diff::{DiffRow, parse_file_diff};
 use serde_json::Value;
 #[cfg(all(test, feature = "jev-evals"))]
 use serde_json::json;
-use std::{collections::BTreeMap, io::Read, sync::Mutex, time::Duration};
+use std::{
+    collections::BTreeMap,
+    io::Read,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 pub(super) const RUBRIC: &str = "explore-significance-checklist-v2";
 const MODEL: &str = "jev-1.13.0";
@@ -33,16 +41,38 @@ fn coordinate(row: &DiffRow) -> Option<(SourceSide, u32)> {
 #[cfg(all(test, feature = "jev-evals"))]
 const INSTRUCTIONS: &str = "Decide whether THIS exact changed block needs its own explanation in a code review, not whether the surrounding file deserves review. Old changed lines were removed; new changed lines were added. Adjacent context lines are unchanged and only help interpret this block. A change can be insignificant when its local effect is clear but adds no independent review decision: explanatory comments, formatting, routine annotations, or allowing an existing nonessential explanation field to be absent with a default. Significant changes include behavior, policy, state, contracts, dependencies, operations, operational defaults, removed assertions, permissions, and imports with meaningful targets or side effects. A default affecting functional data or compatibility with consequential consumers may still need an explanation. If an unseen consumer, helper, side effect or other context is needed to decide, choose uncertain. Do not infer correctness from a missing source. Answer for this block only.";
 
-#[cfg(not(test))]
-pub(super) fn key() -> Option<String> {
+/// Jev exclusions are enabled only when the process starts with a `TypeSafe` API key.
+pub(super) fn exclusion_policy_from_env() -> ExclusionPolicy {
     std::env::var("TYPESAFE_API_KEY")
         .ok()
         .filter(|value| !value.trim().is_empty())
+        .map_or_else(ExclusionPolicy::disabled, |key| {
+            ExclusionPolicy::enabled(Arc::new(Jev { key }))
+        })
 }
 
-#[cfg(test)]
-pub(super) fn key() -> Option<String> {
-    None
+/// The `TypeSafe` Jev significance classifier.
+struct Jev {
+    key: String,
+}
+
+impl SignificanceClassifier for Jev {
+    fn rubric(&self) -> &str {
+        RUBRIC
+    }
+
+    fn plan(&self, comparison: &Comparison, classified: &dyn Fn(&str) -> bool) -> SignificancePlan {
+        let candidates = Candidate::prepare(comparison);
+        let total_windows = candidates.len();
+        let candidates = candidates
+            .into_iter()
+            .filter(|candidate| !classified(candidate.id()))
+            .collect();
+        let key = self.key.clone();
+        SignificancePlan::new(total_windows, move |record| {
+            classify(&key, candidates, record)
+        })
+    }
 }
 
 pub(super) struct Candidate {
@@ -54,7 +84,7 @@ pub(super) struct Candidate {
 }
 
 impl Candidate {
-    pub(super) fn prepare(comparison: &Comparison) -> Vec<optimized::Prepared> {
+    fn prepare(comparison: &Comparison) -> Vec<optimized::Prepared> {
         let mut candidates = Vec::new();
         for (file_index, file) in comparison.files.iter().enumerate() {
             if let Some(diff) = comparison.diffs.get(file_index) {
@@ -223,7 +253,7 @@ fn context_text(row: &DiffRow) -> Option<&str> {
     }
 }
 
-pub(super) fn classify(
+fn classify(
     key: &str,
     candidates: Vec<optimized::Prepared>,
     record: impl FnMut(SignificanceResult) -> bool,

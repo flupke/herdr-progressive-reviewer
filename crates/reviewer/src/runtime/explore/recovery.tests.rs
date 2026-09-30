@@ -28,7 +28,6 @@ impl ExploreFlow {
         let placeholder = crate::runtime::comment_service::test_worker(&store);
         drop(std::mem::replace(&mut self.fixture.comments, placeholder));
         let (commands, command_receiver) = mpsc::channel();
-        let route = commands.clone();
         let comments = comments::Worker::start(
             store.clone(),
             self.fixture.herdr.client(),
@@ -37,32 +36,31 @@ impl ExploreFlow {
                 Some(self.fixture.herdr.pane_id.clone()),
             ),
             Ok(self.endpoint),
-            move |event| {
-                if let comments::Event::Explore(request) = event {
-                    let _ = route.send(WorkerCommand::ExploreMcp(Box::new(request)));
-                }
-            },
+            explore_route(commands.clone()),
+            |_| {},
         );
+        let (messages, receiver) = application_message_channel();
         let mut worker = Worker {
             repository: self.fixture.repository.clone(),
             tracker: Arc::new(ReviewTracker::new(
                 self.fixture.repository.clone(),
                 store.clone(),
             )),
-            store,
-            client: self.fixture.herdr.client(),
-            target: AgentTarget::new(
-                self.fixture.herdr.workspace_id.clone(),
-                Some(self.fixture.herdr.pane_id.clone()),
+            explore: live_explore_session(
+                &self.fixture.repository,
+                &store,
+                &self.fixture.herdr,
+                &comments,
+                &commands,
+                &messages,
             ),
+            store,
             snapshot: None,
             commands: commands.clone(),
-            explore: explore::ExploreRuntime::default(),
+            exclusion: ExclusionPolicy::disabled(),
             auto_review: None,
-            prompts: comments.prompt_sender(),
             documents: mpsc::channel().0,
         };
-        let (messages, receiver) = application_message_channel();
         self.fixture.worker_thread =
             thread::spawn(move || worker.run(&command_receiver, &messages));
         self.fixture.commands = commands;
@@ -229,7 +227,7 @@ fn invalid_saved_pass_is_removed_and_the_ui_can_start_again() {
     assert!(toast.downcast_ref::<ui_events::ToastRequested>().is_some());
     flow.fixture
         .commands
-        .send(WorkerCommand::Explore(ExploreCommand::Start))
+        .send(explore_command(ExploreCommand::Start))
         .unwrap();
     let captured = loop {
         let event = flow
@@ -338,7 +336,7 @@ fn same_conversation_restores_without_a_prompt_and_retry_keeps_posted_answer_ide
         .unwrap();
     flow.fixture
         .commands
-        .send(WorkerCommand::Explore(ExploreCommand::Turn(Box::new(
+        .send(explore_command(ExploreCommand::Turn(Box::new(
             request.clone(),
         ))))
         .unwrap();
@@ -365,7 +363,7 @@ fn same_conversation_restores_without_a_prompt_and_retry_keeps_posted_answer_ide
     let obsolete = flow.access.clone();
     flow.fixture
         .commands
-        .send(WorkerCommand::Explore(ExploreCommand::Turn(Box::new(
+        .send(explore_command(ExploreCommand::Turn(Box::new(
             retry.clone(),
         ))))
         .unwrap();
@@ -509,7 +507,7 @@ fn lost_ui_ack_is_durable_and_identical_retry_with_fresh_access_does_not_append(
         .unwrap();
     flow.fixture
         .commands
-        .send(WorkerCommand::Explore(ExploreCommand::Turn(Box::new(
+        .send(explore_command(ExploreCommand::Turn(Box::new(
             request.clone(),
         ))))
         .unwrap();
@@ -541,7 +539,7 @@ fn lost_ui_ack_is_durable_and_identical_retry_with_fresh_access_does_not_append(
         .unwrap();
     flow.fixture
         .commands
-        .send(WorkerCommand::Explore(ExploreCommand::Turn(Box::new(
+        .send(explore_command(ExploreCommand::Turn(Box::new(
             follow_up.clone(),
         ))))
         .unwrap();
@@ -583,7 +581,7 @@ fn cancellation_from_an_old_attempt_cannot_fail_the_retried_logical_turn() {
         .unwrap();
     flow.fixture
         .commands
-        .send(WorkerCommand::Explore(ExploreCommand::Turn(Box::new(
+        .send(explore_command(ExploreCommand::Turn(Box::new(
             request.clone(),
         ))))
         .unwrap();
@@ -591,27 +589,29 @@ fn cancellation_from_an_old_attempt_cannot_fail_the_retried_logical_turn() {
     let old_attempt = flow.saved().turns[&request.request].attempt.clone();
     flow.fixture
         .commands
-        .send(WorkerCommand::Explore(ExploreCommand::Cancel))
+        .send(explore_command(ExploreCommand::Cancel))
         .unwrap();
     flow.exploration.cancel();
     let retry = flow.exploration.retry().unwrap();
     flow.fixture
         .commands
-        .send(WorkerCommand::Explore(ExploreCommand::Turn(Box::new(
+        .send(explore_command(ExploreCommand::Turn(Box::new(
             retry.clone(),
         ))))
         .unwrap();
     flow.wait_for_prompt(&retry);
     flow.fixture
         .commands
-        .send(WorkerCommand::ExploreFinished {
-            attempt: old_attempt,
-            event: Box::new(ui_events::ExploreFinished {
-                instance: request.instance.clone(),
-                request: request.request.clone(),
-                result: Err("Late cancellation".into()),
-            }),
-        })
+        .send(WorkerCommand::Explore(
+            review_explore_session::Input::PromptFinished {
+                attempt: old_attempt,
+                event: Box::new(ui_events::ExploreFinished {
+                    instance: request.instance.clone(),
+                    request: request.request.clone(),
+                    result: Err("Late cancellation".into()),
+                }),
+            },
+        ))
         .unwrap();
     // A real MCP roundtrip runs after the late receipt and must still be able to finish this turn.
     let payload = serde_json::json!({"instance":request.instance,"request":request.request,"checkpoint":request.checkpoint,
@@ -645,7 +645,7 @@ fn restored_history_prompts_the_selected_agent_conversation() {
         .unwrap();
     flow.fixture
         .commands
-        .send(WorkerCommand::Explore(ExploreCommand::Turn(Box::new(
+        .send(explore_command(ExploreCommand::Turn(Box::new(
             request.clone(),
         ))))
         .unwrap();
@@ -696,7 +696,7 @@ fn explicit_retry_adopts_changed_agent_in_the_same_pane(native_session_ready: bo
     assert_eq!(retry.answer, request.answer);
     flow.fixture
         .commands
-        .send(WorkerCommand::Explore(ExploreCommand::Retry(Box::new(
+        .send(explore_command(ExploreCommand::Retry(Box::new(
             retry.clone(),
         ))))
         .unwrap();
@@ -783,7 +783,7 @@ fn interrupted_request_in_changed_conversation() -> (ExploreFlow, TurnRequest) {
     flow.fixture.herdr.stop_agent();
     flow.fixture
         .commands
-        .send(WorkerCommand::Explore(ExploreCommand::Turn(Box::new(
+        .send(explore_command(ExploreCommand::Turn(Box::new(
             request.clone(),
         ))))
         .unwrap();
@@ -838,7 +838,7 @@ fn unresolved_original_identity_restores_and_prompts_the_selected_agent() {
         .unwrap();
     flow.fixture
         .commands
-        .send(WorkerCommand::Explore(ExploreCommand::Turn(Box::new(
+        .send(explore_command(ExploreCommand::Turn(Box::new(
             request.clone(),
         ))))
         .unwrap();

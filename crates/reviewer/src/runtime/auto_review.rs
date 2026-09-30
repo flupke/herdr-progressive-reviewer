@@ -1,7 +1,9 @@
 //! Explicit Jev classification and review marks for one immutable comparison.
 
-use super::{ApplicationMessageSender, Worker, WorkerCommand, jev};
-use review_explore::{Comparison, CoverageLedger, Significance};
+use super::{ApplicationEventSender, Worker, WorkerCommand};
+use review_explore::{
+    Comparison, CoverageLedger, ExclusionPolicy, Significance, SignificanceClassifier,
+};
 use review_repository::repository::{PollResult, Repository};
 use review_source::ReviewCheckpoint;
 use review_state::ReviewTracker;
@@ -65,9 +67,9 @@ impl AutoReview {
         })
     }
 
-    fn classify(&mut self, key: &str) {
-        let candidates = jev::Candidate::prepare(&self.comparison);
-        self.finished = jev::classify(key, candidates, |result| {
+    fn classify(&mut self, classifier: &dyn SignificanceClassifier) {
+        let plan = classifier.plan(&self.comparison, &|_| false);
+        self.finished = plan.run(|result| {
             if !self.active.load(Ordering::Relaxed) {
                 return false;
             }
@@ -163,16 +165,18 @@ impl Worker {
     pub(super) fn start_auto_review(
         &mut self,
         checkpoint: &ReviewCheckpoint,
-        messages: &ApplicationMessageSender,
+        messages: &ApplicationEventSender,
     ) {
         let result = self.prepare_auto_review(checkpoint);
         let toast = match result {
-            Ok((mut review, key)) => {
+            Ok((mut review, exclusion)) => {
                 let total = review.comparison.files.len();
                 self.auto_review = Some(review.active.clone());
                 let commands = self.commands.clone();
                 std::thread::spawn(move || {
-                    review.classify(&key);
+                    if let Some(classifier) = exclusion.classifier() {
+                        review.classify(classifier);
+                    }
                     let _ = commands.send(WorkerCommand::AutoReviewFinished(Box::new(review)));
                 });
                 ui_events::ToastRequested {
@@ -191,26 +195,27 @@ impl Worker {
     fn prepare_auto_review(
         &self,
         checkpoint: &ReviewCheckpoint,
-    ) -> eyre::Result<(AutoReview, String)> {
+    ) -> eyre::Result<(AutoReview, ExclusionPolicy)> {
         eyre::ensure!(
             self.auto_review.is_none(),
             "Jev automatic review is already running"
         );
-        let key = jev::key().ok_or_else(|| {
-            eyre::eyre!("Set TYPESAFE_API_KEY to automatically review files with Jev")
-        })?;
+        eyre::ensure!(
+            self.exclusion.is_enabled(),
+            "Set TYPESAFE_API_KEY to automatically review files with Jev"
+        );
         let review = AutoReview::prepare(&self.repository, &self.tracker, &self.store, checkpoint)?;
         eyre::ensure!(
             !review.comparison.files.is_empty(),
             "All files are already reviewed"
         );
-        Ok((review, key))
+        Ok((review, self.exclusion.clone()))
     }
 
     pub(super) fn finish_auto_review(
         &mut self,
         review: &AutoReview,
-        messages: &ApplicationMessageSender,
+        messages: &ApplicationEventSender,
     ) {
         self.auto_review = None;
         let toast = match review.apply(&self.repository, &self.store) {

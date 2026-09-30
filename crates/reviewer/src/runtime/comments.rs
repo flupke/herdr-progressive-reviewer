@@ -1,6 +1,6 @@
 //! Conversation traffic bypasses slow repository operations.
 
-use super::{AgentTarget, ApplicationMessageSender, ReviewStore, Runtime, comments};
+use super::{AgentTarget, ApplicationEventSender, ReviewStore, Runtime, comments};
 
 #[cfg(test)]
 use super::{HerdrClient, WorkspaceId};
@@ -9,7 +9,7 @@ impl Runtime {
     pub(super) fn start_comments(
         &self,
         store: ReviewStore,
-        messages: ApplicationMessageSender,
+        messages: ApplicationEventSender,
         target: AgentTarget,
         commands: std::sync::mpsc::Sender<super::WorkerCommand>,
     ) -> comments::Worker {
@@ -18,11 +18,15 @@ impl Runtime {
             self.client.clone(),
             target,
             review_mcp::Endpoint::from_env(self.repository.root()),
+            move |request| {
+                commands
+                    .send(super::WorkerCommand::Explore(
+                        review_explore_session::Input::Submission(Box::new(request)),
+                    ))
+                    .map_err(|_| "The reviewer is closed".to_owned())
+            },
             {
                 move |event| match event {
-                    comments::Event::Explore(request) => {
-                        let _ = commands.send(super::WorkerCommand::ExploreMcp(Box::new(request)));
-                    }
                     comments::Event::Loaded(event) => {
                         let _ = messages.send(event);
                     }
@@ -52,6 +56,7 @@ pub(super) fn test_worker(store: &ReviewStore) -> comments::Worker {
         ),
         AgentTarget::new(WorkspaceId("test".into()), None),
         Err("No MCP listener in this unit test".into()),
+        |_| Err("No MCP listener in this unit test".into()),
         |_| {},
     )
 }

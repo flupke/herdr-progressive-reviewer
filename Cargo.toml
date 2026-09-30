@@ -3,6 +3,7 @@ exclude = ["vendor/ratatui-markdown", "tests/tui"]
 members = [
     "crates/review-explore",
     "crates/review-explore-runner",
+    "crates/review-explore-session",
     "crates/components/explore",
     "crates/component-core",
     "crates/component-modal",

@@ -9,9 +9,8 @@ license.workspace = true
 jev-evals = ["dep:serde"]
 
 [dependencies]
-uuid.workspace = true
-review-explore-runner = { path = "../review-explore-runner" }
 review-explore = { path = "../review-explore" }
+review-explore-session = { path = "../review-explore-session" }
 toasts = { path = "../toasts" }
 text-search = { path = "../text-search" }
 crossterm.workspace = true
@@ -44,6 +43,7 @@ serde = { workspace = true, optional = true }
 tiktoken-rs = "0.12"
 
 [dev-dependencies]
+uuid.workspace = true
 rmcp = { workspace = true, features = ["client", "transport-streamable-http-client-reqwest"] }
 tokio.workspace = true
 review-test-support = { path = "../review-test-support" }

@@ -1,7 +1,7 @@
 //! File reads run independently of repository refresh and agent delivery.
 
 use super::{
-    ApplicationMessageSender, Arc, ChangedFile, DiffContentLoadFailed, DiffContentLoaded,
+    ApplicationEventSender, Arc, ChangedFile, DiffContentLoadFailed, DiffContentLoaded,
     EventEnvelope, Path, Receiver, Repository, ReviewCheckpoint, ReviewTracker, Snapshot,
     SourceContentLoadFailed, SourceContentLoaded, SourceLoadMode, SourceLocation, parse_file_diff,
 };
@@ -28,11 +28,7 @@ pub(super) struct DocumentWorker {
 }
 
 impl DocumentWorker {
-    pub(super) fn run(
-        &mut self,
-        commands: &Receiver<Command>,
-        messages: &ApplicationMessageSender,
-    ) {
+    pub(super) fn run(&mut self, commands: &Receiver<Command>, messages: &ApplicationEventSender) {
         while let Ok(command) = commands.recv() {
             match command {
                 Command::Snapshot(snapshot) => self.snapshot = Some(snapshot),
@@ -52,7 +48,7 @@ impl DocumentWorker {
 
     pub(super) fn load_source(
         &self,
-        messages: &ApplicationMessageSender,
+        messages: &ApplicationEventSender,
         snapshot_id: String,
         location: SourceLocation,
         mode: SourceLoadMode,
@@ -88,12 +84,12 @@ impl DocumentWorker {
                 mode,
             }),
         };
-        let _ = messages.0.send(event);
+        let _ = messages.send_envelope(event);
     }
 
     pub(super) fn load_diff(
         &self,
-        messages: &ApplicationMessageSender,
+        messages: &ApplicationEventSender,
         review_checkpoint: ReviewCheckpoint,
         path: String,
     ) {
@@ -120,7 +116,7 @@ impl DocumentWorker {
                 path,
             }),
         };
-        let _ = messages.0.send(event);
+        let _ = messages.send_envelope(event);
     }
 
     fn find_file<'a>(

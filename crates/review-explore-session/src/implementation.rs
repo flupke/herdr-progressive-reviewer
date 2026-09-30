@@ -1,19 +1,17 @@
-use super::{ApplicationMessageSender, Worker, dispatch::DurableDispatch};
+//! Explicitly authorized implementation of an Explore conclusion.
+
+use crate::{ExploreSession, dispatch::DurableDispatch};
 use review_explore::ImplementationRequest;
 use std::sync::Arc;
 use ui_events::ExploreImplementationFinished;
 
-impl Worker {
-    pub(super) fn implement_explore(
-        &mut self,
-        request: ImplementationRequest,
-        messages: &ApplicationMessageSender,
-    ) {
+impl ExploreSession {
+    pub(crate) fn implement(&mut self, request: ImplementationRequest) {
         let result = self.prepare_implementation(&request);
         let (agent, pass) = match result {
             Ok(result) => result,
             Err(error) => {
-                let _ = messages.send(ExploreImplementationFinished {
+                let _ = self.events.send(ExploreImplementationFinished {
                     request,
                     attempt: None,
                     state: review_explore::DispatchState::NotSent(error.to_string()),
@@ -21,7 +19,7 @@ impl Worker {
                 return;
             }
         };
-        let _ = messages.send(ui_events::ExploreImplementationSaved(
+        let _ = self.events.send(ui_events::ExploreImplementationSaved(
             pass.implementations[&request.delivery].clone(),
         ));
         let observer = DurableDispatch {
@@ -33,17 +31,17 @@ impl Worker {
                 request: request.delivery.clone(),
                 attempt: pass.implementations[&request.delivery].attempt.clone(),
             },
-            messages: messages.clone(),
+            events: self.events.clone(),
         };
         let prompt = review_explore_runner::implementation_prompt(&request);
         let (receipt, cancellation) =
             self.prompts
                 .send_observed(agent, prompt, Some(Arc::new(observer)));
-        self.explore.implementation = Some(cancellation);
-        let messages = messages.clone();
+        self.state.implementation = Some(cancellation);
+        let events = self.events.clone();
         let attempt = pass.implementations[&request.delivery].attempt.clone();
         std::thread::spawn(move || {
-            let _ = messages.send(ExploreImplementationFinished {
+            let _ = events.send(ExploreImplementationFinished {
                 request,
                 attempt: Some(attempt),
                 state: DurableDispatch::outcome(&receipt.wait()),
@@ -59,12 +57,12 @@ impl Worker {
         review_explore::ExplorePass,
     )> {
         eyre::ensure!(
-            self.explore.storage_error.is_none() && !self.explore.historical,
+            self.state.storage_error.is_none() && !self.state.historical,
             "Explore storage is unavailable or this pass is history"
         );
-        let agent = self.select_explore_agent()?;
+        let agent = self.select_agent()?;
         let unit = self
-            .explore
+            .state
             .loaded_unit
             .clone()
             .ok_or_else(|| eyre::eyre!("No Explore pass"))?;
@@ -78,7 +76,7 @@ impl Worker {
                     .state = review_explore::DispatchState::Queued;
                 Ok(())
             })?;
-        self.explore.pass = Some(pass.clone());
+        self.state.pass = Some(pass.clone());
         Ok((agent, pass))
     }
 }

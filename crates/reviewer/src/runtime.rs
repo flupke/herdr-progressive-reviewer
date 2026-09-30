@@ -7,7 +7,6 @@ mod comment_service;
 mod document;
 mod editor;
 mod events;
-mod explore;
 mod highlighting;
 mod jev;
 mod review_marks;
@@ -27,7 +26,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use component_core::{ApplicationEvent, EventEnvelope};
+use component_core::{ApplicationEventSender, EventEnvelope};
 #[cfg(test)]
 use crossbeam_channel::Receiver as EventReceiver;
 use crossbeam_channel::{Sender as EventSender, unbounded};
@@ -44,6 +43,8 @@ use herdr_client::client::HerdrClient;
 use herdr_client::protocol::{AgentTarget, HerdrEvent, PaneId, PluginContext, WorkspaceId};
 use ratatui::Terminal;
 use ratatui::backend::Backend;
+use review_explore::ExclusionPolicy;
+use review_explore_session::{self as explore_session, ExploreSession};
 use review_lsp::SourceLocation;
 use review_repository::diff::parse_file_diff;
 use review_repository::repository::{
@@ -71,6 +72,13 @@ const HERDR_EVENT_RECONNECT_DELAY: Duration = Duration::from_secs(1);
 const EVENT_BATCH_LIMIT: usize = 64;
 const EVENT_BATCH_BUDGET: Duration = Duration::from_millis(8);
 
+/// Route inputs the Explore session produces later back to the worker's serial order.
+fn explore_inbox(commands: Sender<WorkerCommand>) -> explore_session::Inbox {
+    explore_session::Inbox::new(move |input| {
+        let _ = commands.send(WorkerCommand::Explore(input));
+    })
+}
+
 /// The running review pane.
 #[derive(Debug)]
 pub struct Runtime {
@@ -87,33 +95,22 @@ struct Worker {
     repository: Repository,
     tracker: Arc<ReviewTracker>,
     store: ReviewStore,
-    client: HerdrClient,
-    target: AgentTarget,
     snapshot: Option<Snapshot>,
     commands: Sender<WorkerCommand>,
-    explore: explore::ExploreRuntime,
+    explore: ExploreSession,
+    exclusion: ExclusionPolicy,
     auto_review: Option<Arc<AtomicBool>>,
-    prompts: comments::PromptSender,
     documents: Sender<document::Command>,
 }
 
 #[derive(Debug)]
 enum WorkerCommand {
-    Explore(review_explore::Command),
-    ExploreFinished {
-        event: Box<ui_events::ExploreFinished>,
-        attempt: String,
-    },
-    ExploreChanged,
-    ExploreMcp(Box<review_mcp::Request>),
+    Explore(explore_session::Input),
     Poll,
     LoadRevisionCandidates(RevisionDirection),
     LoadRevisionHistory(RevisionHistoryLoadId),
     EditRevision(ChangeId),
-    SetReviewed {
-        path: String,
-        reviewed: bool,
-    },
+    SetReviewed { path: String, reviewed: bool },
     AutoReview(ReviewCheckpoint),
     UnreviewAll(ReviewCheckpoint),
     AutoReviewFinished(Box<auto_review::AutoReview>),
@@ -203,18 +200,6 @@ struct ApplicationTick(Instant);
 struct TerminalFailed(String);
 struct TerminalFocused;
 
-#[derive(Clone)]
-struct ApplicationMessageSender(EventSender<EventEnvelope>);
-
-impl ApplicationMessageSender {
-    fn send<Event>(&self, event: Event) -> Result<(), crossbeam_channel::SendError<EventEnvelope>>
-    where
-        Event: ApplicationEvent,
-    {
-        self.0.send(EventEnvelope::new(event))
-    }
-}
-
 #[cfg(test)]
 struct ApplicationMessageReceiver(EventReceiver<EventEnvelope>);
 
@@ -233,10 +218,10 @@ impl ApplicationMessageReceiver {
 }
 
 #[cfg(test)]
-fn application_message_channel() -> (ApplicationMessageSender, ApplicationMessageReceiver) {
+fn application_message_channel() -> (ApplicationEventSender, ApplicationMessageReceiver) {
     let (sender, receiver) = unbounded();
     (
-        ApplicationMessageSender(sender),
+        ApplicationEventSender::new(sender),
         ApplicationMessageReceiver(receiver),
     )
 }
@@ -313,7 +298,9 @@ impl Runtime {
         } else {
             watcher.watch_explore(settings.explore_directory(), move |event| match event {
                 Ok(()) => {
-                    let _ = changed.send(WorkerCommand::ExploreChanged);
+                    let _ = changed.send(WorkerCommand::Explore(
+                        explore_session::Input::StorageChanged,
+                    ));
                 }
                 Err(error) => {
                     let _ = explore_events.send(EventEnvelope::new(
@@ -465,29 +452,38 @@ impl Runtime {
             tracker: Arc::clone(&tracker),
             snapshot: None,
         };
-        let document_messages = ApplicationMessageSender(events.clone());
+        let document_messages = ApplicationEventSender::new(events.clone());
         let document_thread = thread::spawn(move || {
             document_worker.run(&document_receiver, &document_messages);
             let _ = document_messages.send(WorkerStopped);
         });
-        let messages = ApplicationMessageSender(events.clone());
+        let messages = ApplicationEventSender::new(events.clone());
         let comments = self.start_comments(
             store.clone(),
             messages.clone(),
             target.clone(),
             command_sender.clone(),
         );
+        let exclusion = jev::exclusion_policy_from_env();
+        let explore = ExploreSession::new(explore_session::Collaborators {
+            repository: self.repository.clone(),
+            store: store.clone(),
+            agents: Arc::new(self.client.clone()),
+            target: target.clone(),
+            prompts: comments.prompt_sender(),
+            exclusion: exclusion.clone(),
+            events: messages.clone(),
+            inbox: explore_inbox(command_sender.clone()),
+        });
         let mut worker = Worker {
             repository: self.repository.clone(),
             tracker,
             store,
-            client: self.client.clone(),
-            target: target.clone(),
             snapshot: None,
             commands: command_sender.clone(),
-            explore: explore::ExploreRuntime::default(),
+            explore,
+            exclusion,
             auto_review: None,
-            prompts: comments.prompt_sender(),
             documents: documents.clone(),
         };
         let handle = thread::spawn(move || {
@@ -613,7 +609,9 @@ impl RuntimeActionDispatcher<'_> {
 
     fn worker_command(action: Action) -> WorkerCommand {
         match action {
-            Action::Explore(command) => WorkerCommand::Explore(command),
+            Action::Explore(command) => {
+                WorkerCommand::Explore(explore_session::Input::Command(command))
+            }
             action @ (Action::LoadRevisionCandidates(_)
             | Action::LoadRevisionHistory { .. }
             | Action::EditRevision { .. }) => Self::revision_worker_command(action),
@@ -873,15 +871,18 @@ where
 }
 
 impl Worker {
-    fn run(&mut self, commands: &Receiver<WorkerCommand>, messages: &ApplicationMessageSender) {
+    fn run(&mut self, commands: &Receiver<WorkerCommand>, messages: &ApplicationEventSender) {
         let mut next = None;
         while let Some(mut command) = next.take().or_else(|| commands.recv().ok()) {
-            if let WorkerCommand::Explore(review_explore::Command::SaveView(view)) = &mut command {
+            if let WorkerCommand::Explore(explore_session::Input::Command(
+                review_explore::Command::SaveView(view),
+            )) = &mut command
+            {
                 for _ in 0..64 {
                     match commands.try_recv() {
-                        Ok(WorkerCommand::Explore(review_explore::Command::SaveView(new)))
-                            if new.instance == view.instance =>
-                        {
+                        Ok(WorkerCommand::Explore(explore_session::Input::Command(
+                            review_explore::Command::SaveView(new),
+                        ))) if new.instance == view.instance => {
                             *view = new;
                         }
                         Ok(command) => {
@@ -901,7 +902,7 @@ impl Worker {
     fn handle_command(
         &mut self,
         command: WorkerCommand,
-        messages: &ApplicationMessageSender,
+        messages: &ApplicationEventSender,
     ) -> bool {
         match command {
             command @ (WorkerCommand::Poll
@@ -915,20 +916,8 @@ impl Worker {
                 self.handle_review_command(command, messages);
                 true
             }
-            WorkerCommand::ExploreChanged => {
-                self.refresh_explore(messages);
-                true
-            }
-            WorkerCommand::Explore(command) => {
-                self.explore_command(command, messages);
-                true
-            }
-            WorkerCommand::ExploreFinished { event, attempt } => {
-                self.explore_finished(*event, &attempt, messages);
-                true
-            }
-            WorkerCommand::ExploreMcp(request) => {
-                self.explore_mcp(*request, messages);
+            WorkerCommand::Explore(input) => {
+                self.explore.handle(input);
                 true
             }
             WorkerCommand::Quit => false,
@@ -938,7 +927,7 @@ impl Worker {
     fn handle_repository_command(
         &mut self,
         command: WorkerCommand,
-        messages: &ApplicationMessageSender,
+        messages: &ApplicationEventSender,
     ) -> bool {
         match command {
             WorkerCommand::Poll => {
@@ -965,7 +954,7 @@ impl Worker {
         true
     }
 
-    fn edit_revision(&mut self, messages: &ApplicationMessageSender, change_id: &ChangeId) {
+    fn edit_revision(&mut self, messages: &ApplicationEventSender, change_id: &ChangeId) {
         let failure = match self.repository.edit_revision(change_id) {
             Ok(true) if !self.poll(messages) => {
                 Some("could not load the selected revision".to_owned())
@@ -977,7 +966,7 @@ impl Worker {
         let _ = messages.send(RevisionEditFailed { message: failure });
     }
 
-    fn poll(&mut self, messages: &ApplicationMessageSender) -> bool {
+    fn poll(&mut self, messages: &ApplicationEventSender) -> bool {
         let snapshot = match self.repository.poll() {
             Ok(PollResult::Complete(snapshot)) => snapshot,
             Ok(PollResult::ChangedDuringPoll) | Err(_) => return false,
@@ -1015,12 +1004,12 @@ impl Worker {
             files,
         });
         let review_unit = snapshot.identity.review_unit().clone();
-        self.restore_explore(&review_unit, messages);
+        self.explore.checkpoint_changed(&review_unit);
         self.snapshot = Some(snapshot);
         true
     }
 
-    fn set_reviewed(&self, messages: &ApplicationMessageSender, path: String, reviewed: bool) {
+    fn set_reviewed(&self, messages: &ApplicationEventSender, path: String, reviewed: bool) {
         let Some(snapshot) = self.snapshot.as_ref() else {
             return;
         };

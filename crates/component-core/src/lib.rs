@@ -89,6 +89,39 @@ impl std::fmt::Debug for EventPublisher {
     }
 }
 
+/// A thread-safe handle that sends events from background work to the application loop.
+#[derive(Clone)]
+pub struct ApplicationEventSender(crossbeam_channel::Sender<EventEnvelope>);
+
+impl ApplicationEventSender {
+    pub fn new(sender: crossbeam_channel::Sender<EventEnvelope>) -> Self {
+        Self(sender)
+    }
+
+    /// Fails only after the application loop stopped receiving events.
+    pub fn send<E>(&self, event: E) -> Result<(), crossbeam_channel::SendError<EventEnvelope>>
+    where
+        E: ApplicationEvent,
+    {
+        self.send_envelope(EventEnvelope::new(event))
+    }
+
+    pub fn send_envelope(
+        &self,
+        event: EventEnvelope,
+    ) -> Result<(), crossbeam_channel::SendError<EventEnvelope>> {
+        self.0.send(event)
+    }
+}
+
+impl std::fmt::Debug for ApplicationEventSender {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ApplicationEventSender")
+            .finish_non_exhaustive()
+    }
+}
+
 /// The type-erased result of one component handler.
 #[derive(Debug, Eq, PartialEq)]
 pub struct DispatchResult<A> {

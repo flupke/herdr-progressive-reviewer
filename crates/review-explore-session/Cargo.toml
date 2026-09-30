@@ -1,0 +1,31 @@
+[package]
+name = "review-explore-session"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+component-core = { path = "../component-core" }
+eyre.workspace = true
+herdr-client = { path = "../herdr-client" }
+review-explore = { path = "../review-explore" }
+review-explore-runner = { path = "../review-explore-runner" }
+review-mcp = { path = "../review-mcp" }
+review-repository = { path = "../review-repository" }
+review-store = { path = "../review-store" }
+review-thread-service = { path = "../review-thread-service" }
+review-types = { path = "../review-types" }
+toasts = { path = "../toasts" }
+ui-events = { path = "../ui-events" }
+uuid.workspace = true
+
+[dev-dependencies]
+crossbeam-channel.workspace = true
+herdr-client = { path = "../herdr-client", features = ["memory"] }
+review-test-support = { path = "../review-test-support" }
+serde_json.workspace = true
+tempfile.workspace = true
+
+[lints]
+workspace = true

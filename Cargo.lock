@@ -454,6 +454,9 @@ dependencies = [
 [[package]]
 name = "component-core"
 version = "0.2.0"
+dependencies = [
+ "crossbeam-channel",
+]
 
 [[package]]
 name = "component-modal"
@@ -3894,6 +3897,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "review-explore-session"
+version = "0.2.0"
+dependencies = [
+ "component-core",
+ "crossbeam-channel",
+ "eyre",
+ "herdr-client",
+ "review-explore",
+ "review-explore-runner",
+ "review-mcp",
+ "review-repository",
+ "review-store",
+ "review-test-support",
+ "review-thread-service",
+ "review-types",
+ "serde_json",
+ "tempfile",
+ "toasts",
+ "ui-events",
+ "uuid",
+]
+
+[[package]]
 name = "review-lsp"
 version = "0.2.0"
 dependencies = [
@@ -4103,7 +4129,7 @@ dependencies = [
  "ratatui 0.30.2",
  "reqwest",
  "review-explore",
- "review-explore-runner",
+ "review-explore-session",
  "review-lsp",
  "review-mcp",
  "review-mcp-config",
