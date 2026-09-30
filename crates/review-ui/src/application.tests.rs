@@ -20,6 +20,7 @@ use toasts::ToastId;
 
 use super::*;
 use crate::Key;
+use crate::{DocumentAction, DocumentLoad, LspAction, RepositoryAction, TerminalAction};
 use component_core::{
     AnyInput, Component, ComponentSubscriptions, InputMatcher, InputResolution, InputScope,
 };
@@ -45,7 +46,7 @@ impl SelectiveGlobalComponent {
     #[allow(clippy::unused_self)]
     #[allow(clippy::trivially_copy_pass_by_ref)]
     fn input(&mut self, _input: Key) -> Vec<Action> {
-        vec![Action::RestartLsp]
+        vec![Action::Lsp(LspAction::Restart)]
     }
 }
 
@@ -65,7 +66,7 @@ impl FocusedComponent {
     #[allow(clippy::unused_self)]
     #[allow(clippy::trivially_copy_pass_by_ref)]
     fn input(&mut self, _input: Key) -> Vec<Action> {
-        vec![Action::Quit]
+        vec![Action::Terminal(TerminalAction::Quit)]
     }
 }
 
@@ -81,7 +82,7 @@ impl GlobalComponent {
     #[allow(clippy::unused_self)]
     #[allow(clippy::trivially_copy_pass_by_ref)]
     fn input(&mut self, _input: Key) -> Vec<Action> {
-        vec![Action::RestartLsp]
+        vec![Action::Lsp(LspAction::Restart)]
     }
 }
 
@@ -137,25 +138,24 @@ fn making_the_selected_reviewed_file_unreviewed_loads_its_diff() {
         String::new(),
         vec![FileSummary::new("src/lib.rs", ReviewStatus::Reviewed)],
     );
-    assert!(
-        !initial_actions
-            .iter()
-            .any(|action| matches!(action, Action::LoadDiff { .. }))
-    );
+    assert!(!initial_actions.iter().any(|action| matches!(
+        action,
+        Action::Document(DocumentAction::Load(DocumentLoad::Diff { .. }))
+    )));
 
     let actions = application.update(UserInput::Key(Key::Char(' ')));
 
     assert_eq!(
         actions,
         vec![
-            Action::SetReviewed {
+            Action::Repository(RepositoryAction::SetReviewed {
                 path: "src/lib.rs".to_owned(),
                 reviewed: false,
-            },
-            Action::LoadDiff {
+            }),
+            Action::Document(DocumentAction::Load(DocumentLoad::Diff {
                 review_checkpoint,
                 path: "src/lib.rs".to_owned(),
-            },
+            })),
         ]
     );
 }
@@ -176,10 +176,10 @@ fn space_marks_the_selected_file_reviewed_from_either_pane() {
 
         assert_eq!(
             application.update(UserInput::Key(Key::Char(' '))),
-            vec![Action::SetReviewed {
+            vec![Action::Repository(RepositoryAction::SetReviewed {
                 path: "src/lib.rs".to_owned(),
                 reviewed: true,
-            }],
+            })],
         );
     }
 }
@@ -206,14 +206,16 @@ fn rf_requests_jev_review_from_files_and_diff_without_optimistic_marks() {
         );
         assert_eq!(
             application.update(UserInput::Key(Key::Char('f'))),
-            vec![Action::AutoReview(checkpoint)],
+            vec![Action::Repository(RepositoryAction::AutoReview(checkpoint))],
         );
-        assert!(application.update(UserInput::Key(Key::Char(' '))).contains(
-            &Action::SetReviewed {
-                path: "src/lib.rs".into(),
-                reviewed: true,
-            }
-        ));
+        assert!(
+            application
+                .update(UserInput::Key(Key::Char(' ')))
+                .contains(&Action::Repository(RepositoryAction::SetReviewed {
+                    path: "src/lib.rs".into(),
+                    reviewed: true,
+                }))
+        );
     }
 }
 
@@ -253,7 +255,12 @@ fn unreview_all_requires_explicit_confirmation_from_either_pane() {
             }
             let actions = application.update(UserInput::Key(answer));
             if answer == Key::Char('y') {
-                assert_eq!(actions, vec![Action::UnreviewAll(checkpoint)]);
+                assert_eq!(
+                    actions,
+                    vec![Action::Repository(RepositoryAction::UnreviewAll(
+                        checkpoint
+                    ))]
+                );
             } else {
                 assert!(actions.is_empty());
             }
@@ -309,7 +316,9 @@ fn revision_navigation_works_while_the_files_pane_has_focus() {
     let actions = application.update(UserInput::Key(Key::Char('v')));
     assert_eq!(
         actions,
-        vec![Action::LoadRevisionCandidates(RevisionDirection::Parents)]
+        vec![Action::Repository(
+            RepositoryAction::LoadRevisionCandidates(RevisionDirection::Parents)
+        )]
     );
 }
 
@@ -330,9 +339,9 @@ fn revision_selector_requests_rendered_history() {
     );
     assert_eq!(
         application.update(UserInput::Key(Key::Char('v'))),
-        [Action::LoadRevisionHistory {
+        [Action::Repository(RepositoryAction::LoadRevisionHistory {
             load_id: RevisionHistoryLoadId::new(0),
-        }]
+        })]
     );
 }
 
@@ -442,7 +451,7 @@ fn unhandled_files_input_reaches_the_global_application_controller() {
 
     assert_eq!(
         application.update(UserInput::Key(Key::Char('q'))),
-        [Action::Quit]
+        [Action::Terminal(TerminalAction::Quit)]
     );
 }
 
@@ -555,24 +564,24 @@ fn files_component_moves_selection_and_requests_the_new_diff() {
         initial,
         [
             Action::Thread(review_threads::ThreadCommand::Load("change".into())),
-            Action::LoadDiff {
+            Action::Document(DocumentAction::Load(DocumentLoad::Diff {
                 review_checkpoint: ReviewCheckpoint::new("change", "commit"),
                 path: "first.rs".to_owned(),
-            },
-            Action::OpenLspDocument("first.rs".into())
+            })),
+            Action::Lsp(LspAction::OpenDocument("first.rs".into()))
         ]
     );
 
     assert_eq!(
         application.update(UserInput::Key(Key::Down)),
-        [Action::OpenLspDocument("second.rs".into())]
+        [Action::Lsp(LspAction::OpenDocument("second.rs".into()))]
     );
     assert_eq!(
         publish_tick(&mut application, Instant::now()),
-        [Action::LoadDiff {
+        [Action::Document(DocumentAction::Load(DocumentLoad::Diff {
             review_checkpoint: ReviewCheckpoint::new("change", "commit"),
             path: "second.rs".to_owned(),
-        }]
+        }))]
     );
 }
 
@@ -603,7 +612,7 @@ fn matched_focused_input_stops_before_later_global_handlers() {
 
     assert_eq!(
         application.update(UserInput::Key(Key::Char('q'))),
-        [Action::Quit]
+        [Action::Terminal(TerminalAction::Quit)]
     );
 }
 
@@ -613,7 +622,7 @@ fn focused_input_runs_before_global_input() {
 
     assert_eq!(
         application.update(UserInput::Key(Key::Char('x'))),
-        [Action::Quit]
+        [Action::Terminal(TerminalAction::Quit)]
     );
 }
 
@@ -634,7 +643,7 @@ fn completed_global_shortcut_returns_input_to_the_focused_component() {
     );
     assert_eq!(
         application.update(UserInput::Key(Key::Char('x'))),
-        [Action::Quit]
+        [Action::Terminal(TerminalAction::Quit)]
     );
 }
 
@@ -644,7 +653,7 @@ fn unmatched_focused_input_falls_back_to_global_handlers() {
 
     assert_eq!(
         application.update(UserInput::Key(Key::Char('~'))),
-        [Action::RestartLsp]
+        [Action::Lsp(LspAction::Restart)]
     );
 }
 
@@ -686,7 +695,7 @@ fn location_click_uses_the_visible_row_after_pointer_scrolling() {
     assert!(
         matches!(
             actions.as_slice(),
-            [Action::LoadSource { location, .. }] if location.line == 2
+            [Action::Document(DocumentAction::Load(DocumentLoad::Source { location, .. }))] if location.line == 2
         ),
         "unexpected actions: {actions:?}"
     );
@@ -713,9 +722,9 @@ fn revision_navigation_restores_the_file_after_the_new_files_arrive() {
                 description: String::new(),
             }]),
         }),
-        [Action::EditRevision {
+        [Action::Repository(RepositoryAction::EditRevision {
             change_id: ChangeId::from("new".to_owned()),
-        }]
+        })]
     );
 
     assert_eq!(
@@ -726,10 +735,10 @@ fn revision_navigation_restores_the_file_after_the_new_files_arrive() {
             vec![FileSummary::new("src/lib.rs", ReviewStatus::Unreviewed)]
         ),
         [
-            Action::LoadDiff {
+            Action::Document(DocumentAction::Load(DocumentLoad::Diff {
                 review_checkpoint: ReviewCheckpoint::new("new", "new-snapshot"),
                 path: "src/lib.rs".to_owned(),
-            },
+            })),
             Action::Thread(review_threads::ThreadCommand::Load("new".into()))
         ]
     );
@@ -762,9 +771,9 @@ fn failed_history_revision_edit_keeps_the_previous_location_available() {
     );
     application.update(UserInput::Key(Key::Tab));
 
-    let expected = [Action::EditRevision {
+    let expected = [Action::Repository(RepositoryAction::EditRevision {
         change_id: ChangeId::from("old".to_owned()),
-    }];
+    })];
     assert_eq!(
         application.update(UserInput::Key(Key::PreviousLocation)),
         expected

@@ -14,7 +14,9 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use review_source::ReviewCheckpoint;
 use review_state::ReviewStatus;
-use ui_actions::Action;
+use ui_actions::{
+    Action, DocumentAction, DocumentLoad, LspAction, RepositoryAction, TerminalAction,
+};
 use ui_events::{
     AnimationTick, CurrentReviewLocationChanged, DiffContentLoadFailed, DiffContentLoaded,
     DiffInputClearRequested, DiffTargetJumpRequested, DiffViewportChanged,
@@ -605,7 +607,7 @@ impl SourceViewer {
             }
             DiffShortcut::SearchMatch(command) => self.search_match(command),
             DiffShortcut::Source(command) => self.source(command),
-            DiffShortcut::Lsp(LspShortcut::Restart) => vec![Action::RestartLsp],
+            DiffShortcut::Lsp(LspShortcut::Restart) => vec![Action::Lsp(LspAction::Restart)],
             DiffShortcut::Lsp(command) => self.lsp(command),
             DiffShortcut::StartSelection => {
                 self.start_selection();
@@ -822,8 +824,12 @@ impl SourceViewer {
                     self.jump_to_search_location(&to);
                     self.record_current_location_jump(origin);
                 }
-                SearchIntent::Request(request) => actions.push(Action::Search(Some(request))),
-                SearchIntent::CancelRequest => actions.push(Action::Search(None)),
+                SearchIntent::Request(request) => {
+                    actions.push(Action::Document(DocumentAction::Search(Some(request))));
+                }
+                SearchIntent::CancelRequest => {
+                    actions.push(Action::Document(DocumentAction::Search(None)));
+                }
                 SearchIntent::Status { files } => {
                     if files {
                         self.publish_decorations();
@@ -880,10 +886,12 @@ impl SourceViewer {
             .iter_mut()
             .filter_map(LoadedDocument::start_diff_load)
             .collect::<Vec<_>>();
-        (!paths.is_empty()).then_some(Action::LoadDiffs {
-            review_checkpoint,
-            paths,
-        })
+        (!paths.is_empty()).then_some(Action::Document(DocumentAction::Load(
+            DocumentLoad::Diffs {
+                review_checkpoint,
+                paths,
+            },
+        )))
     }
 
     fn refresh_search_matches(&mut self) -> Vec<Action> {
@@ -970,10 +978,10 @@ impl SourceViewer {
             .diff
             .source_position(document.document.position().cursor())
             .map(|(line, _)| line);
-        vec![Action::OpenInEditor {
+        vec![Action::Terminal(TerminalAction::OpenInEditor {
             path: self.document_disk_path(document),
             line,
-        }]
+        })]
     }
 
     fn document_disk_path(&self, document: &LoadedDocument) -> PathBuf {
@@ -996,7 +1004,7 @@ impl SourceViewer {
             LspShortcut::GoToDefinition => review_lsp::Operation::Definition,
             LspShortcut::GoToTypeDefinition => review_lsp::Operation::TypeDefinition,
             LspShortcut::GoToReferences => review_lsp::Operation::References,
-            LspShortcut::Restart => return vec![Action::RestartLsp],
+            LspShortcut::Restart => return vec![Action::Lsp(LspAction::Restart)],
         };
         let (Some(document), Some(snapshot_id)) =
             (self.selected_document(), self.source_snapshot())
@@ -1019,7 +1027,7 @@ impl SourceViewer {
             byte_column = byte_column.saturating_sub(1);
         }
         let path = self.document_disk_path(document);
-        vec![Action::Lsp {
+        vec![Action::Lsp(LspAction::Request {
             operation,
             query: review_lsp::Query {
                 toast_id: toasts::ToastId::generate(),
@@ -1029,7 +1037,7 @@ impl SourceViewer {
                 expected_line,
                 snapshot_id: snapshot_id.to_owned(),
             },
-        }]
+        })]
     }
 
     /// The rows the reviewer selected in the shown document.
@@ -1197,7 +1205,7 @@ impl SourceViewer {
                 .selected_document()
                 .and_then(|document| document.disk_path.clone())
                 .unwrap_or_else(|| self.repository_root.join(&event.path));
-            actions.push(Action::OpenLspDocument(path));
+            actions.push(Action::Lsp(LspAction::OpenDocument(path)));
         }
         actions.extend(self.request_visible_highlights());
         actions
@@ -1224,9 +1232,11 @@ impl SourceViewer {
             .documents
             .iter_mut()
             .find(|document| document.path == selected_path)?;
-        document.start_diff_load().map(|path| Action::LoadDiff {
-            review_checkpoint,
-            path,
+        document.start_diff_load().map(|path| {
+            Action::Document(DocumentAction::Load(DocumentLoad::Diff {
+                review_checkpoint,
+                path,
+            }))
         })
     }
 
@@ -1439,21 +1449,25 @@ impl SourceViewer {
             }
             return document
                 .start_diff_load()
-                .map(|path| Action::LoadDiff {
-                    review_checkpoint,
-                    path,
+                .map(|path| {
+                    Action::Document(DocumentAction::Load(DocumentLoad::Diff {
+                        review_checkpoint,
+                        path,
+                    }))
                 })
                 .into_iter()
                 .collect();
         }
-        vec![Action::LoadSource {
-            snapshot_id: self
-                .source_snapshot()
-                .expect("checkpoint exists")
-                .to_owned(),
-            location: event.location.clone(),
-            mode: ui_actions::SourceLoadMode::Preview,
-        }]
+        vec![Action::Document(DocumentAction::Load(
+            DocumentLoad::Source {
+                snapshot_id: self
+                    .source_snapshot()
+                    .expect("checkpoint exists")
+                    .to_owned(),
+                location: event.location.clone(),
+                mode: ui_actions::SourceLoadMode::Preview,
+            },
+        ))]
     }
 
     fn accept_source_location(&mut self, event: &SourceLocationAccepted) -> Vec<Action> {
@@ -1506,14 +1520,16 @@ impl SourceViewer {
             }
             return action.into_iter().collect();
         }
-        vec![Action::LoadSource {
-            snapshot_id: self
-                .source_snapshot()
-                .expect("checkpoint exists")
-                .to_owned(),
-            location,
-            mode,
-        }]
+        vec![Action::Document(DocumentAction::Load(
+            DocumentLoad::Source {
+                snapshot_id: self
+                    .source_snapshot()
+                    .expect("checkpoint exists")
+                    .to_owned(),
+                location,
+                mode,
+            },
+        ))]
     }
 
     fn source_content_loaded(&mut self, event: &SourceContentLoaded) -> Vec<Action> {
@@ -1569,7 +1585,9 @@ impl SourceViewer {
         }
         let mut actions = self.request_visible_highlights();
         if event.mode.is_external() {
-            actions.push(Action::OpenLspDocument(event.location.path.clone()));
+            actions.push(Action::Lsp(LspAction::OpenDocument(
+                event.location.path.clone(),
+            )));
         }
         actions
     }
@@ -1709,7 +1727,9 @@ impl SourceViewer {
                 target,
                 previous_history,
             });
-            return vec![Action::EditRevision { change_id }];
+            return vec![Action::Repository(RepositoryAction::EditRevision {
+                change_id,
+            })];
         }
         self.events
             .publish(ReviewLocationRestoreRequested { location: target });

@@ -1,4 +1,5 @@
 use super::*;
+use crate::RepositoryAction;
 
 #[test]
 fn lsp_references_open_beside_explore_source_and_restore_the_full_pane() {
@@ -870,11 +871,10 @@ fn native_search_selection_and_comment_editor_survive_window_resizing() {
         action,
         Action::Thread(review_threads::ThreadCommand::Post { .. })
     )));
-    assert!(
-        !actions
-            .iter()
-            .any(|action| matches!(action, Action::SetReviewed { .. }))
-    );
+    assert!(!actions.iter().any(|action| matches!(
+        action,
+        Action::Repository(RepositoryAction::SetReviewed { .. })
+    )));
 }
 
 #[test]
@@ -982,7 +982,7 @@ fn delayed_search_results_stay_with_their_evidence_window() {
     let search = actions
         .into_iter()
         .find_map(|action| match action {
-            Action::Search(Some(request)) => Some(request),
+            Action::Document(DocumentAction::Search(Some(request))) => Some(request),
             _ => None,
         })
         .expect("large source uses the shared search worker");
@@ -1001,7 +1001,7 @@ fn delayed_search_results_stay_with_their_evidence_window() {
     let actions = open(&mut fixture.app, 0);
     assert!(
         actions.iter().any(
-            |action| matches!(action, Action::Search(Some(request)) if request.id() == search.id())
+            |action| matches!(action, Action::Document(DocumentAction::Search(Some(request))) if request.id() == search.id())
         ),
         "reopening resumes work cancelled by another viewer"
     );
@@ -1012,7 +1012,7 @@ fn delayed_search_results_stay_with_their_evidence_window() {
     assert!(
         !actions
             .iter()
-            .any(|action| matches!(action, Action::Search(_))),
+            .any(|action| matches!(action, Action::Document(DocumentAction::Search(_)))),
         "the inactive viewer retained its completed search"
     );
     assert!(fixture.text().contains("/s"));

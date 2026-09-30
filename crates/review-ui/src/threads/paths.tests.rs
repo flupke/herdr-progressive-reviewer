@@ -1,4 +1,5 @@
 use super::*;
+use crate::{DocumentAction, DocumentLoad};
 
 #[test]
 fn a_copy_does_not_take_the_sources_thread_badge_conversation_or_navigation() {
@@ -42,7 +43,7 @@ fn a_copy_does_not_take_the_sources_thread_badge_conversation_or_navigation() {
     ui.key(Key::Enter);
     let actions = ui.key(Key::Char('p'));
     assert!(
-        matches!(actions.first(), Some(Action::LoadSource { location, .. })
+        matches!(actions.first(), Some(Action::Document(DocumentAction::Load(DocumentLoad::Source { location, .. })))
         if location.path == PathBuf::from("/repo/src/lib.rs")),
         "{actions:?}"
     );
@@ -79,7 +80,7 @@ fn a_copy_does_not_inherit_threads_when_its_source_is_outside_the_diff() {
     ui.key(Key::Enter);
     let actions = ui.key(Key::Char('p'));
     assert!(
-        matches!(actions.first(), Some(Action::LoadSource { location, .. })
+        matches!(actions.first(), Some(Action::Document(DocumentAction::Load(DocumentLoad::Source { location, .. })))
         if location.path == PathBuf::from("/repo/src/lib.rs")),
         "{actions:?}"
     );

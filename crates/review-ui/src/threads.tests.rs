@@ -1,4 +1,5 @@
 use super::*;
+use crate::{DocumentAction, DocumentLoad, LspAction};
 use ratatui::buffer::Buffer;
 use review_source::{AnchorKind, DiffRangeAnchor};
 use review_threads::{MessageId, Post, Resolution, ReviewThreads, ThreadCommand, ThreadId};
@@ -351,12 +352,12 @@ fn source_peek_is_read_only_and_rejects_results_from_a_previous_thread() {
     ui.key(Key::Enter);
     let actions = ui.key(Key::Char('p'));
     let [
-        Action::LoadSource {
+        Action::Document(DocumentAction::Load(DocumentLoad::Source {
             snapshot_id,
             location,
             mode: ui_events::SourceLoadMode::ThreadPeek,
-        },
-        Action::WatchSource(Some(watched)),
+        })),
+        Action::Document(DocumentAction::WatchSource(Some(watched))),
     ] = actions.as_slice()
     else {
         panic!("unexpected actions: {actions:?}");
@@ -466,10 +467,10 @@ fn threads_resolution_stays_at_bottom_right_without_a_peek_button() {
         let actions = ui.key(Key::Char('p'));
         assert!(actions.iter().any(|action| matches!(
             action,
-            Action::LoadSource {
+            Action::Document(DocumentAction::Load(DocumentLoad::Source {
                 mode: ui_events::SourceLoadMode::ThreadPeek,
                 ..
-            }
+            }))
         )));
         ui.key(Key::Escape);
         assert!(ui.text().contains("The complete answer"));
@@ -830,12 +831,12 @@ fn current_source_peek_highlights_only_a_verified_range() {
     ui.key(Key::Enter);
     let actions = ui.key(Key::Char('p'));
     let [
-        Action::LoadSource {
+        Action::Document(DocumentAction::Load(DocumentLoad::Source {
             snapshot_id,
             location,
             ..
-        },
-        Action::WatchSource(Some(_)),
+        })),
+        Action::Document(DocumentAction::WatchSource(Some(_))),
     ] = actions.as_slice()
     else {
         panic!("expected source peek");
@@ -1088,11 +1089,11 @@ fn peek_uses_native_highlighting_navigation_and_lsp_without_changing_files() {
     ui.key(Key::Char('t'));
     ui.key(Key::Enter);
     let actions = ui.key(Key::Char('p'));
-    let Action::LoadSource {
+    let Action::Document(DocumentAction::Load(DocumentLoad::Source {
         snapshot_id,
         location,
         mode,
-    } = &actions[0]
+    })) = &actions[0]
     else {
         panic!("source load");
     };
@@ -1104,13 +1105,13 @@ fn peek_uses_native_highlighting_navigation_and_lsp_without_changing_files() {
     });
     assert!(
         loaded.iter().any(
-            |action| matches!(action, Action::OpenLspDocument(path) if path == &location.path)
+            |action| matches!(action, Action::Lsp(LspAction::OpenDocument(path)) if path == &location.path)
         )
     );
     let request = loaded
         .iter()
         .find_map(|action| match action {
-            Action::Highlight(request) => Some(request.clone()),
+            Action::Document(DocumentAction::Highlight(request)) => Some(request.clone()),
             _ => None,
         })
         .expect("native highlighting request");
@@ -1130,12 +1131,12 @@ fn peek_uses_native_highlighting_navigation_and_lsp_without_changing_files() {
     ui.key(Key::Char('l'));
     let actions = ui.key(Key::Char('K'));
     assert!(
-        matches!(&actions[..], [Action::Lsp { operation: review_lsp::Operation::Hover, query }] if query.line == 1 && query.byte_column == 1 && query.expected_line == "fn second() {}" && query.snapshot_id == *snapshot_id),
+        matches!(&actions[..], [Action::Lsp(LspAction::Request { operation: review_lsp::Operation::Hover, query })] if query.line == 1 && query.byte_column == 1 && query.expected_line == "fn second() {}" && query.snapshot_id == *snapshot_id),
         "{actions:?}"
     );
     ui.key(Key::Char('g'));
     let actions = ui.key(Key::Char('d'));
-    let [Action::Lsp { operation, query }] = actions.as_slice() else {
+    let [Action::Lsp(LspAction::Request { operation, query })] = actions.as_slice() else {
         panic!("definition request: {actions:?}");
     };
     assert_eq!(*operation, review_lsp::Operation::Definition);
@@ -1152,9 +1153,9 @@ fn peek_uses_native_highlighting_navigation_and_lsp_without_changing_files() {
         snapshot_id: query.snapshot_id.clone(),
         locations: vec![target.clone()],
     });
-    let Action::LoadSource {
+    let Action::Document(DocumentAction::Load(DocumentLoad::Source {
         snapshot_id, mode, ..
-    } = &actions[0]
+    })) = &actions[0]
     else {
         panic!("definition source load: {actions:?}");
     };
@@ -1189,11 +1190,11 @@ fn delayed_lsp_results_cannot_leave_a_closed_or_replaced_peek() {
         ui.key(Key::Char('t'));
         ui.key(Key::Enter);
         let actions = ui.key(Key::Char('p'));
-        let Action::LoadSource {
+        let Action::Document(DocumentAction::Load(DocumentLoad::Source {
             snapshot_id,
             location,
             mode,
-        } = &actions[0]
+        })) = &actions[0]
         else {
             panic!("source load");
         };
@@ -1205,7 +1206,7 @@ fn delayed_lsp_results_cannot_leave_a_closed_or_replaced_peek() {
         });
         ui.key(Key::Char('g'));
         let actions = ui.key(Key::Char('d'));
-        let Action::Lsp { operation, query } = &actions[0] else {
+        let Action::Lsp(LspAction::Request { operation, query }) = &actions[0] else {
             panic!("definition request");
         };
         if switch_thread {
@@ -1237,11 +1238,11 @@ fn failed_definition_load_keeps_the_current_peek_and_original_context() {
     ui.key(Key::Char('t'));
     ui.key(Key::Enter);
     let actions = ui.key(Key::Char('p'));
-    let Action::LoadSource {
+    let Action::Document(DocumentAction::Load(DocumentLoad::Source {
         snapshot_id,
         location,
         mode,
-    } = &actions[0]
+    })) = &actions[0]
     else {
         panic!("source load");
     };
@@ -1283,7 +1284,7 @@ fn files_search_results_arriving_during_peek_remain_available_on_return() {
     let mut pending = None;
     for character in "needle".chars() {
         for action in ui.key(Key::Char(character)) {
-            if let Action::Search(Some(request)) = action {
+            if let Action::Document(DocumentAction::Search(Some(request))) = action {
                 pending = Some(request);
             }
         }

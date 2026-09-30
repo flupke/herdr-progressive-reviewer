@@ -8,7 +8,7 @@ use ratatui::{
     widgets::{Paragraph, Widget},
 };
 use review_lsp::SourceLocation;
-use ui_actions::Action;
+use ui_actions::{Action, DocumentAction, DocumentLoad};
 use ui_events::{SourceContentLoadFailed, SourceContentLoaded, SourceLoadMode};
 use ui_theme::Palette;
 
@@ -95,11 +95,13 @@ impl DiffComponent {
             .publish(ui_events::SourceSessionChanged {
                 snapshot_id: Some(request.clone()),
             });
-        vec![Action::LoadSource {
-            snapshot_id: request,
-            location: peek.location.clone(),
-            mode: SourceLoadMode::ThreadPeek,
-        }]
+        vec![Action::Document(DocumentAction::Load(
+            DocumentLoad::Source {
+                snapshot_id: request,
+                location: peek.location.clone(),
+                mode: SourceLoadMode::ThreadPeek,
+            },
+        ))]
     }
 
     fn next_peek_request(&mut self) -> String {
@@ -174,11 +176,13 @@ impl DiffComponent {
             location: location.clone(),
             position: None,
         });
-        vec![Action::LoadSource {
-            snapshot_id: request,
-            location,
-            mode: SourceLoadMode::ThreadPeek,
-        }]
+        vec![Action::Document(DocumentAction::Load(
+            DocumentLoad::Source {
+                snapshot_id: request,
+                location,
+                mode: SourceLoadMode::ThreadPeek,
+            },
+        ))]
     }
 
     pub(crate) fn peek_loaded(&mut self, event: &SourceContentLoaded) -> Vec<Action> {

@@ -1,4 +1,5 @@
 use super::*;
+use crate::RepositoryAction;
 use review_explore::{ConclusionSubmission, ImplementationRequest};
 
 fn finish(fixture: &mut ExploreUi, request: &TurnRequest) -> InterviewUpdate {
@@ -36,7 +37,9 @@ fn submit(fixture: &mut ExploreUi, update: InterviewUpdate) -> bool {
         .publish(ui_events::ExploreSubmission { update, response });
     assert!(!actions.iter().any(|action| matches!(
         action,
-        Action::Explore(Command::Implement(_)) | Action::SetReviewed { .. } | Action::Thread(_)
+        Action::Explore(Command::Implement(_))
+            | Action::Repository(RepositoryAction::SetReviewed { .. })
+            | Action::Thread(_)
     )));
     received.recv().unwrap().unwrap()
 }

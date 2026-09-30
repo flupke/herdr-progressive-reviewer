@@ -1,4 +1,5 @@
 use super::*;
+use ui_actions::LspAction;
 
 struct HighlightFixture {
     syntax: SyntaxHighlighter,
@@ -132,11 +133,10 @@ fn loading_an_unselected_diff_does_not_start_highlighting_or_lsp() {
         .into_iter()
         .flat_map(DispatchResult::into_actions)
         .collect::<Vec<_>>();
-    assert!(
-        !actions
-            .iter()
-            .any(|action| matches!(action, Action::Highlight(_) | Action::OpenLspDocument(_)))
-    );
+    assert!(!actions.iter().any(|action| matches!(
+        action,
+        Action::Document(DocumentAction::Highlight(_)) | Action::Lsp(LspAction::OpenDocument(_))
+    )));
     let component = registry.get::<DiffComponent>(target).unwrap();
     let loaded = component
         .files
@@ -165,7 +165,7 @@ fn loading_an_unselected_diff_does_not_start_highlighting_or_lsp() {
     assert!(
         selected
             .iter()
-            .any(|action| matches!(action, Action::Highlight(_)))
+            .any(|action| matches!(action, Action::Document(DocumentAction::Highlight(_))))
     );
-    assert!(selected.contains(&Action::OpenLspDocument("a.rs".into())));
+    assert!(selected.contains(&Action::Lsp(LspAction::OpenDocument("a.rs".into()))));
 }

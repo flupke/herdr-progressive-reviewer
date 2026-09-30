@@ -1,4 +1,5 @@
 use super::*;
+use crate::{DocumentAction, DocumentLoad, LspAction, RepositoryAction};
 use diff_component::SourceViewer;
 use ratatui::{buffer::Buffer, layout::Rect, widgets::Widget};
 use review_explore::{
@@ -97,11 +98,10 @@ impl ExploreUi {
     }
 
     fn request(actions: Vec<Action>) -> TurnRequest {
-        assert!(
-            !actions
-                .iter()
-                .any(|action| matches!(action, Action::SetReviewed { .. }))
-        );
+        assert!(!actions.iter().any(|action| matches!(
+            action,
+            Action::Repository(RepositoryAction::SetReviewed { .. })
+        )));
         actions
             .into_iter()
             .find_map(|action| match action {
@@ -202,11 +202,10 @@ impl ExploreUi {
             request: request.request.clone(),
             result: Ok(response),
         });
-        assert!(
-            !actions
-                .iter()
-                .any(|action| matches!(action, Action::SetReviewed { .. }))
-        );
+        assert!(!actions.iter().any(|action| matches!(
+            action,
+            Action::Repository(RepositoryAction::SetReviewed { .. })
+        )));
     }
 
     fn buffer(&self) -> Buffer {
@@ -326,7 +325,7 @@ fn outlines_keep_wrapping_disjoint_ranges_and_deleted_lines_separate() {
     assert!(
         !actions
             .iter()
-            .any(|action| matches!(action, Action::Lsp { .. })),
+            .any(|action| matches!(action, Action::Lsp(LspAction::Request { .. }))),
         "deleted coordinates cannot query the new document"
     );
 }
@@ -424,11 +423,10 @@ fn ordinary_comments_keep_comparison_context_and_do_not_mark_files_reviewed() {
         action,
         Action::Thread(review_threads::ThreadCommand::Post { .. })
     )));
-    assert!(
-        !actions
-            .iter()
-            .any(|action| matches!(action, Action::SetReviewed { .. }))
-    );
+    assert!(!actions.iter().any(|action| matches!(
+        action,
+        Action::Repository(RepositoryAction::SetReviewed { .. })
+    )));
 }
 
 #[test]
@@ -558,11 +556,12 @@ fn location_list_previews_read_live_sources_and_reject_external_destinations() {
         .publish(ui_events::SourceLocationPreviewRequested {
             location: location.clone(),
         });
-    assert!(
-        !actions
-            .iter()
-            .any(|action| matches!(action, Action::LoadSource { .. } | Action::LoadDiff { .. }))
-    );
+    assert!(!actions.iter().any(|action| matches!(
+        action,
+        Action::Document(DocumentAction::Load(
+            DocumentLoad::Source { .. } | DocumentLoad::Diff { .. }
+        ))
+    )));
     assert!(fixture.text().contains("fn live_caller()"));
     let actions = fixture
         .app
@@ -572,11 +571,12 @@ fn location_list_previews_read_live_sources_and_reject_external_destinations() {
                 ..location
             },
         });
-    assert!(
-        !actions
-            .iter()
-            .any(|action| matches!(action, Action::LoadSource { .. } | Action::LoadDiff { .. }))
-    );
+    assert!(!actions.iter().any(|action| matches!(
+        action,
+        Action::Document(DocumentAction::Load(
+            DocumentLoad::Source { .. } | DocumentLoad::Diff { .. }
+        ))
+    )));
     assert!(fixture.text().contains("resolved()"));
 }
 
@@ -600,18 +600,17 @@ fn working_copy_navigation_preserves_outlines_and_allows_interview_answers() {
             end_byte_column: 0,
         },
     });
-    assert!(
-        !actions
-            .iter()
-            .any(|action| matches!(action, Action::LoadSource { .. }))
-    );
+    assert!(!actions.iter().any(|action| matches!(
+        action,
+        Action::Document(DocumentAction::Load(DocumentLoad::Source { .. }))
+    )));
     assert!(fixture.text().contains("fn caller()"));
     fixture.app.update(UserInput::Key(Key::Tab));
     let actions = fixture.app.update(UserInput::Key(Key::Char('K')));
     assert!(
         actions
             .iter()
-            .any(|action| matches!(action, Action::Lsp { .. }))
+            .any(|action| matches!(action, Action::Lsp(LspAction::Request { .. })))
     );
     fixture.app.update(UserInput::Key(Key::Tab));
     fixture
@@ -645,7 +644,7 @@ fn real_rust_lsp_navigates_working_copy_sources_and_rejects_other_view_results()
     let query = actions
         .into_iter()
         .find_map(|action| {
-            if let Action::Lsp { query, .. } = action {
+            if let Action::Lsp(LspAction::Request { query, .. }) = action {
                 Some(query)
             } else {
                 None

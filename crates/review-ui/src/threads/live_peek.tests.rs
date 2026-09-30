@@ -1,4 +1,5 @@
 use super::*;
+use crate::{DocumentAction, DocumentLoad};
 use std::fmt::Write;
 use ui_events::LocationListVisibilityChanged;
 
@@ -17,11 +18,11 @@ fn assert_live_refresh(with_preview: bool) {
     ui.key(Key::Char('t'));
     ui.key(Key::Enter);
     let initial = ui.key(Key::Char('p'));
-    let Action::LoadSource {
+    let Action::Document(DocumentAction::Load(DocumentLoad::Source {
         snapshot_id,
         location,
         mode,
-    } = &initial[0]
+    })) = &initial[0]
     else {
         panic!("initial peek");
     };
@@ -40,11 +41,11 @@ fn assert_live_refresh(with_preview: bool) {
     }
     let before = ui.text();
     let actions = ui.app.publish(ui_events::RepositoryRefreshStarted);
-    let Action::LoadSource {
+    let Action::Document(DocumentAction::Load(DocumentLoad::Source {
         snapshot_id: fresh,
         location: refreshed,
         mode,
-    } = &actions[0]
+    })) = &actions[0]
     else {
         panic!("live peek");
     };
@@ -75,10 +76,10 @@ fn assert_live_refresh(with_preview: bool) {
     });
     assert!(!ui.text().contains("outdated result"));
     let actions = ui.app.publish(ui_events::RepositoryRefreshStarted);
-    let Action::LoadSource {
+    let Action::Document(DocumentAction::Load(DocumentLoad::Source {
         snapshot_id: deleted,
         ..
-    } = &actions[0]
+    })) = &actions[0]
     else {
         panic!("delete");
     };
@@ -92,10 +93,10 @@ fn assert_live_refresh(with_preview: bool) {
         "deleted file must not retain stale code"
     );
     let actions = ui.app.publish(ui_events::RepositoryRefreshStarted);
-    let Action::LoadSource {
+    let Action::Document(DocumentAction::Load(DocumentLoad::Source {
         snapshot_id: recreated,
         ..
-    } = &actions[0]
+    })) = &actions[0]
     else {
         panic!("recreate");
     };
@@ -133,15 +134,19 @@ fn live_watch_follows_definition_and_history_navigation_until_peek_closes() {
     ui.key(Key::Char('t'));
     ui.key(Key::Enter);
     let initial = ui.key(Key::Char('p'));
-    let Action::LoadSource {
+    let Action::Document(DocumentAction::Load(DocumentLoad::Source {
         snapshot_id,
         location: original,
         mode,
-    } = &initial[0]
+    })) = &initial[0]
     else {
         panic!("initial peek");
     };
-    assert!(initial.contains(&Action::WatchSource(Some(original.path.clone()))));
+    assert!(
+        initial.contains(&Action::Document(DocumentAction::WatchSource(Some(
+            original.path.clone()
+        ))))
+    );
     ui.app.publish(SourceContentLoaded {
         snapshot_id: snapshot_id.clone(),
         location: original.clone(),
@@ -155,9 +160,9 @@ fn live_watch_follows_definition_and_history_navigation_until_peek_closes() {
     let actions = ui.app.publish(ui_events::SourceLocationAccepted {
         location: definition.clone(),
     });
-    let Action::LoadSource {
+    let Action::Document(DocumentAction::Load(DocumentLoad::Source {
         snapshot_id, mode, ..
-    } = &actions[0]
+    })) = &actions[0]
     else {
         panic!("definition navigation");
     };
@@ -167,14 +172,18 @@ fn live_watch_follows_definition_and_history_navigation_until_peek_closes() {
         content: b"fn definition() {}\n".to_vec(),
         mode: *mode,
     });
-    assert!(loaded.contains(&Action::WatchSource(Some(definition.path.clone()))));
+    assert!(
+        loaded.contains(&Action::Document(DocumentAction::WatchSource(Some(
+            definition.path.clone()
+        ))))
+    );
 
     let actions = ui.app.publish(ui_events::RepositoryRefreshStarted);
-    let Action::LoadSource {
+    let Action::Document(DocumentAction::Load(DocumentLoad::Source {
         snapshot_id,
         location,
         mode,
-    } = &actions[0]
+    })) = &actions[0]
     else {
         panic!("definition refresh");
     };
@@ -193,16 +202,16 @@ fn live_watch_follows_definition_and_history_navigation_until_peek_closes() {
     assert!(
         !failed
             .iter()
-            .any(|action| matches!(action, Action::WatchSource(_)))
+            .any(|action| matches!(action, Action::Document(DocumentAction::WatchSource(_))))
     );
     assert!(ui.text().contains("fn edited_definition() {}"));
 
     let actions = ui.key(Key::PreviousLocation);
-    let Action::LoadSource {
+    let Action::Document(DocumentAction::Load(DocumentLoad::Source {
         snapshot_id,
         location,
         mode,
-    } = &actions[0]
+    })) = &actions[0]
     else {
         panic!("history navigation: {actions:?}");
     };
@@ -213,8 +222,15 @@ fn live_watch_follows_definition_and_history_navigation_until_peek_closes() {
         content: b"fn original() {}\n".to_vec(),
         mode: *mode,
     });
-    assert!(loaded.contains(&Action::WatchSource(Some(original.path.clone()))));
-    assert!(ui.key(Key::Escape).contains(&Action::WatchSource(None)));
+    assert!(
+        loaded.contains(&Action::Document(DocumentAction::WatchSource(Some(
+            original.path.clone()
+        ))))
+    );
+    assert!(
+        ui.key(Key::Escape)
+            .contains(&Action::Document(DocumentAction::WatchSource(None)))
+    );
 }
 
 #[test]

@@ -1,26 +1,13 @@
 //! Confirmed bulk review-mark changes and their UI updates.
 
-use super::{ApplicationEventSender, ReviewCheckpoint, ReviewStateSaved, Worker, WorkerCommand};
+use super::{ApplicationEventSender, ReviewCheckpoint, ReviewStateSaved, Worker};
 
 impl Worker {
-    pub(super) fn handle_review_command(
+    pub(super) fn unreview_all(
         &mut self,
-        command: WorkerCommand,
+        checkpoint: &ReviewCheckpoint,
         messages: &ApplicationEventSender,
     ) {
-        match command {
-            WorkerCommand::SetReviewed { path, reviewed } => {
-                self.cancel_auto_review();
-                self.set_reviewed(messages, path, reviewed);
-            }
-            WorkerCommand::AutoReview(checkpoint) => self.start_auto_review(&checkpoint, messages),
-            WorkerCommand::AutoReviewFinished(review) => self.finish_auto_review(&review, messages),
-            WorkerCommand::UnreviewAll(checkpoint) => self.unreview_all(&checkpoint, messages),
-            _ => unreachable!("review commands are routed by the worker"),
-        }
-    }
-
-    fn unreview_all(&mut self, checkpoint: &ReviewCheckpoint, messages: &ApplicationEventSender) {
         let result = self.clear_review_marks(checkpoint);
         // Even a partial storage failure must be reflected in Files and loaded diffs.
         self.poll(messages);

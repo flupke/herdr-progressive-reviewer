@@ -4,7 +4,7 @@ use component_core::{Component, ComponentEventBus, ComponentSubscriptions, Event
 use review_lsp::{Event as LspEvent, Operation, SourceLocation};
 use review_source::ReviewCheckpoint;
 use toasts::ToastId;
-use ui_actions::Action;
+use ui_actions::{Action, RepositoryAction};
 use ui_events::{
     FilesViewportChanged, LocationListVisibilityChanged, PointerInput, PointerInputKind,
     PointerPosition, RepositoryMetadataChanged, SourceLocationAccepted,
@@ -145,7 +145,9 @@ fn output_texts(results: Vec<component_core::DispatchResult<Action>>) -> Vec<Str
         .into_iter()
         .flat_map(component_core::DispatchResult::into_actions)
         .filter_map(|action| match action {
-            Action::EditRevision { change_id: text } => Some(text.as_str().to_owned()),
+            Action::Repository(RepositoryAction::EditRevision { change_id: text }) => {
+                Some(text.as_str().to_owned())
+            }
             _ => None,
         })
         .collect()
@@ -183,7 +185,7 @@ impl Component<Action> for LocationOutput {
 }
 
 fn output(text: String) -> Vec<Action> {
-    vec![Action::EditRevision {
+    vec![Action::Repository(RepositoryAction::EditRevision {
         change_id: text.into(),
-    }]
+    })]
 }

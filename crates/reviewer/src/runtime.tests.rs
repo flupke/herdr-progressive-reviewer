@@ -635,7 +635,9 @@ fn disk_content_changes_replace_the_visible_diff(repository_type: RepoType) {
     let refresh_actions = publish_pending_worker_events(&mut application, &messages);
     assert!(matches!(
         refresh_actions.as_slice(),
-        [Action::LoadDiff { .. }]
+        [Action::Document(DocumentAction::Load(
+            DocumentLoad::Diff { .. }
+        ))]
     ));
     load_requested_diffs(&worker, &message_sender, refresh_actions);
     publish_pending_worker_events(&mut application, &messages);
@@ -713,10 +715,10 @@ fn publish_pending_worker_events(
 
 fn load_requested_diffs(worker: &Worker, messages: &ApplicationEventSender, actions: Vec<Action>) {
     for action in actions {
-        if let Action::LoadDiff {
+        if let Action::Document(DocumentAction::Load(DocumentLoad::Diff {
             review_checkpoint,
             path,
-        } = action
+        })) = action
         {
             document_worker(worker).load_diff(messages, review_checkpoint, path);
         }
@@ -873,7 +875,7 @@ fn consecutive_plain_clicks_at_one_position_become_a_double_click() {
 }
 
 #[test]
-fn dispatch_reports_that_quit_stops_the_runtime() {
+fn runtime_executors_save_settings_open_the_editor_and_stop_on_quit() {
     let repository = tempfile::tempdir().unwrap();
     let state = tempfile::tempdir().unwrap();
     let settings = ReviewStore::open(state.path(), repository.path()).unwrap();
@@ -881,7 +883,8 @@ fn dispatch_reports_that_quit_stops_the_runtime() {
     let (commands, _command_receiver) = mpsc::channel();
 
     let search = text_search::Worker::start(|_| {});
-    let dispatcher = RuntimeActionDispatcher {
+    let mut opened = Vec::new();
+    let mut dispatcher = RuntimeActionDispatcher {
         source_watches: None,
         comments: &comment_service::test_worker(&settings),
         highlighting: &highlighting_worker(),
@@ -891,40 +894,27 @@ fn dispatch_reports_that_quit_stops_the_runtime() {
         settings: &settings,
         repository_root: repository.path(),
         lsp: &lsp,
+        open_in_editor: &mut |path, line| {
+            opened.push((path.to_owned(), line));
+            Ok(())
+        },
     };
 
-    assert!(dispatcher.dispatch(Action::Quit).unwrap());
-}
+    let flow = dispatcher
+        .run_all(vec![
+            Action::Settings(SettingsAction::SaveFilePaneWidth(42)),
+            Action::Terminal(TerminalAction::OpenInEditor {
+                path: PathBuf::from("src/lib.rs"),
+                line: Some(7),
+            }),
+            Action::Terminal(TerminalAction::Quit),
+            Action::Settings(SettingsAction::SaveFilePaneWidth(7)),
+        ])
+        .unwrap();
 
-#[test]
-fn dispatch_all_executes_earlier_actions_before_quit() {
-    let repository = tempfile::tempdir().unwrap();
-    let state = tempfile::tempdir().unwrap();
-    let settings = ReviewStore::open(state.path(), repository.path()).unwrap();
-    let lsp = review_lsp::Worker::start(repository.path().to_owned());
-    let (commands, _command_receiver) = mpsc::channel();
-
-    let search = text_search::Worker::start(|_| {});
-    let dispatcher = RuntimeActionDispatcher {
-        source_watches: None,
-        comments: &comment_service::test_worker(&settings),
-        highlighting: &highlighting_worker(),
-        search: &search,
-        commands: &commands,
-        documents: &mpsc::channel().0,
-        settings: &settings,
-        repository_root: repository.path(),
-        lsp: &lsp,
-    };
-
-    assert!(
-        dispatcher
-            .dispatch_all(vec![Action::SaveFilePaneWidth(42), Action::Quit], |_, _| {
-                unreachable!("no editor action")
-            })
-            .unwrap()
-    );
+    assert_eq!(flow, ControlFlow::Break(()));
     assert_eq!(settings.file_pane_width().unwrap(), Some(42));
+    assert_eq!(opened, [(PathBuf::from("src/lib.rs"), Some(7))]);
 }
 
 #[test]
@@ -1162,7 +1152,7 @@ fn document_requests_complete_while_repository_work_is_pending() {
     commands.send(WorkerCommand::Poll).unwrap();
     let lsp = review_lsp::Worker::start(repository.root().to_owned());
     let search = text_search::Worker::start(|_| {});
-    let dispatcher = RuntimeActionDispatcher {
+    let mut dispatcher = RuntimeActionDispatcher {
         source_watches: None,
         comments: &comment_service::test_worker(&settings),
         highlighting: &highlighting_worker(),
@@ -1172,18 +1162,19 @@ fn document_requests_complete_while_repository_work_is_pending() {
         settings: &settings,
         repository_root: repository.root(),
         lsp: &lsp,
+        open_in_editor: &mut |_, _| Ok(()),
     };
     for action in [
-        Action::LoadDiff {
+        Action::Document(DocumentAction::Load(DocumentLoad::Diff {
             review_checkpoint: checkpoint.clone(),
             path: "changed.rs".to_owned(),
-        },
-        Action::LoadDiffs {
+        })),
+        Action::Document(DocumentAction::Load(DocumentLoad::Diffs {
             review_checkpoint: checkpoint.clone(),
             paths: vec!["changed.rs".to_owned()],
-        },
+        })),
     ] {
-        dispatcher.dispatch(action).unwrap();
+        assert!(dispatcher.run(action).unwrap().is_continue());
         let event = messages.recv_timeout(Duration::from_secs(5)).unwrap();
         let loaded = event.downcast_ref::<DiffContentLoaded>().unwrap();
         assert_eq!(loaded.review_checkpoint, checkpoint);
@@ -1192,19 +1183,24 @@ fn document_requests_complete_while_repository_work_is_pending() {
             Some(b"fn updated() {}\n".as_slice())
         );
     }
-    dispatcher
-        .dispatch(Action::LoadSource {
-            snapshot_id: checkpoint.checkpoint.clone(),
-            location: SourceLocation {
-                path: PathBuf::from("changed.rs"),
-                line: 0,
-                byte_column: 0,
-                end_line: 0,
-                end_byte_column: 0,
-            },
-            mode: SourceLoadMode::External,
-        })
-        .unwrap();
+    assert!(
+        dispatcher
+            .run(Action::Document(DocumentAction::Load(
+                DocumentLoad::Source {
+                    snapshot_id: checkpoint.checkpoint.clone(),
+                    location: SourceLocation {
+                        path: PathBuf::from("changed.rs"),
+                        line: 0,
+                        byte_column: 0,
+                        end_line: 0,
+                        end_byte_column: 0,
+                    },
+                    mode: SourceLoadMode::External,
+                }
+            )))
+            .unwrap()
+            .is_continue()
+    );
     let event = messages.recv_timeout(Duration::from_secs(5)).unwrap();
     let loaded = event.downcast_ref::<SourceContentLoaded>().unwrap();
     assert_eq!(loaded.content, b"fn updated() {}\n");

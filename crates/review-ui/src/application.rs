@@ -24,7 +24,7 @@ use ui_events::{
 use ui_panes::SplitPane;
 
 use crate::layout::{NavigationTabs, PaneLayout, location_selector_panes};
-use crate::{Action, ApplicationFrame, Theme, UserInput};
+use crate::{Action, ApplicationFrame, SettingsAction, TerminalAction, Theme, UserInput};
 use ui_theme::Palette;
 
 /// The root coordinator for the review UI.
@@ -240,9 +240,9 @@ impl ReviewApplication {
             return Ok(resize
                 .moved
                 .then(|| {
-                    vec![Action::SaveFilePaneWidth(
+                    vec![Action::Settings(SettingsAction::SaveFilePaneWidth(
                         self.file_width.unwrap_or_default(),
-                    )]
+                    ))]
                     .into_dispatch_result()
                 })
                 .into_iter()
@@ -344,7 +344,7 @@ impl ReviewApplication {
         let keymap = self.editor_keymap.get();
         if keymap != self.saved_editor_keymap {
             self.saved_editor_keymap = keymap;
-            actions.push(Action::SaveEditorKeymap(keymap));
+            actions.push(Action::Settings(SettingsAction::SaveEditorKeymap(keymap)));
         }
         let positions = self
             .event_bus
@@ -730,7 +730,7 @@ impl ReviewApplication {
                     .publish(DiffInputClearRequested)
                     .unwrap_or_default();
             }
-            ui_shortcuts::ApplicationShortcut::Quit => vec![Action::Quit],
+            ui_shortcuts::ApplicationShortcut::Quit => vec![Action::Terminal(TerminalAction::Quit)],
         };
         vec![actions.into_dispatch_result()]
     }

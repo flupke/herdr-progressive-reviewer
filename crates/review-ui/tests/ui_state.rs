@@ -7,7 +7,10 @@ use review_repository::{
 };
 use review_source::ReviewCheckpoint;
 use review_state::{ReviewState, ReviewStatus};
-use review_ui::{Action, Key, ReviewApplication, UserInput};
+use review_ui::{
+    Action, DocumentAction, DocumentLoad, Key, LspAction, RepositoryAction, ReviewApplication,
+    SettingsAction, TerminalAction, UserInput,
+};
 use std::time::Instant;
 use ui_events::{
     AnimationTick, FileSummary, RepositoryFilesChanged, RepositoryMetadataChanged,
@@ -166,7 +169,7 @@ fn gy_queries_the_cursor_type_and_jumps_to_a_single_definition() {
     app.update(UserInput::Key(Key::Char('w')));
     assert!(app.update(UserInput::Key(Key::Char('g'))).is_empty());
     let actions = app.update(UserInput::Key(Key::Char('y')));
-    let [Action::Lsp { operation, query }] = actions.as_slice() else {
+    let [Action::Lsp(LspAction::Request { operation, query })] = actions.as_slice() else {
         panic!("gy must query the type definition");
     };
     assert_eq!(*operation, review_lsp::Operation::TypeDefinition);
@@ -186,7 +189,7 @@ fn gy_queries_the_cursor_type_and_jumps_to_a_single_definition() {
         }],
     });
     let actions = app.update(UserInput::Key(Key::Char('K')));
-    let [Action::Lsp { query, .. }] = actions.as_slice() else {
+    let [Action::Lsp(LspAction::Request { query, .. })] = actions.as_slice() else {
         panic!("a single type definition must jump directly to the source");
     };
     assert_eq!((query.line, query.byte_column), (0, 7));
@@ -214,7 +217,8 @@ fn shift_e_opens_the_current_file_at_the_cursor_line_from_either_pane() {
     app.update(UserInput::Key(Key::Down));
     for _ in 0..2 {
         let actions = app.update(UserInput::Key(Key::Char('E')));
-        let [Action::OpenInEditor { path, line }] = actions.as_slice() else {
+        let [Action::Terminal(TerminalAction::OpenInEditor { path, line })] = actions.as_slice()
+        else {
             panic!("E must open the current file, got {actions:?}");
         };
         assert!(path.ends_with("src/lib.rs"));
@@ -266,7 +270,7 @@ fn wrapped_continuation_mouse_targets_its_source_position() {
     app.update(UserInput::MouseClick { column: 10, row: 3 });
 
     let actions = app.update(UserInput::Key(Key::Char('K')));
-    let [Action::Lsp { query, .. }] = actions.as_slice() else {
+    let [Action::Lsp(LspAction::Request { query, .. })] = actions.as_slice() else {
         panic!("wrapped source position must support LSP navigation");
     };
     assert_eq!(query.line, 0);
@@ -337,7 +341,7 @@ fn wrapped_grapheme_mouse_position_uses_its_terminal_width() {
     app.update(UserInput::MouseClick { column: 7, row: 3 });
 
     let actions = app.update(UserInput::Key(Key::Char('K')));
-    let [Action::Lsp { query, .. }] = actions.as_slice() else {
+    let [Action::Lsp(LspAction::Request { query, .. })] = actions.as_slice() else {
         panic!("wrapped grapheme position must support LSP navigation");
     };
     assert_eq!(query.byte_column, 34 + joined_emoji.len());
@@ -358,11 +362,11 @@ fn stale_diffs_are_ignored_and_selected_text_is_not_sent_on_enter() {
         ),
         vec![
             Action::Thread(review_threads::ThreadCommand::Load("qpvuntsm".into())),
-            Action::LoadDiff {
+            Action::Document(DocumentAction::Load(DocumentLoad::Diff {
                 review_checkpoint: ReviewCheckpoint::new("qpvuntsm", "11111111"),
                 path: "src/lib.rs".to_owned(),
-            },
-            Action::OpenLspDocument("src/lib.rs".into())
+            })),
+            Action::Lsp(LspAction::OpenDocument("src/lib.rs".into()))
         ]
     );
     app.publish(ui_events::DiffContentLoaded {
@@ -596,8 +600,8 @@ fn optimistic_selection_stays_on_the_next_file_when_review_fails() {
     assert!(matches!(
         app.update(UserInput::Key(Key::Char(' '))).as_slice(),
         [
-            Action::SetReviewed { reviewed: true, .. },
-            Action::OpenLspDocument(_)
+            Action::Repository(RepositoryAction::SetReviewed { reviewed: true, .. }),
+            Action::Lsp(LspAction::OpenDocument(_))
         ]
     ));
     assert!(
@@ -617,10 +621,10 @@ fn optimistic_selection_stays_on_the_next_file_when_review_fails() {
                 FileSummary::new("fourth.rs", ReviewStatus::Unreviewed),
             ]
         ),
-        vec![Action::LoadDiff {
+        vec![Action::Document(DocumentAction::Load(DocumentLoad::Diff {
             review_checkpoint: ReviewCheckpoint::new("qpvuntsm", "11111111"),
             path: "third.rs".to_owned(),
-        }]
+        }))]
     );
     assert_eq!(
         app.publish(ReviewStateSaved {
@@ -923,10 +927,10 @@ fn marking_a_changed_file_reviewed_replaces_its_baseline() {
 
     assert_eq!(
         app.update(UserInput::Key(Key::Char(' '))),
-        vec![Action::SetReviewed {
+        vec![Action::Repository(RepositoryAction::SetReviewed {
             path: "src/lib.rs".to_owned(),
             reviewed: true,
-        }]
+        })]
     );
     assert!(
         application_screen(&app, 80, 12)
@@ -949,7 +953,10 @@ fn marking_a_changed_file_reviewed_replaces_its_baseline() {
 
     assert!(matches!(
         app.update(UserInput::Key(Key::Char(' '))).as_slice(),
-        [Action::SetReviewed { reviewed: true, .. }]
+        [Action::Repository(RepositoryAction::SetReviewed {
+            reviewed: true,
+            ..
+        })]
     ));
     assert_eq!(
         app.publish(ReviewStateSaved {
@@ -993,14 +1000,14 @@ fn mouse_targets_the_hovered_pane_and_click_changes_focus() {
             row: 2,
             delta: 1,
         }),
-        [Action::OpenLspDocument("second.rs".into())]
+        [Action::Lsp(LspAction::OpenDocument("second.rs".into()))]
     );
     assert_eq!(
         publish_tick(&mut app, Instant::now()),
-        vec![Action::LoadDiff {
+        vec![Action::Document(DocumentAction::Load(DocumentLoad::Diff {
             review_checkpoint: ReviewCheckpoint::new("qpvuntsm", "11111111"),
             path: "second.rs".to_owned(),
-        }]
+        }))]
     );
     app.update(UserInput::MouseClick { column: 70, row: 2 });
     assert!(
@@ -1027,7 +1034,7 @@ fn mouse_targets_the_hovered_pane_and_click_changes_focus() {
     assert!(app.update(UserInput::Key(Key::Enter)).is_empty());
     assert_eq!(
         app.update(UserInput::MouseControlClick { column: 1, row: 2 }),
-        vec![Action::OpenLspDocument("first.rs".into())]
+        vec![Action::Lsp(LspAction::OpenDocument("first.rs".into()))]
     );
 }
 
@@ -1052,11 +1059,11 @@ fn double_clicking_a_file_marks_it_reviewed() {
     assert_eq!(
         app.update(UserInput::MouseDoubleClick { column: 1, row: 2 }),
         vec![
-            Action::SetReviewed {
+            Action::Repository(RepositoryAction::SetReviewed {
                 path: "first.rs".to_owned(),
                 reviewed: true,
-            },
-            Action::OpenLspDocument("second.rs".into())
+            }),
+            Action::Lsp(LspAction::OpenDocument("second.rs".into()))
         ]
     );
     assert!(
@@ -1080,14 +1087,14 @@ fn double_clicking_a_reviewed_file_marks_it_unreviewed() {
     assert_eq!(
         app.update(UserInput::MouseDoubleClick { column: 1, row: 2 }),
         vec![
-            Action::SetReviewed {
+            Action::Repository(RepositoryAction::SetReviewed {
                 path: "reviewed.rs".to_owned(),
                 reviewed: false,
-            },
-            Action::LoadDiff {
+            }),
+            Action::Document(DocumentAction::Load(DocumentLoad::Diff {
                 review_checkpoint: ReviewCheckpoint::new("qpvuntsm", "11111111"),
                 path: "reviewed.rs".to_owned(),
-            },
+            })),
         ]
     );
 }
@@ -1122,14 +1129,14 @@ fn clicking_a_directory_collapses_its_descendants_across_refreshes() {
 
     assert_eq!(
         app.update(UserInput::MouseClick { column: 1, row: 2 }),
-        [Action::OpenLspDocument("tests/test.rs".into())]
+        [Action::Lsp(LspAction::OpenDocument("tests/test.rs".into()))]
     );
     assert_eq!(
         publish_tick(&mut app, Instant::now()),
-        vec![Action::LoadDiff {
+        vec![Action::Document(DocumentAction::Load(DocumentLoad::Diff {
             review_checkpoint: ReviewCheckpoint::new("qpvuntsm", "11111111"),
             path: "tests/test.rs".to_owned(),
-        }]
+        }))]
     );
     let collapsed = application_screen(&app, 80, 12).join("\n");
     assert!(collapsed.contains("▸ src/"));
@@ -1237,7 +1244,7 @@ fn dragging_the_separator_resizes_the_file_pane() {
     app.update(UserInput::MouseDrag { column: 40, row: 5 });
     assert_eq!(
         app.update(UserInput::MouseRelease),
-        vec![Action::SaveFilePaneWidth(40)]
+        vec![Action::Settings(SettingsAction::SaveFilePaneWidth(40))]
     );
 
     let after = screen(&app, 80, 12)[1].find("Diff").unwrap();
@@ -1247,7 +1254,7 @@ fn dragging_the_separator_resizes_the_file_pane() {
     app.update(UserInput::MouseDrag { column: 0, row: 5 });
     assert_eq!(
         app.update(UserInput::MouseRelease),
-        vec![Action::SaveFilePaneWidth(37)]
+        vec![Action::Settings(SettingsAction::SaveFilePaneWidth(37))]
     );
     assert!(screen(&app, 80, 12)[1].contains("[F]iles | [T]hreads"));
 
@@ -1255,7 +1262,7 @@ fn dragging_the_separator_resizes_the_file_pane() {
     app.update(UserInput::MouseDrag { column: 79, row: 5 });
     assert_eq!(
         app.update(UserInput::MouseRelease),
-        vec![Action::SaveFilePaneWidth(64)]
+        vec![Action::Settings(SettingsAction::SaveFilePaneWidth(64))]
     );
 }
 
@@ -1305,9 +1312,9 @@ fn dragging_diff_lines_opens_an_inline_comment_on_release() {
     );
     assert_eq!(
         app.update(UserInput::Key(Key::EditorMode)),
-        [Action::SaveEditorKeymap(
+        [Action::Settings(SettingsAction::SaveEditorKeymap(
             comment_editor::EditorKeymap::Regular
-        )]
+        ))]
     );
     assert!(app.update(UserInput::Key(Key::Escape)).is_empty());
     let screen = application_screen(&app, 80, 12).join("\n");

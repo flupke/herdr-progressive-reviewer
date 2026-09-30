@@ -1,4 +1,5 @@
 use super::*;
+use crate::RepositoryAction;
 use review_explore::{AgendaAction, AgendaChange, Assessments, Consequence, Door, Reply};
 
 fn publish(fixture: &mut ExploreUi, response: InterviewUpdate) {
@@ -7,11 +8,10 @@ fn publish(fixture: &mut ExploreUi, response: InterviewUpdate) {
         request: response.request.clone(),
         result: Ok(response),
     });
-    assert!(
-        !actions
-            .iter()
-            .any(|action| matches!(action, Action::SetReviewed { .. } | Action::Thread(_)))
-    );
+    assert!(!actions.iter().any(|action| matches!(
+        action,
+        Action::Repository(RepositoryAction::SetReviewed { .. }) | Action::Thread(_)
+    )));
 }
 
 #[test]

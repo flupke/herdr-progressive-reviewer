@@ -14,7 +14,7 @@ use component_core::{
 };
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ui_actions::Action;
+use ui_actions::{Action, DocumentAction};
 use ui_events::{
     DiffViewportChanged, EvidenceView, ExploreComparisonAccepted, ExploreEvidence,
     ExplorePositionsRestored, PointerInput, PointerInputKind, RepositoryFilesChanged,
@@ -253,7 +253,7 @@ impl DiffComponent {
         let source = self.live_source_path().map(Path::to_owned);
         if source != self.watched_source {
             self.watched_source.clone_from(&source);
-            actions.push(Action::WatchSource(source));
+            actions.push(Action::Document(DocumentAction::WatchSource(source)));
         }
         actions
     }

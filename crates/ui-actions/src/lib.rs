@@ -1,4 +1,11 @@
 //! External work requested by review UI components.
+//!
+//! Each variant of [`Action`] is one runtime executor's group, so the runtime
+//! routes with one exhaustive match and each executor matches only its own group.
+//! The document executor feeds the document worker, highlighter, search and
+//! source watcher; the document worker itself receives only [`DocumentLoad`].
+
+use std::path::PathBuf;
 
 use review_lsp::{Operation, Query, SourceLocation};
 use review_repository::repository::{ChangeId, RevisionDirection};
@@ -12,65 +19,94 @@ pub enum Action {
     Explore(review_explore::Command),
     /// Load or update a review conversation through its serial owner.
     Thread(review_threads::ThreadCommand),
+    /// Load, color, search or watch the documents on screen.
+    Document(DocumentAction),
+    /// Talk to the language server.
+    Lsp(LspAction),
+    /// Save a reviewer setting.
+    Settings(SettingsAction),
+    /// Read or change the repository and its review marks.
+    Repository(RepositoryAction),
+    /// Work that needs the terminal the UI runs in.
+    Terminal(TerminalAction),
+}
+
+/// Work on the documents on screen.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DocumentAction {
+    /// Read diff or source content for display.
+    Load(DocumentLoad),
     /// Color loaded text without delaying input or search.
     Highlight(ui_events::HighlightRequest),
-    /// Notify the language server when a document is selected.
-    OpenLspDocument(std::path::PathBuf),
-    /// Watch the active live source, including ignored paths; None closes the watch.
-    WatchSource(Option<std::path::PathBuf>),
     /// Search immutable presented text, or cancel the previous search.
     Search(Option<text_search::Request>),
+    /// Watch the active live source, including ignored paths; None closes the watch.
+    WatchSource(Option<PathBuf>),
+}
+
+/// Content reads run by the document worker.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum DocumentLoad {
     /// Load one path diff for the exact current snapshot.
-    LoadDiff {
+    Diff {
         review_checkpoint: ReviewCheckpoint,
         path: String,
     },
     /// Load every unopened path diff for the exact current snapshot.
-    LoadDiffs {
+    Diffs {
         review_checkpoint: ReviewCheckpoint,
         paths: Vec<String>,
     },
-    /// Find mutable jj commits next to the working-copy commit.
-    LoadRevisionCandidates(RevisionDirection),
-    /// Render mutable jj history through its first immutable parent.
-    LoadRevisionHistory {
-        load_id: RevisionHistoryLoadId,
-    },
-    /// Make one jj change the working-copy commit.
-    EditRevision {
-        change_id: ChangeId,
-    },
-    /// Run one LSP request at a visible disk position.
-    Lsp {
-        operation: Operation,
-        query: Query,
-    },
-    /// Restart the language server.
-    RestartLsp,
     /// Load complete disk source for a target location.
-    LoadSource {
+    Source {
         snapshot_id: String,
         location: SourceLocation,
         mode: SourceLoadMode,
     },
-    /// Set the selected path review state.
-    SetReviewed {
-        path: String,
-        reviewed: bool,
-    },
-    /// Classify this comparison and mark files containing only insignificant changes.
-    AutoReview(ReviewCheckpoint),
-    /// Clear this comparison's file review marks after user confirmation.
-    UnreviewAll(ReviewCheckpoint),
-    /// Suspend the UI and open a file in the user's editor at a zero-based line.
-    OpenInEditor {
-        path: std::path::PathBuf,
-        line: Option<u32>,
-    },
+}
+
+/// Language server work.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum LspAction {
+    /// Notify the language server when a document is selected.
+    OpenDocument(PathBuf),
+    /// Run one LSP request at a visible disk position.
+    Request { operation: Operation, query: Query },
+    /// Restart the language server.
+    Restart,
+}
+
+/// Settings saved for the next reviewer session.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SettingsAction {
     /// Save the file-pane width in terminal columns.
     SaveFilePaneWidth(u16),
     /// Save the keymap shared by every text editor.
     SaveEditorKeymap(review_types::EditorKeymap),
+}
+
+/// Repository and review-mark work run by the repository worker.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RepositoryAction {
+    /// Find mutable jj commits next to the working-copy commit.
+    LoadRevisionCandidates(RevisionDirection),
+    /// Render mutable jj history through its first immutable parent.
+    LoadRevisionHistory { load_id: RevisionHistoryLoadId },
+    /// Make one jj change the working-copy commit.
+    EditRevision { change_id: ChangeId },
+    /// Set the selected path review state.
+    SetReviewed { path: String, reviewed: bool },
+    /// Classify this comparison and mark files containing only insignificant changes.
+    AutoReview(ReviewCheckpoint),
+    /// Clear this comparison's file review marks after user confirmation.
+    UnreviewAll(ReviewCheckpoint),
+}
+
+/// Work run by the terminal owner.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum TerminalAction {
+    /// Suspend the UI and open a file in the user's editor at a zero-based line.
+    OpenInEditor { path: PathBuf, line: Option<u32> },
     /// Stop the application.
     Quit,
 }

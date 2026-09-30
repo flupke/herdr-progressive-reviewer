@@ -11,7 +11,7 @@ use review_repository::repository::ChangeKind;
 use review_source::ReviewCheckpoint;
 use review_state::{ReviewState, ReviewStatus};
 use review_types::ReviewUnit;
-use ui_actions::Action;
+use ui_actions::{Action, RepositoryAction};
 use ui_events::{
     FileDecorationsChanged, FileSelected, FileSelectionRequested, FileSummary,
     FilesOverviewChanged, FilesViewportChanged, PointerInput, PointerInputKind,
@@ -349,7 +349,9 @@ impl FilesComponent {
             FilesShortcut::MarkReviewed => self.toggle_review().into_iter().collect(),
             FilesShortcut::AutoReview => {
                 if self.reviews_whole_checkpoint() {
-                    vec![Action::AutoReview(self.review_checkpoint.clone())]
+                    vec![Action::Repository(RepositoryAction::AutoReview(
+                        self.review_checkpoint.clone(),
+                    ))]
                 } else {
                     Vec::new()
                 }
@@ -510,7 +512,10 @@ impl FilesComponent {
             previous_state,
             optimistic_state,
         });
-        Some(Action::SetReviewed { path, reviewed })
+        Some(Action::Repository(RepositoryAction::SetReviewed {
+            path,
+            reviewed,
+        }))
     }
 
     fn selected_path(&self) -> Option<String> {

@@ -1,4 +1,5 @@
 use super::*;
+use ui_actions::LspAction;
 
 /// A Files viewer driven directly, without the pane around it.
 struct Scrolling {
@@ -102,7 +103,7 @@ fn scrolling_moves_an_outside_cursor_to_the_nearest_visible_line() {
     fixture.scroll(-1);
     assert_eq!(fixture.position(), (4, 3, 0));
     let actions = fixture.key(Key::Char('K'));
-    let [Action::Lsp { query, .. }] = actions.as_slice() else {
+    let [Action::Lsp(LspAction::Request { query, .. })] = actions.as_slice() else {
         panic!("expected the visible cursor's LSP location");
     };
     assert_eq!((query.line, query.byte_column), (4, 3));

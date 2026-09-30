@@ -1,4 +1,5 @@
 use super::*;
+use crate::{LspAction, RepositoryAction};
 use std::fmt::Write as _;
 
 fn publish(fixture: &mut ExploreUi, response: InterviewUpdate) {
@@ -161,7 +162,7 @@ fn base_evidence_outside_hunks_uses_full_historical_text_and_old_coordinates() {
     assert!(
         !actions
             .iter()
-            .any(|action| matches!(action, Action::Lsp { .. }))
+            .any(|action| matches!(action, Action::Lsp(LspAction::Request { .. })))
     );
     assert!(fixture.text().contains("source line 35"));
     fixture.app.publish(ui_events::SourceLocationAccepted {
@@ -426,11 +427,10 @@ fn mcp_submission_is_acknowledged_only_after_validation_and_retries_are_idempote
             response: response.clone(),
         });
         assert_eq!(result.recv().unwrap().unwrap(), applied);
-        assert!(
-            !actions
-                .iter()
-                .any(|action| matches!(action, Action::SetReviewed { .. } | Action::Thread(_)))
-        );
+        assert!(!actions.iter().any(|action| matches!(
+            action,
+            Action::Repository(RepositoryAction::SetReviewed { .. }) | Action::Thread(_)
+        )));
         assert_eq!(fixture.text().matches("Question 1:").count(), 1);
     }
     let mut changed = valid;

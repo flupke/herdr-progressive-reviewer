@@ -10,7 +10,7 @@ use ratatui::layout::Rect;
 use review_repository::repository::{
     ChangeId, RevisionCandidate, RevisionDirection, RevisionHistoryLine,
 };
-use ui_actions::Action;
+use ui_actions::{Action, RepositoryAction};
 use ui_events::{
     CurrentReviewLocationChanged, RepositoryFilesChanged, RepositoryRefreshFinished,
     RepositoryRefreshStarted, ReviewLocation, ReviewLocationJumped, ReviewLocationRestoreRequested,
@@ -273,7 +273,9 @@ impl RevisionComponent {
                     load_id,
                     origin: self.current_location.clone(),
                 });
-                return vec![Action::LoadRevisionHistory { load_id }];
+                return vec![Action::Repository(RepositoryAction::LoadRevisionHistory {
+                    load_id,
+                })];
             }
         };
         let Some(origin) = self.current_location.clone() else {
@@ -283,7 +285,9 @@ impl RevisionComponent {
             return Vec::new();
         }
         self.state = Some(RevisionNavigationState::LoadingCandidates { direction, origin });
-        vec![Action::LoadRevisionCandidates(direction)]
+        vec![Action::Repository(
+            RepositoryAction::LoadRevisionCandidates(direction),
+        )]
     }
 
     /// Whether `key` closes a candidate selector. The selector keeps every
@@ -380,7 +384,7 @@ impl RevisionComponent {
             target_change_id: change_id.clone(),
             destination,
         });
-        Action::EditRevision { change_id }
+        Action::Repository(RepositoryAction::EditRevision { change_id })
     }
 }
 

@@ -8,6 +8,9 @@ mod message;
 pub use application::ReviewApplication;
 pub use application_frame::ApplicationFrame;
 pub use message::UserInput;
-pub use ui_actions::{Action, SourceLoadMode};
+pub use ui_actions::{
+    Action, DocumentAction, DocumentLoad, LspAction, RepositoryAction, SettingsAction,
+    SourceLoadMode, TerminalAction,
+};
 pub use ui_shortcuts::Key;
 pub use ui_theme::Theme;

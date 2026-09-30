@@ -1,6 +1,7 @@
 //! Terminal and worker integration for the review pane.
 
 use review_thread_service as comments;
+mod actions;
 mod auto_review;
 #[path = "runtime/comments.rs"]
 mod comment_service;
@@ -19,6 +20,7 @@ mod responsiveness;
 
 use std::env;
 use std::io::{self, stdout};
+use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -47,24 +49,26 @@ use review_explore::ExclusionPolicy;
 use review_explore_session::{self as explore_session, ExploreSession};
 use review_lsp::SourceLocation;
 use review_repository::diff::parse_file_diff;
-use review_repository::repository::{
-    ChangeId, ChangedFile, PollResult, Repository, RevisionDirection, Snapshot,
-};
+use review_repository::repository::{ChangeId, ChangedFile, PollResult, Repository, Snapshot};
 use review_source::ReviewCheckpoint;
 use review_state::{MarkResult, ReviewTracker};
 use review_store::ReviewStore;
-use review_ui::{Action, Key, ReviewApplication, SourceLoadMode, Theme, UserInput};
+use review_ui::{
+    Action, DocumentAction, DocumentLoad, Key, LspAction, RepositoryAction, ReviewApplication,
+    SettingsAction, SourceLoadMode, TerminalAction, Theme, UserInput,
+};
 use signal_hook::consts::signal::{SIGHUP, SIGINT, SIGTERM};
 use signal_hook::flag;
 use terminal::{CursorBackend, TerminalBackend};
 use ui_events::{
     AnimationTick, DiffContentLoadFailed, DiffContentLoaded, FileSummary, RepositoryFilesChanged,
     RepositoryMetadataChanged, RepositoryRefreshFinished, RepositoryRefreshStarted,
-    ReviewStateSaved, RevisionCandidatesLoaded, RevisionEditFailed, RevisionHistoryLoadId,
-    RevisionHistoryLoaded, SourceContentLoadFailed, SourceContentLoaded, ToastExpirationTick,
+    ReviewStateSaved, RevisionCandidatesLoaded, RevisionEditFailed, RevisionHistoryLoaded,
+    SourceContentLoadFailed, SourceContentLoaded, ToastExpirationTick,
 };
 
 use crate::watcher::RepositoryWatcher;
+use actions::ActionExecutors;
 
 const TIMER_INTERVAL: Duration = Duration::from_millis(50);
 const DOUBLE_CLICK_INTERVAL: Duration = Duration::from_millis(400);
@@ -106,13 +110,8 @@ struct Worker {
 #[derive(Debug)]
 enum WorkerCommand {
     Explore(explore_session::Input),
+    Repository(RepositoryAction),
     Poll,
-    LoadRevisionCandidates(RevisionDirection),
-    LoadRevisionHistory(RevisionHistoryLoadId),
-    EditRevision(ChangeId),
-    SetReviewed { path: String, reviewed: bool },
-    AutoReview(ReviewCheckpoint),
-    UnreviewAll(ReviewCheckpoint),
     AutoReviewFinished(Box<auto_review::AutoReview>),
     Quit,
 }
@@ -168,6 +167,7 @@ struct RuntimeActionDispatcher<'a> {
     settings: &'a ReviewStore,
     repository_root: &'a Path,
     lsp: &'a review_lsp::Worker,
+    open_in_editor: &'a mut dyn FnMut(&Path, Option<u32>) -> eyre::Result<()>,
 }
 
 struct BackgroundWorkers {
@@ -512,187 +512,89 @@ impl Runtime {
     }
 }
 
-impl RuntimeActionDispatcher<'_> {
-    /// Run actions in order; the caller owns the terminal the editor needs.
-    fn dispatch_all(
-        &self,
-        actions: Vec<Action>,
-        mut open_in_editor: impl FnMut(&Path, Option<u32>) -> eyre::Result<()>,
-    ) -> eyre::Result<bool> {
-        for action in actions {
-            if let Action::OpenInEditor { path, line } = action {
-                open_in_editor(&path, line)?;
-            } else if self.dispatch(action)? {
-                return Ok(true);
-            }
-        }
-        Ok(false)
+impl ActionExecutors for RuntimeActionDispatcher<'_> {
+    fn explore(&mut self, command: review_explore::Command) -> eyre::Result<()> {
+        self.commands
+            .send(WorkerCommand::Explore(explore_session::Input::Command(
+                command,
+            )))?;
+        Ok(())
     }
 
-    fn dispatch(&self, action: Action) -> eyre::Result<bool> {
-        let action = match action {
-            Action::Quit => return Ok(true),
-            Action::Thread(command) => {
-                self.comments.send(comments::Command::Thread(command));
-                return Ok(false);
+    fn thread(&mut self, command: review_threads::ThreadCommand) -> eyre::Result<()> {
+        self.comments.send(comments::Command::Thread(command));
+        Ok(())
+    }
+
+    fn document(&mut self, action: DocumentAction) -> eyre::Result<()> {
+        match action {
+            // One command per path keeps each diff ordered against later snapshots.
+            DocumentAction::Load(DocumentLoad::Diffs {
+                review_checkpoint,
+                paths,
+            }) => {
+                for path in paths {
+                    self.documents
+                        .send(document::Command::Load(DocumentLoad::Diff {
+                            review_checkpoint: review_checkpoint.clone(),
+                            path,
+                        }))?;
+                }
             }
-            Action::Highlight(request) => {
-                self.highlighting
-                    .submit(request)
-                    .map_err(eyre::Report::msg)?;
-                return Ok(false);
-            }
-            Action::Search(request) => {
-                self.search.submit(request);
-                return Ok(false);
-            }
-            Action::WatchSource(path) => {
+            DocumentAction::Load(load) => self.documents.send(document::Command::Load(load))?,
+            DocumentAction::Highlight(request) => self
+                .highlighting
+                .submit(request)
+                .map_err(eyre::Report::msg)?,
+            DocumentAction::Search(request) => self.search.submit(request),
+            DocumentAction::WatchSource(path) => {
                 if let Some(watches) = self.source_watches {
                     watches.watch(path.as_deref());
                 }
-                return Ok(false);
             }
-            action @ (Action::LoadDiff { .. }
-            | Action::LoadDiffs { .. }
-            | Action::LoadSource { .. }) => {
-                self.dispatch_document_action(action)?;
-                return Ok(false);
-            }
-            action @ (Action::SaveFilePaneWidth(_) | Action::SaveEditorKeymap(_)) => {
-                self.save_setting(&action)?;
-                return Ok(false);
-            }
-            action @ (Action::OpenLspDocument(_) | Action::Lsp { .. } | Action::RestartLsp) => {
-                self.dispatch_lsp_action(action)?;
-                return Ok(false);
-            }
-            action => action,
-        };
-        self.commands.send(Self::worker_command(action))?;
-        Ok(false)
-    }
-
-    fn save_setting(&self, action: &Action) -> eyre::Result<()> {
-        match action {
-            Action::SaveFilePaneWidth(columns) => self.settings.save_file_pane_width(*columns)?,
-            Action::SaveEditorKeymap(keymap) => self.settings.save_editor_keymap(*keymap)?,
-            _ => unreachable!("setting dispatch accepts only setting actions"),
         }
         Ok(())
     }
 
-    fn dispatch_lsp_action(&self, action: Action) -> eyre::Result<()> {
+    fn lsp(&mut self, action: LspAction) -> eyre::Result<()> {
         match action {
-            Action::OpenLspDocument(path) => {
-                self.lsp.open_document(path).map_err(eyre::Report::msg)?;
-            }
-            Action::Lsp {
+            LspAction::OpenDocument(path) => self.lsp.open_document(path),
+            LspAction::Request {
                 operation,
                 mut query,
             } => {
-                query.path = if query.path.is_absolute() {
-                    query.path
-                } else {
-                    self.repository_root.join(query.path)
-                };
-                self.lsp
-                    .request(operation, query)
-                    .map_err(eyre::Report::msg)?;
+                if query.path.is_relative() {
+                    query.path = self.repository_root.join(&query.path);
+                }
+                self.lsp.request(operation, query)
             }
-            Action::RestartLsp => {
-                self.lsp.restart().map_err(eyre::Report::msg)?;
+            LspAction::Restart => self.lsp.restart(),
+        }
+        .map_err(eyre::Report::msg)
+    }
+
+    fn settings(&mut self, action: SettingsAction) -> eyre::Result<()> {
+        match action {
+            SettingsAction::SaveFilePaneWidth(columns) => {
+                self.settings.save_file_pane_width(columns)?;
             }
-            _ => unreachable!("LSP dispatch accepts only LSP actions"),
+            SettingsAction::SaveEditorKeymap(keymap) => self.settings.save_editor_keymap(keymap)?,
         }
         Ok(())
     }
 
-    fn worker_command(action: Action) -> WorkerCommand {
-        match action {
-            Action::Explore(command) => {
-                WorkerCommand::Explore(explore_session::Input::Command(command))
-            }
-            action @ (Action::LoadRevisionCandidates(_)
-            | Action::LoadRevisionHistory { .. }
-            | Action::EditRevision { .. }) => Self::revision_worker_command(action),
-            action @ (Action::SetReviewed { .. }
-            | Action::AutoReview(_)
-            | Action::UnreviewAll(_)) => Self::review_worker_command(action),
-            Action::Thread(_)
-            | Action::Highlight(_)
-            | Action::OpenLspDocument(_)
-            | Action::WatchSource(_)
-            | Action::Search(_)
-            | Action::LoadDiff { .. }
-            | Action::LoadDiffs { .. }
-            | Action::LoadSource { .. }
-            | Action::Quit
-            | Action::SaveFilePaneWidth(_)
-            | Action::SaveEditorKeymap(_)
-            | Action::OpenInEditor { .. }
-            | Action::Lsp { .. }
-            | Action::RestartLsp => unreachable!("local actions are handled before conversion"),
-        }
-    }
-
-    fn dispatch_document_action(&self, action: Action) -> eyre::Result<()> {
-        match action {
-            Action::LoadDiff {
-                review_checkpoint,
-                path,
-            } => {
-                self.documents.send(document::Command::LoadDiff {
-                    review_checkpoint,
-                    path,
-                })?;
-            }
-            Action::LoadDiffs {
-                review_checkpoint,
-                paths,
-            } => {
-                for path in paths {
-                    self.documents.send(document::Command::LoadDiff {
-                        review_checkpoint: review_checkpoint.clone(),
-                        path,
-                    })?;
-                }
-            }
-            Action::LoadSource {
-                snapshot_id,
-                mut location,
-                mode,
-            } => {
-                if location.path.is_relative() {
-                    location.path = self.repository_root.join(&location.path);
-                }
-                self.documents.send(document::Command::LoadSource {
-                    snapshot_id,
-                    location,
-                    mode,
-                })?;
-            }
-            _ => unreachable!("document actions accept only diff and source work"),
-        }
+    fn repository(&mut self, action: RepositoryAction) -> eyre::Result<()> {
+        self.commands.send(WorkerCommand::Repository(action))?;
         Ok(())
     }
 
-    fn revision_worker_command(action: Action) -> WorkerCommand {
+    fn terminal(&mut self, action: TerminalAction) -> eyre::Result<ControlFlow<()>> {
         match action {
-            Action::LoadRevisionCandidates(direction) => {
-                WorkerCommand::LoadRevisionCandidates(direction)
+            TerminalAction::OpenInEditor { path, line } => {
+                (self.open_in_editor)(&path, line)?;
+                Ok(ControlFlow::Continue(()))
             }
-            Action::LoadRevisionHistory { load_id } => WorkerCommand::LoadRevisionHistory(load_id),
-            Action::EditRevision { change_id } => WorkerCommand::EditRevision(change_id),
-            _ => unreachable!("revision conversion accepts only revision actions"),
-        }
-    }
-
-    fn review_worker_command(action: Action) -> WorkerCommand {
-        match action {
-            Action::SetReviewed { path, reviewed } => WorkerCommand::SetReviewed { path, reviewed },
-            Action::AutoReview(checkpoint) => WorkerCommand::AutoReview(checkpoint),
-            Action::UnreviewAll(checkpoint) => WorkerCommand::UnreviewAll(checkpoint),
-            _ => unreachable!("review conversion accepts only review actions"),
+            TerminalAction::Quit => Ok(ControlFlow::Break(())),
         }
     }
 }
@@ -780,7 +682,7 @@ where
             ControlEventOutcome::Stop => return Ok(true),
         }
         let actions = self.application_actions(event);
-        let dispatcher = RuntimeActionDispatcher {
+        let mut dispatcher = RuntimeActionDispatcher {
             source_watches: self.source_watches,
             comments: self.comments,
             commands: self.commands,
@@ -790,8 +692,9 @@ where
             settings: self.settings,
             repository_root: self.repository_root,
             lsp: self.lsp,
+            open_in_editor: &mut |path, line| self.open_in_editor(path, line),
         };
-        dispatcher.dispatch_all(actions, |path, line| self.open_in_editor(path, line))
+        Ok(dispatcher.run_all(actions)?.is_break())
     }
 
     fn open_in_editor(&mut self, path: &Path, line: Option<u32>) -> eyre::Result<()> {
@@ -905,53 +808,50 @@ impl Worker {
         messages: &ApplicationEventSender,
     ) -> bool {
         match command {
-            command @ (WorkerCommand::Poll
-            | WorkerCommand::LoadRevisionCandidates(_)
-            | WorkerCommand::LoadRevisionHistory(_)
-            | WorkerCommand::EditRevision(_)) => self.handle_repository_command(command, messages),
-            command @ (WorkerCommand::SetReviewed { .. }
-            | WorkerCommand::AutoReview(_)
-            | WorkerCommand::AutoReviewFinished(_)
-            | WorkerCommand::UnreviewAll(_)) => {
-                self.handle_review_command(command, messages);
-                true
-            }
-            WorkerCommand::Explore(input) => {
-                self.explore.handle(input);
-                true
-            }
-            WorkerCommand::Quit => false,
-        }
-    }
-
-    fn handle_repository_command(
-        &mut self,
-        command: WorkerCommand,
-        messages: &ApplicationEventSender,
-    ) -> bool {
-        match command {
             WorkerCommand::Poll => {
                 let _ = self.poll(messages);
                 let _ = messages.send(RepositoryRefreshFinished);
             }
-            WorkerCommand::LoadRevisionCandidates(direction) => {
+            WorkerCommand::Repository(action) => self.handle_repository_action(action, messages),
+            WorkerCommand::AutoReviewFinished(review) => self.finish_auto_review(&review, messages),
+            WorkerCommand::Explore(input) => self.explore.handle(input),
+            WorkerCommand::Quit => return false,
+        }
+        true
+    }
+
+    fn handle_repository_action(
+        &mut self,
+        action: RepositoryAction,
+        messages: &ApplicationEventSender,
+    ) {
+        match action {
+            RepositoryAction::LoadRevisionCandidates(direction) => {
                 let result = self
                     .repository
                     .revision_candidates(direction)
                     .map_err(|error| error.to_string());
                 let _ = messages.send(RevisionCandidatesLoaded { direction, result });
             }
-            WorkerCommand::LoadRevisionHistory(load_id) => {
+            RepositoryAction::LoadRevisionHistory { load_id } => {
                 let result = self
                     .repository
                     .revision_history()
                     .map_err(|error| error.to_string());
                 let _ = messages.send(RevisionHistoryLoaded { load_id, result });
             }
-            WorkerCommand::EditRevision(change_id) => self.edit_revision(messages, &change_id),
-            _ => unreachable!("repository commands accept only repository work"),
+            RepositoryAction::EditRevision { change_id } => {
+                self.edit_revision(messages, &change_id);
+            }
+            RepositoryAction::SetReviewed { path, reviewed } => {
+                self.cancel_auto_review();
+                self.set_reviewed(messages, path, reviewed);
+            }
+            RepositoryAction::AutoReview(checkpoint) => {
+                self.start_auto_review(&checkpoint, messages);
+            }
+            RepositoryAction::UnreviewAll(checkpoint) => self.unreview_all(&checkpoint, messages),
         }
-        true
     }
 
     fn edit_revision(&mut self, messages: &ApplicationEventSender, change_id: &ChangeId) {

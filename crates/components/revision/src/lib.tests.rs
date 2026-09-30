@@ -33,8 +33,8 @@ fn parent_shortcut_requests_candidates() {
         .into_results();
     assert_eq!(
         results.into_iter().next().unwrap().into_actions(),
-        vec![ui_actions::Action::LoadRevisionCandidates(
-            RevisionDirection::Parents
+        vec![ui_actions::Action::Repository(
+            ui_actions::RepositoryAction::LoadRevisionCandidates(RevisionDirection::Parents)
         )]
     );
 }
@@ -78,9 +78,11 @@ fn selector_shortcut_loads_the_rendered_revision_history() {
         .into_results();
     assert_eq!(
         actions(results),
-        [ui_actions::Action::LoadRevisionHistory {
-            load_id: history_load_id(0),
-        }]
+        [ui_actions::Action::Repository(
+            ui_actions::RepositoryAction::LoadRevisionHistory {
+                load_id: history_load_id(0),
+            }
+        )]
     );
 
     bus.publish(RevisionHistoryLoaded {
@@ -107,9 +109,11 @@ fn selector_opens_while_the_initial_repository_refresh_is_running() {
 
     assert_eq!(
         actions(results),
-        [ui_actions::Action::LoadRevisionHistory {
-            load_id: history_load_id(0),
-        }]
+        [ui_actions::Action::Repository(
+            ui_actions::RepositoryAction::LoadRevisionHistory {
+                load_id: history_load_id(0),
+            }
+        )]
     );
     assert!(rendered_component(&bus, target).contains("Loading revision history"));
 
@@ -163,9 +167,11 @@ fn a_closed_history_request_cannot_replace_the_next_selector() {
                 .unwrap()
                 .into_results()
         ),
-        [ui_actions::Action::LoadRevisionHistory {
-            load_id: history_load_id(0),
-        }]
+        [ui_actions::Action::Repository(
+            ui_actions::RepositoryAction::LoadRevisionHistory {
+                load_id: history_load_id(0),
+            }
+        )]
     );
     send_key(&mut bus, Key::Escape);
     send_key(&mut bus, Key::Char('v'));
@@ -175,9 +181,11 @@ fn a_closed_history_request_cannot_replace_the_next_selector() {
                 .unwrap()
                 .into_results()
         ),
-        [ui_actions::Action::LoadRevisionHistory {
-            load_id: history_load_id(1),
-        }]
+        [ui_actions::Action::Repository(
+            ui_actions::RepositoryAction::LoadRevisionHistory {
+                load_id: history_load_id(1),
+            }
+        )]
     );
 
     bus.publish(RevisionHistoryLoaded {
@@ -219,9 +227,11 @@ fn slash_fuzzy_matches_a_typed_change_id() {
         .into_results();
     assert_eq!(
         actions(results),
-        [ui_actions::Action::EditRevision {
-            change_id: ChangeId::from("rykwutkz".to_owned())
-        }]
+        [ui_actions::Action::Repository(
+            ui_actions::RepositoryAction::EditRevision {
+                change_id: ChangeId::from("rykwutkz".to_owned())
+            }
+        )]
     );
 }
 
@@ -252,9 +262,11 @@ fn visible_short_change_id_prefix_has_search_priority() {
 
     assert_eq!(
         actions(results),
-        [ui_actions::Action::EditRevision {
-            change_id: ChangeId::from("target-full-id".to_owned())
-        }]
+        [ui_actions::Action::Repository(
+            ui_actions::RepositoryAction::EditRevision {
+                change_id: ChangeId::from("target-full-id".to_owned())
+            }
+        )]
     );
 }
 
@@ -367,9 +379,11 @@ fn revision_history_starts_on_and_highlights_the_current_revision() {
         .into_results();
     assert_eq!(
         actions(results),
-        [ui_actions::Action::EditRevision {
-            change_id: ChangeId::from("current".to_owned())
-        }]
+        [ui_actions::Action::Repository(
+            ui_actions::RepositoryAction::EditRevision {
+                change_id: ChangeId::from("current".to_owned())
+            }
+        )]
     );
 }
 
@@ -399,9 +413,11 @@ fn j_and_k_move_between_revision_history_rows() {
 
     assert_eq!(
         actions(results),
-        [ui_actions::Action::EditRevision {
-            change_id: ChangeId::from("child".to_owned())
-        }]
+        [ui_actions::Action::Repository(
+            ui_actions::RepositoryAction::EditRevision {
+                change_id: ChangeId::from("child".to_owned())
+            }
+        )]
     );
 }
 
@@ -429,9 +445,11 @@ fn navigation_skips_immutable_revision_history_rows() {
 
     assert_eq!(
         actions(results),
-        [ui_actions::Action::EditRevision {
-            change_id: ChangeId::from("current".to_owned())
-        }]
+        [ui_actions::Action::Repository(
+            ui_actions::RepositoryAction::EditRevision {
+                change_id: ChangeId::from("current".to_owned())
+            }
+        )]
     );
 }
 
@@ -473,9 +491,11 @@ fn one_candidate_starts_the_revision_edit_without_a_selector() {
 
     assert_eq!(
         actions(results),
-        [ui_actions::Action::EditRevision {
-            change_id: ChangeId::from("one".to_owned()),
-        }]
+        [ui_actions::Action::Repository(
+            ui_actions::RepositoryAction::EditRevision {
+                change_id: ChangeId::from("one".to_owned()),
+            }
+        )]
     );
 }
 
@@ -505,7 +525,9 @@ fn no_candidates_leave_navigation_ready_for_another_request() {
 
     assert!(matches!(
         actions(results).as_slice(),
-        [ui_actions::Action::EditRevision { .. }]
+        [ui_actions::Action::Repository(
+            ui_actions::RepositoryAction::EditRevision { .. }
+        )]
     ));
 }
 
@@ -571,8 +593,8 @@ fn overlapping_refreshes_block_navigation_until_all_finish() {
 
     assert_eq!(
         request_parent_candidates(&mut bus),
-        [ui_actions::Action::LoadRevisionCandidates(
-            RevisionDirection::Parents
+        [ui_actions::Action::Repository(
+            ui_actions::RepositoryAction::LoadRevisionCandidates(RevisionDirection::Parents)
         )]
     );
 }

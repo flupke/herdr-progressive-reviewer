@@ -205,7 +205,9 @@ impl DiffDocument {
             .as_mut()
             .filter(|pending| !pending.submitted)?;
         pending.submitted = true;
-        Some(ui_actions::Action::Highlight(pending.request.clone()))
+        Some(ui_actions::Action::Document(
+            ui_actions::DocumentAction::Highlight(pending.request.clone()),
+        ))
     }
 
     pub(super) fn finish_highlighting(&mut self, result: &ui_events::HighlightingFinished) {

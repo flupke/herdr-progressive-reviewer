@@ -1,4 +1,5 @@
 use super::*;
+use crate::TerminalAction;
 
 #[test]
 fn a_new_pass_saves_its_view_only_after_its_first_post_is_durable() {
@@ -190,7 +191,7 @@ fn edits_during_posting_are_queued_for_save_before_normal_close() {
         fixture
             .app
             .update(UserInput::Key(Key::Char('q')))
-            .contains(&Action::Quit)
+            .contains(&Action::Terminal(TerminalAction::Quit))
     );
     pass.post(&answer).unwrap();
     pass.turns.get_mut(&answer.request).unwrap().editor_sequence = Some(view.sequence - 1);

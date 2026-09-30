@@ -2,22 +2,15 @@
 
 use super::{
     ApplicationEventSender, Arc, ChangedFile, DiffContentLoadFailed, DiffContentLoaded,
-    EventEnvelope, Path, Receiver, Repository, ReviewCheckpoint, ReviewTracker, Snapshot,
-    SourceContentLoadFailed, SourceContentLoaded, SourceLoadMode, SourceLocation, parse_file_diff,
+    DocumentLoad, EventEnvelope, Path, Receiver, Repository, ReviewCheckpoint, ReviewTracker,
+    Snapshot, SourceContentLoadFailed, SourceContentLoaded, SourceLoadMode, SourceLocation,
+    parse_file_diff,
 };
 
 #[derive(Debug)]
 pub(super) enum Command {
     Snapshot(Snapshot),
-    LoadDiff {
-        review_checkpoint: ReviewCheckpoint,
-        path: String,
-    },
-    LoadSource {
-        snapshot_id: String,
-        location: SourceLocation,
-        mode: SourceLoadMode,
-    },
+    Load(DocumentLoad),
     Quit,
 }
 
@@ -32,16 +25,35 @@ impl DocumentWorker {
         while let Ok(command) = commands.recv() {
             match command {
                 Command::Snapshot(snapshot) => self.snapshot = Some(snapshot),
-                Command::LoadDiff {
-                    review_checkpoint,
-                    path,
-                } => self.load_diff(messages, review_checkpoint, path),
-                Command::LoadSource {
-                    snapshot_id,
-                    location,
-                    mode,
-                } => self.load_source(messages, snapshot_id, location, mode),
+                Command::Load(load) => self.load(messages, load),
                 Command::Quit => return,
+            }
+        }
+    }
+
+    fn load(&self, messages: &ApplicationEventSender, load: DocumentLoad) {
+        match load {
+            DocumentLoad::Diff {
+                review_checkpoint,
+                path,
+            } => self.load_diff(messages, review_checkpoint, path),
+            DocumentLoad::Diffs {
+                review_checkpoint,
+                paths,
+            } => {
+                for path in paths {
+                    self.load_diff(messages, review_checkpoint.clone(), path);
+                }
+            }
+            DocumentLoad::Source {
+                snapshot_id,
+                mut location,
+                mode,
+            } => {
+                if location.path.is_relative() {
+                    location.path = self.repository.root().join(&location.path);
+                }
+                self.load_source(messages, snapshot_id, location, mode);
             }
         }
     }

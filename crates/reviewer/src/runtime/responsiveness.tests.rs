@@ -39,7 +39,11 @@ fn file_selection_loads_on_the_next_tick_without_further_activity() {
     }
     let commands = scenario.pending_documents.try_iter().collect::<Vec<_>>();
     assert!(
-        matches!(commands.as_slice(), [document::Command::LoadDiff { path, .. }] if path == "second.txt"),
+        matches!(
+            commands.as_slice(),
+            [document::Command::Load(DocumentLoad::Diff { path, .. })]
+                if path == "second.txt"
+        ),
         "{commands:?}"
     );
 }

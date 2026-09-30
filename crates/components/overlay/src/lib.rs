@@ -15,7 +15,7 @@ use review_lsp::{Event as LspEvent, Operation, Query};
 use std::collections::HashMap;
 use syntax_highlighting::SyntaxHighlighter;
 use toasts::{ToastId, ToastKind, ToastState};
-use ui_actions::Action;
+use ui_actions::{Action, LspAction, RepositoryAction};
 use ui_events::{
     CommitMessageToggleRequested, ContextMenuRequested, LspQueryContext, LspQueryRequested,
     PointerInputKind, RepositoryMetadataChanged, ToastExpirationTick, ToastRequested,
@@ -109,7 +109,7 @@ impl OverlayComponent {
 
     fn repository_changed(&mut self, event: &RepositoryMetadataChanged) {
         if let Some(ConfirmationOverlay {
-            action: Action::UnreviewAll(checkpoint),
+            action: Action::Repository(RepositoryAction::UnreviewAll(checkpoint)),
             ..
         }) = &self.confirmation
             && checkpoint != &event.review_checkpoint
@@ -143,7 +143,7 @@ impl OverlayComponent {
         self.confirmation = Some(ConfirmationOverlay {
             title: "Unreview all files",
             question: "Set all files to unreviewed?",
-            action: Action::UnreviewAll(event.0.clone()),
+            action: Action::Repository(RepositoryAction::UnreviewAll(event.0.clone())),
         });
         self.active_modal = Some(ModalOverlay::Confirmation);
     }
@@ -371,7 +371,7 @@ impl OverlayComponent {
 
     fn start_lsp_query(&mut self, operation: Operation, query: LspQueryContext) -> Action {
         let toast_id = self.toasts.start_long_toast(operation.progress_text());
-        Action::Lsp {
+        Action::Lsp(LspAction::Request {
             operation,
             query: Query {
                 toast_id,
@@ -381,7 +381,7 @@ impl OverlayComponent {
                 expected_line: query.expected_line,
                 snapshot_id: query.snapshot_id,
             },
-        }
+        })
     }
 
     fn shortcut_help_key(&mut self, key: Key) {

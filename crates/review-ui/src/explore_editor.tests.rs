@@ -1,4 +1,5 @@
 use super::*;
+use crate::{RepositoryAction, SettingsAction, TerminalAction};
 use comment_editor::EditorKeymap;
 use ui_shortcuts::{ApplicationShortcut, OverlayShortcut, ShortcutSubscription};
 
@@ -8,7 +9,10 @@ impl ExploreUi {
         assert!(
             !actions.iter().any(|action| matches!(
                 action,
-                Action::Explore(_) | Action::Quit | Action::Thread(_) | Action::SetReviewed { .. }
+                Action::Explore(_)
+                    | Action::Terminal(TerminalAction::Quit)
+                    | Action::Thread(_)
+                    | Action::Repository(RepositoryAction::SetReviewed { .. })
             )),
             "editor key {key:?} must not run review commands"
         );
@@ -64,7 +68,10 @@ fn switching_the_keymap_saves_it_for_every_editor() {
     fixture.app.update(UserInput::Paste("Answer draft".into()));
     for keymap in [EditorKeymap::Vim, EditorKeymap::Regular] {
         let actions = fixture.app.update(UserInput::Key(Key::EditorMode));
-        assert_eq!(actions, [Action::SaveEditorKeymap(keymap)]);
+        assert_eq!(
+            actions,
+            [Action::Settings(SettingsAction::SaveEditorKeymap(keymap))]
+        );
     }
     assert!(
         fixture
@@ -131,7 +138,7 @@ fn explore_lets_application_keys_through_while_no_answer_is_composed() {
             fixture
                 .app
                 .update(UserInput::Key(key))
-                .contains(&Action::Quit),
+                .contains(&Action::Terminal(TerminalAction::Quit)),
             "{key:?}"
         );
     }
@@ -192,7 +199,7 @@ fn explore_lets_only_navigation_switches_through_while_an_answer_is_composed() {
             !fixture
                 .app
                 .update(UserInput::Key(key))
-                .contains(&Action::Quit),
+                .contains(&Action::Terminal(TerminalAction::Quit)),
             "{key:?}"
         );
         assert_eq!(fixture.app.navigation, ReviewNavigation::Explore, "{key:?}");

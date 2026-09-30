@@ -14,6 +14,7 @@ use ui_events::{FileSummary, PointerPosition, SearchStatusChanged};
 use ui_theme::Theme;
 
 use super::*;
+use ui_actions::{DocumentAction, DocumentLoad, RepositoryAction};
 
 #[path = "comments.tests.rs"]
 mod comments;
@@ -152,10 +153,10 @@ fn rapid_file_selection_loads_only_the_last_selected_diff_on_the_next_tick() {
 
     assert_eq!(
         actions,
-        vec![Action::LoadDiff {
+        vec![Action::Document(DocumentAction::Load(DocumentLoad::Diff {
             review_checkpoint: ReviewCheckpoint::new("change", "checkpoint"),
             path: "third.rs".to_owned(),
-        }]
+        }))]
     );
 }
 
@@ -211,10 +212,10 @@ fn unreviewing_a_checkpointed_file_reloads_its_full_diff() {
 
     assert_eq!(
         actions,
-        vec![Action::LoadDiff {
+        vec![Action::Document(DocumentAction::Load(DocumentLoad::Diff {
             review_checkpoint: ReviewCheckpoint::new("change", "checkpoint"),
             path: "src/lib.rs".to_owned(),
-        }]
+        }))]
     );
 }
 
@@ -252,15 +253,20 @@ fn unreviewing_while_checkpoint_diff_loads_defers_the_full_diff_load() {
         .expect("checkpoint diff must load")
         .into_iter()
         .flat_map(DispatchResult::into_actions)
-        .filter(|action| matches!(action, Action::LoadDiff { .. }))
+        .filter(|action| {
+            matches!(
+                action,
+                Action::Document(DocumentAction::Load(DocumentLoad::Diff { .. }))
+            )
+        })
         .collect::<Vec<_>>();
 
     assert_eq!(
         load_actions,
-        vec![Action::LoadDiff {
+        vec![Action::Document(DocumentAction::Load(DocumentLoad::Diff {
             review_checkpoint: ReviewCheckpoint::new("change", "checkpoint"),
             path: "src/lib.rs".to_owned(),
-        }]
+        }))]
     );
 }
 
@@ -290,14 +296,19 @@ fn stale_load_failure_starts_full_load_then_full_load_failure_waits_for_refresh(
         .expect("load failure must dispatch")
         .into_iter()
         .flat_map(DispatchResult::into_actions)
-        .filter(|action| matches!(action, Action::LoadDiff { .. }))
+        .filter(|action| {
+            matches!(
+                action,
+                Action::Document(DocumentAction::Load(DocumentLoad::Diff { .. }))
+            )
+        })
         .collect::<Vec<_>>();
     assert_eq!(
         stale_failure_actions,
-        vec![Action::LoadDiff {
+        vec![Action::Document(DocumentAction::Load(DocumentLoad::Diff {
             review_checkpoint: ReviewCheckpoint::new("change", "checkpoint"),
             path: "src/lib.rs".to_owned(),
-        }]
+        }))]
     );
 
     let replacement_failure_actions = registry
@@ -308,7 +319,12 @@ fn stale_load_failure_starts_full_load_then_full_load_failure_waits_for_refresh(
         .expect("replacement load failure must dispatch")
         .into_iter()
         .flat_map(DispatchResult::into_actions)
-        .filter(|action| matches!(action, Action::LoadDiff { .. }))
+        .filter(|action| {
+            matches!(
+                action,
+                Action::Document(DocumentAction::Load(DocumentLoad::Diff { .. }))
+            )
+        })
         .collect::<Vec<_>>();
     assert!(replacement_failure_actions.is_empty());
 
@@ -317,14 +333,19 @@ fn stale_load_failure_starts_full_load_then_full_load_failure_waits_for_refresh(
         .expect("reviewable-file refresh must dispatch")
         .into_iter()
         .flat_map(DispatchResult::into_actions)
-        .filter(|action| matches!(action, Action::LoadDiff { .. }))
+        .filter(|action| {
+            matches!(
+                action,
+                Action::Document(DocumentAction::Load(DocumentLoad::Diff { .. }))
+            )
+        })
         .collect::<Vec<_>>();
     assert_eq!(
         refresh_actions,
-        vec![Action::LoadDiff {
+        vec![Action::Document(DocumentAction::Load(DocumentLoad::Diff {
             review_checkpoint: ReviewCheckpoint::new("change", "checkpoint"),
             path: "src/lib.rs".to_owned(),
-        }]
+        }))]
     );
 }
 
@@ -456,7 +477,7 @@ fn accepted_location_is_centered_after_its_preview_started_the_diff_load() {
         .collect::<Vec<_>>();
     assert!(
         preview_actions.iter().any(
-            |action| matches!(action, Action::LoadDiff { path, .. } if path == "src/definition.rs")
+            |action| matches!(action, Action::Document(DocumentAction::Load(DocumentLoad::Diff { path, .. })) if path == "src/definition.rs")
         ),
         "unexpected actions: {preview_actions:?}"
     );
@@ -467,9 +488,10 @@ fn accepted_location_is_centered_after_its_preview_started_the_diff_load() {
         .flat_map(DispatchResult::into_actions)
         .collect::<Vec<_>>();
     assert!(
-        !accepted_actions
-            .iter()
-            .any(|action| matches!(action, Action::LoadDiff { .. })),
+        !accepted_actions.iter().any(|action| matches!(
+            action,
+            Action::Document(DocumentAction::Load(DocumentLoad::Diff { .. }))
+        )),
         "the diff load is already active: {accepted_actions:?}"
     );
 
@@ -709,10 +731,10 @@ fn refreshed_checkpoint_restarts_an_in_flight_definition_load() {
         .collect::<Vec<_>>();
     assert!(refreshed.iter().any(|action| matches!(
         action,
-        Action::LoadDiff {
+        Action::Document(DocumentAction::Load(DocumentLoad::Diff {
             review_checkpoint,
             path,
-        } if review_checkpoint.checkpoint == "second" && path == "src/definition.rs"
+        })) if review_checkpoint.checkpoint == "second" && path == "src/definition.rs"
     )));
 
     let loaded = registry
@@ -1041,10 +1063,12 @@ fn beginning_a_search_requests_every_unloaded_diff() {
 
     assert_eq!(
         actions,
-        vec![Action::LoadDiffs {
-            review_checkpoint: ReviewCheckpoint::new("change", "checkpoint"),
-            paths: vec!["src/second.rs".to_owned()],
-        }]
+        vec![Action::Document(DocumentAction::Load(
+            DocumentLoad::Diffs {
+                review_checkpoint: ReviewCheckpoint::new("change", "checkpoint"),
+                paths: vec!["src/second.rs".to_owned()],
+            }
+        ))]
     );
 }
 
@@ -1156,10 +1180,12 @@ fn repository_refresh_reloads_every_file_for_an_active_search() {
         .flat_map(DispatchResult::into_actions)
         .collect::<Vec<_>>();
 
-    assert!(actions.contains(&Action::LoadDiffs {
-        review_checkpoint: ReviewCheckpoint::new("change", "second-checkpoint"),
-        paths: vec!["src/first.rs".to_owned(), "src/second.rs".to_owned()],
-    }));
+    assert!(actions.contains(&Action::Document(DocumentAction::Load(
+        DocumentLoad::Diffs {
+            review_checkpoint: ReviewCheckpoint::new("change", "second-checkpoint"),
+            paths: vec!["src/first.rs".to_owned(), "src/second.rs".to_owned()],
+        }
+    ))));
 }
 
 #[test]
@@ -1520,14 +1546,19 @@ fn repository_refresh_preserves_mouse_scrolled_viewport() {
     let refresh_actions = refresh_results
         .into_iter()
         .flat_map(DispatchResult::into_actions)
-        .filter(|action| matches!(action, Action::LoadDiff { .. }))
+        .filter(|action| {
+            matches!(
+                action,
+                Action::Document(DocumentAction::Load(DocumentLoad::Diff { .. }))
+            )
+        })
         .collect::<Vec<_>>();
     assert_eq!(
         refresh_actions,
-        vec![Action::LoadDiff {
+        vec![Action::Document(DocumentAction::Load(DocumentLoad::Diff {
             review_checkpoint: ReviewCheckpoint::new("change", "second"),
             path: "src/lib.rs".to_owned(),
-        }]
+        }))]
     );
     registry
         .publish(DiffContentLoaded {
@@ -1875,9 +1906,9 @@ impl ViewportObserver {
             .flat_map(|viewport| &viewport.rows)
             .filter(|row| row.old_line.is_some() != row.new_line.is_some())
             .count();
-        vec![Action::EditRevision {
+        vec![Action::Repository(RepositoryAction::EditRevision {
             change_id: format!("{path}:{}:{changed_rows}", event.current_row).into(),
-        }]
+        })]
     }
 }
 
@@ -1892,14 +1923,14 @@ struct DecorationObserver;
 impl DecorationObserver {
     #[allow(clippy::unused_self)]
     fn decorations_changed(&mut self, event: &FileDecorationsChanged) -> Vec<Action> {
-        vec![Action::EditRevision {
+        vec![Action::Repository(RepositoryAction::EditRevision {
             change_id: format!(
                 "notice:{};search:{}",
                 event.notice_paths.join(","),
                 event.search_match_paths.join(",")
             )
             .into(),
-        }]
+        })]
     }
 }
 
@@ -1917,9 +1948,9 @@ impl LocationObserver {
         let Some(ReviewLocation::LoadedDocument { column, .. }) = &event.location else {
             return Vec::new();
         };
-        vec![Action::EditRevision {
+        vec![Action::Repository(RepositoryAction::EditRevision {
             change_id: format!("column:{column}").into(),
-        }]
+        })]
     }
 }
 
@@ -1934,9 +1965,9 @@ struct ToastObserver;
 impl ToastObserver {
     #[allow(clippy::unused_self)]
     fn toast_requested(&mut self, event: &ToastRequested) -> Vec<Action> {
-        vec![Action::EditRevision {
+        vec![Action::Repository(RepositoryAction::EditRevision {
             change_id: format!("toast:{}", event.text).into(),
-        }]
+        })]
     }
 }
 
@@ -1958,9 +1989,9 @@ impl FullLocationObserver {
         else {
             return Vec::new();
         };
-        vec![Action::EditRevision {
+        vec![Action::Repository(RepositoryAction::EditRevision {
             change_id: format!("location:{path}:{cursor}:{column}").into(),
-        }]
+        })]
     }
 }
 
@@ -1973,7 +2004,7 @@ impl Component<Action> for FullLocationObserver {
 impl SearchStatusObserver {
     #[allow(clippy::unused_self)]
     fn search_changed(&mut self, event: &SearchStatusChanged) -> Vec<Action> {
-        vec![Action::EditRevision {
+        vec![Action::Repository(RepositoryAction::EditRevision {
             change_id: format!(
                 "search:{}:{}/{}",
                 event.query.as_deref().unwrap_or_default(),
@@ -1981,7 +2012,7 @@ impl SearchStatusObserver {
                 event.total_matches
             )
             .into(),
-        }]
+        })]
     }
 }
 
@@ -1997,9 +2028,9 @@ impl ReviewPathObserver {
         let Some(ReviewLocation::LoadedDocument { path, .. }) = &event.location else {
             return Vec::new();
         };
-        vec![Action::EditRevision {
+        vec![Action::Repository(RepositoryAction::EditRevision {
             change_id: format!("path:{path}").into(),
-        }]
+        })]
     }
 }
 
@@ -2020,7 +2051,9 @@ fn output_texts(results: Vec<DispatchResult<Action>>) -> Vec<String> {
         .into_iter()
         .flat_map(DispatchResult::into_actions)
         .filter_map(|action| match action {
-            Action::EditRevision { change_id: text } => Some(text.as_str().to_owned()),
+            Action::Repository(RepositoryAction::EditRevision { change_id: text }) => {
+                Some(text.as_str().to_owned())
+            }
             _ => None,
         })
         .collect()
@@ -2084,7 +2117,7 @@ impl LargeSearchFixture {
                 .into_iter()
                 .flat_map(DispatchResult::into_actions)
             {
-                if let Action::Search(Some(next)) = action {
+                if let Action::Document(DocumentAction::Search(Some(next))) = action {
                     request = Some(next);
                 }
             }
@@ -2134,7 +2167,7 @@ fn superseded_and_cancelled_background_results_cannot_move_the_cursor() {
         cancelled
             .into_iter()
             .flat_map(DispatchResult::into_actions)
-            .any(|action| action == Action::Search(None))
+            .any(|action| action == Action::Document(DocumentAction::Search(None)))
     );
     assert!(
         fixture
@@ -2165,11 +2198,11 @@ fn unchanged_repository_refresh_preserves_large_search_progress() {
         .flat_map(DispatchResult::into_actions)
         .collect::<Vec<_>>();
     assert!(actions.iter().any(
-        |action| matches!(action, Action::EditRevision { change_id: text } if text.as_str() == "search:needle:1/2")
+        |action| matches!(action, Action::Repository(RepositoryAction::EditRevision { change_id: text }) if text.as_str() == "search:needle:1/2")
     ));
     assert!(
         !actions
             .iter()
-            .any(|action| matches!(action, Action::Search(_)))
+            .any(|action| matches!(action, Action::Document(DocumentAction::Search(_))))
     );
 }

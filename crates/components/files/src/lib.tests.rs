@@ -4,7 +4,7 @@ use review_repository::repository::{ChangedFile, DiffStatistics, Repository};
 use review_source::ReviewCheckpoint;
 use review_state::ReviewStatus;
 use review_test_support::{GitFixture, ReviewRepositoryFixture, complete_repository_snapshot};
-use ui_actions::Action;
+use ui_actions::{Action, RepositoryAction};
 use ui_events::{
     FileSelected, FileSummary, FilesOverviewChanged, FilesViewportChanged, PointerInput,
     PointerInputKind, PointerPosition, RepositoryFilesChanged, ReviewStateSaved,
@@ -47,9 +47,9 @@ fn repository_and_keyboard_inputs_publish_the_selected_file() {
         .collect::<Vec<_>>();
     assert_eq!(
         initial,
-        [Action::EditRevision {
+        [Action::Repository(RepositoryAction::EditRevision {
             change_id: "selected:first.rs".to_owned().into()
-        }]
+        })]
     );
 
     let moved = registry
@@ -61,9 +61,9 @@ fn repository_and_keyboard_inputs_publish_the_selected_file() {
         .collect::<Vec<_>>();
     assert_eq!(
         moved,
-        [Action::EditRevision {
+        [Action::Repository(RepositoryAction::EditRevision {
             change_id: "selected:second.rs".to_owned().into()
-        }]
+        })]
     );
 }
 
@@ -101,9 +101,9 @@ fn global_shortcuts_move_between_files_that_need_review() {
             .collect::<Vec<_>>();
         assert_eq!(
             actions,
-            [Action::EditRevision {
+            [Action::Repository(RepositoryAction::EditRevision {
                 change_id: format!("selected:{expected_path}").into()
-            }]
+            })]
         );
     }
 }
@@ -246,9 +246,9 @@ fn repository_event_updates_the_header_overview() {
 
     assert_eq!(
         actions,
-        [Action::EditRevision {
+        [Action::Repository(RepositoryAction::EditRevision {
             change_id: "overview:1/2:+8:-6".to_owned().into()
-        }]
+        })]
     );
 }
 
@@ -280,13 +280,13 @@ fn review_input_moves_optimistically_and_failure_restores_the_status() {
     assert_eq!(
         review,
         [
-            Action::SetReviewed {
+            Action::Repository(RepositoryAction::SetReviewed {
                 path: "first.rs".to_owned(),
                 reviewed: true,
-            },
-            Action::EditRevision {
+            }),
+            Action::Repository(RepositoryAction::EditRevision {
                 change_id: "selected:second.rs".to_owned().into()
-            },
+            }),
         ]
     );
 
@@ -357,13 +357,13 @@ struct OverviewOutput;
 impl OverviewOutput {
     #[allow(clippy::unused_self)]
     fn changed(&mut self, event: &FilesOverviewChanged) -> Vec<Action> {
-        vec![Action::EditRevision {
+        vec![Action::Repository(RepositoryAction::EditRevision {
             change_id: format!(
                 "overview:{}/{}:+{}:-{}",
                 event.reviewed, event.total, event.lines_added, event.lines_removed
             )
             .into(),
-        }]
+        })]
     }
 }
 
@@ -376,9 +376,9 @@ impl component_core::Component<Action> for OverviewOutput {
 impl SelectionOutput {
     #[allow(clippy::unused_self)]
     fn selected(&mut self, event: &FileSelected) -> Vec<Action> {
-        vec![Action::EditRevision {
+        vec![Action::Repository(RepositoryAction::EditRevision {
             change_id: format!("selected:{}", event.path).into(),
-        }]
+        })]
     }
 }
 
@@ -404,9 +404,11 @@ fn repository_refresh_publishes_selection_from_the_files_component() {
         .flat_map(component_core::DispatchResult::into_actions)
         .collect::<Vec<_>>();
 
-    assert!(actions.contains(&Action::EditRevision {
-        change_id: "selected:src/lib.rs".to_owned().into()
-    }));
+    assert!(
+        actions.contains(&Action::Repository(RepositoryAction::EditRevision {
+            change_id: "selected:src/lib.rs".to_owned().into()
+        }))
+    );
 }
 
 fn rendered_files(registry: &ComponentEventBus<Action>, target: ComponentTarget) -> String {

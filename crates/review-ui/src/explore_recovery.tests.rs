@@ -1,4 +1,5 @@
 use super::*;
+use crate::RepositoryAction;
 use review_explore::{ExplorePage, ExplorePass, ExploreViewState, ViewSave};
 
 #[path = "explore_concurrent.tests.rs"]
@@ -42,7 +43,8 @@ fn saved(actions: Vec<Action>) -> ViewSave {
 fn no_post(actions: &[Action]) {
     assert!(!actions.iter().any(|action| matches!(
         action,
-        Action::Explore(Command::Turn(_) | Command::Implement(_)) | Action::SetReviewed { .. }
+        Action::Explore(Command::Turn(_) | Command::Implement(_))
+            | Action::Repository(RepositoryAction::SetReviewed { .. })
     )));
 }
 
