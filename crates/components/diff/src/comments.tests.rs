@@ -432,8 +432,8 @@ fn finalized_selection_opens_editor_with_vim_escape_and_explicit_post() {
         })
         .unwrap();
     fixture.key(Key::Last);
-    fixture.key(Key::Visual);
-    fixture.key(Key::Visual);
+    fixture.key(Key::Char('V'));
+    fixture.key(Key::Char('V'));
     fixture.assert_editor(true);
     let buffer = fixture.render_thread();
     CommentFixture::text_position(&buffer, "You  Ctrl-Enter post");

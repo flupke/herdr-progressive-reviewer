@@ -56,7 +56,8 @@ fn conflicts(first: ShortcutSequence, second: ShortcutSequence) -> bool {
 }
 
 /// Every binding a subscription sees resolves to its command, and no two of
-/// those bindings claim the same keys.
+/// those bindings claim the same keys. A key listed under two help lines for
+/// the same command is one binding shown twice, not a conflict.
 fn assert_subscription_is_consistent<S>()
 where
     S: ShortcutSubscription + std::fmt::Debug + PartialEq,
@@ -68,8 +69,9 @@ where
             InputResolution::Matched(*command)
         );
         for (other, _) in &bindings[index + 1..] {
+            let repeated = binding.sequence == other.sequence && binding.command == other.command;
             assert!(
-                !conflicts(binding.sequence, other.sequence),
+                repeated || !conflicts(binding.sequence, other.sequence),
                 "{:?} and {:?} claim the same keys in one subscription",
                 binding.command,
                 other.command
@@ -327,7 +329,18 @@ fn every_help_line_names_its_keys() {
     for (keys, description) in help_lines() {
         assert!(!keys.is_empty(), "{description:?} needs a visible shortcut");
     }
-    assert!(help_lines().any(|line| line == ("V".to_owned(), "Select diff lines")));
+    for line in [
+        ("V", "Select diff lines"),
+        ("l", "Expand an unchanged section"),
+        ("Space", "Mark a file as reviewed"),
+        ("c", "Show the commit message"),
+        ("q", "Quit"),
+    ] {
+        assert!(
+            help_lines().any(|(keys, description)| (keys.as_str(), description) == line),
+            "{line:?}"
+        );
+    }
 }
 
 /// Every single-key binding a subscription resolves is found by a key
@@ -366,7 +379,7 @@ fn key_queries_ignore_sequences_and_other_scopes() {
 #[test]
 fn a_command_lists_its_aliases_among_its_keys() {
     assert_eq!(
-        ApplicationShortcut::Quit.keys().collect::<Vec<_>>(),
-        [Key::Quit, Key::Char('q')]
+        ApplicationShortcut::OpenFiles.keys().collect::<Vec<_>>(),
+        [Key::Char('f'), Key::Char('F')]
     );
 }

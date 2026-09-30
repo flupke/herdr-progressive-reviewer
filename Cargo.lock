@@ -5345,6 +5345,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "ui-keys"
+version = "0.2.0"
+dependencies = [
+ "crossterm 0.29.0",
+]
+
+[[package]]
 name = "ui-panes"
 version = "0.2.0"
 dependencies = [
@@ -5359,6 +5366,7 @@ name = "ui-shortcuts"
 version = "0.2.0"
 dependencies = [
  "component-core",
+ "ui-keys",
 ]
 
 [[package]]

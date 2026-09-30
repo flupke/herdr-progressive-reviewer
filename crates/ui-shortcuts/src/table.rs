@@ -344,23 +344,23 @@ pub(crate) const SHORTCUTS: &[ShortcutDefinition] = &[
     ShortcutDefinition {
         description: Some("Expand an unchanged section"),
         bindings: &[ShortcutBinding::one(
-            Key::Expand,
+            Key::Char('l'),
             source(SourceShortcut::ExpandOrMoveRight),
         )],
     },
     ShortcutDefinition {
         description: Some("Select diff lines"),
-        bindings: &[
-            ShortcutBinding::alias(Key::Visual, diff(DiffShortcut::StartSelection)),
-            ShortcutBinding::one(Key::Char('V'), diff(DiffShortcut::StartSelection)),
-        ],
+        bindings: &[ShortcutBinding::one(
+            Key::Char('V'),
+            diff(DiffShortcut::StartSelection),
+        )],
     },
     ShortcutDefinition {
         description: Some("Mark a file as reviewed"),
-        bindings: &[
-            ShortcutBinding::one(Key::Space, files(FilesShortcut::MarkReviewed)),
-            ShortcutBinding::alias(Key::Char(' '), files(FilesShortcut::MarkReviewed)),
-        ],
+        bindings: &[ShortcutBinding::one(
+            Key::Char(' '),
+            files(FilesShortcut::MarkReviewed),
+        )],
     },
     ShortcutDefinition {
         description: Some("Jev: mark insignificant files reviewed"),
@@ -519,28 +519,18 @@ pub(crate) const SHORTCUTS: &[ShortcutDefinition] = &[
         )],
     },
     ShortcutDefinition {
-        description: None,
-        bindings: &[ShortcutBinding::alias(
-            Key::Space,
-            conversation(ConversationShortcut::ScrollPageDown),
+        description: Some("Show the commit message"),
+        bindings: &[ShortcutBinding::one(
+            Key::Char('c'),
+            overlay(OverlayShortcut::ShowCommitMessage),
         )],
     },
     ShortcutDefinition {
-        description: Some("Show the commit message"),
-        bindings: &[
-            ShortcutBinding::alias(
-                Key::CommitMessage,
-                overlay(OverlayShortcut::ShowCommitMessage),
-            ),
-            ShortcutBinding::one(Key::Char('c'), overlay(OverlayShortcut::ShowCommitMessage)),
-        ],
-    },
-    ShortcutDefinition {
         description: Some("Quit"),
-        bindings: &[
-            ShortcutBinding::alias(Key::Quit, application(ApplicationShortcut::Quit)),
-            ShortcutBinding::one(Key::Char('q'), application(ApplicationShortcut::Quit)),
-        ],
+        bindings: &[ShortcutBinding::one(
+            Key::Char('q'),
+            application(ApplicationShortcut::Quit),
+        )],
     },
     ShortcutDefinition {
         description: Some("Show keyboard shortcuts"),

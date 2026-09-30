@@ -169,14 +169,14 @@ fn reloaded_wrapped_content_keeps_the_cursor_inside_the_viewport() {
 #[test]
 fn scrolling_extends_a_live_selection_but_preserves_a_fixed_selection() {
     let mut fixture = Scrolling::new(context_rows(30), 78, 5);
-    fixture.key(Key::Visual);
+    fixture.key(Key::Char('V'));
     fixture.scroll(5);
     let component = fixture
         .registry
         .get::<DiffComponent>(fixture.target)
         .unwrap();
     assert_eq!(component.selection.unwrap().range(), 0..=5);
-    fixture.key(Key::Visual);
+    fixture.key(Key::Char('V'));
     fixture.scroll(5);
     let component = fixture
         .registry

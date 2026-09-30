@@ -92,7 +92,7 @@ fn commit_message_renders_from_repository_event() {
         description: "Explain the component migration".to_owned(),
     })
     .unwrap();
-    bus.dispatch_global_input(&EventEnvelope::new(Key::CommitMessage))
+    bus.dispatch_global_input(&EventEnvelope::new(Key::Char('c')))
         .unwrap();
 
     let mut terminal = Terminal::new(TestBackend::new(60, 14)).unwrap();

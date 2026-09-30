@@ -55,7 +55,7 @@ impl Component<Action> for FocusedComponent {
     fn register_subscriptions(subscriptions: &mut ComponentSubscriptions<'_, Self, Action>) {
         subscriptions.subscribe_input(
             InputScope::Focused,
-            MatchingKeys(&[Key::Quit, Key::Char('x')]),
+            MatchingKeys(&[Key::Char('q'), Key::Char('x')]),
             Self::input,
         );
     }
@@ -143,7 +143,7 @@ fn making_the_selected_reviewed_file_unreviewed_loads_its_diff() {
             .any(|action| matches!(action, Action::LoadDiff { .. }))
     );
 
-    let actions = application.update(UserInput::Key(Key::Space));
+    let actions = application.update(UserInput::Key(Key::Char(' ')));
 
     assert_eq!(
         actions,
@@ -163,26 +163,24 @@ fn making_the_selected_reviewed_file_unreviewed_loads_its_diff() {
 #[test]
 fn space_marks_the_selected_file_reviewed_from_either_pane() {
     for focus_diff in [false, true] {
-        for key in [Key::Space, Key::Char(' ')] {
-            let mut application = application();
-            publish_repository(
-                &mut application,
-                ReviewCheckpoint::new("change", "checkpoint"),
-                String::new(),
-                vec![FileSummary::new("src/lib.rs", ReviewStatus::Unreviewed)],
-            );
-            if focus_diff {
-                application.update(UserInput::Key(Key::Tab));
-            }
-
-            assert_eq!(
-                application.update(UserInput::Key(key)),
-                vec![Action::SetReviewed {
-                    path: "src/lib.rs".to_owned(),
-                    reviewed: true,
-                }],
-            );
+        let mut application = application();
+        publish_repository(
+            &mut application,
+            ReviewCheckpoint::new("change", "checkpoint"),
+            String::new(),
+            vec![FileSummary::new("src/lib.rs", ReviewStatus::Unreviewed)],
+        );
+        if focus_diff {
+            application.update(UserInput::Key(Key::Tab));
         }
+
+        assert_eq!(
+            application.update(UserInput::Key(Key::Char(' '))),
+            vec![Action::SetReviewed {
+                path: "src/lib.rs".to_owned(),
+                reviewed: true,
+            }],
+        );
     }
 }
 
@@ -210,14 +208,12 @@ fn rf_requests_jev_review_from_files_and_diff_without_optimistic_marks() {
             application.update(UserInput::Key(Key::Char('f'))),
             vec![Action::AutoReview(checkpoint)],
         );
-        assert!(
-            application
-                .update(UserInput::Key(Key::Space))
-                .contains(&Action::SetReviewed {
-                    path: "src/lib.rs".into(),
-                    reviewed: true,
-                })
-        );
+        assert!(application.update(UserInput::Key(Key::Char(' '))).contains(
+            &Action::SetReviewed {
+                path: "src/lib.rs".into(),
+                reviewed: true,
+            }
+        ));
     }
 }
 
@@ -249,7 +245,7 @@ fn unreview_all_requires_explicit_confirmation_from_either_pane() {
             let screen = rendered_application(&application);
             assert!(screen.contains("Set all files to unreviewed?"));
             assert!(screen.contains("[y] Yes") && screen.contains("[n] No"));
-            for key in [Key::Space, Key::Enter, Key::Char('q'), Key::Char('f')] {
+            for key in [Key::Char(' '), Key::Enter, Key::Char('q'), Key::Char('f')] {
                 assert!(application.update(UserInput::Key(key)).is_empty());
                 assert!(
                     rendered_application(&application).contains("Set all files to unreviewed?")
@@ -445,7 +441,7 @@ fn unhandled_files_input_reaches_the_global_application_controller() {
     let mut application = application();
 
     assert_eq!(
-        application.update(UserInput::Key(Key::Quit)),
+        application.update(UserInput::Key(Key::Char('q'))),
         [Action::Quit]
     );
 }
@@ -606,7 +602,7 @@ fn matched_focused_input_stops_before_later_global_handlers() {
     let mut application = application_with_ordered_input_components();
 
     assert_eq!(
-        application.update(UserInput::Key(Key::Quit)),
+        application.update(UserInput::Key(Key::Char('q'))),
         [Action::Quit]
     );
 }

@@ -3,7 +3,7 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::KeyEvent;
 use edtui::actions::{Execute, InsertChar, LineBreak, SwitchMode};
 use edtui::{EditorEventHandler, EditorMode, EditorState, Lines};
 use ratatui::buffer::Buffer;
@@ -154,8 +154,7 @@ impl CommentEditor {
         let cursor = state.cursor;
         // Finish the current insert/search/selection and discard pending Vim keys.
         self.handler = EditorEventHandler::vim_mode();
-        self.handler
-            .on_key_event(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE), state);
+        self.handler.on_key_event(Key::Escape.to_terminal(), state);
         if keymap == EditorKeymap::Regular || !vim_normal {
             SwitchMode(EditorMode::Insert).execute(state);
             state.cursor = cursor;
@@ -252,44 +251,8 @@ fn clean_text(text: &str) -> String {
 }
 
 fn editor_key(key: Key) -> Option<KeyEvent> {
-    let (code, modifiers) = match key {
-        Key::Control('s') => return None,
-        Key::Char(character) => (KeyCode::Char(character), KeyModifiers::NONE),
-        Key::Control(character) => (KeyCode::Char(character), KeyModifiers::CONTROL),
-        Key::Alt(character) => (KeyCode::Char(character), KeyModifiers::ALT),
-        _ => EDITOR_KEYS
-            .iter()
-            .find_map(|(candidate, code, modifiers)| {
-                (*candidate == key).then_some((*code, *modifiers))
-            })?,
-    };
-    Some(KeyEvent::new(code, modifiers))
+    (!matches!(key, Key::Control('s') | Key::ControlEnter)).then(|| key.to_terminal())
 }
-
-const EDITOR_KEYS: &[(Key, KeyCode, KeyModifiers)] = &[
-    (Key::Left, KeyCode::Left, KeyModifiers::NONE),
-    (Key::Right, KeyCode::Right, KeyModifiers::NONE),
-    (Key::Up, KeyCode::Up, KeyModifiers::NONE),
-    (Key::Down, KeyCode::Down, KeyModifiers::NONE),
-    (Key::First, KeyCode::Home, KeyModifiers::NONE),
-    (Key::Last, KeyCode::End, KeyModifiers::NONE),
-    (Key::PageUp, KeyCode::PageUp, KeyModifiers::NONE),
-    (Key::PageDown, KeyCode::PageDown, KeyModifiers::NONE),
-    (Key::Delete, KeyCode::Delete, KeyModifiers::NONE),
-    (Key::Backspace, KeyCode::Backspace, KeyModifiers::NONE),
-    (Key::Enter, KeyCode::Enter, KeyModifiers::NONE),
-    (Key::Escape, KeyCode::Esc, KeyModifiers::NONE),
-    (Key::Tab, KeyCode::Tab, KeyModifiers::NONE),
-    (Key::Space, KeyCode::Char(' '), KeyModifiers::NONE),
-    (Key::HalfPageDown, KeyCode::Char('d'), KeyModifiers::CONTROL),
-    (Key::HalfPageUp, KeyCode::Char('u'), KeyModifiers::CONTROL),
-    (
-        Key::PreviousLocation,
-        KeyCode::Char('o'),
-        KeyModifiers::CONTROL,
-    ),
-    (Key::NextLocation, KeyCode::Char('i'), KeyModifiers::CONTROL),
-];
 
 #[cfg(test)]
 mod tests {
@@ -308,6 +271,20 @@ mod tests {
             assert_eq!(editor.text(), "abc abc");
             editor.input(Key::Char('x'));
             assert_eq!(editor.text(), "axbc abc");
+        }
+    }
+
+    #[test]
+    fn ctrl_enter_is_left_to_the_view_that_submits_the_draft() {
+        for keymap in [EditorKeymap::Vim, EditorKeymap::Regular] {
+            let mut editor = CommentEditor::new("abc", &KeymapSetting::new(keymap));
+            editor.input(Key::Right);
+            let cursor = editor.state.borrow().cursor;
+            let mode = editor.mode();
+            editor.input(Key::ControlEnter);
+            assert_eq!(editor.state.borrow().cursor, cursor);
+            assert_eq!(editor.mode(), mode);
+            assert_eq!(editor.text(), "abc");
         }
     }
 

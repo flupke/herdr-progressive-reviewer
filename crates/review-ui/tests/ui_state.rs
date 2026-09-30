@@ -398,9 +398,9 @@ fn stale_diffs_are_ignored_and_selected_text_is_not_sent_on_enter() {
     });
 
     app.update(UserInput::Key(Key::Tab));
-    app.update(UserInput::Key(Key::Visual));
+    app.update(UserInput::Key(Key::Char('V')));
     app.update(UserInput::Key(Key::Down));
-    app.update(UserInput::Key(Key::Visual));
+    app.update(UserInput::Key(Key::Char('V')));
     assert!(app.update(UserInput::Key(Key::Enter)).is_empty());
 }
 
@@ -559,7 +559,7 @@ fn commit_message_opens_and_closes_from_mouse_or_keyboard() {
     assert!(!header.contains("Progressive review"));
     assert!(!header.contains("change qpvuntsm"));
 
-    app.update(UserInput::Key(Key::CommitMessage));
+    app.update(UserInput::Key(Key::Char('c')));
     app.update(UserInput::Resize {
         width: 80,
         height: 12,
@@ -594,7 +594,7 @@ fn optimistic_selection_stays_on_the_next_file_when_review_fails() {
     );
 
     assert!(matches!(
-        app.update(UserInput::Key(Key::Space)).as_slice(),
+        app.update(UserInput::Key(Key::Char(' '))).as_slice(),
         [
             Action::SetReviewed { reviewed: true, .. },
             Action::OpenLspDocument(_)
@@ -922,7 +922,7 @@ fn marking_a_changed_file_reviewed_replaces_its_baseline() {
     });
 
     assert_eq!(
-        app.update(UserInput::Key(Key::Space)),
+        app.update(UserInput::Key(Key::Char(' '))),
         vec![Action::SetReviewed {
             path: "src/lib.rs".to_owned(),
             reviewed: true,
@@ -948,7 +948,7 @@ fn marking_a_changed_file_reviewed_replaces_its_baseline() {
     );
 
     assert!(matches!(
-        app.update(UserInput::Key(Key::Space)).as_slice(),
+        app.update(UserInput::Key(Key::Char(' '))).as_slice(),
         [Action::SetReviewed { reviewed: true, .. }]
     ));
     assert_eq!(
@@ -1557,7 +1557,7 @@ fn test_backend_renders_wide_narrow_and_minimum_layouts() {
     app.update(UserInput::Key(Key::Tab));
     app.update(UserInput::Key(Key::Down));
     app.update(UserInput::Key(Key::Tab));
-    app.update(UserInput::Key(Key::Visual));
+    app.update(UserInput::Key(Key::Char('V')));
     assert!(
         application_screen(&app, 80, 10)
             .last()

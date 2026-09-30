@@ -205,18 +205,16 @@ fn expand_and_contract_all_preserve_the_cursor_hunk_and_column() {
 
 #[test]
 fn keyboard_expansion_keeps_the_context_boundary_in_place() {
-    for key in [Key::Expand, Key::Char('l')] {
-        let mut fixture = ContextExpansion::new();
-        fixture.select_line(5);
-        dispatch_key(&mut fixture.registry, fixture.target, Key::Down);
-        let before = fixture.screen();
-        let gap = before
-            .iter()
-            .position(|text| text.contains("19 unmodified lines"))
-            .unwrap();
-        dispatch_key(&mut fixture.registry, fixture.target, key);
-        assert!(fixture.screen()[gap].contains("line 6"));
-    }
+    let mut fixture = ContextExpansion::new();
+    fixture.select_line(5);
+    dispatch_key(&mut fixture.registry, fixture.target, Key::Down);
+    let before = fixture.screen();
+    let gap = before
+        .iter()
+        .position(|text| text.contains("19 unmodified lines"))
+        .unwrap();
+    dispatch_key(&mut fixture.registry, fixture.target, Key::Char('l'));
+    assert!(fixture.screen()[gap].contains("line 6"));
 }
 
 #[test]

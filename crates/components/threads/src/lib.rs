@@ -189,7 +189,6 @@ impl ThreadsComponent {
                 self.query.pop();
             }
             Key::Char(character) => self.query.push(character),
-            Key::Space => self.query.push(' '),
             _ => return,
         }
         self.reset_selection();

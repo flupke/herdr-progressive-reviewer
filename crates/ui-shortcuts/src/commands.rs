@@ -125,7 +125,6 @@ pub enum ThreadsShortcut {
 /// Commands the thread conversation view runs while it has focus.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ConversationShortcut {
-    ScrollPageDown,
     Reply,
     ToggleResolution,
     Peek,

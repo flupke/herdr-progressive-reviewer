@@ -271,7 +271,7 @@ fn review_input_moves_optimistically_and_failure_restores_the_status() {
         .expect("viewport event must dispatch");
 
     let review = registry
-        .dispatch_input(&EventEnvelope::new(Key::Space), target)
+        .dispatch_input(&EventEnvelope::new(Key::Char(' ')), target)
         .expect("review input must dispatch")
         .into_results()
         .into_iter()

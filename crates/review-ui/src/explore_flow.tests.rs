@@ -840,7 +840,7 @@ fn native_search_selection_and_comment_editor_survive_window_resizing() {
         fixture.app.update(UserInput::Key(Key::Char(character)));
     }
     fixture.app.update(UserInput::Key(Key::Enter));
-    fixture.app.update(UserInput::Key(Key::Visual));
+    fixture.app.update(UserInput::Key(Key::Char('V')));
     fixture.app.update(UserInput::Key(Key::Char('a')));
     fixture
         .app

@@ -33,8 +33,8 @@ use crossbeam_channel::Receiver as EventReceiver;
 use crossbeam_channel::{Sender as EventSender, unbounded};
 use crossterm::event::{
     self, DisableFocusChange, DisableMouseCapture, EnableFocusChange, EnableMouseCapture, Event,
-    KeyCode, KeyEvent, KeyModifiers, KeyboardEnhancementFlags, MouseButton, MouseEvent,
-    MouseEventKind, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+    KeyModifiers, KeyboardEnhancementFlags, MouseButton, MouseEvent, MouseEventKind,
+    PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
 };
 use crossterm::execute;
 use crossterm::terminal::{
@@ -1188,7 +1188,7 @@ impl TerminalEventProducer {
     fn normalize_event(event: Event, mouse_clicks: &mut MouseClicks) -> Option<EventEnvelope> {
         match event {
             Event::Paste(text) => Some(EventEnvelope::new(UserInput::Paste(text))),
-            Event::Key(key) => normalize_key(key)
+            Event::Key(key) => Key::from_terminal(key)
                 .map(UserInput::Key)
                 .map(EventEnvelope::new),
             Event::Mouse(mouse) => mouse_clicks.normalize(mouse).map(EventEnvelope::new),
@@ -1273,59 +1273,6 @@ impl MouseClicks {
         normalize_mouse(mouse)
     }
 }
-
-fn normalize_key(key: KeyEvent) -> Option<Key> {
-    if key.kind == crossterm::event::KeyEventKind::Release {
-        return None;
-    }
-    if key.modifiers.contains(KeyModifiers::CONTROL) {
-        return normalize_control_key(key.code);
-    }
-    if key.modifiers.contains(KeyModifiers::ALT)
-        && let KeyCode::Char(character) = key.code
-    {
-        return Some(Key::Alt(character));
-    }
-    normalize_plain_key(key.code)
-}
-
-fn normalize_control_key(code: KeyCode) -> Option<Key> {
-    match code {
-        KeyCode::Enter => Some(Key::ControlEnter),
-        KeyCode::Char('d') => Some(Key::HalfPageDown),
-        KeyCode::Char('u') => Some(Key::HalfPageUp),
-        KeyCode::Char('o') => Some(Key::PreviousLocation),
-        KeyCode::Char('i') => Some(Key::NextLocation),
-        KeyCode::Char(character) => Some(Key::Control(character)),
-        _ => None,
-    }
-}
-
-fn normalize_plain_key(code: KeyCode) -> Option<Key> {
-    if let KeyCode::Char(character) = code {
-        return Some(Key::Char(character));
-    }
-    PLAIN_KEYS
-        .iter()
-        .find_map(|(candidate, key)| (*candidate == code).then_some(*key))
-}
-
-const PLAIN_KEYS: &[(KeyCode, Key)] = &[
-    (KeyCode::F(2), Key::EditorMode),
-    (KeyCode::Left, Key::Left),
-    (KeyCode::Right, Key::Right),
-    (KeyCode::Delete, Key::Delete),
-    (KeyCode::PageUp, Key::PageUp),
-    (KeyCode::PageDown, Key::PageDown),
-    (KeyCode::Tab, Key::Tab),
-    (KeyCode::Down, Key::Down),
-    (KeyCode::Up, Key::Up),
-    (KeyCode::Home, Key::First),
-    (KeyCode::End, Key::Last),
-    (KeyCode::Esc, Key::Escape),
-    (KeyCode::Enter, Key::Enter),
-    (KeyCode::Backspace, Key::Backspace),
-];
 
 #[cfg(test)]
 #[path = "runtime.tests.rs"]

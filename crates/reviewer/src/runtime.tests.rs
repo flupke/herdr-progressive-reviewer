@@ -727,18 +727,6 @@ fn references_are_restricted_to_the_rust_project() {
 #[test]
 fn modified_mouse_inputs_reuse_existing_actions() {
     assert_eq!(
-        normalize_key(KeyEvent::new(KeyCode::Char('V'), KeyModifiers::SHIFT)),
-        Some(Key::Char('V'))
-    );
-    assert_eq!(
-        normalize_key(KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE)),
-        Some(Key::Char('l'))
-    );
-    assert_eq!(
-        normalize_key(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE)),
-        Some(Key::Char('c'))
-    );
-    assert_eq!(
         normalize_mouse(MouseEvent {
             kind: MouseEventKind::ScrollDown,
             column: 4,
@@ -808,26 +796,6 @@ fn modified_mouse_inputs_reuse_existing_actions() {
             modifiers: KeyModifiers::NONE,
         }),
         Some(UserInput::MouseRelease)
-    );
-}
-
-#[test]
-fn control_location_keys_use_location_history_actions() {
-    assert_eq!(
-        normalize_key(KeyEvent::new(KeyCode::Char('d'), KeyModifiers::CONTROL)),
-        Some(Key::HalfPageDown)
-    );
-    assert_eq!(
-        normalize_key(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL)),
-        Some(Key::HalfPageUp)
-    );
-    assert_eq!(
-        normalize_key(KeyEvent::new(KeyCode::Char('o'), KeyModifiers::CONTROL)),
-        Some(Key::PreviousLocation)
-    );
-    assert_eq!(
-        normalize_key(KeyEvent::new(KeyCode::Char('i'), KeyModifiers::CONTROL)),
-        Some(Key::NextLocation)
     );
 }
 
@@ -1036,12 +1004,12 @@ fn terminal_hunk_shortcut_moves_application_data_while_files_are_focused() {
     });
     let terminal_events = std::sync::Mutex::new(
         [
-            Event::Key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE)),
-            Event::Key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE)),
-            Event::Key(KeyEvent::new(KeyCode::Char('['), KeyModifiers::NONE)),
-            Event::Key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE)),
-            Event::Key(KeyEvent::new(KeyCode::Char(']'), KeyModifiers::NONE)),
-            Event::Key(KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE)),
+            Event::Key(Key::Char(']').to_terminal()),
+            Event::Key(Key::Char('h').to_terminal()),
+            Event::Key(Key::Char('[').to_terminal()),
+            Event::Key(Key::Char('h').to_terminal()),
+            Event::Key(Key::Char(']').to_terminal()),
+            Event::Key(Key::Char('h').to_terminal()),
         ]
         .into_iter(),
     );

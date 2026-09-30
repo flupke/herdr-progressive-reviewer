@@ -1,5 +1,5 @@
 [package]
-name = "ui-shortcuts"
+name = "ui-keys"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,5 +9,4 @@ license.workspace = true
 workspace = true
 
 [dependencies]
-component-core = { path = "../component-core" }
-ui-keys = { path = "../ui-keys" }
+crossterm.workspace = true

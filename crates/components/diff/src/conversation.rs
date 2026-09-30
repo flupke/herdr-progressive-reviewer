@@ -304,10 +304,6 @@ impl DiffComponent {
                     .publish(ReviewPaneFocusRequested(ReviewPane::Navigation));
                 return Vec::new();
             }
-            ConversationShortcut::ScrollPageDown => {
-                self.scroll_conversation(self.conversation_page());
-                return Vec::new();
-            }
             ConversationShortcut::Reply | ConversationShortcut::ToggleResolution => {
                 return Vec::new();
             }
