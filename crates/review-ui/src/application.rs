@@ -53,7 +53,7 @@ pub struct ReviewApplication {
     height: u16,
     component_areas: Vec<ComponentArea>,
     global_input_pending: bool,
-    application_shortcuts: ui_shortcuts::ShortcutMatcher,
+    application_shortcuts: ui_shortcuts::ShortcutMatcher<ui_shortcuts::ApplicationCommand>,
     file_pane_resize: Option<FilePaneResize>,
     watched_source: Option<PathBuf>,
     editor_keymap: KeymapSetting,
@@ -145,9 +145,7 @@ impl ReviewApplication {
             height: 24,
             component_areas: Vec::new(),
             global_input_pending: false,
-            application_shortcuts: ui_shortcuts::ShortcutMatcher::new(
-                ui_shortcuts::ShortcutSet::Application,
-            ),
+            application_shortcuts: ui_shortcuts::ShortcutMatcher::new(),
             file_pane_resize: None,
             watched_source: None,
             saved_editor_keymap: editor_keymap.get(),
@@ -705,13 +703,14 @@ impl ReviewApplication {
         let InputResolution::Matched(command) = self.application_shortcuts.resolve_key(*key) else {
             return Vec::new();
         };
-        if command == ui_shortcuts::ShortcutCommand::Search(ui_shortcuts::SearchShortcut::Begin) {
-            return self.begin_search(event);
+        match command {
+            ui_shortcuts::ApplicationCommand::Search(ui_shortcuts::SearchShortcut::Begin) => {
+                self.begin_search(event)
+            }
+            ui_shortcuts::ApplicationCommand::Application(command) => {
+                self.run_application_command(command)
+            }
         }
-        let ui_shortcuts::ShortcutCommand::Application(command) = command else {
-            unreachable!("the application shortcut set is exact");
-        };
-        self.run_application_command(command)
     }
 
     fn run_application_command(
@@ -751,7 +750,6 @@ impl ReviewApplication {
                     .unwrap_or_default();
             }
             ui_shortcuts::ApplicationShortcut::Quit => vec![Action::Quit],
-            _ => unreachable!("the application shortcut set is exact"),
         };
         vec![actions.into_dispatch_result()]
     }

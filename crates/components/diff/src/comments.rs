@@ -215,8 +215,6 @@ impl DiffComponent {
                     self.start_comment(id);
                 }
             }
-            CommentShortcut::Previous => self.navigate_comment(false),
-            CommentShortcut::Next => self.navigate_comment(true),
         }
         Vec::new()
     }
@@ -439,7 +437,7 @@ impl DiffComponent {
             .map(|comment| comment.id.clone())
     }
 
-    fn navigate_comment(&mut self, forward: bool) {
+    pub(super) fn navigate_comment(&mut self, forward: bool) {
         let comments = self
             .comments
             .open_threads()

@@ -15,7 +15,7 @@ use review_explore::SourceSide;
 use std::collections::HashSet;
 use ui_events::EvidenceView;
 use ui_panes::{FileList, FileTree, FileTreeRow, SelectionPane, pad_to_width};
-use ui_shortcuts::NavigationShortcut;
+use ui_shortcuts::MovementShortcut;
 use ui_theme::Palette;
 
 #[derive(Clone)]
@@ -247,7 +247,7 @@ impl EvidenceList {
         self.entries.get(next).map(|entry| entry.view)
     }
 
-    pub(super) fn navigate(&self, input: NavigationShortcut, height: u16) -> Option<EvidenceView> {
+    pub(super) fn navigate(&self, input: MovementShortcut, height: u16) -> Option<EvidenceView> {
         let next = FileList {
             tree: &self.tree,
             selected: self.selected,

@@ -11,7 +11,7 @@ use ui_events::{
     EvidenceView, ExploreCaptured, ExploreComparisonAccepted, ExploreEvidence, ExploreFinished,
     ReviewNavigation, ReviewNavigationChanged,
 };
-use ui_shortcuts::{ShortcutMatcher, ShortcutSet};
+use ui_shortcuts::{MovementShortcut, ShortcutMatcher};
 
 mod adaptive;
 mod choices;
@@ -125,7 +125,7 @@ pub struct ExploreComponent {
     keymap: KeymapSetting,
     editing: bool,
     evidence_list_focused: bool,
-    evidence_keys: ShortcutMatcher,
+    evidence_keys: ShortcutMatcher<MovementShortcut>,
     drafts: BTreeMap<DraftKey, Draft>,
     editor_target: EditorTarget,
     conclusions: BTreeMap<String, conclusion::ConclusionView>,
@@ -175,7 +175,7 @@ impl ExploreComponent {
             turns: Vec::new(),
             editing: false,
             evidence_list_focused: false,
-            evidence_keys: ShortcutMatcher::new(ShortcutSet::Files),
+            evidence_keys: ShortcutMatcher::new(),
             drafts: BTreeMap::new(),
             editor_target: EditorTarget::Answer,
             conclusions: BTreeMap::new(),

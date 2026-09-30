@@ -6,7 +6,7 @@ use ratatui::{
     style::{Modifier, Style},
     text::Line,
 };
-use ui_shortcuts::NavigationShortcut;
+use ui_shortcuts::MovementShortcut;
 use ui_theme::Palette;
 
 use super::{FileTree, FileTreeRow, SelectionPane, shorten};
@@ -60,7 +60,7 @@ impl FileList<'_> {
         );
     }
 
-    pub fn navigate(&self, input: NavigationShortcut) -> usize {
+    pub fn navigate(&self, input: MovementShortcut) -> usize {
         self.tree
             .navigate(self.selected, input, self.page_rows)
             .unwrap_or(self.selected)

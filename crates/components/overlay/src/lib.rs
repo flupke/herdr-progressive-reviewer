@@ -21,7 +21,7 @@ use ui_events::{
     PointerInputKind, RepositoryMetadataChanged, ToastExpirationTick, ToastRequested,
     ViewportChanged,
 };
-use ui_shortcuts::{ApplicationShortcut, Key, ShortcutCommand, ShortcutMatcher, ShortcutSet};
+use ui_shortcuts::{Key, OverlayShortcut, ShortcutMatcher};
 use ui_theme::{Palette, Theme};
 
 use commit_message::CommitMessageOverlay;
@@ -272,16 +272,15 @@ impl OverlayComponent {
         Vec::new()
     }
 
-    fn open_overlay(&mut self, shortcut: ShortcutCommand) {
+    fn open_overlay(&mut self, shortcut: OverlayShortcut) {
         match shortcut {
-            ShortcutCommand::Application(ApplicationShortcut::ShowCommitMessage) => {
+            OverlayShortcut::ShowCommitMessage => {
                 self.active_modal = Some(ModalOverlay::CommitMessage);
             }
-            ShortcutCommand::Application(ApplicationShortcut::OpenHelp) => {
+            OverlayShortcut::OpenHelp => {
                 self.active_modal = Some(ModalOverlay::ShortcutHelp);
                 self.shortcut_help.open();
             }
-            _ => unreachable!("overlay shortcut set is exact"),
         }
     }
 
@@ -404,7 +403,7 @@ impl Component<Action> for OverlayComponent {
         subscriptions.subscribe_input(InputScope::Focused, AnyInput, Self::keyboard_input);
         subscriptions.subscribe_input(
             InputScope::Global,
-            ShortcutMatcher::new(ShortcutSet::Overlay),
+            ShortcutMatcher::new(),
             Self::open_overlay,
         );
         subscriptions.subscribe_input(

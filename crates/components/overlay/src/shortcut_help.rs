@@ -1,7 +1,8 @@
+use component_core::InputResolution;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::text::{Line, Text};
-use ui_shortcuts::{self as shortcuts, Key, NavigationShortcut, ShortcutCommand, ShortcutLookup};
+use ui_shortcuts::{self as shortcuts, Key, MovementShortcut, ShortcutMatcher};
 use ui_theme::Palette;
 use unicode_width::UnicodeWidthStr;
 
@@ -29,17 +30,25 @@ impl ShortcutHelpOverlay {
         if shortcuts::closes_help(key) {
             return true;
         }
-        match shortcuts::lookup(None, key) {
-            ShortcutLookup::Command(ShortcutCommand::Navigation(NavigationShortcut::MoveDown)) => {
+        let InputResolution::Matched(movement) =
+            ShortcutMatcher::<MovementShortcut>::new().resolve_key(key)
+        else {
+            return false;
+        };
+        match movement {
+            MovementShortcut::MoveDown => {
                 self.scroll = self
                     .scroll
                     .saturating_add(1)
                     .min(Self::maximum_scroll(viewport));
             }
-            ShortcutLookup::Command(ShortcutCommand::Navigation(NavigationShortcut::MoveUp)) => {
+            MovementShortcut::MoveUp => {
                 self.scroll = self.scroll.saturating_sub(1);
             }
-            _ => {}
+            MovementShortcut::GoToFirst
+            | MovementShortcut::GoToLast
+            | MovementShortcut::MoveHalfPageDown
+            | MovementShortcut::MoveHalfPageUp => {}
         }
         false
     }

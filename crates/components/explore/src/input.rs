@@ -6,7 +6,7 @@ use ui_events::{
     EvidenceView, ExploreEvidenceInput, ExploreFocusCycle, PointerInput, PointerInputKind,
     ReviewPane, ReviewPaneFocusRequested, TextPasted,
 };
-use ui_shortcuts::{Key, ShortcutCommand, ShortcutMatcher, ShortcutSet};
+use ui_shortcuts::{Key, ShortcutMatcher};
 
 pub(super) struct ResizeDrag {
     view: EvidenceView,
@@ -418,21 +418,21 @@ impl ExploreComponent {
             }
             Key::Escape => {
                 self.evidence_list_focused = false;
-                self.evidence_keys = ShortcutMatcher::new(ShortcutSet::Files);
+                self.evidence_keys = ShortcutMatcher::new();
                 return Some(Vec::new());
             }
             _ => {}
         }
         match self.evidence_keys.resolve_key(key) {
             InputResolution::AwaitingMoreInput => Some(Vec::new()),
-            InputResolution::Matched(ShortcutCommand::Navigation(input)) => {
+            InputResolution::Matched(input) => {
                 let view = self.layout.borrow().navigate_evidence(input);
                 if let Some(view) = view {
                     self.open_evidence(view, true);
                 }
                 Some(Vec::new())
             }
-            InputResolution::NoMatch | InputResolution::Matched(_) => None,
+            InputResolution::NoMatch => None,
         }
     }
 

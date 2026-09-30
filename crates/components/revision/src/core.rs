@@ -17,7 +17,7 @@ use ui_events::{
     RevisionCandidatesLoaded, RevisionEditFailed, RevisionHistoryLoadId, RevisionHistoryLoaded,
     ToastRequested, ViewportChanged,
 };
-use ui_shortcuts::{Key, NavigationShortcut, ShortcutCommand, ShortcutMatcher, ShortcutSet};
+use ui_shortcuts::{Key, RevisionShortcut, ShortcutMatcher};
 use ui_theme::Palette;
 
 fn revision_history_origin(lines: &[RevisionHistoryLine]) -> Option<ReviewLocation> {
@@ -423,13 +423,13 @@ enum RevisionInput {
 }
 
 struct RevisionInputMatcher {
-    shortcuts: ShortcutMatcher,
+    shortcuts: ShortcutMatcher<RevisionShortcut>,
 }
 
 impl RevisionInputMatcher {
     const fn new() -> Self {
         Self {
-            shortcuts: ShortcutMatcher::new(ShortcutSet::Revision),
+            shortcuts: ShortcutMatcher::new(),
         }
     }
 }
@@ -448,16 +448,15 @@ impl InputMatcher<RevisionComponent, Key> for RevisionInputMatcher {
         match self.shortcuts.resolve_key(*key) {
             InputResolution::NoMatch => InputResolution::NoMatch,
             InputResolution::AwaitingMoreInput => InputResolution::AwaitingMoreInput,
-            InputResolution::Matched(ShortcutCommand::Navigation(
-                NavigationShortcut::GoToParentRevision,
-            )) => InputResolution::Matched(RevisionInput::Navigate(RevisionDirection::Parents)),
-            InputResolution::Matched(ShortcutCommand::Navigation(
-                NavigationShortcut::GoToChildRevision,
-            )) => InputResolution::Matched(RevisionInput::Navigate(RevisionDirection::Children)),
-            InputResolution::Matched(ShortcutCommand::Navigation(
-                NavigationShortcut::OpenRevisionSelector,
-            )) => InputResolution::Matched(RevisionInput::OpenSelector),
-            InputResolution::Matched(_) => unreachable!("revision shortcut set is exact"),
+            InputResolution::Matched(RevisionShortcut::GoToParent) => {
+                InputResolution::Matched(RevisionInput::Navigate(RevisionDirection::Parents))
+            }
+            InputResolution::Matched(RevisionShortcut::GoToChild) => {
+                InputResolution::Matched(RevisionInput::Navigate(RevisionDirection::Children))
+            }
+            InputResolution::Matched(RevisionShortcut::OpenSelector) => {
+                InputResolution::Matched(RevisionInput::OpenSelector)
+            }
         }
     }
 }

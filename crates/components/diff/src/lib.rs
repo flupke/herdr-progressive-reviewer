@@ -26,8 +26,9 @@ use ui_events::{
     SourceLocationAccepted, SourceLocationPreviewRequested, TemporaryFilesChanged, ToastRequested,
 };
 use ui_shortcuts::{
-    ApplicationShortcut, HunkShortcut, Key, LspShortcut, NavigationShortcut, SearchShortcut,
-    ShortcutCommand, ShortcutMatcher, ShortcutSet, SourceShortcut,
+    DiffGlobalShortcut, DiffPaneCommand, DiffShortcut, HunkShortcut, Key, LocationShortcut,
+    LspShortcut, MovementShortcut, SearchMatchShortcut, SearchShortcut, ShortcutMatcher,
+    SourceShortcut,
 };
 
 mod clipped_viewport;
@@ -607,36 +608,64 @@ impl DiffComponent {
         true
     }
 
-    fn run_shortcut(&mut self, command: ShortcutCommand) -> Vec<Action> {
+    fn run_shortcut(&mut self, command: DiffPaneCommand) -> Vec<Action> {
         if self.conversation.is_peeking() {
             return self.source_view_mut().run_shortcut(command);
         }
-        if self.source_session.is_some()
-            && !self.explore.active
-            && matches!(command, ShortcutCommand::Comment(_))
-        {
+        let comment = matches!(command, DiffPaneCommand::Diff(DiffShortcut::Comment(_)));
+        if self.ignores_shortcut(comment) {
             return Vec::new();
         }
-        if self.conversation.active {
-            return Vec::new();
+        match command {
+            DiffPaneCommand::Movement(command) => self.run_movement_shortcut(command),
+            DiffPaneCommand::Search(command) => self.search(command),
+            DiffPaneCommand::Diff(command) => self.run_diff_shortcut(command),
         }
-        self.file_shortcut(command)
     }
 
-    fn file_shortcut(&mut self, command: ShortcutCommand) -> Vec<Action> {
+    fn run_global_shortcut(&mut self, command: DiffGlobalShortcut) -> Vec<Action> {
+        if self.conversation.is_peeking() {
+            return self.source_view_mut().run_global_shortcut(command);
+        }
+        let comment = matches!(
+            command,
+            DiffGlobalShortcut::PreviousComment | DiffGlobalShortcut::NextComment
+        );
+        if self.ignores_shortcut(comment) {
+            return Vec::new();
+        }
         match command {
-            ShortcutCommand::Comment(command) => self.comment_shortcut(command),
-            ShortcutCommand::Navigation(command) => self.run_navigation_shortcut(command),
-            ShortcutCommand::Search(command) => self.search(command),
-            ShortcutCommand::Source(command) => self.source(command),
-            ShortcutCommand::Application(command) => self.run_application_shortcut(command),
-            ShortcutCommand::Lsp(LspShortcut::Restart) => vec![Action::RestartLsp],
-            ShortcutCommand::Lsp(command) => self.lsp(command),
-            ShortcutCommand::Hunk(command) => {
-                self.navigate_modified_hunk(command);
+            DiffGlobalShortcut::PreviousComment => self.navigate_comment(false),
+            DiffGlobalShortcut::NextComment => self.navigate_comment(true),
+            DiffGlobalShortcut::Hunk(command) => self.navigate_modified_hunk(command),
+            DiffGlobalShortcut::OpenInEditor => return self.open_in_editor(),
+        }
+        Vec::new()
+    }
+
+    /// Whether a shortcut must not act on the reviewed file right now.
+    fn ignores_shortcut(&self, comment: bool) -> bool {
+        (comment && self.source_session.is_some() && !self.explore.active)
+            || self.conversation.active
+    }
+
+    fn run_diff_shortcut(&mut self, command: DiffShortcut) -> Vec<Action> {
+        match command {
+            DiffShortcut::Comment(command) => self.comment_shortcut(command),
+            DiffShortcut::Location(LocationShortcut::GoToPrevious) => {
+                self.navigate_location_history(LocationHistoryDirection::Previous)
+            }
+            DiffShortcut::Location(LocationShortcut::GoToNext) => {
+                self.navigate_location_history(LocationHistoryDirection::Next)
+            }
+            DiffShortcut::SearchMatch(command) => self.search_match(command),
+            DiffShortcut::Source(command) => self.source(command),
+            DiffShortcut::Lsp(LspShortcut::Restart) => vec![Action::RestartLsp],
+            DiffShortcut::Lsp(command) => self.lsp(command),
+            DiffShortcut::StartSelection => {
+                self.start_selection();
                 Vec::new()
             }
-            ShortcutCommand::File(_) => Vec::new(),
         }
     }
 
@@ -664,81 +693,42 @@ impl DiffComponent {
         }
     }
 
-    fn run_navigation_shortcut(&mut self, command: NavigationShortcut) -> Vec<Action> {
-        match command {
-            NavigationShortcut::GoToPreviousLocation => {
-                self.navigate_location_history(LocationHistoryDirection::Previous)
-            }
-            NavigationShortcut::GoToNextLocation => {
-                self.navigate_location_history(LocationHistoryDirection::Next)
-            }
-            command => {
-                let origin = matches!(
-                    command,
-                    NavigationShortcut::GoToFirst | NavigationShortcut::GoToLast
-                )
-                .then(|| self.current_review_location())
-                .flatten();
-                self.navigate(command);
-                self.record_current_location_jump(origin);
-                Vec::new()
-            }
-        }
+    fn run_movement_shortcut(&mut self, command: MovementShortcut) -> Vec<Action> {
+        let origin = matches!(
+            command,
+            MovementShortcut::GoToFirst | MovementShortcut::GoToLast
+        )
+        .then(|| self.current_review_location())
+        .flatten();
+        self.navigate(command);
+        self.record_current_location_jump(origin);
+        Vec::new()
     }
 
-    fn run_application_shortcut(&mut self, command: ApplicationShortcut) -> Vec<Action> {
-        match command {
-            ApplicationShortcut::StartSelection => {
-                self.start_selection();
-                Vec::new()
-            }
-            ApplicationShortcut::OpenInEditor => self.open_in_editor(),
-            _ => Vec::new(),
-        }
-    }
-
-    fn navigate(&mut self, command: NavigationShortcut) {
+    fn navigate(&mut self, command: MovementShortcut) {
         let Some(document) = self.selected_document() else {
             return;
         };
-        if let Some(delta) = self.half_page_delta(command) {
-            self.navigate_visual_rows(delta);
-            return;
-        }
         let current_row = document.document.cursor;
         let last_row = document.document.diff.len().saturating_sub(1);
+        let half_page =
+            isize::try_from(usize::from(self.viewport_height) / 2).unwrap_or(isize::MAX);
         let target_row = match command {
-            NavigationShortcut::MoveDown => current_row.saturating_add(1),
-            NavigationShortcut::MoveUp => current_row.saturating_sub(1),
-            NavigationShortcut::GoToFirst => 0,
-            NavigationShortcut::GoToLast => last_row,
-            NavigationShortcut::MoveHalfPageDown | NavigationShortcut::MoveHalfPageUp => {
-                unreachable!()
-            }
-            NavigationShortcut::GoToNextLocation
-            | NavigationShortcut::GoToPreviousLocation
-            | NavigationShortcut::GoToChildRevision
-            | NavigationShortcut::GoToParentRevision
-            | NavigationShortcut::OpenRevisionSelector => return,
+            MovementShortcut::MoveDown => current_row.saturating_add(1),
+            MovementShortcut::MoveUp => current_row.saturating_sub(1),
+            MovementShortcut::GoToFirst => 0,
+            MovementShortcut::GoToLast => last_row,
+            MovementShortcut::MoveHalfPageDown => return self.navigate_visual_rows(half_page),
+            MovementShortcut::MoveHalfPageUp => return self.navigate_visual_rows(-half_page),
         };
         let target_row = target_row.min(last_row);
         if matches!(
             command,
-            NavigationShortcut::GoToFirst | NavigationShortcut::GoToLast
+            MovementShortcut::GoToFirst | MovementShortcut::GoToLast
         ) {
             self.jump_cursor(target_row);
         } else {
             self.move_cursor(target_row);
-        }
-    }
-
-    fn half_page_delta(&self, command: NavigationShortcut) -> Option<isize> {
-        let half_page =
-            isize::try_from(usize::from(self.viewport_height) / 2).unwrap_or(isize::MAX);
-        match command {
-            NavigationShortcut::MoveHalfPageDown => Some(half_page),
-            NavigationShortcut::MoveHalfPageUp => Some(-half_page),
-            _ => None,
         }
     }
 
@@ -866,19 +856,29 @@ impl DiffComponent {
     fn search(&mut self, command: SearchShortcut) -> Vec<Action> {
         let actions = match command {
             SearchShortcut::Begin => self.begin_search(String::new(), true),
-            SearchShortcut::WordUnderCursor => self
+        };
+        self.publish_search_change(actions)
+    }
+
+    fn search_match(&mut self, command: SearchMatchShortcut) -> Vec<Action> {
+        let actions = match command {
+            SearchMatchShortcut::WordUnderCursor => self
                 .word_under_cursor()
                 .map(|word| self.begin_search(word, false))
                 .unwrap_or_default(),
-            SearchShortcut::NextMatch => {
+            SearchMatchShortcut::NextMatch => {
                 self.repeat_search(SearchDirection::Forward);
                 Vec::new()
             }
-            SearchShortcut::PreviousMatch => {
+            SearchMatchShortcut::PreviousMatch => {
                 self.repeat_search(SearchDirection::Backward);
                 Vec::new()
             }
         };
+        self.publish_search_change(actions)
+    }
+
+    fn publish_search_change(&mut self, actions: Vec<Action>) -> Vec<Action> {
         self.publish_decorations();
         self.publish_search_status();
         actions
@@ -2213,18 +2213,8 @@ impl Component<Action> for DiffComponent {
         );
         subscriptions.subscribe_input(
             InputScope::Global,
-            ShortcutMatcher::new(ShortcutSet::Comments),
-            Self::run_shortcut,
-        );
-        subscriptions.subscribe_input(
-            InputScope::Global,
-            ShortcutMatcher::new(ShortcutSet::Hunk),
-            Self::run_shortcut,
-        );
-        subscriptions.subscribe_input(
-            InputScope::Global,
-            ShortcutMatcher::new(ShortcutSet::Editor),
-            Self::run_shortcut,
+            ShortcutMatcher::new(),
+            Self::run_global_shortcut,
         );
         subscriptions.subscribe_input(
             InputScope::Hovered,
@@ -2239,17 +2229,17 @@ enum DiffKeyboardInput {
     CommentKey(Key),
     ConversationKey(Key),
     SearchKey(Key),
-    Shortcut(ShortcutCommand),
+    Shortcut(DiffPaneCommand),
 }
 
 struct DiffKeyboardInputMatcher {
-    shortcuts: ShortcutMatcher,
+    shortcuts: ShortcutMatcher<DiffPaneCommand>,
 }
 
 impl DiffKeyboardInputMatcher {
     const fn new() -> Self {
         Self {
-            shortcuts: ShortcutMatcher::new(ShortcutSet::Diff),
+            shortcuts: ShortcutMatcher::new(),
         }
     }
 }

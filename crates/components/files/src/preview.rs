@@ -3,7 +3,7 @@ use std::{cell::Cell, collections::HashSet};
 
 use component_core::InputResolution;
 use ratatui::{buffer::Buffer, layout::Rect, style::Style, text::Line};
-use ui_shortcuts::{Key, ShortcutCommand, ShortcutMatcher, ShortcutSet};
+use ui_shortcuts::{Key, MovementShortcut, ShortcutMatcher};
 use ui_theme::Palette;
 
 use super::{FileList, FileTree, FileTreeRow, shorten};
@@ -23,7 +23,7 @@ pub struct FilePreviewList {
     selected: usize,
     scroll: Cell<usize>,
     area: Cell<Rect>,
-    keys: ShortcutMatcher,
+    keys: ShortcutMatcher<MovementShortcut>,
 }
 
 impl FilePreviewList {
@@ -42,7 +42,7 @@ impl FilePreviewList {
             selected: 0,
             scroll: Cell::new(0),
             area: Cell::new(Rect::default()),
-            keys: ShortcutMatcher::new(ShortcutSet::Files),
+            keys: ShortcutMatcher::new(),
         }
     }
 
@@ -56,9 +56,7 @@ impl FilePreviewList {
 
     pub fn move_key(&mut self, key: Key) -> bool {
         let before = self.selected;
-        let InputResolution::Matched(ShortcutCommand::Navigation(input)) =
-            self.keys.resolve_key(key)
-        else {
+        let InputResolution::Matched(input) = self.keys.resolve_key(key) else {
             return false;
         };
         self.selected = self.list().navigate(input);

@@ -12,7 +12,7 @@ use ratatui::{
 use std::ops::Range;
 use ui_events::{DiffViewportChanged, EvidenceView, ExploreViewports};
 use ui_panes::SplitPane;
-use ui_shortcuts::NavigationShortcut;
+use ui_shortcuts::MovementShortcut;
 use ui_theme::Palette;
 
 #[derive(Clone)]
@@ -335,7 +335,7 @@ impl ConversationLayout {
         })
     }
 
-    pub(super) fn navigate_evidence(&self, input: NavigationShortcut) -> Option<EvidenceView> {
+    pub(super) fn navigate_evidence(&self, input: MovementShortcut) -> Option<EvidenceView> {
         self.items.iter().find_map(|item| match &item.content {
             Content::EvidenceSplit(list) => list.navigate(input, item.height),
             _ => None,

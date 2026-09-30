@@ -18,10 +18,7 @@ use ui_events::{
     RepositoryFilesChanged, ReviewStateSaved, ReviewableFiles, ReviewableFilesChanged,
     TemporaryFilesChanged,
 };
-use ui_shortcuts::{
-    ApplicationShortcut, FileShortcut, NavigationShortcut, ShortcutCommand, ShortcutMatcher,
-    ShortcutSet,
-};
+use ui_shortcuts::{FilesShortcut, MovementShortcut, ShortcutMatcher};
 use ui_theme::Palette;
 use unicode_width::UnicodeWidthStr;
 
@@ -55,6 +52,13 @@ struct PendingReview {
     path: String,
     previous_state: ReviewState,
     optimistic_state: ReviewState,
+}
+
+/// Which way to look for the next unreviewed file, wrapping around the list.
+#[derive(Clone, Copy)]
+enum SearchDirection {
+    Next,
+    Previous,
 }
 
 impl FilesComponent {
@@ -319,45 +323,63 @@ impl FilesComponent {
         self.publish_selection_if_changed(previous_selected_path.as_deref());
     }
 
-    fn shortcut(&mut self, shortcut: ShortcutCommand) -> Vec<Action> {
+    fn movement_shortcut(&mut self, command: MovementShortcut) -> Vec<Action> {
+        self.run_shortcut(|files| {
+            files.move_selection(command);
+            Vec::new()
+        })
+    }
+
+    fn files_shortcut(&mut self, command: FilesShortcut) -> Vec<Action> {
+        self.run_shortcut(|files| files.run_files_shortcut(command))
+    }
+
+    fn run_shortcut(&mut self, run: impl FnOnce(&mut Self) -> Vec<Action>) -> Vec<Action> {
         if self.navigation == ui_events::ReviewNavigation::Threads {
             return Vec::new();
         }
         let previous_selected_path = self.selected_path();
-        let actions = match shortcut {
-            ShortcutCommand::Application(ApplicationShortcut::MarkReviewed) => {
-                self.toggle_review().into_iter().collect()
-            }
-            ShortcutCommand::Application(ApplicationShortcut::AutoReview)
-                if self.navigation == ui_events::ReviewNavigation::Files
-                    && !self.review_checkpoint.review_unit.is_empty() =>
-            {
-                vec![Action::AutoReview(self.review_checkpoint.clone())]
-            }
-            ShortcutCommand::Application(ApplicationShortcut::UnreviewAll)
-                if self.navigation == ui_events::ReviewNavigation::Files
-                    && !self.review_checkpoint.review_unit.is_empty() =>
-            {
-                self.events.publish(ui_events::UnreviewAllRequested(
-                    self.review_checkpoint.clone(),
-                ));
-                Vec::new()
-            }
-            ShortcutCommand::File(shortcut) => {
-                self.move_to_unreviewed_file(shortcut);
-                Vec::new()
-            }
-            ShortcutCommand::Navigation(navigation) => {
-                self.move_selection(navigation);
-                Vec::new()
-            }
-            _ => Vec::new(),
-        };
+        let actions = run(self);
         self.publish_selection_if_changed(previous_selected_path.as_deref());
         actions
     }
 
-    fn move_to_unreviewed_file(&mut self, shortcut: FileShortcut) {
+    fn run_files_shortcut(&mut self, command: FilesShortcut) -> Vec<Action> {
+        match command {
+            FilesShortcut::MarkReviewed => self.toggle_review().into_iter().collect(),
+            FilesShortcut::AutoReview => {
+                if self.reviews_whole_checkpoint() {
+                    vec![Action::AutoReview(self.review_checkpoint.clone())]
+                } else {
+                    Vec::new()
+                }
+            }
+            FilesShortcut::UnreviewAll => {
+                if self.reviews_whole_checkpoint() {
+                    self.events.publish(ui_events::UnreviewAllRequested(
+                        self.review_checkpoint.clone(),
+                    ));
+                }
+                Vec::new()
+            }
+            FilesShortcut::GoToNextUnreviewed => {
+                self.move_to_unreviewed_file(SearchDirection::Next);
+                Vec::new()
+            }
+            FilesShortcut::GoToPreviousUnreviewed => {
+                self.move_to_unreviewed_file(SearchDirection::Previous);
+                Vec::new()
+            }
+        }
+    }
+
+    /// Whether checkpoint-wide review commands apply to the listed files.
+    fn reviews_whole_checkpoint(&self) -> bool {
+        self.navigation == ui_events::ReviewNavigation::Files
+            && !self.review_checkpoint.review_unit.is_empty()
+    }
+
+    fn move_to_unreviewed_file(&mut self, direction: SearchDirection) {
         if self.files.is_empty() {
             return;
         }
@@ -365,11 +387,11 @@ impl FilesComponent {
             let file = &self.files[*index];
             !file.temporary && file.review_state.status.needs_review()
         };
-        let target = match shortcut {
-            FileShortcut::GoToNextUnreviewed => (self.selected.saturating_add(1)..self.files.len())
+        let target = match direction {
+            SearchDirection::Next => (self.selected.saturating_add(1)..self.files.len())
                 .find(is_unreviewed)
                 .or_else(|| (0..=self.selected).find(is_unreviewed)),
-            FileShortcut::GoToPreviousUnreviewed => (0..self.selected)
+            SearchDirection::Previous => (0..self.selected)
                 .rev()
                 .find(is_unreviewed)
                 .or_else(|| (self.selected..self.files.len()).rev().find(is_unreviewed)),
@@ -407,9 +429,7 @@ impl FilesComponent {
             self.keep_selected_visible();
             if double_click {
                 self.publish_selection_if_changed(previous_selected_path.as_deref());
-                return self.shortcut(ShortcutCommand::Application(
-                    ApplicationShortcut::MarkReviewed,
-                ));
+                return self.files_shortcut(FilesShortcut::MarkReviewed);
             }
             self.publish_selection_if_changed(previous_selected_path.as_deref());
             return Vec::new();
@@ -431,9 +451,9 @@ impl FilesComponent {
         let previous_selected_path = self.selected_path();
         let steps = delta.unsigned_abs();
         let direction = if delta < 0 {
-            NavigationShortcut::MoveUp
+            MovementShortcut::MoveUp
         } else {
-            NavigationShortcut::MoveDown
+            MovementShortcut::MoveDown
         };
         for _ in 0..steps {
             self.move_selection(direction);
@@ -449,7 +469,7 @@ impl FilesComponent {
         }
     }
 
-    fn move_selection(&mut self, input: NavigationShortcut) {
+    fn move_selection(&mut self, input: MovementShortcut) {
         self.selected = self.file_list().navigate(input);
         self.keep_selected_visible();
     }
@@ -636,13 +656,13 @@ impl Component<Action> for FilesComponent {
         subscriptions.subscribe(Self::selection_requested);
         subscriptions.subscribe_input(
             InputScope::Focused,
-            ShortcutMatcher::new(ShortcutSet::Files),
-            Self::shortcut,
+            ShortcutMatcher::new(),
+            Self::movement_shortcut,
         );
         subscriptions.subscribe_input(
             InputScope::Global,
-            ShortcutMatcher::new(ShortcutSet::FilesGlobal),
-            Self::shortcut,
+            ShortcutMatcher::new(),
+            Self::files_shortcut,
         );
         subscriptions.subscribe_input(InputScope::Hovered, AnyInput, Self::pointer_input);
     }

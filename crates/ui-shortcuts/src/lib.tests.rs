@@ -1,38 +1,160 @@
-use super::*;
+use component_core::InputResolution;
 
-#[test]
-fn every_documented_binding_resolves_to_its_command() {
-    for definition in SHORTCUTS {
-        for binding in definition.bindings {
-            let lookup = match binding.sequence {
-                ShortcutSequence::One(key) => lookup(None, key),
-                ShortcutSequence::Two(first, second) => {
-                    let ShortcutLookup::Prefix(prefix) = lookup(None, first) else {
-                        panic!("{first:?} did not start a shortcut sequence");
-                    };
-                    lookup(Some(prefix), second)
-                }
-            };
-            assert_eq!(lookup, ShortcutLookup::Command(binding.command));
+use super::*;
+use crate::table::ShortcutBinding;
+
+/// How many owning scopes select `command`.
+fn owner_count(command: ShortcutCommand) -> usize {
+    [
+        ApplicationShortcut::select(command).is_some(),
+        SearchShortcut::select(command).is_some(),
+        MovementShortcut::select(command).is_some(),
+        DiffShortcut::select(command).is_some(),
+        DiffGlobalShortcut::select(command).is_some(),
+        FilesShortcut::select(command).is_some(),
+        OverlayShortcut::select(command).is_some(),
+        RevisionShortcut::select(command).is_some(),
+    ]
+    .into_iter()
+    .filter(|owned| *owned)
+    .count()
+}
+
+fn resolve<S: ShortcutSubscription>(sequence: ShortcutSequence) -> InputResolution<S> {
+    let mut matcher = ShortcutMatcher::<S>::new();
+    match sequence {
+        ShortcutSequence::One(key) => matcher.resolve_key(key),
+        ShortcutSequence::Two(first, second) => {
+            assert!(
+                matches!(
+                    matcher.resolve_key(first),
+                    InputResolution::AwaitingMoreInput
+                ),
+                "{first:?} must start a sequence"
+            );
+            matcher.resolve_key(second)
+        }
+    }
+}
+
+fn subscribed_bindings<S: ShortcutSubscription>()
+-> impl Iterator<Item = (&'static ShortcutBinding, S)> {
+    bindings().filter_map(|binding| S::select(binding.command).map(|command| (binding, command)))
+}
+
+fn conflicts(first: ShortcutSequence, second: ShortcutSequence) -> bool {
+    match (first, second) {
+        (ShortcutSequence::One(key), sequence) | (sequence, ShortcutSequence::One(key)) => {
+            sequence == ShortcutSequence::One(key) || sequence.starts_with(key)
+        }
+        (first, second) => first == second,
+    }
+}
+
+/// Every binding a subscription sees resolves to its command, and no two of
+/// those bindings claim the same keys.
+fn assert_subscription_is_consistent<S>()
+where
+    S: ShortcutSubscription + std::fmt::Debug + PartialEq,
+{
+    let bindings = subscribed_bindings::<S>().collect::<Vec<_>>();
+    for (index, (binding, command)) in bindings.iter().enumerate() {
+        assert_eq!(
+            resolve::<S>(binding.sequence),
+            InputResolution::Matched(*command)
+        );
+        for (other, _) in &bindings[index + 1..] {
+            assert!(
+                !conflicts(binding.sequence, other.sequence),
+                "{:?} and {:?} claim the same keys in one subscription",
+                binding.command,
+                other.command
+            );
         }
     }
 }
 
 #[test]
-fn unknown_keys_and_incomplete_sequences_do_not_run_commands() {
-    assert_eq!(lookup(None, Key::Char('x')), ShortcutLookup::None);
-    let ShortcutLookup::Prefix(go_to_prefix) = lookup(None, Key::Char('g')) else {
-        panic!("g did not start a shortcut sequence");
-    };
+fn every_command_has_exactly_one_owner() {
+    for binding in bindings() {
+        assert_eq!(owner_count(binding.command), 1, "{:?}", binding.command);
+    }
+}
+
+#[test]
+fn owning_scopes_resolve_their_bindings_without_conflicts() {
+    assert_subscription_is_consistent::<ApplicationShortcut>();
+    assert_subscription_is_consistent::<SearchShortcut>();
+    assert_subscription_is_consistent::<MovementShortcut>();
+    assert_subscription_is_consistent::<DiffShortcut>();
+    assert_subscription_is_consistent::<DiffGlobalShortcut>();
+    assert_subscription_is_consistent::<FilesShortcut>();
+    assert_subscription_is_consistent::<OverlayShortcut>();
+    assert_subscription_is_consistent::<RevisionShortcut>();
+}
+
+#[test]
+fn combined_subscriptions_resolve_their_bindings_without_conflicts() {
+    assert_subscription_is_consistent::<ApplicationCommand>();
+    assert_subscription_is_consistent::<DiffPaneCommand>();
+}
+
+#[test]
+fn a_subscription_ignores_bindings_owned_by_other_scopes() {
+    let mut revision = ShortcutMatcher::<RevisionShortcut>::new();
     assert_eq!(
-        lookup(Some(go_to_prefix), Key::Char('x')),
-        ShortcutLookup::None
+        revision.resolve_key(Key::Char('j')),
+        InputResolution::NoMatch
+    );
+    assert_eq!(
+        revision.resolve_key(Key::Char('g')),
+        InputResolution::NoMatch
+    );
+
+    let mut movement = ShortcutMatcher::<MovementShortcut>::new();
+    assert_eq!(
+        movement.resolve_key(Key::Char('[')),
+        InputResolution::NoMatch
+    );
+}
+
+#[test]
+fn a_combined_subscription_resolves_each_scope_it_listens_to() {
+    let mut application = ShortcutMatcher::<ApplicationCommand>::new();
+    assert_eq!(
+        application.resolve_key(Key::Char('/')),
+        InputResolution::Matched(ApplicationCommand::Search(SearchShortcut::Begin))
+    );
+    assert_eq!(
+        application.resolve_key(Key::Char('q')),
+        InputResolution::Matched(ApplicationCommand::Application(ApplicationShortcut::Quit))
+    );
+    assert_eq!(
+        application.resolve_key(Key::Char('n')),
+        InputResolution::NoMatch
+    );
+}
+
+#[test]
+fn unknown_keys_and_incomplete_sequences_do_not_run_commands() {
+    let mut matcher = ShortcutMatcher::<DiffPaneCommand>::new();
+    assert_eq!(
+        matcher.resolve_key(Key::Char('x')),
+        InputResolution::NoMatch
+    );
+    assert_eq!(
+        matcher.resolve_key(Key::Char('g')),
+        InputResolution::AwaitingMoreInput
+    );
+    assert_eq!(
+        matcher.resolve_key(Key::Char('x')),
+        InputResolution::NoMatch
     );
 }
 
 #[test]
 fn shortcut_matcher_resolves_a_sequence_for_its_subscription() {
-    let mut matcher = ShortcutMatcher::new(ShortcutSet::Hunk);
+    let mut matcher = ShortcutMatcher::<DiffGlobalShortcut>::new();
 
     assert_eq!(
         matcher.resolve_key(Key::Char(']')),
@@ -40,13 +162,13 @@ fn shortcut_matcher_resolves_a_sequence_for_its_subscription() {
     );
     assert_eq!(
         matcher.resolve_key(Key::Char('h')),
-        InputResolution::Matched(ShortcutCommand::Hunk(HunkShortcut::GoToNextModified))
+        InputResolution::Matched(DiffGlobalShortcut::Hunk(HunkShortcut::GoToNextModified))
     );
 }
 
 #[test]
 fn shortcut_matcher_retries_a_failed_sequence_as_new_input() {
-    let mut matcher = ShortcutMatcher::new(ShortcutSet::Hunk);
+    let mut matcher = ShortcutMatcher::<DiffGlobalShortcut>::new();
 
     assert_eq!(
         matcher.resolve_key(Key::Char('[')),
@@ -58,7 +180,7 @@ fn shortcut_matcher_retries_a_failed_sequence_as_new_input() {
     );
     assert_eq!(
         matcher.resolve_key(Key::Char('h')),
-        InputResolution::Matched(ShortcutCommand::Hunk(HunkShortcut::GoToNextModified))
+        InputResolution::Matched(DiffGlobalShortcut::Hunk(HunkShortcut::GoToNextModified))
     );
 }
 
