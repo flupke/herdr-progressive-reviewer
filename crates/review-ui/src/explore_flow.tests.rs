@@ -128,7 +128,7 @@ fn coverage_overview_opens_a_gap_without_losing_the_question_draft() {
     assert_eq!(
         coverage
             .evidence_view(EvidenceView::Coverage)
-            .and_then(DiffComponent::evidence_path),
+            .and_then(SourceViewer::evidence_path),
         Some("policy.rs")
     );
     assert!(fixture.text().contains("File diff · policy.rs"));

@@ -1,38 +1,30 @@
-use crate::{DiffComponent, LoadedDocument, presentation::DiffPresentation};
+use crate::{LoadedDocument, SourceViewer, presentation::DiffPresentation};
 use review_explore::{Comparison, EvidenceRef, SourceSide};
 use review_repository::diff::parse_file_diff;
 use std::sync::Arc;
 use ui_actions::Action;
-use ui_events::{
-    ExploreComparisonAccepted, ExploreEvidence, RepositoryFilesChanged, ReviewNavigation,
-    ReviewNavigationChanged, SourceSessionChanged,
-};
+use ui_events::ExploreEvidence;
 
+/// The comparison and the evidence one Explore viewer shows.
 #[derive(Default)]
-pub(super) struct ExploreView {
-    pub(super) active: bool,
-    pub(super) parked: Option<Box<DiffComponent>>,
+pub(super) struct ShownEvidence {
     pub(super) comparison: Option<Arc<Comparison>>,
-    pub(super) latest: Option<RepositoryFilesChanged>,
     pub(super) evidence: Vec<EvidenceRef>,
     pub(super) primary: usize,
     pub(super) selected: usize,
     pub(super) required_only: bool,
     pub(super) limitation: Option<String>,
     pub(super) fit_pending: bool,
-    pub(super) positions: Vec<review_explore::EvidencePosition>,
 }
 
-impl ExploreView {
+impl ShownEvidence {
     pub(super) fn identify_source(
         &self,
         document: &mut LoadedDocument,
         path: &std::path::Path,
         root: &std::path::Path,
     ) {
-        if self.active
-            && let Some(source) = self.source(path, root)
-        {
+        if let Some(source) = self.source(path, root) {
             document.path.clone_from(&source.display_path);
             document.display_path.clone_from(&source.display_path);
         }
@@ -82,7 +74,25 @@ impl ExploreView {
     }
 }
 
-impl DiffComponent {
+/// How the pane brought an evidence viewer to the front.
+#[derive(Clone, Copy)]
+pub(super) struct EvidenceShown {
+    /// The viewer did not exist before.
+    pub(super) opened: bool,
+    /// Another viewer was in front before.
+    pub(super) switched: bool,
+}
+
+/// The comparison file a coverage view shows.
+pub(super) fn coverage_file(event: &ExploreEvidence) -> Option<usize> {
+    let reference = event.evidence.first()?;
+    event.comparison.files.iter().position(|file| {
+        file.old_path.as_ref() == Some(&reference.location.path)
+            || file.new_path.as_ref() == Some(&reference.location.path)
+    })
+}
+
+impl SourceViewer {
     fn comparison_document(&self, comparison: &Comparison, index: usize) -> LoadedDocument {
         let file = &comparison.files[index];
         let Some(context) = comparison.context.get(index) else {
@@ -148,72 +158,8 @@ impl DiffComponent {
         Ok(())
     }
 
-    #[allow(clippy::trivially_copy_pass_by_ref)]
-    pub(super) fn explore_navigation(&mut self, event: &ReviewNavigationChanged) -> Vec<Action> {
-        let active = event.0 == ReviewNavigation::Explore;
-        let switched = self.explore.active != active;
-        let mut actions = Vec::new();
-        if self.explore.active != active {
-            let latest = self.explore.latest.take();
-            let positions = std::mem::take(&mut self.explore.positions);
-            let mut other = self.explore.parked.take().unwrap_or_else(|| {
-                let mut viewer = Self::new(
-                    self.events.clone(),
-                    ui_events::ReviewableFiles::default(),
-                    self.highlighter.clone(),
-                    self.repository_root.clone(),
-                    self.palette,
-                );
-                viewer.comments.share_drafts(&self.comments);
-                viewer.explore.active = active;
-                Box::new(viewer)
-            });
-            std::mem::swap(self, &mut other);
-            self.explore.parked = Some(other);
-            if active {
-                self.embedded.restored.extend(positions);
-            }
-            if !active && let Some(latest) = latest {
-                actions.extend(self.repository_changed(&latest));
-            }
-            self.events.publish(SourceSessionChanged {
-                snapshot_id: self.source_session.clone(),
-            });
-        }
-        self.conversation_navigation(event);
-        if switched && let Some(checkpoint) = &self.review_checkpoint {
-            actions.push(Action::Thread(review_threads::ThreadCommand::Load(
-                checkpoint.review_unit.clone(),
-            )));
-        }
-        if switched && active {
-            actions.extend(self.resume_evidence_search());
-        }
-        actions
-    }
-
-    pub(super) fn explore_comparison_accepted(
-        &mut self,
-        event: &ExploreComparisonAccepted,
-    ) -> Vec<Action> {
-        let comparison = &event.0;
-        if !self.explore.active {
-            if let Some(parked) = &mut self.explore.parked {
-                parked.install_comparison(comparison.clone());
-            }
-            return Vec::new();
-        }
-        self.install_comparison(comparison.clone());
-        self.events.publish(SourceSessionChanged {
-            snapshot_id: self.source_session.clone(),
-        });
-        vec![Action::Thread(review_threads::ThreadCommand::Load(
-            comparison.checkpoint.review_unit.clone(),
-        ))]
-    }
-
+    /// Show `comparison` from its first file, forgetting the previous one.
     pub(super) fn install_comparison(&mut self, comparison: Arc<Comparison>) {
-        self.embedded = crate::embedded::EmbeddedViews::default();
         self.review_checkpoint = Some(comparison.checkpoint.clone());
         self.source_session = Some(format!("explore:{}", uuid::Uuid::new_v4()));
         self.documents = (0..comparison.files.len())
@@ -232,36 +178,32 @@ impl DiffComponent {
                     })
                     .collect::<Vec<_>>(),
             ));
-        self.explore.comparison = Some(comparison);
-        self.explore.evidence.clear();
-        self.explore.required_only = false;
+        self.evidence.comparison = Some(comparison);
+        self.evidence.evidence.clear();
+        self.evidence.required_only = false;
         self.selected_path = None;
         self.preview = None;
         self.selection = None;
         self.search = diff_search::Search::default();
     }
 
-    pub(super) fn explore_evidence(&mut self, event: &ExploreEvidence) -> Vec<Action> {
-        if !self.explore.active {
-            return Vec::new();
+    /// Show the evidence a question cites. A viewer that already showed it
+    /// keeps its place unless `event` asks to reveal the evidence again.
+    pub(super) fn show_question_evidence(
+        &mut self,
+        event: &ExploreEvidence,
+        reference: usize,
+        shown: EvidenceShown,
+    ) -> Vec<Action> {
+        self.evidence.comparison = Some(event.comparison.clone());
+        self.evidence.evidence.clone_from(&event.evidence);
+        self.evidence.primary = event.primary;
+        self.evidence.required_only = event.required_only;
+        if !shown.opened && !event.reveal {
+            return self.retained_evidence_actions(shown.switched);
         }
-        if event.view == ui_events::EvidenceView::Coverage {
-            return self.explore_coverage_evidence(event);
-        }
-        let ui_events::EvidenceView::Question { reference, .. } = event.view else {
-            unreachable!("coverage dispatched above")
-        };
-        let switched = self.embedded.active != Some(event.view);
-        let opened = self.activate_evidence_view(event);
-        self.explore.comparison = Some(event.comparison.clone());
-        self.explore.evidence.clone_from(&event.evidence);
-        self.explore.primary = event.primary;
-        self.explore.required_only = event.required_only;
-        if !opened && !event.reveal {
-            return self.retained_evidence_actions(switched);
-        }
-        self.explore.selected = reference;
-        self.explore.limitation = None;
+        self.evidence.selected = reference;
+        self.evidence.limitation = None;
         let Some(evidence) = event.evidence.get(reference) else {
             return Vec::new();
         };
@@ -271,7 +213,7 @@ impl DiffComponent {
         let content = match source.read_text(&self.repository_root) {
             Ok(content) => content,
             Err(error) => {
-                self.explore.limitation = Some(format!(
+                self.evidence.limitation = Some(format!(
                     "File-level evidence · non-text or unavailable source: {error}"
                 ));
                 return Vec::new();
@@ -282,7 +224,7 @@ impl DiffComponent {
                 || range.last_line < range.first_line
                 || range.last_line as usize > content.lines().count()
         }) {
-            self.explore.limitation =
+            self.evidence.limitation =
                 Some("The saved evidence range is unavailable in this source.".into());
             return Vec::new();
         }
@@ -301,32 +243,42 @@ impl DiffComponent {
         self.open_supporting_evidence(&source, &content, evidence.location.lines.as_ref())
     }
 
-    fn explore_coverage_evidence(&mut self, event: &ExploreEvidence) -> Vec<Action> {
-        let Some(reference) = event.evidence.first() else {
-            return Vec::new();
-        };
-        let Some(index) = event.comparison.files.iter().position(|file| {
-            file.old_path.as_ref() == Some(&reference.location.path)
-                || file.new_path.as_ref() == Some(&reference.location.path)
-        }) else {
-            return Vec::new();
-        };
-        let switched = self.embedded.active != Some(event.view);
-        let opened = self.activate_evidence_view(event);
-        if !opened && !event.reveal {
-            return self.retained_evidence_actions(switched);
+    /// Show the diff of the comparison file at `index` for a coverage view.
+    pub(super) fn show_coverage_evidence(
+        &mut self,
+        event: &ExploreEvidence,
+        index: usize,
+        shown: EvidenceShown,
+    ) -> Vec<Action> {
+        if !shown.opened && !event.reveal {
+            return self.retained_evidence_actions(shown.switched);
         }
-        self.explore.comparison = Some(event.comparison.clone());
-        self.explore.evidence.clone_from(&event.evidence);
-        self.explore.selected = 0;
-        self.explore.primary = event.primary;
-        self.explore.required_only = event.required_only;
-        self.explore.limitation = None;
+        self.evidence.comparison = Some(event.comparison.clone());
+        self.evidence.evidence.clone_from(&event.evidence);
+        self.evidence.selected = 0;
+        self.evidence.primary = event.primary;
+        self.evidence.required_only = event.required_only;
+        self.evidence.limitation = None;
         if let Err(error) = self.select_comparison_document(&event.comparison, index) {
-            self.explore.limitation = Some(format!("Coverage diff unavailable: {error}"));
+            self.evidence.limitation = Some(format!("Coverage diff unavailable: {error}"));
             return Vec::new();
         }
         self.request_visible_highlights()
+    }
+
+    fn retained_evidence_actions(&mut self, switched: bool) -> Vec<Action> {
+        let mut actions = self.request_visible_highlights();
+        if switched {
+            actions.extend(self.resume_evidence_search());
+        }
+        actions
+    }
+
+    /// Continue this viewer's search after another viewer was shown.
+    pub(super) fn resume_evidence_search(&mut self) -> Vec<Action> {
+        self.publish_search_status();
+        let intents = self.search.resume(&self.documents);
+        self.apply_search(intents)
     }
 
     fn open_changed_evidence(
@@ -351,7 +303,7 @@ impl DiffComponent {
             };
             self.reveal_evidence_range(source, content, range, location);
         }
-        self.explore.fit_pending = true;
+        self.evidence.fit_pending = true;
         self.request_visible_highlights()
     }
 
@@ -360,7 +312,7 @@ impl DiffComponent {
         location: review_lsp::SourceLocation,
         mode: ui_events::SourceLoadMode,
     ) -> Vec<Action> {
-        let source = self.explore.source(&location.path, &self.repository_root);
+        let source = self.evidence.source(&location.path, &self.repository_root);
         let Some(source) = source else {
             self.explore_notice("Destination is outside the repository.");
             return Vec::new();
@@ -410,7 +362,7 @@ impl DiffComponent {
         };
         let actions = self.source_content_loaded(&event);
         let checkpoint = self
-            .explore
+            .evidence
             .comparison
             .as_ref()
             .expect("Explore comparison")

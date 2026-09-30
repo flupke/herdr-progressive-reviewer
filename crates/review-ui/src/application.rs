@@ -55,7 +55,6 @@ pub struct ReviewApplication {
     global_input_pending: bool,
     application_shortcuts: ui_shortcuts::ShortcutMatcher<ui_shortcuts::ApplicationCommand>,
     file_pane_resize: Option<FilePaneResize>,
-    watched_source: Option<PathBuf>,
     editor_keymap: KeymapSetting,
     saved_editor_keymap: EditorKeymap,
 }
@@ -147,7 +146,6 @@ impl ReviewApplication {
             global_input_pending: false,
             application_shortcuts: ui_shortcuts::ShortcutMatcher::new(),
             file_pane_resize: None,
-            watched_source: None,
             saved_editor_keymap: editor_keymap.get(),
             editor_keymap,
         }
@@ -343,14 +341,6 @@ impl ReviewApplication {
             .into_iter()
             .flat_map(DispatchResult::into_actions)
             .collect();
-        let source = self
-            .event_bus
-            .get::<DiffComponent>(self.diff_component)
-            .and_then(DiffComponent::live_source_path);
-        if source != self.watched_source.as_deref() {
-            self.watched_source = source.map(std::path::Path::to_owned);
-            actions.push(Action::WatchSource(self.watched_source.clone()));
-        }
         let keymap = self.editor_keymap.get();
         if keymap != self.saved_editor_keymap {
             self.saved_editor_keymap = keymap;

@@ -1,146 +1,259 @@
-//! Independent, lazily opened native viewers sharing the application's I/O services.
-use crate::{ClippedViewport, DiffComponent};
+//! Explore's lazily opened evidence viewers, and how one viewer draws inside
+//! an Explore conversation.
+use crate::explore::EvidenceShown;
+use crate::{ClippedViewport, Role, Services, SourceViewer};
 use ratatui::buffer::Buffer;
+use review_explore::{Comparison, EvidencePosition};
 use std::collections::BTreeMap;
+use std::sync::Arc;
 use ui_actions::Action;
-use ui_events::{EvidenceView, ExploreEvidence, ExploreEvidenceInput, ExploreViewports};
+use ui_events::{
+    EvidenceView, ExploreEvidence, ExploreEvidenceInput, ExploreViewports, RepositoryFilesChanged,
+};
 use ui_theme::Palette;
 
+/// Every viewer Explore opened, and the one in front.
 #[derive(Default)]
-pub(super) struct EmbeddedViews {
-    pub(super) active: Option<EvidenceView>,
-    pub(super) restored: Vec<review_explore::EvidencePosition>,
-    pub(super) saved: BTreeMap<EvidenceView, Box<DiffComponent>>,
+pub(super) struct ExploreViewers {
+    /// The pane shows Explore instead of the Files diff.
+    shown: bool,
+    /// The viewer Explore shows before any evidence opens. It is `None`
+    /// until Explore first opens and while an evidence viewer is in front.
+    base: Option<SourceViewer>,
+    evidence: BTreeMap<EvidenceView, SourceViewer>,
+    active: Option<EvidenceView>,
+    /// Recovered positions that wait for their viewer's first viewport.
+    restored: Vec<EvidencePosition>,
+    /// The repository change the Files viewer applies once Explore closes.
+    latest: Option<RepositoryFilesChanged>,
 }
 
-impl DiffComponent {
-    pub(super) fn retained_viewers_mut(&mut self) -> impl Iterator<Item = &mut Self> {
-        self.embedded
-            .saved
-            .values_mut()
-            .chain(self.explore.parked.iter_mut())
-            .map(AsMut::as_mut)
+impl ExploreViewers {
+    pub(super) fn is_shown(&self) -> bool {
+        self.shown
     }
 
-    pub(super) fn retain_search_results(&mut self, results: &text_search::Results) {
-        self.search.retain(results, &self.documents);
-        for viewer in self.retained_viewers_mut() {
-            viewer.retain_search_results(results);
+    /// Show Explore, opening its base viewer the first time, or hide it.
+    /// Returns the repository change deferred while Explore was shown.
+    pub(super) fn show(
+        &mut self,
+        shown: bool,
+        services: &Services,
+    ) -> Option<RepositoryFilesChanged> {
+        self.shown = shown;
+        if shown {
+            self.open(services);
+            return None;
+        }
+        self.latest.take()
+    }
+
+    /// Keep the latest repository change for the Files viewer until Explore closes.
+    pub(super) fn defer(&mut self, event: &RepositoryFilesChanged) {
+        self.latest = Some(event.clone());
+    }
+
+    /// The viewer in front: the active evidence viewer, else the base one.
+    pub(super) fn current(&self) -> Option<&SourceViewer> {
+        match self.active {
+            Some(id) => self.evidence.get(&id),
+            None => self.base.as_ref(),
         }
     }
 
-    pub(super) fn retained_evidence_actions(&mut self, switched: bool) -> Vec<Action> {
-        let mut actions = self.request_visible_highlights();
-        if switched {
-            actions.extend(self.resume_evidence_search());
-        }
-        actions
-    }
-
-    pub(super) fn resume_evidence_search(&mut self) -> Vec<Action> {
-        self.publish_search_status();
-        let intents = self.search.resume(&self.documents);
-        self.apply_search(intents)
-    }
-
-    /// Borrow the real viewer retained for an opened evidence block.
-    pub fn evidence_view(&self, id: EvidenceView) -> Option<&Self> {
-        if self.embedded.active == Some(id) {
-            Some(self)
-        } else {
-            self.embedded.saved.get(&id).map(AsRef::as_ref)
+    pub(super) fn current_mut(&mut self) -> Option<&mut SourceViewer> {
+        match self.active {
+            Some(id) => self.evidence.get_mut(&id),
+            None => self.base.as_mut(),
         }
     }
 
-    pub(super) fn activate_evidence_view(&mut self, event: &ExploreEvidence) -> bool {
-        if self.embedded.active == Some(event.view) {
-            return false;
-        }
-        let mut views = std::mem::take(&mut self.embedded);
-        let existing = views.saved.contains_key(&event.view);
-        let mut next = views.saved.remove(&event.view).unwrap_or_else(|| {
-            let mut next = Self::new(
-                self.events.clone(),
+    /// Every viewer.
+    pub(super) fn viewers(&self) -> impl Iterator<Item = &SourceViewer> {
+        self.base.iter().chain(self.evidence.values())
+    }
+
+    /// Every viewer, each with whether it is in front.
+    pub(super) fn viewers_mut(&mut self) -> impl Iterator<Item = (bool, &mut SourceViewer)> {
+        let active = self.active;
+        self.base.iter_mut().map(|viewer| (true, viewer)).chain(
+            self.evidence
+                .iter_mut()
+                .map(move |(id, viewer)| (active == Some(*id), viewer)),
+        )
+    }
+
+    /// Open the base viewer the first time Explore is shown.
+    fn open(&mut self, services: &Services) {
+        if self.current().is_none() {
+            self.base = Some(SourceViewer::new(
+                services,
+                Role::Evidence,
                 ui_events::ReviewableFiles::default(),
-                self.highlighter.clone(),
-                self.repository_root.clone(),
-                self.palette,
+            ));
+        }
+    }
+
+    /// Show `comparison` in the viewer in front, closing every other viewer.
+    /// Returns whether a viewer took it.
+    pub(super) fn accept(&mut self, comparison: Arc<Comparison>) -> bool {
+        let viewer = match self.active.take() {
+            Some(id) => self.evidence.remove(&id),
+            None => self.base.take(),
+        };
+        let Some(mut viewer) = viewer else {
+            return false;
+        };
+        self.evidence.clear();
+        self.restored.clear();
+        viewer.install_comparison(comparison);
+        self.base = Some(viewer);
+        true
+    }
+
+    /// Bring the viewer of `event`'s evidence to the front, opening it on
+    /// first use with the threads the viewer in front already loaded.
+    pub(super) fn activate(
+        &mut self,
+        services: &Services,
+        event: &ExploreEvidence,
+    ) -> EvidenceShown {
+        if self.active == Some(event.view) {
+            return EvidenceShown {
+                opened: false,
+                switched: false,
+            };
+        }
+        let opened = !self.evidence.contains_key(&event.view);
+        if opened {
+            let mut viewer = SourceViewer::new(
+                services,
+                Role::Evidence,
+                ui_events::ReviewableFiles::default(),
             );
-            next.explore.active = true;
-            next.install_comparison(event.comparison.clone());
-            next.comments.share_drafts(&self.comments);
+            viewer.install_comparison(event.comparison.clone());
             if let Some(book) = self
-                .comments
-                .book()
+                .current()
+                .and_then(|current| current.comments.book())
                 .filter(|book| book.review_unit == event.comparison.checkpoint.review_unit)
             {
-                next.comments.inherit_book(book);
+                viewer.comments.inherit_book(book);
             }
-            next.refresh_comment_documents();
-            Box::new(next)
-        });
-        let parked = self.explore.parked.take();
-        let latest = self.explore.latest.take();
-        std::mem::swap(self, &mut next);
-        self.explore.parked = parked;
-        self.explore.latest = latest;
-        if let Some(previous) = views.active.replace(event.view) {
-            views.saved.insert(previous, next);
+            viewer.refresh_comment_documents();
+            self.evidence.insert(event.view, viewer);
         }
-        self.embedded = views;
-        self.source_session = Some(format!("explore:{}", uuid::Uuid::new_v4()));
-        self.events.publish(ui_events::SourceSessionChanged {
-            snapshot_id: self.source_session.clone(),
+        self.base = None;
+        self.active = Some(event.view);
+        let viewer = self.current_mut().expect("the activated viewer exists");
+        viewer.source_session = Some(format!("explore:{}", uuid::Uuid::new_v4()));
+        services.events.publish(ui_events::SourceSessionChanged {
+            snapshot_id: viewer.source_session.clone(),
         });
-        !existing
-    }
-
-    pub(super) fn embedded_pointer(&mut self, event: &ExploreEvidenceInput) -> Vec<Action> {
-        if self.embedded.active == Some(event.view) {
-            self.pointer_input(event.input)
-        } else {
-            Vec::new()
+        EvidenceShown {
+            opened,
+            switched: true,
         }
     }
 
-    pub(super) fn embedded_viewports(&mut self, event: &ExploreViewports) {
+    /// The viewer showing `id`, while it is open.
+    pub(super) fn view(&self, id: EvidenceView) -> Option<&SourceViewer> {
+        self.evidence.get(&id)
+    }
+
+    pub(super) fn pointer(&mut self, event: &ExploreEvidenceInput) -> Vec<Action> {
+        if self.active != Some(event.view) {
+            return Vec::new();
+        }
+        self.current_mut()
+            .map_or_else(Vec::new, |viewer| viewer.pointer_input(event.input))
+    }
+
+    pub(super) fn viewports(&mut self, event: &ExploreViewports) {
         for (id, viewport) in &event.0 {
-            if self.embedded.active == Some(*id) {
-                self.evidence_viewport(*viewport);
-            } else if let Some(viewer) = self.embedded.saved.get_mut(id) {
+            let restored = (self.active == Some(*id))
+                .then(|| self.take_restored(*id))
+                .flatten();
+            if let Some(viewer) = self.evidence.get_mut(id) {
+                if let Some(position) = restored {
+                    viewer.restore_evidence_position(&position);
+                }
                 viewer.evidence_viewport(*viewport);
             }
         }
     }
 
-    fn evidence_viewport(&mut self, viewport: ui_events::DiffViewportChanged) {
-        if let Some(active) = self.embedded.active
-            && let Some(index) = self.embedded.restored.iter().position(|position| {
-                matches!(active, EvidenceView::Question { turn, reference } if position.turn == turn && position.reference == reference)
-            })
-        {
-            let saved = self.embedded.restored.remove(index);
-            if let Some(file) = self.displayed_document_mut() {
-                file.document.restore(diff_position::Position::new(
-                    saved.cursor,
-                    saved.column,
-                    saved.scroll,
-                ));
-            }
-            self.explore.fit_pending = false;
+    fn take_restored(&mut self, id: EvidenceView) -> Option<EvidencePosition> {
+        let EvidenceView::Question { turn, reference } = id else {
+            return None;
+        };
+        let index = self
+            .restored
+            .iter()
+            .position(|position| position.turn == turn && position.reference == reference)?;
+        Some(self.restored.remove(index))
+    }
+
+    pub(super) fn restore_positions(&mut self, positions: &[EvidencePosition]) {
+        self.restored = positions.to_vec();
+    }
+
+    /// The position of every question's evidence viewer, for Explore to save.
+    pub(super) fn positions(&self) -> Vec<EvidencePosition> {
+        if self.current().is_none() {
+            return self.restored.clone();
         }
+        let mut result = self.restored.clone();
+        for (id, viewer) in &self.evidence {
+            let EvidenceView::Question { turn, reference } = *id else {
+                continue;
+            };
+            if result
+                .iter()
+                .any(|saved| saved.turn == turn && saved.reference == reference)
+            {
+                // The first viewport event has not applied this recovered position yet.
+                continue;
+            }
+            if let Some(file) = viewer.displayed_document() {
+                result.push(EvidencePosition {
+                    turn,
+                    reference,
+                    scroll: file.document.position().scroll(),
+                    cursor: file.document.position().cursor(),
+                    column: file.document.position().column(),
+                });
+            }
+        }
+        result.sort_by_key(|position| (position.turn, position.reference));
+        result
+    }
+}
+
+impl SourceViewer {
+    fn restore_evidence_position(&mut self, saved: &EvidencePosition) {
+        if let Some(file) = self.displayed_document_mut() {
+            file.document.restore(diff_position::Position::new(
+                saved.cursor,
+                saved.column,
+                saved.scroll,
+            ));
+        }
+        self.evidence.fit_pending = false;
+    }
+
+    fn evidence_viewport(&mut self, viewport: ui_events::DiffViewportChanged) {
         self.viewport_changed(&viewport);
-        if !std::mem::take(&mut self.explore.fit_pending) {
+        if !std::mem::take(&mut self.evidence.fit_pending) {
             return;
         }
         let Some(file) = self.displayed_document() else {
             return;
         };
-        let Some(evidence) = self.explore.evidence.get(self.explore.selected) else {
+        let Some(evidence) = self.evidence.evidence.get(self.evidence.selected) else {
             return;
         };
         let Some(source) = self
-            .explore
+            .evidence
             .comparison
             .as_ref()
             .and_then(|comparison| comparison.source(&evidence.location))
@@ -166,7 +279,7 @@ impl DiffComponent {
     }
 
     pub fn evidence_limitation(&self) -> Option<&str> {
-        self.explore.limitation.as_deref()
+        self.evidence.limitation.as_deref()
     }
 
     /// Render a window through the native engine, then clip it to the conversation viewport.
@@ -182,61 +295,8 @@ impl DiffComponent {
         self.render(area, &mut window, palette, focused)
             .render(&mut window);
         viewport.draw(&window, buffer);
-        self.reply_visibility.borrow_mut().project(viewport);
-    }
-}
-
-impl DiffComponent {
-    pub fn explore_positions(&self) -> Vec<review_explore::EvidencePosition> {
-        if !self.explore.active {
-            return self.explore.parked.as_ref().map_or_else(
-                || self.explore.positions.clone(),
-                |viewer| viewer.explore_positions(),
-            );
-        }
-        let mut result = self.embedded.restored.clone();
-        for (id, viewer) in self
-            .embedded
-            .saved
-            .iter()
-            .map(|(id, view)| (*id, view.as_ref()))
-            .chain(self.embedded.active.map(|id| (id, self)))
-        {
-            let EvidenceView::Question { turn, reference } = id else {
-                continue;
-            };
-            if result
-                .iter()
-                .any(|saved| saved.turn == turn && saved.reference == reference)
-            {
-                // The first viewport event has not applied this recovered position yet.
-                continue;
-            }
-            if let Some(file) = viewer.displayed_document() {
-                result.retain(|saved| saved.turn != turn || saved.reference != reference);
-                result.push(review_explore::EvidencePosition {
-                    turn,
-                    reference,
-                    scroll: file.document.position().scroll(),
-                    cursor: file.document.position().cursor(),
-                    column: file.document.position().column(),
-                });
-            }
-        }
-        result.sort_by_key(|position| (position.turn, position.reference));
-        result
-    }
-
-    pub(super) fn restore_explore_positions(
-        &mut self,
-        event: &ui_events::ExplorePositionsRestored,
-    ) {
-        if self.explore.active {
-            self.embedded.restored.clone_from(&event.0);
-        } else if let Some(parked) = &mut self.explore.parked {
-            parked.embedded.restored.clone_from(&event.0);
-        } else {
-            self.explore.positions.clone_from(&event.0);
-        }
+        let mut replies = self.reply_visibility.borrow_mut();
+        replies.project(viewport);
+        replies.capture(buffer);
     }
 }

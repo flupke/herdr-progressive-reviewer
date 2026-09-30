@@ -8,7 +8,7 @@ use std::ops::RangeInclusive;
 use review_drafts::{DraftId, Drafts, OpenDraft};
 use review_threads::{DraftTarget, ThreadId};
 
-use super::Comments;
+use super::{Comments, EditorSite};
 use crate::LoadedDocument;
 use crate::comment_layout::draft_rows;
 
@@ -125,13 +125,18 @@ impl Comments {
     }
 
     pub(crate) fn enter_conversations(&mut self) {
-        self.file_focus = self.focused_id();
+        self.site = EditorSite::Conversation {
+            file_focus: self.focused_id(),
+        };
         self.park_editor();
     }
 
     pub(crate) fn leave_conversations(&mut self) {
         self.park_editor();
-        if let Some(id) = self.file_focus.take() {
+        if let EditorSite::Conversation {
+            file_focus: Some(id),
+        } = std::mem::replace(&mut self.site, EditorSite::File)
+        {
             self.activate(id);
         }
     }

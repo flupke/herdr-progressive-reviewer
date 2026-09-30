@@ -64,6 +64,7 @@ impl ContextExpansion {
             .registry
             .get::<DiffComponent>(self.target)
             .unwrap()
+            .files
             .displayed_document()
             .unwrap()
             .document
@@ -103,7 +104,7 @@ impl ContextExpansion {
     fn control(&mut self, control: DiffControl) {
         let component = self.registry.get::<DiffComponent>(self.target).unwrap();
         let column = (0..80)
-            .find(|column| component.control_at(80, *column) == Some(control))
+            .find(|column| component.files.control_at(80, *column) == Some(control))
             .unwrap();
         self.pointer(PointerInputKind::Click, 0, column);
     }

@@ -115,10 +115,10 @@ fn conclusion_previews_unexplored_files_and_reopens_the_checkpoint_diff() {
         "checkpoint diff was not displayed: {:?} {:?} {text}",
         viewer
             .evidence_view(ui_events::EvidenceView::Coverage)
-            .and_then(DiffComponent::evidence_path),
+            .and_then(SourceViewer::evidence_path),
         viewer
             .evidence_view(ui_events::EvidenceView::Coverage)
-            .and_then(DiffComponent::evidence_limitation)
+            .and_then(SourceViewer::evidence_limitation)
     );
     assert!(!text.contains("later implementation"), "{text}");
     fixture.app.update(UserInput::Key(Key::Down));
@@ -129,7 +129,7 @@ fn conclusion_previews_unexplored_files_and_reopens_the_checkpoint_diff() {
         .unwrap();
     assert_eq!(
         diff.evidence_view(ui_events::EvidenceView::Coverage)
-            .and_then(DiffComponent::evidence_path),
+            .and_then(SourceViewer::evidence_path),
         Some("tests.rs")
     );
     fixture.app.update(UserInput::Resize {
@@ -207,7 +207,7 @@ fn conclusion_preview_omits_jev_only_files_from_count_tree_and_diff() {
     assert_eq!(
         viewer
             .evidence_view(ui_events::EvidenceView::Coverage)
-            .and_then(DiffComponent::evidence_path),
+            .and_then(SourceViewer::evidence_path),
         Some("policy.rs")
     );
 }
@@ -288,7 +288,7 @@ fn coverage_diff_uses_the_selected_file_after_restoring_multiple_files() {
         .unwrap();
     assert_eq!(
         diff.evidence_view(ui_events::EvidenceView::Coverage)
-            .and_then(DiffComponent::evidence_path),
+            .and_then(SourceViewer::evidence_path),
         Some(expected.as_str())
     );
     assert!(fixture.text().contains(&format!("File diff · {expected}")));

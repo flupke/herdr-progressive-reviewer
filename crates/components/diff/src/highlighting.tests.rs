@@ -139,6 +139,7 @@ fn loading_an_unselected_diff_does_not_start_highlighting_or_lsp() {
     );
     let component = registry.get::<DiffComponent>(target).unwrap();
     let loaded = component
+        .files
         .documents
         .iter()
         .find(|loaded| loaded.path == "a.rs")

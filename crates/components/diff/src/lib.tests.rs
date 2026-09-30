@@ -643,20 +643,20 @@ fn modified_hunk_shortcuts_wrap_and_center_the_target() {
         .unwrap();
 
     let component = registry.get::<DiffComponent>(diff_target).unwrap();
-    let document = component.selected_document().unwrap();
+    let document = component.files.selected_document().unwrap();
     assert_eq!(document.document.diff.modified_hunk_rows(), vec![0, 7]);
 
     dispatch_global_shortcut(&mut registry, other_target, ']', 'h');
 
     let component = registry.get::<DiffComponent>(diff_target).unwrap();
-    let document = component.selected_document().unwrap();
+    let document = component.files.selected_document().unwrap();
     assert_eq!(document.document.position().cursor(), 7);
     assert_eq!(document.document.position().scroll(), 3);
 
     dispatch_global_shortcut(&mut registry, other_target, '[', 'h');
 
     let component = registry.get::<DiffComponent>(diff_target).unwrap();
-    let document = component.selected_document().unwrap();
+    let document = component.files.selected_document().unwrap();
     assert_eq!(document.document.position().cursor(), 0);
     assert_eq!(document.document.position().scroll(), 0);
 }
@@ -927,10 +927,16 @@ fn dragging_source_rows_opens_an_editor_with_the_selected_diff() {
             .iter()
             .any(|text| text.contains("@@"))
     );
-    let component = registry.get::<DiffComponent>(diff_target).unwrap();
-    let editing = component.comments.focused().unwrap();
-    assert!(editing.draft().source.excerpt.contains("-    old();"));
-    assert!(editing.draft().source.excerpt.contains("+    new();"));
+    let typed = dispatch_key(&mut registry, diff_target, Key::Char('x'))
+        .into_iter()
+        .flat_map(DispatchResult::into_actions)
+        .collect::<Vec<_>>();
+    let [Action::Thread(review_threads::ThreadCommand::SaveDraft { draft, .. })] = typed.as_slice()
+    else {
+        panic!("typing must edit the opened draft: {typed:?}");
+    };
+    assert!(draft.source.excerpt.contains("-    old();"));
+    assert!(draft.source.excerpt.contains("+    new();"));
 }
 
 #[test]

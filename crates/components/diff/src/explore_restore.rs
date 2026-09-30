@@ -1,5 +1,5 @@
 //! Reopen selected evidence from a stored patch, or the legacy repository readers.
-use crate::{DiffComponent, LoadedDocument};
+use crate::{LoadedDocument, SourceViewer};
 use review_explore::{CodeLocation, Comparison, SourceSide};
 use review_repository::{
     diff::parse_file_diff,
@@ -7,7 +7,7 @@ use review_repository::{
 };
 use std::sync::Arc;
 
-impl DiffComponent {
+impl SourceViewer {
     pub(super) fn restored_comparison_document(
         &self,
         comparison: &Comparison,

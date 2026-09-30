@@ -1,7 +1,7 @@
 //! Transient yellow frames use native presentation coordinates and wrapping.
 use super::{Color, DiffFrame, DiffRenderer, LoadedDocument, Style, WrappedDiffRow};
 use crate::PresentedRow;
-use crate::explore::ExploreView;
+use crate::explore::ShownEvidence;
 use diff_rendering::FrameRule;
 use review_explore::SourceSide;
 use review_repository::diff::DiffRow;
@@ -35,8 +35,8 @@ pub(super) struct RequiredEvidenceRows {
 }
 
 impl RequiredEvidenceRows {
-    pub(super) fn new(file: &LoadedDocument, evidence: Option<&ExploreView>) -> Option<Self> {
-        let evidence = evidence.filter(|evidence| evidence.active && evidence.required_only)?;
+    pub(super) fn new(file: &LoadedDocument, evidence: Option<&ShownEvidence>) -> Option<Self> {
+        let evidence = evidence.filter(|evidence| evidence.required_only)?;
         let ranges = evidence.ranges(file);
         let rows = &file.document.diff.rows;
         let mut row_hunks = Vec::with_capacity(rows.len());
@@ -128,7 +128,7 @@ impl EvidenceSpan {
 }
 
 impl EvidenceFrames {
-    pub(super) fn new(file: &LoadedDocument, width: u16, evidence: Option<&ExploreView>) -> Self {
+    pub(super) fn new(file: &LoadedDocument, width: u16, evidence: Option<&ShownEvidence>) -> Self {
         let ranges = evidence
             .map(|evidence| evidence.ranges(file))
             .unwrap_or_default();

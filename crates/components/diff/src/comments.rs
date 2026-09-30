@@ -1,11 +1,10 @@
 //! Thread state and the diff component's comment commands.
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 use std::rc::Rc;
 
-use comment_editor::KeymapSetting;
 use review_drafts::{DraftId, Drafts, Submission};
 use review_source::{AnchorKind, DiffRangeAnchor, FrozenHunk};
 use review_threads::{
@@ -16,22 +15,33 @@ use ui_actions::Action;
 use ui_events::{ReviewThreadsLoaded, TextPasted, ThreadPostFinished};
 use ui_shortcuts::{CommentShortcut, Key};
 
-use crate::{DiffComponent, LoadedDocument, SelectionState};
+use crate::conversation::ConversationAction;
+use crate::{LoadedDocument, SelectionState, SourceViewer};
 
 mod focus;
 
 pub(super) struct Comments {
     book: Option<ReviewThreads>,
-    /// Shared with every nested viewer, so each draft has one owner.
+    /// Shared with every viewer of the pane, so each draft has one owner.
     drafts: Rc<RefCell<Drafts>>,
     focus: Option<DraftId>,
-    /// The file editor to restore when the conversation view closes.
-    file_focus: Option<DraftId>,
+    site: EditorSite,
     selected: Option<MessageId>,
     pending_path: Option<String>,
     mapped: HashMap<ThreadId, Option<FrozenHunk>>,
+    /// Threads whose current source could not be read.
+    unavailable: HashSet<ThreadId>,
     paths: ThreadPaths,
     editor_height: u16,
+}
+
+/// Where the pane shows the editor of the focused draft.
+enum EditorSite {
+    /// In the viewer's document.
+    File,
+    /// In the pane's conversation view, which edits a reply. The file editor
+    /// returns when the conversation closes.
+    Conversation { file_focus: Option<DraftId> },
 }
 
 #[derive(Clone)]
@@ -39,7 +49,7 @@ pub(super) enum CommentTarget {
     Message(MessageId),
     Reply(MessageId),
     Draft(DraftId),
-    Conversation(crate::conversation::ConversationAction),
+    Conversation(ConversationAction),
     ConversationButtons(Vec<ConversationButton>),
 }
 
@@ -51,8 +61,18 @@ pub(super) enum EditorAction {
 
 #[derive(Clone)]
 pub(super) struct ConversationButton {
-    pub(super) action: crate::conversation::ConversationAction,
+    pub(super) action: ConversationAction,
     pub(super) columns: Range<usize>,
+}
+
+impl ConversationButton {
+    /// The action of the button under `column`.
+    pub(super) fn at(buttons: Vec<Self>, column: usize) -> Option<ConversationAction> {
+        buttons
+            .into_iter()
+            .find(|button| button.columns.contains(&column))
+            .map(|button| button.action)
+    }
 }
 
 impl CommentTarget {
@@ -64,30 +84,43 @@ impl CommentTarget {
     }
 }
 
-impl Default for Comments {
-    fn default() -> Self {
+impl Comments {
+    /// Comments editing the pane's shared `drafts`.
+    pub(super) fn new(drafts: Rc<RefCell<Drafts>>) -> Self {
         Self {
             book: None,
-            drafts: Rc::default(),
+            drafts,
             focus: None,
-            file_focus: None,
+            site: EditorSite::File,
             selected: None,
             pending_path: None,
             mapped: HashMap::new(),
+            unavailable: HashSet::new(),
             paths: ThreadPaths::default(),
             editor_height: 5,
         }
     }
-}
 
-impl Comments {
-    /// Let a nested viewer edit the same drafts as this one.
-    pub(super) fn share_drafts(&mut self, other: &Self) {
-        self.drafts = Rc::clone(&other.drafts);
+    /// Whether the focus edits a reply in the pane's conversation view.
+    pub(super) fn in_conversation(&self) -> bool {
+        matches!(self.site, EditorSite::Conversation { .. })
     }
 
-    pub(super) fn use_keymap(&mut self, keymap: KeymapSetting) {
-        self.drafts.borrow_mut().use_keymap(keymap);
+    pub(super) fn is_unavailable(&self, thread: &ThreadId) -> bool {
+        self.unavailable.contains(thread)
+    }
+
+    /// Record whether the current source of `thread` could be read.
+    pub(super) fn set_unavailable(&mut self, thread: ThreadId, unavailable: bool) {
+        if unavailable {
+            self.unavailable.insert(thread);
+        } else {
+            self.unavailable.remove(&thread);
+        }
+    }
+
+    pub(super) fn forget_unavailable(&mut self) {
+        self.unavailable.clear();
     }
 
     pub(super) fn use_paths(&mut self, paths: ThreadPaths) {
@@ -267,12 +300,19 @@ impl Comments {
     }
 }
 
-impl DiffComponent {
+impl SourceViewer {
+    /// Whether this viewer shows the editor of its focused draft.
+    pub(super) fn editor_is_visible(&self) -> bool {
+        !self.comments.in_conversation()
+            && self
+                .selected_document()
+                .is_some_and(|file| self.comments.inline_editor_visible_in(file))
+    }
+
     pub(super) fn prepare_review_switch(&mut self, same_review_unit: bool) {
         if !same_review_unit {
             self.comments.park_editor();
-            self.close_peek();
-            self.conversation.reset_review();
+            self.comments.unavailable.clear();
             self.comments.book = None;
             self.comments.selected = None;
             self.comments.pending_path = None;
@@ -304,7 +344,7 @@ impl DiffComponent {
         match self.comments.finish(action) {
             Some(Submission::Posting(post)) => vec![Action::Thread(post)],
             Some(Submission::Cancelled(discard)) => {
-                if !self.conversation.active {
+                if !self.comments.in_conversation() {
                     self.selection = None;
                 }
                 self.refresh_comment_documents();
@@ -318,6 +358,11 @@ impl DiffComponent {
         if !self.editor_is_visible() {
             return Vec::new();
         }
+        self.paste_into_draft(input)
+    }
+
+    /// Paste into the focused draft, wherever the pane shows its editor.
+    pub(super) fn paste_into_draft(&mut self, input: &TextPasted) -> Vec<Action> {
         let save = self.comments.edit(|drafts, id| drafts.paste(id, &input.0));
         save.map(Action::Thread).into_iter().collect()
     }
@@ -398,35 +443,29 @@ impl DiffComponent {
         self.finish_comment(action)
     }
 
-    fn open_draft(&mut self, draft: DraftId) {
+    pub(super) fn open_draft(&mut self, draft: DraftId) {
         self.comments.activate(draft);
         self.selection = None;
         self.keep_comment_visible();
     }
 
-    fn start_comment(&mut self, id: MessageId) {
+    pub(super) fn start_comment(&mut self, id: MessageId) {
         self.comments.start_reply(id);
-        if !self.conversation.active {
+        if !self.comments.in_conversation() {
             self.selection = None;
         }
         self.keep_comment_visible();
     }
 
-    fn open_comment(&mut self, id: MessageId) {
+    pub(super) fn open_comment(&mut self, id: MessageId) {
         self.comments.selected = Some(id);
-        if !self.conversation.active {
+        if !self.comments.in_conversation() {
             self.selection = None;
             self.keep_comment_visible();
         }
     }
 
     fn current_comment(&self) -> Option<MessageId> {
-        if self.conversation.active {
-            return self
-                .conversation_thread()
-                .and_then(|thread| thread.messages.last())
-                .map(|message| message.id.clone());
-        }
         let file = self.selected_document()?;
         let threads = self
             .comments
@@ -487,9 +526,10 @@ impl DiffComponent {
         self.keep_comment_visible();
     }
 
+    /// Scroll the open editor or the selected comment into view. The pane
+    /// keeps an editor shown in its conversation visible itself.
     pub(super) fn keep_comment_visible(&mut self) {
-        if self.conversation.active {
-            self.keep_conversation_composer_visible();
+        if self.comments.in_conversation() {
             return;
         }
         let Some(viewport) = self.displayed_viewport() else {
@@ -506,27 +546,15 @@ impl DiffComponent {
         }
     }
 
+    /// Show the threads and drafts loaded for this viewer's review.
     pub(super) fn threads_loaded(&mut self, event: &ReviewThreadsLoaded) -> Vec<Action> {
-        let actions = self.update_loaded_threads(event);
-        if let Err(message) = &event.result {
-            self.events.publish(ui_events::ToastRequested {
-                text: format!("Could not load comments: {message}"),
-                kind: toasts::ToastKind::Error,
-            });
-        }
-        actions
-    }
-
-    fn update_loaded_threads(&mut self, event: &ReviewThreadsLoaded) -> Vec<Action> {
-        let mut actions: Vec<_> = self
-            .retained_viewers_mut()
-            .flat_map(|viewer| viewer.update_loaded_threads(event))
-            .collect();
-        if self
-            .review_checkpoint
-            .as_ref()
-            .map(|checkpoint| &checkpoint.review_unit)
-            != Some(&event.review_unit)
+        let mut actions = Vec::new();
+        if !self.role.shows_comments()
+            || self
+                .review_checkpoint
+                .as_ref()
+                .map(|checkpoint| &checkpoint.review_unit)
+                != Some(&event.review_unit)
         {
             return actions;
         }
@@ -536,7 +564,7 @@ impl DiffComponent {
             // Another viewer may already have settled the shared draft this one edits.
             let editing = self.comments.focus.is_some();
             let height = usize::from(self.viewport_height);
-            visible_anchor = (editing && !self.conversation.active)
+            visible_anchor = (editing && !self.comments.in_conversation())
                 .then(|| {
                     let file = self.displayed_document()?;
                     self.displayed_viewport()?
@@ -550,7 +578,6 @@ impl DiffComponent {
             } else {
                 visible_anchor = None;
             }
-            self.restore_saved_editor();
             if self
                 .comments
                 .selected
@@ -574,47 +601,66 @@ impl DiffComponent {
             let (position, rows) = file.document.on_screen(&viewport);
             position.pin(row, screen_row, &rows, height);
         }
-        self.refresh_conversation_context();
         actions
     }
 
-    fn restore_saved_editor(&mut self) {
-        if self.comments.focused_id().is_none()
-            && self.conversation.active
-            && let Some(thread) = self.conversation_thread().map(|thread| thread.id.clone())
-        {
-            self.comments.restore_thread_editor(&thread);
-        }
-    }
-
-    pub(super) fn post_finished(&mut self, event: &ThreadPostFinished) -> Vec<Action> {
-        self.update_finished_post(event);
-        if let Err(error) = &event.result {
-            self.events.publish(ui_events::ToastRequested {
-                text: format!("Could not post comment: {error}"),
-                kind: toasts::ToastKind::Error,
-            });
-        }
-        Vec::new()
-    }
-
-    fn update_finished_post(&mut self, event: &ThreadPostFinished) {
-        for viewer in self.retained_viewers_mut() {
-            viewer.update_finished_post(event);
+    /// Settle the draft whose post finished. Returns whether this viewer's
+    /// editor held that draft and now selects the posted message.
+    pub(super) fn post_finished(&mut self, event: &ThreadPostFinished) -> bool {
+        if !self.role.shows_comments() {
+            return false;
         }
         self.comments.post_finished(event);
         let current = self
             .review_checkpoint
             .as_ref()
             .is_some_and(|checkpoint| checkpoint.review_unit == event.review_unit);
-        if current && self.comments.release_posted() {
-            if !self.conversation.active {
+        let released = current && self.comments.release_posted();
+        if released {
+            if !self.comments.in_conversation() {
                 self.selection = None;
             }
             self.keep_comment_visible();
         }
+        released
     }
 
+    fn thread_context(&self, thread: &ReviewThread) -> ui_events::ThreadContext {
+        use ui_events::ThreadContext;
+        if self.comments.is_unavailable(&thread.id) {
+            return ThreadContext::Unavailable;
+        }
+        let Some(file) = self
+            .documents
+            .iter()
+            .find(|file| !file.comments_only && self.comments.matches_path(file, thread.path()))
+        else {
+            return ThreadContext::OutsideDiff;
+        };
+        if file.content.is_none() {
+            return ThreadContext::Original;
+        }
+        if self.comments.mapped(&thread.id).is_none() {
+            return ThreadContext::Earlier;
+        }
+        if file.document.diff.is_empty() || self.comments.thread_row(thread, file).1 {
+            return ThreadContext::Hidden;
+        }
+        ThreadContext::Current
+    }
+
+    pub(super) fn publish_thread_contexts(&self) {
+        if let Some(book) = self.comments.book() {
+            self.events.publish(ui_events::ThreadContextsChanged {
+                review_unit: book.review_unit.clone(),
+                contexts: book
+                    .threads()
+                    .iter()
+                    .map(|thread| (thread.id.clone(), self.thread_context(thread)))
+                    .collect(),
+            });
+        }
+    }
     pub(super) fn refresh_comment_documents(&mut self) {
         let mut previous = std::mem::take(&mut self.documents);
         let (mut orphans, current): (Vec<_>, Vec<_>) =
@@ -661,7 +707,7 @@ fn extend_lines(range: &mut Option<Range<u32>>, line: u32) {
     }
 }
 
-impl DiffComponent {
+impl SourceViewer {
     pub(super) fn comment_pointer_input(
         &mut self,
         input: ui_events::PointerInput,
@@ -694,13 +740,10 @@ impl DiffComponent {
         column: usize,
     ) -> Vec<Action> {
         match target {
-            CommentTarget::Conversation(action) => return self.conversation_action(action),
+            CommentTarget::Conversation(action) => return self.comment_action(action),
             CommentTarget::ConversationButtons(buttons) => {
-                if let Some(button) = buttons
-                    .into_iter()
-                    .find(|button| button.columns.contains(&column))
-                {
-                    return self.conversation_action(button.action);
+                if let Some(action) = ConversationButton::at(buttons, column) {
+                    return self.comment_action(action);
                 }
             }
             CommentTarget::Message(id) => self.open_comment(id),
@@ -708,5 +751,48 @@ impl DiffComponent {
             CommentTarget::Draft(thread) => self.open_draft(thread),
         }
         Vec::new()
+    }
+
+    /// Run a button of a thread or editor shown in the diff.
+    pub(super) fn comment_action(&mut self, action: ConversationAction) -> Vec<Action> {
+        match action {
+            ConversationAction::Resolve(id) => self.resolve_thread(&id),
+            ConversationAction::Retry(id) => self.retry_thread(id),
+            ConversationAction::Editor(action, draft) => self.finish_draft(draft, action),
+            // Only the pane's conversation view shows these buttons.
+            ConversationAction::Back
+            | ConversationAction::Reply
+            | ConversationAction::Peek
+            | ConversationAction::OpenFile
+            | ConversationAction::ClosePeek
+            | ConversationAction::Read => Vec::new(),
+        }
+    }
+
+    fn resolve_thread(&self, id: &ThreadId) -> Vec<Action> {
+        let Some(book) = self.comments.book() else {
+            return Vec::new();
+        };
+        let Some(thread) = book.thread(id) else {
+            return Vec::new();
+        };
+        let resolution = match thread.resolution {
+            review_threads::Resolution::Open => review_threads::Resolution::Resolved,
+            review_threads::Resolution::Resolved => review_threads::Resolution::Open,
+        };
+        vec![Action::Thread(ThreadCommand::SetResolution {
+            review_unit: book.review_unit.clone(),
+            thread_id: thread.id.clone(),
+            resolution,
+        })]
+    }
+
+    fn retry_thread(&self, thread_id: ThreadId) -> Vec<Action> {
+        self.comments.book().map_or_else(Vec::new, |book| {
+            vec![Action::Thread(ThreadCommand::Retry {
+                review_unit: book.review_unit.clone(),
+                thread_id,
+            })]
+        })
     }
 }

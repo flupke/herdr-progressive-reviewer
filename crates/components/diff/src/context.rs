@@ -4,7 +4,7 @@ use diff_position::ScreenAnchor;
 
 use crate::document::DiffDocument;
 use crate::render::DiffViewport;
-use crate::{DiffComponent, DiffPresentation, PresentedRow};
+use crate::{DiffPresentation, PresentedRow, SourceViewer};
 
 /// The cursor's place in the document and on screen, kept while context folds.
 struct CursorAnchor {
@@ -31,7 +31,7 @@ impl CursorAnchor {
     }
 }
 
-impl DiffComponent {
+impl SourceViewer {
     pub(super) fn expand_context(&mut self, row: usize) -> bool {
         let is_gap = self.displayed_document().is_some_and(|document| {
             matches!(

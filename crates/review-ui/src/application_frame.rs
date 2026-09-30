@@ -59,7 +59,6 @@ impl Widget for ApplicationFrame<'_> {
         );
         self.status.render_header(header, buffer, self.palette);
         self.render_body(layout, body, buffer);
-        self.diff.capture_reply_frame(buffer);
         self.status.render_footer(footer, buffer, self.palette);
         self.overlay.render_notifications(body, buffer);
         self.overlay.render(area, buffer);
@@ -189,9 +188,7 @@ impl ApplicationFrame<'_> {
     }
 
     fn render_diff(&self, area: Rect, buffer: &mut Buffer) {
-        let overlay =
-            self.diff
-                .render(area, buffer, self.palette, self.focus == ReviewPane::Detail);
-        overlay.render(buffer);
+        self.diff
+            .render(area, buffer, self.palette, self.focus == ReviewPane::Detail);
     }
 }

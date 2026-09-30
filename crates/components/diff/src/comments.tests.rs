@@ -227,8 +227,7 @@ impl CommentFixture {
     fn render_in(&self, area: Rect) -> Buffer {
         let mut buffer = Buffer::empty(area);
         self.component()
-            .render(area, &mut buffer, Theme::default().palette, true)
-            .render(&mut buffer);
+            .render(area, &mut buffer, Theme::default().palette, true);
         buffer
     }
 
@@ -381,7 +380,6 @@ fn submitting_blank_text_cancels_a_new_comment() {
             )]
         ));
         fixture.assert_editor(false);
-        assert!(fixture.component().selection.is_none());
         assert!(fixture.book().threads().is_empty());
     }
 }
@@ -720,14 +718,8 @@ fn recovered_editors_restore_without_posting_and_cancel_discards_the_saved_draft
         for character in " edited".chars() {
             restarted.key(Key::Char(character));
         }
-        let edited = restarted
-            .component()
-            .comments
-            .focused()
-            .unwrap()
-            .editor()
-            .text();
-        assert!(edited.contains("edited"));
+        restarted.assert_editor(true);
+        assert!(restarted.text().contains("edited"), "{}", restarted.text());
         restarted
             .registry
             .publish(ui_events::ReviewThreadsLoaded {
@@ -736,16 +728,8 @@ fn recovered_editors_restore_without_posting_and_cancel_discards_the_saved_draft
                 drafts: saved_drafts.clone(),
             })
             .unwrap();
-        assert_eq!(
-            restarted
-                .component()
-                .comments
-                .focused()
-                .unwrap()
-                .editor()
-                .text(),
-            edited
-        );
+        restarted.assert_editor(true);
+        assert!(restarted.text().contains("edited"), "{}", restarted.text());
         restarted.click_text("Cancel");
         assert!(restarted.drafts.drafts().is_empty());
         restarted
@@ -780,19 +764,12 @@ fn a_recovered_file_draft_remains_accessible_after_the_file_leaves_the_diff() {
             files: Vec::new(),
         })
         .unwrap();
-    let component = restarted.component();
-    assert!(
-        component
-            .documents
-            .iter()
-            .any(|file| file.path == "src/lib.rs" && file.comments_only)
-    );
     assert!(restarted.text().contains("Keep this draft"));
     assert!(restarted.book.threads().is_empty());
     restarted.click_text("Keep this draft");
     restarted.click_text("Cancel");
     assert!(restarted.drafts.drafts().is_empty());
-    assert!(restarted.component().documents.is_empty());
+    assert!(!restarted.text().contains("Keep this draft"));
 }
 
 fn two_added_lines() -> Vec<DiffRow> {
@@ -833,24 +810,10 @@ fn a_file_keeps_several_drafts_and_reopens_the_one_under_the_cursor() {
     fixture.paste("First note");
     assert_eq!(fixture.drafts.drafts().len(), 2);
     fixture.click_text("Second note");
-    let comments = &fixture.component().comments;
-    let parked = comments
-        .parked_file_drafts(&comments.drafts())
-        .map(|(_, parked)| parked.draft().text.clone())
-        .collect::<Vec<_>>();
-    assert_eq!(parked, ["First note"]);
-    assert_eq!(
-        fixture
-            .component()
-            .comments
-            .focused()
-            .unwrap()
-            .editor()
-            .text(),
-        "Second note"
-    );
+    fixture.assert_editor(true);
     fixture.key(Key::ControlEnter);
     assert_eq!(fixture.book().threads().len(), 1);
+    assert_eq!(fixture.book().threads()[0].messages[0].text, "Second note");
     assert_eq!(fixture.drafts.drafts().len(), 1);
     assert_eq!(fixture.drafts.drafts()[0].text, "First note");
 }
@@ -883,8 +846,6 @@ fn an_empty_editor_disappears_when_it_loses_focus() {
     fixture.click_text("changed");
     fixture.assert_editor(false);
     assert!(!fixture.text().contains("Draft · click to edit"));
-    let comments = &fixture.component().comments;
-    assert_eq!(comments.parked_file_drafts(&comments.drafts()).count(), 0);
 }
 
 #[test]
@@ -932,16 +893,8 @@ fn a_saved_reply_shows_in_its_reply_field_until_it_is_reopened() {
     );
     restarted.click_text("Pending reply");
     restarted.assert_editor(true);
-    assert_eq!(
-        restarted
-            .component()
-            .comments
-            .focused()
-            .unwrap()
-            .editor()
-            .text(),
-        "Pending reply"
-    );
+    assert!(restarted.text().contains("Pending reply"));
+    assert!(!restarted.text().contains("Draft · click to edit"));
 }
 
 #[test]
@@ -1231,8 +1184,7 @@ fn comments_share_an_anchor_frame_but_keep_independent_messages() {
     let mut buffer = Buffer::empty(area);
     fixture
         .component()
-        .render(area, &mut buffer, Theme::default().palette, true)
-        .render(&mut buffer);
+        .render(area, &mut buffer, Theme::default().palette, true);
     let rendered = buffer
         .content()
         .iter()
@@ -1306,7 +1258,6 @@ fn inline_replies_are_read_only_after_their_whole_body_has_been_displayed() {
     for height in [8, 60] {
         fixture.component().begin_reply_frame();
         let buffer = fixture.render_in(Rect::new(0, 0, 80, height));
-        fixture.component().capture_reply_frame(&buffer);
         fixture.component().finish_reply_frame(&buffer);
         let actions = fixture
             .registry

@@ -139,7 +139,7 @@ impl DiffComponent {
         let mut overlay = Vec::new();
         let viewport = ConversationViewport::new(rows, usize::from(body.height));
         let scroll = scroll.min(viewport.scroll_limit());
-        self.reply_visibility.borrow_mut().observe(
+        self.files.reply_visibility.borrow_mut().observe(
             viewport
                 .content
                 .iter()
@@ -193,7 +193,8 @@ impl DiffComponent {
         }
         output.rule(FrameRule::Middle);
         output.rows.extend(
-            self.comments
+            self.files
+                .comments
                 .conversation_rows(thread, output.frame, palette),
         );
         output.rule(FrameRule::Bottom);
@@ -206,8 +207,8 @@ impl DiffComponent {
     }
 
     pub(in crate::conversation) fn conversation_scroll_limit(&self) -> usize {
-        let rows = self.conversation_rows(self.viewport_width, self.palette);
-        ConversationViewport::new(rows, usize::from(self.viewport_height)).scroll_limit()
+        let rows = self.conversation_rows(self.files.viewport_width, self.services.palette);
+        ConversationViewport::new(rows, usize::from(self.files.viewport_height)).scroll_limit()
     }
 
     fn context_rows(&self, thread: &ReviewThread, palette: Palette, output: &mut ConversationRows) {

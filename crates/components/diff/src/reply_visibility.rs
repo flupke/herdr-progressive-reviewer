@@ -10,7 +10,7 @@ use ratatui::{
 use review_threads::{MessageId, ThreadCommand};
 use review_types::ReviewUnit;
 
-use crate::{Action, ClippedViewport, DiffComponent};
+use crate::{Action, ClippedViewport, SourceViewer};
 
 #[derive(Default)]
 pub(super) struct ReplyVisibility {
@@ -79,7 +79,7 @@ impl ReplyVisibility {
         }
     }
 
-    fn capture(&mut self, buffer: &Buffer) {
+    pub(super) fn capture(&mut self, buffer: &Buffer) {
         for reply in self.pending.values_mut() {
             for row in &mut reply.visible {
                 row.cells = row
@@ -125,12 +125,9 @@ impl ReplyVisibility {
     }
 }
 
-impl DiffComponent {
-    /// Start observations for a fresh frame, including frames with no detail pane.
-    pub fn begin_reply_frame(&self) {
-        for viewer in self.embedded.saved.values() {
-            viewer.begin_reply_frame();
-        }
+impl SourceViewer {
+    /// Start observations for a fresh frame, including frames that do not show this viewer.
+    pub(super) fn begin_replies(&self) {
         let unit = self.comments.book().map(|book| book.review_unit.clone());
         let mut visibility = self.reply_visibility.borrow_mut();
         if visibility.unit != unit {
@@ -142,40 +139,24 @@ impl DiffComponent {
         visibility.pending.clear();
     }
 
-    /// Capture rendered reply rows before application overlays are drawn.
-    pub fn capture_reply_frame(&self, buffer: &Buffer) {
-        for viewer in self.embedded.saved.values() {
-            viewer.capture_reply_frame(buffer);
-        }
+    /// Capture the reply rows drawn so far, before application overlays cover any.
+    pub(super) fn capture_replies(&self, buffer: &Buffer) {
         self.reply_visibility.borrow_mut().capture(buffer);
     }
 
     /// Exclude rows covered by a popup, menu, notification, or other overlay.
-    pub fn finish_reply_frame(&self, buffer: &Buffer) {
-        for viewer in self.embedded.saved.values() {
-            viewer.finish_reply_frame(buffer);
-        }
+    pub(super) fn finish_replies(&self, buffer: &Buffer) {
         self.reply_visibility.borrow_mut().finish(buffer);
     }
 
-    #[allow(clippy::trivially_copy_pass_by_ref)]
-    pub(super) fn replies_displayed(&mut self, _: &ui_events::FrameRendered) -> Vec<Action> {
-        self.displayed_reply_actions()
-    }
-
-    fn displayed_reply_actions(&mut self) -> Vec<Action> {
-        let mut actions: Vec<_> = self
-            .embedded
-            .saved
-            .values_mut()
-            .flat_map(|viewer| viewer.displayed_reply_actions())
-            .collect();
+    /// Mark read the replies this viewer showed whole.
+    pub(super) fn displayed_reply_actions(&mut self) -> Vec<Action> {
         let Some(book) = self.comments.book() else {
-            return actions;
+            return Vec::new();
         };
         let visibility = self.reply_visibility.get_mut();
         if visibility.unit.as_ref() != Some(&book.review_unit) {
-            return actions;
+            return Vec::new();
         }
         let messages = visibility
             .completed()
@@ -186,12 +167,11 @@ impl DiffComponent {
             })
             .collect::<Vec<_>>();
         if messages.is_empty() {
-            return actions;
+            return Vec::new();
         }
-        actions.push(Action::Thread(ThreadCommand::MarkRepliesRead {
+        vec![Action::Thread(ThreadCommand::MarkRepliesRead {
             review_unit: book.review_unit.clone(),
             messages,
-        }));
-        actions
+        })]
     }
 }

@@ -1,12 +1,12 @@
 //! Reveal complete evidence ranges, including historical lines outside diff hunks.
-use super::{DiffComponent, LoadedDocument, presentation::DiffPresentation};
+use super::{LoadedDocument, SourceViewer, presentation::DiffPresentation};
 use review_explore::{Source, SourceSide};
 use review_source::SourceLineRange;
 use std::{os::unix::ffi::OsStrExt, sync::Arc};
 use ui_actions::Action;
 use ui_events::{DiffContentLoaded, HighlightRequest, PresentationLocation};
 
-impl DiffComponent {
+impl SourceViewer {
     pub(super) fn open_supporting_evidence(
         &mut self,
         source: &Source,
@@ -23,7 +23,7 @@ impl DiffComponent {
             self.selected_path = Some(path);
             self.preview = None;
             self.show_base_evidence(source, content, line);
-            self.explore.fit_pending = true;
+            self.evidence.fit_pending = true;
             return self.request_visible_highlights();
         }
         let actions = self.explore_source(
@@ -38,7 +38,7 @@ impl DiffComponent {
             },
             ui_events::SourceLoadMode::External,
         );
-        self.explore.fit_pending = true;
+        self.evidence.fit_pending = true;
         actions
     }
 
@@ -79,7 +79,7 @@ impl DiffComponent {
     fn show_base_evidence(&mut self, source: &Source, content: &str, line: u32) {
         let content = Arc::new(DiffContentLoaded {
             review_checkpoint: self
-                .explore
+                .evidence
                 .comparison
                 .as_ref()
                 .expect("comparison")

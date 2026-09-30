@@ -124,6 +124,7 @@ fn posting_a_question_does_not_move_the_diff_scroll() {
         .unwrap();
     let before = fixture
         .component()
+        .files
         .selected_document()
         .unwrap()
         .document
@@ -133,6 +134,7 @@ fn posting_a_question_does_not_move_the_diff_scroll() {
     fixture.key(Key::ControlEnter);
     let after = fixture
         .component()
+        .files
         .selected_document()
         .unwrap()
         .document
@@ -180,7 +182,7 @@ fn posting_a_question_keeps_visible_code_below_it_in_place() {
         fixture.key(Key::Down);
     }
     fixture.key(Key::Char('a'));
-    assert!(fixture.component().comments.focused().is_some());
+    fixture.assert_editor(true);
     fixture
         .registry
         .publish(ui_events::TextPasted(

@@ -1,13 +1,14 @@
 //! Diff document state and its component event boundary.
+//!
+//! A [`SourceViewer`] shows documents for one view: the Files diff, one Explore
+//! evidence block, or a thread's source peek. The [`DiffComponent`] pane owns
+//! every viewer and decides which one receives each event.
 
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use comment_editor::KeymapSetting;
-use component_core::{
-    Component, ComponentSubscriptions, EventPublisher, InputMatcher, InputResolution, InputScope,
-};
+use component_core::EventPublisher;
 use diff_rendering::FrameOverlay;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -25,10 +26,8 @@ use ui_events::{
     SourceLocationPreviewRequested, TemporaryFilesChanged, ToastRequested,
 };
 use ui_shortcuts::{
-    ApplicationShortcut, ConversationCommand, ConversationShortcut, DiffGlobalShortcut,
-    DiffPaneCommand, DiffShortcut, HunkShortcut, Key, LocationShortcut, LspShortcut,
-    MovementShortcut, SearchMatchShortcut, SearchShortcut, ShortcutMatcher, ShortcutSubscription,
-    SourceShortcut,
+    DiffGlobalShortcut, DiffPaneCommand, DiffShortcut, HunkShortcut, Key, LocationShortcut,
+    LspShortcut, MovementShortcut, SearchMatchShortcut, SearchShortcut, SourceShortcut,
 };
 
 mod clipped_viewport;
@@ -42,6 +41,7 @@ mod evidence_source;
 mod explore;
 mod explore_restore;
 mod history;
+mod pane;
 mod presentation;
 mod render;
 mod reply_visibility;
@@ -52,6 +52,7 @@ use diff_search::{Direction as SearchDirection, Edit as SearchEdit, Intent as Se
 use diff_search::{Location as SearchLocation, Search};
 use document::LoadedDocument;
 use history::{LocationHistory, LocationHistoryDirection};
+pub use pane::DiffComponent;
 use presentation::{DiffPresentation, PresentedRow};
 use render::{DiffPointerViewport, DiffRenderer, DiffViewport, TAB_DISPLAY_WIDTH};
 use std::ops::RangeInclusive;
@@ -82,15 +83,55 @@ enum ScrollPlacement {
     AlignTargetTop,
 }
 
-/// Loaded diff documents and their source-target viewport projection.
-pub struct DiffComponent {
-    embedded: embedded::EmbeddedViews,
-    explore: explore::ExploreView,
+/// What a viewer shows, fixed when the pane creates it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Role {
+    /// The reviewed diff. It alone reports its location, viewports and file
+    /// decorations to the rest of the application.
+    Files,
+    /// One Explore evidence block, showing a saved comparison.
+    Evidence,
+    /// A read-only view of the current file behind a review thread.
+    Peek,
+}
+
+impl Role {
+    /// Whether the viewer speaks for the reviewed diff in application events.
+    fn publishes_review(self) -> bool {
+        self == Self::Files
+    }
+
+    /// Whether the viewer shows review threads and opens comment editors.
+    fn shows_comments(self) -> bool {
+        self != Self::Peek
+    }
+
+    /// Whether the viewer shows Explore evidence and loads sources from it.
+    fn explores(self) -> bool {
+        self == Self::Evidence
+    }
+}
+
+/// The application services every viewer of one pane shares.
+#[derive(Clone)]
+struct Services {
+    events: EventPublisher,
+    highlighter: SyntaxHighlighter,
+    repository_root: PathBuf,
+    palette: Palette,
+    drafts: std::rc::Rc<RefCell<review_drafts::Drafts>>,
+}
+
+/// Documents, position, selection, search, highlighting and comment layout
+/// for one view of source code.
+pub struct SourceViewer {
+    role: Role,
+    evidence: explore::ShownEvidence,
     events: EventPublisher,
     reply_visibility: RefCell<reply_visibility::ReplyVisibility>,
+    /// The snapshot this viewer's source loads use instead of the checkpoint.
     source_session: Option<String>,
     comments: comments::Comments,
-    conversation: conversation::ConversationView,
     reviewable_files: ReviewableFiles,
     review_checkpoint: Option<ReviewCheckpoint>,
     documents: Vec<LoadedDocument>,
@@ -132,27 +173,15 @@ impl SelectionState {
     }
 }
 
-impl DiffComponent {
-    /// File selection defers loading to the next application tick.
-    pub fn has_pending_load(&self) -> bool {
-        self.pending_load_path.is_some()
-    }
-
-    /// Create an empty diff component.
-    pub fn new(
-        events: EventPublisher,
-        reviewable_files: ReviewableFiles,
-        highlighter: SyntaxHighlighter,
-        repository_root: PathBuf,
-        palette: Palette,
-    ) -> Self {
+impl SourceViewer {
+    /// Create an empty viewer with the pane's shared services.
+    fn new(services: &Services, role: Role, reviewable_files: ReviewableFiles) -> Self {
         Self {
-            embedded: embedded::EmbeddedViews::default(),
-            events,
+            role,
+            events: services.events.clone(),
             source_session: None,
-            explore: explore::ExploreView::default(),
-            comments: comments::Comments::default(),
-            conversation: conversation::ConversationView::default(),
+            evidence: explore::ShownEvidence::default(),
+            comments: comments::Comments::new(std::rc::Rc::clone(&services.drafts)),
             reviewable_files,
             review_checkpoint: None,
             documents: Vec::new(),
@@ -167,9 +196,9 @@ impl DiffComponent {
             viewport_width: 80,
             viewport_height: 24,
             drag_anchor: None,
-            highlighter,
-            repository_root,
-            palette,
+            highlighter: services.highlighter.clone(),
+            repository_root: services.repository_root.clone(),
+            palette: services.palette,
             location_history: LocationHistory::default(),
             pending_history_navigation: None,
             rendered_pointer_viewport: RefCell::new(None),
@@ -177,29 +206,28 @@ impl DiffComponent {
         }
     }
 
-    /// Share the application-wide editor keymap with this component's comment editors.
-    #[must_use]
-    pub fn with_editor_keymap(mut self, keymap: KeymapSetting) -> Self {
-        self.comments.use_keymap(keymap);
-        self
+    /// File selection defers loading to the next application tick.
+    fn has_pending_load(&self) -> bool {
+        self.pending_load_path.is_some()
+    }
+
+    /// The snapshot this viewer loads sources from.
+    fn source_snapshot(&self) -> Option<&str> {
+        self.source_session.as_deref().or_else(|| {
+            self.review_checkpoint
+                .as_ref()
+                .map(|checkpoint| checkpoint.checkpoint.as_str())
+        })
     }
 
     /// Draw the selected diff document and return its positioned frame layer.
-    pub fn render(
+    fn render(
         &self,
         area: Rect,
         buffer: &mut Buffer,
         palette: Palette,
         focused: bool,
     ) -> FrameOverlay {
-        if let Some(peek) = &self.conversation.peek {
-            peek.render(area, buffer, palette, focused);
-            return FrameOverlay::empty();
-        }
-        if self.conversation.active {
-            self.render_conversation(area, buffer, palette, focused);
-            return FrameOverlay::empty();
-        }
         let result = self.renderer(palette, focused).render(
             area,
             buffer,
@@ -308,28 +336,22 @@ impl DiffComponent {
         }
     }
 
+    /// Resize the viewer. Returns whether its size changed.
     #[allow(clippy::trivially_copy_pass_by_ref)]
-    fn viewport_changed(&mut self, event: &DiffViewportChanged) {
+    fn viewport_changed(&mut self, event: &DiffViewportChanged) -> bool {
         let changed = self.viewport_width != event.width.max(1)
             || self.viewport_height != event.height.max(1);
         self.viewport_width = event.width.max(1);
         self.viewport_height = event.height.max(1);
-        if let Some(peek) = &mut self.conversation.peek {
-            peek.viewer.viewport_changed(&DiffViewportChanged {
-                width: event.width,
-                height: event.height.saturating_sub(1),
-            });
-        }
         self.comments.fit_editors(self.viewport_height);
-        if changed && self.conversation.active {
-            self.keep_conversation_composer_visible();
-        } else if changed {
+        if changed && !self.comments.in_conversation() {
             if self.editor_is_visible() {
                 self.keep_comment_visible();
             } else {
                 self.keep_cursor_visible();
             }
         }
+        changed
     }
 
     #[allow(clippy::trivially_copy_pass_by_ref)]
@@ -339,38 +361,31 @@ impl DiffComponent {
         self.apply_search(intents)
     }
 
-    fn keyboard_input(&mut self, input: DiffKeyboardInput) -> Vec<Action> {
-        if !matches!(input, DiffKeyboardInput::Conversation(_)) && self.conversation.is_peeking() {
-            return self.source_view_mut().keyboard_input(input);
+    /// Decide what `key` does in this viewer: edit its open comment, type
+    /// into its search prompt, or run a diff shortcut.
+    fn resolve_key(
+        &self,
+        key: Key,
+        shortcuts: &mut ui_shortcuts::ShortcutMatcher<DiffPaneCommand>,
+    ) -> component_core::InputResolution<ViewerInput> {
+        if self.editor_is_visible() {
+            return component_core::InputResolution::Matched(ViewerInput::CommentKey(key));
         }
+        if self.search.is_editing() {
+            return component_core::InputResolution::Matched(ViewerInput::SearchKey(key));
+        }
+        shortcuts.resolve_key(key).map(ViewerInput::Shortcut)
+    }
+
+    fn keyboard_input(&mut self, input: ViewerInput) -> Vec<Action> {
         match input {
-            DiffKeyboardInput::Conversation(command) => self.conversation_command(command),
-            DiffKeyboardInput::CommentKey(key) => self.comment_key(key),
-            DiffKeyboardInput::SearchKey(key) => self.edit_search(key),
-            DiffKeyboardInput::Shortcut(command) => self.run_shortcut(command),
+            ViewerInput::CommentKey(key) => self.comment_key(key),
+            ViewerInput::SearchKey(key) => self.edit_search(key),
+            ViewerInput::Shortcut(command) => self.run_shortcut(command),
         }
     }
 
-    fn pointer_input(&mut self, mut input: PointerInput) -> Vec<Action> {
-        if self.conversation.is_peeking() {
-            if let Some(position) = &mut input.position {
-                if position.component_row == 0 {
-                    if matches!(input.kind, PointerInputKind::Click) {
-                        self.close_peek();
-                    }
-                    return Vec::new();
-                }
-                position.component_row = position.component_row.saturating_sub(1);
-            }
-            return self.source_view_mut().pointer_input(input);
-        }
-        if self.conversation.active {
-            return self.conversation_pointer(input);
-        }
-        self.file_pointer_input(input)
-    }
-
-    fn file_pointer_input(&mut self, input: PointerInput) -> Vec<Action> {
+    fn pointer_input(&mut self, input: PointerInput) -> Vec<Action> {
         if let Some(actions) = self.comment_pointer_input(input) {
             return actions;
         }
@@ -418,7 +433,7 @@ impl DiffComponent {
     }
 
     fn finish_pointer_selection(&mut self) {
-        if (self.source_session.is_none() || self.explore.active) && self.selection.is_some() {
+        if self.role.shows_comments() && self.selection.is_some() {
             self.add_comment();
         }
     }
@@ -428,7 +443,7 @@ impl DiffComponent {
             return;
         };
         self.selection = None;
-        if !self.conversation.active {
+        if !self.comments.in_conversation() {
             self.comments.park_editor();
         }
         if self.expand_context(position.row) {
@@ -545,9 +560,6 @@ impl DiffComponent {
     }
 
     fn run_shortcut(&mut self, command: DiffPaneCommand) -> Vec<Action> {
-        if self.conversation.is_peeking() {
-            return self.source_view_mut().run_shortcut(command);
-        }
         let comment = matches!(command, DiffPaneCommand::Diff(DiffShortcut::Comment(_)));
         if self.ignores_shortcut(comment) {
             return Vec::new();
@@ -560,9 +572,6 @@ impl DiffComponent {
     }
 
     fn run_global_shortcut(&mut self, command: DiffGlobalShortcut) -> Vec<Action> {
-        if self.conversation.is_peeking() {
-            return self.source_view_mut().run_global_shortcut(command);
-        }
         let comment = matches!(
             command,
             DiffGlobalShortcut::PreviousComment | DiffGlobalShortcut::NextComment
@@ -579,10 +588,10 @@ impl DiffComponent {
         Vec::new()
     }
 
-    /// Whether a shortcut must not act on the reviewed file right now.
+    /// Whether a shortcut must not act on the shown document: comment
+    /// shortcuts do nothing in a read-only viewer.
     fn ignores_shortcut(&self, comment: bool) -> bool {
-        (comment && self.source_session.is_some() && !self.explore.active)
-            || self.conversation.active
+        comment && !self.role.shows_comments()
     }
 
     fn run_diff_shortcut(&mut self, command: DiffShortcut) -> Vec<Action> {
@@ -855,9 +864,6 @@ impl DiffComponent {
     }
 
     fn paste(&mut self, input: &ui_events::TextPasted) -> Vec<Action> {
-        if self.conversation.is_peeking() {
-            return self.source_view_mut().paste(input);
-        }
         if self.editor_is_visible() {
             return self.comment_paste(input);
         }
@@ -885,18 +891,15 @@ impl DiffComponent {
         self.apply_search(intents)
     }
 
-    fn search_completed(&mut self, results: &text_search::Results) -> Vec<Action> {
-        for viewer in self.retained_viewers_mut() {
-            viewer.retain_search_results(results);
-        }
-        if let Some(peek) = &mut self.conversation.peek {
-            let actions = peek.viewer.search_completed(results);
-            if !actions.is_empty() {
-                return actions;
-            }
-        }
+    /// Accept background search results while the reviewer looks at this viewer.
+    fn complete_search(&mut self, results: &text_search::Results) -> Vec<Action> {
         let intents = self.search.complete(results, &self.documents);
         self.apply_search(intents)
+    }
+
+    /// Keep background search results while this viewer is hidden.
+    fn retain_search_results(&mut self, results: &text_search::Results) {
+        self.search.retain(results, &self.documents);
     }
 
     fn jump_to_search_location(&mut self, location: &SearchLocation) {
@@ -985,7 +988,7 @@ impl DiffComponent {
     }
 
     fn lsp(&self, command: LspShortcut) -> Vec<Action> {
-        if self.explore.active && !self.explore_lsp_ready() {
+        if self.role.explores() && !self.explore_lsp_ready() {
             return Vec::new();
         }
         let operation = match command {
@@ -1029,36 +1032,46 @@ impl DiffComponent {
         }]
     }
 
+    /// The rows the reviewer selected in the shown document.
+    fn selected_rows(&self) -> Option<RangeInclusive<usize>> {
+        self.selection.map(SelectionState::range)
+    }
+
     fn renderer(&self, palette: Palette, focused: bool) -> DiffRenderer<'_> {
         DiffRenderer::new(
             palette,
             self.displayed_document(),
             focused,
-            self.explore.active
+            self.role.explores()
                 || self
                     .selected_path
                     .as_deref()
                     .is_some_and(|path| self.reviewable_files.contains(path)),
             self.search.query(),
-            self.selection.map(SelectionState::range),
+            self.selected_rows(),
         )
         .with_comments(&self.comments)
-        .with_evidence(&self.explore)
+        .with_evidence(&self.evidence)
+    }
+
+    /// Whether `event` keeps the review this viewer shows.
+    fn shows_review_of(&self, event: &RepositoryFilesChanged) -> bool {
+        self.shows_review_unit(&event.review_checkpoint.review_unit)
+    }
+
+    fn shows_review_unit(&self, unit: &review_types::ReviewUnit) -> bool {
+        self.review_checkpoint
+            .as_ref()
+            .is_some_and(|checkpoint| &checkpoint.review_unit == unit)
     }
 
     fn repository_changed(&mut self, event: &RepositoryFilesChanged) -> Vec<Action> {
-        if self.explore.active {
-            self.explore.latest = Some(event.clone());
-            return Vec::new();
-        }
         self.comments
             .use_paths(FileSummary::thread_paths(&event.files));
-        self.conversation.refresh_files();
+        self.comments.forget_unavailable();
         self.preview = None;
         self.pending_preview_location = None;
-        let same_review_unit = self.review_checkpoint.as_ref().is_some_and(|checkpoint| {
-            checkpoint.review_unit == event.review_checkpoint.review_unit
-        });
+        let same_review_unit = self.shows_review_of(event);
         let same_checkpoint = self
             .review_checkpoint
             .as_ref()
@@ -1101,7 +1114,6 @@ impl DiffComponent {
             );
         }
         self.review_checkpoint = Some(event.review_checkpoint.clone());
-        self.refresh_peek_checkpoint();
         self.refresh_comment_documents();
         let thread_load = (!same_review_unit).then(|| {
             Action::Thread(review_threads::ThreadCommand::Load(
@@ -1142,7 +1154,7 @@ impl DiffComponent {
     }
 
     fn file_selected(&mut self, event: &FileSelected) -> Vec<Action> {
-        if self.explore.active {
+        if self.role.explores() {
             return Vec::new();
         }
         let newly_selected = self.selected_path.as_deref() != Some(&event.path);
@@ -1164,7 +1176,7 @@ impl DiffComponent {
         }
         let load_immediately = self.selected_path.is_none();
         self.selected_path = Some(event.path.clone());
-        if newly_selected && !self.conversation.active {
+        if newly_selected && !self.comments.in_conversation() {
             self.comments.park_editor_outside(&event.path);
         }
         if newly_selected {
@@ -1219,7 +1231,7 @@ impl DiffComponent {
     }
 
     fn content_loaded(&mut self, event: &DiffContentLoaded) -> Vec<Action> {
-        if self.explore.active {
+        if self.role.explores() {
             return Vec::new();
         }
         let syntax_highlighter = self.highlighter.clone();
@@ -1276,12 +1288,6 @@ impl DiffComponent {
     }
 
     fn highlighting_finished(&mut self, event: &HighlightingFinished) {
-        for viewer in self.retained_viewers_mut() {
-            viewer.highlighting_finished(event);
-        }
-        if let Some(peek) = &mut self.conversation.peek {
-            peek.viewer.highlighting_finished(event);
-        }
         for loaded in self.documents.iter_mut().chain(self.preview.iter_mut()) {
             loaded.document.finish_highlighting(event);
         }
@@ -1412,7 +1418,7 @@ impl DiffComponent {
     fn preview_source_location(&mut self, event: &SourceLocationPreviewRequested) -> Vec<Action> {
         self.preview = None;
         self.pending_preview_location = Some(event.location.clone());
-        if self.explore.active {
+        if self.role.explores() {
             return self.explore_source(event.location.clone(), ui_events::SourceLoadMode::Preview);
         }
         let Some(review_checkpoint) = self.review_checkpoint.clone() else {
@@ -1471,7 +1477,7 @@ impl DiffComponent {
         location: review_lsp::SourceLocation,
         mode: ui_actions::SourceLoadMode,
     ) -> Vec<Action> {
-        if self.explore.active {
+        if self.role.explores() {
             return self.explore_source(location, mode);
         }
         if self.review_checkpoint.is_none() {
@@ -1511,18 +1517,6 @@ impl DiffComponent {
     }
 
     fn source_content_loaded(&mut self, event: &SourceContentLoaded) -> Vec<Action> {
-        if self
-            .conversation
-            .peek
-            .as_ref()
-            .is_some_and(|peek| peek.viewer.source_snapshot() == Some(event.snapshot_id.as_str()))
-            && event.mode != ui_events::SourceLoadMode::ThreadPeek
-        {
-            return self.source_view_mut().source_content_loaded(event);
-        }
-        if event.mode == ui_events::SourceLoadMode::ThreadPeek {
-            return self.peek_loaded(event);
-        }
         if self.source_snapshot() != Some(event.snapshot_id.as_str()) {
             return Vec::new();
         }
@@ -1538,8 +1532,13 @@ impl DiffComponent {
             presentation,
             event.mode,
         );
-        self.explore
-            .identify_source(&mut document, &event.location.path, &self.repository_root);
+        if self.role.explores() {
+            self.evidence.identify_source(
+                &mut document,
+                &event.location.path,
+                &self.repository_root,
+            );
+        }
         let request = HighlightRequest::Source(Arc::new(event.clone()));
         document.document.prepare_highlighting(request);
         let _ = document.document.reveal_location(&event.location);
@@ -1550,7 +1549,7 @@ impl DiffComponent {
             self.documents.push(document);
             self.selected_path = Some(path.clone());
             self.center_jump_target();
-            if self.source_session.is_none() {
+            if self.role.publishes_review() {
                 self.events.publish(TemporaryFilesChanged {
                     files: vec![FileSummary::temporary(
                         path.clone(),
@@ -1601,14 +1600,7 @@ impl DiffComponent {
         }
     }
 
-    fn source_content_failed(&mut self, event: &SourceContentLoadFailed) {
-        if self.peek_failed(event) {
-            return;
-        }
-        if self.conversation.is_peeking() {
-            self.source_view_mut().source_content_failed(event);
-            return;
-        }
+    fn source_content_failed(&self, event: &SourceContentLoadFailed) {
         if self.source_snapshot() == Some(event.snapshot_id.as_str()) {
             self.events.publish(ToastRequested {
                 text: event.message.clone(),
@@ -1693,7 +1685,7 @@ impl DiffComponent {
         let reviewable_files = self.reviewable_files.clone();
         let repository_root = self.repository_root.clone();
         let previous_history = self.location_history.clone();
-        let source_only = self.source_session.is_some();
+        let source_only = !self.role.publishes_review();
         let Some(target) = self
             .location_history
             .navigate(direction, current, |location| {
@@ -1750,13 +1742,13 @@ impl DiffComponent {
     }
 
     fn publish_file_selection(&self, path: String) {
-        if self.source_session.is_none() {
+        if self.role.publishes_review() {
             self.events.publish(FileSelectionRequested { path });
         }
     }
 
     fn publish_current_location(&self) {
-        if self.source_session.is_some() {
+        if !self.role.publishes_review() {
             return;
         }
         self.events.publish(CurrentReviewLocationChanged {
@@ -1799,7 +1791,7 @@ impl DiffComponent {
     }
 
     fn publish_viewports(&self) {
-        if self.source_session.is_some() {
+        if !self.role.publishes_review() {
             return;
         }
         self.publish_thread_contexts();
@@ -1831,7 +1823,7 @@ impl DiffComponent {
     }
 
     fn publish_decorations(&self) {
-        if self.source_session.is_some() {
+        if !self.role.publishes_review() {
             return;
         }
         let notice_paths = self
@@ -1848,10 +1840,6 @@ impl DiffComponent {
     }
 
     fn publish_search_status(&self) {
-        if self.conversation.is_peeking() {
-            self.source_view().publish_search_status();
-            return;
-        }
         let current_location = self.current_search_location();
         self.events
             .publish(self.search.status(current_location.as_ref()));
@@ -1882,139 +1870,12 @@ impl DiffComponent {
     }
 }
 
-impl Component<Action> for DiffComponent {
-    fn register_subscriptions(subscriptions: &mut ComponentSubscriptions<'_, Self, Action>) {
-        subscriptions.subscribe(Self::replies_displayed);
-        subscriptions.subscribe(Self::conversation_selected);
-        subscriptions.subscribe(Self::explore_navigation);
-        subscriptions.subscribe(Self::restore_explore_positions);
-        subscriptions.subscribe(Self::explore_comparison_accepted);
-        subscriptions.subscribe(Self::explore_evidence);
-        subscriptions.subscribe(Self::embedded_viewports);
-        subscriptions.subscribe(Self::embedded_pointer);
-        subscriptions.subscribe(Self::threads_loaded);
-        subscriptions.subscribe(Self::comment_paste);
-        subscriptions.subscribe_input(
-            InputScope::Focused,
-            component_core::AnyInput,
-            |component, input: ui_events::TextPasted| component.paste(&input),
-        );
-        subscriptions.subscribe(Self::post_finished);
-        subscriptions.subscribe(Self::repository_changed);
-        subscriptions.subscribe(Self::file_selected);
-        subscriptions.subscribe(Self::animation_tick);
-        subscriptions.subscribe(Self::content_loaded);
-        subscriptions.subscribe(Self::highlighting_finished);
-        subscriptions.subscribe(Self::search_completed);
-        subscriptions.subscribe(Self::content_load_failed);
-        subscriptions.subscribe(Self::reviewable_files_changed);
-        subscriptions.subscribe(Self::review_state_saved);
-        subscriptions.subscribe(Self::viewport_changed);
-        subscriptions.subscribe(|component, event| component.source_view_mut().clear_input(event));
-        subscriptions.subscribe(Self::target_jump_requested);
-        subscriptions.subscribe(|component, event| {
-            component.source_view_mut().preview_source_location(event)
-        });
-        subscriptions.subscribe(|component, event| {
-            component
-                .source_view_mut()
-                .location_list_visibility_changed(event);
-        });
-        subscriptions.subscribe(|component, event| {
-            component.source_view_mut().accept_source_location(event)
-        });
-        subscriptions.subscribe(Self::source_content_loaded);
-        subscriptions.subscribe(Self::refresh_current_file);
-        subscriptions.subscribe(Self::source_content_failed);
-        subscriptions.subscribe(|component, event| {
-            component.source_view_mut().restore_review_location(event)
-        });
-        subscriptions
-            .subscribe(|component, event| component.source_view_mut().location_jumped(event));
-        subscriptions.subscribe(Self::revision_edit_failed);
-        subscriptions.subscribe_input(
-            InputScope::Focused,
-            DiffKeyboardInputMatcher::new(),
-            Self::keyboard_input,
-        );
-        subscriptions.subscribe_input(
-            InputScope::Global,
-            ShortcutMatcher::new(),
-            Self::run_global_shortcut,
-        );
-        subscriptions.subscribe_input(
-            InputScope::Hovered,
-            component_core::AnyInput,
-            Self::pointer_input,
-        );
-    }
-}
-
+/// What one key does in a viewer.
 #[derive(Clone, Copy)]
-enum DiffKeyboardInput {
+enum ViewerInput {
     CommentKey(Key),
-    Conversation(ConversationCommand),
     SearchKey(Key),
     Shortcut(DiffPaneCommand),
-}
-
-struct DiffKeyboardInputMatcher {
-    shortcuts: ShortcutMatcher<DiffPaneCommand>,
-    conversation: ShortcutMatcher<ConversationCommand>,
-}
-
-impl DiffKeyboardInputMatcher {
-    const fn new() -> Self {
-        Self {
-            shortcuts: ShortcutMatcher::new(),
-            conversation: ShortcutMatcher::new(),
-        }
-    }
-}
-
-impl InputMatcher<DiffComponent, Key> for DiffKeyboardInputMatcher {
-    type Output = DiffKeyboardInput;
-
-    fn resolve(&mut self, component: &DiffComponent, key: &Key) -> InputResolution<Self::Output> {
-        if component.conversation.is_peeking()
-            && conversation::ConversationView::goes_back(*key)
-            && !component.source_view().search.is_editing()
-        {
-            return InputResolution::Matched(DiffKeyboardInput::Conversation(
-                ConversationCommand::Conversation(ConversationShortcut::Back),
-            ));
-        }
-        self.resolve_view(component.source_view(), *key)
-    }
-}
-
-impl DiffKeyboardInputMatcher {
-    fn resolve_view(
-        &mut self,
-        component: &DiffComponent,
-        key: Key,
-    ) -> InputResolution<DiffKeyboardInput> {
-        // Switching navigation reaches the application even while the comment
-        // editor or the search prompt takes every other key.
-        if ApplicationShortcut::bound_to(key) == Some(ApplicationShortcut::ToggleNavigation) {
-            return InputResolution::NoMatch;
-        }
-        if component.editor_is_visible() && !component.conversation.is_peeking() {
-            return InputResolution::Matched(DiffKeyboardInput::CommentKey(key));
-        }
-        if component.conversation.active {
-            return self
-                .conversation
-                .resolve_key(key)
-                .map(DiffKeyboardInput::Conversation);
-        }
-        if component.search.is_editing() {
-            return InputResolution::Matched(DiffKeyboardInput::SearchKey(key));
-        }
-        self.shortcuts
-            .resolve_key(key)
-            .map(DiffKeyboardInput::Shortcut)
-    }
 }
 
 fn is_word_character(character: char) -> bool {

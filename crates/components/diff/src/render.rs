@@ -29,7 +29,7 @@ const MIN_DIFF_CONTROLS_WIDTH: u16 = 32;
 
 pub(super) struct DiffRenderer<'a> {
     comments: Option<&'a crate::comments::Comments>,
-    evidence: Option<&'a crate::explore::ExploreView>,
+    evidence: Option<&'a crate::explore::ShownEvidence>,
     palette: Palette,
     file: Option<&'a LoadedDocument>,
     focused: bool,
@@ -84,7 +84,7 @@ impl<'a> DiffRenderer<'a> {
             .collect()
     }
 
-    pub(super) fn with_evidence(mut self, evidence: &'a crate::explore::ExploreView) -> Self {
+    pub(super) fn with_evidence(mut self, evidence: &'a crate::explore::ShownEvidence) -> Self {
         self.evidence = Some(evidence);
         self
     }

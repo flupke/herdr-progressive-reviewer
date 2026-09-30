@@ -1,63 +1,82 @@
 use super::*;
 
+/// A Files viewer driven directly, without the pane around it.
 struct Scrolling {
-    registry: ComponentEventBus<Action>,
-    target: ComponentTarget,
+    _bus: ComponentEventBus<Action>,
+    viewer: SourceViewer,
+    shortcuts: ui_shortcuts::ShortcutMatcher<DiffPaneCommand>,
+}
+
+/// Receives the viewer's publications while nothing else listens.
+struct Detached;
+
+impl Component<Action> for Detached {
+    fn register_subscriptions(_: &mut ComponentSubscriptions<'_, Self, Action>) {}
 }
 
 impl Scrolling {
     fn new(rows: Vec<DiffRow>, width: u16, height: u16) -> Self {
-        let (mut registry, reviewable_files, target) = registry_with_observer();
+        let mut bus = ComponentEventBus::new();
+        let mut events = None;
+        bus.mount(|publisher| {
+            events = Some(publisher);
+            Detached
+        });
+        let services = Services {
+            events: events.unwrap(),
+            highlighter: SyntaxHighlighter::new(EmbeddedThemeName::CatppuccinMocha, Color::White),
+            repository_root: PathBuf::new(),
+            palette: Theme::default().palette,
+            drafts: std::rc::Rc::default(),
+        };
+        let reviewable_files = ReviewableFiles::default();
         reviewable_files.replace(["src/lib.rs".to_owned()].into());
-        publish_repository(&mut registry, "checkpoint");
-        registry
-            .publish(FileSelected {
-                path: "src/lib.rs".to_owned(),
-            })
-            .unwrap();
-        registry
-            .publish(DiffViewportChanged { width, height })
-            .unwrap();
-        registry
-            .publish(DiffContentLoaded {
-                review_checkpoint: ReviewCheckpoint::new("change", "checkpoint"),
-                path: "src/lib.rs".to_owned(),
-                rows,
-                old_content: None,
-                new_content: None,
-            })
-            .unwrap();
-        Self { registry, target }
+        let mut viewer = SourceViewer::new(&services, Role::Files, reviewable_files);
+        viewer.repository_changed(&repository_event("checkpoint"));
+        viewer.file_selected(&FileSelected {
+            path: "src/lib.rs".to_owned(),
+        });
+        viewer.viewport_changed(&DiffViewportChanged { width, height });
+        let mut fixture = Self {
+            _bus: bus,
+            viewer,
+            shortcuts: ui_shortcuts::ShortcutMatcher::new(),
+        };
+        fixture.load(rows);
+        fixture
+    }
+
+    fn load(&mut self, rows: Vec<DiffRow>) {
+        self.viewer.content_loaded(&DiffContentLoaded {
+            review_checkpoint: ReviewCheckpoint::new("change", "checkpoint"),
+            path: "src/lib.rs".to_owned(),
+            rows,
+            old_content: None,
+            new_content: None,
+        });
     }
 
     fn key(&mut self, key: Key) -> Vec<Action> {
-        dispatch_key(&mut self.registry, self.target, key)
-            .into_iter()
-            .flat_map(DispatchResult::into_actions)
-            .collect()
+        match self.viewer.resolve_key(key, &mut self.shortcuts) {
+            component_core::InputResolution::Matched(input) => self.viewer.keyboard_input(input),
+            _ => Vec::new(),
+        }
     }
 
     fn scroll(&mut self, delta: isize) {
-        self.registry
-            .dispatch_hovered_input(
-                &EventEnvelope::new(PointerInput {
-                    kind: PointerInputKind::Scroll(delta),
-                    position: None,
-                }),
-                self.target,
-            )
-            .unwrap();
+        self.viewer.pointer_input(PointerInput {
+            kind: PointerInputKind::Scroll(delta),
+            position: None,
+        });
     }
 
     fn position(&self) -> (usize, usize, usize) {
-        let document = &self
-            .registry
-            .get::<DiffComponent>(self.target)
-            .unwrap()
+        let position = self
+            .viewer
             .displayed_document()
             .unwrap()
-            .document;
-        let position = document.position();
+            .document
+            .position();
         (position.cursor(), position.column(), position.scroll())
     }
 }
@@ -154,16 +173,7 @@ fn reloaded_wrapped_content_keeps_the_cursor_inside_the_viewport() {
         new_line: 1,
         text: format!(" {}", "a".repeat(72)),
     };
-    fixture
-        .registry
-        .publish(DiffContentLoaded {
-            review_checkpoint: ReviewCheckpoint::new("change", "checkpoint"),
-            path: "src/lib.rs".to_owned(),
-            rows,
-            old_content: None,
-            new_content: None,
-        })
-        .unwrap();
+    fixture.load(rows);
     assert_eq!(fixture.position(), (5, 0, 10));
 }
 
@@ -172,17 +182,9 @@ fn scrolling_extends_a_live_selection_but_preserves_a_fixed_selection() {
     let mut fixture = Scrolling::new(context_rows(30), 78, 5);
     fixture.key(Key::Char('V'));
     fixture.scroll(5);
-    let component = fixture
-        .registry
-        .get::<DiffComponent>(fixture.target)
-        .unwrap();
-    assert_eq!(component.selection.unwrap().range(), 0..=5);
+    assert_eq!(fixture.viewer.selected_rows(), Some(0..=5));
     fixture.key(Key::Char('V'));
     fixture.scroll(5);
-    let component = fixture
-        .registry
-        .get::<DiffComponent>(fixture.target)
-        .unwrap();
-    assert_eq!(component.selection.unwrap().range(), 0..=5);
+    assert_eq!(fixture.viewer.selected_rows(), Some(0..=5));
     assert_eq!(fixture.position(), (10, 0, 10));
 }

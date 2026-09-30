@@ -1,33 +1,34 @@
-//! A conversation owns its viewport while the file document stays untouched.
+//! The pane shows one review thread as a conversation while the Files viewer
+//! keeps its document untouched.
 
 use std::cell::RefCell;
 
 use component_core::InputResolution;
-use review_threads::{Resolution, ReviewThread, ThreadCommand, ThreadId};
+use review_threads::{ReviewThread, ThreadCommand, ThreadId};
 use ui_actions::Action;
 use ui_events::{
     PointerInput, PointerInputKind, ReviewNavigation, ReviewNavigationChanged, ReviewPane,
-    ReviewPaneFocusRequested, ThreadSelectionChanged,
+    ReviewPaneFocusRequested, TextPasted, ThreadSelectionChanged,
 };
 use ui_shortcuts::{ConversationCommand, ConversationShortcut, Key, ShortcutMatcher};
 
 use crate::DiffComponent;
-use crate::comments::CommentTarget;
+use crate::comments::{CommentTarget, ConversationButton};
 
 mod context;
 mod peek;
 mod render;
-use peek::SourcePeek;
+pub(super) use peek::SourcePeek;
 
 #[derive(Default)]
 pub(super) struct ConversationView {
+    /// The pane shows the selected thread instead of the Files diff.
     pub(super) active: bool,
     selected: Option<ThreadId>,
     scroll: usize,
     pub(super) peek: Option<SourcePeek>,
     next_peek: u64,
     targets: RefCell<Vec<Option<CommentTarget>>>,
-    unavailable: std::collections::HashSet<ThreadId>,
     original: Option<context::OriginalCode>,
 }
 
@@ -45,21 +46,14 @@ pub(super) enum ConversationAction {
 }
 
 impl ConversationView {
-    pub(super) fn is_peeking(&self) -> bool {
-        self.peek.is_some()
-    }
-
-    pub(super) fn refresh_files(&mut self) {
-        self.unavailable.clear();
-    }
-
+    /// Forget the thread shown for a review that is no longer shown.
     pub(super) fn reset_review(&mut self) {
         self.selected = None;
         self.scroll = 0;
         self.peek = None;
-        self.unavailable.clear();
         self.original = None;
     }
+
     /// Whether `key` is bound to leaving the conversation view, which closes
     /// an open source peek before the peek's own keys apply.
     pub(super) fn goes_back(key: Key) -> bool {
@@ -70,86 +64,46 @@ impl ConversationView {
 
 impl DiffComponent {
     pub(super) fn refresh_conversation_context(&mut self) {
-        if let Some(thread) = self.conversation_thread()
-            && self
-                .conversation
+        let original = self.conversation_thread().and_then(|thread| {
+            self.conversation
                 .original
                 .as_ref()
                 .is_none_or(|code| code.thread != thread.id)
-        {
-            self.conversation.original =
-                Some(context::OriginalCode::new(thread, &self.highlighter));
+                .then(|| context::OriginalCode::new(thread, &self.services.highlighter))
+        });
+        if original.is_some() {
+            self.conversation.original = original;
         }
-    }
-    fn thread_context(&self, thread: &ReviewThread) -> ui_events::ThreadContext {
-        use ui_events::ThreadContext;
-        if self.conversation.unavailable.contains(&thread.id) {
-            return ThreadContext::Unavailable;
-        }
-        let Some(file) = self
-            .documents
-            .iter()
-            .find(|file| !file.comments_only && self.comments.matches_path(file, thread.path()))
-        else {
-            return ThreadContext::OutsideDiff;
-        };
-        if file.content.is_none() {
-            return ThreadContext::Original;
-        }
-        if self.comments.mapped(&thread.id).is_none() {
-            return ThreadContext::Earlier;
-        }
-        if file.document.diff.is_empty() || self.comments.thread_row(thread, file).1 {
-            return ThreadContext::Hidden;
-        }
-        ThreadContext::Current
     }
 
-    pub(super) fn publish_thread_contexts(&self) {
-        if let Some(book) = self.comments.book() {
-            self.events.publish(ui_events::ThreadContextsChanged {
-                review_unit: book.review_unit.clone(),
-                contexts: book
-                    .threads()
-                    .iter()
-                    .map(|thread| (thread.id.clone(), self.thread_context(thread)))
-                    .collect(),
-            });
-        }
-    }
     pub(super) fn conversation_thread(&self) -> Option<&ReviewThread> {
-        self.comments
+        self.files
+            .comments
             .book()?
             .thread(self.conversation.selected.as_ref()?)
     }
 
-    pub(super) fn editor_is_visible(&self) -> bool {
-        if self.conversation.is_peeking() {
-            return false;
-        }
-        if self.comments.focused().is_none() {
-            return false;
-        }
-        if self.conversation.active {
-            return self
+    /// Whether the conversation shows the editor of a reply to its thread.
+    pub(super) fn conversation_editor_visible(&self) -> bool {
+        self.conversation.peek.is_none()
+            && self.files.comments.focused().is_some()
+            && self
                 .conversation_thread()
-                .is_some_and(|thread| self.comments.replies_to(thread));
-        }
-        self.selected_document()
-            .is_some_and(|file| self.comments.inline_editor_visible_in(file))
+                .is_some_and(|thread| self.files.comments.replies_to(thread))
     }
 
+    /// Show the conversation instead of the Files diff, or the reverse.
     #[allow(clippy::trivially_copy_pass_by_ref)]
     pub(super) fn conversation_navigation(&mut self, event: &ReviewNavigationChanged) {
         let active = event.0 == ReviewNavigation::Threads;
         if active != self.conversation.active {
             if active {
-                self.comments.enter_conversations();
+                self.files.comments.enter_conversations();
                 if let Some(id) = &self.conversation.selected {
-                    self.comments.restore_thread_editor(id);
+                    self.files.comments.restore_thread_editor(id);
                 }
             } else {
-                self.comments.leave_conversations();
+                self.files.comments.leave_conversations();
                 self.close_peek();
             }
         }
@@ -157,15 +111,19 @@ impl DiffComponent {
     }
 
     pub(super) fn conversation_selected(&mut self, event: &ThreadSelectionChanged) -> Vec<Action> {
+        // Explore hides the conversation, which keeps the thread it showed.
+        if self.explore_shown() {
+            return Vec::new();
+        }
         if self.conversation.selected != event.thread_id {
             self.conversation.selected.clone_from(&event.thread_id);
             self.conversation.scroll = 0;
             self.close_peek();
             if self.conversation.active {
                 if let Some(id) = &event.thread_id {
-                    self.comments.restore_thread_editor(id);
+                    self.files.comments.restore_thread_editor(id);
                 } else {
-                    self.comments.park_editor();
+                    self.files.comments.park_editor();
                     self.conversation.original = None;
                 }
             }
@@ -174,8 +132,18 @@ impl DiffComponent {
         Vec::new()
     }
 
+    /// Reopen the reply saved for the shown thread once its drafts loaded.
+    pub(super) fn restore_conversation_editor(&mut self) {
+        if self.files.comments.focused_id().is_none()
+            && self.conversation.active
+            && let Some(thread) = self.conversation_thread().map(|thread| thread.id.clone())
+        {
+            self.files.comments.restore_thread_editor(&thread);
+        }
+    }
+
     fn read_conversation(&self) -> Vec<Action> {
-        let Some(book) = self.comments.book() else {
+        let Some(book) = self.files.comments.book() else {
             return Vec::new();
         };
         let Some(thread) = self
@@ -191,19 +159,20 @@ impl DiffComponent {
         })]
     }
 
-    pub(super) fn conversation_action(&mut self, action: ConversationAction) -> Vec<Action> {
+    fn conversation_action(&mut self, action: ConversationAction) -> Vec<Action> {
         match action {
             ConversationAction::Back => self
+                .services
                 .events
                 .publish(ReviewNavigationChanged(ReviewNavigation::Files)),
             ConversationAction::ClosePeek => self.close_peek(),
             ConversationAction::Peek => return self.peek_conversation(),
             ConversationAction::OpenFile => self.open_conversation_file(),
             ConversationAction::Read => return self.read_conversation(),
-            ConversationAction::Resolve(id) => return self.resolve_thread(&id),
-            ConversationAction::Retry(id) => return self.retry_thread(id),
             ConversationAction::Reply => self.reply_to_conversation(),
-            ConversationAction::Editor(action, draft) => return self.finish_draft(draft, action),
+            ConversationAction::Resolve(_)
+            | ConversationAction::Retry(_)
+            | ConversationAction::Editor(..) => return self.files.comment_action(action),
         }
         Vec::new()
     }
@@ -213,16 +182,15 @@ impl DiffComponent {
             return;
         };
         let path = self
+            .files
             .documents
             .iter()
-            .find(|file| self.comments.matches_path(file, thread.path()))
+            .find(|file| self.files.comments.matches_path(file, thread.path()))
             .map_or_else(|| thread.path().to_owned(), |file| file.path.clone());
-        self.events
-            .publish(ReviewNavigationChanged(ReviewNavigation::Files));
-        self.events
-            .publish(ui_events::FileSelectionRequested { path });
-        self.events
-            .publish(ReviewPaneFocusRequested(ReviewPane::Detail));
+        let events = &self.services.events;
+        events.publish(ReviewNavigationChanged(ReviewNavigation::Files));
+        events.publish(ui_events::FileSelectionRequested { path });
+        events.publish(ReviewPaneFocusRequested(ReviewPane::Detail));
     }
 
     fn reply_to_conversation(&mut self) {
@@ -231,36 +199,9 @@ impl DiffComponent {
             .and_then(|thread| thread.messages.last())
             .map(|message| message.id.clone())
         {
-            self.comments.start_reply(id);
+            self.files.comments.start_reply(id);
             self.keep_conversation_composer_visible();
         }
-    }
-
-    fn resolve_thread(&self, id: &ThreadId) -> Vec<Action> {
-        let Some(book) = self.comments.book() else {
-            return Vec::new();
-        };
-        let Some(thread) = book.thread(id) else {
-            return Vec::new();
-        };
-        let resolution = match thread.resolution {
-            Resolution::Open => Resolution::Resolved,
-            Resolution::Resolved => Resolution::Open,
-        };
-        vec![Action::Thread(ThreadCommand::SetResolution {
-            review_unit: book.review_unit.clone(),
-            thread_id: thread.id.clone(),
-            resolution,
-        })]
-    }
-
-    fn retry_thread(&self, thread_id: ThreadId) -> Vec<Action> {
-        self.comments.book().map_or_else(Vec::new, |book| {
-            vec![Action::Thread(ThreadCommand::Retry {
-                review_unit: book.review_unit.clone(),
-                thread_id,
-            })]
-        })
     }
 
     pub(super) fn conversation_command(&mut self, command: ConversationCommand) -> Vec<Action> {
@@ -274,7 +215,7 @@ impl DiffComponent {
     }
 
     fn conversation_page(&self) -> isize {
-        isize::try_from(self.viewport_height)
+        isize::try_from(self.files.viewport_height)
             .unwrap_or(isize::MAX)
             .saturating_sub(2)
             .max(1)
@@ -287,16 +228,16 @@ impl DiffComponent {
             ConversationShortcut::Back => ConversationAction::Back,
             ConversationShortcut::Reply if !peeking => ConversationAction::Reply,
             ConversationShortcut::ToggleResolution if !peeking => {
-                return self
-                    .conversation
-                    .selected
-                    .as_ref()
-                    .map_or_else(Vec::new, |id| self.resolve_thread(id));
+                let Some(id) = self.conversation.selected.clone() else {
+                    return Vec::new();
+                };
+                ConversationAction::Resolve(id)
             }
             ConversationShortcut::Peek => ConversationAction::Peek,
             ConversationShortcut::MarkRead => ConversationAction::Read,
             ConversationShortcut::FocusThreads => {
-                self.events
+                self.services
+                    .events
                     .publish(ReviewPaneFocusRequested(ReviewPane::Navigation));
                 return Vec::new();
             }
@@ -314,13 +255,21 @@ impl DiffComponent {
     }
 
     pub(super) fn keep_conversation_composer_visible(&mut self) {
-        if !self.editor_is_visible() || self.conversation.peek.is_some() {
+        if !self.conversation_editor_visible() {
             return;
         }
         self.conversation.scroll = self
             .conversation
             .scroll
             .min(self.conversation_scroll_limit());
+    }
+
+    /// Paste into the reply the conversation edits.
+    pub(super) fn conversation_paste(&mut self, input: &TextPasted) -> Vec<Action> {
+        if !self.conversation_editor_visible() {
+            return Vec::new();
+        }
+        self.files.paste_into_draft(input)
     }
 
     pub(super) fn conversation_pointer(&mut self, input: PointerInput) -> Vec<Action> {
@@ -343,10 +292,35 @@ impl DiffComponent {
             .cloned()
             .flatten();
         target.map_or_else(Vec::new, |target| {
-            self.activate_comment_target(
+            self.activate_conversation_target(
                 target,
                 usize::from(position.component_column.saturating_sub(1)),
             )
         })
+    }
+
+    fn activate_conversation_target(
+        &mut self,
+        target: CommentTarget,
+        column: usize,
+    ) -> Vec<Action> {
+        match target {
+            CommentTarget::Conversation(action) => return self.conversation_action(action),
+            CommentTarget::ConversationButtons(buttons) => {
+                if let Some(action) = ConversationButton::at(buttons, column) {
+                    return self.conversation_action(action);
+                }
+            }
+            CommentTarget::Message(id) => self.files.open_comment(id),
+            CommentTarget::Reply(id) => {
+                self.files.start_comment(id);
+                self.keep_conversation_composer_visible();
+            }
+            CommentTarget::Draft(draft) => {
+                self.files.open_draft(draft);
+                self.keep_conversation_composer_visible();
+            }
+        }
+        Vec::new()
     }
 }

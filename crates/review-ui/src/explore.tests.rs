@@ -1,4 +1,5 @@
 use super::*;
+use diff_component::SourceViewer;
 use ratatui::{buffer::Buffer, layout::Rect, widgets::Widget};
 use review_explore::{
     Alternative, Command, Comparison, EvidenceRef, Interpretation, InterviewUpdate, Question,
