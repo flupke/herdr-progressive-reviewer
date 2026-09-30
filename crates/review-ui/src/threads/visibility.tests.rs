@@ -9,7 +9,7 @@ fn arriving_visible_replies_clear_without_selecting_or_focusing_the_conversation
         height: ui.height,
     });
     ui.key(Key::Char('t'));
-    assert_eq!(ui.app.focus, ReviewPane::Navigation);
+    assert_eq!(ui.app.navigation.focus(), ReviewPane::Navigation);
     ui.answer(
         0,
         "00000000-0000-4000-8000-000000000081",
@@ -27,7 +27,7 @@ fn arriving_visible_replies_clear_without_selecting_or_focusing_the_conversation
     assert_eq!(ui.book.counts().unread, 1);
     ui.present();
     assert_eq!(ui.book.counts().unread, 0);
-    assert_eq!(ui.app.focus, ReviewPane::Navigation);
+    assert_eq!(ui.app.navigation.focus(), ReviewPane::Navigation);
     assert!(
         ui.present().is_empty(),
         "a persisted read must not be sent again"

@@ -77,6 +77,18 @@ fn component_lookup_uses_the_exact_target() {
 }
 
 #[test]
+fn mutable_lookup_changes_only_the_exact_target() {
+    let mut event_bus = ComponentEventBus::<TestAction>::new();
+    let first = event_bus.mount(|_events| TestComponent { count: 3 });
+    let second = event_bus.mount(|_events| TestComponent { count: 7 });
+
+    event_bus.get_mut::<TestComponent>(first).unwrap().count = 4;
+
+    assert_eq!(event_bus.get::<TestComponent>(first).unwrap().count, 4);
+    assert_eq!(event_bus.get::<TestComponent>(second).unwrap().count, 7);
+}
+
+#[test]
 fn transported_events_use_their_concrete_type_for_delivery() {
     let mut event_bus = ComponentEventBus::new();
     let target = event_bus.mount(TestComponent::new);

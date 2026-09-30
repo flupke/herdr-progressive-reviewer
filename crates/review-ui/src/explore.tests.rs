@@ -209,7 +209,12 @@ impl ExploreUi {
     }
 
     fn buffer(&self) -> Buffer {
-        let mut buffer = Buffer::empty(Rect::new(0, 0, self.app.width, self.app.height));
+        let mut buffer = Buffer::empty(Rect::new(
+            0,
+            0,
+            self.app.viewport.width,
+            self.app.viewport.height,
+        ));
         self.app.frame().render(buffer.area, &mut buffer);
         buffer
     }
@@ -350,7 +355,10 @@ fn clipped_evidence_keeps_continuations_open_at_the_viewport_edges() {
         height: 20,
     });
     fixture.app.update(UserInput::Key(Key::Tab));
-    assert_eq!(fixture.app.focus, ui_events::ReviewPane::Detail);
+    assert_eq!(
+        fixture.app.navigation.focus(),
+        ui_events::ReviewPane::Detail
+    );
     let render = |fixture: &ExploreUi| {
         let mut buffer = Buffer::empty(Rect::new(0, 0, 140, 20));
         fixture.app.frame().render(buffer.area, &mut buffer);

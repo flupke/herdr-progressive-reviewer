@@ -211,15 +211,15 @@ fn threads_open_without_loading_reviewed_or_removed_files_in_wide_and_narrow_lay
         assert!(ui.text().contains("[T]hreads"));
         assert!(ui.text().contains("[E]xplore"));
         ui.key(Key::Char('e'));
-        assert_eq!(ui.app.navigation, ReviewNavigation::Explore);
+        assert_eq!(ui.app.navigation.mode(), ReviewNavigation::Explore);
         ui.key(Key::Char('f'));
-        assert_eq!(ui.app.navigation, ReviewNavigation::Files);
+        assert_eq!(ui.app.navigation.mode(), ReviewNavigation::Files);
         ui.key(Key::Tab);
-        assert_eq!(ui.app.focus, ReviewPane::Detail);
+        assert_eq!(ui.app.navigation.focus(), ReviewPane::Detail);
         assert!(ui.key(Key::Char('t')).is_empty());
-        assert_eq!(ui.app.navigation, ReviewNavigation::Threads);
+        assert_eq!(ui.app.navigation.mode(), ReviewNavigation::Threads);
         ui.key(Key::Char('T'));
-        assert_eq!(ui.app.navigation, ReviewNavigation::Threads);
+        assert_eq!(ui.app.navigation.mode(), ReviewNavigation::Threads);
         ui.key(Key::Down);
         assert!(ui.key(Key::Enter).is_empty());
         let text = ui.text();
@@ -231,10 +231,10 @@ fn threads_open_without_loading_reviewed_or_removed_files_in_wide_and_narrow_lay
         );
         assert!(!text.contains("Ctrl-Enter post"));
         assert!(ui.key(Key::Char('f')).is_empty());
-        assert_eq!(ui.app.navigation, ReviewNavigation::Files);
+        assert_eq!(ui.app.navigation.mode(), ReviewNavigation::Files);
         ui.key(Key::Char('F'));
-        assert_eq!(ui.app.navigation, ReviewNavigation::Files);
-        assert_eq!(ui.app.focus, ReviewPane::Detail);
+        assert_eq!(ui.app.navigation.mode(), ReviewNavigation::Files);
+        assert_eq!(ui.app.navigation.focus(), ReviewPane::Detail);
         assert!(ui.text().contains("1/1 reviewed"));
     }
 }
@@ -319,14 +319,14 @@ fn late_replies_on_resolved_threads_are_findable_without_moving_focus() {
         Resolution::Resolved
     );
     ui.key(Key::Char('f'));
-    let focus = ui.app.focus;
+    let focus = ui.app.navigation.focus();
     ui.answer(
         0,
         "00000000-0000-4000-8000-000000000011",
         "Late explanation",
     );
-    assert_eq!(ui.app.focus, focus);
-    assert_eq!(ui.app.navigation, ReviewNavigation::Files);
+    assert_eq!(ui.app.navigation.focus(), focus);
+    assert_eq!(ui.app.navigation.mode(), ReviewNavigation::Files);
     assert!(!ui.text().contains("new replies"));
     assert!(ui.text().contains("1/1 reviewed"));
     assert!(
@@ -391,9 +391,9 @@ fn source_peek_is_read_only_and_rejects_results_from_a_previous_thread() {
 fn mouse_tabs_and_conversation_actions_work_after_resizing() {
     let mut ui = ThreadUi::new(110);
     ui.app.update(UserInput::MouseClick { column: 12, row: 1 });
-    assert_eq!(ui.app.navigation, ReviewNavigation::Threads);
+    assert_eq!(ui.app.navigation.mode(), ReviewNavigation::Threads);
     ui.app.update(UserInput::MouseClick { column: 5, row: 4 });
-    assert_eq!(ui.app.focus, ReviewPane::Detail);
+    assert_eq!(ui.app.navigation.focus(), ReviewPane::Detail);
     ui.width = 48;
     ui.app.update(UserInput::Resize {
         width: ui.width,
@@ -515,13 +515,13 @@ fn an_incoming_reply_keeps_the_conversation_viewport_and_draft() {
     ui.key(Key::Char('A'));
     ui.paste("Still writing");
     let before = ui.buffer();
-    let focus = ui.app.focus;
+    let focus = ui.app.navigation.focus();
     ui.answer(
         0,
         "00000000-0000-4000-8000-000000000013",
         "A new answer\n".repeat(10).as_str(),
     );
-    assert_eq!(ui.app.focus, focus);
+    assert_eq!(ui.app.navigation.focus(), focus);
     assert!(ui.text().contains("Still writing"), "{}", ui.text());
     assert!(ui.text().contains("Cancel") && ui.text().contains("Post"));
     // Adding messages below the original context cannot move that context.
@@ -596,7 +596,7 @@ fn reply_editor_follows_short_conversations_and_stays_visible_when_resized() {
             .text,
         "A nearby follow-up"
     );
-    assert_eq!(ui.app.navigation, ReviewNavigation::Threads);
+    assert_eq!(ui.app.navigation.mode(), ReviewNavigation::Threads);
 }
 
 #[test]
@@ -624,7 +624,7 @@ fn reviewed_files_show_full_inline_replies_with_or_without_remaining_diff_rows()
         assert!(!text.contains("Open thread"), "{text}");
         ui.present();
         assert_eq!(ui.book.counts().unread, 0);
-        assert_eq!(ui.app.navigation, ReviewNavigation::Files);
+        assert_eq!(ui.app.navigation.mode(), ReviewNavigation::Files);
         let (column, row) = rendered_text_position(&ui.app, "Reply…", ui.width, ui.height).unwrap();
         ui.app.update(UserInput::MouseClick { column, row });
         ui.paste("Inline follow-up on a reviewed file");
@@ -639,7 +639,7 @@ fn reviewed_files_show_full_inline_replies_with_or_without_remaining_diff_rows()
                 .text,
             "Inline follow-up on a reviewed file"
         );
-        assert_eq!(ui.app.navigation, ReviewNavigation::Files);
+        assert_eq!(ui.app.navigation.mode(), ReviewNavigation::Files);
         let (column, row) =
             rendered_text_position(&ui.app, "Resolve thread", ui.width, ui.height).unwrap();
         assert_eq!(
@@ -680,7 +680,7 @@ fn reviewed_files_show_full_inline_replies_with_or_without_remaining_diff_rows()
             Resolution::Open
         );
         assert!(!ui.text().contains("The answer remains visible"));
-        assert_eq!(ui.app.navigation, ReviewNavigation::Files);
+        assert_eq!(ui.app.navigation.mode(), ReviewNavigation::Files);
         assert!(ui.text().contains("Resolved · Explain this branch"));
         assert!(ui.text().contains("Unresolve thread"));
         assert!(!ui.text().contains("Reply…"));
@@ -717,7 +717,7 @@ fn collapsed_inline_threads_preserve_drafts_and_unread_answers_until_reopened() 
     assert!(ui.text().contains("A late answer in a collapsed thread"));
     assert!(ui.text().contains("Keep my draft"));
     assert!(ui.text().contains("1/1 reviewed"));
-    assert_eq!(ui.app.navigation, ReviewNavigation::Files);
+    assert_eq!(ui.app.navigation.mode(), ReviewNavigation::Files);
     ui.present();
     assert_eq!(ui.book.counts().unread, 0);
 }
@@ -731,12 +731,12 @@ fn narrow_navigation_keeps_replies_unread_until_the_answer_is_displayed() {
         "Unread answer\n\nMore detail\n\nAnother paragraph\n\nThe rest of this answer starts below the viewport.",
     );
     ui.key(Key::Alt('u'));
-    assert_eq!(ui.app.focus, ReviewPane::Navigation);
+    assert_eq!(ui.app.navigation.focus(), ReviewPane::Navigation);
     assert_eq!(ui.book.counts().unread, 1);
     ui.key(Key::Down);
     assert_eq!(ui.book.counts().unread, 1);
     ui.key(Key::Tab);
-    assert_eq!(ui.app.focus, ReviewPane::Detail);
+    assert_eq!(ui.app.navigation.focus(), ReviewPane::Detail);
     assert_eq!(ui.book.counts().unread, 1);
     ui.key(Key::Alt('u'));
     assert!(ui.text().contains("Unresolved / [All]"));
@@ -788,17 +788,17 @@ fn filename_opens_files_and_preserves_the_conversation_draft() {
             row,
         });
         assert_eq!(
-            ui.app.navigation,
+            ui.app.navigation.mode(),
             ReviewNavigation::Threads,
             "padding is not a link"
         );
         ui.app.update(UserInput::MouseClick { column, row });
-        assert_eq!(ui.app.navigation, ReviewNavigation::Files);
-        assert_eq!(ui.app.focus, ReviewPane::Detail);
+        assert_eq!(ui.app.navigation.mode(), ReviewNavigation::Files);
+        assert_eq!(ui.app.navigation.focus(), ReviewPane::Detail);
         assert!(ui.text().contains("Diff · gone.rs"), "{}", ui.text());
         assert_eq!(ui.book.thread(&ui.ids[1]).unwrap().messages.len(), 1);
         ui.key(Key::Char('t'));
-        assert_eq!(ui.app.focus, ReviewPane::Detail);
+        assert_eq!(ui.app.navigation.focus(), ReviewPane::Detail);
         ui.key(Key::ControlEnter);
         assert_eq!(
             ui.book
@@ -1471,10 +1471,14 @@ fn navigation_switches_reach_the_application_while_a_diff_reply_is_composed() {
         ui.key(Key::Enter);
         ui.key(Key::Char('A'));
         ui.paste("Unposted reply");
-        assert_eq!(ui.app.navigation, ReviewNavigation::Threads);
+        assert_eq!(ui.app.navigation.mode(), ReviewNavigation::Threads);
 
         ui.key(key);
 
-        assert_ne!(ui.app.navigation, ReviewNavigation::Threads, "{key:?}");
+        assert_ne!(
+            ui.app.navigation.mode(),
+            ReviewNavigation::Threads,
+            "{key:?}"
+        );
     }
 }

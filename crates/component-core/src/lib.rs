@@ -440,6 +440,14 @@ impl<A: Send + 'static> ComponentEventBus<A> {
         self.components.get(&target)?.downcast_ref::<C>()
     }
 
+    /// Mutably borrow one exact mounted component and verify its concrete type.
+    pub fn get_mut<C>(&mut self, target: ComponentTarget) -> Option<&mut C>
+    where
+        C: Component<A>,
+    {
+        self.components.get_mut(&target)?.downcast_mut::<C>()
+    }
+
     /// Publish one external event through the bus.
     pub fn publish<E>(&mut self, event: E) -> Result<Vec<DispatchResult<A>>, DispatchError>
     where

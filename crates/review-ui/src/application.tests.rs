@@ -435,13 +435,9 @@ fn popup_shortcuts_close_the_popup_while_the_diff_pane_has_focus() {
 
 fn application_with_ordered_input_components() -> ReviewApplication {
     let mut application = application();
-    application.mount_input_component_for_test(
-        |_| SelectiveGlobalComponent,
-        Rect::default(),
-        false,
-    );
-    application.mount_input_component_for_test(|_| FocusedComponent, Rect::default(), true);
-    application.mount_input_component_for_test(|_| GlobalComponent, Rect::default(), false);
+    application.mount_input_component_for_test(|_| SelectiveGlobalComponent, false);
+    application.mount_input_component_for_test(|_| FocusedComponent, true);
+    application.mount_input_component_for_test(|_| GlobalComponent, false);
     application
 }
 
@@ -629,7 +625,7 @@ fn focused_input_runs_before_global_input() {
 #[test]
 fn completed_global_shortcut_returns_input_to_the_focused_component() {
     let mut application = application();
-    application.mount_input_component_for_test(|_| FocusedComponent, Rect::default(), true);
+    application.mount_input_component_for_test(|_| FocusedComponent, true);
 
     assert!(
         application

@@ -4,6 +4,7 @@ mod application;
 mod application_frame;
 mod layout;
 mod message;
+mod navigation;
 
 pub use application::ReviewApplication;
 pub use application_frame::ApplicationFrame;

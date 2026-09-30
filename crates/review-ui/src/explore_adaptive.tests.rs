@@ -457,10 +457,16 @@ fn conclusion_history_restores_its_draft_after_visiting_question_evidence() {
     fixture.app.update(UserInput::Paste("Opening draft".into()));
     fixture.click("[Next]");
     fixture.click("pub fn policy()");
-    assert_eq!(fixture.app.focus, ui_events::ReviewPane::Detail);
+    assert_eq!(
+        fixture.app.navigation.focus(),
+        ui_events::ReviewPane::Detail
+    );
     fixture.click("[Previous]");
     fixture.app.update(UserInput::Key(Key::Tab));
-    assert_eq!(fixture.app.focus, ui_events::ReviewPane::Navigation);
+    assert_eq!(
+        fixture.app.navigation.focus(),
+        ui_events::ReviewPane::Navigation
+    );
     fixture.app.update(UserInput::Key(Key::Char('!')));
     let request = ExploreUi::request(fixture.app.update(UserInput::Key(Key::ControlEnter)));
     let answer = request.answer.unwrap();

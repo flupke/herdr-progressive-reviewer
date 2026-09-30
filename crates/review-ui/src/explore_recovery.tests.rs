@@ -661,7 +661,10 @@ fn restored_evidence_position_height_and_focus_survive_reflow_without_selecting_
         state: state.clone(),
     };
     no_post(&restore(&mut fixture, &pass, Some(view)));
-    assert_eq!(fixture.app.focus, ui_events::ReviewPane::Detail);
+    assert_eq!(
+        fixture.app.navigation.focus(),
+        ui_events::ReviewPane::Detail
+    );
     let sizes = fixture.inline_sizes();
     assert_eq!(sizes[0].1.height + 2, 15);
     fixture.app.publish(ui_events::ExploreViewports(sizes));

@@ -39,11 +39,11 @@ fn lsp_references_open_beside_explore_source_and_restore_the_full_pane() {
         .unwrap()
         .area;
     assert_eq!(selector.right(), explore.x);
-    assert_eq!(explore.right(), fixture.app.width);
+    assert_eq!(explore.right(), fixture.app.viewport.width);
     let top = fixture
         .buffer()
         .content
-        .chunks(usize::from(fixture.app.width))
+        .chunks(usize::from(fixture.app.viewport.width))
         .nth(1)
         .unwrap()
         .iter()
@@ -54,7 +54,7 @@ fn lsp_references_open_beside_explore_source_and_restore_the_full_pane() {
     let source_side = fixture
         .buffer()
         .content
-        .chunks(usize::from(fixture.app.width))
+        .chunks(usize::from(fixture.app.viewport.width))
         .map(|row| {
             row.iter()
                 .skip(usize::from(explore.x))
@@ -75,7 +75,7 @@ fn lsp_references_open_beside_explore_source_and_restore_the_full_pane() {
             .unwrap()
             .area
             .width,
-        fixture.app.width
+        fixture.app.viewport.width
     );
 }
 
@@ -93,7 +93,7 @@ fn explore_tabs_share_the_pane_border_and_controls_keep_distinct_styles() {
     let (link_column, link_row) = fixture.point("[Answered-evidence coverage");
     assert_eq!(button_row, defer_row);
     assert!(defer_column < button_column);
-    assert_eq!(button_column + 6, fixture.app.width - 2);
+    assert_eq!(button_column + 6, fixture.app.viewport.width - 2);
     let buffer = fixture.buffer();
     assert_eq!(
         buffer.cell((button_column, button_row)).unwrap().bg,
@@ -120,7 +120,7 @@ fn coverage_overview_opens_a_gap_without_losing_the_question_draft() {
     fixture.click("Answered-evidence coverage 0% of required lines");
     assert!(fixture.text().contains("Needs answers"));
     fixture.click("Next unexplored region");
-    assert_eq!(fixture.app.navigation, ReviewNavigation::Explore);
+    assert_eq!(fixture.app.navigation.mode(), ReviewNavigation::Explore);
     let coverage = fixture
         .app
         .event_bus
@@ -150,7 +150,7 @@ fn coverage_keyboard_opens_the_pass_diff_without_editing_the_answer() {
     fixture.app.update(UserInput::Key(Key::Char('g')));
     fixture.app.update(UserInput::Key(Key::Alt('n')));
     assert!(fixture.text().contains("File diff · policy.rs"));
-    assert_eq!(fixture.app.navigation, ReviewNavigation::Explore);
+    assert_eq!(fixture.app.navigation.mode(), ReviewNavigation::Explore);
 }
 
 #[test]
@@ -178,7 +178,7 @@ fn coverage_control_reveals_overview_from_a_scrolled_question_and_restores_scrol
         fixture
             .buffer()
             .content
-            .chunks(usize::from(fixture.app.width))
+            .chunks(usize::from(fixture.app.viewport.width))
             .any(|row| row
                 .iter()
                 .map(ratatui::buffer::Cell::symbol)
@@ -351,7 +351,12 @@ impl ExploreUi {
             .unwrap();
         explore
             .viewports(
-                Rect::new(0, 2, self.app.width, self.app.height.saturating_sub(3)),
+                Rect::new(
+                    0,
+                    2,
+                    self.app.viewport.width,
+                    self.app.viewport.height.saturating_sub(3),
+                ),
                 diff,
                 self.app.palette,
             )
@@ -372,7 +377,7 @@ impl ExploreUi {
         let buffer = self.buffer();
         buffer
             .content
-            .chunks(usize::from(self.app.width))
+            .chunks(usize::from(self.app.viewport.width))
             .enumerate()
             .find_map(|(row, cells)| {
                 let line: String = cells.iter().map(ratatui::buffer::Cell::symbol).collect();
@@ -469,7 +474,7 @@ fn mcp_questions_received_in_other_panes_are_ready_on_return_and_retries_do_not_
             response: response.clone(),
         });
         assert!(received.recv().unwrap().unwrap());
-        assert_eq!(fixture.app.navigation, mode);
+        assert_eq!(fixture.app.navigation.mode(), mode);
         fixture
             .app
             .publish(ReviewNavigationChanged(ReviewNavigation::Explore));
@@ -673,10 +678,10 @@ fn evidence_uses_stable_default_height_and_keeps_manual_resizes() {
         width: 140,
         height: 60,
     });
-    fixture.app.file_width = Some(39);
+    fixture.app.viewport.file_width = Some(39);
     fixture.respond(&request, 1);
     let default_height = fixture.inline_height(0);
-    assert!(default_height <= (fixture.app.height - 5) / 2);
+    assert!(default_height <= (fixture.app.viewport.height - 5) / 2);
     assert_eq!(fixture.inline_sizes()[0].1.width, 88);
     fixture.app.update(UserInput::Key(Key::Alt('j')));
     assert!(fixture.inline_height(0) > default_height);
@@ -711,7 +716,7 @@ fn evidence_uses_stable_default_height_and_keeps_manual_resizes() {
         height: 60,
     });
     assert_eq!(fixture.inline_height(0), default_height);
-    assert_eq!(fixture.app.file_width, Some(39));
+    assert_eq!(fixture.app.viewport.file_width, Some(39));
 }
 
 #[test]
@@ -721,7 +726,7 @@ fn evidence_divider_drag_resizes_the_source_without_changing_files_width() {
         width: 140,
         height: 65,
     });
-    fixture.app.file_width = Some(39);
+    fixture.app.viewport.file_width = Some(39);
     fixture.respond(&request, 1);
     let initial = fixture.inline_sizes()[0].1.width;
     let (diff_title, row) = fixture.point("Diff ·");
@@ -736,7 +741,7 @@ fn evidence_divider_drag_resizes_the_source_without_changing_files_width() {
     });
     fixture.app.update(UserInput::MouseRelease);
     assert_eq!(fixture.inline_sizes()[0].1.width, initial - 5);
-    assert_eq!(fixture.app.file_width, Some(39));
+    assert_eq!(fixture.app.viewport.file_width, Some(39));
 }
 
 #[test]
@@ -910,7 +915,7 @@ fn large_evidence_is_bounded_and_wheels_scroll_exactly_one_layer() {
         request: request.request,
         result: Ok(response),
     });
-    assert!(fixture.inline_height(0) <= (fixture.app.height - 5) / 2);
+    assert!(fixture.inline_height(0) <= (fixture.app.viewport.height - 5) / 2);
     assert!(
         !fixture.text().contains("line_229"),
         "distant evidence must not enlarge the first window"
@@ -940,7 +945,7 @@ fn large_evidence_is_bounded_and_wheels_scroll_exactly_one_layer() {
         "conversation scroll must leave the code position intact"
     );
     assert_eq!(
-        fixture.app.focus,
+        fixture.app.navigation.focus(),
         ReviewPane::Navigation,
         "keyboard focus cannot remain on an offscreen viewer"
     );

@@ -16,14 +16,14 @@ use revision_component::RevisionComponent;
 use status_component::StatusComponent;
 use threads_component::ThreadsComponent;
 use ui_events::{ReviewNavigation, ReviewPane};
-use ui_panes::SplitPane;
 use ui_theme::Palette;
 
-use crate::layout::{NavigationTabs, PaneLayout, location_selector_panes};
+use crate::layout::{Body, NavigationTabs, ScreenLayout};
 
 /// One renderable frame assembled from mounted components.
 pub struct ApplicationFrame<'a> {
-    pub(super) file_width: Option<u16>,
+    pub(super) layout: ScreenLayout,
+    pub(super) mode: ReviewNavigation,
     pub(super) focus: ReviewPane,
     pub(super) palette: Palette,
     pub(super) files: &'a FilesComponent,
@@ -43,23 +43,13 @@ impl Widget for ApplicationFrame<'_> {
             return;
         }
 
-        let layout = PaneLayout::for_navigation(
-            area.width,
-            area.height,
-            self.file_width,
-            self.threads.mode(),
-        );
-        let header = Rect::new(area.x, area.y, area.width, 1);
-        let body = Rect::new(area.x, area.y + 1, area.width, layout.body_height());
-        let footer = Rect::new(
-            area.x,
-            area.bottom() - layout.footer_height,
-            area.width,
-            layout.footer_height,
-        );
-        self.status.render_header(header, buffer, self.palette);
-        self.render_body(layout, body, buffer);
-        self.status.render_footer(footer, buffer, self.palette);
+        let layout = self.layout.fitted_to(area);
+        let body = layout.body_area();
+        self.status
+            .render_header(layout.header(), buffer, self.palette);
+        self.render_body(layout.body(), buffer);
+        self.status
+            .render_footer(layout.footer(), buffer, self.palette);
         self.overlay.render_notifications(body, buffer);
         self.overlay.render(area, buffer);
         self.revision.render(area, buffer);
@@ -68,79 +58,53 @@ impl Widget for ApplicationFrame<'_> {
 }
 
 impl ApplicationFrame<'_> {
-    fn render_body(&self, layout: PaneLayout, body: Rect, buffer: &mut Buffer) {
-        if self.threads.mode() == ReviewNavigation::Explore {
-            let source = |area, buffer: &mut Buffer| {
-                self.explore.render(
-                    area,
-                    buffer,
-                    self.palette,
-                    self.focus == ReviewPane::Navigation,
-                    self.diff,
-                );
-                self.render_tabs(area, buffer);
-            };
-            if self.locations.is_active() {
-                location_selector_panes(body, self.file_width).render(
-                    buffer,
-                    |left, buffer| self.locations.render(left, buffer, true),
-                    source,
-                );
-            } else {
-                source(body, buffer);
+    fn render_body(&self, body: Body, buffer: &mut Buffer) {
+        match body {
+            Body::Explore { locations, source } => {
+                if let Some(split) = locations {
+                    self.locations.render(split.left, buffer, true);
+                }
+                self.render_navigation(source, buffer);
             }
-            return;
-        }
-        if layout.is_wide() {
-            SplitPane::new(body, layout.file_width, 0).render(
-                buffer,
-                |left, buffer| self.render_files(left, buffer),
-                |right, buffer| self.render_diff(right, buffer),
-            );
-        } else {
-            match self.focus {
-                ReviewPane::Navigation => self.render_files(body, buffer),
-                ReviewPane::Detail => self.render_diff(body, buffer),
+            Body::Split(split) => {
+                self.render_navigation_pane(split.left, buffer);
+                self.render_diff(split.right, buffer);
             }
+            Body::Single {
+                pane: ReviewPane::Navigation,
+                area,
+            } => self.render_navigation_pane(area, buffer),
+            Body::Single {
+                pane: ReviewPane::Detail,
+                area,
+            } => self.render_diff(area, buffer),
         }
     }
 
-    fn render_files(&self, area: Rect, buffer: &mut Buffer) {
+    /// The navigation pane, which the location selector replaces while open.
+    fn render_navigation_pane(&self, area: Rect, buffer: &mut Buffer) {
         if self.locations.is_active() {
             self.locations.render(area, buffer, true);
-            return;
+        } else {
+            self.render_navigation(area, buffer);
         }
-        let mode = self.threads.mode();
-        match mode {
-            ReviewNavigation::Files => {
-                self.files.render(
-                    area,
-                    buffer,
-                    self.palette,
-                    self.focus == ReviewPane::Navigation,
-                );
-            }
-            ReviewNavigation::Explore => self.explore.render(
-                area,
-                buffer,
-                self.palette,
-                self.focus == ReviewPane::Navigation,
-                self.diff,
-            ),
-            ReviewNavigation::Threads => {
-                self.threads.render(
-                    area,
-                    buffer,
-                    self.palette,
-                    self.focus == ReviewPane::Navigation,
-                );
+    }
+
+    fn render_navigation(&self, area: Rect, buffer: &mut Buffer) {
+        let focused = self.focus == ReviewPane::Navigation;
+        match self.mode {
+            ReviewNavigation::Files => self.files.render(area, buffer, self.palette, focused),
+            ReviewNavigation::Threads => self.threads.render(area, buffer, self.palette, focused),
+            ReviewNavigation::Explore => {
+                self.explore
+                    .render(area, buffer, self.palette, focused, self.diff);
             }
         }
         self.render_tabs(area, buffer);
     }
 
     fn render_tabs(&self, area: Rect, buffer: &mut Buffer) {
-        let mode = self.threads.mode();
+        let mode = self.mode;
         let active = Style::default()
             .fg(self.palette.focus)
             .add_modifier(Modifier::BOLD);

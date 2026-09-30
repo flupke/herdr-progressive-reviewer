@@ -39,9 +39,10 @@ impl Filter {
     }
 }
 
-/// The Files/Threads mode and a stable list of conversations for the whole review.
+/// A stable list of conversations for the whole review.
 pub struct ThreadsComponent {
     events: EventPublisher,
+    /// The navigation mode as last announced; the application owns it.
     mode: ReviewNavigation,
     review_unit: Option<ReviewUnit>,
     book: Option<ReviewThreads>,
@@ -54,7 +55,6 @@ pub struct ThreadsComponent {
     searching: bool,
     scroll: usize,
     viewport_rows: usize,
-    focus_request: (u64, ReviewPane),
 }
 
 impl ThreadsComponent {
@@ -76,23 +76,13 @@ impl ThreadsComponent {
             searching: false,
             scroll: 0,
             viewport_rows: 1,
-            focus_request: (0, ReviewPane::Navigation),
         }
-    }
-
-    pub fn mode(&self) -> ReviewNavigation {
-        self.mode
     }
 
     pub fn has_unread_replies(&self) -> bool {
         self.book
             .as_ref()
             .is_some_and(|book| book.counts().unread > 0)
-    }
-
-    /// A serial number lets the application consume each focus request once.
-    pub fn focus_request(&self) -> (u64, ReviewPane) {
-        self.focus_request
     }
 
     fn visible(&self) -> Vec<&ReviewThread> {
@@ -291,7 +281,6 @@ impl ThreadsComponent {
 
     #[allow(clippy::trivially_copy_pass_by_ref)]
     fn focus_requested(&mut self, event: &ReviewPaneFocusRequested) {
-        self.focus_request = (self.focus_request.0.wrapping_add(1), event.0);
         if event.0 == ReviewPane::Detail && self.mode == ReviewNavigation::Threads {
             self.select(self.selected.clone());
         }

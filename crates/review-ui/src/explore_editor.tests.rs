@@ -158,9 +158,13 @@ fn explore_lets_application_keys_through_while_no_answer_is_composed() {
             let (mut fixture, request) = ExploreUi::new();
             fixture.respond(&request, 1);
             fixture.app.update(UserInput::Key(key));
-            assert_ne!(fixture.app.navigation, ReviewNavigation::Explore, "{key:?}");
+            assert_ne!(
+                fixture.app.navigation.mode(),
+                ReviewNavigation::Explore,
+                "{key:?}"
+            );
             if let Some(destination) = destination {
-                assert_eq!(fixture.app.navigation, destination, "{key:?}");
+                assert_eq!(fixture.app.navigation.mode(), destination, "{key:?}");
             }
         }
     }
@@ -181,7 +185,11 @@ fn explore_lets_only_navigation_switches_through_while_an_answer_is_composed() {
         fixture.respond(&request, 1);
         fixture.app.update(UserInput::Paste("Answer draft".into()));
         fixture.app.update(UserInput::Key(key));
-        assert_ne!(fixture.app.navigation, ReviewNavigation::Explore, "{key:?}");
+        assert_ne!(
+            fixture.app.navigation.mode(),
+            ReviewNavigation::Explore,
+            "{key:?}"
+        );
     }
     let typed = [
         ApplicationShortcut::Quit,
@@ -202,7 +210,11 @@ fn explore_lets_only_navigation_switches_through_while_an_answer_is_composed() {
                 .contains(&Action::Terminal(TerminalAction::Quit)),
             "{key:?}"
         );
-        assert_eq!(fixture.app.navigation, ReviewNavigation::Explore, "{key:?}");
+        assert_eq!(
+            fixture.app.navigation.mode(),
+            ReviewNavigation::Explore,
+            "{key:?}"
+        );
         assert!(!fixture.text().contains("Keyboard shortcuts"), "{key:?}");
     }
 }

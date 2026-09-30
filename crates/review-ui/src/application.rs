@@ -21,17 +21,15 @@ use ui_events::{
     PointerInputKind, PointerPosition, ReviewNavigation, ReviewNavigationChanged, ReviewPane,
     ReviewableFiles, ViewportChanged,
 };
-use ui_panes::SplitPane;
 
-use crate::layout::{NavigationTabs, PaneLayout, location_selector_panes};
+use crate::layout::{Body, NavigationTabs, PaneLayout, ScreenLayout, Viewport};
+use crate::navigation::{Modal, Navigation, NavigationRequests, OpenModals, PaneComponent};
 use crate::{Action, ApplicationFrame, SettingsAction, TerminalAction, Theme, UserInput};
 use ui_theme::Palette;
 
 /// The root coordinator for the review UI.
 pub struct ReviewApplication {
     event_bus: ComponentEventBus<Action>,
-    modal_component: Option<ComponentTarget>,
-    focused_component: ComponentTarget,
     hovered_component: Option<ComponentTarget>,
     files_component: ComponentTarget,
     threads_component: ComponentTarget,
@@ -41,22 +39,18 @@ pub struct ReviewApplication {
     status_component: ComponentTarget,
     overlay_component: ComponentTarget,
     revision_component: ComponentTarget,
-    file_width: Option<u16>,
-    focus: ReviewPane,
-    navigation: ReviewNavigation,
-    files_focus: ReviewPane,
-    threads_focus: ReviewPane,
-    explore_focus: ReviewPane,
-    consumed_focus_request: u64,
+    navigation_requests: ComponentTarget,
+    viewport: Viewport,
+    navigation: Navigation,
     palette: Palette,
-    width: u16,
-    height: u16,
     component_areas: Vec<ComponentArea>,
     global_input_pending: bool,
     application_shortcuts: ui_shortcuts::ShortcutMatcher<ui_shortcuts::ApplicationCommand>,
     file_pane_resize: Option<FilePaneResize>,
     editor_keymap: KeymapSetting,
     saved_editor_keymap: EditorKeymap,
+    #[cfg(test)]
+    focused_for_test: Option<ComponentTarget>,
 }
 
 #[derive(Clone, Copy)]
@@ -119,10 +113,14 @@ impl ReviewApplication {
             event_bus.mount(|events| ExploreComponent::with_keymap(events, editor_keymap.clone()));
         let overlay = event_bus.mount(|_| OverlayComponent::new(theme));
         let revision = event_bus.mount(|events| RevisionComponent::new(events, theme.palette));
+        let navigation_requests = event_bus.mount(|_| NavigationRequests::default());
+        let viewport = Viewport {
+            width: 80,
+            height: 24,
+            file_width,
+        };
         Self {
             event_bus,
-            modal_component: None,
-            focused_component: files,
             hovered_component: None,
             files_component: files,
             threads_component: threads,
@@ -132,22 +130,18 @@ impl ReviewApplication {
             status_component: status,
             overlay_component: overlay,
             revision_component: revision,
-            file_width,
-            focus: ReviewPane::Navigation,
-            navigation: ReviewNavigation::Files,
-            files_focus: ReviewPane::Navigation,
-            threads_focus: ReviewPane::Navigation,
-            explore_focus: ReviewPane::Navigation,
-            consumed_focus_request: 0,
+            navigation_requests,
+            viewport,
+            navigation: Navigation::new(viewport),
             palette,
-            width: 80,
-            height: 24,
             component_areas: Vec::new(),
             global_input_pending: false,
             application_shortcuts: ui_shortcuts::ShortcutMatcher::new(),
             file_pane_resize: None,
             saved_editor_keymap: editor_keymap.get(),
             editor_keymap,
+            #[cfg(test)]
+            focused_for_test: None,
         }
     }
 
@@ -161,14 +155,12 @@ impl ReviewApplication {
     #[allow(clippy::needless_pass_by_value)]
     pub fn update(&mut self, message: UserInput) -> Vec<Action> {
         self.record_viewport_size(&message);
-        self.synchronize_input_routing();
-        self.synchronize_component_areas();
+        self.synchronize();
         let Ok(results) = self.dispatch_primary_message(&message) else {
             debug_assert!(false, "the mounted component must match its subscription");
             return Vec::new();
         };
-        self.synchronize_input_routing();
-        self.synchronize_component_areas();
+        self.synchronize();
         self.collect_actions(results)
     }
 
@@ -181,8 +173,7 @@ impl ReviewApplication {
             debug_assert!(false, "the mounted component must match its subscription");
             return Vec::new();
         };
-        self.synchronize_input_routing();
-        self.synchronize_component_areas();
+        self.synchronize();
         self.collect_actions(results)
     }
 
@@ -192,15 +183,14 @@ impl ReviewApplication {
             debug_assert!(false, "the mounted component must match its subscription");
             return Vec::new();
         };
-        self.synchronize_input_routing();
-        self.synchronize_component_areas();
+        self.synchronize();
         self.collect_actions(results)
     }
 
     fn record_viewport_size(&mut self, message: &UserInput) {
         if let UserInput::Resize { width, height } = message {
-            self.width = *width;
-            self.height = *height;
+            self.viewport.width = *width;
+            self.viewport.height = *height;
         }
     }
 
@@ -213,10 +203,10 @@ impl ReviewApplication {
                 .event_bus
                 .dispatch_input(
                     &EventEnvelope::new(ui_events::TextPasted(text.clone())),
-                    self.modal_component.unwrap_or(self.focused_component),
+                    self.input_target(),
                 )
                 .map(component_core::InputDispatch::into_results),
-            UserInput::Key(key) => self.dispatch_key(*key),
+            UserInput::Key(key) => self.dispatch_keyboard_input(&EventEnvelope::new(*key)),
             UserInput::Resize { width, height } => self.dispatch_resize(*width, *height),
             message => self.dispatch_pointer_input(message),
         }
@@ -241,7 +231,7 @@ impl ReviewApplication {
                 .moved
                 .then(|| {
                     vec![Action::Settings(SettingsAction::SaveFilePaneWidth(
-                        self.file_width.unwrap_or_default(),
+                        self.viewport.file_width.unwrap_or_default(),
                     ))]
                     .into_dispatch_result()
                 })
@@ -264,19 +254,7 @@ impl ReviewApplication {
             kind,
             PointerInputKind::Click | PointerInputKind::DoubleClick
         ) {
-            if [
-                self.files_component,
-                self.threads_component,
-                self.explore_component,
-            ]
-            .contains(&target)
-            {
-                self.set_focus(ReviewPane::Navigation);
-                self.focused_component = target;
-            } else if target == self.diff_component {
-                self.set_focus(ReviewPane::Detail);
-                self.focused_component = self.diff_component;
-            }
+            self.focus_clicked_pane(target);
         }
         let position = pointer_position
             .zip(component_area)
@@ -297,35 +275,36 @@ impl ReviewApplication {
             .into_results())
     }
 
-    fn navigation_tab_at(&self, message: &UserInput) -> Option<ReviewNavigation> {
-        if self.modal_component.is_none()
-            && let UserInput::MouseClick { column, row: 1, .. } = message
+    fn focus_clicked_pane(&mut self, target: ComponentTarget) {
+        let pane = if target == self.diff_component {
+            ReviewPane::Detail
+        } else if [
+            self.files_component,
+            self.threads_component,
+            self.explore_component,
+        ]
+        .contains(&target)
         {
-            let layout = PaneLayout::for_navigation(
-                self.width,
-                self.height,
-                self.file_width,
-                self.navigation,
-            );
-            let width = if layout.is_wide() {
-                layout.file_width
-            } else {
-                self.width
-            };
-            if (layout.is_wide()
-                || self.focus == ReviewPane::Navigation
-                || self.navigation == ReviewNavigation::Explore)
-                && *column > 0
-                && *column < width.saturating_sub(1)
-            {
-                let unread = self
-                    .event_bus
-                    .get::<ThreadsComponent>(self.threads_component)
-                    .is_some_and(ThreadsComponent::has_unread_replies);
-                return NavigationTabs::mode_at(column - 1, unread);
-            }
+            ReviewPane::Navigation
+        } else {
+            return;
+        };
+        self.navigation.focus_pane(pane);
+    }
+
+    fn navigation_tab_at(&self, message: &UserInput) -> Option<ReviewNavigation> {
+        let UserInput::MouseClick { column, row, .. } = message else {
+            return None;
+        };
+        let tabs = self.navigation.layout().tabs()?;
+        if self.navigation.modal().is_some() || !tabs.contains((*column, *row).into()) {
+            return None;
         }
-        None
+        let unread = self
+            .event_bus
+            .get::<ThreadsComponent>(self.threads_component)
+            .is_some_and(ThreadsComponent::has_unread_replies);
+        NavigationTabs::mode_at(column - tabs.x, unread)
     }
 
     fn dispatch_resize(
@@ -353,7 +332,7 @@ impl ReviewApplication {
             .unwrap_or_default();
         if let Ok(saves) = self.event_bus.publish(ui_events::ExploreAutosave {
             positions,
-            focus: (self.navigation == ReviewNavigation::Explore).then_some(self.focus),
+            focus: self.navigation.explore_focus(),
         }) {
             let saves = saves.into_iter().flat_map(DispatchResult::into_actions);
             actions.splice(0..0, saves);
@@ -368,8 +347,9 @@ impl ReviewApplication {
     /// Panics if the files component was removed from the application registry.
     pub fn frame(&self) -> ApplicationFrame<'_> {
         ApplicationFrame {
-            file_width: self.file_width,
-            focus: self.focus,
+            layout: self.navigation.layout(),
+            mode: self.navigation.mode(),
+            focus: self.navigation.focus(),
             palette: self.palette,
             files: self
                 .event_bus
@@ -418,16 +398,18 @@ impl ReviewApplication {
         &mut self,
         message: &UserInput,
     ) -> Option<Vec<DispatchResult<Action>>> {
-        let layout =
-            PaneLayout::for_navigation(self.width, self.height, self.file_width, self.navigation);
         match message {
-            UserInput::MouseClick { column, row, .. } if layout.is_separator(*column, *row) => {
+            UserInput::MouseClick { column, row, .. }
+                if self.navigation.layout().is_separator(*column, *row) =>
+            {
                 self.file_pane_resize = Some(FilePaneResize { moved: false });
                 Some(Vec::new())
             }
             UserInput::MouseDrag { column, .. } if self.file_pane_resize.is_some() => {
-                self.file_width =
-                    Some(PaneLayout::new(self.width, self.height, Some(*column)).file_width);
+                self.viewport.file_width = Some(
+                    PaneLayout::new(self.viewport.width, self.viewport.height, Some(*column))
+                        .file_width,
+                );
                 if let Some(resize) = &mut self.file_pane_resize {
                     resize.moved = true;
                 }
@@ -437,185 +419,80 @@ impl ReviewApplication {
         }
     }
 
-    fn set_focus(&mut self, focus: ReviewPane) {
-        self.focus = focus;
-    }
-
-    fn dispatch_key(
-        &mut self,
-        key: crate::Key,
-    ) -> Result<Vec<DispatchResult<Action>>, DispatchError> {
-        self.dispatch_keyboard_input(&EventEnvelope::new(key))
-    }
-
-    fn synchronize_input_routing(&mut self) {
-        self.synchronize_navigation();
-        let overlay_is_modal = self
+    /// Bring navigation up to date with what components requested, which
+    /// modals are open and the viewport, then lay the screen out once.
+    fn synchronize(&mut self) {
+        let requests = self
             .event_bus
-            .get::<OverlayComponent>(self.overlay_component)
-            .is_some_and(OverlayComponent::is_modal);
-        let revision_is_modal = self
-            .event_bus
-            .get::<RevisionComponent>(self.revision_component)
-            .is_some_and(RevisionComponent::is_modal);
-        let locations_is_modal = self
-            .event_bus
-            .get::<LocationsComponent>(self.locations_component)
-            .is_some_and(LocationsComponent::is_active);
-        self.modal_component = if revision_is_modal {
-            Some(self.revision_component)
-        } else if overlay_is_modal {
-            Some(self.overlay_component)
-        } else if locations_is_modal {
-            Some(self.locations_component)
-        } else {
-            None
-        };
-        if self.modal_component.is_none()
-            && matches!(
-                self.focused_component,
-                target if target == self.diff_component || target == self.files_component || target == self.threads_component || target == self.explore_component
-            )
-        {
-            self.focused_component = match self.focus {
-                ReviewPane::Navigation => self.navigation_component(),
-                ReviewPane::Detail => self.diff_component,
-            };
-        }
-    }
-
-    fn synchronize_navigation(&mut self) {
-        let threads = self
-            .event_bus
-            .get::<ThreadsComponent>(self.threads_component)
-            .expect("the threads component must stay mounted");
-        let mode = threads.mode();
-        let (serial, pane) = threads.focus_request();
-        if self.navigation != mode {
-            match self.navigation {
-                ReviewNavigation::Files => self.files_focus = self.focus,
-                ReviewNavigation::Threads => self.threads_focus = self.focus,
-                ReviewNavigation::Explore => self.explore_focus = self.focus,
-            }
-            self.focus = match mode {
-                ReviewNavigation::Files => self.files_focus,
-                ReviewNavigation::Threads => self.threads_focus,
-                ReviewNavigation::Explore => self.explore_focus,
-            };
-            self.navigation = mode;
-        }
-        if serial != self.consumed_focus_request {
-            self.consumed_focus_request = serial;
-            self.focus = pane;
-        }
-    }
-
-    fn synchronize_component_areas(&mut self) {
-        let width = self.width;
-        let height = self.height;
-        let layout = PaneLayout::for_navigation(width, height, self.file_width, self.navigation);
-        let body = Rect::new(0, 1, width, layout.body_height());
-        let locations_active = self
-            .event_bus
-            .get::<LocationsComponent>(self.locations_component)
-            .is_some_and(LocationsComponent::is_active);
-        let location_panes = (self.navigation == ReviewNavigation::Explore && locations_active)
-            .then(|| location_selector_panes(body, self.file_width));
-        let explore_area = location_panes.as_ref().map_or(body, |panes| panes.right);
-        let files_area = if self.navigation == ReviewNavigation::Explore {
-            Some(explore_area)
-        } else {
-            layout.files_content_area(self.focus)
-        };
-        let files_pane_width = if layout.is_wide() {
-            layout.file_width
-        } else {
-            width
-        };
-        let application_area = Rect::new(0, 0, width, height);
-        let navigation_component = self.navigation_component();
-        self.component_areas.retain(|component| {
-            component.target != self.files_component
-                && component.target != self.threads_component
-                && component.target != self.explore_component
+            .get_mut::<NavigationRequests>(self.navigation_requests)
+            .map(NavigationRequests::take)
+            .unwrap_or_default();
+        self.navigation.apply(requests);
+        self.navigation.set_modals(OpenModals {
+            revision: self
+                .event_bus
+                .get::<RevisionComponent>(self.revision_component)
+                .is_some_and(RevisionComponent::is_modal),
+            overlay: self
+                .event_bus
+                .get::<OverlayComponent>(self.overlay_component)
+                .is_some_and(OverlayComponent::is_modal),
+            locations: self
+                .event_bus
+                .get::<LocationsComponent>(self.locations_component)
+                .is_some_and(LocationsComponent::is_active),
         });
-        if let Some(area) = files_area {
-            self.set_component_area(navigation_component, area, 0);
+        self.navigation.relayout(self.viewport);
+        self.synchronize_component_areas();
+    }
+
+    /// Route pointer input and announce pane sizes from the shared layout.
+    fn synchronize_component_areas(&mut self) {
+        let layout = self.navigation.layout();
+        let application_area = Rect::new(0, 0, self.viewport.width, self.viewport.height);
+        let mut areas = Vec::new();
+        if let Some(area) = layout.navigation_input_area() {
+            areas.push(ComponentArea {
+                target: self.pane_target(self.navigation.navigation_pane()),
+                area,
+            });
             let _ = self.event_bus.publish(FilesViewportChanged {
                 rows: layout.page_rows(),
             });
-        } else {
-            self.component_areas
-                .retain(|component| component.target != self.files_component);
         }
-        self.synchronize_diff_area(layout, explore_area);
-        self.component_areas
-            .retain(|component| component.target != self.locations_component);
-        if locations_active {
-            self.component_areas.push(ComponentArea {
+        if let Some(area) = layout.visible_diff_pane() {
+            areas.push(ComponentArea {
+                target: self.diff_component,
+                area,
+            });
+        }
+        self.publish_detail_viewport(layout);
+        let modals = self.navigation.modals();
+        if modals.is_open(Modal::Locations) {
+            areas.push(ComponentArea {
                 target: self.locations_component,
-                area: location_panes.map_or(
-                    Rect::new(0, 1, files_pane_width, height.saturating_sub(2)),
-                    |panes| panes.left,
-                ),
+                area: layout.locations_pane(),
             });
         }
-        self.component_areas
-            .retain(|component| component.target != self.status_component);
-        self.component_areas.push(ComponentArea {
-            target: self.status_component,
-            area: Rect::new(0, 0, width, 1),
-        });
-        self.component_areas.push(ComponentArea {
-            target: self.status_component,
-            area: Rect::new(0, height.saturating_sub(1), width, 1),
-        });
-        self.component_areas
-            .retain(|component| component.target != self.overlay_component);
-        if self
-            .event_bus
-            .get::<OverlayComponent>(self.overlay_component)
-            .is_some_and(OverlayComponent::is_modal)
-        {
-            self.component_areas.push(ComponentArea {
-                target: self.overlay_component,
-                area: application_area,
+        for area in [layout.header(), layout.footer()] {
+            areas.push(ComponentArea {
+                target: self.status_component,
+                area,
             });
         }
-        self.component_areas
-            .retain(|component| component.target != self.revision_component);
-        if self
-            .event_bus
-            .get::<RevisionComponent>(self.revision_component)
-            .is_some_and(RevisionComponent::is_modal)
-        {
-            self.component_areas.push(ComponentArea {
-                target: self.revision_component,
-                area: application_area,
-            });
+        for modal in [Modal::Overlay, Modal::Revision] {
+            if modals.is_open(modal) {
+                areas.push(ComponentArea {
+                    target: self.modal_target(modal),
+                    area: application_area,
+                });
+            }
         }
+        self.component_areas = areas;
     }
 
-    fn synchronize_diff_area(&mut self, layout: PaneLayout, explore_area: Rect) {
-        let width = self.width;
-        let diff_pane_area = if layout.is_wide() {
-            SplitPane::new(
-                Rect::new(0, 1, width, layout.body_height()),
-                layout.file_width,
-                0,
-            )
-            .right
-        } else {
-            Rect::new(0, 1, width, layout.body_height())
-        };
-        self.component_areas
-            .retain(|component| component.target != self.diff_component);
-        if self.navigation != ReviewNavigation::Explore
-            && (layout.is_wide() || self.focus == ReviewPane::Detail)
-        {
-            self.set_component_area(self.diff_component, diff_pane_area, 1);
-        }
-        if self.navigation == ReviewNavigation::Explore {
+    fn publish_detail_viewport(&mut self, layout: ScreenLayout) {
+        if let Body::Explore { source, .. } = layout.body() {
             let explore = self
                 .event_bus
                 .get::<ExploreComponent>(self.explore_component)
@@ -624,28 +501,13 @@ impl ReviewApplication {
                 .event_bus
                 .get::<DiffComponent>(self.diff_component)
                 .expect("diff stays mounted");
-            let viewports = explore.viewports(explore_area, diff, self.palette);
+            let viewports = explore.viewports(source, diff, self.palette);
             let _ = self.event_bus.publish(viewports);
-        } else {
+        } else if let Some(pane) = layout.diff_pane() {
             let _ = self.event_bus.publish(DiffViewportChanged {
-                width: diff_pane_area.width.saturating_sub(2),
-                height: diff_pane_area.height.saturating_sub(2),
+                width: pane.width.saturating_sub(2),
+                height: pane.height.saturating_sub(2),
             });
-        }
-    }
-
-    fn set_component_area(&mut self, target: ComponentTarget, area: Rect, insert_at: usize) {
-        if let Some(component) = self
-            .component_areas
-            .iter_mut()
-            .find(|component| component.target == target)
-        {
-            component.area = area;
-        } else {
-            self.component_areas.insert(
-                insert_at.min(self.component_areas.len()),
-                ComponentArea { target, area },
-            );
         }
     }
 
@@ -653,18 +515,18 @@ impl ReviewApplication {
         &mut self,
         event: &EventEnvelope,
     ) -> Result<Vec<DispatchResult<Action>>, DispatchError> {
-        if self.modal_component.is_none()
+        if self.navigation.modal().is_none()
+            && self.navigation.focus_is_enclosed()
             && let Some(results) = self
                 .event_bus
-                .dispatch_enclosing_input(event, self.focused_component)?
+                .dispatch_enclosing_input(event, self.focused_target())?
         {
             return Ok(results);
         }
-        let focused_target = self.modal_component.unwrap_or(self.focused_component);
         let dispatch = if self.global_input_pending {
             self.event_bus.dispatch_global_input(event)?
         } else {
-            self.event_bus.dispatch_input(event, focused_target)?
+            self.event_bus.dispatch_input(event, self.input_target())?
         };
         self.global_input_pending = dispatch.global_input_pending();
         let results = dispatch.into_results();
@@ -709,7 +571,7 @@ impl ReviewApplication {
                 return self.change_navigation(ReviewNavigation::Explore);
             }
             ui_shortcuts::ApplicationShortcut::ToggleNavigation => {
-                return self.change_navigation(self.navigation.next());
+                return self.change_navigation(self.navigation.mode().next());
             }
             ui_shortcuts::ApplicationShortcut::NewReplies => {
                 return self
@@ -718,10 +580,10 @@ impl ReviewApplication {
                     .unwrap_or_default();
             }
             ui_shortcuts::ApplicationShortcut::ChangeFocus => {
-                self.change_focus();
+                let focus = self.navigation.toggle_focus();
                 return self
                     .event_bus
-                    .publish(ui_events::ReviewPaneFocusRequested(self.focus))
+                    .publish(ui_events::ReviewPaneFocusRequested(focus))
                     .unwrap_or_default();
             }
             ui_shortcuts::ApplicationShortcut::Clear => {
@@ -742,39 +604,48 @@ impl ReviewApplication {
     }
 
     fn begin_search(&mut self, event: &EventEnvelope) -> Vec<DispatchResult<Action>> {
-        if self.navigation == ReviewNavigation::Threads {
-            self.focus = ReviewPane::Navigation;
-            self.focused_component = self.threads_component;
-            return self
-                .event_bus
-                .dispatch_input(event, self.threads_component)
-                .map(component_core::InputDispatch::into_results)
-                .unwrap_or_default();
-        }
-        self.set_focus(ReviewPane::Detail);
-        self.focused_component = self.diff_component;
+        let (pane, target) = if self.navigation.mode() == ReviewNavigation::Threads {
+            (ReviewPane::Navigation, self.threads_component)
+        } else {
+            (ReviewPane::Detail, self.diff_component)
+        };
+        self.navigation.focus_pane(pane);
         self.event_bus
-            .dispatch_input(event, self.diff_component)
+            .dispatch_input(event, target)
             .map(component_core::InputDispatch::into_results)
             .unwrap_or_default()
     }
 
-    fn change_focus(&mut self) {
-        self.focus = match self.focus {
-            ReviewPane::Navigation => ReviewPane::Detail,
-            ReviewPane::Detail => ReviewPane::Navigation,
-        };
-        self.focused_component = match self.focus {
-            ReviewPane::Navigation => self.navigation_component(),
-            ReviewPane::Detail => self.diff_component,
-        };
+    /// The component that receives keyboard input: the open modal, otherwise
+    /// the focused pane.
+    fn input_target(&self) -> ComponentTarget {
+        self.navigation
+            .modal()
+            .map_or_else(|| self.focused_target(), |modal| self.modal_target(modal))
     }
 
-    fn navigation_component(&self) -> ComponentTarget {
-        match self.navigation {
-            ReviewNavigation::Files => self.files_component,
-            ReviewNavigation::Threads => self.threads_component,
-            ReviewNavigation::Explore => self.explore_component,
+    fn modal_target(&self, modal: Modal) -> ComponentTarget {
+        match modal {
+            Modal::Revision => self.revision_component,
+            Modal::Overlay => self.overlay_component,
+            Modal::Locations => self.locations_component,
+        }
+    }
+
+    fn focused_target(&self) -> ComponentTarget {
+        #[cfg(test)]
+        if let Some(target) = self.focused_for_test {
+            return target;
+        }
+        self.pane_target(self.navigation.focused_pane())
+    }
+
+    fn pane_target(&self, pane: PaneComponent) -> ComponentTarget {
+        match pane {
+            PaneComponent::Files => self.files_component,
+            PaneComponent::Threads => self.threads_component,
+            PaneComponent::Explore => self.explore_component,
+            PaneComponent::Diff => self.diff_component,
         }
     }
 
@@ -782,15 +653,13 @@ impl ReviewApplication {
     fn mount_input_component_for_test<C>(
         &mut self,
         construct: impl FnOnce(component_core::EventPublisher) -> C,
-        area: Rect,
         focused: bool,
     ) where
         C: component_core::Component<Action>,
     {
         let target = self.event_bus.mount(construct);
-        self.component_areas.push(ComponentArea { target, area });
         if focused {
-            self.focused_component = target;
+            self.focused_for_test = Some(target);
         }
     }
 }

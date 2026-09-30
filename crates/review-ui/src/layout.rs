@@ -1,4 +1,4 @@
-//! Application pane layout and focus state.
+//! Application pane layout, shared by drawing and pointer hit-testing.
 
 use ratatui::layout::Rect;
 use ui_panes::SplitPane;
@@ -10,7 +10,7 @@ use ui_events::{ReviewNavigation, ReviewPane};
 
 pub(super) struct NavigationTabs;
 
-pub(super) fn location_selector_panes(body: Rect, preferred_width: Option<u16>) -> SplitPane {
+fn location_selector_panes(body: Rect, preferred_width: Option<u16>) -> SplitPane {
     SplitPane::new(
         body,
         preferred_width.unwrap_or(body.width * 30 / 100).max(18),
@@ -58,9 +58,9 @@ impl NavigationTabs {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct PaneLayout {
-    pub(crate) width: u16,
-    pub(crate) height: u16,
-    pub(crate) footer_height: u16,
+    width: u16,
+    height: u16,
+    footer_height: u16,
     pub(crate) file_width: u16,
     wide: bool,
 }
@@ -84,7 +84,7 @@ impl PaneLayout {
         }
     }
 
-    pub(crate) fn for_navigation(
+    fn for_navigation(
         width: u16,
         height: u16,
         file_width: Option<u16>,
@@ -98,40 +98,234 @@ impl PaneLayout {
         layout
     }
 
-    pub(crate) fn is_wide(self) -> bool {
+    fn is_wide(self) -> bool {
         self.wide
     }
 
-    pub(crate) fn body_height(self) -> u16 {
+    fn body_height(self) -> u16 {
         self.height.saturating_sub(1 + self.footer_height)
     }
 
-    pub(crate) fn contains_body(self, column: u16, row: u16) -> bool {
+    fn contains_body(self, column: u16, row: u16) -> bool {
         column < self.width && row > 0 && row < self.height.saturating_sub(self.footer_height)
     }
 
-    pub(crate) fn is_separator(self, column: u16, row: u16) -> bool {
+    fn is_separator(self, column: u16, row: u16) -> bool {
         self.is_wide() && self.contains_body(column, row) && column.abs_diff(self.file_width) <= 1
     }
 
-    pub(crate) fn page_rows(self) -> usize {
+    fn page_rows(self) -> usize {
         usize::from(self.body_height().saturating_sub(2).max(1))
     }
+}
 
-    pub(crate) fn files_content_area(self, focus: ReviewPane) -> Option<Rect> {
-        if !self.is_wide() && focus != ReviewPane::Navigation {
-            return None;
-        }
-        let pane_width = if self.is_wide() {
-            self.file_width
+/// The terminal size and the reviewer's preferred navigation pane width.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct Viewport {
+    pub(crate) width: u16,
+    pub(crate) height: u16,
+    pub(crate) file_width: Option<u16>,
+}
+
+/// Where each part of the screen goes for one navigation state.
+///
+/// The application computes it once per state change; drawing and pointer
+/// hit-testing both read this value, so they cannot disagree.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ScreenLayout {
+    area: Rect,
+    file_width: Option<u16>,
+    navigation: ReviewNavigation,
+    focus: ReviewPane,
+    locations_active: bool,
+    panes: PaneLayout,
+    body: Body,
+}
+
+/// How the area between the header and the footer is divided.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Body {
+    /// Explore fills the body, beside the location selector while it is open.
+    Explore {
+        locations: Option<SplitPane>,
+        source: Rect,
+    },
+    /// The navigation pane beside the diff on a wide terminal.
+    Split(SplitPane),
+    /// One pane at a time on a narrow terminal.
+    Single { pane: ReviewPane, area: Rect },
+}
+
+impl ScreenLayout {
+    pub(crate) fn new(
+        viewport: Viewport,
+        navigation: ReviewNavigation,
+        focus: ReviewPane,
+        locations_active: bool,
+    ) -> Self {
+        Self::within(
+            Rect::new(0, 0, viewport.width, viewport.height),
+            viewport.file_width,
+            navigation,
+            focus,
+            locations_active,
+        )
+    }
+
+    fn within(
+        area: Rect,
+        file_width: Option<u16>,
+        navigation: ReviewNavigation,
+        focus: ReviewPane,
+        locations_active: bool,
+    ) -> Self {
+        let panes = PaneLayout::for_navigation(area.width, area.height, file_width, navigation);
+        let body = Rect::new(area.x, area.y + 1, panes.width, panes.body_height());
+        let body = if navigation == ReviewNavigation::Explore {
+            let locations = locations_active.then(|| location_selector_panes(body, file_width));
+            Body::Explore {
+                source: locations.map_or(body, |split| split.right),
+                locations,
+            }
+        } else if panes.is_wide() {
+            Body::Split(SplitPane::new(body, panes.file_width, 0))
         } else {
-            self.width
+            Body::Single {
+                pane: focus,
+                area: body,
+            }
         };
-        Some(Rect::new(
-            1,
-            2,
-            pane_width.saturating_sub(2),
-            self.body_height().saturating_sub(2),
-        ))
+        Self {
+            area,
+            file_width,
+            navigation,
+            focus,
+            locations_active,
+            panes,
+            body,
+        }
+    }
+
+    /// This layout for another render area.
+    ///
+    /// The application renders into the viewport it laid out, so this is
+    /// the same value there; only a caller drawing into another area gets
+    /// the layout recomputed for that area.
+    pub(crate) fn fitted_to(self, area: Rect) -> Self {
+        if area == self.area {
+            return self;
+        }
+        Self::within(
+            area,
+            self.file_width,
+            self.navigation,
+            self.focus,
+            self.locations_active,
+        )
+    }
+
+    pub(crate) fn body(self) -> Body {
+        self.body
+    }
+
+    pub(crate) fn header(self) -> Rect {
+        Rect::new(self.area.x, self.area.y, self.area.width, 1)
+    }
+
+    pub(crate) fn footer(self) -> Rect {
+        Rect::new(
+            self.area.x,
+            self.area.bottom().saturating_sub(self.panes.footer_height),
+            self.area.width,
+            self.panes.footer_height,
+        )
+    }
+
+    pub(crate) fn body_area(self) -> Rect {
+        Rect::new(
+            self.area.x,
+            self.area.y + 1,
+            self.area.width,
+            self.panes.body_height(),
+        )
+    }
+
+    /// The pane that shows Files, Threads or Explore, with its tabs on top.
+    pub(crate) fn navigation_pane(self) -> Option<Rect> {
+        match self.body {
+            Body::Explore { source, .. } => Some(source),
+            Body::Split(split) => Some(split.left),
+            Body::Single {
+                pane: ReviewPane::Navigation,
+                area,
+            } => Some(area),
+            Body::Single { .. } => None,
+        }
+    }
+
+    /// The area that receives pointer input for the navigation component.
+    ///
+    /// Explore handles its whole pane; Files and Threads handle the inside
+    /// of their border.
+    pub(crate) fn navigation_input_area(self) -> Option<Rect> {
+        let pane = self.navigation_pane()?;
+        Some(match self.body {
+            Body::Explore { .. } => pane,
+            Body::Split(_) | Body::Single { .. } => Rect::new(
+                pane.x + 1,
+                pane.y + 1,
+                pane.width.saturating_sub(2),
+                pane.height.saturating_sub(2),
+            ),
+        })
+    }
+
+    /// The diff pane, whether or not a narrow terminal currently shows it.
+    ///
+    /// Explore shows the diff as evidence inside its own pane instead.
+    pub(crate) fn diff_pane(self) -> Option<Rect> {
+        match self.body {
+            Body::Explore { .. } => None,
+            Body::Split(split) => Some(split.right),
+            Body::Single { area, .. } => Some(area),
+        }
+    }
+
+    /// The diff pane when it is on screen.
+    pub(crate) fn visible_diff_pane(self) -> Option<Rect> {
+        match self.body {
+            Body::Single {
+                pane: ReviewPane::Navigation,
+                ..
+            } => None,
+            _ => self.diff_pane(),
+        }
+    }
+
+    /// Where the location selector goes while it is open.
+    pub(crate) fn locations_pane(self) -> Rect {
+        match self.body {
+            Body::Explore {
+                locations: Some(split),
+                ..
+            }
+            | Body::Split(split) => split.left,
+            Body::Explore { source, .. } => source,
+            Body::Single { area, .. } => area,
+        }
+    }
+
+    /// The row of navigation tabs, inside the navigation pane's top border.
+    pub(crate) fn tabs(self) -> Option<Rect> {
+        self.navigation_pane()
+            .map(|pane| Rect::new(pane.x + 1, pane.y, pane.width.saturating_sub(2), 1))
+    }
+
+    pub(crate) fn page_rows(self) -> usize {
+        self.panes.page_rows()
+    }
+
+    pub(crate) fn is_separator(self, column: u16, row: u16) -> bool {
+        self.panes.is_separator(column, row)
     }
 }
