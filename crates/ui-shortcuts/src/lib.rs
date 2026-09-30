@@ -6,10 +6,11 @@ mod table;
 
 pub use commands::{
     ApplicationCommand, ApplicationShortcut, CommentShortcut, ConversationCommand,
-    ConversationShortcut, DiffGlobalShortcut, DiffPaneCommand, DiffShortcut, FilesShortcut,
-    HunkShortcut, LocationShortcut, LspShortcut, MovementShortcut, OverlayShortcut,
-    RevisionShortcut, SearchMatchShortcut, SearchShortcut, ShortcutCommand, ShortcutSubscription,
-    SourceShortcut, ThreadsCommand, ThreadsShortcut,
+    ConversationShortcut, DiffGlobalShortcut, DiffPaneCommand, DiffShortcut, ExploreCommand,
+    ExploreCoverageShortcut, ExploreEvidenceShortcut, ExploreGlobalShortcut, ExploreShortcut,
+    ExploreTurnShortcut, FilesShortcut, HunkShortcut, LocationShortcut, LspShortcut,
+    MovementShortcut, OverlayShortcut, RevisionShortcut, SearchMatchShortcut, SearchShortcut,
+    ShortcutCommand, ShortcutSubscription, SourceShortcut, ThreadsCommand, ThreadsShortcut,
 };
 pub use matcher::ShortcutMatcher;
 use table::{SHORTCUTS, ShortcutDefinition, ShortcutSequence, bindings};
@@ -48,35 +49,7 @@ pub enum Key {
 
 /// Return the visible shortcut help lines.
 pub fn help_lines() -> impl Iterator<Item = (String, &'static str)> {
-    SHORTCUTS
-        .iter()
-        .filter_map(ShortcutDefinition::help_line)
-        .chain([
-            (
-                "Up / Down / j / k (Explore)".into(),
-                "Select an answer, including None of the above",
-            ),
-            (
-                "Enter (Explore)".into(),
-                "Send the selected answer with any additional text",
-            ),
-            (
-                "Tab (Explore)".into(),
-                "Focus conversation, inline evidence, then answer",
-            ),
-            (
-                "Alt-j / Alt-k".into(),
-                "Grow / shrink the Explore evidence window",
-            ),
-            (
-                "Alt-0".into(),
-                "Fit Explore evidence to its wrapped relevant range",
-            ),
-            (
-                "[ / ] (Explore)".into(),
-                "Visit previous / next interview turn",
-            ),
-        ])
+    SHORTCUTS.iter().filter_map(ShortcutDefinition::help_line)
 }
 
 pub fn closes_help(key: Key) -> bool {

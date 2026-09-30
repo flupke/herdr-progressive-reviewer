@@ -47,7 +47,7 @@ fn minimum_width_stacks_keys_above_readable_descriptions() {
         .join(" ");
 
     assert!(text.contains(&format!("Ctrl-t {LONG}")), "{rows:#?}");
-    assert!(rows.contains(&"Up / Down / j / k (Explore)".to_owned()));
+    assert!(rows.contains(&"Up / Down / j / k".to_owned()));
     assert!(
         rows.iter()
             .all(|row| row.width() <= usize::from(area.width - 2))

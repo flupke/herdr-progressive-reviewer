@@ -258,6 +258,79 @@ fn unmatched_focused_subscription_falls_back_to_global_subscriptions() {
     assert_eq!(actions, ["global"]);
 }
 
+struct EnclosingComponent;
+
+impl Component<&'static str> for EnclosingComponent {
+    fn register_subscriptions(subscriptions: &mut ComponentSubscriptions<'_, Self, &'static str>) {
+        subscriptions.subscribe_input(InputScope::Enclosing, AnyInput, Self::input);
+    }
+}
+
+impl EnclosingComponent {
+    #[allow(clippy::unused_self)]
+    fn input(&mut self, _event: InputEvent) -> Vec<&'static str> {
+        vec!["enclosing"]
+    }
+}
+
+struct SelectiveEnclosingComponent;
+
+impl Component<&'static str> for SelectiveEnclosingComponent {
+    fn register_subscriptions(subscriptions: &mut ComponentSubscriptions<'_, Self, &'static str>) {
+        subscriptions.subscribe_input(InputScope::Enclosing, NoMatch, Self::input);
+    }
+}
+
+impl SelectiveEnclosingComponent {
+    #[allow(clippy::unused_self)]
+    fn input(&mut self, _event: InputEvent) -> Vec<&'static str> {
+        unreachable!("the handler must run only after its matcher matches")
+    }
+}
+
+#[test]
+fn enclosing_input_is_claimed_before_the_focused_component() {
+    let mut event_bus = ComponentEventBus::new();
+    event_bus.mount(|_| EnclosingComponent);
+    let focused = event_bus.mount(|_| FocusedComponent);
+
+    let results = event_bus
+        .dispatch_enclosing_input(&EventEnvelope::new(InputEvent), focused)
+        .unwrap()
+        .expect("the enclosing component claims the input");
+    let actions = results
+        .into_iter()
+        .flat_map(DispatchResult::into_actions)
+        .collect::<Vec<_>>();
+
+    assert_eq!(actions, ["enclosing"]);
+}
+
+#[test]
+fn enclosing_input_skips_the_focused_component_itself() {
+    let mut event_bus = ComponentEventBus::new();
+    let focused = event_bus.mount(|_| EnclosingComponent);
+
+    let dispatch = event_bus
+        .dispatch_enclosing_input(&EventEnvelope::new(InputEvent), focused)
+        .unwrap();
+
+    assert!(dispatch.is_none());
+}
+
+#[test]
+fn unmatched_enclosing_input_is_left_for_the_focused_component() {
+    let mut event_bus = ComponentEventBus::new();
+    event_bus.mount(|_| SelectiveEnclosingComponent);
+    let focused = event_bus.mount(|_| FocusedComponent);
+
+    let dispatch = event_bus
+        .dispatch_enclosing_input(&EventEnvelope::new(InputEvent), focused)
+        .unwrap();
+
+    assert!(dispatch.is_none());
+}
+
 #[test]
 fn incomplete_global_subscription_waits_without_running_its_handler() {
     let mut event_bus = ComponentEventBus::new();

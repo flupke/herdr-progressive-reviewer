@@ -1,5 +1,5 @@
 use super::{Control, ExploreComponent, Reveal};
-use ui_shortcuts::Key;
+use ui_shortcuts::ExploreShortcut;
 
 impl ExploreComponent {
     pub(super) fn select_choice(&mut self, choice: usize) {
@@ -34,13 +34,15 @@ impl ExploreComponent {
         )
     }
 
-    pub(super) fn choice_control(&self, key: Key) -> Option<Control> {
+    pub(super) fn choice_control(&self, command: ExploreShortcut) -> Option<Control> {
         let choice = self.selected_choice()?;
         let count = self.question()?.alternatives.len();
-        match key {
-            Key::Down | Key::Char('j') => Some(Control::SelectChoice((choice + 1).min(count))),
-            Key::Up | Key::Char('k') => Some(Control::SelectChoice(choice.saturating_sub(1))),
-            Key::Enter => Some(Control::Send),
+        match command {
+            ExploreShortcut::SelectNext => Some(Control::SelectChoice((choice + 1).min(count))),
+            ExploreShortcut::SelectPrevious => {
+                Some(Control::SelectChoice(choice.saturating_sub(1)))
+            }
+            ExploreShortcut::Confirm => Some(Control::Send),
             _ => None,
         }
     }

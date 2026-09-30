@@ -102,11 +102,6 @@ pub struct ExploreEvidenceInput {
     pub input: crate::PointerInput,
 }
 
-#[derive(Clone, Copy, Debug)]
-pub struct ExploreFocusCycle {
-    pub from_evidence: bool,
-}
-
 #[derive(Clone, Debug)]
 pub struct ExplorePositionsRestored(pub Vec<review_explore::EvidencePosition>);
 

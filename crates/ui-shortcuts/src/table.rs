@@ -3,9 +3,10 @@
 use crate::Key;
 use crate::commands::{
     ApplicationShortcut, CommentShortcut, ConversationShortcut, DiffGlobalShortcut, DiffShortcut,
-    FilesShortcut, HunkShortcut, LocationShortcut, LspShortcut, MovementShortcut, OverlayShortcut,
-    RevisionShortcut, SearchMatchShortcut, SearchShortcut, ShortcutCommand, SourceShortcut,
-    ThreadsShortcut,
+    ExploreCoverageShortcut, ExploreEvidenceShortcut, ExploreGlobalShortcut, ExploreShortcut,
+    ExploreTurnShortcut, FilesShortcut, HunkShortcut, LocationShortcut, LspShortcut,
+    MovementShortcut, OverlayShortcut, RevisionShortcut, SearchMatchShortcut, SearchShortcut,
+    ShortcutCommand, SourceShortcut, ThreadsShortcut,
 };
 
 const fn application(command: ApplicationShortcut) -> ShortcutCommand {
@@ -70,6 +71,26 @@ const fn threads(command: ThreadsShortcut) -> ShortcutCommand {
 
 const fn conversation(command: ConversationShortcut) -> ShortcutCommand {
     ShortcutCommand::Conversation(command)
+}
+
+const fn explore(command: ExploreShortcut) -> ShortcutCommand {
+    ShortcutCommand::Explore(command)
+}
+
+const fn explore_turn(command: ExploreTurnShortcut) -> ShortcutCommand {
+    explore(ExploreShortcut::Turn(command))
+}
+
+const fn explore_evidence(command: ExploreEvidenceShortcut) -> ShortcutCommand {
+    explore(ExploreShortcut::Evidence(command))
+}
+
+const fn explore_coverage(command: ExploreCoverageShortcut) -> ShortcutCommand {
+    explore(ExploreShortcut::Coverage(command))
+}
+
+const fn explore_global(command: ExploreGlobalShortcut) -> ShortcutCommand {
+    ShortcutCommand::ExploreGlobal(command)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -534,5 +555,140 @@ pub(crate) const SHORTCUTS: &[ShortcutDefinition] = &[
             Key::Escape,
             application(ApplicationShortcut::Clear),
         )],
+    },
+    ShortcutDefinition {
+        description: Some("Explore: select an answer, including None of the above"),
+        bindings: &[
+            ShortcutBinding::one(Key::Up, explore(ExploreShortcut::SelectPrevious)),
+            ShortcutBinding::one(Key::Down, explore(ExploreShortcut::SelectNext)),
+            ShortcutBinding::one(Key::Char('j'), explore(ExploreShortcut::SelectNext)),
+            ShortcutBinding::one(Key::Char('k'), explore(ExploreShortcut::SelectPrevious)),
+        ],
+    },
+    ShortcutDefinition {
+        description: Some("Explore: send the selected answer with any additional text"),
+        bindings: &[ShortcutBinding::one(
+            Key::Enter,
+            explore(ExploreShortcut::Confirm),
+        )],
+    },
+    ShortcutDefinition {
+        description: Some("Explore: focus conversation, inline evidence, then answer"),
+        bindings: &[ShortcutBinding::one(
+            Key::Tab,
+            explore_global(ExploreGlobalShortcut::CycleFocus),
+        )],
+    },
+    ShortcutDefinition {
+        description: Some("Explore: grow / shrink the evidence window"),
+        bindings: &[
+            ShortcutBinding::one(
+                Key::Alt('j'),
+                explore_global(ExploreGlobalShortcut::GrowEvidence),
+            ),
+            ShortcutBinding::one(
+                Key::Alt('k'),
+                explore_global(ExploreGlobalShortcut::ShrinkEvidence),
+            ),
+        ],
+    },
+    ShortcutDefinition {
+        description: Some("Explore: fit evidence to its wrapped relevant range"),
+        bindings: &[ShortcutBinding::one(
+            Key::Alt('0'),
+            explore_global(ExploreGlobalShortcut::FitEvidence),
+        )],
+    },
+    ShortcutDefinition {
+        description: Some("Explore: visit previous / next interview turn"),
+        bindings: &[
+            ShortcutBinding::one(
+                Key::Char('['),
+                explore_turn(ExploreTurnShortcut::PreviousTurn),
+            ),
+            ShortcutBinding::one(Key::Char(']'), explore_turn(ExploreTurnShortcut::NextTurn)),
+        ],
+    },
+    ShortcutDefinition {
+        description: None,
+        bindings: &[
+            ShortcutBinding::alias(Key::PageDown, explore(ExploreShortcut::ScrollDown)),
+            ShortcutBinding::alias(Key::PageUp, explore(ExploreShortcut::ScrollUp)),
+            ShortcutBinding::alias(Key::ControlEnter, explore(ExploreShortcut::Send)),
+            ShortcutBinding::alias(Key::Escape, explore(ExploreShortcut::Back)),
+        ],
+    },
+    ShortcutDefinition {
+        description: None,
+        bindings: &[
+            ShortcutBinding::alias(Key::Char('1'), explore(ExploreShortcut::ChooseAnswer(0))),
+            ShortcutBinding::alias(Key::Char('2'), explore(ExploreShortcut::ChooseAnswer(1))),
+            ShortcutBinding::alias(Key::Char('3'), explore(ExploreShortcut::ChooseAnswer(2))),
+            ShortcutBinding::alias(Key::Char('4'), explore(ExploreShortcut::ChooseAnswer(3))),
+            ShortcutBinding::alias(Key::Char('5'), explore(ExploreShortcut::ChooseAnswer(4))),
+            ShortcutBinding::alias(Key::Char('6'), explore(ExploreShortcut::ChooseAnswer(5))),
+        ],
+    },
+    ShortcutDefinition {
+        description: None,
+        bindings: &[
+            ShortcutBinding::alias(Key::Char('s'), explore_turn(ExploreTurnShortcut::Start)),
+            ShortcutBinding::alias(Key::Char('n'), explore_turn(ExploreTurnShortcut::Start)),
+            ShortcutBinding::alias(Key::Char('d'), explore_turn(ExploreTurnShortcut::Defer)),
+            ShortcutBinding::alias(Key::Char('c'), explore_turn(ExploreTurnShortcut::Cancel)),
+            ShortcutBinding::alias(Key::Char('r'), explore_turn(ExploreTurnShortcut::Retry)),
+            ShortcutBinding::alias(Key::Char('x'), explore_turn(ExploreTurnShortcut::Correct)),
+            ShortcutBinding::alias(Key::Char('m'), explore_turn(ExploreTurnShortcut::ToggleMap)),
+        ],
+    },
+    ShortcutDefinition {
+        description: None,
+        bindings: &[
+            ShortcutBinding::alias(
+                Key::Char('b'),
+                explore_evidence(ExploreEvidenceShortcut::Primary),
+            ),
+            ShortcutBinding::alias(
+                Key::Char('e'),
+                explore_evidence(ExploreEvidenceShortcut::Next),
+            ),
+            ShortcutBinding::alias(
+                Key::Char('E'),
+                explore_evidence(ExploreEvidenceShortcut::NextSource),
+            ),
+        ],
+    },
+    ShortcutDefinition {
+        description: None,
+        bindings: &[
+            ShortcutBinding::alias(
+                Key::Char('g'),
+                explore_coverage(ExploreCoverageShortcut::ToggleOverview),
+            ),
+            ShortcutBinding::alias(
+                Key::Alt('v'),
+                explore_coverage(ExploreCoverageShortcut::ToggleJevDebug),
+            ),
+            ShortcutBinding::alias(
+                Key::Alt('o'),
+                explore_coverage(ExploreCoverageShortcut::OpenFile),
+            ),
+            ShortcutBinding::alias(
+                Key::Alt(']'),
+                explore_coverage(ExploreCoverageShortcut::NextFile),
+            ),
+            ShortcutBinding::alias(
+                Key::Alt('['),
+                explore_coverage(ExploreCoverageShortcut::PreviousFile),
+            ),
+            ShortcutBinding::alias(
+                Key::Alt('n'),
+                explore_coverage(ExploreCoverageShortcut::NextGap),
+            ),
+            ShortcutBinding::alias(
+                Key::Alt('r'),
+                explore_coverage(ExploreCoverageShortcut::RequireReview),
+            ),
+        ],
     },
 ];

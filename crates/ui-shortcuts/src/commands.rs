@@ -17,6 +17,8 @@ pub enum ShortcutCommand {
     Revision(RevisionShortcut),
     Threads(ThreadsShortcut),
     Conversation(ConversationShortcut),
+    Explore(ExploreShortcut),
+    ExploreGlobal(ExploreGlobalShortcut),
 }
 
 /// Commands the application runs when no focused component handled a key.
@@ -130,6 +132,75 @@ pub enum ConversationShortcut {
     Back,
 }
 
+/// Commands the Explore conversation runs while it has focus.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExploreShortcut {
+    /// Select the next answer, or scroll down when no answer is selectable.
+    SelectNext,
+    /// Select the previous answer, or scroll up when no answer is selectable.
+    SelectPrevious,
+    ScrollDown,
+    ScrollUp,
+    /// Send the selected answer, or start replying to the current turn.
+    Confirm,
+    /// Send the composed answer or implementation instructions.
+    Send,
+    /// Leave the evidence list or close the conclusion preview.
+    Back,
+    /// Select one answer by its zero-based position.
+    ChooseAnswer(usize),
+    Turn(ExploreTurnShortcut),
+    Evidence(ExploreEvidenceShortcut),
+    Coverage(ExploreCoverageShortcut),
+}
+
+/// Explore commands that act on the interview turn.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExploreTurnShortcut {
+    Start,
+    Defer,
+    Cancel,
+    Retry,
+    Correct,
+    PreviousTurn,
+    NextTurn,
+    ToggleMap,
+}
+
+/// Explore commands that choose which evidence the conversation shows.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExploreEvidenceShortcut {
+    /// Return to the primary evidence of the current turn.
+    Primary,
+    /// Show the next evidence cited by the question.
+    Next,
+    /// Show the next source among all the turn's evidence.
+    NextSource,
+}
+
+/// Explore commands that inspect review coverage.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExploreCoverageShortcut {
+    ToggleOverview,
+    ToggleJevDebug,
+    OpenFile,
+    NextFile,
+    PreviousFile,
+    NextGap,
+    RequireReview,
+}
+
+/// Commands Explore runs whether its conversation or its evidence has focus.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExploreGlobalShortcut {
+    /// Move focus through the conversation, the inline evidence and the answer.
+    CycleFocus,
+    GrowEvidence,
+    ShrinkEvidence,
+    /// Fit the evidence window to its wrapped relevant range.
+    FitEvidence,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CommentShortcut {
     Add,
@@ -207,6 +278,8 @@ owner_subscription!(OverlayShortcut, Overlay);
 owner_subscription!(RevisionShortcut, Revision);
 owner_subscription!(ThreadsShortcut, Threads);
 owner_subscription!(ConversationShortcut, Conversation);
+owner_subscription!(ExploreShortcut, Explore);
+owner_subscription!(ExploreGlobalShortcut, ExploreGlobal);
 
 /// The scopes the application resolves after focused components pass on a key.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -269,5 +342,20 @@ impl ShortcutSubscription for ConversationCommand {
         MovementShortcut::select(command)
             .map(Self::Movement)
             .or_else(|| ConversationShortcut::select(command).map(Self::Conversation))
+    }
+}
+
+/// The scopes the Explore conversation resolves while it has focus.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExploreCommand {
+    Global(ExploreGlobalShortcut),
+    Explore(ExploreShortcut),
+}
+
+impl ShortcutSubscription for ExploreCommand {
+    fn select(command: ShortcutCommand) -> Option<Self> {
+        ExploreGlobalShortcut::select(command)
+            .map(Self::Global)
+            .or_else(|| ExploreShortcut::select(command).map(Self::Explore))
     }
 }

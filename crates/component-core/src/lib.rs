@@ -187,6 +187,10 @@ pub enum InputScope {
     Global,
     /// Keyboard input delivered to the component that owns focus.
     Focused,
+    /// Keyboard input offered, before the focused component, to a component
+    /// that shows the focused one inside itself. The subscriber decides from
+    /// its own state whether it encloses the focused component.
+    Enclosing,
     /// Pointer input delivered to the component under the pointer.
     Hovered,
 }
@@ -313,7 +317,8 @@ pub enum DispatchError {
 /// Results from targeted input delivery and optional global delivery.
 pub struct InputDispatch<A> {
     results: Vec<DispatchResult<A>>,
-    global_input_pending: bool,
+    /// A handler in this phase expects the next input value.
+    input_pending: bool,
 }
 
 impl<A> InputDispatch<A> {
@@ -324,7 +329,7 @@ impl<A> InputDispatch<A> {
 
     /// Return whether a global handler expects the next input value.
     pub fn global_input_pending(&self) -> bool {
-        self.global_input_pending
+        self.input_pending
     }
 }
 
@@ -445,14 +450,36 @@ impl<A: Send + 'static> ComponentEventBus<A> {
         let mut global_input_pending = false;
         if !focused_matched {
             let global = self.dispatch_global_subscriptions(event)?;
-            global_input_pending = global.global_input_pending;
+            global_input_pending = global.input_pending;
             results.extend(global.results);
         }
         results.extend(self.deliver_pending_events()?);
         Ok(InputDispatch {
             results,
-            global_input_pending,
+            input_pending: global_input_pending,
         })
+    }
+
+    /// Offer input to the components that enclose the focused one.
+    ///
+    /// Return `None` when none of them claimed the input, which then belongs
+    /// to the focused component.
+    pub fn dispatch_enclosing_input(
+        &mut self,
+        event: &EventEnvelope,
+        focused_target: ComponentTarget,
+    ) -> Result<Option<Vec<DispatchResult<A>>>, DispatchError> {
+        let subscriptions =
+            self.matching_subscriptions(event.value.as_ref().type_id(), |subscription| {
+                subscription.kind == SubscriptionKind::Input(InputScope::Enclosing)
+                    && subscription.component_id != focused_target
+            });
+        let mut dispatch = self.invoke_input(subscriptions, event)?;
+        if dispatch.results.is_empty() && !dispatch.input_pending {
+            return Ok(None);
+        }
+        dispatch.results.extend(self.deliver_pending_events()?);
+        Ok(Some(dispatch.results))
     }
 
     /// Deliver input only to global subscribers.
@@ -485,7 +512,7 @@ impl<A: Send + 'static> ComponentEventBus<A> {
         results.extend(self.deliver_pending_events()?);
         Ok(InputDispatch {
             results,
-            global_input_pending: false,
+            input_pending: false,
         })
     }
 
@@ -497,18 +524,27 @@ impl<A: Send + 'static> ComponentEventBus<A> {
             .matching_subscriptions(event.value.as_ref().type_id(), |subscription| {
                 subscription.kind == SubscriptionKind::Input(InputScope::Global)
             });
+        self.invoke_input(subscriptions, event)
+    }
+
+    /// Offer input to each subscription, noting whether one awaits more input.
+    fn invoke_input(
+        &mut self,
+        subscriptions: Vec<Subscription<A>>,
+        event: &EventEnvelope,
+    ) -> Result<InputDispatch<A>, DispatchError> {
         let mut results = Vec::new();
-        let mut global_input_pending = false;
+        let mut input_pending = false;
         for subscription in subscriptions {
             match self.invoke(&subscription, event)? {
                 HandlerInvocation::NoMatch => {}
-                HandlerInvocation::AwaitingMoreInput => global_input_pending = true,
+                HandlerInvocation::AwaitingMoreInput => input_pending = true,
                 HandlerInvocation::Matched(result) => results.push(result),
             }
         }
         Ok(InputDispatch {
             results,
-            global_input_pending,
+            input_pending,
         })
     }
 

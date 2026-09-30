@@ -1601,6 +1601,6 @@ fn shortcut_help_scrolls_on_short_terminals() {
         popup = scrolled;
     }
 
-    assert!(popup.contains("Visit previous / next interview turn"));
-    assert!(popup.contains("Fit Explore evidence"));
+    assert!(popup.contains("Explore: visit previous / next interview turn"));
+    assert!(popup.contains("Explore: fit evidence"));
 }

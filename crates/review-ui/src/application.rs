@@ -663,21 +663,12 @@ impl ReviewApplication {
         &mut self,
         event: &EventEnvelope,
     ) -> Result<Vec<DispatchResult<Action>>, DispatchError> {
-        if self.navigation == ReviewNavigation::Explore && self.modal_component.is_none() {
-            match event.downcast_ref::<crate::Key>() {
-                Some(crate::Key::Tab) => {
-                    return self.event_bus.publish(ui_events::ExploreFocusCycle {
-                        from_evidence: self.focus == ReviewPane::Detail,
-                    });
-                }
-                Some(crate::Key::Alt('j' | 'k' | '0')) => {
-                    return self
-                        .event_bus
-                        .dispatch_input(event, self.explore_component)
-                        .map(component_core::InputDispatch::into_results);
-                }
-                _ => {}
-            }
+        if self.modal_component.is_none()
+            && let Some(results) = self
+                .event_bus
+                .dispatch_enclosing_input(event, self.focused_component)?
+        {
+            return Ok(results);
         }
         let focused_target = self.modal_component.unwrap_or(self.focused_component);
         let dispatch = if self.global_input_pending {

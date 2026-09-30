@@ -16,6 +16,8 @@ fn owner_count(command: ShortcutCommand) -> usize {
         RevisionShortcut::select(command).is_some(),
         ThreadsShortcut::select(command).is_some(),
         ConversationShortcut::select(command).is_some(),
+        ExploreShortcut::select(command).is_some(),
+        ExploreGlobalShortcut::select(command).is_some(),
     ]
     .into_iter()
     .filter(|owned| *owned)
@@ -95,6 +97,8 @@ fn owning_scopes_resolve_their_bindings_without_conflicts() {
     assert_subscription_is_consistent::<RevisionShortcut>();
     assert_subscription_is_consistent::<ThreadsShortcut>();
     assert_subscription_is_consistent::<ConversationShortcut>();
+    assert_subscription_is_consistent::<ExploreShortcut>();
+    assert_subscription_is_consistent::<ExploreGlobalShortcut>();
 }
 
 #[test]
@@ -103,6 +107,7 @@ fn combined_subscriptions_resolve_their_bindings_without_conflicts() {
     assert_subscription_is_consistent::<DiffPaneCommand>();
     assert_subscription_is_consistent::<ThreadsCommand>();
     assert_subscription_is_consistent::<ConversationCommand>();
+    assert_subscription_is_consistent::<ExploreCommand>();
 }
 
 /// The diff, the Threads list and the conversation view resolve movement
@@ -133,6 +138,66 @@ fn threads_and_conversation_help_comes_from_the_table() {
         "Esc".to_owned(),
         "Conversation: close the peek, or return to Files"
     )));
+}
+
+#[test]
+fn explore_help_comes_from_the_table() {
+    let lines = help_lines().collect::<Vec<_>>();
+    for line in [
+        (
+            "Up / Down / j / k",
+            "Explore: select an answer, including None of the above",
+        ),
+        (
+            "Enter",
+            "Explore: send the selected answer with any additional text",
+        ),
+        (
+            "Tab",
+            "Explore: focus conversation, inline evidence, then answer",
+        ),
+        (
+            "Alt-j / Alt-k",
+            "Explore: grow / shrink the evidence window",
+        ),
+        (
+            "Alt-0",
+            "Explore: fit evidence to its wrapped relevant range",
+        ),
+        ("[ / ]", "Explore: visit previous / next interview turn"),
+    ] {
+        assert!(
+            lines.contains(&(line.0.to_owned(), line.1)),
+            "missing help line {line:?}"
+        );
+    }
+}
+
+/// Explore's single-key commands win over longer sequences other scopes
+/// start with the same key, so `g` and `[` act at once in Explore.
+#[test]
+fn explore_single_keys_do_not_wait_for_sequences() {
+    let mut explore = ShortcutMatcher::<ExploreCommand>::new();
+    assert_eq!(
+        explore.resolve_key(Key::Char('g')),
+        InputResolution::Matched(ExploreCommand::Explore(ExploreShortcut::Coverage(
+            ExploreCoverageShortcut::ToggleOverview
+        )))
+    );
+    assert_eq!(
+        explore.resolve_key(Key::Char('[')),
+        InputResolution::Matched(ExploreCommand::Explore(ExploreShortcut::Turn(
+            ExploreTurnShortcut::PreviousTurn
+        )))
+    );
+    assert_eq!(
+        explore.resolve_key(Key::Tab),
+        InputResolution::Matched(ExploreCommand::Global(ExploreGlobalShortcut::CycleFocus))
+    );
+    assert_eq!(
+        explore.resolve_key(Key::Char('f')),
+        InputResolution::NoMatch
+    );
 }
 
 #[test]

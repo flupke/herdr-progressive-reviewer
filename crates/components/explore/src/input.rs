@@ -3,10 +3,13 @@ use super::{ComposeScope, Control, EditorTarget, ExploreComponent, Progress, Rev
 use component_core::{AnyInput, ComponentSubscriptions, InputMatcher, InputResolution, InputScope};
 use ui_actions::Action;
 use ui_events::{
-    EvidenceView, ExploreEvidenceInput, ExploreFocusCycle, PointerInput, PointerInputKind,
+    EvidenceView, ExploreEvidenceInput, PointerInput, PointerInputKind, ReviewNavigation,
     ReviewPane, ReviewPaneFocusRequested, TextPasted,
 };
-use ui_shortcuts::{Key, ShortcutMatcher};
+use ui_shortcuts::{
+    ExploreCommand, ExploreCoverageShortcut, ExploreEvidenceShortcut, ExploreGlobalShortcut,
+    ExploreShortcut, ExploreTurnShortcut, Key, ShortcutMatcher,
+};
 
 pub(super) struct ResizeDrag {
     view: EvidenceView,
@@ -16,8 +19,16 @@ pub(super) struct ResizeDrag {
 
 impl ExploreComponent {
     pub(super) fn register_input(subscriptions: &mut ComponentSubscriptions<'_, Self, Action>) {
-        subscriptions.subscribe(Self::cycle_focus);
-        subscriptions.subscribe_input(InputScope::Focused, ExploreKeys, Self::key);
+        subscriptions.subscribe_input(
+            InputScope::Focused,
+            ExploreKeys::default(),
+            |component, input| component.key(input, ReviewPane::Navigation),
+        );
+        subscriptions.subscribe_input(
+            InputScope::Enclosing,
+            EvidenceKeys::default(),
+            |component, input| component.key(input, ReviewPane::Detail),
+        );
         subscriptions.subscribe_input(InputScope::Hovered, AnyInput, Self::pointer);
         subscriptions.subscribe_input(
             InputScope::Focused,
@@ -326,13 +337,14 @@ impl ExploreComponent {
             .map_or(Some(first), |(index, _)| Some(index))
     }
 
-    #[allow(clippy::trivially_copy_pass_by_ref)]
-    fn cycle_focus(&mut self, event: &ExploreFocusCycle) {
+    /// Move focus on from `focus`, the pane that had it when Tab was pressed.
+    fn cycle_focus(&mut self, focus: ReviewPane) {
+        let from_evidence = focus == ReviewPane::Detail;
         if !self.can_compose() {
             return;
         }
         if self.general_reply() {
-            if self.editing && !event.from_evidence {
+            if self.editing && !from_evidence {
                 self.editing = false;
             } else if self.conclusion().is_some_and(|view| view.replying) {
                 self.edit_answer();
@@ -346,7 +358,7 @@ impl ExploreComponent {
         if self.question().is_none() {
             return;
         }
-        let pane = if event.from_evidence {
+        let pane = if from_evidence {
             self.editing = false;
             self.evidence_list_focused = true;
             self.reveal.set(Some(Reveal::Evidence));
@@ -365,36 +377,45 @@ impl ExploreComponent {
         self.events.publish(ReviewPaneFocusRequested(pane));
     }
 
-    fn key(&mut self, key: Key) -> Vec<Action> {
-        if self.conclusion_preview.is_some() {
-            self.preview_key(key);
+    /// Run one key Explore owns. `focus` is the pane that had focus: the
+    /// conversation, or the evidence Explore shows inside itself.
+    fn key(&mut self, input: ExploreKey, focus: ReviewPane) -> Vec<Action> {
+        if input.command == Some(ExploreCommand::Global(ExploreGlobalShortcut::CycleFocus)) {
+            self.cycle_focus(focus);
             return Vec::new();
         }
-        if let Some(actions) = self.focused_evidence_key(key) {
+        if self.conclusion_preview.is_some() {
+            self.preview_key(input);
+            return Vec::new();
+        }
+        if let Some(actions) = self.focused_evidence_key(input) {
             return actions;
         }
-        match key {
-            Key::Alt('j') => self.resize_by(2),
-            Key::Alt('k') => self.resize_by(-2),
-            Key::Alt('0') => {
-                let view = self.view_id();
-                self.heights.remove(&view);
-                self.open_evidence(view, true);
+        match input.command {
+            Some(ExploreCommand::Global(ExploreGlobalShortcut::GrowEvidence)) => self.resize_by(2),
+            Some(ExploreCommand::Global(ExploreGlobalShortcut::ShrinkEvidence)) => {
+                self.resize_by(-2);
             }
-            Key::ControlEnter => {
+            Some(ExploreCommand::Global(ExploreGlobalShortcut::FitEvidence)) => self.fit_evidence(),
+            Some(ExploreCommand::Explore(ExploreShortcut::Send)) => {
                 return self.activate(self.send_control());
             }
-            key if self.editing => self.edit_current(|editor| editor.input(key)),
-            Key::PageDown => self.scroll_by(5),
-            Key::PageUp => self.scroll_by(-5),
-            key => return self.command(key),
+            _ if self.editing => self.edit_current(|editor| editor.input(input.key)),
+            Some(ExploreCommand::Explore(command)) => return self.command(command),
+            _ => {}
         }
         Vec::new()
     }
 
-    fn focused_evidence_key(&mut self, key: Key) -> Option<Vec<Action>> {
+    fn fit_evidence(&mut self) {
+        let view = self.view_id();
+        self.heights.remove(&view);
+        self.open_evidence(view, true);
+    }
+
+    fn focused_evidence_key(&mut self, input: ExploreKey) -> Option<Vec<Action>> {
         self.evidence_list_focused
-            .then(|| self.evidence_list_key(key))
+            .then(|| self.evidence_list_key(input))
             .flatten()
     }
 
@@ -408,22 +429,22 @@ impl ExploreComponent {
         }
     }
 
-    fn evidence_list_key(&mut self, key: Key) -> Option<Vec<Action>> {
-        match key {
-            Key::Enter => {
+    fn evidence_list_key(&mut self, input: ExploreKey) -> Option<Vec<Action>> {
+        match input.command {
+            Some(ExploreCommand::Explore(ExploreShortcut::Confirm)) => {
                 self.evidence_list_focused = false;
                 self.events
                     .publish(ReviewPaneFocusRequested(ReviewPane::Detail));
                 return Some(Vec::new());
             }
-            Key::Escape => {
+            Some(ExploreCommand::Explore(ExploreShortcut::Back)) => {
                 self.evidence_list_focused = false;
                 self.evidence_keys = ShortcutMatcher::new();
                 return Some(Vec::new());
             }
             _ => {}
         }
-        match self.evidence_keys.resolve_key(key) {
+        match self.evidence_keys.resolve_key(input.key) {
             InputResolution::AwaitingMoreInput => Some(Vec::new()),
             InputResolution::Matched(input) => {
                 let view = self.layout.borrow().navigate_evidence(input);
@@ -436,143 +457,125 @@ impl ExploreComponent {
         }
     }
 
-    fn command(&mut self, key: Key) -> Vec<Action> {
-        if let Some(control) = self.choice_control(key) {
+    fn command(&mut self, command: ExploreShortcut) -> Vec<Action> {
+        if let Some(control) = self
+            .choice_control(command)
+            .or_else(|| self.control(command))
+        {
             return self.activate(control);
         }
-        if let Key::Alt(_) = key {
-            return self.coverage_command(key);
-        }
-        match key {
-            Key::Enter if self.compose_scope == ComposeScope::Conclusion => {
-                self.activate(Control::EditImplementation)
+        let delta = match command {
+            ExploreShortcut::SelectNext | ExploreShortcut::ScrollDown => 5,
+            ExploreShortcut::SelectPrevious | ExploreShortcut::ScrollUp => -5,
+            _ => return Vec::new(),
+        };
+        self.scroll_by(delta);
+        Vec::new()
+    }
+
+    fn control(&self, command: ExploreShortcut) -> Option<Control> {
+        match command {
+            ExploreShortcut::Confirm if self.compose_scope == ComposeScope::Conclusion => {
+                Some(Control::EditImplementation)
             }
-            Key::Enter => self.activate(Control::Reply(self.selected)),
-            Key::Up | Key::Char('k') => {
-                self.scroll_by(-5);
-                Vec::new()
-            }
-            Key::Down | Key::Char('j') => {
-                self.scroll_by(5);
-                Vec::new()
-            }
-            key => self.shortcut(key),
+            ExploreShortcut::Confirm => Some(Control::Reply(self.selected)),
+            ExploreShortcut::ChooseAnswer(choice) => Some(Control::SelectChoice(choice)),
+            ExploreShortcut::Turn(command) => Some(self.turn_control(command)),
+            ExploreShortcut::Evidence(command) => Some(self.evidence_control(command)),
+            ExploreShortcut::Coverage(command) => self.coverage_shortcut_control(command),
+            _ => None,
         }
     }
 
-    fn coverage_command(&mut self, key: Key) -> Vec<Action> {
+    fn turn_control(&self, command: ExploreTurnShortcut) -> Control {
+        match command {
+            ExploreTurnShortcut::Start => Control::Start,
+            ExploreTurnShortcut::Defer => Control::Defer,
+            ExploreTurnShortcut::Cancel => Control::Cancel,
+            ExploreTurnShortcut::Retry => Control::Retry,
+            ExploreTurnShortcut::Correct => Control::Correct(self.selected),
+            ExploreTurnShortcut::PreviousTurn => Control::History(History::Previous),
+            ExploreTurnShortcut::NextTurn => Control::History(History::Next),
+            ExploreTurnShortcut::ToggleMap => Control::Map,
+        }
+    }
+
+    fn evidence_control(&self, command: ExploreEvidenceShortcut) -> Control {
+        let evidence = |count: usize| EvidenceView::Question {
+            turn: self.selected,
+            reference: (self
+                .turns
+                .get(self.selected)
+                .map_or(0, |turn| turn.reference)
+                + 1)
+                % count.max(1),
+        };
+        match command {
+            ExploreEvidenceShortcut::Primary => Control::Primary(EvidenceView::Question {
+                turn: self.selected,
+                reference: 0,
+            }),
+            ExploreEvidenceShortcut::Next => Control::Evidence(evidence(
+                self.exploration
+                    .as_ref()
+                    .and_then(|exploration| exploration.questions.get(self.selected))
+                    .map_or(0, |question| question.evidence.len()),
+            )),
+            ExploreEvidenceShortcut::NextSource => Control::Evidence(evidence(
+                self.exploration
+                    .as_ref()
+                    .map_or(0, |exploration| exploration.evidence(self.selected).len()),
+            )),
+        }
+    }
+
+    fn coverage_shortcut_control(&self, command: ExploreCoverageShortcut) -> Option<Control> {
         let count = self
             .exploration
             .as_ref()
             .map_or(0, |pass| pass.comparison.files.len());
         let selected = self.coverage_file.unwrap_or(0).min(count.saturating_sub(1));
-        match key {
-            Key::Alt('o') => {
-                if count > 0 {
-                    self.activate(Control::CoverageFile(selected))
-                } else {
-                    Vec::new()
-                }
+        match command {
+            ExploreCoverageShortcut::ToggleOverview => Some(Control::Coverage),
+            ExploreCoverageShortcut::ToggleJevDebug => Some(Control::JevDebug),
+            ExploreCoverageShortcut::OpenFile => {
+                (count > 0).then_some(Control::CoverageFile(selected))
             }
-            Key::Alt('n') => {
-                let remaining = self.coverage.as_ref().map(|coverage| {
-                    coverage.remaining(self.completion_policy.unwrap_or(self.jev_enabled))
-                });
-                let index = remaining.as_ref().and_then(|units| {
-                    let file = self.coverage_file.unwrap_or_else(|| {
-                        units
-                            .first()
-                            .map_or(0, review_explore::CoverageUnit::file_index)
-                    });
-                    self.next_coverage_gap(units, file)
-                });
-                index.map_or_else(Vec::new, |index| self.activate(Control::CoverageGap(index)))
+            ExploreCoverageShortcut::NextFile => {
+                (count > 0).then(|| Control::CoverageFile((selected + 1) % count))
             }
-            Key::Alt('v') => self.activate(Control::JevDebug),
-            Key::Alt('r') => {
-                let index = self.coverage.as_ref().and_then(|coverage| {
-                    coverage.unexplored_exclusions().iter().position(|unit| {
-                        self.coverage_file
-                            .is_none_or(|file| unit.file_index() == file)
-                    })
-                });
-                index.map_or_else(Vec::new, |index| {
-                    self.activate(Control::RequireReview(index))
-                })
+            ExploreCoverageShortcut::PreviousFile => {
+                (count > 0).then(|| Control::CoverageFile((selected + count - 1) % count))
             }
-            Key::Alt(']' | '[') => {
-                if count > 0 {
-                    let next = if key == Key::Alt(']') {
-                        (selected + 1) % count
-                    } else {
-                        (selected + count - 1) % count
-                    };
-                    self.activate(Control::CoverageFile(next))
-                } else {
-                    Vec::new()
-                }
-            }
-            _ => Vec::new(),
+            ExploreCoverageShortcut::NextGap => self.next_gap_control(),
+            ExploreCoverageShortcut::RequireReview => self.require_review_control(),
         }
     }
 
-    fn shortcut(&mut self, key: Key) -> Vec<Action> {
-        let Key::Char(character) = key else {
-            return Vec::new();
-        };
-        if ('1'..='6').contains(&character) {
-            return self.activate(Control::SelectChoice(character as usize - '1' as usize));
-        }
-        let count = self
-            .exploration
-            .as_ref()
-            .and_then(|exploration| exploration.questions.get(self.selected))
-            .map_or(0, |question| question.evidence.len());
-        let all_sources = self
-            .exploration
-            .as_ref()
-            .map_or(0, |exploration| exploration.evidence(self.selected).len());
-        let current = self
-            .turns
-            .get(self.selected)
-            .map_or(0, |turn| turn.reference);
-        let bindings = [
-            ('g', Control::Coverage),
-            ('s', Control::Start),
-            ('n', Control::Start),
-            ('d', Control::Defer),
-            ('[', Control::History(History::Previous)),
-            (']', Control::History(History::Next)),
-            (
-                'b',
-                Control::Primary(EvidenceView::Question {
-                    turn: self.selected,
-                    reference: 0,
-                }),
-            ),
-            ('m', Control::Map),
-            ('c', Control::Cancel),
-            ('r', Control::Retry),
-            ('x', Control::Correct(self.selected)),
-            (
-                'e',
-                Control::Evidence(EvidenceView::Question {
-                    turn: self.selected,
-                    reference: (current + 1) % count.max(1),
-                }),
-            ),
-            (
-                'E',
-                Control::Evidence(EvidenceView::Question {
-                    turn: self.selected,
-                    reference: (current + 1) % all_sources.max(1),
-                }),
-            ),
-        ];
-        bindings
-            .into_iter()
-            .find(|(binding, _)| *binding == character)
-            .map_or_else(Vec::new, |(_, control)| self.activate(control))
+    fn next_gap_control(&self) -> Option<Control> {
+        let remaining = self
+            .coverage
+            .as_ref()?
+            .remaining(self.completion_policy.unwrap_or(self.jev_enabled));
+        let file = self.coverage_file.unwrap_or_else(|| {
+            remaining
+                .first()
+                .map_or(0, review_explore::CoverageUnit::file_index)
+        });
+        self.next_coverage_gap(&remaining, file)
+            .map(Control::CoverageGap)
+    }
+
+    fn require_review_control(&self) -> Option<Control> {
+        self.coverage
+            .as_ref()?
+            .unexplored_exclusions()
+            .iter()
+            .position(|unit| {
+                self.coverage_file
+                    .is_none_or(|file| unit.file_index() == file)
+            })
+            .map(Control::RequireReview)
     }
 
     fn scroll_by(&mut self, delta: isize) {
@@ -752,16 +755,57 @@ impl ExploreComponent {
     }
 }
 
-struct ExploreKeys;
+/// One key Explore handles, with the Explore command it is bound to, if any.
+///
+/// The raw key stays available for the answer editor and the lists Explore
+/// embeds, which resolve keys through their own subscriptions.
+#[derive(Clone, Copy)]
+pub(super) struct ExploreKey {
+    pub(super) key: Key,
+    pub(super) command: Option<ExploreCommand>,
+}
+
+/// Keys for the focused Explore conversation. Explore keeps every key except
+/// the application's navigation, help and quit keys, so unbound keys never
+/// reach the diff behind it.
+#[derive(Default)]
+struct ExploreKeys {
+    commands: ShortcutMatcher<ExploreCommand>,
+}
+
 impl InputMatcher<ExploreComponent, Key> for ExploreKeys {
-    type Output = Key;
-    fn resolve(&mut self, component: &ExploreComponent, key: &Key) -> InputResolution<Key> {
+    type Output = ExploreKey;
+
+    fn resolve(&mut self, component: &ExploreComponent, key: &Key) -> InputResolution<ExploreKey> {
         if *key == Key::Control('t')
             || (!component.editing && matches!(key, Key::Char('?' | 'q' | 'f' | 't') | Key::Quit))
         {
-            InputResolution::NoMatch
-        } else {
-            InputResolution::Matched(*key)
+            return InputResolution::NoMatch;
         }
+        let command = match self.commands.resolve_key(*key) {
+            InputResolution::Matched(command) => Some(command),
+            _ => None,
+        };
+        InputResolution::Matched(ExploreKey { key: *key, command })
+    }
+}
+
+/// Keys Explore claims while its evidence, shown inside it, has focus.
+#[derive(Default)]
+struct EvidenceKeys {
+    commands: ShortcutMatcher<ExploreGlobalShortcut>,
+}
+
+impl InputMatcher<ExploreComponent, Key> for EvidenceKeys {
+    type Output = ExploreKey;
+
+    fn resolve(&mut self, component: &ExploreComponent, key: &Key) -> InputResolution<ExploreKey> {
+        if component.mode != ReviewNavigation::Explore {
+            return InputResolution::NoMatch;
+        }
+        self.commands.resolve_key(*key).map(|command| ExploreKey {
+            key: *key,
+            command: Some(ExploreCommand::Global(command)),
+        })
     }
 }

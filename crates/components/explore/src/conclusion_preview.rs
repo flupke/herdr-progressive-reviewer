@@ -16,10 +16,10 @@ use ui_events::{
     ReviewPane, ReviewPaneFocusRequested,
 };
 use ui_panes::SplitPane;
-use ui_shortcuts::Key;
+use ui_shortcuts::{ExploreCommand, ExploreEvidenceShortcut, ExploreShortcut};
 use ui_theme::Palette;
 
-use super::{ExploreComponent, flow::Window};
+use super::{ExploreComponent, flow::Window, input::ExploreKey};
 
 pub(super) struct ConclusionPreview {
     files: FilePreviewList,
@@ -124,14 +124,24 @@ impl ExploreComponent {
         });
     }
 
-    pub(super) fn preview_key(&mut self, key: Key) {
-        if matches!(key, Key::Escape | Key::Char('b')) {
+    pub(super) fn preview_key(&mut self, input: ExploreKey) {
+        let command = match input.command {
+            Some(ExploreCommand::Explore(command)) => Some(command),
+            _ => None,
+        };
+        // Back and the primary-evidence key both leave the preview.
+        if matches!(
+            command,
+            Some(
+                ExploreShortcut::Back | ExploreShortcut::Evidence(ExploreEvidenceShortcut::Primary)
+            )
+        ) {
             self.conclusion_preview = None;
             self.events
                 .publish(ReviewPaneFocusRequested(ReviewPane::Navigation));
             return;
         }
-        if key == Key::Enter {
+        if command == Some(ExploreShortcut::Confirm) {
             self.events
                 .publish(ReviewPaneFocusRequested(ReviewPane::Detail));
             return;
@@ -139,7 +149,7 @@ impl ExploreComponent {
         let changed = self
             .conclusion_preview
             .as_mut()
-            .is_some_and(|view| view.files.move_key(key));
+            .is_some_and(|view| view.files.move_key(input.key));
         if changed {
             self.open_selected_preview_file();
         }
