@@ -7,8 +7,9 @@ use ui_events::{
     ReviewPane, ReviewPaneFocusRequested, TextPasted,
 };
 use ui_shortcuts::{
-    ExploreCommand, ExploreCoverageShortcut, ExploreEvidenceShortcut, ExploreGlobalShortcut,
-    ExploreShortcut, ExploreTurnShortcut, Key, ShortcutMatcher,
+    ApplicationShortcut, ExploreCommand, ExploreCoverageShortcut, ExploreEvidenceShortcut,
+    ExploreGlobalShortcut, ExploreShortcut, ExploreTurnShortcut, Key, OverlayShortcut,
+    ShortcutMatcher, ShortcutSubscription,
 };
 
 pub(super) struct ResizeDrag {
@@ -755,6 +756,24 @@ impl ExploreComponent {
     }
 }
 
+impl ExploreComponent {
+    /// Whether `key` runs an application command Explore leaves to the
+    /// application. Switching navigation always passes; opening Files,
+    /// Threads or help and quitting pass unless an answer is being composed.
+    fn passes_through(&self, key: Key) -> bool {
+        match ApplicationShortcut::bound_to(key) {
+            Some(ApplicationShortcut::ToggleNavigation) => return true,
+            Some(
+                ApplicationShortcut::OpenFiles
+                | ApplicationShortcut::OpenThreads
+                | ApplicationShortcut::Quit,
+            ) => return !self.editing,
+            _ => {}
+        }
+        !self.editing && OverlayShortcut::bound_to(key) == Some(OverlayShortcut::OpenHelp)
+    }
+}
+
 /// One key Explore handles, with the Explore command it is bound to, if any.
 ///
 /// The raw key stays available for the answer editor and the lists Explore
@@ -777,9 +796,7 @@ impl InputMatcher<ExploreComponent, Key> for ExploreKeys {
     type Output = ExploreKey;
 
     fn resolve(&mut self, component: &ExploreComponent, key: &Key) -> InputResolution<ExploreKey> {
-        if *key == Key::Control('t')
-            || (!component.editing && matches!(key, Key::Char('?' | 'q' | 'f' | 't') | Key::Quit))
-        {
+        if component.passes_through(*key) {
             return InputResolution::NoMatch;
         }
         let command = match self.commands.resolve_key(*key) {

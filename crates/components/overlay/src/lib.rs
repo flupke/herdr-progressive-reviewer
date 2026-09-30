@@ -21,7 +21,9 @@ use ui_events::{
     PointerInputKind, RepositoryMetadataChanged, ToastExpirationTick, ToastRequested,
     ViewportChanged,
 };
-use ui_shortcuts::{Key, OverlayShortcut, ShortcutMatcher};
+use ui_shortcuts::{
+    ApplicationShortcut, Key, OverlayShortcut, ShortcutMatcher, ShortcutSubscription,
+};
 use ui_theme::{Palette, Theme};
 
 use commit_message::CommitMessageOverlay;
@@ -260,7 +262,7 @@ impl OverlayComponent {
     fn modal_key(&mut self, active_modal: ModalOverlay, key: Key) -> Vec<Action> {
         match active_modal {
             ModalOverlay::CommitMessage => {
-                if matches!(key, Key::CommitMessage | Key::Escape | Key::Char('c')) {
+                if Self::closes_commit_message(key) {
                     self.active_modal = None;
                 }
             }
@@ -270,6 +272,13 @@ impl OverlayComponent {
             }
         }
         Vec::new()
+    }
+
+    /// Whether `key` closes the commit message: the key that opened it, or the
+    /// application's clear key.
+    fn closes_commit_message(key: Key) -> bool {
+        OverlayShortcut::bound_to(key) == Some(OverlayShortcut::ShowCommitMessage)
+            || ApplicationShortcut::bound_to(key) == Some(ApplicationShortcut::Clear)
     }
 
     fn open_overlay(&mut self, shortcut: OverlayShortcut) {

@@ -329,3 +329,44 @@ fn every_help_line_names_its_keys() {
     }
     assert!(help_lines().any(|line| line == ("V".to_owned(), "Select diff lines")));
 }
+
+/// Every single-key binding a subscription resolves is found by a key
+/// lookup and listed among its command's keys.
+fn assert_single_keys_are_queryable<S>()
+where
+    S: ShortcutSubscription + std::fmt::Debug,
+{
+    for (binding, command) in subscribed_bindings::<S>() {
+        let ShortcutSequence::One(key) = binding.sequence else {
+            continue;
+        };
+        assert_eq!(S::bound_to(key), Some(command), "{key:?}");
+        assert!(command.keys().any(|bound| bound == key), "{command:?}");
+    }
+}
+
+#[test]
+fn single_key_bindings_are_queryable_by_key_and_by_command() {
+    assert_single_keys_are_queryable::<ApplicationShortcut>();
+    assert_single_keys_are_queryable::<OverlayShortcut>();
+    assert_single_keys_are_queryable::<ExploreCommand>();
+}
+
+#[test]
+fn key_queries_ignore_sequences_and_other_scopes() {
+    assert_eq!(RevisionShortcut::bound_to(Key::Char('v')), None);
+    assert_eq!(ApplicationShortcut::bound_to(Key::Char('?')), None);
+    assert_eq!(
+        OverlayShortcut::bound_to(Key::Char('?')),
+        Some(OverlayShortcut::OpenHelp)
+    );
+    assert_eq!(RevisionShortcut::OpenSelector.keys().count(), 0);
+}
+
+#[test]
+fn a_command_lists_its_aliases_among_its_keys() {
+    assert_eq!(
+        ApplicationShortcut::Quit.keys().collect::<Vec<_>>(),
+        [Key::Quit, Key::Char('q')]
+    );
+}

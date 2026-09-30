@@ -26,9 +26,10 @@ use ui_events::{
     SourceLocationAccepted, SourceLocationPreviewRequested, TemporaryFilesChanged, ToastRequested,
 };
 use ui_shortcuts::{
-    ConversationCommand, ConversationShortcut, DiffGlobalShortcut, DiffPaneCommand, DiffShortcut,
-    HunkShortcut, Key, LocationShortcut, LspShortcut, MovementShortcut, SearchMatchShortcut,
-    SearchShortcut, ShortcutMatcher, SourceShortcut,
+    ApplicationShortcut, ConversationCommand, ConversationShortcut, DiffGlobalShortcut,
+    DiffPaneCommand, DiffShortcut, HunkShortcut, Key, LocationShortcut, LspShortcut,
+    MovementShortcut, SearchMatchShortcut, SearchShortcut, ShortcutMatcher, ShortcutSubscription,
+    SourceShortcut,
 };
 
 mod clipped_viewport;
@@ -2271,7 +2272,9 @@ impl DiffKeyboardInputMatcher {
         component: &DiffComponent,
         key: Key,
     ) -> InputResolution<DiffKeyboardInput> {
-        if key == Key::Control('t') {
+        // Switching navigation reaches the application even while the comment
+        // editor or the search prompt takes every other key.
+        if ApplicationShortcut::bound_to(key) == Some(ApplicationShortcut::ToggleNavigation) {
             return InputResolution::NoMatch;
         }
         if component.editor_is_visible() && !component.conversation.is_peeking() {

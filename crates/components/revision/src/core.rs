@@ -17,7 +17,9 @@ use ui_events::{
     RevisionCandidatesLoaded, RevisionEditFailed, RevisionHistoryLoadId, RevisionHistoryLoaded,
     ToastRequested, ViewportChanged,
 };
-use ui_shortcuts::{Key, RevisionShortcut, ShortcutMatcher};
+use ui_shortcuts::{
+    ApplicationShortcut, Key, RevisionShortcut, ShortcutMatcher, ShortcutSubscription,
+};
 use ui_theme::Palette;
 
 fn revision_history_origin(lines: &[RevisionHistoryLine]) -> Option<ReviewLocation> {
@@ -284,12 +286,21 @@ impl RevisionComponent {
         vec![Action::LoadRevisionCandidates(direction)]
     }
 
+    /// Whether `key` closes a candidate selector. The selector keeps every
+    /// key, so the application's quit and clear keys close it instead.
+    fn closes_selector(key: Key) -> bool {
+        matches!(
+            ApplicationShortcut::bound_to(key),
+            Some(ApplicationShortcut::Quit | ApplicationShortcut::Clear)
+        )
+    }
+
     fn selector_key(&mut self, key: Key) -> Vec<Action> {
         if matches!(
             self.state,
             Some(RevisionNavigationState::LoadingHistory { .. })
         ) {
-            if matches!(key, Key::Escape | Key::Char('q') | Key::Quit) {
+            if Self::closes_selector(key) {
                 self.state = None;
             }
             return Vec::new();
@@ -319,10 +330,6 @@ impl RevisionComponent {
                 *selected = selected.saturating_sub(1);
                 Vec::new()
             }
-            Key::Escape | Key::Char('q') | Key::Quit => {
-                self.state = None;
-                Vec::new()
-            }
             Key::Enter => {
                 let Some(candidate) = candidates.get(*selected) else {
                     return Vec::new();
@@ -330,6 +337,10 @@ impl RevisionComponent {
                 let candidate = candidate.candidate().clone();
                 let origin = origin.clone();
                 vec![self.begin_edit(candidate, origin)]
+            }
+            _ if Self::closes_selector(key) => {
+                self.state = None;
+                Vec::new()
             }
             _ => Vec::new(),
         }

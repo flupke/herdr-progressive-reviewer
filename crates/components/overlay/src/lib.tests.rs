@@ -5,7 +5,7 @@ use review_lsp::Event as LspEvent;
 use toasts::ToastId;
 use ui_actions::Action;
 use ui_events::{RepositoryMetadataChanged, ViewportChanged};
-use ui_shortcuts::Key;
+use ui_shortcuts::{ApplicationShortcut, Key, OverlayShortcut, ShortcutSubscription};
 
 use super::OverlayComponent;
 
@@ -111,6 +111,37 @@ fn commit_message_renders_from_repository_event() {
         .map(ratatui::buffer::Cell::symbol)
         .collect::<String>();
     assert!(screen.contains("Explain the component migration"));
+}
+
+/// The commit message closes on every key the table binds to showing it or
+/// to the application's clear command.
+#[test]
+fn commit_message_closes_on_its_own_and_the_clear_keys() {
+    let close_keys = OverlayShortcut::ShowCommitMessage
+        .keys()
+        .chain(ApplicationShortcut::Clear.keys());
+    for key in close_keys {
+        let mut bus = ComponentEventBus::<Action>::new();
+        let target = bus.mount(|_| OverlayComponent::new(ui_theme::Theme::default()));
+        bus.publish(RepositoryMetadataChanged {
+            display_id: "abcd1234".to_owned(),
+            review_checkpoint: review_source::ReviewCheckpoint::new("change", "snapshot"),
+            description: "Explain the component migration".to_owned(),
+        })
+        .unwrap();
+        let open = OverlayShortcut::ShowCommitMessage.keys().next().unwrap();
+        bus.dispatch_global_input(&EventEnvelope::new(open))
+            .unwrap();
+        assert!(rendered_screen(&bus, target).contains("Explain the component migration"));
+
+        bus.dispatch_input(&EventEnvelope::new(key), target)
+            .unwrap();
+
+        assert!(
+            !rendered_screen(&bus, target).contains("Explain the component migration"),
+            "{key:?}"
+        );
+    }
 }
 
 #[test]

@@ -3,6 +3,7 @@ use ratatui::buffer::Buffer;
 use review_source::{AnchorKind, DiffRangeAnchor};
 use review_threads::{MessageId, Post, Resolution, ReviewThreads, ThreadCommand, ThreadId};
 use ui_events::{ReviewNavigation, ReviewThreadsLoaded, ThreadPostFinished};
+use ui_shortcuts::{ApplicationShortcut, ShortcutSubscription};
 
 #[path = "threads/visibility.tests.rs"]
 mod visibility;
@@ -1457,3 +1458,21 @@ fn empty_filters_clear_conversation_actions_and_park_the_reply() {
 
 #[path = "threads/resolution.tests.rs"]
 mod resolution;
+
+/// The diff's reply editor takes every key except the ones the table binds
+/// to switching navigation.
+#[test]
+fn navigation_switches_reach_the_application_while_a_diff_reply_is_composed() {
+    for key in ApplicationShortcut::ToggleNavigation.keys() {
+        let mut ui = ThreadUi::new(110);
+        ui.key(Key::Char('t'));
+        ui.key(Key::Enter);
+        ui.key(Key::Char('A'));
+        ui.paste("Unposted reply");
+        assert_eq!(ui.app.navigation, ReviewNavigation::Threads);
+
+        ui.key(key);
+
+        assert_ne!(ui.app.navigation, ReviewNavigation::Threads, "{key:?}");
+    }
+}

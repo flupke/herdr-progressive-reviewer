@@ -1,5 +1,6 @@
 use super::*;
 use comment_editor::EditorKeymap;
+use ui_shortcuts::{ApplicationShortcut, OverlayShortcut, ShortcutSubscription};
 
 impl ExploreUi {
     fn assert_editor_key(&mut self, key: Key, mode: &str) {
@@ -115,5 +116,86 @@ fn conclusion_task_and_reply_editors_keep_vim_escape_inside_the_active_field() {
                 .expect("explicit implementation submission");
             assert_eq!(request.text, "Agreed task");
         }
+    }
+}
+
+/// Explore keeps unbound keys from the diff behind it, but lets through
+/// every key the table binds to switching navigation, opening Files, Threads
+/// or help, and quitting.
+#[test]
+fn explore_lets_application_keys_through_while_no_answer_is_composed() {
+    for key in ApplicationShortcut::Quit.keys() {
+        let (mut fixture, request) = ExploreUi::new();
+        fixture.respond(&request, 1);
+        assert!(
+            fixture
+                .app
+                .update(UserInput::Key(key))
+                .contains(&Action::Quit),
+            "{key:?}"
+        );
+    }
+    let navigation_keys = [
+        (ApplicationShortcut::ToggleNavigation, None),
+        (
+            ApplicationShortcut::OpenFiles,
+            Some(ReviewNavigation::Files),
+        ),
+        (
+            ApplicationShortcut::OpenThreads,
+            Some(ReviewNavigation::Threads),
+        ),
+    ];
+    for (command, destination) in navigation_keys {
+        for key in command.keys() {
+            let (mut fixture, request) = ExploreUi::new();
+            fixture.respond(&request, 1);
+            fixture.app.update(UserInput::Key(key));
+            assert_ne!(fixture.app.navigation, ReviewNavigation::Explore, "{key:?}");
+            if let Some(destination) = destination {
+                assert_eq!(fixture.app.navigation, destination, "{key:?}");
+            }
+        }
+    }
+    for key in OverlayShortcut::OpenHelp.keys() {
+        let (mut fixture, request) = ExploreUi::new();
+        fixture.respond(&request, 1);
+        fixture.app.update(UserInput::Key(key));
+        assert!(fixture.text().contains("Keyboard shortcuts"), "{key:?}");
+    }
+}
+
+/// While an answer is composed only switching navigation leaves Explore;
+/// the other application keys are typed into the answer.
+#[test]
+fn explore_lets_only_navigation_switches_through_while_an_answer_is_composed() {
+    for key in ApplicationShortcut::ToggleNavigation.keys() {
+        let (mut fixture, request) = ExploreUi::new();
+        fixture.respond(&request, 1);
+        fixture.app.update(UserInput::Paste("Answer draft".into()));
+        fixture.app.update(UserInput::Key(key));
+        assert_ne!(fixture.app.navigation, ReviewNavigation::Explore, "{key:?}");
+    }
+    let typed = [
+        ApplicationShortcut::Quit,
+        ApplicationShortcut::OpenFiles,
+        ApplicationShortcut::OpenThreads,
+    ]
+    .into_iter()
+    .flat_map(ShortcutSubscription::keys)
+    .chain(OverlayShortcut::OpenHelp.keys());
+    for key in typed {
+        let (mut fixture, request) = ExploreUi::new();
+        fixture.respond(&request, 1);
+        fixture.app.update(UserInput::Paste("Answer draft".into()));
+        assert!(
+            !fixture
+                .app
+                .update(UserInput::Key(key))
+                .contains(&Action::Quit),
+            "{key:?}"
+        );
+        assert_eq!(fixture.app.navigation, ReviewNavigation::Explore, "{key:?}");
+        assert!(!fixture.text().contains("Keyboard shortcuts"), "{key:?}");
     }
 }

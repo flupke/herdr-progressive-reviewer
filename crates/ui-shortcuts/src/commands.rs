@@ -4,6 +4,9 @@
 //! exactly one scope because it is a variant of exactly one owner enum, so the
 //! table entry that builds the command also declares its owner.
 
+use crate::Key;
+use crate::table::{ShortcutSequence, bindings};
+
 /// One command in the shortcut table, tagged with the scope that owns it.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ShortcutCommand {
@@ -249,10 +252,29 @@ pub enum SourceShortcut {
 ///
 /// Every owner enum is a subscription to its own scope. A component that
 /// listens to several scopes subscribes through an enum that combines them.
-pub trait ShortcutSubscription: Copy + Send + Sync + 'static {
+pub trait ShortcutSubscription: Copy + Eq + Send + Sync + 'static {
     /// Return this subscription's command, or `None` when it does not listen
     /// to the scope that owns `command`.
     fn select(command: ShortcutCommand) -> Option<Self>;
+
+    /// Return the command `key` runs on its own in this subscription's scopes.
+    ///
+    /// Components use it to recognize a key that belongs to another scope,
+    /// such as an application command they must let through, without naming
+    /// the key. Two-key sequences are ignored.
+    fn bound_to(key: Key) -> Option<Self> {
+        bindings()
+            .filter(|binding| binding.sequence == ShortcutSequence::One(key))
+            .find_map(|binding| Self::select(binding.command))
+    }
+
+    /// Every key that runs this command on its own.
+    fn keys(self) -> impl Iterator<Item = Key> {
+        bindings().filter_map(move |binding| match binding.sequence {
+            ShortcutSequence::One(key) if Self::bound_to(key) == Some(self) => Some(key),
+            _ => None,
+        })
+    }
 }
 
 macro_rules! owner_subscription {

@@ -12,7 +12,7 @@ use ui_events::{
     RepositoryRefreshStarted, ReviewLocation, RevisionCandidatesLoaded, RevisionEditFailed,
     RevisionHistoryLoadId, RevisionHistoryLoaded,
 };
-use ui_shortcuts::Key;
+use ui_shortcuts::{ApplicationShortcut, Key, ShortcutSubscription};
 use ui_theme::Theme;
 
 use super::RevisionComponent;
@@ -509,20 +509,52 @@ fn no_candidates_leave_navigation_ready_for_another_request() {
     ));
 }
 
+/// The selector takes every key, so the keys the table binds to the
+/// application's quit and clear commands close it instead.
+fn selector_close_keys() -> impl Iterator<Item = Key> {
+    [ApplicationShortcut::Quit, ApplicationShortcut::Clear]
+        .into_iter()
+        .flat_map(ShortcutSubscription::keys)
+}
+
 #[test]
-fn escape_closes_the_revision_selector() {
-    let (mut bus, target) = mounted_component();
-    set_current_revision(&mut bus);
-    request_parent_candidates(&mut bus);
-    bus.publish(RevisionCandidatesLoaded {
-        direction: RevisionDirection::Parents,
-        result: Ok(vec![candidate("one"), candidate("two")]),
-    })
-    .unwrap();
+fn application_quit_and_clear_keys_close_the_revision_selector() {
+    for key in selector_close_keys() {
+        let (mut bus, target) = mounted_component();
+        set_current_revision(&mut bus);
+        request_parent_candidates(&mut bus);
+        bus.publish(RevisionCandidatesLoaded {
+            direction: RevisionDirection::Parents,
+            result: Ok(vec![candidate("one"), candidate("two")]),
+        })
+        .unwrap();
+        assert!(rendered_component(&bus, target).contains("Select revision"));
 
-    send_key(&mut bus, Key::Escape);
+        send_key(&mut bus, key);
 
-    assert!(!rendered_component(&bus, target).contains("Select revision"));
+        assert!(
+            !rendered_component(&bus, target).contains("Select revision"),
+            "{key:?}"
+        );
+    }
+}
+
+#[test]
+fn application_quit_and_clear_keys_cancel_loading_the_revision_history() {
+    for key in selector_close_keys() {
+        let (mut bus, target) = mounted_component();
+        set_current_revision(&mut bus);
+        send_key(&mut bus, Key::Char('v'));
+        send_key(&mut bus, Key::Char('v'));
+        assert!(rendered_component(&bus, target).contains("Loading revision history"));
+
+        send_key(&mut bus, key);
+
+        assert!(
+            !rendered_component(&bus, target).contains("Loading revision history"),
+            "{key:?}"
+        );
+    }
 }
 
 #[test]
