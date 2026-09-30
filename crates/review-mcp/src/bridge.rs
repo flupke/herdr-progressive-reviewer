@@ -4,7 +4,7 @@ use rmcp::{
     ErrorData, RoleServer, ServerHandler, ServiceExt,
     model::{
         CacheScope, CallToolRequestParams, CallToolResponse, CallToolResult, ClientInfo,
-        ContentBlock, ListToolsResult, PaginatedRequestParams, ServerInfo,
+        ContentBlock, ListToolsResult, PaginatedRequestParams, ResultType, ServerInfo,
     },
     service::RequestContext,
     transport::{
@@ -54,7 +54,12 @@ impl Bridge {
             .await
             .map_err(|error| error.to_string());
         let _ = client.cancel().await;
-        result
+        // The reviewer answers over an earlier protocol revision, which omits the
+        // discriminator that the agent's revision requires on every result.
+        result.map(|mut result| {
+            result.result_type = Some(ResultType::COMPLETE);
+            result
+        })
     }
 }
 

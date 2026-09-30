@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use rmcp::{
     ServiceExt,
-    model::{CacheScope, CallToolRequestParams, ClientInfo},
+    model::{CacheScope, CallToolRequestParams, ClientInfo, ResultType},
 };
 use serde_json::json;
 
@@ -148,4 +148,30 @@ fn the_tool_catalog_says_how_long_it_may_be_cached() {
             client.cancel().await.unwrap();
             bridge.waiting().await.unwrap();
         });
+}
+
+#[test]
+fn forwarded_results_carry_the_result_type_the_current_protocol_requires() {
+    let repository = tempfile::tempdir().unwrap();
+    let lease = review_test_support::TestPort::new();
+    let endpoint = Endpoint::for_repository(repository.path(), Some(lease.number())).unwrap();
+    let server = Server::start(endpoint, |request| {
+        request.respond(Err("Unknown review access value".into()));
+        Ok(())
+    })
+    .unwrap();
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            let bridge = Bridge {
+                endpoint: Ok(endpoint),
+            };
+            let request = CallToolRequestParams::new("list_threads")
+                .with_arguments(json!({"review":"probe"}).as_object().unwrap().clone());
+            let result = bridge.forward(request).await.unwrap();
+            assert_eq!(result.result_type, Some(ResultType::COMPLETE));
+        });
+    drop(server);
 }
