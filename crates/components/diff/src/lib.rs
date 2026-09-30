@@ -14,6 +14,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use review_source::ReviewCheckpoint;
 use review_state::ReviewStatus;
+use review_thread_projection::SharedThreadProjection;
 use ui_actions::{
     Action, DocumentAction, DocumentLoad, LspAction, RepositoryAction, TerminalAction,
 };
@@ -122,6 +123,7 @@ struct Services {
     repository_root: PathBuf,
     palette: Palette,
     drafts: std::rc::Rc<RefCell<review_drafts::Drafts>>,
+    thread_projection: SharedThreadProjection,
 }
 
 /// Documents, position, selection, search, highlighting and comment layout
@@ -134,6 +136,8 @@ pub struct SourceViewer {
     /// The snapshot this viewer's source loads use instead of the checkpoint.
     source_session: Option<String>,
     comments: comments::Comments,
+    /// Where the viewer reports thread placement.
+    thread_projection: SharedThreadProjection,
     reviewable_files: ReviewableFiles,
     review_checkpoint: Option<ReviewCheckpoint>,
     documents: Vec<LoadedDocument>,
@@ -183,7 +187,11 @@ impl SourceViewer {
             events: services.events.clone(),
             source_session: None,
             evidence: explore::ShownEvidence::default(),
-            comments: comments::Comments::new(std::rc::Rc::clone(&services.drafts)),
+            comments: comments::Comments::new(
+                std::rc::Rc::clone(&services.drafts),
+                services.thread_projection.clone(),
+            ),
+            thread_projection: services.thread_projection.clone(),
             reviewable_files,
             review_checkpoint: None,
             documents: Vec::new(),
@@ -1074,8 +1082,6 @@ impl SourceViewer {
     }
 
     fn repository_changed(&mut self, event: &RepositoryFilesChanged) -> Vec<Action> {
-        self.comments
-            .use_paths(FileSummary::thread_paths(&event.files));
         self.comments.forget_unavailable();
         self.preview = None;
         self.pending_preview_location = None;
@@ -1814,7 +1820,7 @@ impl SourceViewer {
         if !self.role.publishes_review() {
             return;
         }
-        self.publish_thread_contexts();
+        self.place_threads();
         let viewports = self
             .documents
             .iter()

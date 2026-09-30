@@ -199,7 +199,7 @@ impl DiffComponent {
         if let Some(id) = self.conversation.selected.clone() {
             self.files.comments.set_unavailable(id, false);
         }
-        self.files.publish_thread_contexts();
+        self.files.place_threads();
         actions
     }
 
@@ -216,7 +216,7 @@ impl DiffComponent {
         if let Some(id) = self.conversation.selected.clone() {
             self.files.comments.set_unavailable(id, true);
         }
-        self.files.publish_thread_contexts();
+        self.files.place_threads();
         true
     }
 }

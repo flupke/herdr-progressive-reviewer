@@ -4,6 +4,7 @@ use component_core::{
     AnyInput, Component, ComponentSubscriptions, EventPublisher, InputMatcher, InputResolution,
     InputScope,
 };
+use review_thread_projection::{SharedThreadProjection, ThreadProjection};
 use review_threads::{Resolution, ReviewThread, ReviewThreads, ThreadId};
 use review_types::ReviewUnit;
 use ui_actions::Action;
@@ -45,10 +46,9 @@ pub struct ThreadsComponent {
     /// The navigation mode as last announced; the application owns it.
     mode: ReviewNavigation,
     review_unit: Option<ReviewUnit>,
-    book: Option<ReviewThreads>,
-    associations: review_threads::ThreadPaths,
+    projection: SharedThreadProjection,
+    /// The review state of each reviewed file.
     files: Vec<ui_events::FileSummary>,
-    contexts: std::collections::HashMap<ThreadId, ui_events::ThreadContext>,
     selected: Option<ThreadId>,
     filter: Filter,
     query: String,
@@ -61,15 +61,13 @@ impl ThreadsComponent {
     const CARD_HEIGHT: usize = 6;
     const FOOTER_HEIGHT: usize = 1;
 
-    pub fn new(events: EventPublisher) -> Self {
+    pub fn new(events: EventPublisher, projection: SharedThreadProjection) -> Self {
         Self {
             events,
             mode: ReviewNavigation::Files,
             review_unit: None,
-            book: None,
+            projection,
             files: Vec::new(),
-            associations: review_threads::ThreadPaths::default(),
-            contexts: std::collections::HashMap::new(),
             selected: None,
             filter: Filter::Unresolved,
             query: String::new(),
@@ -80,15 +78,16 @@ impl ThreadsComponent {
     }
 
     pub fn has_unread_replies(&self) -> bool {
-        self.book
-            .as_ref()
+        self.projection
+            .read()
+            .threads()
             .is_some_and(|book| book.counts().unread > 0)
     }
 
-    fn visible(&self) -> Vec<&ReviewThread> {
+    /// The threads the filter and search show, in list order.
+    fn visible<'a>(&self, book: Option<&'a ReviewThreads>) -> Vec<&'a ReviewThread> {
         let query = self.query.to_lowercase();
-        self.book
-            .iter()
+        book.into_iter()
             .flat_map(ReviewThreads::threads)
             .filter(|thread| {
                 let matches_filter = match self.filter {
@@ -115,11 +114,7 @@ impl ThreadsComponent {
     }
 
     fn keep_selected_visible(&mut self) {
-        if let Some(index) = self
-            .visible()
-            .iter()
-            .position(|thread| Some(&thread.id) == self.selected.as_ref())
-        {
+        if let Some(index) = self.visible_position(self.selected.as_ref()) {
             if index < self.scroll {
                 self.scroll = index;
             }
@@ -129,16 +124,34 @@ impl ThreadsComponent {
         }
     }
 
-    fn move_selection(&mut self, delta: isize) {
-        let visible = self.visible();
-        let current = visible
+    /// The position of `id` among the visible threads.
+    fn visible_position(&self, id: Option<&ThreadId>) -> Option<usize> {
+        let projection = self.projection.read();
+        self.visible(projection.threads())
             .iter()
-            .position(|thread| Some(&thread.id) == self.selected.as_ref())
-            .unwrap_or_default();
-        let index = current
-            .saturating_add_signed(delta)
-            .min(visible.len().saturating_sub(1));
-        let id = visible.get(index).map(|thread| thread.id.clone());
+            .position(|thread| Some(&thread.id) == id)
+    }
+
+    /// The visible thread at `index`.
+    fn visible_id(&self, index: usize) -> Option<ThreadId> {
+        let projection = self.projection.read();
+        self.visible(projection.threads())
+            .get(index)
+            .map(|thread| thread.id.clone())
+    }
+
+    fn move_selection(&mut self, delta: isize) {
+        let id = {
+            let projection = self.projection.read();
+            let visible = self.visible(projection.threads());
+            let index = visible
+                .iter()
+                .position(|thread| Some(&thread.id) == self.selected.as_ref())
+                .unwrap_or_default()
+                .saturating_add_signed(delta)
+                .min(visible.len().saturating_sub(1));
+            visible.get(index).map(|thread| thread.id.clone())
+        };
         self.select(id);
     }
 
@@ -151,7 +164,7 @@ impl ThreadsComponent {
     fn reset_selection(&mut self) {
         self.selected = None;
         self.scroll = 0;
-        self.select(self.visible().first().map(|thread| thread.id.clone()));
+        self.select(self.visible_id(0));
     }
 
     fn handle_input(&mut self, input: ThreadsInput) -> Vec<Action> {
@@ -206,56 +219,59 @@ impl ThreadsComponent {
 
     fn repository_changed(&mut self, event: &RepositoryFilesChanged) {
         if self.review_unit.as_ref() != Some(&event.review_checkpoint.review_unit) {
-            self.book = None;
-            self.contexts.clear();
             self.selected = None;
             self.query.clear();
             self.scroll = 0;
             self.review_unit = Some(event.review_checkpoint.review_unit.clone());
         }
         self.files.clone_from(&event.files);
-        self.associations = ui_events::FileSummary::thread_paths(&self.files);
     }
 
-    fn file_for_thread(&self, thread: &ReviewThread) -> Option<&ui_events::FileSummary> {
-        self.files
-            .iter()
-            .find(|file| file.path() == self.associations.resolve(thread.path()))
+    fn file_for_thread(
+        &self,
+        projection: &ThreadProjection,
+        thread: &ReviewThread,
+    ) -> Option<&ui_events::FileSummary> {
+        let path = projection.current_path(thread.path());
+        self.files.iter().find(|file| file.path() == path)
     }
 
+    /// Keep a selection the load left visible; otherwise move to the next
+    /// open thread when the selected one was just resolved, or to the first.
     fn loaded(&mut self, event: &ReviewThreadsLoaded) {
-        if self.review_unit.as_ref() != Some(&event.review_unit) {
+        if self.review_unit.as_ref() != Some(&event.review_unit) || event.result.is_err() {
             return;
         }
-        if let Ok(book) = &event.result {
-            let visible = self.visible();
-            let was_empty = visible.is_empty();
-            let position = visible
-                .iter()
-                .position(|thread| Some(&thread.id) == self.selected.as_ref())
-                .unwrap_or_default();
-            let resolved = self.selected.as_ref().is_some_and(|id| {
-                self.book
-                    .as_ref()
-                    .and_then(|previous| previous.thread(id))
-                    .is_some_and(|thread| thread.resolution == Resolution::Open)
-                    && book
-                        .thread(id)
-                        .is_some_and(|thread| thread.resolution == Resolution::Resolved)
-            });
-            self.book = Some(book.clone());
-            if resolved {
-                self.select(self.next_unresolved(position));
-            } else if self.selected.as_ref().map_or(was_empty, |id| {
-                !self.visible().iter().any(|thread| thread.id == *id)
-            }) {
-                self.select(self.visible().first().map(|thread| thread.id.clone()));
-            }
+        let projection = self.projection.read();
+        let previous = self.visible(projection.previous_threads());
+        let was_empty = previous.is_empty();
+        let position = previous
+            .iter()
+            .position(|thread| Some(&thread.id) == self.selected.as_ref())
+            .unwrap_or_default();
+        let resolution = |book: Option<&ReviewThreads>, id: &ThreadId| {
+            book.and_then(|book| book.thread(id))
+                .map(|thread| thread.resolution)
+        };
+        let resolved = self.selected.as_ref().is_some_and(|id| {
+            resolution(projection.previous_threads(), id) == Some(Resolution::Open)
+                && resolution(projection.threads(), id) == Some(Resolution::Resolved)
+        });
+        drop(projection);
+        if resolved {
+            self.select(self.next_unresolved(position));
+        } else if self
+            .selected
+            .as_ref()
+            .map_or(was_empty, |id| self.visible_position(Some(id)).is_none())
+        {
+            self.select(self.visible_id(0));
         }
     }
 
     fn next_unresolved(&self, position: usize) -> Option<ThreadId> {
-        let visible = self.visible();
+        let projection = self.projection.read();
+        let visible = self.visible(projection.threads());
         visible
             .iter()
             .find(|thread| thread.resolution == Resolution::Open && thread.has_unread_replies())
@@ -294,12 +310,15 @@ impl ThreadsComponent {
         self.query.clear();
         self.searching = false;
         self.scroll = 0;
-        let visible = self.visible();
-        let id = visible
-            .iter()
-            .find(|thread| thread.has_unread_replies())
-            .or_else(|| visible.first())
-            .map(|thread| thread.id.clone());
+        let id = {
+            let projection = self.projection.read();
+            let visible = self.visible(projection.threads());
+            visible
+                .iter()
+                .find(|thread| thread.has_unread_replies())
+                .or_else(|| visible.first())
+                .map(|thread| thread.id.clone())
+        };
         self.select(id);
         self.events
             .publish(ReviewPaneFocusRequested(ReviewPane::Navigation));
@@ -321,12 +340,6 @@ impl ThreadsComponent {
 
     fn search_rows(&self) -> usize {
         usize::from(self.searching || !self.query.is_empty())
-    }
-
-    fn contexts_changed(&mut self, event: &ui_events::ThreadContextsChanged) {
-        if self.review_unit.as_ref() == Some(&event.review_unit) {
-            self.contexts.clone_from(&event.contexts);
-        }
     }
 
     fn review_saved(&mut self, event: &ui_events::ReviewStateSaved) {
@@ -358,7 +371,7 @@ impl ThreadsComponent {
                 self.searching = true;
             } else if row - self.search_rows() < self.page_rows() * Self::CARD_HEIGHT {
                 let index = self.scroll + (row - self.search_rows()) / Self::CARD_HEIGHT;
-                let id = self.visible().get(index).map(|thread| thread.id.clone());
+                let id = self.visible_id(index);
                 if id.is_some() {
                     self.select(id);
                     self.events
@@ -411,7 +424,6 @@ impl InputMatcher<ThreadsComponent, Key> for ThreadKeys {
 
 impl Component<Action> for ThreadsComponent {
     fn register_subscriptions(subscriptions: &mut ComponentSubscriptions<'_, Self, Action>) {
-        subscriptions.subscribe(Self::contexts_changed);
         subscriptions.subscribe(Self::review_saved);
         subscriptions.subscribe(Self::repository_changed);
         subscriptions.subscribe(Self::loaded);

@@ -1482,3 +1482,12 @@ fn navigation_switches_reach_the_application_while_a_diff_reply_is_composed() {
         );
     }
 }
+
+#[test]
+fn thread_cards_show_where_each_thread_sits_before_its_code_loads() {
+    let mut ui = ThreadUi::new(110);
+    ui.key(Key::Char('t'));
+    let text = ui.text();
+    assert!(text.contains("Saved context"), "{text}");
+    assert!(text.contains("Outside diff"), "{text}");
+}

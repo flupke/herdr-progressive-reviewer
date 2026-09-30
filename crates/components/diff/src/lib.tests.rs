@@ -433,6 +433,7 @@ fn accepted_location_is_centered_after_its_preview_started_the_diff_load() {
         DiffComponent::new(
             events,
             reviewable_files,
+            review_thread_projection::SharedThreadProjection::default(),
             SyntaxHighlighter::new(EmbeddedThemeName::CatppuccinMocha, Color::White),
             PathBuf::from("/repo"),
             Theme::default().palette,
@@ -521,6 +522,7 @@ fn completed_background_load_clears_its_pending_center() {
         DiffComponent::new(
             events,
             reviewable_files,
+            review_thread_projection::SharedThreadProjection::default(),
             SyntaxHighlighter::new(EmbeddedThemeName::CatppuccinMocha, Color::White),
             PathBuf::from("/repo"),
             Theme::default().palette,
@@ -692,6 +694,7 @@ fn refreshed_checkpoint_restarts_an_in_flight_definition_load() {
         DiffComponent::new(
             events,
             reviewable_files,
+            review_thread_projection::SharedThreadProjection::default(),
             SyntaxHighlighter::new(EmbeddedThemeName::CatppuccinMocha, Color::White),
             PathBuf::from("/repo"),
             Theme::default().palette,
@@ -1272,6 +1275,7 @@ fn source_shortcuts_move_between_columns_and_word_starts() {
         DiffComponent::new(
             events,
             reviewable_files,
+            review_thread_projection::SharedThreadProjection::default(),
             SyntaxHighlighter::new(EmbeddedThemeName::CatppuccinMocha, Color::White),
             PathBuf::new(),
             Theme::default().palette,
@@ -1317,6 +1321,7 @@ fn source_shortcuts_follow_character_boundaries_and_line_ends() {
         DiffComponent::new(
             events,
             reviewable_files,
+            review_thread_projection::SharedThreadProjection::default(),
             SyntaxHighlighter::new(EmbeddedThemeName::CatppuccinMocha, Color::White),
             PathBuf::new(),
             Theme::default().palette,
@@ -1362,6 +1367,7 @@ fn source_shortcuts_move_on_deleted_lines() {
         DiffComponent::new(
             events,
             reviewable_files,
+            review_thread_projection::SharedThreadProjection::default(),
             SyntaxHighlighter::new(EmbeddedThemeName::CatppuccinMocha, Color::White),
             PathBuf::new(),
             Theme::default().palette,
@@ -1586,6 +1592,7 @@ fn location_shortcuts_restore_semantic_file_jumps() {
         DiffComponent::new(
             events,
             reviewable_files,
+            review_thread_projection::SharedThreadProjection::default(),
             SyntaxHighlighter::new(EmbeddedThemeName::CatppuccinMocha, Color::White),
             PathBuf::new(),
             Theme::default().palette,
@@ -1656,6 +1663,7 @@ fn registry_with_observer() -> (ComponentEventBus<Action>, ReviewableFiles, Comp
         DiffComponent::new(
             context,
             reviewable_files.clone(),
+            review_thread_projection::SharedThreadProjection::default(),
             SyntaxHighlighter::new(EmbeddedThemeName::CatppuccinMocha, Color::White),
             PathBuf::new(),
             Theme::default().palette,
@@ -1860,6 +1868,7 @@ fn history_registry() -> (ComponentEventBus<Action>, ReviewableFiles, ComponentT
         DiffComponent::new(
             events,
             reviewable_files.clone(),
+            review_thread_projection::SharedThreadProjection::default(),
             SyntaxHighlighter::new(EmbeddedThemeName::CatppuccinMocha, Color::White),
             PathBuf::new(),
             Theme::default().palette,

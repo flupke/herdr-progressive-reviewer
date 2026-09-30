@@ -13,6 +13,7 @@ use files_component::FilesComponent;
 use locations_component::LocationsComponent;
 use overlay_component::OverlayComponent;
 use ratatui::layout::Rect;
+use review_thread_projection::{SharedThreadProjection, ThreadProjector};
 use revision_component::RevisionComponent;
 use status_component::StatusComponent;
 use threads_component::ThreadsComponent;
@@ -91,14 +92,18 @@ impl ReviewApplication {
         let palette = theme.palette;
         let mut event_bus = ComponentEventBus::new();
         let reviewable_files = ReviewableFiles::default();
+        let threads = SharedThreadProjection::default();
+        // Mounted first, so every reader sees each update while handling the same event.
+        event_bus.mount(|_| ThreadProjector::new(threads.clone()));
         let files = event_bus.mount(|events| {
-            FilesComponent::with_reviewable_files(events, reviewable_files.clone())
+            FilesComponent::with_read_models(events, reviewable_files.clone(), threads.clone())
         });
         let editor_keymap = KeymapSetting::default();
         let diff = event_bus.mount(|events| {
             DiffComponent::new(
                 events,
                 reviewable_files.clone(),
+                threads.clone(),
                 SyntaxHighlighter::new(theme.syntax, theme.palette.text),
                 repository_root.clone(),
                 theme.palette,
@@ -108,7 +113,7 @@ impl ReviewApplication {
         let locations = event_bus
             .mount(|events| LocationsComponent::new(events, repository_root, theme.palette));
         let status = event_bus.mount(StatusComponent::new);
-        let threads = event_bus.mount(ThreadsComponent::new);
+        let threads = event_bus.mount(|events| ThreadsComponent::new(events, threads));
         let explore =
             event_bus.mount(|events| ExploreComponent::with_keymap(events, editor_keymap.clone()));
         let overlay = event_bus.mount(|_| OverlayComponent::new(theme));

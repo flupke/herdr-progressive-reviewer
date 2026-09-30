@@ -12,6 +12,7 @@ review-source = { path = "../../review-source" }
 review-repository = { path = "../../review-repository" }
 review-state = { path = "../../review-state" }
 review-types = { path = "../../review-types" }
+review-thread-projection = { path = "../../review-thread-projection" }
 review-threads = { path = "../../review-threads" }
 toasts = { path = "../../toasts" }
 ui-actions = { path = "../../ui-actions" }

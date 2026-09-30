@@ -6,6 +6,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Widget},
 };
+use review_thread_projection::ThreadProjection;
 use review_threads::{Resolution, ReviewThread};
 use ui_theme::Palette;
 
@@ -16,7 +17,8 @@ impl ThreadsComponent {
             .border_style(Style::default().fg(if focused { palette.focus } else { palette.dim }));
         let inner = block.inner(area);
         block.render(area, buffer);
-        let visible = self.visible();
+        let projection = self.projection.read();
+        let visible = self.visible(projection.threads());
         let search_rows = u16::try_from(self.search_rows()).unwrap_or_default();
         let cards = Rect::new(
             inner.x,
@@ -57,7 +59,7 @@ impl ThreadsComponent {
                 u16::try_from(Self::CARD_HEIGHT).unwrap_or(u16::MAX),
             )
             .intersection(cards);
-            self.render_card(thread, card, buffer, palette);
+            self.render_card(&projection, thread, card, buffer, palette);
         }
         let filters = Filter::ALL
             .map(|filter| filter.label(self.filter))
@@ -75,6 +77,7 @@ impl ThreadsComponent {
 
     fn render_card(
         &self,
+        projection: &ThreadProjection,
         thread: &ReviewThread,
         area: Rect,
         buffer: &mut Buffer,
@@ -85,10 +88,15 @@ impl ThreadsComponent {
             .border_style(Style::default().fg(palette.focus));
         let content = block.inner(area);
         block.render(area, buffer);
-        Paragraph::new(self.card(thread, palette)).render(content, buffer);
+        Paragraph::new(self.card(projection, thread, palette)).render(content, buffer);
     }
 
-    fn card(&self, thread: &ReviewThread, palette: Palette) -> Vec<Line<'static>> {
+    fn card(
+        &self,
+        projection: &ThreadProjection,
+        thread: &ReviewThread,
+        palette: Palette,
+    ) -> Vec<Line<'static>> {
         let mut lines = Vec::new();
         let selected = self.selected.as_ref() == Some(&thread.id);
         let style = if selected {
@@ -125,25 +133,19 @@ impl ThreadsComponent {
         } else {
             Line::raw(format!("  {attention}")).style(style)
         };
-        let file = self.file_for_thread(thread);
-        if file.is_some_and(|file| !file.temporary && !file.review_state.status.needs_review()) {
+        if self
+            .file_for_thread(projection, thread)
+            .is_some_and(|file| !file.temporary && !file.review_state.status.needs_review())
+        {
             attention.spans.push(Span::styled(
                 " · File reviewed",
                 Style::default().fg(palette.dim),
             ));
         }
         lines.push(attention);
-        let context = self
-            .contexts
-            .get(&thread.id)
-            .copied()
-            .unwrap_or(if file.is_some() {
-                ui_events::ThreadContext::Original
-            } else {
-                ui_events::ThreadContext::OutsideDiff
-            });
         lines.push(
-            Line::raw(format!("  {}", context.label())).style(Style::default().fg(palette.dim)),
+            Line::raw(format!("  {}", projection.placement(thread).label()))
+                .style(Style::default().fg(palette.dim)),
         );
         lines
     }

@@ -10,6 +10,7 @@ use ratatui::text::{Line, Span};
 use review_repository::repository::ChangeKind;
 use review_source::ReviewCheckpoint;
 use review_state::{ReviewState, ReviewStatus};
+use review_thread_projection::SharedThreadProjection;
 use review_types::ReviewUnit;
 use ui_actions::{Action, RepositoryAction};
 use ui_events::{
@@ -32,7 +33,6 @@ use badges::FileBadges;
 pub struct FilesComponent {
     events: EventPublisher,
     review_checkpoint: ReviewCheckpoint,
-    associations: review_threads::ThreadPaths,
     files: Vec<FileSummary>,
     thread_paths: Vec<String>,
     tree: FileTree,
@@ -44,7 +44,7 @@ pub struct FilesComponent {
     search_match_paths: HashSet<String>,
     pending_review: Option<PendingReview>,
     reviewable_files: ReviewableFiles,
-    threads: Option<review_threads::ReviewThreads>,
+    threads: SharedThreadProjection,
     navigation: ui_events::ReviewNavigation,
 }
 
@@ -64,19 +64,23 @@ enum SearchDirection {
 impl FilesComponent {
     #[cfg(test)]
     fn new(events: EventPublisher) -> Self {
-        Self::with_reviewable_files(events, ReviewableFiles::default())
+        Self::with_read_models(
+            events,
+            ReviewableFiles::default(),
+            SharedThreadProjection::default(),
+        )
     }
 
-    /// Create an empty files component with its shared read model.
-    pub fn with_reviewable_files(
+    /// Create an empty files component with its shared read models.
+    pub fn with_read_models(
         events: EventPublisher,
         reviewable_files: ReviewableFiles,
+        threads: SharedThreadProjection,
     ) -> Self {
         Self {
             events,
             review_checkpoint: ReviewCheckpoint::new(ReviewUnit::default(), String::new()),
             files: Vec::new(),
-            associations: review_threads::ThreadPaths::default(),
             thread_paths: Vec::new(),
             tree: FileTree::default(),
             collapsed_directories: HashSet::new(),
@@ -87,7 +91,7 @@ impl FilesComponent {
             search_match_paths: HashSet::new(),
             pending_review: None,
             reviewable_files,
-            threads: None,
+            threads,
             navigation: ui_events::ReviewNavigation::Files,
         }
     }
@@ -137,7 +141,6 @@ impl FilesComponent {
             self.review_checkpoint.review_unit == event.review_checkpoint.review_unit;
         let previous_selected_path = same_review_unit.then(|| self.selected_path()).flatten();
         if !same_review_unit {
-            self.threads = None;
             self.thread_paths.clear();
             self.collapsed_directories.clear();
             self.scroll = 0;
@@ -164,7 +167,6 @@ impl FilesComponent {
         }
         self.review_checkpoint.clone_from(&event.review_checkpoint);
         self.files.clone_from(&event.files);
-        self.associations = ui_events::FileSummary::thread_paths(&self.files);
         self.add_thread_files();
         if let Some(pending) = &self.pending_review
             && let Some(file) = self
@@ -184,14 +186,6 @@ impl FilesComponent {
         self.keep_selected_visible();
         self.publish_selection_if_changed(previous_selected_path.as_deref());
         self.publish_overview();
-    }
-
-    fn threads_loaded(&mut self, event: &ui_events::ReviewThreadsLoaded) {
-        if event.review_unit == self.review_checkpoint.review_unit
-            && let Ok(book) = &event.result
-        {
-            self.threads = Some(book.clone());
-        }
     }
 
     #[allow(clippy::trivially_copy_pass_by_ref)]
@@ -260,10 +254,7 @@ impl FilesComponent {
         if status != ReviewStatus::Reviewed {
             return;
         }
-        let open = self.threads.as_ref().map_or(0, |book| {
-            book.counts_for(|thread| self.current_thread_path(thread.path()) == path)
-                .open
-        });
+        let open = self.threads.read().file_counts(path).open;
         if open > 0 {
             self.events.publish(ui_events::ToastRequested {
                 text: format!("File reviewed. {open} open threads remain."),
@@ -599,13 +590,10 @@ impl FilesComponent {
             }
         };
         let prefix = format!("{}{} ", "  ".repeat(depth), marker);
-        let counts = self
-            .threads
-            .as_ref()
-            .map_or_else(review_threads::ThreadCounts::default, |book| {
-                book.counts_for(|thread| self.current_thread_path(thread.path()) == path)
-            });
-        let badges = FileBadges { threads: counts }.line(palette);
+        let badges = FileBadges {
+            threads: self.threads.read().file_counts(&path),
+        }
+        .line(palette);
         let statistics = FileStatistics::new(file);
         let prefix = shorten(
             &prefix,
@@ -638,10 +626,6 @@ impl FilesComponent {
         }
         Line::from(spans).style(style)
     }
-
-    fn current_thread_path<'a>(&'a self, path: &'a str) -> &'a str {
-        self.associations.resolve(path)
-    }
 }
 
 fn needs_parent_expansion(status: ReviewStatus, previous: ReviewStatus) -> bool {
@@ -650,7 +634,6 @@ fn needs_parent_expansion(status: ReviewStatus, previous: ReviewStatus) -> bool 
 
 impl Component<Action> for FilesComponent {
     fn register_subscriptions(subscriptions: &mut ComponentSubscriptions<'_, Self, Action>) {
-        subscriptions.subscribe(Self::threads_loaded);
         subscriptions.subscribe(Self::navigation_changed);
         subscriptions.subscribe(Self::repository_changed);
         subscriptions.subscribe(Self::review_state_saved);

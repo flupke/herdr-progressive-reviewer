@@ -11,6 +11,7 @@ uuid.workspace = true
 review-explore = { path = "../../review-explore" }
 comment-editor = { path = "../../comment-editor" }
 review-drafts = { path = "../../review-drafts" }
+review-thread-projection = { path = "../../review-thread-projection" }
 review-threads = { path = "../../review-threads" }
 review-types = { path = "../../review-types" }
 text-search = { path = "../../text-search" }

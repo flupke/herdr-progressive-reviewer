@@ -166,7 +166,7 @@ impl SourceViewer {
             .map(|index| self.comparison_document(&comparison, index))
             .collect();
         self.comments
-            .use_paths(ui_events::FileSummary::thread_paths(
+            .use_comparison(ui_events::FileSummary::thread_paths(
                 &comparison
                     .files
                     .iter()

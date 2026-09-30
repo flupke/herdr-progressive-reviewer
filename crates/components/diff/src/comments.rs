@@ -7,6 +7,7 @@ use std::rc::Rc;
 
 use review_drafts::{DraftId, Drafts, Submission};
 use review_source::{AnchorKind, DiffRangeAnchor, FrozenHunk};
+use review_thread_projection::{SharedThreadProjection, ThreadPlacement};
 use review_threads::{
     Draft, MessageId, ReviewThread, ReviewThreads, ThreadCommand, ThreadId, ThreadPaths,
     ThreadSource,
@@ -31,8 +32,16 @@ pub(super) struct Comments {
     mapped: HashMap<ThreadId, Option<FrozenHunk>>,
     /// Threads whose current source could not be read.
     unavailable: HashSet<ThreadId>,
-    paths: ThreadPaths,
+    files: ThreadFiles,
     editor_height: u16,
+}
+
+/// The files a viewer matches threads to.
+enum ThreadFiles {
+    /// The reviewed files, associated with threads by the shared projection.
+    Review(SharedThreadProjection),
+    /// The files of a saved Explore comparison.
+    Comparison(ThreadPaths),
 }
 
 /// Where the pane shows the editor of the focused draft.
@@ -86,7 +95,7 @@ impl CommentTarget {
 
 impl Comments {
     /// Comments editing the pane's shared `drafts`.
-    pub(super) fn new(drafts: Rc<RefCell<Drafts>>) -> Self {
+    pub(super) fn new(drafts: Rc<RefCell<Drafts>>, review: SharedThreadProjection) -> Self {
         Self {
             book: None,
             drafts,
@@ -96,7 +105,7 @@ impl Comments {
             pending_path: None,
             mapped: HashMap::new(),
             unavailable: HashSet::new(),
-            paths: ThreadPaths::default(),
+            files: ThreadFiles::Review(review),
             editor_height: 5,
         }
     }
@@ -123,8 +132,17 @@ impl Comments {
         self.unavailable.clear();
     }
 
-    pub(super) fn use_paths(&mut self, paths: ThreadPaths) {
-        self.paths = paths;
+    /// Whether a thread saved on `path` belongs to the file at `current` now.
+    pub(super) fn is_current_path(&self, path: &str, current: &str) -> bool {
+        match &self.files {
+            ThreadFiles::Review(projection) => projection.read().current_path(path) == current,
+            ThreadFiles::Comparison(paths) => paths.resolve(path) == current,
+        }
+    }
+
+    /// Match threads to the files of a saved comparison instead of the review.
+    pub(super) fn use_comparison(&mut self, paths: ThreadPaths) {
+        self.files = ThreadFiles::Comparison(paths);
     }
 
     /// Size editors for a viewport of `height` rows.
@@ -209,7 +227,7 @@ impl Comments {
     }
 
     pub(super) fn matches_path(&self, file: &LoadedDocument, path: &str) -> bool {
-        self.paths.resolve(path) == file.path
+        self.is_current_path(path, &file.path)
     }
 
     pub(super) fn mapped(&self, thread: &ThreadId) -> Option<&FrozenHunk> {
@@ -625,40 +643,40 @@ impl SourceViewer {
         released
     }
 
-    fn thread_context(&self, thread: &ReviewThread) -> ui_events::ThreadContext {
-        use ui_events::ThreadContext;
+    /// Where this viewer's loaded code places `thread`.
+    fn thread_placement(&self, thread: &ReviewThread) -> ThreadPlacement {
         if self.comments.is_unavailable(&thread.id) {
-            return ThreadContext::Unavailable;
+            return ThreadPlacement::Unavailable;
         }
         let Some(file) = self
             .documents
             .iter()
             .find(|file| !file.comments_only && self.comments.matches_path(file, thread.path()))
         else {
-            return ThreadContext::OutsideDiff;
+            return ThreadPlacement::OutsideDiff;
         };
         if file.content.is_none() {
-            return ThreadContext::Original;
+            return ThreadPlacement::Original;
         }
         if self.comments.mapped(&thread.id).is_none() {
-            return ThreadContext::Earlier;
+            return ThreadPlacement::Earlier;
         }
         if file.document.diff.is_empty() || self.comments.thread_row(thread, file).1 {
-            return ThreadContext::Hidden;
+            return ThreadPlacement::Hidden;
         }
-        ThreadContext::Current
+        ThreadPlacement::Current
     }
 
-    pub(super) fn publish_thread_contexts(&self) {
+    /// Report where this viewer's loaded code places each thread.
+    pub(super) fn place_threads(&self) {
         if let Some(book) = self.comments.book() {
-            self.events.publish(ui_events::ThreadContextsChanged {
-                review_unit: book.review_unit.clone(),
-                contexts: book
-                    .threads()
+            self.thread_projection.place(
+                &book.review_unit,
+                book.threads()
                     .iter()
-                    .map(|thread| (thread.id.clone(), self.thread_context(thread)))
+                    .map(|thread| (thread.id.clone(), self.thread_placement(thread)))
                     .collect(),
-            });
+            );
         }
     }
     pub(super) fn refresh_comment_documents(&mut self) {
@@ -693,7 +711,7 @@ impl SourceViewer {
             self.documents.push(file);
         }
         self.comments.refresh_anchors(&self.documents);
-        self.publish_thread_contexts();
+        self.place_threads();
         self.events.publish(ui_events::ThreadFilesChanged { paths });
     }
 }

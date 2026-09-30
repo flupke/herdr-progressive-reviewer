@@ -104,7 +104,7 @@ impl Comments {
     pub(crate) fn park_editor_outside(&mut self, path: &str) {
         if self
             .focused()
-            .is_some_and(|open| self.paths.resolve(open.draft().path()) != path)
+            .is_some_and(|open| !self.is_current_path(open.draft().path(), path))
         {
             self.park_editor();
         }

@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use std::hash::Hash;
+
 use serde::{Deserialize, Serialize};
 
 use crate::{Author, Message, MessageId, ReviewThread, ReviewThreads, ThreadId};
@@ -82,13 +85,24 @@ impl ReviewThreads {
     }
 
     pub fn counts(&self) -> ThreadCounts {
-        self.counts_for(|_| true)
+        let mut counts = ThreadCounts::default();
+        for thread in &self.threads {
+            counts.include(thread.counts());
+        }
+        counts
     }
 
-    pub fn counts_for(&self, include: impl Fn(&ReviewThread) -> bool) -> ThreadCounts {
-        let mut counts = ThreadCounts::default();
-        for thread in self.threads.iter().filter(|thread| include(thread)) {
-            counts.include(thread.counts());
+    /// Counts grouped by `key`, such as the file each thread belongs to.
+    pub fn counts_by<K: Eq + Hash>(
+        &self,
+        key: impl Fn(&ReviewThread) -> K,
+    ) -> HashMap<K, ThreadCounts> {
+        let mut counts = HashMap::<K, ThreadCounts>::new();
+        for thread in &self.threads {
+            counts
+                .entry(key(thread))
+                .or_default()
+                .include(thread.counts());
         }
         counts
     }

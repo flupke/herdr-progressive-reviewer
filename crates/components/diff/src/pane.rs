@@ -14,6 +14,7 @@ use component_core::{
 };
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
+use review_thread_projection::SharedThreadProjection;
 use ui_actions::{Action, DocumentAction};
 use ui_events::{
     DiffViewportChanged, EvidenceView, ExploreComparisonAccepted, ExploreEvidence,
@@ -47,6 +48,7 @@ impl DiffComponent {
     pub fn new(
         events: EventPublisher,
         reviewable_files: ReviewableFiles,
+        thread_projection: SharedThreadProjection,
         highlighter: SyntaxHighlighter,
         repository_root: PathBuf,
         palette: Palette,
@@ -57,6 +59,7 @@ impl DiffComponent {
             repository_root,
             palette,
             drafts: std::rc::Rc::default(),
+            thread_projection,
         };
         let files = SourceViewer::new(&services, Role::Files, reviewable_files);
         Self {

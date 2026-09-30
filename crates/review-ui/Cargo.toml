@@ -23,6 +23,7 @@ review-lsp = { path = "../review-lsp" }
 review-source = { path = "../review-source" }
 review-repository = { path = "../review-repository" }
 review-state = { path = "../review-state" }
+review-thread-projection = { path = "../review-thread-projection" }
 review-types = { path = "../review-types" }
 syntect.workspace = true
 toasts = { path = "../toasts" }

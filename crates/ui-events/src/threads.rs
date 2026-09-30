@@ -64,36 +64,6 @@ pub enum ReviewPane {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ReviewPaneFocusRequested(pub ReviewPane);
 
-/// Current placement is a projection, separate from the immutable saved context.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ThreadContext {
-    Current,
-    Hidden,
-    Earlier,
-    OutsideDiff,
-    Original,
-    Unavailable,
-}
-
-impl ThreadContext {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Current => "Current code",
-            Self::Hidden => "Hidden code",
-            Self::Earlier => "Earlier code",
-            Self::OutsideDiff => "Outside diff",
-            Self::Original => "Saved context",
-            Self::Unavailable => "Unavailable",
-        }
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ThreadContextsChanged {
-    pub review_unit: ReviewUnit,
-    pub contexts: std::collections::HashMap<ThreadId, ThreadContext>,
-}
-
 /// Paths retained solely because they contain review threads or unposted drafts.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ThreadFilesChanged {

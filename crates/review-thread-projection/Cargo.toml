@@ -1,0 +1,20 @@
+[package]
+name = "review-thread-projection"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+component-core = { path = "../component-core" }
+review-threads = { path = "../review-threads" }
+review-types = { path = "../review-types" }
+ui-events = { path = "../ui-events" }
+
+[dev-dependencies]
+review-repository = { path = "../review-repository" }
+review-source = { path = "../review-source" }
+review-state = { path = "../review-state" }
+
+[lints]
+workspace = true
