@@ -3,8 +3,8 @@ use std::time::Duration;
 use rmcp::{
     ErrorData, RoleServer, ServerHandler, ServiceExt,
     model::{
-        CallToolRequestParams, CallToolResponse, CallToolResult, ClientInfo, ContentBlock,
-        ListToolsResult, PaginatedRequestParams, ServerInfo,
+        CacheScope, CallToolRequestParams, CallToolResponse, CallToolResult, ClientInfo,
+        ContentBlock, ListToolsResult, PaginatedRequestParams, ServerInfo,
     },
     service::RequestContext,
     transport::{
@@ -68,7 +68,11 @@ impl ServerHandler for Bridge {
         _: Option<PaginatedRequestParams>,
         _: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, ErrorData> {
-        Ok(ListToolsResult::with_all_items(Handler::tools()))
+        // Protocol 2026-07-28 requires cache hints; clients reject a catalog without them.
+        let mut catalog = ListToolsResult::with_all_items(Handler::tools());
+        catalog.ttl_ms = Some(0);
+        catalog.cache_scope = Some(CacheScope::Private);
+        Ok(catalog)
     }
 
     async fn call_tool(

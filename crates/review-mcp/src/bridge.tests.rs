@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use rmcp::{
     ServiceExt,
-    model::{CallToolRequestParams, ClientInfo},
+    model::{CacheScope, CallToolRequestParams, ClientInfo},
 };
 use serde_json::json;
 
@@ -119,6 +119,32 @@ fn repository_discovery_failure_does_not_remove_the_tool_catalog() {
                     .unwrap()
                     .contains("No repository in this directory")
             );
+            client.cancel().await.unwrap();
+            bridge.waiting().await.unwrap();
+        });
+}
+
+#[test]
+fn the_tool_catalog_says_how_long_it_may_be_cached() {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            let (agent, transport) = tokio::io::duplex(8192);
+            let serving = tokio::spawn(async move {
+                Bridge {
+                    endpoint: Err("No repository in this directory".into()),
+                }
+                .serve(transport)
+                .await
+                .unwrap()
+            });
+            let client = ClientInfo::default().serve(agent).await.unwrap();
+            let bridge = serving.await.unwrap();
+            let catalog = client.list_tools(None).await.unwrap();
+            assert_eq!(catalog.ttl_ms, Some(0));
+            assert_eq!(catalog.cache_scope, Some(CacheScope::Private));
             client.cancel().await.unwrap();
             bridge.waiting().await.unwrap();
         });
