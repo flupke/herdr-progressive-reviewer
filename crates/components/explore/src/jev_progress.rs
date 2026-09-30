@@ -1,5 +1,5 @@
 //! The brief progress-bar tail is derived from the saved filtering stop time.
-use review_explore::CoverageLedger;
+use review_explore::{ClassificationProgress, ClassificationState, CoverageLedger};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const PROGRESS_TAIL: Duration = Duration::from_secs(5);
@@ -12,10 +12,13 @@ pub(super) struct JevProgressExpiry {
 
 impl JevProgressExpiry {
     pub(super) fn observe(&mut self, coverage: &CoverageLedger) {
-        if self.stopped_at_ms == coverage.classification_stopped_at_ms {
+        let stopped_at_ms = coverage
+            .classification_progress()
+            .and_then(|progress| progress.state.ended_at_ms());
+        if self.stopped_at_ms == stopped_at_ms {
             return;
         }
-        self.stopped_at_ms = coverage.classification_stopped_at_ms;
+        self.stopped_at_ms = stopped_at_ms;
         self.deadline = self.stopped_at_ms.and_then(|stopped_at_ms| {
             let now_ms = u64::try_from(
                 SystemTime::now()
@@ -31,13 +34,16 @@ impl JevProgressExpiry {
         });
     }
 
-    pub(super) fn visible(&self, coverage: &CoverageLedger) -> bool {
-        if coverage.classification_stopped_at_ms.is_none() {
+    pub(super) fn visible(&self, progress: ClassificationProgress) -> bool {
+        match progress.state {
+            ClassificationState::Running => true,
             // Older saved passes have no stop time; a completed bar is already stale.
-            return !coverage.classification_finished;
+            ClassificationState::Finished { at_ms: None } => false,
+            ClassificationState::Finished { at_ms: Some(_) }
+            | ClassificationState::Stopped { .. } => self
+                .deadline
+                .is_some_and(|deadline| Instant::now() < deadline),
         }
-        self.deadline
-            .is_some_and(|deadline| Instant::now() < deadline)
     }
 
     pub(super) fn changes_between(&self, previous: Instant, now: Instant) -> bool {

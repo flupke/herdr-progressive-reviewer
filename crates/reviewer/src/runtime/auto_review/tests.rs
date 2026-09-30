@@ -57,7 +57,7 @@ impl AutoReview {
             .unwrap();
         let units = self
             .coverage
-            .inventory
+            .inventory()
             .units
             .iter()
             .filter(|unit| unit.file_index() == file && matches!(unit, CoverageUnit::Lines { .. }))
@@ -104,7 +104,7 @@ fn only_fully_insignificant_files_are_marked_and_later_edits_need_review(kind: R
     std::os::unix::fs::symlink("docs.md", fixture.files.root().join("symlink")).unwrap();
     let mut review = fixture.prepare();
     assert!(
-        !review.coverage.inventory.complete,
+        !review.coverage.inventory().complete,
         "symlinks have no supported text inventory"
     );
     for (path, outcome) in [
@@ -231,7 +231,7 @@ fn metadata_changes_remain_unreviewed_even_when_all_text_is_insignificant() {
     assert!(
         review
             .coverage
-            .inventory
+            .inventory()
             .units
             .iter()
             .any(|unit| matches!(unit, CoverageUnit::Item { name, .. } if name == "mode"))

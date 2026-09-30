@@ -381,7 +381,7 @@ fn mcp_gap_pages_are_navigable_and_reject_stale_pass_inputs() {
     let mut query = serde_json::json!({
         "instance": pass.exploration.instance,
         "checkpoint": pass.exploration.comparison.checkpoint,
-        "revision": pass.coverage.revision,
+        "revision": pass.coverage.revision(),
         "mode": "disabled",
         "cursor": 0,
         "limit": 1,
@@ -405,12 +405,12 @@ fn mcp_gap_pages_are_navigable_and_reject_stale_pass_inputs() {
     query["cursor"] = 0.into();
     let filtered = flow.call("get_coverage_gaps", query.clone());
     assert_ne!(filtered.is_error, Some(true), "{filtered:?}");
-    query["revision"] = (pass.coverage.revision + 1).into();
+    query["revision"] = (pass.coverage.revision() + 1).into();
     assert_eq!(
         flow.call("get_coverage_gaps", query.clone()).is_error,
         Some(true)
     );
-    query["revision"] = pass.coverage.revision.into();
+    query["revision"] = pass.coverage.revision().into();
     query["mode"] = "enabled".into();
     assert_eq!(
         flow.call("get_coverage_gaps", query.clone()).is_error,

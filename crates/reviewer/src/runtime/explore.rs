@@ -431,7 +431,7 @@ impl Worker {
             review_explore::JevMode::Disabled
         };
         eyre::ensure!(
-            pass.coverage.revision == query.revision && mode == query.mode,
+            pass.coverage.revision() == query.revision && mode == query.mode,
             "Coverage revision or Jev policy changed; use the latest current feedback"
         );
         let limit = query.limit.unwrap_or(64);
@@ -472,7 +472,7 @@ impl Worker {
         let total_windows = all_candidates.len();
         let candidates = all_candidates
             .into_iter()
-            .filter(|candidate| !pass.coverage.classifications.contains_key(candidate.id()))
+            .filter(|candidate| !pass.coverage.is_classified(candidate.id()))
             .collect();
         let unit = pass.exploration.comparison.checkpoint.review_unit.clone();
         let instance = pass.exploration.instance.clone();
@@ -486,8 +486,7 @@ impl Worker {
                 return Ok(false);
             }
             pass.coverage
-                .restart_classification(jev::RUBRIC, attempt.clone());
-            pass.coverage.jev_total_windows = total_windows;
+                .start_classification(jev::RUBRIC, attempt.clone(), total_windows);
             Ok(true)
         }) else {
             return pass;
@@ -495,24 +494,29 @@ impl Worker {
         if !started {
             return pass;
         }
-        let prior_elapsed = pass.coverage.jev_elapsed_ms;
+        let prior_elapsed = pass
+            .coverage
+            .classification_progress()
+            .map_or(0, |progress| progress.elapsed_ms);
         let active = Arc::new(std::sync::atomic::AtomicBool::new(true));
         self.explore.jev_active = Some((instance.clone(), active.clone()));
         let store = self.store.clone();
         let messages = messages.clone();
         std::thread::spawn(move || {
             let started = std::time::Instant::now();
+            let elapsed = || {
+                prior_elapsed.saturating_add(
+                    u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                )
+            };
             let finished = jev::classify(&key, candidates, |result| {
                 match store.update_explore(&unit, &instance, |pass| {
-                    if pass.coverage.classification_attempt.as_deref() != Some(&attempt)
-                        || pass.completion.is_some()
-                    {
+                    if !pass.coverage.is_current_attempt(&attempt) || pass.completion.is_some() {
                         return Err("obsolete classification attempt".into());
                     }
-                    pass.coverage.jev_elapsed_ms = prior_elapsed.saturating_add(
-                        u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
-                    );
-                    Ok(pass.coverage.record_significance(result))
+                    Ok(pass
+                        .coverage
+                        .record_classification_progress(result, elapsed()))
                 }) {
                     Ok((true, pass)) => {
                         let (response, _) = std::sync::mpsc::channel();
@@ -529,15 +533,15 @@ impl Worker {
                 }
             });
             if let Ok((_, pass)) = store.update_explore(&unit, &instance, |pass| {
-                if pass.coverage.classification_attempt.as_deref() != Some(&attempt) {
+                if !pass.coverage.is_current_attempt(&attempt) {
                     return Ok(false);
                 }
-                pass.coverage.finish_classification(
-                    finished,
-                    prior_elapsed.saturating_add(
-                        u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
-                    ),
-                );
+                let now = std::time::SystemTime::now();
+                if finished {
+                    pass.coverage.finish_classification(elapsed(), now);
+                } else {
+                    pass.coverage.stop_classification(elapsed(), now);
+                }
                 Ok(true)
             }) {
                 let (response, _) = std::sync::mpsc::channel();

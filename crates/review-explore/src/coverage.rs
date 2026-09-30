@@ -6,7 +6,10 @@ use review_repository::{
 };
 use review_source::SourceLineRange;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 /// Intervals are one-based and half-open. Each unit belongs to exactly one changed file.
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, Ord, PartialEq, PartialOrd)]
@@ -73,31 +76,65 @@ pub struct CoverageInventory {
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
 pub struct CoverageLedger {
-    pub inventory: CoverageInventory,
+    inventory: CoverageInventory,
     /// Exact answer IDs, each with its immutable credited intersection.
-    pub answers: BTreeMap<String, Vec<CoverageUnit>>,
-    pub credited: Vec<CoverageUnit>,
+    answers: BTreeMap<String, Vec<CoverageUnit>>,
+    credited: Vec<CoverageUnit>,
     /// Jev results never erase raw answer coverage.
-    pub excluded: Vec<CoverageUnit>,
-    pub required_overrides: Vec<CoverageUnit>,
-    pub revision: u64,
+    excluded: Vec<CoverageUnit>,
+    required_overrides: Vec<CoverageUnit>,
+    revision: u64,
     /// Changes only when data used by coverage counts changes.
     #[serde(default)]
-    pub counts_revision: u64,
-    pub classification_started: bool,
-    pub classification_attempt: Option<String>,
+    counts_revision: u64,
+    classification_started: bool,
+    classification_attempt: Option<String>,
     #[serde(default)]
-    pub classification_rubric: Option<String>,
-    pub classifications: BTreeMap<String, SignificanceResult>,
+    classification_rubric: Option<String>,
+    classifications: BTreeMap<String, SignificanceResult>,
     #[serde(default)]
-    pub jev_elapsed_ms: u64,
+    jev_elapsed_ms: u64,
     #[serde(default)]
-    pub classification_finished: bool,
+    classification_finished: bool,
     /// Wall-clock time when the latest filtering attempt stopped, successful or not.
     #[serde(default)]
-    pub classification_stopped_at_ms: Option<u64>,
+    classification_stopped_at_ms: Option<u64>,
     #[serde(default)]
-    pub jev_total_windows: usize,
+    jev_total_windows: usize,
+}
+
+/// Where the latest Jev filtering attempt stands, for progress reporting.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ClassificationProgress {
+    /// Windows with a recorded result; may exceed `total_windows` after a resume.
+    pub classified_windows: usize,
+    pub total_windows: usize,
+    /// Filtering time accumulated across attempts under the current rubric.
+    pub elapsed_ms: u64,
+    pub state: ClassificationState,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClassificationState {
+    Running,
+    /// Passes saved before stop times were recorded finish without one.
+    Finished {
+        at_ms: Option<u64>,
+    },
+    Stopped {
+        at_ms: u64,
+    },
+}
+
+impl ClassificationState {
+    /// Wall-clock milliseconds since the Unix epoch when the attempt ended.
+    pub fn ended_at_ms(self) -> Option<u64> {
+        match self {
+            Self::Running => None,
+            Self::Finished { at_ms } => at_ms,
+            Self::Stopped { at_ms } => Some(at_ms),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
@@ -610,7 +647,9 @@ impl CoverageLedger {
         true
     }
 
-    pub fn restart_classification(&mut self, rubric: &str, attempt: String) {
+    /// Begin a filtering attempt over `total_windows` windows. The same rubric
+    /// resumes earlier results and time; a new rubric discards them.
+    pub fn start_classification(&mut self, rubric: &str, attempt: String, total_windows: usize) {
         let new_rubric = self.classification_rubric.as_deref() != Some(rubric);
         self.classification_started = true;
         self.classification_attempt = Some(attempt);
@@ -625,21 +664,91 @@ impl CoverageLedger {
         }
         self.classification_finished = false;
         self.classification_stopped_at_ms = None;
+        self.jev_total_windows = total_windows;
         self.revision += 1;
     }
 
-    pub fn finish_classification(&mut self, finished: bool, elapsed_ms: u64) {
+    /// Whether `attempt` is the latest filtering attempt; older attempts must stop writing.
+    pub fn is_current_attempt(&self, attempt: &str) -> bool {
+        self.classification_attempt.as_deref() == Some(attempt)
+    }
+
+    pub fn is_classified(&self, window: &str) -> bool {
+        self.classifications.contains_key(window)
+    }
+
+    pub fn classifications(&self) -> impl Iterator<Item = &SignificanceResult> {
+        self.classifications.values()
+    }
+
+    /// Record one streamed window result with the attempt's accumulated time.
+    pub fn record_classification_progress(
+        &mut self,
+        result: SignificanceResult,
+        elapsed_ms: u64,
+    ) -> bool {
+        self.jev_elapsed_ms = elapsed_ms;
+        self.record_significance(result)
+    }
+
+    /// End the attempt after every window was classified.
+    pub fn finish_classification(&mut self, elapsed_ms: u64, at: SystemTime) {
+        self.end_classification(true, elapsed_ms, at);
+    }
+
+    /// End the attempt early; unclassified windows stay required.
+    pub fn stop_classification(&mut self, elapsed_ms: u64, at: SystemTime) {
+        self.end_classification(false, elapsed_ms, at);
+    }
+
+    fn end_classification(&mut self, finished: bool, elapsed_ms: u64, at: SystemTime) {
         self.jev_elapsed_ms = elapsed_ms;
         self.classification_finished = finished;
         self.classification_stopped_at_ms = Some(
             u64::try_from(
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
+                at.duration_since(UNIX_EPOCH)
                     .unwrap_or_default()
                     .as_millis(),
             )
             .unwrap_or(u64::MAX),
         );
+        self.revision += 1;
+    }
+
+    /// `None` until filtering has started for this pass.
+    pub fn classification_progress(&self) -> Option<ClassificationProgress> {
+        self.classification_started
+            .then_some(ClassificationProgress {
+                classified_windows: self.classifications.len(),
+                total_windows: self.jev_total_windows,
+                elapsed_ms: self.jev_elapsed_ms,
+                state: match (
+                    self.classification_finished,
+                    self.classification_stopped_at_ms,
+                ) {
+                    (true, at_ms) => ClassificationState::Finished { at_ms },
+                    (false, Some(at_ms)) => ClassificationState::Stopped { at_ms },
+                    (false, None) => ClassificationState::Running,
+                },
+            })
+    }
+
+    pub fn inventory(&self) -> &CoverageInventory {
+        &self.inventory
+    }
+
+    /// Identifies the inputs to coverage feedback, including pending questions.
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
+
+    /// Changes only when data used by coverage counts changes.
+    pub fn counts_revision(&self) -> u64 {
+        self.counts_revision
+    }
+
+    /// A new pending question changes gap assignment without changing counts.
+    pub(crate) fn note_pending_question(&mut self) {
         self.revision += 1;
     }
 
@@ -1328,60 +1437,224 @@ mod tests {
     use crate::{Alternative, Question, TopicStatus};
     use review_repository::repository::{ChangeKind, ChangedFile, DiffStatistics};
 
-    #[test]
-    fn replacing_an_old_rubric_recalculates_exclusions_without_losing_answers() {
-        let unit = CoverageUnit::Lines {
-            file: 0,
-            side: SourceSide::New,
-            first: 1,
-            end: 2,
-        };
-        let mut ledger = CoverageLedger {
-            inventory: CoverageInventory {
-                units: vec![unit.clone()],
-                complete: true,
-                ..CoverageInventory::default()
-            },
-            credited: vec![unit.clone()],
-            required_overrides: vec![unit.clone()],
-            ..CoverageLedger::default()
-        };
-        assert!(ledger.needs_classification("rubric-v1", 0));
-        assert!(!ledger.needs_classification("rubric-v1", 1));
-        ledger.restart_classification("rubric-v1", "attempt-v1".into());
-        assert!(ledger.needs_classification("rubric-v1", 1));
-        assert!(ledger.needs_classification("rubric-v2", 1));
-        assert!(ledger.record_significance(SignificanceResult {
-            id: "f0-b0".into(),
-            units: vec![unit.clone()],
-            outcome: Significance::Insignificant,
+    fn result(id: &str, units: Vec<CoverageUnit>, outcome: Significance) -> SignificanceResult {
+        SignificanceResult {
+            id: id.into(),
+            units,
+            outcome,
             model: Some("jev".into()),
-            rubric: "rubric-v1".into(),
+            rubric: "rubric".into(),
             criterion: String::new(),
             input_references: vec![],
             omissions: vec![],
             probabilities: BTreeMap::new(),
             confidence: None,
             error: None,
-        }));
-        assert_eq!(ledger.excluded, vec![unit.clone()]);
+        }
+    }
 
-        ledger.jev_elapsed_ms = 120;
-        ledger.restart_classification("rubric-v1", "resumed-attempt".into());
-        assert_eq!(ledger.classifications.len(), 1);
-        assert_eq!(ledger.excluded, vec![unit.clone()]);
-        assert_eq!(ledger.jev_elapsed_ms, 120);
-        ledger.classification_finished = true;
-        assert!(!ledger.needs_classification("rubric-v1", 1));
+    fn exclude(ledger: &mut CoverageLedger, units: Vec<CoverageUnit>) {
+        assert!(ledger.record_significance(result("excluded", units, Significance::Insignificant)));
+    }
 
-        ledger.restart_classification("rubric-v2", "attempt-v2".into());
-        assert!(ledger.classifications.is_empty());
-        assert!(ledger.excluded.is_empty());
-        assert_eq!(ledger.credited, vec![unit.clone()]);
-        assert_eq!(ledger.required_overrides, vec![unit]);
-        assert_eq!(ledger.classification_rubric.as_deref(), Some("rubric-v2"));
-        assert_eq!(ledger.classification_attempt.as_deref(), Some("attempt-v2"));
-        assert_eq!(ledger.jev_elapsed_ms, 0);
+    fn three_added_lines() -> Comparison {
+        comparison(
+            "diff --git a/a.rs b/a.rs\n@@ -0,0 +1,3 @@\n+one\n+two\n+three\n",
+            None,
+            Some("a.rs"),
+        )
+    }
+
+    fn new_lines(first: u32, end: u32) -> CoverageUnit {
+        CoverageUnit::Lines {
+            file: 0,
+            side: SourceSide::New,
+            first,
+            end,
+        }
+    }
+
+    fn at(ms: u64) -> SystemTime {
+        UNIX_EPOCH + std::time::Duration::from_millis(ms)
+    }
+
+    #[test]
+    fn classification_reports_progress_from_start_to_finish() {
+        let comparison = three_added_lines();
+        let mut ledger = CoverageLedger::new(&comparison);
+        assert_eq!(ledger.classification_progress(), None);
+        assert!(ledger.needs_classification("rubric", 0));
+        assert!(
+            !ledger.needs_classification("rubric", 1),
+            "an interview already under way is not filtered retroactively"
+        );
+
+        ledger.start_classification("rubric", "attempt".into(), 2);
+        assert!(ledger.is_current_attempt("attempt"));
+        assert!(!ledger.is_current_attempt("older"));
+        assert!(ledger.needs_classification("rubric", 1));
+        assert_eq!(
+            ledger.classification_progress(),
+            Some(ClassificationProgress {
+                classified_windows: 0,
+                total_windows: 2,
+                elapsed_ms: 0,
+                state: ClassificationState::Running,
+            })
+        );
+
+        let first = result("w1", vec![new_lines(1, 2)], Significance::Insignificant);
+        assert!(ledger.record_classification_progress(first.clone(), 40));
+        assert!(
+            !ledger.record_classification_progress(first, 50),
+            "a window is classified once"
+        );
+        assert!(ledger.is_classified("w1"));
+        assert!(!ledger.is_classified("w2"));
+        assert_eq!(ledger.jev_filtered_changed_lines(true), 1);
+        let second = result("w2", vec![new_lines(2, 4)], Significance::Significant);
+        assert!(ledger.record_classification_progress(second, 90));
+        assert_eq!(
+            ledger
+                .classifications()
+                .map(|r| r.id.as_str())
+                .collect::<Vec<_>>(),
+            ["w1", "w2"]
+        );
+
+        ledger.finish_classification(100, at(5_000));
+        assert_eq!(
+            ledger.classification_progress(),
+            Some(ClassificationProgress {
+                classified_windows: 2,
+                total_windows: 2,
+                elapsed_ms: 100,
+                state: ClassificationState::Finished { at_ms: Some(5_000) },
+            })
+        );
+        assert!(!ledger.needs_classification("rubric", 1));
+        assert!(ledger.needs_classification("new rubric", 1));
+    }
+
+    #[test]
+    fn a_stopped_attempt_resumes_its_results_and_time_under_the_same_rubric() {
+        let comparison = three_added_lines();
+        let mut ledger = CoverageLedger::new(&comparison);
+        ledger.start_classification("rubric", "first".into(), 3);
+        assert!(ledger.record_classification_progress(
+            result("w1", vec![new_lines(1, 2)], Significance::Insignificant),
+            120,
+        ));
+        ledger.stop_classification(130, at(9_000));
+        let stopped = ledger.classification_progress().unwrap();
+        assert_eq!(stopped.state, ClassificationState::Stopped { at_ms: 9_000 });
+        assert_eq!(stopped.state.ended_at_ms(), Some(9_000));
+        assert_eq!(stopped.classified_windows, 1);
+        assert!(
+            ledger.needs_classification("rubric", 1),
+            "a stopped attempt is resumed"
+        );
+        assert_eq!(
+            ledger.required_changed_line_coverage(None, true).total,
+            2,
+            "unclassified windows stay required"
+        );
+
+        ledger.start_classification("rubric", "resumed".into(), 2);
+        assert!(!ledger.is_current_attempt("first"));
+        assert_eq!(
+            ledger.classification_progress(),
+            Some(ClassificationProgress {
+                classified_windows: 1,
+                total_windows: 2,
+                elapsed_ms: 130,
+                state: ClassificationState::Running,
+            })
+        );
+        assert_eq!(ledger.jev_filtered_changed_lines(true), 1);
+    }
+
+    #[test]
+    fn replacing_an_old_rubric_recalculates_exclusions_without_losing_answers() {
+        let comparison = three_added_lines();
+        let mut ledger = CoverageLedger::new(&comparison);
+        ledger.credit(
+            &answer(
+                "a",
+                vec![reference("a.rs", SourceSide::New, Some((1, 1)))],
+                vec![],
+                false,
+            ),
+            &comparison,
+        );
+        ledger.require_review(vec![new_lines(2, 3)]);
+        ledger.start_classification("rubric-v1", "attempt-v1".into(), 1);
+        assert!(ledger.record_classification_progress(
+            result("w1", vec![new_lines(1, 4)], Significance::Insignificant),
+            120,
+        ));
+        ledger.finish_classification(120, at(1));
+        assert_eq!(ledger.jev_filtered_changed_lines(true), 2);
+        let counts_before = ledger.counts_revision();
+
+        ledger.start_classification("rubric-v2", "attempt-v2".into(), 1);
+        assert!(ledger.counts_revision() > counts_before);
+        assert!(ledger.is_current_attempt("attempt-v2"));
+        assert_eq!(
+            ledger.classification_progress(),
+            Some(ClassificationProgress {
+                classified_windows: 0,
+                total_windows: 1,
+                elapsed_ms: 0,
+                state: ClassificationState::Running,
+            })
+        );
+        assert_eq!(ledger.jev_filtered_changed_lines(true), 0);
+        assert_eq!(
+            ledger.required_changed_line_coverage(None, true),
+            ChangedLineCoverage {
+                explored: 1,
+                total: 3
+            },
+            "answers survive a rubric change"
+        );
+        exclude(&mut ledger, vec![new_lines(2, 4)]);
+        assert_eq!(
+            ledger.jev_filtered_changed_lines(true),
+            1,
+            "the review override survives a rubric change"
+        );
+    }
+
+    #[test]
+    fn saved_passes_without_a_stop_time_report_a_finished_attempt() {
+        let mut saved: serde_json::Value = serde_json::from_str(SAVED_LEDGER).unwrap();
+        let fields = saved.as_object_mut().unwrap();
+        for field in [
+            "counts_revision",
+            "classification_rubric",
+            "jev_elapsed_ms",
+            "classification_stopped_at_ms",
+            "jev_total_windows",
+        ] {
+            fields.remove(field);
+        }
+        fields.insert("classification_finished".into(), true.into());
+        let ledger: CoverageLedger = serde_json::from_value(saved).unwrap();
+        assert_eq!(ledger.counts_revision(), 0);
+        assert!(
+            ledger.needs_classification("rubric-1", 1),
+            "no saved rubric"
+        );
+        assert_eq!(
+            ledger.classification_progress(),
+            Some(ClassificationProgress {
+                classified_windows: 1,
+                total_windows: 0,
+                elapsed_ms: 0,
+                state: ClassificationState::Finished { at_ms: None },
+            })
+        );
     }
 
     fn comparison(diff: &str, old: Option<&str>, new: Option<&str>) -> Comparison {
@@ -1429,13 +1702,19 @@ mod tests {
             Some("f.rs"),
         );
         let mut ledger = CoverageLedger::new(&comparison);
-        let unit = ledger.inventory.units[1].clone();
-        ledger.excluded = vec![unit.clone()];
+        let unit = ledger.inventory().units[1].clone();
+        ledger.start_classification("rubric-v1", "attempt-v1".into(), 1);
+        exclude(&mut ledger, vec![unit.clone()]);
         ledger.require_review(vec![unit.clone()]);
-        ledger.restart_classification("rubric-v2", "attempt-v2".into());
+        ledger.start_classification("rubric-v2", "attempt-v2".into(), 1);
 
-        assert!(ledger.excluded.is_empty());
-        assert_eq!(ledger.required_overrides, vec![unit]);
+        assert_eq!(ledger.classifications().count(), 0);
+        assert_eq!(ledger.summary(true).required, 2);
+        ledger
+            .validate_restored(&comparison, std::iter::empty())
+            .expect("saved override is independent of the current Jev exclusions");
+        exclude(&mut ledger, vec![unit]);
+        assert_eq!(ledger.summary(true).required, 2, "the override is kept");
         ledger
             .validate_restored(&comparison, std::iter::empty())
             .expect("saved override is independent of the current Jev exclusions");
@@ -1726,7 +2005,7 @@ mod tests {
             Some("a.rs"),
         );
         let mut ledger = CoverageLedger::new(&comparison);
-        assert!(ledger.inventory.complete);
+        assert!(ledger.inventory().complete);
         assert_eq!(ledger.summary(false).required, 2);
         ledger.credit(
             &answer(
@@ -1852,7 +2131,7 @@ mod tests {
             first: 2,
             end: 4,
         };
-        ledger.excluded = vec![excluded.clone()];
+        exclude(&mut ledger, vec![excluded.clone()]);
         assert_eq!(
             ledger.changed_line_coverage(None),
             ChangedLineCoverage {
@@ -1922,20 +2201,23 @@ mod tests {
             ),
             &changed,
         );
-        ledger.excluded = vec![
-            CoverageUnit::Lines {
-                file: 0,
-                side: SourceSide::New,
-                first: 1,
-                end: 3,
-            },
-            CoverageUnit::Lines {
-                file: 1,
-                side: SourceSide::New,
-                first: 1,
-                end: 2,
-            },
-        ];
+        exclude(
+            &mut ledger,
+            vec![
+                CoverageUnit::Lines {
+                    file: 0,
+                    side: SourceSide::New,
+                    first: 1,
+                    end: 3,
+                },
+                CoverageUnit::Lines {
+                    file: 1,
+                    side: SourceSide::New,
+                    first: 1,
+                    end: 2,
+                },
+            ],
+        );
 
         let enabled = ledger.feedback(&changed, &[], true);
         assert_eq!(enabled.covered_percent_tenths, Some(0));
@@ -2010,20 +2292,23 @@ mod tests {
         changed.files.extend(filtered.files);
         changed.diffs.extend(filtered.diffs);
         let mut ledger = CoverageLedger::new(&changed);
-        ledger.excluded = vec![
-            CoverageUnit::Lines {
-                file: 0,
-                side: SourceSide::New,
-                first: 2,
-                end: 3,
-            },
-            CoverageUnit::Lines {
-                file: 1,
-                side: SourceSide::New,
-                first: 1,
-                end: 2,
-            },
-        ];
+        exclude(
+            &mut ledger,
+            vec![
+                CoverageUnit::Lines {
+                    file: 0,
+                    side: SourceSide::New,
+                    first: 2,
+                    end: 3,
+                },
+                CoverageUnit::Lines {
+                    file: 1,
+                    side: SourceSide::New,
+                    first: 1,
+                    end: 2,
+                },
+            ],
+        );
         let answer = answer(
             "future",
             vec![reference("src/a.rs", SourceSide::New, Some((1, 2)))],
@@ -2076,12 +2361,36 @@ mod tests {
         assert_eq!(serde_json::to_value(restored).unwrap(), stored);
     }
 
+    /// A ledger saved in the current Explore pass format, field for field.
+    const SAVED_LEDGER: &str = concat!(
+        r#"{"inventory":{"units":[{"kind":"lines","file":0,"side":"new","first":1,"end":3},"#,
+        r#"{"kind":"item","file":0,"name":"mode"}],"limitations":["note"],"complete":true},"#,
+        r#""answers":{"answer-1":[{"kind":"lines","file":0,"side":"new","first":1,"end":2}]},"#,
+        r#""credited":[{"kind":"lines","file":0,"side":"new","first":1,"end":2}],"#,
+        r#""excluded":[{"kind":"lines","file":0,"side":"new","first":2,"end":3}],"#,
+        r#""required_overrides":[],"revision":7,"counts_revision":3,"#,
+        r#""classification_started":true,"classification_attempt":"attempt-1","#,
+        r#""classification_rubric":"rubric-1","classifications":{"window-1":{"id":"window-1","#,
+        r#""units":[{"kind":"lines","file":0,"side":"new","first":2,"end":3}],"#,
+        r#""outcome":"insignificant","model":"jev","rubric":"rubric-1","criterion":"c","#,
+        r#""input_references":["a.rs:2"],"omissions":[],"probabilities":{"yes":0.25},"#,
+        r#""confidence":0.75,"error":null}},"jev_elapsed_ms":1200,"#,
+        r#""classification_finished":false,"classification_stopped_at_ms":1700000000000,"#,
+        r#""jev_total_windows":4}"#
+    );
+
+    #[test]
+    fn saved_ledgers_round_trip_in_the_same_format() {
+        let ledger: CoverageLedger = serde_json::from_str(SAVED_LEDGER).unwrap();
+        assert_eq!(serde_json::to_string(&ledger).unwrap(), SAVED_LEDGER);
+    }
+
     #[test]
     fn missing_geometry_is_incomplete_not_empty() {
         let mut comparison = comparison("", Some("a.rs"), Some("a.rs"));
         comparison.diffs.clear();
         let ledger = CoverageLedger::new(&comparison);
-        assert!(!ledger.inventory.complete);
+        assert!(!ledger.inventory().complete);
         assert_eq!(ledger.summary(false).answered_required_units_percent, None);
     }
 }

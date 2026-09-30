@@ -167,7 +167,7 @@ fn conclusion_preview_omits_jev_only_files_from_count_tree_and_diff() {
     pass.submit(&update, false).unwrap();
     let required = pass
         .coverage
-        .inventory
+        .inventory()
         .units
         .iter()
         .find(|unit| unit.file_index() == 0)
@@ -175,7 +175,7 @@ fn conclusion_preview_omits_jev_only_files_from_count_tree_and_diff() {
         .clone();
     let excluded = pass
         .coverage
-        .inventory
+        .inventory()
         .units
         .iter()
         .find(|unit| unit.file_index() == 1)
@@ -298,7 +298,7 @@ fn coverage_diff_uses_the_selected_file_after_restoring_multiple_files() {
 fn inspect_jev_exclusions_reveals_the_regions_beside_the_control() {
     let (mut fixture, request) = ExploreUi::new();
     let mut pass = pass(&fixture, &request);
-    let unit = pass.coverage.inventory.units[0].clone();
+    let unit = pass.coverage.inventory().units[0].clone();
     assert!(
         pass.coverage
             .record_significance(review_explore::SignificanceResult {
@@ -490,9 +490,9 @@ fn sending_an_answer_credits_its_question_and_refreshes_displayed_coverage() {
     );
 
     let answer = ExploreUi::request(fixture.app.update(UserInput::Key(Key::ControlEnter)));
-    let before = pass.coverage.counts_revision;
+    let before = pass.coverage.counts_revision();
     pass.post(&answer).unwrap();
-    assert!(pass.coverage.counts_revision > before);
+    assert!(pass.coverage.counts_revision() > before);
     assert!(
         pass.coverage
             .required_changed_line_coverage(None, false)

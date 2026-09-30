@@ -3,7 +3,7 @@ use super::{
     controls::{Button, ControlVisual},
 };
 use ratatui::{buffer::Buffer, layout::Rect};
-use review_explore::ChangedLineCoverage;
+use review_explore::{ChangedLineCoverage, ClassificationState};
 use ui_theme::Palette;
 
 #[derive(Clone)]
@@ -276,7 +276,7 @@ impl ExploreComponent {
         coverage: &review_explore::CoverageLedger,
         counts: &super::coverage::CoverageSnapshot,
     ) -> Option<String> {
-        if !coverage.classification_started
+        if coverage.classification_progress().is_none()
             || !counts.exclusions_enabled
             || !counts.summary.inventory_complete
         {
@@ -293,22 +293,18 @@ impl ExploreComponent {
     }
 
     fn jev_progress(&self, coverage: &review_explore::CoverageLedger) -> Option<String> {
-        if !coverage.classification_started
-            || coverage.jev_total_windows == 0
-            || !self.jev_progress_expiry.visible(coverage)
-        {
+        let progress = coverage.classification_progress()?;
+        if progress.total_windows == 0 || !self.jev_progress_expiry.visible(progress) {
             return None;
         }
-        let total = coverage.jev_total_windows;
-        let done = coverage.classifications.len().min(total);
+        let total = progress.total_windows;
+        let done = progress.classified_windows.min(total);
         let filled = done.saturating_mul(10) / total;
         let bar = format!("{}{}", "=".repeat(filled), "-".repeat(10 - filled));
-        let label = if coverage.classification_finished {
-            "Jev checked"
-        } else if coverage.classification_stopped_at_ms.is_some() {
-            "Jev stopped"
-        } else {
-            "Jev filtering"
+        let label = match progress.state {
+            ClassificationState::Finished { .. } => "Jev checked",
+            ClassificationState::Stopped { .. } => "Jev stopped",
+            ClassificationState::Running => "Jev filtering",
         };
         Some(format!("{label} [{bar}] {done}/{total}"))
     }

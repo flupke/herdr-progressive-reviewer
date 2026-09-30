@@ -46,20 +46,39 @@ fn lines(file: usize, side: SourceSide, first: u32, end: u32) -> CoverageUnit {
 }
 
 fn exclude_second_file(coverage: &mut CoverageLedger) {
-    coverage.restart_classification("test", "attempt".into());
-    assert!(coverage.record_significance(SignificanceResult {
-        id: "b".into(),
-        units: vec![lines(1, SourceSide::New, 1, 3)],
-        outcome: Significance::Insignificant,
-        model: None,
-        rubric: "test".into(),
-        criterion: String::new(),
-        input_references: vec![],
-        omissions: vec![],
-        probabilities: std::collections::BTreeMap::default(),
-        confidence: None,
-        error: None,
-    }));
+    coverage.start_classification("test", "attempt".into(), 1);
+    assert!(coverage.record_classification_progress(
+        SignificanceResult {
+            id: "b".into(),
+            units: vec![lines(1, SourceSide::New, 1, 3)],
+            outcome: Significance::Insignificant,
+            model: None,
+            rubric: "test".into(),
+            criterion: String::new(),
+            input_references: vec![],
+            omissions: vec![],
+            probabilities: std::collections::BTreeMap::default(),
+            confidence: None,
+            error: None,
+        },
+        10
+    ));
+}
+
+/// The saved ledger a posted answer returns, with `units` credited.
+fn credited(coverage: &CoverageLedger, units: &[CoverageUnit]) -> CoverageLedger {
+    let mut saved = serde_json::to_value(coverage).unwrap();
+    saved["credited"] = serde_json::to_value(units).unwrap();
+    saved["revision"] = (coverage.revision() + 1).into();
+    saved["counts_revision"] = (coverage.counts_revision() + 1).into();
+    serde_json::from_value(saved).unwrap()
+}
+
+fn comparison_of(files: usize, diffs: Vec<Vec<u8>>) -> Comparison {
+    let mut comparison = (*comparison()).clone();
+    comparison.files.truncate(files);
+    comparison.diffs = diffs;
+    comparison
 }
 
 struct Fixture {
@@ -170,7 +189,7 @@ fn streamed_results_and_required_overrides_refresh_cached_counts() {
     assert_eq!(fixture.counts().files[1].lines.total, 1);
     assert!(fixture.header().contains("Jev filtered 16.6%"));
     assert_eq!(fixture.component().coverage_cache.rebuilds, 3);
-    assert_eq!(fixture.pass.coverage.classifications.len(), 1);
+    assert_eq!(fixture.pass.coverage.classifications().count(), 1);
 }
 
 #[test]
@@ -179,13 +198,14 @@ fn posted_answers_refresh_counts_and_repeated_drawing_reuses_them() {
     exclude_second_file(&mut fixture.pass.coverage);
     fixture.commit();
     // The posted event carries the authoritative ledger after answer credit.
-    fixture.pass.coverage.credited = vec![
-        lines(0, SourceSide::Old, 1, 2),
-        lines(0, SourceSide::New, 1, 2),
-        lines(1, SourceSide::New, 1, 2),
-    ];
-    fixture.pass.coverage.revision += 1;
-    fixture.pass.coverage.counts_revision += 1;
+    fixture.pass.coverage = credited(
+        &fixture.pass.coverage,
+        &[
+            lines(0, SourceSide::Old, 1, 2),
+            lines(0, SourceSide::New, 1, 2),
+            lines(1, SourceSide::New, 1, 2),
+        ],
+    );
     fixture.pass.revision += 1;
     let request = fixture
         .pass
@@ -220,7 +240,7 @@ fn posted_answers_refresh_counts_and_repeated_drawing_reuses_them() {
     fixture.commit();
     fixture.restore();
     assert_eq!(fixture.component().coverage_cache.rebuilds, 3);
-    assert_eq!(fixture.pass.coverage.classifications.len(), 1);
+    assert_eq!(fixture.pass.coverage.classifications().count(), 1);
 }
 
 #[test]
@@ -243,9 +263,15 @@ fn completed_policy_and_pass_identity_invalidate_matching_revisions() {
     fixture.commit();
     assert_eq!(fixture.counts().lines.total, 4);
 
-    let revision = fixture.pass.coverage.revision;
+    let counts_revision = fixture.pass.coverage.counts_revision();
     fixture.pass = ExplorePass::new(Exploration::new(comparison()));
-    fixture.pass.coverage.revision = revision;
+    // An override with nothing excluded leaves counts alone but advances the counts
+    // revision to the old pass's value, so only the pass identity differs.
+    fixture
+        .pass
+        .coverage
+        .require_review(vec![lines(1, SourceSide::New, 1, 2)]);
+    assert_eq!(fixture.pass.coverage.counts_revision(), counts_revision);
     fixture.restore();
     assert_eq!(fixture.counts().lines.total, 6);
     assert_eq!(fixture.counts().filtered_lines, 0);
@@ -254,28 +280,30 @@ fn completed_policy_and_pass_identity_invalidate_matching_revisions() {
 
 #[test]
 fn empty_metadata_and_incomplete_inventories_preserve_display_semantics() {
-    let comparison = comparison();
-    let mut ledger = CoverageLedger::new(&comparison);
-    ledger.inventory.units = vec![CoverageUnit::Item {
-        file: 0,
-        name: "mode".into(),
-    }];
-    let snapshot = CoverageSnapshot::new(&ledger, &comparison, true);
+    let mode_only = comparison_of(
+        1,
+        vec![b"diff --git a/a.rs b/a.rs\nold mode 100644\nnew mode 100755\n".to_vec()],
+    );
+    let ledger = CoverageLedger::new(&mode_only);
+    let snapshot = CoverageSnapshot::new(&ledger, &mode_only, true);
     assert_eq!(snapshot.lines.total, 0);
     assert_eq!(snapshot.summary.remaining, 1);
     assert_eq!(snapshot.files[0].lines.total, 0);
-    ledger.inventory.units.clear();
+    let unchanged = comparison_of(0, vec![]);
     assert_eq!(
-        CoverageSnapshot::new(&ledger, &comparison, true)
+        CoverageSnapshot::new(&CoverageLedger::new(&unchanged), &unchanged, true)
             .summary
             .remaining,
         0
     );
-    ledger.inventory.complete = false;
-    ledger.inventory.limitations.push("Diff unavailable".into());
-    let snapshot = CoverageSnapshot::new(&ledger, &comparison, true);
+    let without_geometry = comparison_of(2, vec![]);
+    let ledger = CoverageLedger::new(&without_geometry);
+    let snapshot = CoverageSnapshot::new(&ledger, &without_geometry, true);
     assert!(!snapshot.summary.inventory_complete);
-    assert_eq!(snapshot.summary.limitations, ["Diff unavailable"]);
+    assert_eq!(
+        snapshot.summary.limitations,
+        ["Saved comparison has no complete diff inventory; start a New pass"]
+    );
 }
 
 #[test]
@@ -313,7 +341,8 @@ fn queued_jev_updates_rebuild_once_from_the_latest_pass() {
 #[test]
 fn question_only_revision_does_not_rebuild_counts() {
     let mut fixture = Fixture::new();
-    fixture.pass.coverage.revision += 1;
+    // Reaffirming no overrides advances only the feedback revision.
+    fixture.pass.coverage.require_review(vec![]);
     fixture.commit();
     assert_eq!(fixture.component().coverage_cache.rebuilds, 1);
 }
@@ -328,7 +357,7 @@ fn changing_the_jev_rubric_restores_required_lines() {
     fixture
         .pass
         .coverage
-        .restart_classification("new rubric", "next attempt".into());
+        .start_classification("new rubric", "next attempt".into(), 1);
     fixture.commit();
     assert_eq!(fixture.counts().lines.total, 6);
     assert_eq!(fixture.counts().filtered_lines, 0);
@@ -340,20 +369,24 @@ fn stopped_filtering_bar_expires_without_excluding_unrecorded_windows() {
     fixture
         .pass
         .coverage
-        .restart_classification("test", "attempt".into());
-    fixture.pass.coverage.jev_total_windows = 2;
+        .start_classification("test", "attempt".into(), 2);
     fixture.commit();
     assert!(fixture.header().contains("Jev filtering"));
 
-    fixture.pass.coverage.finish_classification(false, 100);
+    let now = std::time::SystemTime::now();
+    fixture.pass.coverage.stop_classification(100, now);
     fixture.commit();
     assert!(fixture.header().contains("Jev stopped"));
     assert_eq!(fixture.counts().lines.total, 6);
-    fixture.pass.coverage.classification_stopped_at_ms = fixture
+    // A resumed attempt that stopped longer ago than the bar's tail.
+    fixture
         .pass
         .coverage
-        .classification_stopped_at_ms
-        .map(|stopped| stopped.saturating_sub(6_000));
+        .start_classification("test", "resumed".into(), 2);
+    fixture
+        .pass
+        .coverage
+        .stop_classification(100, now - std::time::Duration::from_secs(6));
     fixture.commit();
     assert!(!fixture.header().contains("Jev stopped"));
     assert_eq!(fixture.counts().lines.total, 6);

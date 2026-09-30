@@ -455,8 +455,8 @@ impl ExploreComponent {
         let jev = self
             .coverage
             .as_ref()
-            .filter(|coverage| coverage.classification_started)
-            .map(|coverage| coverage.jev_elapsed_ms);
+            .and_then(review_explore::CoverageLedger::classification_progress)
+            .map(|progress| progress.elapsed_ms);
         format!(
             "Jev total {} · Agent total {}",
             jev.map_or_else(|| "—".into(), format_elapsed),
@@ -492,7 +492,7 @@ impl ExploreComponent {
             return;
         }
         self.render_jev_exclusions(layout, exclusions, palette);
-        for result in coverage.classifications.values() {
+        for result in coverage.classifications() {
             Self::render_jev_result(layout, result, palette);
         }
         layout.jev = Some(start..layout.height.min(start.saturating_add(4)));

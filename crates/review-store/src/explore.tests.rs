@@ -101,7 +101,11 @@ fn assert_explicit_conclusion(cited_lines: u32, expected_percent: u8) {
         pass.coverage.summary(false).answered_required_units_percent,
         Some(0)
     );
-    assert!(pass.coverage.answers.is_empty());
+    assert_eq!(
+        pass.coverage.changed_line_coverage(None).explored,
+        0,
+        "projected feedback credits nothing"
+    );
     let first_receipt = feedback.clone();
     let shown = pass.exploration.questions.last().unwrap().clone();
     let answer = pass
@@ -183,8 +187,9 @@ fn assert_explicit_conclusion(cited_lines: u32, expected_percent: u8) {
         findings: vec![],
     };
     let mut incomplete = pass.clone();
-    incomplete.coverage.inventory.complete = false;
-    incomplete.coverage.inventory.limitations = vec!["Missing comparison geometry".into()];
+    let mut without_geometry = (*incomplete.exploration.comparison).clone();
+    without_geometry.diffs.clear();
+    incomplete.coverage = review_explore::CoverageLedger::new(&without_geometry);
     let pending = incomplete.clone();
     let rejected = incomplete
         .submit(&conclusion, false)

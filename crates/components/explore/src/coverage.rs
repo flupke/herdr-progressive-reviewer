@@ -43,14 +43,14 @@ impl CoverageCache {
     ) {
         if self.current.as_ref().is_some_and(|current| {
             current.instance == instance
-                && current.counts_revision == coverage.counts_revision
+                && current.counts_revision == coverage.counts_revision()
                 && current.snapshot.exclusions_enabled == exclusions_enabled
         }) {
             return;
         }
         self.current = Some(CachedCoverage {
             instance: instance.into(),
-            counts_revision: coverage.counts_revision,
+            counts_revision: coverage.counts_revision(),
             snapshot: CoverageSnapshot::new(coverage, comparison, exclusions_enabled),
         });
         #[cfg(test)]

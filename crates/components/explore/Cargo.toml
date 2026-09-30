@@ -24,6 +24,7 @@ ratatui = { workspace = true, features = ["unstable-rendered-line-info"] }
 
 [dev-dependencies]
 review-repository = { path = "../../review-repository" }
+serde_json.workspace = true
 
 [lints]
 workspace = true

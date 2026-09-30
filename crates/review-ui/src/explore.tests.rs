@@ -234,9 +234,9 @@ fn stopped_jev_bar_schedules_one_idle_expiry_redraw() {
     ));
     pass.exploration.instance = request.instance;
     pass.coverage
-        .restart_classification("test", "attempt".into());
-    pass.coverage.jev_total_windows = 2;
-    pass.coverage.finish_classification(false, 100);
+        .start_classification("test", "attempt".into(), 2);
+    pass.coverage
+        .stop_classification(100, std::time::SystemTime::now());
     fixture.app.publish(ExploreRestored {
         result: Ok(Some(Arc::new(pass))),
         view: None,

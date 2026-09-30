@@ -995,6 +995,7 @@ dependencies = [
  "review-explore",
  "review-repository",
  "review-source",
+ "serde_json",
  "ui-actions",
  "ui-controls",
  "ui-events",

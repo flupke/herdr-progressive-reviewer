@@ -94,8 +94,7 @@ impl AutoReview {
             remaining: self.comparison.files.len(),
             failed_classifications: self
                 .coverage
-                .classifications
-                .values()
+                .classifications()
                 .filter(|result| {
                     matches!(
                         result.outcome,

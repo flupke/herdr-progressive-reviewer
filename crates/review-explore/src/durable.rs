@@ -197,7 +197,7 @@ impl ExplorePass {
             }
             self.exploration = candidate;
             if update.next.is_some() {
-                self.coverage.revision += 1;
+                self.coverage.note_pending_question();
             }
         }
         let pending = self.pending_questions();
@@ -234,9 +234,9 @@ impl ExplorePass {
         exclusions_enabled: bool,
     ) -> eyre::Result<()> {
         eyre::ensure!(
-            self.coverage.inventory.complete,
+            self.coverage.inventory().complete,
             "coverage_incomplete: {}",
-            self.coverage.inventory.limitations.join("; ")
+            self.coverage.inventory().limitations.join("; ")
         );
         let inspections = || {
             candidate
