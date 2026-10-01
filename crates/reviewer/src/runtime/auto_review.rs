@@ -11,6 +11,7 @@ use review_repository::repository::{ChangedFile, PollResult, Repository, Snapsho
 use review_source::ReviewCheckpoint;
 use review_state::ReviewTracker;
 use review_store::{LoadResult, ReviewStore};
+use review_types::MarkAuthor;
 use std::fmt::Write;
 use std::sync::{
     Arc,
@@ -127,11 +128,14 @@ impl AutoReview {
             // Preserve manual marks and unknown schemas, including writes by another reviewer.
             match self.unchanged_mark(store, index) {
                 Ok(false) => {}
-                Ok(true) if whole_files.contains(&index) => {
+                // A file marked before keeps who reviewed which line: its
+                // open hunks are accepted instead.
+                Ok(true) if whole_files.contains(&index) && !self.marked_before(index) => {
                     let marked = store.mark(
                         &checkpoint.review_unit,
                         file.review_path().as_bytes(),
                         &checkpoint.checkpoint,
+                        &MarkAuthor::Jev,
                     );
                     summary.record_file(file, marked.is_ok());
                 }
@@ -140,6 +144,11 @@ impl AutoReview {
             }
         }
         Ok(summary)
+    }
+
+    /// Whether the file had a review mark when classification started.
+    fn marked_before(&self, index: usize) -> bool {
+        matches!(&self.prior_marks[index], LoadResult::Reviewed(_))
     }
 
     /// Whether the file's review mark is still the one classification started from.
@@ -167,9 +176,13 @@ impl AutoReview {
             .coverage
             .changes_more_than_lines(&self.comparison, index);
         tracker
-            .review_hunks_where(&self.snapshot, file, may_review_file, |lines| {
-                insignificant(&excluded, lines)
-            })
+            .review_hunks_where(
+                &self.snapshot,
+                file,
+                may_review_file,
+                &MarkAuthor::Jev,
+                |lines| insignificant(&excluded, lines),
+            )
             .ok()
     }
 }

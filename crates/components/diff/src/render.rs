@@ -552,8 +552,8 @@ impl DiffRenderer<'_> {
         // Two corners, the title's padding and a gap before the controls.
         let title_width =
             usize::from(area.width).saturating_sub(controls.map_or(0, TitleControls::width) + 5);
-        // The hunk count yields to the path when the title runs short.
-        let title = match file.and_then(|file| self.hunk_progress(file)) {
+        // The line count yields to the path when the title runs short.
+        let title = match file.and_then(|file| self.line_progress(file)) {
             Some(progress) if title.width() + progress.width() <= title_width => title + &progress,
             _ if controls.is_some() => shorten(&title, title_width),
             _ => title,
@@ -570,15 +570,15 @@ impl DiffRenderer<'_> {
         inner
     }
 
-    /// The reviewed hunk count of a file that still needs review.
-    fn hunk_progress(&self, file: &LoadedDocument) -> Option<String> {
+    /// The reviewed line count of a file that still needs review.
+    fn line_progress(&self, file: &LoadedDocument) -> Option<String> {
         let count = file
             .document
             .diff
-            .hunk_count()
+            .line_count()
             .filter(|_| self.reviewable && !file.document.diff.is_file_view())?;
         Some(format!(
-            " · {}/{} hunks reviewed",
+            " · {}/{} lines reviewed",
             count.reviewed, count.total
         ))
     }

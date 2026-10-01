@@ -211,6 +211,7 @@ fn cancellation_and_manual_marks_take_precedence_over_automatic_results() {
             &review.comparison.checkpoint.review_unit,
             b"docs.md",
             "aabb0011",
+            &review_types::MarkAuthor::Reviewer,
         )
         .unwrap();
     let prior = fixture.record(&review, "docs.md");
@@ -355,7 +356,12 @@ impl Fixture {
             .unwrap()
             .span;
         self.tracker
-            .mark_hunk(&snapshot, file, &review_hunks::HunkMark::Review(span))
+            .mark_hunk(
+                &snapshot,
+                file,
+                &review_hunks::HunkMark::Review(span),
+                &review_types::MarkAuthor::Reviewer,
+            )
             .unwrap();
     }
 
@@ -387,6 +393,80 @@ fn a_partly_reviewed_file_whose_other_hunks_are_insignificant_is_reviewed(kind: 
 
     assert_eq!(summary.hunks, 1);
     assert_eq!(fixture.status(), review_state::ReviewStatus::Reviewed);
+}
+
+#[test_case::test_case(RepoType::Git; "git")]
+#[test_case::test_case(RepoType::Jj; "jj")]
+fn a_partly_reviewed_file_jev_dismisses_whole_keeps_the_reviewers_lines(kind: RepoType) {
+    let fixture = Fixture::new(kind);
+    fixture.files.write("mixed.rs", &numbered(&[]));
+    fixture.files.new_change("review");
+    fixture
+        .files
+        .write("mixed.rs", &numbered(&[(2, "two"), (15, "fifteen")]));
+    fixture.accept_hunk_at(14);
+    let mut review = fixture.prepare();
+    review.classify_line("mixed.rs", 2);
+    review.classify_line("mixed.rs", 15);
+
+    review
+        .apply(&fixture.repository, &fixture.tracker, &fixture.store)
+        .unwrap();
+
+    assert_eq!(fixture.status(), review_state::ReviewStatus::Reviewed);
+    let LoadResult::Reviewed(record) = fixture.record(&review, "mixed.rs") else {
+        panic!("the file was marked");
+    };
+    let attribution = record
+        .partial
+        .expect("several authors keep a partial mark")
+        .reviewed
+        .attribution;
+    assert_eq!(attribution.added_by(1), &review_types::MarkAuthor::Jev);
+    assert_eq!(
+        attribution.added_by(14),
+        &review_types::MarkAuthor::Reviewer
+    );
+}
+
+#[test_case::test_case(RepoType::Git; "git")]
+#[test_case::test_case(RepoType::Jj; "jj")]
+fn jev_keeps_the_reviewer_as_author_of_a_file_they_reviewed_whole(kind: RepoType) {
+    let fixture = Fixture::new(kind);
+    fixture.files.write("mixed.rs", &numbered(&[]));
+    fixture.files.new_change("review");
+    fixture.files.write("mixed.rs", &numbered(&[(2, "two")]));
+    let snapshot = complete_repository_snapshot(&fixture.repository);
+    fixture
+        .tracker
+        .mark(
+            &snapshot,
+            &snapshot.files[0],
+            &review_types::MarkAuthor::Reviewer,
+        )
+        .unwrap();
+    fixture
+        .files
+        .write("mixed.rs", &numbered(&[(2, "two"), (15, "fifteen")]));
+    let mut review = fixture.prepare();
+    review.classify_line("mixed.rs", 2);
+    review.classify_line("mixed.rs", 15);
+
+    review
+        .apply(&fixture.repository, &fixture.tracker, &fixture.store)
+        .unwrap();
+
+    assert_eq!(fixture.status(), review_state::ReviewStatus::Reviewed);
+    let LoadResult::Reviewed(record) = fixture.record(&review, "mixed.rs") else {
+        panic!("the file was marked");
+    };
+    let attribution = record
+        .partial
+        .expect("several authors keep a partial mark")
+        .reviewed
+        .attribution;
+    assert_eq!(attribution.added_by(1), &review_types::MarkAuthor::Reviewer);
+    assert_eq!(attribution.added_by(14), &review_types::MarkAuthor::Jev);
 }
 
 #[test_case::test_case(RepoType::Git; "git")]

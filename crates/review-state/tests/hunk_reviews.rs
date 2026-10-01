@@ -1,10 +1,11 @@
-use review_hunks::{FileHunks, HunkMark, HunkSpan};
+use review_hunks::{Attribution, FileHunks, HunkMark, HunkSpan, LineSelection, Reviewed};
 use review_repository::repository::{RepoType, Repository, Snapshot};
 use review_state::{MarkResult, ReviewDiff, ReviewStatus, ReviewTracker};
 use review_store::{LoadResult, PartialReview, ReviewStore};
 use review_test_support::{
     ReviewRepositoryFixture, complete_repository_snapshot, repository_fixture,
 };
+use review_types::MarkAuthor;
 use test_case::test_case;
 
 /// Twenty lines; the change under review rewrites lines 2, 10 and 18, far
@@ -84,7 +85,7 @@ impl Review {
         let snapshot = self.snapshot();
         assert_eq!(
             self.tracker
-                .mark_hunk(&snapshot, &snapshot.files[0], mark)
+                .mark_hunk(&snapshot, &snapshot.files[0], mark, &MarkAuthor::Reviewer)
                 .unwrap(),
             MarkResult::Marked
         );
@@ -195,7 +196,10 @@ fn a_reviewed_hunk_edited_later_shows_only_the_change_since_review(repository_ty
 fn a_whole_file_mark_splits_into_hunks_after_an_edit(repository_type: RepoType) {
     let review = Review::new(repository_type);
     let snapshot = review.snapshot();
-    review.tracker.mark(&snapshot, &snapshot.files[0]).unwrap();
+    review
+        .tracker
+        .mark(&snapshot, &snapshot.files[0], &MarkAuthor::Reviewer)
+        .unwrap();
     review.files.write(
         "file.txt",
         &file(&[(1, "two"), (9, "TEN"), (17, "eighteen")]),
@@ -246,6 +250,7 @@ fn a_hunk_that_is_not_listed_cannot_be_marked(repository_type: RepoType) {
             old: 1..2,
             new: 1..2,
         }),
+        &MarkAuthor::Reviewer,
     );
 
     assert!(result.is_err());
@@ -292,7 +297,10 @@ fn a_reviewed_change_that_meets_a_new_base_change_reopens(repository_type: RepoT
             snapshot.identity.snapshot_id(),
             PartialReview {
                 base: file(&[(1, "old two")]),
-                reviewed: file(&[(1, "two"), (9, "ten")]),
+                reviewed: Reviewed {
+                    text: file(&[(1, "two"), (9, "ten")]),
+                    attribution: Attribution::default(),
+                },
             },
         )
         .unwrap();
@@ -322,7 +330,10 @@ fn a_file_whose_reviewed_changes_all_meet_base_changes_is_unreviewed(repository_
             snapshot.identity.snapshot_id(),
             PartialReview {
                 base: file(&[(1, "old two")]),
-                reviewed: file(&[(1, "two")]),
+                reviewed: Reviewed {
+                    text: file(&[(1, "two")]),
+                    attribution: Attribution::default(),
+                },
             },
         )
         .unwrap();
@@ -339,9 +350,13 @@ fn hunks_whose_changed_lines_pass_a_check_are_accepted_together(repository_type:
 
     let accepted = review
         .tracker
-        .review_hunks_where(&snapshot, &snapshot.files[0], false, |lines| {
-            lines.added.iter().all(|line| *line != 9)
-        })
+        .review_hunks_where(
+            &snapshot,
+            &snapshot.files[0],
+            false,
+            &MarkAuthor::Jev,
+            |lines| lines.added.iter().all(|line| *line != 9),
+        )
         .unwrap();
 
     assert_eq!(accepted, 2);
@@ -360,7 +375,13 @@ fn a_check_every_hunk_passes_leaves_a_file_with_more_changes_unreviewed(reposito
 
     let accepted = review
         .tracker
-        .review_hunks_where(&snapshot, &snapshot.files[0], false, |_| true)
+        .review_hunks_where(
+            &snapshot,
+            &snapshot.files[0],
+            false,
+            &MarkAuthor::Jev,
+            |_| true,
+        )
         .unwrap();
 
     assert_eq!(accepted, 0);
@@ -376,9 +397,127 @@ fn a_check_every_hunk_passes_may_review_a_file_that_changes_only_lines(repositor
 
     let accepted = review
         .tracker
-        .review_hunks_where(&snapshot, &snapshot.files[0], true, |_| true)
+        .review_hunks_where(
+            &snapshot,
+            &snapshot.files[0],
+            true,
+            &MarkAuthor::Jev,
+            |_| true,
+        )
         .unwrap();
 
     assert_eq!(accepted, 2);
     assert_eq!(review.status(), ReviewStatus::Reviewed);
+}
+
+fn selection(removed: &[u32], added: &[u32]) -> LineSelection {
+    LineSelection {
+        removed: removed.iter().copied().collect(),
+        added: added.iter().copied().collect(),
+    }
+}
+
+impl Review {
+    fn accept_lines(&self, selection: &LineSelection, author: &MarkAuthor) -> MarkResult {
+        let snapshot = self.snapshot();
+        self.tracker
+            .accept_lines(&snapshot, &snapshot.files[0], selection, author)
+            .unwrap()
+    }
+}
+
+#[test_case(RepoType::Git; "git")]
+#[test_case(RepoType::Jj; "jj")]
+fn accepting_one_side_of_a_rewritten_line_splits_its_hunk(repository_type: RepoType) {
+    let review = Review::new(repository_type);
+
+    // Accept "two" but not the removal of "line 2" it replaces.
+    assert_eq!(
+        review.accept_lines(&selection(&[], &[1]), &MarkAuthor::Jev),
+        MarkResult::Marked
+    );
+
+    assert_eq!(review.status(), ReviewStatus::PartiallyReviewed);
+    let hunks = review.hunks();
+    assert_eq!(
+        spans(hunks.open.iter().map(|hunk| &hunk.span)),
+        [(1, 1), (9, 10), (17, 18)]
+    );
+    assert_eq!(
+        hunks.count().map(|count| (count.reviewed, count.total)),
+        Some((1, 6))
+    );
+    let LoadResult::Reviewed(record) = review.record() else {
+        panic!("the lines were marked");
+    };
+    let partial = record.partial.expect("some lines stay open");
+    assert_eq!(
+        partial.reviewed.attribution.uniform_author(),
+        Some(&MarkAuthor::Jev)
+    );
+}
+
+#[test_case(RepoType::Git; "git")]
+#[test_case(RepoType::Jj; "jj")]
+fn a_file_reviewed_by_several_authors_keeps_who_reviewed_which_line(repository_type: RepoType) {
+    let review = Review::new(repository_type);
+    review.accept_first_open_hunk();
+
+    review.accept_lines(&selection(&[9, 17], &[9, 17]), &MarkAuthor::Jev);
+
+    assert_eq!(review.status(), ReviewStatus::Reviewed);
+    let LoadResult::Reviewed(record) = review.record() else {
+        panic!("the file was marked");
+    };
+    let partial = record
+        .partial
+        .expect("a partial mark keeps the authors of a whole review");
+    let attribution = &partial.reviewed.attribution;
+    assert_eq!(attribution.added_by(1), &MarkAuthor::Reviewer);
+    assert_eq!(attribution.added_by(9), &MarkAuthor::Jev);
+    assert_eq!(attribution.removed_by(17), &MarkAuthor::Jev);
+
+    // Reopening Jev's lines leaves the reviewer's.
+    let snapshot = review.snapshot();
+    assert_eq!(
+        review
+            .tracker
+            .reopen_lines(
+                &snapshot,
+                &snapshot.files[0],
+                &selection(&[9, 17], &[9, 17])
+            )
+            .unwrap(),
+        MarkResult::Marked
+    );
+    assert_eq!(
+        spans(review.hunks().reviewed.iter().map(|hunk| &hunk.span)),
+        [(1, 2)]
+    );
+}
+
+#[test_case(RepoType::Git; "git")]
+#[test_case(RepoType::Jj; "jj")]
+fn one_author_reviewing_every_line_marks_the_whole_file(repository_type: RepoType) {
+    let review = Review::new(repository_type);
+
+    review.accept_lines(&selection(&[1, 9, 17], &[1, 9, 17]), &MarkAuthor::Jev);
+
+    let LoadResult::Reviewed(record) = review.record() else {
+        panic!("the file was marked");
+    };
+    assert_eq!(record.partial, None);
+    assert_eq!(record.author, MarkAuthor::Jev);
+}
+
+#[test_case(RepoType::Git; "git")]
+#[test_case(RepoType::Jj; "jj")]
+fn a_selection_of_unchanged_lines_marks_nothing(repository_type: RepoType) {
+    let review = Review::new(repository_type);
+
+    assert_eq!(
+        review.accept_lines(&selection(&[3], &[3]), &MarkAuthor::Reviewer),
+        MarkResult::NothingToMark
+    );
+    assert_eq!(review.record(), LoadResult::Unreviewed);
 }

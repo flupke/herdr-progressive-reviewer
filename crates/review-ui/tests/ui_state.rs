@@ -988,7 +988,7 @@ fn marking_a_changed_file_reviewed_replaces_its_baseline() {
                 status: ReviewStatus::Reviewed,
                 warning: None,
                 current_diff_statistics: DiffStatistics::default(),
-                hunks: None,
+                lines: None,
             }),
         }),
         Vec::<Action>::new()
@@ -1239,7 +1239,7 @@ fn files_that_need_review_expand_their_parent_directories() {
             status: ReviewStatus::Unreviewed,
             warning: None,
             current_diff_statistics: DiffStatistics::default(),
-            hunks: None,
+            lines: None,
         }),
     });
     let rendered = application_screen(&app, 80, 12).join("\n");

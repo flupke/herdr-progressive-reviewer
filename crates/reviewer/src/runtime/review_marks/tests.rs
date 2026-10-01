@@ -59,6 +59,7 @@ fn bulk_reset_rejects_stale_confirmation_cancels_jev_and_refreshes_diff_marks(ki
                 &checkpoint.review_unit,
                 path.as_bytes(),
                 &checkpoint.checkpoint,
+                &review_types::MarkAuthor::Reviewer,
             )
             .unwrap();
     }

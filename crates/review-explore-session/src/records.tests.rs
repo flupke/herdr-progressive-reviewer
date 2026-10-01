@@ -385,7 +385,12 @@ fn assert_explicit_conclusion(cited_lines: u32, expected_percent: u8) {
     }
     if cited_lines == 2 {
         store
-            .mark(&"aabb".into(), b"policy.rs", "aabb0011")
+            .mark(
+                &"aabb".into(),
+                b"policy.rs",
+                "aabb0011",
+                &review_types::MarkAuthor::Reviewer,
+            )
             .unwrap();
     }
     let prior_mark = store.load(&"aabb".into(), b"policy.rs").unwrap();

@@ -51,13 +51,21 @@ fn translation_shifts_past_earlier_edits_and_refuses_touched_ranges() {
 }
 
 #[test]
-fn splicing_replaces_lines_with_lines_from_another_version() {
-    let target = Lines::new(b"a\nb\nc\n");
-    let source = Lines::new(b"x\ny\n");
+fn a_line_moves_past_changes_before_it_and_vanishes_in_one() {
+    let changes = [
+        Change {
+            before: 1..2,
+            after: 1..4,
+        },
+        Change {
+            before: 5..5,
+            after: 7..9,
+        },
+    ];
 
-    assert_eq!(
-        splice(&target, 1..2, &source, 0..2).as_deref(),
-        Some(&b"a\nx\ny\nc\n"[..])
-    );
-    assert_eq!(splice(&target, 1..4, &source, 0..1), None);
+    assert_eq!(after_line(&changes, 0), Some(0));
+    assert_eq!(after_line(&changes, 1), None);
+    assert_eq!(after_line(&changes, 4), Some(6));
+    // An insertion right before a line only shifts it.
+    assert_eq!(after_line(&changes, 5), Some(9));
 }

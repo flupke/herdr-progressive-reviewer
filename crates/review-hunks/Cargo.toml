@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 gix-imara-diff.workspace = true
 review-repository = { path = "../review-repository" }
+review-types = { path = "../review-types" }
 
 [lints]
 workspace = true

@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
-use review_types::ReviewUnit;
+use review_hunks::{Attribution, AuthoredLines, Reviewed};
+use review_types::{MarkAuthor, ReviewUnit};
 use serde::{Deserialize, Serialize};
 
 use super::{Error, Result, ReviewStore, StateKey};
@@ -11,7 +12,9 @@ use super::{Error, Result, ReviewStore, StateKey};
 /// A mark that covers the whole file at its baseline commit.
 const FILE_SCHEMA_VERSION: u8 = 1;
 /// A mark that covers some hunks. Older readers ignore it, so they show the
-/// file as unreviewed rather than as reviewed.
+/// file as unreviewed rather than as reviewed. Who marked the lines is an
+/// optional field older readers skip: a record without it was marked by the
+/// reviewer.
 const PARTIAL_SCHEMA_VERSION: u8 = 2;
 
 /// One valid stored review mark.
@@ -23,18 +26,21 @@ pub struct ReviewRecord {
     pub baseline_commit_id: String,
     /// The diagnostic write time.
     pub reviewed_at: String,
-    /// The reviewed version, when the mark covers only some hunks.
+    /// Who marked the whole file. A partial mark names the authors of its
+    /// lines in its attribution, and repeats that attribution's default here.
+    pub author: MarkAuthor,
+    /// The reviewed version, when the mark covers only some lines.
     pub partial: Option<PartialReview>,
 }
 
-/// The reviewed version of a file whose mark covers only some of its hunks,
+/// The reviewed version of a file whose mark covers only some of its lines,
 /// and the base it was built on.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PartialReview {
     /// The file at the base of the reviewed comparison.
     pub base: Vec<u8>,
-    /// The base with the reviewed hunks applied.
-    pub reviewed: Vec<u8>,
+    /// The base with the reviewed lines applied, and who accepted them.
+    pub reviewed: Reviewed,
 }
 
 /// The result of loading one path record.
@@ -57,6 +63,8 @@ struct StoredRecord {
     path: String,
     baseline_commit_id: String,
     reviewed_at: String,
+    #[serde(default)]
+    author: StoredAuthor,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     partial: Option<StoredPartialReview>,
 }
@@ -65,6 +73,47 @@ struct StoredRecord {
 struct StoredPartialReview {
     base: String,
     reviewed: String,
+    #[serde(default)]
+    attribution: StoredAttribution,
+}
+
+/// Who accepted the changes of a partial mark; see [`Attribution`].
+#[derive(Debug, Default, Deserialize, Serialize)]
+struct StoredAttribution {
+    #[serde(default)]
+    default: StoredAuthor,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    removed: Vec<StoredAuthoredLines>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    added: Vec<StoredAuthoredLines>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct StoredAuthoredLines {
+    start: u32,
+    end: u32,
+    author: StoredAuthor,
+}
+
+/// An author kept as written, so that one a newer reviewer wrote makes its
+/// record unknown rather than unreadable, and no older reviewer overwrites it.
+#[derive(Debug, Default, Deserialize, Serialize)]
+#[serde(transparent)]
+struct StoredAuthor(Option<serde_json::Value>);
+
+impl StoredAuthor {
+    fn new(author: &MarkAuthor) -> Self {
+        Self(serde_json::to_value(author).ok())
+    }
+
+    /// The author, or `None` when this reviewer does not know its kind. A
+    /// record without one was marked by the reviewer.
+    fn decode(&self) -> Option<MarkAuthor> {
+        match &self.0 {
+            None => Some(MarkAuthor::Reviewer),
+            Some(value) => serde_json::from_value(value.clone()).ok(),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
@@ -90,11 +139,12 @@ impl ReviewStore {
         review_unit: &ReviewUnit,
         path: &[u8],
         baseline_commit_id: &str,
+        author: &MarkAuthor,
     ) -> Result<ReviewRecord> {
-        self.store_mark(review_unit, path, baseline_commit_id, None)
+        self.store_mark(review_unit, path, baseline_commit_id, author, None)
     }
 
-    /// Store a mark that covers only some hunks of one path.
+    /// Store a mark that covers only some lines of one path.
     pub fn mark_partial(
         &self,
         review_unit: &ReviewUnit,
@@ -102,7 +152,14 @@ impl ReviewStore {
         baseline_commit_id: &str,
         partial: PartialReview,
     ) -> Result<ReviewRecord> {
-        self.store_mark(review_unit, path, baseline_commit_id, Some(partial))
+        let author = partial.reviewed.attribution.default.clone();
+        self.store_mark(
+            review_unit,
+            path,
+            baseline_commit_id,
+            &author,
+            Some(partial),
+        )
     }
 
     fn store_mark(
@@ -110,6 +167,7 @@ impl ReviewStore {
         review_unit: &ReviewUnit,
         path: &[u8],
         baseline_commit_id: &str,
+        author: &MarkAuthor,
         partial: Option<PartialReview>,
     ) -> Result<ReviewRecord> {
         ReviewUnitKey::validate(review_unit)?;
@@ -119,6 +177,7 @@ impl ReviewStore {
             path: path.to_vec(),
             baseline_commit_id: baseline_commit_id.to_owned(),
             reviewed_at: Self::timestamp("review timestamp")?,
+            author: author.clone(),
             partial,
         };
         self.write_record(review_unit, &record)?;
@@ -150,6 +209,7 @@ impl ReviewStore {
             path: decoded_path,
             baseline_commit_id: stored.baseline_commit_id,
             reviewed_at: stored.reviewed_at,
+            author: stored.author.decode().unwrap_or_default(),
             partial,
         }))
     }
@@ -208,9 +268,11 @@ impl ReviewStore {
             path,
             baseline_commit_id: record.baseline_commit_id.clone(),
             reviewed_at: record.reviewed_at.clone(),
+            author: StoredAuthor::new(&record.author),
             partial: record.partial.as_ref().map(|partial| StoredPartialReview {
                 base: BASE64.encode(&partial.base),
-                reviewed: BASE64.encode(&partial.reviewed),
+                reviewed: BASE64.encode(&partial.reviewed.text),
+                attribution: StoredAttribution::from(&partial.reviewed.attribution),
             }),
         };
         self.atomic_json(&target, &stored, "write review record")
@@ -237,11 +299,25 @@ impl ReviewStore {
 
 impl StoredRecord {
     fn has_known_schema(&self) -> bool {
-        match self.schema_version {
+        let known = match self.schema_version {
             FILE_SCHEMA_VERSION => self.partial.is_none(),
             PARTIAL_SCHEMA_VERSION => true,
             _ => false,
-        }
+        };
+        known && self.has_known_authors()
+    }
+
+    fn has_known_authors(&self) -> bool {
+        let attribution = self.partial.as_ref().map(|partial| &partial.attribution);
+        std::iter::once(&self.author)
+            .chain(attribution.map(|attribution| &attribution.default))
+            .chain(
+                attribution
+                    .into_iter()
+                    .flat_map(|attribution| attribution.removed.iter().chain(&attribution.added))
+                    .map(|entry| &entry.author),
+            )
+            .all(|author| author.decode().is_some())
     }
 
     /// The stored partial review, if the mark covers only some hunks.
@@ -253,7 +329,10 @@ impl StoredRecord {
         let decode = |text: &str| BASE64.decode(text).map_err(|_| BrokenRecord);
         Ok(Some(PartialReview {
             base: decode(&partial.base)?,
-            reviewed: decode(&partial.reviewed)?,
+            reviewed: Reviewed {
+                text: decode(&partial.reviewed)?,
+                attribution: partial.attribution.to_attribution(),
+            },
         }))
     }
 
@@ -261,6 +340,58 @@ impl StoredRecord {
         match self.path_encoding {
             PathEncoding::Utf8 => Some(self.path.as_bytes().to_vec()),
             PathEncoding::Base64 => BASE64.decode(&self.path).ok(),
+        }
+    }
+}
+
+impl From<&Attribution> for StoredAttribution {
+    fn from(attribution: &Attribution) -> Self {
+        let entries = |entries: &[AuthoredLines]| {
+            entries
+                .iter()
+                .map(|entry| StoredAuthoredLines {
+                    start: entry.lines.start,
+                    end: entry.lines.end,
+                    author: StoredAuthor::new(&entry.author),
+                })
+                .collect()
+        };
+        Self {
+            default: StoredAuthor::new(&attribution.default),
+            removed: entries(&attribution.removed),
+            added: entries(&attribution.added),
+        }
+    }
+}
+
+impl StoredAttribution {
+    /// The attribution, its entries sorted and without overlaps so every
+    /// line has one author. Authors were checked with the schema.
+    fn to_attribution(&self) -> Attribution {
+        let entries = |entries: &[StoredAuthoredLines]| {
+            let mut entries = entries
+                .iter()
+                .filter(|entry| entry.start < entry.end)
+                .map(|entry| AuthoredLines {
+                    lines: entry.start..entry.end,
+                    author: entry.author.decode().unwrap_or_default(),
+                })
+                .collect::<Vec<_>>();
+            entries.sort_by_key(|entry| entry.lines.start);
+            let mut end = 0;
+            entries.retain(|entry| {
+                let separate = entry.lines.start >= end;
+                if separate {
+                    end = entry.lines.end;
+                }
+                separate
+            });
+            entries
+        };
+        Attribution {
+            default: self.default.decode().unwrap_or_default(),
+            removed: entries(&self.removed),
+            added: entries(&self.added),
         }
     }
 }

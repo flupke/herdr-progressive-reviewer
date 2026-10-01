@@ -4,7 +4,7 @@ use std::ops::Range;
 
 use review_repository::diff::DiffRow;
 
-use crate::hunks::{FileHunks, HunkSpan, OpenHunk, ReviewedHunk, open_spans};
+use crate::hunks::{FileHunks, HunkSpan, ReviewedHunk, open_hunks};
 use crate::review::HunkReview;
 use crate::text::{CONTEXT, Change, Lines, changes, overlaps, translate};
 
@@ -31,11 +31,11 @@ impl HunkReview<'_> {
         let reviewed = changes(self.base, self.reviewed);
         let open = changes(self.reviewed, self.current);
         FileHunks {
-            open: open_spans(open_rows)
+            open: open_hunks(open_rows)
                 .into_iter()
-                .map(|span| OpenHunk {
-                    since_review: rewrites_reviewed_lines(&span, &open, &reviewed),
-                    span,
+                .map(|mut hunk| {
+                    hunk.since_review = rewrites_reviewed_lines(&hunk.span, &open, &reviewed);
+                    hunk
                 })
                 .collect(),
             reviewed: self.reviewed_hunks(&reviewed, &open),

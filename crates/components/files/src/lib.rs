@@ -673,10 +673,10 @@ impl Component<Action> for FilesComponent {
     }
 }
 
-/// The figures after a file name: reviewed hunks of a partly reviewed file,
-/// then added and removed lines.
+/// The figures after a file name: the reviewed share of a partly reviewed
+/// file's changed lines, then the added and removed lines left to review.
 struct FileStatistics {
-    hunks: Option<String>,
+    reviewed: Option<String>,
     added: Option<String>,
     removed: Option<String>,
 }
@@ -685,10 +685,10 @@ impl FileStatistics {
     fn new(file: &FileSummary) -> Self {
         let statistics = file.review_state.current_diff_statistics;
         Self {
-            hunks: file
+            reviewed: file
                 .review_state
-                .hunks
-                .map(|count| format!("{}/{}", count.reviewed, count.total)),
+                .lines
+                .map(|count| format!("{}%", count.percent())),
             added: (statistics.lines_added > 0).then(|| format!("+{}", statistics.lines_added)),
             removed: (statistics.lines_removed > 0)
                 .then(|| format!("-{}", statistics.lines_removed)),
@@ -696,7 +696,7 @@ impl FileStatistics {
     }
 
     fn parts(&self) -> impl Iterator<Item = &String> {
-        [&self.hunks, &self.added, &self.removed]
+        [&self.reviewed, &self.added, &self.removed]
             .into_iter()
             .flatten()
     }
@@ -708,7 +708,7 @@ impl FileStatistics {
 
     fn append(self, spans: &mut Vec<Span<'static>>, palette: Palette) {
         let colored = [
-            (self.hunks, palette.dim),
+            (self.reviewed, palette.dim),
             (self.added, palette.insertion),
             (self.removed, palette.deletion),
         ];

@@ -194,7 +194,7 @@ fn a_reviewed_hunk_is_folded_and_open_hunks_offer_their_control() {
     assert!(screen.contains("✓ reviewed hunk: +1 -1"), "{screen}");
     assert!(screen.contains('☑'), "{screen}");
     assert!(screen.contains('☐'), "{screen}");
-    assert!(screen.contains("1/2 hunks reviewed"), "{screen}");
+    assert!(screen.contains("2/4 lines reviewed"), "{screen}");
     assert!(
         !screen.contains("line 3"),
         "the folded hunk hides its lines"
@@ -361,24 +361,24 @@ fn title(review: &HunkFixture, width: u16) -> String {
 }
 
 #[test]
-fn a_narrow_title_drops_the_hunk_count_before_the_path() {
+fn a_narrow_title_drops_the_line_count_before_the_path() {
     let review = HunkFixture::new();
 
-    assert!(title(&review, 120).contains("Diff · src/lib.rs · 1/2 hunks reviewed"));
+    assert!(title(&review, 120).contains("Diff · src/lib.rs · 2/4 lines reviewed"));
     let narrow = title(&review, 50);
     assert!(narrow.contains("Diff · src/lib.rs"), "{narrow}");
-    assert!(!narrow.contains("hunks reviewed"), "{narrow}");
+    assert!(!narrow.contains("lines reviewed"), "{narrow}");
 }
 
 #[test]
-fn a_file_that_no_longer_needs_review_shows_no_hunk_count() {
+fn a_file_that_no_longer_needs_review_shows_no_line_count() {
     let review = HunkFixture::new();
 
     review
         .reviewable_files
         .replace(std::collections::HashSet::new());
 
-    assert!(!title(&review, 120).contains("hunks reviewed"));
+    assert!(!title(&review, 120).contains("lines reviewed"));
 }
 
 #[test]

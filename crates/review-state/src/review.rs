@@ -7,8 +7,8 @@ use std::sync::Mutex;
 
 use diff_cache::DiffCache;
 use review_hunks::{
-    ChangedLines, FileHunks, HunkCount, HunkMark, HunkReview, ReviewedVersion, replay,
-    reverse_apply,
+    Attribution, ChangedLines, FileHunks, HunkMark, HunkReview, LineCount, LineSelection, Reviewed,
+    ReviewedVersion, replay, reverse_apply,
 };
 use review_repository::diff::parse_file_diff;
 use review_repository::repository::{
@@ -16,6 +16,7 @@ use review_repository::repository::{
     RepoPath, Repository, Snapshot, SnapshotId,
 };
 use review_store::{LoadResult, PartialReview, ReviewRecord, ReviewStore};
+use review_types::MarkAuthor;
 
 /// The review state of one changed path.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -55,8 +56,8 @@ pub struct ReviewState {
     pub warning: Option<ReviewWarning>,
     /// Statistics for changes after the stored review baseline.
     pub current_diff_statistics: DiffStatistics,
-    /// How many hunks are reviewed, for a partially reviewed path.
-    pub hunks: Option<HunkCount>,
+    /// How many changed lines are reviewed, for a partially reviewed path.
+    pub lines: Option<LineCount>,
 }
 
 impl ReviewState {
@@ -69,7 +70,7 @@ impl ReviewState {
             status: ReviewStatus::Unreviewed,
             warning,
             current_diff_statistics,
-            hunks: None,
+            lines: None,
         }
     }
 
@@ -79,7 +80,7 @@ impl ReviewState {
             status: ReviewStatus::Reviewed,
             warning: None,
             current_diff_statistics: DiffStatistics::default(),
-            hunks: None,
+            lines: None,
         }
     }
 
@@ -89,20 +90,20 @@ impl ReviewState {
             status: ReviewStatus::ChangedSinceReview,
             warning: None,
             current_diff_statistics,
-            hunks: None,
+            lines: None,
         }
     }
 
     /// Create state for a path with some hunks left to review.
     pub fn partially_reviewed(
         current_diff_statistics: DiffStatistics,
-        hunks: Option<HunkCount>,
+        lines: Option<LineCount>,
     ) -> Self {
         Self {
             status: ReviewStatus::PartiallyReviewed,
             warning: None,
             current_diff_statistics,
-            hunks,
+            lines,
         }
     }
 }
@@ -128,6 +129,8 @@ pub enum MarkResult {
     Marked,
     /// The user moved to a different change before the mark.
     ChangeChanged,
+    /// The lines to mark were not open (or, to reopen, not reviewed).
+    NothingToMark,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -137,10 +140,10 @@ enum ReviewComparison {
         baseline_commit_id: String,
         diff: Vec<u8>,
     },
-    /// Some hunks are reviewed: the reviewed version, moved onto the current
+    /// Some lines are reviewed: the reviewed version, moved onto the current
     /// base, and the open diff from it.
     Partial {
-        reviewed: Vec<u8>,
+        reviewed: Reviewed,
         current: Option<Vec<u8>>,
         diff: Vec<u8>,
         hunks: FileHunks,
@@ -189,7 +192,12 @@ impl ReviewTracker {
     }
 
     /// Mark one path at the current exact commit.
-    pub fn mark(&self, snapshot: &Snapshot, file: &ChangedFile) -> eyre::Result<MarkResult> {
+    pub fn mark(
+        &self,
+        snapshot: &Snapshot,
+        file: &ChangedFile,
+        author: &MarkAuthor,
+    ) -> eyre::Result<MarkResult> {
         let identity = self.repository.current_identity()?;
         if identity.review_unit() != snapshot.identity.review_unit() {
             return Ok(MarkResult::ChangeChanged);
@@ -198,6 +206,7 @@ impl ReviewTracker {
             identity.review_unit(),
             file.review_path().as_bytes(),
             identity.snapshot_id(),
+            author,
         )?;
         Ok(MarkResult::Marked)
     }
@@ -289,27 +298,75 @@ impl ReviewTracker {
         snapshot: &Snapshot,
         file: &ChangedFile,
         mark: &HunkMark,
+        author: &MarkAuthor,
+    ) -> eyre::Result<MarkResult> {
+        self.edit(snapshot, file, |diff, review| {
+            let listed = match mark {
+                HunkMark::Review(span) => diff.hunks.open.iter().any(|hunk| &hunk.span == span),
+                HunkMark::Unreview(span) => {
+                    diff.hunks.reviewed.iter().any(|hunk| &hunk.span == span)
+                }
+            };
+            eyre::ensure!(listed, "the hunk changed; wait for the next refresh");
+            let version = match mark {
+                HunkMark::Review(span) => review.review(span, author),
+                HunkMark::Unreview(span) => review.unreview(span),
+            }
+            .ok_or_else(|| {
+                eyre::eyre!("the hunk no longer matches the file; wait for the next refresh")
+            })?;
+            Ok(Some(version))
+        })
+    }
+
+    /// Accept the open lines `selection` names, as `author`. A hunk the
+    /// selection covers only in part splits.
+    pub fn accept_lines(
+        &self,
+        snapshot: &Snapshot,
+        file: &ChangedFile,
+        selection: &LineSelection,
+        author: &MarkAuthor,
+    ) -> eyre::Result<MarkResult> {
+        self.edit(snapshot, file, |diff, review| {
+            Ok((!diff.hunks.is_empty())
+                .then(|| review.accept_lines(selection, author))
+                .flatten())
+        })
+    }
+
+    /// Reopen the reviewed lines `selection` names.
+    pub fn reopen_lines(
+        &self,
+        snapshot: &Snapshot,
+        file: &ChangedFile,
+        selection: &LineSelection,
+    ) -> eyre::Result<MarkResult> {
+        self.edit(snapshot, file, |diff, review| {
+            Ok((!diff.hunks.is_empty())
+                .then(|| review.reopen_lines(selection))
+                .flatten())
+        })
+    }
+
+    /// Store the reviewed version `edit` makes of one path at the current
+    /// exact commit; `edit` gets the path's diff and its three versions.
+    fn edit(
+        &self,
+        snapshot: &Snapshot,
+        file: &ChangedFile,
+        edit: impl FnOnce(&ReviewDiff, &HunkReview<'_>) -> eyre::Result<Option<ReviewedVersion>>,
     ) -> eyre::Result<MarkResult> {
         let identity = self.repository.current_identity()?;
         if identity.review_unit() != snapshot.identity.review_unit() {
             return Ok(MarkResult::ChangeChanged);
         }
         let diff = self.diff(snapshot, file)?;
-        let listed = match mark {
-            HunkMark::Review(span) => diff.hunks.open.iter().any(|hunk| &hunk.span == span),
-            HunkMark::Unreview(span) => diff.hunks.reviewed.iter().any(|hunk| &hunk.span == span),
-        };
-        eyre::ensure!(listed, "the hunk changed; wait for the next refresh");
         let versions = self.versions(snapshot, file, &diff)?;
-        let review = versions.review();
-        let version = match mark {
-            HunkMark::Review(span) => review.review(span),
-            HunkMark::Unreview(span) => review.unreview(span),
-        }
-        .ok_or_else(|| {
-            eyre::eyre!("the hunk no longer matches the file; wait for the next refresh")
-        })?;
-        self.store_version(snapshot, file, versions.base, version)?;
+        let Some(version) = edit(&diff, &versions.review())? else {
+            return Ok(MarkResult::NothingToMark);
+        };
+        self.store_version(snapshot, file, &versions, version)?;
         Ok(MarkResult::Marked)
     }
 
@@ -323,6 +380,7 @@ impl ReviewTracker {
         snapshot: &Snapshot,
         file: &ChangedFile,
         may_review_file: bool,
+        author: &MarkAuthor,
         accept: impl Fn(&ChangedLines) -> bool,
     ) -> eyre::Result<usize> {
         let diff = self.diff(snapshot, file)?;
@@ -347,9 +405,9 @@ impl ReviewTracker {
             return Ok(0);
         }
         let version = review
-            .review_all(&accepted)
+            .review_all(&accepted, author)
             .ok_or_else(|| eyre::eyre!("the open hunks overlap"))?;
-        self.store_version(snapshot, file, versions.base, version)?;
+        self.store_version(snapshot, file, &versions, version)?;
         Ok(accepted.len())
     }
 
@@ -361,7 +419,7 @@ impl ReviewTracker {
         diff: &ReviewDiff,
     ) -> eyre::Result<Versions> {
         let base = self.base_text(snapshot, file)?;
-        let reviewed = self.reviewed_text(snapshot, file, diff, &base)?;
+        let reviewed = self.reviewed_version(snapshot, file, diff, &base)?;
         Ok(Versions {
             base,
             reviewed,
@@ -369,48 +427,65 @@ impl ReviewTracker {
         })
     }
 
-    /// Store the reviewed version a hunk mark left.
+    /// Store the reviewed version a hunk or line mark left. A file one
+    /// author reviewed whole gets a whole-file mark; with several authors,
+    /// a partial mark that reviews every line keeps who reviewed which.
     fn store_version(
         &self,
         snapshot: &Snapshot,
         file: &ChangedFile,
-        base: Vec<u8>,
+        versions: &Versions,
         version: ReviewedVersion,
     ) -> eyre::Result<()> {
         let review_unit = snapshot.identity.review_unit();
         let path = file.review_path().as_bytes();
         let snapshot_id = snapshot.identity.snapshot_id();
-        match version {
-            ReviewedVersion::Current => {
-                self.store.mark(review_unit, path, snapshot_id)?;
+        let reviewed = match version {
+            ReviewedVersion::Current(attribution) => match attribution.uniform_author() {
+                Some(author) => {
+                    self.store.mark(review_unit, path, snapshot_id, author)?;
+                    return Ok(());
+                }
+                None => Reviewed {
+                    text: versions.current.clone(),
+                    attribution,
+                },
+            },
+            ReviewedVersion::Base => {
+                self.store.unreview(review_unit, path)?;
+                return Ok(());
             }
-            ReviewedVersion::Base => self.store.unreview(review_unit, path)?,
-            ReviewedVersion::Partial(reviewed) => {
-                self.store.mark_partial(
-                    review_unit,
-                    path,
-                    snapshot_id,
-                    PartialReview { base, reviewed },
-                )?;
-            }
-        }
+            ReviewedVersion::Partial(reviewed) => reviewed,
+        };
+        self.store.mark_partial(
+            review_unit,
+            path,
+            snapshot_id,
+            PartialReview {
+                base: versions.base.clone(),
+                reviewed,
+            },
+        )?;
         Ok(())
     }
 
     /// The reviewed version of one path on its current base.
-    fn reviewed_text(
+    fn reviewed_version(
         &self,
         snapshot: &Snapshot,
         file: &ChangedFile,
         diff: &ReviewDiff,
         base: &[u8],
-    ) -> eyre::Result<Vec<u8>> {
+    ) -> eyre::Result<Reviewed> {
         let record = self.store.load(
             snapshot.identity.review_unit(),
             file.review_path().as_bytes(),
         )?;
         match record {
-            LoadResult::Unreviewed => Ok(base.to_vec()),
+            LoadResult::Unreviewed => Ok(Reviewed {
+                text: base.to_vec(),
+                attribution: Attribution::default(),
+            }),
             LoadResult::UnknownSchema => Err(eyre::eyre!(
                 "a newer reviewer wrote this file's review mark"
             )),
@@ -418,8 +493,12 @@ impl ReviewTracker {
                 partial: Some(partial),
                 ..
             }) => Ok(replay(&partial.base, &partial.reviewed, base)),
-            LoadResult::Reviewed(_) => whole_file_reviewed_version(diff)
-                .ok_or_else(|| eyre::eyre!("could not rebuild the reviewed version of the file")),
+            LoadResult::Reviewed(record) => Ok(Reviewed {
+                text: whole_file_reviewed_version(diff).ok_or_else(|| {
+                    eyre::eyre!("could not rebuild the reviewed version of the file")
+                })?,
+                attribution: Attribution::uniform(record.author),
+            }),
         }
     }
 
@@ -432,7 +511,7 @@ impl ReviewTracker {
         let base = self.base_text(snapshot, file)?;
         let reviewed = replay(&partial.base, &partial.reviewed, &base);
         // A rebase can drop every reviewed change.
-        if reviewed == base {
+        if reviewed.text == base {
             return Ok(ReviewComparison::Unreviewed(None));
         }
         let current = self.file_content(
@@ -442,9 +521,9 @@ impl ReviewTracker {
         )?;
         let current_text = current.as_deref().unwrap_or_default();
         let diff =
-            review_hunks::unified_diff(&file.review_path().display(), &reviewed, current_text);
-        let hunks =
-            HunkReview::new(&base, &reviewed, current_text).hunks(&parse_file_diff(&diff, file));
+            review_hunks::unified_diff(&file.review_path().display(), &reviewed.text, current_text);
+        let hunks = HunkReview::new(&base, &reviewed.text, current_text)
+            .hunks(&parse_file_diff(&diff, file));
         Ok(ReviewComparison::Partial {
             reviewed,
             current,
@@ -549,7 +628,7 @@ impl ReviewTracker {
                 hunks,
             } => Ok(ReviewDiff {
                 unified: diff,
-                old_content: Some(reviewed),
+                old_content: Some(reviewed.text),
                 new_content: current,
                 hunks,
             }),
@@ -639,16 +718,17 @@ impl ReviewTracker {
     }
 }
 
-/// The three versions of one file a hunk mark works on.
+/// The three versions of one file a hunk or line mark works on.
 struct Versions {
     base: Vec<u8>,
-    reviewed: Vec<u8>,
+    reviewed: Reviewed,
     current: Vec<u8>,
 }
 
 impl Versions {
     fn review(&self) -> HunkReview<'_> {
-        HunkReview::new(&self.base, &self.reviewed, &self.current)
+        HunkReview::new(&self.base, &self.reviewed.text, &self.current)
+            .attributed(&self.reviewed.attribution)
     }
 }
 

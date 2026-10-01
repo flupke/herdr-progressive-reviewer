@@ -52,3 +52,14 @@ pub enum EditorKeymap {
     Vim,
     Regular,
 }
+
+/// Who marked changed lines reviewed.
+#[derive(Clone, Debug, Default, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum MarkAuthor {
+    /// The reviewer, marking in the review UI.
+    #[default]
+    Reviewer,
+    /// Jev, marking lines too insignificant to need the reviewer's attention.
+    Jev,
+}

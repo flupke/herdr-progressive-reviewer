@@ -7,6 +7,7 @@ license.workspace = true
 
 [dependencies]
 review-explore = { path = "../review-explore" }
+review-hunks = { path = "../review-hunks" }
 fs2.workspace = true
 review-threads = { path = "../review-threads" }
 base64.workspace = true

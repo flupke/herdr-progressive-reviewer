@@ -87,36 +87,43 @@ pub(crate) fn translate<'r>(
 /// Where one line of the after side sits on the before side, or `None` when
 /// a change put it there. A deletion right before the line only shifts it.
 pub(crate) fn before_line(changes: &[Change], line: u32) -> Option<u32> {
+    map_line(
+        changes.iter().map(|change| (&change.after, &change.before)),
+        line,
+    )
+}
+
+/// Where one line of the before side sits on the after side, or `None` when
+/// a change replaces it. An insertion right before the line only shifts it.
+pub(crate) fn after_line(changes: &[Change], line: u32) -> Option<u32> {
+    map_line(
+        changes.iter().map(|change| (&change.before, &change.after)),
+        line,
+    )
+}
+
+/// Where one line lands on the other side of `edits`, given as (from, to)
+/// range pairs in order, or `None` when an edit replaces it.
+fn map_line<'r>(
+    edits: impl IntoIterator<Item = (&'r Range<u32>, &'r Range<u32>)>,
+    line: u32,
+) -> Option<u32> {
     let mut shift = 0_i64;
-    for change in changes {
-        if change.after.contains(&line) {
+    for (from, to) in edits {
+        if from.contains(&line) {
             return None;
         }
-        if change.after.end <= line {
-            shift += i64::from(change.before.end - change.before.start)
-                - i64::from(change.after.end - change.after.start);
+        if from.end <= line {
+            shift += i64::from(to.end - to.start) - i64::from(from.end - from.start);
         }
     }
     u32::try_from(i64::from(line) + shift).ok()
 }
 
-/// `target` with `range` replaced by the `replacement` lines of `source`.
-pub(crate) fn splice(
-    target: &Lines<'_>,
-    range: Range<u32>,
-    source: &Lines<'_>,
-    replacement: Range<u32>,
-) -> Option<Vec<u8>> {
-    let mut text = Vec::new();
-    for line in target
-        .get(0..range.start)?
-        .iter()
-        .chain(source.get(replacement)?)
-        .chain(target.rest(range.end)?)
-    {
-        text.extend_from_slice(line);
-    }
-    Some(text)
+/// Changes grouped into hunks the way Git joins them: changes whose before
+/// sides are at most two contexts apart share a hunk.
+pub(crate) fn hunk_groups(changes: &[Change]) -> impl Iterator<Item = &[Change]> {
+    changes.chunk_by(|previous, next| next.before.start - previous.before.end <= 2 * CONTEXT)
 }
 
 #[cfg(test)]

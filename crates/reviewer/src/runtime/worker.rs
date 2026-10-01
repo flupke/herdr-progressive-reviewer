@@ -12,6 +12,7 @@ use review_repository::repository::{ChangeId, ChangedFile, PollResult, Repositor
 use review_source::ReviewCheckpoint;
 use review_state::{MarkResult, ReviewState, ReviewTracker};
 use review_store::ReviewStore;
+use review_types::MarkAuthor;
 use review_ui::RepositoryAction;
 use ui_events::{
     FileSummary, RepositoryFilesChanged, RepositoryMetadataChanged, RepositoryRefreshFinished,
@@ -219,7 +220,9 @@ impl Worker {
                 })
                 .ok_or_else(|| eyre::eyre!("the change moved; wait for the next refresh"))?;
             let file = changed_file(snapshot, &path)?;
-            let marked = self.tracker.mark_hunk(snapshot, file, mark)?;
+            let marked = self
+                .tracker
+                .mark_hunk(snapshot, file, mark, &MarkAuthor::Reviewer)?;
             self.marked_state(snapshot, file, marked)
         })();
         if let Err(error) = &result {
@@ -242,7 +245,7 @@ impl Worker {
         let result = changed_file(snapshot, &path)
             .and_then(|file| {
                 if reviewed {
-                    let marked = self.tracker.mark(snapshot, file)?;
+                    let marked = self.tracker.mark(snapshot, file, &MarkAuthor::Reviewer)?;
                     self.marked_state(snapshot, file, marked)
                 } else {
                     self.tracker.unreview(snapshot, file)?;
@@ -265,7 +268,7 @@ impl Worker {
         marked: MarkResult,
     ) -> eyre::Result<ReviewState> {
         match marked {
-            MarkResult::Marked => self.tracker.status(snapshot, file),
+            MarkResult::Marked | MarkResult::NothingToMark => self.tracker.status(snapshot, file),
             MarkResult::ChangeChanged => {
                 eyre::bail!("the change moved; wait for the next refresh");
             }

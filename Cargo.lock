@@ -3934,6 +3934,7 @@ version = "0.2.0"
 dependencies = [
  "gix-imara-diff",
  "review-repository",
+ "review-types",
 ]
 
 [[package]]
@@ -4019,6 +4020,7 @@ dependencies = [
  "review-repository",
  "review-store",
  "review-test-support",
+ "review-types",
  "tempfile",
  "test-case",
 ]
@@ -4033,6 +4035,7 @@ dependencies = [
  "herdr-client",
  "libc",
  "review-explore",
+ "review-hunks",
  "review-repository",
  "review-source",
  "review-threads",

@@ -2,6 +2,7 @@ use review_repository::repository::{RepoType, Repository};
 use review_state::{MarkResult, ReviewStatus, ReviewTracker};
 use review_store::{LoadResult, ReviewStore};
 use review_test_support::{complete_repository_snapshot, repository_fixture};
+use review_types::MarkAuthor;
 use test_case::test_case;
 
 #[test_case(RepoType::Git; "git")]
@@ -24,7 +25,9 @@ fn baselines_follow_content_not_commit_or_path_identity(repository_type: RepoTyp
 
     let original = complete_repository_snapshot(&repository);
     assert_eq!(
-        tracker.mark(&original, &original.files[0]).unwrap(),
+        tracker
+            .mark(&original, &original.files[0], &MarkAuthor::Reviewer)
+            .unwrap(),
         MarkResult::Marked
     );
     assert_eq!(
@@ -38,7 +41,9 @@ fn baselines_follow_content_not_commit_or_path_identity(repository_type: RepoTyp
     let reviewed_change = repository_files.revision_id();
     repository_files.new_change("different change");
     assert_eq!(
-        tracker.mark(&original, &original.files[0]).unwrap(),
+        tracker
+            .mark(&original, &original.files[0], &MarkAuthor::Reviewer)
+            .unwrap(),
         MarkResult::ChangeChanged
     );
     repository_files.edit(&reviewed_change);
@@ -82,6 +87,7 @@ fn baselines_follow_content_not_commit_or_path_identity(repository_type: RepoTyp
             restored.identity.review_unit(),
             path,
             "1111111111111111111111111111111111111111",
+            &MarkAuthor::Reviewer,
         )
         .unwrap();
     let expired = tracker.status(&restored, &restored.files[0]).unwrap();

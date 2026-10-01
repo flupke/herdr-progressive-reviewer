@@ -6,6 +6,7 @@ use std::os::unix::fs::PermissionsExt;
 use test_case::test_case;
 
 use super::*;
+use review_types::MarkAuthor;
 
 struct ReviewFixture {
     repository_files: Box<dyn ReviewRepositoryFixture>,
@@ -50,7 +51,11 @@ fn diff_uses_the_review_baseline(repository_type: RepoType) {
     assert_eq!(initial.new_content.as_deref(), Some(&b"after\n"[..]));
     fixture
         .tracker
-        .mark(&fixture.reviewed, &fixture.reviewed.files[0])
+        .mark(
+            &fixture.reviewed,
+            &fixture.reviewed.files[0],
+            &MarkAuthor::Reviewer,
+        )
         .unwrap();
 
     fixture
@@ -72,7 +77,11 @@ fn deleted_file_diff_includes_the_reviewed_content(repository_type: RepoType) {
     let fixture = review_fixture(repository_type, b"reviewed content\n");
     fixture
         .tracker
-        .mark(&fixture.reviewed, &fixture.reviewed.files[0])
+        .mark(
+            &fixture.reviewed,
+            &fixture.reviewed.files[0],
+            &MarkAuthor::Reviewer,
+        )
         .unwrap();
 
     fixture.repository_files.remove("reviewed.txt");
@@ -92,7 +101,11 @@ fn unreview_removes_the_stored_review_mark(repository_type: RepoType) {
     let fixture = review_fixture(repository_type, b"after\n");
     fixture
         .tracker
-        .mark(&fixture.reviewed, &fixture.reviewed.files[0])
+        .mark(
+            &fixture.reviewed,
+            &fixture.reviewed.files[0],
+            &MarkAuthor::Reviewer,
+        )
         .unwrap();
 
     fixture
@@ -129,7 +142,9 @@ fn statuses_compare_all_paths_from_one_baseline(repository_type: RepoType) {
     );
     let reviewed = complete_repository_snapshot(&repository);
     for file in &reviewed.files {
-        tracker.mark(&reviewed, file).unwrap();
+        tracker
+            .mark(&reviewed, file, &MarkAuthor::Reviewer)
+            .unwrap();
     }
 
     repository_files.write("first.txt", b"reviewed\nchanged\n");
@@ -151,7 +166,7 @@ fn statuses_compare_all_paths_from_one_baseline(repository_type: RepoType) {
                 lines_added: 1,
                 lines_removed: 0,
             },
-            hunks: None,
+            lines: None,
         })
     );
     assert_eq!(
@@ -160,7 +175,7 @@ fn statuses_compare_all_paths_from_one_baseline(repository_type: RepoType) {
             status: ReviewStatus::Reviewed,
             warning: None,
             current_diff_statistics: DiffStatistics::default(),
-            hunks: None,
+            lines: None,
         })
     );
     assert_eq!(changed.files[0].statistics.lines_added, 2);
@@ -171,7 +186,11 @@ fn git_grouped_statuses_keep_mode_only_changes() {
     let fixture = review_fixture(RepoType::Git, b"reviewed\n");
     fixture
         .tracker
-        .mark(&fixture.reviewed, &fixture.reviewed.files[0])
+        .mark(
+            &fixture.reviewed,
+            &fixture.reviewed.files[0],
+            &MarkAuthor::Reviewer,
+        )
         .unwrap();
 
     let path = fixture.repository_files.root().join("reviewed.txt");
@@ -203,7 +222,9 @@ fn grouped_statuses_treat_repository_paths_as_literal(repository_type: RepoType)
         ReviewStore::open(state_directory.path(), repository_files.root()).unwrap(),
     );
     let reviewed = complete_repository_snapshot(&repository);
-    tracker.mark(&reviewed, &reviewed.files[0]).unwrap();
+    tracker
+        .mark(&reviewed, &reviewed.files[0], &MarkAuthor::Reviewer)
+        .unwrap();
 
     repository_files.write(special_path, b"reviewed\nchanged\n");
     let changed = complete_repository_snapshot(&repository);
@@ -230,7 +251,9 @@ fn grouped_jj_status_distinguishes_a_real_description_named_file() {
         ReviewStore::open(state_directory.path(), repository_files.root()).unwrap(),
     );
     let reviewed = complete_repository_snapshot(&repository);
-    tracker.mark(&reviewed, &reviewed.files[0]).unwrap();
+    tracker
+        .mark(&reviewed, &reviewed.files[0], &MarkAuthor::Reviewer)
+        .unwrap();
 
     repository_files.write(special_path, b"reviewed\nchanged\n");
     let changed = complete_repository_snapshot(&repository);
@@ -291,6 +314,7 @@ fn external_review_marks_invalidate_cached_diffs_at_the_same_snapshot(repository
             snapshot.identity.review_unit(),
             file.review_path().as_bytes(),
             snapshot.identity.snapshot_id(),
+            &MarkAuthor::Reviewer,
         )
         .unwrap();
     let reviewed = fixture.tracker.diff(snapshot, file).unwrap();

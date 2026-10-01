@@ -45,10 +45,23 @@ One ongoing conversation with a coding agent, which may address several review
 threads.
 _Avoid_: review thread, review session
 
+**Review mark**:
+The record that some changed lines of a file are reviewed, and who marked them:
+the reviewer or Jev.
+_Avoid_: coverage, credit
+
 **Reviewed version**:
-A file as the reviewer has read it: the base with the hunks they accepted. A
-whole-file mark makes it the file at that review checkpoint.
+A file as the reviewer has read it: the base with the changed lines accepted as
+reviewed. A whole-file mark makes it the file at that review checkpoint.
 _Avoid_: baseline (a baseline is the commit a mark was made at)
+
+**Unreviewed lines**:
+The changed lines of a review checkpoint that no review mark covers.
+_Avoid_: gaps, uncovered regions, remaining coverage
+
+**Jev**:
+The classifier that marks changed lines too insignificant to need a reviewer's
+attention.
 
 **Open hunk**:
 A change from the reviewed version to the current file, still waiting for

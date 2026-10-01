@@ -10,6 +10,7 @@ eyre.workspace = true
 review-hunks = { path = "../review-hunks" }
 review-repository = { path = "../review-repository" }
 review-store = { path = "../review-store" }
+review-types = { path = "../review-types" }
 
 [dev-dependencies]
 review-test-support = { path = "../review-test-support" }

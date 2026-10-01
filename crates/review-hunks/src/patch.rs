@@ -1,7 +1,7 @@
 //! Git-style unified diffs: writing one between two versions, and recovering
 //! the old version from a diff and the new one.
 
-use crate::text::{CONTEXT, Change, Lines, changes};
+use crate::text::{CONTEXT, Change, Lines, changes, hunk_groups};
 
 /// The Git-style unified diff from `before` to `after` for one path, or no
 /// bytes when the versions are equal.
@@ -15,9 +15,7 @@ pub fn unified_diff(path: &str, before: &[u8], after: &[u8]) -> Vec<u8> {
         before: Lines::new(before),
         after: Lines::new(after),
     };
-    for group in
-        changes.chunk_by(|previous, next| next.before.start - previous.before.end <= 2 * CONTEXT)
-    {
+    for group in hunk_groups(&changes) {
         diff.hunk(group);
     }
     diff.text

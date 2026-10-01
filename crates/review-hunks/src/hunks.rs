@@ -33,6 +33,8 @@ pub struct OpenHunk {
     /// The hunk rewrites lines the reviewer already reviewed, so it shows
     /// only what changed since then.
     pub since_review: bool,
+    /// How many lines the hunk adds or removes.
+    pub(crate) changed_lines: u32,
 }
 
 /// A change from the base that the reviewed version holds and the current
@@ -55,42 +57,65 @@ pub struct FileHunks {
     pub reviewed: Vec<ReviewedHunk>,
 }
 
-/// How many of a file's hunks are reviewed.
+/// How many of a file's changed lines are reviewed.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct HunkCount {
-    /// Reviewed hunks.
-    pub reviewed: usize,
-    /// Reviewed and open hunks.
-    pub total: usize,
+pub struct LineCount {
+    /// Added and removed lines in reviewed hunks.
+    pub reviewed: u32,
+    /// Added and removed lines in reviewed and open hunks.
+    pub total: u32,
+}
+
+impl LineCount {
+    /// The reviewed share in whole percent: rounded down, but never 0% once
+    /// a line is reviewed nor 100% while one is open.
+    pub fn percent(self) -> u32 {
+        let percent = u64::from(self.reviewed) * 100 / u64::from(self.total.max(1));
+        let percent = u32::try_from(percent).unwrap_or(100);
+        if self.reviewed == 0 || self.reviewed >= self.total {
+            percent
+        } else {
+            percent.clamp(1, 99)
+        }
+    }
 }
 
 impl FileHunks {
     /// The hunks of a file without reviewed lines: every hunk of its diff is open.
     pub fn unreviewed(rows: &[DiffRow]) -> Self {
         Self {
-            open: open_spans(rows)
-                .into_iter()
-                .map(|span| OpenHunk {
-                    span,
-                    since_review: false,
-                })
-                .collect(),
+            open: open_hunks(rows),
             reviewed: Vec::new(),
         }
     }
 
-    /// How many hunks are reviewed, once at least one is.
-    pub fn count(&self) -> Option<HunkCount> {
-        (!self.reviewed.is_empty()).then(|| HunkCount {
-            reviewed: self.reviewed.len(),
-            total: self.reviewed.len() + self.open.len(),
+    /// Whether the file has no hunks to mark line by line, as binary and
+    /// other non-text changes do.
+    pub fn is_empty(&self) -> bool {
+        self.open.is_empty() && self.reviewed.is_empty()
+    }
+
+    /// How many changed lines are reviewed, once some are.
+    pub fn count(&self) -> Option<LineCount> {
+        let reviewed = self
+            .reviewed
+            .iter()
+            .flat_map(|hunk| &hunk.rows)
+            .filter(|row| matches!(row, DiffRow::Add { .. } | DiffRow::Delete { .. }))
+            .count();
+        let reviewed = u32::try_from(reviewed).unwrap_or(u32::MAX);
+        let open = self.open.iter().map(|hunk| hunk.changed_lines).sum::<u32>();
+        (reviewed > 0).then_some(LineCount {
+            reviewed,
+            total: reviewed.saturating_add(open),
         })
     }
 }
 
-/// The spans of a parsed diff's hunks. A diff with notices (binary,
-/// conflicted or unparsed content) has no hunks to review one by one.
-pub(crate) fn open_spans(rows: &[DiffRow]) -> Vec<HunkSpan> {
+/// The hunks of a parsed diff, none of them rewriting reviewed lines yet. A
+/// diff with notices (binary, conflicted or unparsed content) has no hunks to
+/// review one by one.
+pub(crate) fn open_hunks(rows: &[DiffRow]) -> Vec<OpenHunk> {
     if rows.iter().any(|row| matches!(row, DiffRow::Notice { .. })) {
         return Vec::new();
     }
@@ -119,6 +144,7 @@ struct HunkWalk {
     at: Position,
     first: Option<Position>,
     last: Option<Position>,
+    changed: u32,
 }
 
 impl HunkWalk {
@@ -141,6 +167,7 @@ impl HunkWalk {
             },
             first: None,
             last: None,
+            changed: 0,
         })
     }
 
@@ -154,6 +181,7 @@ impl HunkWalk {
         let changed = old + new == 1;
         if changed {
             self.first.get_or_insert(self.at);
+            self.changed += 1;
         }
         self.at.old += old;
         self.at.new += new;
@@ -162,11 +190,15 @@ impl HunkWalk {
         }
     }
 
-    fn finish(self) -> Option<HunkSpan> {
+    fn finish(self) -> Option<OpenHunk> {
         let (first, last) = (self.first?, self.last?);
-        Some(HunkSpan {
-            old: first.old..last.old,
-            new: first.new..last.new,
+        Some(OpenHunk {
+            span: HunkSpan {
+                old: first.old..last.old,
+                new: first.new..last.new,
+            },
+            since_review: false,
+            changed_lines: self.changed,
         })
     }
 }

@@ -2,7 +2,7 @@ use review_repository::diff::parse_file_diff;
 use review_repository::repository::ChangedFile;
 
 use super::*;
-use crate::hunks::HunkCount;
+use crate::hunks::LineCount;
 use crate::unified_diff;
 
 /// Twenty numbered lines with some of them rewritten.
@@ -69,9 +69,10 @@ fn accepted_hunks_leave_the_open_diff_and_stay_listed_as_reviewed() {
     );
     assert_eq!(
         hunks.count(),
-        Some(HunkCount {
-            reviewed: 2,
-            total: 3
+        // Each hunk replaces one line: two changed lines apiece.
+        Some(LineCount {
+            reviewed: 4,
+            total: 6
         })
     );
 }

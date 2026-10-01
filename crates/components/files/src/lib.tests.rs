@@ -221,7 +221,7 @@ fn rendering_shows_review_state_and_line_statistics() {
 }
 
 #[test]
-fn a_partly_reviewed_file_shows_its_reviewed_hunks() {
+fn a_partly_reviewed_file_shows_its_reviewed_share() {
     let mut registry = ComponentEventBus::<Action>::new();
     let target = registry.mount(FilesComponent::new);
     let changed_file = changed_files(&["src/lib.rs"]).remove(0);
@@ -232,9 +232,9 @@ fn a_partly_reviewed_file_shows_its_reviewed_hunks() {
                 lines_added: 2,
                 lines_removed: 1,
             },
-            Some(review_hunks::HunkCount {
-                reviewed: 1,
-                total: 3,
+            Some(review_hunks::LineCount {
+                reviewed: 3,
+                total: 10,
             }),
         ),
     );
@@ -255,7 +255,7 @@ fn a_partly_reviewed_file_shows_its_reviewed_hunks() {
     let rendered = rendered_files(&registry, target);
 
     assert!(rendered.contains("◐ lib.rs"), "{rendered:?}");
-    assert!(rendered.contains("1/3 +2 -1"), "{rendered:?}");
+    assert!(rendered.contains("30% +2 -1"), "{rendered:?}");
 }
 
 #[test]

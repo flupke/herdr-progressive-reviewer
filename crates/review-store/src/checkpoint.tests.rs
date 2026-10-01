@@ -4,6 +4,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Barrier};
 use std::thread;
 
+use review_hunks::{Attribution, AuthoredLines, Reviewed};
+use review_types::MarkAuthor;
+
 use super::Fixture;
 use crate::{Error, LoadResult, PartialReview, ReviewStore, StateKey};
 
@@ -14,7 +17,9 @@ fn paths_round_trip_and_keys_are_stable() {
     let baseline = "b".repeat(64);
 
     for path in [b"src/lib.rs".to_vec(), b"invalid-\xff".to_vec()] {
-        store.mark(&fixture.change, &path, &baseline).unwrap();
+        store
+            .mark(&fixture.change, &path, &baseline, &MarkAuthor::Reviewer)
+            .unwrap();
         let LoadResult::Reviewed(record) = store.load(&fixture.change, &path).unwrap() else {
             panic!("record was not loaded");
         };
@@ -39,8 +44,12 @@ fn roots_and_paths_have_separate_state() {
     let left = b"left".to_vec();
     let right = b"right".to_vec();
 
-    first.mark(&fixture.change, &left, &baseline).unwrap();
-    first.mark(&fixture.change, &right, &baseline).unwrap();
+    first
+        .mark(&fixture.change, &left, &baseline, &MarkAuthor::Reviewer)
+        .unwrap();
+    first
+        .mark(&fixture.change, &right, &baseline, &MarkAuthor::Reviewer)
+        .unwrap();
 
     assert!(matches!(
         second.load(&fixture.change, &left).unwrap(),
@@ -62,7 +71,12 @@ fn concurrent_writers_leave_one_complete_record() {
     let path = b"shared".to_vec();
     fixture
         .store()
-        .mark(&fixture.change, &path, &"d".repeat(64))
+        .mark(
+            &fixture.change,
+            &path,
+            &"d".repeat(64),
+            &MarkAuthor::Reviewer,
+        )
         .unwrap();
     let barrier = Arc::new(Barrier::new(3));
     let completed = Arc::new(AtomicUsize::new(0));
@@ -79,7 +93,9 @@ fn concurrent_writers_leave_one_complete_record() {
             let baseline = digit.to_string().repeat(64);
             barrier.wait();
             for _ in 0..50 {
-                store.mark(&change, &path, &baseline).unwrap();
+                store
+                    .mark(&change, &path, &baseline, &MarkAuthor::Reviewer)
+                    .unwrap();
             }
             completed.fetch_add(1, Ordering::Release);
         }));
@@ -110,7 +126,9 @@ fn invalid_record_is_ignored_and_unreview_is_idempotent() {
     let store = fixture.store();
     let path = b"src/lib.rs".to_vec();
     let baseline = "b".repeat(64);
-    store.mark(&fixture.change, &path, &baseline).unwrap();
+    store
+        .mark(&fixture.change, &path, &baseline, &MarkAuthor::Reviewer)
+        .unwrap();
     let target = store.record_path(&fixture.change, &path);
     fs::write(&target, b"{broken").unwrap();
 
@@ -130,7 +148,9 @@ fn abandoned_temporary_file_does_not_replace_a_record() {
     let store = fixture.store();
     let path = b"src/lib.rs".to_vec();
     let baseline = "b".repeat(64);
-    store.mark(&fixture.change, &path, &baseline).unwrap();
+    store
+        .mark(&fixture.change, &path, &baseline, &MarkAuthor::Reviewer)
+        .unwrap();
     let target = store.record_path(&fixture.change, &path);
     fs::write(target.parent().unwrap().join(".tmp-dead"), b"partial").unwrap();
 
@@ -145,7 +165,14 @@ fn records_and_directories_are_user_only() {
     let fixture = Fixture::new();
     let store = fixture.store();
     let path = b"src/lib.rs".to_vec();
-    store.mark(&fixture.change, &path, &"b".repeat(64)).unwrap();
+    store
+        .mark(
+            &fixture.change,
+            &path,
+            &"b".repeat(64),
+            &MarkAuthor::Reviewer,
+        )
+        .unwrap();
     let target = store.record_path(&fixture.change, &path);
 
     assert_eq!(
@@ -170,7 +197,12 @@ fn checkpoint_keys_and_paths_reject_unsafe_values() {
 
     for review_unit in ["", "UPPER", "change-id"] {
         assert!(matches!(
-            store.mark(&review_unit.into(), b"src/lib.rs", &valid_commit),
+            store.mark(
+                &review_unit.into(),
+                b"src/lib.rs",
+                &valid_commit,
+                &MarkAuthor::Reviewer
+            ),
             Err(Error::InvalidStateKey {
                 field: "review unit"
             })
@@ -178,7 +210,12 @@ fn checkpoint_keys_and_paths_reject_unsafe_values() {
     }
     for commit_id in ["", "ABCDEF", "not-hex"] {
         assert!(matches!(
-            store.mark(&fixture.change, b"src/lib.rs", commit_id),
+            store.mark(
+                &fixture.change,
+                b"src/lib.rs",
+                commit_id,
+                &MarkAuthor::Reviewer
+            ),
             Err(Error::InvalidStateKey { field: "commit ID" })
         ));
     }
@@ -190,7 +227,7 @@ fn checkpoint_keys_and_paths_reject_unsafe_values() {
         &b"src/../lib.rs"[..],
     ] {
         assert!(matches!(
-            store.mark(&fixture.change, path, &valid_commit),
+            store.mark(&fixture.change, path, &valid_commit, &MarkAuthor::Reviewer),
             Err(Error::InvalidStateKey { field: "path" })
         ));
         assert!(matches!(
@@ -209,7 +246,14 @@ fn stored_checkpoint_identity_must_match_the_requested_record() {
     let fixture = Fixture::new();
     let store = fixture.store();
     let path = b"src/lib.rs";
-    store.mark(&fixture.change, path, &"b".repeat(64)).unwrap();
+    store
+        .mark(
+            &fixture.change,
+            path,
+            &"b".repeat(64),
+            &MarkAuthor::Reviewer,
+        )
+        .unwrap();
     let target = store.record_path(&fixture.change, path);
     let original: serde_json::Value = serde_json::from_slice(&fs::read(&target).unwrap()).unwrap();
 
@@ -234,7 +278,14 @@ fn checkpoint_records_write_review_units_and_read_the_previous_field_name() {
     let fixture = Fixture::new();
     let store = fixture.store();
     let path = b"src/lib.rs";
-    store.mark(&fixture.change, path, &"b".repeat(64)).unwrap();
+    store
+        .mark(
+            &fixture.change,
+            path,
+            &"b".repeat(64),
+            &MarkAuthor::Reviewer,
+        )
+        .unwrap();
     let target = store.record_path(&fixture.change, path);
     let mut stored: serde_json::Value =
         serde_json::from_slice(&fs::read(&target).unwrap()).unwrap();
@@ -257,7 +308,14 @@ fn writing_a_record_rejects_a_hash_collision_with_another_path() {
     let fixture = Fixture::new();
     let store = fixture.store();
     let path = b"src/lib.rs";
-    store.mark(&fixture.change, path, &"b".repeat(64)).unwrap();
+    store
+        .mark(
+            &fixture.change,
+            path,
+            &"b".repeat(64),
+            &MarkAuthor::Reviewer,
+        )
+        .unwrap();
     let target = store.record_path(&fixture.change, path);
     let mut stored: serde_json::Value =
         serde_json::from_slice(&fs::read(&target).unwrap()).unwrap();
@@ -265,7 +323,7 @@ fn writing_a_record_rejects_a_hash_collision_with_another_path() {
     fs::write(&target, serde_json::to_vec(&stored).unwrap()).unwrap();
 
     assert!(matches!(
-        store.mark(&fixture.change, path, &"c".repeat(64)),
+        store.mark(&fixture.change, path, &"c".repeat(64), &MarkAuthor::Reviewer),
         Err(Error::StateCollision { path: collision }) if collision == target
     ));
 }
@@ -275,7 +333,12 @@ fn review_timestamp_is_an_rfc3339_value() {
     let fixture = Fixture::new();
     let record = fixture
         .store()
-        .mark(&fixture.change, b"src/lib.rs", &"b".repeat(64))
+        .mark(
+            &fixture.change,
+            b"src/lib.rs",
+            &"b".repeat(64),
+            &MarkAuthor::Reviewer,
+        )
         .unwrap();
 
     assert!(record.reviewed_at.contains('T'));
@@ -299,7 +362,17 @@ fn unreview_reports_a_non_file_target() {
 fn partial() -> PartialReview {
     PartialReview {
         base: b"a\nb\n".to_vec(),
-        reviewed: b"a\nB\n\xff".to_vec(),
+        reviewed: Reviewed {
+            text: b"a\nB\n\xff".to_vec(),
+            attribution: Attribution {
+                default: MarkAuthor::Reviewer,
+                removed: Vec::new(),
+                added: vec![AuthoredLines {
+                    lines: 2..3,
+                    author: MarkAuthor::Jev,
+                }],
+            },
+        },
     }
 }
 
@@ -324,6 +397,50 @@ fn hunk_marks_keep_the_reviewed_version_and_its_base() {
 }
 
 #[test]
+fn whole_file_marks_keep_their_author() {
+    let fixture = Fixture::new();
+    let store = fixture.store();
+    let path = b"src/lib.rs".to_vec();
+
+    store
+        .mark(&fixture.change, &path, &"b".repeat(64), &MarkAuthor::Jev)
+        .unwrap();
+
+    let LoadResult::Reviewed(record) = store.load(&fixture.change, &path).unwrap() else {
+        panic!("record was not loaded");
+    };
+    assert_eq!(record.author, MarkAuthor::Jev);
+}
+
+#[test]
+fn marks_written_before_authors_were_stored_are_the_reviewers() {
+    let fixture = Fixture::new();
+    let store = fixture.store();
+    let path = b"src/lib.rs".to_vec();
+    store
+        .mark_partial(&fixture.change, &path, &"b".repeat(64), partial())
+        .unwrap();
+    let target = store.record_path(&fixture.change, &path);
+    let mut stored: serde_json::Value =
+        serde_json::from_slice(&fs::read(&target).unwrap()).unwrap();
+    stored.as_object_mut().unwrap().remove("author");
+    stored["partial"]
+        .as_object_mut()
+        .unwrap()
+        .remove("attribution");
+    fs::write(&target, serde_json::to_vec(&stored).unwrap()).unwrap();
+
+    let LoadResult::Reviewed(record) = store.load(&fixture.change, &path).unwrap() else {
+        panic!("record was not loaded");
+    };
+    assert_eq!(record.author, MarkAuthor::Reviewer);
+    assert_eq!(
+        record.partial.unwrap().reviewed.attribution,
+        Attribution::uniform(MarkAuthor::Reviewer)
+    );
+}
+
+#[test]
 fn a_whole_file_mark_replaces_a_hunk_mark() {
     let fixture = Fixture::new();
     let store = fixture.store();
@@ -332,7 +449,14 @@ fn a_whole_file_mark_replaces_a_hunk_mark() {
         .mark_partial(&fixture.change, &path, &"b".repeat(64), partial())
         .unwrap();
 
-    store.mark(&fixture.change, &path, &"c".repeat(64)).unwrap();
+    store
+        .mark(
+            &fixture.change,
+            &path,
+            &"c".repeat(64),
+            &MarkAuthor::Reviewer,
+        )
+        .unwrap();
 
     let LoadResult::Reviewed(record) = store.load(&fixture.change, &path).unwrap() else {
         panic!("record was not loaded");
@@ -368,7 +492,10 @@ fn hunk_marks_of_large_files_round_trip() {
     let path = b"src/lib.rs".to_vec();
     let large = PartialReview {
         base: vec![b'a'; 2 * 1024 * 1024],
-        reviewed: vec![b'b'; 2 * 1024 * 1024],
+        reviewed: Reviewed {
+            text: vec![b'b'; 2 * 1024 * 1024],
+            attribution: Attribution::default(),
+        },
     };
 
     store
@@ -379,4 +506,54 @@ fn hunk_marks_of_large_files_round_trip() {
         panic!("record was not loaded");
     };
     assert_eq!(record.partial, Some(large));
+}
+
+#[test]
+fn a_mark_by_an_author_this_reviewer_does_not_know_is_kept_unknown() {
+    let fixture = Fixture::new();
+    let store = fixture.store();
+    let path = b"src/lib.rs".to_vec();
+    store
+        .mark_partial(&fixture.change, &path, &"b".repeat(64), partial())
+        .unwrap();
+    let target = store.record_path(&fixture.change, &path);
+    let mut stored: serde_json::Value =
+        serde_json::from_slice(&fs::read(&target).unwrap()).unwrap();
+    stored["partial"]["attribution"]["added"][0]["author"] =
+        serde_json::json!({ "kind": "someone_new" });
+    fs::write(&target, serde_json::to_vec(&stored).unwrap()).unwrap();
+
+    assert_eq!(
+        store.load(&fixture.change, &path).unwrap(),
+        LoadResult::UnknownSchema
+    );
+}
+
+#[test]
+fn overlapping_stored_authors_give_each_line_one_author() {
+    let fixture = Fixture::new();
+    let store = fixture.store();
+    let path = b"src/lib.rs".to_vec();
+    store
+        .mark_partial(&fixture.change, &path, &"b".repeat(64), partial())
+        .unwrap();
+    let target = store.record_path(&fixture.change, &path);
+    let mut stored: serde_json::Value =
+        serde_json::from_slice(&fs::read(&target).unwrap()).unwrap();
+    stored["partial"]["attribution"]["added"] = serde_json::json!([
+        { "start": 3, "end": 5, "author": { "kind": "reviewer" } },
+        { "start": 0, "end": 4, "author": { "kind": "jev" } },
+    ]);
+    fs::write(&target, serde_json::to_vec(&stored).unwrap()).unwrap();
+
+    let LoadResult::Reviewed(record) = store.load(&fixture.change, &path).unwrap() else {
+        panic!("record was not loaded");
+    };
+    assert_eq!(
+        record.partial.unwrap().reviewed.attribution.added,
+        [AuthoredLines {
+            lines: 0..4,
+            author: MarkAuthor::Jev,
+        }]
+    );
 }

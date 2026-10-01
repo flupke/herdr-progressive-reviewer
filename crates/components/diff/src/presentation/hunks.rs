@@ -3,7 +3,7 @@
 use std::ops::Range;
 
 use ratatui::style::Color;
-use review_hunks::{FileHunks, HunkCount, HunkMark, OpenHunk};
+use review_hunks::{FileHunks, HunkMark, LineCount, OpenHunk};
 use review_repository::diff::DiffRow;
 use syntax_highlighting::Token;
 use ui_events::PresentationLocation;
@@ -202,8 +202,8 @@ impl DiffPresentation {
         Some((hunk, self.hunks.open.get(hunk.checked_sub(1)?)?))
     }
 
-    /// How many hunks are reviewed, once at least one is.
-    pub(crate) fn hunk_count(&self) -> Option<HunkCount> {
+    /// How many changed lines are reviewed, once some are.
+    pub(crate) fn line_count(&self) -> Option<LineCount> {
         self.hunks.count()
     }
 }
