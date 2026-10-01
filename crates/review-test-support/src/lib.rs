@@ -9,6 +9,8 @@ use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use review_repository::repository::{PollResult, RepoType, Repository, Snapshot};
 
@@ -16,6 +18,21 @@ mod port;
 pub use port::TestPort;
 mod herdr;
 pub use herdr::HerdrTestServer;
+
+/// Check `condition` until it holds, for at most `timeout`; return whether it
+/// held.
+pub fn eventually(timeout: Duration, mut condition: impl FnMut() -> bool) -> bool {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if condition() {
+            return true;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+}
 
 /// The repository layout for a jj integration fixture.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

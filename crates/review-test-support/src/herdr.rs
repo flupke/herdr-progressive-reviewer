@@ -68,9 +68,8 @@ impl HerdrTestServer {
         let output = File::create(server.root().join("server.log")).unwrap();
         server.child = Some(
             server
-                .command()
-                .arg("server")
-                .stdin(Stdio::null())
+                .lifetime_command()
+                .stdin(Stdio::piped())
                 .stdout(output.try_clone().unwrap())
                 .stderr(output)
                 .spawn()
@@ -137,6 +136,38 @@ impl HerdrTestServer {
         command
     }
 
+    /// Run the server under a shell that stops it once this process lets go
+    /// of the shell's stdin: on drop, and also when this process dies without
+    /// dropping anything, since the system then closes the pipe. A server
+    /// that ignores SIGTERM gets SIGKILL five seconds later, and one that
+    /// stops by itself takes its watcher with it.
+    fn lifetime_command(&self) -> Command {
+        // A background job reads /dev/null unless told otherwise, so the
+        // watcher reads the pipe through a saved descriptor.
+        const SCRIPT: &str = r#"exec 3<&0
+"$0" server </dev/null &
+server=$!
+{
+  cat <&3 >/dev/null
+  kill "$server" 2>/dev/null
+  sleep 5
+  kill -9 "$server" 2>/dev/null
+} &
+watcher=$!
+wait "$server"
+status=$?
+kill "$watcher" 2>/dev/null
+exit "$status""#;
+        let mut command = Command::new("sh");
+        command
+            .args(["-c", SCRIPT])
+            .arg(&self.binary)
+            .current_dir(&self.repository_root)
+            .env_clear()
+            .envs(&self.environment);
+        command
+    }
+
     fn wait_until_ready(&mut self) {
         let deadline = Instant::now() + Duration::from_secs(5);
         while Instant::now() < deadline {
@@ -155,9 +186,21 @@ impl HerdrTestServer {
 
 impl Drop for HerdrTestServer {
     fn drop(&mut self) {
-        if let Some(child) = self.child.as_mut() {
-            let _ = child.kill();
-            let _ = child.wait();
+        let Some(child) = self.child.as_mut() else {
+            return;
+        };
+        // Closing the shell's stdin stops the server; the shell then exits.
+        drop(child.stdin.take());
+        if crate::eventually(Duration::from_secs(10), || {
+            child.try_wait().ok().flatten().is_some()
+        }) {
+            return;
         }
+        let _ = child.kill();
+        let _ = child.wait();
     }
 }
+
+#[cfg(test)]
+#[path = "herdr.tests.rs"]
+mod tests;

@@ -3,15 +3,25 @@ use std::io::{self, BufRead, BufReader};
 use std::os::unix::fs::FileTypeExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::mpsc::{self, Receiver};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::thread;
+use std::time::Duration;
 
 use anyhow::{Result, ensure};
 use signal_hook::consts::signal::{SIGHUP, SIGINT, SIGTERM};
 use signal_hook::iterator::{Handle, Signals};
 
+/// What the driver hears next.
+pub(super) enum Next {
+    Line(io::Result<String>),
+    /// Input ended or a signal stops the session.
+    Ended,
+    /// No command came for the idle limit.
+    Idle,
+}
+
 pub(super) struct Input {
-    pub(super) events: Receiver<Option<io::Result<String>>>,
+    events: Receiver<Option<io::Result<String>>>,
     signals: Handle,
     /// The command pipe, removed on exit so a later writer fails instead of
     /// blocking on a pipe nobody reads.
@@ -62,6 +72,19 @@ impl Input {
             signals: handle,
             pipe,
         })
+    }
+
+    /// The next command line, waiting at most `idle` for it.
+    pub(super) fn next(&self, idle: Option<Duration>) -> Result<Next> {
+        let event = match idle {
+            None => self.events.recv()?,
+            Some(idle) => match self.events.recv_timeout(idle) {
+                Ok(event) => event,
+                Err(RecvTimeoutError::Timeout) => return Ok(Next::Idle),
+                Err(error) => return Err(error.into()),
+            },
+        };
+        Ok(event.map_or(Next::Ended, Next::Line))
     }
 
     fn create_pipe(path: &Path) -> Result<()> {

@@ -19,6 +19,11 @@ pub(super) enum Command {
         y: Option<u16>,
         text: Option<String>,
     },
+    /// Wait until the screen shows `text`.
+    Wait {
+        text: String,
+        timeout_ms: Option<u64>,
+    },
     /// Save a PNG of the screen for judging how it looks.
     Screenshot,
     Resize {

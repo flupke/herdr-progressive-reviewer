@@ -2,6 +2,10 @@ mod capture;
 mod command;
 mod frame;
 mod input;
+mod stream;
+mod viewer;
+
+pub use viewer::{Placement, Split, view};
 
 use std::fs::{self, File};
 use std::io::{self, Write};
@@ -11,16 +15,17 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail, ensure};
 use review_repository::repository::RepoType;
+use serde::Serialize;
 use serde_json::{Value, json};
 use tui_test::{
     KeyAction, MouseAction, MouseOptions, Operation, OperationResult, ScreenshotResult, Session,
 };
 
-use crate::fixture::ReviewWorkspace;
+use crate::fixture::{ReviewWorkspace, SESSION_SIZE};
 use capture::Capture;
 use command::Command;
-use frame::Frames;
-use input::Input;
+use frame::{Frame, Frames};
+use input::{Input, Next};
 
 /// Options for a persistent, isolated terminal exploration session.
 pub struct Options {
@@ -30,6 +35,30 @@ pub struct Options {
     /// A named pipe to read commands from instead of standard input. Each
     /// writer may close it; the driver reopens it for the next one.
     pub commands: Option<PathBuf>,
+    /// Where to open the live viewer pane when the driver runs inside Herdr;
+    /// `None` keeps the session headless.
+    pub viewer: Option<Placement>,
+    /// Stop when no command comes for this long; `None` waits forever.
+    pub stop_after_idle: Option<Duration>,
+}
+
+/// The longest a command may wait for the screen.
+const MAX_WAIT_MS: u64 = 30_000;
+
+/// What a reported screen says about the command that waited for it.
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum ScreenStatus {
+    /// A newer frame arrived.
+    Changed,
+    /// No newer frame arrived in time.
+    Unchanged,
+    /// The awaited text showed.
+    Shown,
+    /// The awaited text did not show in time.
+    Timeout,
+    /// The reviewer has exited.
+    Exited,
 }
 
 struct LiveReviewer {
@@ -74,7 +103,9 @@ fn jev_script(frames: &Frames) -> PathBuf {
 }
 
 struct VisionSession {
-    // Close the terminal before removing the private server and repository.
+    // Close the viewer, then the terminal, before removing the private server
+    // and repository.
+    viewer: Option<viewer::ViewerPane>,
     live: Option<LiveReviewer>,
     workspace: ReviewWorkspace,
     frames: Arc<Frames>,
@@ -97,6 +128,7 @@ impl VisionSession {
         let workspace = ReviewWorkspace::exploration(options.repository_type);
         let live = LiveReviewer::start(&workspace, &frames, 1)?;
         let session = Self {
+            viewer: None,
             live: Some(live),
             workspace,
             frames,
@@ -111,6 +143,7 @@ impl VisionSession {
                 "repository": session.workspace.root(),
                 "repository_type": options.repository_type.to_string(),
                 "directory": options.directory,
+                "stream": session.frames.stream_path(),
                 "pid": std::process::id(),
             }))?,
         )?;
@@ -127,15 +160,41 @@ impl VisionSession {
 
     fn observe(&self, after: Option<u64>, timeout: Duration, settle: bool) -> Result<Value> {
         let frame = self.frames.wait(after, timeout, settle)?;
+        let status = if after.is_some_and(|number| frame.number <= number) {
+            ScreenStatus::Unchanged
+        } else {
+            ScreenStatus::Changed
+        };
+        self.report(&frame, status)
+    }
+
+    /// Wait for `text` to show, then report the screen that shows it.
+    fn wait_for(&self, text: &str, timeout_ms: Option<u64>) -> Result<Value> {
+        ensure!(!text.is_empty(), "wait text is empty");
+        let timeout = timeout_ms.unwrap_or(5000);
+        ensure!(timeout <= MAX_WAIT_MS, "maximum wait is {MAX_WAIT_MS} ms");
+        let (frame, shown) = self
+            .frames
+            .wait_for_text(text, Duration::from_millis(timeout))?;
+        self.report(
+            &frame,
+            if shown {
+                ScreenStatus::Shown
+            } else {
+                ScreenStatus::Timeout
+            },
+        )
+    }
+
+    /// Describe `frame`, unless the reviewer has exited.
+    fn report(&self, frame: &Frame, status: ScreenStatus) -> Result<Value> {
         let OperationResult::State(state) = self.session()?.execute(Operation::State)? else {
             bail!("expected terminal state");
         };
         let status = if state.exited.is_some() {
-            "exited"
-        } else if after.is_some_and(|number| frame.number <= number) {
-            "unchanged"
+            ScreenStatus::Exited
         } else {
-            "changed"
+            status
         };
         Ok(json!({
             "status": status,
@@ -165,7 +224,10 @@ impl VisionSession {
         match command {
             Command::Observe { after, timeout_ms } => {
                 let timeout = timeout_ms.unwrap_or(if after.is_some() { 1000 } else { 0 });
-                ensure!(timeout <= 30_000, "maximum observation wait is 30000 ms");
+                ensure!(
+                    timeout <= MAX_WAIT_MS,
+                    "maximum observation wait is {MAX_WAIT_MS} ms"
+                );
                 return self.observe(*after, Duration::from_millis(timeout), false);
             }
             Command::Cells {
@@ -195,9 +257,11 @@ impl VisionSession {
                 return self.observe(Some(after_close), Duration::from_secs(10), true);
             }
             Command::Stop => {
+                self.viewer.take();
                 self.live.take();
                 return Ok(json!({"status": "stopped", "frame_number": before}));
             }
+            Command::Wait { text, timeout_ms } => return self.wait_for(text, *timeout_ms),
             Command::Screenshot => return self.screenshot(),
             Command::Jev { path, lines } => {
                 fs::write(
@@ -217,6 +281,42 @@ impl VisionSession {
             _ => self.interact(command)?,
         }
         self.observe(Some(before), Duration::from_secs(1), true)
+    }
+
+    /// Show the live stream in a pane beside the driver's, when it runs in
+    /// Herdr. A viewer that cannot open leaves the session headless.
+    fn open_viewer(&mut self, options: &Options) {
+        let (Some(placement), Some((herdr, pane))) = (options.viewer, viewer::Herdr::current())
+        else {
+            return;
+        };
+        let opened = (|| {
+            let driver = std::env::current_exe()?
+                .to_str()
+                .context("driver path is not UTF-8")?
+                .to_owned();
+            let stream = self
+                .frames
+                .stream_path()
+                .to_str()
+                .context("stream path is not UTF-8")?
+                .to_owned();
+            viewer::ViewerPane::open(herdr, &pane, placement, SESSION_SIZE, |viewer| {
+                vec![
+                    driver,
+                    "--view".into(),
+                    stream,
+                    "--close-pane".into(),
+                    viewer.into(),
+                ]
+            })
+        })();
+        match opened {
+            Ok(viewer) => self.viewer = Some(viewer),
+            Err(error) => {
+                let _ = self.log(&json!({"viewer_error": format!("{error:#}")}));
+            }
+        }
     }
 
     /// Save a PNG of the latest screen next to the text frames.
@@ -354,11 +454,17 @@ impl Output {
 pub fn run(options: &Options) -> Result<()> {
     let input = Input::start(options.commands.clone())?;
     let mut session = VisionSession::start(options)?;
+    session.open_viewer(options);
     let output = Output { json: options.json };
     let initial = session.observe(None, Duration::ZERO, false)?;
     session.log(&json!({"started": initial}))?;
     output.response(&initial)?;
-    while let Some(line) = input.events.recv()? {
+    let idle = loop {
+        let line = match input.next(options.stop_after_idle)? {
+            Next::Line(line) => line,
+            Next::Ended => break false,
+            Next::Idle => break true,
+        };
         let command = (|| -> Result<Command> { Ok(serde_json::from_str::<Command>(&line?)?) })();
         let stop = command
             .as_ref()
@@ -370,7 +476,11 @@ pub fn run(options: &Options) -> Result<()> {
         if stop {
             return Ok(());
         }
+    };
+    let mut stopped = session.execute(&Command::Stop)?;
+    if idle {
+        stopped["reason"] = "idle".into();
     }
-    output.response(&session.execute(&Command::Stop)?)?;
+    output.response(&stopped)?;
     Ok(())
 }

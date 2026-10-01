@@ -68,14 +68,21 @@ stdin line. Each interaction returns the latest completed screen and frame ID.
 An agent whose shell has no persistent stdin runs the driver in the background
 with `--commands PIPE`: the driver creates that named pipe, reads commands from
 it, and reopens it after each writer, so every command is one `echo`. Responses
-go to stdout, so redirect it to a file and read its last line:
+go to stdout, so redirect it to a file and read its last line. Redirect
+the log with `>|`: under zsh's `noclobber`, `>` refuses an existing log, so the
+driver never starts.
 
 ```sh
 nix develop --command make vision \
-  VISION_ARGS="--json --output $DIR/session --commands $DIR/cmd" > $DIR/out.log &
-echo '{"action":"click","text":"notes.md"}' > $DIR/cmd
+  VISION_ARGS="--json --output $DIR/session --commands $DIR/cmd" >| $DIR/out.log &
+echo '{"action":"click","text":"notes.md"}' >| $DIR/cmd
 tail -n 1 $DIR/out.log
 ```
+
+Send `stop` when the exploration is done: it closes the live viewer and frees
+the private server. A driver left behind stops by itself after 30 minutes
+without a command; `--stop-after-idle MINUTES` changes that, and `0` waits
+forever. An idle stop answers with `"reason": "idle"`.
 
 ```json
 {"action":"observe"}
@@ -86,6 +93,7 @@ tail -n 1 $DIR/out.log
 {"action":"click","text":"notes.md"}
 {"action":"resize","cols":70,"rows":20}
 {"action":"observe","after":12,"timeout_ms":3000}
+{"action":"wait","text":"Jev: marked","timeout_ms":5000}
 {"action":"cells","x":0,"y":0,"width":10,"height":1}
 {"action":"screenshot"}
 {"action":"note","kind":"checked","text":"Help closes with Escape and restores the diff"}
@@ -100,7 +108,12 @@ newlines, through the application's editor. `observe` can wait up to 30 seconds
 for a frame newer than `after`; `unchanged` explicitly reports a wait without a
 new frame. An interaction waits up to one second and allows 100 ms for a changed
 screen to settle. A changed frame is evidence to inspect, not proof that the
-requested action has finished. Use another observation for asynchronous work.
+requested action has finished. For asynchronous work, `wait` for the text the
+finished screen shows: it returns as soon as the screen shows it, with status
+`shown`, or after `timeout_ms` (default 5000, at most 30000) with status
+`timeout`. It checks the current screen first, so wait for text the screen
+before the command did not show. Waiting on text instead of a fixed delay keeps
+a fast, scripted exploration in step with the UI.
 `cells` reports the captured cells' styles when focus or selection is conveyed by
 color. `screenshot` saves a PNG of the screen, rendered with a bundled JetBrains
 Mono, as `screenshots/frame-N.png` and returns its path: use it to judge how the
@@ -115,6 +128,23 @@ the reviewer again in the same private workspace and state, at its initial
 server, and temporary repository; so does EOF on stdin when the driver reads
 commands from it.
 
+When the driver runs inside Herdr, it splits its own pane and runs a live
+viewer there: every frame it captures is painted in the viewer the moment it is
+published, so a person can watch the agent explore. The viewer fits the
+driver's pane: it splits to the right or downward, whichever shows the whole
+100×30 session while leaving the driver more room, and never takes more than
+three quarters of the pane. `--viewer right|down|none` picks the direction or
+turns the viewer off, and `--viewer-ratio` the viewer's share of the split. The
+viewer shows the session at its own size: a narrower pane cuts rows at its
+right edge, and a shorter one paints the rows that do not fit over its last
+row. Keys typed in the viewer do not reach the session; `q` closes the viewer and
+its pane and leaves the session running. The pane closes when the driver
+exits, however it exits: the viewer closes its
+own pane once the stream ends, and the system ends the stream of a killed
+driver too. Outside Herdr, watch the
+same stream from any terminal with `reviewer-vision --view SOCKET`, using the
+`stream` socket that `session.json` names.
+
 Every session gets a new directory under `tests/tui/target/vision/`, printed with
 the observations. `--output NEW_DIRECTORY` selects another location and `--json`
 returns JSON lines for automated clients. The directory retains:
@@ -128,7 +158,8 @@ returns JSON lines for automated clients. The directory retains:
   observed behavior, and reproduction steps.
 - `recording-*/`: `tui-test`'s textual asciinema recordings, retained across reopen.
 - `screenshots/`: the PNGs `screenshot` saved, named after their frame.
-- `session.json`: the private repository path and session details. An agent can
+- `session.json`: the private repository path, the live `stream` socket and
+  session details. An agent can
   edit files in that repository to exercise filesystem-driven updates.
 
 The driver sets `HERDR_REVIEWER_VISION=1` on its child. In that mode the reviewer

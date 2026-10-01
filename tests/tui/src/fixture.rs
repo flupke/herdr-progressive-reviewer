@@ -5,7 +5,13 @@ use herdr_client::protocol::{PaneId, PluginContext, WorkspaceId};
 use review_repository::repository::RepoType;
 use review_test_support::{HerdrTestServer, ReviewRepositoryFixture, TestPort, repository_fixture};
 use tui_test::{
-    AutomaticRecording, AutomaticRecordingMode, OpenOptions, RunOptions, Session, Timeouts,
+    AutomaticRecording, AutomaticRecordingMode, OpenOptions, RunOptions, Session, Size, Timeouts,
+};
+
+/// The terminal size a reviewer session starts at.
+pub(crate) const SESSION_SIZE: Size = Size {
+    cols: 100,
+    rows: 30,
 };
 
 pub(crate) struct ReviewWorkspace {
@@ -108,8 +114,8 @@ impl ReviewWorkspace {
             args,
             cwd: Some(self.repository.root().to_str().unwrap().into()),
             env: environment.into_iter().collect(),
-            cols: 100,
-            rows: 30,
+            cols: SESSION_SIZE.cols,
+            rows: SESSION_SIZE.rows,
             wait_ready: Some(false),
             backend: defaults.backend,
             profile: defaults.profile,

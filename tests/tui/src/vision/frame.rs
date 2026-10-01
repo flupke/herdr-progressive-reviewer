@@ -47,6 +47,14 @@ impl Frame {
         }
     }
 
+    pub(super) fn grid(&self) -> &[Vec<EmuCell>] {
+        &self.grid
+    }
+
+    pub(super) fn cursor(&self) -> &Cursor {
+        &self.cursor
+    }
+
     fn same_screen(&self, other: &Self) -> bool {
         self.size == other.size
             && self.grid == other.grid
@@ -97,6 +105,7 @@ impl Frame {
 
 pub(super) struct Frames {
     directory: PathBuf,
+    stream: super::stream::FrameStream,
     state: Mutex<FrameState>,
     changed: Condvar,
 }
@@ -111,6 +120,7 @@ impl Frames {
     pub(super) fn new(directory: PathBuf) -> Result<Self> {
         fs::create_dir(directory.join("frames"))?;
         Ok(Self {
+            stream: super::stream::FrameStream::start(&super::stream::socket_path())?,
             directory,
             state: Mutex::new(FrameState {
                 latest: None,
@@ -142,6 +152,7 @@ impl Frames {
         if frame.number > HISTORY_LIMIT {
             fs::remove_file(self.path(frame.number - HISTORY_LIMIT))?;
         }
+        self.stream.send(&frame);
         state.latest = Some(frame);
         state.changed_at = Instant::now();
         self.changed.notify_all();
@@ -193,10 +204,40 @@ impl Frames {
         }
     }
 
+    /// Wait until the latest screen shows `text`. On timeout, return the
+    /// latest screen and `false`.
+    pub(super) fn wait_for_text(&self, text: &str, timeout: Duration) -> Result<(Frame, bool)> {
+        let deadline = Instant::now() + timeout;
+        let mut state = self.state.lock().unwrap();
+        loop {
+            if let Some(error) = &state.error {
+                return Err(anyhow!("frame capture failed: {error}"));
+            }
+            let shown = state
+                .latest
+                .as_ref()
+                .is_some_and(|frame| frame.text.contains(text));
+            let now = Instant::now();
+            if shown || now >= deadline {
+                let frame = state
+                    .latest
+                    .clone()
+                    .ok_or_else(|| anyhow!("no completed frame received"))?;
+                return Ok((frame, shown));
+            }
+            (state, _) = self.changed.wait_timeout(state, deadline - now).unwrap();
+        }
+    }
+
     pub(super) fn path(&self, number: u64) -> PathBuf {
         self.directory
             .join("frames")
             .join(format!("{number:06}.txt"))
+    }
+
+    /// The socket a live viewer connects to.
+    pub(super) fn stream_path(&self) -> &Path {
+        self.stream.path()
     }
 
     pub(super) fn directory(&self) -> &Path {
