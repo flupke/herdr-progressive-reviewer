@@ -79,3 +79,79 @@ fn a_hunk_from_an_older_comparison_is_refused() {
         review_store::LoadResult::Unreviewed
     );
 }
+
+/// Classifies line 3 of the first file insignificant on both sides.
+struct LineThreeClassifier;
+
+impl review_explore::SignificanceClassifier for LineThreeClassifier {
+    fn rubric(&self) -> &'static str {
+        "line three"
+    }
+
+    fn plan(
+        &self,
+        _: &review_explore::Comparison,
+        _: &dyn Fn(&str) -> bool,
+    ) -> review_explore::SignificancePlan {
+        review_explore::SignificancePlan::new(1, |record| {
+            record(review_explore::SignificanceResult {
+                id: "line-3".into(),
+                units: [
+                    review_explore::SourceSide::Old,
+                    review_explore::SourceSide::New,
+                ]
+                .into_iter()
+                .map(|side| review_explore::CoverageUnit::Lines {
+                    file: 0,
+                    side,
+                    first: 3,
+                    end: 4,
+                })
+                .collect(),
+                outcome: review_explore::Significance::Insignificant,
+                model: None,
+                rubric: "line three".into(),
+                criterion: String::new(),
+                input_references: vec![],
+                omissions: vec![],
+                probabilities: std::collections::BTreeMap::default(),
+                confidence: None,
+                error: None,
+            })
+        })
+    }
+}
+
+#[test_case::test_case(RepoType::Git; "git")]
+#[test_case::test_case(RepoType::Jj; "jj")]
+fn automatic_review_announces_the_hunks_it_marks(kind: RepoType) {
+    let files = repository_fixture(kind);
+    files.write("file.rs", &text(&[]));
+    files.new_change("review");
+    files.write("file.rs", &text(&[(3, "three"), (20, "twenty")]));
+    let mut fixture = EffectsFixture::start(files, |setup| {
+        setup.exclusion =
+            review_explore::ExclusionPolicy::enabled(std::sync::Arc::new(LineThreeClassifier));
+    });
+    let checkpoint = fixture.refreshed_checkpoint();
+
+    fixture.perform([Action::Repository(RepositoryAction::AutoReview(checkpoint))]);
+
+    let mut events = fixture.events_until::<ui_events::ToastRequested>();
+    events.extend(fixture.events_until::<ui_events::ToastRequested>());
+    let toast = events
+        .iter()
+        .filter_map(|event| event.downcast_ref::<ui_events::ToastRequested>())
+        .next_back()
+        .unwrap();
+    assert!(toast.text.contains("1 hunks"), "{}", toast.text);
+    let saved = events
+        .iter()
+        .filter_map(|event| event.downcast_ref::<ReviewStateSaved>())
+        .collect::<Vec<_>>();
+    assert!(
+        saved.iter().any(|saved| saved.path == "file.rs"
+            && saved.result.map(|state| state.status) == Ok(ReviewStatus::PartiallyReviewed)),
+        "{saved:?}"
+    );
+}

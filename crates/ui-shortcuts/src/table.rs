@@ -363,7 +363,7 @@ pub(crate) const SHORTCUTS: &[ShortcutDefinition] = &[
         )],
     },
     ShortcutDefinition {
-        description: Some("Jev: mark insignificant files reviewed"),
+        description: Some("Jev: mark insignificant files and hunks reviewed"),
         bindings: &[ShortcutBinding::two(
             Key::Char('r'),
             Key::Char('f'),

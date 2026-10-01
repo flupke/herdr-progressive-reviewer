@@ -330,3 +330,55 @@ fn a_file_whose_reviewed_changes_all_meet_base_changes_is_unreviewed(repository_
     assert_eq!(review.status(), ReviewStatus::Unreviewed);
     assert!(review.hunks().reviewed.is_empty());
 }
+
+#[test_case(RepoType::Git; "git")]
+#[test_case(RepoType::Jj; "jj")]
+fn hunks_whose_changed_lines_pass_a_check_are_accepted_together(repository_type: RepoType) {
+    let review = Review::new(repository_type);
+    let snapshot = review.snapshot();
+
+    let accepted = review
+        .tracker
+        .review_hunks_where(&snapshot, &snapshot.files[0], false, |lines| {
+            lines.added.iter().all(|line| *line != 9)
+        })
+        .unwrap();
+
+    assert_eq!(accepted, 2);
+    assert_eq!(review.status(), ReviewStatus::PartiallyReviewed);
+    assert_eq!(
+        spans(review.hunks().open.iter().map(|hunk| &hunk.span)),
+        [(9, 10)]
+    );
+}
+
+#[test_case(RepoType::Git; "git")]
+#[test_case(RepoType::Jj; "jj")]
+fn a_check_every_hunk_passes_leaves_a_file_with_more_changes_unreviewed(repository_type: RepoType) {
+    let review = Review::new(repository_type);
+    let snapshot = review.snapshot();
+
+    let accepted = review
+        .tracker
+        .review_hunks_where(&snapshot, &snapshot.files[0], false, |_| true)
+        .unwrap();
+
+    assert_eq!(accepted, 0);
+    assert_eq!(review.record(), LoadResult::Unreviewed);
+}
+
+#[test_case(RepoType::Git; "git")]
+#[test_case(RepoType::Jj; "jj")]
+fn a_check_every_hunk_passes_may_review_a_file_that_changes_only_lines(repository_type: RepoType) {
+    let review = Review::new(repository_type);
+    review.accept_first_open_hunk();
+    let snapshot = review.snapshot();
+
+    let accepted = review
+        .tracker
+        .review_hunks_where(&snapshot, &snapshot.files[0], true, |_| true)
+        .unwrap();
+
+    assert_eq!(accepted, 2);
+    assert_eq!(review.status(), ReviewStatus::Reviewed);
+}

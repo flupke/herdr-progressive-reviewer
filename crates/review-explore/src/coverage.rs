@@ -137,6 +137,23 @@ impl ClassificationState {
     }
 }
 
+/// One file's changed lines that Jev excluded, one-based like diff rows:
+/// old-side lines of the base and new-side lines of the current file.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ExcludedLines(Vec<(SourceSide, std::ops::Range<u32>)>);
+
+impl ExcludedLines {
+    pub fn contains(&self, side: SourceSide, line: u32) -> bool {
+        self.0
+            .iter()
+            .any(|(excluded_side, lines)| *excluded_side == side && lines.contains(&line))
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum Significance {
@@ -1050,6 +1067,36 @@ impl CoverageLedger {
             answered_required_units_percent,
             limitations: self.inventory.limitations.clone(),
         }
+    }
+
+    /// The changed lines of one file that Jev excluded and no override made
+    /// required again.
+    pub fn excluded_lines(&self, file: usize) -> ExcludedLines {
+        ExcludedLines(
+            subtract(&self.excluded, &self.required_overrides)
+                .into_iter()
+                .filter_map(|unit| match unit {
+                    CoverageUnit::Lines {
+                        file: unit_file,
+                        side,
+                        first,
+                        end,
+                    } if unit_file == file => Some((side, first..end)),
+                    _ => None,
+                })
+                .collect(),
+        )
+    }
+
+    /// Whether a file changes more than its text lines (a mode, type or
+    /// path change), or has changes coverage cannot enumerate.
+    pub fn changes_more_than_lines(&self, comparison: &Comparison, file: usize) -> bool {
+        !self.inventory.file_complete(comparison, file)
+            || self
+                .inventory
+                .units
+                .iter()
+                .any(|unit| matches!(unit, CoverageUnit::Item { file: unit_file, .. } if *unit_file == file))
     }
 
     /// Files whose entire enumerable change is excluded by Jev. Answer coverage

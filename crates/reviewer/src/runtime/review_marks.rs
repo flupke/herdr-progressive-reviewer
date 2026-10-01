@@ -2,6 +2,7 @@
 
 use super::worker::Worker;
 use component_core::ApplicationEventSender;
+use review_repository::repository::ChangedFile;
 use review_source::ReviewCheckpoint;
 use ui_events::ReviewStateSaved;
 
@@ -14,15 +15,7 @@ impl Worker {
         let result = self.clear_review_marks(checkpoint);
         // Even a partial storage failure must be reflected in Files and loaded diffs.
         self.poll(messages);
-        if let Some(snapshot) = &self.snapshot {
-            for file in &snapshot.files {
-                let _ = messages.send(ReviewStateSaved {
-                    review_unit: snapshot.identity.review_unit().clone(),
-                    path: file.review_path().display(),
-                    result: self.tracker.status(snapshot, file).map_err(|_| ()),
-                });
-            }
-        }
+        self.announce_review_states(messages, |_| true);
         let toast = match result {
             Ok(()) => ui_events::ToastRequested {
                 text: "All files set to unreviewed.".into(),
@@ -34,6 +27,25 @@ impl Worker {
             },
         };
         let _ = messages.send(toast);
+    }
+
+    /// Tell Files and loaded diffs the current review state of the chosen
+    /// files: marks changed without a new comparison reload nothing else.
+    pub(super) fn announce_review_states(
+        &self,
+        messages: &ApplicationEventSender,
+        chosen: impl Fn(&ChangedFile) -> bool,
+    ) {
+        let Some(snapshot) = &self.snapshot else {
+            return;
+        };
+        for file in snapshot.files.iter().filter(|file| chosen(file)) {
+            let _ = messages.send(ReviewStateSaved {
+                review_unit: snapshot.identity.review_unit().clone(),
+                path: file.review_path().display(),
+                result: self.tracker.status(snapshot, file).map_err(|_| ()),
+            });
+        }
     }
 
     fn clear_review_marks(&self, checkpoint: &ReviewCheckpoint) -> eyre::Result<()> {

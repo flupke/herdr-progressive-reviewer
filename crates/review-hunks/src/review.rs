@@ -2,7 +2,7 @@
 //! onto a new base.
 
 use crate::hunks::HunkSpan;
-use crate::text::{Lines, changes, splice, translate};
+use crate::text::{Lines, before_line, changes, overlaps, splice, translate};
 
 /// The three versions of one file that decide which of its hunks are
 /// reviewed: the base, the reviewed version and the current file.
@@ -10,6 +10,18 @@ pub struct HunkReview<'a> {
     pub(crate) base: &'a [u8],
     pub(crate) reviewed: &'a [u8],
     pub(crate) current: &'a [u8],
+}
+
+/// The lines one open hunk changes, numbered like the base and the current file.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ChangedLines {
+    /// Zero-based base lines the hunk removes.
+    pub removed: Vec<u32>,
+    /// Zero-based current lines the hunk adds.
+    pub added: Vec<u32>,
+    /// The hunk removes reviewed lines the base does not have: it rewrites
+    /// what the reviewer approved, which no change from the base shows.
+    pub rewrites_reviewed: bool,
 }
 
 /// The reviewed version after one hunk was accepted or reopened.
@@ -37,18 +49,59 @@ impl<'a> HunkReview<'a> {
     /// Accept one hunk of the open diff (reviewed version to current file):
     /// the reviewed version takes the hunk's current lines.
     pub fn review(&self, open: &HunkSpan) -> Option<ReviewedVersion> {
-        let text = splice(
-            &Lines::new(self.reviewed),
-            open.old.clone(),
-            &Lines::new(self.current),
-            open.new.clone(),
-        )?;
+        self.review_all(std::slice::from_ref(open))
+    }
+
+    /// Accept several hunks of the open diff at once, or none when two of
+    /// them overlap.
+    pub fn review_all(&self, open: &[HunkSpan]) -> Option<ReviewedVersion> {
+        let reviewed = Lines::new(self.reviewed);
+        let current = Lines::new(self.current);
+        let mut spans = open.iter().collect::<Vec<_>>();
+        spans.sort_by_key(|span| span.old.start);
+        let mut text = Vec::new();
+        let mut position = 0;
+        for span in spans {
+            let kept = reviewed.get(position..span.old.start)?;
+            for line in kept.iter().chain(current.get(span.new.clone())?) {
+                text.extend_from_slice(line);
+            }
+            position = span.old.end;
+        }
+        for line in reviewed.rest(position)? {
+            text.extend_from_slice(line);
+        }
         Some(self.version(text))
     }
 
+    /// The lines each open hunk changes, zero-based: the base lines it
+    /// removes and the current lines it adds.
+    pub fn changed_lines(&self, open: &[HunkSpan]) -> Vec<ChangedLines> {
+        let reviewed_changes = changes(self.base, self.reviewed);
+        let open_changes = changes(self.reviewed, self.current);
+        open.iter()
+            .map(|span| {
+                let mut lines = ChangedLines::default();
+                for change in open_changes
+                    .iter()
+                    .filter(|change| overlaps(&change.before, &span.old))
+                {
+                    for line in change.before.clone() {
+                        match before_line(&reviewed_changes, line) {
+                            Some(base) => lines.removed.push(base),
+                            None => lines.rewrites_reviewed = true,
+                        }
+                    }
+                    lines.added.extend(change.after.clone());
+                }
+                lines
+            })
+            .collect()
+    }
+
     /// Reopen one reviewed hunk: the reviewed version takes the hunk's base
-    /// lines back. The hunk's current
-    /// lines match the reviewed version, so they move to it untouched.
+    /// lines back. The hunk's current lines match the reviewed version, so
+    /// they move to it untouched.
     pub fn unreview(&self, reviewed: &HunkSpan) -> Option<ReviewedVersion> {
         let open = changes(self.reviewed, self.current);
         let range = translate(

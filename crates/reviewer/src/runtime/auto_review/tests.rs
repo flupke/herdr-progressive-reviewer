@@ -132,7 +132,9 @@ fn only_fully_insignificant_files_are_marked_and_later_edits_need_review(kind: R
         }],
         Significance::Insignificant,
     );
-    let summary = review.apply(&fixture.repository, &fixture.store).unwrap();
+    let summary = review
+        .apply(&fixture.repository, &fixture.tracker, &fixture.store)
+        .unwrap();
     assert_eq!(summary.marked, 1);
     assert_eq!(summary.failed_classifications, 2);
     for file in &review.comparison.files {
@@ -172,12 +174,20 @@ fn stale_classification_cannot_mark_new_edits_or_another_review(kind: RepoType) 
     let mut review = fixture.prepare();
     review.classify_file("docs.md", Significance::Insignificant);
     fixture.files.write("docs.md", b"unclassified changes\n");
-    assert!(review.apply(&fixture.repository, &fixture.store).is_err());
+    assert!(
+        review
+            .apply(&fixture.repository, &fixture.tracker, &fixture.store)
+            .is_err()
+    );
     assert_eq!(fixture.record(&review, "docs.md"), LoadResult::Unreviewed);
     let mut review = fixture.prepare();
     review.classify_file("docs.md", Significance::Insignificant);
     fixture.files.new_change("switch review");
-    assert!(review.apply(&fixture.repository, &fixture.store).is_err());
+    assert!(
+        review
+            .apply(&fixture.repository, &fixture.tracker, &fixture.store)
+            .is_err()
+    );
     assert_eq!(fixture.record(&review, "docs.md"), LoadResult::Unreviewed);
 }
 
@@ -188,7 +198,11 @@ fn cancellation_and_manual_marks_take_precedence_over_automatic_results() {
     let mut review = fixture.prepare();
     review.classify_file("docs.md", Significance::Insignificant);
     review.active.store(false, Ordering::Relaxed);
-    assert!(review.apply(&fixture.repository, &fixture.store).is_err());
+    assert!(
+        review
+            .apply(&fixture.repository, &fixture.tracker, &fixture.store)
+            .is_err()
+    );
     assert_eq!(fixture.record(&review, "docs.md"), LoadResult::Unreviewed);
     review.active.store(true, Ordering::Relaxed);
     fixture
@@ -202,7 +216,7 @@ fn cancellation_and_manual_marks_take_precedence_over_automatic_results() {
     let prior = fixture.record(&review, "docs.md");
     assert_eq!(
         review
-            .apply(&fixture.repository, &fixture.store)
+            .apply(&fixture.repository, &fixture.tracker, &fixture.store)
             .unwrap()
             .marked,
         0
@@ -238,10 +252,167 @@ fn metadata_changes_remain_unreviewed_even_when_all_text_is_insignificant() {
     );
     assert_eq!(
         review
-            .apply(&fixture.repository, &fixture.store)
+            .apply(&fixture.repository, &fixture.tracker, &fixture.store)
             .unwrap()
             .marked,
         0
     );
     assert_eq!(fixture.record(&review, "script.sh"), LoadResult::Unreviewed);
+}
+
+/// Twenty numbered lines with some of them rewritten.
+fn numbered(edits: &[(u32, &str)]) -> Vec<u8> {
+    (1..=20)
+        .map(|line| {
+            edits
+                .iter()
+                .find(|(edited, _)| *edited == line)
+                .map_or_else(|| format!("{line}\n"), |(_, text)| format!("{text}\n"))
+        })
+        .collect::<String>()
+        .into_bytes()
+}
+
+impl AutoReview {
+    /// Classify one changed line on both sides as insignificant.
+    fn classify_line(&mut self, path: &str, line: u32) {
+        let file = self
+            .comparison
+            .files
+            .iter()
+            .position(|file| file.review_path().display() == path)
+            .unwrap();
+        let units = [
+            review_explore::SourceSide::Old,
+            review_explore::SourceSide::New,
+        ]
+        .into_iter()
+        .map(|side| CoverageUnit::Lines {
+            file,
+            side,
+            first: line,
+            end: line + 1,
+        })
+        .collect();
+        self.record_classification(
+            &format!("{path}:{line}"),
+            units,
+            Significance::Insignificant,
+        );
+    }
+}
+
+#[test_case::test_case(RepoType::Git; "git")]
+#[test_case::test_case(RepoType::Jj; "jj")]
+fn insignificant_hunks_of_other_files_are_marked_reviewed(kind: RepoType) {
+    let fixture = Fixture::new(kind);
+    fixture.files.write("mixed.rs", &numbered(&[]));
+    fixture.files.new_change("review");
+    fixture
+        .files
+        .write("mixed.rs", &numbered(&[(2, "two"), (15, "fifteen")]));
+    let mut review = fixture.prepare();
+    review.classify_line("mixed.rs", 2);
+
+    let summary = review
+        .apply(&fixture.repository, &fixture.tracker, &fixture.store)
+        .unwrap();
+
+    assert_eq!((summary.marked, summary.hunks), (0, 1));
+    let snapshot = complete_repository_snapshot(&fixture.repository);
+    let diff = fixture.tracker.diff(&snapshot, &snapshot.files[0]).unwrap();
+    assert_eq!(
+        diff.hunks
+            .reviewed
+            .iter()
+            .map(|hunk| (hunk.span.new.start, hunk.span.new.end))
+            .collect::<Vec<_>>(),
+        [(1, 2)]
+    );
+    assert_eq!(
+        diff.hunks
+            .open
+            .iter()
+            .map(|hunk| (hunk.span.new.start, hunk.span.new.end))
+            .collect::<Vec<_>>(),
+        [(14, 15)]
+    );
+}
+
+impl Fixture {
+    /// Accept the open hunk on one zero-based current line by hand.
+    fn accept_hunk_at(&self, line: u32) {
+        let snapshot = complete_repository_snapshot(&self.repository);
+        let file = &snapshot.files[0];
+        let span = self
+            .tracker
+            .diff(&snapshot, file)
+            .unwrap()
+            .hunks
+            .open
+            .into_iter()
+            .find(|hunk| hunk.span.new.contains(&line))
+            .unwrap()
+            .span;
+        self.tracker
+            .mark_hunk(&snapshot, file, &review_hunks::HunkMark::Review(span))
+            .unwrap();
+    }
+
+    fn status(&self) -> review_state::ReviewStatus {
+        let snapshot = complete_repository_snapshot(&self.repository);
+        self.tracker
+            .status(&snapshot, &snapshot.files[0])
+            .unwrap()
+            .status
+    }
+}
+
+#[test_case::test_case(RepoType::Git; "git")]
+#[test_case::test_case(RepoType::Jj; "jj")]
+fn a_partly_reviewed_file_whose_other_hunks_are_insignificant_is_reviewed(kind: RepoType) {
+    let fixture = Fixture::new(kind);
+    fixture.files.write("mixed.rs", &numbered(&[]));
+    fixture.files.new_change("review");
+    fixture
+        .files
+        .write("mixed.rs", &numbered(&[(2, "two"), (15, "fifteen")]));
+    fixture.accept_hunk_at(14);
+    let mut review = fixture.prepare();
+    review.classify_line("mixed.rs", 2);
+
+    let summary = review
+        .apply(&fixture.repository, &fixture.tracker, &fixture.store)
+        .unwrap();
+
+    assert_eq!(summary.hunks, 1);
+    assert_eq!(fixture.status(), review_state::ReviewStatus::Reviewed);
+}
+
+#[test_case::test_case(RepoType::Git; "git")]
+#[test_case::test_case(RepoType::Jj; "jj")]
+fn a_hunk_that_rewrites_approved_lines_stays_open(kind: RepoType) {
+    let fixture = Fixture::new(kind);
+    fixture.files.write("mixed.rs", &numbered(&[]));
+    fixture.files.new_change("review");
+    fixture
+        .files
+        .write("mixed.rs", &numbered(&[(2, "two"), (15, "fifteen")]));
+    fixture.accept_hunk_at(1);
+    // The approved "two" becomes a base-like line with a note.
+    fixture
+        .files
+        .write("mixed.rs", &numbered(&[(2, "2 // note"), (15, "fifteen")]));
+    let mut review = fixture.prepare();
+    review.classify_line("mixed.rs", 2);
+
+    let summary = review
+        .apply(&fixture.repository, &fixture.tracker, &fixture.store)
+        .unwrap();
+
+    assert_eq!(summary.hunks, 0);
+    assert_eq!(
+        fixture.status(),
+        review_state::ReviewStatus::PartiallyReviewed
+    );
 }

@@ -16,4 +16,4 @@ mod text;
 
 pub use hunks::{FileHunks, HunkCount, HunkMark, HunkSpan, OpenHunk, ReviewedHunk};
 pub use patch::{reverse_apply, unified_diff};
-pub use review::{HunkReview, ReviewedVersion, replay};
+pub use review::{ChangedLines, HunkReview, ReviewedVersion, replay};

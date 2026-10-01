@@ -84,6 +84,22 @@ pub(crate) fn translate<'r>(
     Some(start..end)
 }
 
+/// Where one line of the after side sits on the before side, or `None` when
+/// a change put it there. A deletion right before the line only shifts it.
+pub(crate) fn before_line(changes: &[Change], line: u32) -> Option<u32> {
+    let mut shift = 0_i64;
+    for change in changes {
+        if change.after.contains(&line) {
+            return None;
+        }
+        if change.after.end <= line {
+            shift += i64::from(change.before.end - change.before.start)
+                - i64::from(change.after.end - change.after.start);
+        }
+    }
+    u32::try_from(i64::from(line) + shift).ok()
+}
+
 /// `target` with `range` replaced by the `replacement` lines of `source`.
 pub(crate) fn splice(
     target: &Lines<'_>,

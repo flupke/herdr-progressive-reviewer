@@ -7,7 +7,8 @@ use std::sync::Mutex;
 
 use diff_cache::DiffCache;
 use review_hunks::{
-    FileHunks, HunkCount, HunkMark, HunkReview, ReviewedVersion, replay, reverse_apply,
+    ChangedLines, FileHunks, HunkCount, HunkMark, HunkReview, ReviewedVersion, replay,
+    reverse_apply,
 };
 use review_repository::diff::parse_file_diff;
 use review_repository::repository::{
@@ -299,10 +300,8 @@ impl ReviewTracker {
             HunkMark::Unreview(span) => diff.hunks.reviewed.iter().any(|hunk| &hunk.span == span),
         };
         eyre::ensure!(listed, "the hunk changed; wait for the next refresh");
-        let base = self.base_text(snapshot, file)?;
-        let current = diff.new_content.clone().unwrap_or_default();
-        let reviewed = self.reviewed_text(snapshot, file, &diff, &base)?;
-        let review = HunkReview::new(&base, &reviewed, &current);
+        let versions = self.versions(snapshot, file, &diff)?;
+        let review = versions.review();
         let version = match mark {
             HunkMark::Review(span) => review.review(span),
             HunkMark::Unreview(span) => review.unreview(span),
@@ -310,6 +309,74 @@ impl ReviewTracker {
         .ok_or_else(|| {
             eyre::eyre!("the hunk no longer matches the file; wait for the next refresh")
         })?;
+        self.store_version(snapshot, file, versions.base, version)?;
+        Ok(MarkResult::Marked)
+    }
+
+    /// Accept the open hunks of a path whose changed lines `accept` approves,
+    /// and return how many were accepted. Unless `may_review_file`, it
+    /// accepts none when every open hunk passes, because the path changes
+    /// more than its hunks (a mode or type change) and only a whole-file
+    /// review covers that.
+    pub fn review_hunks_where(
+        &self,
+        snapshot: &Snapshot,
+        file: &ChangedFile,
+        may_review_file: bool,
+        accept: impl Fn(&ChangedLines) -> bool,
+    ) -> eyre::Result<usize> {
+        let diff = self.diff(snapshot, file)?;
+        let spans = diff
+            .hunks
+            .open
+            .iter()
+            .map(|hunk| hunk.span.clone())
+            .collect::<Vec<_>>();
+        if spans.is_empty() {
+            return Ok(0);
+        }
+        let versions = self.versions(snapshot, file, &diff)?;
+        let review = versions.review();
+        let accepted = spans
+            .iter()
+            .zip(review.changed_lines(&spans))
+            .filter(|(_, lines)| accept(lines))
+            .map(|(span, _)| span.clone())
+            .collect::<Vec<_>>();
+        if accepted.is_empty() || (!may_review_file && accepted.len() == spans.len()) {
+            return Ok(0);
+        }
+        let version = review
+            .review_all(&accepted)
+            .ok_or_else(|| eyre::eyre!("the open hunks overlap"))?;
+        self.store_version(snapshot, file, versions.base, version)?;
+        Ok(accepted.len())
+    }
+
+    /// The base, the reviewed version and the current file behind one path's diff.
+    fn versions(
+        &self,
+        snapshot: &Snapshot,
+        file: &ChangedFile,
+        diff: &ReviewDiff,
+    ) -> eyre::Result<Versions> {
+        let base = self.base_text(snapshot, file)?;
+        let reviewed = self.reviewed_text(snapshot, file, diff, &base)?;
+        Ok(Versions {
+            base,
+            reviewed,
+            current: diff.new_content.clone().unwrap_or_default(),
+        })
+    }
+
+    /// Store the reviewed version a hunk mark left.
+    fn store_version(
+        &self,
+        snapshot: &Snapshot,
+        file: &ChangedFile,
+        base: Vec<u8>,
+        version: ReviewedVersion,
+    ) -> eyre::Result<()> {
         let review_unit = snapshot.identity.review_unit();
         let path = file.review_path().as_bytes();
         let snapshot_id = snapshot.identity.snapshot_id();
@@ -327,7 +394,7 @@ impl ReviewTracker {
                 )?;
             }
         }
-        Ok(MarkResult::Marked)
+        Ok(())
     }
 
     /// The reviewed version of one path on its current base.
@@ -569,6 +636,19 @@ impl ReviewTracker {
             file.review_path().as_bytes(),
         )?;
         Ok(())
+    }
+}
+
+/// The three versions of one file a hunk mark works on.
+struct Versions {
+    base: Vec<u8>,
+    reviewed: Vec<u8>,
+    current: Vec<u8>,
+}
+
+impl Versions {
+    fn review(&self) -> HunkReview<'_> {
+        HunkReview::new(&self.base, &self.reviewed, &self.current)
     }
 }
 

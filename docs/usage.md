@@ -21,7 +21,11 @@ the next file. Binary, conflicted and symbolic-link changes are reviewed per fil
 Older reviewer builds show partly reviewed files as unreviewed.
 
 Press `rf` in Files or its diff pane to automatically mark files whose changes
-Jev classifies entirely as insignificant. This uses the same classification policy
+Jev classifies entirely as insignificant. In the other files it marks each hunk
+whose changed lines are all insignificant, as `rh` would. A hunk that rewrites
+lines you already approved stays open, because Jev judges changes against the
+base, and a file with a mode or type change keeps at least one hunk open, since
+only marking the whole file covers that change. This uses the same classification policy
 as Explore and requires `TYPESAFE_API_KEY` in the reviewer process. It checks each
 unreviewed file's full change in the current comparison, including files changed
 since an earlier review. Classification runs in the background; a notification
