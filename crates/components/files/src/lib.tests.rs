@@ -2,7 +2,7 @@ use component_core::{ComponentEventBus, ComponentSubscriptions, ComponentTarget,
 use ratatui::{Terminal, backend::TestBackend, style::Color};
 use review_repository::repository::{ChangedFile, DiffStatistics, Repository};
 use review_source::ReviewCheckpoint;
-use review_state::ReviewStatus;
+use review_state::{ReviewState, ReviewStatus};
 use review_test_support::{GitFixture, ReviewRepositoryFixture, complete_repository_snapshot};
 use ui_actions::{Action, RepositoryAction};
 use ui_events::{
@@ -220,6 +220,44 @@ fn rendering_shows_review_state_and_line_statistics() {
 }
 
 #[test]
+fn a_partly_reviewed_file_shows_its_reviewed_hunks() {
+    let mut registry = ComponentEventBus::<Action>::new();
+    let target = registry.mount(FilesComponent::new);
+    let changed_file = changed_files(&["src/lib.rs"]).remove(0);
+    let mut file_summary = FileSummary::from_review_state(
+        &changed_file,
+        ReviewState::partially_reviewed(
+            DiffStatistics {
+                lines_added: 2,
+                lines_removed: 1,
+            },
+            Some(review_hunks::HunkCount {
+                reviewed: 1,
+                total: 3,
+            }),
+        ),
+    );
+    file_summary.file.statistics = DiffStatistics {
+        lines_added: 20,
+        lines_removed: 10,
+    };
+    registry
+        .publish_envelope(EventEnvelope::new(RepositoryFilesChanged {
+            review_checkpoint: ReviewCheckpoint::new("change", "commit"),
+            files: vec![file_summary],
+        }))
+        .expect("repository event must dispatch");
+    registry
+        .publish_envelope(EventEnvelope::new(FilesViewportChanged { rows: 4 }))
+        .expect("viewport event must dispatch");
+
+    let rendered = rendered_files(&registry, target);
+
+    assert!(rendered.contains("◐ lib.rs"), "{rendered:?}");
+    assert!(rendered.contains("1/3 +2 -1"), "{rendered:?}");
+}
+
+#[test]
 fn repository_event_updates_the_header_overview() {
     let mut registry = ComponentEventBus::<Action>::new();
     registry.mount(FilesComponent::new);
@@ -314,6 +352,54 @@ fn review_input_moves_optimistically_and_failure_restores_the_status() {
         .map(ratatui::buffer::Cell::symbol)
         .collect::<String>();
     assert!(rendered.contains("○ first.rs"), "{rendered:?}");
+}
+
+#[test]
+fn accepting_the_last_open_hunk_of_the_selected_file_moves_to_the_next_file() {
+    let mut registry = ComponentEventBus::<Action>::new();
+    registry.mount(FilesComponent::new);
+    registry.mount(|_| SelectionOutput);
+    registry
+        .publish_envelope(EventEnvelope::new(RepositoryFilesChanged {
+            review_checkpoint: ReviewCheckpoint::new("change", "commit"),
+            files: vec![
+                FileSummary::new("first.rs", ReviewStatus::PartiallyReviewed),
+                FileSummary::new("second.rs", ReviewStatus::Unreviewed),
+            ],
+        }))
+        .expect("repository event must dispatch");
+    registry
+        .publish_envelope(EventEnvelope::new(FilesViewportChanged { rows: 4 }))
+        .expect("viewport event must dispatch");
+    let mut saved = |state| {
+        registry
+            .publish_envelope(EventEnvelope::new(ReviewStateSaved {
+                review_unit: review_types::ReviewUnit::from("change"),
+                path: "first.rs".to_owned(),
+                result: Ok(state),
+            }))
+            .expect("review result must dispatch")
+            .into_iter()
+            .flat_map(component_core::DispatchResult::into_actions)
+            .collect::<Vec<_>>()
+    };
+
+    let partial = saved(ReviewState::partially_reviewed(
+        DiffStatistics::default(),
+        None,
+    ));
+    let finished = saved(ReviewState::reviewed());
+
+    assert!(
+        partial.is_empty(),
+        "another hunk is still open: {partial:?}"
+    );
+    assert_eq!(
+        finished,
+        [Action::Repository(RepositoryAction::EditRevision {
+            change_id: "selected:second.rs".to_owned().into()
+        })]
+    );
 }
 
 #[test]

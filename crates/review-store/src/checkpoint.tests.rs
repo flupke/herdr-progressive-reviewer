@@ -5,7 +5,7 @@ use std::sync::{Arc, Barrier};
 use std::thread;
 
 use super::Fixture;
-use crate::{Error, LoadResult, ReviewStore, StateKey};
+use crate::{Error, LoadResult, PartialReview, ReviewStore, StateKey};
 
 #[test]
 fn paths_round_trip_and_keys_are_stable() {
@@ -294,4 +294,89 @@ fn unreview_reports_a_non_file_target() {
         store.unreview(&fixture.change, path),
         Err(Error::StateIo { .. })
     ));
+}
+
+fn partial() -> PartialReview {
+    PartialReview {
+        base: b"a\nb\n".to_vec(),
+        reviewed: b"a\nB\n\xff".to_vec(),
+    }
+}
+
+#[test]
+fn hunk_marks_keep_the_reviewed_version_and_its_base() {
+    let fixture = Fixture::new();
+    let store = fixture.store();
+    let path = b"src/lib.rs".to_vec();
+
+    store
+        .mark_partial(&fixture.change, &path, &"b".repeat(64), partial())
+        .unwrap();
+
+    let LoadResult::Reviewed(record) = store.load(&fixture.change, &path).unwrap() else {
+        panic!("record was not loaded");
+    };
+    assert_eq!(record.partial, Some(partial()));
+    let stored: serde_json::Value =
+        serde_json::from_slice(&fs::read(store.record_path(&fixture.change, &path)).unwrap())
+            .unwrap();
+    assert_eq!(stored["schema_version"], 2);
+}
+
+#[test]
+fn a_whole_file_mark_replaces_a_hunk_mark() {
+    let fixture = Fixture::new();
+    let store = fixture.store();
+    let path = b"src/lib.rs".to_vec();
+    store
+        .mark_partial(&fixture.change, &path, &"b".repeat(64), partial())
+        .unwrap();
+
+    store.mark(&fixture.change, &path, &"c".repeat(64)).unwrap();
+
+    let LoadResult::Reviewed(record) = store.load(&fixture.change, &path).unwrap() else {
+        panic!("record was not loaded");
+    };
+    assert_eq!(record.partial, None);
+    assert_eq!(record.baseline_commit_id, "c".repeat(64));
+}
+
+#[test]
+fn a_hunk_mark_without_its_versions_is_ignored() {
+    let fixture = Fixture::new();
+    let store = fixture.store();
+    let path = b"src/lib.rs".to_vec();
+    store
+        .mark_partial(&fixture.change, &path, &"b".repeat(64), partial())
+        .unwrap();
+    let target = store.record_path(&fixture.change, &path);
+    let mut stored: serde_json::Value =
+        serde_json::from_slice(&fs::read(&target).unwrap()).unwrap();
+    stored.as_object_mut().unwrap().remove("partial");
+    fs::write(&target, serde_json::to_vec(&stored).unwrap()).unwrap();
+
+    assert_eq!(
+        store.load(&fixture.change, &path).unwrap(),
+        LoadResult::Unreviewed
+    );
+}
+
+#[test]
+fn hunk_marks_of_large_files_round_trip() {
+    let fixture = Fixture::new();
+    let store = fixture.store();
+    let path = b"src/lib.rs".to_vec();
+    let large = PartialReview {
+        base: vec![b'a'; 2 * 1024 * 1024],
+        reviewed: vec![b'b'; 2 * 1024 * 1024],
+    };
+
+    store
+        .mark_partial(&fixture.change, &path, &"c".repeat(64), large.clone())
+        .unwrap();
+
+    let LoadResult::Reviewed(record) = store.load(&fixture.change, &path).unwrap() else {
+        panic!("record was not loaded");
+    };
+    assert_eq!(record.partial, Some(large));
 }

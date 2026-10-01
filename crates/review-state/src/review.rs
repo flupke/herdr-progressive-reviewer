@@ -6,11 +6,15 @@ mod diff_cache;
 use std::sync::Mutex;
 
 use diff_cache::DiffCache;
+use review_hunks::{
+    FileHunks, HunkCount, HunkMark, HunkReview, ReviewedVersion, replay, reverse_apply,
+};
+use review_repository::diff::parse_file_diff;
 use review_repository::repository::{
     BaselineComparison, BaselineComparisonPlan, ChangedFile, DiffStatistics, FileKind, Interdiff,
     RepoPath, Repository, Snapshot, SnapshotId,
 };
-use review_store::{LoadResult, ReviewStore};
+use review_store::{LoadResult, PartialReview, ReviewRecord, ReviewStore};
 
 /// The review state of one changed path.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -21,6 +25,8 @@ pub enum ReviewStatus {
     Reviewed,
     /// The path changed after its review baseline.
     ChangedSinceReview,
+    /// Some of the path's hunks are reviewed and others are not.
+    PartiallyReviewed,
 }
 
 impl ReviewStatus {
@@ -48,6 +54,8 @@ pub struct ReviewState {
     pub warning: Option<ReviewWarning>,
     /// Statistics for changes after the stored review baseline.
     pub current_diff_statistics: DiffStatistics,
+    /// How many hunks are reviewed, for a partially reviewed path.
+    pub hunks: Option<HunkCount>,
 }
 
 impl ReviewState {
@@ -60,6 +68,7 @@ impl ReviewState {
             status: ReviewStatus::Unreviewed,
             warning,
             current_diff_statistics,
+            hunks: None,
         }
     }
 
@@ -69,6 +78,7 @@ impl ReviewState {
             status: ReviewStatus::Reviewed,
             warning: None,
             current_diff_statistics: DiffStatistics::default(),
+            hunks: None,
         }
     }
 
@@ -78,6 +88,20 @@ impl ReviewState {
             status: ReviewStatus::ChangedSinceReview,
             warning: None,
             current_diff_statistics,
+            hunks: None,
+        }
+    }
+
+    /// Create state for a path with some hunks left to review.
+    pub fn partially_reviewed(
+        current_diff_statistics: DiffStatistics,
+        hunks: Option<HunkCount>,
+    ) -> Self {
+        Self {
+            status: ReviewStatus::PartiallyReviewed,
+            warning: None,
+            current_diff_statistics,
+            hunks,
         }
     }
 }
@@ -85,12 +109,15 @@ impl ReviewState {
 /// A unified diff and the complete files on both sides.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReviewDiff {
-    /// The unified diff bytes.
+    /// The open diff: from the reviewed version, or from the base when
+    /// nothing is reviewed, to the current file.
     pub unified: Vec<u8>,
     /// The complete file before the change, when available.
     pub old_content: Option<Vec<u8>>,
     /// The complete file after the change, when available.
     pub new_content: Option<Vec<u8>>,
+    /// Which hunks of the file are open and which are reviewed.
+    pub hunks: FileHunks,
 }
 
 /// The result of a request to mark one path as reviewed.
@@ -109,6 +136,14 @@ enum ReviewComparison {
         baseline_commit_id: String,
         diff: Vec<u8>,
     },
+    /// Some hunks are reviewed: the reviewed version, moved onto the current
+    /// base, and the open diff from it.
+    Partial {
+        reviewed: Vec<u8>,
+        current: Option<Vec<u8>>,
+        diff: Vec<u8>,
+        hunks: FileHunks,
+    },
 }
 
 enum PlannedReviewState {
@@ -120,10 +155,16 @@ impl ReviewComparison {
     fn state(&self, file: &ChangedFile) -> ReviewState {
         match self {
             Self::Unreviewed(warning) => ReviewState::unreviewed(file.statistics, *warning),
-            Self::Compared { diff, .. } if diff.is_empty() => ReviewState::reviewed(),
+            Self::Compared { diff, .. } | Self::Partial { diff, .. } if diff.is_empty() => {
+                ReviewState::reviewed()
+            }
             Self::Compared { diff, .. } => {
                 ReviewState::changed_since_review(DiffStatistics::from_unified_diff(diff))
             }
+            Self::Partial { diff, hunks, .. } => ReviewState::partially_reviewed(
+                DiffStatistics::from_unified_diff(diff),
+                hunks.count(),
+            ),
         }
     }
 }
@@ -171,24 +212,7 @@ impl ReviewTracker {
         let mut plan = BaselineComparisonPlan::default();
         let mut planned_states = Vec::with_capacity(snapshot.files.len());
         for file in &snapshot.files {
-            let path = file.review_path().as_bytes();
-            let planned_state = match self.store.load(review_unit, path)? {
-                LoadResult::Unreviewed => {
-                    PlannedReviewState::Resolved(ReviewState::unreviewed(file.statistics, None))
-                }
-                LoadResult::UnknownSchema => PlannedReviewState::Resolved(ReviewState::unreviewed(
-                    file.statistics,
-                    Some(ReviewWarning::UnknownSchema),
-                )),
-                LoadResult::Reviewed(record) => {
-                    let baseline_snapshot_id = SnapshotId::from(record.baseline_commit_id);
-                    plan.add(baseline_snapshot_id.clone(), file.review_path().clone());
-                    PlannedReviewState::Compare {
-                        baseline_snapshot_id,
-                    }
-                }
-            };
-            planned_states.push(planned_state);
+            planned_states.push(self.plan_state(snapshot, file, &mut plan)?);
         }
 
         let results = self.repository.compare_baselines(snapshot, &plan)?;
@@ -219,6 +243,153 @@ impl ReviewTracker {
                 },
             })
             .collect()
+    }
+
+    /// Resolve one path's state now, or add it to the grouped baseline comparison.
+    fn plan_state(
+        &self,
+        snapshot: &Snapshot,
+        file: &ChangedFile,
+        plan: &mut BaselineComparisonPlan,
+    ) -> eyre::Result<PlannedReviewState> {
+        let review_unit = snapshot.identity.review_unit();
+        Ok(
+            match self
+                .store
+                .load(review_unit, file.review_path().as_bytes())?
+            {
+                LoadResult::Unreviewed => {
+                    PlannedReviewState::Resolved(ReviewState::unreviewed(file.statistics, None))
+                }
+                LoadResult::UnknownSchema => PlannedReviewState::Resolved(ReviewState::unreviewed(
+                    file.statistics,
+                    Some(ReviewWarning::UnknownSchema),
+                )),
+                LoadResult::Reviewed(ReviewRecord {
+                    partial: Some(partial),
+                    ..
+                }) => PlannedReviewState::Resolved(
+                    self.compare_partial(snapshot, file, &partial)?.state(file),
+                ),
+                LoadResult::Reviewed(record) => {
+                    let baseline_snapshot_id = SnapshotId::from(record.baseline_commit_id);
+                    plan.add(baseline_snapshot_id.clone(), file.review_path().clone());
+                    PlannedReviewState::Compare {
+                        baseline_snapshot_id,
+                    }
+                }
+            },
+        )
+    }
+
+    /// Accept or reopen one hunk of a path at the current exact commit.
+    pub fn mark_hunk(
+        &self,
+        snapshot: &Snapshot,
+        file: &ChangedFile,
+        mark: &HunkMark,
+    ) -> eyre::Result<MarkResult> {
+        let identity = self.repository.current_identity()?;
+        if identity.review_unit() != snapshot.identity.review_unit() {
+            return Ok(MarkResult::ChangeChanged);
+        }
+        let diff = self.diff(snapshot, file)?;
+        let listed = match mark {
+            HunkMark::Review(span) => diff.hunks.open.iter().any(|hunk| &hunk.span == span),
+            HunkMark::Unreview(span) => diff.hunks.reviewed.iter().any(|hunk| &hunk.span == span),
+        };
+        eyre::ensure!(listed, "the hunk changed; wait for the next refresh");
+        let base = self.base_text(snapshot, file)?;
+        let current = diff.new_content.clone().unwrap_or_default();
+        let reviewed = self.reviewed_text(snapshot, file, &diff, &base)?;
+        let review = HunkReview::new(&base, &reviewed, &current);
+        let version = match mark {
+            HunkMark::Review(span) => review.review(span),
+            HunkMark::Unreview(span) => review.unreview(span),
+        }
+        .ok_or_else(|| {
+            eyre::eyre!("the hunk no longer matches the file; wait for the next refresh")
+        })?;
+        let review_unit = snapshot.identity.review_unit();
+        let path = file.review_path().as_bytes();
+        let snapshot_id = snapshot.identity.snapshot_id();
+        match version {
+            ReviewedVersion::Current => {
+                self.store.mark(review_unit, path, snapshot_id)?;
+            }
+            ReviewedVersion::Base => self.store.unreview(review_unit, path)?,
+            ReviewedVersion::Partial(reviewed) => {
+                self.store.mark_partial(
+                    review_unit,
+                    path,
+                    snapshot_id,
+                    PartialReview { base, reviewed },
+                )?;
+            }
+        }
+        Ok(MarkResult::Marked)
+    }
+
+    /// The reviewed version of one path on its current base.
+    fn reviewed_text(
+        &self,
+        snapshot: &Snapshot,
+        file: &ChangedFile,
+        diff: &ReviewDiff,
+        base: &[u8],
+    ) -> eyre::Result<Vec<u8>> {
+        let record = self.store.load(
+            snapshot.identity.review_unit(),
+            file.review_path().as_bytes(),
+        )?;
+        match record {
+            LoadResult::Unreviewed => Ok(base.to_vec()),
+            LoadResult::UnknownSchema => Err(eyre::eyre!(
+                "a newer reviewer wrote this file's review mark"
+            )),
+            LoadResult::Reviewed(ReviewRecord {
+                partial: Some(partial),
+                ..
+            }) => Ok(replay(&partial.base, &partial.reviewed, base)),
+            LoadResult::Reviewed(_) => whole_file_reviewed_version(diff)
+                .ok_or_else(|| eyre::eyre!("could not rebuild the reviewed version of the file")),
+        }
+    }
+
+    fn compare_partial(
+        &self,
+        snapshot: &Snapshot,
+        file: &ChangedFile,
+        partial: &PartialReview,
+    ) -> eyre::Result<ReviewComparison> {
+        let base = self.base_text(snapshot, file)?;
+        let reviewed = replay(&partial.base, &partial.reviewed, &base);
+        // A rebase can drop every reviewed change.
+        if reviewed == base {
+            return Ok(ReviewComparison::Unreviewed(None));
+        }
+        let current = self.file_content(
+            snapshot.identity.snapshot_id(),
+            file.new_path.as_ref(),
+            file.new_kind,
+        )?;
+        let current_text = current.as_deref().unwrap_or_default();
+        let diff =
+            review_hunks::unified_diff(&file.review_path().display(), &reviewed, current_text);
+        let hunks =
+            HunkReview::new(&base, &reviewed, current_text).hunks(&parse_file_diff(&diff, file));
+        Ok(ReviewComparison::Partial {
+            reviewed,
+            current,
+            diff,
+            hunks,
+        })
+    }
+
+    fn base_text(&self, snapshot: &Snapshot, file: &ChangedFile) -> eyre::Result<Vec<u8>> {
+        Ok(self
+            .base_file_content(snapshot, file.old_path.as_ref(), file.old_kind)?
+            .unwrap_or_default())
     }
 
     /// Load the diff and both complete file versions for one changed path.
@@ -257,8 +428,10 @@ impl ReviewTracker {
         match self.compare_record(snapshot, file, record)? {
             ReviewComparison::Unreviewed(_) => {
                 let commit_id = snapshot.identity.snapshot_id();
+                let unified = self.repository.diff(snapshot, file)?;
                 Ok(ReviewDiff {
-                    unified: self.repository.diff(snapshot, file)?,
+                    hunks: FileHunks::unreviewed(&parse_file_diff(&unified, file)),
+                    unified,
                     old_content: self.base_file_content(
                         snapshot,
                         file.old_path.as_ref(),
@@ -280,7 +453,7 @@ impl ReviewTracker {
                 } else {
                     file.new_kind
                 };
-                Ok(ReviewDiff {
+                let mut loaded = ReviewDiff {
                     unified: diff,
                     old_content: self.file_content(
                         &baseline_commit_id,
@@ -292,8 +465,27 @@ impl ReviewTracker {
                         file.new_path.as_ref(),
                         file.new_kind,
                     )?,
-                })
+                    hunks: FileHunks::default(),
+                };
+                if let Some(reviewed) = whole_file_reviewed_version(&loaded) {
+                    let base = self.base_text(snapshot, file)?;
+                    let current = loaded.new_content.as_deref().unwrap_or_default();
+                    loaded.hunks = HunkReview::new(&base, &reviewed, current)
+                        .hunks(&parse_file_diff(&loaded.unified, file));
+                }
+                Ok(loaded)
             }
+            ReviewComparison::Partial {
+                reviewed,
+                current,
+                diff,
+                hunks,
+            } => Ok(ReviewDiff {
+                unified: diff,
+                old_content: Some(reviewed),
+                new_content: current,
+                hunks,
+            }),
         }
     }
 
@@ -346,6 +538,10 @@ impl ReviewTracker {
                     ReviewWarning::UnknownSchema,
                 )));
             }
+            LoadResult::Reviewed(ReviewRecord {
+                partial: Some(partial),
+                ..
+            }) => return self.compare_partial(snapshot, file, &partial),
             LoadResult::Reviewed(record) => record,
         };
 
@@ -374,6 +570,15 @@ impl ReviewTracker {
         )?;
         Ok(())
     }
+}
+
+/// The reviewed version behind a whole-file mark's open diff, which runs from
+/// that version moved onto the current base.
+fn whole_file_reviewed_version(diff: &ReviewDiff) -> Option<Vec<u8>> {
+    reverse_apply(
+        &diff.unified,
+        diff.new_content.as_deref().unwrap_or_default(),
+    )
 }
 
 #[cfg(test)]

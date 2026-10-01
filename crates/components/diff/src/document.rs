@@ -178,11 +178,17 @@ impl DiffDocument {
         let source_location = self.source_location.clone();
         self.diff = diff;
         let reload_required = self.load_state.finish_load();
+        // A line the reload folded into a reviewed hunk stays folded.
+        let mut restore = |location| {
+            self.diff
+                .fold_at(location)
+                .or_else(|| self.diff.reveal_presentation_location(location))
+        };
         let cursor = cursor_location
-            .and_then(|location| self.diff.reveal_presentation_location(location))
+            .and_then(&mut restore)
             .unwrap_or(previous.cursor());
         let scroll = scroll_location
-            .and_then(|location| self.diff.reveal_presentation_location(location))
+            .and_then(&mut restore)
             .unwrap_or(previous.scroll());
         self.restore(Position::new(cursor, previous.column(), scroll));
         self.clear_source_location();

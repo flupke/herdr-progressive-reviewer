@@ -54,6 +54,7 @@ impl ContextExpansion {
                 rows,
                 old_content: Some(content.as_bytes().to_vec()),
                 new_content: Some(content.into_bytes()),
+                hunks: review_hunks::FileHunks::default(),
             })
             .unwrap();
         Self { registry, target }

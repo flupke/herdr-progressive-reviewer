@@ -342,7 +342,7 @@ pub(crate) const SHORTCUTS: &[ShortcutDefinition] = &[
         ],
     },
     ShortcutDefinition {
-        description: Some("Expand an unchanged section"),
+        description: Some("Expand an unchanged section or a reviewed hunk"),
         bindings: &[ShortcutBinding::one(
             Key::Char('l'),
             source(SourceShortcut::ExpandOrMoveRight),
@@ -435,6 +435,14 @@ pub(crate) const SHORTCUTS: &[ShortcutDefinition] = &[
                 hunk(HunkShortcut::GoToNextModified),
             ),
         ],
+    },
+    ShortcutDefinition {
+        description: Some("Mark the hunk at the cursor reviewed / unreviewed"),
+        bindings: &[ShortcutBinding::two(
+            Key::Char('r'),
+            Key::Char('h'),
+            diff_global(DiffGlobalShortcut::ToggleHunkReviewed),
+        )],
     },
     ShortcutDefinition {
         description: Some("Go to previous / next unreviewed file"),

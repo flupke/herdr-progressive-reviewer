@@ -28,6 +28,9 @@ mod expansion;
 #[path = "scrolling.tests.rs"]
 mod scrolling;
 
+#[path = "hunk_marks.tests.rs"]
+mod hunk_marks;
+
 #[test]
 fn old_evidence_coordinates_reveal_context_in_later_hunks() {
     let highlighter = SyntaxHighlighter::new(EmbeddedThemeName::CatppuccinMocha, Color::White);
@@ -102,6 +105,7 @@ fn loaded_content_publishes_its_target_viewport() {
             rows: changed_rows(),
             old_content: None,
             new_content: None,
+            hunks: review_hunks::FileHunks::default(),
         }))
         .expect("loaded diff must dispatch");
 
@@ -173,6 +177,7 @@ fn loaded_content_from_another_review_unit_does_not_publish_a_viewport() {
             rows: changed_rows(),
             old_content: None,
             new_content: None,
+            hunks: review_hunks::FileHunks::default(),
         }))
         .expect("stale loaded diff must dispatch");
 
@@ -196,6 +201,7 @@ fn unreviewing_a_checkpointed_file_reloads_its_full_diff() {
             rows: changed_rows(),
             old_content: None,
             new_content: None,
+            hunks: review_hunks::FileHunks::default(),
         })
         .expect("checkpoint diff must load");
 
@@ -249,6 +255,7 @@ fn unreviewing_while_checkpoint_diff_loads_defers_the_full_diff_load() {
             rows: changed_rows(),
             old_content: None,
             new_content: None,
+            hunks: review_hunks::FileHunks::default(),
         })
         .expect("checkpoint diff must load")
         .into_iter()
@@ -393,6 +400,7 @@ fn source_preview_replaces_the_diff_until_the_location_list_closes() {
             }],
             old_content: None,
             new_content: None,
+            hunks: review_hunks::FileHunks::default(),
         })
         .unwrap();
     let location = review_lsp::SourceLocation {
@@ -503,6 +511,7 @@ fn accepted_location_is_centered_after_its_preview_started_the_diff_load() {
             rows: context_rows(20),
             old_content: None,
             new_content: None,
+            hunks: review_hunks::FileHunks::default(),
         })
         .unwrap();
 
@@ -571,6 +580,7 @@ fn completed_background_load_clears_its_pending_center() {
             rows: context_rows(20),
             old_content: None,
             new_content: None,
+            hunks: review_hunks::FileHunks::default(),
         })
         .unwrap();
     registry
@@ -585,6 +595,7 @@ fn completed_background_load_clears_its_pending_center() {
             rows: context_rows(20),
             old_content: None,
             new_content: None,
+            hunks: review_hunks::FileHunks::default(),
         })
         .unwrap();
 
@@ -617,6 +628,7 @@ fn location_history_jumps_use_the_same_centering_rule_as_first_and_last() {
             rows: context_rows(30),
             old_content: None,
             new_content: None,
+            hunks: review_hunks::FileHunks::default(),
         })
         .unwrap();
 
@@ -663,6 +675,7 @@ fn modified_hunk_shortcuts_wrap_and_center_the_target() {
             rows: two_hunk_rows(),
             old_content: None,
             new_content: None,
+            hunks: review_hunks::FileHunks::default(),
         })
         .unwrap();
 
@@ -747,6 +760,7 @@ fn refreshed_checkpoint_restarts_an_in_flight_definition_load() {
             rows: context_rows(20),
             old_content: None,
             new_content: None,
+            hunks: review_hunks::FileHunks::default(),
         })
         .unwrap();
 
@@ -775,6 +789,7 @@ fn repository_refresh_preserves_loaded_content_and_cursor_output() {
             rows,
             old_content: None,
             new_content: None,
+            hunks: review_hunks::FileHunks::default(),
         }))
         .expect("loaded diff must dispatch");
     let moved = registry
@@ -833,6 +848,7 @@ fn clicking_an_unmodified_section_keeps_the_cursor_hunk_in_place() {
             ],
             old_content: Some(b"first\nsecond\nthird\nfourth\nfifth\n".to_vec()),
             new_content: Some(b"first\nsecond\nthird\nfourth\nfifth\n".to_vec()),
+            hunks: review_hunks::FileHunks::default(),
         })
         .unwrap();
     let collapsed_lines = rendered_diff_lines(&registry, diff_target);
@@ -916,6 +932,7 @@ fn dragging_source_rows_opens_an_editor_with_the_selected_diff() {
             rows,
             old_content: None,
             new_content: None,
+            hunks: review_hunks::FileHunks::default(),
         })
         .unwrap();
     let rendered_lines = rendered_diff_lines(&registry, diff_target);
@@ -992,6 +1009,7 @@ fn search_input_publishes_matching_file_decorations() {
             rows: changed_rows(),
             old_content: None,
             new_content: None,
+            hunks: review_hunks::FileHunks::default(),
         }))
         .expect("loaded diff must dispatch");
     let mut second_rows = changed_rows();
@@ -1006,6 +1024,7 @@ fn search_input_publishes_matching_file_decorations() {
             rows: second_rows,
             old_content: None,
             new_content: None,
+            hunks: review_hunks::FileHunks::default(),
         }))
         .expect("second loaded diff must dispatch");
     registry
@@ -1056,6 +1075,7 @@ fn beginning_a_search_requests_every_unloaded_diff() {
             rows: changed_rows(),
             old_content: None,
             new_content: None,
+            hunks: review_hunks::FileHunks::default(),
         })
         .unwrap();
 
@@ -1104,6 +1124,7 @@ fn completed_search_moves_to_a_match_that_finishes_loading_later() {
             }],
             old_content: None,
             new_content: None,
+            hunks: review_hunks::FileHunks::default(),
         })
         .unwrap();
 
@@ -1123,6 +1144,7 @@ fn completed_search_moves_to_a_match_that_finishes_loading_later() {
             }],
             old_content: None,
             new_content: None,
+            hunks: review_hunks::FileHunks::default(),
         })
         .unwrap();
 
@@ -1156,6 +1178,7 @@ fn repository_refresh_reloads_every_file_for_an_active_search() {
                 }],
                 old_content: None,
                 new_content: None,
+                hunks: review_hunks::FileHunks::default(),
             })
             .unwrap();
     }
@@ -1228,6 +1251,7 @@ fn search_moves_between_every_occurrence_in_repository_order() {
                 }],
                 old_content: None,
                 new_content: None,
+                hunks: review_hunks::FileHunks::default(),
             })
             .unwrap();
     }
@@ -1298,6 +1322,7 @@ fn source_shortcuts_move_between_columns_and_word_starts() {
             }],
             old_content: None,
             new_content: None,
+            hunks: review_hunks::FileHunks::default(),
         })
         .unwrap();
 
@@ -1344,6 +1369,7 @@ fn source_shortcuts_follow_character_boundaries_and_line_ends() {
             }],
             old_content: None,
             new_content: None,
+            hunks: review_hunks::FileHunks::default(),
         })
         .unwrap();
 
@@ -1390,6 +1416,7 @@ fn source_shortcuts_move_on_deleted_lines() {
             }],
             old_content: None,
             new_content: None,
+            hunks: review_hunks::FileHunks::default(),
         })
         .unwrap();
 
@@ -1419,6 +1446,7 @@ fn word_under_cursor_search_does_nothing_on_punctuation() {
             }],
             old_content: None,
             new_content: None,
+            hunks: review_hunks::FileHunks::default(),
         })
         .unwrap();
     registry
@@ -1454,6 +1482,7 @@ fn word_under_cursor_search_marks_files_with_the_selected_word() {
             }],
             old_content: None,
             new_content: None,
+            hunks: review_hunks::FileHunks::default(),
         })
         .unwrap();
     registry
@@ -1492,6 +1521,7 @@ fn cancelled_search_restores_its_origin_without_recording_a_jump() {
                 .collect(),
             old_content: None,
             new_content: None,
+            hunks: review_hunks::FileHunks::default(),
         })
         .unwrap();
 
@@ -1529,6 +1559,7 @@ fn repository_refresh_preserves_mouse_scrolled_viewport() {
             rows: context_rows(60),
             old_content: None,
             new_content: None,
+            hunks: review_hunks::FileHunks::default(),
         })
         .unwrap();
     registry
@@ -1573,6 +1604,7 @@ fn repository_refresh_preserves_mouse_scrolled_viewport() {
             rows: rows_with_insertion_before_context(60),
             old_content: None,
             new_content: None,
+            hunks: review_hunks::FileHunks::default(),
         })
         .unwrap();
 
@@ -2113,6 +2145,7 @@ impl LargeSearchFixture {
                 ],
                 old_content: None,
                 new_content: None,
+                hunks: review_hunks::FileHunks::default(),
             })
             .unwrap();
         Self { registry, target }

@@ -86,6 +86,7 @@ pub enum DiffGlobalShortcut {
     PreviousComment,
     NextComment,
     Hunk(HunkShortcut),
+    ToggleHunkReviewed,
     OpenInEditor,
 }
 

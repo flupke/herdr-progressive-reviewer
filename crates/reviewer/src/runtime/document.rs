@@ -112,19 +112,17 @@ impl DocumentWorker {
             .find_file(&review_checkpoint, &path)
             .and_then(|(snapshot, file)| {
                 let diff = self.tracker.diff(snapshot, file)?;
-                Ok((
-                    parse_file_diff(&diff.unified, file),
-                    diff.old_content,
-                    diff.new_content,
-                ))
+                let rows = parse_file_diff(&diff.unified, file);
+                Ok((rows, diff.old_content, diff.new_content, diff.hunks))
             });
         let event = match result {
-            Ok((rows, old_content, new_content)) => EventEnvelope::new(DiffContentLoaded {
+            Ok((rows, old_content, new_content, hunks)) => EventEnvelope::new(DiffContentLoaded {
                 review_checkpoint,
                 path,
                 rows,
                 old_content,
                 new_content,
+                hunks,
             }),
             Err(_) => EventEnvelope::new(DiffContentLoadFailed {
                 review_checkpoint,

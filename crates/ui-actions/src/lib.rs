@@ -96,6 +96,12 @@ pub enum RepositoryAction {
     EditRevision { change_id: ChangeId },
     /// Set the selected path review state.
     SetReviewed { path: String, reviewed: bool },
+    /// Accept or reopen one hunk of a path, as the exact comparison showed it.
+    SetHunkReviewed {
+        review_checkpoint: ReviewCheckpoint,
+        path: String,
+        mark: review_hunks::HunkMark,
+    },
     /// Classify this comparison and mark files containing only insignificant changes.
     AutoReview(ReviewCheckpoint),
     /// Clear this comparison's file review marks after user confirmation.

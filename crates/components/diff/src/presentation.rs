@@ -5,17 +5,42 @@ use std::ops::RangeInclusive;
 use std::sync::Arc;
 
 use review_explore::SourceSide;
+use review_hunks::FileHunks;
 use review_repository::diff::DiffRow;
 use review_repository::excerpt::{DiffExcerpt, ExcerptError};
 use ui_events::{DisplayedDiffRow, DisplayedDiffViewport, PresentationLocation};
 
 use syntax_highlighting::{HighlightedDiff, HighlightedFile, HighlightedRow, Token};
 
+mod hunks;
+
+pub(super) use hunks::HunkBadge;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) enum PresentedRow {
-    Diff { source: usize, tokens: Vec<Token> },
-    Gap { start: u32, lines: Vec<Vec<Token>> },
-    Expanded { line: u32, tokens: Vec<Token> },
+    Diff {
+        source: usize,
+        tokens: Vec<Token>,
+    },
+    Gap {
+        start: u32,
+        lines: Vec<Vec<Token>>,
+    },
+    Expanded {
+        line: u32,
+        tokens: Vec<Token>,
+    },
+    /// A reviewed hunk folded into one row.
+    ReviewedHunk {
+        hunk: usize,
+    },
+    /// One row of an expanded reviewed hunk, read-only.
+    ReviewedLine {
+        hunk: usize,
+        row: usize,
+        new_line: Option<u32>,
+        tokens: Vec<Token>,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -42,6 +67,7 @@ pub(super) struct DiffPresentation {
     file_rows: Option<Vec<PresentedRow>>,
     view: PresentationView,
     search_document: OnceCell<Arc<text_search::Document>>,
+    hunks: FileHunks,
 }
 
 struct PresentationRows<'a> {
@@ -105,6 +131,7 @@ impl DiffPresentation {
             file_rows,
             view: PresentationView::Diff,
             search_document: OnceCell::new(),
+            hunks: FileHunks::default(),
         }
     }
 
@@ -257,7 +284,10 @@ impl DiffPresentation {
                 self.source_row(*source),
                 DiffRow::Context { .. } | DiffRow::Delete { .. } | DiffRow::Add { .. }
             ),
-            PresentedRow::Gap { .. } | PresentedRow::Expanded { .. } => false,
+            PresentedRow::Gap { .. }
+            | PresentedRow::Expanded { .. }
+            | PresentedRow::ReviewedHunk { .. }
+            | PresentedRow::ReviewedLine { .. } => false,
         })
     }
 
@@ -276,7 +306,10 @@ impl DiffPresentation {
             PresentedRow::Expanded { line, .. } if self.whole_file != Some(WholeFile::Deleted) => {
                 line.checked_sub(1)?
             }
-            PresentedRow::Gap { .. } | PresentedRow::Expanded { .. } => return None,
+            PresentedRow::Gap { .. }
+            | PresentedRow::Expanded { .. }
+            | PresentedRow::ReviewedHunk { .. }
+            | PresentedRow::ReviewedLine { .. } => return None,
         };
         Some((line, self.source_text(index)?))
     }
@@ -291,32 +324,19 @@ impl DiffPresentation {
             {
                 tokens
             }
-            PresentedRow::Expanded { tokens, .. } => tokens,
-            PresentedRow::Diff { .. } | PresentedRow::Gap { .. } => return None,
+            PresentedRow::Expanded { tokens, .. } | PresentedRow::ReviewedLine { tokens, .. } => {
+                tokens
+            }
+            PresentedRow::Diff { .. }
+            | PresentedRow::Gap { .. }
+            | PresentedRow::ReviewedHunk { .. } => return None,
         };
         Some(tokens.iter().map(|token| token.text.as_str()).collect())
     }
 
     pub(super) fn presentation_location(&self, index: usize) -> Option<PresentationLocation> {
         match self.rows.get(index)? {
-            PresentedRow::Diff { source, .. } => Some(match self.source_row(*source) {
-                DiffRow::Context {
-                    old_line, new_line, ..
-                } => PresentationLocation::Context {
-                    old_line: old_line.saturating_sub(1),
-                    new_line: new_line.saturating_sub(1),
-                },
-                DiffRow::Add { new_line, .. } => {
-                    PresentationLocation::NewLine(new_line.saturating_sub(1))
-                }
-                DiffRow::Delete { old_line, .. } => {
-                    PresentationLocation::OldLine(old_line.saturating_sub(1))
-                }
-                DiffRow::Notice { .. }
-                | DiffRow::FileHeader { .. }
-                | DiffRow::Meta { .. }
-                | DiffRow::Hunk { .. } => PresentationLocation::SourceRow(*source),
-            }),
+            PresentedRow::Diff { source, .. } => Some(self.source_location(*source)),
             PresentedRow::Expanded { line, .. } => {
                 Some(if self.whole_file == Some(WholeFile::Deleted) {
                     PresentationLocation::OldLine(line.saturating_sub(1))
@@ -325,6 +345,32 @@ impl DiffPresentation {
                 })
             }
             PresentedRow::Gap { start, .. } => Some(PresentationLocation::GapStart(*start)),
+            PresentedRow::ReviewedLine {
+                new_line: Some(line),
+                ..
+            } => Some(PresentationLocation::NewLine(line.saturating_sub(1))),
+            PresentedRow::ReviewedHunk { .. } | PresentedRow::ReviewedLine { .. } => None,
+        }
+    }
+
+    fn source_location(&self, source: usize) -> PresentationLocation {
+        match self.source_row(source) {
+            DiffRow::Context {
+                old_line, new_line, ..
+            } => PresentationLocation::Context {
+                old_line: old_line.saturating_sub(1),
+                new_line: new_line.saturating_sub(1),
+            },
+            DiffRow::Add { new_line, .. } => {
+                PresentationLocation::NewLine(new_line.saturating_sub(1))
+            }
+            DiffRow::Delete { old_line, .. } => {
+                PresentationLocation::OldLine(old_line.saturating_sub(1))
+            }
+            DiffRow::Notice { .. }
+            | DiffRow::FileHeader { .. }
+            | DiffRow::Meta { .. }
+            | DiffRow::Hunk { .. } => PresentationLocation::SourceRow(source),
         }
     }
 
@@ -356,6 +402,8 @@ impl DiffPresentation {
                 let new_display_line = new_line.saturating_add(1);
                 self.context_row(|row| row.0 == old_display_line)
                     .or_else(|| self.context_row(|row| row.1 == new_display_line))
+                    // A fold may hold the line instead of an open hunk's context.
+                    .or_else(|| self.reveal_diff_line(new_line))
             }
             PresentationLocation::NewLine(line) => self.reveal_line(line),
             PresentationLocation::OldLine(line) => {
@@ -369,7 +417,7 @@ impl DiffPresentation {
                         DiffRow::Delete { old_line, .. } | DiffRow::Context { old_line, .. } if *old_line == display_line
                     ),
                     PresentedRow::Expanded { line, .. } => self.whole_file == Some(WholeFile::Deleted) && *line == display_line,
-                    PresentedRow::Gap { .. } => false,
+                    PresentedRow::Gap { .. } | PresentedRow::ReviewedHunk { .. } | PresentedRow::ReviewedLine { .. } => false,
                 })
             }
             PresentationLocation::SourceRow(target_source) => {
@@ -383,18 +431,24 @@ impl DiffPresentation {
                 self.rows.iter().position(|row| match row {
                     PresentedRow::Gap { start, .. } => *start == target_start,
                     PresentedRow::Expanded { line, .. } => *line == target_start,
-                    PresentedRow::Diff { .. } => false,
+                    PresentedRow::Diff { .. }
+                    | PresentedRow::ReviewedHunk { .. }
+                    | PresentedRow::ReviewedLine { .. } => false,
                 })
             }
         }
     }
 
     pub(super) fn row_at_location(&self, location: PresentationLocation) -> Option<usize> {
-        self.rows.iter().enumerate().find_map(|(index, row)| {
-            (self.presentation_location(index) == Some(location)
-                || row.contains_collapsed_location(location))
-            .then_some(index)
-        })
+        self.rows
+            .iter()
+            .enumerate()
+            .find_map(|(index, row)| {
+                (self.presentation_location(index) == Some(location)
+                    || row.contains_collapsed_location(location))
+                .then_some(index)
+            })
+            .or_else(|| self.fold_at(location))
     }
 
     fn context_row(&self, matches: impl Fn((u32, u32)) -> bool) -> Option<usize> {
@@ -405,7 +459,10 @@ impl DiffPresentation {
                 } => matches((*old_line, *new_line)),
                 _ => false,
             },
-            PresentedRow::Gap { .. } | PresentedRow::Expanded { .. } => false,
+            PresentedRow::Gap { .. }
+            | PresentedRow::Expanded { .. }
+            | PresentedRow::ReviewedHunk { .. }
+            | PresentedRow::ReviewedLine { .. } => false,
         })
     }
 
@@ -430,8 +487,14 @@ impl DiffPresentation {
                 DiffRow::Context { new_line, .. } | DiffRow::Add { new_line, .. }
                     if *new_line == display_line
             ),
-            PresentedRow::Expanded { line, .. } => *line == display_line,
-            PresentedRow::Gap { .. } => false,
+            PresentedRow::Expanded { line, .. }
+            | PresentedRow::ReviewedLine {
+                new_line: Some(line),
+                ..
+            } => *line == display_line,
+            PresentedRow::Gap { .. }
+            | PresentedRow::ReviewedHunk { .. }
+            | PresentedRow::ReviewedLine { .. } => false,
         }) {
             return Some(index);
         }
@@ -441,12 +504,21 @@ impl DiffPresentation {
                     && display_line
                         < start.saturating_add(u32::try_from(lines.len()).unwrap_or(u32::MAX))
             }
-            PresentedRow::Diff { .. } | PresentedRow::Expanded { .. } => false,
+            PresentedRow::Diff { .. }
+            | PresentedRow::Expanded { .. }
+            | PresentedRow::ReviewedHunk { .. }
+            | PresentedRow::ReviewedLine { .. } => false,
         }) {
             self.expand(index);
             return self.rows.iter().position(
                 |row| matches!(row, PresentedRow::Expanded { line, .. } if *line == display_line),
             );
+        }
+        if let Some(index) = self.folded_row_holding(line) {
+            self.expand(index);
+            return self.rows.iter().position(|row| {
+                matches!(row, PresentedRow::ReviewedLine { new_line: Some(new_line), .. } if *new_line == display_line)
+            });
         }
         None
     }
@@ -457,18 +529,26 @@ impl DiffPresentation {
                 |row| {
                     match row {
                         PresentedRow::Diff { tokens, .. }
-                        | PresentedRow::Expanded { tokens, .. } => tokens
+                        | PresentedRow::Expanded { tokens, .. }
+                        | PresentedRow::ReviewedLine { tokens, .. } => tokens
                             .iter()
                             .map(|token| token.text.as_str())
                             .collect::<String>(),
-                        PresentedRow::Gap { .. } => String::new(),
+                        PresentedRow::Gap { .. } | PresentedRow::ReviewedHunk { .. } => {
+                            String::new()
+                        }
                     }
                 },
             )))
         }))
     }
 
+    /// Show the rows folded into one row: unchanged lines or a reviewed hunk.
     pub(super) fn expand(&mut self, index: usize) -> bool {
+        self.expand_gap(index) || self.expand_reviewed(index)
+    }
+
+    fn expand_gap(&mut self, index: usize) -> bool {
         let Some(PresentedRow::Gap { start, lines }) = self.rows.get(index).cloned() else {
             return false;
         };
@@ -490,22 +570,29 @@ impl DiffPresentation {
         let mut changed = false;
         let mut index = 0;
         while index < self.rows.len() {
-            changed |= self.expand(index);
+            changed |= self.expand_gap(index);
             index += 1;
         }
         changed
     }
 
     pub(super) fn contract_all(&mut self) -> bool {
-        if !self
-            .rows
-            .iter()
-            .any(|row| matches!(row, PresentedRow::Expanded { .. }))
-        {
+        if !self.rows.iter().any(|row| {
+            matches!(
+                row,
+                PresentedRow::Expanded { .. } | PresentedRow::ReviewedLine { .. }
+            )
+        }) {
             return false;
         }
         let mut rows = Vec::with_capacity(self.rows.len());
         for row in std::mem::take(&mut self.rows) {
+            if let PresentedRow::ReviewedLine { hunk, row, .. } = row {
+                if row == 0 {
+                    rows.push(PresentedRow::ReviewedHunk { hunk });
+                }
+                continue;
+            }
             let PresentedRow::Expanded { line, tokens } = row else {
                 rows.push(row);
                 continue;
@@ -530,6 +617,7 @@ impl DiffPresentation {
         let source_line = self
             .source
             .iter()
+            .chain(self.hunks.reviewed.iter().flat_map(|hunk| &hunk.rows))
             .filter_map(|row| match row {
                 DiffRow::Context { new_line, .. } | DiffRow::Add { new_line, .. } => {
                     Some(*new_line)
@@ -546,7 +634,9 @@ impl DiffPresentation {
                 PresentedRow::Gap { start, lines } => Some(start.saturating_add(
                     u32::try_from(lines.len().saturating_sub(1)).unwrap_or(u32::MAX),
                 )),
-                PresentedRow::Diff { .. } => None,
+                PresentedRow::Diff { .. }
+                | PresentedRow::ReviewedHunk { .. }
+                | PresentedRow::ReviewedLine { .. } => None,
             })
             .max()
             .unwrap_or(source_line)
@@ -561,7 +651,10 @@ impl DiffPresentation {
     ) -> Result<DiffExcerpt, ExcerptError> {
         let mut sources = self.rows[selection].iter().filter_map(|row| match row {
             PresentedRow::Diff { source, .. } => Some(*source),
-            PresentedRow::Gap { .. } | PresentedRow::Expanded { .. } => None,
+            PresentedRow::Gap { .. }
+            | PresentedRow::Expanded { .. }
+            | PresentedRow::ReviewedHunk { .. }
+            | PresentedRow::ReviewedLine { .. } => None,
         });
         let start = sources.next().ok_or(ExcerptError::NoContent)?;
         let end = sources.next_back().unwrap_or(start);
@@ -579,13 +672,15 @@ impl DiffPresentation {
         }
         rows.iter()
             .filter_map(|row| match row {
-                PresentedRow::Diff { tokens, .. } | PresentedRow::Expanded { tokens, .. } => Some(
+                PresentedRow::Diff { tokens, .. }
+                | PresentedRow::Expanded { tokens, .. }
+                | PresentedRow::ReviewedLine { tokens, .. } => Some(
                     tokens
                         .iter()
                         .map(|token| token.text.as_str())
                         .collect::<String>(),
                 ),
-                PresentedRow::Gap { .. } => None,
+                PresentedRow::Gap { .. } | PresentedRow::ReviewedHunk { .. } => None,
             })
             .collect::<Vec<_>>()
             .join("\n")
@@ -616,7 +711,12 @@ impl PresentedRow {
         };
         let (HighlightedFile::AfterChange(colors) | HighlightedFile::BeforeChange(colors)) = file;
         match self {
-            Self::Expanded { line, tokens } => {
+            Self::Expanded { line, tokens }
+            | Self::ReviewedLine {
+                new_line: Some(line),
+                tokens,
+                ..
+            } => {
                 if let Some(color) = colors.get(line.saturating_sub(1) as usize) {
                     tokens.clone_from(color);
                 }
@@ -629,6 +729,7 @@ impl PresentedRow {
                     tokens.clone_from(color);
                 }
             }
+            Self::ReviewedHunk { .. } | Self::ReviewedLine { .. } => {}
             Self::Diff { .. } => unreachable!("diff rows were handled above"),
         }
     }

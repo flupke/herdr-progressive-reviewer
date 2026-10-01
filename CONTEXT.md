@@ -44,3 +44,16 @@ _Avoid_: saving a draft
 One ongoing conversation with a coding agent, which may address several review
 threads.
 _Avoid_: review thread, review session
+
+**Reviewed version**:
+A file as the reviewer has read it: the base with the hunks they accepted. A
+whole-file mark makes it the file at that review checkpoint.
+_Avoid_: baseline (a baseline is the commit a mark was made at)
+
+**Open hunk**:
+A change from the reviewed version to the current file, still waiting for
+review. It is "changed since review" when it rewrites reviewed lines.
+
+**Reviewed hunk**:
+A change from the base that the reviewed version holds and the current file
+still matches. The diff folds it into one row.

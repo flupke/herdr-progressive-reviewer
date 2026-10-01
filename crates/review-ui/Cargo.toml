@@ -39,6 +39,7 @@ unicode-width.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true
+review-hunks = { path = "../review-hunks" }
 review-test-support = { path = "../review-test-support" }
 
 review-explore = { path = "../review-explore" }

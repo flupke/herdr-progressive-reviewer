@@ -108,6 +108,7 @@ impl SourceViewer {
             rows: rows.clone(),
             old_content: context.old_content.clone(),
             new_content: context.new_content.clone(),
+            hunks: review_hunks::FileHunks::default(),
         });
         self.comparison_content_document(file, loaded)
     }
@@ -378,6 +379,7 @@ impl SourceViewer {
                 rows: Vec::new(),
                 old_content: None,
                 new_content: Some(event.content),
+                hunks: review_hunks::FileHunks::default(),
             }));
             self.comments.park_editor_outside(&path);
         }

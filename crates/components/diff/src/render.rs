@@ -18,6 +18,7 @@ use unicode_width::UnicodeWidthStr;
 use ui_theme::Palette;
 
 use crate::comment_layout::CommentLayout;
+use crate::presentation::HunkBadge;
 use crate::{DiffPresentation, LoadedDocument, PresentedRow, Token};
 use diff_position::{Layout, Position};
 
@@ -68,6 +69,7 @@ impl<'a> DiffRenderer<'a> {
                     number_width + 3,
                     Some(frame),
                     None,
+                    None,
                 )
                 .into_iter()
                 .map(|row| crate::comment_layout::CommentRow {
@@ -116,6 +118,15 @@ impl<'a> DiffRenderer<'a> {
     }
 }
 
+/// How the code of one row is laid out.
+struct RowCode {
+    number_width: usize,
+    cursor: Option<usize>,
+    source_line: Option<u32>,
+    show_markers: bool,
+    width: u16,
+}
+
 #[derive(Clone, Copy)]
 struct CodeRenderContext<'a> {
     tokens: &'a [Token],
@@ -152,6 +163,7 @@ pub(super) struct DiffPointerViewport {
 }
 
 struct PointerRow {
+    badge_columns: Option<Range<usize>>,
     comment: Option<crate::comments::CommentTarget>,
     editor: bool,
     source_row: usize,
@@ -160,6 +172,8 @@ struct PointerRow {
 }
 
 struct WrappedDiffRow {
+    /// The pane columns of this visual row's hunk review control.
+    badge_columns: Option<Range<usize>>,
     reply: Option<review_threads::MessageId>,
     comment: Option<crate::comments::CommentTarget>,
     editor: bool,
@@ -415,6 +429,15 @@ impl DiffPointerViewport {
             .is_some_and(|row| row.editor || row.comment.is_some())
     }
 
+    /// The document row whose hunk review control is at this screen cell.
+    pub(super) fn badge_at(&self, screen_row: usize, pane_column: usize) -> Option<usize> {
+        let row = self.rows.get(screen_row)?;
+        row.badge_columns
+            .as_ref()
+            .filter(|columns| columns.contains(&pane_column))
+            .map(|_| row.source_row)
+    }
+
     pub(super) fn position(
         &self,
         screen_row: usize,
@@ -472,6 +495,7 @@ impl DiffRenderer<'_> {
             rows: visible_rows
                 .iter()
                 .map(|row| PointerRow {
+                    badge_columns: row.badge_columns.clone(),
                     comment: row.comment.clone(),
                     editor: row.editor,
                     source_row: row.source_row,
@@ -529,15 +553,16 @@ impl DiffRenderer<'_> {
         );
         let controls = diff_control_title(file);
         let show_controls = diff_controls_are_visible(area.width, file);
-        let title = if show_controls {
-            shorten(
-                &title,
-                usize::from(area.width).saturating_sub(
-                    controls.width() + 5 + if focused { " (focus)".len() } else { 0 },
-                ),
-            )
-        } else {
-            title
+        let title_width = usize::from(area.width).saturating_sub(
+            if show_controls { controls.width() } else { 0 }
+                + 5
+                + if focused { " (focus)".len() } else { 0 },
+        );
+        // The hunk count yields to the path when the title runs short.
+        let title = match file.and_then(|file| self.hunk_progress(file)) {
+            Some(progress) if title.width() + progress.width() <= title_width => title + &progress,
+            _ if show_controls => shorten(&title, title_width),
+            _ => title,
         };
         let mut block = pane_block(self.palette, &title, focused);
         if show_controls {
@@ -549,6 +574,19 @@ impl DiffRenderer<'_> {
         let inner = block.inner(area);
         block.render(area, buffer);
         inner
+    }
+
+    /// The reviewed hunk count of a file that still needs review.
+    fn hunk_progress(&self, file: &LoadedDocument) -> Option<String> {
+        let count = file
+            .document
+            .diff
+            .hunk_count()
+            .filter(|_| self.reviewable && !file.document.diff.is_file_view())?;
+        Some(format!(
+            " · {}/{} hunks reviewed",
+            count.reviewed, count.total
+        ))
     }
 
     fn render_empty_review(&self, file: &LoadedDocument, area: Rect, buffer: &mut Buffer) -> bool {
@@ -620,32 +658,23 @@ impl DiffRenderer<'_> {
                     .diff
                     .source_position(index)
                     .map(|(line, _)| line);
-                let context = |tokens| CodeRenderContext {
-                    tokens,
-                    number_width: line_number_width,
-                    cursor: (focused && index == position.cursor()).then_some(position.column()),
-                    source_line,
-                    source_location: file.document.source_location.as_ref(),
-                };
-                let (line, mut style) = match presented {
-                    PresentedRow::Diff { source, tokens } => {
-                        let row = file.document.diff.source_row(*source);
-                        (
-                            self.diff_line(row, context(tokens), show_markers),
-                            self.row_style(row, show_markers),
-                        )
-                    }
-                    PresentedRow::Gap { lines, .. } => (
-                        Self::gap_line(lines.len(), line_number_width, usize::from(width)),
-                        Style::default()
-                            .fg(self.palette.text)
-                            .bg(self.palette.selection),
-                    ),
-                    PresentedRow::Expanded { line, tokens } => (
-                        self.code_line(Some(*line), None, context(tokens)),
-                        Style::default().fg(self.palette.text),
-                    ),
-                };
+                let (line, mut style) = self.presented_line(
+                    file,
+                    presented,
+                    &RowCode {
+                        number_width: line_number_width,
+                        cursor: (focused && index == position.cursor())
+                            .then_some(position.column()),
+                        source_line,
+                        show_markers,
+                        width,
+                    },
+                );
+                let badge = self
+                    .reviewable
+                    .then(|| file.document.diff.hunk_badge(index))
+                    .flatten()
+                    .map(|badge| self.badge_line(badge));
                 if selection
                     .as_ref()
                     .is_some_and(|selection| selection.contains(&index))
@@ -668,6 +697,7 @@ impl DiffRenderer<'_> {
                     line_number_width + 3,
                     enclosing_frame,
                     is_current_row.then_some(self.palette.cursor),
+                    badge.as_ref(),
                 ));
                 wrapped
             })
@@ -675,6 +705,61 @@ impl DiffRenderer<'_> {
         let rows = Self::insert_comment_rows(rows, comment_layout);
         DiffViewport {
             rows: evidence.outline(rows),
+        }
+    }
+
+    /// One document row as a styled line, before selection and wrapping.
+    fn presented_line(
+        &self,
+        file: &LoadedDocument,
+        presented: &PresentedRow,
+        code: &RowCode,
+    ) -> (Line<'static>, Style) {
+        let (line_number_width, show_markers, width) =
+            (code.number_width, code.show_markers, code.width);
+        let context = |tokens| CodeRenderContext {
+            tokens,
+            number_width: code.number_width,
+            cursor: code.cursor,
+            source_line: code.source_line,
+            source_location: file.document.source_location.as_ref(),
+        };
+        match presented {
+            PresentedRow::Diff { source, tokens } => {
+                let row = file.document.diff.source_row(*source);
+                (
+                    self.diff_line(row, context(tokens), show_markers),
+                    self.row_style(row, show_markers),
+                )
+            }
+            PresentedRow::Gap { lines, .. } => (
+                Self::gap_line(lines.len(), line_number_width, usize::from(width)),
+                Style::default()
+                    .fg(self.palette.text)
+                    .bg(self.palette.selection),
+            ),
+            PresentedRow::Expanded { line, tokens } => (
+                self.code_line(Some(*line), None, context(tokens)),
+                Style::default().fg(self.palette.text),
+            ),
+            PresentedRow::ReviewedHunk { hunk } => (
+                Self::reviewed_line(
+                    file.document.diff.reviewed_changes(*hunk),
+                    line_number_width,
+                ),
+                Style::default()
+                    .fg(self.palette.dim)
+                    .bg(self.palette.selection),
+            ),
+            PresentedRow::ReviewedLine {
+                hunk, row, tokens, ..
+            } => {
+                let row = file.document.diff.reviewed_row(*hunk, *row);
+                (
+                    self.diff_line(row, context(tokens), show_markers),
+                    self.row_style(row, show_markers),
+                )
+            }
         }
     }
 
@@ -822,6 +907,33 @@ impl DiffRenderer<'_> {
             ));
         }
         spans
+    }
+
+    fn reviewed_line((added, removed): (usize, usize), number_width: usize) -> Line<'static> {
+        Line::raw(format!(
+            "  {:>number_width$} ✓ reviewed hunk: +{added} -{removed}",
+            "…"
+        ))
+    }
+
+    /// The review control in a hunk's top-right corner.
+    fn badge_line(&self, badge: HunkBadge) -> Line<'static> {
+        match badge {
+            HunkBadge::Open {
+                since_review: false,
+            } => Line::from(Span::styled(" ☐ ", Style::default().fg(self.palette.focus))),
+            HunkBadge::Open { since_review: true } => Line::from(vec![
+                Span::styled(
+                    " changed since review",
+                    Style::default().fg(self.palette.warning),
+                ),
+                Span::styled(" ☐ ", Style::default().fg(self.palette.focus)),
+            ]),
+            HunkBadge::Reviewed => Line::from(Span::styled(
+                " ☑ ",
+                Style::default().fg(self.palette.insertion),
+            )),
+        }
     }
 
     fn gap_line(count: usize, number_width: usize, width: usize) -> Line<'static> {
@@ -1123,21 +1235,42 @@ impl WrappedDiffRow {
         continuation_indent: usize,
         frame: Option<DiffFrame>,
         cursor_background: Option<Color>,
+        badge: Option<&Line<'static>>,
     ) -> Vec<Self> {
         let content_width = if frame.is_some() {
             width.saturating_sub(1)
         } else {
             width
         };
-        wrap_line(line, content_width, continuation_indent)
+        let badge_width = badge.map_or(0, |badge| u16::try_from(badge.width()).unwrap_or(0));
+        let code_width = content_width.saturating_sub(badge_width);
+        wrap_line(line, code_width, continuation_indent)
             .into_iter()
-            .map(|(mut line, source_display_offset)| {
+            .enumerate()
+            .map(|(visual_row, (mut line, source_display_offset))| {
+                let badge = badge.filter(|_| visual_row == 0);
+                if let Some(badge) = badge {
+                    // The control continues the row's background to the edge.
+                    let background = Style {
+                        bg: line.spans.last().and_then(|span| span.style.bg),
+                        ..Style::default()
+                    };
+                    let padding = usize::from(code_width).saturating_sub(line.width());
+                    line.spans
+                        .push(Span::styled(" ".repeat(padding), background));
+                    line.spans.extend(badge.spans.iter().map(|span| {
+                        Span::styled(span.content.clone(), background.patch(span.style))
+                    }));
+                }
                 if let Some(background) = cursor_background {
                     fill_line_background(&mut line, width, background);
                 }
                 let border_cells =
                     frame.map_or_else(Vec::new, |frame| frame.enclose_line(&mut line));
-                Self::source(line, border_cells, index, source_display_offset)
+                let mut row = Self::source(line, border_cells, index, source_display_offset);
+                row.badge_columns =
+                    badge.map(|_| usize::from(code_width)..usize::from(content_width));
+                row
             })
             .collect()
     }
@@ -1149,6 +1282,7 @@ impl WrappedDiffRow {
         source_display_offset: usize,
     ) -> Self {
         Self {
+            badge_columns: None,
             line,
             frame_border_cells,
             source_row,
@@ -1163,6 +1297,7 @@ impl WrappedDiffRow {
 
     fn from_comment(row: crate::comment_layout::CommentRow) -> Self {
         Self {
+            badge_columns: None,
             line: row.rendered.line,
             comment: row.target,
             reply: row.reply,

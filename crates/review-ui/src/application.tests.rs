@@ -491,6 +491,7 @@ fn current_diff_row_stays_visible_across_the_pane_when_files_are_focused() {
         }],
         old_content: None,
         new_content: None,
+        hunks: review_hunks::FileHunks::default(),
     });
 
     let mut terminal = Terminal::new(TestBackend::new(80, 12)).unwrap();

@@ -26,7 +26,7 @@ mod stored_fixtures;
 mod thread_sources;
 mod threads;
 
-pub use checkpoint::{LoadResult, ReviewRecord};
+pub use checkpoint::{LoadResult, PartialReview, ReviewRecord};
 
 /// A result from review storage.
 pub type Result<T> = std::result::Result<T, Error>;
@@ -159,7 +159,16 @@ impl ReviewStore {
     }
 
     fn read_json<T: DeserializeOwned>(target: &Path, operation: &'static str) -> Result<Option<T>> {
-        let Some(bytes) = Self::read_bytes(target, operation, Some(MAX_STATE_FILE_BYTES))? else {
+        Self::read_json_within(target, operation, Some(MAX_STATE_FILE_BYTES))
+    }
+
+    /// Read JSON state no larger than `maximum_bytes`, when given.
+    fn read_json_within<T: DeserializeOwned>(
+        target: &Path,
+        operation: &'static str,
+        maximum_bytes: Option<u64>,
+    ) -> Result<Option<T>> {
+        let Some(bytes) = Self::read_bytes(target, operation, maximum_bytes)? else {
             return Ok(None);
         };
         if let Ok(record) = serde_json::from_slice(&bytes) {

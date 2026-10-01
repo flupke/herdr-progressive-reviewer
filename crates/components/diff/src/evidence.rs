@@ -80,7 +80,9 @@ impl RequiredEvidenceRows {
                     DiffRow::Add { .. } | DiffRow::Delete { .. } => required[index],
                 },
                 PresentedRow::Expanded { line, .. } => Self::contains(&ranges, side, *line),
-                PresentedRow::Gap { .. } => false,
+                PresentedRow::Gap { .. }
+                | PresentedRow::ReviewedHunk { .. }
+                | PresentedRow::ReviewedLine { .. } => false,
             })
             .collect();
         Some(Self { visible })

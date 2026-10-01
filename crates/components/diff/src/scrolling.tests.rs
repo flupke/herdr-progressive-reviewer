@@ -55,6 +55,7 @@ impl Scrolling {
             rows,
             old_content: None,
             new_content: None,
+            hunks: review_hunks::FileHunks::default(),
         });
     }
 

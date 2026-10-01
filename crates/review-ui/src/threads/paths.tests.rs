@@ -26,6 +26,7 @@ fn a_copy_does_not_take_the_sources_thread_badge_conversation_or_navigation() {
             }],
             old_content: None,
             new_content: Some(b"original\n".to_vec()),
+            hunks: review_hunks::FileHunks::default(),
         });
         let text = ui.text();
         assert_eq!(text.contains("Explain this branch"), owns_thread, "{text}");

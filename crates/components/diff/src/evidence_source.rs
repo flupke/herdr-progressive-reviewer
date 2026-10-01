@@ -89,6 +89,7 @@ impl SourceViewer {
             rows: Vec::new(),
             old_content: Some(content.as_bytes().to_vec()),
             new_content: None,
+            hunks: review_hunks::FileHunks::default(),
         });
         let mut document = LoadedDocument::new(self.selected_path.clone().expect("evidence path"));
         document.display_path.clone_from(&source.display_path);

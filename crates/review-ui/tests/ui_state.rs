@@ -140,6 +140,7 @@ fn wrapped_diff_application(rows: Vec<DiffRow>, width: u16, height: u16) -> Revi
         rows,
         old_content: None,
         new_content: None,
+        hunks: review_hunks::FileHunks::default(),
     });
     application.update(UserInput::Resize { width, height });
     application.update(UserInput::Key(Key::Tab));
@@ -377,6 +378,7 @@ fn stale_diffs_are_ignored_and_selected_text_is_not_sent_on_enter() {
         }],
         old_content: None,
         new_content: None,
+        hunks: review_hunks::FileHunks::default(),
     });
     assert!(!screen(&app, 80, 12).join("\n").contains("stale result"));
     app.publish(ui_events::DiffContentLoaded {
@@ -387,6 +389,7 @@ fn stale_diffs_are_ignored_and_selected_text_is_not_sent_on_enter() {
         }],
         old_content: None,
         new_content: None,
+        hunks: review_hunks::FileHunks::default(),
     });
     assert!(
         !screen(&app, 80, 12)
@@ -399,6 +402,7 @@ fn stale_diffs_are_ignored_and_selected_text_is_not_sent_on_enter() {
         rows: rows(),
         old_content: None,
         new_content: None,
+        hunks: review_hunks::FileHunks::default(),
     });
 
     app.update(UserInput::Key(Key::Tab));
@@ -540,6 +544,7 @@ fn reviewed_file_hides_its_diff() {
         rows: rows(),
         old_content: None,
         new_content: None,
+        hunks: review_hunks::FileHunks::default(),
     });
 
     let screen = screen(&app, 80, 12);
@@ -681,6 +686,7 @@ fn added_file_renders_as_plain_file_content() {
         ],
         old_content: None,
         new_content: Some(b"fn main() {}\n".to_vec()),
+        hunks: review_hunks::FileHunks::default(),
     });
 
     let screen = screen(&app, 80, 12).join("\n");
@@ -722,6 +728,7 @@ fn deleted_file_renders_as_plain_file_content() {
         ],
         old_content: Some(b"fn main() {}\n".to_vec()),
         new_content: None,
+        hunks: review_hunks::FileHunks::default(),
     });
 
     let screen = screen(&app, 80, 12).join("\n");
@@ -787,6 +794,7 @@ fn diff_uses_bars_line_numbers_and_expandable_gaps() {
             rows: rows.clone(),
             old_content: Some(b"first\nold\nthird\nfourth\nfifth\nsixth\n".to_vec()),
             new_content: Some(b"first\nnew\nthird\nfourth\nfifth\nsixth\n".to_vec()),
+            hunks: review_hunks::FileHunks::default(),
         });
     };
     load(&mut app);
@@ -864,6 +872,7 @@ fn diff_controls_expand_and_contract_all_gaps() {
         ],
         old_content: Some(b"first\nmiddle\nlast\n".to_vec()),
         new_content: Some(b"first\nmiddle\nlast\n".to_vec()),
+        hunks: review_hunks::FileHunks::default(),
     });
     app.update(UserInput::Resize {
         width: 100,
@@ -923,6 +932,7 @@ fn marking_a_changed_file_reviewed_replaces_its_baseline() {
         rows: rows(),
         old_content: None,
         new_content: None,
+        hunks: review_hunks::FileHunks::default(),
     });
 
     assert_eq!(
@@ -966,6 +976,7 @@ fn marking_a_changed_file_reviewed_replaces_its_baseline() {
                 status: ReviewStatus::Reviewed,
                 warning: None,
                 current_diff_statistics: DiffStatistics::default(),
+                hunks: None,
             }),
         }),
         Vec::<Action>::new()
@@ -1214,6 +1225,7 @@ fn files_that_need_review_expand_their_parent_directories() {
             status: ReviewStatus::Unreviewed,
             warning: None,
             current_diff_statistics: DiffStatistics::default(),
+            hunks: None,
         }),
     });
     let rendered = application_screen(&app, 80, 12).join("\n");
@@ -1286,6 +1298,7 @@ fn dragging_diff_lines_opens_an_inline_comment_on_release() {
         rows: rows(),
         old_content: Some(b"fn run() {\n    old();\n".to_vec()),
         new_content: Some(b"fn run() {\n    new();\n".to_vec()),
+        hunks: review_hunks::FileHunks::default(),
     });
     app.update(UserInput::Resize {
         width: 80,
@@ -1411,6 +1424,7 @@ fn mouse_wheel_scrolls_the_diff_viewport_regardless_of_focus() {
             .collect(),
         old_content: None,
         new_content: None,
+        hunks: review_hunks::FileHunks::default(),
     });
     app.update(UserInput::Resize {
         width: 80,
@@ -1507,6 +1521,7 @@ fn test_backend_renders_wide_narrow_and_minimum_layouts() {
         }],
         old_content: None,
         new_content: None,
+        hunks: review_hunks::FileHunks::default(),
     });
     let mut large_diff = rows();
     large_diff.extend((3..9_995).map(|line| DiffRow::Context {
@@ -1520,6 +1535,7 @@ fn test_backend_renders_wide_narrow_and_minimum_layouts() {
         rows: large_diff,
         old_content: None,
         new_content: None,
+        hunks: review_hunks::FileHunks::default(),
     });
 
     let book = unread_threads(

@@ -8,7 +8,11 @@ use serde::{Deserialize, Serialize};
 
 use super::{Error, Result, ReviewStore, StateKey};
 
-const SCHEMA_VERSION: u8 = 1;
+/// A mark that covers the whole file at its baseline commit.
+const FILE_SCHEMA_VERSION: u8 = 1;
+/// A mark that covers some hunks. Older readers ignore it, so they show the
+/// file as unreviewed rather than as reviewed.
+const PARTIAL_SCHEMA_VERSION: u8 = 2;
 
 /// One valid stored review mark.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -19,6 +23,18 @@ pub struct ReviewRecord {
     pub baseline_commit_id: String,
     /// The diagnostic write time.
     pub reviewed_at: String,
+    /// The reviewed version, when the mark covers only some hunks.
+    pub partial: Option<PartialReview>,
+}
+
+/// The reviewed version of a file whose mark covers only some of its hunks,
+/// and the base it was built on.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PartialReview {
+    /// The file at the base of the reviewed comparison.
+    pub base: Vec<u8>,
+    /// The base with the reviewed hunks applied.
+    pub reviewed: Vec<u8>,
 }
 
 /// The result of loading one path record.
@@ -41,6 +57,14 @@ struct StoredRecord {
     path: String,
     baseline_commit_id: String,
     reviewed_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    partial: Option<StoredPartialReview>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct StoredPartialReview {
+    base: String,
+    reviewed: String,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
@@ -49,6 +73,9 @@ enum PathEncoding {
     Utf8,
     Base64,
 }
+
+/// A partial mark that lost the versions it needs.
+struct BrokenRecord;
 
 struct ReviewUnitKey;
 
@@ -64,6 +91,27 @@ impl ReviewStore {
         path: &[u8],
         baseline_commit_id: &str,
     ) -> Result<ReviewRecord> {
+        self.store_mark(review_unit, path, baseline_commit_id, None)
+    }
+
+    /// Store a mark that covers only some hunks of one path.
+    pub fn mark_partial(
+        &self,
+        review_unit: &ReviewUnit,
+        path: &[u8],
+        baseline_commit_id: &str,
+        partial: PartialReview,
+    ) -> Result<ReviewRecord> {
+        self.store_mark(review_unit, path, baseline_commit_id, Some(partial))
+    }
+
+    fn store_mark(
+        &self,
+        review_unit: &ReviewUnit,
+        path: &[u8],
+        baseline_commit_id: &str,
+        partial: Option<PartialReview>,
+    ) -> Result<ReviewRecord> {
         ReviewUnitKey::validate(review_unit)?;
         CommitKey::validate(baseline_commit_id)?;
         StatePath::validate(path)?;
@@ -71,6 +119,7 @@ impl ReviewStore {
             path: path.to_vec(),
             baseline_commit_id: baseline_commit_id.to_owned(),
             reviewed_at: Self::timestamp("review timestamp")?,
+            partial,
         };
         self.write_record(review_unit, &record)?;
         Ok(record)
@@ -84,10 +133,11 @@ impl ReviewStore {
         let Some(stored) = Self::read_stored(&target)? else {
             return Ok(LoadResult::Unreviewed);
         };
-        if stored.schema_version != SCHEMA_VERSION {
+        if !stored.has_known_schema() {
             return Ok(LoadResult::UnknownSchema);
         }
-        let Some(decoded_path) = stored.decode_path() else {
+        let (Some(decoded_path), Ok(partial)) = (stored.decode_path(), stored.decode_partial())
+        else {
             return Ok(LoadResult::Unreviewed);
         };
         let valid = &stored.review_unit == review_unit
@@ -100,6 +150,7 @@ impl ReviewStore {
             path: decoded_path,
             baseline_commit_id: stored.baseline_commit_id,
             reviewed_at: stored.reviewed_at,
+            partial,
         }))
     }
 
@@ -140,25 +191,35 @@ impl ReviewStore {
         self.create_dir(&directory)?;
         let target = directory.join(format!("{}.json", StateKey::hash(&record.path).0));
         if let Some(existing) = Self::read_stored(&target)?
-            && existing.schema_version == SCHEMA_VERSION
+            && existing.has_known_schema()
             && existing.decode_path().as_deref() != Some(record.path.as_slice())
         {
             return Err(Error::StateCollision { path: target });
         }
         let (path_encoding, path) = PathEncoding::encode(&record.path);
         let stored = StoredRecord {
-            schema_version: SCHEMA_VERSION,
+            schema_version: if record.partial.is_some() {
+                PARTIAL_SCHEMA_VERSION
+            } else {
+                FILE_SCHEMA_VERSION
+            },
             review_unit: review_unit.clone(),
             path_encoding,
             path,
             baseline_commit_id: record.baseline_commit_id.clone(),
             reviewed_at: record.reviewed_at.clone(),
+            partial: record.partial.as_ref().map(|partial| StoredPartialReview {
+                base: BASE64.encode(&partial.base),
+                reviewed: BASE64.encode(&partial.reviewed),
+            }),
         };
         self.atomic_json(&target, &stored, "write review record")
     }
 
+    /// Read one record whatever its size: a partial mark holds two versions
+    /// of the file, like threads hold their source context.
     fn read_stored(target: &Path) -> Result<Option<StoredRecord>> {
-        Self::read_json(target, "read review record")
+        Self::read_json_within(target, "read review record", None)
     }
 
     pub(super) fn record_path(&self, review_unit: &ReviewUnit, path: &[u8]) -> PathBuf {
@@ -175,6 +236,27 @@ impl ReviewStore {
 }
 
 impl StoredRecord {
+    fn has_known_schema(&self) -> bool {
+        match self.schema_version {
+            FILE_SCHEMA_VERSION => self.partial.is_none(),
+            PARTIAL_SCHEMA_VERSION => true,
+            _ => false,
+        }
+    }
+
+    /// The stored partial review, if the mark covers only some hunks.
+    fn decode_partial(&self) -> std::result::Result<Option<PartialReview>, BrokenRecord> {
+        if self.schema_version != PARTIAL_SCHEMA_VERSION {
+            return Ok(None);
+        }
+        let partial = self.partial.as_ref().ok_or(BrokenRecord)?;
+        let decode = |text: &str| BASE64.decode(text).map_err(|_| BrokenRecord);
+        Ok(Some(PartialReview {
+            base: decode(&partial.base)?,
+            reviewed: decode(&partial.reviewed)?,
+        }))
+    }
+
     fn decode_path(&self) -> Option<Vec<u8>> {
         match self.path_encoding {
             PathEncoding::Utf8 => Some(self.path.as_bytes().to_vec()),

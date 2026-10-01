@@ -76,6 +76,7 @@ impl CommentFixture {
                 .concat(),
                 old_content: Some(Vec::new()),
                 new_content: Some(new_content.to_vec()),
+                hunks: review_hunks::FileHunks::default(),
             })
             .unwrap();
         registry
@@ -941,6 +942,7 @@ fn deleted_anchor_and_deleted_file_retain_accessible_threads() {
             rows: vec![],
             old_content: Some(Vec::new()),
             new_content: Some(Vec::new()),
+            hunks: review_hunks::FileHunks::default(),
         })
         .unwrap();
     fixture.key(Key::First);
@@ -991,6 +993,7 @@ fn comments_follow_unchanged_code_when_lines_are_inserted_before_it() {
             ],
             old_content: Some(Vec::new()),
             new_content: Some(b"before\nchanged\n".to_vec()),
+            hunks: review_hunks::FileHunks::default(),
         })
         .unwrap();
     let lines = rendered_diff_lines(&fixture.registry, fixture.target);

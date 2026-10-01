@@ -15,9 +15,9 @@ pub fn unified_diff(path: &str, before: &[u8], after: &[u8]) -> Vec<u8> {
         before: Lines::new(before),
         after: Lines::new(after),
     };
-    for group in changes.chunk_by(|previous, next| {
-        next.before.start - previous.before.end <= 2 * CONTEXT
-    }) {
+    for group in
+        changes.chunk_by(|previous, next| next.before.start - previous.before.end <= 2 * CONTEXT)
+    {
         diff.hunk(group);
     }
     diff.text
@@ -79,12 +79,17 @@ impl UnifiedDiff<'_> {
     }
 
     fn lines(&mut self, prefix: u8, from_before: bool, range: std::ops::Range<u32>) {
-        let side = if from_before { &self.before } else { &self.after };
+        let side = if from_before {
+            &self.before
+        } else {
+            &self.after
+        };
         for line in side.get(range).unwrap_or_default() {
             self.text.push(prefix);
             self.text.extend_from_slice(line);
             if !line.ends_with(b"\n") {
-                self.text.extend_from_slice(b"\n\\ No newline at end of file\n");
+                self.text
+                    .extend_from_slice(b"\n\\ No newline at end of file\n");
             }
         }
     }
@@ -108,7 +113,11 @@ fn hunk_new_start(line: &[u8]) -> Option<u32> {
         Some((start, count)) => (start.parse::<u32>().ok()?, count.parse::<u32>().ok()?),
         None => (range.parse::<u32>().ok()?, 1),
     };
-    Some(if count == 0 { start } else { start.checked_sub(1)? })
+    Some(if count == 0 {
+        start
+    } else {
+        start.checked_sub(1)?
+    })
 }
 
 struct ReversePatch<'a> {

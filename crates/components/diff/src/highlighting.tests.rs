@@ -31,6 +31,7 @@ impl HighlightFixture {
                 ],
                 old_content: Some(b"// before\nfn old() {}\n// after\n".to_vec()),
                 new_content: Some(format!("// before\nfn {name}() {{}}\n// after\n").into_bytes()),
+                hunks: review_hunks::FileHunks::default(),
             }),
         }
     }

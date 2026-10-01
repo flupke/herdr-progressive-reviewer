@@ -243,6 +243,7 @@ impl Scenario {
             }],
             old_content: None,
             new_content: None,
+            hunks: review_hunks::FileHunks::default(),
         });
         for _ in 0..5_000 {
             self.fixture.background.send(stale.clone()).unwrap();

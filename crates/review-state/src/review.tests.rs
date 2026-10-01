@@ -151,6 +151,7 @@ fn statuses_compare_all_paths_from_one_baseline(repository_type: RepoType) {
                 lines_added: 1,
                 lines_removed: 0,
             },
+            hunks: None,
         })
     );
     assert_eq!(
@@ -159,6 +160,7 @@ fn statuses_compare_all_paths_from_one_baseline(repository_type: RepoType) {
             status: ReviewStatus::Reviewed,
             warning: None,
             current_diff_statistics: DiffStatistics::default(),
+            hunks: None,
         })
     );
     assert_eq!(changed.files[0].statistics.lines_added, 2);

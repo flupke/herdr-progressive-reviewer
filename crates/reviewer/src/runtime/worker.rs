@@ -7,9 +7,10 @@ use std::sync::mpsc::{Receiver, Sender};
 use component_core::ApplicationEventSender;
 use review_explore::ExclusionPolicy;
 use review_explore_session::{self as explore_session, ExploreSession};
-use review_repository::repository::{ChangeId, PollResult, Repository, Snapshot};
+use review_hunks::HunkMark;
+use review_repository::repository::{ChangeId, ChangedFile, PollResult, Repository, Snapshot};
 use review_source::ReviewCheckpoint;
-use review_state::{MarkResult, ReviewTracker};
+use review_state::{MarkResult, ReviewState, ReviewTracker};
 use review_store::ReviewStore;
 use review_ui::RepositoryAction;
 use ui_events::{
@@ -126,6 +127,14 @@ impl Worker {
                 self.cancel_auto_review();
                 self.set_reviewed(messages, path, reviewed);
             }
+            RepositoryAction::SetHunkReviewed {
+                review_checkpoint,
+                path,
+                mark,
+            } => {
+                self.cancel_auto_review();
+                self.set_hunk_reviewed(messages, &review_checkpoint, path, &mark);
+            }
             RepositoryAction::AutoReview(checkpoint) => {
                 self.start_auto_review(&checkpoint, messages);
             }
@@ -190,24 +199,51 @@ impl Worker {
         true
     }
 
+    fn set_hunk_reviewed(
+        &self,
+        messages: &ApplicationEventSender,
+        review_checkpoint: &ReviewCheckpoint,
+        path: String,
+        mark: &HunkMark,
+    ) {
+        // Always answer: the diff waits for this result before the next mark.
+        let result = (|| {
+            let snapshot = self
+                .snapshot
+                .as_ref()
+                .filter(|snapshot| {
+                    review_checkpoint.matches(
+                        snapshot.identity.review_unit(),
+                        snapshot.identity.snapshot_id(),
+                    )
+                })
+                .ok_or_else(|| eyre::eyre!("the change moved; wait for the next refresh"))?;
+            let file = changed_file(snapshot, &path)?;
+            let marked = self.tracker.mark_hunk(snapshot, file, mark)?;
+            self.marked_state(snapshot, file, marked)
+        })();
+        if let Err(error) = &result {
+            let _ = messages.send(ui_events::ToastRequested {
+                text: format!("Could not change the hunk review mark: {error}"),
+                kind: toasts::ToastKind::Error,
+            });
+        }
+        let _ = messages.send(ReviewStateSaved {
+            review_unit: review_checkpoint.review_unit.clone(),
+            path,
+            result: result.map_err(|_| ()),
+        });
+    }
+
     fn set_reviewed(&self, messages: &ApplicationEventSender, path: String, reviewed: bool) {
         let Some(snapshot) = self.snapshot.as_ref() else {
             return;
         };
-        let review_unit = snapshot.identity.review_unit().clone();
-        let result = snapshot
-            .files
-            .iter()
-            .find(|file| file.review_path().display() == path)
-            .ok_or_else(|| eyre::eyre!("the selected file is no longer in the current change"))
+        let result = changed_file(snapshot, &path)
             .and_then(|file| {
                 if reviewed {
-                    match self.tracker.mark(snapshot, file)? {
-                        MarkResult::Marked => self.tracker.status(snapshot, file),
-                        MarkResult::ChangeChanged => {
-                            eyre::bail!("the change moved; wait for the next refresh");
-                        }
-                    }
+                    let marked = self.tracker.mark(snapshot, file)?;
+                    self.marked_state(snapshot, file, marked)
                 } else {
                     self.tracker.unreview(snapshot, file)?;
                     self.tracker.status(snapshot, file)
@@ -215,9 +251,37 @@ impl Worker {
             })
             .map_err(|_| ());
         let _ = messages.send(ReviewStateSaved {
-            review_unit,
+            review_unit: snapshot.identity.review_unit().clone(),
             path,
             result,
         });
     }
+
+    /// The state a stored mark left, or why it was not stored.
+    fn marked_state(
+        &self,
+        snapshot: &Snapshot,
+        file: &ChangedFile,
+        marked: MarkResult,
+    ) -> eyre::Result<ReviewState> {
+        match marked {
+            MarkResult::Marked => self.tracker.status(snapshot, file),
+            MarkResult::ChangeChanged => {
+                eyre::bail!("the change moved; wait for the next refresh");
+            }
+        }
+    }
 }
+
+/// The changed file at `path` in the worker's snapshot.
+fn changed_file<'a>(snapshot: &'a Snapshot, path: &str) -> eyre::Result<&'a ChangedFile> {
+    snapshot
+        .files
+        .iter()
+        .find(|file| file.review_path().display() == path)
+        .ok_or_else(|| eyre::eyre!("the selected file is no longer in the current change"))
+}
+
+#[cfg(test)]
+#[path = "worker.tests.rs"]
+mod tests;

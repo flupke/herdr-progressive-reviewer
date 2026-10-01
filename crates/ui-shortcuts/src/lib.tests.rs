@@ -331,7 +331,8 @@ fn every_help_line_names_its_keys() {
     }
     for line in [
         ("V", "Select diff lines"),
-        ("l", "Expand an unchanged section"),
+        ("l", "Expand an unchanged section or a reviewed hunk"),
+        ("rh", "Mark the hunk at the cursor reviewed / unreviewed"),
         ("Space", "Mark a file as reviewed"),
         ("c", "Show the commit message"),
         ("q", "Quit"),

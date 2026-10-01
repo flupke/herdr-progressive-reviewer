@@ -212,13 +212,18 @@ impl FilesComponent {
             self.publish_overview();
             return;
         };
-        let Some(file) = self.files.iter_mut().find(|file| file.path() == event.path) else {
+        let Some(index) = self.files.iter().position(|file| file.path() == event.path) else {
             return;
         };
-        let expand = needs_parent_expansion(review_state.status, file.review_state.status);
-        file.review_state = review_state;
+        let previous = self.files[index].review_state.status;
+        let expand = needs_parent_expansion(review_state.status, previous);
+        self.files[index].review_state = review_state;
         self.reviewed_notice(&event.path, review_state.status);
         self.refresh_reviewable_files();
+        // The diff's last open hunk was accepted: move on like marking the file.
+        if pending.is_none() && previous.needs_review() && index == self.selected {
+            self.move_on_when_reviewed(review_state.status, &event.path);
+        }
         if expand {
             self.expand_file_parents(&event.path);
             self.rebuild_tree();
@@ -485,15 +490,7 @@ impl FilesComponent {
         };
         file.review_state = optimistic_state;
         self.refresh_reviewable_files();
-        let next_file = reviewed
-            .then(|| {
-                self.tree
-                    .visible_files()
-                    .skip_while(|file| *file != self.selected)
-                    .skip(1)
-                    .find(|file| self.files[*file].review_state.status.needs_review())
-            })
-            .flatten();
+        let next_file = reviewed.then(|| self.next_file_to_review()).flatten();
         if let Some(next_file) = next_file {
             self.selected = next_file;
             self.keep_selected_visible();
@@ -507,6 +504,27 @@ impl FilesComponent {
             path,
             reviewed,
         }))
+    }
+
+    /// Select the next file to review once the selected file is reviewed.
+    fn move_on_when_reviewed(&mut self, status: ReviewStatus, path: &str) {
+        if status.needs_review() {
+            return;
+        }
+        if let Some(next_file) = self.next_file_to_review() {
+            self.selected = next_file;
+            self.keep_selected_visible();
+            self.publish_selection_if_changed(Some(path));
+        }
+    }
+
+    /// The next visible file after the selected one that still needs review.
+    fn next_file_to_review(&self) -> Option<usize> {
+        self.tree
+            .visible_files()
+            .skip_while(|file| *file != self.selected)
+            .skip(1)
+            .find(|file| self.files[*file].review_state.status.needs_review())
     }
 
     fn selected_path(&self) -> Option<String> {
@@ -587,6 +605,7 @@ impl FilesComponent {
                 ReviewStatus::Unreviewed => "○",
                 ReviewStatus::Reviewed => "✓",
                 ReviewStatus::ChangedSinceReview => "●",
+                ReviewStatus::PartiallyReviewed => "◐",
             }
         };
         let prefix = format!("{}{} ", "  ".repeat(depth), marker);
@@ -656,41 +675,54 @@ impl Component<Action> for FilesComponent {
     }
 }
 
+/// The figures after a file name: reviewed hunks of a partly reviewed file,
+/// then added and removed lines.
 struct FileStatistics {
+    hunks: Option<String>,
     added: Option<String>,
     removed: Option<String>,
 }
 
 impl FileStatistics {
     fn new(file: &FileSummary) -> Self {
+        let statistics = file.review_state.current_diff_statistics;
         Self {
-            added: (file.review_state.current_diff_statistics.lines_added > 0)
-                .then(|| format!("+{}", file.review_state.current_diff_statistics.lines_added)),
-            removed: (file.review_state.current_diff_statistics.lines_removed > 0).then(|| {
-                format!(
-                    "-{}",
-                    file.review_state.current_diff_statistics.lines_removed
-                )
-            }),
+            hunks: file
+                .review_state
+                .hunks
+                .map(|count| format!("{}/{}", count.reviewed, count.total)),
+            added: (statistics.lines_added > 0).then(|| format!("+{}", statistics.lines_added)),
+            removed: (statistics.lines_removed > 0)
+                .then(|| format!("-{}", statistics.lines_removed)),
         }
+    }
+
+    fn parts(&self) -> impl Iterator<Item = &String> {
+        [&self.hunks, &self.added, &self.removed]
+            .into_iter()
+            .flatten()
     }
 
     fn width(&self) -> usize {
-        self.added.as_ref().map_or(0, String::len)
-            + self.removed.as_ref().map_or(0, String::len)
-            + usize::from(self.added.is_some() && self.removed.is_some())
+        let parts = self.parts().count();
+        self.parts().map(String::len).sum::<usize>() + parts.saturating_sub(1)
     }
 
     fn append(self, spans: &mut Vec<Span<'static>>, palette: Palette) {
-        let has_added = self.added.is_some();
-        if let Some(added) = self.added {
-            spans.push(Span::styled(added, Style::default().fg(palette.insertion)));
-        }
-        if let Some(removed) = self.removed {
-            if has_added {
+        let colored = [
+            (self.hunks, palette.dim),
+            (self.added, palette.insertion),
+            (self.removed, palette.deletion),
+        ];
+        for (index, (text, color)) in colored
+            .into_iter()
+            .filter_map(|(text, color)| text.map(|text| (text, color)))
+            .enumerate()
+        {
+            if index > 0 {
                 spans.push(Span::raw(" "));
             }
-            spans.push(Span::styled(removed, Style::default().fg(palette.deletion)));
+            spans.push(Span::styled(text, Style::default().fg(color)));
         }
     }
 }

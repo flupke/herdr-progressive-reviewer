@@ -9,6 +9,17 @@ Select a file to inspect its diff. Press `Space` to mark it as reviewed;
 subsequent changes appear as a new diff since your last pass. Use `[f` and `]f` to
 move between unreviewed files, and `[h` and `]h` to move between changed hunks.
 
+To review a file hunk by hunk, click the `☐` in a hunk's top-right corner, or
+press `rh` with the cursor in it. The hunk folds into one `✓ reviewed hunk` row,
+and the Files list and the diff title count reviewed hunks, with `◐` marking the
+partly reviewed file. Press `l` or click the folded row to read the hunk again, and
+click its `☑` (or press `rh` on it) to mark it unreviewed. When an edit later
+touches a reviewed hunk, it reopens with only the change since you reviewed it,
+labelled "changed since review"; reviewed hunks the edit did not touch stay
+folded. Accepting the last open hunk marks the whole file reviewed and moves to
+the next file. Binary, conflicted and symbolic-link changes are reviewed per file.
+Older reviewer builds show partly reviewed files as unreviewed.
+
 Press `rf` in Files or its diff pane to automatically mark files whose changes
 Jev classifies entirely as insignificant. This uses the same classification policy
 as Explore and requires `TYPESAFE_API_KEY` in the reviewer process. It checks each

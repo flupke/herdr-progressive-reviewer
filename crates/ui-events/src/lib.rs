@@ -425,6 +425,9 @@ impl FileSummary {
             ReviewStatus::Unreviewed => ReviewState::unreviewed(file.statistics, None),
             ReviewStatus::Reviewed => ReviewState::reviewed(),
             ReviewStatus::ChangedSinceReview => ReviewState::changed_since_review(file.statistics),
+            ReviewStatus::PartiallyReviewed => {
+                ReviewState::partially_reviewed(file.statistics, None)
+            }
         };
         Self::from_review_state(file, state)
     }
@@ -605,6 +608,9 @@ pub struct DiffContentLoaded {
     pub rows: Vec<DiffRow>,
     pub old_content: Option<Vec<u8>>,
     pub new_content: Option<Vec<u8>>,
+    /// Which hunks are open and which are reviewed; empty for content that
+    /// cannot be reviewed hunk by hunk.
+    pub hunks: review_hunks::FileHunks,
 }
 
 /// Immutable input for syntax coloring after text is available to the UI.

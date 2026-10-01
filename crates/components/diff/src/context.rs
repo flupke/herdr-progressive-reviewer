@@ -33,13 +33,13 @@ impl CursorAnchor {
 
 impl SourceViewer {
     pub(super) fn expand_context(&mut self, row: usize) -> bool {
-        let is_gap = self.displayed_document().is_some_and(|document| {
+        let is_folded = self.displayed_document().is_some_and(|document| {
             matches!(
                 document.document.diff.rows.get(row),
-                Some(PresentedRow::Gap { .. })
+                Some(PresentedRow::Gap { .. } | PresentedRow::ReviewedHunk { .. })
             )
         });
-        is_gap && self.change_context(|diff| diff.expand(row))
+        is_folded && self.change_context(|diff| diff.expand(row))
     }
 
     pub(super) fn change_context(

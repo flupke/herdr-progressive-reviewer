@@ -89,5 +89,8 @@ fn reverse_application_rejects_a_diff_of_another_version() {
 
 #[test]
 fn reverse_application_of_no_diff_keeps_the_new_version() {
-    assert_eq!(reverse_apply(b"", b"kept\n").as_deref(), Some(&b"kept\n"[..]));
+    assert_eq!(
+        reverse_apply(b"", b"kept\n").as_deref(),
+        Some(&b"kept\n"[..])
+    );
 }

@@ -25,6 +25,7 @@ ratatui = { workspace = true, features = ["crossterm"] }
 review-repository = { path = "../review-repository" }
 review-source = { path = "../review-source" }
 review-lsp = { path = "../review-lsp" }
+review-hunks = { path = "../review-hunks" }
 review-state = { path = "../review-state" }
 review-threads = { path = "../review-threads" }
 review-thread-service = { path = "../review-thread-service" }

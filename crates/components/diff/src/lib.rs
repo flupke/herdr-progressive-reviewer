@@ -5,6 +5,7 @@
 //! every viewer and decides which one receives each event.
 
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -13,7 +14,6 @@ use diff_rendering::FrameOverlay;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use review_source::ReviewCheckpoint;
-use review_state::ReviewStatus;
 use review_thread_projection::SharedThreadProjection;
 use ui_actions::{
     Action, DocumentAction, DocumentLoad, LspAction, RepositoryAction, TerminalAction,
@@ -44,6 +44,7 @@ mod evidence_source;
 mod explore;
 mod explore_restore;
 mod history;
+mod hunk_marks;
 mod pane;
 mod presentation;
 mod render;
@@ -158,6 +159,8 @@ pub struct SourceViewer {
     location_history: LocationHistory,
     pending_history_navigation: Option<PendingHistoryNavigation>,
     rendered_pointer_viewport: RefCell<Option<DiffPointerViewport>>,
+    /// Paths whose hunk mark is being saved and reloaded.
+    pending_hunk_marks: HashSet<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -213,6 +216,7 @@ impl SourceViewer {
             pending_history_navigation: None,
             rendered_pointer_viewport: RefCell::new(None),
             reply_visibility: RefCell::default(),
+            pending_hunk_marks: HashSet::new(),
         }
     }
 
@@ -415,17 +419,10 @@ impl SourceViewer {
         match input.kind {
             PointerInputKind::Scroll(delta) => self.scroll(delta),
             PointerInputKind::Click => {
-                if let Some(position) = input.position
-                    && position.component_row == 0
-                    && let Some(control) = self.control_at(
-                        self.viewport_width.saturating_add(2),
-                        position.component_column,
-                    )
-                {
-                    self.activate_diff_control(control);
-                } else {
-                    self.start_pointer_selection(pointer_position);
+                if let Some(row) = self.hunk_control_at(&input) {
+                    return self.toggle_hunk_review(row);
                 }
+                self.click(&input, pointer_position);
             }
             PointerInputKind::Drag => self.extend_pointer_selection(pointer_position),
             PointerInputKind::Release => {
@@ -440,6 +437,21 @@ impl SourceViewer {
         }
         self.publish_viewports();
         Vec::new()
+    }
+
+    /// A click on a pane-title control runs it; elsewhere it starts a selection.
+    fn click(&mut self, input: &PointerInput, pointer_position: Option<DiffPointerPosition>) {
+        if let Some(position) = input.position
+            && position.component_row == 0
+            && let Some(control) = self.control_at(
+                self.viewport_width.saturating_add(2),
+                position.component_column,
+            )
+        {
+            self.activate_diff_control(control);
+        } else {
+            self.start_pointer_selection(pointer_position);
+        }
     }
 
     fn finish_pointer_selection(&mut self) {
@@ -592,6 +604,12 @@ impl SourceViewer {
         match command {
             DiffGlobalShortcut::PreviousComment => self.navigate_comment(false),
             DiffGlobalShortcut::NextComment => self.navigate_comment(true),
+            DiffGlobalShortcut::ToggleHunkReviewed => {
+                let cursor = self
+                    .selected_document()
+                    .map(|document| document.document.position().cursor());
+                return cursor.map_or_else(Vec::new, |row| self.toggle_hunk_review(row));
+            }
             DiffGlobalShortcut::Hunk(command) => self.navigate_modified_hunk(command),
             DiffGlobalShortcut::OpenInEditor => return self.open_in_editor(),
         }
@@ -1260,12 +1278,13 @@ impl SourceViewer {
             event.old_content.as_deref(),
             event.new_content.as_deref(),
         );
-        let reload_after_current_load =
-            document.replace_diff(DiffPresentation::new(highlighted_rows));
+        let reload_after_current_load = document
+            .replace_diff(DiffPresentation::new(highlighted_rows).with_hunks(event.hunks.clone()));
         let content = Arc::new(event.clone());
         document.content = Some(Arc::clone(&content));
         let request = HighlightRequest::Diff(content);
         document.document.prepare_highlighting(request);
+        self.hunk_marks_reloaded(&event.path);
         self.comments.refresh_anchors(&self.documents);
         self.refresh_pending_preview(&event.path);
         let pending_center_completed = self.pending_center_path.as_deref() == Some(&event.path);
@@ -1328,6 +1347,7 @@ impl SourceViewer {
     }
 
     fn content_load_failed(&mut self, event: &DiffContentLoadFailed) -> Vec<Action> {
+        self.hunk_marks_reloaded(&event.path);
         if self.pending_center_path.as_deref() == Some(&event.path) {
             self.pending_center_path = None;
         }
@@ -1794,18 +1814,23 @@ impl SourceViewer {
             .review_checkpoint
             .as_ref()
             .is_some_and(|checkpoint| checkpoint.review_unit == event.review_unit);
-        let became_unreviewed = event
+        // Every state that still needs review shows a diff from a new version.
+        let needs_review = event
             .result
             .as_ref()
-            .is_ok_and(|state| state.status == ReviewStatus::Unreviewed);
-        if !is_current_review_unit || !became_unreviewed {
-            return Vec::new();
-        }
-
+            .is_ok_and(|state| state.status.needs_review());
+        let reloading = is_current_review_unit
+            && needs_review
+            && self
+                .documents
+                .iter()
+                .any(|document| document.path == event.path);
+        self.hunk_mark_saved(&event.path, reloading);
         let Some(document) = self
             .documents
             .iter_mut()
             .find(|document| document.path == event.path)
+            .filter(|_| reloading)
         else {
             return Vec::new();
         };

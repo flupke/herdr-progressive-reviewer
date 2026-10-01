@@ -25,6 +25,7 @@ impl SourceViewer {
                 rows: parse_file_diff(patch, file),
                 old_content: None,
                 new_content: None,
+                hunks: review_hunks::FileHunks::default(),
             });
             return Ok(self.comparison_content_document(file, loaded));
         }
@@ -58,6 +59,7 @@ impl SourceViewer {
             rows: parse_file_diff(&diff, file),
             old_content: read(&file.old_path, SourceSide::Old)?,
             new_content: read(&file.new_path, SourceSide::New)?,
+            hunks: review_hunks::FileHunks::default(),
         });
         Ok(self.comparison_content_document(file, loaded))
     }

@@ -168,6 +168,7 @@ fn posting_a_question_keeps_visible_code_below_it_in_place() {
             rows,
             old_content: Some(Vec::new()),
             new_content: Some(code.join("\n").into_bytes()),
+            hunks: review_hunks::FileHunks::default(),
         })
         .unwrap();
     fixture

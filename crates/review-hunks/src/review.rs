@@ -90,7 +90,9 @@ pub fn replay(old_base: &[u8], reviewed: &[u8], new_base: &[u8]) -> Vec<u8> {
     let mut position = 0;
     for change in changes(old_base, reviewed) {
         let Some(target) = translate(
-            upstream.iter().map(|change| (&change.before, &change.after)),
+            upstream
+                .iter()
+                .map(|change| (&change.before, &change.after)),
             &change.before,
         )
         .filter(|target| target.start >= position) else {

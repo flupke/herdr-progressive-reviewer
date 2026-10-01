@@ -775,6 +775,7 @@ fn terminal_hunk_shortcut_moves_application_data_while_files_are_focused() {
         rows: hunk_navigation_rows(),
         old_content: None,
         new_content: None,
+        hunks: review_hunks::FileHunks::default(),
     });
     let terminal_events = std::sync::Mutex::new(
         [

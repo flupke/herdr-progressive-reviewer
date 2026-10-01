@@ -129,6 +129,7 @@ impl ThreadUi {
             rows,
             old_content: None,
             new_content: Some(b"original\n".to_vec()),
+            hunks: review_hunks::FileHunks::default(),
         });
     }
 

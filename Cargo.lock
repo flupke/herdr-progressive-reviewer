@@ -793,6 +793,7 @@ dependencies = [
  "ratatui 0.30.2",
  "review-drafts",
  "review-explore",
+ "review-hunks",
  "review-lsp",
  "review-repository",
  "review-source",
@@ -1089,6 +1090,7 @@ version = "0.2.0"
 dependencies = [
  "component-core",
  "ratatui 0.30.2",
+ "review-hunks",
  "review-repository",
  "review-source",
  "review-state",
@@ -4009,6 +4011,7 @@ name = "review-state"
 version = "0.2.0"
 dependencies = [
  "eyre",
+ "review-hunks",
  "review-repository",
  "review-store",
  "review-test-support",
@@ -4114,6 +4117,7 @@ dependencies = [
  "ratatui 0.30.2",
  "ratatui-markdown",
  "review-explore",
+ "review-hunks",
  "review-lsp",
  "review-repository",
  "review-source",
@@ -4156,6 +4160,7 @@ dependencies = [
  "reqwest",
  "review-explore",
  "review-explore-session",
+ "review-hunks",
  "review-lsp",
  "review-mcp",
  "review-mcp-config",
@@ -5392,6 +5397,7 @@ name = "ui-actions"
 version = "0.2.0"
 dependencies = [
  "review-explore",
+ "review-hunks",
  "review-lsp",
  "review-repository",
  "review-source",
@@ -5414,6 +5420,7 @@ name = "ui-events"
 version = "0.2.0"
 dependencies = [
  "review-explore",
+ "review-hunks",
  "review-lsp",
  "review-repository",
  "review-source",

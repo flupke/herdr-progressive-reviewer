@@ -23,6 +23,7 @@ ui-theme = { path = "../../ui-theme" }
 unicode-width.workspace = true
 
 [dev-dependencies]
+review-hunks = { path = "../../review-hunks" }
 review-test-support = { path = "../../review-test-support" }
 tempfile.workspace = true
 
