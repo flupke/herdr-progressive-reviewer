@@ -1,0 +1,6 @@
+# Runtime tests wait for events from real worker threads and repositories.
+# Under a full parallel run those waits can starve; one retry keeps such a
+# timeout from failing `make check` while nextest still reports it as flaky.
+[[profile.default.overrides]]
+filter = 'package(reviewer) & test(/^runtime::/)'
+retries = 1

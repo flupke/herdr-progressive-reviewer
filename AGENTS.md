@@ -24,12 +24,16 @@ For each small feature:
 1. Create a fresh jj change before implementation. Use the previous change as
    the fixed point for this feature.
 2. Implement and validate the feature with `make check`.
-3. Run `$code-review` against the fixed point. Fix its findings and repeat the
+3. For a change the user can see, explore the affected paths in the real UI
+   with `make vision` (see `docs/development.md#llm-directed-exploration`) and
+   fix what it finds.
+4. Run `$code-review` against the fixed point. Fix its findings and repeat the
    review until it passes. Follow the skill's repair-loop limit and report any
    findings that remain when the limit is reached.
-4. After the review passes, run `$describe-commit` for the change.
-5. Run `make install`.
-6. Keep later user-feedback fixes in the same change. Create another change
+5. After the review passes, run `$describe-commit` for the change.
+6. Run `make install`, unless the user deferred installing; say so when you
+   skip it.
+7. Keep later user-feedback fixes in the same change. Create another change
    only when the user requests the next feature.
 
 Run `make check` and `make install` through `nix develop --command` so the
