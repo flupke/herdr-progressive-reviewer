@@ -31,7 +31,7 @@ fn the_viewer_pane_opens_beside_its_target_and_closes_with_the_session() {
         &server.run_cli_json(&["pane", "layout", "--pane", &target])["result"]["layout"]["area"];
     assert_eq!(
         herdr.pane_size(&target).unwrap(),
-        size(
+        pane(
             u16::try_from(area["width"].as_u64().unwrap()).unwrap(),
             u16::try_from(area["height"].as_u64().unwrap()).unwrap()
         ),
@@ -39,7 +39,7 @@ fn the_viewer_pane_opens_beside_its_target_and_closes_with_the_session() {
     );
 
     let placement = Placement {
-        split: Some(Split::Right),
+        split: Some(SplitDirection::Right),
         ratio: Some(0.3),
     };
     let viewer = ViewerPane::open(herdr, &target, placement, size(100, 30), |_| {
@@ -74,41 +74,59 @@ fn size(cols: u16, rows: u16) -> Size {
     Size { cols, rows }
 }
 
+fn pane(width: u16, height: u16) -> PaneSize {
+    PaneSize { width, height }
+}
+
 #[test]
 fn a_wide_pane_fits_the_viewer_beside_the_driver() {
-    let (split, ratio) = Placement::default().fit(size(250, 60), size(100, 30));
+    let (split, ratio) = Placement::default().fit(pane(250, 60), size(100, 30));
 
-    assert_eq!(split, Split::Right);
+    assert_eq!(split, SplitDirection::Right);
     assert!((ratio - 102.5 / 250.0).abs() < 1e-9);
 }
 
 #[test]
 fn a_tall_pane_fits_the_viewer_below_the_driver() {
-    let (split, ratio) = Placement::default().fit(size(120, 80), size(100, 30));
+    let (split, ratio) = Placement::default().fit(pane(120, 80), size(100, 30));
 
-    assert_eq!(split, Split::Down);
+    assert_eq!(split, SplitDirection::Down);
     assert!((ratio - 32.5 / 80.0).abs() < 1e-9);
 }
 
 #[test]
 fn a_pane_too_small_for_the_session_leaves_the_driver_a_quarter() {
-    let (split, ratio) = Placement::default().fit(size(110, 25), size(100, 30));
+    let (split, ratio) = Placement::default().fit(pane(110, 25), size(100, 30));
 
-    assert_eq!(split, Split::Right);
+    assert_eq!(split, SplitDirection::Right);
     assert!((ratio - MAX_SHARE).abs() < 1e-9);
 }
 
 #[test]
 fn a_chosen_split_and_share_are_kept() {
     let placement = Placement {
-        split: Some(Split::Down),
+        split: Some(SplitDirection::Down),
         ratio: Some(0.3),
     };
 
+    assert_eq!(placement.chosen(), Some((SplitDirection::Down, 0.3)));
     assert_eq!(
-        placement.fit(size(250, 60), size(100, 30)),
-        (Split::Down, 0.3)
+        placement.fit(pane(250, 60), size(100, 30)),
+        (SplitDirection::Down, 0.3)
     );
+}
+
+#[test]
+fn a_chosen_split_is_fitted_with_its_own_share() {
+    let placement = Placement {
+        split: Some(SplitDirection::Down),
+        ratio: None,
+    };
+
+    let (split, ratio) = placement.fit(pane(250, 60), size(100, 30));
+
+    assert_eq!(split, SplitDirection::Down);
+    assert!((ratio - 32.5 / 60.0).abs() < 1e-9);
 }
 
 #[test]

@@ -5,7 +5,8 @@ mod input;
 mod stream;
 mod viewer;
 
-pub use viewer::{Placement, Split, view};
+pub use herdr_client::protocol::SplitDirection;
+pub use viewer::{Placement, view};
 
 use std::fs::{self, File};
 use std::io::{self, Write};

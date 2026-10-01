@@ -128,22 +128,22 @@ the reviewer again in the same private workspace and state, at its initial
 server, and temporary repository; so does EOF on stdin when the driver reads
 commands from it.
 
-When the driver runs inside Herdr, it splits its own pane and runs a live
-viewer there: every frame it captures is painted in the viewer the moment it is
-published, so a person can watch the agent explore. The viewer fits the
-driver's pane: it splits to the right or downward, whichever shows the whole
-100×30 session while leaving the driver more room, and never takes more than
-three quarters of the pane. `--viewer right|down|none` picks the direction or
-turns the viewer off, and `--viewer-ratio` the viewer's share of the split. The
-viewer shows the session at its own size: a narrower pane cuts rows at its
-right edge, and a shorter one paints the rows that do not fit over its last
-row. Keys typed in the viewer do not reach the session; `q` closes the viewer and
-its pane and leaves the session running. The pane closes when the driver
-exits, however it exits: the viewer closes its
-own pane once the stream ends, and the system ends the stream of a killed
-driver too. Outside Herdr, watch the
-same stream from any terminal with `reviewer-vision --view SOCKET`, using the
-`stream` socket that `session.json` names.
+When the driver runs inside Herdr, it splits its own pane and runs a live viewer
+there: every frame it captures is painted in the viewer the moment it is
+published, so a person can watch the agent explore. The viewer splits the
+driver's pane the way the reviewer splits the pane it opens from, across the
+side that looks longer (beside a pane at least two and a half times as wide as
+it is tall, below any other), and takes the share that shows the whole 100×30
+session, at most three quarters of the pane. `--viewer right|down|none` picks
+the direction or turns the viewer off, and `--viewer-ratio` the viewer's share
+of the split. The viewer shows the session at its own size: a narrower pane cuts
+rows at its right edge, and a shorter one paints the rows that do not fit over
+its last row. Keys typed in the viewer do not reach the session; `q` closes the
+viewer and its pane and leaves the session running. The pane closes when the
+driver exits, however it exits: the viewer closes its own pane once the stream
+ends, and the system ends the stream of a killed driver too. Outside Herdr,
+watch the same stream from any terminal with `reviewer-vision --view SOCKET`,
+using the `stream` socket that `session.json` names.
 
 Every session gets a new directory under `tests/tui/target/vision/`, printed with
 the observations. `--output NEW_DIRECTORY` selects another location and `--json`

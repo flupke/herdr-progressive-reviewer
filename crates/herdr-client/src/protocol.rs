@@ -23,6 +23,8 @@ pub mod method {
     pub const AGENT_PROMPT: &str = "agent.prompt";
     /// Resolve one live pane.
     pub const PANE_GET: &str = "pane.get";
+    /// Read the layout of the tab holding one pane.
+    pub const PANE_LAYOUT: &str = "pane.layout";
     /// Open one plugin-owned pane.
     pub const PLUGIN_PANE_OPEN: &str = "plugin.pane.open";
     /// Focus one plugin-owned pane.
@@ -59,6 +61,49 @@ pub enum PanePlacement {
     Split,
 }
 
+/// The side of its target pane where a split pane opens.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SplitDirection {
+    /// Beside the target, halving its width.
+    Right,
+    /// Below the target, halving its height.
+    Down,
+}
+
+impl SplitDirection {
+    /// The name Herdr's API and command line use.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Right => "right",
+            Self::Down => "down",
+        }
+    }
+}
+
+/// A pane's size in terminal cells.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+pub struct PaneSize {
+    /// Columns.
+    pub width: u16,
+    /// Rows.
+    pub height: u16,
+}
+
+impl PaneSize {
+    /// Split across the side that looks longer on screen, so both halves
+    /// keep a usable shape. A cell is a little over twice as tall as it is
+    /// wide, and code reads better wide than tall, so a pane splits beside
+    /// only when it is at least two and a half times as wide as it is tall.
+    pub fn split_direction(self) -> SplitDirection {
+        if 2 * u32::from(self.width) >= 5 * u32::from(self.height) {
+            SplitDirection::Right
+        } else {
+            SplitDirection::Down
+        }
+    }
+}
+
 /// The agent host that review delivery talks to: it resolves the target agent,
 /// reports agent and process identity, and submits prompts.
 ///
@@ -88,6 +133,9 @@ pub trait HerdrReader: Send + Sync {
 
     /// List plugin-owned panes in one workspace.
     fn list_plugin_panes(&self, workspace_id: &WorkspaceId) -> Result<Vec<PluginPane>>;
+
+    /// Measure one pane.
+    fn pane_size(&self, pane_id: &PaneId) -> Result<PaneSize>;
 }
 
 /// Write operations needed by the reviewer.
@@ -238,6 +286,8 @@ pub struct OpenPluginPane {
     pub placement: PanePlacement,
     /// The pane beside which Herdr opens the review pane.
     pub target_pane_id: PaneId,
+    /// The side of the target where the pane opens; `None` lets Herdr choose.
+    pub direction: Option<SplitDirection>,
     /// The jj working directory.
     pub cwd: PathBuf,
     /// Whether Herdr focuses the new pane.

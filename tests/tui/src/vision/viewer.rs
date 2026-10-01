@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::thread;
 
 use anyhow::{Context, Result, ensure};
+use herdr_client::protocol::{PaneSize, SplitDirection};
 use signal_hook::consts::signal::{SIGHUP, SIGINT, SIGTERM};
 use signal_hook::iterator::Signals;
 use tui_test::Size;
@@ -136,35 +137,13 @@ fn show(stream: &mut impl Read, terminal: &mut impl Write) -> Result<()> {
     result
 }
 
-/// Where the viewer pane opens beside the driver's pane.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Split {
-    Right,
-    Down,
-}
-
-impl Split {
-    fn name(self) -> &'static str {
-        match self {
-            Self::Right => "right",
-            Self::Down => "down",
-        }
-    }
-
-    /// The pane length this split divides, and the one it leaves whole.
-    fn lengths(self, size: Size) -> (u16, u16) {
-        match self {
-            Self::Right => (size.cols, size.rows),
-            Self::Down => (size.rows, size.cols),
-        }
-    }
-}
-
 /// Where the viewer pane opens. A part left `None` is fitted to the driver's
-/// pane, so the viewer shows the whole session screen when the pane allows.
+/// pane: the split goes where the reviewer's own pane would, across the side
+/// that looks longer, and the share shows the whole session screen when the
+/// pane allows.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Placement {
-    pub split: Option<Split>,
+    pub split: Option<SplitDirection>,
     /// The viewer's share of the split pane.
     pub ratio: Option<f64>,
 }
@@ -177,37 +156,23 @@ const BORDER: u16 = 2;
 
 impl Placement {
     /// The split and share, when both were chosen.
-    fn chosen(self) -> Option<(Split, f64)> {
+    fn chosen(self) -> Option<(SplitDirection, f64)> {
         Some((self.split?, self.ratio?))
     }
 
-    /// Choose the split and share that show most of a `session`-sized screen
-    /// in a `pane`-sized pane, preferring the one leaving the driver more room.
-    fn fit(self, pane: Size, session: Size) -> (Split, f64) {
-        let fitted = |split: Split| {
-            let (divided, whole) = split.lengths(pane);
-            let (needed, across) = split.lengths(session);
-            let needed = f64::from(needed + BORDER);
+    /// Fill in the split and share left open for a `session`-sized screen in
+    /// a `pane`-sized pane.
+    fn fit(self, pane: PaneSize, session: Size) -> (SplitDirection, f64) {
+        let split = self.split.unwrap_or_else(|| pane.split_direction());
+        let ratio = self.ratio.unwrap_or_else(|| {
+            let (divided, needed) = match split {
+                SplitDirection::Right => (pane.width, session.cols),
+                SplitDirection::Down => (pane.height, session.rows),
+            };
             // Half a cell more keeps rounding in Herdr from cutting a cell.
-            let ratio = self.ratio.unwrap_or_else(|| {
-                ((needed + 0.5) / f64::from(divided.max(1))).clamp(1.0 - MAX_SHARE, MAX_SHARE)
-            });
-            // The share of the session screen the viewer shows.
-            let visible = (ratio * f64::from(divided) / needed).min(1.0)
-                * (f64::from(whole) / f64::from(across + BORDER)).min(1.0);
-            (split, ratio, visible)
-        };
-        let candidates = match self.split {
-            Some(split) => vec![fitted(split)],
-            None => vec![fitted(Split::Right), fitted(Split::Down)],
-        };
-        let (split, ratio, _) = candidates
-            .into_iter()
-            .max_by(|(_, left_ratio, left), (_, right_ratio, right)| {
-                left.total_cmp(right)
-                    .then(right_ratio.total_cmp(left_ratio))
-            })
-            .expect("a split is always a candidate");
+            ((f64::from(needed + BORDER) + 0.5) / f64::from(divided.max(1)))
+                .clamp(1.0 - MAX_SHARE, MAX_SHARE)
+        });
         (split, ratio)
     }
 }
@@ -246,23 +211,15 @@ impl Herdr {
     }
 
     /// The size of `pane`, in cells.
-    fn pane_size(&self, pane: &str) -> Result<Size> {
+    fn pane_size(&self, pane: &str) -> Result<PaneSize> {
         let response: serde_json::Value =
             serde_json::from_slice(&self.run(&["pane", "layout", "--pane", pane])?)?;
         let rect = response["result"]["layout"]["panes"]
             .as_array()
             .and_then(|panes| panes.iter().find(|entry| entry["pane_id"] == pane))
-            .map(|entry| &entry["rect"])
+            .map(|entry| entry["rect"].clone())
             .context("herdr pane layout did not list the pane")?;
-        let length = |name: &str| -> Result<u16> {
-            Ok(u16::try_from(
-                rect[name].as_u64().context("pane size is not a number")?,
-            )?)
-        };
-        Ok(Size {
-            cols: length("width")?,
-            rows: length("height")?,
-        })
+        Ok(serde_json::from_value(rect)?)
     }
 
     fn close_pane(&self, pane: &str) {
@@ -311,7 +268,7 @@ impl ViewerPane {
             "--pane",
             target,
             "--direction",
-            split.name(),
+            split.as_str(),
             // Herdr's ratio is the share the split pane keeps.
             "--ratio",
             &(1.0 - ratio).to_string(),

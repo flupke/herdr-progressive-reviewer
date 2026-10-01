@@ -112,7 +112,7 @@ class IsolatedHerdr:
         self.original = workspace["root_pane"]["pane_id"]
         self.client, self.master = pty.fork()
         if self.client == 0:
-            fcntl.ioctl(0, termios.TIOCSWINSZ, struct.pack("HHHH", 60, 160, 0, 0))
+            fcntl.ioctl(0, termios.TIOCSWINSZ, struct.pack("HHHH", 60, 220, 0, 0))
             os.chdir(self.root / "work")
             os.execvpe(self.binary, [self.binary], self.env)
         self.wait_until(lambda: self.layout()["area"]["height"] > 50,
@@ -121,7 +121,13 @@ class IsolatedHerdr:
     def layout(self):
         return self.request("pane.layout", dict(pane_id=self.original))["layout"]
 
-    def check_open(self, control):
+    def check_open(self, control, scenario):
+        # A lone 220x60 pane looks wide; one beside a neighbour looks tall.
+        expected_direction = dict(wide="right", beside_a_neighbour="down")[scenario]
+        if scenario == "beside_a_neighbour":
+            self.request("pane.split", dict(target_pane_id=self.original, direction="right"))
+        before = self.layout()
+        known = {pane["pane_id"] for pane in before["panes"]}
         plugin = self.root / "plugin"
         snapshot = plugin / "paint.json"
         command = [sys.executable, str(pathlib.Path(__file__).resolve()), "--pane", str(snapshot)]
@@ -138,9 +144,17 @@ class IsolatedHerdr:
                            HERDR_PLUGIN_CONTEXT_JSON=json.dumps(context))
         self.command([control, "open"], environment)
         layout = self.layout()
-        assert len(layout["panes"]) == 2 and not layout["zoomed"], layout
-        assert len(layout["splits"]) == 1 and layout["splits"][0]["ratio"] == 0.5, layout
-        pane = next(pane for pane in layout["panes"] if pane["pane_id"] != self.original)
+        assert len(layout["panes"]) == len(known) + 1 and not layout["zoomed"], layout
+        assert len(layout["splits"]) == len(before["splits"]) + 1, layout
+        assert any(split["direction"] == expected_direction and split["ratio"] == 0.5
+                   for split in layout["splits"]), layout
+        pane = next(pane for pane in layout["panes"] if pane["pane_id"] not in known)
+        target = next(pane for pane in layout["panes"] if pane["pane_id"] == self.original)
+        beside = (pane["rect"]["x"] > target["rect"]["x"]
+                  and pane["rect"]["y"] == target["rect"]["y"])
+        below = (pane["rect"]["y"] > target["rect"]["y"]
+                 and pane["rect"]["x"] == target["rect"]["x"])
+        assert beside if expected_direction == "right" else below, layout
         assert layout["focused_pane_id"] == pane["pane_id"], layout
         expected = (pane["rect"]["width"] - 2, pane["rect"]["height"] - 2)
 
@@ -185,6 +199,6 @@ else:
     fixture = IsolatedHerdr(pathlib.Path(sys.argv[1]))
     try:
         fixture.start()
-        fixture.check_open(sys.argv[2])
+        fixture.check_open(sys.argv[2], sys.argv[3])
     finally:
         fixture.close()

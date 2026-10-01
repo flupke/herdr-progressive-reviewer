@@ -14,8 +14,8 @@ use serde_json::{Value, json};
 
 use crate::protocol::{
     Agent, AgentPort, AgentStatus, EntrypointId, HerdrEvent, HerdrReader, HerdrWriter,
-    OpenPluginPane, PaneId, PaneProcessInfo, PluginPane, SessionSnapshot, TabId, WorkspaceId,
-    method,
+    OpenPluginPane, PaneId, PaneProcessInfo, PaneSize, PluginPane, SessionSnapshot, TabId,
+    WorkspaceId, method,
 };
 use crate::{Error, Result};
 
@@ -84,6 +84,17 @@ struct PaneWire {
 struct PluginPaneWire {
     entrypoint: EntrypointId,
     pane: PaneWire,
+}
+
+#[derive(Debug, Deserialize)]
+struct PaneLayoutWire {
+    panes: Vec<LayoutPaneWire>,
+}
+
+#[derive(Debug, Deserialize)]
+struct LayoutPaneWire {
+    pane_id: PaneId,
+    rect: PaneSize,
 }
 
 #[derive(Debug, Deserialize)]
@@ -501,6 +512,20 @@ impl HerdrReader for HerdrClient {
             }),
         }
     }
+
+    fn pane_size(&self, pane_id: &PaneId) -> Result<PaneSize> {
+        let result = self.request(method::PANE_LAYOUT, &json!({"pane_id": pane_id.0}))?;
+        let layout: PaneLayoutWire = Self::parse(&result, "layout", method::PANE_LAYOUT)?;
+        layout
+            .panes
+            .into_iter()
+            .find(|pane| pane.pane_id == *pane_id)
+            .map(|pane| pane.rect)
+            .ok_or_else(|| Error::Protocol {
+                operation: method::PANE_LAYOUT.to_owned(),
+                detail: "Herdr layout did not list the pane",
+            })
+    }
 }
 
 impl HerdrWriter for HerdrClient {
@@ -512,6 +537,7 @@ impl HerdrWriter for HerdrClient {
                 "entrypoint": request.entrypoint,
                 "placement": request.placement,
                 "target_pane_id": request.target_pane_id,
+                "direction": request.direction,
                 "cwd": request.cwd,
                 "focus": request.focus,
             }),

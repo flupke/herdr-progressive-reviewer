@@ -183,3 +183,36 @@ fn agent(pane_id: &str, workspace_id: &str) -> Agent {
         cwd: None,
     }
 }
+
+#[test]
+fn a_pane_splits_across_the_side_that_looks_longer() {
+    let size = |width, height| PaneSize { width, height };
+
+    assert_eq!(size(240, 60).split_direction(), SplitDirection::Right);
+    assert_eq!(size(150, 60).split_direction(), SplitDirection::Right);
+    assert_eq!(size(149, 60).split_direction(), SplitDirection::Down);
+    // Half of a 320x80 screen: splitting it beside would leave three columns.
+    assert_eq!(size(160, 78).split_direction(), SplitDirection::Down);
+    assert_eq!(size(60, 75).split_direction(), SplitDirection::Down);
+}
+
+#[test]
+fn a_pane_size_reads_from_a_herdr_layout_rect() {
+    let size: PaneSize =
+        serde_json::from_str(r#"{"height": 40, "width": 60, "x": 60, "y": 0}"#).unwrap();
+
+    assert_eq!(
+        size,
+        PaneSize {
+            width: 60,
+            height: 40
+        }
+    );
+}
+
+#[test]
+fn split_direction_names_match_the_wire() {
+    for direction in [SplitDirection::Right, SplitDirection::Down] {
+        assert_eq!(serde_json::to_value(direction).unwrap(), direction.as_str());
+    }
+}

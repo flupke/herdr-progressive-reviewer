@@ -1,10 +1,10 @@
 use std::sync::Mutex;
 
-use herdr_client::Result;
 use herdr_client::protocol::{
-    EntrypointId, HerdrReader, HerdrWriter, OpenPluginPane, PaneId, PanePlacement, PluginContext,
-    PluginPane, TabId, WorkspaceId,
+    EntrypointId, HerdrReader, HerdrWriter, OpenPluginPane, PaneId, PanePlacement, PaneSize,
+    PluginContext, PluginPane, SplitDirection, TabId, WorkspaceId, method,
 };
+use herdr_client::{Error, Result};
 use review_repository::repository::RepoType;
 use review_test_support::repository_fixture;
 use reviewer::control::{PaneAction, PaneActionResult, PaneActions};
@@ -17,6 +17,8 @@ struct FakeHerdr {
     focused: Mutex<Vec<PaneId>>,
     closed: Mutex<Vec<PaneId>>,
     race_on_open: Mutex<bool>,
+    /// The focused pane's size, or `None` when Herdr cannot measure it.
+    focused_size: Mutex<Option<PaneSize>>,
 }
 
 impl HerdrReader for FakeHerdr {
@@ -33,6 +35,16 @@ impl HerdrReader for FakeHerdr {
             .filter(|pane| pane.workspace_id == *workspace_id)
             .cloned()
             .collect())
+    }
+
+    fn pane_size(&self, _pane_id: &PaneId) -> Result<PaneSize> {
+        self.focused_size
+            .lock()
+            .unwrap()
+            .ok_or_else(|| Error::Protocol {
+                operation: method::PANE_LAYOUT.to_owned(),
+                detail: "unmeasured",
+            })
     }
 }
 
@@ -92,6 +104,7 @@ fn pane_actions_are_idempotent_and_remove_a_racing_duplicate(repository_type: Re
             entrypoint: EntrypointId("review".to_owned()),
             placement: PanePlacement::Split,
             target_pane_id: PaneId("agent".to_owned()),
+            direction: None,
             cwd: repository.root().to_owned(),
             focus: true,
         }]
@@ -114,6 +127,31 @@ fn pane_actions_are_idempotent_and_remove_a_racing_duplicate(repository_type: Re
         actions.run(PaneAction::Close, &context).unwrap(),
         PaneActionResult::AlreadyClosed
     );
+}
+
+#[test_case(Some((240, 60)), Some(SplitDirection::Right); "a wide pane splits beside")]
+#[test_case(Some((80, 58)), Some(SplitDirection::Down); "a tall pane splits below")]
+#[test_case(None, None; "an unmeasured pane splits where Herdr chooses")]
+fn the_review_pane_splits_the_focused_pane_across_its_longer_side(
+    focused: Option<(u16, u16)>,
+    direction: Option<SplitDirection>,
+) {
+    let repository = repository_fixture(RepoType::Git);
+    let client = FakeHerdr::default();
+    *client.focused_size.lock().unwrap() =
+        focused.map(|(width, height)| PaneSize { width, height });
+    let context = PluginContext {
+        workspace_id: Some(WorkspaceId("workspace".to_owned())),
+        tab_id: Some(TabId("tab".to_owned())),
+        focused_pane_id: Some(PaneId("agent".to_owned())),
+        focused_pane_cwd: Some(repository.root().to_owned()),
+    };
+
+    PaneActions::new(&client)
+        .run(PaneAction::Open, &context)
+        .unwrap();
+
+    assert_eq!(client.opened.lock().unwrap()[0].direction, direction);
 }
 
 fn review_pane(id: &str) -> PluginPane {

@@ -43,8 +43,10 @@ description = "toggle progressive reviewer"
 
 Run `herdr server reload-config` in a terminal to load the shortcut. In Herdr,
 focus an agent pane in the repository you want to review, then press `prefix+d`
-(`Ctrl-b`, then `d` with the default prefix). The last focused agent in the
-workspace receives your comments and Explore questions.
+(`Ctrl-b`, then `d` with the default prefix). The reviewer splits the focused
+pane across the side that looks longer: beside a wide pane, below a narrow one.
+The last focused agent in the workspace receives your comments and Explore
+questions.
 
 Select a file to inspect its diff. Select code to comment, then click **Post** or
 press `Ctrl-Enter`. Replies appear in the same thread. Press `Space` to mark a

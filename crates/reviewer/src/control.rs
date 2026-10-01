@@ -1,8 +1,8 @@
 //! Open, close, and toggle actions for the review pane.
 
 use herdr_client::protocol::{
-    EntrypointId, HerdrReader, HerdrWriter, OpenPluginPane, PaneId, PanePlacement, PluginContext,
-    PluginPane, WorkspaceId,
+    EntrypointId, HerdrReader, HerdrWriter, OpenPluginPane, PaneId, PanePlacement, PaneSize,
+    PluginContext, PluginPane, WorkspaceId,
 };
 use review_repository::repository::Repository;
 
@@ -85,10 +85,17 @@ where
             .clone()
             .ok_or_else(|| missing_context("focused pane directory"))?;
         Repository::discover(&cwd)?;
+        // A pane Herdr cannot measure opens where Herdr chooses.
+        let direction = self
+            .client
+            .pane_size(&target_pane_id)
+            .ok()
+            .map(PaneSize::split_direction);
         let opened = self.client.open_plugin_pane(&OpenPluginPane {
             entrypoint: EntrypointId(REVIEW_ENTRYPOINT.to_owned()),
             placement: PanePlacement::Split,
             target_pane_id,
+            direction,
             cwd,
             focus: true,
         })?;

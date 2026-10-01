@@ -3,7 +3,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail, ensure};
 use review_repository::repository::RepoType;
-use reviewer_tui_tests::vision::{self, Options, Placement, Split};
+use reviewer_tui_tests::vision::{self, Options, Placement, SplitDirection};
 
 fn main() -> Result<()> {
     let mut options = Options {
@@ -46,8 +46,8 @@ fn main() -> Result<()> {
             }
             "--viewer" => {
                 let split = match args.next().as_deref() {
-                    Some("right") => Some(Split::Right),
-                    Some("down") => Some(Split::Down),
+                    Some("right") => Some(SplitDirection::Right),
+                    Some("down") => Some(SplitDirection::Down),
                     Some("none") => None,
                     _ => bail!("--viewer needs right, down or none"),
                 };
