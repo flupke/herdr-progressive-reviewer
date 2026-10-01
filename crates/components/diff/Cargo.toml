@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+ui-frame = { path = "../../ui-frame" }
 eyre.workspace = true
 uuid.workspace = true
 review-explore = { path = "../../review-explore" }

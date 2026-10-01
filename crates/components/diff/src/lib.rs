@@ -49,6 +49,7 @@ mod pane;
 mod presentation;
 mod render;
 mod reply_visibility;
+mod title_controls;
 
 pub use clipped_viewport::ClippedViewport;
 use diff_position::Position;
@@ -62,6 +63,7 @@ use render::{DiffPointerViewport, DiffRenderer, DiffViewport, TAB_DISPLAY_WIDTH}
 use std::ops::RangeInclusive;
 pub use syntax_highlighting::SyntaxHighlighter;
 use syntax_highlighting::Token;
+use title_controls::TitleControls;
 use ui_theme::Palette;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
@@ -293,37 +295,7 @@ impl SourceViewer {
 
     /// Resolve one pane-title control at a pane-relative column.
     fn control_at(&self, width: u16, column: u16) -> Option<DiffControl> {
-        const EXPAND: &str = "[←→]";
-        const CONTRACT: &str = "[→←]";
-        const SHOW_FILE: &str = "[👁 ]";
-        let file = self.selected_document()?;
-        let labels: &[(&str, DiffControl)] = if file.document.diff.is_file_view() {
-            &[("[x]", DiffControl::CloseFile)]
-        } else if file.document.diff.can_show_file() {
-            &[
-                (EXPAND, DiffControl::ExpandAll),
-                (CONTRACT, DiffControl::ContractAll),
-                (SHOW_FILE, DiffControl::ShowFile),
-            ]
-        } else {
-            &[
-                (EXPAND, DiffControl::ExpandAll),
-                (CONTRACT, DiffControl::ContractAll),
-            ]
-        };
-        let title_width = labels.iter().map(|(label, _)| label.width()).sum::<usize>()
-            + labels.len().saturating_sub(1);
-        let start = usize::from(width).saturating_sub(title_width + 1);
-        let offset = usize::from(column).checked_sub(start)?;
-        let mut label_start = 0;
-        for (label, control) in labels {
-            let label_end = label_start + label.width();
-            if (label_start..label_end).contains(&offset) {
-                return Some(*control);
-            }
-            label_start = label_end + 1;
-        }
-        None
+        TitleControls::shown(self.selected_document()?, width)?.at(width, column)
     }
 
     fn selected_document(&self) -> Option<&LoadedDocument> {

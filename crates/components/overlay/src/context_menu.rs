@@ -2,9 +2,10 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
 use ratatui::text::Line;
-use ratatui::widgets::{Block, Borders, Clear, Paragraph, Widget};
+use ratatui::widgets::{Clear, Paragraph, Widget};
 use review_lsp::Operation;
 use ui_events::LspQueryContext;
+use ui_frame::Frame;
 use ui_theme::Palette;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -51,9 +52,7 @@ impl SourceContextMenu {
         let popup = self.area(area);
         Clear.render(popup, buffer);
         let enabled = self.query.is_some();
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(if enabled { palette.focus } else { palette.dim }));
+        let block = Frame::Pane { focused: enabled }.block(palette, "");
         let inner = block.inner(popup);
         block.render(popup, buffer);
         let labels = ["Documentation", "Go to definition", "Find references"];

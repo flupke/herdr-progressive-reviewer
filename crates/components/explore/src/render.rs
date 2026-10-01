@@ -6,11 +6,11 @@ use diff_component::{ClippedViewport, DiffComponent};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::Style,
     widgets::{Block, Borders, Paragraph, Widget, Wrap},
 };
 use review_explore::Question;
 use ui_events::ExploreViewports;
+use ui_frame::Frame;
 use ui_theme::Palette;
 
 fn format_elapsed(milliseconds: u64) -> String {
@@ -255,9 +255,7 @@ impl ExploreComponent {
         focused: bool,
         diff: &DiffComponent,
     ) {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(if focused { palette.focus } else { palette.dim }));
+        let block = Frame::Pane { focused }.block(palette, "");
         let content = block.inner(area);
         block.render(area, buffer);
         if self.conclusion_preview.is_some() {
@@ -375,7 +373,7 @@ impl ExploreComponent {
             (true, EditorTarget::Implementation) => " · Ctrl-Enter Implement · Tab conversation",
             (true, EditorTarget::Answer) => " · Ctrl-Enter Send · Tab conversation",
         };
-        format!(" {title}{hint} ")
+        format!("{title}{hint}")
     }
 
     fn render_editor(
@@ -389,11 +387,8 @@ impl ExploreComponent {
         let area = viewport.area();
         let mut editor = Buffer::empty(area);
         let editing = self.editing && focused && self.editor_target == target;
-        let border = Style::default().fg(if editing { palette.focus } else { palette.dim });
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(self.editor_title(target, editing))
-            .border_style(border);
+        let frame = Frame::Pane { focused: editing };
+        let block = frame.block(palette, self.editor_title(target, editing));
         let inner = block.inner(area);
         block.render(area, &mut editor);
         let text_editor = match target {
@@ -403,7 +398,7 @@ impl ExploreComponent {
         text_editor.render(inner, &mut editor, palette, true);
         if area.height > 1 {
             text_editor
-                .status_border(inner.width, border, palette)
+                .status_border(inner.width, frame.border_style(palette), palette)
                 .render(
                     Rect::new(inner.x, area.bottom() - 1, inner.width, 1),
                     &mut editor,

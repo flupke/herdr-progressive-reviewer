@@ -103,48 +103,39 @@ impl ApplicationFrame<'_> {
         self.render_tabs(area, buffer);
     }
 
+    /// The tabs over the navigation pane's top border: the open one is a
+    /// filled pill, and each underlines the letter that opens it.
     fn render_tabs(&self, area: Rect, buffer: &mut Buffer) {
-        let mode = self.mode;
-        let active = Style::default()
-            .fg(self.palette.focus)
-            .add_modifier(Modifier::BOLD);
-        let inactive = Style::default().fg(self.palette.dim);
-        let tabs = Line::from(vec![
-            Span::styled(
-                NavigationTabs::FILES,
-                if mode == ReviewNavigation::Files {
-                    active
-                } else {
-                    inactive
-                },
-            ),
-            Span::raw(NavigationTabs::SEPARATOR),
-            Span::styled(
-                NavigationTabs::THREADS,
-                if mode == ReviewNavigation::Threads {
-                    active
-                } else {
-                    inactive
-                },
-            ),
-            Span::styled(
-                if self.threads.has_unread_replies() {
-                    NavigationTabs::UNREAD
-                } else {
-                    ""
-                },
-                Style::default().fg(self.palette.deletion),
-            ),
-            Span::raw(NavigationTabs::SEPARATOR),
-            Span::styled(
-                NavigationTabs::EXPLORE,
-                if mode == ReviewNavigation::Explore {
-                    active
-                } else {
-                    inactive
-                },
-            ),
-        ]);
+        let palette = self.palette;
+        let tabs = NavigationTabs::new(self.threads.has_unread_replies());
+        let mut spans = Vec::new();
+        for tab in tabs.tabs() {
+            if !spans.is_empty() {
+                spans.push(Span::raw(NavigationTabs::GAP));
+            }
+            let style = if tab.mode == self.mode {
+                Style::default()
+                    .bg(palette.focus)
+                    .fg(palette.background)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(palette.dim)
+            };
+            let (key, rest) = tab.key_and_rest();
+            spans.extend([
+                Span::styled(NavigationTabs::PADDING, style),
+                Span::styled(key, style.add_modifier(Modifier::UNDERLINED)),
+                Span::styled(rest, style),
+                Span::styled(NavigationTabs::PADDING, style),
+            ]);
+            if tab.unread {
+                spans.push(Span::styled(
+                    NavigationTabs::UNREAD,
+                    Style::default().fg(palette.deletion),
+                ));
+            }
+        }
+        let tabs = Line::from(spans);
         let width = u16::try_from(tabs.width())
             .unwrap_or(u16::MAX)
             .min(area.width.saturating_sub(2));

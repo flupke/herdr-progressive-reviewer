@@ -1,8 +1,8 @@
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::Style;
 use ratatui::text::Text;
-use ratatui::widgets::{Block, Borders, Clear, Paragraph, Widget, Wrap};
+use ratatui::widgets::{Clear, Paragraph, Widget, Wrap};
+use ui_frame::Frame;
 use ui_theme::Palette;
 
 pub(super) fn centered_area(area: Rect, width: u16, height: u16) -> Rect {
@@ -12,13 +12,6 @@ pub(super) fn centered_area(area: Rect, width: u16, height: u16) -> Rect {
         width,
         height,
     )
-}
-
-pub(super) fn popup_block(title: &str, palette: Palette) -> Block<'_> {
-    Block::default()
-        .borders(Borders::ALL)
-        .title(format!(" {title} "))
-        .border_style(Style::default().fg(palette.focus))
 }
 
 pub(super) fn render_popup(
@@ -32,7 +25,7 @@ pub(super) fn render_popup(
 ) {
     Clear.render(area, buffer);
     let paragraph = Paragraph::new(content)
-        .block(popup_block(title, palette))
+        .block(Frame::Popup.block(palette, title))
         .scroll((scroll, 0));
     if wrap {
         paragraph.wrap(Wrap { trim: false }).render(area, buffer);

@@ -4,7 +4,7 @@ use ansi_to_tui::IntoText;
 use component_core::{AnyInput, Component, ComponentSubscriptions, EventPublisher, InputScope};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Alignment, Rect};
-use ratatui::style::Style;
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Widget};
 use ui_actions::Action;
@@ -17,6 +17,10 @@ use unicode_width::UnicodeWidthStr;
 
 const MIN_TERMINAL_WIDTH: u16 = 40;
 const MIN_TERMINAL_HEIGHT: u16 = 6;
+/// Between the change ID and the commit title.
+const TITLE_GAP: &str = "  ";
+const PROGRESS_BAR_CELLS: usize = 12;
+const PROGRESS_BAR_MIN_WIDTH: u16 = 72;
 
 /// State and behavior for the repository header and status line.
 pub struct StatusComponent {
@@ -48,31 +52,18 @@ impl StatusComponent {
     }
 
     pub fn render_header(&self, area: Rect, buffer: &mut Buffer, palette: Palette) {
-        let summary = format!(
-            " - {}/{} reviewed ",
-            self.overview.reviewed, self.overview.total
-        );
-        let summary = Line::from(vec![
-            Span::styled(
-                format!("+{}", self.overview.lines_added),
-                Style::default().fg(palette.insertion),
-            ),
-            Span::raw(" "),
-            Span::styled(
-                format!("-{}", self.overview.lines_removed),
-                Style::default().fg(palette.deletion),
-            ),
-            Span::raw(summary),
-        ]);
+        let summary = self.summary(area.width, palette);
         let summary_width = u16::try_from(summary.width())
             .unwrap_or(u16::MAX)
             .min(area.width);
         let title_width = area.width.saturating_sub(summary_width.saturating_add(1));
         let mut title = Line::from(" ");
         title.spans.extend(self.display_id.spans.iter().cloned());
-        title
-            .spans
-            .push(Span::raw(format!(" {}", self.commit_title())));
+        title.spans.push(Span::raw(TITLE_GAP));
+        title.spans.push(Span::styled(
+            self.commit_title().to_owned(),
+            Style::default().add_modifier(Modifier::BOLD),
+        ));
         Paragraph::new(title)
             .style(Style::default().fg(palette.text))
             .render(Rect::new(area.x, area.y, title_width, 1), buffer);
@@ -90,35 +81,67 @@ impl StatusComponent {
             );
     }
 
-    pub fn render_footer(&self, area: Rect, buffer: &mut Buffer, palette: Palette) {
-        let mut statuses = Vec::new();
-        if self.search.query.is_some() {
-            statuses.push(Span::raw(format!(
-                "[{}/{}]",
-                self.search.current_match, self.search.total_matches
-            )));
+    /// The changed line counts and review progress, with a progress bar
+    /// when the header is wide enough to keep room for the title.
+    fn summary(&self, width: u16, palette: Palette) -> Line<'static> {
+        let FilesOverviewChanged {
+            reviewed,
+            total,
+            lines_added,
+            lines_removed,
+        } = self.overview;
+        let mut spans = vec![
+            Span::styled(
+                format!("+{lines_added}"),
+                Style::default().fg(palette.insertion),
+            ),
+            Span::raw(" "),
+            Span::styled(
+                format!("-{lines_removed}"),
+                Style::default().fg(palette.deletion),
+            ),
+            Span::raw("  "),
+        ];
+        if width >= PROGRESS_BAR_MIN_WIDTH {
+            let done = (reviewed * PROGRESS_BAR_CELLS)
+                .checked_div(total)
+                .unwrap_or_default()
+                .min(PROGRESS_BAR_CELLS);
+            spans.extend([
+                Span::styled("━".repeat(done), Style::default().fg(palette.insertion)),
+                Span::styled(
+                    "━".repeat(PROGRESS_BAR_CELLS - done),
+                    Style::default().fg(palette.border),
+                ),
+                Span::raw(" "),
+            ]);
         }
-        let status = Line::from(
-            statuses
-                .into_iter()
-                .enumerate()
-                .flat_map(|(index, span)| {
-                    (index > 0)
-                        .then_some(Span::raw(" · "))
-                        .into_iter()
-                        .chain([span])
-                })
-                .collect::<Vec<_>>(),
-        );
+        spans.push(Span::raw(format!("{reviewed}/{total} reviewed ")));
+        Line::from(spans)
+    }
+
+    pub fn render_footer(&self, area: Rect, buffer: &mut Buffer, palette: Palette) {
+        let Some(query) = &self.search.query else {
+            Paragraph::new(Line::from(vec![
+                Span::styled(
+                    "?",
+                    Style::default()
+                        .fg(palette.focus)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(" help", Style::default().fg(palette.dim)),
+            ]))
+            .render(area, buffer);
+            return;
+        };
+        let status = Line::raw(format!(
+            "[{}/{}]",
+            self.search.current_match, self.search.total_matches
+        ));
         let width = u16::try_from(status.width())
             .unwrap_or(u16::MAX)
             .min(area.width);
-        let left = self
-            .search
-            .query
-            .as_ref()
-            .map_or_else(|| "? help".to_owned(), |query| format!("/{query}"));
-        Paragraph::new(left)
+        Paragraph::new(format!("/{query}"))
             .style(Style::default().fg(palette.text))
             .render(
                 Rect::new(
@@ -167,7 +190,7 @@ impl StatusComponent {
         match position.terminal_row {
             0 if position.terminal_column > 0
                 && usize::from(position.terminal_column)
-                    <= self.display_id.width() + 1 + self.commit_title().width() =>
+                    <= self.display_id.width() + TITLE_GAP.len() + self.commit_title().width() =>
             {
                 self.events.publish(CommitMessageToggleRequested);
                 Vec::new()

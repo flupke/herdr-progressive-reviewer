@@ -8,25 +8,23 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::{Alignment, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Widget};
+use ratatui::widgets::{Paragraph, Widget};
 use review_lsp::SourceLocation;
 use review_repository::diff::{DiffRow, NoticeKind};
 use review_threads::MessageId;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
+use ui_frame::Frame;
 use ui_theme::Palette;
 
 use crate::comment_layout::CommentLayout;
 use crate::presentation::HunkBadge;
+use crate::title_controls::TitleControls;
 use crate::{DiffPresentation, LoadedDocument, PresentedRow, Token};
 use diff_position::{Layout, Position};
 
 pub(super) const TAB_DISPLAY_WIDTH: usize = 4;
-const DIFF_CONTROLS_TITLE: &str = "[←→] [→←] [👁 ]";
-const BASIC_DIFF_CONTROLS_TITLE: &str = "[←→] [→←]";
-const FILE_CONTROL_TITLE: &str = "[x]";
-const MIN_DIFF_CONTROLS_WIDTH: u16 = 32;
 
 pub(super) struct DiffRenderer<'a> {
     comments: Option<&'a crate::comments::Comments>,
@@ -59,16 +57,15 @@ impl<'a> DiffRenderer<'a> {
                     source_line: None,
                     source_location: None,
                 };
-                let line = renderer
-                    .diff_line(&row.diff, context, true)
-                    .style(renderer.row_style(&row.diff, true));
+                let style = renderer.row_style(&row.diff, true);
+                let line = renderer.diff_line(&row.diff, context, true).style(style);
                 WrappedDiffRow::wrap_source(
                     &line,
                     index,
                     width,
                     number_width + 3,
                     Some(frame),
-                    None,
+                    style.bg,
                     None,
                 )
                 .into_iter()
@@ -551,23 +548,20 @@ impl DiffRenderer<'_> {
                 format!("{kind} · {}", file.display_path)
             },
         );
-        let controls = diff_control_title(file);
-        let show_controls = diff_controls_are_visible(area.width, file);
-        let title_width = usize::from(area.width).saturating_sub(
-            if show_controls { controls.width() } else { 0 }
-                + 5
-                + if focused { " (focus)".len() } else { 0 },
-        );
+        let controls = file.and_then(|file| TitleControls::shown(file, area.width));
+        // Two corners, the title's padding and a gap before the controls.
+        let title_width =
+            usize::from(area.width).saturating_sub(controls.map_or(0, TitleControls::width) + 5);
         // The hunk count yields to the path when the title runs short.
         let title = match file.and_then(|file| self.hunk_progress(file)) {
             Some(progress) if title.width() + progress.width() <= title_width => title + &progress,
-            _ if show_controls => shorten(&title, title_width),
+            _ if controls.is_some() => shorten(&title, title_width),
             _ => title,
         };
-        let mut block = pane_block(self.palette, &title, focused);
-        if show_controls {
+        let mut block = Frame::Pane { focused }.block(self.palette, title);
+        if let Some(controls) = controls {
             block = block.title(
-                Line::styled(controls, Style::default().fg(self.palette.focus))
+                Line::styled(controls.title(), Style::default().fg(self.palette.dim))
                     .alignment(Alignment::Right),
             );
         }
@@ -696,7 +690,8 @@ impl DiffRenderer<'_> {
                     width,
                     line_number_width + 3,
                     enclosing_frame,
-                    is_current_row.then_some(self.palette.cursor),
+                    // Added, removed and selected rows are tinted to the edge.
+                    style.bg,
                     badge.as_ref(),
                 ));
                 wrapped
@@ -1171,19 +1166,6 @@ fn wrap_line(
     wrapped
 }
 
-fn pane_block(palette: Palette, title: &str, focused: bool) -> Block<'_> {
-    let style = if focused {
-        Style::default().fg(palette.focus)
-    } else {
-        Style::default().fg(palette.dim)
-    };
-    let suffix = if focused { " (focus)" } else { "" };
-    Block::default()
-        .borders(Borders::ALL)
-        .title(format!(" {title}{suffix} "))
-        .border_style(style)
-}
-
 fn shorten(value: &str, width: usize) -> String {
     let length = value.chars().count();
     if length <= width {
@@ -1201,26 +1183,6 @@ fn shorten(value: &str, width: usize) -> String {
     )
 }
 
-fn diff_control_title(file: Option<&LoadedDocument>) -> &'static str {
-    match file {
-        Some(file) if file.document.diff.is_file_view() => FILE_CONTROL_TITLE,
-        Some(file) if file.document.diff.can_show_file() => DIFF_CONTROLS_TITLE,
-        _ => BASIC_DIFF_CONTROLS_TITLE,
-    }
-}
-
-fn diff_controls_are_visible(width: u16, file: Option<&LoadedDocument>) -> bool {
-    if file.is_some_and(|file| file.temporary) {
-        return false;
-    }
-    let minimum = if file.is_some_and(|file| file.document.diff.is_file_view()) {
-        u16::try_from(FILE_CONTROL_TITLE.width() + 2).unwrap_or(u16::MAX)
-    } else {
-        MIN_DIFF_CONTROLS_WIDTH
-    };
-    width >= minimum
-}
-
 impl WrappedDiffRow {
     fn message_id(&self) -> Option<&MessageId> {
         self.comment
@@ -1234,7 +1196,7 @@ impl WrappedDiffRow {
         width: u16,
         continuation_indent: usize,
         frame: Option<DiffFrame>,
-        cursor_background: Option<Color>,
+        row_background: Option<Color>,
         badge: Option<&Line<'static>>,
     ) -> Vec<Self> {
         let content_width = if frame.is_some() {
@@ -1262,7 +1224,7 @@ impl WrappedDiffRow {
                         Span::styled(span.content.clone(), background.patch(span.style))
                     }));
                 }
-                if let Some(background) = cursor_background {
+                if let Some(background) = row_background {
                     fill_line_background(&mut line, width, background);
                 }
                 let border_cells =

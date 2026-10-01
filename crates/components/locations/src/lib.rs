@@ -14,6 +14,7 @@ use ui_events::{
     PointerInputKind, RepositoryMetadataChanged, SourceLocationAccepted,
     SourceLocationPreviewRequested, ToastRequested,
 };
+use ui_frame::Frame;
 use ui_panes::SelectionPane;
 use ui_shortcuts::Key;
 use ui_theme::Palette;
@@ -50,19 +51,9 @@ impl LocationsComponent {
         let Some(list) = &self.list else {
             return;
         };
-        let border_color = if focused {
-            self.palette.focus
-        } else {
-            self.palette.dim
-        };
         SelectionPane::new(area, list.scroll).render(
             buffer,
-            format!(
-                " {}{} ",
-                list.operation.title(),
-                if focused { " (focus)" } else { "" }
-            ),
-            Style::default().fg(border_color),
+            Frame::Pane { focused }.block(self.palette, list.operation.title()),
             &list.locations,
             |index, location, width| {
                 let text = format!(

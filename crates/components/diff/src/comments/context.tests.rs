@@ -73,6 +73,11 @@ fn saved_diff_renders_line_numbers_changes_and_syntax_with_or_without_full_sourc
                     .any(|x| buffer[(x, row)].symbol() == "▌" && buffer[(x, row)].fg == marker)
             );
             assert_eq!(buffer[(column, row)].bg, background);
+            // The tint runs to the conversation's frame.
+            let frame = (column..buffer.area.width)
+                .find(|&x| buffer[(x, row)].symbol() == "│")
+                .expect("the conversation frames its code");
+            assert_eq!(buffer[(frame - 1, row)].bg, background);
             let colors = (column..column + u16::try_from(text.len()).unwrap())
                 .map(|x| buffer[(x, row)].fg)
                 .collect::<std::collections::HashSet<_>>();

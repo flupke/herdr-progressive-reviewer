@@ -467,7 +467,7 @@ fn mounted_components_render_through_the_application() {
         .iter()
         .map(ratatui::buffer::Cell::symbol)
         .collect::<String>();
-    assert!(rendered.contains("[F]iles"));
+    assert!(rendered.contains("Files   Threads   Explore"));
     assert!(rendered.contains("Diff"));
 }
 

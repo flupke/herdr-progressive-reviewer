@@ -6,6 +6,7 @@ use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use review_threads::{Author, Message, MessageId, ReviewThread};
+use ui_frame::Frame;
 use ui_theme::Palette;
 use unicode_width::UnicodeWidthStr;
 
@@ -285,11 +286,7 @@ impl ThreadLayout {
     }
 
     fn border_style(self, active: bool) -> Style {
-        Style::default().fg(if active {
-            self.palette.focus
-        } else {
-            self.palette.dim
-        })
+        Frame::Pane { focused: active }.border_style(self.palette)
     }
 
     fn framed_border(
@@ -319,11 +316,7 @@ impl ThreadLayout {
         active: bool,
         id: Option<&MessageId>,
     ) {
-        let border = Style::default().fg(if active {
-            self.palette.focus
-        } else {
-            self.palette.dim
-        });
+        let border = self.border_style(active);
         let mut spans = vec![Span::styled("│ ", border)];
         let padding = usize::from(self.frame.content_width()).saturating_sub(line.width());
         spans.append(&mut line.spans);

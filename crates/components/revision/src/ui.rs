@@ -9,6 +9,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph, Widget};
 use review_repository::repository::{
     ChangeId, RevisionCandidate, RevisionDirection, RevisionHistoryLine,
 };
+use ui_frame::Frame;
 use ui_shortcuts::Key;
 use ui_theme::Palette;
 
@@ -257,10 +258,8 @@ impl SelectorPopup {
         highlighted_line: Option<usize>,
     ) {
         Clear.render(self.area, buffer);
-        Block::default()
-            .title(title)
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(palette.focus))
+        Frame::Popup
+            .block(*palette, title)
             .render(self.area, buffer);
         let visible_rows = usize::from(self.inner.height).max(1);
         let scroll = viewport_line.saturating_add(1).saturating_sub(visible_rows);

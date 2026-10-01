@@ -7,7 +7,7 @@ use ratatui::{
     buffer::Buffer,
     layout::Rect,
     style::Style,
-    widgets::{Block, Borders, Paragraph, Widget},
+    widgets::{Paragraph, Widget},
 };
 use review_explore::{CoverageUnit, EvidenceRef, SourceSide};
 use ui_controls::NavigationLink;
@@ -15,6 +15,7 @@ use ui_events::{
     EvidenceView, ExploreEvidence, ExploreEvidenceInput, PointerInput, PointerInputKind,
     ReviewPane, ReviewPaneFocusRequested,
 };
+use ui_frame::Frame;
 use ui_panes::SplitPane;
 use ui_shortcuts::{ExploreCommand, ExploreEvidenceShortcut, ExploreShortcut};
 use ui_theme::Palette;
@@ -280,14 +281,12 @@ impl ExploreComponent {
                 if right.width == 0 || right.height == 0 {
                     return;
                 }
-                let block = Block::default()
-                    .borders(Borders::ALL)
-                    .title(" Required checkpoint changes ")
-                    .border_style(Style::default().fg(if focused {
-                        palette.dim
-                    } else {
-                        palette.focus
-                    }));
+                // The changes have focus while the file list beside them does not.
+                let changes_focused = !focused;
+                let block = Frame::Pane {
+                    focused: changes_focused,
+                }
+                .block(palette, "Required checkpoint changes");
                 let inner = block.inner(right);
                 preview.right.set(inner);
                 block.render(right, buffer);

@@ -4,17 +4,16 @@ use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Widget},
+    widgets::{Paragraph, Widget},
 };
 use review_thread_projection::ThreadProjection;
 use review_threads::{Resolution, ReviewThread};
+use ui_frame::Frame;
 use ui_theme::Palette;
 
 impl ThreadsComponent {
     pub fn render(&self, area: Rect, buffer: &mut Buffer, palette: Palette, focused: bool) {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(if focused { palette.focus } else { palette.dim }));
+        let block = Frame::Pane { focused }.block(palette, "");
         let inner = block.inner(area);
         block.render(area, buffer);
         let projection = self.projection.read();
@@ -83,9 +82,8 @@ impl ThreadsComponent {
         buffer: &mut Buffer,
         palette: Palette,
     ) {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(palette.focus));
+        let selected = self.selected.as_ref() == Some(&thread.id);
+        let block = Frame::Card { selected }.block(palette, "");
         let content = block.inner(area);
         block.render(area, buffer);
         Paragraph::new(self.card(projection, thread, palette)).render(content, buffer);

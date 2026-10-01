@@ -6,6 +6,7 @@ use ratatui::{
     style::{Modifier, Style},
     text::Line,
 };
+use ui_frame::Frame;
 use ui_shortcuts::MovementShortcut;
 use ui_theme::Palette;
 
@@ -28,11 +29,9 @@ impl FileList<'_> {
         title: &str,
         file_row: impl Fn(usize, &str, usize, usize) -> Line<'static>,
     ) {
-        let suffix = if focused { " (focus)" } else { "" };
         SelectionPane::new(area, self.scroll).render(
             buffer,
-            format!(" {title}{suffix} "),
-            Style::default().fg(if focused { palette.focus } else { palette.dim }),
+            Frame::Pane { focused }.block(palette, title),
             &self.tree.rows,
             |_, row, width| match row {
                 FileTreeRow::Directory {

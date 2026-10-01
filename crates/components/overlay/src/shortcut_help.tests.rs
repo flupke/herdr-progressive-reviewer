@@ -8,7 +8,7 @@ const LONG: &str = "Switch Files / Threads / Explore, including while composing"
 #[test]
 fn wide_terminals_show_every_description_on_one_row() {
     let area = ShortcutHelpOverlay::area(Rect::new(0, 0, 200, 200));
-    let rows = HelpTable::new().rows(area.width - 2);
+    let rows = text_rows(area.width - 2);
 
     assert!(rows.iter().any(|row| row.ends_with(LONG)));
     assert!(
@@ -21,7 +21,7 @@ fn wide_terminals_show_every_description_on_one_row() {
 fn narrow_terminals_wrap_descriptions_and_scroll_through_every_row() {
     let viewport = Rect::new(0, 0, 60, 8);
     let area = ShortcutHelpOverlay::area(viewport);
-    let rows = HelpTable::new().rows(area.width - 2);
+    let rows = text_rows(area.width - 2);
     let text = rows
         .iter()
         .map(|row| row.trim())
@@ -39,7 +39,7 @@ fn narrow_terminals_wrap_descriptions_and_scroll_through_every_row() {
 #[test]
 fn minimum_width_stacks_keys_above_readable_descriptions() {
     let area = ShortcutHelpOverlay::area(Rect::new(0, 0, 40, 6));
-    let rows = HelpTable::new().rows(area.width - 2);
+    let rows = text_rows(area.width - 2);
     let text = rows
         .iter()
         .map(|row| row.trim())
@@ -59,4 +59,40 @@ fn wrap_words_keeps_words_whole() {
     assert_eq!(wrap_words("a bb ccc", 4), ["a bb", "ccc"]);
     assert_eq!(wrap_words("toolongword x", 3), ["toolongword", "x"]);
     assert_eq!(wrap_words("日本 語", 4), ["日本", "語"]);
+}
+
+#[test]
+fn keys_take_the_accent_and_descriptions_the_text_color() {
+    let palette = ui_theme::Theme::default().palette;
+    let rows = HelpTable::new().rows(200);
+    let row = rows.iter().find(|row| row.keys == "a / A").unwrap();
+    let line = row.clone().line(palette);
+
+    assert_eq!(line.spans[0].content, "a / A");
+    assert_eq!(line.spans[0].style.fg, Some(palette.focus));
+    assert!(
+        line.spans[1]
+            .content
+            .trim_start()
+            .starts_with("Add / reply")
+    );
+    assert_eq!(line.spans[1].style.fg, Some(palette.text));
+}
+
+#[test]
+fn wrapped_description_rows_have_no_keys() {
+    let rows = HelpTable::new().rows(40);
+
+    assert!(
+        rows.iter()
+            .any(|row| row.keys.is_empty() && !row.description.is_empty())
+    );
+}
+
+fn text_rows(width: u16) -> Vec<String> {
+    HelpTable::new()
+        .rows(width)
+        .iter()
+        .map(ToString::to_string)
+        .collect()
 }

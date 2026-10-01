@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+ui-frame = { path = "../../ui-frame" }
 component-core = { path = "../../component-core" }
 component-modal = { path = "../../component-modal" }
 ratatui.workspace = true

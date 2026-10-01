@@ -6,7 +6,8 @@ use syntax_highlighting::SyntaxHighlighter;
 use ui_shortcuts::Key;
 use ui_theme::Palette;
 
-use crate::popup::{centered_area, popup_block};
+use crate::popup::centered_area;
+use ui_frame::Frame;
 
 pub(super) struct HoverOverlay {
     markdown: Option<String>,
@@ -59,7 +60,7 @@ impl HoverOverlay {
         };
         let popup = Self::area(area);
         Clear.render(popup, buffer);
-        let block = popup_block("Documentation · Esc close", palette);
+        let block = Frame::Popup.block(palette, "Documentation · Esc close");
         let inner = block.inner(popup);
         block.render(popup, buffer);
         let lines =

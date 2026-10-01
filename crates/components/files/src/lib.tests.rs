@@ -198,6 +198,7 @@ fn rendering_shows_review_state_and_line_statistics() {
                 Palette {
                     focus: Color::White,
                     dim: Color::DarkGray,
+                    border: Color::DarkGray,
                     cursor: Color::Blue,
                     warning: Color::Yellow,
                     insertion: Color::Green,
@@ -520,6 +521,7 @@ fn palette() -> Palette {
     Palette {
         focus: Color::White,
         dim: Color::DarkGray,
+        border: Color::DarkGray,
         cursor: Color::Blue,
         warning: Color::Yellow,
         insertion: Color::Green,

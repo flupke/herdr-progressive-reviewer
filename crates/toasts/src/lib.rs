@@ -5,9 +5,11 @@ use std::time::{Duration, Instant};
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph, Widget};
+use ratatui::widgets::{Clear, Paragraph, Widget};
+use ui_frame::Frame;
+use ui_theme::Palette;
 use uuid::Uuid;
 
 const LONG_TOAST_DELAY: Duration = Duration::from_millis(250);
@@ -103,11 +105,11 @@ impl ToastState {
     }
 
     /// Render active toasts.
-    pub fn render(&self, area: Rect, buffer: &mut Buffer, info: Color, error: Color) {
-        self.render_at(area, buffer, info, error, Instant::now());
+    pub fn render(&self, area: Rect, buffer: &mut Buffer, palette: Palette) {
+        self.render_at(area, buffer, palette, Instant::now());
     }
 
-    fn render_at(&self, area: Rect, buffer: &mut Buffer, info: Color, error: Color, now: Instant) {
+    fn render_at(&self, area: Rect, buffer: &mut Buffer, palette: Palette, now: Instant) {
         let long_toast = self
             .long_toasts
             .front()
@@ -117,8 +119,7 @@ impl ToastState {
                 text: &toast.text,
                 kind: ToastKind::Info,
                 stack_index: 0,
-                info,
-                error,
+                palette,
             }
             .render(area, buffer);
         }
@@ -133,8 +134,7 @@ impl ToastState {
                 text: &toast.text,
                 kind: toast.kind,
                 stack_index: index + usize::from(long_toast.is_some()),
-                info,
-                error,
+                palette,
             }
             .render(area, buffer);
         }
@@ -145,8 +145,7 @@ struct ToastView<'a> {
     text: &'a str,
     kind: ToastKind,
     stack_index: usize,
-    info: Color,
-    error: Color,
+    palette: Palette,
 }
 
 impl Widget for ToastView<'_> {
@@ -163,18 +162,14 @@ impl Widget for ToastView<'_> {
         );
         Clear.render(popup, buffer);
         let color = match self.kind {
-            ToastKind::Info => self.info,
-            ToastKind::Error => self.error,
+            ToastKind::Info => self.palette.focus,
+            ToastKind::Error => self.palette.deletion,
         };
         Paragraph::new(Line::from(vec![Span::styled(
             self.text,
             Style::default().fg(color).add_modifier(Modifier::BOLD),
         )]))
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(color)),
-        )
+        .block(Frame::Notice(color).block(self.palette, ""))
         .render(popup, buffer);
     }
 }

@@ -49,8 +49,15 @@ fn lsp_references_open_beside_explore_source_and_restore_the_full_pane() {
         .iter()
         .map(ratatui::buffer::Cell::symbol)
         .collect::<String>();
-    assert!(top.contains("References (focus)"), "{top}");
-    assert!(top.contains("[E]xplore"), "{top}");
+    assert!(top.contains("References"), "{top}");
+    let (column, row) = fixture.point("References");
+    assert!(
+        fixture.buffer()[(column, row)]
+            .modifier
+            .contains(ratatui::style::Modifier::BOLD),
+        "the focused selector's title is bold"
+    );
+    assert!(top.contains("Explore"), "{top}");
     let source_side = fixture
         .buffer()
         .content
@@ -84,9 +91,7 @@ fn explore_tabs_share_the_pane_border_and_controls_keep_distinct_styles() {
     let (mut fixture, request) = ExploreUi::new();
     fixture.respond(&request, 1);
     let text = fixture.text();
-    assert!(text.contains("[E]xplore"));
-    assert!(text.contains("┌ [F]iles | [T]hreads | [E]xplore ─"));
-    assert!(!text.contains("┌ Explore ─"));
+    assert!(text.contains("╭ Files   Threads   Explore ─"));
 
     let (button_column, button_row) = fixture.point(" Send ");
     let (defer_column, defer_row) = fixture.point(" Defer ");
@@ -183,7 +188,7 @@ fn coverage_control_reveals_overview_from_a_scrolled_question_and_restores_scrol
                 .iter()
                 .map(ratatui::buffer::Cell::symbol)
                 .collect::<String>()
-                .contains("┌ Coverage "))
+                .contains("╭ Coverage "))
     );
     fixture.click("Answered-evidence coverage 0% of required lines");
     assert_eq!(fixture.text(), before);
@@ -785,6 +790,8 @@ fn history_pages_retain_independent_evidence_and_drafts() {
     assert!(!text.contains("Human context for the first question."));
     assert_eq!(fixture.inline_sizes().len(), 1);
     assert_eq!(text.matches("Your answer").count(), 1);
+    // The frame pads the editor's title by one space.
+    assert!(text.contains("╭ Your answer"), "{text}");
     fixture
         .app
         .update(UserInput::Paste("Current answer draft.".into()));

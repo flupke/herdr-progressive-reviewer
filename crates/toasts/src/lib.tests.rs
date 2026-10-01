@@ -62,7 +62,7 @@ fn public_render_draws_only_the_number_of_toasts_that_fit() {
     toasts.push("newest", ToastKind::Error);
     let mut buffer = Buffer::empty(Rect::new(0, 0, 40, 6));
 
-    toasts.render(buffer.area, &mut buffer, Color::Green, Color::Red);
+    toasts.render(buffer.area, &mut buffer, palette());
 
     let content = buffer
         .content
@@ -72,8 +72,13 @@ fn public_render_draws_only_the_number_of_toasts_that_fit() {
     assert!(!content.contains("oldest"));
     assert!(content.contains("middle"));
     assert!(content.contains("newest"));
-    assert!(buffer.content.iter().any(|cell| cell.fg == Color::Green));
-    assert!(buffer.content.iter().any(|cell| cell.fg == Color::Red));
+    assert!(buffer.content.iter().any(|cell| cell.fg == palette().focus));
+    assert!(
+        buffer
+            .content
+            .iter()
+            .any(|cell| cell.fg == palette().deletion)
+    );
 }
 
 #[test]
@@ -85,7 +90,7 @@ fn toasts_stack_delay_and_expire_independently() {
     let long = toasts.start_long_toast("long");
     let mut buffer = Buffer::empty(Rect::new(0, 0, 80, 12));
 
-    toasts.render_at(buffer.area, &mut buffer, Color::Green, Color::Red, now);
+    toasts.render_at(buffer.area, &mut buffer, palette(), now);
     let content = buffer
         .content
         .iter()
@@ -96,7 +101,7 @@ fn toasts_stack_delay_and_expire_independently() {
     assert!(!content.contains("long"));
 
     toasts.long_toasts.front_mut().unwrap().started = now.checked_sub(LONG_TOAST_DELAY).unwrap();
-    toasts.render_at(buffer.area, &mut buffer, Color::Green, Color::Red, now);
+    toasts.render_at(buffer.area, &mut buffer, palette(), now);
     assert!(
         buffer
             .content
@@ -110,4 +115,8 @@ fn toasts_stack_delay_and_expire_independently() {
     toasts.expire(now + Duration::from_secs(7));
     assert!(toasts.toasts.is_empty());
     assert!(toasts.long_toasts.is_empty());
+}
+
+fn palette() -> Palette {
+    ui_theme::Theme::default().palette
 }

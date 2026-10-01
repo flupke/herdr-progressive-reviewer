@@ -309,7 +309,7 @@ impl ReviewApplication {
             .event_bus
             .get::<ThreadsComponent>(self.threads_component)
             .is_some_and(ThreadsComponent::has_unread_replies);
-        NavigationTabs::mode_at(column - tabs.x, unread)
+        NavigationTabs::new(unread).mode_at(column - tabs.x)
     }
 
     fn dispatch_resize(

@@ -300,7 +300,13 @@ fn evidence_list_uses_file_navigation_shortcuts_when_focused() {
     let response = fixture.response(&request, 1);
     publish(&mut fixture, response);
     fixture.click("policy.rs:1");
-    assert!(fixture.text().contains("Evidence 2 · Supporting 0 (focus)"));
+    // A focused pane's title is bold.
+    let (column, row) = fixture.point("Evidence 2 · Supporting 0");
+    assert!(
+        fixture.buffer()[(column, row)]
+            .modifier
+            .contains(ratatui::style::Modifier::BOLD)
+    );
     fixture.app.update(UserInput::Key(Key::Char('j')));
     assert!(fixture.text().contains("policy.rs:3"));
     let (column, row) = fixture.point("policy.rs:3");

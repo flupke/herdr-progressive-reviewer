@@ -25,6 +25,8 @@ pub struct Palette {
     pub background: Color,
     pub text: Color,
     pub dim: Color,
+    /// Borders that do not have the user's attention.
+    pub border: Color,
     pub focus: Color,
     pub warning: Color,
     pub deletion: Color,
@@ -199,6 +201,7 @@ impl Palette {
             background: anchors.base,
             text: anchors.text,
             dim: Self::blend(anchors.base, pole, 34),
+            border: Self::blend(anchors.base, pole, 16),
             focus: anchors.focus,
             warning: anchors.yellow,
             deletion: anchors.red,

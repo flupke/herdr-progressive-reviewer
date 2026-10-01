@@ -1,5 +1,7 @@
 //! Application pane layout, shared by drawing and pointer hit-testing.
 
+use std::ops::Range;
+
 use ratatui::layout::Rect;
 use ui_panes::SplitPane;
 
@@ -7,8 +9,7 @@ const NARROW_WIDTH: u16 = 72;
 const MINIMUM_DIFF_WIDTH: u16 = 16;
 
 use ui_events::{ReviewNavigation, ReviewPane};
-
-pub(super) struct NavigationTabs;
+use unicode_width::UnicodeWidthStr;
 
 fn location_selector_panes(body: Rect, preferred_width: Option<u16>) -> SplitPane {
     SplitPane::new(
@@ -18,41 +19,75 @@ fn location_selector_panes(body: Rect, preferred_width: Option<u16>) -> SplitPan
     )
 }
 
-impl NavigationTabs {
-    pub(super) const FILES: &str = " [F]iles ";
-    pub(super) const EXPLORE: &str = " [E]xplore ";
-    pub(super) const THREADS: &str = " [T]hreads ";
-    pub(super) const SEPARATOR: &str = "|";
-    pub(super) const UNREAD: &str = "● ";
+/// The Files, Threads and Explore tabs on the navigation pane's top
+/// border, laid out once for both drawing and clicks.
+pub(super) struct NavigationTabs {
+    unread: bool,
+}
 
-    fn width(unread: bool) -> usize {
-        Self::FILES.len()
-            + Self::SEPARATOR.len()
-            + Self::THREADS.len()
-            + Self::SEPARATOR.len()
-            + Self::EXPLORE.len()
-            + usize::from(unread) * Self::UNREAD.chars().count()
+/// One tab and the columns it covers, counted from the first tab.
+pub(super) struct NavigationTab {
+    pub(super) mode: ReviewNavigation,
+    /// The name, whose first letter is the key that opens the tab.
+    name: &'static str,
+    /// Whether the unread marker follows the name.
+    pub(super) unread: bool,
+    columns: Range<usize>,
+}
+
+impl NavigationTab {
+    /// The letter that opens the tab, and the rest of its name.
+    pub(super) fn key_and_rest(&self) -> (&'static str, &'static str) {
+        self.name.split_at(1)
+    }
+}
+
+impl NavigationTabs {
+    const NAMES: [(ReviewNavigation, &'static str); 3] = [
+        (ReviewNavigation::Files, "Files"),
+        (ReviewNavigation::Threads, "Threads"),
+        (ReviewNavigation::Explore, "Explore"),
+    ];
+    /// On each side of a name, inside the tab.
+    pub(super) const PADDING: &'static str = " ";
+    pub(super) const GAP: &'static str = " ";
+    pub(super) const UNREAD: &'static str = "● ";
+
+    /// The tabs, with the unread marker on Threads when `unread` is set.
+    pub(super) fn new(unread: bool) -> Self {
+        Self { unread }
+    }
+
+    pub(super) fn tabs(&self) -> impl Iterator<Item = NavigationTab> + '_ {
+        let mut start = 0;
+        Self::NAMES.into_iter().map(move |(mode, name)| {
+            let unread = self.unread && mode == ReviewNavigation::Threads;
+            let width = name.len()
+                + 2 * Self::PADDING.len()
+                + if unread { Self::UNREAD.width() } else { 0 };
+            let tab = NavigationTab {
+                mode,
+                name,
+                unread,
+                columns: start..start + width,
+            };
+            start += width + Self::GAP.len();
+            tab
+        })
+    }
+
+    fn width(&self) -> usize {
+        self.tabs().last().map_or(0, |tab| tab.columns.end)
     }
 
     fn minimum_pane_width() -> u16 {
-        u16::try_from(Self::width(true) + 2).expect("navigation tabs fit the terminal width")
+        u16::try_from(Self::new(true).width() + 2).expect("navigation tabs fit the terminal width")
     }
 
-    pub(super) fn mode_at(column: u16, unread: bool) -> Option<ReviewNavigation> {
-        let column = usize::from(column);
-        let threads_start = Self::FILES.len() + Self::SEPARATOR.len();
-        let threads_end = threads_start
-            + Self::THREADS.len()
-            + usize::from(unread) * Self::UNREAD.chars().count();
-        if column < Self::FILES.len() {
-            Some(ReviewNavigation::Files)
-        } else if (threads_start..threads_end).contains(&column) {
-            Some(ReviewNavigation::Threads)
-        } else if (threads_end + Self::SEPARATOR.len()..Self::width(unread)).contains(&column) {
-            Some(ReviewNavigation::Explore)
-        } else {
-            None
-        }
+    pub(super) fn mode_at(&self, column: u16) -> Option<ReviewNavigation> {
+        self.tabs()
+            .find(|tab| tab.columns.contains(&usize::from(column)))
+            .map(|tab| tab.mode)
     }
 }
 
@@ -329,3 +364,7 @@ impl ScreenLayout {
         self.panes.is_separator(column, row)
     }
 }
+
+#[cfg(test)]
+#[path = "layout.tests.rs"]
+mod tests;

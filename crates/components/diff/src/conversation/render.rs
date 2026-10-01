@@ -4,10 +4,11 @@ use ratatui::{
     layout::Rect,
     style::Style,
     text::{Line, Span},
-    widgets::{Block, Borders, Widget},
+    widgets::Widget,
 };
 use review_threads::ReviewThread;
 use ui_controls::NavigationLink;
+use ui_frame::Frame;
 use ui_theme::Palette;
 
 use super::ConversationAction;
@@ -126,10 +127,7 @@ impl DiffComponent {
         palette: Palette,
         focused: bool,
     ) {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(" Review thread ")
-            .border_style(Style::default().fg(if focused { palette.focus } else { palette.dim }));
+        let block = Frame::Pane { focused }.block(palette, "Review thread");
         let inner = block.inner(area);
         block.render(area, buffer);
         let rows = self.conversation_rows(inner.width, palette);

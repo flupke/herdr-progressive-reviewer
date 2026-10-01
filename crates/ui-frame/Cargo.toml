@@ -1,15 +1,13 @@
 [package]
-name = "toasts"
+name = "ui-frame"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-ui-frame = { path = "../ui-frame" }
-ui-theme = { path = "../ui-theme" }
 ratatui.workspace = true
-uuid.workspace = true
+ui-theme = { path = "../ui-theme" }
 
 [lints]
 workspace = true

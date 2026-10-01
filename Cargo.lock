@@ -808,6 +808,7 @@ dependencies = [
  "ui-actions",
  "ui-controls",
  "ui-events",
+ "ui-frame",
  "ui-shortcuts",
  "ui-theme",
  "unicode-segmentation",
@@ -1004,6 +1005,7 @@ dependencies = [
  "ui-actions",
  "ui-controls",
  "ui-events",
+ "ui-frame",
  "ui-panes",
  "ui-shortcuts",
  "ui-theme",
@@ -2856,6 +2858,7 @@ dependencies = [
  "toasts",
  "ui-actions",
  "ui-events",
+ "ui-frame",
  "ui-panes",
  "ui-shortcuts",
  "ui-theme",
@@ -3232,6 +3235,7 @@ dependencies = [
  "ui-actions",
  "ui-controls",
  "ui-events",
+ "ui-frame",
  "ui-shortcuts",
  "ui-theme",
  "unicode-width 0.2.0",
@@ -4203,6 +4207,7 @@ dependencies = [
  "toasts",
  "ui-actions",
  "ui-events",
+ "ui-frame",
  "ui-shortcuts",
  "ui-theme",
 ]
@@ -5077,6 +5082,7 @@ dependencies = [
  "review-types",
  "ui-actions",
  "ui-events",
+ "ui-frame",
  "ui-shortcuts",
  "ui-theme",
 ]
@@ -5158,6 +5164,8 @@ name = "toasts"
 version = "0.2.0"
 dependencies = [
  "ratatui 0.30.2",
+ "ui-frame",
+ "ui-theme",
  "uuid",
 ]
 
@@ -5433,6 +5441,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "ui-frame"
+version = "0.2.0"
+dependencies = [
+ "ratatui 0.30.2",
+ "ui-theme",
+]
+
+[[package]]
 name = "ui-keys"
 version = "0.2.0"
 dependencies = [
@@ -5444,6 +5460,7 @@ name = "ui-panes"
 version = "0.2.0"
 dependencies = [
  "ratatui 0.30.2",
+ "ui-frame",
  "ui-shortcuts",
  "ui-theme",
  "unicode-width 0.2.0",

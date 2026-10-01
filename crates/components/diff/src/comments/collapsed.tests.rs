@@ -16,10 +16,15 @@ fn resolved_summary_has_its_own_box_without_enclosing_the_file_diff() {
         fixture.key(Key::First);
         let area = Rect::new(0, 0, 80, 80);
         let buffer = fixture.render_in(area);
-        let (_, border_column) = CommentFixture::text_position(&buffer, "╭");
         let (code_row, _) = CommentFixture::text_position(&buffer, "changed");
         let (summary_row, _) =
             CommentFixture::text_position(&buffer, "Resolved · Resolve this question");
+        // The first box corner below the pane's own top border.
+        let border_column = (1..area.height)
+            .flat_map(|row| (0..area.width).map(move |column| (column, row)))
+            .find(|&cell| buffer[cell].symbol() == "╭")
+            .expect("a box opens in the diff")
+            .0;
         assert!(code_row < summary_row);
         assert_eq!(
             buffer[(border_column, summary_row - 1)].symbol(),

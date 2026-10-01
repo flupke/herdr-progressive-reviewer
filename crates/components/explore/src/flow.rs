@@ -5,12 +5,13 @@ use markdown_rendering::MarkdownRenderer;
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::{Color, Style},
+    style::Color,
     text::Text,
-    widgets::{Block, Borders, Paragraph, Widget, Wrap},
+    widgets::{Paragraph, Widget, Wrap},
 };
 use std::ops::Range;
 use ui_events::{DiffViewportChanged, EvidenceView, ExploreViewports};
+use ui_frame::Frame;
 use ui_panes::SplitPane;
 use ui_shortcuts::MovementShortcut;
 use ui_theme::Palette;
@@ -82,10 +83,8 @@ impl ConversationLayout {
 
     pub(super) fn render_frame(&self, buffer: &mut Buffer, palette: Palette) {
         if let Some(frame) = self.frame {
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" Coverage ")
-                .border_style(Style::default().fg(palette.dim))
+            Frame::Pane { focused: false }
+                .block(palette, "Coverage")
                 .render(frame, buffer);
         }
     }

@@ -1,7 +1,10 @@
+use std::fmt;
+
 use component_core::InputResolution;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::text::{Line, Text};
+use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span, Text};
 use ui_shortcuts::{self as shortcuts, Key, MovementShortcut, ShortcutMatcher};
 use ui_theme::Palette;
 use unicode_width::UnicodeWidthStr;
@@ -66,7 +69,11 @@ impl ShortcutHelpOverlay {
                 "Keyboard shortcuts · {} close",
                 shortcuts::help_close_label()
             ),
-            Text::from(rows.into_iter().map(Line::raw).collect::<Vec<_>>()),
+            Text::from(
+                rows.into_iter()
+                    .map(|row| row.line(palette))
+                    .collect::<Vec<_>>(),
+            ),
             false,
             self.scroll,
             palette,
@@ -80,7 +87,7 @@ impl ShortcutHelpOverlay {
     }
 
     /// Size the popup to its longest row, then wrap rows to the width it got.
-    fn layout(viewport: Rect, table: &HelpTable) -> (Rect, Vec<String>) {
+    fn layout(viewport: Rect, table: &HelpTable) -> (Rect, Vec<HelpRow>) {
         let width = u16::try_from(table.natural_width())
             .unwrap_or(u16::MAX)
             .saturating_add(BORDER)
@@ -126,7 +133,7 @@ impl HelpTable {
     ///
     /// When the description column would be too narrow, each key gets its own
     /// row and its description wraps below it.
-    fn rows(&self, width: u16) -> Vec<String> {
+    fn rows(&self, width: u16) -> Vec<HelpRow> {
         let width = usize::from(width);
         let key_width = self.key_width;
         let column_width = width.saturating_sub(key_width + COLUMN_GAP);
@@ -140,16 +147,51 @@ impl HelpTable {
         for (keys, description) in &self.lines {
             let mut label = keys.as_str();
             if stacked {
-                rows.push(label.to_owned());
+                rows.push(HelpRow {
+                    keys: label.to_owned(),
+                    description: String::new(),
+                });
                 label = "";
             }
             for part in wrap_words(description, description_width.max(1)) {
                 let padding = " ".repeat(indent.saturating_sub(label.width()));
-                rows.push(format!("{label}{padding}{part}"));
+                rows.push(HelpRow {
+                    keys: label.to_owned(),
+                    description: format!("{padding}{part}"),
+                });
                 label = "";
             }
         }
         rows
+    }
+}
+
+/// One laid-out row: the keys that start it, if any, then the padded
+/// description.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct HelpRow {
+    keys: String,
+    description: String,
+}
+
+impl HelpRow {
+    /// The row with its keys in the accent color.
+    fn line(self, palette: Palette) -> Line<'static> {
+        Line::from(vec![
+            Span::styled(
+                self.keys,
+                Style::default()
+                    .fg(palette.focus)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(self.description, Style::default().fg(palette.text)),
+        ])
+    }
+}
+
+impl fmt::Display for HelpRow {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}{}", self.keys, self.description)
     }
 }
 

@@ -365,7 +365,7 @@ fn a_narrow_title_drops_the_hunk_count_before_the_path() {
     let review = HunkFixture::new();
 
     assert!(title(&review, 120).contains("Diff · src/lib.rs · 1/2 hunks reviewed"));
-    let narrow = title(&review, 60);
+    let narrow = title(&review, 50);
     assert!(narrow.contains("Diff · src/lib.rs"), "{narrow}");
     assert!(!narrow.contains("hunks reviewed"), "{narrow}");
 }
@@ -409,5 +409,28 @@ fn a_folded_hunk_fills_its_row_up_to_the_control() {
             palette.selection,
             "column {column}"
         );
+    }
+}
+
+#[test]
+fn added_and_removed_rows_are_tinted_to_the_pane_edge() {
+    let review = HunkFixture::new();
+    let area = Rect::new(0, 0, 80, 12);
+    let mut buffer = Buffer::empty(area);
+    let palette = Theme::default().palette;
+    review
+        .registry
+        .get::<DiffComponent>(review.target)
+        .unwrap()
+        .render(area, &mut buffer, palette, false);
+    let edge = area.width - 2;
+    for (marker, background) in [
+        (palette.insertion, palette.insertion_bg),
+        (palette.deletion, palette.deletion_bg),
+    ] {
+        let row = (1..area.height - 1)
+            .find(|&row| buffer[(1, row)].symbol() == "▌" && buffer[(1, row)].fg == marker)
+            .expect("the diff shows a changed row");
+        assert_eq!(buffer[(edge, row)].bg, background, "row {row}");
     }
 }

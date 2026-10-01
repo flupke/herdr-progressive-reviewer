@@ -5,7 +5,7 @@ use ratatui::{
     layout::Rect,
     style::Style,
     text::Line,
-    widgets::{Block, Borders, Paragraph, Widget},
+    widgets::{Block, Paragraph, Widget},
 };
 mod file_list;
 mod tree;
@@ -111,7 +111,8 @@ impl SplitPane {
     }
 }
 
-/// A bordered selector with shared row geometry and caller-defined row content.
+/// A selector in a caller-framed block, with shared row geometry and
+/// caller-defined row content.
 pub struct SelectionPane {
     area: Rect,
     first: usize,
@@ -125,15 +126,10 @@ impl SelectionPane {
     pub fn render<T>(
         &self,
         buffer: &mut Buffer,
-        title: impl Into<Line<'static>>,
-        border_style: Style,
+        block: Block<'_>,
         items: &[T],
         mut row: impl FnMut(usize, &T, u16) -> Line<'static>,
     ) {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .title(title)
-            .border_style(border_style);
         let inner = block.inner(self.area);
         block.render(self.area, buffer);
         let lines = items

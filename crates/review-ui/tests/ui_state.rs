@@ -1,6 +1,6 @@
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
-use ratatui::style::Color;
+use ratatui::style::{Color, Modifier};
 use review_repository::{
     diff::{DiffRow, NoticeKind},
     repository::DiffStatistics,
@@ -67,6 +67,17 @@ fn screen(app: &ReviewApplication, width: u16, height: u16) -> Vec<String> {
             line
         })
         .collect()
+}
+
+/// Whether the pane whose bottom border crosses `column` has focus, which
+/// its border shows in the accent color.
+fn pane_has_focus(app: &ReviewApplication, width: u16, height: u16, column: u16) -> bool {
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+    terminal
+        .draw(|frame| frame.render_widget(app.frame(), frame.area()))
+        .unwrap();
+    terminal.backend().buffer()[(column, height - 2)].fg
+        == review_ui::Theme::default().palette.focus
 }
 
 fn application_screen(app: &ReviewApplication, width: u16, height: u16) -> Vec<String> {
@@ -455,14 +466,15 @@ fn global_search_focuses_the_diff_and_shows_the_query_and_current_match() {
     assert!(
         screen(&application, 80, 12)
             .join("\n")
-            .contains("[F]iles | [T]hreads")
+            .contains("Files   Threads   Explore")
     );
     application.update(UserInput::Key(Key::Char('/')));
     assert!(
         screen(&application, 80, 12)
             .join("\n")
-            .contains("Diff · src/lib.rs (focus)")
+            .contains("Diff · src/lib.rs")
     );
+    assert!(pane_has_focus(&application, 80, 12, 70));
     for character in "needle".chars() {
         application.update(UserInput::Key(Key::Char(character)));
     }
@@ -564,7 +576,7 @@ fn commit_message_opens_and_closes_from_mouse_or_keyboard() {
 
     let header = screen(&app, 80, 12).join("\n");
     assert!(header.contains("Commit title"));
-    assert!(header.contains("+0 -0 - 0/0 reviewed"));
+    assert!(header.contains("+0 -0  ━━━━━━━━━━━━ 0/0 reviewed"));
     assert!(!header.contains("Progressive review"));
     assert!(!header.contains("change qpvuntsm"));
 
@@ -813,7 +825,7 @@ fn diff_uses_bars_line_numbers_and_expandable_gaps() {
         .unwrap();
     let buffer = terminal.backend().buffer();
     let code_column = (0..100)
-        .find(|column| buffer[(*column, 1)].symbol() == "┐")
+        .find(|column| buffer[(*column, 1)].symbol() == "╮")
         .unwrap()
         + 2;
     assert_ne!(buffer[(code_column, 5)].bg, Color::Reset);
@@ -900,7 +912,7 @@ fn diff_controls_expand_and_contract_all_gaps() {
     app.update(UserInput::MouseClick { column: 96, row: 1 });
     let file = screen(&app, 100, 14).join("\n");
     assert!(file.contains("File ·"));
-    assert!(file.contains("[x]"));
+    assert!(file.contains('✕'));
     assert!(!file.contains("←→"));
     assert!(!file.contains("→←"));
     assert!(file.contains("2 middle"));
@@ -1024,8 +1036,9 @@ fn mouse_targets_the_hovered_pane_and_click_changes_focus() {
     assert!(
         application_screen(&app, 80, 12)
             .join("\n")
-            .contains("Diff · second.rs (focus)")
+            .contains("Diff · second.rs")
     );
+    assert!(pane_has_focus(&app, 80, 12, 70));
     app.update(UserInput::MouseScroll {
         column: 1,
         row: 2,
@@ -1034,8 +1047,9 @@ fn mouse_targets_the_hovered_pane_and_click_changes_focus() {
     assert!(
         application_screen(&app, 80, 12)
             .join("\n")
-            .contains("Diff · first.rs (focus)")
+            .contains("Diff · first.rs")
     );
+    assert!(pane_has_focus(&app, 80, 12, 70));
     app.update(UserInput::MouseClick { column: 1, row: 3 });
     assert!(
         application_screen(&app, 80, 12)
@@ -1266,11 +1280,11 @@ fn dragging_the_separator_resizes_the_file_pane() {
     app.update(UserInput::MouseDrag { column: 0, row: 5 });
     assert_eq!(
         app.update(UserInput::MouseRelease),
-        vec![Action::Settings(SettingsAction::SaveFilePaneWidth(37))]
+        vec![Action::Settings(SettingsAction::SaveFilePaneWidth(31))]
     );
-    assert!(screen(&app, 80, 12)[1].contains("[F]iles | [T]hreads"));
+    assert!(screen(&app, 80, 12)[1].contains("Files   Threads   Explore"));
 
-    app.update(UserInput::MouseClick { column: 37, row: 5 });
+    app.update(UserInput::MouseClick { column: 31, row: 5 });
     app.update(UserInput::MouseDrag { column: 79, row: 5 });
     assert_eq!(
         app.update(UserInput::MouseRelease),
@@ -1371,7 +1385,7 @@ fn dragging_diff_lines_opens_an_inline_comment_on_release() {
     assert!(
         application_screen(&app, 80, 12)
             .join("\n")
-            .contains("[F]iles | [T]hreads")
+            .contains("Files   Threads   Explore")
     );
     assert!(app.update(UserInput::Key(Key::Control('s'))).is_empty());
 }
@@ -1460,7 +1474,8 @@ fn mouse_wheel_scrolls_the_diff_viewport_regardless_of_focus() {
     });
     let screen = screen(&app, 80, 8).join("\n");
     assert!(!screen.contains("line-2"));
-    assert!(screen.contains("Diff · src/lib.rs (focus)"));
+    assert!(screen.contains("Diff · src/lib.rs"));
+    assert!(pane_has_focus(&app, 80, 8, 70));
 }
 
 fn unread_threads(checkpoint: &ReviewCheckpoint, path: &str) -> review_threads::ReviewThreads {
@@ -1549,13 +1564,13 @@ fn test_backend_renders_wide_narrow_and_minimum_layouts() {
     });
 
     let wide = application_screen(&app, 120, 30).join("\n");
-    assert!(wide.contains("[F]iles | [T]hreads"));
+    assert!(wide.contains("Files   Threads ●   Explore"));
     assert!(wide.contains("Diff · src/a/very/long"));
     assert!(wide.contains("●"));
     assert!(wide.contains('!'));
 
     let threshold = application_screen(&app, 72, 15).join("\n");
-    assert!(threshold.contains("[F]iles | [T]hreads ●"));
+    assert!(threshold.contains("Files   Threads ●"));
     assert!(threshold.contains("Diff ·"));
 
     app.update(UserInput::Resize {
@@ -1563,17 +1578,17 @@ fn test_backend_renders_wide_narrow_and_minimum_layouts() {
         height: 10,
     });
     let narrow_files = application_screen(&app, 60, 10).join("\n");
-    assert!(narrow_files.contains("[F]iles | [T]hreads"));
+    assert!(narrow_files.contains("Files   Threads ●   Explore"));
     assert!(!narrow_files.contains("Diff ·"));
     assert!(narrow_files.contains("file.rs"));
 
     app.update(UserInput::Key(Key::Tab));
     let narrow_diff = application_screen(&app, 60, 10).join("\n");
     assert!(narrow_diff.contains("Diff ·"));
-    assert!(!narrow_diff.contains("[F]iles | [T]hreads"));
+    assert!(!narrow_diff.contains("Files   Threads"));
 
     let minimum = application_screen(&app, 40, 6).join("\n");
-    assert!(minimum.starts_with(" abcd1234 Comm"), "{minimum}");
+    assert!(minimum.starts_with(" abcd1234  Com"), "{minimum}");
     assert!(minimum.contains("198/200 reviewed"));
     let too_small = application_screen(&app, 39, 5);
     assert_eq!(too_small[0].trim_end(), "Terminal is too small");
@@ -1629,4 +1644,32 @@ fn shortcut_help_scrolls_on_short_terminals() {
 
     assert!(popup.contains("Explore: visit previous / next interview turn"));
     assert!(popup.contains("Explore: fit evidence"));
+}
+
+#[test]
+fn the_open_tab_is_a_filled_pill_with_its_key_underlined() {
+    let mut app = wrapped_diff_application(rows(), 80, 12);
+    let palette = review_ui::Theme::default().palette;
+    let style_at = |app: &ReviewApplication, column: u16| {
+        let mut terminal = Terminal::new(TestBackend::new(80, 12)).unwrap();
+        terminal
+            .draw(|frame| frame.render_widget(app.frame(), frame.area()))
+            .unwrap();
+        terminal.backend().buffer()[(column, 1)].clone()
+    };
+    // The tabs start after the pane's corner: " Files " then " Threads ".
+    let (files_key, threads_key) = (2, 10);
+
+    let files = style_at(&app, files_key);
+    assert_eq!(files.symbol(), "F");
+    assert_eq!(files.bg, palette.focus);
+    assert!(files.modifier.contains(Modifier::UNDERLINED));
+    let threads = style_at(&app, threads_key);
+    assert_eq!(threads.symbol(), "T");
+    assert_eq!(threads.fg, palette.dim);
+    assert!(threads.modifier.contains(Modifier::UNDERLINED));
+
+    app.update(UserInput::Key(Key::Char('t')));
+    assert_eq!(style_at(&app, threads_key).bg, palette.focus);
+    assert_ne!(style_at(&app, files_key).bg, palette.focus);
 }

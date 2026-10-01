@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+ui-frame = { path = "../../ui-frame" }
 diff-component = { path = "../diff" }
 files-component = { path = "../files" }
 review-explore = { path = "../../review-explore" }

@@ -103,8 +103,7 @@ impl OverlayComponent {
     }
 
     pub fn render_notifications(&self, area: Rect, buffer: &mut Buffer) {
-        self.toasts
-            .render(area, buffer, self.palette.focus, self.palette.deletion);
+        self.toasts.render(area, buffer, self.palette);
     }
 
     fn repository_changed(&mut self, event: &RepositoryMetadataChanged) {

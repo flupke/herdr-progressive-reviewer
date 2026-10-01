@@ -208,9 +208,7 @@ impl ThreadUi {
 fn threads_open_without_loading_reviewed_or_removed_files_in_wide_and_narrow_layouts() {
     for width in [48, 110] {
         let mut ui = ThreadUi::new(width);
-        assert!(ui.text().contains("[F]iles"));
-        assert!(ui.text().contains("[T]hreads"));
-        assert!(ui.text().contains("[E]xplore"));
+        assert!(ui.text().contains("Files   Threads   Explore"));
         ui.key(Key::Char('e'));
         assert_eq!(ui.app.navigation.mode(), ReviewNavigation::Explore);
         ui.key(Key::Char('f'));
@@ -915,9 +913,9 @@ fn bottom_filters_keep_resolved_history_in_all_with_boxed_entries() {
         assert!(text.contains("Explain this branch"), "{text}");
         assert!(text.contains("Keep the removed file"), "{text}");
         let buffer = ui.buffer();
-        assert_eq!(buffer[(1, 2)].symbol(), "┌");
-        assert_eq!(buffer[(1, 7)].symbol(), "└");
-        assert_eq!(buffer[(1, 8)].symbol(), "┌");
+        assert_eq!(buffer[(1, 2)].symbol(), "╭");
+        assert_eq!(buffer[(1, 7)].symbol(), "╰");
+        assert_eq!(buffer[(1, 8)].symbol(), "╭");
         ui.key(Key::Enter);
         ui.key(Key::Last);
         assert!(ui.text().contains("Unresolve thread"), "{}", ui.text());
