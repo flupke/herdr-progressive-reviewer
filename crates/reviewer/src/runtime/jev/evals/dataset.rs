@@ -1,11 +1,12 @@
 use std::{collections::BTreeSet, path::Path};
 
 use eyre::{Result, ensure};
-use review_explore::{CoverageUnit, SourceSide};
+use review_explore::SourceSide;
 use review_repository::{
     diff::{DiffRow, parse_file_diff},
     repository::{ChangeKind, ChangedFile, DiffStatistics, FileKind, RepoPath},
 };
+use review_significance::ChangeUnit;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -43,8 +44,8 @@ pub(super) struct LineLabel {
 }
 
 impl LineLabel {
-    pub(super) fn unit(&self) -> CoverageUnit {
-        CoverageUnit::Lines {
+    pub(super) fn unit(&self) -> ChangeUnit {
+        ChangeUnit::Lines {
             file: 0,
             side: self.side,
             first: self.line,

@@ -58,7 +58,7 @@ fn a_scripted_line_makes_its_whole_hunk_insignificant() {
     assert_eq!(results[0].outcome, Significance::Insignificant);
     assert_eq!(
         results[0].units,
-        [SourceSide::Old, SourceSide::New].map(|side| CoverageUnit::Lines {
+        [SourceSide::Old, SourceSide::New].map(|side| ChangeUnit::Lines {
             file: 0,
             side,
             first: 20,

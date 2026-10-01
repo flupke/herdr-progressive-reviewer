@@ -30,7 +30,7 @@ pub struct ReviewRecord {
     /// lines in its attribution, and repeats that attribution's default here.
     pub author: MarkAuthor,
     /// The reviewed version, when the mark covers only some lines.
-    pub partial: Option<PartialReview>,
+    pub partial: Option<Box<PartialReview>>,
 }
 
 /// The reviewed version of a file whose mark covers only some of its lines,
@@ -158,7 +158,7 @@ impl ReviewStore {
             path,
             baseline_commit_id,
             &author,
-            Some(partial),
+            Some(Box::new(partial)),
         )
     }
 
@@ -168,7 +168,7 @@ impl ReviewStore {
         path: &[u8],
         baseline_commit_id: &str,
         author: &MarkAuthor,
-        partial: Option<PartialReview>,
+        partial: Option<Box<PartialReview>>,
     ) -> Result<ReviewRecord> {
         ReviewUnitKey::validate(review_unit)?;
         CommitKey::validate(baseline_commit_id)?;
@@ -321,19 +321,19 @@ impl StoredRecord {
     }
 
     /// The stored partial review, if the mark covers only some hunks.
-    fn decode_partial(&self) -> std::result::Result<Option<PartialReview>, BrokenRecord> {
+    fn decode_partial(&self) -> std::result::Result<Option<Box<PartialReview>>, BrokenRecord> {
         if self.schema_version != PARTIAL_SCHEMA_VERSION {
             return Ok(None);
         }
         let partial = self.partial.as_ref().ok_or(BrokenRecord)?;
         let decode = |text: &str| BASE64.decode(text).map_err(|_| BrokenRecord);
-        Ok(Some(PartialReview {
+        Ok(Some(Box::new(PartialReview {
             base: decode(&partial.base)?,
             reviewed: Reviewed {
                 text: decode(&partial.reviewed)?,
                 attribution: partial.attribution.to_attribution(),
             },
-        }))
+        })))
     }
 
     fn decode_path(&self) -> Option<Vec<u8>> {

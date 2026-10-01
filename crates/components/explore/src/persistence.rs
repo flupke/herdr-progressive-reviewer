@@ -1,10 +1,9 @@
-use super::{ComposeScope, Draft, EditorTarget, ExploreComponent, Progress, TurnView};
+use super::{ComposeScope, EditorTarget, ExploreComponent, Progress, TurnView};
 use comment_editor::CommentEditor;
-use review_explore::{Command, ExploreDraft, ExplorePage, ExploreViewState, TurnRequest, ViewSave};
+use review_explore::{Command, ExplorePage, ExploreViewState, TurnRequest, ViewSave};
 use ui_actions::Action;
 use ui_events::{
-    ExploreCommitted, ExploreCoverageRefresh, ExplorePosted, ExploreProgress, ExploreRestored,
-    ExploreStorageFailed,
+    ExploreCommitted, ExplorePosted, ExploreProgress, ExploreRestored, ExploreStorageFailed,
 };
 
 pub(super) struct Durability {
@@ -72,26 +71,12 @@ impl ExploreComponent {
         let mut drafts: Vec<_> = self
             .drafts
             .iter()
-            .map(|(key, draft)| {
-                (
-                    key.clone(),
-                    ExploreDraft {
-                        editor: draft.editor.saved_state(),
-                        correction: draft.correction.clone(),
-                    },
-                )
-            })
+            .map(|(key, draft)| (key.clone(), draft.saved_state()))
             .collect();
         if self.can_compose() {
             let page = self.page();
             drafts.retain(|(key, _)| key != &page);
-            drafts.push((
-                page,
-                ExploreDraft {
-                    editor: self.editor.saved_state(),
-                    correction: self.correction.clone(),
-                },
-            ));
+            drafts.push((page, self.editor.saved_state()));
         }
         ExploreViewState {
             page: self.page(),
@@ -119,18 +104,12 @@ impl ExploreComponent {
             editing: self.editing,
             scroll: self.scroll.get(),
             map: self.map,
-            coverage_overview: self.coverage_overview,
-            coverage_file: self.coverage_file,
-            coverage_next: self.coverage_next.clone(),
-            jev_debug: self.jev_debug,
             heights: self
                 .heights
                 .iter()
-                .filter_map(|(view, height)| match view {
-                    ui_events::EvidenceView::Question { turn, reference } => {
-                        Some(((*turn, *reference), *height))
-                    }
-                    ui_events::EvidenceView::Coverage => None,
+                .map(|(view, height)| {
+                    let ui_events::EvidenceView { turn, reference } = view;
+                    ((*turn, *reference), *height)
                 })
                 .collect(),
         }
@@ -195,7 +174,7 @@ impl ExploreComponent {
         self.durable.persisted = true;
         self.durable.posting = None;
         self.exploration = Some(pass.exploration.clone());
-        self.restore_coverage(pass);
+        self.restore_pass(pass);
         self.turns = pass
             .exploration
             .questions
@@ -220,11 +199,6 @@ impl ExploreComponent {
             pass.exploration.comparison.clone(),
         ));
         self.publish_evidence(self.view_id(), false);
-        if self.coverage_overview
-            && let Some(index) = self.coverage_file
-        {
-            self.open_coverage_file(index);
-        }
         self.events
             .publish(ui_events::ExplorePositionsRestored(state.code.clone()));
         self.exploration
@@ -272,13 +246,8 @@ impl ExploreComponent {
                 .min(pass.evidence(index).len().saturating_sub(1));
         }
         for (page, saved) in &state.drafts {
-            self.drafts.insert(
-                page.clone(),
-                Draft {
-                    editor: CommentEditor::restore(&saved.editor, &self.keymap),
-                    correction: saved.correction.clone(),
-                },
-            );
+            self.drafts
+                .insert(page.clone(), CommentEditor::restore(saved, &self.keymap));
         }
         for (id, text) in &state.tasks {
             if let Some(view) = self.conclusions.get_mut(id) {
@@ -303,17 +272,12 @@ impl ExploreComponent {
         self.editing = state.editing && self.can_compose() && self.target_editable();
         self.scroll.set(state.scroll);
         self.map = state.map;
-        self.coverage_overview = state.coverage_overview;
-        self.coverage_origin_scroll.set(None);
-        self.coverage_file = state.coverage_file;
-        self.coverage_next.clone_from(&state.coverage_next);
-        self.jev_debug = state.jev_debug;
         self.heights = state
             .heights
             .iter()
             .map(|((turn, reference), height)| {
                 (
-                    ui_events::EvidenceView::Question {
+                    ui_events::EvidenceView {
                         turn: *turn,
                         reference: *reference,
                     },
@@ -367,13 +331,14 @@ impl ExploreComponent {
             return;
         };
         if self.page() == page {
-            if self.editor.text() == answer.text && self.correction == answer.corrects {
+            if self.editor.text() == answer.text {
                 self.editor = CommentEditor::new("", &self.keymap);
-                self.correction = None;
             }
-        } else if self.drafts.get(&page).is_some_and(|draft| {
-            draft.editor.text() == answer.text && draft.correction == answer.corrects
-        }) {
+        } else if self
+            .drafts
+            .get(&page)
+            .is_some_and(|draft| draft.text() == answer.text)
+        {
             self.drafts.remove(&page);
         }
     }
@@ -400,7 +365,7 @@ impl ExploreComponent {
                     .comparison
                     .clone();
                 self.exploration = Some(pass.exploration.clone());
-                self.restore_coverage(pass);
+                self.restore_pass(pass);
                 self.exploration.as_mut().expect("active").comparison = comparison;
                 self.durable.revision = pass.revision;
                 self.durable.persisted = true;
@@ -449,7 +414,7 @@ impl ExploreComponent {
         let already_visible = previous.conversation == event.pass.exploration.conversation;
         let comparison = previous.comparison.clone();
         self.exploration = Some(event.pass.exploration.clone());
-        self.restore_coverage(&event.pass);
+        self.restore_pass(&event.pass);
         self.exploration.as_mut().expect("active").comparison = comparison;
         self.durable.revision = event.pass.revision;
         self.reconcile_history(&event.pass);
@@ -460,42 +425,12 @@ impl ExploreComponent {
         let _ = event.response.send(Ok(event.applied));
     }
 
-    fn restore_coverage(&mut self, pass: &review_explore::ExplorePass) {
-        self.coverage = Some(pass.coverage.clone());
-        self.jev_progress_expiry.observe(&pass.coverage);
-        self.conclusion_unexplored = pass.completion.as_ref().and_then(|completion| {
-            completion
-                .unexplored
-                .clone()
-                .map(|unexplored| (completion.request.clone(), unexplored))
-        });
-        self.conclusion_preview = None;
-        self.completion_done = pass
-            .completion
-            .as_ref()
-            .is_some_and(|completion| completion.completed);
-        self.completion_policy = pass
-            .completion
-            .as_ref()
-            .filter(|completion| completion.completed)
-            .map(|completion| completion.exclusions_enabled);
-        self.coverage_dirty = true;
-    }
-
-    pub(super) fn refresh_coverage(&mut self, _event: &ExploreCoverageRefresh) {
-        if !self.coverage_dirty {
-            return;
-        }
-        let (Some(pass), Some(coverage)) = (&self.exploration, &self.coverage) else {
-            return;
-        };
-        self.coverage_cache.refresh(
-            &pass.instance,
-            coverage,
-            &pass.comparison,
-            self.completion_policy.unwrap_or(self.jev_enabled),
-        );
-        self.coverage_dirty = false;
+    fn restore_pass(&mut self, pass: &review_explore::ExplorePass) {
+        self.marks = pass
+            .marks
+            .values()
+            .map(|marks| (marks.answer.clone(), marks.clone()))
+            .collect();
     }
 
     fn reconcile_history(&mut self, pass: &review_explore::ExplorePass) {

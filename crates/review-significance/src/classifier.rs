@@ -1,26 +1,27 @@
-//! Whether changes judged insignificant may leave Explore's required coverage.
+//! Whether this reviewer process can run Jev, and how Jev classifies changes.
 
 use std::sync::Arc;
 
-use crate::{Comparison, JevMode, SignificanceResult};
+use crate::SignificanceResult;
+use review_explore::Comparison;
 
-/// The exclusion policy chosen once by the process that owns Explore.
+/// The Jev classifier chosen once by the reviewer process, if any.
 ///
-/// Disabled keeps every changed line required. Enabled classifies changed windows;
-/// a classification can only remove coverage obligations.
+/// Disabled never runs Jev. Enabled classifies changed windows; a
+/// classification can only mark changes reviewed.
 #[derive(Clone, Default)]
-pub struct ExclusionPolicy(Option<Arc<dyn SignificanceClassifier>>);
+pub struct JevClassifier(Option<Arc<dyn SignificanceClassifier>>);
 
-impl std::fmt::Debug for ExclusionPolicy {
+impl std::fmt::Debug for JevClassifier {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
-            .debug_tuple("ExclusionPolicy")
-            .field(&self.mode())
+            .debug_tuple("JevClassifier")
+            .field(&self.is_enabled())
             .finish()
     }
 }
 
-impl ExclusionPolicy {
+impl JevClassifier {
     pub fn disabled() -> Self {
         Self(None)
     }
@@ -31,14 +32,6 @@ impl ExclusionPolicy {
 
     pub fn is_enabled(&self) -> bool {
         self.0.is_some()
-    }
-
-    pub fn mode(&self) -> JevMode {
-        if self.is_enabled() {
-            JevMode::Enabled
-        } else {
-            JevMode::Disabled
-        }
     }
 
     pub fn classifier(&self) -> Option<&dyn SignificanceClassifier> {

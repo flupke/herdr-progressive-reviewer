@@ -221,8 +221,8 @@ its first question directly. The tools advertise complete schemas derived from t
 shared submission types; the kickoff carries behavior instructions without schema
 examples. The runner formats later wakeups as labeled plain text: turn identity,
 one checkpoint, answer ID, question ID/version, the
-selected option's full text/ID/outcome and any exact comment. Corrections, deferrals,
-conclusion context and previous errors add details only when relevant. Full questions
+selected option's full text/ID/outcome and any exact comment, after the Unreviewed
+lines block. Conclusion context and previous errors add details only when relevant. Full questions
 and answer records stay internal; preparation does not mutate that history. No input-fetch
 tool or separately retained runner input is needed. The reviewer retains the immutable history while
 the agent keeps its context in the existing conversation. A contribution to a questionless stopping
@@ -236,7 +236,7 @@ agent operations are retained in conversation history. Reconsideration names the
 original decision and a subsequent attributed decision resolves the flag.
 Interpretations are optional for informational contributions. The protocol cannot
 mechanically establish whether free text is agreement or whether an assessment is
-true: visible replies/recaps, evidence, corrections and human inspection remain
+true: visible replies/recaps, evidence, follow-up answers and human inspection remain
 necessary. It validates reference integrity, not the agent's semantic reasoning.
 
 `CodeLocation` carries a repository-relative path, old/new side and optional inclusive
@@ -249,16 +249,15 @@ files on disk and use Git/jj for diffs and historical versions. In Git, the revi
 unit identifies the base tree; in jj, the checkpoint identifies the reviewed commit.
 Submissions require the exact request ID, access value and pinned conversation.
 Answers arrive through the shared prompt delivery; no handoff files are created.
-References from replies, agenda reasons and consequence lenses are
-supporting sources. `Question.evidence` and `Question.supporting` require `notes`
-that explain each source's relevance. Sources
+Question evidence is one ordered list of citations, most decisive first; citations
+from replies, agenda reasons and consequence lenses appear after it. Every citation
+requires `notes` that explain its relevance. Citations never mark lines reviewed. Citations
 are deduplicated by path, side and range, retaining stable viewer
 identities. Every next question requires two to five distinct alternatives.
 `Question::choices` adds the built-in None of the above choice, with a stable ID
 and open outcome, without rewriting the posted question. Its ID and label are
 reserved so agent alternatives cannot duplicate it. Choice selection and text
-editing share one answer: Send records both, while Defer and corrections retain
-their separate semantics. The question is rendered directly above this form.
+editing share one answer: Send records both. The question is rendered directly above this form.
 Additional LSP destinations are also read inside the root. Historical evidence
 outside diff hunks uses a native full base-text view and cannot send old coordinates
 to the live language server. Evidence sizing and initial positioning use the same
@@ -271,7 +270,7 @@ New accepted questions select the newest page; ordinary input no longer suppress
 advancement. Applying a duplicate does not navigate. Files and Threads retain their
 active pane while Explore prepares its next page. Question identity also selects
 the composer draft and evidence window; history navigation saves the full editor
-state and correction link before restoring the destination draft.
+state before restoring the destination draft.
 
 Conclusion pages are retained by request identity, in posting order alongside
 questions. Each keeps its task editor, reply draft and delivery state. Only the

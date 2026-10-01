@@ -7,8 +7,8 @@ use std::sync::Mutex;
 
 use diff_cache::DiffCache;
 use review_hunks::{
-    Attribution, ChangedLines, FileHunks, HunkMark, HunkReview, LineCount, LineSelection, Reviewed,
-    ReviewedVersion, replay, reverse_apply,
+    Attribution, ChangedLines, FileHunks, HunkMark, HunkReview, HunkSpan, LineCount, LineSelection,
+    Reviewed, ReviewedLines, ReviewedVersion, replay, reverse_apply,
 };
 use review_repository::diff::parse_file_diff;
 use review_repository::repository::{
@@ -120,6 +120,35 @@ pub struct ReviewDiff {
     pub new_content: Option<Vec<u8>>,
     /// Which hunks of the file are open and which are reviewed.
     pub hunks: FileHunks,
+}
+
+/// One path's changed lines by review state. A path without hunks to mark
+/// line by line (binary and other non-text changes) has none.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct FileLines {
+    /// The open hunks, in the order of the open diff.
+    pub open: Vec<OpenLines>,
+    pub reviewed: ReviewedLines,
+}
+
+impl FileLines {
+    /// Every open line.
+    pub fn open_selection(&self) -> LineSelection {
+        let mut selection = LineSelection::default();
+        for open in &self.open {
+            selection.removed.extend(&open.lines.removed);
+            selection.added.extend(&open.lines.added);
+        }
+        selection
+    }
+}
+
+/// The lines one open hunk changes.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OpenLines {
+    pub lines: ChangedLines,
+    /// The hunk rewrites lines that were reviewed.
+    pub since_review: bool,
 }
 
 /// The result of a request to mark one path as reviewed.
@@ -316,6 +345,51 @@ impl ReviewTracker {
                 eyre::eyre!("the hunk no longer matches the file; wait for the next refresh")
             })?;
             Ok(Some(version))
+        })
+    }
+
+    /// Who marked a path whole, when a whole-file mark covers it.
+    pub fn whole_file_author(
+        &self,
+        snapshot: &Snapshot,
+        file: &ChangedFile,
+    ) -> eyre::Result<Option<MarkAuthor>> {
+        Ok(
+            match self.store.load(
+                snapshot.identity.review_unit(),
+                file.review_path().as_bytes(),
+            )? {
+                LoadResult::Reviewed(record) if record.partial.is_none() => Some(record.author),
+                _ => None,
+            },
+        )
+    }
+
+    /// The open and reviewed lines of one path.
+    pub fn lines(&self, snapshot: &Snapshot, file: &ChangedFile) -> eyre::Result<FileLines> {
+        let diff = self.diff(snapshot, file)?;
+        if diff.hunks.is_empty() {
+            return Ok(FileLines::default());
+        }
+        let versions = self.versions(snapshot, file, &diff)?;
+        let review = versions.review();
+        let spans = diff
+            .hunks
+            .open
+            .iter()
+            .map(|hunk| hunk.span.clone())
+            .collect::<Vec<HunkSpan>>();
+        Ok(FileLines {
+            open: review
+                .changed_lines(&spans)
+                .into_iter()
+                .zip(&diff.hunks.open)
+                .map(|(lines, hunk)| OpenLines {
+                    lines,
+                    since_review: hunk.since_review,
+                })
+                .collect(),
+            reviewed: review.reviewed_lines(),
         })
     }
 

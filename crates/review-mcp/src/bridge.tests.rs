@@ -31,7 +31,7 @@ fn one_client_keeps_its_tools_across_closed_open_and_reopened_reviewers() {
             let client = ClientInfo::default().serve(agent).await.unwrap();
             let bridge = serving.await.unwrap();
             let tools = client.list_all_tools().await.unwrap();
-            assert_eq!(tools.len(), 7);
+            assert_eq!(tools.len(), 6);
             let conclusion = tools.iter().find(|tool| tool.name == "submit_conclusion").unwrap();
             for section in ["summary", "to_be_implemented", "future_work"] {
                 assert_eq!(conclusion.input_schema["properties"][section]["type"], "string");
@@ -105,7 +105,7 @@ fn repository_discovery_failure_does_not_remove_the_tool_catalog() {
             });
             let client = ClientInfo::default().serve(agent).await.unwrap();
             let bridge = serving.await.unwrap();
-            assert_eq!(client.list_all_tools().await.unwrap().len(), 7);
+            assert_eq!(client.list_all_tools().await.unwrap().len(), 6);
             let response = client
                 .call_tool(
                     CallToolRequestParams::new("list_threads")

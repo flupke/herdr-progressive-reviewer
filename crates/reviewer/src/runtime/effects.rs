@@ -2,8 +2,8 @@
 //! channels and their lifecycle.
 //!
 //! The event loop hands actions to [`Effects`] and receives every result as an event
-//! on the [`Outputs`] channels. Explore coverage refresh and autosave still come from
-//! the application as actions; this is where their effects would move.
+//! on the [`Outputs`] channels. Explore autosave still comes from
+//! the application as an action; this is where its effects would move.
 
 use std::ops::ControlFlow;
 use std::path::PathBuf;
@@ -15,9 +15,9 @@ use component_core::{ApplicationEventSender, EventEnvelope};
 use crossbeam_channel::{Receiver as EventReceiver, Sender as EventSender};
 use herdr_client::client::HerdrClient;
 use herdr_client::protocol::{AgentTarget, HerdrEvent, PaneId};
-use review_explore::ExclusionPolicy;
 use review_explore_session::{self as explore_session, ExploreSession};
 use review_repository::repository::Repository;
+use review_significance::JevClassifier;
 use review_state::ReviewTracker;
 use review_store::ReviewStore;
 use review_thread_service as comments;
@@ -41,7 +41,7 @@ pub(super) struct Setup {
     pub(super) agents: HerdrClient,
     pub(super) endpoint: Result<review_mcp::Endpoint, String>,
     pub(super) theme: Theme,
-    pub(super) exclusion: ExclusionPolicy,
+    pub(super) jev: JevClassifier,
     pub(super) source_watches: Option<SourceWatchRequests>,
 }
 
@@ -88,7 +88,7 @@ impl Effects {
             agents,
             endpoint,
             theme,
-            exclusion,
+            jev,
             source_watches,
         } = setup;
         let messages = ApplicationEventSender::new(outputs.background.clone());
@@ -116,10 +116,10 @@ impl Effects {
         let explore = ExploreSession::new(explore_session::Collaborators {
             repository: repository.clone(),
             store: store.clone(),
+            tracker: Arc::clone(&tracker),
             agents: Arc::new(agents),
             target: target.clone(),
             prompts: comments.prompt_sender(),
-            exclusion: exclusion.clone(),
             events: messages.clone(),
             inbox: inbox_for(commands.clone()),
         });
@@ -130,8 +130,9 @@ impl Effects {
             snapshot: None,
             commands: commands.clone(),
             explore,
-            exclusion,
+            jev,
             auto_review: None,
+            held_kickoff: None,
             documents: documents.clone(),
         };
         let worker_thread = thread::spawn(move || {

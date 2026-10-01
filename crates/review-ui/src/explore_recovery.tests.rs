@@ -19,15 +19,13 @@ fn pass(fixture: &ExploreUi, request: &TurnRequest) -> ExplorePass {
 fn restore(fixture: &mut ExploreUi, pass: &ExplorePass, view: Option<ViewSave>) -> Vec<Action> {
     // Serialization removes comparison buffers, preserving only history/source locators.
     let pass = serde_json::from_slice(&serde_json::to_vec(pass).unwrap()).unwrap();
-    let actions = fixture.app.publish(ui_events::ExploreRestored {
+    fixture.app.publish(ui_events::ExploreRestored {
         result: Ok(Some(Arc::new(pass))),
         view,
         historical: false,
         storage_error: None,
         progress: ui_events::ExploreProgress::Ready,
-    });
-    fixture.app.publish(ui_events::ExploreCoverageRefresh);
-    actions
+    })
 }
 
 fn saved(actions: Vec<Action>) -> ViewSave {
@@ -46,303 +44,6 @@ fn no_post(actions: &[Action]) {
         Action::Explore(Command::Turn(_) | Command::Implement(_))
             | Action::Repository(RepositoryAction::SetReviewed { .. })
     )));
-}
-
-fn account_fixture_gaps(pass: &ExplorePass, update: &mut InterviewUpdate) {
-    let page = pass
-        .coverage
-        .gap_page(&pass.exploration.comparison, &[], false, None, 0, 128);
-    assert_eq!(page.gaps.len(), page.total_gaps);
-    update.inspections.push(review_explore::Inspection {
-        sources: page.gaps.into_iter().map(|gap| gap.location).collect(),
-        behavior: "Fixture's remaining checkpoint changes".into(),
-        finding: "The fixture needs no additional reviewer choice".into(),
-        uncertainty: String::new(),
-        disposition: review_explore::InspectionDisposition::NoFurtherInquiry {
-            reason: "This test exercises conclusion preview rendering".into(),
-        },
-    });
-}
-
-#[test]
-fn conclusion_previews_unexplored_files_and_reopens_the_checkpoint_diff() {
-    let (mut fixture, request) = ExploreUi::new();
-    let mut pass = pass(&fixture, &request);
-    let question = pass.exploration.questions.last().unwrap().clone();
-    let answer = pass
-        .exploration
-        .request(
-            Some(review_explore::AnswerInput {
-                text: "Answered".into(),
-                ..Default::default()
-            }),
-            Some(&question),
-        )
-        .unwrap();
-    let mut update = fixture.response(&answer, 1);
-    update.next = None;
-    update.conclusion = Some(conclusion("The concept review is complete."));
-    account_fixture_gaps(&pass, &mut update);
-    pass.submit(&update, false).unwrap();
-    pass.completion = Some(review_explore::ReviewCompletion {
-        request: answer.request,
-        baseline: request.checkpoint.checkpoint.clone(),
-        completed: true,
-        exclusions_enabled: false,
-        summary: pass.coverage.summary(false),
-        unexplored: Some(review_explore::UnexploredAtConclusion {
-            required: pass.coverage.remaining(false),
-            jev_excluded: vec![],
-        }),
-    });
-    fixture.files.write(
-        "policy.rs",
-        b"pub fn policy() -> bool { false } // later implementation\n",
-    );
-    restore(&mut fixture, &pass, None);
-    assert!(fixture.text().contains("[Preview unexplored code]"));
-    fixture.click("[Preview unexplored code]");
-    let text = fixture.text();
-    assert!(text.contains("Not explored · Files"), "{text}");
-    assert!(
-        text.contains("policy.rs") && text.contains("tests.rs"),
-        "{text}"
-    );
-    let viewer = fixture
-        .app
-        .event_bus
-        .get::<DiffComponent>(fixture.app.diff_component)
-        .unwrap();
-    assert!(
-        text.contains("continuation_alpha"),
-        "checkpoint diff was not displayed: {:?} {:?} {text}",
-        viewer
-            .evidence_view(ui_events::EvidenceView::Coverage)
-            .and_then(SourceViewer::evidence_path),
-        viewer
-            .evidence_view(ui_events::EvidenceView::Coverage)
-            .and_then(SourceViewer::evidence_limitation)
-    );
-    assert!(!text.contains("later implementation"), "{text}");
-    fixture.app.update(UserInput::Key(Key::Down));
-    let diff = fixture
-        .app
-        .event_bus
-        .get::<DiffComponent>(fixture.app.diff_component)
-        .unwrap();
-    assert_eq!(
-        diff.evidence_view(ui_events::EvidenceView::Coverage)
-            .and_then(SourceViewer::evidence_path),
-        Some("tests.rs")
-    );
-    fixture.app.update(UserInput::Resize {
-        width: 60,
-        height: 25,
-    });
-    let narrow = fixture.text();
-    assert!(
-        narrow.contains("Not explored") && narrow.contains("Required checkpoint changes"),
-        "{narrow}"
-    );
-    fixture.click("[Back to conclusion]");
-    assert!(fixture.text().contains("The concept review is complete."));
-}
-
-#[test]
-fn conclusion_preview_omits_jev_only_files_from_count_tree_and_diff() {
-    let (mut fixture, request) = ExploreUi::new();
-    let mut pass = pass(&fixture, &request);
-    let question = pass.exploration.questions.last().unwrap().clone();
-    let answer = pass
-        .exploration
-        .request(
-            Some(review_explore::AnswerInput {
-                text: "Answered".into(),
-                ..Default::default()
-            }),
-            Some(&question),
-        )
-        .unwrap();
-    let mut update = fixture.response(&answer, 1);
-    update.next = None;
-    update.conclusion = Some(conclusion("Done."));
-    account_fixture_gaps(&pass, &mut update);
-    pass.submit(&update, false).unwrap();
-    let required = pass
-        .coverage
-        .inventory()
-        .units
-        .iter()
-        .find(|unit| unit.file_index() == 0)
-        .unwrap()
-        .clone();
-    let excluded = pass
-        .coverage
-        .inventory()
-        .units
-        .iter()
-        .find(|unit| unit.file_index() == 1)
-        .unwrap()
-        .clone();
-    pass.completion = Some(review_explore::ReviewCompletion {
-        request: answer.request,
-        baseline: request.checkpoint.checkpoint.clone(),
-        completed: true,
-        exclusions_enabled: true,
-        summary: pass.coverage.summary(true),
-        unexplored: Some(review_explore::UnexploredAtConclusion {
-            required: vec![required],
-            jev_excluded: vec![excluded],
-        }),
-    });
-    restore(&mut fixture, &pass, None);
-    assert!(fixture.text().contains("1 unexplored changed regions"));
-    fixture.click("[Preview unexplored code]");
-    let text = fixture.text();
-    assert!(text.contains("policy.rs ·"), "{text}");
-    assert!(!text.contains("tests.rs"), "{text}");
-    assert!(!text.contains("Jev"), "{text}");
-    let viewer = fixture
-        .app
-        .event_bus
-        .get::<DiffComponent>(fixture.app.diff_component)
-        .unwrap();
-    assert_eq!(
-        viewer
-            .evidence_view(ui_events::EvidenceView::Coverage)
-            .and_then(SourceViewer::evidence_path),
-        Some("policy.rs")
-    );
-}
-
-#[test]
-fn conclusion_preview_hides_jev_lines_inside_a_required_file() {
-    let (mut fixture, request) = ExploreUi::with_versions(
-        b"pub fn policy() {\n    println!(\"old\");\n}\n",
-        b"pub fn policy() {\n    println!(\"required_token\");\n    println!(\"jev_hidden_token\");\n}\n",
-    );
-    let mut pass = pass(&fixture, &request);
-    let question = pass.exploration.questions.last().unwrap().clone();
-    let answer = pass
-        .exploration
-        .request(
-            Some(review_explore::AnswerInput {
-                text: "Answered".into(),
-                ..Default::default()
-            }),
-            Some(&question),
-        )
-        .unwrap();
-    let mut update = fixture.response(&answer, 1);
-    update.next = None;
-    update.conclusion = Some(conclusion("Done."));
-    account_fixture_gaps(&pass, &mut update);
-    pass.submit(&update, false).unwrap();
-    let file = pass
-        .exploration
-        .comparison
-        .files
-        .iter()
-        .position(|file| file.review_path().display() == "policy.rs")
-        .unwrap();
-    let changed = |first, end| review_explore::CoverageUnit::Lines {
-        file,
-        side: review_explore::SourceSide::New,
-        first,
-        end,
-    };
-    pass.completion = Some(review_explore::ReviewCompletion {
-        request: answer.request,
-        baseline: request.checkpoint.checkpoint.clone(),
-        completed: true,
-        exclusions_enabled: true,
-        summary: pass.coverage.summary(true),
-        unexplored: Some(review_explore::UnexploredAtConclusion {
-            required: vec![changed(2, 3)],
-            jev_excluded: vec![changed(3, 4)],
-        }),
-    });
-    restore(&mut fixture, &pass, None);
-    fixture.click("[Preview unexplored code]");
-    let text = fixture.text();
-    assert!(text.contains("required_token"), "{text}");
-    assert!(!text.contains("jev_hidden_token"), "{text}");
-}
-
-#[test]
-fn coverage_diff_uses_the_selected_file_after_restoring_multiple_files() {
-    let (mut fixture, request) = ExploreUi::new();
-    let pass = pass(&fixture, &request);
-    let expected = pass.exploration.comparison.files[0].review_path().display();
-    assert!(pass.exploration.comparison.files.len() > 1);
-    restore(&mut fixture, &pass, None);
-    fixture.click("Answered-evidence coverage");
-    for _ in 0..10 {
-        if fixture.text().contains(&format!("{expected} ·")) {
-            break;
-        }
-        fixture.app.update(UserInput::Key(Key::PageDown));
-    }
-    fixture.click(&format!("{expected} ·"));
-    let diff = fixture
-        .app
-        .event_bus
-        .get::<DiffComponent>(fixture.app.diff_component)
-        .unwrap();
-    assert_eq!(
-        diff.evidence_view(ui_events::EvidenceView::Coverage)
-            .and_then(SourceViewer::evidence_path),
-        Some(expected.as_str())
-    );
-    assert!(fixture.text().contains(&format!("File diff · {expected}")));
-}
-
-#[test]
-fn inspect_jev_exclusions_reveals_the_regions_beside_the_control() {
-    let (mut fixture, request) = ExploreUi::new();
-    let mut pass = pass(&fixture, &request);
-    let unit = pass.coverage.inventory().units[0].clone();
-    assert!(
-        pass.coverage
-            .record_significance(review_explore::SignificanceResult {
-                id: "excluded-region".into(),
-                units: vec![unit.clone()],
-                outcome: review_explore::Significance::Insignificant,
-                model: None,
-                rubric: "fixture".into(),
-                criterion: String::new(),
-                input_references: vec![],
-                omissions: vec![],
-                probabilities: std::collections::BTreeMap::default(),
-                confidence: None,
-                error: None,
-            })
-    );
-    pass.completion = Some(review_explore::ReviewCompletion {
-        request: request.request.clone(),
-        baseline: request.checkpoint.checkpoint.clone(),
-        completed: true,
-        exclusions_enabled: true,
-        summary: pass.coverage.summary(true),
-        unexplored: None,
-    });
-    restore(&mut fixture, &pass, None);
-    assert!(!fixture.text().contains("Jev exclusions"));
-    fixture.app.update(UserInput::Resize {
-        width: 140,
-        height: 12,
-    });
-    fixture.click("Answered-evidence coverage");
-    for _ in 0..10 {
-        if fixture.text().contains("Jev exclusions") {
-            break;
-        }
-        fixture.app.update(UserInput::Key(Key::PageDown));
-    }
-    assert!(fixture.text().contains("Jev exclusions"));
-    fixture.click("Jev exclusions");
-    let visible = fixture.text();
-    assert!(visible.contains("[Inspect diff]"), "{visible}");
 }
 
 #[test]
@@ -364,7 +65,7 @@ fn restore_preserves_choice_comment_cursor_and_does_not_send_or_mark_files() {
         edited.sequence > view.sequence,
         "autosaves continue across reopening"
     );
-    assert_eq!(edited.state.drafts[0].1.editor.text, "before afteXr");
+    assert_eq!(edited.state.drafts[0].1.text, "before afteXr");
     assert_eq!(edited.state.turns[0].choice, 1);
     let submit = ExploreUi::request(fixture.app.update(UserInput::Key(Key::ControlEnter)));
     assert_eq!(
@@ -483,40 +184,6 @@ fn storage_failure_keeps_text_and_never_shows_an_unsaved_answer_as_posted() {
 }
 
 #[test]
-fn sending_an_answer_credits_its_question_and_refreshes_displayed_coverage() {
-    let (mut fixture, kickoff) = ExploreUi::new();
-    let mut pass = pass(&fixture, &kickoff);
-    restore(&mut fixture, &pass, None);
-    assert!(
-        fixture
-            .text()
-            .contains("Answered-evidence coverage 0% of required lines")
-    );
-
-    let answer = ExploreUi::request(fixture.app.update(UserInput::Key(Key::ControlEnter)));
-    let before = pass.coverage.counts_revision();
-    pass.post(&answer).unwrap();
-    assert!(pass.coverage.counts_revision() > before);
-    assert!(
-        pass.coverage
-            .required_changed_line_coverage(None, false)
-            .explored
-            > 0
-    );
-    fixture.app.publish(ui_events::ExplorePosted {
-        request: answer,
-        result: Ok(Arc::new(pass)),
-    });
-    fixture.app.publish(ui_events::ExploreCoverageRefresh);
-    assert!(fixture.text().contains("of required lines"));
-    assert!(
-        !fixture
-            .text()
-            .contains("Answered-evidence coverage 0% of required lines")
-    );
-}
-
-#[test]
 fn separate_conclusions_restore_independent_editors_and_old_conclusion_cannot_implement() {
     let (mut fixture, request) = ExploreUi::new();
     let mut pass = pass(&fixture, &request);
@@ -580,12 +247,9 @@ fn separate_conclusions_restore_independent_editors_and_old_conclusion_cannot_im
             .map(|(index, id)| {
                 (
                     ExplorePage::Conclusion(id.clone()),
-                    review_explore::ExploreDraft {
-                        editor: review_types::TextEditorState {
-                            text: format!("Independent reply {index}"),
-                            ..Default::default()
-                        },
-                        correction: None,
+                    review_types::TextEditorState {
+                        text: format!("Independent reply {index}"),
+                        ..Default::default()
                     },
                 )
             })
@@ -615,12 +279,11 @@ fn separate_conclusions_restore_independent_editors_and_old_conclusion_cannot_im
         text.contains("Only edited tasks 1") && text.contains("Independent reply 1"),
         "{text}"
     );
-    assert!(text.contains("conclusion finalization is pending"));
-    assert!(!text.contains(" Implement "));
+    assert!(text.contains(" Implement "), "{text}");
 }
 
 #[test]
-fn unavailable_restored_evidence_keeps_the_question_and_other_references_usable() {
+fn unavailable_restored_evidence_keeps_the_question_and_other_citations_usable() {
     let (mut fixture, request) = ExploreUi::new();
     let pass = pass(&fixture, &request);
     std::fs::remove_file(fixture.files.root().join("policy.rs")).unwrap();
@@ -714,12 +377,9 @@ fn post_ack_only_consumes_its_original_editor_when_history_is_opened_while_savin
                 .map(|index| {
                     (
                         ExplorePage::Question(index),
-                        review_explore::ExploreDraft {
-                            editor: review_types::TextEditorState {
-                                text: "Same text, different owner".into(),
-                                ..Default::default()
-                            },
-                            correction: None,
+                        review_types::TextEditorState {
+                            text: "Same text, different owner".into(),
+                            ..Default::default()
                         },
                     )
                 })
@@ -744,11 +404,16 @@ fn post_ack_only_consumes_its_original_editor_when_history_is_opened_while_savin
             .find(|(page, _)| *page == ExplorePage::Question(0))
             .unwrap()
             .1
-            .editor
             .text,
         "Same text, different owner"
     );
-    assert!(!view.state.drafts.iter().any(|(page, draft)| *page == ExplorePage::Question(1) && !draft.editor.text.is_empty()));
+    assert!(
+        !view
+            .state
+            .drafts
+            .iter()
+            .any(|(page, draft)| *page == ExplorePage::Question(1) && !draft.text.is_empty())
+    );
 }
 
 #[test]

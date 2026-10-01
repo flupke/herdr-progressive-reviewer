@@ -1,6 +1,8 @@
 use std::{collections::BTreeMap, path::Path};
 
-use review_explore::{Significance, SourceSide};
+use review_explore::SourceSide;
+
+use review_significance::Significance;
 use serde_json::json;
 
 use super::super::{Candidate, apply_policy, optimized, parse_response};
@@ -306,8 +308,8 @@ fn assert_compact_chunk(
     fixture: &super::dataset::Fixture,
     chunk: &super::super::optimized::Prepared,
 ) {
-    use review_explore::CoverageUnit;
     use review_repository::diff::parse_file_diff;
+    use review_significance::ChangeUnit;
     let diff = chunk.body["state"]["diff"].as_str().unwrap();
     let parsed = parse_file_diff(diff.as_bytes(), &fixture.file);
     let visible: Vec<_> = parsed
@@ -340,7 +342,7 @@ fn assert_compact_chunk(
         .map(|index| {
             let (side, line) =
                 super::dataset::coordinate(visible[index - 1]).expect("target changed row");
-            CoverageUnit::Lines {
+            ChangeUnit::Lines {
                 file: 0,
                 side,
                 first: line,

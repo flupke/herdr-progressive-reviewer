@@ -1,4 +1,4 @@
-use review_explore::{CoverageUnit, Significance, SignificanceResult};
+use review_significance::{ChangeUnit, Significance, SignificanceResult};
 use serde::Serialize;
 
 use super::dataset::LineLabel;
@@ -85,6 +85,6 @@ impl Scores {
     }
 }
 
-pub(super) fn owns(result: &SignificanceResult, unit: &CoverageUnit) -> bool {
+pub(super) fn owns(result: &SignificanceResult, unit: &ChangeUnit) -> bool {
     result.units.contains(unit)
 }

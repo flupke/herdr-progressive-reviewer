@@ -8,6 +8,8 @@ fn finish(fixture: &mut ExploreUi, request: &TurnRequest) -> InterviewUpdate {
         review: "runtime-access".into(),
         request: request.request.clone(),
         checkpoint: request.checkpoint.clone(),
+        reviewed: Vec::new(),
+        reopened: Vec::new(),
         interpretation: request
             .answer
             .as_ref()
@@ -18,7 +20,6 @@ fn finish(fixture: &mut ExploreUi, request: &TurnRequest) -> InterviewUpdate {
                 recap: "Recorded: keep resolved.".into(),
                 follow_ups: vec![],
             }),
-        inspections: vec![],
         conclusion: review_explore::Conclusion {
             summary: "Keep the agreed resolution policy.".into(),
             to_be_implemented: "1. Preserve resolved state.\n2. Add regression coverage.".into(),
@@ -68,10 +69,6 @@ fn authorized_pass(
     pass.completion = Some(review_explore::ReviewCompletion {
         request: kickoff.request.clone(),
         baseline: kickoff.checkpoint.checkpoint.clone(),
-        completed: true,
-        exclusions_enabled: false,
-        summary: review_explore::CoverageSummary::default(),
-        unexplored: None,
     });
     pass.last_agent_session = Some(
         serde_json::from_value(serde_json::json!({

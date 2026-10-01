@@ -10,9 +10,7 @@ use ui_events::ExploreEvidence;
 pub(super) struct ShownEvidence {
     pub(super) comparison: Option<Arc<Comparison>>,
     pub(super) evidence: Vec<EvidenceRef>,
-    pub(super) primary: usize,
     pub(super) selected: usize,
-    pub(super) required_only: bool,
     pub(super) limitation: Option<String>,
     pub(super) fit_pending: bool,
 }
@@ -48,11 +46,7 @@ impl ShownEvidence {
         };
         self.evidence
             .iter()
-            .enumerate()
-            .filter(|(index, _)| {
-                *index == self.selected || (self.selected < self.primary && *index < self.primary)
-            })
-            .filter_map(|(_, evidence)| {
+            .filter_map(|evidence| {
                 let source = comparison.source(&evidence.location)?;
                 let matches = match source.side {
                     SourceSide::Old => file.old_path.as_deref(),
@@ -81,15 +75,6 @@ pub(super) struct EvidenceShown {
     pub(super) opened: bool,
     /// Another viewer was in front before.
     pub(super) switched: bool,
-}
-
-/// The comparison file a coverage view shows.
-pub(super) fn coverage_file(event: &ExploreEvidence) -> Option<usize> {
-    let reference = event.evidence.first()?;
-    event.comparison.files.iter().position(|file| {
-        file.old_path.as_ref() == Some(&reference.location.path)
-            || file.new_path.as_ref() == Some(&reference.location.path)
-    })
 }
 
 impl SourceViewer {
@@ -181,7 +166,6 @@ impl SourceViewer {
             ));
         self.evidence.comparison = Some(comparison);
         self.evidence.evidence.clear();
-        self.evidence.required_only = false;
         self.selected_path = None;
         self.preview = None;
         self.selection = None;
@@ -198,8 +182,6 @@ impl SourceViewer {
     ) -> Vec<Action> {
         self.evidence.comparison = Some(event.comparison.clone());
         self.evidence.evidence.clone_from(&event.evidence);
-        self.evidence.primary = event.primary;
-        self.evidence.required_only = event.required_only;
         if !shown.opened && !event.reveal {
             return self.retained_evidence_actions(shown.switched);
         }
@@ -241,30 +223,7 @@ impl SourceViewer {
                 evidence,
             );
         }
-        self.open_supporting_evidence(&source, &content, evidence.location.lines.as_ref())
-    }
-
-    /// Show the diff of the comparison file at `index` for a coverage view.
-    pub(super) fn show_coverage_evidence(
-        &mut self,
-        event: &ExploreEvidence,
-        index: usize,
-        shown: EvidenceShown,
-    ) -> Vec<Action> {
-        if !shown.opened && !event.reveal {
-            return self.retained_evidence_actions(shown.switched);
-        }
-        self.evidence.comparison = Some(event.comparison.clone());
-        self.evidence.evidence.clone_from(&event.evidence);
-        self.evidence.selected = 0;
-        self.evidence.primary = event.primary;
-        self.evidence.required_only = event.required_only;
-        self.evidence.limitation = None;
-        if let Err(error) = self.select_comparison_document(&event.comparison, index) {
-            self.evidence.limitation = Some(format!("Coverage diff unavailable: {error}"));
-            return Vec::new();
-        }
-        self.request_visible_highlights()
+        self.open_unchanged_evidence(&source, &content, evidence.location.lines.as_ref())
     }
 
     fn retained_evidence_actions(&mut self, switched: bool) -> Vec<Action> {
@@ -291,11 +250,7 @@ impl SourceViewer {
         evidence: &EvidenceRef,
     ) -> Vec<Action> {
         if self.select_comparison_document(comparison, index).is_err() {
-            return self.open_supporting_evidence(
-                source,
-                content,
-                evidence.location.lines.as_ref(),
-            );
+            return self.open_unchanged_evidence(source, content, evidence.location.lines.as_ref());
         }
         if let Some(range) = &evidence.location.lines {
             let location = match source.side {

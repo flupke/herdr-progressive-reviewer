@@ -36,7 +36,7 @@ fn arrows_and_jk_select_the_answer_that_enter_records() {
         Alternative {
             id: "later".into(),
             text: "Decide later".into(),
-            outcome: TopicStatus::Deferred,
+            outcome: TopicStatus::Open,
             recommendation: None,
         },
     ]);
@@ -165,7 +165,7 @@ fn the_question_and_answer_controls_precede_evidence() {
             .unwrap();
         let evidence = rows
             .iter()
-            .position(|row| row.contains("Evidence 2 · Supporting"))
+            .position(|row| row.contains("Evidence 2"))
             .unwrap();
         let editor = rows
             .iter()
@@ -240,7 +240,7 @@ fn moving_selection_reveals_the_answer_in_a_short_viewport() {
         .push(Alternative {
             id: "later".into(),
             text: "Decide later".into(),
-            outcome: TopicStatus::Deferred,
+            outcome: TopicStatus::Open,
             recommendation: None,
         });
     fixture.app.publish(ExploreFinished {

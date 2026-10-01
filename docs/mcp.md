@@ -222,9 +222,8 @@ to its original question in the same conversation. The checkpoint appears once.
 The reviewer keeps the full question and answer for history and validation; its
 evidence, assessments, rationale, other choices and recommendation are not resent.
 
-Conditional details appear only when relevant: Corrects answer identifies an answer
-being corrected, Explicitly deferred records a deferral, and Previous response error
-contains the previous attempt's failure. An unselected option is omitted. Replies to
+Conditional details appear only when relevant: Previous response error contains the
+previous attempt's failure. An unselected option is omitted. Replies to
 a conclusion use Reply to conclusion with the original conclusion turn ID instead of
 a question ID/version. The agent posts the next turn with submit_question directly;
 no repository catalog or history dump is sent. get_explore_answer, get_explore and
@@ -236,8 +235,18 @@ identifies the reviewed commit. Include untracked files that Git diff omits; jj 
 bases use the merged parent tree. Cite evidence and topic associations directly using
 `{path, side, lines}`: paths are repository-relative UTF-8 strings or raw byte arrays,
 side is `old` or `new`, and lines are inclusive and one-based (null for file-level
-references). No source registration is needed. Evidence also explains what it
-establishes and how it could change the answer.
+references). No source registration is needed. Evidence lists the lines the question
+is about, most decisive first, and explains what each establishes and how it could
+change the answer. Citations never mark lines reviewed.
+
+Every prompt lists the **Unreviewed lines**: changed lines no review mark covers,
+whoever marked the rest (the reviewer in Files, Jev, or the agent after an answer),
+with wholly open directories collapsed. After a human answer, the next
+`submit_question` or `submit_conclusion` carries `reviewed`, the changed lines the
+answer settled, and `reopened`, reviewed lines it made matter again, each as
+`{path, side, lines}` (null lines for a whole file). The kickoff turn cannot mark
+lines. The reviewer applies them once the turn is accepted, only while the code is
+still the pass's checkpoint, and records what changed for the reviewer to see.
 
 Explore displays Markdown `#` sections for Context (`rationale`, with `visual` appended),
 Door and Blast radius (`assessments`), and Notes (the selected evidence's `notes`).
@@ -253,16 +262,11 @@ value and the result in `update`. Refresh an already-running agent's MCP tool ca
 after upgrading; Explore exposes `submit_question` and `submit_conclusion`. The old
 `submit_explore` name has been removed. `submit_question` requires a next question
 and cannot carry a conclusion.
-Successful question results include a `coverage` object with its ledger revision,
-exact unassigned gaps, gaps awaiting an answer, full totals and `has_more` when the
-bounded list is truncated. Credit comes from the exact answered question's essential
-and supporting changed regions; explicit Defer earns none. Concept exploration
-drives the interview: even 100% coverage does not exhaust its useful questions.
-When no useful inquiry remains, the agent inspects uncovered locations for missed
-concepts, including old-side deletions and non-line changes. It asks further questions
-only when that inspection reveals one, and otherwise explains remaining gaps in its
-conclusion. Jev exclusions, when enabled by a reviewer-process `TYPESAFE_API_KEY`,
-reduce the coverage reminders and remain inspectable; they do not establish correctness.
+Concept exploration drives the interview: reviewed lines do not exhaust its useful
+questions. When no useful inquiry remains, the agent checks the unreviewed lines for
+missed concepts, asks further questions only when that reveals one, and then
+concludes. With a reviewer-process `TYPESAFE_API_KEY`, Jev marks what it judges
+insignificant when a pass starts, and the kickoff says what it marked.
 The durable `instance` is distinct from renewable `review` access. Access is never
 saved with the pass. Reopening rotates it; the next explicit reviewer action supplies
 current access through the existing wakeup. Each call checks the pinned native
@@ -284,7 +288,7 @@ Use `submit_conclusion` for the separate conclusion screen. Its top-level argume
   "interpretation": null,
   "summary": "Review outcome, decisions and remaining uncertainty.",
   "to_be_implemented": "1. First agreed task.\n2. Second agreed task.",
-  "future_work": "Deferred or optional work outside this implementation scope."
+  "future_work": "Optional or later work outside this implementation scope."
 }
 ```
 
@@ -294,13 +298,9 @@ records a decision; the same exact-answer and retry rules apply. There are no
 question, evidence, reply, topic or agenda fields in a conclusion submission.
 Summary and future work are displayed separately. Only `to_be_implemented` seeds
 the editable task box. Submitting a conclusion does not start implementation.
-A conclusion can retain gaps in answered evidence after the final source inspection;
-its coverage receipt preserves those gaps. An incomplete change inventory still returns
-`coverage_incomplete` without consuming the request or answer, because source inspection
-needs a trustworthy inventory. A valid conclusion saves its outcome and coverage receipt
-before acknowledging success. It preserves file review marks, including on retries
-and reopening. The human can mark files explicitly with `Space`, or use `rf`
-in Files to mark files classified entirely as insignificant by Jev.
+A conclusion saves its outcome before acknowledging success; it can carry `reviewed`
+and `reopened` for the final answer like any turn after an answer, and changes no
+other review marks. Lines no answer settled stay unreviewed for the reviewer.
 The human's **Implement** action sends the edited box contents through the shared
 reviewer-to-agent delivery queue, authorizing those tasks and their validation.
 It waits for the pinned agent conversation, supports cancelling queued delivery,

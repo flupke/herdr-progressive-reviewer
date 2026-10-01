@@ -55,6 +55,32 @@ pub struct SourceLineRange {
     pub last_line: u32,
 }
 
+impl SourceLineRange {
+    /// The one-based range of zero-based `lines`.
+    pub fn from_zero_based(lines: Range<u32>) -> Self {
+        Self {
+            first_line: lines.start + 1,
+            last_line: lines.end,
+        }
+    }
+
+    /// How many lines the range holds.
+    pub fn count(&self) -> u32 {
+        (self.last_line + 1).saturating_sub(self.first_line)
+    }
+}
+
+/// `7`, or `7-9` for several lines.
+impl std::fmt::Display for SourceLineRange {
+    fn fmt(&self, output: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.first_line == self.last_line {
+            write!(output, "{}", self.first_line)
+        } else {
+            write!(output, "{}-{}", self.first_line, self.last_line)
+        }
+    }
+}
+
 /// A file frozen at one exact review checkpoint.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct FrozenFile {

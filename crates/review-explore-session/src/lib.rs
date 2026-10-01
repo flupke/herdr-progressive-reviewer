@@ -7,19 +7,20 @@
 mod agent;
 mod dispatch;
 mod implementation;
+mod marks;
 mod records;
 mod restore;
-mod significance;
 mod submission;
 mod turn;
+mod unreviewed;
 
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
 
 use component_core::ApplicationEventSender;
 use herdr_client::protocol::{AgentPort, AgentTarget};
-use review_explore::{Command, Comparison, ExclusionPolicy, ExplorePass, ViewSave};
+use review_explore::{Command, Comparison, ExplorePass, ViewSave};
 use review_repository::repository::Repository;
+use review_state::ReviewTracker;
 use review_store::ReviewStore;
 use review_thread_service::{PinnedAgent, PromptCancellation, PromptSender};
 use review_types::ReviewUnit;
@@ -60,10 +61,11 @@ impl Inbox {
 pub struct Collaborators {
     pub repository: Repository,
     pub store: ReviewStore,
+    /// The review marks every reviewer component shares.
+    pub tracker: Arc<ReviewTracker>,
     pub agents: Arc<dyn AgentPort>,
     pub target: AgentTarget,
     pub prompts: PromptSender,
-    pub exclusion: ExclusionPolicy,
     pub events: ApplicationEventSender,
     pub inbox: Inbox,
 }
@@ -71,11 +73,11 @@ pub struct Collaborators {
 /// The Explore session of one reviewer process.
 pub struct ExploreSession {
     repository: Repository,
+    tracker: Arc<ReviewTracker>,
     passes: records::SavedPasses,
     agents: Arc<dyn AgentPort>,
     target: AgentTarget,
     prompts: PromptSender,
-    exclusion: ExclusionPolicy,
     events: ApplicationEventSender,
     inbox: Inbox,
     state: State,
@@ -94,7 +96,8 @@ struct State {
     agent: Option<PinnedAgent>,
     prompt: Option<PromptCancellation>,
     implementation: Option<PromptCancellation>,
-    classification: Option<(String, Arc<AtomicBool>)>,
+    /// What Jev marked before the pass, for its first prompt.
+    jev: Option<String>,
 }
 
 impl State {
@@ -122,7 +125,6 @@ impl std::fmt::Debug for ExploreSession {
         formatter
             .debug_struct("ExploreSession")
             .field("state", &self.state)
-            .field("exclusion", &self.exclusion)
             .finish_non_exhaustive()
     }
 }
@@ -132,20 +134,20 @@ impl ExploreSession {
         let Collaborators {
             repository,
             store,
+            tracker,
             agents,
             target,
             prompts,
-            exclusion,
             events,
             inbox,
         } = collaborators;
         Self {
             repository,
+            tracker,
             passes: records::SavedPasses::new(store),
             agents,
             target,
             prompts,
-            exclusion,
             events,
             inbox,
             state: State::default(),
@@ -159,6 +161,11 @@ impl ExploreSession {
             Input::PromptFinished { event, attempt } => self.prompt_finished(*event, &attempt),
             Input::StorageChanged => self.storage_changed(),
         }
+    }
+
+    /// Say what Jev marked before the pass about to start, for its kickoff.
+    pub fn note_jev(&mut self, summary: Option<String>) {
+        self.state.jev = summary;
     }
 
     /// The reviewer now shows `unit`; restore its latest pass when the unit changed.
@@ -180,7 +187,6 @@ impl ExploreSession {
             Command::Turn(request) => self.deliver_turn(*request, None),
             Command::Retry(request) => self.retry(*request),
             Command::Implement(request) => self.implement(request),
-            Command::RequireReview(units) => self.require_review(*units),
             Command::CancelImplementation => self.state.implementation = None,
             Command::Cancel => {
                 self.cancel_record();
@@ -226,39 +232,6 @@ impl ExploreSession {
             eyre::bail!("Repository comparison is not ready; retry Start");
         };
         Ok(Arc::new(Comparison::prepare(&self.repository, &snapshot)?))
-    }
-
-    fn require_review(&mut self, units: Vec<review_explore::CoverageUnit>) {
-        let Some(pass) = &self.state.pass else {
-            return;
-        };
-        if self.state.historical || pass.completion.is_some() {
-            return;
-        }
-        let unit = pass.exploration.comparison.checkpoint.review_unit.clone();
-        let instance = pass.exploration.instance.clone();
-        let result = self.passes.update(&unit, &instance, |pass| {
-            if pass.completion.is_some() {
-                return Err("Explore is already finalizing".into());
-            }
-            let excluded = pass.coverage.unexplored_exclusions();
-            if !units.iter().all(|unit| excluded.contains(unit)) {
-                return Err("Exclusion is no longer current".into());
-            }
-            pass.coverage.require_review(units);
-            Ok(())
-        });
-        match result {
-            Ok(((), pass)) => {
-                self.state.pass = Some(pass.clone());
-                publish_committed(&self.events, pass);
-            }
-            Err(error) => {
-                let _ = self
-                    .events
-                    .send(ui_events::ExploreStorageFailed(error.to_string()));
-            }
-        }
     }
 
     fn cancel_record(&mut self) -> bool {

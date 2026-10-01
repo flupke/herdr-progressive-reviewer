@@ -1,6 +1,6 @@
 use super::*;
-use review_explore::{CoverageUnit, SignificanceResult};
 use review_repository::repository::RepoType;
+use review_significance::{ChangeUnit, SignificanceResult};
 use review_test_support::{
     ReviewRepositoryFixture, complete_repository_snapshot, repository_fixture,
 };
@@ -56,18 +56,18 @@ impl AutoReview {
             .position(|file| file.review_path().display() == path)
             .unwrap();
         let units = self
-            .coverage
+            .significance
             .inventory()
             .units
             .iter()
-            .filter(|unit| unit.file_index() == file && matches!(unit, CoverageUnit::Lines { .. }))
+            .filter(|unit| unit.file_index() == file && matches!(unit, ChangeUnit::Lines { .. }))
             .cloned()
             .collect();
         self.record_classification(path, units, outcome);
     }
 
-    fn record_classification(&mut self, id: &str, units: Vec<CoverageUnit>, outcome: Significance) {
-        assert!(self.coverage.record_significance(SignificanceResult {
+    fn record_classification(&mut self, id: &str, units: Vec<ChangeUnit>, outcome: Significance) {
+        assert!(self.significance.record_significance(SignificanceResult {
             id: id.into(),
             units,
             outcome,
@@ -104,7 +104,7 @@ fn only_fully_insignificant_files_are_marked_and_later_edits_need_review(kind: R
     std::os::unix::fs::symlink("docs.md", fixture.files.root().join("symlink")).unwrap();
     let mut review = fixture.prepare();
     assert!(
-        !review.coverage.inventory().complete,
+        !review.significance.inventory().complete,
         "symlinks have no supported text inventory"
     );
     for (path, outcome) in [
@@ -124,7 +124,7 @@ fn only_fully_insignificant_files_are_marked_and_later_edits_need_review(kind: R
         .unwrap();
     review.record_classification(
         "partial",
-        vec![CoverageUnit::Lines {
+        vec![ChangeUnit::Lines {
             file: partial,
             side: review_explore::SourceSide::New,
             first: 1,
@@ -245,11 +245,11 @@ fn metadata_changes_remain_unreviewed_even_when_all_text_is_insignificant() {
     review.classify_file("script.sh", Significance::Insignificant);
     assert!(
         review
-            .coverage
+            .significance
             .inventory()
             .units
             .iter()
-            .any(|unit| matches!(unit, CoverageUnit::Item { name, .. } if name == "mode"))
+            .any(|unit| matches!(unit, ChangeUnit::Item { name, .. } if name == "mode"))
     );
     assert_eq!(
         review
@@ -288,7 +288,7 @@ impl AutoReview {
             review_explore::SourceSide::New,
         ]
         .into_iter()
-        .map(|side| CoverageUnit::Lines {
+        .map(|side| ChangeUnit::Lines {
             file,
             side,
             first: line,

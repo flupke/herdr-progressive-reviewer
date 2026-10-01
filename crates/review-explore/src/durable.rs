@@ -1,8 +1,5 @@
 //! Durable investigation state. Sources and runtime capabilities are never stored here.
-use crate::{
-    CoverageLedger, CoverageReceipt, Exploration, ImplementationRequest, InterviewUpdate,
-    TurnRequest,
-};
+use crate::{Exploration, ImplementationRequest, InterviewUpdate, TurnRequest};
 use herdr_client::protocol::AgentSession;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -117,25 +114,11 @@ pub struct InterviewDelivery {
     pub started_at_ms: Option<u64>,
 }
 
-/// A saved conclusion and coverage receipt, independent of file review marks.
+/// The first conclusion the pass accepted, which authorizes implementation.
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct ReviewCompletion {
     pub request: String,
     pub baseline: String,
-    pub completed: bool,
-    #[serde(default)]
-    pub exclusions_enabled: bool,
-    #[serde(default)]
-    pub summary: crate::CoverageSummary,
-    /// Unanswered checkpoint geometry captured when the conclusion is accepted.
-    #[serde(default)]
-    pub unexplored: Option<UnexploredAtConclusion>,
-}
-
-#[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
-pub struct UnexploredAtConclusion {
-    pub required: Vec<crate::CoverageUnit>,
-    pub jev_excluded: Vec<crate::CoverageUnit>,
 }
 
 /// Domain and deduplication state are committed together, separate from editor autosaves.
@@ -144,46 +127,84 @@ pub struct ExplorePass {
     pub revision: u64,
     pub exploration: Exploration,
     #[serde(default)]
-    pub coverage: CoverageLedger,
-    #[serde(default, alias = "binding")]
     pub last_agent_session: Option<ConversationBinding>,
     pub turns: BTreeMap<String, InterviewDelivery>,
     pub implementations: BTreeMap<String, ImplementationDelivery>,
     #[serde(default)]
     pub completion: Option<ReviewCompletion>,
+    /// The review marks each agent turn changed, by Explore request.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub marks: BTreeMap<String, TurnMarks>,
+}
+
+/// The review marks one agent turn changed after a human answer.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
+pub struct TurnMarks {
+    /// The answer the marks follow.
+    pub answer: String,
+    /// The lines marked reviewed, as they were applied.
+    pub reviewed: Vec<crate::CodeLocation>,
+    /// The lines reopened, with who had marked them.
+    pub reopened: Vec<ReopenedLines>,
+    /// Why some or all of the requested marks were not applied.
     #[serde(default)]
-    pub coverage_receipts: BTreeMap<String, CoverageReceipt>,
+    pub problem: Option<String>,
+}
+
+/// Reviewed lines a turn reopened, and who had marked them.
+#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
+pub struct ReopenedLines {
+    #[serde(flatten)]
+    pub location: crate::CodeLocation,
+    pub author: review_types::MarkAuthor,
+}
+
+/// How many lines and whole files a turn marked reviewed and reopened.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct MarkCounts {
+    pub reviewed_lines: u32,
+    pub reviewed_files: u32,
+    pub reopened_lines: u32,
+    pub reopened_files: u32,
+}
+
+impl TurnMarks {
+    pub fn counts(&self) -> MarkCounts {
+        let mut counts = MarkCounts::default();
+        for location in &self.reviewed {
+            match &location.lines {
+                Some(lines) => counts.reviewed_lines += lines.count(),
+                None => counts.reviewed_files += 1,
+            }
+        }
+        for reopened in &self.reopened {
+            match &reopened.location.lines {
+                Some(lines) => counts.reopened_lines += lines.count(),
+                None => counts.reopened_files += 1,
+            }
+        }
+        counts
+    }
 }
 
 impl ExplorePass {
     pub fn new(exploration: Exploration) -> Self {
-        let coverage = CoverageLedger::new(&exploration.comparison);
         Self {
             revision: 0,
             exploration,
-            coverage,
             last_agent_session: None,
             turns: BTreeMap::new(),
             implementations: BTreeMap::new(),
             completion: None,
-            coverage_receipts: BTreeMap::new(),
+            marks: BTreeMap::new(),
         }
     }
 
-    /// Validate on a candidate so rejection retains the pending request and answer.
-    pub fn submit(
-        &mut self,
-        update: &InterviewUpdate,
-        exclusions_enabled: bool,
-    ) -> eyre::Result<(bool, CoverageReceipt)> {
+    /// Validate on a candidate so rejection retains the pending request and
+    /// answer; whether the update was new.
+    pub fn submit(&mut self, update: &InterviewUpdate) -> eyre::Result<bool> {
         let mut candidate = self.exploration.clone();
         let applied = candidate.submit(update.clone())?;
-        if !applied && let Some(receipt) = self.coverage_receipts.get(&update.request) {
-            return Ok((false, receipt.clone()));
-        }
-        if update.conclusion.is_some() && applied {
-            self.validate_conclusion_inspections(&candidate, exclusions_enabled)?;
-        }
         if applied {
             if let Some(started) = self
                 .turns
@@ -196,107 +217,12 @@ impl ExplorePass {
                     .insert(update.request.clone(), finished.saturating_sub(started));
             }
             self.exploration = candidate;
-            if update.next.is_some() {
-                self.coverage.note_pending_question();
-            }
         }
-        let pending = self.pending_questions();
-        let feedback = if let Some(question) = &update.next {
-            CoverageReceipt::AfterAnswer {
-                coverage_current: Some(self.coverage.feedback(
-                    &self.exploration.comparison,
-                    &pending,
-                    exclusions_enabled,
-                )),
-                coverage_after_answer: self.coverage.feedback_after_answer(
-                    &self.exploration.comparison,
-                    question,
-                    exclusions_enabled,
-                ),
-            }
-        } else {
-            CoverageReceipt::Current(self.coverage.feedback(
-                &self.exploration.comparison,
-                &pending,
-                exclusions_enabled,
-            ))
-        };
-        if applied {
-            self.coverage_receipts
-                .insert(update.request.clone(), feedback.clone());
-        }
-        Ok((applied, feedback))
-    }
-
-    fn validate_conclusion_inspections(
-        &self,
-        candidate: &Exploration,
-        exclusions_enabled: bool,
-    ) -> eyre::Result<()> {
-        eyre::ensure!(
-            self.coverage.inventory().complete,
-            "coverage_incomplete: {}",
-            self.coverage.inventory().limitations.join("; ")
-        );
-        let inspections = || {
-            candidate
-                .conversation
-                .iter()
-                .flat_map(|turn| &turn.update.inspections)
-        };
-        let remaining = self.coverage.unaccounted_inspections(
-            &candidate.comparison,
-            inspections(),
-            exclusions_enabled,
-        );
-        if let Some(unit) = remaining.first() {
-            eyre::bail!(
-                "inspection_incomplete: {} required change regions still lack an answered citation or a terminal inspection; first: {:?}",
-                remaining.len(),
-                CoverageLedger::gap_for_unit(unit, &candidate.comparison).location
-            );
-        }
-        for answer in candidate.active_deferred_answers() {
-            let missing = self.coverage.deferred_without_attribution(
-                &candidate.comparison,
-                answer,
-                inspections(),
-                exclusions_enabled,
-            );
-            eyre::ensure!(
-                missing.is_empty(),
-                "deferred_inspection_incomplete: {} remaining regions from human Answer ID {} need an outstanding inspection attributed to that answer",
-                missing.len(),
-                answer.id
-            );
-        }
-        Ok(())
-    }
-
-    pub fn pending_questions(&self) -> Vec<crate::Question> {
-        self.exploration
-            .questions
-            .last()
-            .filter(|question| {
-                !self
-                    .exploration
-                    .answers
-                    .iter()
-                    .any(|answer| answer.question.as_ref() == Some(question))
-            })
-            .cloned()
-            .into_iter()
-            .collect()
+        Ok(applied)
     }
 
     /// Accept an already attributed UI contribution against the latest stored state.
     pub fn post(&mut self, request: &TurnRequest) -> eyre::Result<bool> {
-        eyre::ensure!(
-            self.completion
-                .as_ref()
-                .is_none_or(|completion| completion.completed),
-            "Explore conclusion finalization is pending; restore or retry before posting"
-        );
         eyre::ensure!(
             request.instance == self.exploration.instance
                 && request.checkpoint == self.exploration.comparison.checkpoint,
@@ -340,8 +266,6 @@ impl ExplorePass {
         let input = request.answer.as_ref().map(|answer| crate::AnswerInput {
             option: answer.option.as_ref().map(|option| option.id.clone()),
             text: answer.text.clone(),
-            deferred: answer.deferred,
-            corrects: answer.corrects.clone(),
             in_reply_to: Some(answer.in_reply_to.clone()),
         });
         let validated = candidate.request(
@@ -366,7 +290,6 @@ impl ExplorePass {
                 "Answer identity already used"
             );
             self.exploration.answers.push(answer.clone());
-            self.coverage.credit(answer, &self.exploration.comparison);
         }
         self.exploration.outstanding = Some(request.clone());
         self.exploration.retry = Some(request.clone());
@@ -385,10 +308,8 @@ impl ExplorePass {
 
     pub fn authorize(&mut self, request: &ImplementationRequest) -> eyre::Result<bool> {
         eyre::ensure!(
-            self.completion
-                .as_ref()
-                .is_some_and(|completion| completion.completed),
-            "Explore conclusion finalization is not complete"
+            self.completion.is_some(),
+            "Explore has not accepted a conclusion"
         );
         eyre::ensure!(
             request.instance == self.exploration.instance

@@ -1,7 +1,7 @@
 //! Accepting and reopening individual changed lines. Hunks are only a view
 //! of the reviewed version, so a hunk splits where a selection ends.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 
 use review_types::MarkAuthor;
@@ -16,6 +16,39 @@ use crate::text::{Change, Lines, after_line, before_line, changes, hunk_groups};
 pub struct LineSelection {
     pub removed: BTreeSet<u32>,
     pub added: BTreeSet<u32>,
+}
+
+/// The reviewed lines the current file still shows, with who reviewed each:
+/// base lines removed and, numbered like the current file, lines added.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ReviewedLines {
+    pub removed: BTreeMap<u32, MarkAuthor>,
+    pub added: BTreeMap<u32, MarkAuthor>,
+}
+
+impl LineSelection {
+    pub fn is_empty(&self) -> bool {
+        self.removed.is_empty() && self.added.is_empty()
+    }
+
+    /// The lines of `self` that `other` does not have.
+    #[must_use]
+    pub fn difference(&self, other: &Self) -> Self {
+        Self {
+            removed: self.removed.difference(&other.removed).copied().collect(),
+            added: self.added.difference(&other.added).copied().collect(),
+        }
+    }
+}
+
+impl ReviewedLines {
+    /// The lines, without their authors.
+    pub fn selection(&self) -> LineSelection {
+        LineSelection {
+            removed: self.removed.keys().copied().collect(),
+            added: self.added.keys().copied().collect(),
+        }
+    }
 }
 
 /// The picked lines of one change. `removed` and `added` follow the change's
@@ -47,6 +80,27 @@ impl Pick {
 }
 
 impl HunkReview<'_> {
+    /// The reviewed lines the current file still shows, with their authors.
+    pub fn reviewed_lines(&self) -> ReviewedLines {
+        let open = changes(self.reviewed, self.current);
+        let mut lines = ReviewedLines::default();
+        for change in changes(self.base, self.reviewed) {
+            for line in change.before.clone() {
+                lines
+                    .removed
+                    .insert(line, self.attribution.removed_by(line).clone());
+            }
+            for line in change.after.clone() {
+                if let Some(current) = after_line(&open, line) {
+                    lines
+                        .added
+                        .insert(current, self.attribution.added_by(line).clone());
+                }
+            }
+        }
+        lines
+    }
+
     /// Accept the open lines `selection` names; `None` when it names none.
     /// An accepted change keeps its unpicked lines open, so its hunk splits.
     /// Reviewed lines a change rewrites have no base number: they go only

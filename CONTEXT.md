@@ -47,7 +47,7 @@ _Avoid_: review thread, review session
 
 **Review mark**:
 The record that some changed lines of a file are reviewed, and who marked them:
-the reviewer or Jev.
+the reviewer, Jev, or the Explore agent after one of the reviewer's answers.
 _Avoid_: coverage, credit
 
 **Reviewed version**:
@@ -70,3 +70,10 @@ review. It is "changed since review" when it rewrites reviewed lines.
 **Reviewed hunk**:
 A change from the base that the reviewed version holds and the current file
 still matches. The diff folds it into one row.
+
+## Explore
+
+**Citation**:
+A path, side and line range that a question puts before the reviewer as
+evidence, most decisive first. Citing lines does not mark them reviewed.
+_Avoid_: source reference, inspection, supporting reference

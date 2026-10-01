@@ -181,6 +181,12 @@ impl Comparison {
         .map(Cow::into_owned)
     }
 
+    /// Whether a mark names a changed file, on a side the change has, with
+    /// valid lines.
+    pub(crate) fn validate_mark(&self, location: &CodeLocation) -> bool {
+        self.files.iter().any(|file| location.names(file)) && self.validate_location(location)
+    }
+
     pub(crate) fn validate_location(&self, location: &CodeLocation) -> bool {
         let Some(source) = self.source(location) else {
             return false;
@@ -232,7 +238,7 @@ impl Comparison {
             .get(entry.file)
             .and_then(|file| file.hunks.get(hunk.checked_sub(1)?))
         else {
-            return true; // Restored associations are navigation, never coverage.
+            return true; // Restored associations are navigation, never review marks.
         };
         let range = match location.side {
             SourceSide::Old => &hunk.old,

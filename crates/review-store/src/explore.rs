@@ -16,7 +16,9 @@ use std::{
     time::SystemTime,
 };
 
-const VERSION: u32 = 1;
+/// Version 1 records had coverage, inspections, deferrals and corrections;
+/// they are no longer loaded, as if absent.
+const VERSION: u32 = 2;
 // A pass grows across many valid 1 MiB submissions. This is not a source archive.
 const MAX_DOMAIN: u64 = 256 * 1024 * 1024;
 const MAX_VIEW: u64 = 16 * 1024 * 1024;
@@ -25,6 +27,12 @@ const MAX_VIEW: u64 = 16 * 1024 * 1024;
 struct Stored<T> {
     version: u32,
     value: T,
+}
+
+/// Only the version of a stored record, read before its value.
+#[derive(Deserialize)]
+struct StoredVersion {
+    version: u32,
 }
 
 /// One review's Explore records, exclusively locked until this value is dropped.
@@ -338,19 +346,24 @@ impl ReviewStore {
                 path.display()
             )));
         }
-        let stored: Stored<T> =
-            serde_json::from_slice(&bytes).map_err(|source| Error::StateJson {
-                operation: "decode Explore",
-                path: path.to_owned(),
-                source,
-            })?;
-        if stored.version != VERSION {
+        let decode_error = |source| Error::StateJson {
+            operation: "decode Explore",
+            path: path.to_owned(),
+            source,
+        };
+        let version = serde_json::from_slice::<StoredVersion>(&bytes)
+            .map_err(decode_error)?
+            .version;
+        if version < VERSION {
+            return Ok(None);
+        }
+        if version != VERSION {
             return Err(Error::Explore(format!(
-                "unsupported version {} at {}; original retained",
-                stored.version,
+                "unsupported version {version} at {}; original retained",
                 path.display()
             )));
         }
+        let stored: Stored<T> = serde_json::from_slice(&bytes).map_err(decode_error)?;
         Ok(Some(stored.value))
     }
 }

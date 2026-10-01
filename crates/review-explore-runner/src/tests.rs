@@ -32,8 +32,6 @@ fn answer(request: &TurnRequest) -> ReviewerAnswer {
         in_reply_to: "first-turn".into(),
         text: "Keep it only after checking the unchanged caller.\nLiteral \"{{ROOT}}\" — {{TURN}}"
             .into(),
-        deferred: false,
-        corrects: None,
         author: "reviewer".into(),
     }
 }
@@ -43,7 +41,13 @@ fn kickoff_supplies_scope_and_identity_and_uses_the_mcp_schema() {
     let comparison = comparison();
     let mut exploration = Exploration::new(Arc::new(comparison.clone()));
     let request = exploration.request(None, None).unwrap();
-    let prompt = PreparedTurn::prepare(&request, &comparison, "fresh-access").prompt();
+    let prompt = PreparedTurn::prepare(
+        &request,
+        &comparison,
+        "fresh-access",
+        &Unreviewed::default(),
+    )
+    .prompt();
     assert!(prompt.contains(&format!("Explore pass: {}", request.instance)));
     assert!(prompt.contains(&format!("Explore request: {}", request.request)));
     assert!(prompt.contains("Explore review access: fresh-access\n"));
@@ -71,29 +75,23 @@ fn kickoff_supplies_scope_and_identity_and_uses_the_mcp_schema() {
 }
 
 #[test]
-fn wakeup_includes_compact_current_coverage_without_listing_all_gaps() {
+fn a_wakeup_lists_the_unreviewed_lines_after_the_answer_identity() {
     let comparison = comparison();
     let mut exploration = Exploration::new(Arc::new(comparison.clone()));
     let mut request = exploration.request(None, None).unwrap();
     request.answer = Some(answer(&request));
-    let feedback =
-        review_explore::CoverageLedger::new(&comparison).feedback(&comparison, &[], false);
-    let prompt =
-        PreparedTurn::prepare_with_feedback(&request, &comparison, "fresh-access", Some(&feedback))
-            .prompt();
-    assert!(prompt.contains("Current answered-evidence coverage:"));
-    assert!(prompt.contains("Jev disabled"));
-    assert!(prompt.contains("Use get_coverage_gaps"));
-    for label in [
-        "Coverage inspection reminder",
-        "Unassigned:",
-        "Awaiting answer:",
-        "covered_percent_tenths",
-        "coverage_after_answer",
-    ] {
-        assert!(!prompt.contains(label), "{label}");
+    let unreviewed = Unreviewed::default();
+
+    let prompt = PreparedTurn::prepare(&request, &comparison, "fresh-access", &unreviewed).prompt();
+
+    assert!(prompt.contains("Unreviewed lines: none; every changed line is reviewed."));
+    assert!(
+        prompt.find("Checkpoint: c").unwrap() < prompt.find("\nUnreviewed lines:").unwrap()
+            && prompt.find("\nUnreviewed lines:").unwrap() < prompt.find("Answer ID").unwrap()
+    );
+    for removed in ["coverage", "get_coverage_gaps", "inspection"] {
+        assert!(!prompt.contains(removed), "{removed}");
     }
-    assert!(prompt.contains("Answer ID: answer-id"));
 }
 
 #[test]
@@ -103,7 +101,13 @@ fn wakeup_delivers_full_selected_text_and_comment_with_plain_identity() {
     let mut request = exploration.request(None, None).unwrap();
     request.answer = Some(answer(&request));
     let original = request.clone();
-    let prompt = PreparedTurn::prepare(&request, &comparison, "fresh-access").prompt();
+    let prompt = PreparedTurn::prepare(
+        &request,
+        &comparison,
+        "fresh-access",
+        &Unreviewed::default(),
+    )
+    .prompt();
     assert!(prompt.contains("Answer ID: answer-id\nQuestion: earlier-question (version 7)\n"));
     assert!(prompt.contains("Selected option ID: keep\nSelected outcome: accepted\n"));
     assert!(prompt.contains("Selected option:\nKeep the full policy — including legacy callers\nWith \"bounded\" recovery\n"));
@@ -129,7 +133,13 @@ fn question_size_does_not_expand_the_wakeup() {
     let mut exploration = Exploration::new(Arc::new(comparison.clone()));
     let mut request = exploration.request(None, None).unwrap();
     request.answer = Some(answer(&request));
-    let before = PreparedTurn::prepare(&request, &comparison, "fresh-access").prompt();
+    let before = PreparedTurn::prepare(
+        &request,
+        &comparison,
+        "fresh-access",
+        &Unreviewed::default(),
+    )
+    .prompt();
     let answer = request.answer.as_mut().unwrap();
     let mut question = serde_json::to_value(answer.question.as_ref().unwrap()).unwrap();
     let detailed = "Supporting investigation, unrelated to transmitting the answer. ".repeat(2_000);
@@ -142,13 +152,18 @@ fn question_size_does_not_expand_the_wakeup() {
         "notes":detailed
     }]);
     question["evidence"] = evidence.clone();
-    question["supporting"] = evidence.clone();
     let consequence = serde_json::json!({"summary":detailed,"details":detailed,"evidence":evidence,"unknowns":[detailed]});
     question["assessments"] = serde_json::json!({"door":"unknown","reversibility":consequence,"blast_radius":consequence});
     answer.question = Some(serde_json::from_value(question).unwrap());
     answer.option.as_mut().unwrap().recommendation = Some(detailed);
     assert_eq!(
-        PreparedTurn::prepare(&request, &comparison, "fresh-access").prompt(),
+        PreparedTurn::prepare(
+            &request,
+            &comparison,
+            "fresh-access",
+            &Unreviewed::default()
+        )
+        .prompt(),
         before
     );
     assert!(serde_json::to_string(&request).unwrap().len() > 1_000_000);
@@ -164,7 +179,13 @@ fn questionless_replies_keep_the_closing_turn_identity() {
     answer.option = None;
     let text = answer.text.clone();
     request.answer = Some(answer);
-    let prompt = PreparedTurn::prepare(&request, &comparison, "fresh-access").prompt();
+    let prompt = PreparedTurn::prepare(
+        &request,
+        &comparison,
+        "fresh-access",
+        &Unreviewed::default(),
+    )
+    .prompt();
     assert!(prompt.contains("Answer ID: answer-id\nReply to conclusion: first-turn\n"));
     assert!(prompt.ends_with(&format!("Comment:\n{text}\n")));
     assert!(!prompt.contains("Question:"));
@@ -180,50 +201,56 @@ fn absent_comments_and_choices_do_not_imply_deferral_and_none_keeps_its_full_lab
     answer.option = answer.question.as_ref().unwrap().choices().last().cloned();
     answer.text.clear();
     request.answer = Some(answer);
-    let prompt = PreparedTurn::prepare(&request, &comparison, "fresh-access").prompt();
+    let prompt = PreparedTurn::prepare(
+        &request,
+        &comparison,
+        "fresh-access",
+        &Unreviewed::default(),
+    )
+    .prompt();
     assert!(prompt.contains("Selected option ID: none-of-the-above\nSelected outcome: open\n"));
     assert!(prompt.ends_with("Selected option:\nNone of the above\n"));
-    for absent in [
-        "Comment:",
-        "Explicitly deferred",
-        "Corrects answer:",
-        "Previous response error:",
-    ] {
+    for absent in ["Comment:", "Previous response error:"] {
         assert!(!prompt.contains(absent));
     }
-    let answer = request.answer.as_mut().unwrap();
-    answer.option = None;
-    answer.deferred = true;
-    let prompt = PreparedTurn::prepare(&request, &comparison, "fresh-access").prompt();
-    assert!(prompt.contains("Explicitly deferred\n"));
-    assert!(!prompt.contains("Selected option"));
-    assert!(!prompt.contains("Comment:"));
 }
 
 #[test]
-fn retries_and_corrections_only_add_the_relevant_details() {
+fn retries_only_add_the_previous_error() {
     let comparison = comparison();
     let mut exploration = Exploration::new(Arc::new(comparison.clone()));
     let mut request = exploration.request(None, None).unwrap();
     request.answer = Some(answer(&request));
-    let ordinary = PreparedTurn::prepare(&request, &comparison, "fresh-access").prompt();
-    request.answer.as_mut().unwrap().corrects = Some("earlier-answer".into());
-    let corrected = PreparedTurn::prepare(&request, &comparison, "fresh-access").prompt();
-    assert_eq!(
-        corrected.replace("Corrects answer: earlier-answer\n", ""),
-        ordinary
-    );
+    let ordinary = PreparedTurn::prepare(
+        &request,
+        &comparison,
+        "fresh-access",
+        &Unreviewed::default(),
+    )
+    .prompt();
     request.response_error = Some("Fix the invalid line range\nKeep the literal {{ROOT}}".into());
-    let prompt = PreparedTurn::prepare(&request, &comparison, "fresh-access").prompt();
+    let prompt = PreparedTurn::prepare(
+        &request,
+        &comparison,
+        "fresh-access",
+        &Unreviewed::default(),
+    )
+    .prompt();
     assert_eq!(
         prompt.replace(
             "\nPrevious response error:\nFix the invalid line range\nKeep the literal {{ROOT}}\n",
             ""
         ),
-        corrected
+        ordinary
     );
     request.answer = None;
-    let kickoff = PreparedTurn::prepare(&request, &comparison, "fresh-access").prompt();
+    let kickoff = PreparedTurn::prepare(
+        &request,
+        &comparison,
+        "fresh-access",
+        &Unreviewed::default(),
+    )
+    .prompt();
     assert!(kickoff.contains(
         "Previous response error:\nFix the invalid line range\nKeep the literal {{ROOT}}\n"
     ));

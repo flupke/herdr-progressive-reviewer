@@ -176,16 +176,10 @@ fn explore_help_comes_from_the_table() {
 }
 
 /// Explore's single-key commands win over longer sequences other scopes
-/// start with the same key, so `g` and `[` act at once in Explore.
+/// start with the same key, so `[` acts at once in Explore.
 #[test]
 fn explore_single_keys_do_not_wait_for_sequences() {
     let mut explore = ShortcutMatcher::<ExploreCommand>::new();
-    assert_eq!(
-        explore.resolve_key(Key::Char('g')),
-        InputResolution::Matched(ExploreCommand::Explore(ExploreShortcut::Coverage(
-            ExploreCoverageShortcut::ToggleOverview
-        )))
-    );
     assert_eq!(
         explore.resolve_key(Key::Char('[')),
         InputResolution::Matched(ExploreCommand::Explore(ExploreShortcut::Turn(

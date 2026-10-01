@@ -2,47 +2,12 @@ use super::Handler;
 use serde_json::json;
 
 #[test]
-fn question_results_label_projected_coverage_and_conclusions_keep_actual_coverage() {
-    let coverage: review_explore::CoverageFeedback = serde_json::from_value(json!({
-        "revision": 3,
-        "summary": {"inventory_complete":true,"total":2,"required":2,"explored_required":1,
-            "excluded_unexplored":0,"remaining":1,"answered_required_units_percent":50,"limitations":[]},
-        "covered_percent_tenths": 500,
-        "total_gaps":1,"has_more":false,"unassigned_required":[],"awaiting_answer":[],
-        "jev":{"mode":"disabled","excluded_unexplored":0,"pending_or_unclassified":0}
-    }))
-    .unwrap();
-    for (receipt, field, absent) in [
-        (
-            review_explore::CoverageReceipt::AfterAnswer {
-                coverage_current: Some(coverage.clone()),
-                coverage_after_answer: coverage.clone(),
-            },
-            "coverage_after_answer",
-            "coverage",
-        ),
-        (
-            review_explore::CoverageReceipt::Current(coverage.clone()),
-            "coverage",
-            "coverage_after_answer",
-        ),
-    ] {
-        let result = Handler::result(super::Response::Explore {
-            applied: true,
-            coverage: Box::new(receipt),
-        });
-        let text = result.content[0].as_text().unwrap();
-        let value: serde_json::Value = serde_json::from_str(&text.text).unwrap();
-        assert_eq!(value["accepted"], true);
-        assert_eq!(value[field], serde_json::to_value(&coverage).unwrap());
-        if field == "coverage_after_answer" {
-            assert_eq!(
-                value["coverage_current"],
-                serde_json::to_value(&coverage).unwrap()
-            );
-        }
-        assert!(value.get(absent).is_none());
-    }
+fn explore_results_say_only_whether_the_turn_was_new() {
+    let result = Handler::result(super::Response::Explore { applied: false });
+    let text = result.content[0].as_text().unwrap();
+    let value: serde_json::Value = serde_json::from_str(&text.text).unwrap();
+
+    assert_eq!(value, json!({"accepted": true, "applied": false}));
 }
 
 #[test]
@@ -68,7 +33,6 @@ fn explore_tool_schemas_describe_the_full_submission_without_a_kickoff_example()
         "Assessments",
         "Consequence",
         "EvidenceRef",
-        "Inspection",
         "CodeLocation",
         "ReviewCheckpoint",
         "SourceLineRange",
@@ -90,10 +54,13 @@ fn explore_tool_schemas_describe_the_full_submission_without_a_kickoff_example()
             .contains(&json!("next"))
     );
     assert_eq!(update["properties"]["next"]["type"], "object");
-    assert_eq!(
-        update["properties"]["inspections"]["items"]["$ref"],
-        "#/$defs/Inspection"
-    );
+    for marks in ["reviewed", "reopened"] {
+        assert_eq!(
+            update["properties"][marks]["items"]["$ref"],
+            "#/$defs/CodeLocation"
+        );
+    }
+    assert!(update["properties"].get("inspections").is_none());
     assert!(update["properties"].get("conclusion").is_none());
     assert_eq!(update["additionalProperties"], false);
     let question = &update["properties"]["next"]["properties"];
@@ -106,7 +73,7 @@ fn explore_tool_schemas_describe_the_full_submission_without_a_kickoff_example()
     );
     assert_eq!(
         definitions["TopicStatus"]["enum"],
-        json!(["open", "accepted", "needs_follow_up", "deferred"])
+        json!(["open", "accepted", "needs_follow_up"])
     );
     assert_eq!(definitions["SourceSide"]["enum"], json!(["old", "new"]));
     assert_eq!(definitions["ReviewUnit"]["type"], "string");
@@ -120,7 +87,7 @@ fn explore_tool_schemas_describe_the_full_submission_without_a_kickoff_example()
 }
 
 #[test]
-fn conclusion_and_gap_tools_expose_inspection_and_pagination_fields() {
+fn the_conclusion_tool_takes_its_sections_and_marks() {
     let tools = Handler::tools();
     let conclusion = tools
         .iter()
@@ -157,12 +124,9 @@ fn conclusion_and_gap_tools_expose_inspection_and_pagination_fields() {
         );
     }
     assert_eq!(
-        schema["properties"]["inspections"]["items"]["$ref"],
-        "#/$defs/Inspection"
+        schema["properties"]["reviewed"]["items"]["$ref"],
+        "#/$defs/CodeLocation"
     );
-    let gaps = tools
-        .iter()
-        .find(|tool| tool.name == "get_coverage_gaps")
-        .unwrap();
-    assert!(gaps.input_schema["properties"].get("revision").is_some());
+    assert!(schema["properties"].get("inspections").is_none());
+    assert!(!tools.iter().any(|tool| tool.name == "get_coverage_gaps"));
 }

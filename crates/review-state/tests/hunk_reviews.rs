@@ -521,3 +521,24 @@ fn a_selection_of_unchanged_lines_marks_nothing(repository_type: RepoType) {
     );
     assert_eq!(review.record(), LoadResult::Unreviewed);
 }
+
+#[test_case(RepoType::Git; "git")]
+#[test_case(RepoType::Jj; "jj")]
+fn a_files_lines_name_what_is_open_and_who_reviewed_the_rest(repository_type: RepoType) {
+    let review = Review::new(repository_type);
+    review.accept_lines(&selection(&[1], &[1]), &MarkAuthor::Jev);
+
+    let snapshot = review.snapshot();
+    let lines = review.tracker.lines(&snapshot, &snapshot.files[0]).unwrap();
+
+    assert_eq!(
+        lines
+            .open
+            .iter()
+            .map(|open| (open.lines.removed.clone(), open.lines.added.clone()))
+            .collect::<Vec<_>>(),
+        [(vec![9], vec![9]), (vec![17], vec![17])]
+    );
+    assert_eq!(lines.reviewed.removed, [(1, MarkAuthor::Jev)].into());
+    assert_eq!(lines.reviewed.added, [(1, MarkAuthor::Jev)].into());
+}

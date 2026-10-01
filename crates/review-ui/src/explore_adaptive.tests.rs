@@ -89,7 +89,7 @@ fn conversation_redirects_agenda_and_opens_new_evidence_in_the_native_viewer() {
     assert!(text.contains("Outstanding: Rebuild availability"));
     assert!(text.contains("How will durable rows migrate?"));
     assert!(text.contains("Depends on: Resolution"));
-    assert!(text.contains("Files still requires human inspection"));
+    assert!(text.contains("they do not mark lines reviewed"));
     let buffer = fixture.buffer();
     assert!(
         buffer
@@ -335,37 +335,6 @@ fn initial_conclusion_accepts_context_and_keeps_a_new_unscoped_draft_when_a_ques
 }
 
 #[test]
-fn resuming_or_revisiting_a_correction_preserves_its_original_answer_link() {
-    for revisit in [false, true] {
-        let (mut fixture, request) = ExploreUi::new();
-        fixture.respond(&request, 1);
-        fixture.app.update(UserInput::Paste("First context".into()));
-        let request = ExploreUi::request(fixture.app.update(UserInput::Key(Key::ControlEnter)));
-        let original = request.answer.as_ref().unwrap().id.clone();
-        fixture.respond(&request, 2);
-        fixture.app.update(UserInput::Key(Key::Char('[')));
-        fixture.app.update(UserInput::Key(Key::Char('x')));
-        fixture.app.update(UserInput::Paste(
-            "Correction: only with bounded rebuilds".into(),
-        ));
-        fixture.app.update(UserInput::Key(Key::Tab));
-        if revisit {
-            fixture.app.update(UserInput::Key(Key::Char(']')));
-            fixture.app.update(UserInput::Paste("Other draft".into()));
-            fixture.app.update(UserInput::Key(Key::Tab));
-            fixture.app.update(UserInput::Key(Key::Char('[')));
-        }
-        fixture.app.update(UserInput::Key(Key::Enter));
-        let request = ExploreUi::request(fixture.app.update(UserInput::Key(Key::ControlEnter)));
-        assert_eq!(request.answer.as_ref().unwrap().corrects, Some(original));
-        assert_eq!(
-            request.answer.unwrap().text,
-            "Correction: only with bounded rebuilds"
-        );
-    }
-}
-
-#[test]
 fn automatic_advancement_keeps_the_direct_answer_visible_before_the_next_question() {
     let (mut fixture, request) = ExploreUi::new();
     fixture.app.update(UserInput::Resize {
@@ -415,38 +384,6 @@ fn question_after_conclusion_context() -> ExploreUi {
     response.interpretation = None;
     publish(&mut fixture, response);
     fixture
-}
-
-#[test]
-fn correcting_a_question_from_the_conclusion_composer_keeps_both_contexts_separate() {
-    let mut fixture = question_after_conclusion_context();
-    fixture
-        .app
-        .update(UserInput::Paste("Question context".into()));
-    let request = ExploreUi::request(fixture.app.update(UserInput::Key(Key::ControlEnter)));
-    let original = request.answer.as_ref().unwrap().clone();
-    let mut response = fixture.response(&request, 2);
-    response.next = None;
-    response.conclusion = Some(conclusion("Further human file inspection remains required"));
-    response.interpretation = None;
-    publish(&mut fixture, response);
-    fixture.click("[Reply]");
-    fixture
-        .app
-        .update(UserInput::Paste("Unposted opening context".into()));
-    fixture.click("[Previous]");
-    fixture.app.update(UserInput::Key(Key::Char('x')));
-    fixture
-        .app
-        .update(UserInput::Paste("Question correction".into()));
-    let request = ExploreUi::request(fixture.app.update(UserInput::Key(Key::ControlEnter)));
-    let correction = request.answer.unwrap();
-    assert_eq!(correction.question, original.question);
-    assert_eq!(correction.corrects, Some(original.id));
-    assert_eq!(correction.text, "Question correction");
-    fixture.click("[Conclusion]");
-    fixture.click("[Reply]");
-    assert!(fixture.text().contains("Unposted opening context"));
 }
 
 #[test]

@@ -11,8 +11,11 @@ eyre.workspace = true
 herdr-client = { path = "../herdr-client" }
 review-explore = { path = "../review-explore" }
 review-explore-runner = { path = "../review-explore-runner" }
+review-hunks = { path = "../review-hunks" }
 review-mcp = { path = "../review-mcp" }
 review-repository = { path = "../review-repository" }
+review-source = { path = "../review-source" }
+review-state = { path = "../review-state" }
 review-store = { path = "../review-store" }
 review-thread-service = { path = "../review-thread-service" }
 review-types = { path = "../review-types" }
@@ -23,7 +26,6 @@ uuid.workspace = true
 [dev-dependencies]
 crossbeam-channel.workspace = true
 herdr-client = { path = "../herdr-client", features = ["memory"] }
-review-source = { path = "../review-source" }
 review-test-support = { path = "../review-test-support" }
 serde_json.workspace = true
 tempfile.workspace = true

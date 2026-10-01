@@ -130,8 +130,9 @@ pause decisions when source files change. Supporting files are read as needed,
 so large unchanged assets do not impose a repository-wide capture limit.
 
 **Explore progress is saved automatically.** Opening the same checkout and logical
-review restores its latest pass: exact questions, answers, corrections, agenda,
-conclusions, coverage, separate task/reply drafts, choice selection and reading position.
+review restores its latest pass: exact questions, answers, agenda, conclusions, the
+review marks each answer led to, separate task/reply drafts, choice selection and reading
+position. Passes saved by earlier versions, before answers could mark lines, are not restored.
 Reopening sends no prompt and never starts implementation. The next explicit
 action prompts the selected implementation agent. If that agent is unavailable,
 history and edits remain available until it can be selected and retried. A new
@@ -148,21 +149,11 @@ Explore shows one question at a time across the full content width. Its evidence
 answers and recap scroll together. **Previous** and **Next** (or `[` / `]`) visit
 question and conclusion history in posting order; **Latest** returns to the newest question or active conclusion. These controls stay
 visible while scrolling. **Conclusion** opens the separate conclusion page.
-The pinned **Coverage** control shows answered-evidence coverage: the share of
-required changed text lines cited by answered questions. Click it for a file
-overview and open a file's full diff. Metadata changes are tracked separately.
-Essential and collapsed supporting references count only after you answer that exact question;
-explicit **Defer** earns no coverage. An unanswered assignment remains outstanding. The
-boxed overview groups files by remaining review work. Its percentage is the share of added
-and deleted lines cited by answered questions, counted on both sides of the diff; unchanged
-context and metadata do not enter that percentage. Effective Jev exclusions are
-removed from the required-line total; **Require review** restores them. **Show file diff** displays the selected file below the
-overview and selects it in Files.
-Concept exploration determines when the discussion ends. Reaching 100% does not
-establish that all useful questions have been asked or mark files by itself. Once
-the agent has exhausted its concept agenda, it inspects remaining uncovered regions
-for missed questions. Inspected code that needs no question may remain outside
-answered evidence when the agent concludes; the conclusion explains those gaps.
+Concept exploration determines when the discussion ends; the agent does not keep
+asking only to mark more lines. What is left to review shows where it always does:
+the header's review progress and the Files list. Once the agent has exhausted its
+concept agenda, it checks the unreviewed lines for missed questions, then concludes;
+lines no answer settled stay unreviewed.
 Each question keeps its own unfinished text, selected choice and evidence state.
 
 The conclusion page separates **Summary**, an editable **To be implemented** box,
@@ -177,9 +168,18 @@ edited box. A delivered request is not sent again automatically. **Delivery outc
 unknown** means a crash or transport failure may have interrupted confirmation:
 check the original agent conversation before deliberately sending a new request.
 A sent status confirms delivery, not implementation completion. **Reply** continues the interview
-about the conclusion, without authorizing code changes. A valid conclusion preserves
-file review marks. Use `Space` for manual marking or `rf` in Files for Jev
-classification. Explore does not resolve ordinary threads.
+about the conclusion, without authorizing code changes. Explore does not resolve
+ordinary threads.
+
+After each answer, the agent marks the changed lines your answer settled as reviewed,
+and can reopen reviewed lines your answer made matter again, whoever marked them. These
+are ordinary review marks: Files, the diff and the header progress show them, and you
+can reopen or mark hunks yourself as usual. Below your answer, the agent's next turn
+shows what it marked and reopened. Marks apply only while the code is still the
+checkpoint the pass started from. Every prompt lists the agent's remaining
+**Unreviewed lines**: the changed lines no review mark covers, including your own
+marks from Files. When Jev is enabled, starting a pass first marks what Jev dismisses,
+as `rf` does, and the kickoff tells the agent what it marked.
 The preparation state shows the actual pending status and Cancel. Delivery
 errors and Retry appear beside the affected turn.
 
@@ -198,20 +198,18 @@ to submit both together. **None of the above** keeps the inquiry open and can be
 with or without text. Click the text field or use `Tab` to reach it. The text fields
 use the shared comment editor: `Esc` returns to Normal mode in Vim editing and stays
 in the field in Regular editing. `Tab` returns to Explore commands. The short recap
-shows the agent's interpretation; `x` appends
-a correction through the same answer interface. Ask “Why?”, request a caller,
+shows the agent's interpretation. Ask “Why?”, request a caller,
 challenge an assumption, or provide new context in the same free-text composer.
 The agent replies directly; a factual question or context is not agreement. Conditional decisions retain
 their required changes as follow-ups. Free-text interpretation remains something
-to inspect and correct, not a semantic guarantee.
+to check, and to amend with another answer; it is not a semantic guarantee.
 
 | Explore command | Action |
 | --- | --- |
 | `Up` / `Down` or `j` / `k` | Select an answer, including None of the above |
 | `Enter` | Submit the selected answer and optional details when outside the editor |
-| `d` | Defer the question |
 | `[` / `]` | Previous / next question |
-| `e` / `b` | Next evidence reference / primary evidence |
+| `e` / `b` | Next evidence / first evidence |
 | `m` | Expand map and follow-ups |
 | `PageUp` / `PageDown` | Scroll the conversation when it has focus |
 | Mouse wheel | Scroll code over a diff; scroll the conversation outside it |
@@ -228,12 +226,12 @@ without switching panes. Switching Files/Threads/Explore preserves questions, dr
 and code position. Narrow terminals reflow the question and history controls without
 changing Files' sidebar.
 
-The initial native diff window fits the primary evidence's wrapped rows plus
+The initial native diff window fits the selected evidence's wrapped rows plus
 context, capped at about half the content height. Larger sources remain fully
-scrollable. Each primary snippet explains what it establishes and how that could
-change your answer. **Evidence** lists those decision-relevant snippets;
-**Supporting sources** keeps additional citations available without expanding the
-question's main evidence list. Repeated references to the same range appear once.
+scrollable. Each snippet explains what it establishes and how that could change
+your answer. **Evidence** lists the question's citations, most decisive first,
+followed by those its assessments, the agent's reply and its agenda changes cite. Every cited range in
+the shown file is outlined. Repeated citations of the same range appear once.
 Drag the bottom edge or use the resize keys; **Fit evidence** restores automatic
 sizing and positions the complete range, including its outline and wrapped lines. Manual
 heights and each opened viewer's position, search, selection and comment draft
@@ -243,8 +241,8 @@ code. Non-text or unavailable sources show a compact limitation.
 
 Yellow outlines mean **relevant to this question**. They do not mean accepted,
 reviewed or high risk. Each code window retains search, selection, comments, syntax
-highlighting and new-side language-server navigation. Use **Primary** to return
-after following a definition. Old/deleted-line LSP operations are unavailable;
+highlighting and new-side language-server navigation. Press `b` to return to the first
+evidence after following a definition. Old/deleted-line LSP operations are unavailable;
 additional regular working-copy files inside the repository can be opened on demand.
 Citations name paths, sides and lines directly. Outside-repository destinations
 and non-regular files remain unavailable.
@@ -267,24 +265,22 @@ Consequential questions show separate **Door** and **Blast radius** sections.
 The first assesses whether effects can actually be undone, including rollback or
 rebuild conditions; the second describes plausible harm, propagation and bounds.
 Additional reasoning and unknowns appear below their summaries without an expansion button.
-**Supporting sources** opens their citations in the same native viewer.
+Their citations open in the same native viewer.
 These are evidence-backed agent judgments, not risk scores or guaranteed safety.
 
 The agenda is provisional. Context can add, refine, reorder, retire or supersede
 pending inquiries. Retirement keeps the reason and original wording and does not
 mean acceptance. A reconsideration flags a prior conclusion without changing the
-original decision; deferrals and conditions remain outstanding. New questions
+original decision; conditions remain outstanding. New questions
 do not imply a fixed total. The reviewer saves conversation and agenda history; the agent retains context in its own conversation.
 
 The expanded map shows those states, prerequisites, entries not yet mapped and scan limitations. Topic
-associations are not proof of coverage. Only answered essential/supporting changed regions
-receive credit; coverage remains an inspection reminder rather than a completion threshold.
-A successful conclusion saves the discussion outcome and preserves file review marks.
-Explore does not resolve threads.
+associations do not mark lines reviewed. A successful conclusion saves the discussion outcome and can mark the lines the final
+answer settled. Explore does not resolve threads.
 
-Setting a nonempty `TYPESAFE_API_KEY` in the reviewer process enables optional Jev
-significance checks. The reviewer sends bounded before/after code snippets and relative
-paths to TypeSafe AI. Missing or whitespace-only keys make every change required.
-Uncertain, failed and oversized checks remain required. The Jev area in expanded Coverage
-shows excluded regions and lets you choose **Require review**; this returns an
-uncovered exclusion to the required work without erasing earlier answer coverage.
+Setting a nonempty `TYPESAFE_API_KEY` in the reviewer process enables Jev
+significance checks: `rf` in Files, and the start of each Explore pass, mark the
+changed lines Jev judges insignificant as reviewed. The reviewer sends bounded
+before/after code snippets and relative paths to TypeSafe AI. Missing or
+whitespace-only keys disable Jev. Uncertain, failed and oversized checks leave their
+lines unreviewed. Reopen a hunk in Files to review Jev's lines yourself.

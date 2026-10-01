@@ -389,7 +389,7 @@ fn hunk_marks_keep_the_reviewed_version_and_its_base() {
     let LoadResult::Reviewed(record) = store.load(&fixture.change, &path).unwrap() else {
         panic!("record was not loaded");
     };
-    assert_eq!(record.partial, Some(partial()));
+    assert_eq!(record.partial, Some(Box::new(partial())));
     let stored: serde_json::Value =
         serde_json::from_slice(&fs::read(store.record_path(&fixture.change, &path)).unwrap())
             .unwrap();
@@ -505,7 +505,7 @@ fn hunk_marks_of_large_files_round_trip() {
     let LoadResult::Reviewed(record) = store.load(&fixture.change, &path).unwrap() else {
         panic!("record was not loaded");
     };
-    assert_eq!(record.partial, Some(large));
+    assert_eq!(record.partial, Some(Box::new(large)));
 }
 
 #[test]

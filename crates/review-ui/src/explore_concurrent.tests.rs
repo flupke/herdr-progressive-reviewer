@@ -184,7 +184,7 @@ fn edits_during_posting_are_queued_for_save_before_normal_close() {
         view.state
             .drafts
             .iter()
-            .any(|(_, draft)| draft.editor.text == "Next unposted draft")
+            .any(|(_, draft)| draft.text == "Next unposted draft")
     );
     fixture.app.update(UserInput::Key(Key::Tab));
     assert!(

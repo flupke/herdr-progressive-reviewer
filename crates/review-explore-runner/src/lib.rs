@@ -1,7 +1,12 @@
 //! Start an Explore interview once, then wake the same agent for each human answer.
-use review_explore::{Comparison, CoverageFeedback, TurnRequest};
+use review_explore::{Comparison, TurnRequest};
 
 mod input;
+mod unreviewed;
+
+pub use unreviewed::{
+    Unreviewed, UnreviewedFile, UnreviewedLines, UnreviewedRange, UnreviewedStatus,
+};
 
 #[derive(Debug)]
 pub struct PreparedTurn {
@@ -9,18 +14,15 @@ pub struct PreparedTurn {
 }
 
 impl PreparedTurn {
-    pub fn prepare(request: &TurnRequest, comparison: &Comparison, access: &str) -> Self {
-        Self::prepare_with_feedback(request, comparison, access, None)
-    }
-
-    pub fn prepare_with_feedback(
+    /// The prompt for `request`, listing the unreviewed lines.
+    pub fn prepare(
         request: &TurnRequest,
         comparison: &Comparison,
         access: &str,
-        feedback: Option<&CoverageFeedback>,
+        unreviewed: &Unreviewed,
     ) -> Self {
         let instructions = if request.answer.is_some() {
-            "Continue Explore with this answer; match its question ID/version. Keep review-only scope and preserve the answer and decisions when repairing errors. Use submit_question for useful concept inquiries. Once those are exhausted, inspect remaining coverage gaps for missed questions before submit_conclusion. Coverage alone never ends the interview."
+            "Continue Explore with this answer; match its question ID/version. Keep review-only scope and preserve the answer and decisions when repairing errors. Record the review marks this answer settled in reviewed and reopened. Use submit_question for useful concept inquiries. Once those are exhausted, check the Unreviewed lines for missed questions before submit_conclusion. Reviewed lines alone never end the interview."
         } else {
             include_str!("interview.md")
         };
@@ -31,7 +33,7 @@ impl PreparedTurn {
                 .answer
                 .is_none()
                 .then_some(comparison.repository_root.as_path()),
-            feedback,
+            unreviewed,
         };
         Self {
             prompt: format!("{instructions}\n\n{input}"),

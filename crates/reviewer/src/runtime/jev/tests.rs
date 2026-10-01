@@ -8,7 +8,7 @@ use std::{
     time::Duration,
 };
 
-use review_explore::Significance;
+use review_significance::Significance;
 use serde_json::Value;
 
 use super::{
@@ -32,7 +32,7 @@ fn prepared(index: usize) -> optimized::Prepared {
     }
 }
 
-fn result(prepared: &optimized::Prepared) -> review_explore::SignificanceResult {
+fn result(prepared: &optimized::Prepared) -> review_significance::SignificanceResult {
     prepared
         .candidate
         .result(Significance::Significant, None, BTreeMap::new(), None, None)

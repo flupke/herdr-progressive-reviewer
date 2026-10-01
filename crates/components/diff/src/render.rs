@@ -1,7 +1,7 @@
 use std::ops::{Range, RangeInclusive};
 #[path = "evidence.rs"]
 mod evidence;
-use evidence::{EvidenceFrames, RequiredEvidenceRows};
+use evidence::EvidenceFrames;
 
 use diff_rendering::{DiffFrame, FrameBorderCell, FrameOverlay, FrameOverlayRow, FramedRow};
 use ratatui::buffer::Buffer;
@@ -623,7 +623,6 @@ impl DiffRenderer<'_> {
         evidence: &EvidenceFrames,
     ) -> DiffViewport {
         let selection = self.selection.clone();
-        let required_rows = RequiredEvidenceRows::new(file, self.evidence);
         let line_number_width = file.document.diff.line_number_width();
         let show_markers = !file.document.diff.shows_whole_file();
         let include_code = !self.hides_reviewed_diff(file);
@@ -644,7 +643,6 @@ impl DiffRenderer<'_> {
             .rows
             .iter()
             .enumerate()
-            .filter(|(index, _)| required_rows.as_ref().is_none_or(|rows| rows.shows(*index)))
             .flat_map(|(index, presented)| {
                 let mut wrapped = Vec::new();
                 let source_line = file

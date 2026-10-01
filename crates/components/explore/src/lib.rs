@@ -4,7 +4,7 @@ use component_core::{Component, ComponentSubscriptions, EventPublisher};
 use review_explore::{AnswerInput, Command, Exploration, Question};
 use std::{
     cell::{Cell, RefCell},
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
 };
 use ui_actions::Action;
 use ui_events::{
@@ -17,13 +17,10 @@ mod adaptive;
 mod choices;
 mod composer;
 mod conclusion;
-mod conclusion_preview;
 mod controls;
-mod coverage;
 mod evidence;
 mod flow;
 mod input;
-mod jev_progress;
 mod navigation;
 mod persistence;
 mod render;
@@ -34,27 +31,19 @@ enum Control {
     Start,
     NewImplementation,
     Send,
-    Defer,
     History(navigation::History),
     Map,
-    Coverage,
-    CoverageFile(usize),
-    CoverageGap(usize),
-    CoverageReturn,
-    ExcludedGap(usize),
-    JevDebug,
-    RequireReview(usize),
     Cancel,
     Retry,
-    Correct(usize),
+    /// Show or hide the review marks the turn after this answer changed.
+    Marks(usize),
     Reply(usize),
     GeneralReply,
     SelectChoice(usize),
     Evidence(EvidenceView),
-    Primary(EvidenceView),
+    FirstEvidence(EvidenceView),
     Edit,
     EditImplementation,
-    PreviewUnexplored,
     Implement,
     CancelImplementation,
 }
@@ -87,14 +76,7 @@ enum Reveal {
     Editor(EditorTarget),
     Choice,
     Evidence,
-    Jev,
-    CoverageDiff,
     KeepAnswer { offset: isize },
-}
-
-struct Draft {
-    editor: CommentEditor,
-    correction: Option<String>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -126,31 +108,20 @@ pub struct ExploreComponent {
     editing: bool,
     evidence_list_focused: bool,
     evidence_keys: ShortcutMatcher<MovementShortcut>,
-    drafts: BTreeMap<DraftKey, Draft>,
+    drafts: BTreeMap<DraftKey, CommentEditor>,
     editor_target: EditorTarget,
     conclusions: BTreeMap<String, conclusion::ConclusionView>,
     compose_scope: ComposeScope,
     general_context: Option<String>,
-    correction: Option<String>,
     status: String,
     status_turn: Option<usize>,
     progress: Progress,
     reset_warning: bool,
     map: bool,
-    coverage_overview: bool,
-    coverage_origin_scroll: Cell<Option<usize>>,
-    coverage_file: Option<usize>,
-    coverage_next: BTreeMap<usize, usize>,
-    jev_debug: bool,
-    coverage: Option<review_explore::CoverageLedger>,
-    coverage_cache: coverage::CoverageCache,
-    coverage_dirty: bool,
-    jev_progress_expiry: jev_progress::JevProgressExpiry,
-    completion_done: bool,
-    completion_policy: Option<bool>,
-    conclusion_unexplored: Option<(String, review_explore::UnexploredAtConclusion)>,
-    conclusion_preview: Option<conclusion_preview::ConclusionPreview>,
-    jev_enabled: bool,
+    /// The review marks each answer led to, by answer ID.
+    marks: BTreeMap<String, review_explore::TurnMarks>,
+    /// Answers whose marks are listed line by line.
+    expanded_marks: BTreeSet<String>,
     scroll: Cell<usize>,
     reveal: Cell<Option<Reveal>>,
     heights: BTreeMap<EvidenceView, u16>,
@@ -181,26 +152,13 @@ impl ExploreComponent {
             conclusions: BTreeMap::new(),
             compose_scope: ComposeScope::Question,
             general_context: None,
-            correction: None,
             status: "Start a question-first review of the working copy.".into(),
             status_turn: None,
             progress: Progress::Ready,
             reset_warning: false,
             map: false,
-            coverage_overview: false,
-            coverage_origin_scroll: Cell::new(None),
-            coverage_file: None,
-            coverage_next: BTreeMap::new(),
-            jev_debug: false,
-            coverage: None,
-            coverage_cache: coverage::CoverageCache::default(),
-            coverage_dirty: false,
-            jev_progress_expiry: jev_progress::JevProgressExpiry::default(),
-            completion_done: false,
-            completion_policy: None,
-            conclusion_unexplored: None,
-            conclusion_preview: None,
-            jev_enabled: std::env::var("TYPESAFE_API_KEY").is_ok_and(|key| !key.trim().is_empty()),
+            marks: BTreeMap::new(),
+            expanded_marks: BTreeSet::new(),
             scroll: Cell::new(0),
             reveal: Cell::new(None),
             heights: BTreeMap::new(),
@@ -248,7 +206,6 @@ impl ExploreComponent {
                 if contributed && !self.durable.enabled {
                     self.editor = CommentEditor::new("", &self.keymap);
                     self.drafts.remove(&self.draft_key());
-                    self.correction = None;
                 }
                 if self.durable.enabled {
                     self.durable.posting = Some(request.clone());
@@ -283,24 +240,12 @@ impl ExploreComponent {
         match &event.result {
             Ok(comparison) => {
                 self.durable.begin_pass();
-                self.coverage = Some(review_explore::CoverageLedger::new(comparison));
-                self.coverage_overview = false;
-                self.coverage_origin_scroll.set(None);
-                self.coverage_file = None;
-                self.coverage_next.clear();
-                self.completion_done = false;
-                self.completion_policy = None;
-                self.conclusion_unexplored = None;
-                self.conclusion_preview = None;
-                self.jev_progress_expiry = jev_progress::JevProgressExpiry::default();
                 self.exploration = Some(Exploration::new(comparison.clone()));
-                self.coverage_dirty = true;
                 self.selected = 0;
                 self.evidence_list_focused = false;
                 self.turns.clear();
                 self.drafts.clear();
                 self.heights.clear();
-                self.correction = None;
                 self.compose_scope = ComposeScope::Question;
                 self.general_context = None;
                 self.conclusions.clear();
@@ -440,7 +385,7 @@ impl ExploreComponent {
     }
 
     fn view_id(&self) -> EvidenceView {
-        EvidenceView::Question {
+        EvidenceView {
             turn: self.selected,
             reference: self
                 .turns
@@ -450,19 +395,15 @@ impl ExploreComponent {
     }
 
     fn publish_evidence(&self, view: EvidenceView, reveal: bool) {
-        let EvidenceView::Question { turn, .. } = view else {
-            return;
-        };
+        let EvidenceView { turn, .. } = view;
         if let Some(exploration) = &self.exploration
             && exploration.questions.get(turn).is_some()
         {
             self.events.publish(ExploreEvidence {
                 comparison: exploration.comparison.clone(),
                 evidence: exploration.evidence(turn),
-                primary: exploration.questions[turn].evidence.len(),
                 view,
                 reveal,
-                required_only: false,
             });
         }
     }
@@ -500,8 +441,6 @@ impl ExploreComponent {
         self.request(Some(AnswerInput {
             option,
             text: self.editor.text(),
-            deferred: matches!(control, Control::Defer),
-            corrects: self.correction.clone(),
             in_reply_to: self
                 .general_reply()
                 .then(|| self.general_context.clone())
@@ -535,25 +474,28 @@ impl ExploreComponent {
         }
     }
 
-    fn correct(&mut self, turn: usize) {
-        if turn != self.selected || self.general_reply() {
-            self.select(turn);
+    /// Show or hide the provisional map or one answer's marks.
+    fn toggle(&mut self, control: Control) {
+        match control {
+            Control::Map => self.map = !self.map,
+            Control::Marks(answer) => self.toggle_marks(answer),
+            _ => {}
         }
-        self.correction = self
+    }
+
+    /// Show or hide the lines one answer's marks changed.
+    fn toggle_marks(&mut self, answer: usize) {
+        let Some(id) = self
             .exploration
             .as_ref()
-            .and_then(|exploration| {
-                exploration
-                    .answers
-                    .iter()
-                    .rev()
-                    .find(|answer| answer.question.as_ref() == self.question())
-            })
-            .map(|answer| answer.id.clone());
-        self.editing = self.correction.is_some();
-        self.status_turn = Some(turn);
-        self.status = "Correction appends to the original answer. Write it and Send.".into();
-        self.reveal.set(Some(Reveal::Editor(EditorTarget::Answer)));
+            .and_then(|exploration| exploration.answers.get(answer))
+            .map(|answer| answer.id.clone())
+        else {
+            return;
+        };
+        if !self.expanded_marks.remove(&id) {
+            self.expanded_marks.insert(id);
+        }
     }
 }
 
@@ -566,7 +508,6 @@ impl Component<Action> for ExploreComponent {
         subscriptions.subscribe(Self::restored);
         subscriptions.subscribe(Self::posted);
         subscriptions.subscribe(Self::committed);
-        subscriptions.subscribe(Self::refresh_coverage);
         subscriptions.subscribe(Self::storage_failed);
         subscriptions.subscribe(Self::implementation_saved);
         subscriptions.subscribe(Self::captured);

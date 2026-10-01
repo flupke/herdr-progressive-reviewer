@@ -1,7 +1,7 @@
 //! Restoring saved passes after a restart, repairing damaged records and retrying
 //! interrupted deliveries, through the session interface over a temporary directory.
 
-use review_explore::{DispatchState, ExploreDraft, ExplorePage, ExploreViewState};
+use review_explore::{DispatchState, ExplorePage, ExploreViewState};
 use ui_events::ExploreProgress;
 
 use super::*;
@@ -16,7 +16,7 @@ fn toast(harness: &Harness) -> String {
 
 #[test]
 fn a_missing_pass_rejects_submissions_and_restoring_clears_it() {
-    let mut harness = Harness::start(ExclusionPolicy::disabled());
+    let mut harness = Harness::start();
     let (request, access) = harness.conclude();
     let path = harness.pass_path();
     let retained = path.with_extension("retained");
@@ -34,7 +34,7 @@ fn a_missing_pass_rejects_submissions_and_restoring_clears_it() {
 
 #[test]
 fn an_unreadable_index_is_rebuilt_from_intact_passes_as_history() {
-    let mut harness = Harness::start(ExclusionPolicy::disabled());
+    let mut harness = Harness::start();
     harness.capture();
     let first = harness.request(None);
     harness.turn(&first);
@@ -54,7 +54,7 @@ fn an_unreadable_index_is_rebuilt_from_intact_passes_as_history() {
 
 #[test]
 fn a_repaired_history_never_guesses_an_editable_pass_and_a_new_pass_is_editable() {
-    let mut harness = Harness::start(ExclusionPolicy::disabled());
+    let mut harness = Harness::start();
     for _ in 0..2 {
         harness.capture();
         let first = harness.request(None);
@@ -88,7 +88,7 @@ fn a_repaired_history_never_guesses_an_editable_pass_and_a_new_pass_is_editable(
 
 #[test]
 fn an_invalid_pass_is_removed_and_a_new_pass_can_start() {
-    let mut harness = Harness::start(ExclusionPolicy::disabled());
+    let mut harness = Harness::start();
     harness.capture();
     let first = harness.request(None);
     let access = harness.turn(&first);
@@ -114,7 +114,7 @@ fn an_invalid_pass_is_removed_and_a_new_pass_can_start() {
 
 #[test]
 fn an_unreadable_latest_pass_keeps_the_earlier_interview() {
-    let mut harness = Harness::start(ExclusionPolicy::disabled());
+    let mut harness = Harness::start();
     harness.capture();
     let earlier = harness.request(None);
     harness.turn(&earlier);
@@ -135,7 +135,7 @@ fn an_unreadable_latest_pass_keeps_the_earlier_interview() {
 
 #[test]
 fn an_invalid_editor_view_is_removed_without_erasing_the_interview() {
-    let mut harness = Harness::start(ExclusionPolicy::disabled());
+    let mut harness = Harness::start();
     harness.capture();
     let first = harness.request(None);
     harness.turn(&first);
@@ -156,7 +156,7 @@ fn an_invalid_editor_view_is_removed_without_erasing_the_interview() {
 
 #[test]
 fn an_interrupted_turn_restores_without_a_prompt_and_retry_keeps_its_answer() {
-    let mut harness = Harness::start(ExclusionPolicy::disabled());
+    let mut harness = Harness::start();
     harness.capture();
     let first = harness.request(None);
     let access = harness.turn(&first);
@@ -190,7 +190,7 @@ fn an_interrupted_turn_restores_without_a_prompt_and_retry_keeps_its_answer() {
 
 #[test]
 fn retry_after_uncertain_delivery_sends_the_same_answer_once_more() {
-    let mut harness = Harness::start(ExclusionPolicy::disabled());
+    let mut harness = Harness::start();
     harness.capture();
     let first = harness.request(None);
     let access = harness.turn(&first);
@@ -230,40 +230,8 @@ fn retry_after_uncertain_delivery_sends_the_same_answer_once_more() {
 }
 
 #[test]
-fn a_pending_legacy_conclusion_is_finalized_on_restore() {
-    let mut harness = Harness::start(ExclusionPolicy::disabled());
-    harness.conclude();
-    harness.damage(|pass| pass.completion.as_mut().unwrap().completed = false);
-
-    let restored = harness.reopen();
-
-    assert!(restored.storage_error.is_none());
-    let pass = restored.result.unwrap().unwrap();
-    assert!(pass.completion.as_ref().unwrap().completed);
-    assert_eq!(harness.saved(), *pass);
-}
-
-#[test]
-fn a_pending_conclusion_is_finalized_only_by_the_identical_payload() {
-    let mut harness = Harness::start(ExclusionPolicy::disabled());
-    let (request, access) = harness.conclude();
-    harness.damage(|pass| pass.completion.as_mut().unwrap().completed = false);
-
-    let conflicting = conclusion(&request, "Rewritten history");
-    assert!(
-        error(harness.submit(&access, conflicting))
-            .contains("finalization is pending; retry the identical payload")
-    );
-    assert!(!harness.saved().completion.unwrap().completed);
-    assert!(!applied(
-        harness.submit(&access, conclusion(&request, CONCLUSION))
-    ));
-    assert!(harness.saved().completion.unwrap().completed);
-}
-
-#[test]
 fn a_saved_view_survives_restart_and_the_old_access_is_rejected() {
-    let mut harness = Harness::start(ExclusionPolicy::disabled());
+    let mut harness = Harness::start();
     let (request, access) = harness.conclude();
     let id = request.request.clone();
     let mut view = ViewSave {
@@ -281,12 +249,9 @@ fn a_saved_view_survives_restart_and_the_old_access_is_rejected() {
             )]),
             drafts: vec![(
                 ExplorePage::Conclusion(id.clone()),
-                ExploreDraft {
-                    editor: review_types::TextEditorState {
-                        text: "Independent unposted question".into(),
-                        ..Default::default()
-                    },
-                    correction: None,
+                review_types::TextEditorState {
+                    text: "Independent unposted question".into(),
+                    ..Default::default()
                 },
             )],
             ..Default::default()
@@ -321,7 +286,7 @@ fn a_saved_view_survives_restart_and_the_old_access_is_rejected() {
 
 #[test]
 fn implementation_delivery_states_survive_restart_without_replaying() {
-    let mut harness = Harness::start(ExclusionPolicy::disabled());
+    let mut harness = Harness::start();
     harness.conclude();
     let request = harness
         .exploration()
@@ -358,7 +323,7 @@ fn implementation_delivery_states_survive_restart_without_replaying() {
 
 #[test]
 fn a_lost_acknowledgement_is_saved_and_an_identical_retry_does_not_append() {
-    let mut harness = Harness::start(ExclusionPolicy::disabled());
+    let mut harness = Harness::start();
     harness.capture();
     let first = harness.request(None);
     let access = harness.turn(&first);
@@ -414,7 +379,7 @@ fn a_lost_acknowledgement_is_saved_and_an_identical_retry_does_not_append() {
 
 #[test]
 fn a_late_failure_of_an_old_attempt_cannot_fail_the_retried_turn() {
-    let mut harness = Harness::start(ExclusionPolicy::disabled());
+    let mut harness = Harness::start();
     harness.capture();
     let first = harness.request(None);
     let access = harness.turn(&first);
@@ -454,7 +419,7 @@ fn agent_in(conversation: Option<&str>) -> Agent {
 
 #[test]
 fn a_restored_pass_prompts_the_conversation_now_running_in_the_pane() {
-    let mut harness = Harness::start(ExclusionPolicy::disabled());
+    let mut harness = Harness::start();
     harness.capture();
     let first = harness.request(None);
     let access = harness.turn(&first);
@@ -479,7 +444,7 @@ fn a_restored_pass_prompts_the_conversation_now_running_in_the_pane() {
 
 #[test]
 fn a_pass_without_a_known_conversation_prompts_the_selected_agent_after_restore() {
-    let mut harness = Harness::start(ExclusionPolicy::disabled());
+    let mut harness = Harness::start();
     harness.agents.upsert_agent(agent_in(None));
     harness.capture();
     let first = harness.request(None);
@@ -505,7 +470,7 @@ fn a_pass_without_a_known_conversation_prompts_the_selected_agent_after_restore(
 
 #[test]
 fn an_explicit_retry_adopts_the_agent_now_running_in_the_same_pane() {
-    let mut harness = Harness::start(ExclusionPolicy::disabled());
+    let mut harness = Harness::start();
     harness.capture();
     let first = harness.request(None);
     let access = harness.turn(&first);
@@ -553,7 +518,7 @@ fn an_explicit_retry_adopts_the_agent_now_running_in_the_same_pane() {
 
 #[test]
 fn a_restored_conclusion_is_implemented_by_the_selected_agent_without_a_conversation() {
-    let mut harness = Harness::start(ExclusionPolicy::disabled());
+    let mut harness = Harness::start();
     harness.conclude();
     harness.agents.upsert_agent(agent_in(None));
     let restored = harness.reopen();
@@ -582,7 +547,7 @@ fn a_restored_conclusion_is_implemented_by_the_selected_agent_without_a_conversa
 
 #[test]
 fn an_explicit_retry_without_a_conversation_binds_the_foreground_process() {
-    let mut harness = Harness::start(ExclusionPolicy::disabled());
+    let mut harness = Harness::start();
     harness.capture();
     let first = harness.request(None);
     let access = harness.turn(&first);

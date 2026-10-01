@@ -1001,6 +1001,7 @@ dependencies = [
  "review-explore",
  "review-repository",
  "review-source",
+ "review-types",
  "serde_json",
  "ui-actions",
  "ui-controls",
@@ -3901,6 +3902,8 @@ name = "review-explore-runner"
 version = "0.2.0"
 dependencies = [
  "review-explore",
+ "review-repository",
+ "review-source",
  "serde_json",
 ]
 
@@ -3914,9 +3917,11 @@ dependencies = [
  "herdr-client",
  "review-explore",
  "review-explore-runner",
+ "review-hunks",
  "review-mcp",
  "review-repository",
  "review-source",
+ "review-state",
  "review-store",
  "review-test-support",
  "review-thread-service",
@@ -3999,6 +4004,16 @@ dependencies = [
  "tempfile",
  "test-case",
  "thiserror 2.0.19",
+]
+
+[[package]]
+name = "review-significance"
+version = "0.2.0"
+dependencies = [
+ "review-explore",
+ "review-repository",
+ "review-source",
+ "serde",
 ]
 
 [[package]]
@@ -4172,6 +4187,7 @@ dependencies = [
  "review-mcp",
  "review-mcp-config",
  "review-repository",
+ "review-significance",
  "review-source",
  "review-state",
  "review-store",

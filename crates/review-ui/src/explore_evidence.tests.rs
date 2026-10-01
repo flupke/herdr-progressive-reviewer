@@ -29,11 +29,11 @@ fn evidence_starts_below_notes_with_a_blank_row() {
     let (mut fixture, request) = source_fixture();
     fixture.respond(&request, 1);
     let (_, notes_row) = fixture.point("This policy determines");
-    let (_, evidence_row) = fixture.point("Evidence 2 · Supporting");
+    let (_, evidence_row) = fixture.point("Evidence 2");
     assert!(evidence_row >= notes_row + 2);
 }
 
-fn primary_range(
+fn cited_range(
     fixture: &ExploreUi,
     request: &TurnRequest,
     side: review_explore::SourceSide,
@@ -99,7 +99,7 @@ fn evidence_outlines_enclose_interleaved_diff_sides_and_wrapped_rows() {
             width: 60,
             height: 120,
         });
-        let mut response = primary_range(&fixture, &request, side);
+        let mut response = cited_range(&fixture, &request, side);
         response.next.as_mut().unwrap().evidence[0].location.lines = Some(SourceLineRange {
             first_line: 2,
             last_line: 7,
@@ -117,7 +117,7 @@ fn evidence_outlines_enclose_interleaved_diff_sides_and_wrapped_rows() {
 fn overlapping_evidence_ranges_share_one_closed_outline() {
     for reverse in [false, true] {
         let (mut fixture, request) = source_fixture();
-        let mut response = primary_range(&fixture, &request, review_explore::SourceSide::New);
+        let mut response = cited_range(&fixture, &request, review_explore::SourceSide::New);
         let question = response.next.as_mut().unwrap();
         question.evidence[0].location.lines = Some(SourceLineRange {
             first_line: 20,
@@ -148,7 +148,7 @@ fn overlapping_evidence_ranges_share_one_closed_outline() {
 #[test]
 fn base_evidence_outside_hunks_uses_full_historical_text_and_old_coordinates() {
     let (mut fixture, request) = source_fixture();
-    let response = primary_range(&fixture, &request, review_explore::SourceSide::Old);
+    let response = cited_range(&fixture, &request, review_explore::SourceSide::Old);
     publish(&mut fixture, response);
     let text = fixture.text();
     assert!(text.contains("policy.rs:20 (base)"), "{text}");
@@ -201,7 +201,7 @@ fn uncataloged_base_citation_displays_history_instead_of_live_source() {
 #[test]
 fn fit_reveals_both_ends_and_outlines_instead_of_centering_the_first_line() {
     let (mut fixture, request) = source_fixture();
-    let response = primary_range(&fixture, &request, review_explore::SourceSide::New);
+    let response = cited_range(&fixture, &request, review_explore::SourceSide::New);
     publish(&mut fixture, response);
     for _ in 0..2 {
         let buffer = fixture.buffer();
@@ -219,7 +219,7 @@ fn fit_reveals_both_ends_and_outlines_instead_of_centering_the_first_line() {
 }
 
 #[test]
-fn only_decision_evidence_is_in_the_primary_cycle_and_supporting_sources_stay_available() {
+fn every_citation_shares_one_evidence_list_that_e_cycles_through() {
     let (mut fixture, request) = ExploreUi::new();
     fixture.app.update(UserInput::Resize {
         width: 140,
@@ -228,45 +228,34 @@ fn only_decision_evidence_is_in_the_primary_cycle_and_supporting_sources_stay_av
     let mut response = fixture.response(&request, 1);
     let question = response.next.as_mut().unwrap();
     question.evidence.truncate(1);
-    let mut supporting = question.evidence[0].clone();
-    supporting.location.path = review_repository::repository::RepoPath::from_bytes(b"caller.rs");
-    supporting.notes = "Supporting caller context".into();
-    question.supporting.push(supporting.clone());
-    response.reply.as_mut().unwrap().evidence.push(supporting);
+    let mut other = question.evidence[0].clone();
+    other.location.path = review_repository::repository::RepoPath::from_bytes(b"caller.rs");
+    other.notes = "Caller context".into();
+    response.reply.as_mut().unwrap().evidence.push(other);
     publish(&mut fixture, response);
     let text = fixture.text();
     assert!(text.contains("Notes") && text.contains("This policy determines"));
-    assert!(text.contains("Evidence 1 · Supporting 1"));
-    assert!(text.contains("Supporting 1"));
-    assert!(
-        fixture.point("This policy determines").1 < fixture.point("Evidence 1 · Supporting 1").1
-    );
+    assert!(text.contains("Evidence 2"));
+    assert!(fixture.point("This policy determines").1 < fixture.point("Evidence 2").1);
     assert!(!text.contains("Fit evidence") && !text.contains("drag to resize"));
     assert!(fixture.point("policy.rs:1").0 < fixture.point("Diff ·").0);
     let buffer = fixture.buffer();
-    let (primary_column, primary_row) = fixture.point("policy.rs:1");
-    let (support_column, support_row) = fixture.point("caller.rs:1");
-    assert!(
-        buffer[(primary_column, primary_row)]
-            .modifier
-            .contains(ratatui::style::Modifier::BOLD)
-    );
+    let (first_column, first_row) = fixture.point("policy.rs:1");
+    let (other_column, other_row) = fixture.point("caller.rs:1");
     assert_eq!(
-        buffer[(support_column, support_row)].fg,
-        fixture.app.palette.dim
+        buffer[(other_column, other_row)].fg,
+        buffer[(first_column, first_row)].fg
     );
     assert_ne!(
-        buffer[(support_column, support_row)].bg,
+        buffer[(other_column, other_row)].bg,
         fixture.app.palette.cursor
     );
-    let selected_width = (primary_column..fixture.point("Diff ·").0)
-        .filter(|column| buffer[(*column, primary_row)].bg == fixture.app.palette.cursor)
+    let selected_width = (first_column..fixture.point("Diff ·").0)
+        .filter(|column| buffer[(*column, first_row)].bg == fixture.app.palette.cursor)
         .count();
     assert!(selected_width > 25, "the selected row fills its pane");
     assert!(text.contains("1. Keep resolved") && text.contains("2. Inspect the caller"));
     fixture.app.update(UserInput::Key(Key::Char('e')));
-    assert!(fixture.text().contains("Evidence 1 · Supporting 1"));
-    fixture.app.update(UserInput::Key(Key::Char('E')));
     assert!(fixture.text().contains("pub fn caller()"));
     fixture.app.update(UserInput::Key(Key::Char('b')));
     let (column, row) = fixture.point("policy.rs:1");
@@ -301,7 +290,7 @@ fn evidence_list_uses_file_navigation_shortcuts_when_focused() {
     publish(&mut fixture, response);
     fixture.click("policy.rs:1");
     // A focused pane's title is bold.
-    let (column, row) = fixture.point("Evidence 2 · Supporting 0");
+    let (column, row) = fixture.point("Evidence 2");
     assert!(
         fixture.buffer()[(column, row)]
             .modifier
@@ -327,7 +316,7 @@ fn evidence_list_uses_file_navigation_shortcuts_when_focused() {
         fixture.app.palette.cursor
     );
     fixture.app.update(UserInput::Key(Key::Enter));
-    assert!(!fixture.text().contains("Evidence 2 · Supporting 0 (focus)"));
+    assert!(!fixture.text().contains("Evidence 2 (focus)"));
 }
 
 #[test]
@@ -339,17 +328,10 @@ fn evidence_selector_groups_sources_under_their_file_directories() {
     });
     let mut response = fixture.response(&request, 1);
     response.next.as_mut().unwrap().evidence.truncate(1);
-    let mut supporting = response.next.as_ref().unwrap().evidence[0].clone();
-    supporting.location.path =
-        review_repository::repository::RepoPath::from_bytes(b"support/policy.rs");
-    supporting.notes = "Support policy explains the fallback".into();
-    response
-        .next
-        .as_mut()
-        .unwrap()
-        .supporting
-        .push(supporting.clone());
-    response.reply.as_mut().unwrap().evidence.push(supporting);
+    let mut other = response.next.as_ref().unwrap().evidence[0].clone();
+    other.location.path = review_repository::repository::RepoPath::from_bytes(b"support/policy.rs");
+    other.notes = "Support policy explains the fallback".into();
+    response.reply.as_mut().unwrap().evidence.push(other);
     publish(&mut fixture, response);
     let text = fixture.text();
     assert!(text.contains("support/"), "{text}");
@@ -382,7 +364,7 @@ fn fit_accounts_for_every_wrapped_line_of_the_relevant_range() {
         width: 60,
         height: 100,
     });
-    let mut response = primary_range(&fixture, &request, review_explore::SourceSide::New);
+    let mut response = cited_range(&fixture, &request, review_explore::SourceSide::New);
     response.next.as_mut().unwrap().evidence[0]
         .location
         .lines

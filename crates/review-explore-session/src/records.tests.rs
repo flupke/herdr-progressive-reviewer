@@ -6,9 +6,9 @@ use review_explore::{
     AnswerInput, Comparison, Conclusion, ConversationBinding, DispatchId, DispatchResult,
     DispatchState, Exploration, ExplorePass, InterviewUpdate, Question, ViewSave,
 };
-use review_store::{LoadResult, ReviewStore};
+use review_store::ReviewStore;
 
-use super::SavedPasses;
+use super::{SavedPasses, Submitted};
 
 /// The directory of the only review saved in `store`.
 fn review_directory(store: &ReviewStore) -> std::path::PathBuf {
@@ -128,371 +128,76 @@ impl Investigation {
 }
 
 #[test]
-fn conclusion_with_partial_answer_coverage_leaves_files_unreviewed() {
-    assert_explicit_conclusion(1, 50);
-}
-
-#[test]
-fn full_answer_coverage_allows_questions_and_conclusion_preserves_existing_marks() {
-    assert_explicit_conclusion(2, 100);
-}
-
-#[allow(
-    clippy::too_many_lines,
-    reason = "One end-to-end local finalization transaction"
-)]
-fn assert_explicit_conclusion(cited_lines: u32, expected_percent: u8) {
-    use review_repository::repository::{
-        ChangeKind, ChangedFile, DiffStatistics, FileKind, RepoPath, SnapshotId, SnapshotIdentity,
-    };
-    let directory = tempfile::tempdir().unwrap();
-    std::fs::write(directory.path().join("policy.rs"), "first\nsecond\n").unwrap();
-    let store = ReviewStore::open(directory.path().join("state"), directory.path()).unwrap();
-    let passes = SavedPasses::new(store.clone());
-    let comparison = Arc::new(Comparison {
-        repository_root: directory.path().to_owned(),
-        checkpoint: review_source::ReviewCheckpoint::new("aabb", "ccdd"),
-        files: vec![ChangedFile {
-            old_path: None,
-            new_path: Some(RepoPath::from_bytes(b"policy.rs".as_slice())),
-            old_kind: FileKind::Absent,
-            new_kind: FileKind::File,
-            change: ChangeKind::Added,
-            display_path: "policy.rs".into(),
-            statistics: DiffStatistics {
-                lines_added: 2,
-                lines_removed: 0,
-            },
-        }],
-        context: vec![],
-        diffs: vec![
-            b"diff --git a/policy.rs b/policy.rs\n@@ -0,0 +1,2 @@\n+first\n+second\n".to_vec(),
-        ],
-        manifest: vec![],
-        sources: vec![],
-        base: Some(SnapshotIdentity::Git {
-            base_tree: "aabb".into(),
-            display_id: "base".into(),
-            snapshot_id: SnapshotId::from("ccdd".to_owned()),
+fn a_conclusion_completes_the_pass_and_leaves_review_marks_alone() {
+    let mut investigation = Investigation::new();
+    let store = investigation.store.clone();
+    let kickoff = investigation.request(None, None);
+    assert!(investigation.submit(Investigation::update(&kickoff, 1)));
+    let question = investigation.pass.exploration.questions[0].clone();
+    let answer = investigation.request(
+        Some(AnswerInput {
+            text: "Discussed".into(),
+            ..Default::default()
         }),
-    });
-    let mut exploration = Exploration::new(comparison);
-    let kickoff = exploration.request(None, None).unwrap();
-    let mut pass = ExplorePass::new(Exploration::new(exploration.comparison.clone()));
-    pass.exploration.instance = kickoff.instance.clone();
-    pass.post(&kickoff).unwrap();
-    passes.create(pass).unwrap();
-    let question = |id: &str,
-                    request: &review_explore::TurnRequest,
-                    line: u32|
-     -> InterviewUpdate {
-        serde_json::from_value(serde_json::json!({
-            "instance": request.instance, "request": request.request, "checkpoint": request.checkpoint,
-            "interpretation": null, "reply": null, "agenda": [],
-            "topics": [{"id":id,"title":"Policy","entries":[],"status":"open"}],
-            "next": {"id":id,"version":1,"topic":id,"text":"Explain this line?",
-                "alternatives":[{"id":"keep","text":"Keep it","outcome":"accepted"},{"id":"change","text":"Change it","outcome":"needs_follow_up"}],
-                "evidence":[{"path":"policy.rs","side":"new","lines":{"first_line":line,"last_line":line},"notes":"Implements policy and changes the outcome"}],
-                "supporting":[]}, "conclusion":null,"limitations":[],"findings":[]
-        })).unwrap()
-    };
-    let mut first = question("q1", &kickoff, 1);
-    first.next.as_mut().unwrap().evidence[0]
-        .location
-        .lines
-        .as_mut()
-        .unwrap()
-        .last_line = cited_lines;
-    let (applied, pass, feedback) = passes
-        .submit(&"aabb".into(), &kickoff.instance, &first, false)
-        .unwrap();
-    assert!(applied);
-    assert!(matches!(
-        feedback,
-        review_explore::CoverageReceipt::AfterAnswer { .. }
-    ));
-    assert_eq!(
-        feedback.feedback().summary.answered_required_units_percent,
-        Some(expected_percent)
+        Some(&question),
     );
-    assert!(feedback.feedback().awaiting_answer.is_empty());
-    assert_eq!(
-        pass.coverage.summary(false).answered_required_units_percent,
-        Some(0)
-    );
-    assert_eq!(
-        pass.coverage.changed_line_coverage(None).explored,
-        0,
-        "projected feedback credits nothing"
-    );
-    let first_receipt = feedback.clone();
-    let shown = pass.exploration.questions.last().unwrap().clone();
-    let answer = pass
-        .exploration
-        .clone()
-        .request(
-            Some(AnswerInput {
-                text: "Discussed".into(),
-                ..Default::default()
-            }),
-            Some(&shown),
+    store
+        .mark(
+            &"review".into(),
+            b"policy.rs",
+            "aabb0011",
+            &review_types::MarkAuthor::Reviewer,
         )
         .unwrap();
-    passes
-        .update(&"aabb".into(), &kickoff.instance, |pass| {
-            pass.post(&answer).map_err(|error| error.to_string())
-        })
-        .unwrap();
-    let (applied, _, replayed) = passes
-        .submit(&"aabb".into(), &kickoff.instance, &first, false)
-        .unwrap();
-    assert!(!applied);
-    assert_eq!(
-        replayed, first_receipt,
-        "retries retain the original coverage revision"
-    );
-    let pass = passes
-        .pass(&"aabb".into(), &kickoff.instance)
-        .unwrap()
-        .unwrap();
-    assert!(
-        pass.completion.is_none(),
-        "coverage never creates a conclusion"
-    );
-    assert_eq!(
-        pass.coverage.summary(false).answered_required_units_percent,
-        Some(expected_percent)
-    );
-    assert_eq!(
-        store.load(&"aabb".into(), b"policy.rs").unwrap(),
-        LoadResult::Unreviewed,
-        "answered evidence alone never marks files"
-    );
-    let conclusion = InterviewUpdate {
-        instance: answer.instance.clone(),
-        request: answer.request.clone(),
-        checkpoint: answer.checkpoint.clone(),
-        interpretation: None,
-        reply: Some(review_explore::Reply {
-            text: "Acknowledged".into(),
-            evidence: vec![],
-        }),
-        agenda: vec![],
-        topics: vec![],
-        inspections: vec![review_explore::Inspection {
-            sources: vec![review_explore::CodeLocation {
-                path: review_repository::repository::RepoPath::from_bytes(b"policy.rs"),
-                side: review_explore::SourceSide::New,
-                lines: Some(review_source::SourceLineRange {
-                    first_line: 2,
-                    last_line: 2,
-                }),
-            }],
-            behavior: "Second policy line after the answer".into(),
-            finding: "This line does not introduce another decision".into(),
-            uncertainty: String::new(),
-            disposition: review_explore::InspectionDisposition::NoFurtherInquiry {
-                reason: "Its behavior is already established by the answered first line".into(),
-            },
-        }],
-        next: None,
-        conclusion: Some(Conclusion {
-            summary: "Concepts explored; remaining source inspected with no further question."
-                .into(),
-            to_be_implemented: String::new(),
-            future_work: String::new(),
-        }),
-        limitations: vec![],
-        findings: vec![],
-    };
-    let mut incomplete = pass.clone();
-    let mut without_geometry = (*incomplete.exploration.comparison).clone();
-    without_geometry.diffs.clear();
-    incomplete.coverage = review_explore::CoverageLedger::new(&without_geometry);
-    let pending = incomplete.clone();
-    let rejected = incomplete
-        .submit(&conclusion, false)
-        .unwrap_err()
-        .to_string();
-    assert!(rejected.contains("coverage_incomplete"), "{rejected}");
-    assert_eq!(
-        incomplete, pending,
-        "inventory failure retains the pending turn"
-    );
-    let mut followup = question("q2", &answer, 1);
-    followup.reply = Some(review_explore::Reply {
-        text: "Acknowledged".into(),
-        evidence: vec![],
+    let prior_mark = store.load(&"review".into(), b"policy.rs").unwrap();
+    let mut conclusion = Investigation::update(&answer, 2);
+    conclusion.next = None;
+    conclusion.topics.clear();
+    conclusion.conclusion = Some(Conclusion {
+        summary: "Concepts explored.".into(),
+        to_be_implemented: String::new(),
+        future_work: String::new(),
     });
-    let (_, pass, feedback) = passes
-        .submit(&"aabb".into(), &kickoff.instance, &followup, false)
+    let instance = investigation.pass.exploration.instance.clone();
+
+    let Submitted { applied, pass } = investigation
+        .passes
+        .submit(&"review".into(), &instance, &conclusion)
         .unwrap();
-    assert_eq!(
-        feedback.feedback().summary.answered_required_units_percent,
-        Some(expected_percent)
-    );
-    assert!(
-        pass.completion.is_none(),
-        "another concept can be explored at 100%"
-    );
-    let shown = pass.exploration.questions.last().unwrap().clone();
-    let answer2 = pass
-        .exploration
-        .clone()
-        .request(
-            Some(AnswerInput {
-                text: "Also discussed".into(),
-                ..Default::default()
-            }),
-            Some(&shown),
-        )
-        .unwrap();
-    passes
-        .update(&"aabb".into(), &kickoff.instance, |pass| {
-            pass.post(&answer2).map_err(|error| error.to_string())
-        })
-        .unwrap();
-    let mut conclusion = conclusion;
-    conclusion.request = answer2.request.clone();
-    conclusion.reply = Some(review_explore::Reply {
-        text: "Acknowledged".into(),
-        evidence: vec![],
-    });
-    if cited_lines == 1 {
-        let mut without_inspection = conclusion.clone();
-        without_inspection.inspections.clear();
-        let before = passes
-            .pass(&"aabb".into(), &kickoff.instance)
-            .unwrap()
-            .unwrap();
-        let error = passes
-            .submit(
-                &"aabb".into(),
-                &kickoff.instance,
-                &without_inspection,
-                false,
-            )
-            .unwrap_err()
-            .to_string();
-        assert!(error.contains("inspection_incomplete"), "{error}");
-        assert_eq!(
-            passes
-                .pass(&"aabb".into(), &kickoff.instance)
-                .unwrap()
-                .unwrap(),
-            before
-        );
-    }
-    if cited_lines == 2 {
-        store
-            .mark(
-                &"aabb".into(),
-                b"policy.rs",
-                "aabb0011",
-                &review_types::MarkAuthor::Reviewer,
-            )
-            .unwrap();
-    }
-    let prior_mark = store.load(&"aabb".into(), b"policy.rs").unwrap();
-    let (applied, pass, feedback) = passes
-        .submit(&"aabb".into(), &kickoff.instance, &conclusion, false)
-        .unwrap();
+
     assert!(applied);
-    assert!(matches!(
-        feedback,
-        review_explore::CoverageReceipt::Current(_)
-    ));
+    assert!(pass.completion.is_some());
     assert_eq!(
-        feedback.feedback().summary.answered_required_units_percent,
-        Some(expected_percent)
-    );
-    assert_eq!(
-        feedback.feedback().summary.remaining,
-        u64::from(2 - cited_lines)
-    );
-    assert!(pass.completion.as_ref().unwrap().completed);
-    assert_eq!(
-        pass.completion.as_ref().unwrap().summary,
-        feedback.feedback().summary
-    );
-    assert_eq!(
-        pass.completion
-            .as_ref()
-            .unwrap()
-            .unexplored
-            .as_ref()
-            .unwrap()
-            .required,
-        pass.coverage.remaining(false),
-        "completion freezes unanswered changes independently of file review marks"
-    );
-    let restored = passes
-        .pass(&"aabb".into(), &kickoff.instance)
-        .unwrap()
-        .unwrap();
-    assert_eq!(restored, pass, "the coverage receipt survives reopening");
-    assert_eq!(
-        store.load(&"aabb".into(), b"policy.rs").unwrap(),
+        store.load(&"review".into(), b"policy.rs").unwrap(),
         prior_mark
     );
-    assert_legacy_completion_preserves_marks(&store, &pass, &prior_mark);
-    store.unreview(&"aabb".into(), b"policy.rs").unwrap();
-    let (applied, _, _) = passes
-        .submit(&"aabb".into(), &kickoff.instance, &conclusion, false)
+    let restored = investigation
+        .passes
+        .pass(&"review".into(), &instance)
+        .unwrap()
         .unwrap();
-    assert!(!applied);
-    assert_eq!(
-        store.load(&"aabb".into(), b"policy.rs").unwrap(),
-        LoadResult::Unreviewed,
-        "accepted retry must not recreate a manually removed mark"
-    );
+    assert_eq!(restored, pass);
+    let Submitted { applied, .. } = investigation
+        .passes
+        .submit(&"review".into(), &instance, &conclusion)
+        .unwrap();
+    assert!(!applied, "an identical retry changes nothing");
     let followup = pass.exploration.clone().request(None, None).unwrap();
-    passes
-        .update(&"aabb".into(), &kickoff.instance, |pass| {
+    investigation
+        .passes
+        .update(&"review".into(), &instance, |pass| {
             pass.post(&followup).map_err(|error| error.to_string())
         })
         .unwrap();
-    let later = question("q3", &followup, 1);
-    let (applied, _, _) = passes
-        .submit(&"aabb".into(), &kickoff.instance, &later, false)
+    let Submitted { applied, .. } = investigation
+        .passes
+        .submit(
+            &"review".into(),
+            &instance,
+            &Investigation::update(&followup, 3),
+        )
         .unwrap();
     assert!(applied, "the conversation remains open after concluding");
-    assert!(
-        passes
-            .pass(&"aabb".into(), &kickoff.instance)
-            .unwrap()
-            .is_some(),
-        "a later response must leave a readable pass"
-    );
-    assert_eq!(
-        store.load(&"aabb".into(), b"policy.rs").unwrap(),
-        LoadResult::Unreviewed,
-        "later conversation must not recreate completed marks"
-    );
-}
-
-fn assert_legacy_completion_preserves_marks(
-    store: &ReviewStore,
-    pass: &ExplorePass,
-    prior: &LoadResult,
-) {
-    let unit = &pass.exploration.comparison.checkpoint.review_unit;
-    let instance = &pass.exploration.instance;
-    let mut legacy = serde_json::to_value(pass).unwrap();
-    legacy["completion"]["completed"] = false.into();
-    legacy["completion"]["marks"] = serde_json::json!([{
-        "path": b"policy.rs", "prior": null, "applied": false
-    }]);
-    std::fs::write(
-        review_directory(store).join(format!("{instance}.json")),
-        serde_json::to_vec(&serde_json::json!({"version": 1, "value": legacy})).unwrap(),
-    )
-    .unwrap();
-    let recovered = SavedPasses::new(store.clone())
-        .recover_completion(unit, instance)
-        .unwrap();
-    assert!(recovered.completion.unwrap().completed);
-    assert_eq!(&store.load(unit, b"policy.rs").unwrap(), prior);
 }
 
 #[test]
@@ -658,10 +363,6 @@ fn implementation(
         pass.completion = Some(review_explore::ReviewCompletion {
             request: turn.request.clone(),
             baseline: "checkpoint".into(),
-            completed: true,
-            exclusions_enabled: false,
-            summary: review_explore::CoverageSummary::default(),
-            unexplored: None,
         });
         Ok(())
     });

@@ -5,11 +5,11 @@ use serde::{Deserialize, Serialize};
 /// Only the agreed implementation scope is editable and sent by the Implement action.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq, schemars::JsonSchema)]
 pub struct Conclusion {
-    /// Review outcome, decisions, limitations, and remaining human file inspection.
+    /// Review outcome, decisions, limitations and remaining uncertainty.
     pub summary: String,
     /// Only the agreed tasks to implement now, as editable plain text. Empty if none.
     pub to_be_implemented: String,
-    /// Deferred or optional work, excluded from the Implement action. Empty if none.
+    /// Optional or later work, excluded from the Implement action. Empty if none.
     pub future_work: String,
 }
 
@@ -27,9 +27,14 @@ pub struct ConclusionSubmission {
     pub checkpoint: ReviewCheckpoint,
     /// Record the latest human decision using its exact Answer ID; otherwise null.
     pub interpretation: Option<Interpretation>,
-    /// Account for remaining required regions without inflating answered-evidence coverage.
-    #[serde(default)]
-    pub inspections: Vec<crate::Inspection>,
+    /// After a human answer: the changed lines it settled, to mark reviewed. Any
+    /// changed lines, cited or not; null lines mark the whole file.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reviewed: Vec<crate::CodeLocation>,
+    /// After a human answer: reviewed lines it makes matter again, to reopen. Any
+    /// reviewed lines, whoever marked them; null lines reopen the whole file.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reopened: Vec<crate::CodeLocation>,
     #[serde(flatten)]
     pub conclusion: Conclusion,
 }
@@ -41,10 +46,11 @@ impl ConclusionSubmission {
             request: self.request,
             checkpoint: self.checkpoint,
             interpretation: self.interpretation,
+            reviewed: self.reviewed,
+            reopened: self.reopened,
             reply: None,
             agenda: vec![],
             topics: vec![],
-            inspections: self.inspections,
             next: None,
             conclusion: Some(self.conclusion),
             limitations: vec![],

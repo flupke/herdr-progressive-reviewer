@@ -439,7 +439,7 @@ fn mcp_threads_exchange_through_an_isolated_herdr_agent(agent: &str) {
         let client = ClientInfo::default().serve(StreamableHttpClientTransport::from_uri(fixture.endpoint.url())).await.unwrap();
         let mut names = client.list_all_tools().await.unwrap().into_iter().map(|tool| tool.name.into_owned()).collect::<Vec<_>>();
         names.sort();
-        assert_eq!(names, ["get_coverage_gaps", "get_new_messages", "get_thread", "list_threads", "reply", "submit_conclusion", "submit_question"]);
+        assert_eq!(names, ["get_new_messages", "get_thread", "list_threads", "reply", "submit_conclusion", "submit_question"]);
         assert_eq!(call(&client, "list_threads", json!({"review": "invalid"})).await.is_error, Some(true));
         fixture.status(AgentStatus::Working);
         let second = fixture.new_thread("review", "another.rs", "Second question");

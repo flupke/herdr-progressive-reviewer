@@ -3,10 +3,10 @@
 use crate::Key;
 use crate::commands::{
     ApplicationShortcut, CommentShortcut, ConversationShortcut, DiffGlobalShortcut, DiffShortcut,
-    ExploreCoverageShortcut, ExploreEvidenceShortcut, ExploreGlobalShortcut, ExploreShortcut,
-    ExploreTurnShortcut, FilesShortcut, HunkShortcut, LocationShortcut, LspShortcut,
-    MovementShortcut, OverlayShortcut, RevisionShortcut, SearchMatchShortcut, SearchShortcut,
-    ShortcutCommand, SourceShortcut, ThreadsShortcut,
+    ExploreEvidenceShortcut, ExploreGlobalShortcut, ExploreShortcut, ExploreTurnShortcut,
+    FilesShortcut, HunkShortcut, LocationShortcut, LspShortcut, MovementShortcut, OverlayShortcut,
+    RevisionShortcut, SearchMatchShortcut, SearchShortcut, ShortcutCommand, SourceShortcut,
+    ThreadsShortcut,
 };
 
 const fn application(command: ApplicationShortcut) -> ShortcutCommand {
@@ -83,10 +83,6 @@ const fn explore_turn(command: ExploreTurnShortcut) -> ShortcutCommand {
 
 const fn explore_evidence(command: ExploreEvidenceShortcut) -> ShortcutCommand {
     explore(ExploreShortcut::Evidence(command))
-}
-
-const fn explore_coverage(command: ExploreCoverageShortcut) -> ShortcutCommand {
-    explore(ExploreShortcut::Coverage(command))
 }
 
 const fn explore_global(command: ExploreGlobalShortcut) -> ShortcutCommand {
@@ -632,10 +628,8 @@ pub(crate) const SHORTCUTS: &[ShortcutDefinition] = &[
         bindings: &[
             ShortcutBinding::alias(Key::Char('s'), explore_turn(ExploreTurnShortcut::Start)),
             ShortcutBinding::alias(Key::Char('n'), explore_turn(ExploreTurnShortcut::Start)),
-            ShortcutBinding::alias(Key::Char('d'), explore_turn(ExploreTurnShortcut::Defer)),
             ShortcutBinding::alias(Key::Char('c'), explore_turn(ExploreTurnShortcut::Cancel)),
             ShortcutBinding::alias(Key::Char('r'), explore_turn(ExploreTurnShortcut::Retry)),
-            ShortcutBinding::alias(Key::Char('x'), explore_turn(ExploreTurnShortcut::Correct)),
             ShortcutBinding::alias(Key::Char('m'), explore_turn(ExploreTurnShortcut::ToggleMap)),
         ],
     },
@@ -644,48 +638,11 @@ pub(crate) const SHORTCUTS: &[ShortcutDefinition] = &[
         bindings: &[
             ShortcutBinding::alias(
                 Key::Char('b'),
-                explore_evidence(ExploreEvidenceShortcut::Primary),
+                explore_evidence(ExploreEvidenceShortcut::First),
             ),
             ShortcutBinding::alias(
                 Key::Char('e'),
                 explore_evidence(ExploreEvidenceShortcut::Next),
-            ),
-            ShortcutBinding::alias(
-                Key::Char('E'),
-                explore_evidence(ExploreEvidenceShortcut::NextSource),
-            ),
-        ],
-    },
-    ShortcutDefinition {
-        description: None,
-        bindings: &[
-            ShortcutBinding::alias(
-                Key::Char('g'),
-                explore_coverage(ExploreCoverageShortcut::ToggleOverview),
-            ),
-            ShortcutBinding::alias(
-                Key::Alt('v'),
-                explore_coverage(ExploreCoverageShortcut::ToggleJevDebug),
-            ),
-            ShortcutBinding::alias(
-                Key::Alt('o'),
-                explore_coverage(ExploreCoverageShortcut::OpenFile),
-            ),
-            ShortcutBinding::alias(
-                Key::Alt(']'),
-                explore_coverage(ExploreCoverageShortcut::NextFile),
-            ),
-            ShortcutBinding::alias(
-                Key::Alt('['),
-                explore_coverage(ExploreCoverageShortcut::PreviousFile),
-            ),
-            ShortcutBinding::alias(
-                Key::Alt('n'),
-                explore_coverage(ExploreCoverageShortcut::NextGap),
-            ),
-            ShortcutBinding::alias(
-                Key::Alt('r'),
-                explore_coverage(ExploreCoverageShortcut::RequireReview),
             ),
         ],
     },

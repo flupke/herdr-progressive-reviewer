@@ -11,6 +11,7 @@ jev-evals = ["dep:serde"]
 [dependencies]
 review-explore = { path = "../review-explore" }
 review-explore-session = { path = "../review-explore-session" }
+review-significance = { path = "../review-significance" }
 toasts = { path = "../toasts" }
 text-search = { path = "../text-search" }
 crossterm.workspace = true

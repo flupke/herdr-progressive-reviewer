@@ -165,7 +165,7 @@ fn factual_question_gets_a_direct_reply_new_branch_and_new_source_without_agreem
 }
 
 #[test]
-fn correction_flags_reconsideration_without_erasing_the_original_decision() {
+fn a_later_answer_flags_reconsideration_without_erasing_the_original_decision() {
     let mut exploration = started();
     let request = contribute(&mut exploration, "Keep it resolved.");
     let original_answer = request.answer.as_ref().unwrap().id.clone();
@@ -182,7 +182,6 @@ fn correction_flags_reconsideration_without_erasing_the_original_decision() {
         .request(
             Some(AnswerInput {
                 text: "Correction: these readers cannot rebuild locally.".into(),
-                corrects: Some(original_answer.clone()),
                 ..AnswerInput::default()
             }),
             Some(&question),
@@ -199,10 +198,6 @@ fn correction_flags_reconsideration_without_erasing_the_original_decision() {
     assert_eq!(exploration.topics["policy"].status, TopicStatus::Accepted);
     assert_eq!(exploration.interpretations.len(), 1);
     assert_eq!(exploration.answers[0].text, "Keep it resolved.");
-    assert_eq!(
-        exploration.answers[1].corrects.as_ref(),
-        Some(&original_answer)
-    );
     let request = contribute(
         &mut exploration,
         "Keep it only if the remote rebuild is bounded.",
@@ -281,7 +276,7 @@ fn unsupported_reversibility_stays_unknown_and_blast_radius_remains_independent(
 }
 
 #[test]
-fn superseding_preserves_pending_wording_and_deferral_remains_outstanding() {
+fn superseding_preserves_pending_wording() {
     let mut exploration = started();
     let request = contribute(
         &mut exploration,
@@ -297,28 +292,6 @@ fn superseding_preserves_pending_wording_and_deferral_remains_outstanding() {
     exploration.apply(response).unwrap();
     assert_eq!(exploration.agenda_label("policy"), "Superseded");
     assert_eq!(exploration.questions[0].text, question(1).text);
-    let question = exploration.questions[1].clone();
-    let request = exploration
-        .request(
-            Some(AnswerInput {
-                deferred: true,
-                ..AnswerInput::default()
-            }),
-            Some(&question),
-        )
-        .unwrap();
-    let mut response = update(&request, None);
-    response.interpretation = Some(Interpretation {
-        answer: request.answer.unwrap().id,
-        status: TopicStatus::Deferred,
-        recap: "Deferred availability".into(),
-        follow_ups: vec![],
-    });
-    exploration.apply(response).unwrap();
-    assert_eq!(
-        exploration.agenda_label("availability"),
-        "Deferred · outstanding"
-    );
 }
 
 #[test]
@@ -383,43 +356,6 @@ fn direct_citations_reject_unsafe_paths_and_invalid_lines_without_changing_histo
     response.reply.as_mut().unwrap().evidence.push(evidence);
     exploration.apply(response).unwrap();
     assert_eq!(exploration.conversation.len(), 2);
-}
-
-#[test]
-fn deferred_pending_metadata_can_evolve_without_changing_its_decision_or_posted_text() {
-    let mut exploration = started();
-    let original = exploration.questions[0].clone();
-    let request = exploration
-        .request(
-            Some(AnswerInput {
-                deferred: true,
-                ..AnswerInput::default()
-            }),
-            Some(&original),
-        )
-        .unwrap();
-    let mut response = update(&request, None);
-    response.interpretation = Some(Interpretation {
-        answer: request.answer.unwrap().id,
-        status: TopicStatus::Deferred,
-        recap: "Deferred; deployment context missing".into(),
-        follow_ups: vec![],
-    });
-    exploration.apply(response).unwrap();
-    let request = contribute(
-        &mut exploration,
-        "The deployment changed; prioritize compatibility",
-    );
-    let mut response = update(&request, Some(question(2)));
-    let mut pending = exploration.topics["policy"].clone();
-    pending.prompt = "Can mixed versions share cache files?".into();
-    pending.rank = 4;
-    response.topics.push(pending.clone());
-    exploration.apply(response).unwrap();
-    assert_eq!(exploration.topics["policy"], pending);
-    assert_eq!(exploration.topics["policy"].status, TopicStatus::Deferred);
-    assert_eq!(exploration.questions[0], original);
-    assert_eq!(exploration.interpretations.len(), 1);
 }
 
 #[test]

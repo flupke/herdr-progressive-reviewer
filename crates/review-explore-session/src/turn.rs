@@ -55,7 +55,6 @@ impl ExploreSession {
         }
         // Each prompt has its own MCP access, so an earlier recipient cannot answer a Retry.
         self.state.renew_access();
-        let pass = self.start_classification_if_enabled(pass);
         self.state.pass = Some(pass.clone());
         let _ = self.events.send(ui_events::ExplorePosted {
             request: request.clone(),
@@ -122,23 +121,12 @@ impl ExploreSession {
         );
         let comparison = comparison.clone();
         let agent = self.active_agent()?;
-        let feedback = self
-            .state
-            .pass
-            .as_ref()
-            .filter(|pass| pass.exploration.instance == request.instance)
-            .map(|pass| {
-                pass.coverage.feedback(
-                    &pass.exploration.comparison,
-                    &pass.pending_questions(),
-                    self.exclusion.is_enabled(),
-                )
-            });
-        let prepared = review_explore_runner::PreparedTurn::prepare_with_feedback(
+        let unreviewed = self.unreviewed(request.answer.is_none());
+        let prepared = review_explore_runner::PreparedTurn::prepare(
             request,
             &comparison,
             &self.state.access,
-            feedback.as_ref(),
+            &unreviewed,
         );
         self.state.pending = Some((request.instance.clone(), request.request.clone()));
         self.state.agent = Some(agent.clone());

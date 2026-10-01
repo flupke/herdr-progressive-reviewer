@@ -35,7 +35,6 @@ fn question(version: u32) -> Question {
         text: "Keep resolved conversations resolved?".into(),
         rationale: None,
         visual: None,
-        supporting: vec![],
         assessments: None,
         alternatives: vec![
             Alternative {
@@ -75,9 +74,10 @@ fn update(request: &TurnRequest, next: Option<Question>) -> InterviewUpdate {
         instance: request.instance.clone(),
         request: request.request.clone(),
         checkpoint: request.checkpoint.clone(),
+        reviewed: Vec::new(),
+        reopened: Vec::new(),
         interpretation: None,
         topics: vec![],
-        inspections: vec![],
         conclusion: next
             .is_none()
             .then(|| conclusion("Further human file inspection remains required")),
@@ -139,29 +139,11 @@ fn settling_and_reopening_need_separate_attributed_human_answers() {
     response.next = None;
     response.conclusion = Some(conclusion("Continue inspecting Files"));
     exploration.apply(response).unwrap();
-    let correction = exploration
-        .request(
-            Some(AnswerInput {
-                text: "I need to reconsider".into(),
-                corrects: Some(answer),
-                ..AnswerInput::default()
-            }),
-            Some(&question),
-        )
-        .unwrap();
-    let mut response = update(&correction, Some(self::question(2)));
-    response.interpretation = Some(Interpretation {
-        answer: correction.answer.unwrap().id,
-        status: TopicStatus::Open,
-        recap: "Recorded correction; clarify policy".into(),
-        follow_ups: vec![],
-    });
-    exploration.apply(response).unwrap();
-    assert_eq!(exploration.answers.len(), 2);
+    assert_eq!(exploration.answers.len(), 1);
 }
 
 #[test]
-fn context_clarification_conditional_decision_and_correction_append_exact_answers() {
+fn context_clarification_and_a_conditional_decision_append_exact_answers() {
     let mut exploration = started();
     let original = exploration.questions[0].clone();
     let request = exploration
@@ -229,18 +211,6 @@ fn context_clarification_conditional_decision_and_correction_append_exact_answer
         exploration.topics["policy"].status,
         TopicStatus::NeedsFollowUp
     );
-    let correction = exploration
-        .request(
-            Some(AnswerInput {
-                corrects: Some(answer_id),
-                text: "The test must cover delayed replies too.".into(),
-                ..AnswerInput::default()
-            }),
-            Some(&next),
-        )
-        .unwrap();
-    assert_eq!(exploration.answers.len(), 3);
-    assert!(correction.answer.unwrap().corrects.is_some());
     assert_eq!(
         exploration.answers[1].text,
         "Only if we add a regression test."
@@ -448,4 +418,54 @@ fn dedicated_conclusion_preserves_the_final_choice_and_rejects_a_changed_retry()
         invalid[field] = value;
         assert!(serde_json::from_value::<ConclusionSubmission>(invalid).is_err());
     }
+}
+
+fn policy_lines(first_line: u32, last_line: u32) -> CodeLocation {
+    CodeLocation {
+        path: review_repository::repository::RepoPath::from_bytes(b"policy.rs"),
+        side: SourceSide::Old,
+        lines: Some(SourceLineRange {
+            first_line,
+            last_line,
+        }),
+    }
+}
+
+#[test]
+fn marks_follow_a_human_answer_and_name_changed_lines() {
+    let mut exploration = exploration();
+    let kickoff = exploration.request(None, None).unwrap();
+    let mut response = update(&kickoff, Some(question(1)));
+    response.reviewed.push(policy_lines(1, 1));
+    let error = exploration.apply(response).unwrap_err().to_string();
+    assert!(error.contains("follow a human answer"), "{error}");
+
+    let mut exploration = started();
+    let question = exploration.questions[0].clone();
+    let request = exploration
+        .request(
+            Some(AnswerInput {
+                option: Some("keep".into()),
+                ..AnswerInput::default()
+            }),
+            Some(&question),
+        )
+        .unwrap();
+    let mut response = update(&request, Some(self::question(2)));
+    response.interpretation = Some(Interpretation {
+        answer: request.answer.clone().unwrap().id,
+        status: TopicStatus::Accepted,
+        recap: "Recorded: keep resolved".into(),
+        follow_ups: vec![],
+    });
+    response.reviewed.push(policy_lines(1, 9));
+    let error = exploration.apply(response.clone()).unwrap_err().to_string();
+    assert!(error.contains("valid lines"), "{error}");
+
+    response.reviewed = vec![policy_lines(1, 2)];
+    response.reopened = vec![policy_lines(3, 3)];
+    // The topic was just decided: conclude rather than ask on it again.
+    response.next = None;
+    response.conclusion = Some(conclusion("Resolved conversations stay resolved"));
+    assert!(exploration.apply(response).unwrap());
 }

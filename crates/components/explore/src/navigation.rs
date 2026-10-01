@@ -3,7 +3,6 @@ use super::{
     controls::{Button, ControlVisual},
 };
 use ratatui::{buffer::Buffer, layout::Rect};
-use review_explore::{ChangedLineCoverage, ClassificationState};
 use ui_theme::Palette;
 
 #[derive(Clone)]
@@ -157,23 +156,6 @@ impl HistoryPages {
 }
 
 impl ExploreComponent {
-    pub(super) fn changed_line_percent(progress: ChangedLineCoverage) -> String {
-        Self::line_percent(progress.explored, progress.total)
-    }
-
-    fn line_percent(count: u64, total: u64) -> String {
-        let progress = ChangedLineCoverage {
-            explored: count,
-            total,
-        };
-        match progress.percent_tenths() {
-            None => "—".into(),
-            Some(0) if count > 0 => "<0.1%".into(),
-            Some(tenths) if tenths % 10 == 0 => format!("{}%", tenths / 10),
-            Some(tenths) => format!("{}.{:01}%", tenths / 10, tenths % 10),
-        }
-    }
-
     pub(super) fn visit_history(&mut self, target: History) {
         let history = HistoryPages::new(self);
         let Some(destination) = history.destination(target) else {
@@ -191,13 +173,10 @@ impl ExploreComponent {
     pub(super) fn navigation_bar(&self, area: Rect) -> Navigation {
         let history = HistoryPages::new(self);
         let Some(last) = history.pages.len().checked_sub(1) else {
-            let mut labels = self.coverage_control();
-            labels.extend(self.execution_controls());
-            return Navigation::new(area, labels);
+            return Navigation::new(area, self.execution_controls());
         };
         let position = history.current;
         let mut labels = vec![(history.pages[position].label(self), None)];
-        labels.extend(self.coverage_control());
         labels.extend(self.execution_controls());
         for (label, target, visible) in [
             ("Previous", History::Previous, position > 0),
@@ -226,33 +205,6 @@ impl ExploreComponent {
         Navigation::new(area, labels)
     }
 
-    fn coverage_control(&self) -> Vec<(String, Option<Control>)> {
-        let Some(coverage) = self.coverage_cache.get() else {
-            return Vec::new();
-        };
-        let summary = &coverage.summary;
-        let label = if summary.inventory_complete {
-            let lines = coverage.lines;
-            if lines.total == 0 {
-                "Answered-evidence coverage · No required changed lines".into()
-            } else {
-                format!(
-                    "Answered-evidence coverage {} of required lines",
-                    Self::changed_line_percent(lines)
-                )
-            }
-        } else {
-            "Answered-evidence coverage unavailable".into()
-        };
-        vec![(
-            format!(
-                "[{label} {}]",
-                if self.coverage_overview { "▴" } else { "▾" }
-            ),
-            Some(Control::Coverage),
-        )]
-    }
-
     fn execution_controls(&self) -> Vec<(String, Option<Control>)> {
         let timing = match self.compose_scope {
             ComposeScope::Question => self
@@ -260,63 +212,7 @@ impl ExploreComponent {
                 .map(|question| self.execution_time(Some(question))),
             ComposeScope::Conclusion => Some(self.execution_time(None)),
         };
-        let mut labels = timing.map(|label| vec![(label, None)]).unwrap_or_default();
-        if let (Some(coverage), Some(counts)) = (&self.coverage, self.coverage_cache.get()) {
-            if let Some(label) = Self::jev_filtered_status(coverage, counts) {
-                labels.push((label, None));
-            }
-            if let Some(label) = self.jev_progress(coverage) {
-                labels.push((label, None));
-            }
-        }
-        labels
-    }
-
-    fn jev_filtered_status(
-        coverage: &review_explore::CoverageLedger,
-        counts: &super::coverage::CoverageSnapshot,
-    ) -> Option<String> {
-        if coverage.classification_progress().is_none()
-            || !counts.exclusions_enabled
-            || !counts.summary.inventory_complete
-        {
-            return None;
-        }
-        let total = counts.total_lines;
-        if total == 0 {
-            return Some("Jev filtered · No changed text lines".into());
-        }
-        Some(format!(
-            "Jev filtered {} of changed lines",
-            Self::line_percent(counts.filtered_lines, total)
-        ))
-    }
-
-    fn jev_progress(&self, coverage: &review_explore::CoverageLedger) -> Option<String> {
-        let progress = coverage.classification_progress()?;
-        if progress.total_windows == 0 || !self.jev_progress_expiry.visible(progress) {
-            return None;
-        }
-        let total = progress.total_windows;
-        let done = progress.classified_windows.min(total);
-        let filled = done.saturating_mul(10) / total;
-        let bar = format!("{}{}", "=".repeat(filled), "-".repeat(10 - filled));
-        let label = match progress.state {
-            ClassificationState::Finished { .. } => "Jev checked",
-            ClassificationState::Stopped { .. } => "Jev stopped",
-            ClassificationState::Running => "Jev filtering",
-        };
-        Some(format!("{label} [{bar}] {done}/{total}"))
-    }
-
-    /// Whether a stopped Jev bar needs its one expiry redraw.
-    pub fn jev_progress_expires_between(
-        &self,
-        previous: std::time::Instant,
-        now: std::time::Instant,
-    ) -> bool {
-        self.mode == ui_events::ReviewNavigation::Explore
-            && self.jev_progress_expiry.changes_between(previous, now)
+        timing.map(|label| vec![(label, None)]).unwrap_or_default()
     }
 }
 
@@ -329,7 +225,7 @@ mod tests {
         let navigation = Navigation::new(
             Rect::new(0, 0, 40, 1),
             [
-                ("Coverage ▾".into(), Some(Control::Coverage)),
+                ("Map view ▾".into(), Some(Control::Map)),
                 ("Next".into(), Some(Control::History(History::Next))),
             ],
         );

@@ -1,4 +1,4 @@
-use super::{ComposeScope, Draft, DraftKey, ExploreComponent, Reveal};
+use super::{ComposeScope, DraftKey, ExploreComponent, Reveal};
 use comment_editor::CommentEditor;
 
 impl ExploreComponent {
@@ -23,10 +23,7 @@ impl ExploreComponent {
         !self.general_reply()
             && turn == self.selected
             && self.can_compose()
-            && (!has_answers
-                || self.correction.is_some()
-                || self.editing
-                || !self.editor.text().is_empty())
+            && (!has_answers || self.editing || !self.editor.text().is_empty())
     }
 
     pub(super) fn edit_turn(&mut self, turn: usize) {
@@ -48,24 +45,15 @@ impl ExploreComponent {
     pub(super) fn save_draft(&mut self) {
         if self.can_compose() {
             let editor = std::mem::replace(&mut self.editor, CommentEditor::new("", &self.keymap));
-            self.drafts.insert(
-                self.draft_key(),
-                Draft {
-                    editor,
-                    correction: self.correction.take(),
-                },
-            );
+            self.drafts.insert(self.draft_key(), editor);
         }
     }
 
     pub(super) fn restore_draft(&mut self) {
-        if let Some(draft) = self.drafts.remove(&self.draft_key()) {
-            self.editor = draft.editor;
-            self.correction = draft.correction;
-        } else {
-            self.editor = CommentEditor::new("", &self.keymap);
-            self.correction = None;
-        }
+        self.editor = self
+            .drafts
+            .remove(&self.draft_key())
+            .unwrap_or_else(|| CommentEditor::new("", &self.keymap));
     }
 
     pub(super) fn edit_general(&mut self) {

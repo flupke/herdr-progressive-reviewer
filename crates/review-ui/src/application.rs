@@ -75,12 +75,8 @@ impl ReviewApplication {
     /// Run ticks for deferred file loads, animation, and toast deadlines.
     pub fn needs_tick(&self, previous: std::time::Instant, now: std::time::Instant) -> bool {
         self.event_bus
-            .get::<ExploreComponent>(self.explore_component)
-            .is_some_and(|explore| explore.jev_progress_expires_between(previous, now))
-            || self
-                .event_bus
-                .get::<OverlayComponent>(self.overlay_component)
-                .is_some_and(|overlay| overlay.changes_between(previous, now))
+            .get::<OverlayComponent>(self.overlay_component)
+            .is_some_and(|overlay| overlay.changes_between(previous, now))
             || self
                 .event_bus
                 .get::<DiffComponent>(self.diff_component)

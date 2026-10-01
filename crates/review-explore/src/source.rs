@@ -3,7 +3,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use review_repository::repository::{RepoPath, Repository, Snapshot, SnapshotIdentity};
+use review_repository::repository::{
+    ChangedFile, RepoPath, Repository, Snapshot, SnapshotIdentity,
+};
 use review_source::SourceLineRange;
 use serde::{Deserialize, Serialize};
 
@@ -26,6 +28,16 @@ pub enum SourceSide {
     New,
 }
 
+/// `old` or `new`, as citations name the sides.
+impl std::fmt::Display for SourceSide {
+    fn fmt(&self, output: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        output.write_str(match self {
+            Self::Old => "old",
+            Self::New => "new",
+        })
+    }
+}
+
 /// A citation supplied by the agent, without a reviewer-assigned source ID.
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, schemars::JsonSchema)]
 pub struct CodeLocation {
@@ -38,7 +50,43 @@ pub struct CodeLocation {
     pub lines: Option<SourceLineRange>,
 }
 
+/// `path new 7-9`, or `path (whole file)`.
+impl std::fmt::Display for CodeLocation {
+    fn fmt(&self, output: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.lines {
+            Some(lines) => write!(output, "{} {} {lines}", self.path.display(), self.side),
+            None => write!(output, "{} (whole file)", self.path.display()),
+        }
+    }
+}
+
 impl CodeLocation {
+    /// The one-based location of zero-based `lines` on one side of `file`.
+    pub fn on(file: &ChangedFile, side: SourceSide, lines: std::ops::Range<u32>) -> Self {
+        let path = match side {
+            SourceSide::Old => file.old_path.as_ref(),
+            SourceSide::New => file.new_path.as_ref(),
+        }
+        .unwrap_or_else(|| file.review_path());
+        Self {
+            path: path.clone(),
+            side,
+            lines: Some(SourceLineRange::from_zero_based(lines)),
+        }
+    }
+
+    /// Whether the location is in `file`: its path on the location's side,
+    /// or either of its paths for the whole file.
+    pub fn names(&self, file: &ChangedFile) -> bool {
+        let old = file.old_path.as_ref() == Some(&self.path);
+        let new = file.new_path.as_ref() == Some(&self.path);
+        match (&self.lines, self.side) {
+            (None, _) => old || new,
+            (Some(_), SourceSide::Old) => old,
+            (Some(_), SourceSide::New) => new,
+        }
+    }
+
     pub(crate) fn relative_path(&self) -> Option<&Path> {
         let path = Path::new(std::ffi::OsStr::from_bytes(self.path.as_bytes()));
         (!path.as_os_str().is_empty()

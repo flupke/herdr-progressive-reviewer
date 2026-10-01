@@ -5,10 +5,10 @@ use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::{Receiver, Sender};
 
 use component_core::ApplicationEventSender;
-use review_explore::ExclusionPolicy;
 use review_explore_session::{self as explore_session, ExploreSession};
 use review_hunks::HunkMark;
 use review_repository::repository::{ChangeId, ChangedFile, PollResult, Repository, Snapshot};
+use review_significance::JevClassifier;
 use review_source::ReviewCheckpoint;
 use review_state::{MarkResult, ReviewState, ReviewTracker};
 use review_store::ReviewStore;
@@ -29,8 +29,10 @@ pub(super) struct Worker {
     pub(super) snapshot: Option<Snapshot>,
     pub(super) commands: Sender<WorkerCommand>,
     pub(super) explore: ExploreSession,
-    pub(super) exclusion: ExclusionPolicy,
+    pub(super) jev: JevClassifier,
     pub(super) auto_review: Option<Arc<AtomicBool>>,
+    /// An Explore kickoff waiting for Jev to mark what it dismisses first.
+    pub(super) held_kickoff: Option<review_explore::TurnRequest>,
     pub(super) documents: Sender<document::Command>,
 }
 
@@ -91,7 +93,20 @@ impl Worker {
             }
             WorkerCommand::Repository(action) => self.handle_repository_action(action, messages),
             WorkerCommand::AutoReviewFinished(review) => self.finish_auto_review(&review, messages),
-            WorkerCommand::Explore(input) => self.explore.handle(input),
+            WorkerCommand::Explore(explore_session::Input::Command(
+                review_explore::Command::Turn(request),
+            )) if request.answer.is_none() => self.start_round(*request, messages),
+            WorkerCommand::Explore(input) => {
+                if matches!(
+                    input,
+                    explore_session::Input::Command(
+                        review_explore::Command::Start | review_explore::Command::Cancel
+                    )
+                ) {
+                    self.held_kickoff = None;
+                }
+                self.explore.handle(input);
+            }
             #[cfg(test)]
             WorkerCommand::Hold(release) => {
                 let _ = release.recv();

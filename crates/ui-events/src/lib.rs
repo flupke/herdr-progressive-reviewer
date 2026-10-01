@@ -4,10 +4,10 @@ mod explore;
 mod threads;
 pub use explore::{
     EvidenceView, ExploreAutosave, ExploreCaptured, ExploreCommitted, ExploreComparisonAccepted,
-    ExploreCoverageRefresh, ExploreEvidence, ExploreEvidenceInput, ExploreFinished,
-    ExploreHistoryChanged, ExploreImplementationFinished, ExploreImplementationSaved,
-    ExplorePositionsRestored, ExplorePosted, ExploreProgress, ExploreRestored,
-    ExploreStorageFailed, ExploreSubmission, ExploreViewports,
+    ExploreEvidence, ExploreEvidenceInput, ExploreFinished, ExploreHistoryChanged,
+    ExploreImplementationFinished, ExploreImplementationSaved, ExplorePositionsRestored,
+    ExplorePosted, ExploreProgress, ExploreRestored, ExploreStorageFailed, ExploreSubmission,
+    ExploreViewports,
 };
 pub use threads::{
     NewRepliesRequested, ReviewNavigation, ReviewNavigationChanged, ReviewPane,

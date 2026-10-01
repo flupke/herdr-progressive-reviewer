@@ -22,7 +22,6 @@ impl Exploration {
             return Vec::new();
         };
         let mut result = question.evidence.clone();
-        result.extend(question.supporting.clone());
         if let Some(assessment) = &question.assessments {
             result.extend(assessment.reversibility.evidence.clone());
             result.extend(assessment.blast_radius.evidence.clone());

@@ -2,12 +2,12 @@
 
 use super::worker::{Worker, WorkerCommand};
 use component_core::ApplicationEventSender;
-use review_explore::{
-    Comparison, CoverageLedger, ExcludedLines, ExclusionPolicy, Significance,
-    SignificanceClassifier, SourceSide,
-};
+use review_explore::{Comparison, SourceSide};
 use review_hunks::ChangedLines;
 use review_repository::repository::{ChangedFile, PollResult, Repository, Snapshot};
+use review_significance::{
+    ExcludedLines, JevClassifier, Significance, SignificanceClassifier, SignificanceLedger,
+};
 use review_source::ReviewCheckpoint;
 use review_state::ReviewTracker;
 use review_store::{LoadResult, ReviewStore};
@@ -23,7 +23,7 @@ pub(super) struct AutoReview {
     /// The classified files, at the classified commit.
     snapshot: Snapshot,
     comparison: Comparison,
-    coverage: CoverageLedger,
+    significance: SignificanceLedger,
     prior_marks: Vec<LoadResult>,
     active: Arc<AtomicBool>,
     finished: bool,
@@ -69,7 +69,7 @@ impl AutoReview {
             .collect::<Result<_, _>>()?;
         Ok(Self {
             snapshot,
-            coverage: CoverageLedger::new(&comparison),
+            significance: SignificanceLedger::new(&comparison),
             comparison,
             prior_marks,
             active: Arc::new(AtomicBool::new(true)),
@@ -83,7 +83,7 @@ impl AutoReview {
             if !self.active.load(Ordering::Relaxed) {
                 return false;
             }
-            self.coverage.record_significance(result);
+            self.significance.record_significance(result);
             true
         });
     }
@@ -112,7 +112,7 @@ impl AutoReview {
             changed: Vec::new(),
             remaining: self.comparison.files.len(),
             failed_classifications: self
-                .coverage
+                .significance
                 .classifications()
                 .filter(|result| {
                     matches!(
@@ -123,7 +123,7 @@ impl AutoReview {
                 .count(),
             failed_marks: 0,
         };
-        let whole_files = self.coverage.fully_excluded_files(&self.comparison);
+        let whole_files = self.significance.fully_excluded_files(&self.comparison);
         for (index, file) in self.snapshot.files.iter().enumerate() {
             // Preserve manual marks and unknown schemas, including writes by another reviewer.
             match self.unchanged_mark(store, index) {
@@ -168,12 +168,12 @@ impl AutoReview {
         index: usize,
         file: &ChangedFile,
     ) -> Option<usize> {
-        let excluded = self.coverage.excluded_lines(index);
+        let excluded = self.significance.excluded_lines(index);
         if excluded.is_empty() {
             return Some(0);
         }
         let may_review_file = !self
-            .coverage
+            .significance
             .changes_more_than_lines(&self.comparison, index);
         tracker
             .review_hunks_where(
@@ -228,15 +228,16 @@ impl MarkSummary {
         }
     }
 
-    fn toast(&self) -> ui_events::ToastRequested {
+    /// What Jev marked and what it could not, as one sentence or a few.
+    fn describe(&self) -> String {
         let mut text = format!(
-            "Jev: marked {} files and {} hunks reviewed; {} files still need review.",
+            "marked {} files and {} hunks reviewed; {} files still need review.",
             self.marked, self.hunks, self.remaining
         );
         if self.failed_classifications > 0 {
             let _ = write!(
                 text,
-                " {} classifications failed or exceeded limits.",
+                " {} classifications failed or exceeded limits; their lines stay unreviewed.",
                 self.failed_classifications
             );
         }
@@ -247,8 +248,12 @@ impl MarkSummary {
                 self.failed_marks
             );
         }
+        text
+    }
+
+    fn toast(&self) -> ui_events::ToastRequested {
         ui_events::ToastRequested {
-            text,
+            text: format!("Jev: {}", self.describe()),
             kind: if self.failed_marks > 0 || self.failed_classifications > 0 {
                 toasts::ToastKind::Error
             } else {
@@ -266,12 +271,12 @@ impl Worker {
     ) {
         let result = self.prepare_auto_review(checkpoint);
         let toast = match result {
-            Ok((mut review, exclusion)) => {
+            Ok((mut review, jev_classifier)) => {
                 let total = review.comparison.files.len();
                 self.auto_review = Some(review.active.clone());
                 let commands = self.commands.clone();
                 std::thread::spawn(move || {
-                    if let Some(classifier) = exclusion.classifier() {
+                    if let Some(classifier) = jev_classifier.classifier() {
                         review.classify(classifier);
                     }
                     let _ = commands.send(WorkerCommand::AutoReviewFinished(Box::new(review)));
@@ -292,13 +297,13 @@ impl Worker {
     fn prepare_auto_review(
         &self,
         checkpoint: &ReviewCheckpoint,
-    ) -> eyre::Result<(AutoReview, ExclusionPolicy)> {
+    ) -> eyre::Result<(AutoReview, JevClassifier)> {
         eyre::ensure!(
             self.auto_review.is_none(),
             "Jev automatic review is already running"
         );
         eyre::ensure!(
-            self.exclusion.is_enabled(),
+            self.jev.is_enabled(),
             "Set TYPESAFE_API_KEY to automatically review files with Jev"
         );
         let review = AutoReview::prepare(&self.repository, &self.tracker, &self.store, checkpoint)?;
@@ -306,7 +311,7 @@ impl Worker {
             !review.comparison.files.is_empty(),
             "All files are already reviewed"
         );
-        Ok((review, self.exclusion.clone()))
+        Ok((review, self.jev.clone()))
     }
 
     pub(super) fn finish_auto_review(
@@ -315,7 +320,7 @@ impl Worker {
         messages: &ApplicationEventSender,
     ) {
         self.auto_review = None;
-        let toast = match review.apply(&self.repository, &self.tracker, &self.store) {
+        let (toast, note) = match review.apply(&self.repository, &self.tracker, &self.store) {
             Ok(summary) => {
                 self.poll(messages);
                 // The comparison is unchanged, so loaded diffs learn of the
@@ -323,14 +328,68 @@ impl Worker {
                 self.announce_review_states(messages, |file| {
                     summary.changed.contains(&file.review_path().display())
                 });
-                summary.toast()
+                (summary.toast(), summary.describe())
             }
-            Err(error) => ui_events::ToastRequested {
-                text: error.to_string(),
-                kind: toasts::ToastKind::Error,
-            },
+            Err(error) => (
+                ui_events::ToastRequested {
+                    text: error.to_string(),
+                    kind: toasts::ToastKind::Error,
+                },
+                format!("did not mark anything: {error}"),
+            ),
         };
         let _ = messages.send(toast);
+        if let Some(request) = self.held_kickoff.take() {
+            self.kickoff(request, Some(note));
+        }
+    }
+
+    /// Send an Explore kickoff, saying what Jev did before it.
+    fn kickoff(&mut self, request: review_explore::TurnRequest, jev: Option<String>) {
+        self.explore.note_jev(jev);
+        self.explore.handle(review_explore_session::Input::Command(
+            review_explore::Command::Turn(Box::new(request)),
+        ));
+    }
+
+    /// Start an Explore round: Jev first marks what it dismisses, when it
+    /// can, then the kickoff goes out.
+    pub(super) fn start_round(
+        &mut self,
+        request: review_explore::TurnRequest,
+        messages: &ApplicationEventSender,
+    ) {
+        // A Jev run already under way marks first; its outcome goes out
+        // with the kickoff.
+        if self.auto_review.is_some() {
+            self.held_kickoff = Some(request);
+            return;
+        }
+        let note = if self.jev.is_enabled() {
+            match self.prepare_auto_review(&request.checkpoint) {
+                Ok((mut review, jev_classifier)) => {
+                    let total = review.comparison.files.len();
+                    self.auto_review = Some(review.active.clone());
+                    self.held_kickoff = Some(request);
+                    let commands = self.commands.clone();
+                    std::thread::spawn(move || {
+                        if let Some(classifier) = jev_classifier.classifier() {
+                            review.classify(classifier);
+                        }
+                        let _ = commands.send(WorkerCommand::AutoReviewFinished(Box::new(review)));
+                    });
+                    let _ = messages.send(ui_events::ToastRequested {
+                        text: format!("Jev: classifying changes in {total} files before Explore…"),
+                        kind: toasts::ToastKind::Info,
+                    });
+                    return;
+                }
+                Err(error) => Some(format!("did not run: {error}")),
+            }
+        } else {
+            None
+        };
+        self.kickoff(request, note);
     }
 
     pub(super) fn cancel_auto_review(&self) {

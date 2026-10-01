@@ -1,4 +1,5 @@
-//! Decision evidence and optional supporting sources share native viewers.
+//! Every citation of a question, its assessments and the agent's reply shares
+//! one evidence list and its native viewers.
 use super::{
     ExploreComponent,
     flow::{Content, ConversationLayout, VisibleContent, Window, evidence_panes},
@@ -7,7 +8,7 @@ use diff_component::{ClippedViewport, DiffComponent};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
-    style::{Modifier, Style},
+    style::Style,
     text::Line,
     widgets::{Paragraph, Widget},
 };
@@ -22,7 +23,6 @@ use ui_theme::Palette;
 struct EvidenceEntry {
     view: EvidenceView,
     path: String,
-    primary: bool,
     side: SourceSide,
     first_line: Option<u32>,
 }
@@ -35,7 +35,6 @@ pub(super) struct EvidenceList {
     entries: Vec<EvidenceEntry>,
     tree: FileTree,
     selected: usize,
-    primary: usize,
     pub(super) width: Option<u16>,
 }
 
@@ -46,7 +45,6 @@ impl EvidenceList {
         selected: usize,
         width: Option<u16>,
     ) -> Self {
-        let primary = exploration.questions[turn].evidence.len();
         let entries = exploration
             .evidence(turn)
             .iter()
@@ -60,12 +58,11 @@ impl EvidenceList {
                         |source| source.display_path.clone(),
                     );
                 EvidenceEntry {
-                    view: EvidenceView::Question {
+                    view: EvidenceView {
                         turn,
                         reference: index,
                     },
                     path,
-                    primary: index < primary,
                     side: evidence.location.side,
                     first_line: evidence
                         .location
@@ -83,7 +80,7 @@ impl EvidenceList {
                 .map(|entry| (entry.path.clone(), entry.path.clone())),
             &HashSet::new(),
         );
-        let view = EvidenceView::Question {
+        let view = EvidenceView {
             turn,
             reference: selected,
         };
@@ -97,7 +94,6 @@ impl EvidenceList {
             entries,
             tree,
             selected,
-            primary,
             width,
         }
     }
@@ -121,7 +117,6 @@ impl EvidenceList {
     ) {
         let viewport = ClippedViewport::new(area, skipped, full_height).with_pinned_header();
         let mut pane = Buffer::empty(viewport.area());
-        let supporting = self.entries.len().saturating_sub(self.primary);
         FileList {
             tree: &self.tree,
             selected: self.selected,
@@ -133,7 +128,7 @@ impl EvidenceList {
             &mut pane,
             palette,
             focused,
-            &format!("Evidence {} · Supporting {supporting}", self.primary),
+            &format!("Evidence {}", self.entries.len()),
             |depth, name, file, width| {
                 let entry = &self.entries[file];
                 let line = entry
@@ -145,14 +140,7 @@ impl EvidenceList {
                     ""
                 };
                 let label = format!("{}{name}{line}{side}", "  ".repeat(depth));
-                let mut style = Style::default().fg(if entry.primary {
-                    palette.text
-                } else {
-                    palette.dim
-                });
-                if entry.primary {
-                    style = style.add_modifier(Modifier::BOLD);
-                }
+                let mut style = Style::default().fg(palette.text);
                 if file == self.selected {
                     style = style.bg(palette.cursor);
                 }
@@ -269,7 +257,7 @@ impl ExploreComponent {
     ) {
         let exploration = self.exploration.as_ref().expect("question exploration");
         let reference_index = self.turns[index].reference;
-        let view = EvidenceView::Question {
+        let view = EvidenceView {
             turn: index,
             reference: reference_index,
         };
@@ -313,9 +301,8 @@ mod tests {
     fn scrolling_clips_the_file_list_without_moving_its_bottom_border() {
         let entries = (0..10)
             .map(|reference| EvidenceEntry {
-                view: EvidenceView::Question { turn: 0, reference },
+                view: EvidenceView { turn: 0, reference },
                 path: format!("file{reference}.rs"),
-                primary: true,
                 side: SourceSide::New,
                 first_line: None,
             })
@@ -327,7 +314,7 @@ mod tests {
             &HashSet::new(),
         );
         let list = EvidenceList {
-            view: EvidenceView::Question {
+            view: EvidenceView {
                 turn: 0,
                 reference: 0,
             },
@@ -335,7 +322,6 @@ mod tests {
             entries,
             tree,
             selected: 0,
-            primary: 10,
             width: None,
         };
         let area = Rect::new(0, 8, 20, 4);
@@ -353,7 +339,7 @@ mod tests {
         assert_eq!(buffer[(19, 11)].symbol(), "│");
         assert_eq!(
             list.control_at(area, 2, 9, 5, 12),
-            Some(EvidenceView::Question {
+            Some(EvidenceView {
                 turn: 0,
                 reference: 5,
             })

@@ -134,13 +134,6 @@ impl Exploration {
                 "saved answer lost its exact option"
             );
         }
-        eyre::ensure!(
-            answer
-                .corrects
-                .as_ref()
-                .is_none_or(|id| id != &answer.id && self.answers.iter().any(|old| &old.id == id)),
-            "saved correction lost its original answer"
-        );
         Ok(())
     }
 
@@ -161,13 +154,6 @@ impl Exploration {
 impl crate::ExplorePass {
     pub fn validate_restored(&self) -> eyre::Result<()> {
         self.exploration.validate_restored()?;
-        self.coverage.validate_restored(
-            &self.exploration.comparison,
-            self.exploration
-                .answers
-                .iter()
-                .map(|answer| answer.id.clone()),
-        )?;
         if let Some(completion) = &self.completion {
             eyre::ensure!(
                 self.exploration.conversation.iter().any(|turn| {
@@ -175,14 +161,6 @@ impl crate::ExplorePass {
                 }) && self.exploration.comparison.checkpoint.checkpoint == completion.baseline,
                 "saved completion lost its conclusion or baseline"
             );
-            if completion.summary.inventory_complete {
-                eyre::ensure!(
-                    self.coverage_receipts
-                        .get(&completion.request)
-                        .is_some_and(|receipt| receipt.feedback().summary == completion.summary),
-                    "saved completion coverage receipt is inconsistent"
-                );
-            }
         }
         for (id, record) in &self.turns {
             eyre::ensure!(

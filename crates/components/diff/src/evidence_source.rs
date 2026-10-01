@@ -7,7 +7,7 @@ use ui_actions::Action;
 use ui_events::{DiffContentLoaded, HighlightRequest, PresentationLocation};
 
 impl SourceViewer {
-    pub(super) fn open_supporting_evidence(
+    pub(super) fn open_unchanged_evidence(
         &mut self,
         source: &Source,
         content: &str,

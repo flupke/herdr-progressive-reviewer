@@ -221,3 +221,22 @@ fn accepting_some_removed_lines_keeps_the_others_open() {
     );
     assert_eq!(reviewed.attribution.removed_by(2), &MarkAuthor::Jev);
 }
+
+#[test]
+fn reviewed_lines_name_their_authors_in_current_numbering() {
+    let (base, reviewed, current) = (b"a\nb\n", b"a\nX\nb\n", b"top\na\nX\nb\n");
+    let attribution = Attribution::uniform(MarkAuthor::Jev);
+    let review = HunkReview::new(base, reviewed, current).attributed(&attribution);
+
+    let lines = review.reviewed_lines();
+
+    assert_eq!(lines.added, [(2, MarkAuthor::Jev)].into());
+    assert!(lines.removed.is_empty());
+    assert_eq!(
+        open_lines(base, reviewed, current),
+        LineSelection {
+            removed: [].into(),
+            added: [0].into(),
+        }
+    );
+}

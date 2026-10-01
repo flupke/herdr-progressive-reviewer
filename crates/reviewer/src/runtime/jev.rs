@@ -1,9 +1,10 @@
-//! Optional bounded significance prefilter. Its output can only remove coverage obligations.
-use review_explore::{
-    Comparison, CoverageUnit, ExclusionPolicy, Significance, SignificanceClassifier,
-    SignificancePlan, SignificanceResult, SourceSide,
-};
+//! Optional bounded significance prefilter. Its output can only mark changes reviewed.
+use review_explore::{Comparison, SourceSide};
 use review_repository::diff::{DiffRow, parse_file_diff};
+use review_significance::{
+    ChangeUnit, JevClassifier, Significance, SignificanceClassifier, SignificancePlan,
+    SignificanceResult,
+};
 use serde_json::Value;
 #[cfg(all(test, feature = "jev-evals"))]
 use serde_json::json;
@@ -42,21 +43,21 @@ fn coordinate(row: &DiffRow) -> Option<(SourceSide, u32)> {
 #[cfg(all(test, feature = "jev-evals"))]
 const INSTRUCTIONS: &str = "Decide whether THIS exact changed block needs its own explanation in a code review, not whether the surrounding file deserves review. Old changed lines were removed; new changed lines were added. Adjacent context lines are unchanged and only help interpret this block. A change can be insignificant when its local effect is clear but adds no independent review decision: explanatory comments, formatting, routine annotations, or allowing an existing nonessential explanation field to be absent with a default. Significant changes include behavior, policy, state, contracts, dependencies, operations, operational defaults, removed assertions, permissions, and imports with meaningful targets or side effects. A default affecting functional data or compatibility with consequential consumers may still need an explanation. If an unseen consumer, helper, side effect or other context is needed to decide, choose uncertain. Do not infer correctness from a missing source. Answer for this block only.";
 
-/// Jev exclusions are enabled only when the process starts with a `TypeSafe` API key.
+/// Jev runs only when the process starts with a `TypeSafe` API key.
 /// A vision session can name a script that stands in for Jev instead.
-pub(super) fn exclusion_policy_from_env() -> ExclusionPolicy {
+pub(super) fn classifier_from_env() -> JevClassifier {
     if std::env::var_os("HERDR_REVIEWER_VISION").is_some()
         && let Some(script) = std::env::var_os("HERDR_REVIEWER_JEV_SCRIPT")
     {
-        return ExclusionPolicy::enabled(Arc::new(scripted::ScriptedJev {
+        return JevClassifier::enabled(Arc::new(scripted::ScriptedJev {
             script: script.into(),
         }));
     }
     std::env::var("TYPESAFE_API_KEY")
         .ok()
         .filter(|value| !value.trim().is_empty())
-        .map_or_else(ExclusionPolicy::disabled, |key| {
-            ExclusionPolicy::enabled(Arc::new(Jev { key }))
+        .map_or_else(JevClassifier::disabled, |key| {
+            JevClassifier::enabled(Arc::new(Jev { key }))
         })
 }
 
@@ -86,7 +87,7 @@ impl SignificanceClassifier for Jev {
 
 pub(super) struct Candidate {
     id: String,
-    units: Vec<CoverageUnit>,
+    units: Vec<ChangeUnit>,
     state: Value,
     references: Vec<String>,
     omissions: Vec<String>,
@@ -165,7 +166,7 @@ impl Candidate {
             match changed {
                 DiffRow::Delete { old_line, text } => {
                     old.push(text.as_str());
-                    units.push(CoverageUnit::Lines {
+                    units.push(ChangeUnit::Lines {
                         file: index,
                         side: SourceSide::Old,
                         first: *old_line,
@@ -174,7 +175,7 @@ impl Candidate {
                 }
                 DiffRow::Add { new_line, text } => {
                     new.push(text.as_str());
-                    units.push(CoverageUnit::Lines {
+                    units.push(ChangeUnit::Lines {
                         file: index,
                         side: SourceSide::New,
                         first: *new_line,
@@ -217,14 +218,14 @@ impl Candidate {
         let references = units
             .iter()
             .filter_map(|unit| match unit {
-                CoverageUnit::Lines {
+                ChangeUnit::Lines {
                     side, first, end, ..
                 } => Some(format!(
                     "{} {side:?} {first}-{}",
                     file.review_path().display(),
                     end - 1
                 )),
-                CoverageUnit::Item { .. } => None,
+                ChangeUnit::Item { .. } => None,
             })
             .collect();
         Self { id: format!("f{index}-b{block}"), units, state, references, omissions: vec!["Only three adjacent unchanged diff rows on each side were included; other callers and helpers were not supplied.".into()] }

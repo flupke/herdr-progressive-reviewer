@@ -149,7 +149,6 @@ fn adaptive_history_and_separate_conclusions_round_trip_without_source_buffers()
     let correction = fixture.request(
         Some(AnswerInput {
             text: "The unused branch does not apply".into(),
-            corrects: Some(answer.answer.as_ref().unwrap().id.clone()),
             ..Default::default()
         }),
         Some(&question),

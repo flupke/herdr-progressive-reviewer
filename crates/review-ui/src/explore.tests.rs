@@ -1,6 +1,5 @@
 use super::*;
 use crate::{DocumentAction, DocumentLoad, LspAction, RepositoryAction};
-use diff_component::SourceViewer;
 use ratatui::{buffer::Buffer, layout::Rect, widgets::Widget};
 use review_explore::{
     Alternative, Command, Comparison, EvidenceRef, Interpretation, InterviewUpdate, Question,
@@ -11,10 +10,7 @@ use review_test_support::{
     ReviewRepositoryFixture, complete_repository_snapshot, repository_fixture,
 };
 use std::sync::Arc;
-use ui_events::{
-    ExploreCaptured, ExploreCoverageRefresh, ExploreFinished, ExploreRestored, ReviewNavigation,
-    ReviewNavigationChanged,
-};
+use ui_events::{ExploreCaptured, ExploreFinished, ReviewNavigation, ReviewNavigationChanged};
 
 #[path = "explore_choices.tests.rs"]
 mod choices;
@@ -84,7 +80,6 @@ impl ExploreUi {
         let actions = app.publish(ExploreCaptured {
             result: Ok(comparison.clone()),
         });
-        app.publish(ExploreCoverageRefresh);
         let request = Self::request(actions);
         (
             Self {
@@ -126,10 +121,11 @@ impl ExploreUi {
                 evidence: vec![],
             }),
             agenda: vec![],
-            inspections: vec![],
             instance: request.instance.clone(),
             request: request.request.clone(),
             checkpoint: request.checkpoint.clone(),
+            reviewed: Vec::new(),
+            reopened: Vec::new(),
             interpretation: request.answer.as_ref().map(|answer| Interpretation {
                 answer: answer.id.clone(),
                 status: TopicStatus::Open,
@@ -156,7 +152,6 @@ impl ExploreUi {
                 text: format!("Question {version}: keep resolved?"),
                 rationale: None,
                 visual: None,
-                supporting: vec![],
                 assessments: None,
                 alternatives: vec![
                     Alternative {
@@ -226,34 +221,6 @@ impl ExploreUi {
             .map(ratatui::buffer::Cell::symbol)
             .collect()
     }
-}
-
-#[test]
-fn stopped_jev_bar_schedules_one_idle_expiry_redraw() {
-    use std::time::{Duration, Instant};
-
-    let (mut fixture, request) = ExploreUi::new();
-    let mut pass = review_explore::ExplorePass::new(review_explore::Exploration::new(
-        fixture.comparison.clone(),
-    ));
-    pass.exploration.instance = request.instance;
-    pass.coverage
-        .start_classification("test", "attempt".into(), 2);
-    pass.coverage
-        .stop_classification(100, std::time::SystemTime::now());
-    fixture.app.publish(ExploreRestored {
-        result: Ok(Some(Arc::new(pass))),
-        view: None,
-        historical: false,
-        storage_error: None,
-        progress: ui_events::ExploreProgress::Ready,
-    });
-    fixture.app.publish(ExploreCoverageRefresh);
-    assert!(fixture.text().contains("Jev stopped"));
-
-    let now = Instant::now();
-    assert!(!fixture.app.needs_tick(now, now));
-    assert!(fixture.app.needs_tick(now, now + Duration::from_secs(6)));
 }
 
 #[test]
@@ -526,7 +493,7 @@ fn interview_auto_advances_and_restores_unposted_text_from_history() {
 }
 
 #[test]
-fn supporting_paths_cannot_alias_changed_files_with_the_same_basename() {
+fn cited_paths_cannot_alias_changed_files_with_the_same_basename() {
     let (mut fixture, request) = ExploreUi::new();
     fixture.respond(&request, 1);
     fixture.app.publish(ui_events::SourceLocationAccepted {

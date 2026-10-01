@@ -14,7 +14,6 @@ pub enum TopicStatus {
     Open,
     Accepted,
     NeedsFollowUp,
-    Deferred,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq, schemars::JsonSchema)]
@@ -61,11 +60,9 @@ pub struct Question {
     /// Distinct choices; the reviewer adds None of the above automatically.
     #[schemars(length(min = 2, max = 5))]
     pub alternatives: Vec<Alternative>,
-    /// Minimal decision-relevant snippets, each with notes explaining its relevance.
+    /// The lines the question is about, most decisive first, each with notes
+    /// explaining what it shows and why it matters to the decision.
     pub evidence: Vec<EvidenceRef>,
-    /// Additional context, opened on demand rather than promoted into the question.
-    #[serde(default)]
-    pub supporting: Vec<EvidenceRef>,
     pub assessments: Option<Assessments>,
 }
 
@@ -78,8 +75,6 @@ pub struct ReviewerAnswer {
     pub in_reply_to: String,
     pub option: Option<Alternative>,
     pub text: String,
-    pub deferred: bool,
-    pub corrects: Option<String>,
     pub author: String,
 }
 
@@ -87,8 +82,6 @@ pub struct ReviewerAnswer {
 pub struct AnswerInput {
     pub option: Option<String>,
     pub text: String,
-    pub deferred: bool,
-    pub corrects: Option<String>,
     pub in_reply_to: Option<String>,
 }
 
@@ -114,13 +107,18 @@ pub struct InterviewUpdate {
     pub checkpoint: ReviewCheckpoint,
     /// Interpret only the latest human decision. Null for kickoff or factual context.
     pub interpretation: Option<Interpretation>,
+    /// After a human answer: the changed lines it settled, to mark reviewed. Any
+    /// changed lines, cited or not; null lines mark the whole file.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reviewed: Vec<CodeLocation>,
+    /// After a human answer: reviewed lines it makes matter again, to reopen. Any
+    /// reviewed lines, whoever marked them; null lines reopen the whole file.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reopened: Vec<CodeLocation>,
     pub reply: Option<Reply>,
     #[serde(default)]
     pub agenda: Vec<AgendaChange>,
     pub topics: Vec<Topic>,
-    /// Source investigations that do not create answer credit or reviewer decisions.
-    #[serde(default)]
-    pub inspections: Vec<crate::Inspection>,
     /// Required for `submit_question`. Use `submit_conclusion` to finish the interview.
     #[schemars(required)]
     pub next: Option<Question>,
@@ -161,21 +159,6 @@ pub struct Exploration {
 }
 
 impl Exploration {
-    pub(crate) fn active_deferred_answers(&self) -> impl Iterator<Item = &ReviewerAnswer> {
-        self.answers.iter().filter(|answer| {
-            answer.deferred
-                && answer.question.as_ref().is_some_and(|question| {
-                    self.topics
-                        .get(&question.topic)
-                        .is_some_and(|topic| topic.status == TopicStatus::Deferred)
-                })
-                && !self
-                    .answers
-                    .iter()
-                    .any(|later| later.corrects.as_ref() == Some(&answer.id))
-        })
-    }
-
     pub fn new(comparison: Arc<Comparison>) -> Self {
         Self {
             instance: uuid::Uuid::new_v4().to_string(),
@@ -241,11 +224,11 @@ impl Exploration {
             .ok_or_else(|| eyre::eyre!("Unknown question or conversation context"))?;
         let in_reply_to = context.update.request.clone();
         eyre::ensure!(
-            question.is_some() || (input.option.is_none() && !input.deferred),
-            "A conversation reply has no policy choices or deferral"
+            question.is_some() || input.option.is_none(),
+            "A conversation reply has no policy choices"
         );
         eyre::ensure!(
-            input.deferred || input.option.is_some() || !input.text.trim().is_empty(),
+            input.option.is_some() || !input.text.trim().is_empty(),
             "Write an answer or choose an option"
         );
         let option = input
@@ -260,17 +243,10 @@ impl Exploration {
                     .ok_or_else(|| eyre::eyre!("Unknown option"))
             })
             .transpose()?;
-        if let Some(corrects) = &input.corrects {
-            eyre::ensure!(
-                self.answers.iter().any(|answer| &answer.id == corrects
-                    && answer.question.as_ref() == question
-                    && answer.in_reply_to == in_reply_to),
-                "Correction must refer to this exact question"
-            );
-        } else if input.option.is_some() {
+        if input.option.is_some() {
             eyre::ensure!(
                 question.is_some_and(|question| self.can_choose(question)),
-                "This choice is no longer pending; reply in free text or use Correct"
+                "This choice is no longer pending; reply in free text"
             );
         }
         let answer = ReviewerAnswer {
@@ -280,8 +256,6 @@ impl Exploration {
             in_reply_to,
             option,
             text: input.text,
-            deferred: input.deferred,
-            corrects: input.corrects,
             author: "reviewer".into(),
         };
         self.answers.push(answer.clone());

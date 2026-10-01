@@ -20,10 +20,7 @@ impl ExploreComponent {
         }
         let question = self.question()?;
         let exploration = self.exploration.as_ref()?;
-        if self.correction.is_some()
-            || exploration.conclusion.is_some()
-            || !exploration.can_choose(question)
-        {
+        if exploration.conclusion.is_some() || !exploration.can_choose(question) {
             return None;
         }
         Some(

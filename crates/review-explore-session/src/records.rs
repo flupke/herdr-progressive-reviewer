@@ -5,10 +5,9 @@
 //! while that lock is held.
 
 use review_explore::{
-    CoverageFeedback, CoverageReceipt, DispatchResult, ExploreHistory, ExplorePass,
-    InterviewUpdate, ReviewCompletion, ViewSave,
+    DispatchResult, ExploreHistory, ExplorePass, InterviewUpdate, ReviewCompletion, ViewSave,
 };
-use review_store::{Error, ExploreRecords, Result, ReviewStore};
+use review_store::{Error, Result, ReviewStore};
 use review_types::ReviewUnit;
 
 fn explore_error(reason: &str) -> Error {
@@ -17,6 +16,13 @@ fn explore_error(reason: &str) -> Error {
 
 fn historical_pass_error() -> Error {
     explore_error("this pass is history; open the latest pass to continue")
+}
+
+/// A pass after an Explore response was submitted to it.
+pub(crate) struct Submitted {
+    /// False when the response was already accepted and changed nothing.
+    pub(crate) applied: bool,
+    pub(crate) pass: ExplorePass,
 }
 
 /// The saved Explore passes of every review, changed only through the session's rules.
@@ -70,121 +76,27 @@ impl SavedPasses {
     }
 
     /// Serially accept an Explore response without changing file review marks.
-    ///
-    /// A pending legacy conclusion is finalized only by the identical payload that
-    /// was already accepted.
     pub(crate) fn submit(
         &self,
         unit: &ReviewUnit,
         instance: &str,
         update: &InterviewUpdate,
-        exclusions_enabled: bool,
-    ) -> Result<(bool, ExplorePass, CoverageReceipt)> {
+    ) -> Result<Submitted> {
         let records = self.store.lock_explore(unit)?;
         if records.history()?.is_historical(instance) {
             return Err(historical_pass_error());
         }
-        let pass = records
-            .pass(instance)?
-            .ok_or_else(|| explore_error("saved pass is missing"))?;
-        if pass
-            .completion
-            .as_ref()
-            .is_some_and(|completion| !completion.completed)
-        {
-            return Self::finish_accepted_conclusion(&records, &pass, update);
-        }
-        let mut feedback = None;
         let (applied, pass) = records.update_pass(instance, |pass| {
-            let (applied, receipt) = pass
-                .submit(update, exclusions_enabled)
-                .map_err(|error| error.to_string())?;
+            let applied = pass.submit(update).map_err(|error| error.to_string())?;
             if applied && update.conclusion.is_some() && pass.completion.is_none() {
-                pass.completion = Some(Self::completion(
-                    pass,
-                    update,
-                    exclusions_enabled,
-                    receipt.feedback(),
-                ));
+                pass.completion = Some(ReviewCompletion {
+                    request: update.request.clone(),
+                    baseline: pass.exploration.comparison.checkpoint.checkpoint.clone(),
+                });
             }
-            feedback = Some(receipt);
             Ok(applied)
         })?;
-        Ok((applied, pass, feedback.expect("submitted")))
-    }
-
-    fn finish_accepted_conclusion(
-        records: &ExploreRecords<'_>,
-        pass: &ExplorePass,
-        update: &InterviewUpdate,
-    ) -> Result<(bool, ExplorePass, CoverageReceipt)> {
-        let request = &pass
-            .completion
-            .as_ref()
-            .expect("pending conclusion")
-            .request;
-        let accepted = pass
-            .exploration
-            .conversation
-            .iter()
-            .find(|turn| &turn.update.request == request)
-            .is_some_and(|turn| &turn.update == update);
-        if !accepted {
-            return Err(explore_error(
-                "Explore conclusion finalization is pending; retry the identical payload",
-            ));
-        }
-        let pass = Self::finish_completion(records, &pass.exploration.instance)?;
-        let feedback = pass
-            .coverage_receipts
-            .get(&update.request)
-            .cloned()
-            .ok_or_else(|| explore_error("accepted conclusion has no coverage receipt"))?;
-        Ok((false, pass, feedback))
-    }
-
-    fn completion(
-        pass: &ExplorePass,
-        update: &InterviewUpdate,
-        exclusions_enabled: bool,
-        feedback: &CoverageFeedback,
-    ) -> ReviewCompletion {
-        let comparison = &pass.exploration.comparison;
-        ReviewCompletion {
-            request: update.request.clone(),
-            baseline: comparison.checkpoint.checkpoint.clone(),
-            completed: true,
-            exclusions_enabled,
-            summary: feedback.summary.clone(),
-            unexplored: Some(review_explore::UnexploredAtConclusion {
-                required: pass.coverage.remaining(exclusions_enabled),
-                jev_excluded: if exclusions_enabled {
-                    pass.coverage.unexplored_exclusions()
-                } else {
-                    Vec::new()
-                },
-            }),
-        }
-    }
-
-    /// Finalize a legacy pending conclusion without applying its old file-mark transaction.
-    pub(crate) fn recover_completion(
-        &self,
-        unit: &ReviewUnit,
-        instance: &str,
-    ) -> Result<ExplorePass> {
-        let records = self.store.lock_explore(unit)?;
-        Self::finish_completion(&records, instance)
-    }
-
-    fn finish_completion(records: &ExploreRecords<'_>, instance: &str) -> Result<ExplorePass> {
-        let ((), pass) = records.update_pass(instance, |pass| {
-            if let Some(completion) = &mut pass.completion {
-                completion.completed = true;
-            }
-            Ok(())
-        })?;
-        Ok(pass)
+        Ok(Submitted { applied, pass })
     }
 
     /// A started external call may complete after New pass. Only its result can change history.

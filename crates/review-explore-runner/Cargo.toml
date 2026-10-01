@@ -7,6 +7,8 @@ license.workspace = true
 
 [dependencies]
 review-explore = { path = "../review-explore" }
+review-repository = { path = "../review-repository" }
+review-source = { path = "../review-source" }
 
 [dev-dependencies]
 serde_json.workspace = true

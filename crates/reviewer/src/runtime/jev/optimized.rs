@@ -1,8 +1,8 @@
 //! Production hunk windows and the frozen winning evaluation request.
 use std::ops::Range;
 
-use review_explore::CoverageUnit;
 use review_repository::diff::DiffRow;
+use review_significance::ChangeUnit;
 use serde_json::{Value, json};
 
 use super::{Candidate, coordinate, sections::Sections};
@@ -95,7 +95,7 @@ impl Planner<'_> {
         let units: Vec<_> = self.rows[target.clone()]
             .iter()
             .filter_map(coordinate)
-            .map(|(side, line)| CoverageUnit::Lines {
+            .map(|(side, line)| ChangeUnit::Lines {
                 file: self.source.file_index,
                 side,
                 first: line,

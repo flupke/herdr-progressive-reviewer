@@ -12,15 +12,6 @@ impl ExploreSession {
             request.respond(Err(error.to_string()));
             return;
         }
-        if let Operation::GetCoverageGaps(query) = &request.operation {
-            let result = self.coverage_gap_page(query);
-            request.respond(
-                result
-                    .map(|page| Response::CoverageGaps(Box::new(page)))
-                    .map_err(|error| error.to_string()),
-            );
-            return;
-        }
         let update = match &request.operation {
             Operation::SubmitQuestion(update)
                 if update.next.is_some() && update.conclusion.is_none() =>
@@ -48,27 +39,22 @@ impl ExploreSession {
             request.respond(Err("Explore response belongs to another instance".into()));
             return;
         }
-        let committed = self.passes.submit(
-            &update.checkpoint.review_unit,
-            &update.instance,
-            update,
-            self.exclusion.is_enabled(),
-        );
-        let (applied, pass, coverage) = match committed {
-            Ok(result) => result,
+        let committed =
+            self.passes
+                .submit(&update.checkpoint.review_unit, &update.instance, update);
+        let super::records::Submitted { applied, pass } = match committed {
+            Ok(submitted) => submitted,
             Err(error) => {
                 request.respond(Err(error.to_string()));
                 return;
             }
         };
+        let pass = if applied {
+            self.apply_marks(update, &pass).unwrap_or(pass)
+        } else {
+            pass
+        };
         self.state.pass = Some(pass.clone());
-        if pass
-            .completion
-            .as_ref()
-            .is_some_and(|completion| completion.completed)
-        {
-            self.state.storage_error = None;
-        }
         let (response, received) = std::sync::mpsc::channel();
         if self
             .events
@@ -92,56 +78,14 @@ impl ExploreSession {
                         .to_owned()
                 })
                 .and_then(|result| result)
-                .map(|applied| Response::Explore {
-                    applied,
-                    coverage: Box::new(coverage),
-                });
+                .map(|applied| Response::Explore { applied });
             request.respond(result);
         });
     }
 
-    fn coverage_gap_page(
-        &self,
-        query: &review_explore::GapQuery,
-    ) -> eyre::Result<review_explore::GapPage> {
-        let pass = self
-            .state
-            .pass
-            .as_ref()
-            .ok_or_else(|| eyre::eyre!("No Explore pass"))?;
-        eyre::ensure!(
-            pass.exploration.instance == query.instance
-                && pass.exploration.comparison.checkpoint == query.checkpoint,
-            "Gap request belongs to another pass or checkpoint"
-        );
-        eyre::ensure!(
-            pass.coverage.revision() == query.revision && self.exclusion.mode() == query.mode,
-            "Coverage revision or Jev policy changed; use the latest current feedback"
-        );
-        let limit = query.limit.unwrap_or(64);
-        eyre::ensure!(
-            (1..=128).contains(&limit),
-            "Gap page limit must be 1 to 128"
-        );
-        Ok(pass.coverage.gap_page(
-            &pass.exploration.comparison,
-            &pass.pending_questions(),
-            self.exclusion.is_enabled(),
-            query.path_prefix.as_deref(),
-            query.cursor.unwrap_or(0),
-            limit,
-        ))
-    }
-
     fn authorize(&mut self, access: &str) -> eyre::Result<()> {
         eyre::ensure!(
-            self.state.storage_error.is_none()
-                || self
-                    .state
-                    .pass
-                    .as_ref()
-                    .and_then(|pass| pass.completion.as_ref())
-                    .is_some_and(|completion| !completion.completed),
+            self.state.storage_error.is_none(),
             "Explore storage is unavailable: {}",
             self.state.storage_error.as_deref().unwrap_or_default()
         );

@@ -1,7 +1,7 @@
 use std::ops::Range;
 
-use review_explore::CoverageUnit;
 use review_repository::diff::DiffRow;
+use review_significance::ChangeUnit;
 use serde_json::{Value, json};
 
 use super::super::Candidate;
@@ -21,7 +21,7 @@ impl Window<'_> {
         let units: Vec<_> = self.rows[self.target.clone()]
             .iter()
             .filter_map(coordinate)
-            .map(|(side, line)| CoverageUnit::Lines {
+            .map(|(side, line)| ChangeUnit::Lines {
                 file: 0,
                 side,
                 first: line,

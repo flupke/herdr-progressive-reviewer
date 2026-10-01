@@ -85,27 +85,21 @@ impl ExploreSession {
         let mut restored = empty_restore();
         let mut toast = None;
         restored.historical = historical;
-        let pass = match self.passes.recover_completion(unit, &instance) {
-            Ok(pass) => pass,
-            Err(error) => {
-                restored.storage_error =
-                    Some(format!("Explore conclusion needs recovery: {error}"));
-                self.passes
-                    .pass(unit, &instance)
-                    .map_err(|error| {
-                        RestoreError::Unreadable(Unreadable::Pass {
-                            instance: instance.clone(),
-                            reason: error.to_string(),
-                        })
-                    })?
-                    .ok_or_else(|| {
-                        RestoreError::Unreadable(Unreadable::Pass {
-                            instance: instance.clone(),
-                            reason: "Saved Explore pass is missing".into(),
-                        })
-                    })?
-            }
-        };
+        let pass = self
+            .passes
+            .pass(unit, &instance)
+            .map_err(|error| {
+                RestoreError::Unreadable(Unreadable::Pass {
+                    instance: instance.clone(),
+                    reason: error.to_string(),
+                })
+            })?
+            .ok_or_else(|| {
+                RestoreError::Unreadable(Unreadable::Pass {
+                    instance: instance.clone(),
+                    reason: "Saved Explore pass is missing".into(),
+                })
+            })?;
         restored.view =
             self.load_view_for_restore(unit, &instance, &mut restored.storage_error, &mut toast);
         restored.progress = restored_progress(&pass);
@@ -176,13 +170,6 @@ impl ExploreSession {
         self.state.comparison = pass
             .as_ref()
             .map(|pass| pass.exploration.comparison.clone());
-        let pass = pass.map(|pass| {
-            if !event.historical && event.storage_error.is_none() {
-                Arc::new(self.start_classification_if_enabled((*pass).clone()))
-            } else {
-                pass
-            }
-        });
         self.state.pass = pass.as_deref().cloned();
         self.state.last_view.clone_from(&event.view);
         event.result = Ok(pass);

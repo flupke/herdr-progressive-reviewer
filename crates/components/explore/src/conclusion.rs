@@ -75,10 +75,6 @@ impl ConclusionView {
 }
 
 impl ExploreComponent {
-    fn marking_ready(&self) -> bool {
-        !self.durable.enabled || self.completion_done
-    }
-
     pub(super) fn accept_conclusion(&mut self) {
         let exploration = self.exploration.as_ref().expect("active exploration");
         let request = exploration
@@ -89,23 +85,6 @@ impl ExploreComponent {
             .request
             .clone();
         let content = exploration.conclusion.clone().expect("accepted conclusion");
-        if !self.durable.enabled
-            && self.conclusion_unexplored.is_none()
-            && let Some(coverage) = &self.coverage
-        {
-            let exclusions_enabled = self.completion_policy.unwrap_or(self.jev_enabled);
-            self.conclusion_unexplored = Some((
-                request.clone(),
-                review_explore::UnexploredAtConclusion {
-                    required: coverage.remaining(exclusions_enabled),
-                    jev_excluded: if exclusions_enabled {
-                        coverage.unexplored_exclusions()
-                    } else {
-                        Vec::new()
-                    },
-                },
-            ));
-        }
         self.conclusions.insert(
             request.clone(),
             ConclusionView {
@@ -144,7 +123,6 @@ impl ExploreComponent {
             return;
         }
         self.save_draft();
-        self.conclusion_preview = None;
         self.compose_scope = ComposeScope::Conclusion;
         self.general_context = Some(request);
         self.restore_draft();
@@ -190,7 +168,6 @@ impl ExploreComponent {
         if self.compose_scope != ComposeScope::Conclusion
             || !self.progress.can_submit()
             || self.durable.blocked()
-            || !self.marking_ready()
             || !self.active_conclusion_selected()
         {
             return vec![];
@@ -270,26 +247,8 @@ impl ExploreComponent {
             layout.text(&view.content.future_work, palette.text, None);
         }
         layout.gap();
-        if let Some((request, unexplored)) = &self.conclusion_unexplored
-            && request == &view.request
-        {
-            let count = unexplored.required.len();
-            layout.text(
-                format!("{count} unexplored changed regions at this checkpoint"),
-                if count > 0 {
-                    palette.warning
-                } else {
-                    palette.dim
-                },
-                None,
-            );
-            if count > 0 {
-                layout.controls([("Preview unexplored code".into(), Control::PreviewUnexplored)]);
-            }
-            layout.gap();
-        }
         layout.text(
-            "Further human Files inspection is required.",
+            "Lines the interview did not settle stay unreviewed in Files.",
             palette.dim,
             None,
         );
@@ -318,14 +277,6 @@ impl ExploreComponent {
 
     fn implementation_controls(&self, layout: &mut ConversationLayout, palette: Palette) {
         let view = self.conclusion().expect("conclusion view");
-        if !self.marking_ready() {
-            layout.text(
-                "Explore conclusion finalization is pending; restore or retry the accepted conclusion before implementing.",
-                palette.warning,
-                None,
-            );
-            return;
-        }
         if !self.active_conclusion_selected() || self.durable.historical {
             layout.text(
                 "The interview has continued since this conclusion.",

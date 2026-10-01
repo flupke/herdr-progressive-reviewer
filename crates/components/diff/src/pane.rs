@@ -445,21 +445,10 @@ impl DiffComponent {
         if !self.explore.is_shown() {
             return Vec::new();
         }
-        match event.view {
-            EvidenceView::Coverage => {
-                let Some(index) = crate::explore::coverage_file(event) else {
-                    return Vec::new();
-                };
-                let shown = self.explore.activate(&self.services, event);
-                self.document_viewer_mut()
-                    .show_coverage_evidence(event, index, shown)
-            }
-            EvidenceView::Question { reference, .. } => {
-                let shown = self.explore.activate(&self.services, event);
-                self.document_viewer_mut()
-                    .show_question_evidence(event, reference, shown)
-            }
-        }
+        let EvidenceView { reference, .. } = event.view;
+        let shown = self.explore.activate(&self.services, event);
+        self.document_viewer_mut()
+            .show_question_evidence(event, reference, shown)
     }
 
     fn explore_evidence_input(&mut self, event: &ui_events::ExploreEvidenceInput) -> Vec<Action> {

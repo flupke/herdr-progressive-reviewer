@@ -3,11 +3,12 @@
 
 use std::path::PathBuf;
 
-use review_explore::{
-    Comparison, CoverageUnit, Significance, SignificanceClassifier, SignificancePlan,
-    SignificanceResult,
-};
+use review_explore::Comparison;
+
 use review_repository::diff::{DiffRow, parse_file_diff};
+use review_significance::{
+    ChangeUnit, Significance, SignificanceClassifier, SignificancePlan, SignificanceResult,
+};
 use serde_json::Value;
 
 use super::{coordinate, optimized};
@@ -85,7 +86,7 @@ fn scripted_hunk(
             id: format!("script-f{file}-h{hunk}"),
             units: changed
                 .into_iter()
-                .map(|(side, line)| CoverageUnit::Lines {
+                .map(|(side, line)| ChangeUnit::Lines {
                     file,
                     side,
                     first: line,

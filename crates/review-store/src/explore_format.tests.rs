@@ -1,5 +1,5 @@
-//! Explore records written by the build before the Explore session owned the recovery
-//! rules. Loading them and writing them back must reproduce the exact bytes.
+//! Explore records in their saved format. Loading them and writing them back
+//! must reproduce the exact bytes; records of the first format load as absent.
 
 use super::*;
 
@@ -80,8 +80,7 @@ fn saved_history_pass_and_view_load_in_their_current_format() {
     assert_eq!(pass.revision, 7);
     assert_eq!(pass.exploration.questions.len(), 1);
     assert_eq!(pass.exploration.answers[0].text, "Keep \"it\"\nwith a test");
-    assert!(pass.completion.as_ref().unwrap().completed);
-    assert_eq!(pass.coverage_receipts.len(), 2);
+    assert!(pass.completion.is_some());
     assert!(pass.last_agent_session.is_some());
     let delivery = pass.implementations.values().next().unwrap();
     assert_eq!(delivery.request.text, "Only the edited task");
@@ -121,4 +120,40 @@ fn saved_history_pass_and_view_are_written_back_unchanged() {
     drop(records);
 
     fixture.assert_rewritten();
+}
+
+#[test]
+fn records_of_the_first_format_load_as_absent() {
+    let fixture = SavedFixture::new();
+    for (name, bytes) in [
+        (
+            "index.json".to_owned(),
+            &include_bytes!("../testdata/explore/v1/index.json")[..],
+        ),
+        (
+            format!("{INSTANCE}.json"),
+            &include_bytes!("../testdata/explore/v1/pass.json")[..],
+        ),
+        (
+            format!("{INSTANCE}.view.json"),
+            &include_bytes!("../testdata/explore/v1/view.json")[..],
+        ),
+    ] {
+        std::fs::write(fixture.review.join(name), bytes).unwrap();
+    }
+
+    let history = fixture.store.load_explore_history(&fixture.unit).unwrap();
+
+    assert!(history.passes.is_empty());
+    assert_eq!(
+        fixture.store.load_explore(&fixture.unit, INSTANCE).unwrap(),
+        None
+    );
+    assert_eq!(
+        fixture
+            .store
+            .load_explore_view(&fixture.unit, INSTANCE)
+            .unwrap(),
+        None
+    );
 }

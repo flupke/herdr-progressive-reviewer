@@ -154,17 +154,14 @@ pub enum ExploreShortcut {
     ChooseAnswer(usize),
     Turn(ExploreTurnShortcut),
     Evidence(ExploreEvidenceShortcut),
-    Coverage(ExploreCoverageShortcut),
 }
 
 /// Explore commands that act on the interview turn.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExploreTurnShortcut {
     Start,
-    Defer,
     Cancel,
     Retry,
-    Correct,
     PreviousTurn,
     NextTurn,
     ToggleMap,
@@ -173,24 +170,10 @@ pub enum ExploreTurnShortcut {
 /// Explore commands that choose which evidence the conversation shows.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExploreEvidenceShortcut {
-    /// Return to the primary evidence of the current turn.
-    Primary,
-    /// Show the next evidence cited by the question.
+    /// Return to the turn's first, most decisive evidence.
+    First,
+    /// Show the turn's next evidence.
     Next,
-    /// Show the next source among all the turn's evidence.
-    NextSource,
-}
-
-/// Explore commands that inspect review coverage.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ExploreCoverageShortcut {
-    ToggleOverview,
-    ToggleJevDebug,
-    OpenFile,
-    NextFile,
-    PreviousFile,
-    NextGap,
-    RequireReview,
 }
 
 /// Commands Explore runs whether its conversation or its evidence has focus.

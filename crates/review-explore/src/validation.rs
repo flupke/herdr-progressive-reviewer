@@ -1,7 +1,4 @@
-use crate::{
-    AgendaAction, Comparison, Exploration, InspectionDisposition, InterviewUpdate, Question,
-    TopicStatus,
-};
+use crate::{AgendaAction, Comparison, Exploration, InterviewUpdate, Question, TopicStatus};
 use std::collections::HashSet;
 
 impl Exploration {
@@ -64,8 +61,7 @@ impl Exploration {
                     "Only an attributed interpretation may change topic status"
                 );
                 eyre::ensure!(
-                    matches!(previous.status, TopicStatus::Open | TopicStatus::Deferred)
-                        || previous == topic,
+                    previous.status == TopicStatus::Open || previous == topic,
                     "Settled topics cannot be rewritten"
                 );
             } else {
@@ -73,63 +69,36 @@ impl Exploration {
             }
         }
         self.validate_agenda(update, comparison)?;
-        self.validate_inspections(update, comparison)?;
+        self.validate_marks(update, comparison)?;
         if let Some(question) = &update.next {
             self.validate_question(question, update, comparison)?;
         }
         Ok(())
     }
 
-    fn validate_inspections(
+    /// Marks follow a human answer and name lines of changed paths.
+    fn validate_marks(
         &self,
         update: &InterviewUpdate,
         comparison: &Comparison,
     ) -> eyre::Result<()> {
-        for inspection in &update.inspections {
-            eyre::ensure!(
-                !inspection.sources.is_empty()
-                    && !inspection.behavior.trim().is_empty()
-                    && !inspection.finding.trim().is_empty()
-                    && inspection
-                        .sources
-                        .iter()
-                        .all(|source| comparison.validate_location(source)),
-                "Inspection needs valid source ranges, behavior, and finding"
-            );
-            match &inspection.disposition {
-                InspectionDisposition::PendingInquiry { topic } => eyre::ensure!(
-                    self.topics.contains_key(topic)
-                        || update.topics.iter().any(|item| &item.id == topic),
-                    "Inspection pending inquiry needs a known topic"
-                ),
-                InspectionDisposition::NoFurtherInquiry { reason } => eyre::ensure!(
-                    !reason.trim().is_empty(),
-                    "Inspection without a question needs a concrete reason"
-                ),
-                InspectionDisposition::Outstanding {
-                    concern,
-                    deferred_by,
-                } => {
-                    eyre::ensure!(
-                        !concern.trim().is_empty(),
-                        "Outstanding inspection needs a concern"
-                    );
-                    if let Some(id) = deferred_by {
-                        let current = self
-                            .outstanding
-                            .as_ref()
-                            .and_then(|turn| turn.answer.as_ref());
-                        eyre::ensure!(
-                            self.answers
-                                .iter()
-                                .chain(current)
-                                .any(|answer| &answer.id == id && answer.deferred),
-                            "Inspection deferral must name an exact deferred human Answer ID"
-                        );
-                    }
-                }
-            }
+        if update.reviewed.is_empty() && update.reopened.is_empty() {
+            return Ok(());
         }
+        eyre::ensure!(
+            self.outstanding
+                .as_ref()
+                .is_some_and(|turn| turn.answer.is_some()),
+            "reviewed and reopened follow a human answer; this turn has none to mark lines from"
+        );
+        eyre::ensure!(
+            update
+                .reviewed
+                .iter()
+                .chain(&update.reopened)
+                .all(|location| comparison.validate_mark(location)),
+            "reviewed and reopened need changed paths, on the side that has them, with valid lines"
+        );
         Ok(())
     }
 
@@ -142,13 +111,12 @@ impl Exploration {
             (None, None) => Ok(()),
             (Some(answer), None) => {
                 eyre::ensure!(
-                    !answer.deferred
-                        && (answer
-                            .option
-                            .as_ref()
-                            .is_none_or(|option| option.outcome == TopicStatus::Open)
-                            || !answer.text.is_empty()),
-                    "An explicit decision or deferral needs an interpretation"
+                    answer
+                        .option
+                        .as_ref()
+                        .is_none_or(|option| option.outcome == TopicStatus::Open)
+                        || !answer.text.is_empty(),
+                    "An explicit decision needs an interpretation"
                 );
                 Ok(())
             }
@@ -161,12 +129,6 @@ impl Exploration {
                     interpretation.answer == answer.id && !interpretation.recap.trim().is_empty(),
                     "Interpretation must reference the exact submitted answer"
                 );
-                if answer.deferred {
-                    eyre::ensure!(
-                        interpretation.status == TopicStatus::Deferred,
-                        "A deferred answer must remain deferred"
-                    );
-                }
                 if answer.text.is_empty()
                     && let Some(option) = &answer.option
                 {
@@ -215,12 +177,8 @@ impl Exploration {
                     .evidence
                     .iter()
                     .all(|evidence| comparison.validate_evidence(evidence)
-                        && !evidence.notes.trim().is_empty())
-                && question
-                    .supporting
-                    .iter()
-                    .all(|evidence| comparison.validate_evidence(evidence)),
-            "Question evidence and supporting references need valid sources/ranges and nonempty notes"
+                        && !evidence.notes.trim().is_empty()),
+            "Question evidence needs valid sources/ranges and nonempty notes"
         );
         let mut locations = HashSet::new();
         eyre::ensure!(
@@ -274,12 +232,12 @@ impl Exploration {
                             .question
                             .as_ref()
                             .is_some_and(|answered| answered.topic == question.topic))),
-            "Do not ask again on a topic just decided or deferred"
+            "Do not ask again on a topic just decided"
         );
         eyre::ensure!(
-            matches!(status, Some(TopicStatus::Open | TopicStatus::Deferred))
+            status == Some(TopicStatus::Open)
                 || agenda.is_some_and(|change| change.action == AgendaAction::Reconsider),
-            "Agent cannot reopen a settled topic without a human correction"
+            "Agent cannot reopen a settled topic without reconsidering it"
         );
         Ok(())
     }

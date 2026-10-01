@@ -7,10 +7,10 @@ mod table;
 pub use commands::{
     ApplicationCommand, ApplicationShortcut, CommentShortcut, ConversationCommand,
     ConversationShortcut, DiffGlobalShortcut, DiffPaneCommand, DiffShortcut, ExploreCommand,
-    ExploreCoverageShortcut, ExploreEvidenceShortcut, ExploreGlobalShortcut, ExploreShortcut,
-    ExploreTurnShortcut, FilesShortcut, HunkShortcut, LocationShortcut, LspShortcut,
-    MovementShortcut, OverlayShortcut, RevisionShortcut, SearchMatchShortcut, SearchShortcut,
-    ShortcutCommand, ShortcutSubscription, SourceShortcut, ThreadsCommand, ThreadsShortcut,
+    ExploreEvidenceShortcut, ExploreGlobalShortcut, ExploreShortcut, ExploreTurnShortcut,
+    FilesShortcut, HunkShortcut, LocationShortcut, LspShortcut, MovementShortcut, OverlayShortcut,
+    RevisionShortcut, SearchMatchShortcut, SearchShortcut, ShortcutCommand, ShortcutSubscription,
+    SourceShortcut, ThreadsCommand, ThreadsShortcut,
 };
 pub use matcher::ShortcutMatcher;
 use table::{SHORTCUTS, ShortcutDefinition, ShortcutSequence, bindings};

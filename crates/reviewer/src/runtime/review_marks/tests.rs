@@ -1,8 +1,10 @@
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 
-use review_explore::{Comparison, ExclusionPolicy, SignificanceClassifier, SignificancePlan};
+use review_explore::Comparison;
+
 use review_repository::repository::RepoType;
+use review_significance::{JevClassifier, SignificanceClassifier, SignificancePlan};
 use review_state::ReviewStatus;
 use review_store::LoadResult;
 use review_test_support::repository_fixture;
@@ -49,7 +51,7 @@ fn bulk_reset_rejects_stale_confirmation_cancels_jev_and_refreshes_diff_marks(ki
     files.write("two.rs", b"initial two\n");
     let (classifier, release) = GatedClassifier::new();
     let mut fixture = EffectsFixture::start(files, |setup| {
-        setup.exclusion = ExclusionPolicy::enabled(Arc::new(classifier));
+        setup.jev = JevClassifier::enabled(Arc::new(classifier));
     });
     let checkpoint = fixture.refreshed_checkpoint();
     for path in ["one.rs", "two.rs"] {

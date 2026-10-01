@@ -160,7 +160,7 @@ impl Runtime {
                 agents: self.client.clone(),
                 endpoint: review_mcp::Endpoint::from_env(self.repository.root()),
                 theme: self.theme,
-                exclusion: jev::exclusion_policy_from_env(),
+                jev: jev::classifier_from_env(),
                 source_watches: Some(watcher.source_requests()),
             },
             &Outputs {
@@ -352,7 +352,6 @@ where
             };
         }
         if redraw {
-            self.dispatch_event(&EventEnvelope::new(ui_events::ExploreCoverageRefresh))?;
             self.redraw()?;
         }
         Ok(false)

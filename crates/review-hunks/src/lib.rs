@@ -19,6 +19,6 @@ mod text;
 
 pub use attribution::{Attribution, AuthoredLines, Reviewed};
 pub use hunks::{FileHunks, HunkMark, HunkSpan, LineCount, OpenHunk, ReviewedHunk};
-pub use lines::LineSelection;
+pub use lines::{LineSelection, ReviewedLines};
 pub use patch::{reverse_apply, unified_diff};
 pub use review::{ChangedLines, HunkReview, ReviewedVersion, replay};

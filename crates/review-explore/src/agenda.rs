@@ -31,9 +31,10 @@ impl Exploration {
         {
             Some(AgendaAction::Retire | AgendaAction::Supersede) => false,
             Some(AgendaAction::Reconsider) => true,
-            None => self.topics.get(&question.topic).is_some_and(|topic| {
-                matches!(topic.status, TopicStatus::Open | TopicStatus::Deferred)
-            }),
+            None => self
+                .topics
+                .get(&question.topic)
+                .is_some_and(|topic| topic.status == TopicStatus::Open),
         };
         active
             && !self
@@ -92,7 +93,6 @@ impl Exploration {
                 TopicStatus::Open => "Outstanding",
                 TopicStatus::Accepted => "Accepted",
                 TopicStatus::NeedsFollowUp => "Follow-up required",
-                TopicStatus::Deferred => "Deferred · outstanding",
             },
         }
     }

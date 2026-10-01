@@ -7,8 +7,8 @@ use component_core::{ApplicationEvent, EventEnvelope};
 use crossbeam_channel::{Sender as EventSender, unbounded};
 use herdr_client::client::HerdrClient;
 use herdr_client::protocol::{AgentTarget, WorkspaceId};
-use review_explore::ExclusionPolicy;
 use review_repository::repository::{RepoType, Repository};
+use review_significance::JevClassifier;
 use review_source::ReviewCheckpoint;
 use review_store::ReviewStore;
 use review_test_support::{ReviewRepositoryFixture, repository_fixture};
@@ -59,7 +59,7 @@ impl EffectsFixture {
             ),
             endpoint: Err("No MCP listener in this unit test".into()),
             theme: Theme::default(),
-            exclusion: ExclusionPolicy::disabled(),
+            jev: JevClassifier::disabled(),
             source_watches: None,
         };
         configure(&mut setup);

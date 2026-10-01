@@ -62,4 +62,9 @@ pub enum MarkAuthor {
     Reviewer,
     /// Jev, marking lines too insignificant to need the reviewer's attention.
     Jev,
+    /// An Explore agent, marking the lines one answer settled.
+    Explore {
+        /// The answer the marks follow.
+        answer: String,
+    },
 }

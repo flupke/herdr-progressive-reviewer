@@ -94,157 +94,15 @@ fn explore_tabs_share_the_pane_border_and_controls_keep_distinct_styles() {
     assert!(text.contains("╭ Files   Threads   Explore ─"));
 
     let (button_column, button_row) = fixture.point(" Send ");
-    let (defer_column, defer_row) = fixture.point(" Defer ");
-    let (link_column, link_row) = fixture.point("[Answered-evidence coverage");
-    assert_eq!(button_row, defer_row);
-    assert!(defer_column < button_column);
+    assert!(!text.contains(" Defer "));
     assert_eq!(button_column + 6, fixture.app.viewport.width - 2);
     let buffer = fixture.buffer();
     assert_eq!(
         buffer.cell((button_column, button_row)).unwrap().bg,
         fixture.app.palette.insertion
     );
-    let link = buffer.cell((link_column, link_row)).unwrap();
-    assert_eq!(link.fg, fixture.app.palette.focus);
-    assert!(!link.modifier.contains(ratatui::style::Modifier::UNDERLINED));
 }
 
-#[test]
-fn coverage_overview_opens_a_gap_without_losing_the_question_draft() {
-    let (mut fixture, request) = ExploreUi::new();
-    fixture.respond(&request, 1);
-    assert!(
-        fixture
-            .text()
-            .contains("Answered-evidence coverage 0% of required lines")
-    );
-    fixture.app.update(UserInput::Key(Key::Char('1')));
-    fixture
-        .app
-        .update(UserInput::Paste("Keep this draft".into()));
-    fixture.click("Answered-evidence coverage 0% of required lines");
-    assert!(fixture.text().contains("Needs answers"));
-    fixture.click("Next unexplored region");
-    assert_eq!(fixture.app.navigation.mode(), ReviewNavigation::Explore);
-    let coverage = fixture
-        .app
-        .event_bus
-        .get::<DiffComponent>(fixture.app.diff_component)
-        .unwrap();
-    assert_eq!(
-        coverage
-            .evidence_view(EvidenceView::Coverage)
-            .and_then(SourceViewer::evidence_path),
-        Some("policy.rs")
-    );
-    assert!(fixture.text().contains("File diff · policy.rs"));
-    assert!(
-        fixture
-            .text()
-            .contains("Answered-evidence coverage 0% of required lines")
-    );
-    fixture.click("Close diff");
-    fixture.click("Answered-evidence coverage 0% of required lines");
-    assert!(fixture.text().contains("Keep this draft"));
-}
-
-#[test]
-fn coverage_keyboard_opens_the_pass_diff_without_editing_the_answer() {
-    let (mut fixture, request) = ExploreUi::new();
-    fixture.respond(&request, 1);
-    fixture.app.update(UserInput::Key(Key::Char('g')));
-    fixture.app.update(UserInput::Key(Key::Alt('n')));
-    assert!(fixture.text().contains("File diff · policy.rs"));
-    assert_eq!(fixture.app.navigation.mode(), ReviewNavigation::Explore);
-}
-
-#[test]
-fn coverage_control_reveals_overview_from_a_scrolled_question_and_restores_scroll() {
-    let (mut fixture, request) = ExploreUi::new();
-    fixture.respond(&request, 1);
-    fixture.app.update(UserInput::Resize {
-        width: 140,
-        height: 18,
-    });
-    for _ in 0..8 {
-        fixture.app.update(UserInput::Key(Key::PageDown));
-    }
-    let before = fixture.text();
-    assert!(!before.contains("of required changed lines answered"));
-    fixture.click("Answered-evidence coverage 0% of required lines");
-    let overview = fixture.text();
-    assert!(
-        overview.contains("0% of required changed lines answered"),
-        "{overview}"
-    );
-    assert!(overview.contains("Needs answers"), "{overview}");
-    assert!(!overview.contains("Question 1 ·"));
-    assert!(
-        fixture
-            .buffer()
-            .content
-            .chunks(usize::from(fixture.app.viewport.width))
-            .any(|row| row
-                .iter()
-                .map(ratatui::buffer::Cell::symbol)
-                .collect::<String>()
-                .contains("╭ Coverage "))
-    );
-    fixture.click("Answered-evidence coverage 0% of required lines");
-    assert_eq!(fixture.text(), before);
-}
-
-#[test]
-fn show_file_diff_reveals_the_selected_diff_inside_coverage() {
-    let (mut fixture, request) = ExploreUi::new();
-    fixture.respond(&request, 1);
-    fixture.click("Answered-evidence coverage 0% of required lines");
-    fixture.click("[Show file diff]");
-    let visible = fixture.text();
-    assert!(visible.contains("File diff ·"), "{visible}");
-    assert!(visible.contains("[Close diff]"), "{visible}");
-}
-
-#[test]
-fn coverage_header_reports_credited_units_even_below_one_percent() {
-    let mut policy = b"pub fn policy() -> bool { true }\n".to_vec();
-    for _ in 0..400 {
-        policy.extend_from_slice(b"// changed line\n");
-    }
-    let (mut fixture, kickoff) = ExploreUi::with_policy(&policy);
-    let mut exploration = review_explore::Exploration::new(fixture.comparison.clone());
-    exploration.instance.clone_from(&kickoff.instance);
-    let mut pass = review_explore::ExplorePass::new(exploration);
-    pass.post(&kickoff).unwrap();
-    pass.submit(&fixture.response(&kickoff, 1), false).unwrap();
-    let question = pass.exploration.questions[0].clone();
-    let answer = pass
-        .exploration
-        .clone()
-        .request(
-            Some(review_explore::AnswerInput {
-                option: Some("inspect".into()),
-                ..Default::default()
-            }),
-            Some(&question),
-        )
-        .unwrap();
-    pass.post(&answer).unwrap();
-    fixture.app.publish(ui_events::ExploreRestored {
-        result: Ok(Some(Arc::new(pass))),
-        view: None,
-        historical: false,
-        storage_error: None,
-        // The answer was posted, but the agent never replied.
-        progress: ui_events::ExploreProgress::Interrupted,
-    });
-    fixture.app.publish(ui_events::ExploreCoverageRefresh);
-    let coverage = fixture.text();
-    assert!(
-        coverage.contains("Answered-evidence coverage 0.4% of required lines"),
-        "{coverage}"
-    );
-}
 use std::fmt::Write as _;
 use ui_events::EvidenceView;
 
@@ -371,7 +229,7 @@ impl ExploreUi {
     fn inline_height(&self, turn: usize) -> u16 {
         self.inline_sizes()
             .iter()
-            .find(|(id, _)| matches!(id, EvidenceView::Question { turn: index, .. } if *index == turn))
+            .find(|(id, _)| matches!(id, EvidenceView { turn: index, .. } if *index == turn))
             .unwrap()
             .1
             .height
@@ -410,7 +268,7 @@ impl ExploreUi {
             .event_bus
             .get::<DiffComponent>(self.app.diff_component)
             .unwrap()
-            .evidence_view(EvidenceView::Question { turn, reference })
+            .evidence_view(EvidenceView { turn, reference })
             .unwrap()
             .evidence_path()
             .unwrap()
@@ -1003,10 +861,8 @@ fn delayed_search_results_stay_with_their_evidence_window() {
         app.publish(ui_events::ExploreEvidence {
             comparison: fixture.comparison.clone(),
             evidence: evidence.clone(),
-            primary: evidence.len(),
-            view: EvidenceView::Question { turn: 0, reference },
+            view: EvidenceView { turn: 0, reference },
             reveal: false,
-            required_only: false,
         })
     };
     open(&mut fixture.app, 1);
@@ -1101,7 +957,7 @@ fn cancelling_a_new_capture_keeps_the_previous_evidence_viewer() {
 }
 
 #[test]
-fn editing_and_correcting_always_reveal_the_composer_turn() {
+fn editing_always_reveals_the_composer_turn() {
     let (mut fixture, request) = ExploreUi::new();
     fixture.respond(&request, 1);
     fixture.app.update(UserInput::Key(Key::Tab));
@@ -1109,14 +965,6 @@ fn editing_and_correcting_always_reveal_the_composer_turn() {
     fixture.app.update(UserInput::Paste("First context".into()));
     assert!(fixture.text().contains("Your answer"));
     assert!(fixture.text().contains("First context"));
-    let request = ExploreUi::request(fixture.app.update(UserInput::Key(Key::ControlEnter)));
-    fixture.respond(&request, 2);
-    fixture.app.update(UserInput::Key(Key::Char('[')));
-    fixture.app.update(UserInput::Key(Key::Char('x')));
-    assert!(fixture.text().contains("Your answer"));
-    assert!(fixture.text().contains("You: Keep resolved"));
-    assert!(fixture.text().contains("First context"));
-    assert!(fixture.text().contains("Correction appends"));
 }
 
 #[test]

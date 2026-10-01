@@ -6,7 +6,7 @@ use std::{
 };
 
 use eyre::{Context, Result, ensure};
-use review_explore::{Significance, SignificanceResult};
+use review_significance::{Significance, SignificanceResult};
 use serde::Serialize;
 use serde_json::{Value, json};
 

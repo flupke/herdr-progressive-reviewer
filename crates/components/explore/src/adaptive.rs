@@ -115,7 +115,7 @@ impl ExploreComponent {
         let mut topics: Vec<_> = exploration.topics.values().collect();
         topics.sort_by_key(|topic| (topic.rank, &topic.id));
         layout.text(
-            "Agenda · associations are navigation; Files still requires human inspection.",
+            "Agenda · associations are navigation; they do not mark lines reviewed.",
             palette.dim,
             None,
         );

@@ -43,10 +43,6 @@ pub struct ExploreCommitted {
     pub response: std::sync::mpsc::Sender<Result<bool, String>>,
 }
 
-/// Refresh Explore's derived display data after queued UI events have been applied.
-#[derive(Clone, Debug)]
-pub struct ExploreCoverageRefresh;
-
 #[derive(Clone, Debug)]
 pub struct ExploreStorageFailed(pub String);
 
@@ -84,27 +80,15 @@ pub struct ExploreImplementationFinished {
 pub struct ExploreEvidence {
     pub comparison: Arc<Comparison>,
     pub evidence: Vec<EvidenceRef>,
-    pub primary: usize,
     pub view: EvidenceView,
     pub reveal: bool,
-    /// Only render changed rows cited as required in the conclusion preview.
-    pub required_only: bool,
 }
 
 /// One evidence reference in an immutable displayed question version.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub enum EvidenceView {
-    Coverage,
-    Question { turn: usize, reference: usize },
-}
-
-impl Default for EvidenceView {
-    fn default() -> Self {
-        Self::Question {
-            turn: 0,
-            reference: 0,
-        }
-    }
+#[derive(Clone, Copy, Debug, Default, Eq, Ord, PartialEq, PartialOrd)]
+pub struct EvidenceView {
+    pub turn: usize,
+    pub reference: usize,
 }
 
 #[derive(Clone, Debug)]

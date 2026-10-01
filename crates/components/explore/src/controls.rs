@@ -127,8 +127,6 @@ impl Control {
             Self::Start
                 | Self::NewImplementation
                 | Self::Send
-                | Self::Defer
-                | Self::RequireReview(_)
                 | Self::Cancel
                 | Self::Retry
                 | Self::Implement

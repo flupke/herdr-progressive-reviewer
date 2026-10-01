@@ -4,4 +4,7 @@ mod progress;
 mod review;
 
 pub use progress::ReviewProgress;
-pub use review::{MarkResult, ReviewDiff, ReviewState, ReviewStatus, ReviewTracker, ReviewWarning};
+pub use review::{
+    FileLines, MarkResult, OpenLines, ReviewDiff, ReviewState, ReviewStatus, ReviewTracker,
+    ReviewWarning,
+};

@@ -6,11 +6,7 @@ use std::time::{Duration, Instant};
 use component_core::EventEnvelope;
 use herdr_client::memory::InMemoryAgents;
 use herdr_client::protocol::{Agent, AgentSession, AgentStatus, PaneId, TabId, WorkspaceId};
-use review_explore::{
-    AnswerInput, ClassificationState, CoverageLedger, CoverageUnit, Exploration, GapQuery,
-    InterviewUpdate, JevMode, Significance, SignificanceClassifier, SignificancePlan,
-    SignificanceResult, TurnRequest,
-};
+use review_explore::{AnswerInput, Exploration, InterviewUpdate, TurnRequest};
 use review_mcp::{Operation, Request, Response};
 use review_repository::repository::RepoType;
 use review_test_support::{
@@ -21,7 +17,6 @@ use tempfile::TempDir;
 use super::*;
 
 const PANE: &str = "agent-pane";
-const RUBRIC: &str = "test-rubric";
 const CONCLUSION: &str = "Keep the policy.";
 
 #[path = "recovery.tests.rs"]
@@ -37,7 +32,6 @@ struct Harness {
     agents: InMemoryAgents,
     store: ReviewStore,
     repository: Repository,
-    exclusion: ExclusionPolicy,
     unit: ReviewUnit,
     exploration: Option<Exploration>,
     delivered: usize,
@@ -47,7 +41,7 @@ struct Harness {
 }
 
 impl Harness {
-    fn start(exclusion: ExclusionPolicy) -> Self {
+    fn start() -> Self {
         let files = repository_fixture(RepoType::Git);
         files.write("reviewed.rs", b"pub fn reviewed() {}\n");
         let state = tempfile::tempdir().unwrap();
@@ -76,10 +70,13 @@ impl Harness {
             session: ExploreSession::new(Collaborators {
                 repository: repository.clone(),
                 store: store.clone(),
+                tracker: Arc::new(review_state::ReviewTracker::new(
+                    repository.clone(),
+                    store.clone(),
+                )),
                 agents: Arc::new(agents.clone()),
                 target: target(),
                 prompts: threads.prompt_sender(),
-                exclusion: exclusion.clone(),
                 events: ApplicationEventSender::new(event_sender.clone()),
                 inbox: Inbox::new(|_| {}),
             }),
@@ -90,7 +87,6 @@ impl Harness {
             agents,
             store,
             repository,
-            exclusion,
             unit,
             exploration: None,
             delivered: 0,
@@ -111,10 +107,13 @@ impl Harness {
         self.session = ExploreSession::new(Collaborators {
             repository: self.repository.clone(),
             store: self.store.clone(),
+            tracker: Arc::new(review_state::ReviewTracker::new(
+                self.repository.clone(),
+                self.store.clone(),
+            )),
             agents: Arc::new(self.agents.clone()),
             target: target(),
             prompts: self.threads.prompt_sender(),
-            exclusion: self.exclusion.clone(),
             events: ApplicationEventSender::new(self.event_sender.clone()),
             inbox: Inbox::new(move |input| {
                 let _ = inbox.send(input);
@@ -361,7 +360,7 @@ fn applied(result: Result<Response, String>) -> bool {
 
 #[test]
 fn a_question_and_its_answer_reach_the_agent_and_are_saved() {
-    let mut harness = Harness::start(ExclusionPolicy::disabled());
+    let mut harness = Harness::start();
     harness.capture();
 
     let first = harness.request(None);
@@ -387,80 +386,65 @@ fn a_question_and_its_answer_reach_the_agent_and_are_saved() {
     assert_eq!(harness.agents.prompts().len(), 2);
 }
 
-/// Excludes every changed line of the comparison as insignificant.
-struct EverythingInsignificant;
-
-impl SignificanceClassifier for EverythingInsignificant {
-    fn rubric(&self) -> &str {
-        RUBRIC
-    }
-
-    fn plan(&self, comparison: &Comparison, classified: &dyn Fn(&str) -> bool) -> SignificancePlan {
-        let units: Vec<_> = CoverageLedger::new(comparison)
-            .inventory()
-            .units
-            .iter()
-            .filter(|unit| matches!(unit, CoverageUnit::Lines { .. }))
-            .cloned()
-            .collect();
-        let pending = !classified("everything");
-        SignificancePlan::new(1, move |record| {
-            !pending
-                || record(SignificanceResult {
-                    id: "everything".into(),
-                    units,
-                    outcome: Significance::Insignificant,
-                    model: None,
-                    rubric: RUBRIC.into(),
-                    criterion: String::new(),
-                    input_references: Vec::new(),
-                    omissions: Vec::new(),
-                    probabilities: std::collections::BTreeMap::new(),
-                    confidence: None,
-                    error: None,
-                })
-        })
-    }
+/// A conclusion that marks the only changed line reviewed after `request`'s answer.
+fn marking_conclusion(request: &TurnRequest) -> Operation {
+    let Operation::SubmitConclusion(mut submission) = conclusion(request, CONCLUSION) else {
+        unreachable!("a conclusion");
+    };
+    submission.reviewed = vec![
+        serde_json::from_value(serde_json::json!({
+            "path": "reviewed.rs", "side": "new", "lines": {"first_line": 1, "last_line": 1}
+        }))
+        .unwrap(),
+    ];
+    Operation::SubmitConclusion(submission)
 }
 
 #[test]
-fn an_enabled_exclusion_policy_classifies_the_pass_and_answers_gaps_in_enabled_mode() {
-    let mut harness = Harness::start(ExclusionPolicy::enabled(Arc::new(EverythingInsignificant)));
+fn the_lines_an_answer_settled_are_marked_reviewed_by_explore() {
+    let mut harness = Harness::start();
     harness.capture();
     let first = harness.request(None);
     let access = harness.turn(&first);
+    assert!(applied(harness.submit(&access, question(&first, 1))));
+    let (request, access) = harness.answer("Keep it.");
 
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while !harness
-        .saved()
-        .coverage
-        .classification_progress()
-        .is_some_and(|progress| matches!(progress.state, ClassificationState::Finished { .. }))
-    {
-        assert!(Instant::now() < deadline, "classification did not finish");
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    let pass = harness.saved();
-    assert!(!pass.coverage.unexplored_exclusions().is_empty());
-    assert!(!pass.coverage.needs_classification(RUBRIC, pass.revision));
-
-    let gaps = |mode| {
-        Operation::GetCoverageGaps(Box::new(GapQuery {
-            instance: pass.exploration.instance.clone(),
-            checkpoint: pass.exploration.comparison.checkpoint.clone(),
-            revision: pass.coverage.revision(),
-            mode,
-            path_prefix: None,
-            cursor: None,
-            limit: None,
-        }))
-    };
-    let stale = harness
-        .submit(&access, gaps(JevMode::Disabled))
-        .unwrap_err();
-    assert!(stale.contains("Jev policy changed"), "{stale}");
-    assert!(matches!(
-        harness.submit(&access, gaps(JevMode::Enabled)),
-        Ok(Response::CoverageGaps(_))
+    assert!(applied(
+        harness.submit(&access, marking_conclusion(&request))
     ));
+
+    let answer = request.answer.unwrap().id;
+    let saved = harness.saved();
+    let marks = &saved.marks[&request.request];
+    assert_eq!(marks.answer, answer);
+    assert_eq!(marks.counts().reviewed_lines, 1);
+    assert_eq!(marks.problem, None);
+    let record = harness.store.load(&harness.unit, b"reviewed.rs").unwrap();
+    let review_store::LoadResult::Reviewed(record) = record else {
+        panic!("the line was marked");
+    };
+    assert_eq!(record.author, review_types::MarkAuthor::Explore { answer });
+}
+
+#[test]
+fn the_kickoff_turn_cannot_mark_lines() {
+    let mut harness = Harness::start();
+    harness.capture();
+    let first = harness.request(None);
+    let access = harness.turn(&first);
+    let Operation::SubmitQuestion(mut update) = question(&first, 1) else {
+        unreachable!("a question");
+    };
+    update.reviewed = vec![
+        serde_json::from_value(serde_json::json!({
+            "path": "reviewed.rs", "side": "new", "lines": null
+        }))
+        .unwrap(),
+    ];
+
+    let error = harness
+        .submit(&access, Operation::SubmitQuestion(update))
+        .unwrap_err();
+
+    assert!(error.contains("follow a human answer"), "{error}");
 }

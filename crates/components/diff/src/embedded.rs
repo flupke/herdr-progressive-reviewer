@@ -183,9 +183,7 @@ impl ExploreViewers {
     }
 
     fn take_restored(&mut self, id: EvidenceView) -> Option<EvidencePosition> {
-        let EvidenceView::Question { turn, reference } = id else {
-            return None;
-        };
+        let EvidenceView { turn, reference } = id;
         let index = self
             .restored
             .iter()
@@ -204,9 +202,7 @@ impl ExploreViewers {
         }
         let mut result = self.restored.clone();
         for (id, viewer) in &self.evidence {
-            let EvidenceView::Question { turn, reference } = *id else {
-                continue;
-            };
+            let EvidenceView { turn, reference } = *id;
             if result
                 .iter()
                 .any(|saved| saved.turn == turn && saved.reference == reference)

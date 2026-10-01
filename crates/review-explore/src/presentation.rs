@@ -19,22 +19,11 @@ impl Default for ExplorePage {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
-pub struct ExploreDraft {
-    pub editor: TextEditorState,
-    pub correction: Option<String>,
-}
-
-#[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
-#[allow(
-    clippy::struct_excessive_bools,
-    reason = "Independently expanded sections"
-)]
 pub struct QuestionReading {
     pub reference: usize,
     pub choice: usize,
     pub more: bool,
     pub references: bool,
-    pub supporting: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
@@ -63,21 +52,13 @@ pub struct EvidencePosition {
 pub struct ExploreViewState {
     pub page: ExplorePage,
     pub turns: Vec<QuestionReading>,
-    pub drafts: Vec<(ExplorePage, ExploreDraft)>,
+    pub drafts: Vec<(ExplorePage, TextEditorState)>,
     pub tasks: BTreeMap<String, TextEditorState>,
     pub replies: BTreeMap<String, bool>,
     pub editing: bool,
     pub focus: EditorFocus,
     pub scroll: usize,
     pub map: bool,
-    #[serde(default)]
-    pub coverage_overview: bool,
-    #[serde(default)]
-    pub coverage_file: Option<usize>,
-    #[serde(default)]
-    pub coverage_next: BTreeMap<usize, usize>,
-    #[serde(default)]
-    pub jev_debug: bool,
     pub heights: Vec<((usize, usize), u16)>,
     pub code: Vec<EvidencePosition>,
 }
@@ -130,9 +111,7 @@ impl crate::ExplorePass {
             {
                 let target = self.exploration.answer_page(answer);
                 state.drafts.retain(|(page, draft)| {
-                    Some(page) != target.as_ref()
-                        || draft.editor.text != answer.text
-                        || draft.correction != answer.corrects
+                    Some(page) != target.as_ref() || draft.text != answer.text
                 });
             }
         }

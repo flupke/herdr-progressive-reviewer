@@ -21,7 +21,6 @@ pub enum Operation {
     Reply(Post),
     SubmitQuestion(Box<review_explore::InterviewUpdate>),
     SubmitConclusion(Box<review_explore::ConclusionSubmission>),
-    GetCoverageGaps(Box<review_explore::GapQuery>),
 }
 
 /// An in-process request from an MCP handler to the reviewer-owned service.
@@ -36,10 +35,7 @@ pub struct Request {
 impl Operation {
     /// Explore operations belong to the Explore session, not to review threads.
     pub fn belongs_to_explore(&self) -> bool {
-        matches!(
-            self,
-            Self::SubmitQuestion(_) | Self::SubmitConclusion(_) | Self::GetCoverageGaps(_)
-        )
+        matches!(self, Self::SubmitQuestion(_) | Self::SubmitConclusion(_))
     }
 }
 
@@ -71,11 +67,10 @@ impl Request {
 pub enum Response {
     Threads(Vec<ReviewThread>),
     Posted(MessageId),
+    /// Whether an Explore submission was new rather than a retry.
     Explore {
         applied: bool,
-        coverage: Box<review_explore::CoverageReceipt>,
     },
-    CoverageGaps(Box<review_explore::GapPage>),
 }
 
 #[cfg(test)]

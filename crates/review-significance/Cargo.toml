@@ -1,0 +1,17 @@
+[package]
+name = "review-significance"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+review-explore = { path = "../review-explore" }
+review-repository = { path = "../review-repository" }
+serde.workspace = true
+
+[dev-dependencies]
+review-source = { path = "../review-source" }
+
+[lints]
+workspace = true
