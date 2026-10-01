@@ -16,6 +16,7 @@ fn main() -> Result<()> {
                 std::process::id()
             )),
         json: false,
+        commands: None,
     };
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -28,9 +29,15 @@ fn main() -> Result<()> {
                     .join(args.next().context("--output needs a new directory")?);
             }
             "--json" => options.json = true,
+            "--commands" => {
+                options.commands = Some(
+                    std::env::current_dir()?
+                        .join(args.next().context("--commands needs a named pipe path")?),
+                );
+            }
             "--help" | "-h" => {
                 println!(
-                    "reviewer-vision [--repo git|jj] [--output NEW_DIRECTORY] [--json]\n\nSend one JSON command per line:\n  {{\"action\":\"observe\"}}\n  {{\"action\":\"press\",\"key\":\"?\"}}\n  {{\"action\":\"type\",\"text\":\"hello\"}}\n  {{\"action\":\"click\",\"x\":5,\"y\":2}}\n  {{\"action\":\"resize\",\"cols\":70,\"rows\":20}}\n  {{\"action\":\"cells\",\"x\":0,\"y\":0,\"width\":10,\"height\":1}}\n  {{\"action\":\"note\",\"kind\":\"checked\",\"text\":\"Help closes with Escape\"}}\n  {{\"action\":\"reopen\"}}\n  {{\"action\":\"stop\"}}\n\nObserve accepts after (frame number) and timeout_ms (up to 30000).\nNote kinds: checked, finding, untested. EOF or SIGINT also stops the session."
+                    "reviewer-vision [--repo git|jj] [--output NEW_DIRECTORY] [--json] [--commands PIPE]\n\nSend one JSON command per line:\n  {{\"action\":\"observe\"}}\n  {{\"action\":\"press\",\"key\":\"?\"}}\n  {{\"action\":\"type\",\"text\":\"hello\"}}\n  {{\"action\":\"click\",\"x\":5,\"y\":2}}  or  {{\"action\":\"click\",\"text\":\"☐\"}}\n  {{\"action\":\"resize\",\"cols\":70,\"rows\":20}}\n  {{\"action\":\"cells\",\"x\":0,\"y\":0,\"width\":10,\"height\":1}}\n  {{\"action\":\"screenshot\"}}\n  {{\"action\":\"jev\",\"path\":\"src/math.rs\",\"lines\":[2]}}\n  {{\"action\":\"note\",\"kind\":\"checked\",\"text\":\"Help closes with Escape\"}}\n  {{\"action\":\"reopen\"}}\n  {{\"action\":\"stop\"}}\n\nObserve accepts after (frame number) and timeout_ms (up to 30000).\nNote kinds: checked, finding, untested. EOF or SIGINT also stops the session; with --commands, only stop or a signal does."
                 );
                 return Ok(());
             }

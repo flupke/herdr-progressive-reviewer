@@ -63,9 +63,19 @@ nix develop --command make vision VISION_ARGS='--repo git'
 The Rust `reviewer-vision` driver starts a private Herdr server and a temporary
 repository containing several changes, including Unicode and a long line. It
 prints the actual terminal text and stays alive, accepting one JSON command per
-stdin line. Agents using an execution tool should keep stdin open (for example,
-with a PTY), retain its process/session handle, and send further commands through
-that handle. Each interaction returns the latest completed screen and frame ID.
+stdin line. Each interaction returns the latest completed screen and frame ID.
+
+An agent whose shell has no persistent stdin runs the driver in the background
+with `--commands PIPE`: the driver creates that named pipe, reads commands from
+it, and reopens it after each writer, so every command is one `echo`. Responses
+go to stdout, so redirect it to a file and read its last line:
+
+```sh
+nix develop --command make vision \
+  VISION_ARGS="--json --output $DIR/session --commands $DIR/cmd" > $DIR/out.log &
+echo '{"action":"click","text":"notes.md"}' > $DIR/cmd
+tail -n 1 $DIR/out.log
+```
 
 ```json
 {"action":"observe"}
@@ -73,30 +83,37 @@ that handle. Each interaction returns the latest completed screen and frame ID.
 {"action":"press","key":"Escape"}
 {"action":"type","text":"A comment with café and 日本語"}
 {"action":"click","x":5,"y":3}
+{"action":"click","text":"notes.md"}
 {"action":"resize","cols":70,"rows":20}
 {"action":"observe","after":12,"timeout_ms":3000}
 {"action":"cells","x":0,"y":0,"width":10,"height":1}
+{"action":"screenshot"}
 {"action":"note","kind":"checked","text":"Help closes with Escape and restores the diff"}
 {"action":"jev","path":"src/math.rs","lines":[2]}
 {"action":"reopen"}
 {"action":"stop"}
 ```
 
-Coordinates are zero-based terminal cells. `type` sends bracketed paste, including
+Coordinates are zero-based terminal cells. `click` with `text` clicks the first
+place the screen shows it, so no column needs counting across wide characters. `type` sends bracketed paste, including
 newlines, through the application's editor. `observe` can wait up to 30 seconds
 for a frame newer than `after`; `unchanged` explicitly reports a wait without a
 new frame. An interaction waits up to one second and allows 100 ms for a changed
 screen to settle. A changed frame is evidence to inspect, not proof that the
 requested action has finished. Use another observation for asynchronous work.
 `cells` reports the captured cells' styles when focus or selection is conveyed by
-color. `jev` stands in for the paid Jev classifier, which vision sessions never
+color. `screenshot` saves a PNG of the screen, rendered with a bundled JetBrains
+Mono, as `screenshots/frame-N.png` and returns its path: use it to judge how the
+UI looks (spacing, alignment, theme), and the text frames for everything else. `jev` stands in for the paid Jev classifier, which vision sessions never
 reach: it classifies as insignificant every diff hunk of `path` that adds one of
 the one-based `lines` (current numbering) or removes one (base numbering), then
 presses `rf` and returns the screen with its "Jev: marked" result, or after ten
 seconds. Nearby edits share one diff hunk, as they do for Jev. The script it
-writes is kept as `jev-script.json` in the session directory. `reopen` starts the reviewer again in the same private workspace and state,
-at its initial 100×30 size. `stop`, EOF, SIGINT, SIGHUP, and SIGTERM clean up the
-reviewer, private server, and temporary repository.
+writes is kept as `jev-script.json` in the session directory. `reopen` starts
+the reviewer again in the same private workspace and state, at its initial
+100×30 size. `stop`, SIGINT, SIGHUP, and SIGTERM clean up the reviewer, private
+server, and temporary repository; so does EOF on stdin when the driver reads
+commands from it.
 
 Every session gets a new directory under `tests/tui/target/vision/`, printed with
 the observations. `--output NEW_DIRECTORY` selects another location and `--json`
@@ -110,6 +127,7 @@ returns JSON lines for automated clients. The directory retains:
   `checked`, `finding`, and `untested`; findings should include expected behavior,
   observed behavior, and reproduction steps.
 - `recording-*/`: `tui-test`'s textual asciinema recordings, retained across reopen.
+- `screenshots/`: the PNGs `screenshot` saved, named after their frame.
 - `session.json`: the private repository path and session details. An agent can
   edit files in that repository to exercise filesystem-driven updates.
 

@@ -12,7 +12,9 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail, ensure};
 use review_repository::repository::RepoType;
 use serde_json::{Value, json};
-use tui_test::{KeyAction, MouseAction, MouseOptions, Operation, OperationResult, Session};
+use tui_test::{
+    KeyAction, MouseAction, MouseOptions, Operation, OperationResult, ScreenshotResult, Session,
+};
 
 use crate::fixture::ReviewWorkspace;
 use capture::Capture;
@@ -25,6 +27,9 @@ pub struct Options {
     pub repository_type: RepoType,
     pub directory: PathBuf,
     pub json: bool,
+    /// A named pipe to read commands from instead of standard input. Each
+    /// writer may close it; the driver reopens it for the next one.
+    pub commands: Option<PathBuf>,
 }
 
 struct LiveReviewer {
@@ -193,6 +198,7 @@ impl VisionSession {
                 self.live.take();
                 return Ok(json!({"status": "stopped", "frame_number": before}));
             }
+            Command::Screenshot => return self.screenshot(),
             Command::Jev { path, lines } => {
                 fs::write(
                     jev_script(&self.frames),
@@ -211,6 +217,29 @@ impl VisionSession {
             _ => self.interact(command)?,
         }
         self.observe(Some(before), Duration::from_secs(1), true)
+    }
+
+    /// Save a PNG of the latest screen next to the text frames.
+    fn screenshot(&self) -> Result<Value> {
+        let frame = self.frames.latest()?.number;
+        let directory = self.frames.directory().join("screenshots");
+        fs::create_dir_all(&directory)?;
+        let path = directory.join(format!("frame-{frame}.png"));
+        let OperationResult::Screenshot(ScreenshotResult::Path(saved)) =
+            self.session()?.execute(Operation::Screenshot {
+                full: false,
+                path: Some(
+                    path.to_str()
+                        .context("screenshot path is not UTF-8")?
+                        .into(),
+                ),
+                zoom: None,
+                background: None,
+            })?
+        else {
+            bail!("expected a saved screenshot");
+        };
+        Ok(json!({"status": "screenshot", "frame_number": frame, "path": saved}))
     }
 
     /// Wait for `rf` to finish: it shows "Jev: classifying" first and marks
@@ -246,17 +275,23 @@ impl VisionSession {
                     data: format!("\x1b[200~{text}\x1b[201~"),
                 }
             }
-            Command::Click { x, y } => {
-                let size = self.frames.latest()?.size;
-                ensure!(
-                    *x < size.cols && *y < size.rows,
-                    "click is outside the terminal"
-                );
+            Command::Click { x, y, text } => {
+                match (x, y, text) {
+                    (Some(x), Some(y), None) => {
+                        let size = self.frames.latest()?.size;
+                        ensure!(
+                            *x < size.cols && *y < size.rows,
+                            "click is outside the terminal"
+                        );
+                    }
+                    (None, None, Some(text)) => ensure!(!text.is_empty(), "click text is empty"),
+                    _ => bail!("click needs either x and y or text"),
+                }
                 Operation::Mouse {
                     action: MouseAction::Click {
-                        x: Some(*x),
-                        y: Some(*y),
-                        on_text: None,
+                        x: *x,
+                        y: *y,
+                        on_text: text.clone(),
                         options: MouseOptions::default(),
                         clicks: 1,
                     },
@@ -317,7 +352,7 @@ impl Output {
 /// Drive an isolated reviewer with one JSON command per stdin line.
 /// Default output displays the actual terminal text; JSON output is optional.
 pub fn run(options: &Options) -> Result<()> {
-    let input = Input::start()?;
+    let input = Input::start(options.commands.clone())?;
     let mut session = VisionSession::start(options)?;
     let output = Output { json: options.json };
     let initial = session.observe(None, Duration::ZERO, false)?;

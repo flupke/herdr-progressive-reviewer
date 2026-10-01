@@ -13,10 +13,14 @@ pub(super) enum Command {
     Type {
         text: String,
     },
+    /// Click a cell, or the first place the screen shows `text`.
     Click {
-        x: u16,
-        y: u16,
+        x: Option<u16>,
+        y: Option<u16>,
+        text: Option<String>,
     },
+    /// Save a PNG of the screen for judging how it looks.
+    Screenshot,
     Resize {
         cols: u16,
         rows: u16,
