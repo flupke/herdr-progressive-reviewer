@@ -24,7 +24,7 @@ use review_lsp::{Operation, SourceLocation};
 use review_repository::diff::DiffRow;
 use review_repository::repository::ChangedFile;
 use review_source::{DiffTarget, ReviewCheckpoint};
-use review_state::{ReviewState, ReviewStatus};
+use review_state::{ReviewProgress, ReviewState, ReviewStatus};
 use review_types::ReviewUnit;
 use toasts::ToastKind;
 
@@ -40,8 +40,7 @@ pub struct RepositoryMetadataChanged {
 /// Aggregate values shown in the repository header.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct FilesOverviewChanged {
-    pub reviewed: usize,
-    pub total: usize,
+    pub progress: ReviewProgress,
     pub lines_added: u64,
     pub lines_removed: u64,
 }

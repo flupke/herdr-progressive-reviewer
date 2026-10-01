@@ -2,6 +2,8 @@ use component_core::ComponentEventBus;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Modifier;
+use review_repository::repository::DiffStatistics;
+use review_state::{ReviewProgress, ReviewState};
 use ui_actions::Action;
 use ui_events::{FilesOverviewChanged, RepositoryMetadataChanged, SearchStatusChanged};
 use ui_theme::Theme;
@@ -18,9 +20,18 @@ fn external_events_change_visible_header_output() {
         description: "Component migration\nbody".to_owned(),
     })
     .unwrap();
+    let lines = |lines_added| DiffStatistics {
+        lines_added,
+        lines_removed: 0,
+    };
+    let progress: ReviewProgress = [
+        (lines(2), &ReviewState::unreviewed(lines(2), None)),
+        (lines(1), &ReviewState::reviewed()),
+    ]
+    .into_iter()
+    .collect();
     bus.publish(FilesOverviewChanged {
-        reviewed: 2,
-        total: 5,
+        progress,
         lines_added: 12,
         lines_removed: 3,
     })
@@ -42,8 +53,8 @@ fn external_events_change_visible_header_output() {
     assert_eq!(buffer[(3, 0)].fg, ratatui::style::Color::DarkGray);
     assert_eq!(buffer[(11, 0)].fg, palette.text);
     assert!(buffer[(11, 0)].modifier.contains(Modifier::BOLD));
-    // Two of five files reviewed fill four of the bar's twelve cells.
-    assert!(rendered.ends_with("+12 -3  ━━━━━━━━━━━━ 2/5 reviewed "));
+    // One of three changed lines reviewed fills four of the bar's twelve cells.
+    assert!(rendered.ends_with("+12 -3  ━━━━━━━━━━━━ 33% reviewed "));
     let bar = u16::try_from(rendered.chars().count() - 26).unwrap();
     assert_eq!(buffer[(bar + 3, 0)].fg, palette.insertion);
     assert_eq!(buffer[(bar + 4, 0)].fg, palette.border);
@@ -101,7 +112,7 @@ fn long_subject_leaves_revision_id_and_statistics_visible() {
         .collect::<String>();
     assert!(rendered.starts_with(" abcd1234  A long"));
     // A narrow header keeps the title's room instead of drawing the bar.
-    assert!(rendered.ends_with("+0 -0  0/0 reviewed "));
+    assert!(rendered.ends_with("+0 -0  0% reviewed "));
 }
 
 fn footer(

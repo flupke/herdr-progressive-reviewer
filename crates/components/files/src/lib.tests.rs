@@ -286,7 +286,7 @@ fn repository_event_updates_the_header_overview() {
     assert_eq!(
         actions,
         [Action::Repository(RepositoryAction::EditRevision {
-            change_id: "overview:1/2:+8:-6".to_owned().into()
+            change_id: "overview:50%:+8:-6".to_owned().into()
         })]
     );
 }
@@ -446,8 +446,10 @@ impl OverviewOutput {
     fn changed(&mut self, event: &FilesOverviewChanged) -> Vec<Action> {
         vec![Action::Repository(RepositoryAction::EditRevision {
             change_id: format!(
-                "overview:{}/{}:+{}:-{}",
-                event.reviewed, event.total, event.lines_added, event.lines_removed
+                "overview:{}%:+{}:-{}",
+                event.progress.percent(),
+                event.lines_added,
+                event.lines_removed
             )
             .into(),
         })]

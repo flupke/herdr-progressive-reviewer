@@ -115,14 +115,12 @@ impl FilesComponent {
     /// Return aggregate values for the repository header.
     fn overview(&self) -> FilesOverviewChanged {
         FilesOverviewChanged {
-            reviewed: self
+            progress: self
                 .files
                 .iter()
-                .filter(|file| {
-                    !file.temporary && file.review_state.status == ReviewStatus::Reviewed
-                })
-                .count(),
-            total: self.files.iter().filter(|file| !file.temporary).count(),
+                .filter(|file| !file.temporary)
+                .map(|file| (file.file.statistics, &file.review_state))
+                .collect(),
             lines_added: self
                 .files
                 .iter()

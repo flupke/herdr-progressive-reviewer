@@ -234,7 +234,7 @@ fn threads_open_without_loading_reviewed_or_removed_files_in_wide_and_narrow_lay
         ui.key(Key::Char('F'));
         assert_eq!(ui.app.navigation.mode(), ReviewNavigation::Files);
         assert_eq!(ui.app.navigation.focus(), ReviewPane::Detail);
-        assert!(ui.text().contains("1/1 reviewed"));
+        assert!(ui.text().contains("100% reviewed"));
     }
 }
 
@@ -327,7 +327,7 @@ fn late_replies_on_resolved_threads_are_findable_without_moving_focus() {
     assert_eq!(ui.app.navigation.focus(), focus);
     assert_eq!(ui.app.navigation.mode(), ReviewNavigation::Files);
     assert!(!ui.text().contains("new replies"));
-    assert!(ui.text().contains("1/1 reviewed"));
+    assert!(ui.text().contains("100% reviewed"));
     assert!(
         ui.text()
             .lines()
@@ -370,7 +370,7 @@ fn source_peek_is_read_only_and_rejects_results_from_a_previous_thread() {
         mode: ui_events::SourceLoadMode::ThreadPeek,
     });
     assert!(ui.text().contains("current source"));
-    assert!(ui.text().contains("1/1 reviewed"));
+    assert!(ui.text().contains("100% reviewed"));
     ui.key(Key::Escape);
     assert!(ui.text().contains("first original line"));
     ui.key(Key::Tab);
@@ -715,7 +715,7 @@ fn collapsed_inline_threads_preserve_drafts_and_unread_answers_until_reopened() 
     assert!(ui.text().contains("An earlier answer"));
     assert!(ui.text().contains("A late answer in a collapsed thread"));
     assert!(ui.text().contains("Keep my draft"));
-    assert!(ui.text().contains("1/1 reviewed"));
+    assert!(ui.text().contains("100% reviewed"));
     assert_eq!(ui.app.navigation.mode(), ReviewNavigation::Files);
     ui.present();
     assert_eq!(ui.book.counts().unread, 0);

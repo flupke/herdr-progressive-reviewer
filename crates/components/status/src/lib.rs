@@ -81,12 +81,12 @@ impl StatusComponent {
             );
     }
 
-    /// The changed line counts and review progress, with a progress bar
-    /// when the header is wide enough to keep room for the title.
+    /// The changed line counts and the reviewed share of changed lines,
+    /// with a progress bar when the header is wide enough to keep room for
+    /// the title.
     fn summary(&self, width: u16, palette: Palette) -> Line<'static> {
         let FilesOverviewChanged {
-            reviewed,
-            total,
+            progress,
             lines_added,
             lines_removed,
         } = self.overview;
@@ -103,10 +103,7 @@ impl StatusComponent {
             Span::raw("  "),
         ];
         if width >= PROGRESS_BAR_MIN_WIDTH {
-            let done = (reviewed * PROGRESS_BAR_CELLS)
-                .checked_div(total)
-                .unwrap_or_default()
-                .min(PROGRESS_BAR_CELLS);
+            let done = progress.filled(PROGRESS_BAR_CELLS);
             spans.extend([
                 Span::styled("━".repeat(done), Style::default().fg(palette.insertion)),
                 Span::styled(
@@ -116,7 +113,7 @@ impl StatusComponent {
                 Span::raw(" "),
             ]);
         }
-        spans.push(Span::raw(format!("{reviewed}/{total} reviewed ")));
+        spans.push(Span::raw(format!("{}% reviewed ", progress.percent())));
         Line::from(spans)
     }
 

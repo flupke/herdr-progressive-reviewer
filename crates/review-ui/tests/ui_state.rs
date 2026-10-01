@@ -576,7 +576,7 @@ fn commit_message_opens_and_closes_from_mouse_or_keyboard() {
 
     let header = screen(&app, 80, 12).join("\n");
     assert!(header.contains("Commit title"));
-    assert!(header.contains("+0 -0  ━━━━━━━━━━━━ 0/0 reviewed"));
+    assert!(header.contains("+0 -0  ━━━━━━━━━━━━ 0% reviewed"));
     assert!(!header.contains("Progressive review"));
     assert!(!header.contains("change qpvuntsm"));
 
@@ -1589,7 +1589,7 @@ fn test_backend_renders_wide_narrow_and_minimum_layouts() {
 
     let minimum = application_screen(&app, 40, 6).join("\n");
     assert!(minimum.starts_with(" abcd1234  Com"), "{minimum}");
-    assert!(minimum.contains("198/200 reviewed"));
+    assert!(minimum.contains("99% reviewed"));
     let too_small = application_screen(&app, 39, 5);
     assert_eq!(too_small[0].trim_end(), "Terminal is too small");
     assert_eq!(too_small[1].trim_end(), "Minimum: 40x6");
