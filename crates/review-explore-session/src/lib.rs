@@ -5,6 +5,7 @@
 //! the agent port.
 
 mod agent;
+mod cancel;
 mod dispatch;
 mod implementation;
 mod marks;
@@ -188,6 +189,7 @@ impl ExploreSession {
             Command::Retry(request) => self.retry(*request),
             Command::Implement(request) => self.implement(request),
             Command::CancelImplementation => self.state.implementation = None,
+            Command::CancelAnswer(answer) => self.cancel_answer(answer),
             Command::Cancel => {
                 self.cancel_record();
                 self.state.renew_access();

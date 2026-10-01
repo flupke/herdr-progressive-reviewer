@@ -28,6 +28,12 @@ impl fmt::Display for TurnInput<'_> {
         if let Some(error) = &request.response_error {
             writeln!(output, "\nPrevious response error:\n{error}")?;
         }
+        if !request.cancelled.is_empty() {
+            writeln!(output)?;
+            for answer in &request.cancelled {
+                writeln!(output, "Cancelled answer: {answer}")?;
+            }
+        }
         if let Some(answer) = &request.answer {
             Self::answer(output, answer)?;
         }

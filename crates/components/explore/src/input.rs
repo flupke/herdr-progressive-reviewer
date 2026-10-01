@@ -60,6 +60,7 @@ impl ExploreComponent {
             Control::Send => return self.answer(control),
             Control::Cancel => return self.cancel(),
             Control::Retry => return self.retry(),
+            Control::CancelAnswer(index) => return self.cancel_answer(index),
             Control::CancelImplementation => return self.cancel_implementation(),
             control => self.navigate(control),
         }

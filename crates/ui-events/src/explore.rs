@@ -43,6 +43,14 @@ pub struct ExploreCommitted {
     pub response: std::sync::mpsc::Sender<Result<bool, String>>,
 }
 
+/// The reviewer's latest answer was cancelled, or why it could not be.
+#[derive(Clone, Debug)]
+pub struct ExploreAnswerCancelled {
+    pub answer: String,
+    /// The pass without the answer and the agent's turn after it.
+    pub result: Result<Arc<review_explore::ExplorePass>, String>,
+}
+
 #[derive(Clone, Debug)]
 pub struct ExploreStorageFailed(pub String);
 

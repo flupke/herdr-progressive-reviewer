@@ -135,6 +135,9 @@ pub struct TurnRequest {
     pub request: String,
     pub checkpoint: ReviewCheckpoint,
     pub answer: Option<ReviewerAnswer>,
+    /// Answers the reviewer cancelled since the agent's previous request.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cancelled: Vec<String>,
     pub response_error: Option<String>,
 }
 
@@ -156,6 +159,9 @@ pub struct Exploration {
     pub agent_elapsed_ms: BTreeMap<String, u64>,
     pub(crate) outstanding: Option<TurnRequest>,
     pub(crate) retry: Option<TurnRequest>,
+    /// Cancelled answers the next request tells the agent about.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) cancelled: Vec<String>,
 }
 
 impl Exploration {
@@ -174,6 +180,7 @@ impl Exploration {
             agent_elapsed_ms: BTreeMap::new(),
             outstanding: None,
             retry: None,
+            cancelled: Vec::new(),
         }
     }
 
@@ -190,11 +197,19 @@ impl Exploration {
         let answer = input
             .map(|input| self.record(input, question))
             .transpose()?;
+        // A superseded request may not have told the agent about its cancelled answers.
+        let mut cancelled = self
+            .retry
+            .take()
+            .map(|retry| retry.cancelled)
+            .unwrap_or_default();
+        cancelled.append(&mut self.cancelled);
         let request = TurnRequest {
             instance: self.instance.clone(),
             request: uuid::Uuid::new_v4().to_string(),
             checkpoint: self.comparison.checkpoint.clone(),
             answer,
+            cancelled,
             response_error: None,
         };
         self.outstanding = Some(request.clone());
@@ -300,11 +315,20 @@ impl Exploration {
             return Ok(false);
         }
         self.validate(&update, &self.comparison)?;
-        let answer = request.answer.as_ref();
+        let answer = request.answer.clone();
         self.conversation.push(ConversationTurn {
-            answer: answer.map(|answer| answer.id.clone()),
+            answer: answer.as_ref().map(|answer| answer.id.clone()),
             update: update.clone(),
         });
+        self.absorb(update, answer.as_ref());
+        self.outstanding = None;
+        self.retry = None;
+        Ok(true)
+    }
+
+    /// Take an accepted agent turn, following `answer`, into the interview's
+    /// topics, questions, decisions and report.
+    pub(crate) fn absorb(&mut self, update: InterviewUpdate, answer: Option<&ReviewerAnswer>) {
         for topic in update.topics {
             self.topics.insert(topic.id.clone(), topic);
         }
@@ -325,9 +349,6 @@ impl Exploration {
             update.conclusion.is_some(),
         );
         self.conclusion = update.conclusion;
-        self.outstanding = None;
-        self.retry = None;
-        Ok(true)
     }
 
     fn record_report(&mut self, limitations: Vec<String>, findings: Vec<String>, concluded: bool) {

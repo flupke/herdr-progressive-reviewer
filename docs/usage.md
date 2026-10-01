@@ -204,6 +204,15 @@ The agent replies directly; a factual question or context is not agreement. Cond
 their required changes as follow-ups. Free-text interpretation remains something
 to check, and to amend with another answer; it is not a semantic guarantee.
 
+**Cancel answer**, under your latest answer, takes it back, also while the agent is
+still working on it. The agent's turn after it is discarded, the review marks that
+turn made are given back (lines it marked reopen; lines it reopened return to whoever
+had marked them), and the question comes back with your choice and text ready to
+change and send again. Repeat it to take back earlier answers one at a time. The next
+prompt tells the agent which answers were cancelled. Answers cannot be cancelled once
+**Implement** was sent. When the code changed since the pass started, lines the
+cancelled turn reopened stay open.
+
 | Explore command | Action |
 | --- | --- |
 | `Up` / `Down` or `j` / `k` | Select an answer, including None of the above |

@@ -72,6 +72,11 @@ assessments are not resent. No Comment section means no added comment; no Select
 means no choice was selected. A Reply to conclusion identifies that earlier conclusion: respond
 to its context, keep interpretation null, and add a useful inquiry if warranted.
 
+The reviewer can cancel their latest answer, repeatedly. Each Cancelled answer line names one:
+disregard that answer and your turn after it, as if neither happened. The reviewer has already
+reversed that turn's review marks and shows its question again; the answer that follows replaces
+the cancelled one.
+
 Input may be a question, challenge, context, correction, redirection or decision. Answer code
 questions by inspecting source and reply directly; a context update may change the agenda without
 requiring another approval. Interpret only the latest Answer ID when it expresses a decision or

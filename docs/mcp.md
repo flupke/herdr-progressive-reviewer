@@ -223,11 +223,14 @@ The reviewer keeps the full question and answer for history and validation; its
 evidence, assessments, rationale, other choices and recommendation are not resent.
 
 Conditional details appear only when relevant: Previous response error contains the
-previous attempt's failure. An unselected option is omitted. Replies to
-a conclusion use Reply to conclusion with the original conclusion turn ID instead of
-a question ID/version. The agent posts the next turn with submit_question directly;
-no repository catalog or history dump is sent. get_explore_answer, get_explore and
-read_explore have been removed.
+previous attempt's failure. A `Cancelled answer: <answer ID>` line, before Answer ID,
+names each answer the reviewer cancelled since the previous request; the agent
+disregards that answer and its own turn after it. The reviewer has already given
+back that turn's review marks, and the following answer replaces the cancelled one.
+An unselected option is omitted. Replies to a conclusion use Reply to conclusion
+with the original conclusion turn ID instead of a question ID/version. The agent
+posts the next turn with submit_question directly; no repository catalog or history
+dump is sent. get_explore_answer, get_explore and read_explore have been removed.
 
 Inspect source directly from disk and use Git/jj for diffs and historical text.
 Git's `checkpoint.review_unit` identifies the base tree; jj's `checkpoint.checkpoint`

@@ -123,6 +123,11 @@ impl ExploreComponent {
             return;
         }
         self.save_draft();
+        self.open_conclusion(request);
+    }
+
+    /// Show conclusion `request` with its draft, leaving the current draft as is.
+    pub(super) fn open_conclusion(&mut self, request: String) {
         self.compose_scope = ComposeScope::Conclusion;
         self.general_context = Some(request);
         self.restore_draft();
@@ -447,6 +452,7 @@ impl ExploreComponent {
         {
             return;
         }
+        self.implementation_requested = true;
         if let Some(view) = self.conclusions.get_mut(&record.request.conclusion)
             && view.delivery.pending_delivery() == Some(record.request.delivery.as_str())
         {

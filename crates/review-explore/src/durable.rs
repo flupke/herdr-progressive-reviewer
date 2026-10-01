@@ -275,6 +275,11 @@ impl ExplorePass {
                 .as_ref()
                 .and_then(|answer| answer.question.as_ref()),
         )?;
+        eyre::ensure!(
+            validated.cancelled == request.cancelled,
+            "This turn does not name the answers cancelled since the last one"
+        );
+        self.exploration.cancelled.clear();
         if let (Some(mut expected), Some(answer)) = (validated.answer, &request.answer) {
             expected.id.clone_from(&answer.id);
             eyre::ensure!(

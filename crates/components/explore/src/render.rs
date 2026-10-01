@@ -330,6 +330,11 @@ impl ExploreComponent {
             palette.text,
             None,
         );
+        if self.can_cancel(answer)
+            && let Some(index) = exploration.answers.iter().position(|a| a.id == answer.id)
+        {
+            layout.controls([("Cancel answer".into(), Control::CancelAnswer(index))]);
+        }
         for interpretation in exploration
             .interpretations
             .iter()

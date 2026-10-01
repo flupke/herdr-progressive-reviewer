@@ -448,3 +448,64 @@ fn restored_progress_from_the_session_decides_the_recovery_status() {
         }
     }
 }
+
+#[test]
+fn cancelling_the_latest_answer_brings_its_question_back_to_answer_again() {
+    let (mut fixture, request) = ExploreUi::new();
+    let mut pass = pass(&fixture, &request);
+    let question = pass.exploration.questions[0].clone();
+    let answered = pass
+        .exploration
+        .clone()
+        .request(
+            Some(review_explore::AnswerInput {
+                option: Some("inspect".into()),
+                text: "Check the retry path.".into(),
+                ..Default::default()
+            }),
+            Some(&question),
+        )
+        .unwrap();
+    pass.post(&answered).unwrap();
+    pass.exploration
+        .submit(fixture.response(&answered, 2))
+        .unwrap();
+    no_post(&restore(&mut fixture, &pass, None));
+    fixture.click("Your answer");
+    fixture
+        .app
+        .update(UserInput::Paste("Draft for the discarded question".into()));
+    assert!(fixture.text().contains("Draft for the discarded question"));
+    fixture.app.update(UserInput::Key(Key::Tab));
+    fixture.app.update(UserInput::Key(Key::Char('[')));
+    assert!(fixture.text().contains("You: Inspect the caller"));
+
+    let actions = fixture.click_actions("Cancel answer");
+    let id = answered.answer.as_ref().unwrap().id.clone();
+    assert!(actions.iter().any(|action| matches!(
+        action,
+        Action::Explore(Command::CancelAnswer(answer)) if *answer == id
+    )));
+    let mut cancelled = pass.clone();
+    cancelled.cancel_answer(&id).unwrap();
+    cancelled.revision += 1;
+    fixture.app.publish(ui_events::ExploreAnswerCancelled {
+        answer: id.clone(),
+        result: Ok(Arc::new(cancelled)),
+    });
+
+    let text = fixture.text();
+    assert!(text.contains("Question 1: keep resolved?"), "{text}");
+    assert!(
+        !text.contains("Question 2") && !text.contains("Cancel answer"),
+        "{text}"
+    );
+    assert!(text.contains("› 2. Inspect the caller"), "{text}");
+    assert!(text.contains("Check the retry path."), "{text}");
+    assert!(!text.contains("Draft for the discarded question"), "{text}");
+    let request = ExploreUi::request(fixture.app.update(UserInput::Key(Key::Enter)));
+    assert_eq!(request.cancelled, vec![id]);
+    let answer = request.answer.unwrap();
+    assert_eq!(answer.option.unwrap().id, "inspect");
+    assert_eq!(answer.text, "Check the retry path.");
+}

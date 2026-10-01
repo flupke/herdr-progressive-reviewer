@@ -256,4 +256,27 @@ fn retries_only_add_the_previous_error() {
     ));
     assert!(!kickoff.contains("Answer ID: answer-id"));
     assert!(!kickoff.contains("Corrects answer:"));
+    assert!(!kickoff.contains("Cancelled answer:"));
+}
+
+#[test]
+fn a_wakeup_names_the_cancelled_answers_before_the_answer_that_replaces_them() {
+    let comparison = comparison();
+    let mut exploration = Exploration::new(Arc::new(comparison.clone()));
+    let mut request = exploration.request(None, None).unwrap();
+    request.answer = Some(answer(&request));
+    request.cancelled = vec!["first-cancelled".into(), "second-cancelled".into()];
+
+    let prompt = PreparedTurn::prepare(
+        &request,
+        &comparison,
+        "fresh-access",
+        &Unreviewed::default(),
+    )
+    .prompt();
+
+    assert!(prompt.contains(
+        "\nCancelled answer: first-cancelled\nCancelled answer: second-cancelled\n\nAnswer ID: answer-id\n"
+    ));
+    assert!(prompt.contains("Disregard each Cancelled answer"));
 }

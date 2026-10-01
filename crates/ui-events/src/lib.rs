@@ -3,11 +3,11 @@
 mod explore;
 mod threads;
 pub use explore::{
-    EvidenceView, ExploreAutosave, ExploreCaptured, ExploreCommitted, ExploreComparisonAccepted,
-    ExploreEvidence, ExploreEvidenceInput, ExploreFinished, ExploreHistoryChanged,
-    ExploreImplementationFinished, ExploreImplementationSaved, ExplorePositionsRestored,
-    ExplorePosted, ExploreProgress, ExploreRestored, ExploreStorageFailed, ExploreSubmission,
-    ExploreViewports,
+    EvidenceView, ExploreAnswerCancelled, ExploreAutosave, ExploreCaptured, ExploreCommitted,
+    ExploreComparisonAccepted, ExploreEvidence, ExploreEvidenceInput, ExploreFinished,
+    ExploreHistoryChanged, ExploreImplementationFinished, ExploreImplementationSaved,
+    ExplorePositionsRestored, ExplorePosted, ExploreProgress, ExploreRestored,
+    ExploreStorageFailed, ExploreSubmission, ExploreViewports,
 };
 pub use threads::{
     NewRepliesRequested, ReviewNavigation, ReviewNavigationChanged, ReviewPane,

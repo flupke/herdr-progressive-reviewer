@@ -77,3 +77,8 @@ still matches. The diff folds it into one row.
 A path, side and line range that a question puts before the reviewer as
 evidence, most decisive first. Citing lines does not mark them reviewed.
 _Avoid_: source reference, inspection, supporting reference
+
+**Cancel answer**:
+Withdrawing the reviewer's latest answer in an Explore pass, which returns the
+pass to its state before that answer, including the review marks it led to.
+_Avoid_: cancel (which stops a pending turn), correction, undo, defer

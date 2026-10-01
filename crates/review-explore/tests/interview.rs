@@ -308,6 +308,8 @@ fn an_agent_cannot_invent_acceptance_rewrite_questions_or_bind_an_old_answer() {
 
 #[path = "interview/adaptive.rs"]
 mod adaptive;
+#[path = "interview/cancel.rs"]
+mod cancel;
 
 #[test]
 fn none_of_the_above_keeps_the_question_open_and_the_original_wording_intact() {

@@ -131,6 +131,7 @@ impl Control {
                 | Self::Retry
                 | Self::Implement
                 | Self::CancelImplementation
+                | Self::CancelAnswer(_)
         ) {
             let tone = if matches!(self, Self::Start | Self::Send | Self::Implement) {
                 ButtonTone::Primary

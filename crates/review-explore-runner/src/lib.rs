@@ -22,7 +22,7 @@ impl PreparedTurn {
         unreviewed: &Unreviewed,
     ) -> Self {
         let instructions = if request.answer.is_some() {
-            "Continue Explore with this answer; match its question ID/version. Keep review-only scope and preserve the answer and decisions when repairing errors. Record the review marks this answer settled in reviewed and reopened. Use submit_question for useful concept inquiries. Once those are exhausted, check the Unreviewed lines for missed questions before submit_conclusion. Reviewed lines alone never end the interview."
+            "Continue Explore with this answer; match its question ID/version. Keep review-only scope and preserve the answer and decisions when repairing errors. Record the review marks this answer settled in reviewed and reopened. Disregard each Cancelled answer and your turn after it. Use submit_question for useful concept inquiries. Once those are exhausted, check the Unreviewed lines for missed questions before submit_conclusion. Reviewed lines alone never end the interview."
         } else {
             include_str!("interview.md")
         };

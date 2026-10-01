@@ -358,18 +358,7 @@ impl ExploreComponent {
             .is_some_and(|request| request.request == event.request.request);
         match &event.result {
             Ok(pass) if pass.revision >= self.durable.revision => {
-                let comparison = self
-                    .exploration
-                    .as_ref()
-                    .expect("active")
-                    .comparison
-                    .clone();
-                self.exploration = Some(pass.exploration.clone());
-                self.restore_pass(pass);
-                self.exploration.as_mut().expect("active").comparison = comparison;
-                self.durable.revision = pass.revision;
-                self.durable.persisted = true;
-                self.reconcile_history(pass);
+                self.adopt(pass);
                 if current && self.progress == Progress::Waiting {
                     if let Some(answer) = &event.request.answer {
                         self.discard_posted_draft(answer);
@@ -412,12 +401,7 @@ impl ExploreComponent {
         }
         let count = previous.questions.len();
         let already_visible = previous.conversation == event.pass.exploration.conversation;
-        let comparison = previous.comparison.clone();
-        self.exploration = Some(event.pass.exploration.clone());
-        self.restore_pass(&event.pass);
-        self.exploration.as_mut().expect("active").comparison = comparison;
-        self.durable.revision = event.pass.revision;
-        self.reconcile_history(&event.pass);
+        self.adopt(&event.pass);
         if !already_visible {
             self.update_applied(count, None);
         }
@@ -425,7 +409,26 @@ impl ExploreComponent {
         let _ = event.response.send(Ok(event.applied));
     }
 
+    /// Show a newer saved revision of the displayed pass, keeping the
+    /// comparison already loaded.
+    pub(super) fn adopt(&mut self, pass: &review_explore::ExplorePass) {
+        let comparison = self
+            .exploration
+            .as_ref()
+            .expect("active")
+            .comparison
+            .clone();
+        let mut exploration = pass.exploration.clone();
+        exploration.comparison = comparison;
+        self.exploration = Some(exploration);
+        self.restore_pass(pass);
+        self.durable.revision = pass.revision;
+        self.durable.persisted = true;
+        self.reconcile_history(pass);
+    }
+
     fn restore_pass(&mut self, pass: &review_explore::ExplorePass) {
+        self.implementation_requested = !pass.implementations.is_empty();
         self.marks = pass
             .marks
             .values()

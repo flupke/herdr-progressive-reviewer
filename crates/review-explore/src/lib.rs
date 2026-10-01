@@ -14,6 +14,7 @@ pub use presentation::{
 
 mod agenda;
 mod agenda_validation;
+mod cancel;
 mod capture;
 mod choices;
 mod conclusion;
@@ -25,6 +26,7 @@ mod source;
 mod validation;
 
 pub use agenda::{AgendaAction, AgendaChange};
+pub use cancel::CancelledAnswer;
 pub use capture::{Comparison, ManifestEntry};
 pub use conclusion::{Conclusion, ConclusionSubmission, ImplementationRequest};
 pub use consequence::{Assessments, Consequence, Door};
@@ -45,4 +47,6 @@ pub enum Command {
     Implement(ImplementationRequest),
     CancelImplementation,
     Cancel,
+    /// Cancel the reviewer's latest answer, by ID.
+    CancelAnswer(String),
 }

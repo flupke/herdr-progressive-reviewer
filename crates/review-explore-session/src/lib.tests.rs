@@ -19,6 +19,8 @@ use super::*;
 const PANE: &str = "agent-pane";
 const CONCLUSION: &str = "Keep the policy.";
 
+#[path = "cancel.tests.rs"]
+mod cancel;
 #[path = "recovery.tests.rs"]
 mod recovery;
 

@@ -338,6 +338,10 @@ pub(crate) fn runs<T: Clone + Eq>(lines: impl Iterator<Item = (u32, T)>) -> Vec<
     runs
 }
 
+// A child module, so giving marks back shares how marks name lines.
+#[path = "unmark.rs"]
+mod unmark;
+
 #[cfg(test)]
 #[path = "marks.tests.rs"]
 mod tests;

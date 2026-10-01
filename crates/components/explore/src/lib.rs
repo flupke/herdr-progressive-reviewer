@@ -14,6 +14,7 @@ use ui_events::{
 use ui_shortcuts::{MovementShortcut, ShortcutMatcher};
 
 mod adaptive;
+mod cancel;
 mod choices;
 mod composer;
 mod conclusion;
@@ -35,6 +36,8 @@ enum Control {
     Map,
     Cancel,
     Retry,
+    /// Cancel this answer, the latest one.
+    CancelAnswer(usize),
     /// Show or hide the review marks the turn after this answer changed.
     Marks(usize),
     Reply(usize),
@@ -122,6 +125,10 @@ pub struct ExploreComponent {
     marks: BTreeMap<String, review_explore::TurnMarks>,
     /// Answers whose marks are listed line by line.
     expanded_marks: BTreeSet<String>,
+    /// The answer whose cancellation the session is working on.
+    cancelling: Option<String>,
+    /// Implementation was requested, so answers can no longer be cancelled.
+    implementation_requested: bool,
     scroll: Cell<usize>,
     reveal: Cell<Option<Reveal>>,
     heights: BTreeMap<EvidenceView, u16>,
@@ -159,6 +166,8 @@ impl ExploreComponent {
             map: false,
             marks: BTreeMap::new(),
             expanded_marks: BTreeSet::new(),
+            cancelling: None,
+            implementation_requested: false,
             scroll: Cell::new(0),
             reveal: Cell::new(None),
             heights: BTreeMap::new(),
@@ -240,6 +249,8 @@ impl ExploreComponent {
         match &event.result {
             Ok(comparison) => {
                 self.durable.begin_pass();
+                self.implementation_requested = false;
+                self.cancelling = None;
                 self.exploration = Some(Exploration::new(comparison.clone()));
                 self.selected = 0;
                 self.evidence_list_focused = false;
@@ -372,6 +383,11 @@ impl ExploreComponent {
 
     fn select(&mut self, index: usize) {
         self.save_draft();
+        self.open_question(index);
+    }
+
+    /// Show question `index` with its draft, leaving the current draft as is.
+    fn open_question(&mut self, index: usize) {
         self.compose_scope = ComposeScope::Question;
         self.selected = index;
         self.editing = false;
@@ -428,6 +444,9 @@ impl ExploreComponent {
     }
 
     fn answer(&mut self, control: Control) -> Vec<Action> {
+        if self.cancelling.is_some() {
+            return Vec::new();
+        }
         let option = if matches!(control, Control::Send) {
             self.selected_choice().and_then(|index| {
                 self.question()?
@@ -508,6 +527,7 @@ impl Component<Action> for ExploreComponent {
         subscriptions.subscribe(Self::restored);
         subscriptions.subscribe(Self::posted);
         subscriptions.subscribe(Self::committed);
+        subscriptions.subscribe(Self::answer_cancelled);
         subscriptions.subscribe(Self::storage_failed);
         subscriptions.subscribe(Self::implementation_saved);
         subscriptions.subscribe(Self::captured);
