@@ -3923,6 +3923,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "review-hunks"
+version = "0.2.0"
+dependencies = [
+ "gix-imara-diff",
+ "review-repository",
+]
+
+[[package]]
 name = "review-lsp"
 version = "0.2.0"
 dependencies = [

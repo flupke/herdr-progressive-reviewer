@@ -1,0 +1,13 @@
+[package]
+name = "review-hunks"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+gix-imara-diff.workspace = true
+review-repository = { path = "../review-repository" }
+
+[lints]
+workspace = true

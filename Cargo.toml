@@ -28,6 +28,7 @@ members = [
     "crates/ui-theme",
     "crates/herdr-client",
     "crates/review-source",
+    "crates/review-hunks",
     "crates/review-lsp",
     "crates/review-repository",
     "crates/review-state",
