@@ -62,21 +62,31 @@ impl ReviewWorkspace {
         self.repository.root()
     }
 
-    pub(crate) fn open_vision(&self, recording: &Path) -> anyhow::Result<Session> {
+    pub(crate) fn open_vision(
+        &self,
+        recording: &Path,
+        jev_script: &Path,
+    ) -> anyhow::Result<Session> {
         let session = Session::new(format!(
             "vision-{}",
             self.server.root().file_name().unwrap().to_str().unwrap()
         ));
-        if let Err(error) = session.run(self.run_options(recording)) {
+        if let Err(error) = session.run(self.run_options(recording, jev_script)) {
             let _ = session.close();
             return Err(error.into());
         }
         Ok(session)
     }
 
-    fn run_options(&self, recording: &Path) -> RunOptions {
+    fn run_options(&self, recording: &Path, jev_script: &Path) -> RunOptions {
         let defaults = OpenOptions::default();
-        let environment = self.environment();
+        let mut environment = self.environment();
+        // The vision `jev` command writes this script; the reviewer reads it
+        // in place of the paid classifier.
+        environment.insert(
+            "HERDR_REVIEWER_JEV_SCRIPT".into(),
+            jev_script.to_str().unwrap().into(),
+        );
         // tui-test adds environment overrides to its inherited environment.
         // env -u removes live Herdr context without putting environment values
         // (which may contain credentials) in process arguments or traces.

@@ -31,6 +31,12 @@ pub(super) enum Command {
         kind: NoteKind,
         text: String,
     },
+    /// Classify the hunks holding these one-based current lines of `path`
+    /// insignificant, as Jev would, and run `rf`.
+    Jev {
+        path: String,
+        lines: Vec<u32>,
+    },
     Reopen,
     Stop,
 }

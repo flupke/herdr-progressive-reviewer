@@ -28,6 +28,7 @@ const RATE_LIMIT_BACKOFF_CAP: Duration = Duration::from_secs(2);
 const TYPESAFE_OVERLOADED_STATUS: u16 = 529;
 
 mod optimized;
+mod scripted;
 mod sections;
 
 fn coordinate(row: &DiffRow) -> Option<(SourceSide, u32)> {
@@ -42,7 +43,15 @@ fn coordinate(row: &DiffRow) -> Option<(SourceSide, u32)> {
 const INSTRUCTIONS: &str = "Decide whether THIS exact changed block needs its own explanation in a code review, not whether the surrounding file deserves review. Old changed lines were removed; new changed lines were added. Adjacent context lines are unchanged and only help interpret this block. A change can be insignificant when its local effect is clear but adds no independent review decision: explanatory comments, formatting, routine annotations, or allowing an existing nonessential explanation field to be absent with a default. Significant changes include behavior, policy, state, contracts, dependencies, operations, operational defaults, removed assertions, permissions, and imports with meaningful targets or side effects. A default affecting functional data or compatibility with consequential consumers may still need an explanation. If an unseen consumer, helper, side effect or other context is needed to decide, choose uncertain. Do not infer correctness from a missing source. Answer for this block only.";
 
 /// Jev exclusions are enabled only when the process starts with a `TypeSafe` API key.
+/// A vision session can name a script that stands in for Jev instead.
 pub(super) fn exclusion_policy_from_env() -> ExclusionPolicy {
+    if std::env::var_os("HERDR_REVIEWER_VISION").is_some()
+        && let Some(script) = std::env::var_os("HERDR_REVIEWER_JEV_SCRIPT")
+    {
+        return ExclusionPolicy::enabled(Arc::new(scripted::ScriptedJev {
+            script: script.into(),
+        }));
+    }
     std::env::var("TYPESAFE_API_KEY")
         .ok()
         .filter(|value| !value.trim().is_empty())

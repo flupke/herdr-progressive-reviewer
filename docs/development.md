@@ -77,6 +77,7 @@ that handle. Each interaction returns the latest completed screen and frame ID.
 {"action":"observe","after":12,"timeout_ms":3000}
 {"action":"cells","x":0,"y":0,"width":10,"height":1}
 {"action":"note","kind":"checked","text":"Help closes with Escape and restores the diff"}
+{"action":"jev","path":"src/math.rs","lines":[2]}
 {"action":"reopen"}
 {"action":"stop"}
 ```
@@ -88,7 +89,12 @@ new frame. An interaction waits up to one second and allows 100 ms for a changed
 screen to settle. A changed frame is evidence to inspect, not proof that the
 requested action has finished. Use another observation for asynchronous work.
 `cells` reports the captured cells' styles when focus or selection is conveyed by
-color. `reopen` starts the reviewer again in the same private workspace and state,
+color. `jev` stands in for the paid Jev classifier, which vision sessions never
+reach: it classifies as insignificant every diff hunk of `path` that adds one of
+the one-based `lines` (current numbering) or removes one (base numbering), then
+presses `rf` and returns the screen with its "Jev: marked" result, or after ten
+seconds. Nearby edits share one diff hunk, as they do for Jev. The script it
+writes is kept as `jev-script.json` in the session directory. `reopen` starts the reviewer again in the same private workspace and state,
 at its initial 100×30 size. `stop`, EOF, SIGINT, SIGHUP, and SIGTERM clean up the
 reviewer, private server, and temporary repository.
 

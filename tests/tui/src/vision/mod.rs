@@ -7,7 +7,7 @@ use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail, ensure};
 use review_repository::repository::RepoType;
@@ -34,8 +34,10 @@ struct LiveReviewer {
 
 impl LiveReviewer {
     fn start(workspace: &ReviewWorkspace, frames: &Arc<Frames>, run: u64) -> Result<Self> {
-        let session =
-            workspace.open_vision(&frames.directory().join(format!("recording-{run}")))?;
+        let session = workspace.open_vision(
+            &frames.directory().join(format!("recording-{run}")),
+            &jev_script(frames),
+        )?;
         let capture = (|| {
             let recording = session
                 .recording_path()
@@ -59,6 +61,11 @@ impl Drop for LiveReviewer {
     fn drop(&mut self) {
         let _ = self.session.close();
     }
+}
+
+/// The script the `jev` command writes for the reviewer's stand-in classifier.
+fn jev_script(frames: &Frames) -> PathBuf {
+    frames.directory().join("jev-script.json")
 }
 
 struct VisionSession {
@@ -186,9 +193,45 @@ impl VisionSession {
                 self.live.take();
                 return Ok(json!({"status": "stopped", "frame_number": before}));
             }
+            Command::Jev { path, lines } => {
+                fs::write(
+                    jev_script(&self.frames),
+                    serde_json::to_vec(
+                        &json!({"insignificant": [{"path": path, "lines": lines}]}),
+                    )?,
+                )?;
+                for key in ["r", "f"] {
+                    self.session()?.execute(Operation::Key {
+                        keys: vec![key.into()],
+                        action: KeyAction::Press,
+                    })?;
+                }
+                return self.await_jev(before);
+            }
             _ => self.interact(command)?,
         }
         self.observe(Some(before), Duration::from_secs(1), true)
+    }
+
+    /// Wait for `rf` to finish: it shows "Jev: classifying" first and marks
+    /// later on a worker. A screen without either toast after two seconds is
+    /// taken as `rf` refusing to run.
+    fn await_jev(&self, before: u64) -> Result<Value> {
+        let start = Instant::now();
+        let mut after = before;
+        loop {
+            let remaining = Duration::from_secs(10).saturating_sub(start.elapsed());
+            let response =
+                self.observe(Some(after), remaining.min(Duration::from_secs(1)), true)?;
+            let text = response["frame"]["text"].as_str().unwrap_or_default();
+            let finished = text.contains("Jev: marked")
+                || (!text.contains("Jev: classifying")
+                    && start.elapsed() >= Duration::from_secs(2));
+            if finished || remaining.is_zero() {
+                return Ok(response);
+            }
+            after = response["frame"]["number"].as_u64().unwrap_or(after);
+        }
     }
 
     fn interact(&self, command: &Command) -> Result<()> {
