@@ -50,6 +50,12 @@ The harness has its own Cargo workspace and lockfile because `tui-test` requires
 `make vision` builds the reviewer first and supplies `REVIEWER_BIN_PATH` to the
 driver. Set `HERDR_BIN_PATH` to use a specific Herdr executable.
 
+### A second checkout
+
+`/tmp` may be a RAM disk, and a full build needs about 16 GB. Put a second jj
+workspace or checkout on disk, or point `CARGO_TARGET_DIR` at the main
+checkout's `target/`, before running `make check` in it.
+
 ### LLM-directed exploration
 
 Start a persistent reviewer session for an agent to observe and operate:
@@ -75,9 +81,13 @@ driver never starts.
 ```sh
 nix develop --command make vision \
   VISION_ARGS="--json --output $DIR/session --commands $DIR/cmd" >| $DIR/out.log &
-echo '{"action":"click","text":"notes.md"}' >| $DIR/cmd
-tail -n 1 $DIR/out.log
+tests/tui/vision-send $DIR '{"action":"click","text":"notes.md"}'
 ```
+
+`tests/tui/vision-send` writes one command to the pipe, waits for the driver's
+answer and prints its status, any error, `reply` or turn, and the screen text;
+`VISION_RAW=1` prints the answer's JSON. Use it instead of writing to the pipe
+and reading the log by hand.
 
 Send `stop` when the exploration is done: it closes the live viewer and frees
 the private server. A driver left behind stops by itself after 30 minutes

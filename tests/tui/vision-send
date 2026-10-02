@@ -1,0 +1,47 @@
+#!/bin/sh
+# Send one command to a running `make vision` driver and print its answer.
+#
+#   vision-send DIR '{"action":"click","text":"Explore"}'
+#
+# DIR holds the driver's command pipe (`cmd`) and its output log (`out.log`),
+# as started by:
+#   make vision VISION_ARGS="--json --output DIR/session --commands DIR/cmd" >| DIR/out.log &
+#
+# Prints the status and frame number, then an error, a `reply` or a turn when
+# the answer has one, then the screen text. `VISION_RAW=1` prints the answer's
+# JSON instead.
+set -eu
+directory=$1
+command=$2
+log=$directory/out.log
+waited=0
+# Wait up to 40 s for the shell test $1 to hold; $2 says what is missing.
+await() {
+    while ! eval "$1"; do
+        if [ "$waited" -ge 400 ]; then
+            echo "vision-send: $2 after 40 s" >&2
+            exit 1
+        fi
+        sleep 0.1
+        waited=$((waited + 1))
+    done
+}
+# A starting driver prints its first frame unasked: it is not this command's answer.
+await 'grep -q "^{" "$log" 2>/dev/null' "the driver printed no first frame"
+before=$(wc -l < "$log")
+printf '%s\n' "$command" > "$directory/cmd"
+# The driver answers each command with one JSON line.
+waited=0
+await '[ "$(wc -l < "$log")" -gt "$before" ]' "no answer"
+answer=$(tail -n 1 "$log")
+if [ "${VISION_RAW:-}" = 1 ]; then
+    printf '%s\n' "$answer"
+    exit 0
+fi
+printf '%s\n' "$answer" | jq -r '
+    ((.status // "") + " " + ((.frame.number // .frame_number // "") | tostring)),
+    (.error // empty | "error: " + .),
+    (.reply // empty | "reply: " + tostring),
+    (select(.turn != null) | del(.text) | "turn: " + tostring),
+    (.text // empty),
+    (.frame.text // empty)'
