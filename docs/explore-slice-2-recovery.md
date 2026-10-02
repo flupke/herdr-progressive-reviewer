@@ -80,6 +80,4 @@ private Herdr/MCP infrastructure where transport is involved. UI tests cover loc
 restoration without posts or file marks, code focus/position/manual height, unavailable
 evidence, and draft ownership while a post is being saved.
 
-The fresh real-agent acceptance result and final workflow checks are recorded in the
-[slice 2 handoff](explore-slice-2-handoff.md). Earlier first-slice demos are not proof
-of this recovery behavior.
+Earlier first-slice demos are not proof of this recovery behavior.
