@@ -25,10 +25,10 @@ impl PreparedTurn {
             repository_root: &comparison.repository_root,
             description: comparison.change_description(),
         });
-        let instructions = if kickoff.is_none() {
-            "Continue Explore with this answer; match its question ID/version. Keep review-only scope and preserve the answer and decisions when repairing errors. Record the review marks this answer settled in reviewed and reopened. Disregard each Cancelled answer and your turn after it. Use submit_question for useful concept inquiries. Once those are exhausted, check the Unreviewed lines for missed questions before submit_conclusion. Reviewed lines alone never end the interview."
-        } else {
+        let instructions = if kickoff.is_some() {
             include_str!("interview.md")
+        } else {
+            include_str!("wakeup.md")
         };
         let input = input::TurnInput {
             request,
@@ -37,7 +37,7 @@ impl PreparedTurn {
             unreviewed,
         };
         Self {
-            prompt: format!("{instructions}\n\n{input}"),
+            prompt: format!("{}\n\n{input}", instructions.trim_end()),
         }
     }
 

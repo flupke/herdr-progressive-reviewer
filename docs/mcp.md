@@ -199,7 +199,9 @@ The tools advertise their full input schemas, including nested questions, eviden
 assessments, agenda changes and interpretations. The kickoff explains the review behavior
 without duplicating schema examples.
 
-After a human contribution, the shared prompt delivery sends a plain-text wakeup:
+After a human contribution, the shared prompt delivery sends a plain-text wakeup. It
+opens with the rules for a later turn (interpreting the answer, marking lines, agenda
+changes and concluding), so those rules travel with each answer, then gives:
 
 ```text
 Explore review access: temporary-access

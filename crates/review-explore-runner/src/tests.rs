@@ -16,6 +16,13 @@ fn comparison() -> Comparison {
     }
 }
 
+/// What a later prompt says after its fixed rules: identity, unreviewed lines and answer.
+fn turn_input(prompt: &str) -> &str {
+    prompt
+        .strip_prefix(include_str!("wakeup.md").trim_end())
+        .expect("a later prompt starts with its rules")
+}
+
 fn answer(request: &TurnRequest) -> ReviewerAnswer {
     let question: review_explore::Question = serde_json::from_value(serde_json::json!({
         "id":"earlier-question", "version":7, "topic":"policy", "text":"Keep the policy?",
@@ -37,7 +44,7 @@ fn answer(request: &TurnRequest) -> ReviewerAnswer {
 }
 
 #[test]
-fn kickoff_supplies_scope_and_identity_and_uses_the_mcp_schema() {
+fn the_kickoff_supplies_its_rules_scope_and_identity() {
     let comparison = comparison();
     let mut exploration = Exploration::new(Arc::new(comparison.clone()));
     let request = exploration.request(None, None).unwrap();
@@ -56,22 +63,7 @@ fn kickoff_supplies_scope_and_identity_and_uses_the_mcp_schema() {
         "Repository root: {}",
         comparison.repository_root.display()
     )));
-    assert!(prompt.contains("Submit the first question directly"));
-    assert!(prompt.contains("MCP tools' advertised input schemas"));
-    for obsolete in [
-        "Mailbox:",
-        "request.json",
-        "manifest.json",
-        "response.json",
-        "read_explore",
-        "get_explore",
-        "Turn input (JSON)",
-        "{{",
-        "\"instance\":",
-        "schema (",
-    ] {
-        assert!(!prompt.contains(obsolete), "{obsolete}");
-    }
+    assert!(prompt.starts_with(include_str!("interview.md").trim_end()));
 }
 
 #[test]
@@ -87,10 +79,10 @@ fn a_wakeup_lists_the_unreviewed_lines_after_the_answer_identity() {
     assert!(prompt.contains("Unreviewed lines: none; every changed line is reviewed."));
     assert!(
         prompt.find("Checkpoint: c").unwrap() < prompt.find("\nUnreviewed lines:").unwrap()
-            && prompt.find("\nUnreviewed lines:").unwrap() < prompt.find("Answer ID").unwrap()
+            && prompt.find("\nUnreviewed lines:").unwrap() < prompt.find("\nAnswer ID").unwrap()
     );
     for removed in ["coverage", "get_coverage_gaps", "inspection"] {
-        assert!(!prompt.contains(removed), "{removed}");
+        assert!(!turn_input(&prompt).contains(removed), "{removed}");
     }
 }
 
@@ -116,15 +108,13 @@ fn wakeup_delivers_full_selected_text_and_comment_with_plain_identity() {
         request, original,
         "Preparing a prompt must not shrink reviewer history"
     );
-    assert!(prompt.contains("submit_question"));
-    assert!(!prompt.contains("get_explore"));
-    assert!(!prompt.contains("Turn input (JSON)"));
     assert!(!prompt.contains("Repository root:"));
     assert!(!prompt.contains("This is recommended"));
     assert_eq!(prompt.matches(&request.instance).count(), 1);
     assert_eq!(prompt.matches(&request.request).count(), 1);
     assert!(prompt.contains("Review unit: r\nCheckpoint: c\n"));
-    assert!(prompt.len() < 1_000);
+    // The answer and identity stay small beside the fixed later-turn rules.
+    assert!(turn_input(&prompt).len() < 1_000);
 }
 
 #[test]
@@ -188,8 +178,8 @@ fn questionless_replies_keep_the_closing_turn_identity() {
     .prompt();
     assert!(prompt.contains("Answer ID: answer-id\nReply to conclusion: first-turn\n"));
     assert!(prompt.ends_with(&format!("Comment:\n{text}\n")));
-    assert!(!prompt.contains("Question:"));
-    assert!(!prompt.contains("Selected option"));
+    assert!(!turn_input(&prompt).contains("Question:"));
+    assert!(!turn_input(&prompt).contains("Selected option"));
 }
 
 #[test]
@@ -278,7 +268,6 @@ fn a_wakeup_names_the_cancelled_answers_before_the_answer_that_replaces_them() {
     assert!(prompt.contains(
         "\nCancelled answer: first-cancelled\nCancelled answer: second-cancelled\n\nAnswer ID: answer-id\n"
     ));
-    assert!(prompt.contains("Disregard each Cancelled answer"));
 }
 
 /// The kickoff prompt for a change with `base` as its identity.
@@ -297,15 +286,12 @@ fn jj(description: &str) -> serde_json::Value {
 }
 
 #[test]
-fn the_kickoff_quotes_what_the_change_says_it_does_and_grounds_questions_in_it() {
+fn the_kickoff_quotes_what_the_change_says_it_does() {
     let prompt = kickoff(jj("Script an Explore agent\n\nIt records every prompt.\n"));
 
     assert!(prompt.contains(
         "\nChange description (quoted):\n> Script an Explore agent\n>\n> It records every prompt.\n"
     ));
-    assert!(prompt.contains("read the Change description and the full diff"));
-    assert!(prompt.contains("The first question addresses the change's stated purpose"));
-    assert!(prompt.contains("Name the lines of this change that raise the question"));
 }
 
 #[test]

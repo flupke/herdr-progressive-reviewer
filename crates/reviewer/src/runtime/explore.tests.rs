@@ -177,16 +177,11 @@ impl ExploreFlow {
                     "Review unit: {}\n",
                     request.checkpoint.review_unit.as_str()
                 )));
-                assert!(!prompt.contains("Mailbox:"));
-                assert!(!prompt.contains("get_explore"));
-                assert!(!prompt.contains("Turn input (JSON)"));
                 self.access = access.to_owned();
                 if let Some(answer) = &request.answer {
                     assert!(prompt.contains(&format!("Answer ID: {}\n", answer.id)));
-                    assert!(!prompt.contains("Conduct one turn of experimental Explore"));
-                    assert!(prompt.contains("submit_question"));
+                    assert!(!prompt.contains("Repository root:"));
                 } else {
-                    assert!(prompt.contains("Submit the first question directly"));
                     assert!(prompt.contains(&request.checkpoint.checkpoint));
                     assert!(
                         prompt.contains(self.fixture.runtime.repository.root().to_str().unwrap())

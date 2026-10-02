@@ -116,7 +116,7 @@ remains bound to that selection until it resolves.
 The kickoff prompt supplies the review target, the change description (jj) and the interview
 instructions, which ground every question in what the change does. The agent
 reads files directly, uses Git/jj for the full diff, and posts the first question
-with `submit_question`. Each human contribution sends a wakeup containing the exact
+with `submit_question`. Each human contribution sends a wakeup containing the rules for that turn and the exact
 selected option's full text and optional comment, plus IDs identifying the original
 question and turn. The agent uses its existing conversation and posts the next turn
 with `submit_question`, or concludes with `submit_conclusion`; evidence and assessments are not sent back to it.
