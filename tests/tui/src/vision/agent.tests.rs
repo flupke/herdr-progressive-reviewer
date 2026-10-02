@@ -101,3 +101,22 @@ fn a_turn_fills_the_identity_the_arguments_leave_out() {
         })
     );
 }
+
+#[test]
+fn an_interpretation_is_about_the_turns_answer_unless_it_names_one() {
+    let mut turn = sent(2, "wakeup");
+    turn["answer"] = json!({"id": "answer-1"});
+    let identity = Identity::of(&turn).unwrap();
+
+    let mut conclusion = json!({"interpretation": {"status": "accepted"}});
+    identity.fill("submit_conclusion", &mut conclusion).unwrap();
+    assert_eq!(conclusion["interpretation"]["answer"], "answer-1");
+
+    let mut question = json!({"update": {"interpretation": {"answer": "chosen"}}});
+    identity.fill("submit_question", &mut question).unwrap();
+    assert_eq!(question["update"]["interpretation"]["answer"], "chosen");
+
+    let mut none = json!({"interpretation": null});
+    identity.fill("submit_conclusion", &mut none).unwrap();
+    assert_eq!(none["interpretation"], Value::Null);
+}

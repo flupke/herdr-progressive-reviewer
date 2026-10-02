@@ -1,0 +1,80 @@
+{
+  "action": "reply",
+  "turn": 1,
+  "tool": "submit_question",
+  "arguments": {
+    "update": {
+      "interpretation": null,
+      "reply": {
+        "text": "Map: notes, a sample and a math module.",
+        "evidence": []
+      },
+      "topics": [
+        {
+          "id": "math",
+          "title": "Math helpers",
+          "entries": [
+            {
+              "path": "src/math.rs",
+              "side": "new",
+              "lines": null
+            }
+          ],
+          "status": "open"
+        }
+      ],
+      "next": {
+        "id": "q1",
+        "version": 1,
+        "topic": "math",
+        "text": "Should the new math helpers saturate on overflow?",
+        "rationale": "The change adds helpers in src/math.rs.",
+        "visual": null,
+        "alternatives": [
+          {
+            "id": "keep",
+            "text": "Keep as written",
+            "outcome": "accepted"
+          },
+          {
+            "id": "saturate",
+            "text": "Saturate",
+            "outcome": "needs_follow_up"
+          }
+        ],
+        "evidence": [
+          {
+            "path": "src/math.rs",
+            "side": "new",
+            "lines": {
+              "first_line": 1,
+              "last_line": 3
+            },
+            "notes": "The helper under question."
+          }
+        ]
+      },
+      "conclusion": null,
+      "limitations": [],
+      "findings": [],
+      "not_relevant": [
+        {
+          "path": "notes.md",
+          "side": "new",
+          "lines": {
+            "first_line": 1,
+            "last_line": 5
+          }
+        },
+        {
+          "path": "sample.rs",
+          "side": "new",
+          "lines": {
+            "first_line": 1,
+            "last_line": 1
+          }
+        }
+      ]
+    }
+  }
+}

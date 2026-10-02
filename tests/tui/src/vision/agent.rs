@@ -133,6 +133,8 @@ struct Identity {
     round: Value,
     request: Value,
     checkpoint: Value,
+    /// The answer the turn brought, null on a kickoff.
+    answer: Value,
 }
 
 impl Identity {
@@ -154,11 +156,13 @@ impl Identity {
             round: turn["round"].clone(),
             request: turn["request"].clone(),
             checkpoint: turn["checkpoint"].clone(),
+            answer: turn["answer"]["id"].clone(),
         })
     }
 
     /// Give `arguments` this identity where they leave it out: the access
-    /// value, and the turn fields where `tool` takes them.
+    /// value, the turn fields where `tool` takes them, and the answer an
+    /// interpretation is about.
     fn fill(&self, tool: &str, arguments: &mut Value) -> Result<()> {
         let object = arguments
             .as_object_mut()
@@ -189,6 +193,14 @@ impl Identity {
         fields
             .entry("checkpoint")
             .or_insert_with(|| self.checkpoint.clone());
+        if let Some(interpretation) = fields
+            .get_mut("interpretation")
+            .and_then(Value::as_object_mut)
+        {
+            interpretation
+                .entry("answer")
+                .or_insert_with(|| self.answer.clone());
+        }
     }
 }
 

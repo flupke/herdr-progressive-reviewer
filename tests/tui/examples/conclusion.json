@@ -1,0 +1,15 @@
+{
+  "action": "reply",
+  "turn": 2,
+  "tool": "submit_conclusion",
+  "arguments": {
+    "interpretation": {
+      "status": "accepted",
+      "recap": "Recorded: keep as written.",
+      "follow_ups": []
+    },
+    "summary": "**Outcome.** The helpers stay as written.\n\n- `add` keeps wrapping\n- no follow-up",
+    "to_be_implemented": "",
+    "future_work": "Consider *saturating* variants."
+  }
+}

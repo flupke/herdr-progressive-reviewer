@@ -87,7 +87,8 @@ tests/tui/vision-send $DIR '{"action":"click","text":"notes.md"}'
 `tests/tui/vision-send` writes one command to the pipe, waits for the driver's
 answer and prints its status, any error, `reply` or turn, and the screen text;
 `VISION_RAW=1` prints the answer's JSON. Use it instead of writing to the pipe
-and reading the log by hand.
+and reading the log by hand. A command starting with `@` is read from that
+file, which may span several lines: `vision-send $DIR @tests/tui/examples/question.json`.
 
 Send `stop` when the exploration is done: it closes the live viewer and frees
 the private server. A driver left behind stops by itself after 30 minutes
@@ -109,7 +110,7 @@ forever. An idle stop answers with `"reason": "idle"`.
 {"action":"note","kind":"checked","text":"Help closes with Escape and restores the diff"}
 {"action":"jev","path":"src/math.rs","lines":[2]}
 {"action":"turn","timeout_ms":15000}
-{"action":"reply","turn":1,"tool":"submit_question","arguments":{"update":{"next":{}}}}
+{"action":"reply","turn":1,"tool":"submit_question","arguments":{"update":{...}}}
 {"action":"reopen"}
 {"action":"stop"}
 ```
@@ -151,11 +152,34 @@ prompt `text`. Each call returns the turn after the last one it returned;
 `after` asks from another number. `reply` answers a turn by calling an MCP tool
 on the reviewer's real endpoint as that agent: it fills in the turn's access and
 the `instance`, `request` and `checkpoint` (inside `update` for
-`submit_question`) unless `arguments` sets them, and returns the tool result as
+`submit_question`) unless `arguments` sets them, gives an `interpretation`
+without an `answer` the answer the turn brought, and returns the tool result as
 `reply` beside the screen. It refuses a `turn` that is not the latest, so a
 script cannot answer a prompt the reviewer has replaced. `arguments` that bring
 their own `review` value are sent as they are, to check how the reviewer itself
 rejects a late or misplaced turn.
+
+A whole Explore round, from the examples in `tests/tui/examples`. The tools
+reject unknown and missing fields, so start from these files:
+
+```sh
+send() { tests/tui/vision-send "$DIR" "$@"; }
+send '{"action":"click","text":"Explore"}'
+send '{"action":"press","key":"s"}'                # Start
+send '{"action":"turn","timeout_ms":15000}'        # the kickoff, turn 1
+send @tests/tui/examples/question.json             # the agent asks
+send '{"action":"wait","text":"Question 1"}'
+send '{"action":"press","key":"1"}'                # choose the first option
+send '{"action":"press","key":"ctrl+enter"}'       # send the answer
+send '{"action":"turn","timeout_ms":15000}'        # the wakeup, turn 2
+send @tests/tui/examples/conclusion.json           # the agent concludes
+send '{"action":"wait","text":"To be implemented"}'
+```
+
+Keys are named as Herdr names them (`ctrl+enter`, `PageDown`, `Escape`, `Tab`);
+a name Herdr does not know is typed as text. A button is clicked by its label
+when no other text on the screen contains it, by coordinates otherwise.
+
 `reopen` starts
 the reviewer again in the same private workspace and state, at its initial
 100×30 size. `stop`, SIGINT, SIGHUP, and SIGTERM clean up the reviewer, private

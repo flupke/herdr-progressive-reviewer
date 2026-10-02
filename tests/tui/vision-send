@@ -2,6 +2,9 @@
 # Send one command to a running `make vision` driver and print its answer.
 #
 #   vision-send DIR '{"action":"click","text":"Explore"}'
+#   vision-send DIR @tests/tui/examples/question.json
+#
+# `@FILE` sends the JSON command in FILE, which may span several lines.
 #
 # DIR holds the driver's command pipe (`cmd`) and its output log (`out.log`),
 # as started by:
@@ -13,6 +16,9 @@
 set -eu
 directory=$1
 command=$2
+case $command in
+@*) command=$(jq -c . "${command#@}") ;;
+esac
 log=$directory/out.log
 waited=0
 # Wait up to 40 s for the shell test $1 to hold; $2 says what is missing.

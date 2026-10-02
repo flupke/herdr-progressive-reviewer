@@ -29,9 +29,10 @@ For each small feature:
 3. For a change the user can see, explore the affected paths in the real UI
    with `make vision` (see `docs/development.md#llm-directed-exploration`) and
    fix what it finds.
-4. Run `$code-review` against the fixed point. Fix its findings and repeat the
-   review until it passes. Follow the skill's repair-loop limit and report any
-   findings that remain when the limit is reached.
+4. Invoke the `code-review` skill against the fixed point; the subagents it
+   starts are authorized. Fix its findings and repeat the review until it
+   passes. Follow the skill's repair-loop limit and report any findings that
+   remain when the limit is reached.
 5. After the review passes, describe the change with `jj describe`: a plain
    imperative subject, then what changed for the user and why.
 6. Run `make install`, unless the user deferred installing; say so when you
