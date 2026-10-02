@@ -218,7 +218,7 @@ impl ExploreComponent {
             Self::question_sections(question, layout, palette);
             self.evidence_block(index, layout, diff, palette);
             // Last on the page: expanded, the list can be long.
-            self.opening_marks(index, layout, palette);
+            self.question_marks(index, layout, palette);
         }
         if self.map {
             self.render_map(layout, palette);
@@ -352,21 +352,25 @@ impl ExploreComponent {
         self.agent_reply(answer, layout, palette);
     }
 
-    /// What the turn after `answer` marked: see [`Self::turn_marks`].
+    /// What `answer` applied: the marks of the question it answered, then
+    /// those of a conclusion after it. See [`Self::turn_marks`].
     fn answer_marks(
         &self,
         answer: &review_explore::ReviewerAnswer,
         layout: &mut ConversationLayout,
         palette: Palette,
     ) {
-        let turn = self.exploration.as_ref().and_then(|exploration| {
-            exploration
-                .conversation
-                .iter()
-                .position(|turn| turn.answer.as_ref() == Some(&answer.id))
-        });
-        if let Some(turn) = turn {
-            self.turn_marks(turn, layout, palette);
+        let Some(exploration) = &self.exploration else {
+            return;
+        };
+        for (position, turn) in exploration.conversation.iter().enumerate() {
+            let applied = self
+                .marks
+                .get(&turn.update.request)
+                .is_some_and(|marks| marks.answer.as_ref() == Some(&answer.id));
+            if applied {
+                self.turn_marks(position, layout, palette);
+            }
         }
     }
 
@@ -386,7 +390,7 @@ impl ExploreComponent {
         else {
             return;
         };
-        let summary = marks_summary(marks.counts());
+        let summary = marks_summary(marks.counts(), MarkTense::Applied);
         if summary.is_empty() && marks.problem.is_none() {
             return;
         }
@@ -396,7 +400,13 @@ impl ExploreComponent {
             let arrow = if expanded { "▾" } else { "▸" };
             layout.controls([(format!("{arrow} {summary}"), Control::Marks(index))]);
             if expanded {
-                Self::marked_lines(marks, layout, palette);
+                Self::marked_lines(
+                    &marks.reviewed,
+                    &marks.not_relevant,
+                    marks.reopened.iter().map(|reopened| &reopened.location),
+                    layout,
+                    palette,
+                );
             }
         }
         if let Some(problem) = &marks.problem {
@@ -408,20 +418,60 @@ impl ExploreComponent {
         }
     }
 
-    /// The lines a turn's marks changed, one per row.
-    fn marked_lines(
-        marks: &review_explore::TurnMarks,
+    /// What the unanswered question of conversation turn `index` will mark
+    /// once the reviewer answers it: a line to expand into the lines.
+    pub(super) fn pending_marks(
+        &self,
+        index: usize,
         layout: &mut ConversationLayout,
         palette: Palette,
     ) {
-        for location in &marks.reviewed {
+        let Some(update) = self
+            .exploration
+            .as_ref()
+            .and_then(|exploration| exploration.conversation.get(index))
+            .map(|turn| &turn.update)
+        else {
+            return;
+        };
+        let summary = marks_summary(update.requested_marks(), MarkTense::Pending);
+        if summary.is_empty() {
+            return;
+        }
+        layout.gap();
+        let expanded = self.expanded_marks.contains(&update.request);
+        let arrow = if expanded { "▾" } else { "▸" };
+        layout.controls([(
+            format!("{arrow} {summary} when you answer"),
+            Control::Marks(index),
+        )]);
+        if expanded {
+            Self::marked_lines(
+                &update.reviewed,
+                &update.not_relevant,
+                &update.reopened,
+                layout,
+                palette,
+            );
+        }
+    }
+
+    /// The lines a turn's marks change, one per row.
+    fn marked_lines<'a>(
+        reviewed: &[review_explore::CodeLocation],
+        not_relevant: &[review_explore::CodeLocation],
+        reopened: impl IntoIterator<Item = &'a review_explore::CodeLocation>,
+        layout: &mut ConversationLayout,
+        palette: Palette,
+    ) {
+        for location in reviewed {
             layout.text(format!("  ✓ {location}"), palette.dim, None);
         }
-        for location in &marks.not_relevant {
+        for location in not_relevant {
             layout.text(format!("  – {location} (not relevant)"), palette.dim, None);
         }
-        for reopened in &marks.reopened {
-            layout.text(format!("  ↺ {}", reopened.location), palette.dim, None);
+        for location in reopened {
+            layout.text(format!("  ↺ {location}"), palette.dim, None);
         }
     }
 
@@ -525,9 +575,20 @@ impl ExploreComponent {
     }
 }
 
+/// Whether a summary tells what marks changed or what they will change.
+#[derive(Clone, Copy)]
+enum MarkTense {
+    Applied,
+    Pending,
+}
+
 /// "Marked 4 lines reviewed · 30 lines not relevant · reopened 1 line",
-/// naming only what changed.
-fn marks_summary(counts: review_explore::MarkCounts) -> String {
+/// naming only what changed; "Will mark … · reopen 1 line" before it did.
+fn marks_summary(counts: review_explore::MarkCounts, tense: MarkTense) -> String {
+    let (mark, reopen, reopen_also) = match tense {
+        MarkTense::Applied => ("Marked", "Reopened", "reopened"),
+        MarkTense::Pending => ("Will mark", "Will reopen", "reopen"),
+    };
     let amount = |lines: u32, files: u32| {
         let plural = |count: u32, one: &str, many: &str| {
             format!("{count} {}", if count == 1 { one } else { many })
@@ -547,18 +608,22 @@ fn marks_summary(counts: review_explore::MarkCounts) -> String {
     let parts = [
         amount(counts.reviewed_lines, counts.reviewed_files).map(|amount| {
             (
-                format!("Marked {amount} reviewed"),
+                format!("{mark} {amount} reviewed"),
                 format!("{amount} reviewed"),
             )
         }),
         amount(counts.not_relevant_lines, counts.not_relevant_files).map(|amount| {
             (
-                format!("Marked {amount} not relevant"),
+                format!("{mark} {amount} not relevant"),
                 format!("{amount} not relevant"),
             )
         }),
-        amount(counts.reopened_lines, counts.reopened_files)
-            .map(|amount| (format!("Reopened {amount}"), format!("reopened {amount}"))),
+        amount(counts.reopened_lines, counts.reopened_files).map(|amount| {
+            (
+                format!("{reopen} {amount}"),
+                format!("{reopen_also} {amount}"),
+            )
+        }),
     ];
     let mut summary = String::new();
     for (opening, continuing) in parts.into_iter().flatten() {

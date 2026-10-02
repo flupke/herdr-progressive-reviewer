@@ -9,8 +9,9 @@ pub struct CancelledAnswer {
     pub answer: ReviewerAnswer,
     /// The request that carried the answer to the agent.
     pub request: Option<String>,
-    /// The review marks the agent's turn after the answer changed.
-    pub marks: Option<TurnMarks>,
+    /// The review marks the answer applied, latest first: those of a
+    /// conclusion after it, then those of the question it answered.
+    pub marks: Vec<TurnMarks>,
 }
 
 impl Exploration {
@@ -57,7 +58,7 @@ impl Exploration {
         Ok(CancelledAnswer {
             answer,
             request,
-            marks: None,
+            marks: Vec::new(),
         })
     }
 
@@ -98,9 +99,7 @@ impl ExploreRound {
         requests.extend(cancelled.request.clone());
         for request in &requests {
             self.turns.remove(request);
-            if let Some(marks) = self.marks.remove(request) {
-                cancelled.marks = Some(marks);
-            }
+            cancelled.marks.extend(self.marks.remove(request));
             self.exploration.agent_elapsed_ms.remove(request);
             if self
                 .completion
@@ -109,6 +108,15 @@ impl ExploreRound {
             {
                 self.completion = None;
             }
+        }
+        // The marks of the question the answer answered, which it applied.
+        let question = &cancelled.answer.in_reply_to;
+        if self
+            .marks
+            .get(question)
+            .is_some_and(|marks| marks.answer.as_deref() == Some(id))
+        {
+            cancelled.marks.extend(self.marks.remove(question));
         }
         Ok(cancelled)
     }

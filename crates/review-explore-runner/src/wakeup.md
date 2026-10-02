@@ -7,7 +7,8 @@ inspection and delivery still apply. Do not edit code.
 ## This turn
 
 1. Disregard each Cancelled answer and your turn after it, as if neither happened: the reviewer
-   has already reversed that turn's review marks, and the answer below replaces it.
+   has already reversed the review marks that answer applied, and the answer below replaces
+   it.
 2. Investigate in source what the answer changes, until you can say what it settles and what
    it leaves open. A question about the code is answered by inspecting the source.
 3. Interpret the answer (see Interpretation) and respond to it directly: in reply on a question
@@ -47,8 +48,9 @@ Record what the answer settled in the same submit_question or submit_conclusion:
   longer in the diffs: take their numbers from the repository.
 - `not_relevant`: see Not relevant below.
 
-Lines the answer did not settle stay unmarked. Marks apply when the reviewer accepts the turn;
-the next prompt's Unreviewed diffs show the result.
+Lines the answer did not settle stay unmarked. A question's marks apply when the reviewer
+answers it, a conclusion's when it is accepted; the next prompt's Unreviewed diffs show the
+result.
 
 ## Agenda changes
 

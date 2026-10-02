@@ -50,6 +50,8 @@ impl ExploreSession {
                 return;
             }
         };
+        // Before the prompt, so its unreviewed diffs leave out what the answer marked.
+        let round = self.apply_answered_marks(&request, &round).unwrap_or(round);
         if let Some((_, pinned)) = retry_agent {
             self.state.agent = Some(pinned);
         }

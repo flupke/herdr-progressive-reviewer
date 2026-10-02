@@ -266,8 +266,10 @@ answer settled, and `reopened`, reviewed lines it made matter again, each as
 `{path, side, lines}` (null lines for a whole file). The kickoff turn follows no
 answer and cannot use them. Every turn, the kickoff included, may carry `not_relevant`
 in the same form: changed lines the agent read that hold no decision for the reviewer,
-marked reviewed at once. The reviewer applies them once the turn is accepted, only while the code is
-still the round's checkpoint, and records what changed for the reviewer to see.
+marked reviewed without a question of their own. The reviewer applies a question turn's marks when
+the human answers that question, so review progress moves on the human's action, and a conclusion's
+marks when it is accepted. Marks apply only while the code is still the round's checkpoint, and
+what changed is recorded for the reviewer to see.
 
 Explore displays Markdown `#` sections for Context (`rationale`, with `visual` appended),
 Door and Blast radius (`assessments`), and Notes (the selected evidence's `notes`).

@@ -1,5 +1,6 @@
-//! Cancelling the reviewer's latest answer: its turn's review marks are given
-//! back, then the saved round forgets the answer and the agent's turn after it.
+//! Cancelling the reviewer's latest answer: the review marks it applied are
+//! given back, then the saved round forgets the answer and the agent's turn
+//! after it.
 
 use std::sync::Arc;
 
@@ -36,13 +37,13 @@ impl ExploreSession {
             .ok_or_else(|| eyre::eyre!("Saved Explore round is missing"))?;
         // Refuse against the saved round before touching review marks.
         let cancelled = round.clone().cancel_answer(answer)?;
-        if let Some(marks) = &cancelled.marks
-            && let Some(problem) = self.unmark(&round, answer, marks)?
-        {
-            let _ = self.events.send(ui_events::ToastRequested {
-                text: format!("Cancelled answer: {problem}"),
-                kind: toasts::ToastKind::Error,
-            });
+        for marks in &cancelled.marks {
+            if let Some(problem) = self.unmark(&round, answer, marks)? {
+                let _ = self.events.send(ui_events::ToastRequested {
+                    text: format!("Cancelled answer: {problem}"),
+                    kind: toasts::ToastKind::Error,
+                });
+            }
         }
         let checkpoint = &round.exploration.comparison.checkpoint;
         let updated = self.rounds.update(

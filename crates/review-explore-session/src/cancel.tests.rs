@@ -177,3 +177,41 @@ fn lines_found_not_relevant_after_an_answer_carry_that_answers_author() {
     assert!(marks.reviewed.is_empty());
     assert_eq!(harness.author(), Some(MarkAuthor::Explore { answer }));
 }
+
+#[test]
+fn cancelling_an_answer_gives_back_the_marks_of_the_question_it_answered() {
+    let mut harness = Harness::start();
+    harness.capture();
+    let first = harness.request(None);
+    let access = harness.turn(&first);
+    let Operation::SubmitQuestion(mut update) = question(&first, 1) else {
+        unreachable!("a question");
+    };
+    update.not_relevant = vec![
+        serde_json::from_value(serde_json::json!({
+            "path": "reviewed.rs", "side": "new", "lines": null
+        }))
+        .unwrap(),
+    ];
+    assert!(applied(
+        harness.submit(&access, Operation::SubmitQuestion(update))
+    ));
+    let (request, _) = harness.answer("Keep it.");
+    let answer = request.answer.unwrap().id;
+    assert_eq!(
+        harness.author(),
+        Some(MarkAuthor::Explore {
+            answer: answer.clone()
+        })
+    );
+
+    let round = harness.cancel(&answer).unwrap();
+
+    assert_eq!(harness.author(), None);
+    assert!(round.marks.is_empty());
+
+    // Answering again applies them again, as the new answer.
+    let (replacement, _) = harness.answer("Keep it, with a test.");
+    let answer = replacement.answer.unwrap().id;
+    assert_eq!(harness.author(), Some(MarkAuthor::Explore { answer }));
+}

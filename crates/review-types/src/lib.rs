@@ -64,7 +64,7 @@ pub enum MarkAuthor {
     Jev,
     /// An Explore agent, marking the lines one answer settled.
     Explore {
-        /// The answer the marks follow.
+        /// The answer that applied the marks.
         answer: String,
     },
     /// An Explore agent, marking lines it read and found to hold no decision

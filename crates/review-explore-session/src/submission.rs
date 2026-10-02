@@ -50,7 +50,7 @@ impl ExploreSession {
             }
         };
         let round = if applied {
-            self.apply_marks(update, &round).unwrap_or(round)
+            self.apply_conclusion_marks(update, &round).unwrap_or(round)
         } else {
             round
         };

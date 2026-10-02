@@ -86,10 +86,11 @@ impl ExploreComponent {
         }
     }
 
-    /// The marks of the turn that asked question `index` without following an
-    /// answer, as the kickoff does. A turn after an answer shows its marks
-    /// below that answer.
-    pub(super) fn opening_marks(
+    /// The marks the turn asking question `index` holds until the reviewer
+    /// answers it; once answered, they show below the answer that applied
+    /// them. Marks no answer applied, from rounds saved before marks waited
+    /// for an answer, show here too.
+    pub(super) fn question_marks(
         &self,
         index: usize,
         layout: &mut ConversationLayout,
@@ -97,10 +98,25 @@ impl ExploreComponent {
     ) {
         let exploration = self.exploration.as_ref().expect("question exploration");
         for (position, turn) in exploration.conversation.iter().enumerate() {
-            if turn.answer.is_none()
-                && turn.update.next.as_ref() == exploration.questions.get(index)
-            {
-                self.turn_marks(position, layout, palette);
+            if turn.update.next.as_ref() != exploration.questions.get(index) {
+                continue;
+            }
+            let request = &turn.update.request;
+            match self.marks.get(request) {
+                Some(marks) if marks.answer.is_none() => {
+                    self.turn_marks(position, layout, palette);
+                }
+                Some(_) => {}
+                None => {
+                    let answered = exploration
+                        .answers
+                        .iter()
+                        .any(|answer| &answer.in_reply_to == request);
+                    // A round from history takes no answer, so nothing is pending.
+                    if !answered && !self.durable.historical {
+                        self.pending_marks(position, layout, palette);
+                    }
+                }
             }
         }
     }

@@ -29,7 +29,7 @@ fn answer() -> ReviewerAnswer {
         id: "answer".into(),
         checkpoint: ReviewCheckpoint::new("review", "checkpoint"),
         question: None,
-        in_reply_to: "turn".into(),
+        in_reply_to: "kickoff".into(),
         option: None,
         text: "Keep it.".into(),
         author: "reviewer".into(),
@@ -90,10 +90,16 @@ fn an_answers_marks_show_below_it_and_expand_to_their_lines() {
     exploration
         .conversation
         .push(turn("request", Some("answer")));
+    let mut unanswered = turn("unanswered", Some("answer"));
+    unanswered.update.not_relevant = vec![at(SourceSide::New, 50, 52)];
+    unanswered.update.reopened = vec![at(SourceSide::New, 9, 9)];
+    exploration.conversation.push(unanswered);
     component.exploration = Some(exploration);
+    // The answer applied the marks of the question it answered.
     component.marks.insert(
         "kickoff".into(),
         TurnMarks {
+            answer: Some("answer".into()),
             not_relevant: vec![at(SourceSide::New, 20, 29)],
             ..TurnMarks::default()
         },
@@ -120,7 +126,10 @@ fn an_answers_marks_show_below_it_and_expand_to_their_lines() {
 
     assert_eq!(
         layout(component),
-        ["[▸ Marked 4 lines reviewed · 2 lines not relevant · reopened 1 line]"]
+        [
+            "[▸ Marked 10 lines not relevant]",
+            "[▸ Marked 4 lines reviewed · 2 lines not relevant · reopened 1 line]"
+        ]
     );
 
     component.toggle_marks(1);
@@ -128,6 +137,7 @@ fn an_answers_marks_show_below_it_and_expand_to_their_lines() {
     assert_eq!(
         layout(component),
         [
+            "[▸ Marked 10 lines not relevant]",
             "[▾ Marked 4 lines reviewed · 2 lines not relevant · reopened 1 line]",
             "  ✓ src/lib.rs new 3-5",
             "  ✓ src/lib.rs old 2",
@@ -136,14 +146,32 @@ fn an_answers_marks_show_below_it_and_expand_to_their_lines() {
         ]
     );
 
-    // The kickoff follows no answer: its marks close the page of what it asked.
-    let mut kickoff = ConversationLayout::new(Rect::new(0, 0, 80, 40));
-    component.opening_marks(0, &mut kickoff, palette);
-    assert_eq!(rows(&kickoff), ["[▸ Marked 10 lines not relevant]"]);
+    // A question nobody answered yet holds its marks, at the end of its page.
+    let pending = |component: &ExploreComponent| {
+        let mut layout = ConversationLayout::new(Rect::new(0, 0, 80, 40));
+        component.question_marks(0, &mut layout, palette);
+        rows(&layout)
+    };
+    assert_eq!(
+        pending(component),
+        ["[▸ Will mark 3 lines not relevant · reopen 1 line when you answer]"]
+    );
+
+    component.toggle_marks(2);
+
+    assert_eq!(
+        pending(component),
+        [
+            "[▾ Will mark 3 lines not relevant · reopen 1 line when you answer]",
+            "  – src/lib.rs new 50-52 (not relevant)",
+            "  ↺ src/lib.rs new 9",
+        ]
+    );
 }
 
 #[test]
 fn a_summary_names_only_what_changed() {
+    use super::MarkTense::Applied;
     let counts = |reviewed_lines, reviewed_files, reopened_lines| review_explore::MarkCounts {
         reviewed_lines,
         reviewed_files,
@@ -151,10 +179,13 @@ fn a_summary_names_only_what_changed() {
         ..review_explore::MarkCounts::default()
     };
 
-    assert_eq!(super::marks_summary(counts(0, 0, 0)), "");
-    assert_eq!(super::marks_summary(counts(0, 0, 2)), "Reopened 2 lines");
+    assert_eq!(super::marks_summary(counts(0, 0, 0), Applied), "");
     assert_eq!(
-        super::marks_summary(counts(3, 1, 0)),
+        super::marks_summary(counts(0, 0, 2), Applied),
+        "Reopened 2 lines"
+    );
+    assert_eq!(
+        super::marks_summary(counts(3, 1, 0), Applied),
         "Marked 3 lines and 1 whole file reviewed"
     );
     let not_relevant = review_explore::MarkCounts {
@@ -163,7 +194,11 @@ fn a_summary_names_only_what_changed() {
         ..counts(0, 0, 2)
     };
     assert_eq!(
-        super::marks_summary(not_relevant),
+        super::marks_summary(not_relevant, Applied),
         "Marked 5 lines and 1 whole file not relevant · reopened 2 lines"
+    );
+    assert_eq!(
+        super::marks_summary(not_relevant, super::MarkTense::Pending),
+        "Will mark 5 lines and 1 whole file not relevant · reopen 2 lines"
     );
 }

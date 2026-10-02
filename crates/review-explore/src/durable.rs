@@ -142,7 +142,8 @@ pub struct ExploreRound {
 /// The review marks one agent turn changed.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
 pub struct TurnMarks {
-    /// The answer the marks follow; the kickoff turn follows none.
+    /// The answer that applied the marks: the one a question turn got, or the
+    /// one a conclusion follows. A conclusion that opens the round has none.
     pub answer: Option<String>,
     /// The lines an answer settled, marked reviewed, as they were applied.
     pub reviewed: Vec<crate::CodeLocation>,
@@ -176,27 +177,67 @@ pub struct MarkCounts {
     pub reopened_files: u32,
 }
 
+impl InterviewUpdate {
+    /// Whether the turn asks for review marks.
+    pub fn requests_marks(&self) -> bool {
+        !(self.reviewed.is_empty() && self.reopened.is_empty() && self.not_relevant.is_empty())
+    }
+
+    /// How much the turn asks to mark, before any of it is applied.
+    pub fn requested_marks(&self) -> MarkCounts {
+        let mut counts = MarkCounts::default();
+        MarkCounts::add(
+            &self.reviewed,
+            &mut counts.reviewed_lines,
+            &mut counts.reviewed_files,
+        );
+        MarkCounts::add(
+            &self.not_relevant,
+            &mut counts.not_relevant_lines,
+            &mut counts.not_relevant_files,
+        );
+        MarkCounts::add(
+            &self.reopened,
+            &mut counts.reopened_lines,
+            &mut counts.reopened_files,
+        );
+        counts
+    }
+}
+
+impl MarkCounts {
+    fn add<'a>(
+        locations: impl IntoIterator<Item = &'a crate::CodeLocation>,
+        lines: &mut u32,
+        files: &mut u32,
+    ) {
+        for location in locations {
+            match &location.lines {
+                Some(range) => *lines += range.count(),
+                None => *files += 1,
+            }
+        }
+    }
+}
+
 impl TurnMarks {
     pub fn counts(&self) -> MarkCounts {
         let mut counts = MarkCounts::default();
-        for location in &self.reviewed {
-            match &location.lines {
-                Some(lines) => counts.reviewed_lines += lines.count(),
-                None => counts.reviewed_files += 1,
-            }
-        }
-        for location in &self.not_relevant {
-            match &location.lines {
-                Some(lines) => counts.not_relevant_lines += lines.count(),
-                None => counts.not_relevant_files += 1,
-            }
-        }
-        for reopened in &self.reopened {
-            match &reopened.location.lines {
-                Some(lines) => counts.reopened_lines += lines.count(),
-                None => counts.reopened_files += 1,
-            }
-        }
+        MarkCounts::add(
+            &self.reviewed,
+            &mut counts.reviewed_lines,
+            &mut counts.reviewed_files,
+        );
+        MarkCounts::add(
+            &self.not_relevant,
+            &mut counts.not_relevant_lines,
+            &mut counts.not_relevant_files,
+        );
+        MarkCounts::add(
+            self.reopened.iter().map(|reopened| &reopened.location),
+            &mut counts.reopened_lines,
+            &mut counts.reopened_files,
+        );
         counts
     }
 }

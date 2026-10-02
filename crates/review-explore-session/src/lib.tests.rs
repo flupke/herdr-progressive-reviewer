@@ -601,7 +601,7 @@ fn a_prompt_whose_diffs_cannot_be_written_is_not_sent_and_says_why() {
 }
 
 #[test]
-fn lines_the_agent_finds_not_relevant_are_marked_at_once_on_any_turn() {
+fn a_questions_marks_wait_for_its_answer() {
     let mut harness = Harness::start();
     harness.capture();
     let first = harness.request(None);
@@ -615,26 +615,30 @@ fn lines_the_agent_finds_not_relevant_are_marked_at_once_on_any_turn() {
         }))
         .unwrap(),
     ];
+    let marked =
+        |harness: &Harness| match harness.store.load(&harness.unit, b"reviewed.rs").unwrap() {
+            review_store::LoadResult::Reviewed(record) => Some(record.author),
+            _ => None,
+        };
 
-    // The kickoff follows no answer, yet may mark what holds no decision.
     assert!(applied(
         harness.submit(&access, Operation::SubmitQuestion(update))
     ));
 
+    // Accepting the question marks nothing: progress moves when the reviewer answers.
+    assert!(harness.saved().marks.is_empty());
+    assert_eq!(marked(&harness), None);
+
+    let (request, _) = harness.answer("Keep it.");
+
+    let answer = request.answer.unwrap().id;
     let saved = harness.saved();
     let marks = &saved.marks[&first.request];
-    assert_eq!(marks.answer, None);
+    assert_eq!(marks.answer.as_ref(), Some(&answer));
     assert_eq!(marks.counts().not_relevant_lines, 1);
     assert!(marks.reviewed.is_empty());
-    let review_store::LoadResult::Reviewed(record) =
-        harness.store.load(&harness.unit, b"reviewed.rs").unwrap()
-    else {
-        panic!("the file was marked");
-    };
     assert_eq!(
-        record.author,
-        review_types::MarkAuthor::ExploreRead {
-            request: first.request.clone()
-        }
+        marked(&harness),
+        Some(review_types::MarkAuthor::Explore { answer })
     );
 }

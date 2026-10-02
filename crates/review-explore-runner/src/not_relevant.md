@@ -2,8 +2,8 @@
 
 On every turn, the first included, list in `not_relevant` the rows of this prompt's Unreviewed
 diffs that you read and that hold no decision for the reviewer, with the line numbers the
-diffs show. They are marked reviewed at once, without a question, so the reviewer's attention
-goes to what is left. Use it, at your discretion, for:
+diffs show. They are marked reviewed without a question of their own, so the reviewer's
+attention goes to what is left. Use it, at your discretion, for:
 
 - removed code whose removal is what the change is for;
 - mechanics that are right or wrong rather than a choice, and that tests you found cover;

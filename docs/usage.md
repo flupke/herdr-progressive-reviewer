@@ -175,14 +175,17 @@ ordinary threads.
 After each answer, the agent marks the changed lines your answer settled as reviewed,
 and can reopen reviewed lines your answer made matter again, whoever marked them. These
 are ordinary review marks: Files, the diff and the header progress show them, and you
-can reopen or mark hunks yourself as usual. Below your answer, the agent's next turn
-shows what it marked and reopened. On any turn, the first included, the agent can also mark
-lines it read and found **not relevant**: lines that hold no decision for you, such as
-removed code the change is about removing, mechanics that tests cover, and tests, docs and
-manifests that follow the code. They are marked reviewed at once and listed in the same
-recap as "not relevant"; reopen them in Files if you disagree. The first turn follows no
-answer, so its recap closes the first question's page, after the evidence. Cancelling an answer also
-gives back what its turn found not relevant. Marks apply only while the code is still the
+can reopen or mark hunks yourself as usual. On any turn, the first included, the agent can
+also mark lines it read and found **not relevant**: lines that hold no decision for you,
+such as removed code the change is about removing, mechanics that tests cover, and tests,
+docs and manifests that follow the code; reopen them in Files if you disagree.
+
+Review progress moves when you act. The marks that come with a question wait until you
+answer it: until then the end of the question's page, after the evidence, says what it
+"Will mark … when you answer", expandable to the lines. Once you answer, they are applied
+and the recap moves below your answer. So the lines an answer settled are marked when you
+answer the next question, or at once when the agent concludes instead. Cancelling an
+answer gives back everything it applied. Marks apply only while the code is still the
 checkpoint the round started from. Every prompt points the agent at its remaining
 **Unreviewed lines**, the changed lines no review mark covers, including your own marks
 from Files: a private temporary directory holds them as one diff per file, named like the

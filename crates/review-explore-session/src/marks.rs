@@ -1,11 +1,12 @@
 //! Review marks an agent turn asks for: the lines an answer settled, the
 //! reviewed lines it made matter again, and the lines the agent read and
-//! found to hold no decision.
+//! found to hold no decision. A question's marks wait for its answer; a
+//! conclusion's apply when it is accepted.
 
 use std::ops::Range;
 
 use review_explore::{
-    CodeLocation, ExploreRound, InterviewUpdate, ReopenedLines, SourceSide, TurnMarks,
+    CodeLocation, ExploreRound, InterviewUpdate, ReopenedLines, SourceSide, TurnMarks, TurnRequest,
 };
 use review_hunks::{LineSelection, ReviewedLines};
 use review_repository::repository::{ChangedFile, PollResult, Snapshot};
@@ -105,19 +106,38 @@ impl FileChange {
 }
 
 impl ExploreSession {
-    /// Apply the marks an accepted turn asked for, and record what changed;
-    /// the round with that record, or `None` when the turn asked for none.
-    pub(crate) fn apply_marks(
+    /// Apply the marks of the question `request` answers, now that the
+    /// reviewer answered it: review progress moves on the reviewer's action.
+    /// The round with the record of what changed, or `None` when there is
+    /// nothing to apply or the answer already applied it.
+    pub(crate) fn apply_answered_marks(
+        &mut self,
+        request: &TurnRequest,
+        round: &ExploreRound,
+    ) -> Option<ExploreRound> {
+        let answer = request.answer.as_ref()?;
+        if round.marks.contains_key(&answer.in_reply_to) {
+            return None;
+        }
+        let update = &round
+            .exploration
+            .conversation
+            .iter()
+            .find(|turn| turn.update.request == answer.in_reply_to)?
+            .update;
+        // A conclusion's marks were applied when it was accepted.
+        update.next.as_ref()?;
+        self.apply_marks(update, round, Some(answer.id.clone()))
+    }
+
+    /// Apply the marks of an accepted conclusion at once, as the answer it
+    /// follows.
+    pub(crate) fn apply_conclusion_marks(
         &mut self,
         update: &InterviewUpdate,
         round: &ExploreRound,
     ) -> Option<ExploreRound> {
-        if update.reviewed.is_empty()
-            && update.reopened.is_empty()
-            && update.not_relevant.is_empty()
-        {
-            return None;
-        }
+        update.conclusion.as_ref()?;
         let answer = round
             .turns
             .get(&update.request)?
@@ -125,6 +145,20 @@ impl ExploreSession {
             .answer
             .as_ref()
             .map(|answer| answer.id.clone());
+        self.apply_marks(update, round, answer)
+    }
+
+    /// Apply the marks a turn asked for as `answer`, and record what changed;
+    /// the round with that record, or `None` when the turn asked for none.
+    fn apply_marks(
+        &mut self,
+        update: &InterviewUpdate,
+        round: &ExploreRound,
+        answer: Option<String>,
+    ) -> Option<ExploreRound> {
+        if !update.requests_marks() {
+            return None;
+        }
         let marks = match self.marked_snapshot(round) {
             Ok(snapshot) => self.mark(&snapshot, update, answer),
             Err(problem) => TurnMarks {
@@ -174,10 +208,11 @@ impl ExploreSession {
         Ok(snapshot)
     }
 
-    /// Apply a turn's marks: first what its answer settled and reopened, then
-    /// the lines the agent found not relevant. All carry the answer's author,
-    /// so cancelling the answer gives them back; the kickoff follows no
-    /// answer and its marks carry the turn's own.
+    /// Apply a turn's marks: first what an answer settled and reopened, then
+    /// the lines the agent found not relevant. All carry the author of the
+    /// answer that applies them, so cancelling it gives them back; a
+    /// conclusion that opens the round follows no answer and its marks carry
+    /// the turn's own.
     fn mark(
         &self,
         snapshot: &Snapshot,

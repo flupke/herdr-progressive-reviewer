@@ -87,7 +87,7 @@ _Avoid_: source reference, inspection, supporting reference
 
 **Not relevant**:
 What the Explore agent calls changed lines it read that hold no decision for the
-reviewer. They get a review mark at once, without a question.
+reviewer. They get a review mark without a question of their own.
 _Avoid_: skipped, ignored, insignificant (which is Jev's judgement)
 
 **Cancel answer**:

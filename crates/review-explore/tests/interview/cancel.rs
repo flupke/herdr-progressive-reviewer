@@ -15,6 +15,16 @@ fn concluded() -> (ExploreRound, TurnRequest) {
     });
     response.findings.push("Keep resolved conversations".into());
     assert!(round.submit(&response).unwrap());
+    // The answer applied its question's marks, then the conclusion's.
+    let question = request.answer.as_ref().unwrap().in_reply_to.clone();
+    round.marks.insert(
+        question,
+        TurnMarks {
+            answer: Some(request.answer.as_ref().unwrap().id.clone()),
+            reviewed: vec![policy_lines(1, 1)],
+            ..TurnMarks::default()
+        },
+    );
     round.marks.insert(
         request.request.clone(),
         TurnMarks {
@@ -64,7 +74,11 @@ fn cancelling_the_latest_answer_rewinds_to_its_question() {
 
     assert_eq!(cancelled.answer, *request.answer.as_ref().unwrap());
     assert_eq!(cancelled.request.as_deref(), Some(request.request.as_str()));
-    assert_eq!(cancelled.marks.unwrap().answer, Some(id));
+    // Latest applied first: the conclusion's marks, then the question's.
+    let marks = cancelled.marks;
+    assert_eq!(marks.len(), 2);
+    assert!(marks.iter().all(|marks| marks.answer.as_ref() == Some(&id)));
+    assert!(marks[0].reviewed.is_empty() && marks[1].reviewed == [policy_lines(1, 1)]);
     let exploration = &round.exploration;
     assert_eq!(exploration.conversation, vec![opening]);
     assert!(exploration.answers.is_empty() && exploration.interpretations.is_empty());
