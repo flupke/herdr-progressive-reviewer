@@ -13,6 +13,8 @@
   already have this attribute.
 - Always use the smallest visibility level that permits the required use. Do
   not make an item `pub` when private or `pub(crate)` visibility is sufficient.
+- Test what the code puts into a prompt (identity, answers, paths, ordering),
+  never the wording of its instructions: a rewording must not break a test.
 - Refresh filesystem-driven views through filesystem events (inotify on Linux),
   not periodic polling. Reuse the repository watcher and event pipeline so idle
   views do not spend CPU checking for file changes.
@@ -30,9 +32,10 @@ For each small feature:
 4. Run `$code-review` against the fixed point. Fix its findings and repeat the
    review until it passes. Follow the skill's repair-loop limit and report any
    findings that remain when the limit is reached.
-5. After the review passes, run `$describe-commit` for the change.
+5. After the review passes, describe the change with `jj describe`: a plain
+   imperative subject, then what changed for the user and why.
 6. Run `make install`, unless the user deferred installing; say so when you
-   skip it.
+   skip it. It runs `make check` first and installs nothing when a check fails.
 7. Keep later user-feedback fixes in the same change. Create another change
    only when the user requests the next feature.
 

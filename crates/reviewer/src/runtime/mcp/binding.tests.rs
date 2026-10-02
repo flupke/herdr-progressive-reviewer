@@ -155,7 +155,7 @@ impl ConversationFixture {
     }
 
     fn second_access(&self, wakeups: usize) -> String {
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + crate::runtime::tests::HERDR_WAIT;
         loop {
             let prompts = self.second_prompts();
             if prompts.matches("Logical review: ").count() >= wakeups

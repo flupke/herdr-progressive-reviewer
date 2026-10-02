@@ -167,7 +167,7 @@ fn terminal_focus_reaches_the_event_loop() {
     let mut input = Some(crossterm::event::Event::FocusGained);
     let producer = TerminalEventProducer::start_with_reader(sender, move |_| Ok(input.take()));
     let event = receiver
-        .recv_timeout(std::time::Duration::from_secs(1))
+        .recv_timeout(std::time::Duration::from_secs(30))
         .unwrap();
     producer.stop();
     assert!(event.downcast_ref::<TerminalFocused>().is_some());

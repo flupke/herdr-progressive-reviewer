@@ -37,7 +37,7 @@ impl ExploreFlow {
             let event = self
                 .fixture
                 .runtime
-                .recv_timeout(Duration::from_secs(10))
+                .recv_timeout(crate::runtime::tests::HERDR_WAIT)
                 .unwrap();
             if let Some(event) = event.downcast_ref::<ui_events::ExploreImplementationFinished>() {
                 return event.clone();

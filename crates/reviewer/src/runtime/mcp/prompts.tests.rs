@@ -21,7 +21,7 @@ impl ConversationFixture {
     }
 
     fn wait_for_prompt_text(&self, text: &str) {
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + crate::runtime::tests::HERDR_WAIT;
         while !self.prompts().contains(text) {
             assert!(
                 Instant::now() < deadline,

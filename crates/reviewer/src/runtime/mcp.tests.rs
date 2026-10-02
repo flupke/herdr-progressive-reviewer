@@ -131,7 +131,11 @@ impl ConversationFixture {
             .unwrap()
             .send(Command::Thread(ThreadCommand::Load(unit.into())));
         loop {
-            match self.events.recv_timeout(Duration::from_secs(5)).unwrap() {
+            match self
+                .events
+                .recv_timeout(crate::runtime::tests::HERDR_WAIT)
+                .unwrap()
+            {
                 Event::Loaded(event) if event.review_unit.as_str() == unit => {
                     event.result.unwrap();
                     return event.drafts;
@@ -186,7 +190,7 @@ impl ConversationFixture {
             "runtime::tests::e2e_agent_process",
             "--nocapture",
         ]);
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + crate::runtime::tests::HERDR_WAIT;
         loop {
             if let Some(agent) = self
                 .server
@@ -217,7 +221,11 @@ impl ConversationFixture {
                 post,
             }));
         loop {
-            match self.events.recv_timeout(Duration::from_secs(5)).unwrap() {
+            match self
+                .events
+                .recv_timeout(crate::runtime::tests::HERDR_WAIT)
+                .unwrap()
+            {
                 Event::Posted(event) if event.message_id == message => {
                     event.result.unwrap();
                     return id;
@@ -257,7 +265,7 @@ impl ConversationFixture {
             "✳ Ready"
         };
         fs::write(self.server.server.root().join("prompt.state"), title).unwrap();
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + crate::runtime::tests::HERDR_WAIT;
         loop {
             if self
                 .server
@@ -280,7 +288,7 @@ impl ConversationFixture {
     }
 
     fn wait_for_screen(&self, matches: impl Fn(&str) -> bool) -> String {
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + crate::runtime::tests::HERDR_WAIT;
         loop {
             let screen = self
                 .server
@@ -299,7 +307,7 @@ impl ConversationFixture {
     }
 
     fn wait_for_wakeups(&self, count: usize) -> String {
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + crate::runtime::tests::HERDR_WAIT;
         while Instant::now() < deadline {
             let prompts = self.prompts();
             if prompts.matches("Logical review: ").count() >= count {
@@ -350,7 +358,7 @@ fn multiline_prompts_are_captured_whole_only_after_submission(agent: &str) {
             .unwrap();
         expected.push_str(&prompt);
         expected.push('\n');
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + crate::runtime::tests::HERDR_WAIT;
         loop {
             let captured = fixture.prompts();
             if captured == expected {

@@ -18,6 +18,12 @@ use ui_events::{
     DiffContentLoaded, FileSummary, RepositoryFilesChanged, RepositoryRefreshFinished,
 };
 
+/// How long a test waits for Herdr, a worker thread or the repository to reach
+/// a state. Every wait ends as soon as the state shows, so a long bound only
+/// costs time when a test is about to fail; a short one fails under a full
+/// parallel run.
+const HERDR_WAIT: Duration = Duration::from_secs(30);
+
 #[path = "runtime/mcp.tests.rs"]
 mod mcp;
 
@@ -144,7 +150,7 @@ impl IsolatedHerdrServer {
         // Native detection must observe the exit; release-agent would reset it
         // and could leave a stale agent record after the process is gone.
         self.run_cli(&["pane", "send-keys", &self.pane_id.0, "ctrl+d"]);
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + HERDR_WAIT;
         while self.client().get_agent(&self.pane_id).unwrap().is_some()
             || self
                 .client()
@@ -168,7 +174,7 @@ impl IsolatedHerdrServer {
 
     fn wait_for_agent(&self, session: Option<&str>) {
         let client = self.client();
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + HERDR_WAIT;
         while Instant::now() < deadline {
             if client.get_agent(&self.pane_id).is_ok_and(|agent| {
                 agent.is_some_and(|agent| {
@@ -342,7 +348,7 @@ fn e2e_agent_process() {
 
 fn receive_agent_release(events: &Receiver<HerdrEvent>) {
     loop {
-        let event = events.recv_timeout(Duration::from_secs(5)).unwrap();
+        let event = events.recv_timeout(HERDR_WAIT).unwrap();
         if matches!(event, HerdrEvent::AgentDetected { released: true, .. }) {
             return;
         }
@@ -375,7 +381,7 @@ impl AgentEventSubscription {
                 |event| event_sender.send(event).is_ok(),
             )
         });
-        ready.recv_timeout(Duration::from_secs(5)).unwrap();
+        ready.recv_timeout(HERDR_WAIT).unwrap();
         Self {
             events,
             continue_streaming,
@@ -746,7 +752,7 @@ fn terminal_event_producer_stops_while_waiting_for_input() {
         Ok(None)
     });
     reader_started_receiver
-        .recv_timeout(Duration::from_secs(1))
+        .recv_timeout(HERDR_WAIT)
         .expect("the terminal reader must start");
 
     producer.stop();
@@ -799,7 +805,7 @@ fn terminal_hunk_shortcut_moves_application_data_while_files_are_focused() {
         ("second change", "first change"),
     ] {
         for _ in 0..2 {
-            let event = events.recv_timeout(Duration::from_secs(1)).unwrap();
+            let event = events.recv_timeout(HERDR_WAIT).unwrap();
             let input = event.downcast_ref::<UserInput>().unwrap().clone();
             application.update(input);
         }

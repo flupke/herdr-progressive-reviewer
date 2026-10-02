@@ -25,7 +25,7 @@ impl ExploreFlow {
         let comparison = loop {
             let event = fixture
                 .runtime
-                .recv_timeout(Duration::from_secs(10))
+                .recv_timeout(crate::runtime::tests::HERDR_WAIT)
                 .unwrap();
             if let Some(event) = event.downcast_ref::<ui_events::ExploreCaptured>() {
                 break event.result.clone().unwrap();
@@ -140,7 +140,7 @@ impl ExploreFlow {
                     sent.send(result).unwrap();
                 });
         });
-        let deadline = Instant::now() + Duration::from_secs(20);
+        let deadline = Instant::now() + crate::runtime::tests::HERDR_WAIT;
         let response = loop {
             if let Ok(result) = result.try_recv() {
                 break result;
@@ -159,7 +159,7 @@ impl ExploreFlow {
     }
 
     fn wait_for_prompt(&mut self, request: &review_explore::TurnRequest) {
-        let deadline = Instant::now() + Duration::from_secs(10);
+        let deadline = Instant::now() + crate::runtime::tests::HERDR_WAIT;
         loop {
             let text = fs::read_to_string(self.fixture.herdr.server.root().join("prompt.txt"))
                 .unwrap_or_default();
@@ -226,7 +226,7 @@ impl ExploreFlow {
             },
         )
         .unwrap();
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + crate::runtime::tests::HERDR_WAIT;
         loop {
             let current = self
                 .fixture

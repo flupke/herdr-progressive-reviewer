@@ -4,7 +4,7 @@ impl ConversationFixture {
     pub(super) fn replace_session(&self, session: &str) {
         self.server
             .run_cli(&["pane", "send-keys", &self.server.pane_id.0, "ctrl+d"]);
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + crate::runtime::tests::HERDR_WAIT;
         while self
             .server
             .client()

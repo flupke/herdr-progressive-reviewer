@@ -34,7 +34,8 @@ complexity:
 mutants:
 	cargo mutants --workspace --test-workspace=true --test-tool=nextest
 
-install: build
+# Only a build that passes every check is installed.
+install: check build
 	bin/reviewer-control mcp-install
 	herdr plugin link . --enabled
 
