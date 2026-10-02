@@ -23,7 +23,7 @@ impl PreparedTurn {
             repository_root: &comparison.repository_root,
             description: comparison.change_description(),
         });
-        let instructions = Self::instructions(kickoff.is_some());
+        let instructions = Self::instructions(kickoff.is_some(), request.challenger);
         let input = input::TurnInput {
             request,
             access,
@@ -36,18 +36,29 @@ impl PreparedTurn {
     }
 
     /// The rules of a turn: the kickoff's, or a later turn's. Both end with
-    /// the same Not relevant section, so every prompt states its criteria.
-    fn instructions(kickoff: bool) -> String {
+    /// the same Not relevant section, so every prompt states its criteria,
+    /// then with the challenger's script when the round has one.
+    fn instructions(kickoff: bool, challenger: bool) -> String {
         let turn = if kickoff {
             include_str!("interview.md")
         } else {
             include_str!("wakeup.md")
         };
-        format!(
+        let mut instructions = format!(
             "{}\n\n{}",
             turn.trim_end(),
             include_str!("not_relevant.md").trim_end()
-        )
+        );
+        if challenger {
+            let script = if kickoff {
+                include_str!("challenger.md")
+            } else {
+                include_str!("challenger_wakeup.md")
+            };
+            instructions.push_str("\n\n");
+            instructions.push_str(script.trim_end());
+        }
+        instructions
     }
 
     pub fn prompt(self) -> String {

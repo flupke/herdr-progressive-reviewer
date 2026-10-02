@@ -160,6 +160,8 @@ pub enum ExploreShortcut {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExploreTurnShortcut {
     Start,
+    /// Start a round in which a challenger reviews beside the agent.
+    StartWithChallenger,
     Cancel,
     Retry,
     PreviousTurn,

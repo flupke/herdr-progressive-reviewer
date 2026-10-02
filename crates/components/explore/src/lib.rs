@@ -30,6 +30,8 @@ use flow::ConversationLayout;
 #[derive(Clone, Copy, Debug)]
 enum Control {
     Start,
+    /// Start the first round with a challenger reviewing beside the agent.
+    StartWithChallenger,
     NewImplementation,
     Send,
     History(navigation::History),
@@ -120,6 +122,8 @@ pub struct ExploreComponent {
     status_turn: Option<usize>,
     progress: Progress,
     reset_warning: bool,
+    /// The round being started has a challenger.
+    challenger: bool,
     map: bool,
     /// The review marks each agent turn changed, by Explore request.
     marks: BTreeMap<String, review_explore::TurnMarks>,
@@ -163,6 +167,7 @@ impl ExploreComponent {
             status_turn: None,
             progress: Progress::Ready,
             reset_warning: false,
+            challenger: false,
             map: false,
             marks: BTreeMap::new(),
             expanded_marks: BTreeSet::new(),
@@ -251,7 +256,9 @@ impl ExploreComponent {
                 self.durable.begin_round();
                 self.implementation_requested = false;
                 self.cancelling = None;
-                self.exploration = Some(Exploration::new(comparison.clone()));
+                let mut exploration = Exploration::new(comparison.clone());
+                exploration.challenger = self.challenger;
+                self.exploration = Some(exploration);
                 self.selected = 0;
                 self.evidence_list_focused = false;
                 self.turns.clear();
@@ -424,10 +431,17 @@ impl ExploreComponent {
         }
     }
 
-    fn start(&mut self) -> Vec<Action> {
+    /// Start a round, with a challenger beside the agent when asked. A new
+    /// round keeps the choice made for the one it replaces.
+    fn start(&mut self, challenger: bool) -> Vec<Action> {
         if self.progress.awaiting_capture() || self.durable.error.is_some() {
             return Vec::new();
         }
+        let challenger = match &self.exploration {
+            Some(_) if challenger => return Vec::new(),
+            Some(exploration) => exploration.challenger,
+            None => challenger,
+        };
         if self.exploration.is_some() && !self.reset_warning {
             self.reset_warning = true;
             self.status_turn = Some(self.selected);
@@ -435,6 +449,7 @@ impl ExploreComponent {
             return Vec::new();
         }
         self.reset_warning = false;
+        self.challenger = challenger;
         self.progress = Progress::Capturing;
         if let Some(exploration) = &mut self.exploration {
             exploration.cancel();
@@ -475,7 +490,7 @@ impl ExploreComponent {
             return Vec::new();
         }
         let Some(exploration) = &mut self.exploration else {
-            return self.start();
+            return self.start(self.challenger);
         };
         match exploration.retry() {
             Ok(request) => {

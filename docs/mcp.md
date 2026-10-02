@@ -199,6 +199,13 @@ The tools advertise their full input schemas, including nested questions, eviden
 assessments, agenda changes and interpretations. The kickoff explains the review behavior
 without duplicating schema examples.
 
+A round started with a Challenger adds one section to the kickoff and a short reminder to
+each wakeup. It is a script for the agent and for the subagent it starts: who proposes the
+turn's question, how they exchange facts and positions, and how the single question is
+written. The protocol does not change: the agent alone calls the tools, and the challenger
+only returns text to it. An agent that can continue a subagent keeps the same challenger
+for the round; one that cannot has it keep a handoff file in the system temporary directory.
+
 After a human contribution, the shared prompt delivery sends a plain-text wakeup. It
 opens with the rules for a later turn (interpreting the answer, marking lines, agenda
 changes and concluding), so those rules travel with each answer, then gives:

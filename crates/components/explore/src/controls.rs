@@ -125,6 +125,7 @@ impl Control {
         if matches!(
             self,
             Self::Start
+                | Self::StartWithChallenger
                 | Self::NewImplementation
                 | Self::Send
                 | Self::Cancel

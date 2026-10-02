@@ -50,11 +50,12 @@ impl ExploreComponent {
     }
 
     fn activate(&mut self, control: Control) -> Vec<Action> {
-        if !matches!(control, Control::Start) {
+        let challenger = matches!(control, Control::StartWithChallenger);
+        if !matches!(control, Control::Start | Control::StartWithChallenger) {
             self.reset_warning = false;
         }
         match control {
-            Control::Start => return self.start(),
+            Control::Start | Control::StartWithChallenger => return self.start(challenger),
             Control::Implement => return self.implement(),
             Control::NewImplementation => return self.new_implementation(),
             Control::Send => return self.answer(control),
@@ -280,6 +281,7 @@ impl ExploreComponent {
     fn turn_control(command: ExploreTurnShortcut) -> Control {
         match command {
             ExploreTurnShortcut::Start => Control::Start,
+            ExploreTurnShortcut::StartWithChallenger => Control::StartWithChallenger,
             ExploreTurnShortcut::Cancel => Control::Cancel,
             ExploreTurnShortcut::Retry => Control::Retry,
             ExploreTurnShortcut::PreviousTurn => Control::History(History::Previous),

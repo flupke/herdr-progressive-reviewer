@@ -19,7 +19,7 @@ fn comparison() -> Comparison {
 /// What a later prompt says after its fixed rules: identity, unreviewed lines and answer.
 fn turn_input(prompt: &str) -> &str {
     prompt
-        .strip_prefix(PreparedTurn::instructions(false).as_str())
+        .strip_prefix(PreparedTurn::instructions(false, false).as_str())
         .expect("a later prompt starts with its rules")
 }
 
@@ -63,7 +63,7 @@ fn the_kickoff_supplies_its_rules_scope_and_identity() {
         "Repository root: {}",
         comparison.repository_root.display()
     )));
-    assert!(prompt.starts_with(PreparedTurn::instructions(true).as_str()));
+    assert!(prompt.starts_with(PreparedTurn::instructions(true, false).as_str()));
 }
 
 #[test]
@@ -339,8 +339,31 @@ fn every_prompt_states_the_same_not_relevant_rules() {
     let rules = include_str!("not_relevant.md").trim_end();
 
     for kickoff in [true, false] {
-        let instructions = PreparedTurn::instructions(kickoff);
+        let instructions = PreparedTurn::instructions(kickoff, false);
         assert!(instructions.ends_with(rules), "kickoff: {kickoff}");
         assert_eq!(instructions.matches("## Not relevant").count(), 1);
+    }
+}
+
+#[test]
+fn only_a_round_with_a_challenger_carries_its_script() {
+    let comparison = comparison();
+    let script = include_str!("challenger.md").trim_end();
+    let reminder = include_str!("challenger_wakeup.md").trim_end();
+    for challenger in [false, true] {
+        let mut exploration = Exploration::new(Arc::new(comparison.clone()));
+        exploration.challenger = challenger;
+        let mut request = exploration.request(None, None).unwrap();
+        let prepare = |request: &TurnRequest| {
+            PreparedTurn::prepare(request, &comparison, "access", &Unreviewed::default()).prompt()
+        };
+
+        let kickoff = prepare(&request);
+        request.answer = Some(answer(&request));
+        let wakeup = prepare(&request);
+
+        assert_eq!(kickoff.contains(script), challenger);
+        assert_eq!(wakeup.contains(reminder), challenger);
+        assert!(!wakeup.contains(script), "the script is sent once");
     }
 }

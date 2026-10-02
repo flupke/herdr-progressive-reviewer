@@ -143,6 +143,9 @@ pub struct TurnRequest {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cancelled: Vec<String>,
     pub response_error: Option<String>,
+    /// The round has a challenger, so the prompt carries its script.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub challenger: bool,
 }
 
 /// The sole decision owner. Agent updates can interpret only the outstanding human answer.
@@ -166,6 +169,9 @@ pub struct Exploration {
     /// Cancelled answers the next request tells the agent about.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) cancelled: Vec<String>,
+    /// A fresh-context subagent of the agent reviews the change beside it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub challenger: bool,
 }
 
 impl Exploration {
@@ -185,6 +191,7 @@ impl Exploration {
             outstanding: None,
             retry: None,
             cancelled: Vec::new(),
+            challenger: false,
         }
     }
 
@@ -215,6 +222,7 @@ impl Exploration {
             answer,
             cancelled,
             response_error: None,
+            challenger: self.challenger,
         };
         self.outstanding = Some(request.clone());
         self.retry = Some(request.clone());

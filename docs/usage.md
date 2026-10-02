@@ -113,6 +113,17 @@ conversation, asking at most one next question per turn. Requests are sent throu
 Herdr immediately, including while the agent is working, using the same delivery
 as thread comments. Each delivery uses the selected agent; an in-flight attempt
 remains bound to that selection until it resolves.
+
+**Start with Challenger** (or `S`) starts the same round with a second point of view. The
+agent starts a subagent with fresh context, the challenger, which reads the same prompts and
+the same diffs without knowing why the change was written the way it was. Each turn the two
+each propose a question; they take turns having theirs asked, the challenger first, and the
+other's waits and is judged again after your answer. The agent that did not propose the
+question gives its facts and position on it, and the question you see is one text written
+from both. You still answer one question per turn and nothing in the pane changes, except
+that turns take longer. The round ends when neither has a question left. The choice holds
+for the session: New round keeps it.
+
 The kickoff prompt supplies the review target, the change description (jj) and the interview
 instructions, which ground every question in what the change does. The agent
 reads files directly, uses Git/jj for the full diff, and posts the first question
@@ -240,6 +251,7 @@ cancelled turn reopened stay open.
 | `Alt-0` | Fit evidence automatically again |
 | `c` / `r` | Stop waiting for pending work / explicitly retry |
 | `n` | Start a new round, retaining the previous investigation as history |
+| `S` | Start with a Challenger, from the start screen |
 | `Tab` | Cycle conversation, evidence and answer focus |
 
 Each accepted new question opens automatically, including after input while waiting.

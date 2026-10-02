@@ -40,6 +40,11 @@ impl ExploreUi {
     }
 
     fn with_versions(base: &[u8], policy: &[u8]) -> (Self, TurnRequest) {
+        Self::started(base, policy, 's')
+    }
+
+    /// A round started from the start screen with the `start` key.
+    fn started(base: &[u8], policy: &[u8], start: char) -> (Self, TurnRequest) {
         let files = repository_fixture(RepoType::Git);
         files.write("Cargo.toml", b"[package]\nname = \"explore_fixture\"\nversion = \"0.1.0\"\nedition = \"2024\"\n[lib]\npath = \"lib.rs\"\n");
         files.write("lib.rs", b"pub mod policy;\npub mod caller;\n");
@@ -76,7 +81,7 @@ impl ExploreUi {
                 .collect(),
         );
         app.publish(ReviewNavigationChanged(ReviewNavigation::Explore));
-        app.update(UserInput::Key(Key::Char('s')));
+        app.update(UserInput::Key(Key::Char(start)));
         let actions = app.publish(ExploreCaptured {
             result: Ok(comparison.clone()),
         });
@@ -450,6 +455,37 @@ fn new_round_retains_history_and_failed_capture_preserves_text() {
     });
     assert!(fixture.text().contains("Keep my draft"));
     assert!(fixture.text().contains("Question 1"));
+}
+
+#[test]
+fn a_new_round_keeps_the_challenger_choice_of_the_first() {
+    for (start, challenger) in [('s', false), ('S', true)] {
+        let (mut fixture, request) = ExploreUi::started(
+            b"pub fn policy() -> bool { false }\n",
+            b"pub fn policy() -> bool { true }\n",
+            start,
+        );
+        assert_eq!(request.challenger, challenger);
+        fixture.respond(&request, 1);
+
+        // Asking for a challenger mid-session changes nothing.
+        assert!(
+            fixture
+                .app
+                .update(UserInput::Key(Key::Char('S')))
+                .is_empty()
+        );
+        // The first press warns that the round is replaced; the second starts it.
+        fixture.app.update(UserInput::Key(Key::Char('n')));
+        fixture.app.update(UserInput::Key(Key::Char('n')));
+        let actions = fixture.app.publish(ExploreCaptured {
+            result: Ok(fixture.comparison.clone()),
+        });
+
+        let kickoff = ExploreUi::request(actions);
+        assert_eq!(kickoff.challenger, challenger);
+        assert_ne!(kickoff.instance, request.instance);
+    }
 }
 
 #[test]

@@ -642,3 +642,18 @@ fn a_questions_marks_wait_for_its_answer() {
         Some(review_types::MarkAuthor::Explore { answer })
     );
 }
+
+#[test]
+fn a_round_keeps_its_challenger_from_the_kickoff() {
+    let mut harness = Harness::start();
+    harness.capture();
+    harness.exploration.as_mut().unwrap().challenger = true;
+    let first = harness.request(None);
+
+    let access = harness.turn(&first);
+
+    assert!(harness.saved().exploration.challenger);
+    assert!(applied(harness.submit(&access, question(&first, 1))));
+    let (answered, _) = harness.answer("Keep it.");
+    assert!(answered.challenger && harness.saved().exploration.challenger);
+}

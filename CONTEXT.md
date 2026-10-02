@@ -80,6 +80,12 @@ checkpoint, and marks or reopens changed lines according to the answers. A new
 round keeps earlier rounds as history.
 _Avoid_: Explore pass, Explore session
 
+**Challenger**:
+A subagent with fresh context that the Explore agent starts for a round, to
+review the same change without the implementer's knowledge of why it was
+written. The two take turns proposing the round's questions.
+_Avoid_: adversary, second reviewer, critic
+
 **Citation**:
 A path, side and line range that a question puts before the reviewer as
 evidence, most decisive first. Citing lines does not mark them reviewed.

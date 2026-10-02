@@ -211,6 +211,7 @@ impl ExploreSession {
                     .ok_or_else(|| eyre::eyre!("Start Explore first"))?,
             );
             exploration.instance.clone_from(&request.instance);
+            exploration.challenger = request.challenger;
             let mut round = ExploreRound::new(exploration);
             round.post(request)?;
             round.last_agent_session = self
