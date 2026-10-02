@@ -217,6 +217,8 @@ impl ExploreComponent {
             self.answers(index, question, layout, palette);
             Self::question_sections(question, layout, palette);
             self.evidence_block(index, layout, diff, palette);
+            // Last on the page: expanded, the list can be long.
+            self.opening_marks(index, layout, palette);
         }
         if self.map {
             self.render_map(layout, palette);

@@ -77,15 +77,29 @@ impl ExploreComponent {
         palette: Palette,
     ) {
         let exploration = self.exploration.as_ref().expect("reply exploration");
-        for (position, turn) in exploration
+        for turn in exploration
             .conversation
             .iter()
-            .enumerate()
-            .filter(|(_, turn)| turn.update.next.as_ref() == exploration.questions.get(index))
+            .filter(|turn| turn.update.next.as_ref() == exploration.questions.get(index))
         {
             self.agent_turn(turn, layout, palette);
-            // A turn after an answer shows its marks below that answer.
-            if turn.answer.is_none() {
+        }
+    }
+
+    /// The marks of the turn that asked question `index` without following an
+    /// answer, as the kickoff does. A turn after an answer shows its marks
+    /// below that answer.
+    pub(super) fn opening_marks(
+        &self,
+        index: usize,
+        layout: &mut ConversationLayout,
+        palette: Palette,
+    ) {
+        let exploration = self.exploration.as_ref().expect("question exploration");
+        for (position, turn) in exploration.conversation.iter().enumerate() {
+            if turn.answer.is_none()
+                && turn.update.next.as_ref() == exploration.questions.get(index)
+            {
                 self.turn_marks(position, layout, palette);
             }
         }

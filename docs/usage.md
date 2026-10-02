@@ -180,7 +180,8 @@ shows what it marked and reopened. On any turn, the first included, the agent ca
 lines it read and found **not relevant**: lines that hold no decision for you, such as
 removed code the change is about removing, mechanics that tests cover, and tests, docs and
 manifests that follow the code. They are marked reviewed at once and listed in the same
-recap as "not relevant"; reopen them in Files if you disagree. Cancelling an answer also
+recap as "not relevant"; reopen them in Files if you disagree. The first turn follows no
+answer, so its recap closes the first question's page, after the evidence. Cancelling an answer also
 gives back what its turn found not relevant. Marks apply only while the code is still the
 checkpoint the round started from. Every prompt points the agent at its remaining
 **Unreviewed lines**, the changed lines no review mark covers, including your own marks

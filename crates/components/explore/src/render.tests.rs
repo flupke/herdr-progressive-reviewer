@@ -136,9 +136,9 @@ fn an_answers_marks_show_below_it_and_expand_to_their_lines() {
         ]
     );
 
-    // The kickoff follows no answer: its marks show with its turn.
+    // The kickoff follows no answer: its marks close the page of what it asked.
     let mut kickoff = ConversationLayout::new(Rect::new(0, 0, 80, 40));
-    component.turn_marks(0, &mut kickoff, palette);
+    component.opening_marks(0, &mut kickoff, palette);
     assert_eq!(rows(&kickoff), ["[▸ Marked 10 lines not relevant]"]);
 }
 
