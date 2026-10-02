@@ -161,6 +161,7 @@ impl Runtime {
                 endpoint: review_mcp::Endpoint::from_env(self.repository.root()),
                 theme: self.theme,
                 jev: jev::classifier_from_env(),
+                turns: vision_turns_from_env(),
                 source_watches: Some(watcher.source_requests()),
             },
             &Outputs {
@@ -455,6 +456,16 @@ where
         self.dispatch_event(&EventEnvelope::new(ui_events::FrameRendered))?;
         Ok(())
     }
+}
+
+/// Test tooling only: a `make vision` session names the directory its
+/// scripted agent reads the sent Explore prompts from. Without
+/// `HERDR_REVIEWER_VISION` the directory is ignored, because the turn files
+/// hold access values.
+fn vision_turns_from_env() -> Option<explore_session::TurnLog> {
+    env::var_os("HERDR_REVIEWER_VISION")?;
+    let directory = env::var_os("HERDR_REVIEWER_VISION_TURNS")?;
+    explore_session::TurnLog::open(directory.into()).ok()
 }
 
 /// Hand the terminal to the user's editor, then take it back.

@@ -13,7 +13,10 @@ mod records;
 mod restore;
 mod submission;
 mod turn;
+mod turn_log;
 mod unreviewed;
+
+pub use turn_log::TurnLog;
 
 use std::sync::Arc;
 
@@ -69,6 +72,9 @@ pub struct Collaborators {
     pub prompts: PromptSender,
     pub events: ApplicationEventSender,
     pub inbox: Inbox,
+    /// Where a `make vision` session reads the prompts this session sent;
+    /// `None` in every other reviewer.
+    pub turns: Option<TurnLog>,
 }
 
 /// The Explore session of one reviewer process.
@@ -81,6 +87,7 @@ pub struct ExploreSession {
     prompts: PromptSender,
     events: ApplicationEventSender,
     inbox: Inbox,
+    turns: Option<TurnLog>,
     state: State,
 }
 
@@ -141,6 +148,7 @@ impl ExploreSession {
             prompts,
             events,
             inbox,
+            turns,
         } = collaborators;
         Self {
             repository,
@@ -151,6 +159,7 @@ impl ExploreSession {
             prompts,
             events,
             inbox,
+            turns,
             state: State::default(),
         }
     }

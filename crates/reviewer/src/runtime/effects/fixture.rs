@@ -60,6 +60,7 @@ impl EffectsFixture {
             endpoint: Err("No MCP listener in this unit test".into()),
             theme: Theme::default(),
             jev: JevClassifier::disabled(),
+            turns: None,
             source_watches: None,
         };
         configure(&mut setup);

@@ -46,6 +46,19 @@ pub(super) enum Command {
         path: String,
         lines: Vec<u32>,
     },
+    /// Wait for the next Explore prompt the reviewer sent to its agent: the
+    /// first turn after `after`, or after the last one this command returned.
+    Turn {
+        after: Option<u64>,
+        timeout_ms: Option<u64>,
+    },
+    /// Answer turn `turn`, the latest one, by calling an MCP tool as the
+    /// agent, with that turn's access and identity unless `arguments` set them.
+    Reply {
+        turn: u64,
+        tool: String,
+        arguments: serde_json::Value,
+    },
     Reopen,
     Stop,
 }

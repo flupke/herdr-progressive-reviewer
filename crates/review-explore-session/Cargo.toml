@@ -19,6 +19,8 @@ review-state = { path = "../review-state" }
 review-store = { path = "../review-store" }
 review-thread-service = { path = "../review-thread-service" }
 review-types = { path = "../review-types" }
+serde.workspace = true
+serde_json.workspace = true
 toasts = { path = "../toasts" }
 ui-events = { path = "../ui-events" }
 uuid.workspace = true
@@ -27,7 +29,6 @@ uuid.workspace = true
 crossbeam-channel.workspace = true
 herdr-client = { path = "../herdr-client", features = ["memory"] }
 review-test-support = { path = "../review-test-support" }
-serde_json.workspace = true
 tempfile.workspace = true
 
 [lints]

@@ -42,6 +42,8 @@ pub(super) struct Setup {
     pub(super) endpoint: Result<review_mcp::Endpoint, String>,
     pub(super) theme: Theme,
     pub(super) jev: JevClassifier,
+    /// Where a vision session reads the Explore prompts sent.
+    pub(super) turns: Option<explore_session::TurnLog>,
     pub(super) source_watches: Option<SourceWatchRequests>,
 }
 
@@ -89,6 +91,7 @@ impl Effects {
             endpoint,
             theme,
             jev,
+            turns,
             source_watches,
         } = setup;
         let messages = ApplicationEventSender::new(outputs.background.clone());
@@ -122,6 +125,7 @@ impl Effects {
             prompts: comments.prompt_sender(),
             events: messages.clone(),
             inbox: inbox_for(commands.clone()),
+            turns,
         });
         let mut worker = Worker {
             repository: repository.clone(),

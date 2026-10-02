@@ -1,6 +1,6 @@
 //! Explicitly authorized implementation of an Explore conclusion.
 
-use crate::{ExploreSession, dispatch::DurableDispatch};
+use crate::{ExploreSession, dispatch::DurableDispatch, turn_log::SentTurn};
 use review_explore::ImplementationRequest;
 use std::sync::Arc;
 use ui_events::ExploreImplementationFinished;
@@ -22,6 +22,7 @@ impl ExploreSession {
         let _ = self.events.send(ui_events::ExploreImplementationSaved(
             round.implementations[&request.delivery].clone(),
         ));
+        let prompt = review_explore_runner::implementation_prompt(&request);
         let observer = DurableDispatch {
             began: std::sync::atomic::AtomicBool::default(),
             rounds: self.rounds.clone(),
@@ -32,8 +33,11 @@ impl ExploreSession {
                 attempt: round.implementations[&request.delivery].attempt.clone(),
             },
             events: self.events.clone(),
+            turn: self
+                .turns
+                .clone()
+                .map(|turns| (turns, SentTurn::implement(prompt.clone()))),
         };
-        let prompt = review_explore_runner::implementation_prompt(&request);
         let (receipt, cancellation) =
             self.prompts
                 .send_observed(agent, prompt, Some(Arc::new(observer)));

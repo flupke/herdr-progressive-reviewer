@@ -98,6 +98,8 @@ forever. An idle stop answers with `"reason": "idle"`.
 {"action":"screenshot"}
 {"action":"note","kind":"checked","text":"Help closes with Escape and restores the diff"}
 {"action":"jev","path":"src/math.rs","lines":[2]}
+{"action":"turn","timeout_ms":15000}
+{"action":"reply","turn":1,"tool":"submit_question","arguments":{"update":{"next":{}}}}
 {"action":"reopen"}
 {"action":"stop"}
 ```
@@ -122,7 +124,29 @@ reach: it classifies as insignificant every diff hunk of `path` that adds one of
 the one-based `lines` (current numbering) or removes one (base numbering), then
 presses `rf` and returns the screen with its "Jev: marked" result, or after ten
 seconds. Nearby edits share one diff hunk, as they do for Jev. The script it
-writes is kept as `jev-script.json` in the session directory. `reopen` starts
+writes is kept as `jev-script.json` in the session directory. Write that file
+yourself before starting an Explore round to have Jev mark at the round's start.
+
+The workspace's first pane is a stand-in implementation agent: a script named
+`claude`, which Herdr detects as an agent, swallows every prompt the reviewer
+sends. The reviewer itself records each Explore prompt, once its delivery
+finished, as a numbered turn (`turns/turn-000001.json` in the session
+directory; `HERDR_REVIEWER_VISION_TURNS` names it). This is test tooling: the
+reviewer records turns only in a vision session (`HERDR_REVIEWER_VISION`), as
+the files hold access values, and a normal reviewer ignores the variable. `turn` waits for the next
+turn and returns it: its number, `kind` (`kickoff`, `wakeup` or `implement`),
+whether it was `delivered`, the access value and identity a reply needs, the
+reviewer's `answer`, the cancelled answers, the `unreviewed` block and the full
+prompt `text`. Each call returns the turn after the last one it returned;
+`after` asks from another number. `reply` answers a turn by calling an MCP tool
+on the reviewer's real endpoint as that agent: it fills in the turn's access and
+the `instance`, `request` and `checkpoint` (inside `update` for
+`submit_question`) unless `arguments` sets them, and returns the tool result as
+`reply` beside the screen. It refuses a `turn` that is not the latest, so a
+script cannot answer a prompt the reviewer has replaced. `arguments` that bring
+their own `review` value are sent as they are, to check how the reviewer itself
+rejects a late or misplaced turn.
+`reopen` starts
 the reviewer again in the same private workspace and state, at its initial
 100×30 size. `stop`, SIGINT, SIGHUP, and SIGTERM clean up the reviewer, private
 server, and temporary repository; so does EOF on stdin when the driver reads

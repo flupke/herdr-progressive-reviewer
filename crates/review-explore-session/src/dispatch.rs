@@ -1,4 +1,5 @@
 use crate::records::SavedRounds;
+use crate::turn_log::{SentTurn, TurnLog};
 use component_core::ApplicationEventSender;
 use review_explore::{DispatchId, DispatchResult, DispatchState};
 use review_thread_service::{DispatchObserver, PromptError};
@@ -13,6 +14,8 @@ pub(crate) struct DurableDispatch {
     pub(crate) id: DispatchId,
     pub(crate) events: ApplicationEventSender,
     pub(crate) began: AtomicBool,
+    /// The prompt, for a vision session's record of what was sent.
+    pub(crate) turn: Option<(TurnLog, SentTurn)>,
 }
 
 impl DispatchObserver for DurableDispatch {
@@ -29,7 +32,7 @@ impl DispatchObserver for DurableDispatch {
 
     fn finished(&self, result: &Result<(), PromptError>) -> Result<(), String> {
         let state = Self::outcome(result);
-        match self.rounds.finish_dispatch(
+        let saved = self.rounds.finish_dispatch(
             &self.unit,
             &self.instance,
             &DispatchResult {
@@ -37,7 +40,15 @@ impl DispatchObserver for DurableDispatch {
                 began: self.began.load(Ordering::Acquire),
                 state,
             },
-        ) {
+        );
+        // Recorded after the save, so a reply never outruns the saved dispatch.
+        if let Some((turns, sent)) = &self.turn {
+            match &saved {
+                Ok(_) => turns.record(sent, result),
+                Err(error) => turns.record(sent, &Err(PromptError::Unknown(error.to_string()))),
+            }
+        }
+        match saved {
             Ok(round) => {
                 if let DispatchId::Implementation { request, .. } = &self.id
                     && let Some(delivery) = round.implementations.get(request)

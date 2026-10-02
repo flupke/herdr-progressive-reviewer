@@ -6,7 +6,7 @@ use herdr_client::protocol::Agent;
 use review_explore::{ConversationBinding, Exploration, ExploreRound, TurnRequest};
 use review_thread_service::PinnedAgent;
 
-use crate::{ExploreSession, Input, dispatch::DurableDispatch};
+use crate::{ExploreSession, Input, dispatch::DurableDispatch, turn_log::SentTurn};
 
 impl ExploreSession {
     pub(crate) fn retry(&mut self, request: TurnRequest) {
@@ -61,7 +61,7 @@ impl ExploreSession {
             result: Ok(Arc::new(round.clone())),
         });
         let attempt = round.turns[&request.request].attempt.clone();
-        let (prepared, agent) = match self.prepare(&request) {
+        let (prompt, sent, agent) = match self.prepare(&request) {
             Ok(prepared) => prepared,
             Err(error) => {
                 self.state.pending = Some((request.instance.clone(), request.request.clone()));
@@ -86,10 +86,11 @@ impl ExploreSession {
                 attempt: attempt.clone(),
             },
             events: self.events.clone(),
+            turn: self.turns.clone().zip(sent),
         };
         let (receipt, cancellation) =
             self.prompts
-                .send_observed(agent, prepared.prompt(), Some(Arc::new(observer)));
+                .send_observed(agent, prompt, Some(Arc::new(observer)));
         self.state.prompt = Some(cancellation);
         let inbox = self.inbox.clone();
         std::thread::spawn(move || {
@@ -106,10 +107,11 @@ impl ExploreSession {
         });
     }
 
+    /// The prompt for `request`, the record of it, and the agent to send it to.
     fn prepare(
         &mut self,
         request: &TurnRequest,
-    ) -> eyre::Result<(review_explore_runner::PreparedTurn, PinnedAgent)> {
+    ) -> eyre::Result<(String, Option<SentTurn>, PinnedAgent)> {
         let comparison = self
             .state
             .comparison
@@ -122,15 +124,24 @@ impl ExploreSession {
         let comparison = comparison.clone();
         let agent = self.active_agent()?;
         let unreviewed = self.unreviewed(request.answer.is_none());
-        let prepared = review_explore_runner::PreparedTurn::prepare(
+        let prompt = review_explore_runner::PreparedTurn::prepare(
             request,
             &comparison,
             &self.state.access,
             &unreviewed,
-        );
+        )
+        .prompt();
+        let sent = self.turns.is_some().then(|| {
+            SentTurn::interview(
+                request,
+                &self.state.access,
+                unreviewed.to_string().trim().to_owned(),
+                prompt.clone(),
+            )
+        });
         self.state.pending = Some((request.instance.clone(), request.request.clone()));
         self.state.agent = Some(agent.clone());
-        Ok((prepared, agent))
+        Ok((prompt, sent, agent))
     }
 
     pub(crate) fn prompt_finished(&mut self, event: ui_events::ExploreFinished, attempt: &str) {

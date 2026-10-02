@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::fs;
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
 
 use herdr_client::protocol::{PaneId, PluginContext, WorkspaceId};
 use review_repository::repository::RepoType;
@@ -13,6 +15,18 @@ pub(crate) const SESSION_SIZE: Size = Size {
     cols: 100,
     rows: 30,
 };
+
+/// The files a vision session shares with its reviewer.
+pub(crate) struct VisionFiles {
+    /// Where tui-test keeps the terminal recording.
+    pub(crate) recording: PathBuf,
+    /// The script the `jev` command writes; the reviewer reads it in place of
+    /// the paid classifier.
+    pub(crate) jev_script: PathBuf,
+    /// Where the reviewer records the Explore prompts it sent, for the
+    /// scripted agent.
+    pub(crate) turns: PathBuf,
+}
 
 pub(crate) struct ReviewWorkspace {
     server: HerdrTestServer,
@@ -56,6 +70,7 @@ impl ReviewWorkspace {
             focused_pane_cwd: Some(repository.root().to_owned()),
             tab_id: None,
         };
+        Self::start_agent(&server, &context);
         Self {
             server,
             repository,
@@ -64,34 +79,55 @@ impl ReviewWorkspace {
         }
     }
 
+    /// Make the workspace's first pane the implementation agent Explore
+    /// prompts. Herdr knows agents by their process name, so a script named
+    /// `claude` stands in: it swallows each prompt, which the reviewer
+    /// records as a turn.
+    fn start_agent(server: &HerdrTestServer, context: &PluginContext) {
+        let pane = &context.focused_pane_id.as_ref().unwrap().0;
+        let bin = server.root().join("agent-bin");
+        fs::create_dir_all(&bin).unwrap();
+        let agent = bin.join("claude");
+        fs::write(
+            &agent,
+            "#!/bin/sh\nstty -echo 2>/dev/null\nwhile IFS= read -r line; do :; done\n",
+        )
+        .unwrap();
+        fs::set_permissions(&agent, fs::Permissions::from_mode(0o755)).unwrap();
+        let command = format!("exec '{}'", agent.display());
+        server.run_cli(&["pane", "run", pane, &command]);
+    }
+
+    pub(crate) fn mcp_port(&self) -> u16 {
+        self.port.number()
+    }
+
     pub(crate) fn root(&self) -> &Path {
         self.repository.root()
     }
 
-    pub(crate) fn open_vision(
-        &self,
-        recording: &Path,
-        jev_script: &Path,
-    ) -> anyhow::Result<Session> {
+    pub(crate) fn open_vision(&self, files: &VisionFiles) -> anyhow::Result<Session> {
         let session = Session::new(format!(
             "vision-{}",
             self.server.root().file_name().unwrap().to_str().unwrap()
         ));
-        if let Err(error) = session.run(self.run_options(recording, jev_script)) {
+        if let Err(error) = session.run(self.run_options(files)) {
             let _ = session.close();
             return Err(error.into());
         }
         Ok(session)
     }
 
-    fn run_options(&self, recording: &Path, jev_script: &Path) -> RunOptions {
+    fn run_options(&self, files: &VisionFiles) -> RunOptions {
         let defaults = OpenOptions::default();
         let mut environment = self.environment();
-        // The vision `jev` command writes this script; the reviewer reads it
-        // in place of the paid classifier.
         environment.insert(
             "HERDR_REVIEWER_JEV_SCRIPT".into(),
-            jev_script.to_str().unwrap().into(),
+            files.jev_script.to_str().unwrap().into(),
+        );
+        environment.insert(
+            "HERDR_REVIEWER_VISION_TURNS".into(),
+            files.turns.to_str().unwrap().into(),
         );
         // tui-test adds environment overrides to its inherited environment.
         // env -u removes live Herdr context without putting environment values
@@ -127,7 +163,7 @@ impl ReviewWorkspace {
             },
             recording: AutomaticRecording {
                 mode: AutomaticRecordingMode::Always,
-                directory: Some(recording.to_owned()),
+                directory: Some(files.recording.clone()),
             },
         }
     }

@@ -1,3 +1,4 @@
+mod agent;
 mod capture;
 mod command;
 mod frame;
@@ -22,7 +23,7 @@ use tui_test::{
     KeyAction, MouseAction, MouseOptions, Operation, OperationResult, ScreenshotResult, Session,
 };
 
-use crate::fixture::{ReviewWorkspace, SESSION_SIZE};
+use crate::fixture::{ReviewWorkspace, SESSION_SIZE, VisionFiles};
 use capture::Capture;
 use command::Command;
 use frame::{Frame, Frames};
@@ -69,10 +70,11 @@ struct LiveReviewer {
 
 impl LiveReviewer {
     fn start(workspace: &ReviewWorkspace, frames: &Arc<Frames>, run: u64) -> Result<Self> {
-        let session = workspace.open_vision(
-            &frames.directory().join(format!("recording-{run}")),
-            &jev_script(frames),
-        )?;
+        let session = workspace.open_vision(&VisionFiles {
+            recording: frames.directory().join(format!("recording-{run}")),
+            jev_script: jev_script(frames),
+            turns: turns(frames),
+        })?;
         let capture = (|| {
             let recording = session
                 .recording_path()
@@ -103,11 +105,18 @@ fn jev_script(frames: &Frames) -> PathBuf {
     frames.directory().join("jev-script.json")
 }
 
+/// Where the reviewer records the Explore prompts it sent, for the scripted
+/// agent.
+fn turns(frames: &Frames) -> PathBuf {
+    frames.directory().join("turns")
+}
+
 struct VisionSession {
     // Close the viewer, then the terminal, before removing the private server
     // and repository.
     viewer: Option<viewer::ViewerPane>,
     live: Option<LiveReviewer>,
+    agent: agent::ScriptedAgent,
     workspace: ReviewWorkspace,
     frames: Arc<Frames>,
     transcript: File,
@@ -131,6 +140,7 @@ impl VisionSession {
         let session = Self {
             viewer: None,
             live: Some(live),
+            agent: agent::ScriptedAgent::new(turns(&frames), workspace.mcp_port()),
             workspace,
             frames,
             transcript,
@@ -263,6 +273,21 @@ impl VisionSession {
                 return Ok(json!({"status": "stopped", "frame_number": before}));
             }
             Command::Wait { text, timeout_ms } => return self.wait_for(text, *timeout_ms),
+            Command::Turn { after, timeout_ms } => {
+                let timeout = timeout_ms.unwrap_or(5000);
+                ensure!(timeout <= MAX_WAIT_MS, "maximum wait is {MAX_WAIT_MS} ms");
+                return self.agent.next_turn(*after, Duration::from_millis(timeout));
+            }
+            Command::Reply {
+                turn,
+                tool,
+                arguments,
+            } => {
+                let result = self.agent.reply(*turn, tool, arguments.clone())?;
+                let mut response = self.observe(Some(before), Duration::from_secs(2), true)?;
+                response["reply"] = result;
+                return Ok(response);
+            }
             Command::Screenshot => return self.screenshot(),
             Command::Jev { path, lines } => {
                 fs::write(

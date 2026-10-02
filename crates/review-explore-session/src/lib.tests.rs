@@ -36,6 +36,8 @@ struct Harness {
     repository: Repository,
     unit: ReviewUnit,
     exploration: Option<Exploration>,
+    /// Where a reopened session records the prompts it sends.
+    turns: Option<TurnLog>,
     delivered: usize,
     threads: review_thread_service::Worker,
     _files: Box<dyn ReviewRepositoryFixture>,
@@ -81,6 +83,7 @@ impl Harness {
                 prompts: threads.prompt_sender(),
                 events: ApplicationEventSender::new(event_sender.clone()),
                 inbox: Inbox::new(|_| {}),
+                turns: None,
             }),
             events,
             event_sender,
@@ -91,6 +94,7 @@ impl Harness {
             repository,
             unit,
             exploration: None,
+            turns: None,
             delivered: 0,
             threads,
             _files: files,
@@ -120,6 +124,7 @@ impl Harness {
             inbox: Inbox::new(move |input| {
                 let _ = inbox.send(input);
             }),
+            turns: self.turns.clone(),
         });
         let unit = self.unit.clone();
         self.session.checkpoint_changed(&unit);
@@ -449,4 +454,62 @@ fn the_kickoff_turn_cannot_mark_lines() {
         .unwrap_err();
 
     assert!(error.contains("follow a human answer"), "{error}");
+}
+
+#[test]
+fn a_vision_session_records_each_prompt_it_sent_as_a_numbered_turn() {
+    let mut harness = Harness::start();
+    let directory = tempfile::tempdir().unwrap();
+    harness.turns = Some(TurnLog::open(directory.path().to_owned()).unwrap());
+    harness.reopen();
+    harness.capture();
+    let first = harness.request(None);
+    let access = harness.turn(&first);
+    let turn = |number: u32| -> serde_json::Value {
+        let path = directory.path().join(format!("turn-{number:06}.json"));
+        assert!(review_test_support::eventually(
+            Duration::from_secs(10),
+            || path.exists()
+        ));
+        serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+    };
+
+    let kickoff = turn(1);
+    assert_eq!(kickoff["turn"], 1);
+    assert_eq!(kickoff["kind"], "kickoff");
+    assert_eq!(kickoff["delivered"], true);
+    assert_eq!(kickoff["access"], access);
+    assert_eq!(kickoff["request"], first.request);
+    assert_eq!(kickoff["round"], first.instance);
+    assert_eq!(
+        kickoff["text"],
+        harness.agents.prompts().last().unwrap().text
+    );
+    assert!(
+        kickoff["unreviewed"]
+            .as_str()
+            .unwrap()
+            .contains("Unreviewed lines:")
+    );
+
+    assert!(applied(harness.submit(&access, question(&first, 1))));
+    let (answer, access) = harness.answer("Keep it.");
+    let wakeup = turn(2);
+    assert_eq!(wakeup["kind"], "wakeup");
+    assert_eq!(wakeup["access"], access);
+    assert_eq!(wakeup["answer"]["id"], answer.answer.as_ref().unwrap().id);
+    assert_eq!(wakeup["answer"]["option"]["id"], "keep");
+    assert_eq!(wakeup["answer"]["question"]["id"], "q1");
+    assert_eq!(wakeup["answer"]["text"], "Keep it.");
+
+    // A reopened reviewer continues after the highest turn, whatever is missing.
+    std::fs::remove_file(directory.path().join("turn-000001.json")).unwrap();
+    std::fs::write(directory.path().join("turn-000009.partial"), b"{").unwrap();
+    let reopened = TurnLog::open(directory.path().to_owned()).unwrap();
+    reopened.record(
+        &turn_log::SentTurn::implement("Do the tasks".into()),
+        &Ok(()),
+    );
+    assert_eq!(turn(3)["kind"], "implement");
+    assert!(turn(3).get("access").is_none());
 }
