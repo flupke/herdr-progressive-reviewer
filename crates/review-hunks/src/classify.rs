@@ -8,6 +8,16 @@ use crate::hunks::{FileHunks, HunkSpan, ReviewedHunk, open_hunks};
 use crate::review::HunkReview;
 use crate::text::{CONTEXT, Change, Lines, changes, overlaps, translate};
 
+/// Whether the current file changed after its review mark was saved.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MarkAge {
+    /// The mark was saved for the current file: lines it left open are
+    /// simply not reviewed yet.
+    Current,
+    /// The file changed after the mark.
+    Outdated,
+}
+
 /// A reviewed change placed on all three versions.
 struct Placed {
     base: Range<u32>,
@@ -17,11 +27,13 @@ struct Placed {
 
 impl HunkReview<'_> {
     /// Which hunks are open and which are reviewed, given the parsed open diff
-    /// (reviewed version to current file). An open hunk that meets a change
-    /// of the reviewed version rewrites reviewed lines. A change of the
-    /// reviewed version that no open change touches is a reviewed hunk, and
-    /// nearby ones join into one hunk as Git joins hunks.
-    pub fn hunks(&self, open_rows: &[DiffRow]) -> FileHunks {
+    /// (reviewed version to current file). An open hunk that replaces lines
+    /// of a change of the reviewed version rewrites reviewed lines; one that
+    /// only adds lines next to such a change does when the file changed after
+    /// the mark (`age`). A change of the reviewed version that no open change
+    /// touches is a reviewed hunk, and nearby ones join into one hunk as Git
+    /// joins hunks.
+    pub fn hunks(&self, open_rows: &[DiffRow], age: MarkAge) -> FileHunks {
         if open_rows
             .iter()
             .any(|row| matches!(row, DiffRow::Notice { .. }))
@@ -34,7 +46,7 @@ impl HunkReview<'_> {
             open: open_hunks(open_rows)
                 .into_iter()
                 .map(|mut hunk| {
-                    hunk.since_review = rewrites_reviewed_lines(&hunk.span, &open, &reviewed);
+                    hunk.since_review = rewrites_reviewed_lines(&hunk.span, &open, &reviewed, age);
                     hunk
                 })
                 .collect(),
@@ -78,15 +90,25 @@ impl HunkReview<'_> {
     }
 }
 
-/// Whether one of the open hunk's own changes meets a reviewed change; the
-/// unchanged lines between its changes may hold reviewed lines untouched.
-fn rewrites_reviewed_lines(span: &HunkSpan, open: &[Change], reviewed: &[Change]) -> bool {
+/// Whether one of the open hunk's own changes replaces lines of a reviewed
+/// change, or, after the file changed, meets one; the unchanged lines between
+/// its changes may hold reviewed lines untouched. A mark that covers only some
+/// lines leaves open changes beside its reviewed ones without rewriting them.
+fn rewrites_reviewed_lines(
+    span: &HunkSpan,
+    open: &[Change],
+    reviewed: &[Change],
+    age: MarkAge,
+) -> bool {
     open.iter()
         .filter(|change| overlaps(&change.before, &span.old))
         .any(|change| {
-            reviewed
-                .iter()
-                .any(|reviewed| overlaps(&reviewed.after, &change.before))
+            reviewed.iter().any(|reviewed| {
+                let replaces = !change.before.is_empty()
+                    && !reviewed.after.is_empty()
+                    && overlaps(&reviewed.after, &change.before);
+                replaces || (age == MarkAge::Outdated && overlaps(&reviewed.after, &change.before))
+            })
         })
 }
 

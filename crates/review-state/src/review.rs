@@ -8,7 +8,7 @@ use std::sync::Mutex;
 use diff_cache::DiffCache;
 use review_hunks::{
     Attribution, ChangedLines, FileHunks, HunkMark, HunkReview, HunkSpan, LineCount, LineSelection,
-    Reviewed, ReviewedLines, ReviewedVersion, replay, reverse_apply,
+    MarkAge, Reviewed, ReviewedLines, ReviewedVersion, replay, reverse_apply,
 };
 use review_repository::diff::parse_file_diff;
 use review_repository::repository::{
@@ -306,9 +306,11 @@ impl ReviewTracker {
                 )),
                 LoadResult::Reviewed(ReviewRecord {
                     partial: Some(partial),
+                    baseline_commit_id,
                     ..
                 }) => PlannedReviewState::Resolved(
-                    self.compare_partial(snapshot, file, &partial)?.state(file),
+                    self.compare_partial(snapshot, file, &partial, &baseline_commit_id)?
+                        .state(file),
                 ),
                 LoadResult::Reviewed(record) => {
                     let baseline_snapshot_id = SnapshotId::from(record.baseline_commit_id);
@@ -576,11 +578,14 @@ impl ReviewTracker {
         }
     }
 
+    /// Compare a mark that covers only some lines, saved at `baseline`, with
+    /// the current file.
     fn compare_partial(
         &self,
         snapshot: &Snapshot,
         file: &ChangedFile,
         partial: &PartialReview,
+        baseline: &str,
     ) -> eyre::Result<ReviewComparison> {
         let base = self.base_text(snapshot, file)?;
         let reviewed = replay(&partial.base, &partial.reviewed, &base);
@@ -596,14 +601,33 @@ impl ReviewTracker {
         let current_text = current.as_deref().unwrap_or_default();
         let diff =
             review_hunks::unified_diff(&file.review_path().display(), &reviewed.text, current_text);
+        let age = self.mark_age(file, baseline, snapshot, current.as_deref());
         let hunks = HunkReview::new(&base, &reviewed.text, current_text)
-            .hunks(&parse_file_diff(&diff, file));
+            .hunks(&parse_file_diff(&diff, file), age);
         Ok(ReviewComparison::Partial {
             reviewed,
             current,
             diff,
             hunks,
         })
+    }
+
+    /// Whether the file changed after a mark saved at `baseline`: other
+    /// files changing in between does not age it.
+    fn mark_age(
+        &self,
+        file: &ChangedFile,
+        baseline: &str,
+        snapshot: &Snapshot,
+        current: Option<&[u8]>,
+    ) -> MarkAge {
+        if baseline == snapshot.identity.snapshot_id() {
+            return MarkAge::Current;
+        }
+        match self.file_content(baseline, file.new_path.as_ref(), file.new_kind) {
+            Ok(marked) if marked.as_deref() == current => MarkAge::Current,
+            _ => MarkAge::Outdated,
+        }
     }
 
     fn base_text(&self, snapshot: &Snapshot, file: &ChangedFile) -> eyre::Result<Vec<u8>> {
@@ -691,7 +715,7 @@ impl ReviewTracker {
                     let base = self.base_text(snapshot, file)?;
                     let current = loaded.new_content.as_deref().unwrap_or_default();
                     loaded.hunks = HunkReview::new(&base, &reviewed, current)
-                        .hunks(&parse_file_diff(&loaded.unified, file));
+                        .hunks(&parse_file_diff(&loaded.unified, file), MarkAge::Outdated);
                 }
                 Ok(loaded)
             }
@@ -760,8 +784,9 @@ impl ReviewTracker {
             }
             LoadResult::Reviewed(ReviewRecord {
                 partial: Some(partial),
+                baseline_commit_id,
                 ..
-            }) => return self.compare_partial(snapshot, file, &partial),
+            }) => return self.compare_partial(snapshot, file, &partial, &baseline_commit_id),
             LoadResult::Reviewed(record) => record,
         };
 

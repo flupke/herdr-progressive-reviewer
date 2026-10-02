@@ -73,7 +73,8 @@ impl HunkFixture {
             .publish(DiffContentLoaded {
                 review_checkpoint: ReviewCheckpoint::new("change", "checkpoint"),
                 path: "src/lib.rs".to_owned(),
-                hunks: review_hunks::HunkReview::new(&base, &reviewed, &current).hunks(&open),
+                hunks: review_hunks::HunkReview::new(&base, &reviewed, &current)
+                    .hunks(&open, review_hunks::MarkAge::Outdated),
                 rows: open,
                 old_content: Some(reviewed),
                 new_content: Some(current),

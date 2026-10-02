@@ -24,7 +24,8 @@ fn rows(before: &[u8], after: &[u8]) -> Vec<DiffRow> {
 /// `reviewed` already contains folded.
 fn presentation(base: &[u8], reviewed: &[u8], current: &[u8]) -> DiffPresentation {
     let open = rows(reviewed, current);
-    let hunks = review_hunks::HunkReview::new(base, reviewed, current).hunks(&open);
+    let hunks = review_hunks::HunkReview::new(base, reviewed, current)
+        .hunks(&open, review_hunks::MarkAge::Outdated);
     let highlighted = SyntaxHighlighter::new(EmbeddedThemeName::CatppuccinMocha, Color::White)
         .plain(open, Some(reviewed), Some(current));
     DiffPresentation::new(highlighted).with_hunks(hunks)

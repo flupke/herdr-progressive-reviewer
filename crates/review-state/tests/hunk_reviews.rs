@@ -542,3 +542,31 @@ fn a_files_lines_name_what_is_open_and_who_reviewed_the_rest(repository_type: Re
     assert_eq!(lines.reviewed.removed, [(1, MarkAuthor::Jev)].into());
     assert_eq!(lines.reviewed.added, [(1, MarkAuthor::Jev)].into());
 }
+
+#[test_case(RepoType::Git; "git")]
+#[test_case(RepoType::Jj; "jj")]
+fn lines_a_partial_mark_left_open_change_since_review_only_when_the_file_does(
+    repository_type: RepoType,
+) {
+    let review = Review::new(repository_type);
+    // Accept the removal of "line 2" but not the "two" replacing it.
+    review.accept_lines(&selection(&[1], &[]), &MarkAuthor::Reviewer);
+    let since_review = |review: &Review| {
+        review
+            .hunks()
+            .open
+            .iter()
+            .map(|hunk| (hunk.span.new.start, hunk.since_review))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(since_review(&review), [(1, false), (9, false), (17, false)]);
+
+    review.files.write("other.txt", b"another file\n");
+    assert_eq!(since_review(&review), [(1, false), (9, false), (17, false)]);
+
+    review.files.write(
+        "file.txt",
+        &file(&[(1, "TWO"), (9, "ten"), (17, "eighteen")]),
+    );
+    assert_eq!(since_review(&review), [(1, true), (9, false), (17, false)]);
+}

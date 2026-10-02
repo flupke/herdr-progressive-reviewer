@@ -18,12 +18,17 @@ fn text(edits: &[(u32, &str)]) -> Vec<u8> {
         .into_bytes()
 }
 
+/// The hunks of a file edited after its mark.
 fn hunks(base: &[u8], reviewed: &[u8], current: &[u8]) -> FileHunks {
+    hunks_aged(base, reviewed, current, MarkAge::Outdated)
+}
+
+fn hunks_aged(base: &[u8], reviewed: &[u8], current: &[u8], age: MarkAge) -> FileHunks {
     let open = parse_file_diff(
         &unified_diff("f.rs", reviewed, current),
         &ChangedFile::modified("f.rs"),
     );
-    HunkReview::new(base, reviewed, current).hunks(&open)
+    HunkReview::new(base, reviewed, current).hunks(&open, age)
 }
 
 fn span(old: Range<u32>, new: Range<u32>) -> HunkSpan {
@@ -144,4 +149,33 @@ fn a_reviewed_change_between_two_new_edits_of_one_hunk_is_not_rewritten() {
     let hunks = hunks(&text(&[]), &reviewed_text, &current);
 
     assert_eq!(open(&hunks), [(8..13, false)]);
+}
+
+#[test]
+fn lines_a_partial_mark_left_open_change_since_review_only_after_an_edit() {
+    let base = b"";
+    // The mark reviewed every added line but the middle one.
+    let reviewed = b"a\nb\nd\ne\n";
+    let current = b"a\nb\nc\nd\ne\n";
+
+    assert_eq!(
+        open(&hunks_aged(base, reviewed, current, MarkAge::Current)),
+        [(2..3, false)]
+    );
+    assert_eq!(
+        open(&hunks_aged(base, reviewed, current, MarkAge::Outdated)),
+        [(2..3, true)]
+    );
+}
+
+#[test]
+fn rewriting_reviewed_lines_is_a_change_since_review_even_for_a_current_mark() {
+    let base = b"";
+    let reviewed = b"a\nb\n";
+    let current = b"a\nB\n";
+
+    assert_eq!(
+        open(&hunks_aged(base, reviewed, current, MarkAge::Current)),
+        [(1..2, true)]
+    );
 }
