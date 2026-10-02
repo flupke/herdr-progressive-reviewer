@@ -260,7 +260,7 @@ impl ExploreComponent {
         layout.gap();
         layout.controls([
             ("Reply".into(), Control::GeneralReply),
-            ("New pass".into(), Control::Start),
+            ("New round".into(), Control::Start),
         ]);
         let exploration = self.exploration.as_ref().expect("conclusion exploration");
         for answer in exploration
@@ -365,9 +365,9 @@ impl ExploreComponent {
 }
 
 impl ExploreComponent {
-    pub(super) fn refresh_implementation_delivery(&mut self, pass: &review_explore::ExplorePass) {
+    pub(super) fn refresh_implementation_delivery(&mut self, round: &review_explore::ExploreRound) {
         for (id, view) in &mut self.conclusions {
-            let Some(record) = pass
+            let Some(record) = round
                 .implementations
                 .values()
                 .filter(|record| &record.request.conclusion == id)
@@ -410,20 +410,20 @@ impl ExploreComponent {
         }
     }
 
-    pub(super) fn restore_conclusions(&mut self, pass: &review_explore::ExplorePass) {
+    pub(super) fn restore_conclusions(&mut self, round: &review_explore::ExploreRound) {
         self.conclusions.clear();
-        self.reconcile_conclusions(pass);
+        self.reconcile_conclusions(round);
     }
 
-    pub(super) fn reconcile_conclusions(&mut self, pass: &review_explore::ExplorePass) {
-        for turn in &pass.exploration.conversation {
+    pub(super) fn reconcile_conclusions(&mut self, round: &review_explore::ExploreRound) {
+        for turn in &round.exploration.conversation {
             let Some(content) = &turn.update.conclusion else {
                 continue;
             };
             if self.conclusions.contains_key(&turn.update.request) {
                 continue;
             }
-            let delivery = pass
+            let delivery = round
                 .implementations
                 .values()
                 .filter(|record| record.request.conclusion == turn.update.request)
@@ -448,7 +448,7 @@ impl ExploreComponent {
         if self
             .exploration
             .as_ref()
-            .is_none_or(|pass| pass.instance != record.request.instance)
+            .is_none_or(|round| round.instance != record.request.instance)
         {
             return;
         }

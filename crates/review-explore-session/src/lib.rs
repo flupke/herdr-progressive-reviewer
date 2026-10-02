@@ -1,4 +1,4 @@
-//! One Explore session: the pass, its MCP access, the pinned agent and delivery attempts.
+//! One Explore session: the round, its MCP access, the pinned agent and delivery attempts.
 //!
 //! The owner forwards every [`Input`] and reports review checkpoint changes; the
 //! session publishes its results as application events and prompts agents through
@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 use component_core::ApplicationEventSender;
 use herdr_client::protocol::{AgentPort, AgentTarget};
-use review_explore::{Command, Comparison, ExplorePass, ViewSave};
+use review_explore::{Command, Comparison, ExploreRound, ViewSave};
 use review_repository::repository::Repository;
 use review_state::ReviewTracker;
 use review_store::ReviewStore;
@@ -75,7 +75,7 @@ pub struct Collaborators {
 pub struct ExploreSession {
     repository: Repository,
     tracker: Arc<ReviewTracker>,
-    passes: records::SavedPasses,
+    rounds: records::SavedRounds,
     agents: Arc<dyn AgentPort>,
     target: AgentTarget,
     prompts: PromptSender,
@@ -87,7 +87,7 @@ pub struct ExploreSession {
 #[derive(Debug, Default)]
 struct State {
     comparison: Option<Arc<Comparison>>,
-    pass: Option<ExplorePass>,
+    round: Option<ExploreRound>,
     loaded_unit: Option<ReviewUnit>,
     historical: bool,
     storage_error: Option<String>,
@@ -97,7 +97,7 @@ struct State {
     agent: Option<PinnedAgent>,
     prompt: Option<PromptCancellation>,
     implementation: Option<PromptCancellation>,
-    /// What Jev marked before the pass, for its first prompt.
+    /// What Jev marked before the round, for its first prompt.
     jev: Option<String>,
 }
 
@@ -108,13 +108,13 @@ impl State {
     }
 }
 
-/// Publish a durable pass change nobody waits to acknowledge; false once the
+/// Publish a durable round change nobody waits to acknowledge; false once the
 /// application stopped receiving events.
-fn publish_committed(events: &ApplicationEventSender, pass: ExplorePass) -> bool {
+fn publish_committed(events: &ApplicationEventSender, round: ExploreRound) -> bool {
     let (response, _) = std::sync::mpsc::channel();
     events
         .send(ui_events::ExploreCommitted {
-            pass: Arc::new(pass),
+            round: Arc::new(round),
             applied: true,
             response,
         })
@@ -145,7 +145,7 @@ impl ExploreSession {
         Self {
             repository,
             tracker,
-            passes: records::SavedPasses::new(store),
+            rounds: records::SavedRounds::new(store),
             agents,
             target,
             prompts,
@@ -164,12 +164,12 @@ impl ExploreSession {
         }
     }
 
-    /// Say what Jev marked before the pass about to start, for its kickoff.
+    /// Say what Jev marked before the round about to start, for its kickoff.
     pub fn note_jev(&mut self, summary: Option<String>) {
         self.state.jev = summary;
     }
 
-    /// The reviewer now shows `unit`; restore its latest pass when the unit changed.
+    /// The reviewer now shows `unit`; restore its latest round when the unit changed.
     pub fn checkpoint_changed(&mut self, unit: &ReviewUnit) {
         if self.state.loaded_unit.as_ref() == Some(unit) {
             return;
@@ -218,7 +218,7 @@ impl ExploreSession {
         if let Ok(comparison) = &result {
             self.state.comparison = Some(comparison.clone());
             self.state.agent = None;
-            self.state.pass = None;
+            self.state.round = None;
             self.state.historical = false;
             self.state.renew_access();
         }
@@ -237,17 +237,17 @@ impl ExploreSession {
     }
 
     fn cancel_record(&mut self) -> bool {
-        let Some(pass) = &self.state.pass else {
+        let Some(round) = &self.state.round else {
             return true;
         };
         if self.state.historical {
             return true;
         }
-        if let Err(error) = self.passes.update(
-            &pass.exploration.comparison.checkpoint.review_unit,
-            &pass.exploration.instance,
-            |pass| {
-                pass.exploration.cancel();
+        if let Err(error) = self.rounds.update(
+            &round.exploration.comparison.checkpoint.review_unit,
+            &round.exploration.instance,
+            |round| {
+                round.exploration.cancel();
                 Ok(())
             },
         ) {

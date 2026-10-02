@@ -1,8 +1,8 @@
-//! Saved pass restoration, editor views and adoption of changes saved elsewhere.
+//! Saved round restoration, editor views and adoption of changes saved elsewhere.
 
 use std::sync::Arc;
 
-use review_explore::{DispatchState, ExplorePass, ViewSave};
+use review_explore::{DispatchState, ExploreRound, ViewSave};
 use review_types::ReviewUnit;
 
 use crate::{ExploreSession, State, publish_committed};
@@ -17,13 +17,13 @@ fn empty_restore() -> ui_events::ExploreRestored {
     }
 }
 
-/// Where a restored pass's interview stands. A turn whose prompt attempt began may
+/// Where a restored round's interview stands. A turn whose prompt attempt began may
 /// have reached the agent even though no outcome was saved.
-fn restored_progress(pass: &ExplorePass) -> ui_events::ExploreProgress {
-    let Some(request) = pass.exploration.retry_request() else {
+fn restored_progress(round: &ExploreRound) -> ui_events::ExploreProgress {
+    let Some(request) = round.exploration.retry_request() else {
         return ui_events::ExploreProgress::Ready;
     };
-    let uncertain = pass.turns.get(&request.request).is_some_and(|delivery| {
+    let uncertain = round.turns.get(&request.request).is_some_and(|delivery| {
         matches!(
             delivery.state,
             DispatchState::Attempting | DispatchState::Unknown
@@ -44,7 +44,7 @@ enum RestoreError {
 #[derive(Debug)]
 enum Unreadable {
     History(String),
-    Pass { instance: String, reason: String },
+    Round { instance: String, reason: String },
 }
 
 impl ExploreSession {
@@ -74,10 +74,10 @@ impl ExploreSession {
         unit: &ReviewUnit,
     ) -> Result<(ui_events::ExploreRestored, Option<String>), RestoreError> {
         let history = self
-            .passes
+            .rounds
             .history(unit)
             .map_err(|error| RestoreError::Unreadable(Unreadable::History(error.to_string())))?;
-        let instance = history.passes.last().cloned();
+        let instance = history.rounds.last().cloned();
         let Some(instance) = instance else {
             return Ok((empty_restore(), None));
         };
@@ -85,25 +85,25 @@ impl ExploreSession {
         let mut restored = empty_restore();
         let mut toast = None;
         restored.historical = historical;
-        let pass = self
-            .passes
-            .pass(unit, &instance)
+        let round = self
+            .rounds
+            .round(unit, &instance)
             .map_err(|error| {
-                RestoreError::Unreadable(Unreadable::Pass {
+                RestoreError::Unreadable(Unreadable::Round {
                     instance: instance.clone(),
                     reason: error.to_string(),
                 })
             })?
             .ok_or_else(|| {
-                RestoreError::Unreadable(Unreadable::Pass {
+                RestoreError::Unreadable(Unreadable::Round {
                     instance: instance.clone(),
-                    reason: "Saved Explore pass is missing".into(),
+                    reason: "Saved Explore round is missing".into(),
                 })
             })?;
         restored.view =
             self.load_view_for_restore(unit, &instance, &mut restored.storage_error, &mut toast);
-        restored.progress = restored_progress(&pass);
-        restored.result = Ok(Some(Arc::new(pass)));
+        restored.progress = restored_progress(&round);
+        restored.result = Ok(Some(Arc::new(round)));
         Ok((restored, toast))
     }
 
@@ -114,11 +114,11 @@ impl ExploreSession {
     ) -> (ui_events::ExploreRestored, Option<String>) {
         let (reason, cleared) = match failure {
             Unreadable::History(reason) => {
-                let result = self.passes.repair_history(unit).map(|_| ());
+                let result = self.rounds.repair_history(unit).map(|_| ());
                 (reason, result)
             }
-            Unreadable::Pass { instance, reason } => {
-                let result = self.passes.clear_pass(unit, &instance);
+            Unreadable::Round { instance, reason } => {
+                let result = self.rounds.clear_round(unit, &instance);
                 (reason, result)
             }
         };
@@ -160,19 +160,19 @@ impl ExploreSession {
     }
 
     fn accept_restored(&mut self, event: &mut ui_events::ExploreRestored) {
-        let pass = event.result.as_ref().ok().and_then(Option::as_ref).cloned();
+        let round = event.result.as_ref().ok().and_then(Option::as_ref).cloned();
         self.state.prompt = None;
         self.state.implementation = None;
         self.state.agent = None;
         self.state.renew_access();
         self.state.historical = event.historical;
         self.state.storage_error.clone_from(&event.storage_error);
-        self.state.comparison = pass
+        self.state.comparison = round
             .as_ref()
-            .map(|pass| pass.exploration.comparison.clone());
-        self.state.pass = pass.as_deref().cloned();
+            .map(|round| round.exploration.comparison.clone());
+        self.state.round = round.as_deref().cloned();
         self.state.last_view.clone_from(&event.view);
-        event.result = Ok(pass);
+        event.result = Ok(round);
     }
 
     fn load_view_for_restore(
@@ -182,10 +182,10 @@ impl ExploreSession {
         storage_error: &mut Option<String>,
         toast: &mut Option<String>,
     ) -> Option<ViewSave> {
-        match self.passes.view(unit, instance) {
+        match self.rounds.view(unit, instance) {
             Ok(view) => view,
             Err(error) => {
-                match self.passes.clear_view(unit, instance) {
+                match self.rounds.clear_view(unit, instance) {
                     Ok(()) => {
                         *toast = Some("Unreadable Explore editor state was cleared.".to_owned());
                     }
@@ -205,7 +205,7 @@ impl ExploreSession {
             return;
         }
         let unit = view.review_unit.clone();
-        let result = self.passes.save_view(&unit, &view);
+        let result = self.rounds.save_view(&unit, &view);
         if self.state.loaded_unit.as_ref() == Some(&unit) {
             self.state.last_view = Some(view);
         }
@@ -217,33 +217,33 @@ impl ExploreSession {
         }
     }
 
-    /// Saved Explore state changed on disk; adopt a newer revision of the current pass.
+    /// Saved Explore state changed on disk; adopt a newer revision of the current round.
     pub(crate) fn storage_changed(&mut self) {
-        let Some(previous) = &self.state.pass else {
+        let Some(previous) = &self.state.round else {
             self.open();
             return;
         };
         let unit = &previous.exploration.comparison.checkpoint.review_unit;
         let instance = &previous.exploration.instance;
         let result = (|| -> eyre::Result<_> {
-            let history = self.passes.history(unit)?;
-            let pass = self
-                .passes
-                .pass(unit, instance)?
-                .ok_or_else(|| eyre::eyre!("Saved Explore pass disappeared"))?;
-            Ok((history, pass))
+            let history = self.rounds.history(unit)?;
+            let round = self
+                .rounds
+                .round(unit, instance)?
+                .ok_or_else(|| eyre::eyre!("Saved Explore round disappeared"))?;
+            Ok((history, round))
         })();
         match result {
-            Ok((history, pass)) => {
+            Ok((history, round)) => {
                 let _ = self
                     .events
                     .send(ui_events::ExploreHistoryChanged(history.clone()));
                 self.state.historical = history.is_historical(instance);
-                if pass.revision <= previous.revision {
+                if round.revision <= previous.revision {
                     return;
                 }
-                publish_committed(&self.events, pass.clone());
-                self.state.pass = Some(pass);
+                publish_committed(&self.events, round.clone());
+                self.state.round = Some(round);
             }
             Err(error) => {
                 self.state.storage_error = Some(error.to_string());

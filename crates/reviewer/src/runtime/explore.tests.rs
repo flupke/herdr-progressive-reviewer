@@ -150,7 +150,7 @@ impl ExploreFlow {
                 && let Some(event) = event.downcast_ref::<ui_events::ExploreCommitted>()
                 && acknowledge
             {
-                self.exploration = event.pass.exploration.clone();
+                self.exploration = event.round.exploration.clone();
                 event.response.send(Ok(event.applied)).unwrap();
             }
         };
@@ -169,7 +169,7 @@ impl ExploreFlow {
                     .find_map(|line| line.strip_prefix("Explore review access: "))
             {
                 assert!(prompt.contains(&format!("Explore request: {}\n", request.request)));
-                assert!(prompt.contains(&format!("Explore pass: {}\n", request.instance)));
+                assert!(prompt.contains(&format!("Explore round: {}\n", request.instance)));
                 assert!(
                     prompt.contains(&format!("Checkpoint: {}\n", request.checkpoint.checkpoint))
                 );
@@ -209,7 +209,7 @@ impl ExploreFlow {
         }
     }
 
-    fn saved(&self) -> review_explore::ExplorePass {
+    fn saved(&self) -> review_explore::ExploreRound {
         ReviewStore::open(
             self.fixture.runtime.state.path(),
             self.fixture.runtime.repository.root(),

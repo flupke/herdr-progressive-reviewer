@@ -60,10 +60,10 @@ mod tests {
             let _ = sent.send(event);
         });
         let _watcher = StateWatch::start(root.path(), observer).unwrap();
-        fs::write(root.path().join("pass.json.new"), b"{}").unwrap();
+        fs::write(root.path().join("round.json.new"), b"{}").unwrap();
         fs::rename(
-            root.path().join("pass.json.new"),
-            root.path().join("pass.json"),
+            root.path().join("round.json.new"),
+            root.path().join("round.json"),
         )
         .unwrap();
         received
@@ -72,10 +72,10 @@ mod tests {
             .unwrap();
         // Drain the finite notification burst from the atomic domain write.
         while received.recv_timeout(Duration::from_millis(100)).is_ok() {}
-        fs::write(root.path().join("pass.view.json.new"), b"{}").unwrap();
+        fs::write(root.path().join("round.view.json.new"), b"{}").unwrap();
         fs::rename(
-            root.path().join("pass.view.json.new"),
-            root.path().join("pass.view.json"),
+            root.path().join("round.view.json.new"),
+            root.path().join("round.view.json"),
         )
         .unwrap();
         assert!(matches!(

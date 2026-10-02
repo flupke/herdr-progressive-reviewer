@@ -460,7 +460,7 @@ impl ExploreComponent {
         } else if self.progress == Progress::Retryable {
             layout.controls([("Retry".into(), Control::Retry)]);
         } else if self.progress == Progress::Ready && self.durable.historical {
-            layout.controls([("New pass".into(), Control::Start)]);
+            layout.controls([("New round".into(), Control::Start)]);
         } else if self.progress == Progress::Ready && self.question().is_none() {
             layout.controls([("Start".into(), Control::Start)]);
         }

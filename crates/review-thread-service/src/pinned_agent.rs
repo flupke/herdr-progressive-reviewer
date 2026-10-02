@@ -79,11 +79,11 @@ impl PinnedAgent {
             }
             Verdict::SessionMissing => Ok(None),
             Verdict::Changed(Change::Agent) => {
-                Err("The selected pane is now running a different agent; start a new pass".into())
+                Err("The selected pane is now running a different agent; start a new round".into())
             }
             Verdict::Changed(Change::ProcessGroup) => Err(PROCESS_CHANGED.into()),
             Verdict::Changed(Change::Session) => Err(
-                "The selected pane is now running a different agent conversation; start a new pass"
+                "The selected pane is now running a different agent conversation; start a new round"
                     .into(),
             ),
         }

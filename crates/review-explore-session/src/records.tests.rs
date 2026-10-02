@@ -1,14 +1,14 @@
-//! The saved-pass rules over a temporary store.
+//! The saved-round rules over a temporary store.
 
 use std::sync::Arc;
 
 use review_explore::{
     AnswerInput, Comparison, Conclusion, ConversationBinding, DispatchId, DispatchResult,
-    DispatchState, Exploration, ExplorePass, InterviewUpdate, Question, ViewSave,
+    DispatchState, Exploration, ExploreRound, InterviewUpdate, Question, ViewSave,
 };
 use review_store::ReviewStore;
 
-use super::{SavedPasses, Submitted};
+use super::{SavedRounds, Submitted};
 
 /// The directory of the only review saved in `store`.
 fn review_directory(store: &ReviewStore) -> std::path::PathBuf {
@@ -23,8 +23,8 @@ fn review_directory(store: &ReviewStore) -> std::path::PathBuf {
 struct Investigation {
     _directory: tempfile::TempDir,
     store: ReviewStore,
-    passes: SavedPasses,
-    pass: ExplorePass,
+    rounds: SavedRounds,
+    round: ExploreRound,
 }
 
 impl Investigation {
@@ -42,26 +42,26 @@ impl Investigation {
             sources: vec![],
             base: None,
         };
-        let pass = ExplorePass::new(Exploration::new(Arc::new(comparison)));
-        let passes = SavedPasses::new(store.clone());
-        passes.create(pass.clone()).unwrap();
+        let round = ExploreRound::new(Exploration::new(Arc::new(comparison)));
+        let rounds = SavedRounds::new(store.clone());
+        rounds.create(round.clone()).unwrap();
         Self {
             _directory: directory,
             store,
-            passes,
-            pass,
+            rounds,
+            round,
         }
     }
 
     fn mutate<T>(
         &mut self,
-        f: impl FnOnce(&mut ExplorePass) -> std::result::Result<T, String>,
+        f: impl FnOnce(&mut ExploreRound) -> std::result::Result<T, String>,
     ) -> T {
-        let (value, pass) = self
-            .passes
-            .update(&"review".into(), &self.pass.exploration.instance, f)
+        let (value, round) = self
+            .rounds
+            .update(&"review".into(), &self.round.exploration.instance, f)
             .unwrap();
-        self.pass = pass;
+        self.round = round;
         value
     }
 
@@ -71,17 +71,17 @@ impl Investigation {
         question: Option<&Question>,
     ) -> review_explore::TurnRequest {
         let request = self
-            .pass
+            .round
             .exploration
             .clone()
             .request(input, question)
             .unwrap();
-        self.mutate(|pass| pass.post(&request).map_err(|e| e.to_string()));
+        self.mutate(|round| round.post(&request).map_err(|e| e.to_string()));
         request
     }
 
     fn submit(&mut self, update: InterviewUpdate) -> bool {
-        self.mutate(|pass| pass.exploration.submit(update).map_err(|e| e.to_string()))
+        self.mutate(|round| round.exploration.submit(update).map_err(|e| e.to_string()))
     }
 
     fn update(request: &review_explore::TurnRequest, number: usize) -> InterviewUpdate {
@@ -103,13 +103,13 @@ impl Investigation {
     fn view(&self, sequence: u64, text: &str) -> ViewSave {
         ViewSave {
             review_unit: self
-                .pass
+                .round
                 .exploration
                 .comparison
                 .checkpoint
                 .review_unit
                 .clone(),
-            instance: self.pass.exploration.instance.clone(),
+            instance: self.round.exploration.instance.clone(),
             sequence,
             state: review_explore::ExploreViewState {
                 tasks: std::collections::BTreeMap::from([(
@@ -128,12 +128,12 @@ impl Investigation {
 }
 
 #[test]
-fn a_conclusion_completes_the_pass_and_leaves_review_marks_alone() {
+fn a_conclusion_completes_the_round_and_leaves_review_marks_alone() {
     let mut investigation = Investigation::new();
     let store = investigation.store.clone();
     let kickoff = investigation.request(None, None);
     assert!(investigation.submit(Investigation::update(&kickoff, 1)));
-    let question = investigation.pass.exploration.questions[0].clone();
+    let question = investigation.round.exploration.questions[0].clone();
     let answer = investigation.request(
         Some(AnswerInput {
             text: "Discussed".into(),
@@ -158,39 +158,39 @@ fn a_conclusion_completes_the_pass_and_leaves_review_marks_alone() {
         to_be_implemented: String::new(),
         future_work: String::new(),
     });
-    let instance = investigation.pass.exploration.instance.clone();
+    let instance = investigation.round.exploration.instance.clone();
 
-    let Submitted { applied, pass } = investigation
-        .passes
+    let Submitted { applied, round } = investigation
+        .rounds
         .submit(&"review".into(), &instance, &conclusion)
         .unwrap();
 
     assert!(applied);
-    assert!(pass.completion.is_some());
+    assert!(round.completion.is_some());
     assert_eq!(
         store.load(&"review".into(), b"policy.rs").unwrap(),
         prior_mark
     );
     let restored = investigation
-        .passes
-        .pass(&"review".into(), &instance)
+        .rounds
+        .round(&"review".into(), &instance)
         .unwrap()
         .unwrap();
-    assert_eq!(restored, pass);
+    assert_eq!(restored, round);
     let Submitted { applied, .. } = investigation
-        .passes
+        .rounds
         .submit(&"review".into(), &instance, &conclusion)
         .unwrap();
     assert!(!applied, "an identical retry changes nothing");
-    let followup = pass.exploration.clone().request(None, None).unwrap();
+    let followup = round.exploration.clone().request(None, None).unwrap();
     investigation
-        .passes
-        .update(&"review".into(), &instance, |pass| {
-            pass.post(&followup).map_err(|error| error.to_string())
+        .rounds
+        .update(&"review".into(), &instance, |round| {
+            round.post(&followup).map_err(|error| error.to_string())
         })
         .unwrap();
     let Submitted { applied, .. } = investigation
-        .passes
+        .rounds
         .submit(
             &"review".into(),
             &instance,
@@ -201,62 +201,62 @@ fn a_conclusion_completes_the_pass_and_leaves_review_marks_alone() {
 }
 
 #[test]
-fn clearing_one_unreadable_pass_preserves_other_saved_passes() {
+fn clearing_one_unreadable_round_preserves_other_saved_rounds() {
     let fixture = Investigation::new();
     let unit = "review".into();
-    let bad = fixture.pass.exploration.instance.clone();
-    let good = ExplorePass::new(Exploration::new(
-        fixture.pass.exploration.comparison.clone(),
+    let bad = fixture.round.exploration.instance.clone();
+    let good = ExploreRound::new(Exploration::new(
+        fixture.round.exploration.comparison.clone(),
     ));
     let good_instance = good.exploration.instance.clone();
-    fixture.passes.create(good).unwrap();
+    fixture.rounds.create(good).unwrap();
     let good_view = review_explore::ViewSave {
         instance: good_instance.clone(),
         ..fixture.view(1, "retained editor")
     };
-    fixture.passes.save_view(&unit, &good_view).unwrap();
+    fixture.rounds.save_view(&unit, &good_view).unwrap();
     let bad_path = fixture.path(&bad);
-    std::fs::write(&bad_path, b"invalid saved pass").unwrap();
+    std::fs::write(&bad_path, b"invalid saved round").unwrap();
 
-    fixture.passes.clear_pass(&unit, &bad).unwrap();
+    fixture.rounds.clear_round(&unit, &bad).unwrap();
 
     assert!(!bad_path.exists());
     assert_eq!(
-        fixture.passes.history(&unit).unwrap().passes,
+        fixture.rounds.history(&unit).unwrap().rounds,
         vec![good_instance.clone()]
     );
     assert!(
         fixture
-            .passes
-            .pass(&unit, &good_instance)
+            .rounds
+            .round(&unit, &good_instance)
             .unwrap()
             .is_some()
     );
     assert_eq!(
-        fixture.passes.view(&unit, &good_instance).unwrap(),
+        fixture.rounds.view(&unit, &good_instance).unwrap(),
         Some(good_view)
     );
 }
 
 #[test]
-fn repairing_unreadable_index_preserves_readable_passes_and_views() {
+fn repairing_unreadable_index_preserves_readable_rounds_and_views() {
     let fixture = Investigation::new();
     let unit = "review".into();
-    let instance = fixture.pass.exploration.instance.clone();
+    let instance = fixture.round.exploration.instance.clone();
     fixture
-        .passes
+        .rounds
         .save_view(&unit, &fixture.view(1, "draft"))
         .unwrap();
     let index = review_directory(&fixture.store).join("index.json");
     std::fs::write(&index, b"invalid index").unwrap();
 
-    let repaired = fixture.passes.repair_history(&unit).unwrap();
+    let repaired = fixture.rounds.repair_history(&unit).unwrap();
 
-    assert_eq!(repaired.passes, vec![instance.clone()]);
+    assert_eq!(repaired.rounds, vec![instance.clone()]);
     assert!(!repaired.latest_editable);
-    assert_eq!(fixture.passes.history(&unit).unwrap(), repaired);
-    assert!(fixture.passes.pass(&unit, &instance).unwrap().is_some());
-    assert!(fixture.passes.view(&unit, &instance).unwrap().is_some());
+    assert_eq!(fixture.rounds.history(&unit).unwrap(), repaired);
+    assert!(fixture.rounds.round(&unit, &instance).unwrap().is_some());
+    assert!(fixture.rounds.view(&unit, &instance).unwrap().is_some());
 }
 
 #[test]
@@ -265,45 +265,50 @@ fn accepted_output_survives_lost_ack_and_conflicting_retries_cannot_rewrite_it()
     let request = fixture.request(None, None);
     let update = Investigation::update(&request, 1);
     assert!(fixture.submit(update.clone()));
-    let revision = fixture.pass.revision;
+    let revision = fixture.round.revision;
     assert!(!fixture.submit(update.clone()));
-    assert_eq!(fixture.pass.revision, revision);
+    assert_eq!(fixture.round.revision, revision);
     let mut conflict = update;
     conflict.next.as_mut().unwrap().text = "Replacement".into();
-    let result = fixture.passes.update(
+    let result = fixture.rounds.update(
         &"review".into(),
-        &fixture.pass.exploration.instance,
-        |pass| pass.exploration.submit(conflict).map_err(|e| e.to_string()),
+        &fixture.round.exploration.instance,
+        |round| {
+            round
+                .exploration
+                .submit(conflict)
+                .map_err(|e| e.to_string())
+        },
     );
     assert!(result.is_err());
     assert_eq!(
         fixture
-            .passes
-            .pass(&"review".into(), &request.instance)
+            .rounds
+            .round(&"review".into(), &request.instance)
             .unwrap()
             .unwrap(),
-        fixture.pass
+        fixture.round
     );
 }
 
 #[test]
 fn one_view_keeps_latest_edits_without_rewriting_domain() {
     let fixture = Investigation::new();
-    let path = fixture.path(&fixture.pass.exploration.instance);
+    let path = fixture.path(&fixture.round.exploration.instance);
     let before = std::fs::read(&path).unwrap();
     for (sequence, text) in [(1, "First edits"), (2, "Latest edits")] {
         fixture
-            .passes
+            .rounds
             .save_view(&"review".into(), &fixture.view(sequence, text))
             .unwrap();
     }
     fixture
-        .passes
+        .rounds
         .save_view(&"review".into(), &fixture.view(1, "stale"))
         .unwrap();
     let view = fixture
-        .passes
-        .view(&"review".into(), &fixture.pass.exploration.instance)
+        .rounds
+        .view(&"review".into(), &fixture.round.exploration.instance)
         .unwrap()
         .unwrap();
     assert_eq!(view.sequence, 2);
@@ -313,30 +318,30 @@ fn one_view_keeps_latest_edits_without_rewriting_domain() {
 }
 
 #[test]
-fn new_pass_keeps_previous_records_and_blocks_stale_domain_mutations() {
+fn new_round_keeps_previous_records_and_blocks_stale_domain_mutations() {
     let fixture = Investigation::new();
-    let old = fixture.pass.exploration.instance.clone();
-    let new = ExplorePass::new(Exploration::new(
-        fixture.pass.exploration.comparison.clone(),
+    let old = fixture.round.exploration.instance.clone();
+    let new = ExploreRound::new(Exploration::new(
+        fixture.round.exploration.comparison.clone(),
     ));
-    fixture.passes.create(new.clone()).unwrap();
+    fixture.rounds.create(new.clone()).unwrap();
     assert_eq!(
-        fixture.passes.history(&"review".into()).unwrap().passes,
+        fixture.rounds.history(&"review".into()).unwrap().rounds,
         vec![old.clone(), new.exploration.instance]
     );
     assert!(
         fixture
-            .passes
+            .rounds
             .update(&"review".into(), &old, |_| Ok(()))
             .is_err()
     );
     assert_eq!(
         fixture
-            .passes
-            .pass(&"review".into(), &old)
+            .rounds
+            .round(&"review".into(), &old)
             .unwrap()
             .unwrap(),
-        fixture.pass
+        fixture.round
     );
 }
 
@@ -359,25 +364,25 @@ fn implementation(
         future_work: "Later tasks".into(),
     });
     fixture.submit(conclusion);
-    fixture.mutate(|pass| {
-        pass.completion = Some(review_explore::ReviewCompletion {
+    fixture.mutate(|round| {
+        round.completion = Some(review_explore::ReviewCompletion {
             request: turn.request.clone(),
             baseline: "checkpoint".into(),
         });
         Ok(())
     });
     let request = fixture
-        .pass
+        .round
         .exploration
         .implementation("Only the edited task".into())
         .unwrap();
-    fixture.mutate(|pass| {
-        pass.last_agent_session = ConversationBinding::from_agent(&agent());
-        pass.authorize(&request).map_err(|e| e.to_string())
+    fixture.mutate(|round| {
+        round.last_agent_session = ConversationBinding::from_agent(&agent());
+        round.authorize(&request).map_err(|e| e.to_string())
     });
     let id = DispatchId::Implementation {
         request: request.delivery.clone(),
-        attempt: fixture.pass.implementations[&request.delivery]
+        attempt: fixture.round.implementations[&request.delivery]
             .attempt
             .clone(),
     };
@@ -388,12 +393,13 @@ fn implementation(
 fn archived_attempt_keeps_authoritative_success_and_cancel_cannot_rewrite_it() {
     let mut fixture = Investigation::new();
     let (request, id) = implementation(&mut fixture);
-    fixture.mutate(|pass| {
-        pass.begin_dispatch(&id, &agent())
+    fixture.mutate(|round| {
+        round
+            .begin_dispatch(&id, &agent())
             .map_err(|e| e.to_string())
     });
-    let pass = fixture
-        .passes
+    let round = fixture
+        .rounds
         .finish_dispatch(
             &"review".into(),
             &request.instance,
@@ -405,19 +411,19 @@ fn archived_attempt_keeps_authoritative_success_and_cancel_cannot_rewrite_it() {
         )
         .unwrap();
     assert_eq!(
-        pass.implementations[&request.delivery].state,
+        round.implementations[&request.delivery].state,
         DispatchState::Attempting,
         "A second observer's cancellation cannot cancel the first observer's external attempt"
     );
     fixture
-        .passes
-        .create(ExplorePass::new(Exploration::new(
-            fixture.pass.exploration.comparison.clone(),
+        .rounds
+        .create(ExploreRound::new(Exploration::new(
+            fixture.round.exploration.comparison.clone(),
         )))
         .unwrap();
     for state in [DispatchState::Delivered, DispatchState::Cancelled] {
-        let pass = fixture
-            .passes
+        let round = fixture
+            .rounds
             .finish_dispatch(
                 &"review".into(),
                 &request.instance,
@@ -429,11 +435,11 @@ fn archived_attempt_keeps_authoritative_success_and_cancel_cannot_rewrite_it() {
             )
             .unwrap();
         assert_eq!(
-            pass.implementations[&request.delivery].state,
+            round.implementations[&request.delivery].state,
             DispatchState::Delivered
         );
         assert_eq!(
-            pass.implementations[&request.delivery].request.text,
+            round.implementations[&request.delivery].request.text,
             "Only the edited task"
         );
     }
@@ -443,9 +449,9 @@ fn archived_attempt_keeps_authoritative_success_and_cancel_cannot_rewrite_it() {
 fn superseded_attempt_cannot_change_new_attempt_or_authorized_payload() {
     let mut fixture = Investigation::new();
     let (request, old) = implementation(&mut fixture);
-    fixture.mutate(|pass| pass.authorize(&request).map_err(|e| e.to_string()));
-    let pass = fixture
-        .passes
+    fixture.mutate(|round| round.authorize(&request).map_err(|e| e.to_string()));
+    let round = fixture
+        .rounds
         .finish_dispatch(
             &"review".into(),
             &request.instance,
@@ -457,15 +463,15 @@ fn superseded_attempt_cannot_change_new_attempt_or_authorized_payload() {
         )
         .unwrap();
     assert_eq!(
-        pass.implementations[&request.delivery].state,
+        round.implementations[&request.delivery].state,
         DispatchState::Queued
     );
     let mut changed = request.clone();
     changed.text = "Expanded scope".into();
     assert!(
         fixture
-            .passes
-            .update(&"review".into(), &request.instance, |pass| pass
+            .rounds
+            .update(&"review".into(), &request.instance, |round| round
                 .authorize(&changed)
                 .map_err(|e| e.to_string()))
             .is_err()
@@ -478,16 +484,16 @@ fn a_cancelled_turn_cannot_dispatch_or_replace_a_newer_post_on_retry() {
     let old = fixture.request(None, None);
     let id = DispatchId::Interview {
         request: old.request.clone(),
-        attempt: fixture.pass.turns[&old.request].attempt.clone(),
+        attempt: fixture.round.turns[&old.request].attempt.clone(),
     };
-    fixture.mutate(|pass| {
-        pass.exploration.cancel();
+    fixture.mutate(|round| {
+        round.exploration.cancel();
         Ok(())
     });
     assert!(
         fixture
-            .passes
-            .update(&"review".into(), &old.instance, |pass| pass
+            .rounds
+            .update(&"review".into(), &old.instance, |round| round
                 .begin_dispatch(&id, &agent())
                 .map_err(|e| e.to_string()))
             .is_err()
@@ -495,15 +501,15 @@ fn a_cancelled_turn_cannot_dispatch_or_replace_a_newer_post_on_retry() {
     let new = fixture.request(None, None);
     assert!(
         fixture
-            .passes
-            .update(&"review".into(), &old.instance, |pass| pass
+            .rounds
+            .update(&"review".into(), &old.instance, |round| round
                 .post(&old)
                 .map_err(|e| e.to_string()))
             .is_err()
     );
     let saved = fixture
-        .passes
-        .pass(&"review".into(), &old.instance)
+        .rounds
+        .round(&"review".into(), &old.instance)
         .unwrap()
         .unwrap();
     assert_eq!(saved.exploration.pending_request(), Some(&new));
@@ -514,22 +520,22 @@ fn a_cancelled_turn_cannot_dispatch_or_replace_a_newer_post_on_retry() {
 fn editor_sequence_conflict_and_wrong_review_keep_original_bytes() {
     let fixture = Investigation::new();
     let view = fixture.view(1, "Original text");
-    fixture.passes.save_view(&"review".into(), &view).unwrap();
+    fixture.rounds.save_view(&"review".into(), &view).unwrap();
     assert!(
         fixture
-            .passes
+            .rounds
             .save_view(&"review".into(), &fixture.view(1, "Conflicting text"))
             .is_err()
     );
     assert!(
         fixture
-            .passes
+            .rounds
             .save_view(&"different-review".into(), &view)
             .is_err()
     );
     assert_eq!(
         fixture
-            .passes
+            .rounds
             .view(&"review".into(), &view.instance)
             .unwrap()
             .unwrap(),

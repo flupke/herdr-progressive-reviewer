@@ -422,7 +422,7 @@ fn a_current_turn_with_wrong_payload_identity_is_visible_and_retryable() {
 }
 
 #[test]
-fn new_pass_retains_history_and_failed_capture_preserves_text() {
+fn new_round_retains_history_and_failed_capture_preserves_text() {
     let (mut fixture, request) = ExploreUi::new();
     fixture.respond(&request, 1);
     fixture.app.update(UserInput::Paste("Keep my draft".into()));

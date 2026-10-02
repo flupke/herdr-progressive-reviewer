@@ -9,7 +9,7 @@ pub struct ExploreCaptured {
 /// Local restoration does not dispatch a prompt or replay agent output as new events.
 #[derive(Clone, Debug)]
 pub struct ExploreRestored {
-    pub result: Result<Option<Arc<review_explore::ExplorePass>>, String>,
+    pub result: Result<Option<Arc<review_explore::ExploreRound>>, String>,
     pub view: Option<review_explore::ViewSave>,
     pub historical: bool,
     /// Ancillary editor damage does not prevent reading intact accepted history.
@@ -21,7 +21,7 @@ pub struct ExploreRestored {
 /// Where a restored interview stands, decided by the Explore session.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum ExploreProgress {
-    /// No turn is waiting; the reviewer can answer or start a new pass.
+    /// No turn is waiting; the reviewer can answer or start a new round.
     #[default]
     Ready,
     /// A posted turn was not answered; Retry sends it again.
@@ -33,12 +33,12 @@ pub enum ExploreProgress {
 #[derive(Clone, Debug)]
 pub struct ExplorePosted {
     pub request: review_explore::TurnRequest,
-    pub result: Result<Arc<review_explore::ExplorePass>, String>,
+    pub result: Result<Arc<review_explore::ExploreRound>, String>,
 }
 
 #[derive(Clone, Debug)]
 pub struct ExploreCommitted {
-    pub pass: Arc<review_explore::ExplorePass>,
+    pub round: Arc<review_explore::ExploreRound>,
     pub applied: bool,
     pub response: std::sync::mpsc::Sender<Result<bool, String>>,
 }
@@ -47,8 +47,8 @@ pub struct ExploreCommitted {
 #[derive(Clone, Debug)]
 pub struct ExploreAnswerCancelled {
     pub answer: String,
-    /// The pass without the answer and the agent's turn after it.
-    pub result: Result<Arc<review_explore::ExplorePass>, String>,
+    /// The round without the answer and the agent's turn after it.
+    pub result: Result<Arc<review_explore::ExploreRound>, String>,
 }
 
 #[derive(Clone, Debug)]

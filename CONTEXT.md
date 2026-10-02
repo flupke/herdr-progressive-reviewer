@@ -73,12 +73,18 @@ still matches. The diff folds it into one row.
 
 ## Explore
 
+**Explore round**:
+One interview in which an agent questions the reviewer about a review
+checkpoint, and marks or reopens changed lines according to the answers. A new
+round keeps earlier rounds as history.
+_Avoid_: Explore pass, Explore session
+
 **Citation**:
 A path, side and line range that a question puts before the reviewer as
 evidence, most decisive first. Citing lines does not mark them reviewed.
 _Avoid_: source reference, inspection, supporting reference
 
 **Cancel answer**:
-Withdrawing the reviewer's latest answer in an Explore pass, which returns the
-pass to its state before that answer, including the review marks it led to.
+Withdrawing the reviewer's latest answer in an Explore round, which returns the
+round to its state before that answer, including the review marks it led to.
 _Avoid_: cancel (which stops a pending turn), correction, undo, defer

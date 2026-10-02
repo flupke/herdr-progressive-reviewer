@@ -4,7 +4,7 @@ mod durable;
 mod presentation;
 mod recovery;
 pub use durable::{
-    ConversationBinding, DispatchId, DispatchResult, DispatchState, ExploreHistory, ExplorePass,
+    ConversationBinding, DispatchId, DispatchResult, DispatchState, ExploreHistory, ExploreRound,
     ImplementationDelivery, InterviewDelivery, MarkCounts, ReopenedLines, ReviewCompletion,
     TurnMarks,
 };

@@ -13,7 +13,7 @@ use crate::marks::runs;
 
 impl ExploreSession {
     /// What no review mark covers in the current snapshot, or why it cannot
-    /// be read. A kickoff also says what Jev marked before the pass.
+    /// be read. A kickoff also says what Jev marked before the round.
     pub(crate) fn unreviewed(&self, kickoff: bool) -> Unreviewed {
         let jev = self.state.jev.clone().filter(|_| kickoff);
         let unavailable = |why: String| Unreviewed {
@@ -60,8 +60,8 @@ impl ExploreSession {
             jev,
             status: UnreviewedStatus::Listed {
                 notice: moved.then(|| {
-                    "the code changed since this pass started: these lines are numbered like \
-                     the current code, and review marks are not applied until a new pass starts"
+                    "the code changed since this round started: these lines are numbered like \
+                     the current code, and review marks are not applied until a new round starts"
                         .into()
                 }),
             },

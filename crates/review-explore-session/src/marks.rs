@@ -4,7 +4,7 @@
 use std::ops::Range;
 
 use review_explore::{
-    CodeLocation, ExplorePass, InterviewUpdate, ReopenedLines, SourceSide, TurnMarks,
+    CodeLocation, ExploreRound, InterviewUpdate, ReopenedLines, SourceSide, TurnMarks,
 };
 use review_hunks::{LineSelection, ReviewedLines};
 use review_repository::repository::{ChangedFile, PollResult, Snapshot};
@@ -105,16 +105,16 @@ impl FileChange {
 
 impl ExploreSession {
     /// Apply the marks an accepted turn asked for, and record what changed;
-    /// the pass with that record, or `None` when the turn asked for none.
+    /// the round with that record, or `None` when the turn asked for none.
     pub(crate) fn apply_marks(
         &mut self,
         update: &InterviewUpdate,
-        pass: &ExplorePass,
-    ) -> Option<ExplorePass> {
+        round: &ExploreRound,
+    ) -> Option<ExploreRound> {
         if update.reviewed.is_empty() && update.reopened.is_empty() {
             return None;
         }
-        let answer = pass
+        let answer = round
             .turns
             .get(&update.request)?
             .request
@@ -122,7 +122,7 @@ impl ExploreSession {
             .as_ref()?
             .id
             .clone();
-        let marks = match self.marked_snapshot(pass) {
+        let marks = match self.marked_snapshot(round) {
             Ok(snapshot) => self.mark(&snapshot, update, answer),
             Err(problem) => TurnMarks {
                 answer,
@@ -136,16 +136,16 @@ impl ExploreSession {
                 kind: toasts::ToastKind::Error,
             });
         }
-        let checkpoint = &pass.exploration.comparison.checkpoint;
-        match self.passes.update(
+        let checkpoint = &round.exploration.comparison.checkpoint;
+        match self.rounds.update(
             &checkpoint.review_unit,
-            &pass.exploration.instance,
-            |pass| {
-                pass.marks.insert(update.request.clone(), marks);
+            &round.exploration.instance,
+            |round| {
+                round.marks.insert(update.request.clone(), marks);
                 Ok(())
             },
         ) {
-            Ok(((), pass)) => Some(pass),
+            Ok(((), round)) => Some(round),
             Err(error) => {
                 let _ = self
                     .events
@@ -155,18 +155,18 @@ impl ExploreSession {
         }
     }
 
-    /// The current snapshot, when it is still the pass's checkpoint.
-    fn marked_snapshot(&self, pass: &ExplorePass) -> Result<Snapshot, String> {
+    /// The current snapshot, when it is still the round's checkpoint.
+    fn marked_snapshot(&self, round: &ExploreRound) -> Result<Snapshot, String> {
         let PollResult::Complete(snapshot) =
             self.repository.poll().map_err(|error| error.to_string())?
         else {
             return Err("the repository is not ready; no lines were marked".into());
         };
-        if !pass.exploration.comparison.checkpoint.matches(
+        if !round.exploration.comparison.checkpoint.matches(
             snapshot.identity.review_unit(),
             snapshot.identity.snapshot_id(),
         ) {
-            return Err("the code changed since this pass started; no lines were marked".into());
+            return Err("the code changed since this round started; no lines were marked".into());
         }
         Ok(snapshot)
     }

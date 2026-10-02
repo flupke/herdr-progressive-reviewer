@@ -4,7 +4,7 @@ use std::collections::HashSet;
 impl Exploration {
     /// Validate stored structure without reopening or checking the freshness of sources.
     fn validate_restored(&self) -> eyre::Result<()> {
-        eyre::ensure!(!self.instance.is_empty(), "missing pass identity");
+        eyre::ensure!(!self.instance.is_empty(), "missing round identity");
         let mut requests = HashSet::new();
         let mut questions = Vec::new();
         for turn in &self.conversation {
@@ -151,7 +151,7 @@ impl Exploration {
     }
 }
 
-impl crate::ExplorePass {
+impl crate::ExploreRound {
     pub fn validate_restored(&self) -> eyre::Result<()> {
         self.exploration.validate_restored()?;
         if let Some(completion) = &self.completion {

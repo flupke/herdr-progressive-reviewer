@@ -281,21 +281,21 @@ confirms delivery, not completed implementation.
 
 ### Durable Explore recovery
 
-`review-explore::ExplorePass` stores the existing domain types and delivery records;
+`review-explore::ExploreRound` stores the existing domain types and delivery records;
 `ExploreViewState` stores portable editor/reading state. `Comparison` omits live
 source buffers and diff caches from serialization. Restored evidence lazily reopens
 only the selected file through working-copy/history readers, including native diff
 rendering. Missing paths, ranges or base revisions are local evidence limitations.
 
 `review-store` uses `explore-v1/<logical-review-hash>/` inside its canonical-checkout
-namespace. Each pass and its deduplication state share an atomic JSON record. A
-per-review lock protects mutations against the latest revision; archived passes
+namespace. Each round and its deduplication state share an atomic JSON record. A
+per-review lock protects mutations against the latest revision; archived rounds
 accept only completion of already recorded dispatch attempts. `index.json` retains
-pass order. One `<pass-id>.view.json` record stores the reviewer's editors and reading
+round order. One `<round-id>.view.json` record stores the reviewer's editors and reading
 position without rewriting domain history. Its save sequence continues across
 reopening. Explore assumes one agent and one reviewer per repository, with no window
 identities, alternate draft sets, or legacy-format migration. Record bounds are
-256 MiB for a pass and 16 MiB for an editor/index; readers reject invalid versions,
+256 MiB for a round and 16 MiB for an editor/index; readers reject invalid versions,
 structure and oversized data without
 replacing it. Writes sync files and parent directories. The existing repository
 watcher's lifecycle also observes domain-state filesystem events; no polling or
@@ -311,7 +311,7 @@ a late cancellation cannot fail a newer attempt.
 `DispatchObserver` records durable outcomes around the shared `agent.prompt`
 submission. Before external delivery, it commits `Attempting`; a lost result
 recovers as `Unknown`. A confirmed result wins cancellation races and can be saved
-to an archived pass. Queued work stays paused on restore, and retries cannot alter
+to an archived round. Queued work stays paused on restore, and retries cannot alter
 its authorized scope. Runtime access, connections and caches are never persisted.
 Native identity compares agent/kind/value, allowing a resumed pane; unresolved
 original bindings and actual replacement conversations fail closed for continuation.

@@ -46,7 +46,7 @@ implementation.
 Review marks record which changed lines are reviewed, whoever marked them: the reviewer in
 Files, Jev, or you on the reviewer's behalf. Every prompt lists the Unreviewed lines: changed
 lines no review mark covers, with old numbering the base's lines and new numbering the current
-file's. Focus the interview on them; reviewed lines are context. When Jev ran before the pass,
+file's. Focus the interview on them; reviewed lines are context. When Jev ran before the round,
 the kickoff says what it marked; Jev's marks are review marks like any other.
 
 After a human answer, record what it settled in the same submit_question or submit_conclusion:
@@ -61,9 +61,9 @@ Marks apply when the reviewer accepts your turn; the next prompt's Unreviewed li
 
 ## Identity and interpretation
 
-Copy Explore review access into review, Explore pass into instance, Explore request into request,
+Copy Explore review access into review, Explore round into instance, Explore request into request,
 and Review unit and Checkpoint into the matching checkpoint fields. Access is renewable; the
-pass identity is durable. Use the MCP tools' advertised input schemas.
+round identity is durable. Use the MCP tools' advertised input schemas.
 
 Later wakeups supply the Answer ID, question ID/version, selected option's full text/ID/outcome,
 and any exact comment as labeled text. Match that question ID/version to the question posted
@@ -162,7 +162,7 @@ when context changes their conclusions.
 
 Inspect files directly under the repository root and use Git/jj for the full comparison,
 including reviewed files and relevant unchanged callers, consumers and tests. Account for
-renamed and deleted paths. Assume code remains unchanged during the pass. Reading a test
+renamed and deleted paths. Assume code remains unchanged during the round. Reading a test
 is not running it; state missing/non-text sources, scan gaps and unknown deployment assumptions.
 
 - In jj, Checkpoint is the reviewed commit:
@@ -199,6 +199,6 @@ Success means the reviewer validated and applied the complete turn. A validation
 the request pending: repair the reported error and resubmit while preserving the exact human
 contribution and decisions. Previous response error appears only after a failed attempt.
 On a transport failure retry identical arguments; accepted retries are idempotent and return
-applied: false. Access can be renewed without changing the durable pass, request or answer
+applied: false. Access can be renewed without changing the durable round, request or answer
 identities. If MCP is unavailable, report the limitation; do not create mailbox or handoff files
 or use ordinary thread replies as a fallback. Output limit is 1 MiB.

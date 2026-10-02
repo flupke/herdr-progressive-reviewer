@@ -1,4 +1,4 @@
-//! Cancelling the latest answer gives back its turn's marks and rewinds the pass.
+//! Cancelling the latest answer gives back its turn's marks and rewinds the round.
 
 use review_explore::Command;
 use review_store::LoadResult;
@@ -26,13 +26,13 @@ impl Harness {
         self.answer("Keep it.")
     }
 
-    fn cancel(&mut self, answer: &str) -> Result<Arc<ExplorePass>, String> {
+    fn cancel(&mut self, answer: &str) -> Result<Arc<ExploreRound>, String> {
         self.session
             .handle(Input::Command(Command::CancelAnswer(answer.to_owned())));
         let cancelled = self.next::<ui_events::ExploreAnswerCancelled>();
         assert_eq!(cancelled.answer, answer);
-        if let Ok(pass) = &cancelled.result {
-            self.exploration = Some(pass.exploration.clone());
+        if let Ok(round) = &cancelled.result {
+            self.exploration = Some(round.exploration.clone());
         }
         cancelled.result
     }
@@ -63,12 +63,12 @@ fn cancelling_an_answer_reopens_its_lines_and_the_next_prompt_says_so() {
     let answer = request.answer.unwrap().id;
     assert!(harness.author().is_some());
 
-    let pass = harness.cancel(&answer).unwrap();
+    let round = harness.cancel(&answer).unwrap();
 
     assert_eq!(harness.author(), None);
-    assert!(pass.exploration.answers.is_empty() && pass.exploration.conclusion.is_none());
-    assert!(pass.marks.is_empty() && pass.completion.is_none());
-    assert_eq!(harness.saved(), *pass);
+    assert!(round.exploration.answers.is_empty() && round.exploration.conclusion.is_none());
+    assert!(round.marks.is_empty() && round.completion.is_none());
+    assert_eq!(harness.saved(), *round);
     let (replacement, _) = harness.answer("Keep it, with a test.");
     assert_eq!(replacement.cancelled, vec![answer.clone()]);
     let prompt = harness.agents.prompts().last().unwrap().text.clone();

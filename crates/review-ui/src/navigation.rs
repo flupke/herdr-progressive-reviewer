@@ -167,7 +167,7 @@ impl Navigation {
         self.mode == ReviewNavigation::Explore && self.focus == ReviewPane::Detail
     }
 
-    /// The focus Explore saves with its pass, while Explore is open.
+    /// The focus Explore saves with its round, while Explore is open.
     pub(crate) fn explore_focus(&self) -> Option<ReviewPane> {
         (self.mode == ReviewNavigation::Explore).then_some(self.focus)
     }

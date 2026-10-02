@@ -1,6 +1,6 @@
 use super::*;
 use review_explore::{
-    AnswerInput, Comparison, Conclusion, Exploration, ExplorePass, InterviewUpdate, Question,
+    AnswerInput, Comparison, Conclusion, Exploration, ExploreRound, InterviewUpdate, Question,
     Topic, TopicStatus,
 };
 use std::sync::Arc;
@@ -11,7 +11,7 @@ mod format;
 struct Investigation {
     directory: tempfile::TempDir,
     store: ReviewStore,
-    pass: ExplorePass,
+    round: ExploreRound,
 }
 
 impl Investigation {
@@ -29,13 +29,13 @@ impl Investigation {
             sources: vec![],
             base: None,
         };
-        let pass = ExplorePass::new(Exploration::new(Arc::new(comparison)));
+        let round = ExploreRound::new(Exploration::new(Arc::new(comparison)));
         let records = store.lock_explore(&"review".into()).unwrap();
-        records.create_pass(&pass).unwrap();
-        assert!(records.create_pass(&pass).is_err());
+        records.create_round(&round).unwrap();
+        assert!(records.create_round(&round).is_err());
         records
             .save_history(&ExploreHistory {
-                passes: vec![pass.exploration.instance.clone()],
+                rounds: vec![round.exploration.instance.clone()],
                 latest_editable: true,
             })
             .unwrap();
@@ -43,21 +43,21 @@ impl Investigation {
         Self {
             directory,
             store,
-            pass,
+            round,
         }
     }
 
     fn mutate<T>(
         &mut self,
-        f: impl FnOnce(&mut ExplorePass) -> std::result::Result<T, String>,
+        f: impl FnOnce(&mut ExploreRound) -> std::result::Result<T, String>,
     ) -> T {
-        let (value, pass) = self
+        let (value, round) = self
             .store
             .lock_explore(&"review".into())
             .unwrap()
-            .update_pass(&self.pass.exploration.instance, f)
+            .update_round(&self.round.exploration.instance, f)
             .unwrap();
-        self.pass = pass;
+        self.round = round;
         value
     }
 
@@ -67,17 +67,17 @@ impl Investigation {
         question: Option<&Question>,
     ) -> review_explore::TurnRequest {
         let request = self
-            .pass
+            .round
             .exploration
             .clone()
             .request(input, question)
             .unwrap();
-        self.mutate(|pass| pass.post(&request).map_err(|e| e.to_string()));
+        self.mutate(|round| round.post(&request).map_err(|e| e.to_string()));
         request
     }
 
     fn submit(&mut self, update: InterviewUpdate) -> bool {
-        self.mutate(|pass| pass.exploration.submit(update).map_err(|e| e.to_string()))
+        self.mutate(|round| round.exploration.submit(update).map_err(|e| e.to_string()))
     }
 
     fn update(request: &review_explore::TurnRequest, number: usize) -> InterviewUpdate {
@@ -95,13 +95,13 @@ impl Investigation {
     fn view(&self, sequence: u64, text: &str) -> ViewSave {
         ViewSave {
             review_unit: self
-                .pass
+                .round
                 .exploration
                 .comparison
                 .checkpoint
                 .review_unit
                 .clone(),
-            instance: self.pass.exploration.instance.clone(),
+            instance: self.round.exploration.instance.clone(),
             sequence,
             state: review_explore::ExploreViewState {
                 tasks: std::collections::BTreeMap::from([(
@@ -124,7 +124,7 @@ fn adaptive_history_and_separate_conclusions_round_trip_without_source_buffers()
     let mut fixture = Investigation::new();
     let first = fixture.request(None, None);
     fixture.submit(Investigation::update(&first, 1));
-    let question = fixture.pass.exploration.questions[0].clone();
+    let question = fixture.round.exploration.questions[0].clone();
     let answer = fixture.request(
         Some(AnswerInput {
             option: Some("keep".into()),
@@ -157,7 +157,7 @@ fn adaptive_history_and_separate_conclusions_round_trip_without_source_buffers()
     update.agenda = vec![serde_json::from_value(serde_json::json!({"topic":"unused","action":"retire","reason":"Reviewer corrected the premise","answer":correction.answer.as_ref().unwrap().id,"evidence":[],"replacement":null,"decision":null})).unwrap()];
     fixture.submit(update);
     for number in 4..=5 {
-        let question = fixture.pass.exploration.questions.last().cloned();
+        let question = fixture.round.exploration.questions.last().cloned();
         let request = fixture.request(
             Some(AnswerInput {
                 text: "Conclude this part".into(),
@@ -185,7 +185,7 @@ fn adaptive_history_and_separate_conclusions_round_trip_without_source_buffers()
             fixture.submit(Investigation::update(&request, 6));
         }
     }
-    let expected = fixture.pass.clone();
+    let expected = fixture.round.clone();
     std::fs::remove_file(fixture.directory.path().join("policy.rs")).unwrap();
     let reopened = ReviewStore::open(
         fixture.directory.path().join("state"),
@@ -219,13 +219,13 @@ fn corrupt_unsupported_and_oversized_records_are_errors_and_remain_untouched() {
     let fixture = Investigation::new();
     let path = fixture
         .store
-        .explore_path(&"review".into(), &fixture.pass.exploration.instance)
+        .explore_path(&"review".into(), &fixture.round.exploration.instance)
         .unwrap();
     for bytes in [
         b"broken".to_vec(),
         serde_json::to_vec(&Stored {
             version: 999,
-            value: &fixture.pass,
+            value: &fixture.round,
         })
         .unwrap(),
     ] {
@@ -233,7 +233,7 @@ fn corrupt_unsupported_and_oversized_records_are_errors_and_remain_untouched() {
         assert!(
             fixture
                 .store
-                .load_explore(&"review".into(), &fixture.pass.exploration.instance)
+                .load_explore(&"review".into(), &fixture.round.exploration.instance)
                 .is_err()
         );
         assert!(
@@ -241,7 +241,7 @@ fn corrupt_unsupported_and_oversized_records_are_errors_and_remain_untouched() {
                 .store
                 .lock_explore(&"review".into())
                 .unwrap()
-                .update_pass(&fixture.pass.exploration.instance, |_| Ok(()))
+                .update_round(&fixture.round.exploration.instance, |_| Ok(()))
                 .is_err()
         );
         assert_eq!(std::fs::read(&path).unwrap(), bytes);
@@ -251,14 +251,14 @@ fn corrupt_unsupported_and_oversized_records_are_errors_and_remain_untouched() {
     assert!(
         fixture
             .store
-            .load_explore(&"review".into(), &fixture.pass.exploration.instance)
+            .load_explore(&"review".into(), &fixture.round.exploration.instance)
             .is_err()
     );
     assert_eq!(file.metadata().unwrap().len(), MAX_DOMAIN + 1);
 }
 
 #[test]
-fn a_long_pass_is_not_limited_to_one_mcp_response() {
+fn a_long_round_is_not_limited_to_one_mcp_response() {
     let mut fixture = Investigation::new();
     for number in 0..24 {
         let request = fixture.request(None, None);
@@ -268,13 +268,13 @@ fn a_long_pass_is_not_limited_to_one_mcp_response() {
     }
     let path = fixture
         .store
-        .explore_path(&"review".into(), &fixture.pass.exploration.instance)
+        .explore_path(&"review".into(), &fixture.round.exploration.instance)
         .unwrap();
     assert!(std::fs::metadata(path).unwrap().len() > 1024 * 1024);
     assert_eq!(
         fixture
             .store
-            .load_explore(&"review".into(), &fixture.pass.exploration.instance)
+            .load_explore(&"review".into(), &fixture.round.exploration.instance)
             .unwrap()
             .unwrap()
             .exploration
@@ -294,9 +294,9 @@ fn broken_agenda_references_are_storage_errors_and_preserve_the_record() {
         .explore_path(&"review".into(), &request.instance)
         .unwrap();
     for damage in 0..3 {
-        let mut pass = fixture.pass.clone();
+        let mut round = fixture.round.clone();
         match damage {
-            0 => pass
+            0 => round
                 .exploration
                 .topics
                 .get_mut("topic1")
@@ -304,10 +304,8 @@ fn broken_agenda_references_are_storage_errors_and_preserve_the_record() {
                 .prerequisites
                 .push("missing".into()),
             1 | 2 => {
-                pass.exploration.conversation[0]
-                    .update
-                    .agenda
-                    .push(review_explore::AgendaChange {
+                round.exploration.conversation[0].update.agenda.push(
+                    review_explore::AgendaChange {
                         topic: if damage == 1 { "missing" } else { "topic1" }.into(),
                         action: review_explore::AgendaAction::Supersede,
                         reason: "Recorded reason".into(),
@@ -315,13 +313,14 @@ fn broken_agenda_references_are_storage_errors_and_preserve_the_record() {
                         evidence: vec![],
                         replacement: Some("missing".into()),
                         decision: None,
-                    });
+                    },
+                );
             }
             _ => unreachable!(),
         }
         let bytes = serde_json::to_vec(&Stored {
             version: VERSION,
-            value: pass,
+            value: round,
         })
         .unwrap();
         std::fs::write(&path, &bytes).unwrap();
@@ -342,7 +341,7 @@ fn simultaneous_updates_see_the_latest_revision_instead_of_overwriting_each_othe
     let workers: Vec<_> = (0..2)
         .map(|_| {
             let request = fixture
-                .pass
+                .round
                 .exploration
                 .clone()
                 .request(None, None)
@@ -354,8 +353,8 @@ fn simultaneous_updates_see_the_latest_revision_instead_of_overwriting_each_othe
                 store
                     .lock_explore(&"review".into())
                     .unwrap()
-                    .update_pass(&request.instance, |pass| {
-                        pass.post(&request).map_err(|e| e.to_string())
+                    .update_round(&request.instance, |round| {
+                        round.post(&request).map_err(|e| e.to_string())
                     })
                     .is_ok()
             })
@@ -368,13 +367,13 @@ fn simultaneous_updates_see_the_latest_revision_instead_of_overwriting_each_othe
             .sum::<usize>(),
         1
     );
-    let pass = fixture
+    let round = fixture
         .store
-        .load_explore(&"review".into(), &fixture.pass.exploration.instance)
+        .load_explore(&"review".into(), &fixture.round.exploration.instance)
         .unwrap()
         .unwrap();
-    assert_eq!(pass.turns.len(), 1);
-    assert!(pass.exploration.pending_request().is_some());
+    assert_eq!(round.turns.len(), 1);
+    assert!(round.exploration.pending_request().is_some());
 }
 
 #[test]
@@ -382,24 +381,24 @@ fn an_unchanged_update_writes_nothing_and_a_change_takes_the_next_revision() {
     let mut fixture = Investigation::new();
     let path = fixture
         .store
-        .explore_path(&"review".into(), &fixture.pass.exploration.instance)
+        .explore_path(&"review".into(), &fixture.round.exploration.instance)
         .unwrap();
     let before = std::fs::read(&path).unwrap();
     fixture.mutate(|_| Ok(()));
     assert_eq!(std::fs::read(&path).unwrap(), before);
-    assert_eq!(fixture.pass.revision, 0);
+    assert_eq!(fixture.round.revision, 0);
 
     fixture.request(None, None);
-    assert_eq!(fixture.pass.revision, 1);
+    assert_eq!(fixture.round.revision, 1);
     assert_ne!(std::fs::read(&path).unwrap(), before);
 }
 
 #[test]
-fn a_saved_view_leaves_the_pass_untouched_and_belongs_to_its_review() {
+fn a_saved_view_leaves_the_round_untouched_and_belongs_to_its_review() {
     let fixture = Investigation::new();
     let path = fixture
         .store
-        .explore_path(&"review".into(), &fixture.pass.exploration.instance)
+        .explore_path(&"review".into(), &fixture.round.exploration.instance)
         .unwrap();
     let before = std::fs::read(&path).unwrap();
     let records = fixture.store.lock_explore(&"review".into()).unwrap();
@@ -424,30 +423,30 @@ fn a_saved_view_leaves_the_pass_untouched_and_belongs_to_its_review() {
 }
 
 #[test]
-fn removing_one_pass_and_its_view_keeps_other_records_and_lists_unreadable_files() {
+fn removing_one_round_and_its_view_keeps_other_records_and_lists_unreadable_files() {
     let fixture = Investigation::new();
     let unit: ReviewUnit = "review".into();
-    let removed = fixture.pass.exploration.instance.clone();
-    let kept = ExplorePass::new(Exploration::new(
-        fixture.pass.exploration.comparison.clone(),
+    let removed = fixture.round.exploration.instance.clone();
+    let kept = ExploreRound::new(Exploration::new(
+        fixture.round.exploration.comparison.clone(),
     ));
     let kept_view = ViewSave {
         instance: kept.exploration.instance.clone(),
         ..fixture.view(1, "retained editor")
     };
     let records = fixture.store.lock_explore(&unit).unwrap();
-    records.create_pass(&kept).unwrap();
+    records.create_round(&kept).unwrap();
     records.save_view(&kept_view).unwrap();
     records
         .save_view(&fixture.view(1, "removed editor"))
         .unwrap();
     std::fs::write(
         fixture.store.explore_path(&unit, &removed).unwrap(),
-        b"invalid saved pass",
+        b"invalid saved round",
     )
     .unwrap();
     let mut listed: Vec<_> = records
-        .pass_files()
+        .round_files()
         .unwrap()
         .into_iter()
         .map(|(instance, _)| instance)
@@ -457,15 +456,15 @@ fn removing_one_pass_and_its_view_keeps_other_records_and_lists_unreadable_files
     expected.sort();
     assert_eq!(listed, expected);
 
-    records.remove_pass(&removed).unwrap();
+    records.remove_round(&removed).unwrap();
     records.remove_view(&removed).unwrap();
     records.remove_view(&removed).unwrap();
     records.sync().unwrap();
 
-    assert!(records.pass(&removed).unwrap().is_none());
+    assert!(records.round(&removed).unwrap().is_none());
     assert!(records.view(&removed).unwrap().is_none());
     assert_eq!(
-        records.pass(&kept.exploration.instance).unwrap(),
+        records.round(&kept.exploration.instance).unwrap(),
         Some(kept)
     );
     assert_eq!(records.view(&kept_view.instance).unwrap(), Some(kept_view));

@@ -45,8 +45,8 @@ impl ExploreComponent {
             return;
         }
         self.cancelling = None;
-        let pass = match &event.result {
-            Ok(pass) => pass,
+        let round = match &event.result {
+            Ok(round) => round,
             Err(error) => {
                 self.status = format!("Answer was not cancelled: {error}");
                 return;
@@ -67,7 +67,7 @@ impl ExploreComponent {
         };
         // Keep the current page's text before its page may disappear.
         self.save_draft();
-        self.adopt(pass);
+        self.adopt(round);
         self.durable.posting = None;
         self.forget_removed_pages();
         self.progress = Progress::Ready;

@@ -1,9 +1,9 @@
 //! Cancelling the reviewer's latest answer: its turn's review marks are given
-//! back, then the saved pass forgets the answer and the agent's turn after it.
+//! back, then the saved round forgets the answer and the agent's turn after it.
 
 use std::sync::Arc;
 
-use review_explore::ExplorePass;
+use review_explore::ExploreRound;
 
 use crate::ExploreSession;
 
@@ -17,48 +17,49 @@ impl ExploreSession {
             .send(ui_events::ExploreAnswerCancelled { answer, result });
     }
 
-    fn cancel_latest(&mut self, answer: &str) -> eyre::Result<Arc<ExplorePass>> {
+    fn cancel_latest(&mut self, answer: &str) -> eyre::Result<Arc<ExploreRound>> {
         eyre::ensure!(
             self.state.storage_error.is_none(),
             "Explore storage is unavailable: {}",
             self.state.storage_error.as_deref().unwrap_or_default()
         );
-        eyre::ensure!(!self.state.historical, "This pass is history");
+        eyre::ensure!(!self.state.historical, "This round is history");
         let shown = self
             .state
-            .pass
+            .round
             .as_ref()
-            .ok_or_else(|| eyre::eyre!("No Explore pass"))?;
+            .ok_or_else(|| eyre::eyre!("No Explore round"))?;
         let checkpoint = &shown.exploration.comparison.checkpoint;
-        let pass = self
-            .passes
-            .pass(&checkpoint.review_unit, &shown.exploration.instance)?
-            .ok_or_else(|| eyre::eyre!("Saved Explore pass is missing"))?;
-        // Refuse against the saved pass before touching review marks.
-        let cancelled = pass.clone().cancel_answer(answer)?;
+        let round = self
+            .rounds
+            .round(&checkpoint.review_unit, &shown.exploration.instance)?
+            .ok_or_else(|| eyre::eyre!("Saved Explore round is missing"))?;
+        // Refuse against the saved round before touching review marks.
+        let cancelled = round.clone().cancel_answer(answer)?;
         if let Some(marks) = &cancelled.marks
-            && let Some(problem) = self.unmark(&pass, marks)?
+            && let Some(problem) = self.unmark(&round, marks)?
         {
             let _ = self.events.send(ui_events::ToastRequested {
                 text: format!("Cancelled answer: {problem}"),
                 kind: toasts::ToastKind::Error,
             });
         }
-        let checkpoint = &pass.exploration.comparison.checkpoint;
-        let updated = self.passes.update(
+        let checkpoint = &round.exploration.comparison.checkpoint;
+        let updated = self.rounds.update(
             &checkpoint.review_unit,
-            &pass.exploration.instance,
-            |pass| {
-                pass.cancel_answer(answer)
+            &round.exploration.instance,
+            |round| {
+                round
+                    .cancel_answer(answer)
                     .map(|_| ())
                     .map_err(|error| error.to_string())
             },
         );
-        let ((), pass) = match updated {
+        let ((), round) = match updated {
             Ok(updated) => updated,
             Err(error) => {
                 // The marks are already given back, by author, so cancelling
-                // again after reopening the pass finishes the job.
+                // again after reopening the round finishes the job.
                 self.state.storage_error = Some(error.to_string());
                 let _ = self
                     .events
@@ -74,7 +75,7 @@ impl ExploreSession {
             self.state.pending = None;
             self.state.renew_access();
         }
-        self.state.pass = Some(pass.clone());
-        Ok(Arc::new(pass))
+        self.state.round = Some(round.clone());
+        Ok(Arc::new(round))
     }
 }

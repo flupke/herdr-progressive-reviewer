@@ -248,7 +248,7 @@ impl ExploreComponent {
         self.progress = Progress::Ready;
         match &event.result {
             Ok(comparison) => {
-                self.durable.begin_pass();
+                self.durable.begin_round();
                 self.implementation_requested = false;
                 self.cancelling = None;
                 self.exploration = Some(Exploration::new(comparison.clone()));
@@ -352,7 +352,7 @@ impl ExploreComponent {
             .ok_or_else(|| "Start Explore first".to_owned())
             .and_then(|exploration| {
                 if self.progress.awaiting_capture() {
-                    return Err("This Explore pass is being replaced".into());
+                    return Err("This Explore round is being replaced".into());
                 }
                 let count = exploration.questions.len();
                 exploration
@@ -431,7 +431,7 @@ impl ExploreComponent {
         if self.exploration.is_some() && !self.reset_warning {
             self.reset_warning = true;
             self.status_turn = Some(self.selected);
-            self.status = "New pass keeps this investigation in history and starts a separate review. Press n or New pass again to continue.".into();
+            self.status = "New round keeps this investigation in history and starts a separate review. Press n or New round again to continue.".into();
             return Vec::new();
         }
         self.reset_warning = false;

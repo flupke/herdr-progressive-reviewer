@@ -189,12 +189,12 @@ impl Harness {
         }
     }
 
-    /// Submit as the agent and acknowledge each committed pass as the UI does.
+    /// Submit as the agent and acknowledge each committed round as the UI does.
     fn submit(&mut self, access: &str, operation: Operation) -> Result<Response, String> {
         self.submit_acknowledged(access, operation, true)
     }
 
-    /// Submit as the agent; without `acknowledge` the UI drops each committed pass.
+    /// Submit as the agent; without `acknowledge` the UI drops each committed round.
     fn submit_acknowledged(
         &mut self,
         access: &str,
@@ -213,7 +213,7 @@ impl Harness {
                 && let Some(committed) = event.downcast_ref::<ui_events::ExploreCommitted>()
                 && acknowledge
             {
-                self.exploration = Some(committed.pass.exploration.clone());
+                self.exploration = Some(committed.round.exploration.clone());
                 committed.response.send(Ok(committed.applied)).unwrap();
             }
         }
@@ -243,10 +243,10 @@ impl Harness {
         (request, access)
     }
 
-    /// Adopt a restored pass as the UI does: its interrupted turn waits for Retry.
+    /// Adopt a restored round as the UI does: its interrupted turn waits for Retry.
     fn adopt(&mut self, restored: &ui_events::ExploreRestored) {
-        let pass = restored.result.as_ref().unwrap().as_ref().unwrap();
-        let mut exploration = pass.exploration.clone();
+        let round = restored.result.as_ref().unwrap().as_ref().unwrap();
+        let mut exploration = round.exploration.clone();
         exploration.pause_delivery();
         self.exploration = Some(exploration);
     }
@@ -260,18 +260,18 @@ impl Harness {
             .path()
     }
 
-    fn pass_path(&self) -> std::path::PathBuf {
+    fn round_path(&self) -> std::path::PathBuf {
         self.review_directory()
             .join(format!("{}.json", self.exploration().instance))
     }
 
-    /// Change the saved pass as an earlier, interrupted process left it.
-    fn damage(&self, change: impl FnOnce(&mut ExplorePass)) {
+    /// Change the saved round as an earlier, interrupted process left it.
+    fn damage(&self, change: impl FnOnce(&mut ExploreRound)) {
         self.store
             .lock_explore(&self.unit)
             .unwrap()
-            .update_pass(&self.exploration().instance, |pass| {
-                change(pass);
+            .update_round(&self.exploration().instance, |round| {
+                change(round);
                 Ok(())
             })
             .unwrap();
@@ -281,7 +281,7 @@ impl Harness {
         self.store.load_explore_history(&self.unit).unwrap()
     }
 
-    fn saved(&self) -> ExplorePass {
+    fn saved(&self) -> ExploreRound {
         let exploration = self.exploration();
         self.store
             .load_explore(

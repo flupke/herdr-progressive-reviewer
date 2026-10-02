@@ -39,7 +39,7 @@ impl Durability {
         self.error.is_some() || self.historical
     }
 
-    pub(super) fn begin_pass(&mut self) {
+    pub(super) fn begin_round(&mut self) {
         self.persisted = false;
         self.revision = 0;
         self.last = None;
@@ -54,7 +54,7 @@ impl ExploreComponent {
         self.durable.historical = self
             .exploration
             .as_ref()
-            .is_some_and(|pass| event.0.is_historical(&pass.instance));
+            .is_some_and(|round| event.0.is_historical(&round.instance));
     }
 
     fn page(&self) -> ExplorePage {
@@ -127,9 +127,9 @@ impl ExploreComponent {
         {
             return None;
         }
-        let pass = self.exploration.as_ref()?;
-        let instance = pass.instance.clone();
-        let review_unit = pass.comparison.checkpoint.review_unit.clone();
+        let round = self.exploration.as_ref()?;
+        let instance = round.instance.clone();
+        let review_unit = round.comparison.checkpoint.review_unit.clone();
         let state = self.saved_view(event.positions.clone());
         if self.durable.last.as_ref() == Some(&state) {
             return None;
@@ -146,8 +146,8 @@ impl ExploreComponent {
 
     pub(super) fn restored(&mut self, event: &ExploreRestored) {
         self.durable.enabled = true;
-        let pass = match &event.result {
-            Ok(Some(pass)) => pass,
+        let round = match &event.result {
+            Ok(Some(round)) => round,
             Ok(None) => {
                 let mode = self.mode;
                 *self = Self::with_keymap(self.events.clone(), self.keymap.clone());
@@ -164,27 +164,28 @@ impl ExploreComponent {
         self.durable.historical = event.historical;
         self.durable.sequence = event.view.as_ref().map_or(0, |view| view.sequence);
         self.durable.sequence = self.durable.sequence.max(
-            pass.turns
+            round
+                .turns
                 .values()
                 .filter_map(|turn| turn.editor_sequence)
                 .max()
                 .unwrap_or(0),
         );
-        self.durable.revision = pass.revision;
+        self.durable.revision = round.revision;
         self.durable.persisted = true;
         self.durable.posting = None;
-        self.exploration = Some(pass.exploration.clone());
-        self.restore_pass(pass);
-        self.turns = pass
+        self.exploration = Some(round.exploration.clone());
+        self.restore_round(round);
+        self.turns = round
             .exploration
             .questions
             .iter()
             .map(|_| TurnView::default())
             .collect();
-        self.restore_conclusions(pass);
+        self.restore_conclusions(round);
         self.drafts.clear();
         self.heights.clear();
-        let state = pass.restored_view(event.view.as_ref());
+        let state = round.restored_view(event.view.as_ref());
         self.restore_view(&state);
         self.durable.focus = if state.focus == review_explore::EditorFocus::Evidence {
             ui_events::ReviewPane::Detail
@@ -196,7 +197,7 @@ impl ExploreComponent {
                 .publish(ui_events::ReviewPaneFocusRequested(self.durable.focus));
         }
         self.events.publish(ui_events::ExploreComparisonAccepted(
-            pass.exploration.comparison.clone(),
+            round.exploration.comparison.clone(),
         ));
         self.publish_evidence(self.view_id(), false);
         self.events
@@ -216,7 +217,7 @@ impl ExploreComponent {
         }
     }
 
-    /// What the reviewer can do with a restored pass, and the status line saying so.
+    /// What the reviewer can do with a restored round, and the status line saying so.
     fn recovered(&self, progress: ExploreProgress) -> (Progress, &'static str) {
         let (progress, status) = match progress {
             ExploreProgress::Ready => (Progress::Ready, ""),
@@ -230,7 +231,7 @@ impl ExploreComponent {
             ),
         };
         if self.durable.historical {
-            (progress, "Earlier pass · start a new pass to continue.")
+            (progress, "Earlier round · start a new round to continue.")
         } else {
             (progress, status)
         }
@@ -239,11 +240,11 @@ impl ExploreComponent {
     fn restore_view(&mut self, state: &ExploreViewState) {
         for (index, (turn, saved)) in self.turns.iter_mut().zip(&state.turns).enumerate() {
             *turn = saved.clone();
-            let pass = self.exploration.as_ref().expect("restored pass");
-            turn.choice = turn.choice.min(pass.questions[index].alternatives.len());
+            let round = self.exploration.as_ref().expect("restored round");
+            turn.choice = turn.choice.min(round.questions[index].alternatives.len());
             turn.reference = turn
                 .reference
-                .min(pass.evidence(index).len().saturating_sub(1));
+                .min(round.evidence(index).len().saturating_sub(1));
         }
         for (page, saved) in &state.drafts {
             self.drafts
@@ -305,8 +306,9 @@ impl ExploreComponent {
         if let Some(request) = self
             .exploration
             .as_ref()
-            .and_then(|pass| {
-                pass.conversation
+            .and_then(|round| {
+                round
+                    .conversation
                     .iter()
                     .find(|turn| turn.update.next.is_some() || turn.update.conclusion.is_some())
             })
@@ -326,7 +328,7 @@ impl ExploreComponent {
         let Some(page) = self
             .exploration
             .as_ref()
-            .and_then(|pass| pass.answer_page(answer))
+            .and_then(|round| round.answer_page(answer))
         else {
             return;
         };
@@ -347,7 +349,7 @@ impl ExploreComponent {
         if self
             .exploration
             .as_ref()
-            .is_none_or(|pass| pass.instance != event.request.instance)
+            .is_none_or(|round| round.instance != event.request.instance)
         {
             return;
         }
@@ -357,8 +359,8 @@ impl ExploreComponent {
             .as_ref()
             .is_some_and(|request| request.request == event.request.request);
         match &event.result {
-            Ok(pass) if pass.revision >= self.durable.revision => {
-                self.adopt(pass);
+            Ok(round) if round.revision >= self.durable.revision => {
+                self.adopt(round);
                 if current && self.progress == Progress::Waiting {
                     if let Some(answer) = &event.request.answer {
                         self.discard_posted_draft(answer);
@@ -385,61 +387,61 @@ impl ExploreComponent {
         let Some(previous) = &self.exploration else {
             let _ = event
                 .response
-                .send(Err("No Explore pass is displayed".into()));
+                .send(Err("No Explore round is displayed".into()));
             return;
         };
-        if previous.instance != event.pass.exploration.instance || self.progress.awaiting_capture()
+        if previous.instance != event.round.exploration.instance || self.progress.awaiting_capture()
         {
             let _ = event.response.send(Err(
-                "Saved response belongs to another displayed pass; reopen its history".into(),
+                "Saved response belongs to another displayed round; reopen its history".into(),
             ));
             return;
         }
-        if event.pass.revision < self.durable.revision {
+        if event.round.revision < self.durable.revision {
             let _ = event.response.send(Ok(false));
             return;
         }
         let count = previous.questions.len();
-        let already_visible = previous.conversation == event.pass.exploration.conversation;
-        self.adopt(&event.pass);
+        let already_visible = previous.conversation == event.round.exploration.conversation;
+        self.adopt(&event.round);
         if !already_visible {
             self.update_applied(count, None);
         }
-        self.refresh_implementation_delivery(&event.pass);
+        self.refresh_implementation_delivery(&event.round);
         let _ = event.response.send(Ok(event.applied));
     }
 
-    /// Show a newer saved revision of the displayed pass, keeping the
+    /// Show a newer saved revision of the displayed round, keeping the
     /// comparison already loaded.
-    pub(super) fn adopt(&mut self, pass: &review_explore::ExplorePass) {
+    pub(super) fn adopt(&mut self, round: &review_explore::ExploreRound) {
         let comparison = self
             .exploration
             .as_ref()
             .expect("active")
             .comparison
             .clone();
-        let mut exploration = pass.exploration.clone();
+        let mut exploration = round.exploration.clone();
         exploration.comparison = comparison;
         self.exploration = Some(exploration);
-        self.restore_pass(pass);
-        self.durable.revision = pass.revision;
+        self.restore_round(round);
+        self.durable.revision = round.revision;
         self.durable.persisted = true;
-        self.reconcile_history(pass);
+        self.reconcile_history(round);
     }
 
-    fn restore_pass(&mut self, pass: &review_explore::ExplorePass) {
-        self.implementation_requested = !pass.implementations.is_empty();
-        self.marks = pass
+    fn restore_round(&mut self, round: &review_explore::ExploreRound) {
+        self.implementation_requested = !round.implementations.is_empty();
+        self.marks = round
             .marks
             .values()
             .map(|marks| (marks.answer.clone(), marks.clone()))
             .collect();
     }
 
-    fn reconcile_history(&mut self, pass: &review_explore::ExplorePass) {
+    fn reconcile_history(&mut self, round: &review_explore::ExploreRound) {
         self.turns
-            .resize_with(pass.exploration.questions.len(), TurnView::default);
-        self.reconcile_conclusions(pass);
+            .resize_with(round.exploration.questions.len(), TurnView::default);
+        self.reconcile_conclusions(round);
     }
 
     pub(super) fn storage_failed(&mut self, event: &ExploreStorageFailed) {

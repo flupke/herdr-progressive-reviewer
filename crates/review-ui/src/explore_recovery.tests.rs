@@ -1,26 +1,27 @@
 use super::*;
 use crate::RepositoryAction;
-use review_explore::{ExplorePage, ExplorePass, ExploreViewState, ViewSave};
+use review_explore::{ExplorePage, ExploreRound, ExploreViewState, ViewSave};
 
 #[path = "explore_concurrent.tests.rs"]
 mod concurrent;
 
-fn pass(fixture: &ExploreUi, request: &TurnRequest) -> ExplorePass {
+fn round(fixture: &ExploreUi, request: &TurnRequest) -> ExploreRound {
     let mut exploration = review_explore::Exploration::new(fixture.comparison.clone());
     exploration.instance.clone_from(&request.instance);
-    let mut pass = ExplorePass::new(exploration);
-    pass.post(request).unwrap();
-    pass.exploration
+    let mut round = ExploreRound::new(exploration);
+    round.post(request).unwrap();
+    round
+        .exploration
         .submit(fixture.response(request, 1))
         .unwrap();
-    pass
+    round
 }
 
-fn restore(fixture: &mut ExploreUi, pass: &ExplorePass, view: Option<ViewSave>) -> Vec<Action> {
+fn restore(fixture: &mut ExploreUi, round: &ExploreRound, view: Option<ViewSave>) -> Vec<Action> {
     // Serialization removes comparison buffers, preserving only history/source locators.
-    let pass = serde_json::from_slice(&serde_json::to_vec(pass).unwrap()).unwrap();
+    let round = serde_json::from_slice(&serde_json::to_vec(round).unwrap()).unwrap();
     fixture.app.publish(ui_events::ExploreRestored {
-        result: Ok(Some(Arc::new(pass))),
+        result: Ok(Some(Arc::new(round))),
         view,
         historical: false,
         storage_error: None,
@@ -49,8 +50,8 @@ fn no_post(actions: &[Action]) {
 #[test]
 fn restore_preserves_choice_comment_cursor_and_does_not_send_or_mark_files() {
     let (mut fixture, request) = ExploreUi::new();
-    let pass = pass(&fixture, &request);
-    let actions = restore(&mut fixture, &pass, None);
+    let round = round(&fixture, &request);
+    let actions = restore(&mut fixture, &round, None);
     no_post(&actions);
     fixture.app.update(UserInput::Key(Key::Down));
     fixture.app.update(UserInput::Key(Key::Tab));
@@ -58,7 +59,7 @@ fn restore_preserves_choice_comment_cursor_and_does_not_send_or_mark_files() {
     fixture.app.update(UserInput::Paste("before after".into()));
     let view = saved(fixture.app.update(UserInput::Key(Key::Left)));
     assert_eq!(view.state.turns[0].choice, 1);
-    let actions = restore(&mut fixture, &pass, Some(view.clone()));
+    let actions = restore(&mut fixture, &round, Some(view.clone()));
     no_post(&actions);
     let edited = saved(fixture.app.update(UserInput::Key(Key::Char('X'))));
     assert!(
@@ -70,17 +71,17 @@ fn restore_preserves_choice_comment_cursor_and_does_not_send_or_mark_files() {
     let submit = ExploreUi::request(fixture.app.update(UserInput::Key(Key::ControlEnter)));
     assert_eq!(
         submit.answer.unwrap().option.unwrap().id,
-        pass.exploration.questions[0].alternatives[1].id
+        round.exploration.questions[0].alternatives[1].id
     );
 }
 
 #[test]
 fn restored_question_clamps_a_saved_scroll_past_the_document() {
     let (mut fixture, request) = ExploreUi::new();
-    let pass = pass(&fixture, &request);
+    let round = round(&fixture, &request);
     let view = ViewSave {
-        instance: pass.exploration.instance.clone(),
-        review_unit: pass.exploration.comparison.checkpoint.review_unit.clone(),
+        instance: round.exploration.instance.clone(),
+        review_unit: round.exploration.comparison.checkpoint.review_unit.clone(),
         sequence: 1,
         state: ExploreViewState {
             page: ExplorePage::Question(0),
@@ -88,7 +89,7 @@ fn restored_question_clamps_a_saved_scroll_past_the_document() {
             ..Default::default()
         },
     };
-    no_post(&restore(&mut fixture, &pass, Some(view)));
+    no_post(&restore(&mut fixture, &round, Some(view)));
 
     let text = fixture.text();
     assert!(text.contains("Question 1: keep resolved?"), "{text}");
@@ -98,17 +99,17 @@ fn restored_question_clamps_a_saved_scroll_past_the_document() {
 #[test]
 fn saved_opening_page_restores_to_the_first_question() {
     let (mut fixture, request) = ExploreUi::new();
-    let pass = pass(&fixture, &request);
+    let round = round(&fixture, &request);
     let view = ViewSave {
-        instance: pass.exploration.instance.clone(),
-        review_unit: pass.exploration.comparison.checkpoint.review_unit.clone(),
+        instance: round.exploration.instance.clone(),
+        review_unit: round.exploration.comparison.checkpoint.review_unit.clone(),
         sequence: 1,
         state: ExploreViewState {
             page: ExplorePage::Opening,
             ..Default::default()
         },
     };
-    no_post(&restore(&mut fixture, &pass, Some(view)));
+    no_post(&restore(&mut fixture, &round, Some(view)));
     let text = fixture.text();
     assert!(text.contains("Question 1: keep resolved?"), "{text}");
     assert!(!text.contains("[Opening]"));
@@ -119,33 +120,33 @@ fn saved_opening_page_restores_to_an_initial_conclusion() {
     let (mut fixture, kickoff) = ExploreUi::new();
     let mut exploration = review_explore::Exploration::new(fixture.comparison.clone());
     exploration.instance.clone_from(&kickoff.instance);
-    let mut pass = ExplorePass::new(exploration);
-    pass.post(&kickoff).unwrap();
+    let mut round = ExploreRound::new(exploration);
+    round.post(&kickoff).unwrap();
     let mut update = fixture.response(&kickoff, 1);
     update.next = None;
     update.conclusion = Some(conclusion("No question was needed."));
-    pass.exploration.submit(update).unwrap();
+    round.exploration.submit(update).unwrap();
     let view = ViewSave {
-        instance: pass.exploration.instance.clone(),
-        review_unit: pass.exploration.comparison.checkpoint.review_unit.clone(),
+        instance: round.exploration.instance.clone(),
+        review_unit: round.exploration.comparison.checkpoint.review_unit.clone(),
         sequence: 1,
         state: ExploreViewState {
             page: ExplorePage::Opening,
             ..Default::default()
         },
     };
-    no_post(&restore(&mut fixture, &pass, Some(view)));
+    no_post(&restore(&mut fixture, &round, Some(view)));
     let text = fixture.text();
     assert!(text.contains("No question was needed."), "{text}");
     assert!(!text.contains("[Opening]"));
 }
 
 #[test]
-fn historical_question_offers_a_new_pass_after_pass_navigation_is_removed() {
+fn historical_question_offers_a_new_round_after_round_navigation_is_removed() {
     let (mut fixture, kickoff) = ExploreUi::new();
-    let pass = pass(&fixture, &kickoff);
+    let round = round(&fixture, &kickoff);
     no_post(&fixture.app.publish(ui_events::ExploreRestored {
-        result: Ok(Some(Arc::new(pass))),
+        result: Ok(Some(Arc::new(round))),
         view: None,
         historical: true,
         storage_error: None,
@@ -153,7 +154,7 @@ fn historical_question_offers_a_new_pass_after_pass_navigation_is_removed() {
     }));
     let text = fixture.text();
     assert!(
-        text.contains("Earlier pass") && text.contains(" New pass "),
+        text.contains("Earlier round") && text.contains(" New round "),
         "{text}"
     );
     assert!(!text.contains("[Previous pass]"));
@@ -162,8 +163,8 @@ fn historical_question_offers_a_new_pass_after_pass_navigation_is_removed() {
 #[test]
 fn storage_failure_keeps_text_and_never_shows_an_unsaved_answer_as_posted() {
     let (mut fixture, request) = ExploreUi::new();
-    let pass = pass(&fixture, &request);
-    restore(&mut fixture, &pass, None);
+    let round = round(&fixture, &request);
+    restore(&mut fixture, &round, None);
     fixture.app.update(UserInput::Key(Key::Tab));
     fixture.app.update(UserInput::Key(Key::Tab));
     fixture
@@ -186,11 +187,11 @@ fn storage_failure_keeps_text_and_never_shows_an_unsaved_answer_as_posted() {
 #[test]
 fn separate_conclusions_restore_independent_editors_and_old_conclusion_cannot_implement() {
     let (mut fixture, request) = ExploreUi::new();
-    let mut pass = pass(&fixture, &request);
+    let mut round = round(&fixture, &request);
     let mut conclusions = Vec::new();
     for version in 2..=3 {
-        let q = pass.exploration.questions.last().cloned();
-        let request = pass
+        let q = round.exploration.questions.last().cloned();
+        let request = round
             .exploration
             .request(
                 Some(review_explore::AnswerInput {
@@ -208,10 +209,10 @@ fn separate_conclusions_restore_independent_editors_and_old_conclusion_cannot_im
             to_be_implemented: format!("Generated tasks {version}"),
             future_work: "Future only".into(),
         });
-        pass.exploration.submit(update).unwrap();
+        round.exploration.submit(update).unwrap();
         conclusions.push(request.request.clone());
         if version == 2 {
-            let request = pass
+            let request = round
                 .exploration
                 .request(
                     Some(review_explore::AnswerInput {
@@ -223,7 +224,7 @@ fn separate_conclusions_restore_independent_editors_and_old_conclusion_cannot_im
                 .unwrap();
             let mut update = fixture.response(&request, 4);
             update.interpretation = None;
-            pass.exploration.submit(update).unwrap();
+            round.exploration.submit(update).unwrap();
         }
     }
     let state = ExploreViewState {
@@ -259,10 +260,10 @@ fn separate_conclusions_restore_independent_editors_and_old_conclusion_cannot_im
     };
     restore(
         &mut fixture,
-        &pass,
+        &round,
         Some(ViewSave {
-            review_unit: pass.exploration.comparison.checkpoint.review_unit.clone(),
-            instance: pass.exploration.instance.clone(),
+            review_unit: round.exploration.comparison.checkpoint.review_unit.clone(),
+            instance: round.exploration.instance.clone(),
             sequence: 1,
             state,
         }),
@@ -285,9 +286,9 @@ fn separate_conclusions_restore_independent_editors_and_old_conclusion_cannot_im
 #[test]
 fn unavailable_restored_evidence_keeps_the_question_and_other_citations_usable() {
     let (mut fixture, request) = ExploreUi::new();
-    let pass = pass(&fixture, &request);
+    let round = round(&fixture, &request);
     std::fs::remove_file(fixture.files.root().join("policy.rs")).unwrap();
-    restore(&mut fixture, &pass, None);
+    restore(&mut fixture, &round, None);
     let text = fixture.text();
     assert!(
         text.contains("unavailable") && text.contains("Question 1/1"),
@@ -299,7 +300,7 @@ fn unavailable_restored_evidence_keeps_the_question_and_other_citations_usable()
 #[test]
 fn restored_evidence_position_height_and_focus_survive_reflow_without_selecting_an_answer() {
     let (mut fixture, request) = ExploreUi::new();
-    let pass = pass(&fixture, &request);
+    let round = round(&fixture, &request);
     let mut state = ExploreViewState {
         page: ExplorePage::Question(0),
         focus: review_explore::EditorFocus::Evidence,
@@ -318,12 +319,12 @@ fn restored_evidence_position_height_and_focus_survive_reflow_without_selecting_
         ..Default::default()
     };
     let view = ViewSave {
-        instance: pass.exploration.instance.clone(),
-        review_unit: pass.exploration.comparison.checkpoint.review_unit.clone(),
+        instance: round.exploration.instance.clone(),
+        review_unit: round.exploration.comparison.checkpoint.review_unit.clone(),
         sequence: 1,
         state: state.clone(),
     };
-    no_post(&restore(&mut fixture, &pass, Some(view)));
+    no_post(&restore(&mut fixture, &round, Some(view)));
     assert_eq!(
         fixture.app.navigation.focus(),
         ui_events::ReviewPane::Detail
@@ -351,9 +352,9 @@ fn restored_evidence_position_height_and_focus_survive_reflow_without_selecting_
 #[test]
 fn post_ack_only_consumes_its_original_editor_when_history_is_opened_while_saving() {
     let (mut fixture, request) = ExploreUi::new();
-    let mut pass = pass(&fixture, &request);
-    let question = pass.exploration.questions[0].clone();
-    let request = pass
+    let mut round = round(&fixture, &request);
+    let question = round.exploration.questions[0].clone();
+    let request = round
         .exploration
         .request(
             Some(review_explore::AnswerInput {
@@ -363,12 +364,13 @@ fn post_ack_only_consumes_its_original_editor_when_history_is_opened_while_savin
             Some(&question),
         )
         .unwrap();
-    pass.exploration
+    round
+        .exploration
         .submit(fixture.response(&request, 2))
         .unwrap();
     let view = ViewSave {
-        instance: pass.exploration.instance.clone(),
-        review_unit: pass.exploration.comparison.checkpoint.review_unit.clone(),
+        instance: round.exploration.instance.clone(),
+        review_unit: round.exploration.comparison.checkpoint.review_unit.clone(),
         sequence: 2,
         state: ExploreViewState {
             page: ExplorePage::Question(1),
@@ -387,13 +389,13 @@ fn post_ack_only_consumes_its_original_editor_when_history_is_opened_while_savin
             ..Default::default()
         },
     };
-    restore(&mut fixture, &pass, Some(view));
+    restore(&mut fixture, &round, Some(view));
     let request = ExploreUi::request(fixture.app.update(UserInput::Key(Key::ControlEnter)));
     fixture.click("[Previous]");
-    pass.post(&request).unwrap();
+    round.post(&request).unwrap();
     let actions = fixture.app.publish(ui_events::ExplorePosted {
         request,
-        result: Ok(Arc::new(pass)),
+        result: Ok(Arc::new(round)),
     });
     let view = saved(actions);
     assert_eq!(view.state.page, ExplorePage::Question(0));
@@ -430,9 +432,9 @@ fn restored_progress_from_the_session_decides_the_recovery_status() {
         (ui_events::ExploreProgress::Ready, None),
     ] {
         let (mut fixture, request) = ExploreUi::new();
-        let pass = pass(&fixture, &request);
+        let round = round(&fixture, &request);
         no_post(&fixture.app.publish(ui_events::ExploreRestored {
-            result: Ok(Some(Arc::new(pass))),
+            result: Ok(Some(Arc::new(round))),
             view: None,
             historical: false,
             storage_error: None,
@@ -452,9 +454,9 @@ fn restored_progress_from_the_session_decides_the_recovery_status() {
 #[test]
 fn cancelling_the_latest_answer_brings_its_question_back_to_answer_again() {
     let (mut fixture, request) = ExploreUi::new();
-    let mut pass = pass(&fixture, &request);
-    let question = pass.exploration.questions[0].clone();
-    let answered = pass
+    let mut round = round(&fixture, &request);
+    let question = round.exploration.questions[0].clone();
+    let answered = round
         .exploration
         .clone()
         .request(
@@ -466,11 +468,12 @@ fn cancelling_the_latest_answer_brings_its_question_back_to_answer_again() {
             Some(&question),
         )
         .unwrap();
-    pass.post(&answered).unwrap();
-    pass.exploration
+    round.post(&answered).unwrap();
+    round
+        .exploration
         .submit(fixture.response(&answered, 2))
         .unwrap();
-    no_post(&restore(&mut fixture, &pass, None));
+    no_post(&restore(&mut fixture, &round, None));
     fixture.click("Your answer");
     fixture
         .app
@@ -486,7 +489,7 @@ fn cancelling_the_latest_answer_brings_its_question_back_to_answer_again() {
         action,
         Action::Explore(Command::CancelAnswer(answer)) if *answer == id
     )));
-    let mut cancelled = pass.clone();
+    let mut cancelled = round.clone();
     cancelled.cancel_answer(&id).unwrap();
     cancelled.revision += 1;
     fixture.app.publish(ui_events::ExploreAnswerCancelled {

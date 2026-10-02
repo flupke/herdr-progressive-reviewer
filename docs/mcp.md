@@ -199,7 +199,7 @@ After a human contribution, the shared prompt delivery sends a plain-text wakeup
 
 ```text
 Explore review access: temporary-access
-Explore pass: pass-id
+Explore round: round-id
 Explore request: turn-id
 Review unit: unit
 Checkpoint: commit
@@ -249,7 +249,7 @@ with wholly open directories collapsed. After a human answer, the next
 answer settled, and `reopened`, reviewed lines it made matter again, each as
 `{path, side, lines}` (null lines for a whole file). The kickoff turn cannot mark
 lines. The reviewer applies them once the turn is accepted, only while the code is
-still the pass's checkpoint, and records what changed for the reviewer to see.
+still the round's checkpoint, and records what changed for the reviewer to see.
 
 Explore displays Markdown `#` sections for Context (`rationale`, with `visual` appended),
 Door and Blast radius (`assessments`), and Notes (the selected evidence's `notes`).
@@ -269,11 +269,11 @@ Concept exploration drives the interview: reviewed lines do not exhaust its usef
 questions. When no useful inquiry remains, the agent checks the unreviewed lines for
 missed concepts, asks further questions only when that reveals one, and then
 concludes. With a reviewer-process `TYPESAFE_API_KEY`, Jev marks what it judges
-insignificant when a pass starts, and the kickoff says what it marked.
+insignificant when a round starts, and the kickoff says what it marked.
 The durable `instance` is distinct from renewable `review` access. Access is never
-saved with the pass. Reopening rotates it; the next explicit reviewer action supplies
+saved with the round. Reopening rotates it; the next explicit reviewer action supplies
 current access through the existing wakeup. Each call checks the pinned native
-conversation, then validates against the latest stored pass under its lock, atomically
+conversation, then validates against the latest stored round under its lock, atomically
 saves the update and deduplication record, publishes it to the UI, and waits for UI
 application before acknowledging it. Validation errors leave the request open for repair;
 transport retries must reuse the identical semantic payload (with current `review` access after reconnection). A response saved before a lost acknowledgement is restored locally; it is not regenerated. Accepted retries return
@@ -285,7 +285,7 @@ Use `submit_conclusion` for the separate conclusion screen. Its top-level argume
 ```json
 {
   "review": "temporary-access",
-  "instance": "pass-id",
+  "instance": "round-id",
   "request": "turn-id",
   "checkpoint": {"review_unit": "unit", "checkpoint": "commit"},
   "interpretation": null,

@@ -67,7 +67,7 @@ fn a_refresh_publishes_files_the_documents_can_load_then_restores_explore(kind: 
 
     fixture.files.write("src/lib.rs", b"pub fn changed() {}\n");
     let events = fixture.refresh();
-    // The same review keeps its restored Explore pass.
+    // The same review keeps its restored Explore round.
     assert_eq!(
         event_names(&events),
         ["metadata", "files", "refresh finished"]

@@ -6,7 +6,9 @@ use std::collections::BTreeMap;
 
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct ExploreHistory {
-    pub passes: Vec<String>,
+    /// Indexes saved before the rename call this field `passes`.
+    #[serde(alias = "passes")]
+    pub rounds: Vec<String>,
     #[serde(default = "latest_editable")]
     pub latest_editable: bool,
 }
@@ -18,7 +20,7 @@ fn latest_editable() -> bool {
 impl Default for ExploreHistory {
     fn default() -> Self {
         Self {
-            passes: Vec::new(),
+            rounds: Vec::new(),
             latest_editable: true,
         }
     }
@@ -26,11 +28,11 @@ impl Default for ExploreHistory {
 
 impl ExploreHistory {
     pub fn is_historical(&self, instance: &str) -> bool {
-        !self.latest_editable || self.passes.last().map(String::as_str) != Some(instance)
+        !self.latest_editable || self.rounds.last().map(String::as_str) != Some(instance)
     }
 }
 
-/// A native conversation identity observed while handling this pass.
+/// A native conversation identity observed while handling this round.
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct ConversationBinding {
     agent: Option<String>,
@@ -114,7 +116,7 @@ pub struct InterviewDelivery {
     pub started_at_ms: Option<u64>,
 }
 
-/// The first conclusion the pass accepted, which authorizes implementation.
+/// The first conclusion the round accepted, which authorizes implementation.
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct ReviewCompletion {
     pub request: String,
@@ -123,7 +125,7 @@ pub struct ReviewCompletion {
 
 /// Domain and deduplication state are committed together, separate from editor autosaves.
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
-pub struct ExplorePass {
+pub struct ExploreRound {
     pub revision: u64,
     pub exploration: Exploration,
     #[serde(default)]
@@ -187,7 +189,7 @@ impl TurnMarks {
     }
 }
 
-impl ExplorePass {
+impl ExploreRound {
     pub fn new(exploration: Exploration) -> Self {
         Self {
             revision: 0,
@@ -226,7 +228,7 @@ impl ExplorePass {
         eyre::ensure!(
             request.instance == self.exploration.instance
                 && request.checkpoint == self.exploration.comparison.checkpoint,
-            "This answer belongs to another Explore pass"
+            "This answer belongs to another Explore round"
         );
         if let Some(previous) = self.turns.get_mut(&request.request) {
             eyre::ensure!(

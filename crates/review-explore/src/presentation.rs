@@ -3,7 +3,7 @@ use review_types::TextEditorState;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-/// Question indices address the immutable posted question/version list within a pass.
+/// Question indices address the immutable posted question/version list within a round.
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, Ord, PartialOrd)]
 pub enum ExplorePage {
     /// Kept only to read saved views written before the Opening page was removed.
@@ -43,7 +43,7 @@ pub struct EvidencePosition {
     pub column: usize,
 }
 
-/// The reviewer's saved editors and reading position for one pass.
+/// The reviewer's saved editors and reading position for one round.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
 #[allow(
     clippy::struct_excessive_bools,
@@ -84,7 +84,7 @@ impl crate::Exploration {
     }
 }
 
-impl crate::ExplorePass {
+impl crate::ExploreRound {
     /// Ignore only the exact pre-post draft consumed by a durable answer.
     pub fn restored_view(&self, view: Option<&ViewSave>) -> ExploreViewState {
         let Some(view) = view else {

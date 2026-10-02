@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use herdr_client::protocol::Agent;
-use review_explore::{ConversationBinding, Exploration, ExplorePass, TurnRequest};
+use review_explore::{ConversationBinding, Exploration, ExploreRound, TurnRequest};
 use review_thread_service::PinnedAgent;
 
 use crate::{ExploreSession, Input, dispatch::DurableDispatch};
@@ -40,8 +40,8 @@ impl ExploreSession {
         }
         let persisted =
             self.persist_request(&request, retry_agent.as_ref().map(|(agent, _)| *agent));
-        let pass = match persisted {
-            Ok(pass) => pass,
+        let round = match persisted {
+            Ok(round) => round,
             Err(error) => {
                 let _ = self.events.send(ui_events::ExplorePosted {
                     request,
@@ -55,12 +55,12 @@ impl ExploreSession {
         }
         // Each prompt has its own MCP access, so an earlier recipient cannot answer a Retry.
         self.state.renew_access();
-        self.state.pass = Some(pass.clone());
+        self.state.round = Some(round.clone());
         let _ = self.events.send(ui_events::ExplorePosted {
             request: request.clone(),
-            result: Ok(Arc::new(pass.clone())),
+            result: Ok(Arc::new(round.clone())),
         });
-        let attempt = pass.turns[&request.request].attempt.clone();
+        let attempt = round.turns[&request.request].attempt.clone();
         let (prepared, agent) = match self.prepare(&request) {
             Ok(prepared) => prepared,
             Err(error) => {
@@ -78,7 +78,7 @@ impl ExploreSession {
         };
         let observer = DurableDispatch {
             began: std::sync::atomic::AtomicBool::default(),
-            passes: self.passes.clone(),
+            rounds: self.rounds.clone(),
             unit: request.checkpoint.review_unit.clone(),
             instance: request.instance.clone(),
             id: review_explore::DispatchId::Interview {
@@ -137,12 +137,12 @@ impl ExploreSession {
         if self.state.pending.as_ref() != Some(&(event.instance.clone(), event.request.clone())) {
             return;
         }
-        if let Some(pass) = &self.state.pass {
-            let result = self.passes.update(
-                &pass.exploration.comparison.checkpoint.review_unit,
+        if let Some(round) = &self.state.round {
+            let result = self.rounds.update(
+                &round.exploration.comparison.checkpoint.review_unit,
                 &event.instance,
-                |pass| {
-                    if pass
+                |round| {
+                    if round
                         .turns
                         .get(&event.request)
                         .is_none_or(|turn| turn.attempt != attempt)
@@ -150,13 +150,13 @@ impl ExploreSession {
                         return Ok(false);
                     }
                     if let Err(error) = &event.result {
-                        return Ok(pass.exploration.failed(&event.request, error));
+                        return Ok(round.exploration.failed(&event.request, error));
                     }
                     Ok(false)
                 },
             );
             match result {
-                Ok((true, pass)) => self.state.pass = Some(pass),
+                Ok((true, round)) => self.state.round = Some(round),
                 Ok((false, _)) => return,
                 Err(error) => {
                     let _ = self
@@ -174,7 +174,7 @@ impl ExploreSession {
         &mut self,
         request: &TurnRequest,
         retry_agent: Option<&Agent>,
-    ) -> eyre::Result<ExplorePass> {
+    ) -> eyre::Result<ExploreRound> {
         eyre::ensure!(
             self.state.storage_error.is_none(),
             "{}",
@@ -182,10 +182,10 @@ impl ExploreSession {
         );
         eyre::ensure!(
             !self.state.historical,
-            "This pass is history; open the latest pass or start a New pass"
+            "This round is history; open the latest round or start a New round"
         );
-        if self.state.pass.is_none() {
-            eyre::ensure!(retry_agent.is_none(), "No Explore pass to retry");
+        if self.state.round.is_none() {
+            eyre::ensure!(retry_agent.is_none(), "No Explore round to retry");
             let mut exploration = Exploration::new(
                 self.state
                     .comparison
@@ -193,9 +193,9 @@ impl ExploreSession {
                     .ok_or_else(|| eyre::eyre!("Start Explore first"))?,
             );
             exploration.instance.clone_from(&request.instance);
-            let mut pass = ExplorePass::new(exploration);
-            pass.post(request)?;
-            pass.last_agent_session = self
+            let mut round = ExploreRound::new(exploration);
+            round.post(request)?;
+            round.last_agent_session = self
                 .state
                 .agent
                 .as_ref()
@@ -203,26 +203,31 @@ impl ExploreSession {
                 .as_ref()
                 .and_then(ConversationBinding::from_agent);
             self.state.loaded_unit = Some(request.checkpoint.review_unit.clone());
-            return Ok(self.passes.create(pass)?);
+            return Ok(self.rounds.create(round)?);
         }
         Ok(self
-            .passes
-            .update(&request.checkpoint.review_unit, &request.instance, |pass| {
-                let new = pass.post(request).map_err(|e| e.to_string())?;
-                if let Some(agent) = retry_agent {
-                    pass.last_agent_session = ConversationBinding::from_agent(agent);
-                }
-                if new
-                    && let Some(view) = &self.state.last_view
-                    && view.instance == request.instance
-                {
-                    pass.turns
-                        .get_mut(&request.request)
-                        .expect("posted turn")
-                        .editor_sequence = Some(view.sequence);
-                }
-                Ok(new)
-            })?
+            .rounds
+            .update(
+                &request.checkpoint.review_unit,
+                &request.instance,
+                |round| {
+                    let new = round.post(request).map_err(|e| e.to_string())?;
+                    if let Some(agent) = retry_agent {
+                        round.last_agent_session = ConversationBinding::from_agent(agent);
+                    }
+                    if new
+                        && let Some(view) = &self.state.last_view
+                        && view.instance == request.instance
+                    {
+                        round
+                            .turns
+                            .get_mut(&request.request)
+                            .expect("posted turn")
+                            .editor_sequence = Some(view.sequence);
+                    }
+                    Ok(new)
+                },
+            )?
             .1)
     }
 }

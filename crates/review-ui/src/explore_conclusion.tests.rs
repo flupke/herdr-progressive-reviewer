@@ -55,30 +55,30 @@ fn implementation(actions: Vec<Action>) -> ImplementationRequest {
         .expect("explicit implementation request")
 }
 
-fn authorized_pass(
+fn authorized_round(
     fixture: &ExploreUi,
     kickoff: &TurnRequest,
     conclusion: InterviewUpdate,
     request: &ImplementationRequest,
-) -> review_explore::ExplorePass {
+) -> review_explore::ExploreRound {
     let mut exploration = review_explore::Exploration::new(fixture.comparison.clone());
     exploration.instance.clone_from(&kickoff.instance);
-    let mut pass = review_explore::ExplorePass::new(exploration);
-    pass.post(kickoff).unwrap();
-    pass.exploration.submit(conclusion).unwrap();
-    pass.completion = Some(review_explore::ReviewCompletion {
+    let mut round = review_explore::ExploreRound::new(exploration);
+    round.post(kickoff).unwrap();
+    round.exploration.submit(conclusion).unwrap();
+    round.completion = Some(review_explore::ReviewCompletion {
         request: kickoff.request.clone(),
         baseline: kickoff.checkpoint.checkpoint.clone(),
     });
-    pass.last_agent_session = Some(
+    round.last_agent_session = Some(
         serde_json::from_value(serde_json::json!({
             "agent": "codex",
             "session": {"source": "native", "agent": "codex", "kind": "id", "value": "conversation"}
         }))
         .unwrap(),
     );
-    pass.authorize(request).unwrap();
-    pass
+    round.authorize(request).unwrap();
+    round
 }
 
 /// Restores a saved request as if the app restarted while it was in `state`.
@@ -89,13 +89,14 @@ fn restart_with_delivery(
 ) -> ImplementationRequest {
     let conclusion = finish(fixture, kickoff);
     let request = implementation(fixture.click_actions(" Implement "));
-    let mut pass = authorized_pass(fixture, kickoff, conclusion, &request);
-    pass.implementations
+    let mut round = authorized_round(fixture, kickoff, conclusion, &request);
+    round
+        .implementations
         .get_mut(&request.delivery)
         .unwrap()
         .state = state;
     fixture.app.publish(ui_events::ExploreRestored {
-        result: Ok(Some(std::sync::Arc::new(pass))),
+        result: Ok(Some(std::sync::Arc::new(round))),
         view: None,
         historical: false,
         storage_error: None,
@@ -412,13 +413,13 @@ fn a_receipt_from_a_previous_attempt_cannot_finish_the_current_implementation() 
     let (mut fixture, kickoff) = ExploreUi::new();
     let conclusion = finish(&mut fixture, &kickoff);
     let request = implementation(fixture.click_actions(" Implement "));
-    let mut pass = authorized_pass(&fixture, &kickoff, conclusion, &request);
-    let old = pass.implementations[&request.delivery].clone();
+    let mut round = authorized_round(&fixture, &kickoff, conclusion, &request);
+    let old = round.implementations[&request.delivery].clone();
     fixture
         .app
         .publish(ui_events::ExploreImplementationSaved(old.clone()));
-    pass.authorize(&request).unwrap();
-    let current = pass.implementations[&request.delivery].clone();
+    round.authorize(&request).unwrap();
+    let current = round.implementations[&request.delivery].clone();
     fixture
         .app
         .publish(ui_events::ExploreImplementationSaved(current.clone()));

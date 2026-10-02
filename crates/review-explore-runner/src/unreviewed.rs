@@ -15,7 +15,7 @@ pub struct Unreviewed {
     pub paths: BTreeSet<RepoPath>,
     /// The files with unreviewed lines, in any order.
     pub files: Vec<UnreviewedFile>,
-    /// What Jev did before the pass, when it ran.
+    /// What Jev did before the round, when it ran.
     pub jev: Option<String>,
     pub status: UnreviewedStatus,
 }

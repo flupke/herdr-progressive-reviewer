@@ -1,7 +1,7 @@
 //! Cancelling the reviewer's latest answer: the interview returns to the
 //! question it answered, as if the answer had never been sent.
 
-use crate::{Exploration, ExplorePass, ReviewerAnswer, TurnMarks};
+use crate::{Exploration, ExploreRound, ReviewerAnswer, TurnMarks};
 
 /// An answer the reviewer took back, and the agent turn it discarded.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -80,7 +80,7 @@ impl Exploration {
     }
 }
 
-impl ExplorePass {
+impl ExploreRound {
     /// Cancel the latest answer, unless implementation was already requested.
     pub fn cancel_answer(&mut self, id: &str) -> eyre::Result<CancelledAnswer> {
         eyre::ensure!(

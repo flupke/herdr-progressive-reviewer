@@ -124,26 +124,26 @@ full history, so a newly selected conversation may need the reviewer to supply
 missing context. No history dump, repository catalog, mailbox or file fallback
 is exchanged. Refresh the agent's MCP connection after upgrading to update its tool catalog.
 
-**Keep code unchanged while continuing a pass, including after reopening.** Explore reads working-copy files
-directly and assumes they stay unchanged. Saved decisions describe that investigation; they do not establish that later edits were reviewed. Use New pass when code has changed. It does not snapshot the repository or
+**Keep code unchanged while continuing a round, including after reopening.** Explore reads working-copy files
+directly and assumes they stay unchanged. Saved decisions describe that investigation; they do not establish that later edits were reviewed. Use New round when code has changed. It does not snapshot the repository or
 pause decisions when source files change. Supporting files are read as needed,
 so large unchanged assets do not impose a repository-wide capture limit.
 
 **Explore progress is saved automatically.** Opening the same checkout and logical
-review restores its latest pass: exact questions, answers, agenda, conclusions, the
+review restores its latest round: exact questions, answers, agenda, conclusions, the
 review marks each answer led to, separate task/reply drafts, choice selection and reading
-position. Passes saved by earlier versions, before answers could mark lines, are not restored.
+position. Rounds saved by earlier versions, before answers could mark lines, are not restored.
 Reopening sends no prompt and never starts implementation. The next explicit
 action prompts the selected implementation agent. If that agent is unavailable,
 history and edits remain available until it can be selected and retried. A new
-native conversation alone does not require a New pass.
+native conversation alone does not require a New round.
 
 Accepted responses, posted answers and implementation authorization are saved before
 acknowledgement or delivery. Editor changes save in the background and flush on a
 normal close; an abrupt process death can lose keystrokes still awaiting a save.
 Write errors stop unsafe Explore changes. Files
 and Threads remain usable. Explore supports one agent and one reviewer per repository,
-with one saved editor and reading state per pass.
+with one saved editor and reading state per round.
 
 Explore shows one question at a time across the full content width. Its evidence,
 answers and recap scroll together. **Previous** and **Next** (or `[` / `]`) visit
@@ -176,9 +176,9 @@ and can reopen reviewed lines your answer made matter again, whoever marked them
 are ordinary review marks: Files, the diff and the header progress show them, and you
 can reopen or mark hunks yourself as usual. Below your answer, the agent's next turn
 shows what it marked and reopened. Marks apply only while the code is still the
-checkpoint the pass started from. Every prompt lists the agent's remaining
+checkpoint the round started from. Every prompt lists the agent's remaining
 **Unreviewed lines**: the changed lines no review mark covers, including your own
-marks from Files. When Jev is enabled, starting a pass first marks what Jev dismisses,
+marks from Files. When Jev is enabled, starting a round first marks what Jev dismisses,
 as `rf` does, and the kickoff tells the agent what it marked.
 The preparation state shows the actual pending status and Cancel. Delivery
 errors and Retry appear beside the affected turn.
@@ -210,7 +210,7 @@ turn made are given back (lines it marked reopen; lines it reopened return to wh
 had marked them), and the question comes back with your choice and text ready to
 change and send again. Repeat it to take back earlier answers one at a time. The next
 prompt tells the agent which answers were cancelled. Answers cannot be cancelled once
-**Implement** was sent. When the code changed since the pass started, lines the
+**Implement** was sent. When the code changed since the round started, lines the
 cancelled turn reopened stay open.
 
 | Explore command | Action |
@@ -225,7 +225,7 @@ cancelled turn reopened stay open.
 | `Alt-j` / `Alt-k` | Grow / shrink the selected evidence window |
 | `Alt-0` | Fit evidence automatically again |
 | `c` / `r` | Cancel pending work / explicitly retry |
-| `n` | Start a new pass, retaining the previous investigation as history |
+| `n` | Start a new round, retaining the previous investigation as history |
 | `Tab` | Cycle conversation, evidence and answer focus |
 
 Each accepted new question opens automatically, including after input while waiting.
@@ -259,13 +259,13 @@ Old-side references open at their old coordinates. A range outside displayed dif
 hunks opens the available full base text in the native viewer. It retains historical
 coordinates; it is never substituted with current working-copy text.
 
-A new pass retains earlier investigations in storage without transferring their
+A new round retains earlier investigations in storage without transferring their
 decisions. Invalid responses leave the last usable question and answer
 available. MCP validation errors let the agent repair the same pending turn;
 an identical retry of an accepted result is acknowledged without replaying it.
 Responses are bounded to 1 MiB; exceeding that bound is
-reported without truncation. Stored passes can grow across many responses (up to
-256 MiB per pass; editor records up to 16 MiB). Corrupt, oversized or unsupported
+reported without truncation. Stored rounds can grow across many responses (up to
+256 MiB per round; editor records up to 16 MiB). Corrupt, oversized or unsupported
 records are cleared with an error toast when possible; readable history is
 retained. Request and answer identities still protect against
 cancelled, duplicate or unrelated responses; they do not establish source freshness.
@@ -288,7 +288,7 @@ associations do not mark lines reviewed. A successful conclusion saves the discu
 answer settled. Explore does not resolve threads.
 
 Setting a nonempty `TYPESAFE_API_KEY` in the reviewer process enables Jev
-significance checks: `rf` in Files, and the start of each Explore pass, mark the
+significance checks: `rf` in Files, and the start of each Explore round, mark the
 changed lines Jev judges insignificant as reviewed. The reviewer sends bounded
 before/after code snippets and relative paths to TypeSafe AI. Missing or
 whitespace-only keys disable Jev. Uncertain, failed and oversized checks leave their

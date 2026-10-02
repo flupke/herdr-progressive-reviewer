@@ -48,7 +48,7 @@ fn kickoff_supplies_scope_and_identity_and_uses_the_mcp_schema() {
         &Unreviewed::default(),
     )
     .prompt();
-    assert!(prompt.contains(&format!("Explore pass: {}", request.instance)));
+    assert!(prompt.contains(&format!("Explore round: {}", request.instance)));
     assert!(prompt.contains(&format!("Explore request: {}", request.request)));
     assert!(prompt.contains("Explore review access: fresh-access\n"));
     assert!(prompt.contains("Review unit: r\nCheckpoint: c\n"));

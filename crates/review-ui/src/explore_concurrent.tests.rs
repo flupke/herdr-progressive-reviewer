@@ -2,9 +2,9 @@ use super::*;
 use crate::TerminalAction;
 
 #[test]
-fn a_new_pass_saves_its_view_only_after_its_first_post_is_durable() {
+fn a_new_round_saves_its_view_only_after_its_first_post_is_durable() {
     let (mut fixture, first) = ExploreUi::new();
-    let mut previous = pass(&fixture, &first);
+    let mut previous = round(&fixture, &first);
     previous.revision = 50;
     restore(&mut fixture, &previous, None);
     fixture.app.update(UserInput::Key(Key::Char('n')));
@@ -21,7 +21,7 @@ fn a_new_pass_saves_its_view_only_after_its_first_post_is_durable() {
     assert_ne!(kickoff.instance, first.instance);
     let mut exploration = review_explore::Exploration::new(fixture.comparison.clone());
     exploration.instance.clone_from(&kickoff.instance);
-    let mut new = ExplorePass::new(exploration);
+    let mut new = ExploreRound::new(exploration);
     new.post(&kickoff).unwrap();
     new.revision = 1;
     let view = saved(fixture.app.publish(ui_events::ExplorePosted {
@@ -34,15 +34,15 @@ fn a_new_pass_saves_its_view_only_after_its_first_post_is_durable() {
 #[test]
 fn cancelling_before_post_ack_keeps_the_answer_and_allows_exact_retry() {
     let (mut fixture, first) = ExploreUi::new();
-    let mut pass = pass(&fixture, &first);
-    restore(&mut fixture, &pass, None);
+    let mut round = round(&fixture, &first);
+    restore(&mut fixture, &round, None);
     let answer = ExploreUi::request(fixture.app.update(UserInput::Key(Key::Enter)));
     fixture.app.update(UserInput::Key(Key::Char('c')));
-    pass.post(&answer).unwrap();
-    pass.revision += 1;
+    round.post(&answer).unwrap();
+    round.revision += 1;
     fixture.app.publish(ui_events::ExplorePosted {
         request: answer.clone(),
-        result: Ok(Arc::new(pass)),
+        result: Ok(Arc::new(round)),
     });
     assert!(fixture.text().contains("You: Keep resolved"));
     let retry = ExploreUi::request(fixture.app.update(UserInput::Key(Key::Char('r'))));
@@ -52,9 +52,9 @@ fn cancelling_before_post_ack_keeps_the_answer_and_allows_exact_retry() {
 #[test]
 fn a_post_ack_reconciles_newer_history_without_losing_the_current_draft() {
     let (mut fixture, first) = ExploreUi::new();
-    let mut pass = pass(&fixture, &first);
-    let question = pass.exploration.questions[0].clone();
-    let answer = pass
+    let mut round = round(&fixture, &first);
+    let question = round.exploration.questions[0].clone();
+    let answer = round
         .exploration
         .request(
             Some(review_explore::AnswerInput {
@@ -69,8 +69,8 @@ fn a_post_ack_reconciles_newer_history_without_losing_the_current_draft() {
     concluded.next = None;
     concluded.topics.clear();
     concluded.conclusion = Some(conclusion("Agreed tasks"));
-    pass.exploration.submit(concluded).unwrap();
-    restore(&mut fixture, &pass, None);
+    round.exploration.submit(concluded).unwrap();
+    restore(&mut fixture, &round, None);
     fixture.click("[Previous]");
     fixture.app.update(UserInput::Key(Key::Enter));
     fixture.app.update(UserInput::Paste("Local context".into()));
@@ -78,7 +78,7 @@ fn a_post_ack_reconciles_newer_history_without_losing_the_current_draft() {
     fixture
         .app
         .update(UserInput::Paste("Next local draft".into()));
-    let external = pass
+    let external = round
         .exploration
         .request(
             Some(review_explore::AnswerInput {
@@ -93,18 +93,18 @@ fn a_post_ack_reconciles_newer_history_without_losing_the_current_draft() {
     advanced.topics[0].id = "another-policy".into();
     advanced.next.as_mut().unwrap().id = "another-question".into();
     advanced.next.as_mut().unwrap().topic = "another-policy".into();
-    pass.exploration.submit(advanced).unwrap();
-    pass.post(&local).unwrap();
-    pass.revision += 1;
+    round.exploration.submit(advanced).unwrap();
+    round.post(&local).unwrap();
+    round.revision += 1;
     fixture.app.publish(ui_events::ExplorePosted {
         request: local,
-        result: Ok(Arc::new(pass.clone())),
+        result: Ok(Arc::new(round.clone())),
     });
     assert!(fixture.text().contains("Question 1/2"));
     assert!(fixture.text().contains("Next local draft"));
     let (response, received) = std::sync::mpsc::channel();
     fixture.app.publish(ui_events::ExploreCommitted {
-        pass: Arc::new(pass),
+        round: Arc::new(round),
         applied: false,
         response,
     });
@@ -120,9 +120,9 @@ fn a_post_ack_reconciles_newer_history_without_losing_the_current_draft() {
 #[test]
 fn an_old_post_ack_cannot_replace_a_newer_local_post_or_its_status() {
     let (mut fixture, first) = ExploreUi::new();
-    let mut pass = pass(&fixture, &first);
-    let question = pass.exploration.questions[0].clone();
-    let context = pass
+    let mut round = round(&fixture, &first);
+    let question = round.exploration.questions[0].clone();
+    let context = round
         .exploration
         .request(
             Some(review_explore::AnswerInput {
@@ -132,10 +132,11 @@ fn an_old_post_ack_cannot_replace_a_newer_local_post_or_its_status() {
             Some(&question),
         )
         .unwrap();
-    pass.exploration
+    round
+        .exploration
         .submit(fixture.response(&context, 2))
         .unwrap();
-    restore(&mut fixture, &pass, None);
+    restore(&mut fixture, &round, None);
     let old = ExploreUi::request(fixture.app.update(UserInput::Key(Key::Enter)));
     fixture.app.update(UserInput::Key(Key::Char('c')));
     fixture.click("[Previous]");
@@ -144,23 +145,23 @@ fn an_old_post_ack_cannot_replace_a_newer_local_post_or_its_status() {
         .app
         .update(UserInput::Paste("New contribution".into()));
     let new = ExploreUi::request(fixture.app.update(UserInput::Key(Key::ControlEnter)));
-    pass.post(&old).unwrap();
-    pass.revision += 1;
+    round.post(&old).unwrap();
+    round.revision += 1;
     fixture.app.publish(ui_events::ExplorePosted {
         request: old.clone(),
-        result: Ok(Arc::new(pass.clone())),
+        result: Ok(Arc::new(round.clone())),
     });
     fixture.app.publish(ui_events::ExplorePosted {
         request: old,
         result: Err("Obsolete failure".into()),
     });
     assert!(!fixture.text().contains("Obsolete failure"));
-    pass.exploration.cancel();
-    pass.post(&new).unwrap();
-    pass.revision += 1;
+    round.exploration.cancel();
+    round.post(&new).unwrap();
+    round.revision += 1;
     fixture.app.publish(ui_events::ExplorePosted {
         request: new.clone(),
-        result: Ok(Arc::new(pass)),
+        result: Ok(Arc::new(round)),
     });
     fixture.app.update(UserInput::Key(Key::Char('c')));
     assert_eq!(
@@ -172,8 +173,8 @@ fn an_old_post_ack_cannot_replace_a_newer_local_post_or_its_status() {
 #[test]
 fn edits_during_posting_are_queued_for_save_before_normal_close() {
     let (mut fixture, first) = ExploreUi::new();
-    let mut pass = pass(&fixture, &first);
-    restore(&mut fixture, &pass, None);
+    let mut round = round(&fixture, &first);
+    restore(&mut fixture, &round, None);
     let answer = ExploreUi::request(fixture.app.update(UserInput::Key(Key::Enter)));
     let view = saved(
         fixture
@@ -193,20 +194,24 @@ fn edits_during_posting_are_queued_for_save_before_normal_close() {
             .update(UserInput::Key(Key::Char('q')))
             .contains(&Action::Terminal(TerminalAction::Quit))
     );
-    pass.post(&answer).unwrap();
-    pass.turns.get_mut(&answer.request).unwrap().editor_sequence = Some(view.sequence - 1);
-    no_post(&restore(&mut fixture, &pass, Some(view)));
+    round.post(&answer).unwrap();
+    round
+        .turns
+        .get_mut(&answer.request)
+        .unwrap()
+        .editor_sequence = Some(view.sequence - 1);
+    no_post(&restore(&mut fixture, &round, Some(view)));
     assert!(fixture.text().contains("Next unposted draft"));
 }
 
 #[test]
 fn a_combined_external_refresh_keeps_every_conclusion_and_existing_editor() {
     let (mut fixture, first) = ExploreUi::new();
-    let mut pass = pass(&fixture, &first);
-    restore(&mut fixture, &pass, None);
+    let mut round = round(&fixture, &first);
+    restore(&mut fixture, &round, None);
     for version in 2..=3 {
-        let question = pass.exploration.questions.last().cloned();
-        let request = pass
+        let question = round.exploration.questions.last().cloned();
+        let request = round
             .exploration
             .request(
                 Some(review_explore::AnswerInput {
@@ -224,8 +229,8 @@ fn a_combined_external_refresh_keeps_every_conclusion_and_existing_editor() {
             to_be_implemented: format!("Tasks {version}"),
             future_work: String::new(),
         });
-        pass.exploration.submit(update).unwrap();
-        let request = pass
+        round.exploration.submit(update).unwrap();
+        let request = round
             .exploration
             .request(
                 Some(review_explore::AnswerInput {
@@ -237,12 +242,12 @@ fn a_combined_external_refresh_keeps_every_conclusion_and_existing_editor() {
             .unwrap();
         let mut update = fixture.response(&request, version + 2);
         update.interpretation = None;
-        pass.exploration.submit(update).unwrap();
+        round.exploration.submit(update).unwrap();
     }
-    pass.revision += 1;
+    round.revision += 1;
     let (response, received) = std::sync::mpsc::channel();
     fixture.app.publish(ui_events::ExploreCommitted {
-        pass: Arc::new(pass.clone()),
+        round: Arc::new(round.clone()),
         applied: true,
         response,
     });
@@ -257,7 +262,7 @@ fn a_combined_external_refresh_keeps_every_conclusion_and_existing_editor() {
     fixture.app.update(UserInput::Key(Key::Tab));
     let (response, received) = std::sync::mpsc::channel();
     fixture.app.publish(ui_events::ExploreCommitted {
-        pass: Arc::new(pass),
+        round: Arc::new(round),
         applied: false,
         response,
     });

@@ -1,11 +1,11 @@
 //! The Explore record format and exclusive, locked access to one review's records.
 //!
-//! Each review keeps a history index, one file per pass and one editor view per pass.
+//! Each review keeps a history index, one file per round and one editor view per round.
 //! The store only reads, writes and removes them; what a change means belongs to the
 //! Explore session.
 use super::{Error, Result, ReviewStore, StateKey};
 use fs2::FileExt;
-use review_explore::{ExploreHistory, ExplorePass, ViewSave};
+use review_explore::{ExploreHistory, ExploreRound, ViewSave};
 use review_types::ReviewUnit;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{
@@ -19,7 +19,7 @@ use std::{
 /// Version 1 records had coverage, inspections, deferrals and corrections;
 /// they are no longer loaded, as if absent.
 const VERSION: u32 = 2;
-// A pass grows across many valid 1 MiB submissions. This is not a source archive.
+// A round grows across many valid 1 MiB submissions. This is not a source archive.
 const MAX_DOMAIN: u64 = 256 * 1024 * 1024;
 const MAX_VIEW: u64 = 16 * 1024 * 1024;
 
@@ -56,51 +56,51 @@ impl ExploreRecords<'_> {
             .write_explore(&self.directory.join("index.json"), history, MAX_VIEW)
     }
 
-    pub fn pass(&self, instance: &str) -> Result<Option<ExplorePass>> {
+    pub fn round(&self, instance: &str) -> Result<Option<ExploreRound>> {
         self.store.load_explore(&self.unit, instance)
     }
 
-    /// Save a pass that has no record yet. A saved pass only changes through
-    /// [`Self::update_pass`], so no caller writes a stale whole-pass copy.
-    pub fn create_pass(&self, pass: &ExplorePass) -> Result<()> {
-        if self.pass(&pass.exploration.instance)?.is_some() {
-            return Err(Error::Explore("pass already exists".into()));
+    /// Save a round that has no record yet. A saved round only changes through
+    /// [`Self::update_round`], so no caller writes a stale whole-round copy.
+    pub fn create_round(&self, round: &ExploreRound) -> Result<()> {
+        if self.round(&round.exploration.instance)?.is_some() {
+            return Err(Error::Explore("round already exists".into()));
         }
-        self.save_pass(pass)
+        self.save_round(round)
     }
 
-    fn save_pass(&self, pass: &ExplorePass) -> Result<()> {
-        if pass.exploration.comparison.checkpoint.review_unit != self.unit {
-            return Err(Error::Explore("pass belongs to another review".into()));
+    fn save_round(&self, round: &ExploreRound) -> Result<()> {
+        if round.exploration.comparison.checkpoint.review_unit != self.unit {
+            return Err(Error::Explore("round belongs to another review".into()));
         }
         self.store.write_explore(
             &self
                 .store
-                .explore_path(&self.unit, &pass.exploration.instance)?,
-            pass,
+                .explore_path(&self.unit, &round.exploration.instance)?,
+            round,
             MAX_DOMAIN,
         )
     }
 
-    /// Change a saved pass, writing it with the next revision only when it changed.
-    pub fn update_pass<T>(
+    /// Change a saved round, writing it with the next revision only when it changed.
+    pub fn update_round<T>(
         &self,
         instance: &str,
-        update: impl FnOnce(&mut ExplorePass) -> std::result::Result<T, String>,
-    ) -> Result<(T, ExplorePass)> {
-        let mut pass = self
-            .pass(instance)?
-            .ok_or_else(|| Error::Explore("saved pass is missing".into()))?;
-        let original = pass.clone();
-        let result = update(&mut pass).map_err(Error::Explore)?;
-        if pass != original {
-            pass.revision = pass
+        update: impl FnOnce(&mut ExploreRound) -> std::result::Result<T, String>,
+    ) -> Result<(T, ExploreRound)> {
+        let mut round = self
+            .round(instance)?
+            .ok_or_else(|| Error::Explore("saved round is missing".into()))?;
+        let original = round.clone();
+        let result = update(&mut round).map_err(Error::Explore)?;
+        if round != original {
+            round.revision = round
                 .revision
                 .checked_add(1)
                 .ok_or_else(|| Error::Explore("revision exhausted".into()))?;
-            self.save_pass(&pass)?;
+            self.save_round(&round)?;
         }
-        Ok((result, pass))
+        Ok((result, round))
     }
 
     pub fn view(&self, instance: &str) -> Result<Option<ViewSave>> {
@@ -118,8 +118,8 @@ impl ExploreRecords<'_> {
         )
     }
 
-    /// Remove a pass file; a missing file is already removed.
-    pub fn remove_pass(&self, instance: &str) -> Result<()> {
+    /// Remove a round file; a missing file is already removed.
+    pub fn remove_round(&self, instance: &str) -> Result<()> {
         ReviewStore::remove_explore_file(&self.store.explore_path(&self.unit, instance)?)
     }
 
@@ -133,9 +133,9 @@ impl ExploreRecords<'_> {
         self.store.sync_parent(&self.directory.join("index.json"))
     }
 
-    /// The identity and modification time of every pass file, readable or not.
-    pub fn pass_files(&self) -> Result<Vec<(String, SystemTime)>> {
-        let mut passes = Vec::new();
+    /// The identity and modification time of every round file, readable or not.
+    pub fn round_files(&self) -> Result<Vec<(String, SystemTime)>> {
+        let mut rounds = Vec::new();
         for entry in ReviewStore::explore_entries(&self.directory)? {
             let entry = entry?;
             let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
@@ -151,9 +151,9 @@ impl ExploreRecords<'_> {
                 .metadata()
                 .and_then(|metadata| metadata.modified())
                 .unwrap_or(SystemTime::UNIX_EPOCH);
-            passes.push((instance.to_owned(), modified));
+            rounds.push((instance.to_owned(), modified));
         }
-        Ok(passes)
+        Ok(rounds)
     }
 }
 
@@ -251,21 +251,22 @@ impl ReviewStore {
         }
     }
 
-    pub fn load_explore(&self, unit: &ReviewUnit, instance: &str) -> Result<Option<ExplorePass>> {
-        let pass: Option<ExplorePass> =
+    pub fn load_explore(&self, unit: &ReviewUnit, instance: &str) -> Result<Option<ExploreRound>> {
+        let round: Option<ExploreRound> =
             Self::read_explore(&self.explore_path(unit, instance)?, MAX_DOMAIN)?;
-        if let Some(pass) = &pass {
-            if pass.exploration.instance != instance
-                || &pass.exploration.comparison.checkpoint.review_unit != unit
+        if let Some(round) = &round {
+            if round.exploration.instance != instance
+                || &round.exploration.comparison.checkpoint.review_unit != unit
             {
                 return Err(Error::Explore(
-                    "stored pass identity does not match its review".into(),
+                    "stored round identity does not match its review".into(),
                 ));
             }
-            pass.validate_restored()
+            round
+                .validate_restored()
                 .map_err(|e| Error::Explore(e.to_string()))?;
         }
-        Ok(pass)
+        Ok(round)
     }
 
     /// Lock one review's Explore records for a read-modify-write.
@@ -293,7 +294,7 @@ impl ReviewStore {
             .as_ref()
             .is_some_and(|view| view.instance != instance || &view.review_unit != unit)
         {
-            return Err(Error::Explore("editor belongs to another pass".into()));
+            return Err(Error::Explore("editor belongs to another round".into()));
         }
         Ok(view)
     }

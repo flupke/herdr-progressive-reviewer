@@ -13,7 +13,7 @@ impl fmt::Display for TurnInput<'_> {
     fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
         let request = self.request;
         writeln!(output, "Explore review access: {}", self.access)?;
-        writeln!(output, "Explore pass: {}", request.instance)?;
+        writeln!(output, "Explore round: {}", request.instance)?;
         writeln!(output, "Explore request: {}", request.request)?;
         writeln!(
             output,

@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 
-use review_explore::{CodeLocation, ExplorePass, ReopenedLines, TurnMarks};
+use review_explore::{CodeLocation, ExploreRound, ReopenedLines, TurnMarks};
 use review_hunks::LineSelection;
 use review_repository::repository::{ChangedFile, PollResult, Snapshot};
 use review_state::{FileLines, ReviewTracker};
@@ -124,17 +124,17 @@ fn held_by(lines: &FileLines, author: &MarkAuthor) -> LineSelection {
 impl ExploreSession {
     /// Give back the review marks a cancelled turn changed, file by file,
     /// failing when any file failed so the cancel can be tried again. Lines
-    /// it reopened stay open when the code changed since the pass started;
+    /// it reopened stay open when the code changed since the round started;
     /// the returned problem says so.
     pub(crate) fn unmark(
         &self,
-        pass: &ExplorePass,
+        round: &ExploreRound,
         marks: &TurnMarks,
     ) -> eyre::Result<Option<String>> {
         let PollResult::Complete(snapshot) = self.repository.poll()? else {
             eyre::bail!("the repository is not ready; try again");
         };
-        let unchanged = pass.exploration.comparison.checkpoint.matches(
+        let unchanged = round.exploration.comparison.checkpoint.matches(
             snapshot.identity.review_unit(),
             snapshot.identity.snapshot_id(),
         );
@@ -161,7 +161,7 @@ impl ExploreSession {
             eyre::bail!("review marks were not given back: {failed}");
         }
         Ok(kept_open.then(|| {
-            "the code changed since this pass started; the lines its turn reopened stay open"
+            "the code changed since this round started; the lines its turn reopened stay open"
                 .to_owned()
         }))
     }

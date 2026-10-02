@@ -19,7 +19,7 @@ pub struct Conclusion {
 pub struct ConclusionSubmission {
     /// Copy the renewable Explore access from the latest kickoff or answer wakeup.
     pub review: String,
-    /// Durable Explore pass identity, independent of renewable review access.
+    /// Durable Explore round identity, independent of renewable review access.
     pub instance: String,
     /// Copy Explore request from the latest wakeup.
     pub request: String,

@@ -5,7 +5,7 @@ use super::*;
 
 const INSTANCE: &str = "eb9afce9-0943-4b1d-993b-722ec98ca4c5";
 const HISTORY: &[u8] = include_bytes!("../testdata/explore/index.json");
-const PASS: &[u8] = include_bytes!("../testdata/explore/pass.json");
+const ROUND: &[u8] = include_bytes!("../testdata/explore/round.json");
 const VIEW: &[u8] = include_bytes!("../testdata/explore/view.json");
 
 struct SavedFixture {
@@ -23,7 +23,7 @@ impl SavedFixture {
         let review = store.explore_review(&unit).unwrap();
         std::fs::create_dir_all(&review).unwrap();
         std::fs::write(review.join("index.json"), HISTORY).unwrap();
-        std::fs::write(review.join(format!("{INSTANCE}.json")), PASS).unwrap();
+        std::fs::write(review.join(format!("{INSTANCE}.json")), ROUND).unwrap();
         std::fs::write(review.join(format!("{INSTANCE}.view.json")), VIEW).unwrap();
         Self {
             _directory: directory,
@@ -50,7 +50,7 @@ impl SavedFixture {
         );
         assert_eq!(
             std::fs::read(self.review.join(format!("{INSTANCE}.json"))).unwrap(),
-            PASS
+            ROUND
         );
         assert_eq!(
             std::fs::read(self.review.join(format!("{INSTANCE}.view.json"))).unwrap(),
@@ -60,11 +60,11 @@ impl SavedFixture {
 }
 
 #[test]
-fn saved_history_pass_and_view_load_in_their_current_format() {
+fn saved_history_round_and_view_load_in_their_current_format() {
     let fixture = SavedFixture::new();
 
     let history = fixture.store.load_explore_history(&fixture.unit).unwrap();
-    let pass = fixture
+    let round = fixture
         .store
         .load_explore(&fixture.unit, INSTANCE)
         .unwrap()
@@ -75,18 +75,22 @@ fn saved_history_pass_and_view_load_in_their_current_format() {
         .unwrap()
         .unwrap();
 
-    assert_eq!(history.passes, vec![INSTANCE.to_owned()]);
+    assert_eq!(history.rounds, vec![INSTANCE.to_owned()]);
     assert!(history.latest_editable);
-    assert_eq!(pass.revision, 7);
-    assert_eq!(pass.exploration.questions.len(), 1);
-    assert_eq!(pass.exploration.answers[0].text, "Keep \"it\"\nwith a test");
-    assert!(pass.completion.is_some());
-    assert!(pass.last_agent_session.is_some());
-    let delivery = pass.implementations.values().next().unwrap();
+    assert_eq!(round.revision, 7);
+    assert_eq!(round.exploration.questions.len(), 1);
+    assert_eq!(
+        round.exploration.answers[0].text,
+        "Keep \"it\"\nwith a test"
+    );
+    assert!(round.completion.is_some());
+    assert!(round.last_agent_session.is_some());
+    let delivery = round.implementations.values().next().unwrap();
     assert_eq!(delivery.request.text, "Only the edited task");
     assert_eq!(delivery.state, review_explore::DispatchState::Attempting);
     assert!(
-        pass.turns
+        round
+            .turns
             .values()
             .any(|turn| turn.state == review_explore::DispatchState::Delivered)
     );
@@ -98,10 +102,10 @@ fn saved_history_pass_and_view_load_in_their_current_format() {
 }
 
 #[test]
-fn saved_history_pass_and_view_are_written_back_unchanged() {
+fn saved_history_round_and_view_are_written_back_unchanged() {
     let fixture = SavedFixture::new();
     let history = fixture.store.load_explore_history(&fixture.unit).unwrap();
-    let pass = fixture
+    let round = fixture
         .store
         .load_explore(&fixture.unit, INSTANCE)
         .unwrap()
@@ -115,7 +119,7 @@ fn saved_history_pass_and_view_are_written_back_unchanged() {
 
     let records = fixture.store.lock_explore(&fixture.unit).unwrap();
     records.save_history(&history).unwrap();
-    records.save_pass(&pass).unwrap();
+    records.save_round(&round).unwrap();
     records.save_view(&view).unwrap();
     drop(records);
 
@@ -144,7 +148,7 @@ fn records_of_the_first_format_load_as_absent() {
 
     let history = fixture.store.load_explore_history(&fixture.unit).unwrap();
 
-    assert!(history.passes.is_empty());
+    assert!(history.rounds.is_empty());
     assert_eq!(
         fixture.store.load_explore(&fixture.unit, INSTANCE).unwrap(),
         None
@@ -156,4 +160,17 @@ fn records_of_the_first_format_load_as_absent() {
             .unwrap(),
         None
     );
+}
+
+#[test]
+fn an_index_saved_when_rounds_were_called_passes_still_loads() {
+    let fixture = SavedFixture::new();
+    let old = String::from_utf8(HISTORY.to_vec())
+        .unwrap()
+        .replace("\"rounds\"", "\"passes\"");
+    std::fs::write(fixture.review.join("index.json"), old).unwrap();
+
+    let history = fixture.store.load_explore_history(&fixture.unit).unwrap();
+
+    assert_eq!(history.rounds, vec![INSTANCE.to_owned()]);
 }

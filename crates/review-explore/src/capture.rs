@@ -203,7 +203,7 @@ impl Comparison {
             return location.lines.is_none() && changed_side;
         }
         if source.read(&self.repository_root).is_err() {
-            // Source buffers and their limitations are not saved with a pass.
+            // Source buffers and their limitations are not saved with a round.
             return location.lines.is_none() && (source.limitation.is_some() || changed_side);
         }
         location.lines.as_ref().is_none_or(|range| {

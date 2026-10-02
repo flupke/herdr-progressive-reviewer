@@ -49,7 +49,7 @@ pub struct Question {
     pub id: String,
     #[schemars(range(min = 1))]
     pub version: u32,
-    /// ID of an active topic in this pass.
+    /// ID of an active topic in this round.
     pub topic: String,
     pub text: String,
     /// Context section body: short summary paragraph, then optional Markdown explanation.
@@ -99,7 +99,7 @@ pub struct Interpretation {
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct InterviewUpdate {
-    /// Copy Explore pass from the latest wakeup.
+    /// Copy Explore round from the latest wakeup.
     pub instance: String,
     /// Copy Explore request from the latest wakeup.
     pub request: String,
@@ -366,7 +366,7 @@ impl Exploration {
     pub fn submit(&mut self, update: InterviewUpdate) -> eyre::Result<bool> {
         eyre::ensure!(
             update.instance == self.instance,
-            "This Explore pass is no longer active"
+            "This Explore round is no longer active"
         );
         if let Some(previous) = self
             .conversation

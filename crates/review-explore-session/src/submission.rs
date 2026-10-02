@@ -32,34 +32,34 @@ impl ExploreSession {
     fn submit(&mut self, request: Request, update: &review_explore::InterviewUpdate) {
         if self
             .state
-            .pass
+            .round
             .as_ref()
-            .is_none_or(|pass| pass.exploration.instance != update.instance)
+            .is_none_or(|round| round.exploration.instance != update.instance)
         {
             request.respond(Err("Explore response belongs to another instance".into()));
             return;
         }
         let committed =
-            self.passes
+            self.rounds
                 .submit(&update.checkpoint.review_unit, &update.instance, update);
-        let super::records::Submitted { applied, pass } = match committed {
+        let super::records::Submitted { applied, round } = match committed {
             Ok(submitted) => submitted,
             Err(error) => {
                 request.respond(Err(error.to_string()));
                 return;
             }
         };
-        let pass = if applied {
-            self.apply_marks(update, &pass).unwrap_or(pass)
+        let round = if applied {
+            self.apply_marks(update, &round).unwrap_or(round)
         } else {
-            pass
+            round
         };
-        self.state.pass = Some(pass.clone());
+        self.state.round = Some(round.clone());
         let (response, received) = std::sync::mpsc::channel();
         if self
             .events
             .send(ui_events::ExploreCommitted {
-                pass: Arc::new(pass),
+                round: Arc::new(round),
                 applied,
                 response,
             })
@@ -93,20 +93,20 @@ impl ExploreSession {
             !access.is_empty() && self.state.access == access && !self.state.historical,
             "Obsolete Explore access; retry the interrupted turn from the reviewer for fresh access"
         );
-        let pass = self
+        let round = self
             .state
-            .pass
+            .round
             .as_ref()
-            .ok_or_else(|| eyre::eyre!("No Explore pass"))?;
-        self.state.pass = Some(
-            self.passes
-                .pass(
-                    &pass.exploration.comparison.checkpoint.review_unit,
-                    &pass.exploration.instance,
+            .ok_or_else(|| eyre::eyre!("No Explore round"))?;
+        self.state.round = Some(
+            self.rounds
+                .round(
+                    &round.exploration.comparison.checkpoint.review_unit,
+                    &round.exploration.instance,
                 )?
                 .ok_or_else(|| {
                     eyre::eyre!(
-                        "Saved Explore pass is missing; restore its state before continuing"
+                        "Saved Explore round is missing; restore its state before continuing"
                     )
                 })?,
         );
@@ -116,13 +116,13 @@ impl ExploreSession {
             .map_err(eyre::Report::msg)?
             .ok_or_else(|| eyre::eyre!("Waiting for the native agent conversation identity"))?;
         let session = review_explore::ConversationBinding::from_agent(&agent);
-        let pass = self.state.pass.as_ref().expect("active pass");
-        if pass.last_agent_session != session {
-            self.passes.update(
-                &pass.exploration.comparison.checkpoint.review_unit,
-                &pass.exploration.instance,
-                |pass| {
-                    pass.last_agent_session = session;
+        let round = self.state.round.as_ref().expect("active round");
+        if round.last_agent_session != session {
+            self.rounds.update(
+                &round.exploration.comparison.checkpoint.review_unit,
+                &round.exploration.instance,
+                |round| {
+                    round.last_agent_session = session;
                     Ok(())
                 },
             )?;

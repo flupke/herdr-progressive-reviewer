@@ -34,7 +34,7 @@ fn a_missing_session_waits_and_a_replacement_fails() {
     assert_eq!(
         pinned.current(&port),
         Err(
-            "The selected pane is now running a different agent conversation; start a new pass"
+            "The selected pane is now running a different agent conversation; start a new round"
                 .into()
         )
     );
@@ -49,7 +49,7 @@ fn a_different_agent_in_the_pane_fails() {
     port.upsert_agent(other);
     assert_eq!(
         pinned.current(&port),
-        Err("The selected pane is now running a different agent; start a new pass".into())
+        Err("The selected pane is now running a different agent; start a new round".into())
     );
     port.remove_agent(&pane());
     assert_eq!(

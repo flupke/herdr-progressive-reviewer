@@ -1,4 +1,4 @@
-//! Restoring saved passes after a restart, repairing damaged records and retrying
+//! Restoring saved rounds after a restart, repairing damaged records and retrying
 //! interrupted deliveries, through the session interface over a temporary directory.
 
 use review_explore::{DispatchState, ExplorePage, ExploreViewState};
@@ -15,10 +15,10 @@ fn toast(harness: &Harness) -> String {
 }
 
 #[test]
-fn a_missing_pass_rejects_submissions_and_restoring_clears_it() {
+fn a_missing_round_rejects_submissions_and_restoring_clears_it() {
     let mut harness = Harness::start();
     let (request, access) = harness.conclude();
-    let path = harness.pass_path();
+    let path = harness.round_path();
     let retained = path.with_extension("retained");
     std::fs::rename(&path, &retained).unwrap();
 
@@ -27,13 +27,13 @@ fn a_missing_pass_rejects_submissions_and_restoring_clears_it() {
 
     assert!(matches!(restored.result, Ok(None)));
     assert!(toast(&harness).contains("Unreadable Explore state was cleared"));
-    assert!(harness.history().passes.is_empty());
+    assert!(harness.history().rounds.is_empty());
     assert!(!path.exists());
     assert!(retained.exists());
 }
 
 #[test]
-fn an_unreadable_index_is_rebuilt_from_intact_passes_as_history() {
+fn an_unreadable_index_is_rebuilt_from_intact_rounds_as_history() {
     let mut harness = Harness::start();
     harness.capture();
     let first = harness.request(None);
@@ -49,11 +49,11 @@ fn an_unreadable_index_is_rebuilt_from_intact_passes_as_history() {
     assert!(matches!(restored.result, Ok(Some(_))));
     assert!(restored.historical);
     assert!(toast(&harness).contains("readable history was retained"));
-    assert_eq!(harness.history().passes, vec![first.instance]);
+    assert_eq!(harness.history().rounds, vec![first.instance]);
 }
 
 #[test]
-fn a_repaired_history_never_guesses_an_editable_pass_and_a_new_pass_is_editable() {
+fn a_repaired_history_never_guesses_an_editable_round_and_a_new_round_is_editable() {
     let mut harness = Harness::start();
     for _ in 0..2 {
         harness.capture();
@@ -68,7 +68,7 @@ fn a_repaired_history_never_guesses_an_editable_pass_and_a_new_pass_is_editable(
 
     let restored = harness.reopen();
     assert!(restored.historical);
-    assert_eq!(harness.history().passes.len(), 2);
+    assert_eq!(harness.history().rounds.len(), 2);
     assert!(!harness.history().latest_editable);
     harness.adopt(&restored);
     let blocked = harness.request(None);
@@ -76,24 +76,24 @@ fn a_repaired_history_never_guesses_an_editable_pass_and_a_new_pass_is_editable(
         .session
         .handle(Input::Command(Command::Turn(Box::new(blocked))));
     let posted = harness.next::<ui_events::ExplorePosted>();
-    assert!(posted.result.unwrap_err().contains("This pass is history"));
+    assert!(posted.result.unwrap_err().contains("This round is history"));
 
     harness.capture();
     let fresh = harness.request(None);
     harness.turn(&fresh);
     let history = harness.history();
     assert!(history.latest_editable);
-    assert_eq!(history.passes.last(), Some(&fresh.instance));
+    assert_eq!(history.rounds.last(), Some(&fresh.instance));
 }
 
 #[test]
-fn an_invalid_pass_is_removed_and_a_new_pass_can_start() {
+fn an_invalid_round_is_removed_and_a_new_round_can_start() {
     let mut harness = Harness::start();
     harness.capture();
     let first = harness.request(None);
     let access = harness.turn(&first);
     assert!(applied(harness.submit(&access, question(&first, 1))));
-    let path = harness.pass_path();
+    let path = harness.round_path();
     let mut stored: serde_json::Value =
         serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     let evidence = stored
@@ -107,13 +107,13 @@ fn an_invalid_pass_is_removed_and_a_new_pass_can_start() {
 
     assert!(matches!(restored.result, Ok(None)));
     assert!(toast(&harness).contains("Unreadable Explore state was cleared"));
-    assert!(harness.history().passes.is_empty());
+    assert!(harness.history().rounds.is_empty());
     assert!(!path.exists());
     harness.capture();
 }
 
 #[test]
-fn an_unreadable_latest_pass_keeps_the_earlier_interview() {
+fn an_unreadable_latest_round_keeps_the_earlier_interview() {
     let mut harness = Harness::start();
     harness.capture();
     let earlier = harness.request(None);
@@ -121,16 +121,16 @@ fn an_unreadable_latest_pass_keeps_the_earlier_interview() {
     harness.capture();
     let latest = harness.request(None);
     harness.turn(&latest);
-    let path = harness.pass_path();
-    std::fs::write(&path, b"invalid saved pass").unwrap();
+    let path = harness.round_path();
+    std::fs::write(&path, b"invalid saved round").unwrap();
 
     let restored = harness.reopen();
 
-    let pass = restored.result.unwrap().unwrap();
-    assert_eq!(pass.exploration.instance, earlier.instance);
+    let round = restored.result.unwrap().unwrap();
+    assert_eq!(round.exploration.instance, earlier.instance);
     assert!(restored.historical);
     assert!(!path.exists());
-    assert_eq!(harness.history().passes, vec![earlier.instance]);
+    assert_eq!(harness.history().rounds, vec![earlier.instance]);
 }
 
 #[test]
@@ -151,7 +151,7 @@ fn an_invalid_editor_view_is_removed_without_erasing_the_interview() {
     assert!(restored.storage_error.is_none());
     assert!(toast(&harness).contains("Unreadable Explore editor state was cleared"));
     assert!(!view.exists());
-    assert_eq!(harness.history().passes, vec![first.instance]);
+    assert_eq!(harness.history().rounds, vec![first.instance]);
 }
 
 #[test]
@@ -167,12 +167,12 @@ fn an_interrupted_turn_restores_without_a_prompt_and_retry_keeps_its_answer() {
     let restored = harness.reopen();
 
     assert_eq!(restored.progress, ExploreProgress::Interrupted);
-    let pass = restored.result.clone().unwrap().unwrap();
+    let round = restored.result.clone().unwrap().unwrap();
     assert_eq!(
-        pass.exploration.answers,
+        round.exploration.answers,
         vec![request.answer.clone().unwrap()]
     );
-    assert_eq!(pass.exploration.pending_request(), Some(&request));
+    assert_eq!(round.exploration.pending_request(), Some(&request));
     assert_eq!(
         harness.agents.prompts().len(),
         prompts,
@@ -197,8 +197,8 @@ fn retry_after_uncertain_delivery_sends_the_same_answer_once_more() {
     assert!(applied(harness.submit(&access, question(&first, 1))));
     let (request, _) = harness.answer("Keep it, delivered or not.");
     // The process stopped after starting the prompt, before saving its outcome.
-    harness.damage(|pass| {
-        pass.turns.get_mut(&request.request).unwrap().state = DispatchState::Attempting;
+    harness.damage(|round| {
+        round.turns.get_mut(&request.request).unwrap().state = DispatchState::Attempting;
     });
     let prompts = harness.agents.prompts().len();
 
@@ -292,8 +292,8 @@ fn implementation_delivery_states_survive_restart_without_replaying() {
         .exploration()
         .implementation("Exactly this authorized text".into())
         .unwrap();
-    harness.damage(|pass| {
-        pass.authorize(&request).unwrap();
+    harness.damage(|round| {
+        round.authorize(&request).unwrap();
     });
     let prompts = harness.agents.prompts().len();
     for state in [
@@ -301,8 +301,9 @@ fn implementation_delivery_states_survive_restart_without_replaying() {
         DispatchState::Attempting,
         DispatchState::Delivered,
     ] {
-        harness.damage(|pass| {
-            pass.implementations
+        harness.damage(|round| {
+            round
+                .implementations
                 .get_mut(&request.delivery)
                 .unwrap()
                 .state = state.clone();
@@ -372,9 +373,9 @@ fn a_lost_acknowledgement_is_saved_and_an_identical_retry_does_not_append() {
     assert!(!applied(harness.submit(&renewed, accepted())));
     let conflicting = conclusion(&request, "Rewritten history");
     error(harness.submit(&renewed, conflicting));
-    let pass = harness.saved();
-    assert_eq!(pass.exploration.conversation, recorded);
-    assert_eq!(pass.exploration.pending_request(), Some(&follow_up));
+    let round = harness.saved();
+    assert_eq!(round.exploration.conversation, recorded);
+    assert_eq!(round.exploration.pending_request(), Some(&follow_up));
 }
 
 #[test]
@@ -418,7 +419,7 @@ fn agent_in(conversation: Option<&str>) -> Agent {
 }
 
 #[test]
-fn a_restored_pass_prompts_the_conversation_now_running_in_the_pane() {
+fn a_restored_round_prompts_the_conversation_now_running_in_the_pane() {
     let mut harness = Harness::start();
     harness.capture();
     let first = harness.request(None);
@@ -443,7 +444,7 @@ fn a_restored_pass_prompts_the_conversation_now_running_in_the_pane() {
 }
 
 #[test]
-fn a_pass_without_a_known_conversation_prompts_the_selected_agent_after_restore() {
+fn a_round_without_a_known_conversation_prompts_the_selected_agent_after_restore() {
     let mut harness = Harness::start();
     harness.agents.upsert_agent(agent_in(None));
     harness.capture();

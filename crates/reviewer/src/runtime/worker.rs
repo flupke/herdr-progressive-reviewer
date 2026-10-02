@@ -171,7 +171,7 @@ impl Worker {
     }
 
     /// Publish the current comparison: documents get the snapshot before the
-    /// application hears of its files, and Explore restores the review's pass last.
+    /// application hears of its files, and Explore restores the review's round last.
     pub(super) fn poll(&mut self, messages: &ApplicationEventSender) -> bool {
         let snapshot = match self.repository.poll() {
             Ok(PollResult::Complete(snapshot)) => snapshot,
