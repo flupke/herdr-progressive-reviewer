@@ -627,7 +627,6 @@ pub(crate) const SHORTCUTS: &[ShortcutDefinition] = &[
         description: None,
         bindings: &[
             ShortcutBinding::alias(Key::Char('s'), explore_turn(ExploreTurnShortcut::Start)),
-            ShortcutBinding::alias(Key::Char('n'), explore_turn(ExploreTurnShortcut::Start)),
             ShortcutBinding::alias(
                 Key::Char('S'),
                 explore_turn(ExploreTurnShortcut::StartWithChallenger),

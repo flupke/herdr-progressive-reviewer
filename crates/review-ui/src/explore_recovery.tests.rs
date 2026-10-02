@@ -142,7 +142,7 @@ fn saved_opening_page_restores_to_an_initial_conclusion() {
 }
 
 #[test]
-fn historical_question_offers_a_new_round_after_round_navigation_is_removed() {
+fn historical_question_offers_reset_after_round_navigation_is_removed() {
     let (mut fixture, kickoff) = ExploreUi::new();
     let round = round(&fixture, &kickoff);
     no_post(&fixture.app.publish(ui_events::ExploreRestored {
@@ -154,7 +154,7 @@ fn historical_question_offers_a_new_round_after_round_navigation_is_removed() {
     }));
     let text = fixture.text();
     assert!(
-        text.contains("Earlier round") && text.contains(" New round "),
+        text.contains("Earlier round") && text.contains(" Reset "),
         "{text}"
     );
     assert!(!text.contains("[Previous pass]"));

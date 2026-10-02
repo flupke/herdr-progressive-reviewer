@@ -917,46 +917,6 @@ fn cancelling_the_first_capture_rejects_its_late_completion() {
 }
 
 #[test]
-fn cancelling_a_new_capture_keeps_the_previous_evidence_viewer() {
-    let (mut fixture, request) = ExploreUi::new();
-    fixture.respond(&request, 1);
-    fixture.app.update(UserInput::Paste(
-        "Retain this draft during cancellation".into(),
-    ));
-    fixture.app.update(UserInput::Key(Key::Tab));
-    fixture.app.update(UserInput::Key(Key::Char('n')));
-    fixture.app.update(UserInput::Key(Key::Char('n')));
-    fixture.app.update(UserInput::Key(Key::Char('c')));
-    assert!(!fixture.text().contains(" Send "));
-    for key in [
-        Key::ControlEnter,
-        Key::Char('1'),
-        Key::Char('d'),
-        Key::Char('r'),
-        Key::Char('n'),
-    ] {
-        let actions = fixture.app.update(UserInput::Key(key));
-        assert!(
-            !actions
-                .iter()
-                .any(|action| matches!(action, Action::Explore(_))),
-            "submission/start cannot bypass capture cancellation: {key:?}"
-        );
-    }
-    fixture.app.publish(ExploreCaptured {
-        result: Ok(fixture.comparison.clone()),
-    });
-    assert_eq!(fixture.inline_sizes().len(), 1);
-    assert!(fixture.text().contains("Question 1: keep resolved?"));
-    assert_eq!(fixture.viewer_path(0, 0), "policy.rs");
-    assert!(
-        fixture
-            .text()
-            .contains("Retain this draft during cancellation")
-    );
-}
-
-#[test]
 fn editing_always_reveals_the_composer_turn() {
     let (mut fixture, request) = ExploreUi::new();
     fixture.respond(&request, 1);

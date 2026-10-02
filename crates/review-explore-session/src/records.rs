@@ -57,6 +57,7 @@ impl SavedRounds {
         records.create_round(&round)?;
         history.rounds.push(round.exploration.instance.clone());
         history.latest_editable = true;
+        history.closed = false;
         records.save_history(&history)?;
         Ok(round)
     }
@@ -99,7 +100,7 @@ impl SavedRounds {
         Ok(Submitted { applied, round })
     }
 
-    /// A started external call may complete after New round. Only its result can change history.
+    /// A started external call may complete after a reset. Only its result can change history.
     pub(crate) fn finish_dispatch(
         &self,
         unit: &ReviewUnit,
@@ -132,9 +133,23 @@ impl SavedRounds {
         let history = ExploreHistory {
             rounds: rounds.into_iter().map(|(_, instance)| instance).collect(),
             latest_editable: false,
+            ..ExploreHistory::default()
         };
         records.save_history(&history)?;
         Ok(history)
+    }
+
+    /// Close `instance` when it is the latest round, so reopening shows the start
+    /// screen. Its records stay. A later round, another reviewer's, stays open.
+    pub(crate) fn close(&self, unit: &ReviewUnit, instance: &str) -> Result<()> {
+        let records = self.store.lock_explore(unit)?;
+        let mut history = records.history()?;
+        if history.latest() != Some(instance) || history.closed {
+            return Ok(());
+        }
+        history.closed = true;
+        records.save_history(&history)?;
+        records.sync()
     }
 
     /// Remove one unreadable round and its editor view while preserving other rounds.

@@ -539,19 +539,11 @@ impl ExploreComponent {
             layout.controls([("Stop waiting".into(), Control::Cancel)]);
         } else if self.progress == Progress::Retryable {
             layout.controls([("Retry".into(), Control::Retry)]);
-        } else if self.progress == Progress::Ready && self.durable.historical {
-            layout.controls([("New round".into(), Control::Start)]);
-        } else if self.progress == Progress::Ready && self.question().is_none() {
-            // The challenger is chosen once, before the session's first round.
-            let challenger = self
-                .exploration
-                .is_none()
-                .then(|| ("Start with Challenger".into(), Control::StartWithChallenger));
-            layout.controls(
-                [("Start".into(), Control::Start)]
-                    .into_iter()
-                    .chain(challenger),
-            );
+        } else if self.progress == Progress::Ready && self.exploration.is_none() {
+            layout.controls([
+                ("Start".into(), Control::Start),
+                ("Start with Challenger".into(), Control::StartWithChallenger),
+            ]);
         }
     }
 

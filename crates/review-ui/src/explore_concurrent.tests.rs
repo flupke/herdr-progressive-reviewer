@@ -7,8 +7,8 @@ fn a_new_round_saves_its_view_only_after_its_first_post_is_durable() {
     let mut previous = round(&fixture, &first);
     previous.revision = 50;
     restore(&mut fixture, &previous, None);
-    fixture.app.update(UserInput::Key(Key::Char('n')));
-    fixture.app.update(UserInput::Key(Key::Char('n')));
+    fixture.reset();
+    fixture.app.update(UserInput::Key(Key::Char('s')));
     let actions = fixture.app.publish(ui_events::ExploreCaptured {
         result: Ok(fixture.comparison.clone()),
     });

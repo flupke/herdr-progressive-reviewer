@@ -200,7 +200,7 @@ impl ExploreSession {
         );
         eyre::ensure!(
             !self.state.historical,
-            "This round is history; open the latest round or start a New round"
+            "This round is history; open the latest round or Reset to start a new one"
         );
         if self.state.round.is_none() {
             eyre::ensure!(retry_agent.is_none(), "No Explore round to retry");

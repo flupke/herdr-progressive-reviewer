@@ -16,7 +16,7 @@ pub(super) enum ControlVisual {
 }
 
 impl ControlVisual {
-    fn text(&self) -> String {
+    pub(super) fn text(&self) -> String {
         match self {
             Self::Text(text) => text.clone(),
             Self::Action(button) => button.text(),
@@ -133,11 +133,13 @@ impl Control {
                 | Self::Implement
                 | Self::CancelImplementation
                 | Self::CancelAnswer(_)
+                | Self::Reset
+                | Self::ConfirmReset
         ) {
-            let tone = if matches!(self, Self::Start | Self::Send | Self::Implement) {
-                ButtonTone::Primary
-            } else {
-                ButtonTone::Secondary
+            let tone = match self {
+                Self::Start | Self::Send | Self::Implement => ButtonTone::Primary,
+                Self::ConfirmReset => ButtonTone::Danger,
+                _ => ButtonTone::Secondary,
             };
             ControlVisual::Action(ActionButton::new(label, tone))
         } else {

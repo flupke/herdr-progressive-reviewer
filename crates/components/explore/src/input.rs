@@ -35,6 +35,7 @@ impl ExploreComponent {
             InputScope::Focused,
             AnyInput,
             |component: &mut Self, input: TextPasted| {
+                component.reset.cancel();
                 if component.compose_scope == ComposeScope::Conclusion
                     && component.editor_target == EditorTarget::Implementation
                 {
@@ -50,10 +51,12 @@ impl ExploreComponent {
     }
 
     fn activate(&mut self, control: Control) -> Vec<Action> {
-        let challenger = matches!(control, Control::StartWithChallenger);
-        if !matches!(control, Control::Start | Control::StartWithChallenger) {
-            self.reset_warning = false;
+        if matches!(control, Control::Reset | Control::ConfirmReset) {
+            return self.reset(std::time::Instant::now());
         }
+        // Any other control cancels a Reset waiting for its confirmation.
+        self.reset.cancel();
+        let challenger = matches!(control, Control::StartWithChallenger);
         match control {
             Control::Start | Control::StartWithChallenger => return self.start(challenger),
             Control::Implement => return self.implement(),
@@ -176,6 +179,8 @@ impl ExploreComponent {
     /// Run one key Explore owns. `focus` is the pane that had focus: the
     /// conversation, or the evidence Explore shows inside itself.
     fn key(&mut self, input: ExploreKey, focus: ReviewPane) -> Vec<Action> {
+        // Reset has no key, so any key cancels a Reset waiting for its confirmation.
+        self.reset.cancel();
         if input.command == Some(ExploreCommand::Global(ExploreGlobalShortcut::CycleFocus)) {
             self.cycle_focus(focus);
             return Vec::new();
@@ -384,7 +389,22 @@ impl ExploreComponent {
     }
 
     fn pointer(&mut self, input: PointerInput) -> Vec<Action> {
+        if matches!(input.kind, PointerInputKind::Click) && !self.clicks_reset(input) {
+            self.reset.cancel();
+        }
         self.pointer_conversation(input)
+    }
+
+    fn clicks_reset(&self, input: PointerInput) -> bool {
+        input.position.is_some_and(|position| {
+            matches!(
+                self.layout
+                    .borrow()
+                    .navigation
+                    .control_at(position.terminal_column, position.terminal_row),
+                Some(Control::Reset | Control::ConfirmReset)
+            )
+        })
     }
 
     fn pointer_conversation(&mut self, input: PointerInput) -> Vec<Action> {

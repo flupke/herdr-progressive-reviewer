@@ -25,13 +25,18 @@ mod input;
 mod navigation;
 mod persistence;
 mod render;
+mod reset;
 use flow::ConversationLayout;
 
 #[derive(Clone, Copy, Debug)]
 enum Control {
     Start,
-    /// Start the first round with a challenger reviewing beside the agent.
+    /// Start a round with a challenger reviewing beside the agent.
     StartWithChallenger,
+    /// Ask to close the round and return to the start screen.
+    Reset,
+    /// Confirm a Reset asked for within the last five seconds.
+    ConfirmReset,
     NewImplementation,
     Send,
     History(navigation::History),
@@ -121,7 +126,7 @@ pub struct ExploreComponent {
     status: String,
     status_turn: Option<usize>,
     progress: Progress,
-    reset_warning: bool,
+    reset: reset::ResetConfirmation,
     /// The round being started has a challenger.
     challenger: bool,
     map: bool,
@@ -166,7 +171,7 @@ impl ExploreComponent {
             status: "Start a question-first review of the working copy.".into(),
             status_turn: None,
             progress: Progress::Ready,
-            reset_warning: false,
+            reset: reset::ResetConfirmation::default(),
             challenger: false,
             map: false,
             marks: BTreeMap::new(),
@@ -431,29 +436,16 @@ impl ExploreComponent {
         }
     }
 
-    /// Start a round, with a challenger beside the agent when asked. A new
-    /// round keeps the choice made for the one it replaces.
+    /// Start a round from the start screen, with a challenger beside the agent when asked.
     fn start(&mut self, challenger: bool) -> Vec<Action> {
-        if self.progress.awaiting_capture() || self.durable.error.is_some() {
+        if self.exploration.is_some()
+            || self.progress.awaiting_capture()
+            || self.durable.error.is_some()
+        {
             return Vec::new();
         }
-        let challenger = match &self.exploration {
-            Some(_) if challenger => return Vec::new(),
-            Some(exploration) => exploration.challenger,
-            None => challenger,
-        };
-        if self.exploration.is_some() && !self.reset_warning {
-            self.reset_warning = true;
-            self.status_turn = Some(self.selected);
-            self.status = "New round keeps this investigation in history and starts a separate review. Press n or New round again to continue.".into();
-            return Vec::new();
-        }
-        self.reset_warning = false;
         self.challenger = challenger;
         self.progress = Progress::Capturing;
-        if let Some(exploration) = &mut self.exploration {
-            exploration.cancel();
-        }
         self.status = "Preparing the complete working-copy comparison…".into();
         vec![Action::Explore(Command::Start)]
     }
@@ -550,6 +542,7 @@ impl Component<Action> for ExploreComponent {
         subscriptions.subscribe(Self::submitted);
         subscriptions.subscribe(Self::navigation);
         subscriptions.subscribe(Self::implementation_finished);
+        subscriptions.subscribe(Self::expiration_tick);
         Self::register_input(subscriptions);
     }
 }

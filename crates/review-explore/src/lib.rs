@@ -41,6 +41,8 @@ pub use source::{CodeLocation, EvidenceRef, Source, SourceSide};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Command {
     Start,
+    /// Close the round and return to the start screen.
+    Reset,
     Retry(Box<TurnRequest>),
     SaveView(Box<ViewSave>),
     Turn(Box<TurnRequest>),

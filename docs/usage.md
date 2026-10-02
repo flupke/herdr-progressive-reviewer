@@ -122,7 +122,13 @@ other's waits and is judged again after your answer. The agent that did not prop
 question gives its facts and position on it, and the question you see is one text written
 from both. You still answer one question per turn and nothing in the pane changes, except
 that turns take longer. The round ends when neither has a question left. The choice holds
-for the session: New round keeps it.
+for the round.
+
+**Reset**, in the top-right corner of the Explore pane, closes the round and returns to the
+start screen, where you choose Start or Start with Challenger again. Click it, then click
+**Confirm reset** within five seconds; any other action cancels it. The closed round stays
+saved but is no longer shown, and its agent can no longer post to it. Reopening the reviewer
+after a reset shows the start screen.
 
 The kickoff prompt supplies the review target, the change description (jj) and the interview
 instructions, which ground every question in what the change does. The agent
@@ -137,7 +143,7 @@ missing context. No history dump, repository catalog, mailbox or file fallback
 is exchanged. Refresh the agent's MCP connection after upgrading to update its tool catalog.
 
 **Keep code unchanged while continuing a round, including after reopening.** Explore reads working-copy files
-directly and assumes they stay unchanged. Saved decisions describe that investigation; they do not establish that later edits were reviewed. Use New round when code has changed. It does not snapshot the repository or
+directly and assumes they stay unchanged. Saved decisions describe that investigation; they do not establish that later edits were reviewed. Reset and start a new round when code has changed. It does not snapshot the repository or
 pause decisions when source files change. Supporting files are read as needed,
 so large unchanged assets do not impose a repository-wide capture limit.
 
@@ -148,7 +154,7 @@ position. Rounds saved by earlier versions, before answers could mark lines, are
 Reopening sends no prompt and never starts implementation. The next explicit
 action prompts the selected implementation agent. If that agent is unavailable,
 history and edits remain available until it can be selected and retried. A new
-native conversation alone does not require a New round.
+native conversation alone does not require a new round.
 
 Accepted responses, posted answers and implementation authorization are saved before
 acknowledgement or delivery. Editor changes save in the background and flush on a
@@ -250,7 +256,6 @@ cancelled turn reopened stay open.
 | `Alt-j` / `Alt-k` | Grow / shrink the selected evidence window |
 | `Alt-0` | Fit evidence automatically again |
 | `c` / `r` | Stop waiting for pending work / explicitly retry |
-| `n` | Start a new round, retaining the previous investigation as history |
 | `S` | Start with a Challenger, from the start screen |
 | `Tab` | Cycle conversation, evidence and answer focus |
 
@@ -285,8 +290,7 @@ Old-side references open at their old coordinates. A range outside displayed dif
 hunks opens the available full base text in the native viewer. It retains historical
 coordinates; it is never substituted with current working-copy text.
 
-A new round retains earlier investigations in storage without transferring their
-decisions. Invalid responses leave the last usable question and answer
+A reset round stays in storage; a new round does not inherit its decisions. Invalid responses leave the last usable question and answer
 available. MCP validation errors let the agent repair the same pending turn;
 an identical retry of an accepted result is acknowledged without replaying it.
 Responses are bounded to 1 MiB; exceeding that bound is

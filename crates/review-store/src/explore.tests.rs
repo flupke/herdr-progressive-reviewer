@@ -36,7 +36,7 @@ impl Investigation {
         records
             .save_history(&ExploreHistory {
                 rounds: vec![round.exploration.instance.clone()],
-                latest_editable: true,
+                ..ExploreHistory::default()
             })
             .unwrap();
         drop(records);

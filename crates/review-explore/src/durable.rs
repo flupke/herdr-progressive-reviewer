@@ -11,6 +11,10 @@ pub struct ExploreHistory {
     pub rounds: Vec<String>,
     #[serde(default = "latest_editable")]
     pub latest_editable: bool,
+    /// The reviewer reset Explore after the latest round: reopening shows the start
+    /// screen, and the round no longer accepts changes.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub closed: bool,
 }
 
 fn latest_editable() -> bool {
@@ -22,13 +26,27 @@ impl Default for ExploreHistory {
         Self {
             rounds: Vec::new(),
             latest_editable: true,
+            closed: false,
         }
     }
 }
 
 impl ExploreHistory {
+    /// The most recently started round.
+    pub fn latest(&self) -> Option<&str> {
+        self.rounds.last().map(String::as_str)
+    }
+
+    /// The round reopening restores; none after a reset.
+    pub fn restorable(&self) -> Option<&str> {
+        if self.closed {
+            return None;
+        }
+        self.latest()
+    }
+
     pub fn is_historical(&self, instance: &str) -> bool {
-        !self.latest_editable || self.rounds.last().map(String::as_str) != Some(instance)
+        self.closed || !self.latest_editable || self.latest() != Some(instance)
     }
 }
 

@@ -104,6 +104,8 @@ struct State {
     access: String,
     last_view: Option<ViewSave>,
     pending: Option<(String, String)>,
+    /// The latest round when the reviewer reset another one; it stays out of view.
+    dismissed: Option<String>,
     agent: Option<PinnedAgent>,
     prompt: Option<PromptCancellation>,
     implementation: Option<PromptCancellation>,
@@ -190,6 +192,7 @@ impl ExploreSession {
     fn command(&mut self, command: Command) {
         match command {
             Command::Start => self.start(),
+            Command::Reset => self.reset(),
             Command::SaveView(view) => self.save_view(*view),
             Command::Turn(request) => self.deliver_turn(*request, None),
             Command::Retry(request) => self.retry(*request),
@@ -231,6 +234,35 @@ impl ExploreSession {
         let _ = self.events.send(ui_events::ExploreCaptured {
             result: result.map_err(|error| error.to_string()),
         });
+    }
+
+    /// Close the round and forget it: reopening shows the start screen. A later
+    /// round another reviewer started stays theirs, and out of view until reopening.
+    fn reset(&mut self) {
+        self.cancel_record();
+        let closed = self.state.round.as_ref().map_or(Ok(()), |round| {
+            self.rounds.close(
+                &round.exploration.comparison.checkpoint.review_unit,
+                &round.exploration.instance,
+            )
+        });
+        let dismissed = self.state.loaded_unit.as_ref().and_then(|unit| {
+            let history = self.rounds.history(unit).ok()?;
+            history.restorable().map(str::to_owned)
+        });
+        self.state = State {
+            loaded_unit: self.state.loaded_unit.take(),
+            storage_error: self.state.storage_error.take(),
+            dismissed,
+            ..State::default()
+        };
+        self.state.renew_access();
+        if let Err(error) = closed {
+            self.state.storage_error = Some(error.to_string());
+            let _ = self
+                .events
+                .send(ui_events::ExploreStorageFailed(error.to_string()));
+        }
     }
 
     fn capture(&self) -> eyre::Result<Arc<Comparison>> {

@@ -149,10 +149,7 @@ impl ExploreComponent {
         let round = match &event.result {
             Ok(Some(round)) => round,
             Ok(None) => {
-                let mode = self.mode;
-                *self = Self::with_keymap(self.events.clone(), self.keymap.clone());
-                self.mode = mode;
-                self.durable.enabled = true;
+                self.show_start_screen();
                 return;
             }
             Err(error) => {
@@ -231,7 +228,7 @@ impl ExploreComponent {
             ),
         };
         if self.durable.historical {
-            (progress, "Earlier round · start a new round to continue.")
+            (progress, "Earlier round · Reset to start a new one.")
         } else {
             (progress, status)
         }

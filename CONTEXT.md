@@ -100,3 +100,9 @@ _Avoid_: skipped, ignored, insignificant (which is Jev's judgement)
 Withdrawing the reviewer's latest answer in an Explore round, which returns the
 round to its state before that answer, including the review marks it led to.
 _Avoid_: cancel (which stops a pending turn), correction, undo, defer
+
+**Reset**:
+Closing the current Explore round and returning to the start screen. The round's
+records stay saved, but it is no longer shown or reopened, and its agent can no
+longer post to it.
+_Avoid_: new round (which is what Start begins), clear, restart

@@ -100,7 +100,9 @@ impl Worker {
                 if matches!(
                     input,
                     explore_session::Input::Command(
-                        review_explore::Command::Start | review_explore::Command::Cancel
+                        review_explore::Command::Start
+                            | review_explore::Command::Reset
+                            | review_explore::Command::Cancel
                     )
                 ) {
                     self.held_kickoff = None;

@@ -657,3 +657,55 @@ fn a_round_keeps_its_challenger_from_the_kickoff() {
     let (answered, _) = harness.answer("Keep it.");
     assert!(answered.challenger && harness.saved().exploration.challenger);
 }
+
+#[test]
+fn a_reset_round_is_closed_and_reopening_shows_the_start_screen() {
+    let mut harness = Harness::start();
+    harness.capture();
+    let first = harness.request(None);
+    let access = harness.turn(&first);
+    assert!(applied(harness.submit(&access, question(&first, 1))));
+    let (answered, access) = harness.answer("Keep it.");
+
+    harness.session.handle(Input::Command(Command::Reset));
+
+    assert!(harness.history().closed);
+    let late = harness.submit(&access, question(&answered, 2));
+    assert!(late.is_err(), "the agent's late question reaches no round");
+    assert_eq!(
+        harness.saved().exploration.answers.len(),
+        1,
+        "its record stays"
+    );
+    assert!(harness.reopen().result.unwrap().is_none());
+
+    harness.capture();
+    let kickoff = harness.request(None);
+    harness.turn(&kickoff);
+    let history = harness.history();
+    assert!(!history.closed);
+    assert_eq!(history.restorable(), Some(kickoff.instance.as_str()));
+}
+
+#[test]
+fn resetting_a_latest_round_left_read_only_closes_it() {
+    let mut harness = Harness::start();
+    harness.capture();
+    let first = harness.request(None);
+    let access = harness.turn(&first);
+    assert!(applied(harness.submit(&access, question(&first, 1))));
+    let mut history = harness.history();
+    history.latest_editable = false;
+    harness
+        .store
+        .lock_explore(&harness.unit)
+        .unwrap()
+        .save_history(&history)
+        .unwrap();
+    assert!(harness.reopen().historical);
+
+    harness.session.handle(Input::Command(Command::Reset));
+
+    assert!(harness.history().closed);
+    assert!(harness.reopen().result.unwrap().is_none());
+}

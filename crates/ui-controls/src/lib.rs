@@ -13,6 +13,8 @@ use ui_theme::Palette;
 pub enum ButtonTone {
     Primary,
     Secondary,
+    /// An action that discards work.
+    Danger,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -37,6 +39,7 @@ impl ActionButton {
         let (foreground, background) = match self.tone {
             ButtonTone::Primary => (palette.background, palette.insertion),
             ButtonTone::Secondary => (palette.text, palette.selection),
+            ButtonTone::Danger => (palette.background, palette.deletion),
         };
         Style::default()
             .fg(foreground)

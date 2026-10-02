@@ -77,7 +77,7 @@ impl ExploreSession {
             .rounds
             .history(unit)
             .map_err(|error| RestoreError::Unreadable(Unreadable::History(error.to_string())))?;
-        let instance = history.rounds.last().cloned();
+        let instance = history.restorable().map(str::to_owned);
         let Some(instance) = instance else {
             return Ok((empty_restore(), None));
         };
@@ -217,10 +217,31 @@ impl ExploreSession {
         }
     }
 
+    /// Without a round of its own, the session shows a round another reviewer saved.
+    /// Its own reset, a round it is starting, or one it set aside leaves nothing to restore.
+    fn adopt_new_round(&mut self) {
+        let Some(unit) = &self.state.loaded_unit else {
+            return;
+        };
+        if self.state.comparison.is_some() {
+            return;
+        }
+        let Ok(history) = self.rounds.history(unit) else {
+            return self.open();
+        };
+        if history
+            .restorable()
+            .is_none_or(|instance| self.state.dismissed.as_deref() == Some(instance))
+        {
+            return;
+        }
+        self.open();
+    }
+
     /// Saved Explore state changed on disk; adopt a newer revision of the current round.
     pub(crate) fn storage_changed(&mut self) {
         let Some(previous) = &self.state.round else {
-            self.open();
+            self.adopt_new_round();
             return;
         };
         let unit = &previous.exploration.comparison.checkpoint.review_unit;

@@ -3,6 +3,7 @@ use super::{
     controls::{Button, ControlVisual},
 };
 use ratatui::{buffer::Buffer, layout::Rect};
+use ui_controls::label_width;
 use ui_theme::Palette;
 
 #[derive(Clone)]
@@ -19,6 +20,9 @@ pub(super) enum History {
     Conclusion,
 }
 
+/// Navigation bar labels, each with the control a click activates.
+pub(super) type Labels = Vec<(String, Option<Control>)>;
+
 /// History controls stay visible while the question and its evidence scroll.
 #[derive(Clone, Default)]
 pub(super) struct Navigation {
@@ -27,19 +31,52 @@ pub(super) struct Navigation {
 }
 
 impl Navigation {
-    fn new(area: Rect, labels: impl IntoIterator<Item = (String, Option<Control>)>) -> Self {
+    /// Lay out `labels` from the left and `corner` in the top-right corner.
+    fn new(area: Rect, labels: Labels, corner: Labels) -> Self {
         let mut result = Self::default();
         let width = area.width.saturating_sub(2);
-        for (row, buttons) in Button::wrap(
-            width,
+        let visuals = |labels: Labels| {
             labels
                 .into_iter()
-                .map(|(label, control)| (ControlVisual::Text(label), control)),
-        )
-        .into_iter()
-        .enumerate()
-        .take(usize::from(area.height))
-        {
+                .map(|(label, control)| (ControlVisual::Text(label), control))
+        };
+        // The corner's controls are buttons. A corner that does not fit beside the
+        // first label keeps only them.
+        let corner: Vec<_> = corner
+            .into_iter()
+            .map(|(label, control)| {
+                let visual = control.map_or_else(
+                    || ControlVisual::Text(label.clone()),
+                    |control| control.visual(label.clone()),
+                );
+                (visual, control)
+            })
+            .collect();
+        let span = corner.iter().fold(0_u16, |span, (visual, _)| {
+            span.saturating_add(label_width(&visual.text()))
+                .saturating_add(1)
+        });
+        let first = labels
+            .first()
+            .map_or(0, |(label, _)| label_width(label).saturating_add(1));
+        let fitting = corner.into_iter().filter(|(_, control)| {
+            control.is_some() || first.saturating_add(span) <= width.saturating_add(1)
+        });
+        let corner = Button::wrap_right(width, fitting)
+            .into_iter()
+            .next()
+            .unwrap_or_default();
+        let reserved = corner
+            .first()
+            .map_or(0, |button| width.saturating_sub(button.column) + 1);
+        let mut rows = Button::wrap(width.saturating_sub(reserved), visuals(labels));
+        if !corner.is_empty() {
+            if rows.is_empty() {
+                rows.push(Vec::new());
+            }
+            rows[0].extend(corner);
+        }
+        for (row, buttons) in rows.into_iter().enumerate().take(usize::from(area.height)) {
             if width == 0 {
                 break;
             }
@@ -173,7 +210,7 @@ impl ExploreComponent {
     pub(super) fn navigation_bar(&self, area: Rect) -> Navigation {
         let history = HistoryPages::new(self);
         let Some(last) = history.pages.len().checked_sub(1) else {
-            return Navigation::new(area, self.execution_controls());
+            return Navigation::new(area, self.execution_controls(), self.reset_controls());
         };
         let position = history.current;
         let mut labels = vec![(history.pages[position].label(self), None)];
@@ -202,10 +239,10 @@ impl ExploreComponent {
                 labels.push((format!("[{label}]"), Some(Control::History(target))));
             }
         }
-        Navigation::new(area, labels)
+        Navigation::new(area, labels, self.reset_controls())
     }
 
-    fn execution_controls(&self) -> Vec<(String, Option<Control>)> {
+    fn execution_controls(&self) -> Labels {
         let timing = match self.compose_scope {
             ComposeScope::Question => self
                 .question()
@@ -221,13 +258,50 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_corner_too_wide_for_the_pane_keeps_its_control() {
+        let navigation = Navigation::new(
+            Rect::new(0, 0, 30, 3),
+            vec![("Question 1/1".into(), None)],
+            vec![
+                ("Reset closes this round for good.".into(), None),
+                ("Confirm reset".into(), Some(Control::ConfirmReset)),
+            ],
+        );
+
+        assert_eq!(navigation.height(), 1);
+        assert!(matches!(
+            navigation.control_at(20, 0),
+            Some(Control::ConfirmReset)
+        ));
+    }
+
+    #[test]
+    fn a_corner_keeps_clear_of_the_first_label() {
+        let navigation = Navigation::new(
+            Rect::new(0, 0, 60, 3),
+            vec![("Question 1/1 Agent total 0.3s".into(), None)],
+            vec![
+                ("Reset closes this round for good.".into(), None),
+                ("Confirm reset".into(), Some(Control::ConfirmReset)),
+            ],
+        );
+
+        let label = &navigation.items[0];
+        let corner = &navigation.items[1];
+        assert_eq!(navigation.items.len(), 2, "the corner's text is dropped");
+        assert!(label.area.right() < corner.area.left());
+        assert!(matches!(corner.button.control, Some(Control::ConfirmReset)));
+    }
+
+    #[test]
     fn pinned_controls_use_displayed_width_for_unicode_clicks() {
         let navigation = Navigation::new(
             Rect::new(0, 0, 40, 1),
-            [
+            vec![
                 ("Map view ▾".into(), Some(Control::Map)),
                 ("Next".into(), Some(Control::History(History::Next))),
             ],
+            Vec::new(),
         );
 
         assert!(matches!(

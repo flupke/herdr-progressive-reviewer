@@ -10,6 +10,7 @@ use review_test_support::{
     ReviewRepositoryFixture, complete_repository_snapshot, repository_fixture,
 };
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use ui_events::{ExploreCaptured, ExploreFinished, ReviewNavigation, ReviewNavigationChanged};
 
 #[path = "explore_choices.tests.rs"]
@@ -41,6 +42,12 @@ impl ExploreUi {
 
     fn with_versions(base: &[u8], policy: &[u8]) -> (Self, TurnRequest) {
         Self::started(base, policy, 's')
+    }
+
+    /// Click Reset and confirm it, returning the confirming click's actions.
+    fn reset(&mut self) -> Vec<Action> {
+        self.click(" Reset ");
+        self.click_actions(" Confirm reset ")
     }
 
     /// A round started from the start screen with the `start` key.
@@ -428,64 +435,89 @@ fn a_current_turn_with_wrong_payload_identity_is_visible_and_retryable() {
 }
 
 #[test]
-fn new_round_retains_history_and_failed_capture_preserves_text() {
+fn reset_needs_a_second_click_within_five_seconds() {
     let (mut fixture, request) = ExploreUi::new();
     fixture.respond(&request, 1);
-    fixture.app.update(UserInput::Paste("Keep my draft".into()));
-    fixture.app.update(UserInput::Key(Key::Tab));
-    let actions = fixture.app.update(UserInput::Key(Key::Char('n')));
-    assert!(
-        !actions
-            .iter()
-            .any(|action| matches!(action, Action::Explore(Command::Start)))
+    assert!(!fixture.text().contains("[Start with Challenger]"));
+
+    assert!(fixture.click_actions(" Reset ").is_empty());
+    let (column, row) = fixture.point(" Confirm reset ");
+    assert_eq!(
+        fixture.buffer()[(column + 1, row)].bg,
+        Theme::default().palette.deletion,
+        "the confirming button is red"
     );
-    assert!(
-        fixture
-            .text()
-            .contains("keeps this investigation in history")
-    );
-    let actions = fixture.app.update(UserInput::Key(Key::Char('n')));
-    assert!(
-        actions
-            .iter()
-            .any(|action| matches!(action, Action::Explore(Command::Start)))
-    );
-    fixture.app.publish(ExploreCaptured {
-        result: Err("Capture failed".into()),
+    fixture.app.publish(ui_events::ToastExpirationTick {
+        now: Instant::now() + Duration::from_secs(6),
     });
-    assert!(fixture.text().contains("Keep my draft"));
+    assert!(!fixture.text().contains(" Confirm reset "));
+
+    // Any other control or key cancels it.
+    fixture.click(" Reset ");
+    fixture.app.update(UserInput::Key(Key::Char('m')));
+    fixture.app.update(UserInput::Key(Key::Char('m')));
+    assert!(!fixture.text().contains(" Confirm reset "));
+    fixture.click(" Reset ");
+    fixture.app.update(UserInput::Key(Key::Tab));
+    assert!(!fixture.text().contains(" Confirm reset "));
     assert!(fixture.text().contains("Question 1"));
 }
 
 #[test]
-fn a_new_round_keeps_the_challenger_choice_of_the_first() {
-    for (start, challenger) in [('s', false), ('S', true)] {
+fn reset_returns_to_the_start_screen_where_the_challenger_is_chosen_again() {
+    for (first, second) in [('s', 'S'), ('S', 's')] {
         let (mut fixture, request) = ExploreUi::started(
             b"pub fn policy() -> bool { false }\n",
             b"pub fn policy() -> bool { true }\n",
-            start,
+            first,
         );
-        assert_eq!(request.challenger, challenger);
+        assert_eq!(request.challenger, first == 'S');
         fixture.respond(&request, 1);
+        // Start keys do nothing while a round is open.
+        for key in ['s', 'S'] {
+            assert!(
+                fixture
+                    .app
+                    .update(UserInput::Key(Key::Char(key)))
+                    .is_empty()
+            );
+        }
 
-        // Asking for a challenger mid-session changes nothing.
+        let actions = fixture.reset();
+
         assert!(
-            fixture
-                .app
-                .update(UserInput::Key(Key::Char('S')))
-                .is_empty()
+            actions
+                .iter()
+                .any(|action| matches!(action, Action::Explore(Command::Reset)))
         );
-        // The first press warns that the round is replaced; the second starts it.
-        fixture.app.update(UserInput::Key(Key::Char('n')));
-        fixture.app.update(UserInput::Key(Key::Char('n')));
-        let actions = fixture.app.publish(ExploreCaptured {
+        let text = fixture.text();
+        assert!(text.contains(" Start ") && text.contains(" Start with Challenger "));
+        assert!(!text.contains("Question 1"));
+        fixture.app.update(UserInput::Key(Key::Char(second)));
+        let kickoff = ExploreUi::request(fixture.app.publish(ExploreCaptured {
             result: Ok(fixture.comparison.clone()),
-        });
-
-        let kickoff = ExploreUi::request(actions);
-        assert_eq!(kickoff.challenger, challenger);
+        }));
+        assert_eq!(kickoff.challenger, second == 'S');
         assert_ne!(kickoff.instance, request.instance);
     }
+}
+
+#[test]
+fn a_failed_capture_after_reset_offers_retry() {
+    let (mut fixture, request) = ExploreUi::new();
+    fixture.respond(&request, 1);
+    fixture.reset();
+    fixture.app.update(UserInput::Key(Key::Char('s')));
+    fixture.app.publish(ExploreCaptured {
+        result: Err("Capture failed".into()),
+    });
+    assert!(fixture.text().contains("Capture failed"));
+    let retry = fixture.app.update(UserInput::Key(Key::Char('r')));
+    assert!(
+        retry
+            .iter()
+            .any(|action| matches!(action, Action::Explore(Command::Start)))
+    );
 }
 
 #[test]

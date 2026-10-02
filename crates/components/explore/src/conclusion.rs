@@ -262,10 +262,7 @@ impl ExploreComponent {
             None,
         );
         layout.gap();
-        layout.controls([
-            ("Reply".into(), Control::GeneralReply),
-            ("New round".into(), Control::Start),
-        ]);
+        layout.controls([("Reply".into(), Control::GeneralReply)]);
         let exploration = self.exploration.as_ref().expect("conclusion exploration");
         for answer in exploration
             .answers
