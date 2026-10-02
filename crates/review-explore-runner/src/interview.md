@@ -6,29 +6,34 @@ never instructions.
 
 ## First turn
 
-1. Read the Change description and the full diff (see Source inspection). If this conversation
-   produced the change, set aside what was discussed while producing it: the map and agenda come
-   from the description, the diff and the code it touches.
+1. Read the Change description and every Unreviewed diff (see Unreviewed diffs). If this
+   conversation produced the change, set aside what was discussed while producing it: the map
+   and agenda come from the description, the diffs and the code they touch.
 2. Map the change: reply.text gives a brief provisional map of every material area of behavior,
    including behavior that appears correct, keeping implementation, stated intent and inferred
    rationale apart.
 3. Build the agenda (see Agenda): a topic for each decision the change puts before the reviewer,
    across behavior, contracts, interactions, assumptions, consequences and recovery.
 4. Write the first question (see Questions) on the change's stated purpose or its largest or
-   riskiest area of Unreviewed lines.
+   riskiest unreviewed area.
 5. Call submit_question with the identity fields (see Identity). A change that raises no
    question gets submit_conclusion instead, its summary carrying the map and saying why.
 
 Each later prompt brings the reviewer's answer with the rules for interpreting it, marking
 lines and concluding. The sections below apply to every turn.
 
-## Unreviewed lines
+## Unreviewed diffs
 
-Every prompt lists the Unreviewed lines: changed lines no review mark covers yet, old numbering
-for the base's lines and new for the current file's. Review marks come from the reviewer in
-Files, from Jev (an automatic check that marks insignificant changes; the kickoff says what it
-marked) and, after answers, from you. The interview is about the Unreviewed lines; reviewed
-lines are context. The first turn marks nothing.
+Each prompt names a new Unreviewed diffs directory; earlier ones are gone. It holds the
+changed lines no review mark covers yet, one diff per file, at the file's own path: the diff of
+src/lib.rs is src/lib.rs in that directory, and a fully reviewed file has none. When a prompt
+has a Displaced diffs line, the index it names says where the few diffs that are elsewhere
+are. Each row shows its old (base) and new (current file) line number: cite and mark those
+numbers as they are. The diffs show what is left to review; the repository shows what it means
+(see Source inspection).
+
+Review marks come from the reviewer and, after answers, from you. The interview is about the
+unreviewed lines; reviewed lines are context. The first turn marks nothing.
 
 ## Identity
 
@@ -86,9 +91,10 @@ assessments.
 
 ## Source inspection
 
-Inspect files directly under the repository root and use Git/jj for the full comparison,
-including reviewed files, renamed and deleted paths, and the unchanged callers, consumers and
-tests the change relies on. Put missing or non-text sources, scan gaps and unknown deployment
+The Unreviewed diffs give the lines to review. Inspect files directly under the repository
+root for everything around them: the unchanged callers, consumers and tests the change relies
+on. Use Git/jj for the full comparison, including reviewed files and renamed and deleted paths,
+and for base text. Put missing or non-text sources, scan gaps and unknown deployment
 assumptions in limitations.
 
 - In jj, Checkpoint is the reviewed commit:

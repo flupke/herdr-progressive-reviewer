@@ -488,7 +488,7 @@ impl ReviewTracker {
     }
 
     /// The base, the reviewed version and the current file behind one path's diff.
-    fn versions(
+    pub(crate) fn versions(
         &self,
         snapshot: &Snapshot,
         file: &ChangedFile,
@@ -818,14 +818,14 @@ impl ReviewTracker {
 }
 
 /// The three versions of one file a hunk or line mark works on.
-struct Versions {
+pub(crate) struct Versions {
     base: Vec<u8>,
     reviewed: Reviewed,
     current: Vec<u8>,
 }
 
 impl Versions {
-    fn review(&self) -> HunkReview<'_> {
+    pub(crate) fn review(&self) -> HunkReview<'_> {
         HunkReview::new(&self.base, &self.reviewed.text, &self.current)
             .attributed(&self.reviewed.attribution)
     }

@@ -29,6 +29,17 @@ pub struct ChangedLines {
     pub rewrites_reviewed: bool,
 }
 
+/// Where the lines of the reviewed version sit in the base.
+pub struct BaseNumbering(Vec<crate::text::Change>);
+
+impl BaseNumbering {
+    /// The zero-based base line behind a zero-based line of the reviewed
+    /// version, or `None` for a line a reviewed change added.
+    pub fn base_line(&self, reviewed_line: u32) -> Option<u32> {
+        before_line(&self.0, reviewed_line)
+    }
+}
+
 /// The reviewed version after lines were accepted or reopened.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ReviewedVersion {
@@ -101,6 +112,11 @@ impl<'a> HunkReview<'a> {
         }
         rebuild.keep(&reviewed, position..reviewed.len(), self.attribution)?;
         Some(self.version(rebuild.finish(self.base)))
+    }
+
+    /// How to number the reviewed version's lines like the base.
+    pub fn base_numbering(&self) -> BaseNumbering {
+        BaseNumbering(changes(self.base, self.reviewed))
     }
 
     /// The lines each open hunk changes, zero-based: the base lines it

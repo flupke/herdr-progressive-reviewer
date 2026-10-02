@@ -40,7 +40,7 @@ struct Harness {
     turns: Option<TurnLog>,
     delivered: usize,
     threads: review_thread_service::Worker,
-    _files: Box<dyn ReviewRepositoryFixture>,
+    files: Box<dyn ReviewRepositoryFixture>,
     _state: TempDir,
 }
 
@@ -97,7 +97,7 @@ impl Harness {
             turns: None,
             delivered: 0,
             threads,
-            _files: files,
+            files,
             _state: state,
         };
         let restored = harness.reopen();
@@ -489,7 +489,7 @@ fn a_vision_session_records_each_prompt_it_sent_as_a_numbered_turn() {
         kickoff["unreviewed"]
             .as_str()
             .unwrap()
-            .contains("Unreviewed lines:")
+            .contains("Unreviewed diffs:")
     );
 
     assert!(applied(harness.submit(&access, question(&first, 1))));
@@ -512,4 +512,90 @@ fn a_vision_session_records_each_prompt_it_sent_as_a_numbered_turn() {
     );
     assert_eq!(turn(3)["kind"], "implement");
     assert!(turn(3).get("access").is_none());
+}
+
+#[test]
+fn each_prompt_points_at_numbered_diffs_of_what_is_still_unreviewed() {
+    use std::os::unix::fs::PermissionsExt;
+    let mut harness = Harness::start();
+    harness.capture();
+    let first = harness.request(None);
+    let access = harness.turn(&first);
+    let directory = |prompt: &str| -> std::path::PathBuf {
+        prompt
+            .lines()
+            .find_map(|line| line.strip_prefix("Unreviewed diffs: "))
+            .and_then(|line| line.split_once("/<repository path>"))
+            .expect("the prompt names the diffs")
+            .0
+            .into()
+    };
+    let kickoff = harness.agents.prompts().last().unwrap().text.clone();
+    let diffs = directory(&kickoff);
+
+    assert_eq!(
+        std::fs::metadata(&diffs).unwrap().permissions().mode() & 0o777,
+        0o700
+    );
+    let diff = std::fs::read_to_string(diffs.join("reviewed.rs")).unwrap();
+    assert!(
+        diff.starts_with("reviewed.rs: unreviewed lines\n"),
+        "{diff}"
+    );
+    assert!(
+        diff.ends_with("old new\n      1 + pub fn reviewed() {}\n"),
+        "{diff}"
+    );
+
+    // Each prompt has a directory of its own; the previous one is removed.
+    assert!(applied(harness.submit(&access, question(&first, 1))));
+    let (request, access) = harness.answer("Keep it.");
+    let wakeup = harness.agents.prompts().last().unwrap().text.clone();
+    let next = directory(&wakeup);
+    assert_ne!(next, diffs);
+    assert!(!diffs.exists() && next.join("reviewed.rs").exists());
+
+    // The answer's turn marks the line: nothing is left to show.
+    let Operation::SubmitQuestion(mut update) = question(&request, 2) else {
+        unreachable!("a question");
+    };
+    update.reviewed = vec![
+        serde_json::from_value(serde_json::json!({
+            "path": "reviewed.rs", "side": "new", "lines": null
+        }))
+        .unwrap(),
+    ];
+    assert!(applied(
+        harness.submit(&access, Operation::SubmitQuestion(update))
+    ));
+    harness.answer("Keep it again.");
+    let wakeup = harness.agents.prompts().last().unwrap().text.clone();
+    assert!(wakeup.contains("Unreviewed diffs: none"), "{wakeup}");
+    assert!(!next.exists());
+}
+
+#[test]
+fn a_prompt_whose_diffs_cannot_be_written_is_not_sent_and_says_why() {
+    let mut harness = Harness::start();
+    harness.capture();
+    let first = harness.request(None);
+    // The repository can no longer be read.
+    std::fs::remove_dir_all(harness.files.root().join(".git")).unwrap();
+
+    harness
+        .session
+        .handle(Input::Command(Command::Turn(Box::new(first.clone()))));
+
+    let toast = harness.next::<ui_events::ToastRequested>();
+    assert!(
+        toast
+            .text
+            .starts_with("Explore could not write the unreviewed diffs"),
+        "{}",
+        toast.text
+    );
+    let finished = harness.next::<ui_events::ExploreFinished>();
+    assert_eq!(finished.request, first.request);
+    assert!(finished.result.is_err());
+    assert!(harness.agents.prompts().is_empty());
 }

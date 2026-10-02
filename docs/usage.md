@@ -177,10 +177,14 @@ and can reopen reviewed lines your answer made matter again, whoever marked them
 are ordinary review marks: Files, the diff and the header progress show them, and you
 can reopen or mark hunks yourself as usual. Below your answer, the agent's next turn
 shows what it marked and reopened. Marks apply only while the code is still the
-checkpoint the round started from. Every prompt lists the agent's remaining
-**Unreviewed lines**: the changed lines no review mark covers, including your own
-marks from Files. When Jev is enabled, starting a round first marks what Jev dismisses,
-as `rf` does, and the kickoff tells the agent what it marked.
+checkpoint the round started from. Every prompt points the agent at its remaining
+**Unreviewed lines**, the changed lines no review mark covers, including your own marks
+from Files: a private temporary directory holds them as one diff per file, named like the
+file, each row with its old and new line number, so the agent reads what is left without working it out from
+the full change. Every prompt gets a new directory, and the previous one is removed. If
+the diffs cannot be written, or the repository cannot be read, the prompt is not sent and
+a toast says why; Retry tries again. When Jev is enabled, starting a round first marks what Jev dismisses,
+as `rf` does; the agent only sees what is left.
 The preparation state shows the actual pending status and **Stop waiting**. Delivery
 errors and Retry appear beside the affected turn.
 

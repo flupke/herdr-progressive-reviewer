@@ -325,7 +325,7 @@ impl Worker {
         messages: &ApplicationEventSender,
     ) {
         self.auto_review = None;
-        let (toast, note) = match review.apply(&self.repository, &self.tracker, &self.store) {
+        let toast = match review.apply(&self.repository, &self.tracker, &self.store) {
             Ok(summary) => {
                 self.poll(messages);
                 // The comparison is unchanged, so loaded diffs learn of the
@@ -333,25 +333,21 @@ impl Worker {
                 self.announce_review_states(messages, |file| {
                     summary.changed.contains(&file.review_path().display())
                 });
-                (summary.toast(), summary.describe())
+                summary.toast()
             }
-            Err(error) => (
-                ui_events::ToastRequested {
-                    text: error.to_string(),
-                    kind: toasts::ToastKind::Error,
-                },
-                format!("did not mark anything: {error}"),
-            ),
+            Err(error) => ui_events::ToastRequested {
+                text: error.to_string(),
+                kind: toasts::ToastKind::Error,
+            },
         };
         let _ = messages.send(toast);
         if let Some(request) = self.held_kickoff.take() {
-            self.kickoff(request, Some(note));
+            self.kickoff(request);
         }
     }
 
-    /// Send an Explore kickoff, saying what Jev did before it.
-    fn kickoff(&mut self, request: review_explore::TurnRequest, jev: Option<String>) {
-        self.explore.note_jev(jev);
+    /// Send an Explore kickoff.
+    fn kickoff(&mut self, request: review_explore::TurnRequest) {
         self.explore.handle(review_explore_session::Input::Command(
             review_explore::Command::Turn(Box::new(request)),
         ));
@@ -364,13 +360,12 @@ impl Worker {
         request: review_explore::TurnRequest,
         messages: &ApplicationEventSender,
     ) {
-        // A Jev run already under way marks first; its outcome goes out
-        // with the kickoff.
+        // A Jev run already under way marks first.
         if self.auto_review.is_some() {
             self.held_kickoff = Some(request);
             return;
         }
-        let note = if self.jev.is_enabled() {
+        if self.jev.is_enabled() {
             match self.prepare_auto_review(&request.checkpoint) {
                 Ok((mut review, jev_classifier)) => {
                     let total = review.comparison.files.len();
@@ -389,12 +384,15 @@ impl Worker {
                     });
                     return;
                 }
-                Err(error) => Some(format!("did not run: {error}")),
+                Err(error) => {
+                    let _ = messages.send(ui_events::ToastRequested {
+                        text: format!("Jev did not run before Explore: {error}"),
+                        kind: toasts::ToastKind::Error,
+                    });
+                }
             }
-        } else {
-            None
-        };
-        self.kickoff(request, note);
+        }
+        self.kickoff(request);
     }
 
     pub(super) fn cancel_auto_review(&self) {

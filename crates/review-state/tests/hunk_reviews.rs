@@ -570,3 +570,53 @@ fn lines_a_partial_mark_left_open_change_since_review_only_when_the_file_does(
     );
     assert_eq!(since_review(&review), [(1, true), (9, false), (17, false)]);
 }
+
+#[test_case(RepoType::Git; "git")]
+#[test_case(RepoType::Jj; "jj")]
+fn open_rows_number_removed_lines_like_the_base_and_the_rest_like_the_current_file(
+    repository_type: RepoType,
+) {
+    use review_state::RowChange::{Added, Removed};
+    let review = Review::new(repository_type);
+    // Two more lines at the top shift the current numbering away from the base's.
+    let mut shifted = b"new first\nnew second\n".to_vec();
+    shifted.extend(current());
+    review.files.write("file.txt", &shifted);
+    // Review the two new lines and the first hunk's replacement.
+    review.accept_lines(&selection(&[1], &[0, 1, 3]), &MarkAuthor::Reviewer);
+    let snapshot = review.snapshot();
+
+    let hunks = review
+        .tracker
+        .open_rows(&snapshot, &snapshot.files[0])
+        .unwrap();
+
+    let changed: Vec<_> = hunks
+        .iter()
+        .flatten()
+        .filter(|row| row.change != review_state::RowChange::Unchanged)
+        .map(|row| {
+            (
+                row.change,
+                row.base_line,
+                row.current_line,
+                row.text.as_str(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        changed,
+        [
+            (Removed, Some(10), None, "line 10"),
+            (Added, None, Some(12), "ten"),
+            (Removed, Some(18), None, "line 18"),
+            (Added, None, Some(20), "eighteen"),
+        ]
+    );
+    let context = &hunks[0][0];
+    assert_eq!(
+        (context.base_line, context.current_line),
+        (Some(7), Some(9)),
+        "{context:?}"
+    );
+}

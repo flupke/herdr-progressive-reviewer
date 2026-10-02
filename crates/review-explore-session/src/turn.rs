@@ -123,7 +123,12 @@ impl ExploreSession {
         );
         let comparison = comparison.clone();
         let agent = self.active_agent()?;
-        let unreviewed = self.unreviewed(request.answer.is_none());
+        let unreviewed = self.unreviewed().inspect_err(|error| {
+            let _ = self.events.send(ui_events::ToastRequested {
+                text: format!("{error:#}"),
+                kind: toasts::ToastKind::Error,
+            });
+        })?;
         let prompt = review_explore_runner::PreparedTurn::prepare(
             request,
             &comparison,

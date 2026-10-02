@@ -136,7 +136,7 @@ reviewer records turns only in a vision session (`HERDR_REVIEWER_VISION`), as
 the files hold access values, and a normal reviewer ignores the variable. `turn` waits for the next
 turn and returns it: its number, `kind` (`kickoff`, `wakeup` or `implement`),
 whether it was `delivered`, the access value and identity a reply needs, the
-reviewer's `answer`, the cancelled answers, the `unreviewed` block and the full
+reviewer's `answer`, the cancelled answers, the `unreviewed` line naming the diffs directory, and the full
 prompt `text`. Each call returns the turn after the last one it returned;
 `after` asks from another number. `reply` answers a turn by calling an MCP tool
 on the reviewer's real endpoint as that agent: it fills in the turn's access and
@@ -247,7 +247,7 @@ examples. The runner formats later wakeups as the later-turn rules (`wakeup.md`:
 review marks, agenda changes, concluding) followed by labeled plain text: turn identity,
 one checkpoint, answer ID, question ID/version, the
 selected option's full text/ID/outcome and any exact comment, after the Unreviewed
-lines block. Conclusion context and previous errors add details only when relevant. Full questions
+diffs line. Conclusion context and previous errors add details only when relevant. Full questions
 and answer records stay internal; preparation does not mutate that history. No input-fetch
 tool or separately retained runner input is needed. The reviewer retains the immutable history while
 the agent keeps its context in the existing conversation. A contribution to a questionless stopping

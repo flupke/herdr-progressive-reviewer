@@ -4,9 +4,7 @@ use review_explore::{Comparison, TurnRequest};
 mod input;
 mod unreviewed;
 
-pub use unreviewed::{
-    Unreviewed, UnreviewedFile, UnreviewedLines, UnreviewedRange, UnreviewedStatus,
-};
+pub use unreviewed::Unreviewed;
 
 #[derive(Debug)]
 pub struct PreparedTurn {

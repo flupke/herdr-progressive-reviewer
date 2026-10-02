@@ -15,6 +15,7 @@ mod submission;
 mod turn;
 mod turn_log;
 mod unreviewed;
+mod unreviewed_diffs;
 
 pub use turn_log::TurnLog;
 
@@ -88,6 +89,8 @@ pub struct ExploreSession {
     events: ApplicationEventSender,
     inbox: Inbox,
     turns: Option<TurnLog>,
+    /// The unreviewed lines of the latest prompt, as files.
+    diffs: Option<unreviewed_diffs::UnreviewedDiffs>,
     state: State,
 }
 
@@ -104,8 +107,6 @@ struct State {
     agent: Option<PinnedAgent>,
     prompt: Option<PromptCancellation>,
     implementation: Option<PromptCancellation>,
-    /// What Jev marked before the round, for its first prompt.
-    jev: Option<String>,
 }
 
 impl State {
@@ -160,6 +161,7 @@ impl ExploreSession {
             events,
             inbox,
             turns,
+            diffs: None,
             state: State::default(),
         }
     }
@@ -171,11 +173,6 @@ impl ExploreSession {
             Input::PromptFinished { event, attempt } => self.prompt_finished(*event, &attempt),
             Input::StorageChanged => self.storage_changed(),
         }
-    }
-
-    /// Say what Jev marked before the round about to start, for its kickoff.
-    pub fn note_jev(&mut self, summary: Option<String>) {
-        self.state.jev = summary;
     }
 
     /// The reviewer now shows `unit`; restore its latest round when the unit changed.

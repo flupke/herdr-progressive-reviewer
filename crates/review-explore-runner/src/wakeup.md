@@ -1,6 +1,7 @@
 Continue the Explore round with the answer below. It answers the question whose ID and version
 it names, as posted earlier in this conversation, or the conclusion a Reply to conclusion
-names. The kickoff prompt's sections on questions, citations, agenda, identity, source
+names. The Unreviewed diffs directory this prompt names holds what is still unreviewed. The
+kickoff prompt's sections on unreviewed diffs, questions, citations, agenda, identity, source
 inspection and delivery still apply. Do not edit code.
 
 ## This turn
@@ -44,7 +45,7 @@ Record what the answer settled in the same submit_question or submit_conclusion:
 - `reopened`: reviewed lines the answer makes matter again, whoever marked them.
 
 Lines the answer did not settle stay unmarked. Marks apply when the reviewer accepts the turn;
-the next prompt's Unreviewed lines show the result.
+the next prompt's Unreviewed diffs show the result.
 
 ## Agenda changes
 
@@ -65,7 +66,7 @@ another.
 
 Topics decide when the interview ends, not marks: the same lines can carry several decisions,
 and risks may sit in unchanged callers. Conclude when every material topic has an investigated
-outcome, an agreed fix or a recorded outstanding concern, and the Unreviewed lines hold no
+outcome, an agreed fix or a recorded outstanding concern, and the Unreviewed diffs hold no
 decision still worth asking. Settled trade-offs stay settled. A question exists for a decision,
 never to mark more lines.
 

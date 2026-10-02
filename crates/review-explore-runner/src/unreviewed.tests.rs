@@ -1,93 +1,46 @@
 use super::*;
 
-fn path(text: &str) -> RepoPath {
-    RepoPath::from_bytes(text.as_bytes())
-}
-
-fn whole(path: &str, changed: u64) -> UnreviewedFile {
-    UnreviewedFile {
-        path: self::path(path),
-        lines: UnreviewedLines::Whole { changed },
+fn written(files: usize) -> Unreviewed {
+    Unreviewed {
+        directory: "/tmp/unreviewed".into(),
+        files,
+        ..Unreviewed::default()
     }
 }
 
 #[test]
-fn wholly_open_directories_collapse_and_partial_files_list_their_ranges() {
-    let unreviewed = Unreviewed {
-        paths: [
-            "crates/store/a.rs",
-            "crates/store/b.rs",
-            "src/session.rs",
-            "src/store.rs",
-            "src/done.rs",
-            "assets/logo.bin",
-        ]
-        .into_iter()
-        .map(path)
-        .collect(),
-        files: vec![
-            whole("crates/store/a.rs", 10),
-            whole("crates/store/b.rs", 5),
-            UnreviewedFile {
-                path: path("src/session.rs"),
-                lines: UnreviewedLines::Ranges(vec![
-                    UnreviewedRange {
-                        side: SourceSide::New,
-                        lines: SourceLineRange {
-                            first_line: 40,
-                            last_line: 62,
-                        },
-                        since_review: false,
-                    },
-                    UnreviewedRange {
-                        side: SourceSide::Old,
-                        lines: SourceLineRange {
-                            first_line: 10,
-                            last_line: 10,
-                        },
-                        since_review: true,
-                    },
-                ]),
-            },
-            whole("src/store.rs", 3),
-            whole("assets/logo.bin", 0),
-        ],
-        jev: None,
-        status: UnreviewedStatus::default(),
-    };
-
+fn the_prompt_names_the_directory_of_the_unreviewed_diffs() {
     assert_eq!(
-        unreviewed.to_string(),
-        "\nUnreviewed lines: 42 changed lines in 5 files (old = base lines, new = current lines)\n\
-         \x20 assets/logo.bin  whole file\n\
-         \x20 crates/          all 2 files · 15 lines\n\
-         \x20 src/session.rs   new 40-62, old 10 (since review)\n\
-         \x20 src/store.rs     whole file · 3 lines\n"
+        written(5).to_string(),
+        "\nUnreviewed diffs: /tmp/unreviewed/<repository path>, for the 5 files with unreviewed lines\n"
+    );
+    assert_eq!(
+        written(1).to_string(),
+        "\nUnreviewed diffs: /tmp/unreviewed/<repository path>, for the 1 file with unreviewed lines\n"
     );
 }
 
 #[test]
 fn a_fully_reviewed_checkpoint_says_so() {
-    let unreviewed = Unreviewed {
-        jev: Some("marked 2 files reviewed.".into()),
-        ..Unreviewed::default()
-    };
-
     assert_eq!(
-        unreviewed.to_string(),
-        "\nJev: marked 2 files reviewed.\n\nUnreviewed lines: none; every changed line is reviewed.\n"
+        written(0).to_string(),
+        "\nUnreviewed diffs: none; every changed line is reviewed.\n"
     );
 }
 
 #[test]
-fn unreadable_lines_say_why() {
+fn displaced_diffs_and_a_notice_are_stated_only_when_there_are_some() {
     let unreviewed = Unreviewed {
-        status: UnreviewedStatus::Unavailable("the repository is not ready".into()),
-        ..Unreviewed::default()
+        index: Some("/tmp/unreviewed/__herdr_reviewer_index__".into()),
+        notice: Some("the code changed since this round started".into()),
+        ..written(2)
     };
 
     assert_eq!(
         unreviewed.to_string(),
-        "\nUnreviewed lines: unavailable: the repository is not ready\n"
+        "\nNote: the code changed since this round started\n\n\
+         Unreviewed diffs: /tmp/unreviewed/<repository path>, for the 2 files with unreviewed lines\n\
+         Displaced diffs: /tmp/unreviewed/__herdr_reviewer_index__ says where the diffs that are \
+         not at their repository path are\n"
     );
 }

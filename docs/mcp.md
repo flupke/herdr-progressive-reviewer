@@ -248,9 +248,19 @@ references). No source registration is needed. Evidence lists the lines the ques
 is about, most decisive first, and explains what each establishes and how it could
 change the answer. Citations never mark lines reviewed.
 
-Every prompt lists the **Unreviewed lines**: changed lines no review mark covers,
-whoever marked the rest (the reviewer in Files, Jev, or the agent after an answer),
-with wholly open directories collapsed. After a human answer, the next
+Every prompt gives the **Unreviewed lines**, the changed lines no review mark covers,
+whoever marked the rest (the reviewer in Files, Jev, or the agent after an answer), as
+files: an `Unreviewed diffs:` line names a directory holding one diff per changed
+path, at that same path, each row prefixed with its `old` (base) and `new` (current)
+line number, which are the numbers citations and marks use. The prompt itself lists no
+files or lines. When a path is a file for one changed file and a directory for another,
+one of the two diffs goes to the top of the directory as
+`__herdr_reviewer_displaced_1__`, a `__herdr_reviewer_index__` file there lists it, and
+the prompt adds a `Displaced diffs:` line naming that index. Each prompt has a new directory under the system temporary directory, readable
+only by the reviewer's user; the reviewer removes it when it prepares the next prompt
+or closes. A prompt whose diffs cannot be written, including when the repository cannot
+be read, is not sent. After a human answer,
+the next
 `submit_question` or `submit_conclusion` carries `reviewed`, the changed lines the
 answer settled, and `reopened`, reviewed lines it made matter again, each as
 `{path, side, lines}` (null lines for a whole file). The kickoff turn cannot mark
@@ -275,7 +285,7 @@ Concept exploration drives the interview: reviewed lines do not exhaust its usef
 questions. When no useful inquiry remains, the agent checks the unreviewed lines for
 missed concepts, asks further questions only when that reveals one, and then
 concludes. With a reviewer-process `TYPESAFE_API_KEY`, Jev marks what it judges
-insignificant when a round starts, and the kickoff says what it marked.
+insignificant when a round starts; the prompts do not mention it.
 The durable `instance` is distinct from renewable `review` access. Access is never
 saved with the round. Reopening rotates it; the next explicit reviewer action supplies
 current access through the existing wakeup. Each call checks the pinned native
