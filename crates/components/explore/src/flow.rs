@@ -114,6 +114,31 @@ impl ConversationLayout {
         self.paragraph(Text::from(lines), None);
     }
 
+    /// Markdown under a label such as "Agent:". The label shares the first
+    /// paragraph's line.
+    pub(super) fn labelled_prose(&mut self, label: &str, body: &str, palette: Palette) {
+        self.prose(&Self::labelled(label, body), palette);
+    }
+
+    /// `body` behind `label`, which stands alone before a heading, list,
+    /// quote, table or code block: these must start their own line.
+    pub(super) fn labelled(label: &str, body: &str) -> String {
+        let body = body.trim_start();
+        let numbered = body
+            .trim_start_matches(|character: char| character.is_ascii_digit())
+            .starts_with(". ")
+            && body.starts_with(|character: char| character.is_ascii_digit());
+        let block = numbered
+            || ["#", "- ", "* ", "+ ", "> ", "|", "```"]
+                .iter()
+                .any(|marker| body.starts_with(marker));
+        if block {
+            format!("{label}:\n\n{body}")
+        } else {
+            format!("{label}: {body}")
+        }
+    }
+
     pub(super) fn gap(&mut self) {
         if self
             .items

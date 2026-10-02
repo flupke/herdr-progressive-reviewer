@@ -129,8 +129,7 @@ impl ExploreComponent {
     ) {
         let exploration = self.exploration.as_ref().expect("reply exploration");
         if let Some(reply) = &turn.update.reply {
-            layout.gap();
-            layout.text(format!("Agent: {}", reply.text), palette.text, None);
+            layout.labelled_prose("Agent", &reply.text, palette);
         }
         for change in &turn.update.agenda {
             layout.text(

@@ -237,11 +237,9 @@ impl ExploreComponent {
             return;
         };
         if let Some(reply) = self.initial_reply() {
-            layout.text(reply, palette.text, None);
-            layout.gap();
+            layout.prose(reply, palette);
         }
-        layout.text("Summary", palette.focus, None);
-        layout.text(&view.content.summary, palette.text, None);
+        layout.section("Summary", &view.content.summary, palette);
         // A conclusion that opens the round follows no answer to show its marks under.
         let opening = self.exploration.as_ref().is_some_and(|exploration| {
             exploration
@@ -256,11 +254,7 @@ impl ExploreComponent {
         view.render_instructions(layout, palette);
         layout.gap();
         self.implementation_controls(layout, palette);
-        if !view.content.future_work.is_empty() {
-            layout.gap();
-            layout.text("Future work", palette.focus, None);
-            layout.text(&view.content.future_work, palette.text, None);
-        }
+        layout.section("Future work", &view.content.future_work, palette);
         layout.gap();
         layout.text(
             "Lines the interview did not settle stay unreviewed in Files.",

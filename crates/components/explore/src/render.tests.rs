@@ -202,3 +202,26 @@ fn a_summary_names_only_what_changed() {
         "Will mark 5 lines and 1 whole file not relevant · reopen 2 lines"
     );
 }
+
+#[test]
+fn a_reply_keeps_its_label_on_the_first_paragraph_unless_a_block_opens_it() {
+    let labelled = |reply| super::ConversationLayout::labelled("Agent", reply);
+
+    assert_eq!(
+        labelled("**Bold.** Then text."),
+        "Agent: **Bold.** Then text."
+    );
+    for block in [
+        "# Title",
+        "- item",
+        "* item",
+        "1. step",
+        "> quote",
+        "```\ncode\n```",
+        "| a |",
+    ] {
+        assert_eq!(labelled(block), format!("Agent:\n\n{block}"));
+    }
+    // A sentence that merely starts with a number is a paragraph.
+    assert_eq!(labelled("3 tabs start."), "Agent: 3 tabs start.");
+}
