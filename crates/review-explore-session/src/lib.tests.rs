@@ -423,7 +423,7 @@ fn the_lines_an_answer_settled_are_marked_reviewed_by_explore() {
     let answer = request.answer.unwrap().id;
     let saved = harness.saved();
     let marks = &saved.marks[&request.request];
-    assert_eq!(marks.answer, answer);
+    assert_eq!(marks.answer.as_ref(), Some(&answer));
     assert_eq!(marks.counts().reviewed_lines, 1);
     assert_eq!(marks.problem, None);
     let record = harness.store.load(&harness.unit, b"reviewed.rs").unwrap();
@@ -598,4 +598,43 @@ fn a_prompt_whose_diffs_cannot_be_written_is_not_sent_and_says_why() {
     assert_eq!(finished.request, first.request);
     assert!(finished.result.is_err());
     assert!(harness.agents.prompts().is_empty());
+}
+
+#[test]
+fn lines_the_agent_finds_not_relevant_are_marked_at_once_on_any_turn() {
+    let mut harness = Harness::start();
+    harness.capture();
+    let first = harness.request(None);
+    let access = harness.turn(&first);
+    let Operation::SubmitQuestion(mut update) = question(&first, 1) else {
+        unreachable!("a question");
+    };
+    update.not_relevant = vec![
+        serde_json::from_value(serde_json::json!({
+            "path": "reviewed.rs", "side": "new", "lines": null
+        }))
+        .unwrap(),
+    ];
+
+    // The kickoff follows no answer, yet may mark what holds no decision.
+    assert!(applied(
+        harness.submit(&access, Operation::SubmitQuestion(update))
+    ));
+
+    let saved = harness.saved();
+    let marks = &saved.marks[&first.request];
+    assert_eq!(marks.answer, None);
+    assert_eq!(marks.counts().not_relevant_lines, 1);
+    assert!(marks.reviewed.is_empty());
+    let review_store::LoadResult::Reviewed(record) =
+        harness.store.load(&harness.unit, b"reviewed.rs").unwrap()
+    else {
+        panic!("the file was marked");
+    };
+    assert_eq!(
+        record.author,
+        review_types::MarkAuthor::ExploreRead {
+            request: first.request.clone()
+        }
+    );
 }

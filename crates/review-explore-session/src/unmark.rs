@@ -26,7 +26,11 @@ impl<'a> FileUnmark<'a> {
             .files
             .iter()
             .filter(|file| {
-                marks.reviewed.iter().any(|location| location.names(file))
+                marks
+                    .reviewed
+                    .iter()
+                    .chain(&marks.not_relevant)
+                    .any(|location| location.names(file))
                     || marks
                         .reopened
                         .iter()
@@ -129,6 +133,7 @@ impl ExploreSession {
     pub(crate) fn unmark(
         &self,
         round: &ExploreRound,
+        answer: &str,
         marks: &TurnMarks,
     ) -> eyre::Result<Option<String>> {
         let PollResult::Complete(snapshot) = self.repository.poll()? else {
@@ -139,7 +144,7 @@ impl ExploreSession {
             snapshot.identity.snapshot_id(),
         );
         let author = MarkAuthor::Explore {
-            answer: marks.answer.clone(),
+            answer: answer.to_owned(),
         };
         let mut kept_open = false;
         let mut failed = None;

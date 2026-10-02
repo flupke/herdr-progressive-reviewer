@@ -18,7 +18,7 @@ fn concluded() -> (ExploreRound, TurnRequest) {
     round.marks.insert(
         request.request.clone(),
         TurnMarks {
-            answer: request.answer.as_ref().unwrap().id.clone(),
+            answer: Some(request.answer.as_ref().unwrap().id.clone()),
             ..TurnMarks::default()
         },
     );
@@ -64,7 +64,7 @@ fn cancelling_the_latest_answer_rewinds_to_its_question() {
 
     assert_eq!(cancelled.answer, *request.answer.as_ref().unwrap());
     assert_eq!(cancelled.request.as_deref(), Some(request.request.as_str()));
-    assert_eq!(cancelled.marks.unwrap().answer, id);
+    assert_eq!(cancelled.marks.unwrap().answer, Some(id));
     let exploration = &round.exploration;
     assert_eq!(exploration.conversation, vec![opening]);
     assert!(exploration.answers.is_empty() && exploration.interpretations.is_empty());

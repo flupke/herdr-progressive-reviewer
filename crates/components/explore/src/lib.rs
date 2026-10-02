@@ -38,7 +38,7 @@ enum Control {
     Retry,
     /// Cancel this answer, the latest one.
     CancelAnswer(usize),
-    /// Show or hide the review marks the turn after this answer changed.
+    /// Show or hide the review marks this conversation turn changed.
     Marks(usize),
     Reply(usize),
     GeneralReply,
@@ -121,9 +121,9 @@ pub struct ExploreComponent {
     progress: Progress,
     reset_warning: bool,
     map: bool,
-    /// The review marks each answer led to, by answer ID.
+    /// The review marks each agent turn changed, by Explore request.
     marks: BTreeMap<String, review_explore::TurnMarks>,
-    /// Answers whose marks are listed line by line.
+    /// Requests whose marks are listed line by line.
     expanded_marks: BTreeSet<String>,
     /// The answer whose cancellation the session is working on.
     cancelling: Option<String>,
@@ -497,18 +497,18 @@ impl ExploreComponent {
     fn toggle(&mut self, control: Control) {
         match control {
             Control::Map => self.map = !self.map,
-            Control::Marks(answer) => self.toggle_marks(answer),
+            Control::Marks(turn) => self.toggle_marks(turn),
             _ => {}
         }
     }
 
-    /// Show or hide the lines one answer's marks changed.
-    fn toggle_marks(&mut self, answer: usize) {
+    /// Show or hide the lines the marks of one conversation turn changed.
+    fn toggle_marks(&mut self, turn: usize) {
         let Some(id) = self
             .exploration
             .as_ref()
-            .and_then(|exploration| exploration.answers.get(answer))
-            .map(|answer| answer.id.clone())
+            .and_then(|exploration| exploration.conversation.get(turn))
+            .map(|turn| turn.update.request.clone())
         else {
             return;
         };

@@ -72,7 +72,8 @@ impl ExploreComponent {
         self.forget_removed_pages();
         self.progress = Progress::Ready;
         self.status = "Answer cancelled. Change it and send it again.".into();
-        self.expanded_marks.remove(&answer.id);
+        self.expanded_marks
+            .retain(|request| self.marks.contains_key(request));
         self.reopen_answer(&answer);
     }
 

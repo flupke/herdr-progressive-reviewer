@@ -47,7 +47,8 @@ _Avoid_: review thread, review session
 
 **Review mark**:
 The record that some changed lines of a file are reviewed, and who marked them:
-the reviewer, Jev, or the Explore agent after one of the reviewer's answers.
+the reviewer, Jev, or the Explore agent, after one of the reviewer's answers or
+for lines it found not relevant.
 _Avoid_: coverage, credit
 
 **Reviewed version**:
@@ -83,6 +84,11 @@ _Avoid_: Explore pass, Explore session
 A path, side and line range that a question puts before the reviewer as
 evidence, most decisive first. Citing lines does not mark them reviewed.
 _Avoid_: source reference, inspection, supporting reference
+
+**Not relevant**:
+What the Explore agent calls changed lines it read that hold no decision for the
+reviewer. They get a review mark at once, without a question.
+_Avoid_: skipped, ignored, insignificant (which is Jev's judgement)
 
 **Cancel answer**:
 Withdrawing the reviewer's latest answer in an Explore round, which returns the

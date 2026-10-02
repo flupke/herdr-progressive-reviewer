@@ -76,19 +76,19 @@ impl Exploration {
         Ok(())
     }
 
-    /// Marks follow a human answer and name lines of changed paths.
+    /// Marks name lines of changed paths; those an answer settled or
+    /// reopened follow a human answer.
     fn validate_marks(
         &self,
         update: &InterviewUpdate,
         comparison: &Comparison,
     ) -> eyre::Result<()> {
-        if update.reviewed.is_empty() && update.reopened.is_empty() {
-            return Ok(());
-        }
         eyre::ensure!(
-            self.outstanding
-                .as_ref()
-                .is_some_and(|turn| turn.answer.is_some()),
+            (update.reviewed.is_empty() && update.reopened.is_empty())
+                || self
+                    .outstanding
+                    .as_ref()
+                    .is_some_and(|turn| turn.answer.is_some()),
             "reviewed and reopened follow a human answer; this turn has none to mark lines from"
         );
         eyre::ensure!(
@@ -96,8 +96,10 @@ impl Exploration {
                 .reviewed
                 .iter()
                 .chain(&update.reopened)
+                .chain(&update.not_relevant)
                 .all(|location| comparison.validate_mark(location)),
-            "reviewed and reopened need changed paths, on the side that has them, with valid lines"
+            "reviewed, reopened and not_relevant need changed paths, on the side that has them, \
+             with valid lines"
         );
         Ok(())
     }

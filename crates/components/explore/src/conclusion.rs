@@ -242,6 +242,16 @@ impl ExploreComponent {
         }
         layout.text("Summary", palette.focus, None);
         layout.text(&view.content.summary, palette.text, None);
+        // A conclusion that opens the round follows no answer to show its marks under.
+        let opening = self.exploration.as_ref().is_some_and(|exploration| {
+            exploration
+                .conversation
+                .first()
+                .is_some_and(|turn| turn.answer.is_none() && turn.update.request == view.request)
+        });
+        if opening {
+            self.turn_marks(0, layout, palette);
+        }
         layout.gap();
         view.render_instructions(layout, palette);
         layout.gap();

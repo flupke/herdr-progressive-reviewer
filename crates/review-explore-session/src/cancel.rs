@@ -37,7 +37,7 @@ impl ExploreSession {
         // Refuse against the saved round before touching review marks.
         let cancelled = round.clone().cancel_answer(answer)?;
         if let Some(marks) = &cancelled.marks
-            && let Some(problem) = self.unmark(&round, marks)?
+            && let Some(problem) = self.unmark(&round, answer, marks)?
         {
             let _ = self.events.send(ui_events::ToastRequested {
                 text: format!("Cancelled answer: {problem}"),

@@ -176,7 +176,12 @@ After each answer, the agent marks the changed lines your answer settled as revi
 and can reopen reviewed lines your answer made matter again, whoever marked them. These
 are ordinary review marks: Files, the diff and the header progress show them, and you
 can reopen or mark hunks yourself as usual. Below your answer, the agent's next turn
-shows what it marked and reopened. Marks apply only while the code is still the
+shows what it marked and reopened. On any turn, the first included, the agent can also mark
+lines it read and found **not relevant**: lines that hold no decision for you, such as
+removed code the change is about removing, mechanics that tests cover, and tests, docs and
+manifests that follow the code. They are marked reviewed at once and listed in the same
+recap as "not relevant"; reopen them in Files if you disagree. Cancelling an answer also
+gives back what its turn found not relevant. Marks apply only while the code is still the
 checkpoint the round started from. Every prompt points the agent at its remaining
 **Unreviewed lines**, the changed lines no review mark covers, including your own marks
 from Files: a private temporary directory holds them as one diff per file, named like the

@@ -350,21 +350,37 @@ impl ExploreComponent {
         self.agent_reply(answer, layout, palette);
     }
 
-    /// What the turn after `answer` marked reviewed and reopened: a line to
-    /// expand into the lines themselves.
+    /// What the turn after `answer` marked: see [`Self::turn_marks`].
     fn answer_marks(
         &self,
         answer: &review_explore::ReviewerAnswer,
         layout: &mut ConversationLayout,
         palette: Palette,
     ) {
-        let Some(marks) = self.marks.get(&answer.id) else {
-            return;
-        };
-        let Some(index) = self
+        let turn = self.exploration.as_ref().and_then(|exploration| {
+            exploration
+                .conversation
+                .iter()
+                .position(|turn| turn.answer.as_ref() == Some(&answer.id))
+        });
+        if let Some(turn) = turn {
+            self.turn_marks(turn, layout, palette);
+        }
+    }
+
+    /// What one conversation turn marked reviewed, found not relevant and
+    /// reopened: a line to expand into the lines themselves.
+    pub(super) fn turn_marks(
+        &self,
+        index: usize,
+        layout: &mut ConversationLayout,
+        palette: Palette,
+    ) {
+        let Some((request, marks)) = self
             .exploration
             .as_ref()
-            .and_then(|exploration| exploration.answers.iter().position(|a| a.id == answer.id))
+            .and_then(|exploration| exploration.conversation.get(index))
+            .and_then(|turn| self.marks.get_key_value(&turn.update.request))
         else {
             return;
         };
@@ -374,16 +390,11 @@ impl ExploreComponent {
         }
         layout.gap();
         if !summary.is_empty() {
-            let expanded = self.expanded_marks.contains(&answer.id);
+            let expanded = self.expanded_marks.contains(request);
             let arrow = if expanded { "▾" } else { "▸" };
             layout.controls([(format!("{arrow} {summary}"), Control::Marks(index))]);
             if expanded {
-                for location in &marks.reviewed {
-                    layout.text(format!("  ✓ {location}"), palette.dim, None);
-                }
-                for reopened in &marks.reopened {
-                    layout.text(format!("  ↺ {}", reopened.location), palette.dim, None);
-                }
+                Self::marked_lines(marks, layout, palette);
             }
         }
         if let Some(problem) = &marks.problem {
@@ -392,6 +403,23 @@ impl ExploreComponent {
                 palette.warning,
                 None,
             );
+        }
+    }
+
+    /// The lines a turn's marks changed, one per row.
+    fn marked_lines(
+        marks: &review_explore::TurnMarks,
+        layout: &mut ConversationLayout,
+        palette: Palette,
+    ) {
+        for location in &marks.reviewed {
+            layout.text(format!("  ✓ {location}"), palette.dim, None);
+        }
+        for location in &marks.not_relevant {
+            layout.text(format!("  – {location} (not relevant)"), palette.dim, None);
+        }
+        for reopened in &marks.reopened {
+            layout.text(format!("  ↺ {}", reopened.location), palette.dim, None);
         }
     }
 
@@ -495,7 +523,8 @@ impl ExploreComponent {
     }
 }
 
-/// "Marked 4 lines reviewed · reopened 1 line", naming only what changed.
+/// "Marked 4 lines reviewed · 30 lines not relevant · reopened 1 line",
+/// naming only what changed.
 fn marks_summary(counts: review_explore::MarkCounts) -> String {
     let amount = |lines: u32, files: u32| {
         let plural = |count: u32, one: &str, many: &str| {
@@ -512,20 +541,33 @@ fn marks_summary(counts: review_explore::MarkCounts) -> String {
             )),
         }
     };
-    let reviewed = amount(counts.reviewed_lines, counts.reviewed_files)
-        .map(|amount| format!("Marked {amount} reviewed"));
-    let reopened = amount(counts.reopened_lines, counts.reopened_files).map(|amount| {
-        if reviewed.is_some() {
-            format!("reopened {amount}")
+    // Each part as it opens the summary and as it continues it.
+    let parts = [
+        amount(counts.reviewed_lines, counts.reviewed_files).map(|amount| {
+            (
+                format!("Marked {amount} reviewed"),
+                format!("{amount} reviewed"),
+            )
+        }),
+        amount(counts.not_relevant_lines, counts.not_relevant_files).map(|amount| {
+            (
+                format!("Marked {amount} not relevant"),
+                format!("{amount} not relevant"),
+            )
+        }),
+        amount(counts.reopened_lines, counts.reopened_files)
+            .map(|amount| (format!("Reopened {amount}"), format!("reopened {amount}"))),
+    ];
+    let mut summary = String::new();
+    for (opening, continuing) in parts.into_iter().flatten() {
+        if summary.is_empty() {
+            summary = opening;
         } else {
-            format!("Reopened {amount}")
+            summary.push_str(" · ");
+            summary.push_str(&continuing);
         }
-    });
-    reviewed
-        .into_iter()
-        .chain(reopened)
-        .collect::<Vec<_>>()
-        .join(" · ")
+    }
+    summary
 }
 
 #[cfg(test)]

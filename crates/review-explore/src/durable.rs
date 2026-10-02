@@ -139,13 +139,17 @@ pub struct ExploreRound {
     pub marks: BTreeMap<String, TurnMarks>,
 }
 
-/// The review marks one agent turn changed after a human answer.
+/// The review marks one agent turn changed.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
 pub struct TurnMarks {
-    /// The answer the marks follow.
-    pub answer: String,
-    /// The lines marked reviewed, as they were applied.
+    /// The answer the marks follow; the kickoff turn follows none.
+    pub answer: Option<String>,
+    /// The lines an answer settled, marked reviewed, as they were applied.
     pub reviewed: Vec<crate::CodeLocation>,
+    /// The lines the agent read and found to hold no decision, marked
+    /// reviewed, as they were applied.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub not_relevant: Vec<crate::CodeLocation>,
     /// The lines reopened, with who had marked them.
     pub reopened: Vec<ReopenedLines>,
     /// Why some or all of the requested marks were not applied.
@@ -166,6 +170,8 @@ pub struct ReopenedLines {
 pub struct MarkCounts {
     pub reviewed_lines: u32,
     pub reviewed_files: u32,
+    pub not_relevant_lines: u32,
+    pub not_relevant_files: u32,
     pub reopened_lines: u32,
     pub reopened_files: u32,
 }
@@ -177,6 +183,12 @@ impl TurnMarks {
             match &location.lines {
                 Some(lines) => counts.reviewed_lines += lines.count(),
                 None => counts.reviewed_files += 1,
+            }
+        }
+        for location in &self.not_relevant {
+            match &location.lines {
+                Some(lines) => counts.not_relevant_lines += lines.count(),
+                None => counts.not_relevant_files += 1,
             }
         }
         for reopened in &self.reopened {

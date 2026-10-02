@@ -129,3 +129,51 @@ fn only_the_latest_answer_can_be_cancelled() {
     assert!(error.contains("Only the latest answer"), "{error}");
     assert_eq!(harness.saved().exploration.answers.len(), 2);
 }
+
+#[test]
+fn cancelling_an_answer_also_reopens_what_its_turn_found_not_relevant() {
+    let mut harness = Harness::start();
+    let (request, access) = harness.answered();
+    let Operation::SubmitConclusion(mut submission) = conclusion(&request, CONCLUSION) else {
+        unreachable!("a conclusion");
+    };
+    submission.not_relevant = vec![
+        serde_json::from_value(serde_json::json!({
+            "path": "reviewed.rs", "side": "new", "lines": null
+        }))
+        .unwrap(),
+    ];
+    assert!(applied(
+        harness.submit(&access, Operation::SubmitConclusion(submission))
+    ));
+    assert!(harness.author().is_some());
+
+    harness.cancel(&request.answer.unwrap().id).unwrap();
+
+    assert_eq!(harness.author(), None);
+}
+
+#[test]
+fn lines_found_not_relevant_after_an_answer_carry_that_answers_author() {
+    let mut harness = Harness::start();
+    let (request, access) = harness.answered();
+    let Operation::SubmitConclusion(mut submission) = conclusion(&request, CONCLUSION) else {
+        unreachable!("a conclusion");
+    };
+    submission.not_relevant = vec![
+        serde_json::from_value(serde_json::json!({
+            "path": "reviewed.rs", "side": "new", "lines": {"first_line": 1, "last_line": 1}
+        }))
+        .unwrap(),
+    ];
+
+    assert!(applied(
+        harness.submit(&access, Operation::SubmitConclusion(submission))
+    ));
+
+    let answer = request.answer.unwrap().id;
+    let marks = &harness.saved().marks[&request.request];
+    assert_eq!(marks.counts().not_relevant_lines, 1);
+    assert!(marks.reviewed.is_empty());
+    assert_eq!(harness.author(), Some(MarkAuthor::Explore { answer }));
+}

@@ -1,5 +1,6 @@
-//! Review marks an agent turn asks for after a human answer: the lines the
-//! answer settled and the reviewed lines it made matter again.
+//! Review marks an agent turn asks for: the lines an answer settled, the
+//! reviewed lines it made matter again, and the lines the agent read and
+//! found to hold no decision.
 
 use std::ops::Range;
 
@@ -111,7 +112,10 @@ impl ExploreSession {
         update: &InterviewUpdate,
         round: &ExploreRound,
     ) -> Option<ExploreRound> {
-        if update.reviewed.is_empty() && update.reopened.is_empty() {
+        if update.reviewed.is_empty()
+            && update.reopened.is_empty()
+            && update.not_relevant.is_empty()
+        {
             return None;
         }
         let answer = round
@@ -119,9 +123,8 @@ impl ExploreSession {
             .get(&update.request)?
             .request
             .answer
-            .as_ref()?
-            .id
-            .clone();
+            .as_ref()
+            .map(|answer| answer.id.clone());
         let marks = match self.marked_snapshot(round) {
             Ok(snapshot) => self.mark(&snapshot, update, answer),
             Err(problem) => TurnMarks {
@@ -171,29 +174,62 @@ impl ExploreSession {
         Ok(snapshot)
     }
 
-    fn mark(&self, snapshot: &Snapshot, update: &InterviewUpdate, answer: String) -> TurnMarks {
-        let author = MarkAuthor::Explore {
-            answer: answer.clone(),
+    /// Apply a turn's marks: first what its answer settled and reopened, then
+    /// the lines the agent found not relevant. All carry the answer's author,
+    /// so cancelling the answer gives them back; the kickoff follows no
+    /// answer and its marks carry the turn's own.
+    fn mark(
+        &self,
+        snapshot: &Snapshot,
+        update: &InterviewUpdate,
+        answer: Option<String>,
+    ) -> TurnMarks {
+        let author = match &answer {
+            Some(answer) => MarkAuthor::Explore {
+                answer: answer.clone(),
+            },
+            None => MarkAuthor::ExploreRead {
+                request: update.request.clone(),
+            },
         };
         let mut marks = TurnMarks {
             answer,
             ..TurnMarks::default()
         };
-        for request in FileRequest::group(snapshot, update) {
-            let path = request.file.review_path().display();
-            let (change, problem) = request.apply(&self.tracker, snapshot, &author);
+        for request in FileRequest::group(snapshot, &update.reviewed, &update.reopened) {
+            let change = self.apply(snapshot, &request, &author, &mut marks);
             marks.reviewed.extend(change.reviewed);
-            marks.reopened.extend(change.reopened);
-            if let Some(error) = problem {
-                marks.problem.get_or_insert(format!("{path}: {error}"));
-            }
-            let _ = self.events.send(ui_events::ReviewStateSaved {
-                review_unit: snapshot.identity.review_unit().clone(),
-                path,
-                result: self.tracker.status(snapshot, request.file).map_err(|_| ()),
-            });
+        }
+        for request in FileRequest::group(snapshot, &update.not_relevant, &[]) {
+            let change = self.apply(snapshot, &request, &author, &mut marks);
+            marks.not_relevant.extend(change.reviewed);
         }
         marks
+    }
+
+    /// Apply one file's marks and tell the UI its new review state. Lines
+    /// taken over from another author are recorded as reopened, so
+    /// cancelling the turn can give them back; the newly marked lines are
+    /// returned for the caller to record under the right heading.
+    fn apply(
+        &self,
+        snapshot: &Snapshot,
+        request: &FileRequest<'_>,
+        author: &MarkAuthor,
+        marks: &mut TurnMarks,
+    ) -> FileChange {
+        let path = request.file.review_path().display();
+        let (mut change, problem) = request.apply(&self.tracker, snapshot, author);
+        marks.reopened.append(&mut change.reopened);
+        if let Some(error) = problem {
+            marks.problem.get_or_insert(format!("{path}: {error}"));
+        }
+        let _ = self.events.send(ui_events::ReviewStateSaved {
+            review_unit: snapshot.identity.review_unit().clone(),
+            path,
+            result: self.tracker.status(snapshot, request.file).map_err(|_| ()),
+        });
+        change
     }
 }
 
@@ -222,7 +258,11 @@ impl<'a> FileRequest<'a> {
 
     /// The marks of a turn grouped by the changed file they name, in
     /// snapshot order.
-    fn group(snapshot: &'a Snapshot, update: &'a InterviewUpdate) -> Vec<Self> {
+    fn group(
+        snapshot: &'a Snapshot,
+        reviewed: &'a [CodeLocation],
+        reopened: &'a [CodeLocation],
+    ) -> Vec<Self> {
         snapshot
             .files
             .iter()
@@ -230,8 +270,8 @@ impl<'a> FileRequest<'a> {
                 let names = |location: &&CodeLocation| location.names(file);
                 let request = Self {
                     file,
-                    reviewed: update.reviewed.iter().filter(names).collect(),
-                    reopened: update.reopened.iter().filter(names).collect(),
+                    reviewed: reviewed.iter().filter(names).collect(),
+                    reopened: reopened.iter().filter(names).collect(),
                 };
                 (!request.reviewed.is_empty() || !request.reopened.is_empty()).then_some(request)
             })

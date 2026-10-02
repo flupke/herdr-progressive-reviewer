@@ -19,7 +19,7 @@ fn comparison() -> Comparison {
 /// What a later prompt says after its fixed rules: identity, unreviewed lines and answer.
 fn turn_input(prompt: &str) -> &str {
     prompt
-        .strip_prefix(include_str!("wakeup.md").trim_end())
+        .strip_prefix(PreparedTurn::instructions(false).as_str())
         .expect("a later prompt starts with its rules")
 }
 
@@ -63,7 +63,7 @@ fn the_kickoff_supplies_its_rules_scope_and_identity() {
         "Repository root: {}",
         comparison.repository_root.display()
     )));
-    assert!(prompt.starts_with(include_str!("interview.md").trim_end()));
+    assert!(prompt.starts_with(PreparedTurn::instructions(true).as_str()));
 }
 
 #[test]
@@ -331,5 +331,16 @@ fn git_working_trees_and_undescribed_changes_have_no_description() {
     }});
     for base in [git, jj(" \n\n")] {
         assert!(kickoff(base).contains("\nChange description: none\n"));
+    }
+}
+
+#[test]
+fn every_prompt_states_the_same_not_relevant_rules() {
+    let rules = include_str!("not_relevant.md").trim_end();
+
+    for kickoff in [true, false] {
+        let instructions = PreparedTurn::instructions(kickoff);
+        assert!(instructions.ends_with(rules), "kickoff: {kickoff}");
+        assert_eq!(instructions.matches("## Not relevant").count(), 1);
     }
 }

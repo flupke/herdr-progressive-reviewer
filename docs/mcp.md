@@ -263,8 +263,10 @@ be read, is not sent. After a human answer,
 the next
 `submit_question` or `submit_conclusion` carries `reviewed`, the changed lines the
 answer settled, and `reopened`, reviewed lines it made matter again, each as
-`{path, side, lines}` (null lines for a whole file). The kickoff turn cannot mark
-lines. The reviewer applies them once the turn is accepted, only while the code is
+`{path, side, lines}` (null lines for a whole file). The kickoff turn follows no
+answer and cannot use them. Every turn, the kickoff included, may carry `not_relevant`
+in the same form: changed lines the agent read that hold no decision for the reviewer,
+marked reviewed at once. The reviewer applies them once the turn is accepted, only while the code is
 still the round's checkpoint, and records what changed for the reviewer to see.
 
 Explore displays Markdown `#` sections for Context (`rationale`, with `visual` appended),

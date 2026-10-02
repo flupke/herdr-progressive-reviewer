@@ -67,4 +67,10 @@ pub enum MarkAuthor {
         /// The answer the marks follow.
         answer: String,
     },
+    /// An Explore agent, marking lines it read and found to hold no decision
+    /// for the reviewer, on a turn that follows no answer.
+    ExploreRead {
+        /// The request of the turn that marked them.
+        request: String,
+    },
 }

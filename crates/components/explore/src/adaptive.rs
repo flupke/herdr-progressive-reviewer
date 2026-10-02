@@ -77,12 +77,17 @@ impl ExploreComponent {
         palette: Palette,
     ) {
         let exploration = self.exploration.as_ref().expect("reply exploration");
-        for turn in exploration
+        for (position, turn) in exploration
             .conversation
             .iter()
-            .filter(|turn| turn.update.next.as_ref() == exploration.questions.get(index))
+            .enumerate()
+            .filter(|(_, turn)| turn.update.next.as_ref() == exploration.questions.get(index))
         {
             self.agent_turn(turn, layout, palette);
+            // A turn after an answer shows its marks below that answer.
+            if turn.answer.is_none() {
+                self.turn_marks(position, layout, palette);
+            }
         }
     }
 

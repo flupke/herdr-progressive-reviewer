@@ -23,11 +23,7 @@ impl PreparedTurn {
             repository_root: &comparison.repository_root,
             description: comparison.change_description(),
         });
-        let instructions = if kickoff.is_some() {
-            include_str!("interview.md")
-        } else {
-            include_str!("wakeup.md")
-        };
+        let instructions = Self::instructions(kickoff.is_some());
         let input = input::TurnInput {
             request,
             access,
@@ -35,8 +31,23 @@ impl PreparedTurn {
             unreviewed,
         };
         Self {
-            prompt: format!("{}\n\n{input}", instructions.trim_end()),
+            prompt: format!("{instructions}\n\n{input}"),
         }
+    }
+
+    /// The rules of a turn: the kickoff's, or a later turn's. Both end with
+    /// the same Not relevant section, so every prompt states its criteria.
+    fn instructions(kickoff: bool) -> String {
+        let turn = if kickoff {
+            include_str!("interview.md")
+        } else {
+            include_str!("wakeup.md")
+        };
+        format!(
+            "{}\n\n{}",
+            turn.trim_end(),
+            include_str!("not_relevant.md").trim_end()
+        )
     }
 
     pub fn prompt(self) -> String {

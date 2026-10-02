@@ -10,6 +10,7 @@ fn finish(fixture: &mut ExploreUi, request: &TurnRequest) -> InterviewUpdate {
         checkpoint: request.checkpoint.clone(),
         reviewed: Vec::new(),
         reopened: Vec::new(),
+        not_relevant: Vec::new(),
         interpretation: request
             .answer
             .as_ref()

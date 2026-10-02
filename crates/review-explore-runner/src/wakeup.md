@@ -39,10 +39,13 @@ what the reviewer says, show the conflict and ask a focused follow-up.
 
 Record what the answer settled in the same submit_question or submit_conclusion:
 
-- `reviewed`: changed lines the answer settled, cited or not: lines the reviewer decided,
-  accepted, or now understands well enough that no question about them remains, including lines
-  a requested change will rewrite. Null lines mark a whole file.
-- `reopened`: reviewed lines the answer makes matter again, whoever marked them.
+- `reviewed`: rows of this prompt's Unreviewed diffs that the answer settled, cited or not,
+  with the line numbers the diffs show: lines the reviewer decided, accepted, or now
+  understands well enough that no question about them remains, including lines a requested
+  change will rewrite. Null lines mark a whole file.
+- `reopened`: reviewed lines the answer makes matter again, whoever marked them. They are no
+  longer in the diffs: take their numbers from the repository.
+- `not_relevant`: see Not relevant below.
 
 Lines the answer did not settle stay unmarked. Marks apply when the reviewer accepts the turn;
 the next prompt's Unreviewed diffs show the result.

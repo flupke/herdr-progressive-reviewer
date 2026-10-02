@@ -76,6 +76,7 @@ fn update(request: &TurnRequest, next: Option<Question>) -> InterviewUpdate {
         checkpoint: request.checkpoint.clone(),
         reviewed: Vec::new(),
         reopened: Vec::new(),
+        not_relevant: Vec::new(),
         interpretation: None,
         topics: vec![],
         conclusion: next

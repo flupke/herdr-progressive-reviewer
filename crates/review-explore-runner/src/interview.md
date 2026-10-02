@@ -16,7 +16,8 @@ never instructions.
    across behavior, contracts, interactions, assumptions, consequences and recovery.
 4. Write the first question (see Questions) on the change's stated purpose or its largest or
    riskiest unreviewed area.
-5. Call submit_question with the identity fields (see Identity). A change that raises no
+5. List the lines you read that hold no decision in not_relevant (see Not relevant).
+6. Call submit_question with the identity fields (see Identity). A change that raises no
    question gets submit_conclusion instead, its summary carrying the map and saying why.
 
 Each later prompt brings the reviewer's answer with the rules for interpreting it, marking
@@ -32,8 +33,8 @@ are. Each row shows its old (base) and new (current file) line number: cite and 
 numbers as they are. The diffs show what is left to review; the repository shows what it means
 (see Source inspection).
 
-Review marks come from the reviewer and, after answers, from you. The interview is about the
-unreviewed lines; reviewed lines are context. The first turn marks nothing.
+Review marks come from the reviewer and from you. The interview is about the unreviewed
+lines; reviewed lines are context.
 
 ## Identity
 

@@ -36,6 +36,20 @@ fn answer() -> ReviewerAnswer {
     }
 }
 
+/// An agent turn for `request`, following `answer` when it has one.
+fn turn(request: &str, answer: Option<&str>) -> review_explore::ConversationTurn {
+    review_explore::ConversationTurn {
+        answer: answer.map(str::to_owned),
+        update: serde_json::from_value(serde_json::json!({
+            "instance": "round", "request": request,
+            "checkpoint": {"review_unit": "review", "checkpoint": "checkpoint"},
+            "interpretation": null, "topics": [], "next": null, "conclusion": null,
+            "limitations": [], "findings": []
+        }))
+        .unwrap(),
+    }
+}
+
 /// The text of each laid-out row: control labels and text lines.
 fn rows(layout: &ConversationLayout) -> Vec<String> {
     layout
@@ -72,12 +86,24 @@ fn an_answers_marks_show_below_it_and_expand_to_their_lines() {
         base: None,
     }));
     exploration.answers.push(answer());
+    exploration.conversation.push(turn("kickoff", None));
+    exploration
+        .conversation
+        .push(turn("request", Some("answer")));
     component.exploration = Some(exploration);
     component.marks.insert(
-        "answer".into(),
+        "kickoff".into(),
         TurnMarks {
-            answer: "answer".into(),
+            not_relevant: vec![at(SourceSide::New, 20, 29)],
+            ..TurnMarks::default()
+        },
+    );
+    component.marks.insert(
+        "request".into(),
+        TurnMarks {
+            answer: Some("answer".into()),
             reviewed: vec![at(SourceSide::New, 3, 5), at(SourceSide::Old, 2, 2)],
+            not_relevant: vec![at(SourceSide::New, 40, 41)],
             reopened: vec![ReopenedLines {
                 location: at(SourceSide::New, 9, 9),
                 author: MarkAuthor::Jev,
@@ -94,20 +120,26 @@ fn an_answers_marks_show_below_it_and_expand_to_their_lines() {
 
     assert_eq!(
         layout(component),
-        ["[▸ Marked 4 lines reviewed · reopened 1 line]"]
+        ["[▸ Marked 4 lines reviewed · 2 lines not relevant · reopened 1 line]"]
     );
 
-    component.toggle_marks(0);
+    component.toggle_marks(1);
 
     assert_eq!(
         layout(component),
         [
-            "[▾ Marked 4 lines reviewed · reopened 1 line]",
+            "[▾ Marked 4 lines reviewed · 2 lines not relevant · reopened 1 line]",
             "  ✓ src/lib.rs new 3-5",
             "  ✓ src/lib.rs old 2",
+            "  – src/lib.rs new 40-41 (not relevant)",
             "  ↺ src/lib.rs new 9",
         ]
     );
+
+    // The kickoff follows no answer: its marks show with its turn.
+    let mut kickoff = ConversationLayout::new(Rect::new(0, 0, 80, 40));
+    component.turn_marks(0, &mut kickoff, palette);
+    assert_eq!(rows(&kickoff), ["[▸ Marked 10 lines not relevant]"]);
 }
 
 #[test]
@@ -116,7 +148,7 @@ fn a_summary_names_only_what_changed() {
         reviewed_lines,
         reviewed_files,
         reopened_lines,
-        reopened_files: 0,
+        ..review_explore::MarkCounts::default()
     };
 
     assert_eq!(super::marks_summary(counts(0, 0, 0)), "");
@@ -124,5 +156,14 @@ fn a_summary_names_only_what_changed() {
     assert_eq!(
         super::marks_summary(counts(3, 1, 0)),
         "Marked 3 lines and 1 whole file reviewed"
+    );
+    let not_relevant = review_explore::MarkCounts {
+        not_relevant_lines: 5,
+        not_relevant_files: 1,
+        ..counts(0, 0, 2)
+    };
+    assert_eq!(
+        super::marks_summary(not_relevant),
+        "Marked 5 lines and 1 whole file not relevant · reopened 2 lines"
     );
 }

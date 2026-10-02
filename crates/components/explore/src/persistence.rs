@@ -431,11 +431,7 @@ impl ExploreComponent {
 
     fn restore_round(&mut self, round: &review_explore::ExploreRound) {
         self.implementation_requested = !round.implementations.is_empty();
-        self.marks = round
-            .marks
-            .values()
-            .map(|marks| (marks.answer.clone(), marks.clone()))
-            .collect();
+        self.marks.clone_from(&round.marks);
     }
 
     fn reconcile_history(&mut self, round: &review_explore::ExploreRound) {
