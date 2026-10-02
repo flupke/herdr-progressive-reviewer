@@ -216,7 +216,7 @@ rejected. Thread comments, Explore turns and guide requests submit directly thro
 unfocused pane, or empty composer. Review access binds to the native session when
 available, or the foreground process group otherwise. Cancellation removes unsent
 requests and a replaced conversation rejects them.
-Delivery failures retain the literal input for Retry. The kickoff prompt carries the scope and first turn identity; the agent submits
+Delivery failures retain the literal input for Retry. The kickoff prompt carries the scope, the change description (jj only; Git has none) and the first turn identity; the agent submits
 its first question directly. The tools advertise complete schemas derived from the
 shared submission types; the kickoff carries behavior instructions without schema
 examples. The runner formats later wakeups as labeled plain text: turn identity,

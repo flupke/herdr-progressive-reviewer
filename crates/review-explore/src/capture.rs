@@ -36,6 +36,13 @@ pub struct Comparison {
 }
 
 impl Comparison {
+    /// What the reviewed change says it does, when it says anything.
+    pub fn change_description(&self) -> Option<&str> {
+        self.base
+            .as_ref()
+            .and_then(SnapshotIdentity::change_description)
+    }
+
     pub fn prepare(repository: &Repository, snapshot: &Snapshot) -> eyre::Result<Self> {
         let mut result = Self {
             repository_root: repository.root().to_owned(),

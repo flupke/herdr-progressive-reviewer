@@ -188,8 +188,12 @@ or interrupted reply leaves the comments pending. Existing MCP clients must refr
 their tool definitions after upgrading from the earlier reply schema.
 
 Explore starts with a kickoff prompt containing the repository root, comparison
-identity, first request ID and interview instructions. The agent inspects the code
-and calls `submit_question` directly to post the first question.
+identity, first request ID, the change description and interview instructions. In
+jj the description is the reviewed change's, quoted line by line with `> `; a Git
+working tree, or a change without a description, shows `Change description: none`.
+The agent inspects the code and calls `submit_question` directly to post the first
+question, about the change's stated purpose or its largest or riskiest unreviewed
+area.
 
 The tools advertise their full input schemas, including nested questions, evidence,
 assessments, agenda changes and interpretations. The kickoff explains the review behavior

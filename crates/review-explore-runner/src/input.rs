@@ -5,8 +5,34 @@ use std::{fmt, path::Path};
 pub(super) struct TurnInput<'a> {
     pub(super) request: &'a TurnRequest,
     pub(super) access: &'a str,
-    pub(super) repository_root: Option<&'a Path>,
+    /// What only the kickoff tells the agent.
+    pub(super) kickoff: Option<Kickoff<'a>>,
     pub(super) unreviewed: &'a crate::Unreviewed,
+}
+
+/// Where the reviewed change is and what it says it does.
+pub(super) struct Kickoff<'a> {
+    pub(super) repository_root: &'a Path,
+    pub(super) description: Option<&'a str>,
+}
+
+impl fmt::Display for Kickoff<'_> {
+    fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(
+            output,
+            "Repository root: {}",
+            self.repository_root.display()
+        )?;
+        let Some(description) = self.description else {
+            return writeln!(output, "\nChange description: none");
+        };
+        // Quoted, so none of its lines can pass for a field of the prompt.
+        writeln!(output, "\nChange description (quoted):")?;
+        for line in description.lines() {
+            writeln!(output, ">{}{line}", if line.is_empty() { "" } else { " " })?;
+        }
+        Ok(())
+    }
 }
 
 impl fmt::Display for TurnInput<'_> {
@@ -21,8 +47,8 @@ impl fmt::Display for TurnInput<'_> {
             request.checkpoint.review_unit.as_str()
         )?;
         writeln!(output, "Checkpoint: {}", request.checkpoint.checkpoint)?;
-        if let Some(root) = self.repository_root {
-            writeln!(output, "Repository root: {}", root.display())?;
+        if let Some(kickoff) = &self.kickoff {
+            write!(output, "{kickoff}")?;
         }
         write!(output, "{}", self.unreviewed)?;
         if let Some(error) = &request.response_error {

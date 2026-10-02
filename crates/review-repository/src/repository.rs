@@ -324,6 +324,17 @@ impl SnapshotIdentity {
         }
     }
 
+    /// What the change says it does: a jj change's description, when it has
+    /// one. A Git working tree has none.
+    pub fn change_description(&self) -> Option<&str> {
+        match self {
+            Self::Jj { description, .. } => {
+                Some(description.trim()).filter(|description| !description.is_empty())
+            }
+            Self::Git { .. } => None,
+        }
+    }
+
     /// Get the text shown in the review header.
     pub fn description(&self) -> &str {
         match self {

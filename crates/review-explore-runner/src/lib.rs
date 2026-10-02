@@ -21,7 +21,11 @@ impl PreparedTurn {
         access: &str,
         unreviewed: &Unreviewed,
     ) -> Self {
-        let instructions = if request.answer.is_some() {
+        let kickoff = request.answer.is_none().then(|| input::Kickoff {
+            repository_root: &comparison.repository_root,
+            description: comparison.change_description(),
+        });
+        let instructions = if kickoff.is_none() {
             "Continue Explore with this answer; match its question ID/version. Keep review-only scope and preserve the answer and decisions when repairing errors. Record the review marks this answer settled in reviewed and reopened. Disregard each Cancelled answer and your turn after it. Use submit_question for useful concept inquiries. Once those are exhausted, check the Unreviewed lines for missed questions before submit_conclusion. Reviewed lines alone never end the interview."
         } else {
             include_str!("interview.md")
@@ -29,10 +33,7 @@ impl PreparedTurn {
         let input = input::TurnInput {
             request,
             access,
-            repository_root: request
-                .answer
-                .is_none()
-                .then_some(comparison.repository_root.as_path()),
+            kickoff,
             unreviewed,
         };
         Self {
