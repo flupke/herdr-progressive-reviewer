@@ -92,7 +92,7 @@ impl ExploreRecords<'_> {
             .round(instance)?
             .ok_or_else(|| Error::Explore("saved round is missing".into()))?;
         let original = round.clone();
-        let result = update(&mut round).map_err(Error::Explore)?;
+        let result = update(&mut round).map_err(Error::ExploreRefused)?;
         if round != original {
             round.revision = round
                 .revision

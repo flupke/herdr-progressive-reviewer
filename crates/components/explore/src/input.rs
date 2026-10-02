@@ -73,10 +73,12 @@ impl ExploreComponent {
         }
         if self.progress.awaiting_capture() {
             self.progress = Progress::DiscardingCapture;
-            self.status = "Cancelled. Waiting for preparation to finish before Retry.".into();
+            self.status = "Stopped. Waiting for preparation to finish before Retry.".into();
         } else {
             self.progress = Progress::Retryable;
-            self.status = "Cancelled. Your answer and text remain available.".into();
+            self.status =
+                "Stopped waiting. Your answer and text remain available; Retry sends them again."
+                    .into();
         }
         vec![Action::Explore(review_explore::Command::Cancel)]
     }

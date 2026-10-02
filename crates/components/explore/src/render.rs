@@ -456,7 +456,7 @@ impl ExploreComponent {
     pub(super) fn status_controls(&self, layout: &mut ConversationLayout) {
         layout.gap();
         if matches!(self.progress, Progress::Waiting | Progress::Capturing) {
-            layout.controls([("Cancel".into(), Control::Cancel)]);
+            layout.controls([("Stop waiting".into(), Control::Cancel)]);
         } else if self.progress == Progress::Retryable {
             layout.controls([("Retry".into(), Control::Retry)]);
         } else if self.progress == Progress::Ready && self.durable.historical {

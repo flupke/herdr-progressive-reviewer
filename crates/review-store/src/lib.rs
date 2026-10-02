@@ -40,6 +40,9 @@ pub enum Error {
     /// Explore storage or a mutation cannot safely continue.
     #[error("Explore storage: {0}")]
     Explore(String),
+    /// The latest stored Explore round refused a change, for the reason given.
+    #[error("{0}")]
+    ExploreRefused(String),
     /// State could not be read or changed.
     #[error("{operation} failed for review state at {path:?}: {source}")]
     StateIo {

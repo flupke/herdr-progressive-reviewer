@@ -180,7 +180,7 @@ checkpoint the round started from. Every prompt lists the agent's remaining
 **Unreviewed lines**: the changed lines no review mark covers, including your own
 marks from Files. When Jev is enabled, starting a round first marks what Jev dismisses,
 as `rf` does, and the kickoff tells the agent what it marked.
-The preparation state shows the actual pending status and Cancel. Delivery
+The preparation state shows the actual pending status and **Stop waiting**. Delivery
 errors and Retry appear beside the affected turn.
 
 On follow-up turns, the agent's reply appears above the question. The question is
@@ -224,7 +224,7 @@ cancelled turn reopened stay open.
 | Mouse wheel | Scroll code over a diff; scroll the conversation outside it |
 | `Alt-j` / `Alt-k` | Grow / shrink the selected evidence window |
 | `Alt-0` | Fit evidence automatically again |
-| `c` / `r` | Cancel pending work / explicitly retry |
+| `c` / `r` | Stop waiting for pending work / explicitly retry |
 | `n` | Start a new round, retaining the previous investigation as history |
 | `Tab` | Cycle conversation, evidence and answer focus |
 

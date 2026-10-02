@@ -91,7 +91,7 @@ impl ExploreSession {
         );
         eyre::ensure!(
             !access.is_empty() && self.state.access == access && !self.state.historical,
-            "Obsolete Explore access; retry the interrupted turn from the reviewer for fresh access"
+            "Obsolete Explore access: the reviewer reopened, retried or cancelled this turn. Its next prompt carries fresh access; do not resubmit until then"
         );
         let round = self
             .state

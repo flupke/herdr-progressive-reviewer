@@ -57,6 +57,8 @@ impl ExploreSession {
         );
         let ((), round) = match updated {
             Ok(updated) => updated,
+            // The saved round moved on: nothing is wrong with storage.
+            Err(error @ review_store::Error::ExploreRefused(_)) => return Err(error.into()),
             Err(error) => {
                 // The marks are already given back, by author, so cancelling
                 // again after reopening the round finishes the job.
