@@ -230,22 +230,27 @@ impl MarkSummary {
 
     /// What Jev marked and what it could not, as one sentence or a few.
     fn describe(&self) -> String {
+        let count =
+            |count: usize, one: &str| format!("{count} {one}{}", if count == 1 { "" } else { "s" });
         let mut text = format!(
-            "marked {} files and {} hunks reviewed; {} files still need review.",
-            self.marked, self.hunks, self.remaining
+            "marked {} and {} reviewed; {} still {} review.",
+            count(self.marked, "file"),
+            count(self.hunks, "hunk"),
+            count(self.remaining, "file"),
+            if self.remaining == 1 { "needs" } else { "need" },
         );
         if self.failed_classifications > 0 {
             let _ = write!(
                 text,
-                " {} classifications failed or exceeded limits; their lines stay unreviewed.",
-                self.failed_classifications
+                " {} failed or exceeded limits; their lines stay unreviewed.",
+                count(self.failed_classifications, "classification")
             );
         }
         if self.failed_marks > 0 {
             let _ = write!(
                 text,
-                " {} review marks could not be saved.",
-                self.failed_marks
+                " {} could not be saved.",
+                count(self.failed_marks, "review mark")
             );
         }
         text

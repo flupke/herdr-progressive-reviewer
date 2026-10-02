@@ -930,7 +930,11 @@ impl DiffRenderer<'_> {
     }
 
     fn gap_line(count: usize, number_width: usize, width: usize) -> Line<'static> {
-        let mut text = format!("  {:>number_width$} {count} unmodified lines", "…");
+        let mut text = format!(
+            "  {:>number_width$} {count} unmodified line{}",
+            "…",
+            if count == 1 { "" } else { "s" }
+        );
         text.push_str(&" ".repeat(width.saturating_sub(text.chars().count())));
         Line::raw(text)
     }

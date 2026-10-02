@@ -895,18 +895,14 @@ fn diff_controls_expand_and_contract_all_gaps() {
     assert!(collapsed.contains("←→"));
     assert!(collapsed.contains("→←"));
     assert!(collapsed.contains('👁'));
-    assert!(collapsed.contains("1 unmodified lines"));
+    assert!(collapsed.contains("1 unmodified line"));
     app.update(UserInput::MouseClick { column: 87, row: 1 });
-    assert!(
-        !screen(&app, 100, 14)
-            .join("\n")
-            .contains("unmodified lines")
-    );
+    assert!(!screen(&app, 100, 14).join("\n").contains("unmodified line"));
     app.update(UserInput::MouseClick { column: 92, row: 1 });
     assert!(
         screen(&app, 100, 14)
             .join("\n")
-            .contains("1 unmodified lines")
+            .contains("1 unmodified line")
     );
 
     app.update(UserInput::MouseClick { column: 96, row: 1 });
@@ -916,14 +912,14 @@ fn diff_controls_expand_and_contract_all_gaps() {
     assert!(!file.contains("←→"));
     assert!(!file.contains("→←"));
     assert!(file.contains("2 middle"));
-    assert!(!file.contains("unmodified lines"));
+    assert!(!file.contains("unmodified line"));
 
     app.update(UserInput::MouseClick { column: 97, row: 1 });
     let diff = screen(&app, 100, 14).join("\n");
     assert!(diff.contains("Diff ·"));
     assert!(diff.contains("←→"));
     assert!(diff.contains("→←"));
-    assert!(diff.contains("1 unmodified lines"));
+    assert!(diff.contains("1 unmodified line"));
 }
 
 #[test]

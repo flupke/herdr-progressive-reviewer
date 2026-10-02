@@ -144,7 +144,7 @@ fn automatic_review_announces_the_hunks_it_marks(kind: RepoType) {
         .filter_map(|event| event.downcast_ref::<ui_events::ToastRequested>())
         .next_back()
         .unwrap();
-    assert!(toast.text.contains("1 hunks"), "{}", toast.text);
+    assert!(toast.text.contains("1 hunk reviewed"), "{}", toast.text);
     let saved = events
         .iter()
         .filter_map(|event| event.downcast_ref::<ReviewStateSaved>())

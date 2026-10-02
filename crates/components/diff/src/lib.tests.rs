@@ -871,7 +871,7 @@ fn clicking_an_unmodified_section_keeps_the_cursor_hunk_in_place() {
     let expanded_lines = rendered_diff_lines(&registry, diff_target);
     assert_eq!(&expanded_lines[..gap_row], &collapsed_lines[..gap_row]);
     let expanded = expanded_lines.join("\n");
-    assert!(!expanded.contains("unmodified lines"));
+    assert!(!expanded.contains("unmodified line"));
     assert!(expanded.contains("second"));
     assert!(expanded.contains("fourth"));
 }
