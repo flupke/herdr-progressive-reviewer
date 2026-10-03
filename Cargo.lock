@@ -3904,6 +3904,7 @@ dependencies = [
  "review-explore",
  "review-repository",
  "review-source",
+ "schemars",
  "serde_json",
 ]
 

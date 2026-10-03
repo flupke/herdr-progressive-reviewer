@@ -3,7 +3,8 @@ use std::sync::Arc;
 use component_core::ComponentEventBus;
 use ratatui::layout::Rect;
 use review_explore::{
-    CodeLocation, Comparison, Exploration, ReopenedLines, ReviewerAnswer, SourceSide, TurnMarks,
+    CodeLocation, Comparison, Exploration, NotRelevantMark, NotRelevantReason, ReopenedLines,
+    ReviewerAnswer, SourceSide, TestLocation, TurnMarks,
 };
 use review_repository::repository::RepoPath;
 use review_source::{ReviewCheckpoint, SourceLineRange};
@@ -21,6 +22,27 @@ fn at(side: SourceSide, first_line: u32, last_line: u32) -> CodeLocation {
             first_line,
             last_line,
         }),
+    }
+}
+
+/// A not-relevant mark on new lines, for `reason`; tested mechanics name
+/// `tests/lib.rs 3-9`.
+fn not_relevant(
+    first_line: u32,
+    last_line: u32,
+    reason: Option<NotRelevantReason>,
+) -> NotRelevantMark {
+    let test = (reason == Some(NotRelevantReason::TestedMechanics)).then(|| TestLocation {
+        path: RepoPath::from_bytes(b"tests/lib.rs"),
+        lines: SourceLineRange {
+            first_line: 3,
+            last_line: 9,
+        },
+    });
+    NotRelevantMark {
+        location: at(SourceSide::New, first_line, last_line),
+        reason,
+        test,
     }
 }
 
@@ -91,7 +113,11 @@ fn an_answers_marks_show_below_it_and_expand_to_their_lines() {
         .conversation
         .push(turn("request", Some("answer")));
     let mut unanswered = turn("unanswered", Some("answer"));
-    unanswered.update.not_relevant = vec![at(SourceSide::New, 50, 52)];
+    unanswered.update.not_relevant = vec![not_relevant(
+        50,
+        52,
+        Some(NotRelevantReason::TestedMechanics),
+    )];
     unanswered.update.reopened = vec![at(SourceSide::New, 9, 9)];
     exploration.conversation.push(unanswered);
     component.exploration = Some(exploration);
@@ -100,7 +126,7 @@ fn an_answers_marks_show_below_it_and_expand_to_their_lines() {
         "kickoff".into(),
         TurnMarks {
             answer: Some("answer".into()),
-            not_relevant: vec![at(SourceSide::New, 20, 29)],
+            not_relevant: vec![not_relevant(20, 29, Some(NotRelevantReason::RemovedCode))],
             ..TurnMarks::default()
         },
     );
@@ -109,7 +135,11 @@ fn an_answers_marks_show_below_it_and_expand_to_their_lines() {
         TurnMarks {
             answer: Some("answer".into()),
             reviewed: vec![at(SourceSide::New, 3, 5), at(SourceSide::Old, 2, 2)],
-            not_relevant: vec![at(SourceSide::New, 40, 41)],
+            // The second was saved before marks had reasons.
+            not_relevant: vec![
+                not_relevant(40, 41, Some(NotRelevantReason::FollowsCode)),
+                not_relevant(44, 44, None),
+            ],
             reopened: vec![ReopenedLines {
                 location: at(SourceSide::New, 9, 9),
                 author: MarkAuthor::Jev,
@@ -128,7 +158,7 @@ fn an_answers_marks_show_below_it_and_expand_to_their_lines() {
         layout(component),
         [
             "[▸ Marked 10 lines not relevant]",
-            "[▸ Marked 4 lines reviewed · 2 lines not relevant · reopened 1 line]"
+            "[▸ Marked 4 lines reviewed · 3 lines not relevant · reopened 1 line]"
         ]
     );
 
@@ -138,10 +168,11 @@ fn an_answers_marks_show_below_it_and_expand_to_their_lines() {
         layout(component),
         [
             "[▸ Marked 10 lines not relevant]",
-            "[▾ Marked 4 lines reviewed · 2 lines not relevant · reopened 1 line]",
+            "[▾ Marked 4 lines reviewed · 3 lines not relevant · reopened 1 line]",
             "  ✓ src/lib.rs new 3-5",
             "  ✓ src/lib.rs old 2",
-            "  – src/lib.rs new 40-41 (not relevant)",
+            "  – src/lib.rs new 40-41 (not relevant: follows the code)",
+            "  – src/lib.rs new 44 (not relevant)",
             "  ↺ src/lib.rs new 9",
         ]
     );
@@ -163,7 +194,7 @@ fn an_answers_marks_show_below_it_and_expand_to_their_lines() {
         pending(component),
         [
             "[▾ Will mark 3 lines not relevant · reopen 1 line when you answer]",
-            "  – src/lib.rs new 50-52 (not relevant)",
+            "  – src/lib.rs new 50-52 (not relevant: mechanics covered by tests, see tests/lib.rs 3-9)",
             "  ↺ src/lib.rs new 9",
         ]
     );

@@ -139,7 +139,7 @@ fn cancelling_an_answer_also_reopens_what_its_turn_found_not_relevant() {
     };
     submission.not_relevant = vec![
         serde_json::from_value(serde_json::json!({
-            "path": "reviewed.rs", "side": "new", "lines": null
+            "path": "reviewed.rs", "side": "new", "lines": null, "reason": "follows_code"
         }))
         .unwrap(),
     ];
@@ -162,7 +162,7 @@ fn lines_found_not_relevant_after_an_answer_carry_that_answers_author() {
     };
     submission.not_relevant = vec![
         serde_json::from_value(serde_json::json!({
-            "path": "reviewed.rs", "side": "new", "lines": {"first_line": 1, "last_line": 1}
+            "path": "reviewed.rs", "side": "new", "lines": {"first_line": 1, "last_line": 1}, "reason": "follows_code"
         }))
         .unwrap(),
     ];
@@ -189,7 +189,7 @@ fn cancelling_an_answer_gives_back_the_marks_of_the_question_it_answered() {
     };
     update.not_relevant = vec![
         serde_json::from_value(serde_json::json!({
-            "path": "reviewed.rs", "side": "new", "lines": null
+            "path": "reviewed.rs", "side": "new", "lines": null, "reason": "follows_code"
         }))
         .unwrap(),
     ];

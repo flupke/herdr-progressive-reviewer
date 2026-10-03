@@ -601,6 +601,34 @@ fn a_prompt_whose_diffs_cannot_be_written_is_not_sent_and_says_why() {
 }
 
 #[test]
+fn each_not_relevant_mark_keeps_its_reason_and_test_with_the_lines_it_marked() {
+    let mut harness = Harness::start();
+    harness.files.write("reviewed.rs", b"one\ntwo\nthree\n");
+    harness.capture();
+    let first = harness.request(None);
+    let access = harness.turn(&first);
+    let Operation::SubmitQuestion(mut update) = question(&first, 1) else {
+        unreachable!("a question");
+    };
+    let marks: Vec<review_explore::NotRelevantMark> = serde_json::from_value(serde_json::json!([
+        {"path": "reviewed.rs", "side": "new", "lines": {"first_line": 1, "last_line": 1},
+            "reason": "follows_code"},
+        {"path": "reviewed.rs", "side": "new", "lines": {"first_line": 2, "last_line": 3},
+            "reason": "tested_mechanics",
+            "test": {"path": "reviewed.rs", "lines": {"first_line": 1, "last_line": 1}}},
+    ]))
+    .unwrap();
+    update.not_relevant = marks.clone();
+    assert!(applied(
+        harness.submit(&access, Operation::SubmitQuestion(update))
+    ));
+
+    harness.answer("Keep it.");
+
+    assert_eq!(harness.saved().marks[&first.request].not_relevant, marks);
+}
+
+#[test]
 fn a_questions_marks_wait_for_its_answer() {
     let mut harness = Harness::start();
     harness.capture();
@@ -611,7 +639,7 @@ fn a_questions_marks_wait_for_its_answer() {
     };
     update.not_relevant = vec![
         serde_json::from_value(serde_json::json!({
-            "path": "reviewed.rs", "side": "new", "lines": null
+            "path": "reviewed.rs", "side": "new", "lines": null, "reason": "follows_code"
         }))
         .unwrap(),
     ];

@@ -96,12 +96,15 @@ impl Exploration {
                 .reviewed
                 .iter()
                 .chain(&update.reopened)
-                .chain(&update.not_relevant)
+                .chain(crate::NotRelevantMark::locations(&update.not_relevant))
                 .all(|location| comparison.validate_mark(location)),
             "reviewed, reopened and not_relevant need changed paths, on the side that has them, \
              with valid lines"
         );
-        Ok(())
+        update
+            .not_relevant
+            .iter()
+            .try_for_each(|mark| mark.validate(comparison))
     }
 
     fn validate_interpretation(&self, update: &InterviewUpdate) -> eyre::Result<()> {

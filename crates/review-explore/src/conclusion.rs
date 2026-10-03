@@ -36,9 +36,9 @@ pub struct ConclusionSubmission {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reopened: Vec<crate::CodeLocation>,
     /// Changed lines you read that hold no decision for the reviewer, to mark
-    /// reviewed at once; null lines mark the whole file.
+    /// reviewed at once, each with its reason; null lines mark the whole file.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub not_relevant: Vec<crate::CodeLocation>,
+    pub not_relevant: Vec<crate::NotRelevantMark>,
     #[serde(flatten)]
     pub conclusion: Conclusion,
 }

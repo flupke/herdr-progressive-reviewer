@@ -116,9 +116,10 @@ pub struct InterviewUpdate {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reopened: Vec<CodeLocation>,
     /// On any turn: changed lines you read that hold no decision for the
-    /// reviewer, to mark reviewed; null lines mark the whole file.
+    /// reviewer, to mark reviewed, each with its reason; null lines mark the
+    /// whole file.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub not_relevant: Vec<CodeLocation>,
+    pub not_relevant: Vec<crate::NotRelevantMark>,
     pub reply: Option<Reply>,
     #[serde(default)]
     pub agenda: Vec<AgendaChange>,

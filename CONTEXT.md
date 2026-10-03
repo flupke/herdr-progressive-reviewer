@@ -93,7 +93,9 @@ _Avoid_: source reference, inspection, supporting reference
 
 **Not relevant**:
 What the Explore agent calls changed lines it read that hold no decision for the
-reviewer. They get a review mark without a question of their own.
+reviewer. They get a review mark without a question of their own, and a reason:
+removed code the change is about, mechanics a named test covers, or tests, docs
+and manifests that follow the code.
 _Avoid_: skipped, ignored, insignificant (which is Jev's judgement)
 
 **Cancel answer**:

@@ -64,7 +64,8 @@
           "lines": {
             "first_line": 1,
             "last_line": 5
-          }
+          },
+          "reason": "follows_code"
         },
         {
           "path": "sample.rs",
@@ -72,7 +73,8 @@
           "lines": {
             "first_line": 1,
             "last_line": 1
-          }
+          },
+          "reason": "follows_code"
         }
       ]
     }

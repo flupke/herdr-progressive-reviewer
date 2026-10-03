@@ -292,12 +292,23 @@ the next
 `submit_question` or `submit_conclusion` carries `reviewed`, the changed lines the
 answer settled, and `reopened`, reviewed lines it made matter again, each as
 `{path, side, lines}` (null lines for a whole file). The kickoff turn follows no
-answer and cannot use them. Every turn, the kickoff included, may carry `not_relevant`
-in the same form: changed lines the agent read that hold no decision for the reviewer,
-marked reviewed without a question of their own. The reviewer applies a question turn's marks when
-the human answers that question, so review progress moves on the human's action, and a conclusion's
-marks when it is accepted. Marks apply only while the code is still the round's checkpoint, and
-what changed is recorded for the reviewer to see.
+answer and cannot use them. Every turn, the kickoff included, may carry `not_relevant`:
+changed lines the agent read that hold no decision for the reviewer, marked reviewed
+without a question of their own. Each entry names its lines in the same form and adds
+`reason`, one of `removed_code` (removed code whose removal is what the change is for),
+`tested_mechanics` (mechanics that a test covers) and `follows_code` (tests, docs and
+manifests that follow the code). A `tested_mechanics` entry also names the covering test
+in `test`, as `{path, lines}` at the checkpoint; another entry may name one too:
+`{"path": "src/parse.rs", "side": "new", "lines": {"first_line": 10, "last_line": 24},
+"reason": "tested_mechanics", "test": {"path": "tests/parse.rs", "lines": {"first_line": 5,
+"last_line": 30}}}`. The tool refuses a turn with an entry that has no reason, a
+`tested_mechanics` entry without a test, or a test whose lines do not exist at the
+checkpoint, and the error names the entry. The reviewer lists each reason and test beside
+the lines it marked. Rounds saved before reasons existed keep their marks without one.
+The reviewer applies a question turn's marks when the human answers that question, so
+review progress moves on the human's action, and a conclusion's marks when it is accepted.
+Marks apply only while the code is still the round's checkpoint, and what changed is
+recorded for the reviewer to see.
 
 Explore displays Markdown `#` sections for Context (`rationale`, with `visual` appended),
 Door and Blast radius (`assessments`), and Notes (the selected evidence's `notes`).

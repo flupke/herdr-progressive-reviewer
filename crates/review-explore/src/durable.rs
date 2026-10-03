@@ -166,9 +166,10 @@ pub struct TurnMarks {
     /// The lines an answer settled, marked reviewed, as they were applied.
     pub reviewed: Vec<crate::CodeLocation>,
     /// The lines the agent read and found to hold no decision, marked
-    /// reviewed, as they were applied.
+    /// reviewed, as they were applied, each with the reason and test of the
+    /// mark that applied it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub not_relevant: Vec<crate::CodeLocation>,
+    pub not_relevant: Vec<crate::NotRelevantMark>,
     /// The lines reopened, with who had marked them.
     pub reopened: Vec<ReopenedLines>,
     /// Why some or all of the requested marks were not applied.
@@ -210,7 +211,7 @@ impl InterviewUpdate {
             &mut counts.reviewed_files,
         );
         MarkCounts::add(
-            &self.not_relevant,
+            crate::NotRelevantMark::locations(&self.not_relevant),
             &mut counts.not_relevant_lines,
             &mut counts.not_relevant_files,
         );
@@ -247,7 +248,7 @@ impl TurnMarks {
             &mut counts.reviewed_files,
         );
         MarkCounts::add(
-            &self.not_relevant,
+            crate::NotRelevantMark::locations(&self.not_relevant),
             &mut counts.not_relevant_lines,
             &mut counts.not_relevant_files,
         );

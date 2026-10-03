@@ -21,6 +21,7 @@ mod conclusion;
 mod consequence;
 mod conversation;
 mod interview;
+mod not_relevant;
 mod path_serde;
 mod source;
 mod validation;
@@ -35,6 +36,7 @@ pub use interview::{
     Alternative, AnswerInput, Exploration, Interpretation, InterviewUpdate, Question,
     ReviewerAnswer, Topic, TopicStatus, TurnRequest,
 };
+pub use not_relevant::{NotRelevantMark, NotRelevantReason, TestLocation};
 pub use source::{CodeLocation, EvidenceRef, Source, SourceSide};
 
 /// Work requested explicitly from Explore.

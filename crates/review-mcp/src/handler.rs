@@ -123,7 +123,7 @@ impl Handler {
     }
 
     #[tool(
-        description = "Submit the next Explore question. After a human answer, reviewed and reopened mark or reopen the changed lines it settled. On any turn, not_relevant marks the lines read that hold no decision. Returns applied: false for an identical retry of an accepted turn."
+        description = "Submit the next Explore question. After a human answer, reviewed and reopened mark or reopen the changed lines it settled. On any turn, not_relevant marks the lines read that hold no decision, each with its reason and, for tested_mechanics, the test that covers it. Returns applied: false for an identical retry of an accepted turn."
     )]
     async fn submit_question(
         &self,
@@ -138,7 +138,7 @@ impl Handler {
     }
 
     #[tool(
-        description = "Conclude Explore on its own screen. Separate summary, to_be_implemented (only agreed tasks, editable by the human), and future_work (optional or later work). Preserve the final answer's interpretation and mark the lines it settled in reviewed and reopened, and the lines read that hold no decision in not_relevant. This records the conclusion; only the human's Implement action authorizes implementation. Repair validation errors in the same request; retry transport failures with identical arguments."
+        description = "Conclude Explore on its own screen. Separate summary, to_be_implemented (only agreed tasks, editable by the human), and future_work (optional or later work). Preserve the final answer's interpretation and mark the lines it settled in reviewed and reopened, and the lines read that hold no decision in not_relevant, each with its reason and, for tested_mechanics, the test that covers it. This records the conclusion; only the human's Implement action authorizes implementation. Repair validation errors in the same request; retry transport failures with identical arguments."
     )]
     async fn submit_conclusion(
         &self,

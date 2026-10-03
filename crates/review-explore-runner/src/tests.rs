@@ -375,6 +375,54 @@ fn every_prompt_states_the_same_not_relevant_rules() {
     }
 }
 
+/// The strings `value` holds as an enum value or a constant, at any depth.
+fn constants(value: &serde_json::Value, found: &mut Vec<String>) {
+    match value {
+        serde_json::Value::Object(object) => {
+            for (key, value) in object {
+                match (key.as_str(), value) {
+                    ("const", serde_json::Value::String(constant)) => found.push(constant.clone()),
+                    ("enum", serde_json::Value::Array(values)) => found.extend(
+                        values
+                            .iter()
+                            .filter_map(|value| value.as_str().map(str::to_owned)),
+                    ),
+                    _ => constants(value, found),
+                }
+            }
+        }
+        serde_json::Value::Array(values) => {
+            for value in values {
+                constants(value, found);
+            }
+        }
+        _ => {}
+    }
+}
+
+#[test]
+fn the_not_relevant_rules_name_every_field_and_reason_a_mark_takes() {
+    let mark =
+        serde_json::to_value(schemars::schema_for!(review_explore::NotRelevantMark)).unwrap();
+    let fields = mark["properties"].as_object().unwrap().keys().cloned();
+    let mut reasons = Vec::new();
+    constants(
+        &serde_json::to_value(schemars::schema_for!(review_explore::NotRelevantReason)).unwrap(),
+        &mut reasons,
+    );
+    assert_eq!(reasons.len(), 3, "{reasons:?}");
+
+    for kickoff in [true, false] {
+        let instructions = PreparedTurn::instructions(kickoff, false);
+        for name in fields.clone().chain(reasons.iter().cloned()) {
+            assert!(
+                instructions.contains(&format!("`{name}`")),
+                "kickoff: {kickoff}, {name}"
+            );
+        }
+    }
+}
+
 #[test]
 fn only_a_round_with_a_challenger_carries_its_script() {
     let comparison = comparison();

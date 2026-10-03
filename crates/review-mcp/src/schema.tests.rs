@@ -130,3 +130,47 @@ fn the_conclusion_tool_takes_its_sections_and_marks() {
     assert!(schema["properties"].get("inspections").is_none());
     assert!(!tools.iter().any(|tool| tool.name == "get_coverage_gaps"));
 }
+
+#[test]
+fn both_explore_tools_ask_each_not_relevant_mark_for_its_reason_and_test() {
+    let tools = Handler::tools();
+    for (name, marks) in [
+        ("submit_question", "/properties/update/$ref"),
+        ("submit_conclusion", ""),
+    ] {
+        let schema = serde_json::Value::Object(
+            (*tools
+                .iter()
+                .find(|tool| tool.name == name)
+                .unwrap()
+                .input_schema)
+                .clone(),
+        );
+        let submission = match marks {
+            "" => &schema,
+            pointer => {
+                let reference = schema.pointer(pointer).unwrap().as_str().unwrap();
+                schema.pointer(&reference[1..]).unwrap()
+            }
+        };
+        assert_eq!(
+            submission["properties"]["not_relevant"]["items"]["$ref"], "#/$defs/NotRelevantMark",
+            "{name}"
+        );
+        let definitions = &schema["$defs"];
+        let mark = &definitions["NotRelevantMark"];
+        for field in ["path", "side", "reason"] {
+            assert!(
+                mark["required"].as_array().unwrap().contains(&json!(field)),
+                "{name}: {field}"
+            );
+        }
+        let reason = mark["properties"]["reason"].to_string();
+        assert!(reason.contains("\"tested_mechanics\""), "{reason}");
+        assert!(!reason.contains("null"), "{reason}");
+        let test = &definitions["TestLocation"];
+        for field in ["path", "lines"] {
+            assert!(test["required"].as_array().unwrap().contains(&json!(field)));
+        }
+    }
+}

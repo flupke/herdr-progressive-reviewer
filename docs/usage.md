@@ -195,7 +195,11 @@ are ordinary review marks: Files, the diff and the header progress show them, an
 can reopen or mark hunks yourself as usual. On any turn, the first included, the agent can
 also mark lines it read and found **not relevant**: lines that hold no decision for you,
 such as removed code the change is about removing, mechanics that tests cover, and tests,
-docs and manifests that follow the code; reopen them in Files if you disagree.
+docs and manifests that follow the code. Each mark gives one of these reasons, and a mark
+for mechanics that tests cover names the test, its file and lines, so you can check it
+in a few seconds: the list of marked lines shows them, as in
+`src/parse.rs new 10-24 (not relevant: mechanics covered by tests, see tests/parse.rs 5-30)`.
+Reopen them in Files if you disagree.
 
 Review progress moves when you act. The marks that come with a question wait until you
 answer it: until then the end of the question's page, after the evidence, says what it

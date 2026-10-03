@@ -456,10 +456,11 @@ impl ExploreComponent {
         }
     }
 
-    /// The lines a turn's marks change, one per row.
+    /// The lines a turn's marks change, one per row, the lines found not
+    /// relevant with why.
     fn marked_lines<'a>(
         reviewed: &[review_explore::CodeLocation],
-        not_relevant: &[review_explore::CodeLocation],
+        not_relevant: &[review_explore::NotRelevantMark],
         reopened: impl IntoIterator<Item = &'a review_explore::CodeLocation>,
         layout: &mut ConversationLayout,
         palette: Palette,
@@ -467,8 +468,12 @@ impl ExploreComponent {
         for location in reviewed {
             layout.text(format!("  ✓ {location}"), palette.dim, None);
         }
-        for location in not_relevant {
-            layout.text(format!("  – {location} (not relevant)"), palette.dim, None);
+        for mark in not_relevant {
+            layout.text(
+                format!("  – {} ({})", mark.location, not_relevant_why(mark)),
+                palette.dim,
+                None,
+            );
         }
         for location in reopened {
             layout.text(format!("  ↺ {location}"), palette.dim, None);
@@ -573,6 +578,25 @@ impl ExploreComponent {
         for finding in &exploration.findings {
             layout.text(format!("Finding: {finding}"), palette.warning, None);
         }
+    }
+}
+
+/// "not relevant: mechanics covered by tests, see tests/lib.rs 3-9": the
+/// mark's reason and test; only "not relevant" for a mark saved before marks
+/// had reasons.
+fn not_relevant_why(mark: &review_explore::NotRelevantMark) -> String {
+    use review_explore::NotRelevantReason;
+    let Some(reason) = mark.reason else {
+        return "not relevant".into();
+    };
+    let reason = match reason {
+        NotRelevantReason::RemovedCode => "removed code the change is about",
+        NotRelevantReason::TestedMechanics => "mechanics covered by tests",
+        NotRelevantReason::FollowsCode => "follows the code",
+    };
+    match &mark.test {
+        Some(test) => format!("not relevant: {reason}, see {test}"),
+        None => format!("not relevant: {reason}"),
     }
 }
 

@@ -4,7 +4,7 @@
 
 use std::collections::BTreeMap;
 
-use review_explore::{CodeLocation, ExploreRound, ReopenedLines, TurnMarks};
+use review_explore::{CodeLocation, ExploreRound, NotRelevantMark, ReopenedLines, TurnMarks};
 use review_hunks::LineSelection;
 use review_repository::repository::{ChangedFile, PollResult, Snapshot};
 use review_state::{FileLines, ReviewTracker};
@@ -29,7 +29,7 @@ impl<'a> FileUnmark<'a> {
                 marks
                     .reviewed
                     .iter()
-                    .chain(&marks.not_relevant)
+                    .chain(NotRelevantMark::locations(&marks.not_relevant))
                     .any(|location| location.names(file))
                     || marks
                         .reopened

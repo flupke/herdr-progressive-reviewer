@@ -6,7 +6,8 @@
 use std::ops::Range;
 
 use review_explore::{
-    CodeLocation, ExploreRound, InterviewUpdate, ReopenedLines, SourceSide, TurnMarks, TurnRequest,
+    CodeLocation, ExploreRound, InterviewUpdate, NotRelevantMark, ReopenedLines, SourceSide,
+    TurnMarks, TurnRequest,
 };
 use review_hunks::{LineSelection, ReviewedLines};
 use review_repository::repository::{ChangedFile, PollResult, Snapshot};
@@ -209,10 +210,10 @@ impl ExploreSession {
     }
 
     /// Apply a turn's marks: first what an answer settled and reopened, then
-    /// the lines the agent found not relevant. All carry the author of the
-    /// answer that applies them, so cancelling it gives them back; a
-    /// conclusion that opens the round follows no answer and its marks carry
-    /// the turn's own.
+    /// the lines the agent found not relevant, each with its mark's reason.
+    /// All carry the author of the answer that applies them, so cancelling it
+    /// gives them back; a conclusion that opens the round follows no answer
+    /// and its marks carry the turn's own.
     fn mark(
         &self,
         snapshot: &Snapshot,
@@ -235,9 +236,18 @@ impl ExploreSession {
             let change = self.apply(snapshot, &request, &author, &mut marks);
             marks.reviewed.extend(change.reviewed);
         }
-        for request in FileRequest::group(snapshot, &update.not_relevant, &[]) {
-            let change = self.apply(snapshot, &request, &author, &mut marks);
-            marks.not_relevant.extend(change.reviewed);
+        // One mark at a time, so the lines it marks keep its reason and test.
+        for mark in &update.not_relevant {
+            let location = std::slice::from_ref(&mark.location);
+            for request in FileRequest::group(snapshot, location, &[]) {
+                let change = self.apply(snapshot, &request, &author, &mut marks);
+                marks
+                    .not_relevant
+                    .extend(change.reviewed.into_iter().map(|location| NotRelevantMark {
+                        location,
+                        ..mark.clone()
+                    }));
+            }
         }
         marks
     }

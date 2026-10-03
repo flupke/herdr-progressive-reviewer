@@ -4,11 +4,16 @@ use review_source::{ReviewCheckpoint, SourceLineRange};
 use std::sync::Arc;
 
 fn exploration() -> Exploration {
+    exploration_at(std::env::temp_dir())
+}
+
+/// A round over a change to `policy.rs`, whose working copy is `root`.
+fn exploration_at(repository_root: std::path::PathBuf) -> Exploration {
     let path = ChangedFile::modified("policy.rs").review_path().clone();
     Exploration::new(Arc::new(Comparison {
         checkpoint: ReviewCheckpoint::new("review", "checkpoint"),
         files: vec![ChangedFile::modified("policy.rs")],
-        repository_root: std::env::temp_dir(),
+        repository_root,
         context: vec![],
         diffs: vec![],
         manifest: vec![ManifestEntry {
@@ -311,6 +316,8 @@ fn an_agent_cannot_invent_acceptance_rewrite_questions_or_bind_an_old_answer() {
 mod adaptive;
 #[path = "interview/cancel.rs"]
 mod cancel;
+#[path = "interview/not_relevant.rs"]
+mod not_relevant;
 
 #[test]
 fn none_of_the_above_keeps_the_question_open_and_the_original_wording_intact() {
