@@ -60,6 +60,8 @@ impl HerdrTestServer {
                 state_directory.clone().into_os_string(),
             ),
             ("SHELL".into(), "/bin/sh".into()),
+            // A test reviewer serves its Explore page on this machine only.
+            ("HERDR_REVIEWER_EXPLORE_NETWORK".into(), "off".into()),
         ]);
         let mut server = Self {
             directory,

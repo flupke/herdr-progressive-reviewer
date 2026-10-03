@@ -89,7 +89,7 @@ fn serve(options: Options) -> Result<(), String> {
         Some(token) => Token::chosen(token)?,
         None => Token::random(),
     };
-    let url = token.url(port);
+    let url = token.loopback_url(port);
     sessions.open(token, 1);
     let page = ExplorePage::new(sessions.clone(), Hosts::loopback(port), templates, log);
     let app = page.into_router(control::router(sessions));

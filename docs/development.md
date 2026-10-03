@@ -96,6 +96,16 @@ Herdr action `explore-page` (`reviewer-control explore-page`) reads the record
 of its workspace, checks that the page answers, and opens it with `$BROWSER`,
 `xdg-open` or `open`.
 
+The host also serves the page on a network interface, for a phone, on the same
+thread and runtime: a second listener with its own host name and a new token for
+each round (`PageHost::share`). It announces the address of each round's page
+to the pane, which draws it with its QR code
+([`crates/ui-qr-code`](../crates/ui-qr-code)). The settings are in the
+[usage guide](usage.md#open-the-page-from-a-phone). Herdr test servers turn it
+off (`HERDR_REVIEWER_EXPLORE_NETWORK=off`); a `make vision` session serves it on
+the loopback interface, so the pane shows a QR code that only this machine can
+open.
+
 ### Serve the page alone
 
 ```sh

@@ -148,7 +148,14 @@ struct Refused;
 
 impl IntoResponse for Refused {
     fn into_response(self) -> Response {
-        StatusCode::FORBIDDEN.into_response()
+        // A phone keeps the page of a round the reviewer has closed since: say what to do.
+        (
+            StatusCode::FORBIDDEN,
+            [NO_STORE],
+            "This address does not open an Explore round any more. Open the page again from \
+             the reviewer: its QR code, or its Herdr action.",
+        )
+            .into_response()
     }
 }
 

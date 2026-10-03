@@ -89,6 +89,11 @@ impl ConversationLayout {
         );
     }
 
+    /// `text` of `height` lines that fit the width, drawn as they are.
+    pub(super) fn picture(&mut self, text: Text<'static>, height: u16) {
+        self.push(Content::Text(text, None), height);
+    }
+
     pub(super) fn push(&mut self, content: Content, height: u16) {
         self.items.push(Item {
             top: self.height,

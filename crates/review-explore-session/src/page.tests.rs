@@ -104,3 +104,30 @@ fn a_cancelled_answer_brings_its_question_back_to_the_page() {
         Some((1, "q1".into()))
     );
 }
+
+#[test]
+fn the_page_tells_each_round_from_the_next() {
+    let mut harness = Harness::start();
+    assert_eq!(harness.page.round(), None);
+
+    harness.capture();
+    let first = harness.request(None);
+    let access = harness.turn(&first);
+    let round = harness.page.round();
+    assert!(round.is_some());
+    assert!(applied(harness.submit(&access, question(&first, 1))));
+    assert_eq!(
+        harness.page.round(),
+        round,
+        "the same round asks its question"
+    );
+
+    harness.session.handle(Input::Command(Command::Reset));
+    assert_eq!(harness.page.round(), None);
+
+    harness.capture();
+    let next = harness.request(None);
+    harness.turn(&next);
+    assert!(harness.page.round().is_some());
+    assert_ne!(harness.page.round(), round);
+}

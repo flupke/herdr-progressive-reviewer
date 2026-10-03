@@ -29,6 +29,8 @@ pub enum RoundStage {
 #[derive(Clone, Debug)]
 pub(crate) struct RoundSnapshot {
     pub(crate) revision: u64,
+    /// The identity of the round the stage belongs to; `None` when no round is running.
+    round: Option<String>,
     pub(crate) stage: RoundStage,
 }
 
@@ -36,18 +38,26 @@ pub(crate) struct RoundSnapshot {
 pub struct RoundPublisher(watch::Sender<RoundSnapshot>);
 
 impl RoundPublisher {
-    pub fn new(stage: RoundStage) -> Self {
-        Self(watch::Sender::new(RoundSnapshot { revision: 1, stage }))
+    /// A publisher whose first stage is `stage` of the round `round`, `None` when no round is
+    /// running.
+    pub fn new(round: Option<&str>, stage: RoundStage) -> Self {
+        Self(watch::Sender::new(RoundSnapshot {
+            revision: 1,
+            round: round.map(str::to_owned),
+            stage,
+        }))
     }
 
-    /// Publishes `stage`. The same stage again changes nothing, so a page that waits for the
-    /// agent does not load itself again for nothing.
-    pub fn publish(&self, stage: RoundStage) {
+    /// Publishes `stage` of the round whose identity is `round`, `None` when no round is
+    /// running. The same stage of the same round again changes nothing, so a page that waits
+    /// for the agent does not load itself again for nothing.
+    pub fn publish(&self, round: Option<&str>, stage: RoundStage) {
         self.0.send_if_modified(|snapshot| {
-            if snapshot.stage == stage {
+            if snapshot.stage == stage && snapshot.round.as_deref() == round {
                 return false;
             }
             snapshot.revision += 1;
+            snapshot.round = round.map(str::to_owned);
             snapshot.stage = stage;
             true
         });
@@ -61,7 +71,7 @@ impl RoundPublisher {
 /// A round no one started yet.
 impl Default for RoundPublisher {
     fn default() -> Self {
-        Self::new(RoundStage::NoRound)
+        Self::new(None, RoundStage::NoRound)
     }
 }
 
@@ -73,6 +83,16 @@ impl RoundFeed {
     /// The latest published stage.
     pub fn stage(&self) -> RoundStage {
         self.0.borrow().stage.clone()
+    }
+
+    /// The identity of the round the latest stage belongs to; `None` when no round is running.
+    pub fn round(&self) -> Option<String> {
+        self.0.borrow().round.clone()
+    }
+
+    /// Waits for the next published stage. Returns false once the publisher is gone.
+    pub async fn changed(&mut self) -> bool {
+        self.0.changed().await.is_ok()
     }
 
     pub(crate) fn latest(&self) -> RoundSnapshot {

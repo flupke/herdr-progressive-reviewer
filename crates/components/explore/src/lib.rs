@@ -23,6 +23,7 @@ mod evidence;
 mod flow;
 mod input;
 mod navigation;
+mod network_page;
 mod persistence;
 mod render;
 mod reset;
@@ -146,6 +147,8 @@ pub struct ExploreComponent {
     drag: Option<input::ResizeDrag>,
     split_drag: bool,
     pointer_view: Option<flow::Window>,
+    /// The running round's page on the network, once the page host announced it.
+    network_page: Option<network_page::NetworkPage>,
 }
 
 impl ExploreComponent {
@@ -186,6 +189,7 @@ impl ExploreComponent {
             drag: None,
             split_drag: false,
             pointer_view: None,
+            network_page: None,
         }
     }
 
@@ -543,6 +547,7 @@ impl Component<Action> for ExploreComponent {
         subscriptions.subscribe(Self::navigation);
         subscriptions.subscribe(Self::implementation_finished);
         subscriptions.subscribe(Self::expiration_tick);
+        subscriptions.subscribe(Self::page_shared);
         Self::register_input(subscriptions);
     }
 }

@@ -21,6 +21,8 @@ mod conclusion_tests;
 mod editor;
 #[path = "explore_flow.tests.rs"]
 mod flow;
+#[path = "explore_phone.tests.rs"]
+mod phone;
 #[path = "explore_recovery.tests.rs"]
 mod recovery;
 

@@ -6,7 +6,7 @@ pub use explore::{
     EvidenceView, ExploreAnswerCancelled, ExploreAutosave, ExploreCaptured, ExploreCommitted,
     ExploreComparisonAccepted, ExploreEvidence, ExploreEvidenceInput, ExploreFinished,
     ExploreHistoryChanged, ExploreImplementationFinished, ExploreImplementationSaved,
-    ExplorePositionsRestored, ExplorePosted, ExploreProgress, ExploreRestored,
+    ExplorePageShared, ExplorePositionsRestored, ExplorePosted, ExploreProgress, ExploreRestored,
     ExploreStorageFailed, ExploreSubmission, ExploreViewports,
 };
 pub use threads::{

@@ -9,7 +9,12 @@ impl ExploreSession {
     /// Publishes the stage of the round the pane shows; the page loads itself again only when
     /// the stage changed.
     pub(crate) fn publish_page(&self) {
-        self.page.publish(self.page_stage());
+        let round = self
+            .state
+            .round
+            .as_ref()
+            .map(|round| round.exploration.instance.as_str());
+        self.page.publish(round, self.page_stage());
     }
 
     fn page_stage(&self) -> RoundStage {

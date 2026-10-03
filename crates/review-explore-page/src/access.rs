@@ -2,6 +2,7 @@
 //! token of the page's address.
 
 use std::fmt;
+use std::net::{Ipv4Addr, SocketAddr};
 
 use axum::http::{HeaderMap, HeaderValue, header};
 
@@ -31,10 +32,15 @@ impl Token {
         }
     }
 
+    /// The address that opens the page served at `address`, with this token.
+    pub fn url(&self, address: SocketAddr) -> String {
+        format!("http://{address}/?token={}", self.0)
+    }
+
     /// The address that opens the page served on this machine's loopback `port`, with this
     /// token.
-    pub fn url(&self, port: u16) -> String {
-        format!("http://127.0.0.1:{port}/?token={}", self.0)
+    pub fn loopback_url(&self, port: u16) -> String {
+        self.url(SocketAddr::from((Ipv4Addr::LOCALHOST, port)))
     }
 
     /// Compares in constant time, so the time of a refusal tells nothing about the token.
@@ -74,6 +80,12 @@ impl Hosts {
             format!("127.0.0.1:{port}"),
             format!("localhost:{port}"),
         ])
+    }
+
+    /// The one name of a page served at `address` of a network interface: the address the
+    /// reviewer's QR code gives out.
+    pub fn network(address: SocketAddr) -> Self {
+        Self(vec![address.to_string()])
     }
 
     pub(crate) fn admit(&self, headers: &HeaderMap) -> Result<(), PageEvent> {

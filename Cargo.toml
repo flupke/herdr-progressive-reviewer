@@ -30,6 +30,7 @@ members = [
     "crates/ui-controls",
     "crates/ui-panes",
     "crates/ui-events",
+    "crates/ui-qr-code",
     "crates/ui-frame",
     "crates/ui-keys",
     "crates/ui-shortcuts",

@@ -364,10 +364,51 @@ sections are folded away until you open them. The page shows raw HTML in the age
 text. In the pane, a callout opens with its title and a marked cell with its mark (✓, ✗ or
 !).
 
-The page is served only on this machine (`127.0.0.1`), on a port chosen when the reviewer
+The action opens the page on this machine (`127.0.0.1`), on a port chosen when the reviewer
 starts. Its address carries a token that changes each time the reviewer starts: the page
 refuses a request without it, and a request from another site. Run the action again
 after reopening the reviewer. Closing the reviewer stops the page.
+
+When the page shows a state that is not the agent working, it loads itself again when you
+come back to it (a phone that wakes, a tab shown again) and the round has changed in
+between.
+
+### Open the page from a phone
+
+Once a round has started, the end of each Explore page in the pane shows the address of
+the round's page on the network and its QR code. Scan it with a phone or a tablet on the
+same network to follow the round there. A page whose round was reset or replaced while
+the phone slept says that its address no longer opens a round: scan the new code. The
+reviewer serves this page on a second listener, on the address of one network interface,
+over plain HTTP. Each round gets a new token: after
+a reset or a new round, the old address is refused and the pane shows the new one. The page
+answers only the address the pane shows, and the MCP endpoint is never served on the
+network.
+
+Anyone who can read your network's traffic can copy the token and use the page as you for
+the rest of the round ([ADR 0003](adr/0003-serve-the-explore-page-on-the-network.md)).
+Turn network access off where you do not trust the network. The settings are environment
+variables of the reviewer process, read when it starts. The reviewer pane inherits the
+environment Herdr runs in: set them before starting Herdr (for example in your shell
+profile), then reopen the reviewer.
+
+| Variable | Effect |
+| --- | --- |
+| `HERDR_REVIEWER_EXPLORE_NETWORK=off` | Keeps the page on this machine: no network listener, no QR code. `on`, the default, serves it. |
+| `HERDR_REVIEWER_EXPLORE_INTERFACE` | The interface whose IPv4 address the page listens on, such as `wlan0` or a VPN's `tailscale0`. By default, the interface of the route to the internet. |
+| `HERDR_REVIEWER_EXPLORE_PORT` | The first port tried, 8790 by default. When another reviewer holds it, the page takes the next free one of the ten ports from it. |
+
+A reviewer that cannot serve the page on the network (no network address, an unknown
+interface, all ten ports taken) says so in a toast and keeps the page on this machine.
+
+A firewall that drops incoming connections blocks the phone. With ufw, allow the ten ports
+from your local network, for example:
+
+```sh
+sudo ufw allow from 192.168.1.0/24 to any port 8790:8799 proto tcp
+```
+
+Remove the rule with `sudo ufw delete allow from 192.168.1.0/24 to any port 8790:8799 proto tcp`.
 
 ## Explore statistics
 

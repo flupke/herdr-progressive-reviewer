@@ -1,9 +1,16 @@
 //! The Explore page of an open reviewer: served on this machine for the round of the
-//! reviewer's Explore session, and found by the Herdr action that opens it in a browser.
+//! reviewer's Explore session, and found by the Herdr action that opens it in a browser; and
+//! served to the network for a phone, behind a new token for each round.
 //!
 //! The reviewer starts a [`PageHost`], which serves the page on a free loopback port behind a
 //! new token, and leaves the page's address in the plugin's state directory, in the record of
-//! its Herdr workspace. The action reads that record through the [`PageDirectory`].
+//! its Herdr workspace. The action reads that record through the [`PageDirectory`]. Unless the
+//! [`NetworkAccess`] settings turn it off, the host also [shares](PageHost::share) the page on
+//! a network interface, and announces the address of each round's page for the pane's QR code.
+
+mod network;
+
+pub use network::{NetworkAccess, NetworkListener};
 
 use std::fmt::Write as _;
 use std::fs::{self, DirBuilder, OpenOptions};
@@ -18,6 +25,7 @@ use herdr_client::protocol::WorkspaceId;
 use review_explore_page::{ExplorePage, Hosts, PageFiles, RoundFeed, Rounds, Token};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use tokio::runtime::Handle;
 use tokio::sync::oneshot;
 
 /// How long the action waits for a recorded page to answer.
@@ -112,6 +120,9 @@ impl PageDirectory {
 pub struct PageHost {
     address: PageAddress,
     record: PathBuf,
+    round: RoundFeed,
+    /// The runtime of the page's thread.
+    runtime: Handle,
     stop: Option<oneshot::Sender<()>>,
     thread: Option<JoinHandle<()>>,
 }
@@ -130,10 +141,13 @@ impl PageHost {
         let token = Token::random();
         let address = PageAddress {
             port,
-            url: token.url(port),
+            url: token.loopback_url(port),
         };
         let page = ExplorePage::new(
-            OneRound { token, round },
+            OneRound {
+                token,
+                round: round.clone(),
+            },
             Hosts::loopback(port),
             PageFiles::embedded(),
             |_| {},
@@ -142,6 +156,7 @@ impl PageHost {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()?;
+        let handle = runtime.handle().clone();
         let (stop, stopped) = oneshot::channel::<()>();
         let thread = thread::Builder::new()
             .name("explore-page".into())
@@ -160,6 +175,8 @@ impl PageHost {
         let host = Self {
             address,
             record: directory.record(workspace),
+            round,
+            runtime: handle,
             stop: Some(stop),
             thread: Some(thread),
         };
@@ -171,6 +188,44 @@ impl PageHost {
     /// The address that opens the page, with its token.
     pub fn url(&self) -> &str {
         &self.address.url
+    }
+
+    /// Also serves the page on `listener`, a network interface's, on the page's thread until
+    /// the host drops. Each round gets a new token there, and the token of a round that is no
+    /// longer running opens nothing. `announce` receives the address of each round's page, and
+    /// `None` once no round runs.
+    pub fn share(
+        &self,
+        listener: NetworkListener,
+        announce: impl Fn(Option<&str>) + Send + 'static,
+    ) {
+        let address = listener.address();
+        let tokens = network::RoundTokens::new(self.round.clone());
+        let page = ExplorePage::new(
+            tokens.clone(),
+            Hosts::network(address),
+            PageFiles::embedded(),
+            |_| {},
+        );
+        let app = page.into_router(axum::Router::new());
+        let listener = listener.into_std();
+        self.runtime.spawn(async move {
+            let Ok(listener) = tokio::net::TcpListener::from_std(listener) else {
+                return;
+            };
+            let _ = axum::serve(listener, app).await;
+        });
+        let mut round = self.round.clone();
+        self.runtime.spawn(async move {
+            loop {
+                if let Some(network::Renewed(url)) = tokens.renew(address) {
+                    announce(url.as_deref());
+                }
+                if !round.changed().await {
+                    return;
+                }
+            }
+        });
     }
 }
 

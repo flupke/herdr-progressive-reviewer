@@ -56,6 +56,7 @@ impl ExploreComponent {
         } else {
             self.transcript(&mut layout, diff, palette);
         }
+        self.lay_out_network_page(&mut layout, palette);
         layout.position(self.scroll.get(), self.reveal.take());
         self.scroll.set(layout.scroll);
         self.layout.replace(layout.clone());

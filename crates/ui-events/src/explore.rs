@@ -54,6 +54,11 @@ pub struct ExploreAnswerCancelled {
 #[derive(Clone, Debug)]
 pub struct ExploreStorageFailed(pub String);
 
+/// The address of the running round's Explore page on the network, with its token, for the
+/// pane's QR code; `None` when the page is not on the network or no round is running.
+#[derive(Clone, Debug)]
+pub struct ExplorePageShared(pub Option<String>);
+
 #[derive(Clone, Debug)]
 pub struct ExploreImplementationSaved(pub review_explore::ImplementationDelivery);
 

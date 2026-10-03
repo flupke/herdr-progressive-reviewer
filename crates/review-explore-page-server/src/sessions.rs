@@ -13,8 +13,19 @@ pub(crate) struct Sessions(Arc<Mutex<Vec<Session>>>);
 struct Session {
     token: Token,
     round: RoundPublisher,
+    /// The rounds the session started so far.
+    rounds: usize,
+    /// Whether the latest round is running: the reviewer has not reset it.
+    running: bool,
     /// The questions the agent asked so far.
     asked: usize,
+}
+
+impl Session {
+    /// The identity of the session's latest round.
+    fn round_id(&self) -> String {
+        self.rounds.to_string()
+    }
 }
 
 /// What happens next in a session's round.
@@ -53,11 +64,15 @@ impl Sessions {
             0 => RoundStage::AgentWorking,
             asked => question_stage(asked),
         };
-        self.lock().push(Session {
+        let session = Session {
             token,
-            round: RoundPublisher::new(stage),
+            round: RoundPublisher::default(),
+            rounds: 1,
+            running: true,
             asked,
-        });
+        };
+        session.round.publish(Some(&session.round_id()), stage);
+        self.lock().push(session);
     }
 
     /// Moves the round of the session behind `token` one step. Returns false when no session
@@ -67,6 +82,10 @@ impl Sessions {
         let Some(session) = find(&mut sessions, token) else {
             return false;
         };
+        if !session.running {
+            // A step after a reset starts the session's next round.
+            session.rounds += 1;
+        }
         let stage = match step {
             Step::Question => {
                 session.asked += 1;
@@ -80,7 +99,9 @@ impl Sessions {
                 RoundStage::NoRound
             }
         };
-        session.round.publish(stage);
+        session.running = stage != RoundStage::NoRound;
+        let round = session.running.then(|| session.round_id());
+        session.round.publish(round.as_deref(), stage);
         true
     }
 

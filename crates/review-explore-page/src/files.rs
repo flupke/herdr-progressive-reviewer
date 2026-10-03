@@ -25,6 +25,12 @@ const ASSETS: &[Asset] = &[
         development: false,
     },
     Asset {
+        name: "wake.js",
+        content_type: "text/javascript",
+        body: include_str!("../assets/wake.js"),
+        development: false,
+    },
+    Asset {
         name: "style.css",
         content_type: "text/css",
         body: include_str!("../assets/style.css"),

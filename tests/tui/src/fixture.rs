@@ -16,6 +16,12 @@ pub(crate) const SESSION_SIZE: Size = Size {
     rows: 30,
 };
 
+/// The loopback interface, which stands in for a network interface in a vision session.
+#[cfg(target_os = "linux")]
+const LOOPBACK: &str = "lo";
+#[cfg(not(target_os = "linux"))]
+const LOOPBACK: &str = "lo0";
+
 /// The files a vision session shares with its reviewer.
 pub(crate) struct VisionFiles {
     /// Where tui-test keeps the terminal recording.
@@ -235,6 +241,11 @@ impl ReviewWorkspace {
                 "HERDR_REVIEWER_MCP_PORT".into(),
                 self.port.number().to_string(),
             ),
+            // The Explore page's network listener, and the pane's QR code, on the loopback
+            // interface: shown as on a real network, reachable from this machine only.
+            ("HERDR_REVIEWER_EXPLORE_NETWORK".into(), "on".into()),
+            ("HERDR_REVIEWER_EXPLORE_INTERFACE".into(), LOOPBACK.into()),
+            ("HERDR_REVIEWER_EXPLORE_PORT".into(), "0".into()),
         ]);
         environment
     }
