@@ -7,6 +7,8 @@
 # is updated. Judgments (agent.assert) call model.ts's judge on every run. model.ts picks the route: a stored ChatGPT login wins over the Anthropic key. The
 # Anthropic key, passed whenever one is found, comes from ANTHROPIC_API_KEY, or else from the
 # ANTHROPIC_API_KEY line of ~/.secrets, and from nothing else in that file.
+#
+# Arguments go to `e2e run` as they are (docs/development.md, "e2e tests").
 { set +x; } 2>/dev/null
 set -uo pipefail
 cd "$(dirname "$0")"
@@ -43,9 +45,9 @@ secrets_key() {
 rm -f .e2e/logs/*.log
 key="${ANTHROPIC_API_KEY:-$(secrets_key)}"
 if [ -n "$key" ]; then
-  ANTHROPIC_API_KEY="$key" node_modules/.bin/e2e run
+  ANTHROPIC_API_KEY="$key" node_modules/.bin/e2e run "$@"
 else
-  node_modules/.bin/e2e run
+  node_modules/.bin/e2e run "$@"
 fi
 status=$?
 if grep -h 'csp violation' .e2e/logs/*.log 2>/dev/null; then

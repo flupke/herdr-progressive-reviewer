@@ -18,6 +18,11 @@
 - Refresh filesystem-driven views through filesystem events (inotify on Linux),
   not periodic polling. Reuse the repository watcher and event pipeline so idle
   views do not spend CPU checking for file changes.
+- Write Explore page e2e tests the way the e2e documentation
+  (https://e2e.tester.army/docs) says, using the `e2e` skill at
+  `.agents/skills/e2e`. Write a flow the reviewer performs as goals and the
+  outcomes the reviewer sees, not as an enumeration of the page's elements.
+  Repository specifics: `docs/development.md#e2e-tests`.
 
 # Small feature workflow
 

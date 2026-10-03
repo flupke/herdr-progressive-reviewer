@@ -26,7 +26,7 @@ e2e-tui:
 
 # The e2e tests of the Explore page (https://github.com/tester-army/e2e). Agent steps replay
 # their recordings under tests/explore-page/.e2e/cache; a new or stale step goes to the model and
-# the cache is updated (docs/development.md).
+# the cache is updated (docs/development.md). E2E_ARGS go to `e2e run`.
 EXPLORE_E2E = tests/explore-page
 
 $(EXPLORE_E2E)/node_modules/.installed: $(EXPLORE_E2E)/package-lock.json
@@ -38,7 +38,7 @@ e2e-explore-deps: $(EXPLORE_E2E)/node_modules/.installed
 
 e2e-explore: e2e-explore-deps
 	cargo build --locked -p review-explore-page-server
-	$(EXPLORE_E2E)/run.sh
+	$(EXPLORE_E2E)/run.sh $(E2E_ARGS)
 
 # Serve the Explore page alone, with a fixed question. Templates and assets are read from disk,
 # and an open page reloads when one changes.

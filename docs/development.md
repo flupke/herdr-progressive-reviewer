@@ -112,14 +112,32 @@ files from. Without `--dev`, it serves the files built into the binary.
 ### e2e tests
 
 The page is tested only with [e2e](https://github.com/tester-army/e2e), in
-[`tests/explore-page`](../tests/explore-page). A step that acts on the page is
-a goal for e2e's agent (`agent.act('pick "Discard the draft" as the answer to
-question 1')`), whose actions are recorded once with a model and then replayed.
-A fact the test must check exactly is a locator and an assertion
-(`expect(...).toBeChecked()`); the check after each goal also confirms its
-recording. Both address the page by roles and accessible names, so the markup
-must name what a test looks for (a `<section>` labelled by its heading, a
-`<fieldset>` with a `<legend>`, `role="status"`).
+[`tests/explore-page`](../tests/explore-page). Write a test the way the e2e
+documentation and its skill (`.agents/skills/e2e`) say. A test sets the round up
+through the fixture below, then takes the steps the reviewer would take, each
+followed by a check of its outcome:
+
+- a step the reviewer would say in words is a goal for e2e's agent
+  (`agent.act('pick "Discard the draft" as the answer to question 1')`), its
+  actions recorded once with a model and then replayed;
+- what the reviewer should read on the page is a judgement
+  (`agent.assert("question 1 asks whether ... and offers three
+  choices")`), worded by its meaning rather than the page's sentences;
+- an exact fact is one locator and an assertion
+  (`expect(screen.getByRole('radio', 'Discard the draft')).toBeChecked()`).
+
+`agent.assert` looks at the screen once and does not wait. After the fixture
+moves the round, the page follows it a moment later, so wait for the new stage
+first, with a locator (`expect(screen.getByRole('region', 'Question
+1')).toBeVisible()`), then judge it: an assert made at once judges the old page.
+`agent.waitFor` waits too, but calls the model again each time the screen
+changes while it waits.
+
+Check the outcome, not each element of the page: listing every choice, count and
+sentence with locators makes a test break on every markup change. Locators
+address the page by roles and accessible names, so the markup must name what a
+test looks for (a `<section>` labelled by its heading, a `<fieldset>` with a
+`<legend>`, `role="status"`).
 
 ```sh
 nix develop --command make e2e-explore
@@ -127,6 +145,9 @@ nix develop --command make e2e-explore
 
 This target also runs during `make check`. It builds the standalone server and
 runs every test at a desktop and at a phone size, each against its own server.
+`E2E_ARGS` go to `e2e run`, with paths relative to `tests/explore-page`:
+`make e2e-explore E2E_ARGS=tests/round.e2e.ts` runs one file, and
+`E2E_ARGS=--no-cache` runs without the replay cache.
 The first run in a checkout installs the npm packages from the committed
 lockfile, which needs the network. The Nix shell provides Node and the headless
 Chromium of nixpkgs (`E2E_CHROMIUM`), which the tests attach to instead of
@@ -156,7 +177,8 @@ model, and the cache is updated once the check after the goal passes. Only
 `agent.act` replays; `agent.assert`, `agent.waitFor` and `agent.extract` are
 judgments, which call a judge model on every run, so each `make check` makes
 model calls for its asserts even when every goal replays, and fails on a
-machine with neither of the two routes below.
+machine with neither of the two routes below. Keep judgments to the outcomes
+that need one, and check an exact fact with a locator instead.
 
 The cache directory is committed, so a fresh checkout replays instead of paying
 for the model again. Read changed entries like test data before committing
