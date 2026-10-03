@@ -153,6 +153,30 @@ fn the_reviewer_answers_the_quiz_in_order_and_each_pick_is_graded() {
 }
 
 #[test]
+fn a_pick_of_an_item_or_option_out_of_range_is_refused() {
+    let (mut exploration, conclusion) = concluded(vec![item("First?")]).unwrap();
+
+    for forged in [
+        QuizResponse::Pick {
+            item: usize::MAX,
+            answer: 0,
+        },
+        QuizResponse::Pick {
+            item: 0,
+            answer: usize::MAX,
+        },
+    ] {
+        assert!(exploration.answer_quiz(&conclusion, forged).is_err());
+    }
+    assert_eq!(
+        exploration
+            .quiz_answers(&conclusion)
+            .map_or(0, |answers| answers.picks.len()),
+        0
+    );
+}
+
+#[test]
 fn a_skipped_quiz_takes_no_more_picks_and_keeps_the_earlier_ones() {
     let (mut exploration, conclusion) = concluded(vec![item("First?"), item("Second?")]).unwrap();
     let first = QuizResponse::Pick { item: 0, answer: 0 };

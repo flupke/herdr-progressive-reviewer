@@ -161,7 +161,19 @@ impl<R: Rounds> ExplorePage<R> {
                     header::CONTENT_SECURITY_POLICY,
                     HeaderValue::from_static(CONTENT_SECURITY_POLICY),
                 );
-                let mut response = ([policy, NO_STORE], Html(html)).into_response();
+                // A link in the agent's text does not tell another site the page's address on
+                // this network. Not `no-referrer`: under it, the browser names the origin of the
+                // page's own form posts `null`, and the page refuses them as from another site.
+                let referrer = (
+                    header::REFERRER_POLICY,
+                    HeaderValue::from_static("same-origin"),
+                );
+                let sniffing = (
+                    header::X_CONTENT_TYPE_OPTIONS,
+                    HeaderValue::from_static("nosniff"),
+                );
+                let headers = [policy, NO_STORE, referrer, sniffing];
+                let mut response = (headers, Html(html)).into_response();
                 if notice.is_some() {
                     response
                         .headers_mut()
@@ -196,7 +208,7 @@ impl IntoResponse for Refused {
             StatusCode::FORBIDDEN,
             [NO_STORE],
             "This address does not open an Explore round any more. Open the page again from \
-             the reviewer: its QR code, or its Herdr action.",
+             the pane: its QR code, or the Herdr action that opens it.",
         )
             .into_response()
     }
@@ -204,11 +216,16 @@ impl IntoResponse for Refused {
 
 async fn admit_host<R: Rounds>(
     State(page): State<Arc<ExplorePage<R>>>,
-    request: Request,
+    mut request: Request,
     next: Next,
 ) -> Response {
     match page.hosts.admit(request.headers()) {
-        Ok(()) => next.run(request).await,
+        Ok(cookies) => {
+            cookies.receive(request.headers_mut());
+            let mut response = next.run(request).await;
+            cookies.send(response.headers_mut());
+            response
+        }
         Err(event) => page.refuse(event).into_response(),
     }
 }
@@ -251,6 +268,8 @@ async fn index<R: Rounds>(
 /// The reviewer's answer, as the question's form posts it.
 #[derive(Deserialize)]
 struct AnswerForm {
+    /// The identity of the round that showed the question, when it has one.
+    round: Option<String>,
     question: String,
     version: u32,
     /// The picked choice's ID; absent when the reviewer picked none.
@@ -268,7 +287,11 @@ async fn answer(
     Form(form): Form<AnswerForm>,
 ) -> Response {
     let shown = round.stages.latest();
-    let sent = if let Some(question) = shown.stage.asks(&form.question, form.version) {
+    let asked = shown
+        .stage
+        .asks(&form.question, form.version)
+        .filter(|_| form.round == shown.round);
+    let sent = if let Some(question) = asked {
         let first_pick = FirstPick::read(&headers, shown.round.as_deref(), question);
         let answer = PageAnswer {
             question: form.question,
@@ -316,6 +339,8 @@ async fn start(Admitted(round): Admitted, Form(form): Form<StartForm>) -> Respon
 /// The reviewer's first pick of a blind question, as its form posts it.
 #[derive(Deserialize)]
 struct PickForm {
+    /// The identity of the round that showed the question, when it has one.
+    round: Option<String>,
     question: String,
     version: u32,
     /// The picked choice's ID; absent when the reviewer picked none.
@@ -330,7 +355,10 @@ async fn pick(
     Form(form): Form<PickForm>,
 ) -> Response {
     let shown = round.stages.latest();
-    let asked = shown.stage.asks(&form.question, form.version);
+    let asked = shown
+        .stage
+        .asks(&form.question, form.version)
+        .filter(|_| form.round == shown.round);
     to_page(match (asked, shown.round.as_deref()) {
         (Some(question), Some(round)) => form
             .choice
@@ -472,6 +500,9 @@ struct PageContext<'a> {
 
 #[derive(Serialize)]
 struct QuestionContext<'a> {
+    /// The identity of the round that asks the question, which its forms post back: a
+    /// question of the same ID in a later round is another question.
+    round: Option<&'a str>,
     number: usize,
     id: &'a str,
     version: u32,
@@ -665,7 +696,12 @@ impl<'a> PageContext<'a> {
             } => {
                 context.stage = Stage::Question;
                 context.question = Some(QuestionContext::new(
-                    *number, question, citations, marks, first_pick,
+                    round.round.as_deref(),
+                    *number,
+                    question,
+                    citations,
+                    marks,
+                    first_pick,
                 ));
             }
             RoundStage::Interrupted { failure } => {
@@ -698,6 +734,7 @@ impl<'a> PageContext<'a> {
 
 impl<'a> QuestionContext<'a> {
     fn new(
+        round: Option<&'a str>,
         number: usize,
         question: &'a Question,
         citations: &'a [Citation],
@@ -722,6 +759,7 @@ impl<'a> QuestionContext<'a> {
             .map(|choice| ChoiceContext::new(choice, recommendation, first_pick))
             .collect();
         Self {
+            round,
             number,
             id: &question.id,
             version: question.version,

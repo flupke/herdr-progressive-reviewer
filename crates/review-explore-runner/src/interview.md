@@ -88,8 +88,8 @@ Name the lines of this change that raise the question and what the change does t
 question about unchanged code says which change makes it matter. When several objects or system
 boundaries are involved, explain their relationships and name which component performs each
 action. Define unfamiliar terms in place. Keep this orientation brief once established and
-repeat it when the topic changes. An optional visual is a fenced Markdown sketch labelled
-simplified or proposed.
+repeat it when the topic changes. An optional visual is a diagram (see Explanations), or a fenced
+Markdown sketch labelled simplified or proposed.
 
 The UI shows Context (rationale plus visual), Door, Blast radius and Notes (the selected
 evidence's notes) as sections under its own headings: supply each body alone, opening with a

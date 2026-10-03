@@ -26,7 +26,13 @@
   };
 
   async function drawAll() {
-    mermaid.initialize({ startOnLoad: false, theme: dark.matches ? 'dark' : 'default' });
+    // The agent's sources are untrusted: strict, Mermaid's default, encodes HTML in labels and
+    // turns click directives off; said here so that no later default change loosens it.
+    mermaid.initialize({
+      startOnLoad: false,
+      securityLevel: 'strict',
+      theme: dark.matches ? 'dark' : 'default',
+    });
     for (const diagram of diagrams) {
       if (diagram.failed) continue;
       try {

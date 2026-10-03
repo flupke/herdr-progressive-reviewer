@@ -10,8 +10,9 @@ test('the working state is replaced by the next question when it is ready', asyn
   await explore.askQuestion();
   await expect(screen.getByRole('region', 'Question 1')).toBeVisible();
 
-  // A page that shows a question does not follow an answer given in the pane: for a second, it
-  // does not turn back to the working state (a page that polled would within half a second)...
+  // A page that shows a question does not poll, so it does not follow an answer given in the
+  // pane: it still shows the question, not the working state (this check alone cannot tell a
+  // page that polls slowly)...
   await explore.answerInPane();
   await expect(screen.getByRole('status')).not.toBeVisible();
   await expect(screen.getByRole('region', 'Question 1')).toBeVisible();

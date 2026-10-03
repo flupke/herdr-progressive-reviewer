@@ -88,7 +88,8 @@ impl Hosts {
         Self(vec![address.to_string()])
     }
 
-    pub(crate) fn admit(&self, headers: &HeaderMap) -> Result<(), PageEvent> {
+    /// The scope of the page's cookies for a request this page answers.
+    pub(crate) fn admit(&self, headers: &HeaderMap) -> Result<CookieScope, PageEvent> {
         let host = headers
             .get(header::HOST)
             .and_then(|host| host.to_str().ok())
@@ -98,7 +99,65 @@ impl Hosts {
             Some(origin) if origin.as_bytes() != format!("http://{host}").as_bytes() => {
                 Err(PageEvent::ForeignOrigin)
             }
-            _ => Ok(()),
+            _ => Ok(CookieScope::of(host)),
+        }
+    }
+}
+
+/// Browsers keep cookies by host name and ignore the port, so pages on one address (two
+/// reviewers, or the reviewer and the standalone server) would overwrite each other's token.
+/// The page names its cookies after its own port, so each keeps its own. This prevents
+/// collisions only: the browser still sends this page's cookies to every port of its address,
+/// so another server there that the browser visits receives this page's token, and can set a
+/// cookie under this page's names (ADR 0003). The page's handlers use the plain names; the
+/// scope renames the cookies of each request and response at the edge of the page.
+pub(crate) struct CookieScope {
+    suffix: String,
+}
+
+impl CookieScope {
+    /// The scope of the page that answers the host name `host`, which ends with its port.
+    fn of(host: &str) -> Self {
+        let port = host.rsplit_once(':').map_or("80", |(_, port)| port);
+        Self {
+            suffix: format!("_{port}"),
+        }
+    }
+
+    /// Keeps only the request's cookies of this scope, under their plain names.
+    pub(crate) fn receive(&self, headers: &mut HeaderMap) {
+        let kept: Vec<String> = headers
+            .get_all(header::COOKIE)
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .flat_map(|value| value.split(';'))
+            .filter_map(|pair| {
+                let (name, value) = pair.trim().split_once('=')?;
+                Some(format!("{}={value}", name.strip_suffix(&self.suffix)?))
+            })
+            .collect();
+        headers.remove(header::COOKIE);
+        if !kept.is_empty()
+            && let Ok(value) = HeaderValue::from_str(&kept.join("; "))
+        {
+            headers.insert(header::COOKIE, value);
+        }
+    }
+
+    /// Names each cookie the response sets after this scope.
+    pub(crate) fn send(&self, headers: &mut HeaderMap) {
+        let scoped: Vec<HeaderValue> = headers
+            .get_all(header::SET_COOKIE)
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .filter_map(|value| {
+                let (name, rest) = value.split_once('=')?;
+                HeaderValue::from_str(&format!("{name}{}={rest}", self.suffix)).ok()
+            })
+            .collect();
+        headers.remove(header::SET_COOKIE);
+        for value in scoped {
+            headers.append(header::SET_COOKIE, value);
         }
     }
 }

@@ -27,9 +27,9 @@
   {% elif implementation.state.kind == "sent" %}
   <p class="state" role="status">The implementation request was sent to the agent.</p>
   {% elif implementation.state.kind == "paused" %}
-  <p class="state" role="status">The implementation request was saved but not sent. Send it, or a new one, in the reviewer.</p>
+  <p class="state" role="status">The implementation request was saved but not sent. Send it, or a new one, from the pane.</p>
   {% else %}
-  <p class="state" role="status">Whether the agent received the implementation request is unknown. Check its conversation in the reviewer before you send a new one.</p>
+  <p class="state" role="status">Whether the agent received the implementation request is unknown. Check the agent's conversation before you send a new one from the pane.</p>
   {% endif %}
   <div class="markdown">{{ implementation.text | markdown(3) }}</div>
   {% endif %}

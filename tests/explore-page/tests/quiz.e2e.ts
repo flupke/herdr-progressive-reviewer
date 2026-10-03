@@ -27,7 +27,7 @@ test(
     await expect(screen.getByText('Reopening a round no longer clears the draft', { exact: false })).toBeVisible();
     await expect(screen.getByRole('heading', 'src/drafts.rs new 7-8')).toBeVisible();
     // Why the agent thinks the item is at whiteboard level stays out of the page.
-    await expect(screen.getByText('Data storage: what survives closing the pane.')).toHaveCount(0);
+    await expect(screen.getByText('Data storage: what survives closing the pane.', { exact: false })).toHaveCount(0);
 
     await agent.act('go on to the next quiz question');
     await expect(screen.getByRole('heading', 'Question 2 of 2')).toBeVisible();

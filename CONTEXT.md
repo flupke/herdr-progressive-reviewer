@@ -84,7 +84,7 @@ _Avoid_: Explore pass, Explore session
 What the first turn of an Explore round explains before its first question, so the
 reviewer could explain the change at a whiteboard: what it adds and where, its types
 and data flow, its algorithm and cost, and the alternatives the implementer rejected.
-_Avoid_: map (the provisional map it replaces)
+_Avoid_: map (the provisional map of the first reply, which it replaces)
 
 **Challenger**:
 A subagent with fresh context that the Explore agent starts for a round, to
@@ -151,15 +151,15 @@ round to its state before that answer, including the review marks it led to.
 _Avoid_: cancel (which stops a pending turn), correction, undo, defer
 
 **Explore page**:
-A browser page, served by the open reviewer, that shows the current state of its
-Explore round: no round, a round starting, the agent working, the
-agent's question with its choices, a turn the agent is no longer working on, or
-the conclusion. The reviewer can start a round, answer the question and
-implement the conclusion there, as in the pane. Its address carries a token, and
-the page refuses requests without it. The reviewer serves it on this machine,
-for the Herdr action, and on the network, behind a new token for each round, for
-the QR code in the pane; while no round runs, the start screen's token is the
-one the next round keeps.
+A browser page, served by the open review pane, that shows the current state of
+its Explore round: no round, a round starting or failing to start, the agent
+working, the agent's question with its choices, a turn the agent is no longer
+working on, or the conclusion with its quiz. The reviewer can start a round,
+answer the question and implement the conclusion there, as in the pane. Its
+address carries a token, and the page refuses requests without it. The pane
+serves it on this machine, for the Herdr action, and on the network, behind a new
+token for each round, for the QR code in the pane; while no round runs, the start
+screen's token is the one the next round keeps.
 _Avoid_: web UI, Explore web, browser view
 
 **First pick**:

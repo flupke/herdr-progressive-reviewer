@@ -48,9 +48,9 @@ Each item:
 - `correct`: the zero-based index of the correct option. Vary its position across items.
 - `why`: one sentence that explains the correct option in design terms.
 - `proof`: citations of the lines that establish the correct option, most decisive first, each
-  {path, side, lines} with notes like any citation. Cite the new side; add old-side lines only
-  to show the behavior a wrong option describes. A test may follow the code as supporting
-  proof, never stand alone.
+  {path, side, lines} with notes like any citation, its lines never null. Cite the new side; add
+  old-side lines only to show the behavior a wrong option describes. A test may follow the code
+  as supporting proof, never stand alone.
 - `level`: one sentence naming the whiteboard topic it tests and why it is not an
   implementation detail. The reviewer does not see it.
 

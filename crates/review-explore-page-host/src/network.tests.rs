@@ -94,9 +94,11 @@ impl Shared {
         self.status("GET", path(url), &[])
     }
 
-    /// The status of a load of the page by a browser whose cookie holds the token of `url`.
+    /// The status of a load of the page by a browser whose cookie holds the token of `url`,
+    /// under the name the page gives it on its port.
     fn load(&self, url: &str) -> u16 {
-        let cookie = format!("explore_token={}", url.rsplit('=').next().unwrap());
+        let token = url.rsplit('=').next().unwrap();
+        let cookie = format!("explore_token_{}={token}", self.address.port());
         self.status("GET", "/", &[("Cookie", &cookie)])
     }
 }

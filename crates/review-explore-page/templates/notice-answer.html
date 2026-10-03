@@ -1,8 +1,8 @@
 {#- Why the reviewer's answer was not sent. -#}
 {%- if notice.problem.kind == "stale" -%}
-Your answer was not sent: this question no longer waits for an answer. It was answered in the reviewer or in another tab, or the round moved on. The page shows the round as it is now.
+Your answer was not sent: this question no longer waits for an answer. It was answered in the pane or in another tab, or the round moved on. The page shows the round as it is now.
 {%- elif notice.problem.kind == "failed" -%}
 Your answer was not sent: {{ notice.problem.reason }}
 {%- else -%}
-The reviewer did not reply. Load this page again to see whether it took your answer.
+The review tool did not reply. Load this page again to see whether it took your answer.
 {%- endif -%}

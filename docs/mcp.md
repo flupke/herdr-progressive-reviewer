@@ -191,9 +191,15 @@ Explore starts with a kickoff prompt containing the repository root, comparison
 identity, first request ID, the change description and interview instructions. In
 jj the description is the reviewed change's, quoted line by line with `> `; a Git
 working tree, or a change without a description, shows `Change description: none`.
-The agent inspects the code and calls `submit_question` directly to post the first
-question, about the change's stated purpose or its largest or riskiest unreviewed
-area.
+The agent inspects the code and calls `submit_question` to post the first question,
+about the change's stated purpose, the design decision the rest builds on, or its largest
+or riskiest unreviewed area. That first call also carries `design`, the design of the
+change in four Markdown parts: `overview` (what the change adds and where), `data_flow`
+(its main types and how data flows through them), `algorithm` (the algorithm and its
+cost) and `alternatives` (the alternatives the implementer rejected). The tool refuses a
+first question without `design`, a part left blank, and `design` on any later turn. A
+change that raises no question gets `submit_conclusion` at once, with the design in its
+summary.
 
 When the review has earlier rounds, the kickoff then lists the questions the reviewer
 decided in them, oldest first, so a fresh reader such as a Challenger does not ask
@@ -251,8 +257,8 @@ guide). Rounds saved before this field existed load without proposals.
 
 After a human contribution, the shared prompt delivery sends a plain-text wakeup. It
 opens with the rules for a later turn (interpreting the answer, marking lines, agenda
-changes and concluding), followed, as in the kickoff, by preparing the next question and
-the not-relevant rules, so those rules travel with each answer, then gives:
+changes and concluding), followed, as in the kickoff, by the quiz rules, preparing the
+next question and the not-relevant rules, so those rules travel with each answer, then gives:
 
 ```text
 Explore review access: temporary-access

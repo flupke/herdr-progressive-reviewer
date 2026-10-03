@@ -58,7 +58,9 @@ cargo test -p review-ui real_rust_lsp -- --ignored --nocapture
 ```
 
 Explore's domain, Git/jj comparison, durable inputs and isolated selected-agent MCP
-tests use deterministic responses; CI does not call a model API. Its optional UI
+tests use deterministic responses and call no model API. (The Explore page's e2e
+tests in `make check` call a model only for a goal with no valid recording: see
+[Agent steps and the model](#agent-steps-and-the-model).) Its optional UI
 test uses real rust-analyzer to navigate working-copy sources and reject a
 delayed result for another evidence window. Unchanged sources are resolved on demand without a repository catalog or capture. Explore assumes code stays unchanged during review;
 it does not check freshness or suspend decisions after edits. The real-agent acceptance demo

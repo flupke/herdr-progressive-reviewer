@@ -31,11 +31,12 @@ impl ExploreComponent {
         vec![Action::Explore(Command::Cancel)]
     }
 
-    /// Show the round of a kickoff that another front end, such as the Explore page, posted
-    /// while the pane shows its start screen: the agent works on its kickoff. Returns whether
-    /// `event` is such a kickoff.
+    /// Show the round of a kickoff that the Explore page posted while the pane waits for the
+    /// round it started: the agent works on its kickoff. Returns whether `event` is such a
+    /// kickoff. A kickoff that arrives after Stop waiting belongs to the round the session
+    /// cancels next, and the pane stays on its start screen.
     pub(super) fn adopt_started(&mut self, event: &ExplorePosted) -> bool {
-        if !self.on_start_screen() || !event.request.is_kickoff() {
+        if !self.awaiting_page_start() || !event.request.is_kickoff() {
             return false;
         }
         match &event.result {

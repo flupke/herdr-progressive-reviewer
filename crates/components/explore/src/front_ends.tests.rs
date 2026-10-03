@@ -297,6 +297,7 @@ impl Pane {
 #[test]
 fn a_round_started_elsewhere_shows_in_the_pane_as_one_started_there() {
     let mut pane = Pane::starting();
+    pane.bus.publish(ExplorePageStart(Ok(()))).unwrap();
     let (kickoff, round) = started_elsewhere(true);
 
     pane.bus
@@ -340,6 +341,7 @@ fn a_round_started_elsewhere_shows_in_the_pane_as_one_started_there() {
 #[test]
 fn a_failed_kickoff_of_a_round_started_elsewhere_offers_retry_in_the_pane() {
     let mut pane = Pane::starting();
+    pane.bus.publish(ExplorePageStart(Ok(()))).unwrap();
     let (kickoff, round) = started_elsewhere(false);
     pane.bus
         .publish(ExplorePosted {
@@ -417,6 +419,25 @@ fn the_pane_stops_a_round_starting_on_the_page() {
     let component = pane.component();
     assert!(component.progress == Progress::Ready);
     assert!(component.exploration.is_none());
+}
+
+#[test]
+fn a_kickoff_saved_after_the_pane_stopped_the_page_start_leaves_the_start_screen() {
+    let mut pane = Pane::starting();
+    pane.bus.publish(ExplorePageStart(Ok(()))).unwrap();
+    pane.component().cancel();
+    let (kickoff, round) = started_elsewhere(false);
+
+    pane.bus
+        .publish(ExplorePosted {
+            request: kickoff,
+            result: Ok(Arc::new(round)),
+        })
+        .unwrap();
+
+    let component = pane.component();
+    assert!(component.exploration.is_none(), "the session cancels it");
+    assert!(component.progress == Progress::Ready);
 }
 
 #[test]

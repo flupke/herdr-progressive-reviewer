@@ -53,7 +53,7 @@ test('a question that is hard to reverse hides the recommendation until the revi
   expect(shown).not.toEqual([...POSTED, 'none-of-the-above']);
   expect([...shown].sort()).toEqual([...POSTED, 'none-of-the-above'].sort());
   await expect(screen.getByRole('radio', { checked: true })).toHaveCount(0);
-  await expect(screen.getByText(RECOMMENDATION, { exact: false })).toBeHidden();
+  await expect(screen.getByText(RECOMMENDATION, { exact: false })).toHaveCount(0);
 
   await agent.act('choose "Overwrite the older file" on question 1 and press Pick, without sending an answer yet');
   await expect(screen.getByText(RECOMMENDATION, { exact: false })).toBeVisible();

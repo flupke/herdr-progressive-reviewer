@@ -73,11 +73,12 @@ impl QuizAnswers {
                 Ok(skips)
             }
             QuizResponse::Pick { item, answer } => {
+                // The indices come from a form post: number them without overflow.
                 if let Some(earlier) = self.pick(item) {
                     eyre::ensure!(
                         earlier.answer == answer,
                         "quiz item {} has another answer already",
-                        item + 1
+                        item.saturating_add(1)
                     );
                     return Ok(false);
                 }
@@ -85,16 +86,16 @@ impl QuizAnswers {
                 eyre::ensure!(
                     item == self.picks.len(),
                     "quiz item {} is not the next to answer",
-                    item + 1
+                    item.saturating_add(1)
                 );
-                let options = quiz
-                    .get(item)
-                    .ok_or_else(|| eyre::eyre!("the quiz has no item {}", item + 1))?;
+                let options = quiz.get(item).ok_or_else(|| {
+                    eyre::eyre!("the quiz has no item {}", item.saturating_add(1))
+                })?;
                 eyre::ensure!(
                     answer < options.answers.len(),
                     "quiz item {} has no option {}",
-                    item + 1,
-                    answer + 1
+                    item.saturating_add(1),
+                    answer.saturating_add(1)
                 );
                 self.picks.push(QuizPick {
                     item,

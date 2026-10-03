@@ -378,16 +378,23 @@ if you had given it in the reviewer's Explore tab, which shows it under the ques
 Above **Send**, the page says how many lines your answer will mark reviewed and not
 relevant; open that line to list them. Once you send, the page shows that the agent is
 working, then its next question or its conclusion as soon as the agent posts it. When
-the reviewer cannot deliver the prompt to the agent, the page says why: Retry in the
-reviewer. A Cancel answer or a Reset in the reviewer shows on a page that waits for the
+the reviewer cannot deliver the prompt to the agent, the page says why, and asks you to
+retry in the pane. A Cancel answer or a Reset in the reviewer shows on a page that waits for the
 agent.
 
 An answer is recorded once. When the question already has an answer, given in the
 reviewer or in another tab, or the round moved on since the page was loaded, the page
 refuses to send yours, says so, and shows the round as it is now. In every state but the
-round starting and the agent working, the page changes only when you load it again,
-start a round or send an answer: after you answer a question in the reviewer, load the
-page again to follow the agent's next turn.
+round starting, the agent working and an implementation request being sent, the page
+changes only when you load it again or come back to it, start a round or send an answer:
+after you answer a question in the reviewer, load the page again to follow the agent's next
+turn.
+
+When the agent's conclusion carries a quiz, the page first asks its few questions about
+how the system works after the change, one at a time: pick an answer and press **Check**,
+and the page says at once whether it is correct, why, and which lines prove it. **Skip the
+quiz** goes straight to the conclusion. The picks are saved with the round, and the
+conclusion then shows the result folded beside it. The pane shows no quiz.
 
 The conclusion shows the agent's summary, the list to be implemented and the future
 work. The list is plain text that you can edit before you press **Implement**, which
@@ -399,6 +406,11 @@ from another tab, the page refuses another and shows the request that was sent. 
 the request could not be sent, the page says why and offers **Implement** again with your
 list. A request saved before the reviewer was reopened, or one whose delivery is
 unknown, is handled in the reviewer.
+
+The round opens with the design of the change, which the agent explains before its first
+question: what the change adds and where, its types and data flow, its algorithm and cost,
+and the alternatives the implementer rejected. The page shows it open above question 1 and
+folded above every later stage, so you can open it again; the pane shows it before question 1.
 
 A question's explanation is its Context, which the agent writes in Markdown: short
 paragraphs, lists, code, and tables whose cells can carry a good, bad or warning mark, and
@@ -431,8 +443,9 @@ between.
 
 ### Open the page from a phone
 
-The end of each Explore page in the pane, the start screen included, shows the address of
-the page on the network and its QR code. Scan it with a phone or a tablet on the same
+The end of the pane's Explore tab, on every screen of it, the start screen included, shows
+the address of the page on the network and its QR code; a pane too narrow for the code shows
+the address alone. Scan it with a phone or a tablet on the same
 network to start a round there, or to follow the running round. A page whose round was
 reset or replaced while the phone slept says that its address no longer opens a round:
 scan the new code. The reviewer serves this page on a second listener, on the address of
