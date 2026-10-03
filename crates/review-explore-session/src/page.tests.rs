@@ -2,13 +2,16 @@
 
 use review_explore::Command;
 use review_explore_page::RoundStage;
+use review_repository::diff::DiffRow;
 
 use super::*;
 
 /// The number and text of the question the page shows, or `None` in another stage.
 fn shown_question(stage: &RoundStage) -> Option<(usize, String)> {
     match stage {
-        RoundStage::Question { number, question } => Some((*number, question.id.clone())),
+        RoundStage::Question {
+            number, question, ..
+        } => Some((*number, question.id.clone())),
         _ => None,
     }
 }
@@ -130,4 +133,48 @@ fn the_page_tells_each_round_from_the_next() {
     harness.turn(&next);
     assert!(harness.page.round().is_some());
     assert_ne!(harness.page.round(), round);
+}
+
+#[test]
+fn the_page_shows_the_lines_each_citation_of_the_question_names() {
+    let mut harness = Harness::start();
+    harness.capture();
+    let first = harness.request(None);
+    let access = harness.turn(&first);
+
+    assert!(applied(harness.submit(&access, question(&first, 1))));
+
+    let RoundStage::Question { citations, .. } = harness.page.stage() else {
+        panic!("the page shows {:?}", harness.page.stage());
+    };
+    let [citation] = &citations[..] else {
+        panic!("the page shows {} citations", citations.len());
+    };
+    assert_eq!(citation.evidence.location.to_string(), "reviewed.rs new 1");
+    assert_eq!(citation.evidence.notes, "Implements the policy");
+    let rows = citation.lines.as_ref().unwrap();
+    let shown: Vec<_> = rows
+        .iter()
+        .map(|row| {
+            let text: String = row.tokens.iter().map(|token| token.text.as_str()).collect();
+            (row.diff.clone(), text)
+        })
+        .collect();
+    assert_eq!(
+        shown,
+        [(
+            DiffRow::Add {
+                new_line: 1,
+                text: "+pub fn reviewed() {}".into()
+            },
+            "pub fn reviewed() {}".into()
+        )]
+    );
+    assert!(
+        matches!(
+            harness.store.load(&harness.unit, b"reviewed.rs").unwrap(),
+            review_store::LoadResult::Unreviewed
+        ),
+        "showing a citation marks none of its lines"
+    );
 }

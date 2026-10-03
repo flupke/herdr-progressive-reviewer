@@ -1,0 +1,56 @@
+{
+  "schemaVersion": "trace-1",
+  "createdAt": "2026-10-03T21:06:10.793Z",
+  "payload": {
+    "actions": [
+      {
+        "name": "tap",
+        "summary": "tap node \"1 more citation\"",
+        "target": {
+          "text": "1 more citation"
+        }
+      }
+    ],
+    "executor": {
+      "name": "e2e-default-agent",
+      "version": "2"
+    },
+    "recordedFor": {
+      "testId": "tests/citations.e2e.ts::a%20question%20shows%20the%20lines%20it%20cites%2C%20in%20the%20order%20the%20agent%20gave",
+      "targetId": "desktop",
+      "instructionDigest": "5e7b7514762628473c3397f34f8010e033355a1b793fc82757de95893b7d5cc1"
+    },
+    "summary": "Expanded \"1 more citation\" on Question 1. Both citations are now visible: src/drafts.rs new 7-8 and src/drafts.rs new 1-4.",
+    "startPath": "/",
+    "endPath": "/",
+    "endAnchors": [
+      {
+        "role": "heading",
+        "name": "Question 1"
+      },
+      {
+        "text": "Should a reopened round keep the reviewer's unsent draft?"
+      },
+      {
+        "role": "heading",
+        "name": "Citations"
+      },
+      {
+        "text": "src/drafts.rs new 7-8"
+      },
+      {
+        "text": "reopen() no longer clears the draft: this is the decision."
+      },
+      {
+        "text": "pub"
+      },
+      {
+        "text": "fn"
+      },
+      {
+        "text": "reopen"
+      }
+    ],
+    "endWaitMs": 12641
+  }
+}

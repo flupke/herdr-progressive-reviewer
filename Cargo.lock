@@ -3952,6 +3952,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "review-explore-citations"
+version = "0.2.0"
+dependencies = [
+ "ratatui 0.30.2",
+ "review-explore",
+ "review-repository",
+ "syntax-highlighting",
+ "two-face",
+]
+
+[[package]]
 name = "review-explore-page"
 version = "0.2.0"
 dependencies = [
@@ -3960,6 +3971,8 @@ dependencies = [
  "minijinja",
  "notify",
  "review-explore",
+ "review-explore-citations",
+ "review-repository",
  "serde",
  "serde_json",
  "tokio",
@@ -3987,7 +4000,10 @@ version = "0.2.0"
 dependencies = [
  "axum",
  "review-explore",
+ "review-explore-citations",
  "review-explore-page",
+ "review-repository",
+ "review-source",
  "serde_json",
  "tokio",
 ]
@@ -4013,6 +4029,7 @@ dependencies = [
  "eyre",
  "herdr-client",
  "review-explore",
+ "review-explore-citations",
  "review-explore-page",
  "review-explore-runner",
  "review-hunks",

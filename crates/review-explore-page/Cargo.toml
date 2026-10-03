@@ -12,6 +12,8 @@ markdown-html = { path = "../markdown-html" }
 minijinja.workspace = true
 notify.workspace = true
 review-explore = { path = "../review-explore" }
+review-explore-citations = { path = "../review-explore-citations" }
+review-repository = { path = "../review-repository" }
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

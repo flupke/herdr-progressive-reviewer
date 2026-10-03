@@ -364,6 +364,13 @@ sections are folded away until you open them. The page shows raw HTML in the age
 text. In the pane, a callout opens with its title and a marked cell with its mark (✓, ✗ or
 !).
 
+Under a question, the page shows the question's citations in the order the agent gave
+them, most decisive first: each with the agent's note and the cited lines as rows of the
+diff, with their line numbers and syntax colors. The other citations stay folded under the
+first one until you open them. A citation of a whole file, or of a file that is not text,
+says so instead of showing lines. On a narrow screen, scroll a long line sideways. Reading
+a citation on the page marks none of its lines reviewed.
+
 The action opens the page on this machine (`127.0.0.1`), on a port chosen when the reviewer
 starts. Its address carries a token that changes each time the reviewer starts: the page
 refuses a request without it, and a request from another site. Run the action again

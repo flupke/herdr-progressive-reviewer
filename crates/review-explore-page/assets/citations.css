@@ -1,0 +1,56 @@
+/* The question's citations: each note, then the cited lines as rows of the diff. A long row
+   scrolls sideways at its natural size; nothing shrinks the code to fit a phone. */
+.citations h3 { font-size: 1em; margin: 16px 0 8px; }
+.citations details { margin-top: 8px; }
+.citations summary { cursor: pointer; padding: 6px 0; }
+.citation { margin: 8px 0 16px; }
+.citation h4 { margin: 0; font-size: 0.9em; overflow-wrap: anywhere; }
+.citation h4 code, .code table { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.citation .notes { margin: 4px 0 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.citation .limitation { margin: 0; padding: 8px 10px; border: 1px dashed var(--line); border-radius: 6px; font-size: 0.9em; opacity: 0.85; }
+.code { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; -webkit-overflow-scrolling: touch; }
+.code table { border-collapse: collapse; min-width: 100%; font-size: 14px; line-height: 1.5; }
+.code td { padding: 0 6px; white-space: pre; vertical-align: top; }
+.code td.number { text-align: right; opacity: 0.6; user-select: none; min-width: 2ch; }
+.code td.sign { user-select: none; padding: 0 2px; }
+.code td.line { padding-right: 12px; width: 100%; }
+.code tr.added { background: color-mix(in srgb, #40a02b 16%, transparent); }
+.code tr.removed { background: color-mix(in srgb, #d20f39 14%, transparent); }
+
+/* Syntax colors: the server names each token's color by its role in the Catppuccin palette
+   (PALETTE in crates/review-explore-citations, which holds the Mocha colors below). Latte on a
+   light page, Mocha on a dark one. */
+.c-rosewater { color: #dc8a78; }
+.c-flamingo { color: #dd7878; }
+.c-pink { color: #ea76cb; }
+.c-mauve { color: #8839ef; }
+.c-red { color: #d20f39; }
+.c-maroon { color: #e64553; }
+.c-peach { color: #fe640b; }
+.c-yellow { color: #a86a0b; } /* Latte yellow, darkened to read on white */
+.c-green { color: #40a02b; }
+.c-teal { color: #179299; }
+.c-sky { color: #04a5e5; }
+.c-sapphire { color: #209fb5; }
+.c-blue { color: #1e66f5; }
+.c-lavender { color: #7287fd; }
+.c-overlay2 { color: #7c7f93; }
+@media (prefers-color-scheme: dark) {
+  .code tr.added { background: color-mix(in srgb, #a6e3a1 14%, transparent); }
+  .code tr.removed { background: color-mix(in srgb, #f38ba8 14%, transparent); }
+  .c-rosewater { color: #f5e0dc; }
+  .c-flamingo { color: #f2cdcd; }
+  .c-pink { color: #f5c2e7; }
+  .c-mauve { color: #cba6f7; }
+  .c-red { color: #f38ba8; }
+  .c-maroon { color: #eba0ac; }
+  .c-peach { color: #fab387; }
+  .c-yellow { color: #f9e2af; }
+  .c-green { color: #a6e3a1; }
+  .c-teal { color: #94e2d5; }
+  .c-sky { color: #89dceb; }
+  .c-sapphire { color: #74c7ec; }
+  .c-blue { color: #89b4fa; }
+  .c-lavender { color: #b4befe; }
+  .c-overlay2 { color: #9399b2; }
+}

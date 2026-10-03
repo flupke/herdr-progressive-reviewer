@@ -87,7 +87,10 @@ the pane's renderer and the kickoff prompt all read them from there.
 
 In the reviewer, the Explore session publishes the stage of its round (no
 round, the agent working, a question, an interrupted turn, the conclusion)
-after each input it handles, and
+after each input it handles, with the lines of the change that each citation of a
+question names (`Comparison::cited_lines`, on the `cited_source` lookup of the pane's
+evidence viewer), colored once per question on the session's thread by
+[`crates/review-explore-citations`](../crates/review-explore-citations), and
 [`crates/review-explore-page-host`](../crates/review-explore-page-host) serves
 the page of that round on a free loopback port behind a new token. It records
 the page's address, readable only by the user, under

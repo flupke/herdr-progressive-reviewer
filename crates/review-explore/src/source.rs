@@ -28,6 +28,21 @@ pub enum SourceSide {
     New,
 }
 
+impl SourceSide {
+    /// `old` on the old side, `new` on the new side.
+    pub(crate) fn pick<T>(self, old: T, new: T) -> T {
+        match self {
+            Self::Old => old,
+            Self::New => new,
+        }
+    }
+
+    /// The path of `file` on this side, when the file exists there.
+    pub(crate) fn path_in(self, file: &ChangedFile) -> Option<&RepoPath> {
+        self.pick(file.old_path.as_ref(), file.new_path.as_ref())
+    }
+}
+
 /// `old` or `new`, as citations name the sides.
 impl std::fmt::Display for SourceSide {
     fn fmt(&self, output: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

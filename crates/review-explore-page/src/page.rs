@@ -11,9 +11,11 @@ use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use review_explore::{Alternative, Assessments, Conclusion, Question, QuestionSection};
+use review_explore_citations::Citation;
 use serde::{Deserialize, Serialize};
 
 use crate::access::{Hosts, TokenCookie};
+use crate::citation::CitationContext;
 use crate::files::PageFiles;
 use crate::round::{RoundFeed, RoundSnapshot, RoundStage, Rounds};
 
@@ -224,6 +226,8 @@ struct QuestionContext<'a> {
     sections: Vec<QuestionSection>,
     /// The agent's alternatives, then None of the above.
     choices: Vec<&'a Alternative>,
+    /// The question's citations, most decisive first.
+    citations: Vec<CitationContext<'a>>,
 }
 
 /// The stage's name, as the template tests it: `no_round`, `working` (the page polls its status
@@ -243,9 +247,13 @@ impl<'a> PageContext<'a> {
         let (stage, question, conclusion) = match &round.stage {
             RoundStage::NoRound => (Stage::NoRound, None, None),
             RoundStage::AgentWorking => (Stage::Working, None, None),
-            RoundStage::Question { number, question } => (
+            RoundStage::Question {
+                number,
+                question,
+                citations,
+            } => (
                 Stage::Question,
-                Some(QuestionContext::new(*number, question)),
+                Some(QuestionContext::new(*number, question, citations)),
                 None,
             ),
             RoundStage::Interrupted => (Stage::Interrupted, None, None),
@@ -262,7 +270,7 @@ impl<'a> PageContext<'a> {
 }
 
 impl<'a> QuestionContext<'a> {
-    fn new(number: usize, question: &'a Question) -> Self {
+    fn new(number: usize, question: &'a Question, citations: &'a [Citation]) -> Self {
         Self {
             number,
             text: &question.text,
@@ -273,6 +281,7 @@ impl<'a> QuestionContext<'a> {
                 .flat_map(Assessments::sections)
                 .collect(),
             choices: question.choices().collect(),
+            citations: citations.iter().map(CitationContext::new).collect(),
         }
     }
 }

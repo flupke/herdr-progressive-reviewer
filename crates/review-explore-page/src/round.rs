@@ -1,6 +1,9 @@
 //! What the page shows of an Explore round, as the session that owns the round publishes it.
 
+use std::sync::Arc;
+
 use review_explore::{Conclusion, Question};
+use review_explore_citations::Citation;
 use tokio::sync::watch;
 
 /// The step of a round that the page shows.
@@ -15,6 +18,8 @@ pub enum RoundStage {
         /// The question's position in the round, from 1.
         number: usize,
         question: Box<Question>,
+        /// The question's citations, in the order the agent gave them.
+        citations: Arc<[Citation]>,
     },
     /// The agent is not working on the turn the round waits for: its prompt failed, the
     /// reviewer stopped waiting, or the reviewer reopened during the turn. The reviewer

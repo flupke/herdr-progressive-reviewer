@@ -1,5 +1,5 @@
 use crate::{LoadedDocument, SourceViewer, presentation::DiffPresentation};
-use review_explore::{Comparison, EvidenceRef, SourceSide};
+use review_explore::{CitedSource, Comparison, EvidenceRef, SourceSide, Uncitable};
 use review_repository::diff::parse_file_diff;
 use std::sync::Arc;
 use ui_actions::Action;
@@ -190,30 +190,22 @@ impl SourceViewer {
         let Some(evidence) = event.evidence.get(reference) else {
             return Vec::new();
         };
-        let Some(source) = event.comparison.source(&evidence.location) else {
-            return Vec::new();
-        };
-        let content = match source.read_text(&self.repository_root) {
-            Ok(content) => content,
-            Err(error) => {
-                self.evidence.limitation = Some(format!(
-                    "File-level evidence · non-text or unavailable source: {error}"
-                ));
+        let cited = match event
+            .comparison
+            .cited_source(&evidence.location, &self.repository_root)
+        {
+            Ok(cited) => cited,
+            Err(Uncitable::Path) => return Vec::new(),
+            Err(limitation) => {
+                self.evidence.limitation = Some(limitation.to_string());
                 return Vec::new();
             }
         };
-        if evidence.location.lines.as_ref().is_some_and(|range| {
-            range.first_line == 0
-                || range.last_line < range.first_line
-                || range.last_line as usize > content.lines().count()
-        }) {
-            self.evidence.limitation =
-                Some("The saved evidence range is unavailable in this source.".into());
-            return Vec::new();
-        }
-        let file = event.comparison.files.iter().position(|file| match source.side {
-            SourceSide::Old => file.old_path.as_ref(), SourceSide::New => file.new_path.as_ref(),
-        } == Some(&source.path));
+        let CitedSource {
+            source,
+            content,
+            file,
+        } = cited;
         if let Some(index) = file {
             return self.open_changed_evidence(
                 &event.comparison,

@@ -12,6 +12,7 @@
 //! round needs that cookie.
 
 mod access;
+mod citation;
 mod files;
 mod page;
 mod round;

@@ -94,6 +94,8 @@ pub struct ExploreSession {
     inbox: Inbox,
     turns: Option<TurnLog>,
     page: RoundPublisher,
+    /// The citations of the question the page shows.
+    citations: page::PageCitations,
     /// The unreviewed lines of the latest prompt, as files.
     diffs: Option<unreviewed_diffs::UnreviewedDiffs>,
     state: State,
@@ -170,6 +172,7 @@ impl ExploreSession {
             inbox,
             turns,
             page,
+            citations: page::PageCitations::default(),
             diffs: None,
             state: State::default(),
         }
