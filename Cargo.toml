@@ -26,6 +26,7 @@ members = [
     "crates/markdown-html",
     "crates/markdown-marks",
     "crates/markdown-rendering",
+    "crates/mermaid-js",
     "crates/syntax-highlighting",
     "crates/ui-actions",
     "crates/ui-controls",
@@ -72,6 +73,7 @@ base64 = "0.22"
 crossterm = "0.29"
 crossbeam-channel = "0.5"
 eyre = "0.6"
+flate2 = "1.1"
 edtui = { version = "=0.11.7", default-features = false }
 fs2 = "0.4"
 futures = "0.3"

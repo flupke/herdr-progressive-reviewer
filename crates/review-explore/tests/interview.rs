@@ -552,3 +552,5 @@ fn only_the_first_turn_explains_the_design() {
     assert!(exploration.apply(response).unwrap());
     assert_eq!(exploration.design(), Some(&design()));
 }
+#[path = "interview/diagram.rs"]
+mod diagram;

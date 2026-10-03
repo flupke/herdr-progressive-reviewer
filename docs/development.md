@@ -91,6 +91,20 @@ and keeps a fenced block's language as the class `language-<name>` of its
 defined once in [`crates/markdown-marks`](../crates/markdown-marks): the page,
 the pane's renderer and the kickoff prompt all read them from there.
 
+A fenced `mermaid` block is a diagram, which `assets/diagrams.js` draws in the
+browser with Mermaid, again with its dark theme when the page turns dark, at
+the diagram's natural size in a frame that scrolls sideways. Mermaid is
+vendored, pinned and gzipped at build time in
+[`crates/mermaid-js`](../crates/mermaid-js) (its `vendor/README.md` says how to
+move to another version); the page serves it itself, loads it only when it
+shows a diagram, and lets the browser keep it, since its address names its
+version. Mermaid writes inline styles into each diagram, so the page's content
+security policy allows inline styles (`style-src 'self' 'unsafe-inline'`); it
+still allows scripts only from the page itself. The tool cannot check a diagram
+when the agent submits it: when Mermaid cannot parse one, the page shows its
+source with Mermaid's message and posts the error to `/diagram-errors`, and the
+Explore session saves it with the question (`Exploration::diagram_errors`).
+
 In the reviewer, the Explore session publishes the stage of its round (no
 round, the agent working, a question, an interrupted turn, the conclusion)
 after each input it handles, with the lines of the change that each citation of a
@@ -193,15 +207,18 @@ answers it in the pane, `explore.cancelAnswerInPane()` cancels that answer,
 `explore.failDelivery()` fails the prompt of the agent's next turn, and
 `explore.interrupt()`, `explore.conclude()` and `explore.reset()` move the
 round to the other stages. An answer sent from the page puts the agent to work,
-and `explore.answers()` returns what the page sent. The server's control
-routes are listed in
+and `explore.answers()` returns what the page sent; `explore.diagramErrors()`
+returns the diagram errors the page reported, as the review tool saves them.
+The second fixed question carries a diagram that draws and one that does not
+parse. The server's control routes are listed in
 [`control.rs`](../crates/review-explore-page-server/src/control.rs); a
 `question` step takes an optional JSON `Question` body for a question of the
 test's own. The server's log of each
 target is in
 `tests/explore-page/.e2e/logs/`; a failed run prints its end. The run also
 fails when the browser reports that the page broke its content security policy,
-which allows scripts and styles only from the page itself. A failing test
+which allows scripts and styles only from the page itself, and inline styles
+for Mermaid's diagrams. A failing test
 leaves the accessibility tree of the page and a Playwright trace under
 `tests/explore-page/.e2e/artifacts/`.
 

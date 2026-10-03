@@ -386,6 +386,12 @@ first one until you open them. A citation of a whole file, or of a file that is 
 says so instead of showing lines. On a narrow screen, scroll a long line sideways. Reading
 a citation on the page marks none of its lines reviewed.
 
+The agent may also draw a diagram, as a fenced `mermaid` block: the page draws it with Mermaid,
+which the reviewer serves itself, so the page needs no internet access. A wide diagram keeps its
+size and scrolls sideways. When Mermaid cannot read a diagram, the page shows its source with
+Mermaid's message, and the reviewer saves the error with the question. The pane shows a diagram
+as its source.
+
 The action opens the page on this machine (`127.0.0.1`), on a port chosen when the reviewer
 starts. Its address carries a token that changes each time the reviewer starts: the page
 refuses a request without it, and a request from another site. Run the action again

@@ -119,6 +119,12 @@ A quote in the agent's Markdown that opens with a marker, such as `[!TIP]`, for 
 conclusion, a tip, a warning or an error. It shows as a block titled with its kind.
 _Avoid_: alert, admonition
 
+**Diagram**:
+A fenced `mermaid` block in the agent's Markdown, which the Explore page draws
+with Mermaid. A diagram Mermaid cannot parse shows as its source, and its error
+is saved with the question.
+_Avoid_: chart, figure
+
 **Status mark**:
 A good, bad or warning mark at the start of a table cell in the agent's Markdown,
 written as a marker such as `[!good]`.

@@ -194,6 +194,9 @@ pub struct Exploration {
     /// A fresh-context subagent of the agent reviews the change beside it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub challenger: bool,
+    /// The diagrams of posted questions that the Explore page could not draw.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagram_errors: Vec<crate::DiagramError>,
 }
 
 impl Exploration {
@@ -214,6 +217,7 @@ impl Exploration {
             retry: None,
             cancelled: Vec::new(),
             challenger: false,
+            diagram_errors: Vec::new(),
         }
     }
 

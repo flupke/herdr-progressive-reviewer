@@ -3060,6 +3060,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "mermaid-js"
+version = "0.2.0"
+dependencies = [
+ "flate2",
+]
+
+[[package]]
 name = "mime"
 version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3969,6 +3976,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "markdown-html",
+ "mermaid-js",
  "minijinja",
  "notify",
  "review-explore",
@@ -4015,6 +4023,7 @@ name = "review-explore-runner"
 version = "0.2.0"
 dependencies = [
  "markdown-marks",
+ "mermaid-js",
  "review-explore",
  "review-repository",
  "review-source",

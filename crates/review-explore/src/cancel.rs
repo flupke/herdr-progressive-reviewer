@@ -78,6 +78,7 @@ impl Exploration {
                 .cloned();
             self.absorb(turn.update, answer.as_ref());
         }
+        self.forget_diagram_errors_of_withdrawn_questions();
     }
 }
 

@@ -1,0 +1,9 @@
+/* Diagrams drawn by Mermaid (assets/diagrams.js): at their natural size, in a frame that scrolls
+   sideways when the column is narrower; and a diagram Mermaid could not draw, as its source and
+   Mermaid's message. */
+.markdown .diagram { margin: 0 0 12px; overflow-x: auto; }
+.markdown .diagram > svg { display: block; height: auto; }
+.markdown .diagram.failed { border-left: 4px solid var(--bad); border-radius: 0 6px 6px 0; padding: 8px 12px; background: color-mix(in srgb, var(--bad) 8%, transparent); }
+.markdown .diagram.failed > pre { margin-bottom: 8px; }
+.markdown .diagram figcaption > p { color: var(--bad); font-weight: 650; margin: 0 0 4px; }
+.markdown .diagram figcaption > pre { margin: 0; overflow-x: auto; background: none; padding: 0; font: 0.85em/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }

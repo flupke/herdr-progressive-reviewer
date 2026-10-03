@@ -19,14 +19,17 @@ use serde::{Deserialize, Serialize};
 use crate::access::{Hosts, TokenCookie};
 use crate::citation::CitationContext;
 use crate::command::{PageAnswer, PageCommand};
+use crate::diagram::{self, Diagrams};
 use crate::files::PageFiles;
 use crate::notice::Notice;
 use crate::round::{PageRound, QuestionMarks, RoundSnapshot, RoundStage, Rounds};
 
-/// Scripts, styles and form posts only from the page itself, and no inline script or style.
-/// The browser reports what the policy blocks to `/csp-report`.
+/// Scripts, styles and form posts only from the page itself, and no inline script. Inline
+/// styles are allowed for Mermaid, which writes them into each diagram it draws: without them
+/// its boxes and labels are misplaced. The browser reports what the policy blocks to
+/// `/csp-report`.
 const CONTENT_SECURITY_POLICY: &str = "default-src 'none'; script-src 'self'; \
-     style-src 'self'; connect-src 'self'; img-src 'self'; form-action 'self'; \
+     style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self'; form-action 'self'; \
      base-uri 'none'; frame-ancestors 'none'; report-uri /csp-report";
 
 /// Every response is read again, never from the browser's cache.
@@ -81,8 +84,11 @@ impl<R: Rounds> ExplorePage<R> {
     /// The page's routes, and the caller's own `routes`, all behind the page's [`Hosts`].
     pub fn into_router(self, routes: Router) -> Router {
         let page = Arc::new(self);
+        let (script_path, script) = diagram::script_route::<R>();
         Router::new()
             .route("/", get(index::<R>))
+            .route(&script_path, script)
+            .route("/diagram-errors", diagram::report_route::<R>())
             .route("/status", get(status))
             .route("/answer", post(answer))
             .route("/assets/{name}", get(asset::<R>))
@@ -159,7 +165,7 @@ impl<R: Rounds> ExplorePage<R> {
 }
 
 /// A request the page refused, once logged.
-struct Refused;
+pub(crate) struct Refused;
 
 impl IntoResponse for Refused {
     fn into_response(self) -> Response {
@@ -187,7 +193,7 @@ async fn admit_host<R: Rounds>(
 
 /// The round of a request whose cookie carries a round's token. Every route that reads or
 /// changes a round requires it.
-struct Admitted(PageRound);
+pub(crate) struct Admitted(pub(crate) PageRound);
 
 impl<R: Rounds> FromRequestParts<Arc<ExplorePage<R>>> for Admitted {
     type Rejection = Refused;
@@ -269,6 +275,8 @@ struct PageContext<'a> {
     notice: Option<&'a Notice>,
     /// The design of the change, as the round's first turn explained it.
     design: Option<DesignContext>,
+    /// Where the page finds Mermaid, and the fence of a diagram block.
+    diagrams: Diagrams,
     /// The count of file changes, in development only: the page reloads when it changes.
     dev_version: Option<u64>,
 }
@@ -344,6 +352,7 @@ impl<'a> PageContext<'a> {
                 .design
                 .as_deref()
                 .map(|design| DesignContext::new(design, &round.stage)),
+            diagrams: Diagrams::new(),
             dev_version,
         };
         match &round.stage {

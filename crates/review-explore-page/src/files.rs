@@ -23,6 +23,7 @@ const TEMPLATES: &[(&str, &str)] = &[
     ("marks.html", include_str!("../templates/marks.html")),
     ("failure.html", include_str!("../templates/failure.html")),
     ("design.html", include_str!("../templates/design.html")),
+    ("diagrams.html", include_str!("../templates/diagrams.html")),
 ];
 
 /// Assets by name, with their content type.
@@ -55,6 +56,18 @@ const ASSETS: &[Asset] = &[
         name: "citations.css",
         content_type: "text/css",
         body: include_str!("../assets/citations.css"),
+        development: false,
+    },
+    Asset {
+        name: "diagrams.js",
+        content_type: "text/javascript",
+        body: include_str!("../assets/diagrams.js"),
+        development: false,
+    },
+    Asset {
+        name: "diagrams.css",
+        content_type: "text/css",
+        body: include_str!("../assets/diagrams.css"),
         development: false,
     },
     Asset {

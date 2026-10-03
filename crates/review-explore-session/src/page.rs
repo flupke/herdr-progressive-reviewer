@@ -69,6 +69,7 @@ impl ExploreSession {
     pub(crate) fn page_command(&mut self, command: PageCommand) -> Result<(), CommandRefusal> {
         match command {
             PageCommand::Answer(answer) => self.answer_from_page(answer),
+            PageCommand::DiagramFailed(error) => self.diagram_failed(error),
         }
     }
 

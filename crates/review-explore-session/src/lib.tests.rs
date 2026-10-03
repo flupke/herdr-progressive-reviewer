@@ -21,6 +21,8 @@ const CONCLUSION: &str = "Keep the policy.";
 
 #[path = "cancel.tests.rs"]
 mod cancel;
+#[path = "diagram.tests.rs"]
+mod diagram;
 #[path = "front_ends.tests.rs"]
 mod front_ends;
 #[path = "page.tests.rs"]

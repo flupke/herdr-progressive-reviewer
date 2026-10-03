@@ -3,7 +3,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use review_explore::AnswerInput;
+use review_explore::{AnswerInput, DiagramError};
 use tokio::sync::oneshot;
 
 use crate::notice::Notice;
@@ -17,6 +17,9 @@ const REPLY_TIMEOUT: Duration = Duration::from_secs(30);
 pub enum PageCommand {
     /// Answer the question the page showed.
     Answer(PageAnswer),
+    /// Mermaid could not draw a diagram of the question the page showed: save the error with
+    /// the question.
+    DiagramFailed(DiagramError),
 }
 
 /// The reviewer's answer to the question the page showed: only the pick and the comment. The

@@ -73,7 +73,7 @@ impl PreparedTurn {
     }
 
     /// How to write the Markdown of an explanation, with the markers of its callouts and status
-    /// marks.
+    /// marks, and its diagrams.
     fn explanations() -> String {
         fn markers<M: Mark>() -> String {
             M::ALL
@@ -84,12 +84,25 @@ impl PreparedTurn {
         }
         format!(
             "{}\n\nA callout is a quote that opens with its marker, as in `> {} Run it twice.`: {}.\n\
-             A status mark opens a table cell, as in `| {} 2 ms |`: {}.",
+             A status mark opens a table cell, as in `| {} 2 ms |`: {}.\n\n{}",
             include_str!("explanation.md").trim_end(),
             Callout::Tip.marker(),
             markers::<Callout>(),
             StatusMark::Good.marker(),
             markers::<StatusMark>(),
+            Self::diagrams(),
+        )
+    }
+
+    /// When an explanation draws a diagram, how the page draws it, and how to avoid parse
+    /// errors.
+    fn diagrams() -> String {
+        format!(
+            "A diagram is a fenced block that opens with ```` ```{} ````, which the Explore page \
+             draws with Mermaid {}.\n{}",
+            mermaid_js::FENCE,
+            mermaid_js::VERSION,
+            include_str!("diagrams.md").trim_end(),
         )
     }
 

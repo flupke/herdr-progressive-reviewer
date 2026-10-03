@@ -23,6 +23,7 @@ mod conclusion;
 mod consequence;
 mod conversation;
 mod design;
+mod diagram;
 mod interview;
 mod not_relevant;
 mod path_serde;
@@ -39,6 +40,7 @@ pub use conclusion::{Conclusion, ConclusionSubmission, ImplementationRequest};
 pub use consequence::{Assessments, Consequence, Door};
 pub use conversation::{ConversationTurn, Reply};
 pub use design::Design;
+pub use diagram::DiagramError;
 pub use interview::{
     Alternative, AnswerInput, Exploration, Interpretation, InterviewUpdate, Question,
     ReviewerAnswer, Topic, TopicStatus, TurnRequest,

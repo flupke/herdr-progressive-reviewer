@@ -16,6 +16,7 @@
 mod access;
 mod citation;
 mod command;
+mod diagram;
 mod files;
 mod notice;
 mod page;

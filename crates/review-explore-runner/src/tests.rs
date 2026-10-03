@@ -458,3 +458,13 @@ fn the_kickoff_asks_for_every_part_of_the_design() {
         }
     }
 }
+
+#[test]
+fn the_kickoff_names_the_fence_of_a_diagram_and_the_mermaid_version_the_page_draws_it_with() {
+    let kickoff = PreparedTurn::instructions(true, false);
+    let wakeup = PreparedTurn::instructions(false, false);
+    let fence = format!("```{}", mermaid_js::FENCE);
+    assert!(kickoff.contains(&fence), "{kickoff}");
+    assert!(kickoff.contains(mermaid_js::VERSION), "{kickoff}");
+    assert!(!wakeup.contains(&fence), "the kickoff states it once");
+}

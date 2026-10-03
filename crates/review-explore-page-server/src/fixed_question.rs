@@ -8,7 +8,7 @@ use review_explore_page::{QuestionMarks, RoundStage};
 use review_repository::repository::RepoPath;
 use review_source::SourceLineRange;
 
-use crate::{cited_code, fixed_explanation};
+use crate::{cited_code, fixed_diagrams, fixed_explanation};
 
 /// The round's question `number`, from 1: `question` when given, which marks nothing, or else
 /// the fixed questions in turn. An answer to the first fixed question marks lines.
@@ -91,19 +91,22 @@ fn lines(path: &str, first_line: u32, last_line: u32) -> CodeLocation {
 
 /// Cites the whole file.
 fn draft_storage() -> Question {
-    question(
-        "draft-storage",
-        "Where should the kept draft be stored?",
-        vec![
-            alternative("round", "In the round's record", TopicStatus::Accepted),
-            alternative("editor", "In the editor state", TopicStatus::NeedsFollowUp),
-        ],
-        vec![cited_code::evidence(
-            SourceSide::New,
-            None,
-            "Everything the round saves is in this file.",
-        )],
-    )
+    Question {
+        rationale: Some(fixed_diagrams::RATIONALE.into()),
+        ..question(
+            "draft-storage",
+            "Where should the kept draft be stored?",
+            vec![
+                alternative("round", "In the round's record", TopicStatus::Accepted),
+                alternative("editor", "In the editor state", TopicStatus::NeedsFollowUp),
+            ],
+            vec![cited_code::evidence(
+                SourceSide::New,
+                None,
+                "Everything the round saves is in this file.",
+            )],
+        )
+    }
 }
 
 fn question(

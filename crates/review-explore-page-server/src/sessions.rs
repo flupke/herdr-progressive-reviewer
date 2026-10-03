@@ -4,7 +4,7 @@
 
 use std::sync::{Arc, Mutex, PoisonError};
 
-use review_explore::Question;
+use review_explore::{DiagramError, Question};
 use review_explore_page::{
     CommandRefusal, CommandSender, PageCommand, PageRound, PublishedRound, RoundPublisher,
     RoundStage, Rounds, Token,
@@ -30,6 +30,9 @@ struct Session {
     latest_question: Option<RoundStage>,
     /// The answers the reviewer sent from the page, in order.
     answers: Vec<SentAnswer>,
+    /// The diagram errors the page reported, each once, as the review tool saves them with
+    /// their question.
+    diagram_errors: Vec<DiagramError>,
 }
 
 /// An answer the reviewer sent from the page, as a test reads it back.
@@ -108,6 +111,7 @@ impl Sessions {
             asked,
             latest_question,
             answers: Vec::new(),
+            diagram_errors: Vec::new(),
         };
         session.publish(stage);
         self.lock().push(session);
@@ -175,8 +179,19 @@ impl Sessions {
                 });
                 session.publish(RoundStage::AgentWorking);
             }
+            PageCommand::DiagramFailed(error) => {
+                if !session.diagram_errors.contains(&error) {
+                    session.diagram_errors.push(error);
+                }
+            }
         }
         Ok(())
+    }
+
+    /// The diagram errors the page of the session behind `token` reported, or `None` when no
+    /// session has that token.
+    pub(crate) fn diagram_errors(&self, token: &str) -> Option<Vec<DiagramError>> {
+        find(&mut self.lock(), token).map(|session| session.diagram_errors.clone())
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Vec<Session>> {

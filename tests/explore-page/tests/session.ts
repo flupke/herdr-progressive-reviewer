@@ -26,6 +26,8 @@ export interface Session {
   failDelivery(): Promise<void>;
   /** The answers the reviewer sent from the page, in order. */
   answers(): Promise<SentAnswer[]>;
+  /** The diagram errors the page reported, each once: what the tool saves with a question. */
+  diagramErrors(): Promise<unknown[]>;
   /** The agent stops before its next turn. */
   interrupt(): Promise<void>;
   /** The agent concludes the round with the standalone server's fixed conclusion. */
@@ -57,6 +59,11 @@ export const test = base.extend<{ explore: Session }>({
         const response = await fetch(new URL(`/test/sessions/${token}/answers`, app.baseUrl));
         if (!response.ok) throw new Error(`GET answers: ${response.status}`);
         return (await response.json()) as SentAnswer[];
+      },
+      diagramErrors: async () => {
+        const response = await fetch(new URL(`/test/sessions/${token}/diagram-errors`, app.baseUrl));
+        if (!response.ok) throw new Error(`GET diagram errors: ${response.status}`);
+        return (await response.json()) as unknown[];
       },
       interrupt: () => step('interrupt'),
       conclude: () => step('conclude'),

@@ -6,6 +6,7 @@
 
 mod agent;
 mod cancel;
+mod diagram;
 mod dispatch;
 mod implementation;
 mod marks;
