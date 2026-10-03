@@ -77,6 +77,17 @@ rendered from minijinja templates, with no client framework. While the agent
 works, `assets/page.js` polls the page's status and loads the page again once
 the round has changed.
 
+In the reviewer, the Explore session publishes the stage of its round (no
+round, the agent working, a question, an interrupted turn, the conclusion)
+after each input it handles, and
+[`crates/review-explore-page-host`](../crates/review-explore-page-host) serves
+the page of that round on a free loopback port behind a new token. It records
+the page's address, readable only by the user, under
+`$HERDR_PLUGIN_STATE_DIR/explore-page/`, one record per Herdr workspace. The
+Herdr action `explore-page` (`reviewer-control explore-page`) reads the record
+of its workspace, checks that the page answers, and opens it with `$BROWSER`,
+`xdg-open` or `open`.
+
 ### Serve the page alone
 
 ```sh
@@ -123,9 +134,12 @@ Playwright's own download, and turns e2e's telemetry off
 (`E2E_TELEMETRY_DISABLED`).
 
 Each test gets its own round on the server, through the `explore` fixture of
-`tests/explore-page/tests/session.ts`, and plays the Explore agent: the round
-starts with the agent working, and `explore.askQuestion()` posts the next
-question. The server's log of each target is in
+`tests/explore-page/tests/session.ts`, and plays the Explore agent and the
+reviewer's pane: the round starts with the agent working,
+`explore.askQuestion()` posts the next question, `explore.answerInPane()`
+answers it in the pane, and `explore.interrupt()`, `explore.conclude()` and
+`explore.reset()` move the round to the other stages. The server's log of each
+target is in
 `tests/explore-page/.e2e/logs/`; a failed run prints its end. The run also
 fails when the browser reports that the page broke its content security policy,
 which allows scripts and styles only from the page itself. A failing test
@@ -277,6 +291,7 @@ forever. An idle stop answers with `"reason": "idle"`.
 {"action":"jev","path":"src/math.rs","lines":[2]}
 {"action":"turn","timeout_ms":15000}
 {"action":"reply","turn":1,"tool":"submit_question","arguments":{"update":{...}}}
+{"action":"explore_page"}
 {"action":"reopen"}
 {"action":"stop"}
 ```
@@ -345,6 +360,12 @@ send '{"action":"wait","text":"To be implemented"}'
 Keys are named as Herdr names them (`ctrl+enter`, `PageDown`, `Escape`, `Tab`);
 a name Herdr does not know is typed as text. A button is clicked by its label
 when no other text on the screen contains it, by coordinates otherwise.
+
+`explore_page` runs the Herdr action that opens the [Explore page](#explore-page)
+(`reviewer-control explore-page`) as Herdr runs it in the session's workspace,
+with a `BROWSER` that records the address instead of opening a browser, and
+returns that address, with its token, as `page`. Open it with curl
+(`curl -sL -c jar -b jar "$PAGE"`) or in a browser on the same machine.
 
 `reopen` starts
 the reviewer again in the same private workspace and state, at its initial

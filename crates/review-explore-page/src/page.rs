@@ -10,7 +10,7 @@ use axum::middleware::{self, Next};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use review_explore::{Alternative, Question};
+use review_explore::{Alternative, Conclusion, Question};
 use serde::{Deserialize, Serialize};
 
 use crate::access::{Hosts, TokenCookie};
@@ -157,7 +157,7 @@ async fn admit_host<R: Rounds>(
     request: Request,
     next: Next,
 ) -> Response {
-    match page.hosts.admit(request.method(), request.headers()) {
+    match page.hosts.admit(request.headers()) {
         Ok(()) => next.run(request).await,
         Err(event) => page.refuse(event).into_response(),
     }
@@ -199,8 +199,9 @@ async fn index<R: Rounds>(
 #[derive(Serialize)]
 struct PageContext<'a> {
     revision: u64,
-    working: bool,
+    stage: Stage,
     question: Option<QuestionContext<'a>>,
+    conclusion: Option<&'a Conclusion>,
     /// The count of file changes, in development only: the page reloads when it changes.
     dev_version: Option<u64>,
 }
@@ -213,18 +214,36 @@ struct QuestionContext<'a> {
     choices: Vec<&'a Alternative>,
 }
 
+/// The stage's name, as the template tests it: `no_round`, `working` (the page polls its status
+/// only then), `question`, `interrupted` or `conclusion`.
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+enum Stage {
+    NoRound,
+    Working,
+    Question,
+    Interrupted,
+    Conclusion,
+}
+
 impl<'a> PageContext<'a> {
     fn new(round: &'a RoundSnapshot, dev_version: Option<u64>) -> Self {
-        let question = match &round.stage {
-            RoundStage::AgentWorking => None,
-            RoundStage::Question { number, question } => {
-                Some(QuestionContext::new(*number, question))
-            }
+        let (stage, question, conclusion) = match &round.stage {
+            RoundStage::NoRound => (Stage::NoRound, None, None),
+            RoundStage::AgentWorking => (Stage::Working, None, None),
+            RoundStage::Question { number, question } => (
+                Stage::Question,
+                Some(QuestionContext::new(*number, question)),
+                None,
+            ),
+            RoundStage::Interrupted => (Stage::Interrupted, None, None),
+            RoundStage::Conclusion(conclusion) => (Stage::Conclusion, None, Some(&**conclusion)),
         };
         Self {
             revision: round.revision,
-            working: matches!(round.stage, RoundStage::AgentWorking),
+            stage,
             question,
+            conclusion,
             dev_version,
         }
     }

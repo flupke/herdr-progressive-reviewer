@@ -3928,6 +3928,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "review-explore-page-host"
+version = "0.2.0"
+dependencies = [
+ "axum",
+ "herdr-client",
+ "review-explore-page",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "review-explore-page-server"
 version = "0.2.0"
 dependencies = [
@@ -3958,6 +3972,7 @@ dependencies = [
  "eyre",
  "herdr-client",
  "review-explore",
+ "review-explore-page",
  "review-explore-runner",
  "review-hunks",
  "review-mcp",
@@ -4235,6 +4250,8 @@ dependencies = [
  "ratatui 0.30.2",
  "reqwest",
  "review-explore",
+ "review-explore-page",
+ "review-explore-page-host",
  "review-explore-session",
  "review-explore-stats",
  "review-hunks",

@@ -118,6 +118,35 @@ impl ReviewWorkspace {
         Ok(session)
     }
 
+    /// Run the Herdr action that opens the Explore page, as Herdr runs it in this
+    /// workspace, with a browser that writes the address it opens under
+    /// `directory`. Returns that address, with its token.
+    pub(crate) fn open_explore_page(&self, directory: &Path) -> anyhow::Result<String> {
+        let reviewer = PathBuf::from(std::env::var("REVIEWER_BIN_PATH")?);
+        let opened = directory.join("explore-page-url");
+        let _ = fs::remove_file(&opened);
+        let browser = directory.join("browser");
+        fs::write(
+            &browser,
+            format!("#!/bin/sh\nprintf %s \"$1\" > '{}'\n", opened.display()),
+        )?;
+        fs::set_permissions(&browser, fs::Permissions::from_mode(0o755))?;
+        let output = std::process::Command::new(reviewer.with_file_name("reviewer-control"))
+            .arg("explore-page")
+            .env_clear()
+            .envs(self.environment())
+            .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+            .env("BROWSER", &browser)
+            .current_dir(self.repository.root())
+            .output()?;
+        anyhow::ensure!(
+            output.status.success(),
+            "the action failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+        Ok(fs::read_to_string(&opened)?)
+    }
+
     fn run_options(&self, files: &VisionFiles) -> RunOptions {
         let defaults = OpenOptions::default();
         let mut environment = self.environment();

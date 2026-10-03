@@ -120,6 +120,14 @@ Withdrawing the reviewer's latest answer in an Explore round, which returns the
 round to its state before that answer, including the review marks it led to.
 _Avoid_: cancel (which stops a pending turn), correction, undo, defer
 
+**Explore page**:
+A browser page, served by the open reviewer on this machine, that shows the
+current state of its Explore round: no round, the agent working, the agent's
+question with its choices, a turn the agent is no longer working on, or the
+conclusion. Its address carries a token, and the page refuses requests without
+it.
+_Avoid_: web UI, Explore web, browser view
+
 **Reset**:
 Closing the current Explore round and returning to the start screen. The round's
 records stay saved, but it is no longer shown or reopened, and its agent can no

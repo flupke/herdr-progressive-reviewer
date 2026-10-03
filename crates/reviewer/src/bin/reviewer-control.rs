@@ -10,6 +10,8 @@ use herdr_client::client::HerdrClient;
 use herdr_client::protocol::PluginContext;
 use reviewer::control::{PaneAction, PaneActions};
 
+#[path = "reviewer-control/explore_page.rs"]
+mod explore_page;
 #[path = "reviewer-control/mcp_config.rs"]
 mod mcp_config;
 #[path = "reviewer-control/stats.rs"]
@@ -31,7 +33,7 @@ impl Control {
             Some("toggle") => PaneAction::Toggle,
             _ => {
                 eyre::bail!(
-                    "usage: reviewer-control <open|close|toggle|mcp-install [codex|claude]|stats>"
+                    "usage: reviewer-control <open|close|toggle|explore-page|mcp-install [codex|claude]|stats>"
                 );
             }
         };
@@ -69,6 +71,7 @@ fn main() -> eyre::Result<()> {
     match env::args().nth(1).as_deref() {
         Some("mcp-install") => mcp_config::install(),
         Some("stats") => stats::Stats::from_args(env::args().skip(2))?.run(),
+        Some("explore-page") => explore_page::OpenExplorePage::from_env()?.run(),
         _ => Control::from_env()?.run(),
     }
 }

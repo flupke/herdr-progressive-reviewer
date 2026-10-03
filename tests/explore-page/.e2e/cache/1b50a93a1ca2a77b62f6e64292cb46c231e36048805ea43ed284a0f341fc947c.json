@@ -1,0 +1,32 @@
+{
+  "schemaVersion": "trace-1",
+  "createdAt": "2026-10-03T20:45:22.043Z",
+  "payload": {
+    "actions": [
+      {
+        "name": "navigate",
+        "summary": "navigate to \"/\"",
+        "url": "/"
+      }
+    ],
+    "executor": {
+      "name": "e2e-default-agent",
+      "version": "2"
+    },
+    "recordedFor": {
+      "testId": "tests/round.e2e.ts::the%20working%20state%20is%20replaced%20by%20the%20next%20question%20when%20it%20is%20ready",
+      "targetId": "phone",
+      "instructionDigest": "d0a7fdf3a45e3f2f3405b4956d971642163616a2059f8bdda7c2e103cb100bf6"
+    },
+    "summary": "Navigated to \"/\". The page reloaded and now shows the heading \"Explore\" and a status \"The agent is working…\". Question 1 is not shown yet.",
+    "startPath": "/",
+    "endPath": "/",
+    "endAnchors": [
+      {
+        "role": "status",
+        "name": "The agent is working…"
+      }
+    ],
+    "endWaitMs": 13848
+  }
+}

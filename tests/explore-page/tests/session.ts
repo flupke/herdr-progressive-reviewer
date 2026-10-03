@@ -1,4 +1,5 @@
-// Each test gets a fresh session on the standalone page server, and plays the agent in it.
+// Each test gets a fresh session on the standalone page server, and plays the agent and the
+// reviewer's pane in it.
 import { test as base } from '@e2e-dev/web';
 
 /** A session of the standalone server, which stands in for the review tool's Explore session. */
@@ -7,8 +8,16 @@ export interface Session {
   readonly token: string;
   /** Opens the page through the address the tool gives the reviewer, with the session's token. */
   open(): Promise<void>;
-  /** The agent posts its next question, the fixed question of the standalone server. */
+  /** The agent posts its next question: the fixed questions of the standalone server in turn. */
   askQuestion(): Promise<void>;
+  /** The reviewer answers in the pane, and the agent works on its next turn. */
+  answerInPane(): Promise<void>;
+  /** The agent stops before its next turn. */
+  interrupt(): Promise<void>;
+  /** The agent concludes the round with the standalone server's fixed conclusion. */
+  conclude(): Promise<void>;
+  /** The reviewer resets the round in the pane: no round is running. */
+  reset(): Promise<void>;
 }
 
 async function control(baseUrl: string | undefined, path: string): Promise<Response> {
@@ -20,12 +29,17 @@ async function control(baseUrl: string | undefined, path: string): Promise<Respo
 export const test = base.extend<{ explore: Session }>({
   explore: async ({ app }, use) => {
     const { token } = (await (await control(app.baseUrl, '/test/sessions')).json()) as { token: string };
+    const step = async (name: string) => {
+      await control(app.baseUrl, `/test/sessions/${token}/${name}`);
+    };
     await use({
       token,
       open: () => app.open(`/?token=${token}`),
-      askQuestion: async () => {
-        await control(app.baseUrl, `/test/sessions/${token}/question`);
-      },
+      askQuestion: () => step('question'),
+      answerInPane: () => step('answer'),
+      interrupt: () => step('interrupt'),
+      conclude: () => step('conclude'),
+      reset: () => step('reset'),
     });
   },
 });

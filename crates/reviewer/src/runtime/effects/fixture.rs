@@ -62,6 +62,7 @@ impl EffectsFixture {
             jev: JevClassifier::disabled(),
             turns: None,
             source_watches: None,
+            page: review_explore_page::RoundPublisher::default(),
         };
         configure(&mut setup);
         let offline = setup.endpoint.is_err();

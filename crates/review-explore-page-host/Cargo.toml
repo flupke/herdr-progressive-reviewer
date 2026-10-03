@@ -1,0 +1,22 @@
+[package]
+name = "review-explore-page-host"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+axum.workspace = true
+herdr-client = { path = "../herdr-client" }
+review-explore-page = { path = "../review-explore-page" }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

@@ -10,6 +10,7 @@ component-core = { path = "../component-core" }
 eyre.workspace = true
 herdr-client = { path = "../herdr-client" }
 review-explore = { path = "../review-explore" }
+review-explore-page = { path = "../review-explore-page" }
 review-explore-runner = { path = "../review-explore-runner" }
 review-hunks = { path = "../review-hunks" }
 review-mcp = { path = "../review-mcp" }

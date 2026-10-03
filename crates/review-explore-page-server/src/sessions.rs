@@ -1,11 +1,11 @@
 //! The sessions of the standalone server. Each stands in for the review tool's Explore session:
-//! it owns one round, behind its own token, and its agent posts what its controller asks for.
+//! it owns one round, behind its own token, and moves it to the step its controller asks for.
 
 use std::sync::{Arc, Mutex, PoisonError};
 
 use review_explore_page::{RoundFeed, RoundPublisher, RoundStage, Rounds, Token};
 
-use crate::fixed_question::question_stage;
+use crate::fixed_question::{conclusion_stage, question_stage};
 
 #[derive(Clone, Default)]
 pub(crate) struct Sessions(Arc<Mutex<Vec<Session>>>);
@@ -13,25 +13,74 @@ pub(crate) struct Sessions(Arc<Mutex<Vec<Session>>>);
 struct Session {
     token: Token,
     round: RoundPublisher,
+    /// The questions the agent asked so far.
+    asked: usize,
+}
+
+/// What happens next in a session's round.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Step {
+    /// The agent posts its next question.
+    Question,
+    /// The reviewer answered in the pane: the agent works on its next turn.
+    Answer,
+    /// The agent stops before its next turn.
+    Interrupt,
+    /// The agent concludes the round.
+    Conclude,
+    /// The reviewer resets the round: no round is running.
+    Reset,
+}
+
+impl Step {
+    pub(crate) fn parse(name: &str) -> Option<Self> {
+        Some(match name {
+            "question" => Self::Question,
+            "answer" => Self::Answer,
+            "interrupt" => Self::Interrupt,
+            "conclude" => Self::Conclude,
+            "reset" => Self::Reset,
+            _ => return None,
+        })
+    }
 }
 
 impl Sessions {
-    /// Opens a session whose round is at `stage`, behind `token`.
-    pub(crate) fn open(&self, token: Token, stage: RoundStage) {
+    /// Opens a session behind `token` whose agent asked `asked` questions: it shows the latest,
+    /// or the agent works on its first one.
+    pub(crate) fn open(&self, token: Token, asked: usize) {
+        let stage = match asked {
+            0 => RoundStage::AgentWorking,
+            asked => question_stage(asked),
+        };
         self.lock().push(Session {
             token,
             round: RoundPublisher::new(stage),
+            asked,
         });
     }
 
-    /// The agent of the session behind `token` posts the fixed question. Returns false when no
-    /// session has that token.
-    pub(crate) fn ask_question(&self, token: &str) -> bool {
-        let sessions = self.lock();
-        let Some(session) = find(&sessions, token) else {
+    /// Moves the round of the session behind `token` one step. Returns false when no session
+    /// has that token.
+    pub(crate) fn step(&self, token: &str, step: Step) -> bool {
+        let mut sessions = self.lock();
+        let Some(session) = find(&mut sessions, token) else {
             return false;
         };
-        session.round.publish(question_stage());
+        let stage = match step {
+            Step::Question => {
+                session.asked += 1;
+                question_stage(session.asked)
+            }
+            Step::Answer => RoundStage::AgentWorking,
+            Step::Interrupt => RoundStage::Interrupted,
+            Step::Conclude => conclusion_stage(),
+            Step::Reset => {
+                session.asked = 0;
+                RoundStage::NoRound
+            }
+        };
+        session.round.publish(stage);
         true
     }
 
@@ -42,10 +91,12 @@ impl Sessions {
 
 impl Rounds for Sessions {
     fn find(&self, token: &str) -> Option<RoundFeed> {
-        find(&self.lock(), token).map(|session| session.round.subscribe())
+        find(&mut self.lock(), token).map(|session| session.round.subscribe())
     }
 }
 
-fn find<'a>(sessions: &'a [Session], token: &str) -> Option<&'a Session> {
-    sessions.iter().find(|session| session.token.matches(token))
+fn find<'a>(sessions: &'a mut [Session], token: &str) -> Option<&'a mut Session> {
+    sessions
+        .iter_mut()
+        .find(|session| session.token.matches(token))
 }

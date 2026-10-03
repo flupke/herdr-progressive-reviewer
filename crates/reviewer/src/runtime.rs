@@ -42,6 +42,8 @@ use herdr_client::client::HerdrClient;
 use herdr_client::protocol::{AgentTarget, PaneId, PluginContext, WorkspaceId};
 use ratatui::Terminal;
 use ratatui::backend::Backend;
+use review_explore_page::RoundPublisher;
+use review_explore_page_host::{PageDirectory, PageHost};
 use review_explore_session as explore_session;
 use review_repository::repository::Repository;
 use review_store::ReviewStore;
@@ -151,6 +153,8 @@ impl Runtime {
 
         let (event_sender, events) = unbounded();
         let (input_sender, inputs) = unbounded();
+        let page_round = RoundPublisher::default();
+        let page = self.serve_explore_page(&page_round, &event_sender);
         let watcher = RepositoryWatcher::new(self.repository.watch_plan());
         let mut effects = Effects::start(
             Setup {
@@ -163,6 +167,7 @@ impl Runtime {
                 jev: jev::classifier_from_env(),
                 turns: vision_turns_from_env(),
                 source_watches: Some(watcher.source_requests()),
+                page: page_round,
             },
             &Outputs {
                 background: event_sender.clone(),
@@ -205,8 +210,28 @@ impl Runtime {
         event_producers.stop();
         self.repository.cancel();
         drop(terminal);
+        drop(page);
         drop(effects);
         result
+    }
+
+    /// Serve the Explore page of the session's round, for the Herdr action that opens it.
+    fn serve_explore_page(
+        &self,
+        round: &RoundPublisher,
+        events: &EventSender<EventEnvelope>,
+    ) -> Option<PageHost> {
+        let directory = PageDirectory::new(&self.state_dir);
+        match PageHost::start(round.subscribe(), &directory, &self.workspace_id) {
+            Ok(host) => Some(host),
+            Err(error) => {
+                let _ = events.send(EventEnvelope::new(ui_events::ToastRequested {
+                    text: format!("Cannot serve the Explore page: {error}"),
+                    kind: toasts::ToastKind::Error,
+                }));
+                None
+            }
+        }
     }
 
     /// Saved Explore state changed by another reviewer reaches the Explore session.

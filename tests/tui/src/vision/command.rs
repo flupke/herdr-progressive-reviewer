@@ -59,6 +59,9 @@ pub(super) enum Command {
         tool: String,
         arguments: serde_json::Value,
     },
+    /// Run the Herdr action that opens the Explore page, as Herdr runs it in the
+    /// session's workspace, with a browser that records the address it opens.
+    ExplorePage,
     Reopen,
     Stop,
 }

@@ -39,3 +39,12 @@ test('the page refuses a post from another site', async ({ app }) => {
   expect(await status(app.baseUrl, '/csp-report', { method: 'POST', headers: { origin } })).toBe(403);
   expect(await status(app.baseUrl, '/test/sessions', { method: 'POST', headers: { origin } })).toBe(403);
 });
+
+test('the page and its status refuse a script of another site', async ({ explore, app }) => {
+  const cookie = `explore_token=${explore.token}`;
+  const origin = 'http://127.0.0.1:1';
+  expect(await status(app.baseUrl, '/', { headers: { cookie } })).toBe(200);
+  expect(await status(app.baseUrl, '/status', { headers: { cookie } })).toBe(200);
+  expect(await status(app.baseUrl, '/', { headers: { cookie, origin } })).toBe(403);
+  expect(await status(app.baseUrl, '/status', { headers: { cookie, origin } })).toBe(403);
+});

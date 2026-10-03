@@ -289,6 +289,10 @@ impl VisionSession {
                 return Ok(response);
             }
             Command::Screenshot => return self.screenshot(),
+            Command::ExplorePage => {
+                let page = self.workspace.open_explore_page(self.frames.directory())?;
+                return Ok(json!({"status": "opened", "frame_number": before, "page": page}));
+            }
             Command::Jev { path, lines } => {
                 fs::write(
                     jev_script(&self.frames),

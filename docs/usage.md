@@ -332,6 +332,36 @@ before/after code snippets and relative paths to TypeSafe AI. Missing or
 whitespace-only keys disable Jev. Uncertain, failed and oversized checks leave their
 lines unreviewed. Reopen a hunk in Files to review Jev's lines yourself.
 
+## Follow an Explore round in the browser
+
+The **Explore page** shows the open reviewer's Explore round in a browser. Run the Herdr
+action **Open the Explore page of the progressive reviewer**
+(`herdr.progressive-reviewer.explore-page`) from the workspace of an open reviewer: it
+opens the page in the default browser of the machine that runs the reviewer. Set
+`BROWSER` in Herdr's environment to choose the program; otherwise the action uses
+`xdg-open` on Linux and `open` on macOS. To run it with a key, add a shortcut as in the
+[README](../README.md#get-started):
+
+```toml
+[[keys.command]]
+key = "prefix+e"
+type = "plugin_action"
+command = "herdr.progressive-reviewer.explore-page"
+description = "open the Explore page"
+```
+
+The page shows the round's current question with its choices, or that the agent is
+working, that it is no longer working on its turn (Retry it in the reviewer), that no
+round is running, or the round's conclusion. You still answer in the reviewer's Explore tab. While the agent
+works, the page shows its next question or its conclusion as soon as the agent posts it.
+In every other state the page changes only when you load it again: after you answer a
+question in the reviewer, load the page again to follow the agent's next turn.
+
+The page is served only on this machine (`127.0.0.1`), on a port chosen when the reviewer
+starts. Its address carries a token that changes each time the reviewer starts: the page
+refuses a request without it, and a request from another site. Run the action again
+after reopening the reviewer. Closing the reviewer stops the page.
+
 ## Explore statistics
 
 To see whether a change to Explore helps (a prompt change, the Challenger, a new page),

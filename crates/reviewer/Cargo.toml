@@ -10,6 +10,8 @@ jev-evals = ["dep:serde"]
 
 [dependencies]
 review-explore = { path = "../review-explore" }
+review-explore-page = { path = "../review-explore-page" }
+review-explore-page-host = { path = "../review-explore-page-host" }
 review-explore-session = { path = "../review-explore-session" }
 review-explore-stats = { path = "../review-explore-stats" }
 review-significance = { path = "../review-significance" }

@@ -4,6 +4,7 @@ members = [
     "crates/review-explore",
     "crates/review-explore-runner",
     "crates/review-explore-page",
+    "crates/review-explore-page-host",
     "crates/review-explore-page-server",
     "crates/review-explore-session",
     "crates/review-explore-stats",

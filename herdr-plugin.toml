@@ -25,6 +25,12 @@ title = "Toggle progressive reviewer"
 contexts = ["workspace"]
 command = ["bin/reviewer-control", "toggle"]
 
+[[actions]]
+id = "explore-page"
+title = "Open the Explore page of the progressive reviewer"
+contexts = ["workspace"]
+command = ["bin/reviewer-control", "explore-page"]
+
 [[panes]]
 id = "review"
 title = "Progressive review"

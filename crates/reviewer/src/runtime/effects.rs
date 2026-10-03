@@ -15,6 +15,7 @@ use component_core::{ApplicationEventSender, EventEnvelope};
 use crossbeam_channel::{Receiver as EventReceiver, Sender as EventSender};
 use herdr_client::client::HerdrClient;
 use herdr_client::protocol::{AgentTarget, HerdrEvent, PaneId};
+use review_explore_page::RoundPublisher;
 use review_explore_session::{self as explore_session, ExploreSession};
 use review_repository::repository::Repository;
 use review_significance::JevClassifier;
@@ -45,6 +46,8 @@ pub(super) struct Setup {
     /// Where a vision session reads the Explore prompts sent.
     pub(super) turns: Option<explore_session::TurnLog>,
     pub(super) source_watches: Option<SourceWatchRequests>,
+    /// Where the Explore session publishes its round for the Explore page.
+    pub(super) page: RoundPublisher,
 }
 
 /// Where effects deliver their results.
@@ -93,6 +96,7 @@ impl Effects {
             jev,
             turns,
             source_watches,
+            page,
         } = setup;
         let messages = ApplicationEventSender::new(outputs.background.clone());
         let tracker = Arc::new(ReviewTracker::new(repository.clone(), store.clone()));
@@ -126,6 +130,7 @@ impl Effects {
             events: messages.clone(),
             inbox: inbox_for(commands.clone()),
             turns,
+            page,
         });
         let mut worker = Worker {
             repository: repository.clone(),

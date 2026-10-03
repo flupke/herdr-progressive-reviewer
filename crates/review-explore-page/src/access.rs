@@ -3,7 +3,7 @@
 
 use std::fmt;
 
-use axum::http::{HeaderMap, HeaderValue, Method, header};
+use axum::http::{HeaderMap, HeaderValue, header};
 
 use crate::PageEvent;
 
@@ -31,6 +31,12 @@ impl Token {
         }
     }
 
+    /// The address that opens the page served on this machine's loopback `port`, with this
+    /// token.
+    pub fn url(&self, port: u16) -> String {
+        format!("http://127.0.0.1:{port}/?token={}", self.0)
+    }
+
     /// Compares in constant time, so the time of a refusal tells nothing about the token.
     pub fn matches(&self, candidate: &str) -> bool {
         let expected = self.0.as_bytes();
@@ -52,11 +58,13 @@ impl fmt::Display for Token {
 
 /// The `Host` values the page answers, with their port. A request for any other name is
 /// refused: a foreign site that points its own name at this machine (DNS rebinding) cannot
-/// read the page. A request that may change something (any method but GET and HEAD) is
-/// refused when its `Origin` is another site: browsers name the origin of such requests, so
-/// a foreign page cannot post to this one. A request with no `Origin` passes this check: it
-/// does not come from a browser page, and the browser's reports of policy violations need
-/// not carry one. A form post of the page must also require the token's cookie.
+/// read the page. A request whose `Origin` is another site is refused, whatever its method:
+/// browsers name the origin of a script's request to another site and of every post, so a
+/// page of another site, a page on another local port included, can neither read this one,
+/// its polled status included, nor post to it. A request with no `Origin` passes this check:
+/// it is a navigation, or does not come from a browser page, and the browser's reports of
+/// policy violations need not carry one. A form post of the page must also require the
+/// token's cookie.
 pub struct Hosts(Vec<String>);
 
 impl Hosts {
@@ -68,15 +76,12 @@ impl Hosts {
         ])
     }
 
-    pub(crate) fn admit(&self, method: &Method, headers: &HeaderMap) -> Result<(), PageEvent> {
+    pub(crate) fn admit(&self, headers: &HeaderMap) -> Result<(), PageEvent> {
         let host = headers
             .get(header::HOST)
             .and_then(|host| host.to_str().ok())
             .filter(|host| self.0.iter().any(|allowed| allowed == host))
             .ok_or(PageEvent::UnknownHost)?;
-        if method == Method::GET || method == Method::HEAD {
-            return Ok(());
-        }
         match headers.get(header::ORIGIN) {
             Some(origin) if origin.as_bytes() != format!("http://{host}").as_bytes() => {
                 Err(PageEvent::ForeignOrigin)

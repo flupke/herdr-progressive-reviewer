@@ -24,7 +24,6 @@ use std::process::ExitCode;
 
 use review_explore_page::{ExplorePage, Hosts, PageEvent, PageFiles, Token};
 
-use crate::fixed_question::question_stage;
 use crate::sessions::Sessions;
 
 const USAGE: &str = "usage: explore-page-server [--port N] [--token T] [--dev DIR]";
@@ -89,8 +88,8 @@ fn serve(options: Options) -> Result<(), String> {
         Some(token) => Token::chosen(token)?,
         None => Token::random(),
     };
-    let url = format!("http://127.0.0.1:{port}/?token={token}");
-    sessions.open(token, question_stage());
+    let url = token.url(port);
+    sessions.open(token, 1);
     let page = ExplorePage::new(sessions.clone(), Hosts::loopback(port), templates, log);
     let app = page.into_router(control::router(sessions));
 

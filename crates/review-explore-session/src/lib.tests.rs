@@ -21,6 +21,8 @@ const CONCLUSION: &str = "Keep the policy.";
 
 #[path = "cancel.tests.rs"]
 mod cancel;
+#[path = "page.tests.rs"]
+mod page;
 #[path = "recovery.tests.rs"]
 mod recovery;
 
@@ -38,6 +40,8 @@ struct Harness {
     exploration: Option<Exploration>,
     /// Where a reopened session records the prompts it sends.
     turns: Option<TurnLog>,
+    /// The stage of the round the session publishes for the Explore page.
+    page: review_explore_page::RoundFeed,
     delivered: usize,
     threads: review_thread_service::Worker,
     files: Box<dyn ReviewRepositoryFixture>,
@@ -70,6 +74,8 @@ impl Harness {
             .identity
             .review_unit()
             .clone();
+        let publisher = review_explore_page::RoundPublisher::default();
+        let page = publisher.subscribe();
         let mut harness = Self {
             session: ExploreSession::new(Collaborators {
                 repository: repository.clone(),
@@ -84,6 +90,7 @@ impl Harness {
                 events: ApplicationEventSender::new(event_sender.clone()),
                 inbox: Inbox::new(|_| {}),
                 turns: None,
+                page: publisher,
             }),
             events,
             event_sender,
@@ -95,6 +102,7 @@ impl Harness {
             unit,
             exploration: None,
             turns: None,
+            page,
             delivered: 0,
             threads,
             files,
@@ -110,6 +118,8 @@ impl Harness {
     fn reopen(&mut self) -> ui_events::ExploreRestored {
         while self.events.try_recv().is_ok() {}
         let inbox = self.inbox_sender.clone();
+        let publisher = review_explore_page::RoundPublisher::default();
+        self.page = publisher.subscribe();
         self.session = ExploreSession::new(Collaborators {
             repository: self.repository.clone(),
             store: self.store.clone(),
@@ -125,6 +135,7 @@ impl Harness {
                 let _ = inbox.send(input);
             }),
             turns: self.turns.clone(),
+            page: publisher,
         });
         let unit = self.unit.clone();
         self.session.checkpoint_changed(&unit);

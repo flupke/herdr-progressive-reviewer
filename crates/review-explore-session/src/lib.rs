@@ -9,6 +9,7 @@ mod cancel;
 mod dispatch;
 mod implementation;
 mod marks;
+mod page;
 mod records;
 mod restore;
 mod submission;
@@ -24,6 +25,7 @@ use std::sync::Arc;
 use component_core::ApplicationEventSender;
 use herdr_client::protocol::{AgentPort, AgentTarget};
 use review_explore::{Command, Comparison, ExploreRound, ViewSave};
+use review_explore_page::RoundPublisher;
 use review_repository::repository::Repository;
 use review_state::ReviewTracker;
 use review_store::ReviewStore;
@@ -76,6 +78,8 @@ pub struct Collaborators {
     /// Where a `make vision` session reads the prompts this session sent;
     /// `None` in every other reviewer.
     pub turns: Option<TurnLog>,
+    /// Where the session publishes the stage of its round for the Explore page.
+    pub page: RoundPublisher,
 }
 
 /// The Explore session of one reviewer process.
@@ -89,6 +93,7 @@ pub struct ExploreSession {
     events: ApplicationEventSender,
     inbox: Inbox,
     turns: Option<TurnLog>,
+    page: RoundPublisher,
     /// The unreviewed lines of the latest prompt, as files.
     diffs: Option<unreviewed_diffs::UnreviewedDiffs>,
     state: State,
@@ -152,6 +157,7 @@ impl ExploreSession {
             events,
             inbox,
             turns,
+            page,
         } = collaborators;
         Self {
             repository,
@@ -163,6 +169,7 @@ impl ExploreSession {
             events,
             inbox,
             turns,
+            page,
             diffs: None,
             state: State::default(),
         }
@@ -175,6 +182,7 @@ impl ExploreSession {
             Input::PromptFinished { event, attempt } => self.prompt_finished(*event, &attempt),
             Input::StorageChanged => self.storage_changed(),
         }
+        self.publish_page();
     }
 
     /// The reviewer now shows `unit`; restore its latest round when the unit changed.
@@ -187,6 +195,7 @@ impl ExploreSession {
             ..State::default()
         };
         self.open();
+        self.publish_page();
     }
 
     fn command(&mut self, command: Command) {

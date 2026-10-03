@@ -7,10 +7,14 @@
 <link rel="stylesheet" href="/assets/style.css">
 </head>
 <body>
-<main id="round" data-revision="{{ revision }}" data-working="{{ "true" if working else "false" }}">
+<main id="round" data-revision="{{ revision }}" data-working="{{ "true" if stage == "working" else "false" }}">
   <h1>Explore</h1>
-  {% if working %}
-  <p class="working" role="status">The agent is working…</p>
+  {% if stage == "no_round" %}
+  <p class="state" role="status">No Explore round is running. Start one in the reviewer's Explore tab, then load this page again.</p>
+  {% elif stage == "working" %}
+  <p class="state working" role="status">The agent is working…</p>
+  {% elif stage == "interrupted" %}
+  <p class="state" role="status">The agent is not working on its next turn. Retry in the reviewer, then load this page again.</p>
   {% endif %}
   {% if question %}
   <section class="question" aria-labelledby="question-{{ question.number }}-title">
@@ -22,6 +26,25 @@
       <label class="choice"><input type="radio" name="choice" value="{{ choice.id }}"> {{ choice.text }}</label>
       {% endfor %}
     </fieldset>
+    <p class="hint">Answer in the reviewer, then load this page again.</p>
+  </section>
+  {% endif %}
+  {% if conclusion %}
+  <section class="conclusion" aria-labelledby="conclusion-title">
+    <h2 id="conclusion-title">Conclusion</h2>
+    <p class="prose">{{ conclusion.summary }}</p>
+    {% if conclusion.to_be_implemented %}
+    <section aria-labelledby="to-be-implemented-title">
+      <h3 id="to-be-implemented-title">To be implemented</h3>
+      <p class="prose">{{ conclusion.to_be_implemented }}</p>
+    </section>
+    {% endif %}
+    {% if conclusion.future_work %}
+    <section aria-labelledby="future-work-title">
+      <h3 id="future-work-title">Future work</h3>
+      <p class="prose">{{ conclusion.future_work }}</p>
+    </section>
+    {% endif %}
   </section>
   {% endif %}
 </main>

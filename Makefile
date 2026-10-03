@@ -46,7 +46,7 @@ explore-page:
 	cargo run --locked -p review-explore-page-server -- --port 8790 --token dev --dev crates/review-explore-page
 
 vision:
-	cargo build --locked -p reviewer --bin reviewer
+	cargo build --locked -p reviewer --bin reviewer --bin reviewer-control
 	REVIEWER_BIN_PATH="$(CURDIR)/target/debug/reviewer" cargo run --locked --manifest-path tests/tui/Cargo.toml --bin reviewer-vision -- $(VISION_ARGS)
 
 complexity:
