@@ -6,11 +6,12 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use review_explore::Question;
 use review_explore_page::{
-    CommandRefusal, CommandSender, PageCommand, PageRound, RoundPublisher, RoundStage, Rounds,
-    Token,
+    CommandRefusal, CommandSender, PageCommand, PageRound, PublishedRound, RoundPublisher,
+    RoundStage, Rounds, Token,
 };
 use serde::Serialize;
 
+use crate::fixed_design;
 use crate::fixed_question::{conclusion_stage, question_stage};
 
 #[derive(Clone, Default)]
@@ -44,6 +45,18 @@ impl Session {
     /// The identity of the session's latest round.
     fn round_id(&self) -> String {
         self.rounds.to_string()
+    }
+
+    /// Publishes `stage` of the latest round, with the fixed design once the agent asked its
+    /// first question.
+    fn publish(&self, stage: RoundStage) {
+        let id = self.round_id();
+        let design = fixed_design::design();
+        let round = self.running.then(|| PublishedRound {
+            id: &id,
+            design: (self.asked > 0).then_some(&design),
+        });
+        self.round.publish(round, stage);
     }
 }
 
@@ -96,7 +109,7 @@ impl Sessions {
             latest_question,
             answers: Vec::new(),
         };
-        session.round.publish(Some(&session.round_id()), stage);
+        session.publish(stage);
         self.lock().push(session);
     }
 
@@ -136,8 +149,7 @@ impl Sessions {
             }
         };
         session.running = stage != RoundStage::NoRound;
-        let round = session.running.then(|| session.round_id());
-        session.round.publish(round.as_deref(), stage);
+        session.publish(stage);
         true
     }
 
@@ -161,9 +173,7 @@ impl Sessions {
                     choice: answer.input.option,
                     comment: answer.input.text,
                 });
-                session
-                    .round
-                    .publish(Some(&session.round_id()), RoundStage::AgentWorking);
+                session.publish(RoundStage::AgentWorking);
             }
         }
         Ok(())

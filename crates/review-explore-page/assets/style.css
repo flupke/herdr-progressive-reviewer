@@ -28,3 +28,12 @@ body { font: 16px/1.5 system-ui, sans-serif; margin: 0 auto; max-width: 44rem; p
 .notice, .failure { padding: 10px; border-radius: 6px; border: 1px solid #c5221f; background: color-mix(in srgb, #c5221f 12%, transparent); }
 .failure p { margin: 0; }
 .failure .reason { margin-top: 6px; overflow-wrap: anywhere; }
+
+/* The design of the change, above the round's stage: its parts under their headings. */
+.design { border: 1px solid var(--line); border-radius: 8px; margin: 16px 0; }
+.design > details > summary { cursor: pointer; padding: 0 16px; }
+.design > details > summary > h2 { display: inline-block; margin: 12px 0; font-size: 1.15em; }
+.design > details[open] > summary { border-bottom: 1px solid var(--line); }
+.design h3 { font-size: 1em; margin: 16px 16px 6px; }
+.design .markdown { padding: 0 16px; }
+.design details > :last-child { padding-bottom: 16px; }

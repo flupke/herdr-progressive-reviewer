@@ -1,0 +1,13 @@
+{#- The design of the change, which the round's first turn explained: open above the first
+    question, folded away in every later stage of the round. -#}
+{% if design %}
+<section class="design" aria-labelledby="design-title">
+  <details{% if design.open %} open{% endif %}>
+    <summary><h2 id="design-title">Design of the change</h2></summary>
+    {% for section in design.sections %}
+    <h3>{{ section.title }}</h3>
+    <div class="markdown">{{ section.body | markdown(3) }}</div>
+    {% endfor %}
+  </details>
+</section>
+{% endif %}

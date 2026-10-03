@@ -1,0 +1,66 @@
+{
+  "schemaVersion": "trace-1",
+  "createdAt": "2026-10-03T21:32:20.012Z",
+  "payload": {
+    "actions": [
+      {
+        "name": "tap",
+        "summary": "tap group in \"Design of the change\" (1 of 1)",
+        "target": {
+          "role": "group",
+          "within": "Design of the change",
+          "position": {
+            "index": 0,
+            "of": 1
+          }
+        }
+      }
+    ],
+    "executor": {
+      "name": "e2e-default-agent",
+      "version": "2"
+    },
+    "recordedFor": {
+      "testId": "tests/design.e2e.ts::the%20round%20opens%20with%20the%20design%20of%20the%20change%2C%20which%20the%20reviewer%20opens%20again%20later",
+      "targetId": "phone",
+      "instructionDigest": "0b714f807c8d3c41e5c7333e909a9d2ecbc82eaa4424bc16153d067b90100a05"
+    },
+    "summary": "Opened the Design of the change section. It now shows the design explanation, including types and data flow, algorithm and cost, a warning callout, and rejected alternatives.",
+    "startPath": "/",
+    "endPath": "/",
+    "endAnchors": [
+      {
+        "role": "heading",
+        "name": "What it adds and where"
+      },
+      {
+        "text": "The change keeps the reviewer's unsent draft when a round is reopened. It adds a draft field to the saved editor state and restores it when the pane rebuilds its editor."
+      },
+      {
+        "role": "heading",
+        "name": "Types and data flow"
+      },
+      {
+        "text": "The draft is saved with the editor state, in the round record."
+      },
+      {
+        "role": "columnheader",
+        "name": "Step"
+      },
+      {
+        "role": "columnheader",
+        "name": "Holds the draft"
+      },
+      {
+        "role": "cell",
+        "name": "The reviewer types"
+      },
+      {
+        "role": "image",
+        "name": "Good",
+        "text": "✓"
+      }
+    ],
+    "endWaitMs": 13131
+  }
+}

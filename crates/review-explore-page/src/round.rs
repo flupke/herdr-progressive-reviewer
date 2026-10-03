@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use review_explore::{
-    CodeLocation, Conclusion, InterviewUpdate, MarkCounts, NotRelevantMark, Question,
+    CodeLocation, Conclusion, Design, InterviewUpdate, MarkCounts, NotRelevantMark, Question,
 };
 use review_explore_citations::Citation;
 use tokio::sync::watch;
@@ -73,6 +73,15 @@ impl QuestionMarks {
     }
 }
 
+/// A running round, as its owner publishes it beside its stage.
+#[derive(Clone, Copy, Debug)]
+pub struct PublishedRound<'a> {
+    /// The round's identity.
+    pub id: &'a str,
+    /// The design of the change, once the round's first turn explained it.
+    pub design: Option<&'a Design>,
+}
+
 /// A stage, and a revision that changes with every published stage. A page that shows the
 /// agent working loads itself again once the revision changes.
 #[derive(Clone, Debug)]
@@ -80,7 +89,17 @@ pub(crate) struct RoundSnapshot {
     pub(crate) revision: u64,
     /// The identity of the round the stage belongs to; `None` when no round is running.
     round: Option<String>,
+    /// The design of the change, as the round's first turn explained it.
+    pub(crate) design: Option<Arc<Design>>,
     pub(crate) stage: RoundStage,
+}
+
+impl RoundSnapshot {
+    fn shows(&self, round: Option<PublishedRound<'_>>, stage: &RoundStage) -> bool {
+        self.stage == *stage
+            && self.round.as_deref() == round.map(|round| round.id)
+            && self.design.as_deref() == round.and_then(|round| round.design)
+    }
 }
 
 /// The owner's side of one round: publishes its stage to every page that shows it.
@@ -89,25 +108,29 @@ pub struct RoundPublisher(watch::Sender<RoundSnapshot>);
 impl RoundPublisher {
     /// A publisher whose first stage is `stage` of the round `round`, `None` when no round is
     /// running.
-    pub fn new(round: Option<&str>, stage: RoundStage) -> Self {
+    pub fn new(round: Option<PublishedRound<'_>>, stage: RoundStage) -> Self {
         Self(watch::Sender::new(RoundSnapshot {
             revision: 1,
-            round: round.map(str::to_owned),
+            round: round.map(|round| round.id.to_owned()),
+            design: round.and_then(|round| round.design.cloned().map(Arc::new)),
             stage,
         }))
     }
 
-    /// Publishes `stage` of the round whose identity is `round`, `None` when no round is
-    /// running. The same stage of the same round again changes nothing, so a page that waits
-    /// for the agent does not load itself again for nothing.
-    pub fn publish(&self, round: Option<&str>, stage: RoundStage) {
+    /// Publishes `stage` of the round `round`, `None` when no round is running. The same stage
+    /// of the same round again changes nothing, so a page that waits for the agent does not
+    /// load itself again for nothing.
+    pub fn publish(&self, round: Option<PublishedRound<'_>>, stage: RoundStage) {
         self.0.send_if_modified(|snapshot| {
-            if snapshot.stage == stage && snapshot.round.as_deref() == round {
+            if snapshot.shows(round, &stage) {
                 return false;
             }
-            snapshot.revision += 1;
-            snapshot.round = round.map(str::to_owned);
-            snapshot.stage = stage;
+            *snapshot = RoundSnapshot {
+                revision: snapshot.revision + 1,
+                round: round.map(|round| round.id.to_owned()),
+                design: round.and_then(|round| round.design.cloned().map(Arc::new)),
+                stage,
+            };
             true
         });
     }
@@ -137,6 +160,11 @@ impl RoundFeed {
     /// The identity of the round the latest stage belongs to; `None` when no round is running.
     pub fn round(&self) -> Option<String> {
         self.0.borrow().round.clone()
+    }
+
+    /// The design of the change, as the latest round's first turn explained it.
+    pub fn design(&self) -> Option<Arc<Design>> {
+        self.0.borrow().design.clone()
     }
 
     /// Waits for the next published stage. Returns false once the publisher is gone.

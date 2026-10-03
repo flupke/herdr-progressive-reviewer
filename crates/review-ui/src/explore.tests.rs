@@ -77,7 +77,7 @@ impl ExploreUi {
         app.set_editor_keymap(comment_editor::EditorKeymap::Regular);
         app.update(UserInput::Resize {
             width: 140,
-            height: 45,
+            height: 65,
         });
         publish_repository(
             &mut app,
@@ -142,6 +142,12 @@ impl ExploreUi {
             reopened: Vec::new(),
             not_relevant: Vec::new(),
             challenger_proposals: Vec::new(),
+            design: request.is_kickoff().then(|| review_explore::Design {
+                overview: "A resolution policy.".into(),
+                data_flow: "None.".into(),
+                algorithm: "None.".into(),
+                alternatives: "None.".into(),
+            }),
             interpretation: request.answer.as_ref().map(|answer| Interpretation {
                 answer: answer.id.clone(),
                 status: TopicStatus::Open,
@@ -528,7 +534,7 @@ fn interview_auto_advances_and_restores_unposted_text_from_history() {
     let (mut fixture, request) = ExploreUi::new();
     fixture.app.update(UserInput::Resize {
         width: 140,
-        height: 45,
+        height: 65,
     });
     fixture.respond(&request, 1);
     assert!(fixture.text().contains("Question 1"));

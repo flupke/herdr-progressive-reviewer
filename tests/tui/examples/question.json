@@ -5,9 +5,12 @@
   "arguments": {
     "update": {
       "interpretation": null,
-      "reply": {
-        "text": "Map: notes, a sample and a math module.",
-        "evidence": []
+      "reply": null,
+      "design": {
+        "overview": "The change adds notes, a sample and a math module with small helpers.",
+        "data_flow": "The helpers in `src/math.rs` take and return plain integers; nothing is stored.",
+        "algorithm": "Each helper does one arithmetic operation: constant time.",
+        "alternatives": "None stated; saturating arithmetic is a credible alternative, inferred."
       },
       "topics": [
         {

@@ -22,6 +22,7 @@ const TEMPLATES: &[(&str, &str)] = &[
     ("answer.html", include_str!("../templates/answer.html")),
     ("marks.html", include_str!("../templates/marks.html")),
     ("failure.html", include_str!("../templates/failure.html")),
+    ("design.html", include_str!("../templates/design.html")),
 ];
 
 /// Assets by name, with their content type.

@@ -16,6 +16,7 @@
 
 mod cited_code;
 mod control;
+mod fixed_design;
 mod fixed_explanation;
 mod fixed_question;
 mod sessions;

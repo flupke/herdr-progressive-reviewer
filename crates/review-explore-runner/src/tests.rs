@@ -435,3 +435,26 @@ fn the_kickoff_names_the_marker_of_every_callout_and_status_mark() {
         );
     }
 }
+
+#[test]
+fn the_kickoff_asks_for_every_part_of_the_design() {
+    const FIELD: &str = "design";
+    let update =
+        serde_json::to_value(schemars::schema_for!(review_explore::InterviewUpdate)).unwrap();
+    assert!(update["properties"].get(FIELD).is_some(), "{update}");
+    let design = serde_json::to_value(schemars::schema_for!(review_explore::Design)).unwrap();
+    let parts: Vec<_> = design["properties"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect();
+    assert_eq!(parts.len(), 4, "{parts:?}");
+
+    for challenger in [false, true] {
+        let kickoff = PreparedTurn::instructions(true, challenger);
+        for name in parts.iter().map(String::as_str).chain([FIELD]) {
+            assert!(kickoff.contains(&format!("`{name}`")), "{name}");
+        }
+    }
+}

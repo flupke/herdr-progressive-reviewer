@@ -21,6 +21,7 @@
   {% elif stage == "interrupted" %}
   <p class="state" role="status">The agent is not working on its next turn. Retry in the reviewer, then load this page again.</p>
   {% endif %}
+  {% include "design.html" %}
   {% if question %}
   <section class="question" aria-labelledby="question-{{ question.number }}-title">
     <h2 id="question-{{ question.number }}-title">Question {{ question.number }}</h2>

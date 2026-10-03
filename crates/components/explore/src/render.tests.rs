@@ -75,6 +75,20 @@ fn turn(request: &str, answer: Option<&str>) -> review_explore::ConversationTurn
     }
 }
 
+/// A round over a change with no files.
+fn exploration() -> Exploration {
+    Exploration::new(Arc::new(Comparison {
+        checkpoint: ReviewCheckpoint::new("review", "checkpoint"),
+        repository_root: "/tmp".into(),
+        files: vec![],
+        diffs: vec![],
+        context: vec![],
+        manifest: vec![],
+        sources: vec![],
+        base: None,
+    }))
+}
+
 /// The text of each laid-out row: control labels and text lines.
 fn rows(layout: &ConversationLayout) -> Vec<String> {
     layout
@@ -100,16 +114,7 @@ fn an_answers_marks_show_below_it_and_expand_to_their_lines() {
         ExploreComponent::with_keymap(events, comment_editor::KeymapSetting::default())
     });
     let component = bus.get_mut::<ExploreComponent>(target).unwrap();
-    let mut exploration = Exploration::new(Arc::new(Comparison {
-        checkpoint: ReviewCheckpoint::new("review", "checkpoint"),
-        repository_root: "/tmp".into(),
-        files: vec![],
-        diffs: vec![],
-        context: vec![],
-        manifest: vec![],
-        sources: vec![],
-        base: None,
-    }));
+    let mut exploration = exploration();
     exploration.answers.push(answer());
     exploration.conversation.push(turn("kickoff", None));
     exploration
@@ -224,4 +229,55 @@ fn a_reply_keeps_its_label_on_the_first_paragraph_unless_a_block_opens_it() {
     }
     // A sentence that merely starts with a number is a paragraph.
     assert_eq!(labelled("3 tabs start."), "Agent: 3 tabs start.");
+}
+
+#[test]
+fn the_first_question_opens_with_the_design_of_the_change() {
+    let mut bus = ComponentEventBus::<Action>::new();
+    let target = bus.mount(|events| {
+        ExploreComponent::with_keymap(events, comment_editor::KeymapSetting::default())
+    });
+    let component = bus.get_mut::<ExploreComponent>(target).unwrap();
+    let mut exploration = exploration();
+    let question: review_explore::Question = serde_json::from_value(serde_json::json!({
+        "id": "q", "version": 1, "topic": "cache", "text": "Keep the cache?",
+        "rationale": null, "visual": null, "assessments": null, "evidence": [],
+        "alternatives": [
+            {"id": "keep", "text": "Keep", "outcome": "accepted", "recommendation": null},
+            {"id": "drop", "text": "Drop", "outcome": "needs_follow_up", "recommendation": null}
+        ]
+    }))
+    .unwrap();
+    let mut kickoff = turn("kickoff", None);
+    kickoff.update.next = Some(question.clone());
+    kickoff.update.design = Some(review_explore::Design {
+        overview: "A cache in front of the parser.".into(),
+        data_flow: "Source text flows to the cache, then to the parser.".into(),
+        algorithm: "One hash lookup per file.".into(),
+        alternatives: "No cache, rejected as slow.".into(),
+    });
+    exploration.conversation.push(kickoff);
+    exploration.questions.push(question);
+    component.exploration = Some(exploration);
+    let palette = ui_theme::Theme::default().palette;
+    let mut layout = ConversationLayout::new(Rect::new(0, 0, 80, 60));
+
+    component.preceding_reply(0, &mut layout, palette);
+
+    let rows = rows(&layout);
+    let shown = |text: &str| rows.iter().position(|row| row.contains(text));
+    let order: Vec<_> = [
+        "What it adds and where",
+        "A cache in front of the parser.",
+        "Types and data flow",
+        "Source text flows to the cache, then to the parser.",
+        "Algorithm and cost",
+        "One hash lookup per file.",
+        "Rejected alternatives",
+        "No cache, rejected as slow.",
+    ]
+    .into_iter()
+    .map(|text| shown(text).unwrap_or_else(|| panic!("{text} in {rows:#?}")))
+    .collect();
+    assert!(order.is_sorted(), "{rows:#?}");
 }

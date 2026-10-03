@@ -359,3 +359,27 @@ fn the_page_shows_the_lines_an_answer_to_its_question_marks() {
     assert_eq!(marks.reviewed, vec![lines]);
     assert!(marks.not_relevant.is_empty() && marks.reopened.is_empty());
 }
+
+#[test]
+fn the_page_keeps_the_design_the_first_turn_explained_for_the_rest_of_the_round() {
+    let mut harness = Harness::start();
+    harness.capture();
+    let first = harness.request(None);
+    let access = harness.turn(&first);
+    assert_eq!(harness.page.design(), None);
+
+    assert!(applied(harness.submit(&access, question(&first, 1))));
+    let explained: review_explore::Design = serde_json::from_value(design()).unwrap();
+    assert_eq!(harness.page.design().as_deref(), Some(&explained));
+
+    let (answer, access) = harness.answer("Keep it.");
+    assert_eq!(harness.page.stage(), RoundStage::AgentWorking);
+    assert_eq!(harness.page.design().as_deref(), Some(&explained));
+    assert!(applied(
+        harness.submit(&access, conclusion(&answer, CONCLUSION))
+    ));
+    assert_eq!(harness.page.design().as_deref(), Some(&explained));
+
+    harness.session.handle(Input::Command(Command::Reset));
+    assert_eq!(harness.page.design(), None);
+}

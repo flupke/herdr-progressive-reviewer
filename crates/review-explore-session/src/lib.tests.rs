@@ -414,10 +414,19 @@ fn question(request: &TurnRequest, version: u32) -> Operation {
             "rationale": null, "visual": null,
             "alternatives": [{"id": "keep", "text": "Keep it", "outcome": "accepted"}, {"id": "change", "text": "Change it", "outcome": "needs_follow_up"}],
             "evidence": [{"path": "reviewed.rs", "side": "new", "lines": {"first_line": 1, "last_line": 1}, "notes": "Implements the policy"}]},
+        "design": request.is_kickoff().then(design),
         "conclusion": null, "limitations": [], "findings": []
     }))
     .unwrap();
     Operation::SubmitQuestion(Box::new(update))
+}
+
+/// The design the first turn explains, as the agent sends it.
+fn design() -> serde_json::Value {
+    serde_json::json!({
+        "overview": "A policy in reviewed.rs.", "data_flow": "Nothing flows yet.",
+        "algorithm": "None.", "alternatives": "None stated."
+    })
 }
 
 fn conclusion(request: &TurnRequest, summary: &str) -> Operation {

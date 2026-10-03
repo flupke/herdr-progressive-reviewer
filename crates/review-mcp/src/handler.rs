@@ -123,7 +123,7 @@ impl Handler {
     }
 
     #[tool(
-        description = "Submit the next Explore question. After a human answer, reviewed and reopened mark or reopen the changed lines it settled. On any turn, not_relevant marks the lines read that hold no decision, each with its reason and, for tested_mechanics, the test that covers it. In a round with a challenger, challenger_proposals reports what became of each question it proposed. Returns applied: false for an identical retry of an accepted turn."
+        description = "Submit the next Explore question. On the first turn, design explains the design of the change before that question. After a human answer, reviewed and reopened mark or reopen the changed lines it settled. On any turn, not_relevant marks the lines read that hold no decision, each with its reason and, for tested_mechanics, the test that covers it. In a round with a challenger, challenger_proposals reports what became of each question it proposed. Returns applied: false for an identical retry of an accepted turn."
     )]
     async fn submit_question(
         &self,

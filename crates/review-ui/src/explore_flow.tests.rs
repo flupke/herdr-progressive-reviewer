@@ -760,7 +760,7 @@ fn large_evidence_is_bounded_and_wheels_scroll_exactly_one_layer() {
     let (mut fixture, request) = ExploreUi::with_policy(policy.as_bytes());
     fixture.app.update(UserInput::Resize {
         width: 100,
-        height: 40,
+        height: 60,
     });
     let mut response = fixture.response(&request, 1);
     let question = response.next.as_mut().unwrap();

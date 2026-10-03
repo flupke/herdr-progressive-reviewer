@@ -29,6 +29,7 @@ fn explore_tool_schemas_describe_the_full_submission_without_a_kickoff_example()
         "Topic",
         "AgendaChange",
         "Reply",
+        "Design",
         "Interpretation",
         "Assessments",
         "Consequence",

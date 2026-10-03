@@ -59,6 +59,7 @@ impl ConclusionSubmission {
             not_relevant: self.not_relevant,
             challenger_proposals: self.challenger_proposals,
             reply: None,
+            design: None,
             agenda: vec![],
             topics: vec![],
             next: None,

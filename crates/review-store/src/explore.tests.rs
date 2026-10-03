@@ -88,6 +88,9 @@ impl Investigation {
             "next":{"id":format!("q{number}"), "version":1, "topic":format!("topic{number}"),"text":"Which policy?",
                 "alternatives":[{"id":"keep","text":"Keep the complete policy", "outcome":"accepted"},{"id":"change","text":"Change policy", "outcome":"needs_follow_up"}],
                 "evidence":[{"path":"policy.rs","side":"new","lines":{"first_line":1,"last_line":1}, "notes":"Defines policy and determines retention"}]},
+            "design": request.is_kickoff().then(|| serde_json::json!({
+                "overview":"A policy.", "data_flow":"None.", "algorithm":"None.", "alternatives":"None."
+            })),
             "conclusion":null, "limitations":[], "findings":[]
         })).unwrap()
     }

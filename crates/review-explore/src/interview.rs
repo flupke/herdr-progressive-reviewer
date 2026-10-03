@@ -132,6 +132,9 @@ pub struct InterviewUpdate {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub challenger_proposals: Vec<crate::ChallengerProposal>,
     pub reply: Option<Reply>,
+    /// On the first turn, before its question: the design of the change. Null on later turns.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub design: Option<crate::Design>,
     #[serde(default)]
     pub agenda: Vec<AgendaChange>,
     pub topics: Vec<Topic>,

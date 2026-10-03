@@ -85,6 +85,7 @@ fn update(request: &TurnRequest, next: Option<Question>) -> InterviewUpdate {
         challenger_proposals: Vec::new(),
         interpretation: None,
         topics: vec![],
+        design: (request.is_kickoff() && next.is_some()).then(design),
         conclusion: next
             .is_none()
             .then(|| conclusion("Further human file inspection remains required")),
@@ -94,11 +95,27 @@ fn update(request: &TurnRequest, next: Option<Question>) -> InterviewUpdate {
     }
 }
 
+fn design() -> Design {
+    Design {
+        overview: "The change adds a resolution policy to policy.rs.".into(),
+        data_flow: "A conversation's state flows into the policy, which returns its next state."
+            .into(),
+        algorithm: "One comparison per conversation: constant time.".into(),
+        alternatives: "Reopening every conversation on each change, rejected as noisy.".into(),
+    }
+}
+
 fn started() -> Exploration {
     let mut exploration = exploration();
     let request = exploration.request(None, None).unwrap();
     let mut response = update(&request, Some(question(1)));
-    response.topics.push(Topic {
+    response.topics.push(policy_topic());
+    assert!(exploration.apply(response).unwrap());
+    exploration
+}
+
+fn policy_topic() -> Topic {
+    Topic {
         prompt: String::new(),
         prerequisites: vec![],
         rank: 0,
@@ -110,9 +127,7 @@ fn started() -> Exploration {
             lines: None,
         }],
         status: TopicStatus::Open,
-    });
-    assert!(exploration.apply(response).unwrap());
-    exploration
+    }
 }
 
 #[test]
@@ -481,4 +496,59 @@ fn marks_follow_a_human_answer_and_name_changed_lines() {
     response.next = None;
     response.conclusion = Some(conclusion("Resolved conversations stay resolved"));
     assert!(exploration.apply(response).unwrap());
+}
+
+#[test]
+fn the_first_question_comes_after_the_design_of_the_change() {
+    let mut exploration = exploration();
+    let request = exploration.request(None, None).unwrap();
+    let mut response = update(&request, Some(question(1)));
+    response.topics.push(policy_topic());
+
+    response.design = None;
+    assert!(exploration.apply(response.clone()).is_err());
+    response.design = Some(Design {
+        algorithm: " \n".into(),
+        ..design()
+    });
+    assert!(exploration.apply(response.clone()).is_err());
+    assert!(exploration.design().is_none());
+
+    response.design = Some(design());
+    assert!(exploration.apply(response).unwrap());
+    assert_eq!(exploration.design(), Some(&design()));
+}
+
+#[test]
+fn a_change_that_raises_no_question_concludes_without_a_design() {
+    let mut exploration = exploration();
+    let request = exploration.request(None, None).unwrap();
+
+    assert!(exploration.apply(update(&request, None)).unwrap());
+    assert!(exploration.design().is_none());
+}
+
+#[test]
+fn only_the_first_turn_explains_the_design() {
+    let mut exploration = started();
+    let question = exploration.questions[0].clone();
+    let request = exploration
+        .request(
+            Some(AnswerInput {
+                text: "Why compare only once?".into(),
+                ..AnswerInput::default()
+            }),
+            Some(&question),
+        )
+        .unwrap();
+    let mut response = update(&request, Some(self::question(2)));
+    response.design = Some(Design {
+        overview: "A revised design.".into(),
+        ..design()
+    });
+
+    assert!(exploration.apply(response.clone()).is_err());
+    response.design = None;
+    assert!(exploration.apply(response).unwrap());
+    assert_eq!(exploration.design(), Some(&design()));
 }

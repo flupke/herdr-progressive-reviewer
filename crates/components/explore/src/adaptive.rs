@@ -101,6 +101,11 @@ impl ExploreComponent {
         if let Some(reply) = &turn.update.reply {
             layout.labelled_prose("Agent", &reply.text, palette);
         }
+        if let Some(design) = &turn.update.design {
+            for section in design.sections() {
+                layout.section(section.title, &section.body, palette);
+            }
+        }
         for change in &turn.update.agenda {
             layout.text(
                 format!(

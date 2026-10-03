@@ -80,6 +80,12 @@ checkpoint, and marks or reopens changed lines according to the answers. A new
 round keeps earlier rounds as history.
 _Avoid_: Explore pass, Explore session
 
+**Design explanation**:
+What the first turn of an Explore round explains before its first question, so the
+reviewer could explain the change at a whiteboard: what it adds and where, its types
+and data flow, its algorithm and cost, and the alternatives the implementer rejected.
+_Avoid_: map (the provisional map it replaces)
+
 **Challenger**:
 A subagent with fresh context that the Explore agent starts for a round, to
 review the same change without the implementer's knowledge of why it was

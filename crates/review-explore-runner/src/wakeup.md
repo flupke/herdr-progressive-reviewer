@@ -14,7 +14,7 @@ inspection and delivery still apply. Do not edit code.
 3. Interpret the answer (see Interpretation) and respond to it directly: in reply on a question
    turn, in summary when concluding. Cite evidence for what you say about the code.
 4. Mark the lines the answer settled (see Review marks).
-5. Update the map and the agenda: add, refine or reorder topics as understanding changes (see
+5. Update the agenda: add, refine or reorder topics as understanding changes (see
    Agenda changes). Then ask the next question with submit_question, or conclude (see
    Concluding).
 

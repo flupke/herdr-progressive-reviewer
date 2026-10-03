@@ -22,6 +22,7 @@ impl Exploration {
                 "Conclusion summary is required"
             );
         }
+        self.validate_design(update)?;
         if self
             .outstanding
             .as_ref()
@@ -106,6 +107,28 @@ impl Exploration {
             .not_relevant
             .iter()
             .try_for_each(|mark| mark.validate(comparison))
+    }
+
+    /// The first question comes after the design of the change, and only the first turn
+    /// explains it. The conclusion tool has no design: a first turn that concludes puts it in
+    /// the summary.
+    fn validate_design(&self, update: &InterviewUpdate) -> eyre::Result<()> {
+        let kickoff = self
+            .outstanding
+            .as_ref()
+            .is_some_and(crate::TurnRequest::is_kickoff);
+        let Some(design) = &update.design else {
+            eyre::ensure!(
+                !kickoff || update.next.is_none(),
+                "The first question comes after the design of the change: fill design"
+            );
+            return Ok(());
+        };
+        eyre::ensure!(
+            kickoff,
+            "Only the first turn explains the design; leave design null and correct it in reply"
+        );
+        design.validate()
     }
 
     /// Only a round with a challenger reports its proposals.

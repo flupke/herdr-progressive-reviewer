@@ -5,7 +5,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use herdr_client::protocol::WorkspaceId;
-use review_explore_page::{RoundPublisher, RoundStage};
+use review_explore_page::{PublishedRound, RoundPublisher, RoundStage};
 
 use super::*;
 use crate::{PageDirectory, PageHost};
@@ -47,7 +47,10 @@ impl Shared {
 
     /// Starts the round `id`, and returns the address of its page that the host announced.
     fn start_round(&self, id: &str) -> String {
-        self.round.publish(Some(id), RoundStage::AgentWorking);
+        self.round.publish(
+            Some(PublishedRound { id, design: None }),
+            RoundStage::AgentWorking,
+        );
         self.next_announcement()
             .expect("the address of the round's page")
     }
@@ -122,9 +125,13 @@ fn each_round_opens_on_the_network_behind_a_token_of_its_own() {
     let cookie = format!("explore_token={}", first.rsplit('=').next().unwrap());
     assert_eq!(shared.status("GET", "/", &[("Cookie", &cookie)]), 200);
 
-    shared
-        .round
-        .publish(Some("r1"), RoundStage::Interrupted { failure: None });
+    shared.round.publish(
+        Some(PublishedRound {
+            id: "r1",
+            design: None,
+        }),
+        RoundStage::Interrupted { failure: None },
+    );
     assert_eq!(shared.open(&first), 303, "the round keeps its token");
 
     let second = shared.start_round("r2");

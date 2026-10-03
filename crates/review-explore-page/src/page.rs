@@ -11,7 +11,7 @@ use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use review_explore::{
-    Alternative, AnswerInput, Assessments, Conclusion, MarkTense, Question, QuestionSection,
+    Alternative, AnswerInput, Assessments, Conclusion, Design, MarkTense, Question, QuestionSection,
 };
 use review_explore_citations::Citation;
 use serde::{Deserialize, Serialize};
@@ -267,6 +267,8 @@ struct PageContext<'a> {
     failure: Option<&'a str>,
     /// Why the reviewer's latest post did not go through.
     notice: Option<&'a Notice>,
+    /// The design of the change, as the round's first turn explained it.
+    design: Option<DesignContext>,
     /// The count of file changes, in development only: the page reloads when it changes.
     dev_version: Option<u64>,
 }
@@ -300,6 +302,23 @@ struct MarksContext {
     reopened: Vec<String>,
 }
 
+/// The design of the change: open above the round's first question, folded away in every
+/// later stage of the round.
+#[derive(Serialize)]
+struct DesignContext {
+    open: bool,
+    sections: [QuestionSection; 4],
+}
+
+impl DesignContext {
+    fn new(design: &Design, stage: &RoundStage) -> Self {
+        Self {
+            open: matches!(stage, RoundStage::Question { number: 1, .. }),
+            sections: design.sections(),
+        }
+    }
+}
+
 /// The stage's name, as the template tests it: `no_round`, `working` (the page polls its status
 /// only then), `question`, `interrupted` or `conclusion`.
 #[derive(Serialize)]
@@ -321,6 +340,10 @@ impl<'a> PageContext<'a> {
             conclusion: None,
             failure: None,
             notice,
+            design: round
+                .design
+                .as_deref()
+                .map(|design| DesignContext::new(design, &round.stage)),
             dev_version,
         };
         match &round.stage {

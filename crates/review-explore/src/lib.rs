@@ -22,6 +22,7 @@ mod citation;
 mod conclusion;
 mod consequence;
 mod conversation;
+mod design;
 mod interview;
 mod not_relevant;
 mod path_serde;
@@ -37,6 +38,7 @@ pub use citation::{CitedLines, CitedSource, Uncitable};
 pub use conclusion::{Conclusion, ConclusionSubmission, ImplementationRequest};
 pub use consequence::{Assessments, Consequence, Door};
 pub use conversation::{ConversationTurn, Reply};
+pub use design::Design;
 pub use interview::{
     Alternative, AnswerInput, Exploration, Interpretation, InterviewUpdate, Question,
     ReviewerAnswer, Topic, TopicStatus, TurnRequest,

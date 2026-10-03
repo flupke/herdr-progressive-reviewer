@@ -83,8 +83,8 @@ page shows once. Before it sends an answer, the page checks that the round
 still asks the question it showed; the owner checks again against its own
 round.
 
-The agent's Markdown (a question's Context, Door and Blast radius, the
-conclusion) is rendered to HTML on the server by
+The agent's Markdown (the design explanation, a question's Context, Door and
+Blast radius, the conclusion) is rendered to HTML on the server by
 [`crates/markdown-html`](../crates/markdown-html), which shows raw HTML as text
 and keeps a fenced block's language as the class `language-<name>` of its
 `<code>`. Callouts (`> [!TIP]`) and table-cell status marks (`[!good]`) are
@@ -555,7 +555,9 @@ unfocused pane, or empty composer. Review access binds to the native session whe
 available, or the foreground process group otherwise. Cancellation removes unsent
 requests and a replaced conversation rejects them.
 Delivery failures retain the literal input for Retry. The kickoff prompt carries the scope, the change description (jj only; Git has none) and the first turn identity; the agent submits
-its first question directly. The tools advertise complete schemas derived from the
+its first question directly, after the design explanation in `design`, which only the first turn
+may carry and its question must carry. The pane shows it before the first question, and the page
+shows it open above the first question and folded in every later stage of the round. The tools advertise complete schemas derived from the
 shared submission types; the kickoff carries behavior instructions without schema
 examples. The runner formats later wakeups as the later-turn rules (`wakeup.md`: interpretation,
 review marks, agenda changes, concluding) followed by labeled plain text: turn identity,

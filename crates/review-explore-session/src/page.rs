@@ -6,7 +6,9 @@ use std::sync::Arc;
 
 use review_explore::{Comparison, Exploration, ExploreRound, Question};
 use review_explore_citations::{Citation, CodeColors};
-use review_explore_page::{CommandRefusal, PageAnswer, PageCommand, QuestionMarks, RoundStage};
+use review_explore_page::{
+    CommandRefusal, PageAnswer, PageCommand, PublishedRound, QuestionMarks, RoundStage,
+};
 use review_source::ReviewCheckpoint;
 
 use crate::ExploreSession;
@@ -57,11 +59,10 @@ impl ExploreSession {
     /// the stage changed.
     pub(crate) fn publish_page(&mut self) {
         let stage = self.page_stage();
-        let round = self
-            .state
-            .round
-            .as_ref()
-            .map(|round| round.exploration.instance.as_str());
+        let round = self.state.round.as_ref().map(|round| PublishedRound {
+            id: &round.exploration.instance,
+            design: round.exploration.design(),
+        });
         self.page.publish(round, stage);
     }
 
