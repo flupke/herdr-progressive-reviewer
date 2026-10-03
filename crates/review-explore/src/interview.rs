@@ -83,6 +83,10 @@ pub struct ReviewerAnswer {
     pub option: Option<Alternative>,
     pub text: String,
     pub author: String,
+    /// The choice, by ID, that the reviewer picked first on a question that hid its
+    /// recommendation until then; the agent's prompt leaves it out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_pick: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -90,6 +94,8 @@ pub struct AnswerInput {
     pub option: Option<String>,
     pub text: String,
     pub in_reply_to: Option<String>,
+    /// The choice, by ID, that the reviewer picked before the recommendation showed.
+    pub first_pick: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, schemars::JsonSchema)]
@@ -306,8 +312,7 @@ impl Exploration {
             .map(|id| {
                 question
                     .ok_or_else(|| eyre::eyre!("No question is selected"))?
-                    .choices()
-                    .find(|option| &option.id == id)
+                    .choice(id)
                     .cloned()
                     .ok_or_else(|| eyre::eyre!("Unknown option"))
             })
@@ -318,6 +323,12 @@ impl Exploration {
                 "This choice is no longer pending; reply in free text"
             );
         }
+        if let Some(first_pick) = &input.first_pick {
+            eyre::ensure!(
+                question.is_some_and(|question| question.choice(first_pick).is_some()),
+                "The first pick is not a choice of this question"
+            );
+        }
         let answer = ReviewerAnswer {
             id: uuid::Uuid::new_v4().to_string(),
             checkpoint: self.comparison.checkpoint.clone(),
@@ -326,6 +337,7 @@ impl Exploration {
             option,
             text: input.text,
             author: "reviewer".into(),
+            first_pick: input.first_pick,
         };
         self.answers.push(answer.clone());
         Ok(answer)

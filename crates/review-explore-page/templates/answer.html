@@ -1,15 +1,18 @@
-{# The reviewer's answer to the question: a choice, an optional comment, and Send. #}
+{# The reviewer's answer to the question: a choice, an optional comment, and Send. A blind
+   question asks for the first pick before (pick.html). #}
+{% if question.recommendation == "hidden_until_pick" %}
+{% include "pick.html" %}
+{% else %}
 <form class="answer" method="post" action="/answer">
   <input type="hidden" name="question" value="{{ question.id }}">
   <input type="hidden" name="version" value="{{ question.version }}">
-  <fieldset class="choices">
-    <legend>Choices</legend>
-    {% for choice in question.choices %}
-    <label class="choice"><input type="radio" name="choice" value="{{ choice.id }}"> {{ choice.text }}</label>
-    {% endfor %}
-  </fieldset>
+  {% if question.first_pick %}
+  <p class="hint">You picked “{{ question.first_pick }}” first. Keep your pick or change it, then send.</p>
+  {% endif %}
+  {% include "choices.html" %}
   <label class="comment-label" for="comment">Comment (optional)</label>
   <textarea class="comment" id="comment" name="comment" rows="3"></textarea>
   {% include "marks.html" %}
   <button class="send" type="submit">Send</button>
 </form>
+{% endif %}

@@ -16,4 +16,9 @@ impl Question {
             .iter()
             .chain(std::iter::once(&*NONE_OF_THE_ABOVE))
     }
+
+    /// The displayed choice whose ID is `id`.
+    pub fn choice(&self, id: &str) -> Option<&Alternative> {
+        self.choices().find(|choice| choice.id == id)
+    }
 }

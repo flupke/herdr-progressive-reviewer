@@ -17,6 +17,7 @@ use review_explore_citations::Citation;
 use serde::{Deserialize, Serialize};
 
 use crate::access::{Hosts, TokenCookie};
+use crate::blind::{BlindQuestion, FirstPick};
 use crate::citation::CitationContext;
 use crate::command::{PageAnswer, PageCommand};
 use crate::diagram::{self, Diagrams};
@@ -90,6 +91,7 @@ impl<R: Rounds> ExplorePage<R> {
             .route(&script_path, script)
             .route("/diagram-errors", diagram::report_route::<R>())
             .route("/status", get(status))
+            .route("/pick", post(pick))
             .route("/answer", post(answer))
             .route("/start", post(start))
             .route("/assets/{name}", get(asset::<R>))
@@ -121,9 +123,7 @@ impl<R: Rounds> ExplorePage<R> {
         else {
             return self.refuse(PageEvent::WrongToken).into_response();
         };
-        let mut response = Redirect::to("/").into_response();
-        response.headers_mut().insert(header::SET_COOKIE, cookie);
-        response
+        to_page(Some(cookie))
     }
 
     /// Shows the round, with the notice of a post that did not go through, once.
@@ -133,7 +133,18 @@ impl<R: Rounds> ExplorePage<R> {
             Err(refused) => return refused.into_response(),
         };
         let notice = Notice::read(headers);
-        let context = PageContext::new(&round, notice.as_ref(), self.files.dev_version());
+        let first_pick = match &round.stage {
+            RoundStage::Question { question, .. } => {
+                FirstPick::read(headers, round.round.as_deref(), question)
+            }
+            _ => None,
+        };
+        let context = PageContext::new(
+            &round,
+            notice.as_ref(),
+            first_pick.as_ref(),
+            self.files.dev_version(),
+        );
         match self.files.render("page.html", context) {
             Ok(html) => {
                 let policy = (
@@ -236,10 +247,17 @@ struct AnswerForm {
     comment: String,
 }
 
-/// Hands the reviewer's answer to the round's owner, unless the page showed a question that
-/// no longer waits for an answer, then shows the page again with what became of it.
-async fn answer(Admitted(round): Admitted, Form(form): Form<AnswerForm>) -> Response {
-    let sent = if round.stages.stage().asks(&form.question, form.version) {
+/// Hands the reviewer's answer to the round's owner, with the reviewer's first pick of a blind
+/// question, unless the page showed a question that no longer waits for an answer, then shows
+/// the page again with what became of it.
+async fn answer(
+    Admitted(round): Admitted,
+    headers: HeaderMap,
+    Form(form): Form<AnswerForm>,
+) -> Response {
+    let shown = round.stages.latest();
+    let sent = if let Some(question) = shown.stage.asks(&form.question, form.version) {
+        let first_pick = FirstPick::read(&headers, shown.round.as_deref(), question);
         let answer = PageAnswer {
             question: form.question,
             version: form.version,
@@ -247,13 +265,17 @@ async fn answer(Admitted(round): Admitted, Form(form): Form<AnswerForm>) -> Resp
                 option: form.choice,
                 text: form.comment,
                 in_reply_to: None,
+                first_pick: first_pick.map(|pick| pick.choice),
             },
         };
         round.commands.send(PageCommand::Answer(answer)).await
     } else {
         Err(Problem::Stale)
     };
-    show_after(Post::Answer, sent)
+    to_page(Some(match sent {
+        Ok(()) => FirstPick::clear(),
+        Err(problem) => Notice::new(Post::Answer, problem).cookie(),
+    }))
 }
 
 /// The reviewer's start of a round, as the start form posts it.
@@ -273,16 +295,44 @@ async fn start(Admitted(round): Admitted, Form(form): Form<StartForm>) -> Respon
     } else {
         Err(Problem::Stale)
     };
-    show_after(Post::Start, sent)
+    to_page(
+        sent.err()
+            .map(|problem| Notice::new(Post::Start, problem).cookie()),
+    )
 }
 
-/// Redirects to the page after a post, with the notice of `post` when it did not go through.
-fn show_after(post: Post, sent: Result<(), Problem>) -> Response {
+/// The reviewer's first pick of a blind question, as its form posts it.
+#[derive(Deserialize)]
+struct PickForm {
+    question: String,
+    version: u32,
+    /// The picked choice's ID; absent when the reviewer picked none.
+    choice: Option<String>,
+}
+
+/// Keeps the reviewer's first pick of a blind question, then shows the page again, now with
+/// the agent's recommendation. A pick kept already stays the first one.
+async fn pick(
+    Admitted(round): Admitted,
+    headers: HeaderMap,
+    Form(form): Form<PickForm>,
+) -> Response {
+    let shown = round.stages.latest();
+    let asked = shown.stage.asks(&form.question, form.version);
+    to_page(match (asked, shown.round.as_deref()) {
+        (Some(question), Some(round)) => form
+            .choice
+            .and_then(|choice| FirstPick::to_keep(&headers, round, question, choice))
+            .map(|pick| pick.cookie()),
+        _ => Some(Notice::new(Post::Pick, Problem::Stale).cookie()),
+    })
+}
+
+/// Redirects to the page, setting `cookie` when given (post, redirect, get).
+fn to_page(cookie: Option<HeaderValue>) -> Response {
     let mut response = Redirect::to("/").into_response();
-    if let Err(problem) = sent {
-        response
-            .headers_mut()
-            .insert(header::SET_COOKIE, Notice::new(post, problem).cookie());
+    if let Some(cookie) = cookie {
+        response.headers_mut().insert(header::SET_COOKIE, cookie);
     }
     response
 }
@@ -319,12 +369,41 @@ struct QuestionContext<'a> {
     context: String,
     /// The Door and Blast radius sections, folded away until the reviewer opens them.
     sections: Vec<QuestionSection>,
+    /// When the page shows the agent's recommendation.
+    recommendation: Recommendation,
     /// The agent's alternatives, then None of the above.
-    choices: Vec<&'a Alternative>,
+    choices: Vec<ChoiceContext<'a>>,
+    /// The text of the choice the reviewer picked first, once the recommendation shows.
+    first_pick: Option<&'a str>,
     /// The question's citations, most decisive first.
     citations: Vec<CitationContext<'a>>,
     /// The lines an answer marks, `None` when it marks none.
     marks: Option<MarksContext>,
+}
+
+/// When the page shows the agent's recommendation for a question, as the template tests it.
+#[derive(Clone, Copy, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum Recommendation {
+    /// At once, with the choices in the agent's order.
+    Shown,
+    /// Not yet, on a blind question: the choices in a mixed order, and a form that posts the
+    /// reviewer's first pick.
+    HiddenUntilPick,
+    /// After the first pick of a blind question: the choices in the same mixed order, the pick
+    /// selected, and the answer's form.
+    ShownAfterPick,
+}
+
+/// One choice of a question.
+#[derive(Serialize)]
+struct ChoiceContext<'a> {
+    id: &'a str,
+    text: &'a str,
+    /// Why the agent recommends the choice, when it does and the page shows it.
+    recommendation: Option<&'a str>,
+    /// Whether the choice is selected: the reviewer's first pick.
+    checked: bool,
 }
 
 /// What an answer to the question marks: a summary, and the lines on request.
@@ -370,7 +449,12 @@ enum Stage {
 }
 
 impl<'a> PageContext<'a> {
-    fn new(round: &'a RoundSnapshot, notice: Option<&'a Notice>, dev_version: Option<u64>) -> Self {
+    fn new(
+        round: &'a RoundSnapshot,
+        notice: Option<&'a Notice>,
+        first_pick: Option<&FirstPick>,
+        dev_version: Option<u64>,
+    ) -> Self {
         let mut context = Self {
             revision: round.revision,
             stage: Stage::NoRound,
@@ -401,7 +485,9 @@ impl<'a> PageContext<'a> {
                 marks,
             } => {
                 context.stage = Stage::Question;
-                context.question = Some(QuestionContext::new(*number, question, citations, marks));
+                context.question = Some(QuestionContext::new(
+                    *number, question, citations, marks, first_pick,
+                ));
             }
             RoundStage::Interrupted { failure } => {
                 context.stage = Stage::Interrupted;
@@ -422,7 +508,25 @@ impl<'a> QuestionContext<'a> {
         question: &'a Question,
         citations: &'a [Citation],
         marks: &QuestionMarks,
+        first_pick: Option<&FirstPick>,
     ) -> Self {
+        let blind = BlindQuestion::of(question);
+        let first_pick = first_pick
+            .filter(|pick| {
+                blind
+                    .as_ref()
+                    .is_some_and(|blind| blind.offers(&pick.choice))
+            })
+            .map(|pick| pick.choice.as_str());
+        let (recommendation, choices) = match (&blind, first_pick) {
+            (None, _) => (Recommendation::Shown, question.choices().collect()),
+            (Some(blind), None) => (Recommendation::HiddenUntilPick, blind.choices()),
+            (Some(blind), Some(_)) => (Recommendation::ShownAfterPick, blind.choices()),
+        };
+        let choices: Vec<_> = choices
+            .into_iter()
+            .map(|choice| ChoiceContext::new(choice, recommendation, first_pick))
+            .collect();
         Self {
             number,
             id: &question.id,
@@ -434,9 +538,32 @@ impl<'a> QuestionContext<'a> {
                 .iter()
                 .flat_map(Assessments::sections)
                 .collect(),
-            choices: question.choices().collect(),
+            recommendation,
+            first_pick: choices
+                .iter()
+                .find(|choice| choice.checked)
+                .map(|choice| choice.text),
+            choices,
             citations: citations.iter().map(CitationContext::new).collect(),
             marks: MarksContext::new(marks),
+        }
+    }
+}
+
+impl<'a> ChoiceContext<'a> {
+    fn new(
+        choice: &'a Alternative,
+        recommendation: Recommendation,
+        first_pick: Option<&str>,
+    ) -> Self {
+        Self {
+            id: &choice.id,
+            text: &choice.text,
+            recommendation: choice
+                .recommendation
+                .as_deref()
+                .filter(|_| recommendation != Recommendation::HiddenUntilPick),
+            checked: first_pick == Some(choice.id.as_str()),
         }
     }
 }

@@ -58,6 +58,7 @@ fn answer() -> ReviewerAnswer {
         option: None,
         text: "Keep it.".into(),
         author: "reviewer".into(),
+        first_pick: None,
     }
 }
 

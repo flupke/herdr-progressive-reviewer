@@ -44,6 +44,9 @@ pub(crate) struct SentAnswer {
     version: u32,
     choice: Option<String>,
     comment: String,
+    /// The choice picked first on a blind question; left out when there was none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    first_pick: Option<String>,
 }
 
 /// A round the reviewer started from the page, as a test reads it back.
@@ -211,6 +214,7 @@ impl Sessions {
                     version: answer.version,
                     choice: answer.input.option,
                     comment: answer.input.text,
+                    first_pick: answer.input.first_pick,
                 });
                 session.publish(RoundStage::AgentWorking);
             }

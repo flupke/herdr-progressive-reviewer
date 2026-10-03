@@ -82,7 +82,10 @@ get). A refusal travels to that next load in a short-lived cookie, which the
 page shows once, worded by the template partial of its post
 (`templates/notice-{post}.html`). Before it sends an answer, the page checks that the round
 still asks the question it showed; the owner checks again against its own
-round.
+round. On a question whose Door is not two-way, the page hides the
+recommendation until the reviewer's first pick (`src/blind.rs`): the pick is a
+form post that the page keeps in a cookie, not a command, and the answer then
+carries it to the owner as `AnswerInput::first_pick`.
 
 The agent's Markdown (the design explanation, a question's Context, Door and
 Blast radius, the conclusion) is rendered to HTML on the server by

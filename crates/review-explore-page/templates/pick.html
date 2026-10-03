@@ -1,0 +1,8 @@
+{# A blind question: the reviewer picks a choice before the agent's recommendation shows. #}
+<form class="answer pick" method="post" action="/pick">
+  <input type="hidden" name="question" value="{{ question.id }}">
+  <input type="hidden" name="version" value="{{ question.version }}">
+  <p class="hint">Pick your answer before you see the agent's recommendation: it shows once you have picked.</p>
+  {% include "choices.html" %}
+  <button class="send" type="submit">Pick</button>
+</form>

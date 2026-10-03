@@ -16,7 +16,8 @@
 //!     and the agent works on its first turn;
 //!   - `fail-start`: that round could not start, and no round is running.
 //! - `GET /test/sessions/{token}/answers` lists the answers the reviewer sent from the page,
-//!   in order: `[{"question", "version", "choice", "comment"}]`.
+//!   in order: `[{"question", "version", "choice", "comment"}]`, with `"first_pick"` when
+//!   the question hid its recommendation until the reviewer's first pick.
 //! - `GET /test/sessions/{token}/diagram-errors` lists the diagram errors the session's page
 //!   reported, each once: `[{"question", "version", "source", "message"}]`.
 //! - `GET /test/sessions/{token}/starts` lists the rounds the reviewer started from the page,

@@ -366,7 +366,14 @@ round started in the reviewer or in another tab after the page was loaded wins: 
 refuses to start a second one, says so, and shows the round as it is now.
 
 To answer a question, pick a choice or None of the above, write an optional comment, and
-press **Send**; a comment without a choice works too. The agent receives the answer as
+press **Send**; a comment without a choice works too. Under the choice the agent
+recommends, the page gives its reason. A question whose Door is one-way, mixed or unknown
+first hides the recommendation: the page lists the agent's choices in a mixed order, the
+same each time it shows the question, with None of the above last and none selected. Pick
+one and press **Pick**: the page then shows the recommendation, with your pick selected,
+and you keep it or change it before you send. The reviewer saves your first pick with the
+answer, for statistics; the agent receives only the answer you send. A two-way question,
+or one with no Door, shows the recommendation at once, in the agent's order. The agent receives the answer as
 if you had given it in the reviewer's Explore tab, which shows it under the question.
 Above **Send**, the page says how many lines your answer will mark reviewed and not
 relevant; open that line to list them. Once you send, the page shows that the agent is

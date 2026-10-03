@@ -482,6 +482,8 @@ impl ExploreComponent {
                 .general_reply()
                 .then(|| self.general_context.clone())
                 .flatten(),
+            // The pane shows the recommendation at once: no pick is blind.
+            first_pick: None,
         }))
     }
 

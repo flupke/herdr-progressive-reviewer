@@ -63,6 +63,7 @@ fn answer(request: &TurnRequest) -> ReviewerAnswer {
         text: "Keep it only after checking the unchanged caller.\nLiteral \"{{ROOT}}\" — {{TURN}}"
             .into(),
         author: "reviewer".into(),
+        first_pick: None,
     }
 }
 
@@ -152,6 +153,19 @@ fn question_size_does_not_expand_the_wakeup() {
     answer.option.as_mut().unwrap().recommendation = Some(detailed);
     assert_eq!(prepare(&request, &comparison), before);
     assert!(serde_json::to_string(&request).unwrap().len() > 1_000_000);
+}
+
+#[test]
+fn the_wakeup_is_the_same_whatever_the_reviewer_picked_first() {
+    let comparison = comparison();
+    let mut exploration = Exploration::new(Arc::new(comparison.clone()));
+    let mut request = exploration.request(None, None).unwrap();
+    request.answer = Some(answer(&request));
+    let before = prepare(&request, &comparison);
+
+    request.answer.as_mut().unwrap().first_pick = Some("change".into());
+
+    assert_eq!(prepare(&request, &comparison), before);
 }
 
 #[test]

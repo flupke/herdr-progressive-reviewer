@@ -8,6 +8,8 @@ export interface SentAnswer {
   version: number;
   choice: string | null;
   comment: string;
+  /** The reviewer's first pick, by choice ID, when the question hid its recommendation. */
+  first_pick?: string;
 }
 
 /** A round the reviewer started from the page, as the session received it. */
@@ -21,8 +23,11 @@ export interface Session {
   readonly token: string;
   /** Opens the page through the address the tool gives the reviewer, with the session's token. */
   open(): Promise<void>;
-  /** The agent posts its next question: the fixed questions of the standalone server in turn. */
-  askQuestion(): Promise<void>;
+  /**
+   * The agent posts its next question: `question` when given, a JSON `Question` of
+   * `review_explore`, or else the fixed questions of the standalone server in turn.
+   */
+  askQuestion(question?: object): Promise<void>;
   /** The reviewer answers in the pane, and the agent works on its next turn. */
   answerInPane(): Promise<void>;
   /** The reviewer cancels the latest answer in the pane: its question waits again. */
@@ -50,8 +55,11 @@ export interface Session {
   starts(): Promise<SentStart[]>;
 }
 
-async function control(baseUrl: string | undefined, path: string): Promise<Response> {
-  const response = await fetch(new URL(path, baseUrl), { method: 'POST' });
+async function control(baseUrl: string | undefined, path: string, body?: object): Promise<Response> {
+  const response = await fetch(new URL(path, baseUrl), {
+    method: 'POST',
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
   if (!response.ok) throw new Error(`POST ${path}: ${response.status} ${await response.text()}`);
   return response;
 }
@@ -59,8 +67,8 @@ async function control(baseUrl: string | undefined, path: string): Promise<Respo
 export const test = base.extend<{ explore: Session }>({
   explore: async ({ app }, use) => {
     const { token } = (await (await control(app.baseUrl, '/test/sessions')).json()) as { token: string };
-    const step = async (name: string) => {
-      await control(app.baseUrl, `/test/sessions/${token}/${name}`);
+    const step = async (name: string, body?: object) => {
+      await control(app.baseUrl, `/test/sessions/${token}/${name}`, body);
     };
     const read = async <T>(name: string): Promise<T> => {
       const response = await fetch(new URL(`/test/sessions/${token}/${name}`, app.baseUrl));
@@ -70,7 +78,7 @@ export const test = base.extend<{ explore: Session }>({
     await use({
       token,
       open: () => app.open(`/?token=${token}`),
-      askQuestion: () => step('question'),
+      askQuestion: (question?: object) => step('question', question),
       answerInPane: () => step('answer'),
       cancelAnswerInPane: () => step('cancel'),
       failDelivery: () => step('fail'),

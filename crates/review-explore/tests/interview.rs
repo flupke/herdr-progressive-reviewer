@@ -554,3 +554,33 @@ fn only_the_first_turn_explains_the_design() {
 }
 #[path = "interview/diagram.rs"]
 mod diagram;
+
+#[test]
+fn a_first_pick_is_saved_with_the_answer_when_it_names_a_choice() {
+    let mut exploration = started();
+    let question = exploration.questions[0].clone();
+    let refused = exploration.clone().request(
+        Some(AnswerInput {
+            option: Some("keep".into()),
+            first_pick: Some("elsewhere".into()),
+            ..AnswerInput::default()
+        }),
+        Some(&question),
+    );
+    assert!(refused.is_err());
+
+    let request = exploration
+        .request(
+            Some(AnswerInput {
+                option: Some("keep".into()),
+                first_pick: Some("none-of-the-above".into()),
+                ..AnswerInput::default()
+            }),
+            Some(&question),
+        )
+        .unwrap();
+
+    let answer = request.answer.unwrap();
+    assert_eq!(answer.first_pick.as_deref(), Some("none-of-the-above"));
+    assert_eq!(exploration.answers, vec![answer]);
+}

@@ -153,6 +153,13 @@ network, behind a new token for each round, for the QR code in the pane; while
 no round runs, the start screen's token is the one the next round keeps.
 _Avoid_: web UI, Explore web, browser view
 
+**First pick**:
+The choice the reviewer picks on the Explore page before it shows the agent's
+recommendation, on a question whose Door is one-way, mixed or unknown. The
+reviewer then keeps it or changes it before sending; the saved answer keeps the
+first pick beside the sent choice. Also called the blind first pick.
+_Avoid_: initial answer, draft choice
+
 **Reset**:
 Closing the current Explore round and returning to the start screen. The round's
 records stay saved, but it is no longer shown or reopened, and its agent can no

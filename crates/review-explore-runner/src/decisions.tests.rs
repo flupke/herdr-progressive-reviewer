@@ -40,6 +40,7 @@ fn round(answers: &[(&str, Option<&str>, &str)]) -> Exploration {
                 in_reply_to: "turn".into(),
                 text: (*comment).into(),
                 author: "reviewer".into(),
+                first_pick: None,
             }
         })
         .collect();

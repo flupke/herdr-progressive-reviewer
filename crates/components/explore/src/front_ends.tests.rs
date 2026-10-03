@@ -89,7 +89,7 @@ fn answered_elsewhere(round: &ExploreRound) -> (TurnRequest, ExploreRound) {
             Some(AnswerInput {
                 option: Some("keep".into()),
                 text: "Keep it, answered on the page.".into(),
-                in_reply_to: None,
+                ..AnswerInput::default()
             }),
             round.exploration.questions.first(),
         )

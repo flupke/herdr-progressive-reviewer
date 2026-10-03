@@ -521,3 +521,45 @@ fn a_start_that_cannot_capture_the_change_shows_why_on_the_page() {
     );
     assert!(harness.agents.prompts().is_empty());
 }
+
+#[test]
+fn the_first_pick_of_a_page_answer_is_saved_with_the_answer() {
+    let mut harness = Harness::start();
+    harness.ask_first_question();
+    let input = AnswerInput {
+        first_pick: Some("change".into()),
+        ..keep("Keep it after all.")
+    };
+
+    assert_eq!(harness.answer_on_page("q1", 1, input), Ok(()));
+
+    let posted = harness.next::<ui_events::ExplorePosted>();
+    assert!(posted.result.is_ok(), "{:?}", posted.result);
+    let saved = harness.saved();
+    let [answer] = saved.exploration.answers.as_slice() else {
+        panic!("saved answers: {:?}", saved.exploration.answers);
+    };
+    assert_eq!(
+        (
+            answer.option.as_ref().map(|o| o.id.as_str()),
+            answer.first_pick.as_deref()
+        ),
+        (Some("keep"), Some("change"))
+    );
+    assert_eq!(posted.request.answer.as_ref(), Some(answer));
+}
+
+#[test]
+fn a_page_answer_whose_first_pick_is_not_a_choice_is_refused() {
+    let mut harness = Harness::start();
+    harness.ask_first_question();
+    let input = AnswerInput {
+        first_pick: Some("elsewhere".into()),
+        ..keep("Keep it.")
+    };
+
+    let reply = harness.answer_on_page("q1", 1, input);
+
+    assert!(matches!(reply, Err(CommandRefusal::Failed(_))), "{reply:?}");
+    assert!(harness.saved().exploration.answers.is_empty());
+}

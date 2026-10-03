@@ -1,0 +1,14 @@
+{# The question's choices: on a blind question, the first pick is required. A recommended choice
+   is described by the agent's reason, unless the page hides it until the first pick. #}
+<fieldset class="choices">
+  <legend>Choices</legend>
+  {% for choice in question.choices %}
+  <label class="choice{% if choice.recommendation %} recommended{% endif %}"><input type="radio" name="choice" value="{{ choice.id }}"
+    {%- if choice.checked %} checked{% endif %}
+    {%- if question.recommendation == "hidden_until_pick" %} required{% endif %}
+    {%- if choice.recommendation %} aria-describedby="recommendation-{{ loop.index }}"{% endif %}> {{ choice.text }}</label>
+  {% if choice.recommendation %}
+  <p class="recommendation" id="recommendation-{{ loop.index }}"><strong>Recommended:</strong> {{ choice.recommendation }}</p>
+  {% endif %}
+  {% endfor %}
+</fieldset>

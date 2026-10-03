@@ -405,6 +405,7 @@ impl ExploreRound {
             option: answer.option.as_ref().map(|option| option.id.clone()),
             text: answer.text.clone(),
             in_reply_to: Some(answer.in_reply_to.clone()),
+            first_pick: answer.first_pick.clone(),
         });
         let validated = candidate.request(
             input,

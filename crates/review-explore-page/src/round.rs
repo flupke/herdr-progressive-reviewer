@@ -44,9 +44,12 @@ pub enum RoundStage {
 }
 
 impl RoundStage {
-    /// Whether the stage waits for an answer to version `version` of question `id`.
-    pub(crate) fn asks(&self, id: &str, version: u32) -> bool {
-        matches!(self, Self::Question { question, .. } if question.is_version(id, version))
+    /// The question the stage waits for an answer to, when it is version `version` of `id`.
+    pub(crate) fn asks(&self, id: &str, version: u32) -> Option<&Question> {
+        match self {
+            Self::Question { question, .. } if question.is_version(id, version) => Some(question),
+            _ => None,
+        }
     }
 
     /// Whether the reviewer can start a round: none is running or starting.
@@ -98,7 +101,7 @@ pub struct PublishedRound<'a> {
 pub(crate) struct RoundSnapshot {
     pub(crate) revision: u64,
     /// The identity of the round the stage belongs to; `None` when no round is running.
-    round: Option<String>,
+    pub(crate) round: Option<String>,
     /// The design of the change, as the round's first turn explained it.
     pub(crate) design: Option<Arc<Design>>,
     pub(crate) stage: RoundStage,

@@ -15,6 +15,7 @@
 //! round needs that cookie.
 
 mod access;
+mod blind;
 mod citation;
 mod command;
 mod diagram;
