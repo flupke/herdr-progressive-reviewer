@@ -135,8 +135,60 @@ impl ExploreRecords<'_> {
 
     /// The identity and modification time of every round file, readable or not.
     pub fn round_files(&self) -> Result<Vec<(String, SystemTime)>> {
+        ReviewStore::round_files_in(&self.directory)
+    }
+}
+
+/// Every round saved for one repository, read without changing anything.
+#[derive(Debug, Default)]
+pub struct SavedRounds {
+    pub rounds: Vec<SavedRound>,
+    /// Round files saved in an earlier format, or damaged.
+    pub unreadable: usize,
+}
+
+/// A saved round and when its file was last written.
+#[derive(Debug)]
+pub struct SavedRound {
+    pub round: ExploreRound,
+    pub saved_at: SystemTime,
+}
+
+impl ReviewStore {
+    /// Watch this namespace with the existing filesystem event infrastructure.
+    pub fn explore_directory(&self) -> PathBuf {
+        self.repository_dir.join("explore-v1")
+    }
+
+    /// Read every saved round of every review of this repository. It takes no
+    /// lock: a round file is replaced atomically, so each read sees one whole
+    /// version. A missing Explore directory holds no rounds.
+    pub fn saved_explore_rounds(&self) -> Result<SavedRounds> {
+        let mut saved = SavedRounds::default();
+        let directory = self.explore_directory();
+        if !directory.exists() {
+            return Ok(saved);
+        }
+        for review in Self::explore_entries(&directory)? {
+            let review = review?.path();
+            if !review.is_dir() {
+                continue;
+            }
+            for (instance, saved_at) in Self::round_files_in(&review)? {
+                match Self::read_explore(&review.join(format!("{instance}.json")), MAX_DOMAIN) {
+                    Ok(Some(round)) => saved.rounds.push(SavedRound { round, saved_at }),
+                    Ok(None) | Err(_) => saved.unreadable += 1,
+                }
+            }
+        }
+        Ok(saved)
+    }
+
+    /// The identity and modification time of every round file in one review's
+    /// directory, readable or not.
+    fn round_files_in(directory: &Path) -> Result<Vec<(String, SystemTime)>> {
         let mut rounds = Vec::new();
-        for entry in ReviewStore::explore_entries(&self.directory)? {
+        for entry in Self::explore_entries(directory)? {
             let entry = entry?;
             let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
                 continue;
@@ -144,7 +196,7 @@ impl ExploreRecords<'_> {
             let Some(instance) = name.strip_suffix(".json") else {
                 continue;
             };
-            if instance == "index" || ReviewStore::explore_id(instance).is_err() {
+            if instance == "index" || Self::explore_id(instance).is_err() {
                 continue;
             }
             let modified = entry
@@ -154,13 +206,6 @@ impl ExploreRecords<'_> {
             rounds.push((instance.to_owned(), modified));
         }
         Ok(rounds)
-    }
-}
-
-impl ReviewStore {
-    /// Watch this namespace with the existing filesystem event infrastructure.
-    pub fn explore_directory(&self) -> PathBuf {
-        self.repository_dir.join("explore-v1")
     }
 
     pub fn prepare_explore_storage(&self) -> Result<()> {

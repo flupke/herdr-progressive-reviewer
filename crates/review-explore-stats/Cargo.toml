@@ -1,0 +1,18 @@
+[package]
+name = "review-explore-stats"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+review-explore = { path = "../review-explore" }
+review-store = { path = "../review-store" }
+eyre.workspace = true
+time = { workspace = true, features = ["parsing", "macros", "local-offset"] }
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[lints]
+workspace = true

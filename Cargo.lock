@@ -3936,6 +3936,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "review-explore-stats"
+version = "0.2.0"
+dependencies = [
+ "eyre",
+ "review-explore",
+ "review-store",
+ "serde_json",
+ "time",
+]
+
+[[package]]
 name = "review-hunks"
 version = "0.2.0"
 dependencies = [
@@ -4184,6 +4195,7 @@ dependencies = [
  "reqwest",
  "review-explore",
  "review-explore-session",
+ "review-explore-stats",
  "review-hunks",
  "review-lsp",
  "review-mcp",

@@ -1,0 +1,179 @@
+{
+ "version": 2,
+ "value": {
+  "revision": 1,
+  "exploration": {
+   "instance": "cccccccc-0000-4000-8000-000000000003",
+   "comparison": {
+    "repository_root": "/fixture/repository",
+    "checkpoint": {
+     "review_unit": "aabb",
+     "checkpoint": "ccdd"
+    },
+    "files": [
+     {
+      "old_path": null,
+      "new_path": [
+       112,
+       111,
+       108,
+       105,
+       99,
+       121,
+       46,
+       114,
+       115
+      ],
+      "old_kind": "Absent",
+      "new_kind": "File",
+      "change": "Added",
+      "display_path": "policy.rs",
+      "statistics": {
+       "lines_added": 2,
+       "lines_removed": 0
+      }
+     }
+    ],
+    "diffs": "KLUv/QBYHQIApANCAGRpZmYgLS1naXQgYS9wb2xpY3kucnMgYgpAQCAtMCwwICsxLDIgQEAKK2ZpcnN0CitzZWNvbmQKAgC87DGANg==",
+    "manifest": [],
+    "base": {
+     "Git": {
+      "base_tree": "aabb",
+      "display_id": "base",
+      "snapshot_id": "ccdd"
+     }
+    }
+   },
+   "topics": {
+    "t": {
+     "id": "t",
+     "title": "Topic",
+     "entries": [],
+     "status": "open",
+     "prompt": "",
+     "prerequisites": [],
+     "rank": 0
+    }
+   },
+   "questions": [
+    {
+     "id": "c-q1",
+     "version": 1,
+     "topic": "t",
+     "text": "Is this needed?",
+     "rationale": null,
+     "visual": null,
+     "alternatives": [
+      {
+       "id": "yes",
+       "text": "Yes",
+       "outcome": "accepted",
+       "recommendation": null
+      },
+      {
+       "id": "no",
+       "text": "No",
+       "outcome": "accepted",
+       "recommendation": null
+      }
+     ],
+     "evidence": [
+      {
+       "path": "policy.rs",
+       "side": "new",
+       "lines": {
+        "first_line": 1,
+        "last_line": 1
+       },
+       "notes": "Here"
+      }
+     ],
+     "assessments": null
+    }
+   ],
+   "answers": [],
+   "interpretations": [],
+   "limitations": [],
+   "findings": [],
+   "conclusion": null,
+   "conversation": [
+    {
+     "answer": null,
+     "update": {
+      "instance": "cccccccc-0000-4000-8000-000000000003",
+      "request": "c-r1",
+      "checkpoint": {
+       "review_unit": "aabb",
+       "checkpoint": "ccdd"
+      },
+      "interpretation": null,
+      "reply": null,
+      "agenda": [],
+      "topics": [],
+      "next": {
+       "id": "c-q1",
+       "version": 1,
+       "topic": "t",
+       "text": "Is this needed?",
+       "rationale": null,
+       "visual": null,
+       "alternatives": [
+        {
+         "id": "yes",
+         "text": "Yes",
+         "outcome": "accepted",
+         "recommendation": null
+        },
+        {
+         "id": "no",
+         "text": "No",
+         "outcome": "accepted",
+         "recommendation": null
+        }
+       ],
+       "evidence": [
+        {
+         "path": "policy.rs",
+         "side": "new",
+         "lines": {
+          "first_line": 1,
+          "last_line": 1
+         },
+         "notes": "Here"
+        }
+       ],
+       "assessments": null
+      },
+      "conclusion": null,
+      "limitations": [],
+      "findings": []
+     }
+    }
+   ],
+   "agent_elapsed_ms": {},
+   "outstanding": null,
+   "retry": null
+  },
+  "last_agent_session": null,
+  "turns": {
+   "c-r1": {
+    "attempt": "c-r1-attempt",
+    "editor_sequence": null,
+    "request": {
+     "instance": "cccccccc-0000-4000-8000-000000000003",
+     "request": "c-r1",
+     "checkpoint": {
+      "review_unit": "aabb",
+      "checkpoint": "ccdd"
+     },
+     "answer": null,
+     "response_error": null
+    },
+    "state": "Delivered",
+    "started_at_ms": null
+   }
+  },
+  "implementations": {},
+  "completion": null
+ }
+}

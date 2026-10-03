@@ -327,3 +327,44 @@ changed lines Jev judges insignificant as reviewed. The reviewer sends bounded
 before/after code snippets and relative paths to TypeSafe AI. Missing or
 whitespace-only keys disable Jev. Uncertain, failed and oversized checks leave their
 lines unreviewed. Reopen a hunk in Files to review Jev's lines yourself.
+
+## Explore statistics
+
+To see whether a change to Explore helps (a prompt change, the Challenger, a new page),
+print the numbers of the saved Explore rounds from inside the repository:
+
+```sh
+/path/to/herdr-progressive-reviewer/bin/reviewer-control stats
+/path/to/herdr-progressive-reviewer/bin/reviewer-control stats --since 2026-09-15 --until 2026-09-30
+```
+
+The command reads the rounds saved for the checkout it runs in; each jj workspace keeps
+its own rounds. It only reads them and changes nothing. It reads Herdr's state directory
+for the plugin, `$XDG_STATE_HOME/herdr/plugins/herdr.progressive-reviewer` (by default
+under `~/.local/state`), or `HERDR_PLUGIN_STATE_DIR` when set.
+
+It prints one table for all rounds and, when you give `--since` or `--until`, a second one
+for the rounds started in that period. A date covers that whole day in local time; an
+RFC 3339 time such as `2026-09-15T14:00:00+02:00` is exact, and `--until` excludes it.
+Each table has a column for all rounds, one for rounds with a Challenger and one for
+rounds without. The rows are:
+
+- the number of rounds, and how many have answers and a conclusion;
+- the questions per round (median and range), counting only rounds with an answer;
+- the share of answers that asked for a change, which the agent interpreted as needing a
+  follow-up, out of the answers its next turn took up; an answer it left uninterpreted,
+  as it may for free text, asked for nothing;
+- the share of answers that did not choose the recommended choice, out of the answers to
+  questions that recommended one; an answer in free text alone did not choose it;
+- the median time of an agent turn, over every turn and over the turns after an answer;
+- the median time the reviewer took to answer, from the agent's question to the answer;
+- the median share of a round's time, agent turns plus answers, spent waiting for the agent;
+- the median number of words the agent wrote for a question: its text, context, sketch,
+  choices with their recommendations, evidence notes, assessments, and the reply above it.
+
+A round with no answer counts as a round and stays out of the numbers about answers. The
+command also says how many saved rounds it could not read: rounds saved by earlier
+versions and damaged records. Rounds whose turns carry no time, saved before turns were
+timed, count in the period by the time their file was last saved. A retried turn keeps
+only the time of its last attempt, so the agent's time on a failed attempt counts as the
+reviewer's.

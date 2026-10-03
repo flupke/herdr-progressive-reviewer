@@ -1,0 +1,660 @@
+{
+ "version": 2,
+ "value": {
+  "revision": 1,
+  "exploration": {
+   "instance": "aaaaaaaa-0000-4000-8000-000000000001",
+   "comparison": {
+    "repository_root": "/fixture/repository",
+    "checkpoint": {
+     "review_unit": "aabb",
+     "checkpoint": "ccdd"
+    },
+    "files": [
+     {
+      "old_path": null,
+      "new_path": [
+       112,
+       111,
+       108,
+       105,
+       99,
+       121,
+       46,
+       114,
+       115
+      ],
+      "old_kind": "Absent",
+      "new_kind": "File",
+      "change": "Added",
+      "display_path": "policy.rs",
+      "statistics": {
+       "lines_added": 2,
+       "lines_removed": 0
+      }
+     }
+    ],
+    "diffs": "KLUv/QBYHQIApANCAGRpZmYgLS1naXQgYS9wb2xpY3kucnMgYgpAQCAtMCwwICsxLDIgQEAKK2ZpcnN0CitzZWNvbmQKAgC87DGANg==",
+    "manifest": [],
+    "base": {
+     "Git": {
+      "base_tree": "aabb",
+      "display_id": "base",
+      "snapshot_id": "ccdd"
+     }
+    }
+   },
+   "topics": {
+    "t": {
+     "id": "t",
+     "title": "Topic",
+     "entries": [],
+     "status": "open",
+     "prompt": "",
+     "prerequisites": [],
+     "rank": 0
+    }
+   },
+   "questions": [
+    {
+     "id": "a-q1",
+     "version": 1,
+     "topic": "t",
+     "text": "Keep the cache?",
+     "rationale": "Because reads repeat.",
+     "visual": null,
+     "alternatives": [
+      {
+       "id": "keep",
+       "text": "Keep it",
+       "outcome": "accepted",
+       "recommendation": "Fewer reads"
+      },
+      {
+       "id": "drop",
+       "text": "Drop it",
+       "outcome": "needs_follow_up",
+       "recommendation": null
+      }
+     ],
+     "evidence": [
+      {
+       "path": "policy.rs",
+       "side": "new",
+       "lines": {
+        "first_line": 1,
+        "last_line": 1
+       },
+       "notes": "Reads go here"
+      }
+     ],
+     "assessments": null
+    },
+    {
+     "id": "a-q2",
+     "version": 1,
+     "topic": "t",
+     "text": "Rename it?",
+     "rationale": null,
+     "visual": null,
+     "alternatives": [
+      {
+       "id": "yes",
+       "text": "Yes",
+       "outcome": "accepted",
+       "recommendation": null
+      },
+      {
+       "id": "no",
+       "text": "No",
+       "outcome": "accepted",
+       "recommendation": null
+      }
+     ],
+     "evidence": [
+      {
+       "path": "policy.rs",
+       "side": "new",
+       "lines": {
+        "first_line": 1,
+        "last_line": 1
+       },
+       "notes": "Name"
+      }
+     ],
+     "assessments": {
+      "door": "two_way",
+      "reversibility": {
+       "summary": "Easy undo",
+       "details": "",
+       "evidence": [],
+       "unknowns": [
+        "None known"
+       ]
+      },
+      "blast_radius": {
+       "summary": "Local only",
+       "details": "One module",
+       "evidence": [
+        {
+         "path": "policy.rs",
+         "side": "new",
+         "lines": {
+          "first_line": 1,
+          "last_line": 1
+         },
+         "notes": "Callers"
+        }
+       ],
+       "unknowns": []
+      }
+     }
+    }
+   ],
+   "answers": [
+    {
+     "id": "a-1",
+     "checkpoint": {
+      "review_unit": "aabb",
+      "checkpoint": "ccdd"
+     },
+     "question": {
+      "id": "a-q1",
+      "version": 1,
+      "topic": "t",
+      "text": "Keep the cache?",
+      "rationale": "Because reads repeat.",
+      "visual": null,
+      "alternatives": [
+       {
+        "id": "keep",
+        "text": "Keep it",
+        "outcome": "accepted",
+        "recommendation": "Fewer reads"
+       },
+       {
+        "id": "drop",
+        "text": "Drop it",
+        "outcome": "needs_follow_up",
+        "recommendation": null
+       }
+      ],
+      "evidence": [
+       {
+        "path": "policy.rs",
+        "side": "new",
+        "lines": {
+         "first_line": 1,
+         "last_line": 1
+        },
+        "notes": "Reads go here"
+       }
+      ],
+      "assessments": null
+     },
+     "in_reply_to": "a-r1",
+     "option": {
+      "id": "drop",
+      "text": "Drop it",
+      "outcome": "needs_follow_up",
+      "recommendation": null
+     },
+     "text": "and add a test",
+     "author": "reviewer"
+    },
+    {
+     "id": "a-2",
+     "checkpoint": {
+      "review_unit": "aabb",
+      "checkpoint": "ccdd"
+     },
+     "question": {
+      "id": "a-q2",
+      "version": 1,
+      "topic": "t",
+      "text": "Rename it?",
+      "rationale": null,
+      "visual": null,
+      "alternatives": [
+       {
+        "id": "yes",
+        "text": "Yes",
+        "outcome": "accepted",
+        "recommendation": null
+       },
+       {
+        "id": "no",
+        "text": "No",
+        "outcome": "accepted",
+        "recommendation": null
+       }
+      ],
+      "evidence": [
+       {
+        "path": "policy.rs",
+        "side": "new",
+        "lines": {
+         "first_line": 1,
+         "last_line": 1
+        },
+        "notes": "Name"
+       }
+      ],
+      "assessments": {
+       "door": "two_way",
+       "reversibility": {
+        "summary": "Easy undo",
+        "details": "",
+        "evidence": [],
+        "unknowns": [
+         "None known"
+        ]
+       },
+       "blast_radius": {
+        "summary": "Local only",
+        "details": "One module",
+        "evidence": [
+         {
+          "path": "policy.rs",
+          "side": "new",
+          "lines": {
+           "first_line": 1,
+           "last_line": 1
+          },
+          "notes": "Callers"
+         }
+        ],
+        "unknowns": []
+       }
+      }
+     },
+     "in_reply_to": "a-r2",
+     "option": {
+      "id": "yes",
+      "text": "Yes",
+      "outcome": "accepted",
+      "recommendation": null
+     },
+     "text": "",
+     "author": "reviewer"
+    }
+   ],
+   "interpretations": [
+    {
+     "answer": "a-1",
+     "status": "needs_follow_up",
+     "recap": "Recap",
+     "follow_ups": []
+    },
+    {
+     "answer": "a-2",
+     "status": "accepted",
+     "recap": "Recap",
+     "follow_ups": []
+    }
+   ],
+   "limitations": [],
+   "findings": [],
+   "conclusion": {
+    "summary": "Done",
+    "to_be_implemented": "Add a test",
+    "future_work": ""
+   },
+   "conversation": [
+    {
+     "answer": null,
+     "update": {
+      "instance": "aaaaaaaa-0000-4000-8000-000000000001",
+      "request": "a-r1",
+      "checkpoint": {
+       "review_unit": "aabb",
+       "checkpoint": "ccdd"
+      },
+      "interpretation": null,
+      "reply": {
+       "text": "Opening reply here",
+       "evidence": []
+      },
+      "agenda": [],
+      "topics": [],
+      "next": {
+       "id": "a-q1",
+       "version": 1,
+       "topic": "t",
+       "text": "Keep the cache?",
+       "rationale": "Because reads repeat.",
+       "visual": null,
+       "alternatives": [
+        {
+         "id": "keep",
+         "text": "Keep it",
+         "outcome": "accepted",
+         "recommendation": "Fewer reads"
+        },
+        {
+         "id": "drop",
+         "text": "Drop it",
+         "outcome": "needs_follow_up",
+         "recommendation": null
+        }
+       ],
+       "evidence": [
+        {
+         "path": "policy.rs",
+         "side": "new",
+         "lines": {
+          "first_line": 1,
+          "last_line": 1
+         },
+         "notes": "Reads go here"
+        }
+       ],
+       "assessments": null
+      },
+      "conclusion": null,
+      "limitations": [],
+      "findings": []
+     }
+    },
+    {
+     "answer": "a-1",
+     "update": {
+      "instance": "aaaaaaaa-0000-4000-8000-000000000001",
+      "request": "a-r2",
+      "checkpoint": {
+       "review_unit": "aabb",
+       "checkpoint": "ccdd"
+      },
+      "interpretation": {
+       "answer": "a-1",
+       "status": "needs_follow_up",
+       "recap": "Recap",
+       "follow_ups": []
+      },
+      "reply": {
+       "text": "Noted",
+       "evidence": []
+      },
+      "agenda": [],
+      "topics": [],
+      "next": {
+       "id": "a-q2",
+       "version": 1,
+       "topic": "t",
+       "text": "Rename it?",
+       "rationale": null,
+       "visual": null,
+       "alternatives": [
+        {
+         "id": "yes",
+         "text": "Yes",
+         "outcome": "accepted",
+         "recommendation": null
+        },
+        {
+         "id": "no",
+         "text": "No",
+         "outcome": "accepted",
+         "recommendation": null
+        }
+       ],
+       "evidence": [
+        {
+         "path": "policy.rs",
+         "side": "new",
+         "lines": {
+          "first_line": 1,
+          "last_line": 1
+         },
+         "notes": "Name"
+        }
+       ],
+       "assessments": {
+        "door": "two_way",
+        "reversibility": {
+         "summary": "Easy undo",
+         "details": "",
+         "evidence": [],
+         "unknowns": [
+          "None known"
+         ]
+        },
+        "blast_radius": {
+         "summary": "Local only",
+         "details": "One module",
+         "evidence": [
+          {
+           "path": "policy.rs",
+           "side": "new",
+           "lines": {
+            "first_line": 1,
+            "last_line": 1
+           },
+           "notes": "Callers"
+          }
+         ],
+         "unknowns": []
+        }
+       }
+      },
+      "conclusion": null,
+      "limitations": [],
+      "findings": []
+     }
+    },
+    {
+     "answer": "a-2",
+     "update": {
+      "instance": "aaaaaaaa-0000-4000-8000-000000000001",
+      "request": "a-r3",
+      "checkpoint": {
+       "review_unit": "aabb",
+       "checkpoint": "ccdd"
+      },
+      "interpretation": {
+       "answer": "a-2",
+       "status": "accepted",
+       "recap": "Recap",
+       "follow_ups": []
+      },
+      "reply": null,
+      "agenda": [],
+      "topics": [],
+      "next": null,
+      "conclusion": {
+       "summary": "Done",
+       "to_be_implemented": "Add a test",
+       "future_work": ""
+      },
+      "limitations": [],
+      "findings": []
+     }
+    }
+   ],
+   "agent_elapsed_ms": {
+    "a-r1": 200000,
+    "a-r2": 120000,
+    "a-r3": 30000
+   },
+   "outstanding": null,
+   "retry": null
+  },
+  "last_agent_session": null,
+  "turns": {
+   "a-r1": {
+    "attempt": "a-r1-attempt",
+    "editor_sequence": null,
+    "request": {
+     "instance": "aaaaaaaa-0000-4000-8000-000000000001",
+     "request": "a-r1",
+     "checkpoint": {
+      "review_unit": "aabb",
+      "checkpoint": "ccdd"
+     },
+     "answer": null,
+     "response_error": null
+    },
+    "state": "Delivered",
+    "started_at_ms": 1789034400000
+   },
+   "a-r2": {
+    "attempt": "a-r2-attempt",
+    "editor_sequence": null,
+    "request": {
+     "instance": "aaaaaaaa-0000-4000-8000-000000000001",
+     "request": "a-r2",
+     "checkpoint": {
+      "review_unit": "aabb",
+      "checkpoint": "ccdd"
+     },
+     "answer": {
+      "id": "a-1",
+      "checkpoint": {
+       "review_unit": "aabb",
+       "checkpoint": "ccdd"
+      },
+      "question": {
+       "id": "a-q1",
+       "version": 1,
+       "topic": "t",
+       "text": "Keep the cache?",
+       "rationale": "Because reads repeat.",
+       "visual": null,
+       "alternatives": [
+        {
+         "id": "keep",
+         "text": "Keep it",
+         "outcome": "accepted",
+         "recommendation": "Fewer reads"
+        },
+        {
+         "id": "drop",
+         "text": "Drop it",
+         "outcome": "needs_follow_up",
+         "recommendation": null
+        }
+       ],
+       "evidence": [
+        {
+         "path": "policy.rs",
+         "side": "new",
+         "lines": {
+          "first_line": 1,
+          "last_line": 1
+         },
+         "notes": "Reads go here"
+        }
+       ],
+       "assessments": null
+      },
+      "in_reply_to": "a-r1",
+      "option": {
+       "id": "drop",
+       "text": "Drop it",
+       "outcome": "needs_follow_up",
+       "recommendation": null
+      },
+      "text": "and add a test",
+      "author": "reviewer"
+     },
+     "response_error": null
+    },
+    "state": "Delivered",
+    "started_at_ms": 1789034630000
+   },
+   "a-r3": {
+    "attempt": "a-r3-attempt",
+    "editor_sequence": null,
+    "request": {
+     "instance": "aaaaaaaa-0000-4000-8000-000000000001",
+     "request": "a-r3",
+     "checkpoint": {
+      "review_unit": "aabb",
+      "checkpoint": "ccdd"
+     },
+     "answer": {
+      "id": "a-2",
+      "checkpoint": {
+       "review_unit": "aabb",
+       "checkpoint": "ccdd"
+      },
+      "question": {
+       "id": "a-q2",
+       "version": 1,
+       "topic": "t",
+       "text": "Rename it?",
+       "rationale": null,
+       "visual": null,
+       "alternatives": [
+        {
+         "id": "yes",
+         "text": "Yes",
+         "outcome": "accepted",
+         "recommendation": null
+        },
+        {
+         "id": "no",
+         "text": "No",
+         "outcome": "accepted",
+         "recommendation": null
+        }
+       ],
+       "evidence": [
+        {
+         "path": "policy.rs",
+         "side": "new",
+         "lines": {
+          "first_line": 1,
+          "last_line": 1
+         },
+         "notes": "Name"
+        }
+       ],
+       "assessments": {
+        "door": "two_way",
+        "reversibility": {
+         "summary": "Easy undo",
+         "details": "",
+         "evidence": [],
+         "unknowns": [
+          "None known"
+         ]
+        },
+        "blast_radius": {
+         "summary": "Local only",
+         "details": "One module",
+         "evidence": [
+          {
+           "path": "policy.rs",
+           "side": "new",
+           "lines": {
+            "first_line": 1,
+            "last_line": 1
+           },
+           "notes": "Callers"
+          }
+         ],
+         "unknowns": []
+        }
+       }
+      },
+      "in_reply_to": "a-r2",
+      "option": {
+       "id": "yes",
+       "text": "Yes",
+       "outcome": "accepted",
+       "recommendation": null
+      },
+      "text": "",
+      "author": "reviewer"
+     },
+     "response_error": null
+    },
+    "state": "Delivered",
+    "started_at_ms": 1789034840000
+   }
+  },
+  "implementations": {},
+  "completion": null
+ }
+}

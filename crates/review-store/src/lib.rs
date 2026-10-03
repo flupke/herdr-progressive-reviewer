@@ -16,7 +16,7 @@ use time::format_description::well_known::Rfc3339;
 const MAX_STATE_FILE_BYTES: u64 = 1024 * 1024;
 
 mod explore;
-pub use explore::ExploreRecords;
+pub use explore::{ExploreRecords, SavedRound, SavedRounds};
 pub use review_explore::ExploreHistory;
 mod checkpoint;
 mod drafts;
@@ -112,6 +112,17 @@ struct StateKey(String);
 impl ReviewStore {
     /// Open the state directory for one repository.
     pub fn open(state_root: impl AsRef<Path>, repository_root: impl AsRef<Path>) -> Result<Self> {
+        let store = Self::open_for_reading(state_root, repository_root)?;
+        store.create_dir(&store.repository_dir)?;
+        Ok(store)
+    }
+
+    /// Open the state directory for one repository without creating it, to
+    /// read what was saved there.
+    pub fn open_for_reading(
+        state_root: impl AsRef<Path>,
+        repository_root: impl AsRef<Path>,
+    ) -> Result<Self> {
         let repository_root =
             fs::canonicalize(repository_root.as_ref()).map_err(|source| Error::StateIo {
                 operation: "canonicalize repository root",
@@ -124,13 +135,11 @@ impl ReviewStore {
         let repository_key = StateKey::hash(canonical_root.as_bytes()).0;
         let state_root = state_root.as_ref().to_owned();
         let repository_dir = state_root.join(repository_key);
-        let store = Self {
+        Ok(Self {
             state_root,
             repository_dir,
             thread_sources: std::sync::Arc::default(),
-        };
-        store.create_dir(&store.repository_dir)?;
-        Ok(store)
+        })
     }
 
     /// Get the saved file-pane width in terminal columns.

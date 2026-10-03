@@ -163,6 +163,42 @@ fn records_of_the_first_format_load_as_absent() {
 }
 
 #[test]
+fn saved_rounds_of_every_review_load_and_unreadable_ones_are_counted() {
+    let fixture = SavedFixture::new();
+    let other = fixture.store.explore_review(&"eeff".into()).unwrap();
+    std::fs::create_dir_all(&other).unwrap();
+    std::fs::write(
+        other.join(format!("{INSTANCE}.json")),
+        include_bytes!("../testdata/explore/v1/pass.json"),
+    )
+    .unwrap();
+    std::fs::write(other.join("0d1e2f3a-damaged.json"), b"{\"version\":2,").unwrap();
+    std::fs::write(other.join("index.json"), HISTORY).unwrap();
+    std::fs::write(other.join("lock"), b"").unwrap();
+
+    let saved = fixture.store.saved_explore_rounds().unwrap();
+
+    let instances: Vec<_> = saved
+        .rounds
+        .iter()
+        .map(|saved| saved.round.exploration.instance.as_str())
+        .collect();
+    assert_eq!(instances, vec![INSTANCE]);
+    assert_eq!(saved.unreadable, 2);
+}
+
+#[test]
+fn a_repository_without_saved_rounds_has_none() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = ReviewStore::open(directory.path().join("state"), directory.path()).unwrap();
+
+    let saved = store.saved_explore_rounds().unwrap();
+
+    assert!(saved.rounds.is_empty());
+    assert_eq!(saved.unreadable, 0);
+}
+
+#[test]
 fn an_index_saved_when_rounds_were_called_passes_still_loads() {
     let fixture = SavedFixture::new();
     let old = String::from_utf8(HISTORY.to_vec())

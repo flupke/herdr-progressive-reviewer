@@ -12,6 +12,8 @@ use reviewer::control::{PaneAction, PaneActions};
 
 #[path = "reviewer-control/mcp_config.rs"]
 mod mcp_config;
+#[path = "reviewer-control/stats.rs"]
+mod stats;
 
 #[derive(Debug)]
 struct Control {
@@ -29,7 +31,7 @@ impl Control {
             Some("toggle") => PaneAction::Toggle,
             _ => {
                 eyre::bail!(
-                    "usage: reviewer-control <open|close|toggle|mcp-install [codex|claude]>"
+                    "usage: reviewer-control <open|close|toggle|mcp-install [codex|claude]|stats>"
                 );
             }
         };
@@ -66,6 +68,7 @@ impl Control {
 fn main() -> eyre::Result<()> {
     match env::args().nth(1).as_deref() {
         Some("mcp-install") => mcp_config::install(),
+        Some("stats") => stats::Stats::from_args(env::args().skip(2))?.run(),
         _ => Control::from_env()?.run(),
     }
 }
