@@ -40,9 +40,9 @@ impl PreparedTurn {
         }
     }
 
-    /// The rules of a turn: the kickoff's, or a later turn's. Both end with
-    /// the same Not relevant section, so every prompt states its criteria,
-    /// then with the challenger's script when the round has one.
+    /// The rules of a turn: the kickoff's, or a later turn's, followed by the
+    /// sections every prompt states (preparing the next question, then Not
+    /// relevant) and by the challenger's script when the round has one.
     fn instructions(kickoff: bool, challenger: bool) -> String {
         let turn = if kickoff {
             include_str!("interview.md")
@@ -50,8 +50,9 @@ impl PreparedTurn {
             include_str!("wakeup.md")
         };
         let mut instructions = format!(
-            "{}\n\n{}",
+            "{}\n\n{}\n\n{}",
             turn.trim_end(),
+            include_str!("prepare.md").trim_end(),
             include_str!("not_relevant.md").trim_end()
         );
         if challenger {

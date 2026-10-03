@@ -375,6 +375,23 @@ fn every_prompt_states_the_same_not_relevant_rules() {
     }
 }
 
+#[test]
+fn every_prompt_says_to_prepare_the_next_question_while_the_reviewer_answers() {
+    let rules = include_str!("prepare.md").trim_end();
+    let heading = rules.lines().next().unwrap();
+
+    for kickoff in [true, false] {
+        for challenger in [false, true] {
+            let instructions = PreparedTurn::instructions(kickoff, challenger);
+            assert!(
+                instructions.contains(rules),
+                "kickoff: {kickoff}, challenger: {challenger}"
+            );
+            assert_eq!(instructions.matches(heading).count(), 1);
+        }
+    }
+}
+
 /// The strings `value` holds as an enum value or a constant, at any depth.
 fn constants(value: &serde_json::Value, found: &mut Vec<String>) {
     match value {

@@ -92,6 +92,13 @@ merged with the implementer's question, retired because a fact settles it, or
 kept for a later turn.
 _Avoid_: suggestion, Challenger question (which may never be asked)
 
+**Prepared question**:
+The question the Explore agent drafts while the reviewer answers the posted one,
+for the next topic that does not depend on that answer. It is submitted only
+after the answer arrives, and discarded when the answer makes it wrong or
+unnecessary.
+_Avoid_: pending question (a topic's question not yet asked), queued question
+
 **Citation**:
 A path, side and line range that a question puts before the reviewer as
 evidence, most decisive first. Citing lines does not mark them reviewed.
