@@ -1,6 +1,7 @@
 //! Numbers from the saved Explore rounds of a repository, to see whether a
 //! change to Explore helps the reviewer.
 mod period;
+mod proposals;
 mod sample;
 mod summary;
 mod table;

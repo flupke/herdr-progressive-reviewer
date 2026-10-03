@@ -10,10 +10,13 @@
 //!   questions, two answered, no conclusion. Agent turns of 240, 180 and
 //!   150 s; the reviewer answered after 60 and 120 s. The first answer took the
 //!   recommendation, the second chose None of the above. No change was asked.
-//!   The questions hold 8, 10 and 5 words.
+//!   The questions hold 8, 10 and 5 words. The Challenger proposed five
+//!   questions: one asked, one kept on the first turn and merged on the
+//!   second, two retired and one still kept at the end.
 //! - `unanswered.json`, saved before turns recorded their timing, without a
 //!   Challenger: one question of 6 words, never answered.
 use super::*;
+use proposals::ProposalCounts;
 use review_store::SavedRound;
 use std::time::{Duration, SystemTime};
 use summary::{Share, Spread};
@@ -188,4 +191,20 @@ fn no_rounds_have_no_medians() {
     assert_eq!(all.agent_turn, None);
     assert_eq!(all.waiting_share, None);
     assert_eq!(all.question_words, None);
+}
+
+#[test]
+fn proposals_count_once_at_their_latest_result_in_rounds_with_a_challenger() {
+    let report = Report::new(&rounds(), None);
+    let columns = &report.all_time;
+    let counts = Some(ProposalCounts {
+        asked: 1,
+        merged: 1,
+        retired: 2,
+        kept: 1,
+    });
+
+    assert_eq!(columns.challenger.proposals, counts);
+    assert_eq!(columns.all.proposals, counts);
+    assert_eq!(columns.without_challenger.proposals, None);
 }

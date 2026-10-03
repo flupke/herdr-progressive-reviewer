@@ -1,6 +1,7 @@
 //! A table of numbers: one row per measure, one column per set of rounds.
 use crate::{
     Columns,
+    proposals::ProposalCounts,
     summary::{Spread, Summary},
 };
 use std::{fmt, time::Duration};
@@ -16,7 +17,7 @@ struct Row {
 
 /// One value of a table, or a dash when the rounds have none.
 enum Cell {
-    Count(usize),
+    Count(Option<usize>),
     Number(Option<f64>),
     Range(Option<Spread>),
     Percent(Option<f64>),
@@ -24,18 +25,18 @@ enum Cell {
 }
 
 impl Row {
-    const ALL: [Row; 14] = [
+    const ALL: [Row; 19] = [
         Row {
             label: "Rounds",
-            value: |s| Cell::Count(s.rounds),
+            value: |s| Cell::Count(Some(s.rounds)),
         },
         Row {
             label: "  with answers",
-            value: |s| Cell::Count(s.answered),
+            value: |s| Cell::Count(Some(s.answered)),
         },
         Row {
             label: "  with a conclusion",
-            value: |s| Cell::Count(s.concluded),
+            value: |s| Cell::Count(Some(s.concluded)),
         },
         Row {
             label: "Questions per answered round, median",
@@ -51,7 +52,7 @@ impl Row {
         },
         Row {
             label: "  of answers taken up",
-            value: |s| Cell::Count(s.change_requests.whole),
+            value: |s| Cell::Count(Some(s.change_requests.whole)),
         },
         Row {
             label: "Answers not taking the recommendation",
@@ -59,7 +60,7 @@ impl Row {
         },
         Row {
             label: "  of answers to a recommendation",
-            value: |s| Cell::Count(s.declined_recommendations.whole),
+            value: |s| Cell::Count(Some(s.declined_recommendations.whole)),
         },
         Row {
             label: "Agent turn, median",
@@ -81,6 +82,26 @@ impl Row {
             label: "Words to read per question, median",
             value: |s| Cell::Number(s.question_words),
         },
+        Row {
+            label: "Challenger's proposals",
+            value: |s| Cell::Count(s.proposals.map(ProposalCounts::total)),
+        },
+        Row {
+            label: "  asked",
+            value: |s| Cell::Count(s.proposals.map(|p| p.asked)),
+        },
+        Row {
+            label: "  merged with the implementer's",
+            value: |s| Cell::Count(s.proposals.map(|p| p.merged)),
+        },
+        Row {
+            label: "  retired by a fact",
+            value: |s| Cell::Count(s.proposals.map(|p| p.retired)),
+        },
+        Row {
+            label: "  kept for a later turn",
+            value: |s| Cell::Count(s.proposals.map(|p| p.kept)),
+        },
     ];
 
     fn write(&self, output: &mut fmt::Formatter<'_>, columns: &Columns) -> fmt::Result {
@@ -99,7 +120,7 @@ impl Row {
 impl fmt::Display for Cell {
     fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Count(count) => write!(output, "{count}"),
+            Self::Count(Some(count)) => write!(output, "{count}"),
             Self::Number(Some(number)) if number.fract() == 0.0 => write!(output, "{number:.0}"),
             Self::Number(Some(number)) => write!(output, "{number:.1}"),
             Self::Range(Some(spread)) => write!(output, "{}-{}", spread.least, spread.most),
@@ -112,9 +133,11 @@ impl fmt::Display for Cell {
                     _ => write!(output, "{}h {:02}m", seconds / 3600, seconds % 3600 / 60),
                 }
             }
-            Self::Number(None) | Self::Range(None) | Self::Percent(None) | Self::Time(None) => {
-                output.write_str("-")
-            }
+            Self::Count(None)
+            | Self::Number(None)
+            | Self::Range(None)
+            | Self::Percent(None)
+            | Self::Time(None) => output.write_str("-"),
         }
     }
 }

@@ -1,5 +1,5 @@
 //! The numbers of a set of rounds.
-use crate::sample::RoundSample;
+use crate::{proposals::ProposalCounts, sample::RoundSample};
 use std::{cmp::Ordering, time::Duration};
 
 /// How many of `whole` items were `part`.
@@ -133,6 +133,8 @@ pub(crate) struct Summary {
     /// agent turns plus reviewer answers, that went to agent turns.
     pub(crate) waiting_share: Option<f64>,
     pub(crate) question_words: Option<f64>,
+    /// Over the rounds with a Challenger; none without one.
+    pub(crate) proposals: Option<ProposalCounts>,
 }
 
 impl Summary {
@@ -171,6 +173,12 @@ impl Summary {
                 samples
                     .iter()
                     .flat_map(|sample| sample.question_words.iter().copied()),
+            ),
+            proposals: ProposalCounts::sum(
+                samples
+                    .iter()
+                    .filter(|sample| sample.challenger)
+                    .map(|sample| sample.proposals),
             ),
         }
     }

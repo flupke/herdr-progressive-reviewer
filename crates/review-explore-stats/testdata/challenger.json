@@ -283,6 +283,16 @@
        "checkpoint": "ccdd"
       },
       "interpretation": null,
+      "challenger_proposals": [
+       {
+        "title": "Lock choice",
+        "result": "asked"
+       },
+       {
+        "title": "Retry policy",
+        "result": "kept"
+       }
+      ],
       "reply": null,
       "agenda": [],
       "topics": [],
@@ -340,6 +350,17 @@
        "recap": "Recap",
        "follow_ups": []
       },
+      "challenger_proposals": [
+       {
+        "title": "Retry policy",
+        "result": "merged"
+       },
+       {
+        "title": "Log format",
+        "result": "retired",
+        "reason": "policy.rs new 2 already logs the failure"
+       }
+      ],
       "reply": {
        "text": "Agreed, next",
        "evidence": []
@@ -395,6 +416,17 @@
        "checkpoint": "ccdd"
       },
       "interpretation": null,
+      "challenger_proposals": [
+       {
+        "title": "Timeouts",
+        "result": "kept"
+       },
+       {
+        "title": "Lock scope",
+        "result": "retired",
+        "reason": "The lock test covers the scope"
+       }
+      ],
       "reply": null,
       "agenda": [],
       "topics": [],

@@ -227,6 +227,19 @@ written. The protocol does not change: the agent alone calls the tools, and the 
 only returns text to it. An agent that can continue a subagent keeps the same challenger
 for the round; one that cannot has it keep a handoff file in the system temporary directory.
 
+In such a round, `submit_question` and `submit_conclusion` may carry `challenger_proposals`:
+what became, on that turn, of each question the challenger proposed. Each entry has a short
+`title`, the same on every turn that reports the proposal, and a `result`: `asked` (it is the
+turn's question), `merged` (it was about the same decision as the agent's own question, and
+the two became the turn's question), `retired` (a fact settles it) or `kept` (it waits for a
+later turn). A `retired` entry also gives `reason`, the fact that settles it and the lines
+that show it:
+`{"title": "Retry limit", "result": "retired", "reason": "src/retry.rs new 12-14 already caps
+retries at three"}`. The tool refuses an entry without a title, a `retired` entry without a
+reason, and any entry in a round without a challenger. The reviewer saves the entries with
+the turn, in the round's record, and the statistics command counts them (see the usage
+guide). Rounds saved before this field existed load without proposals.
+
 After a human contribution, the shared prompt delivery sends a plain-text wakeup. It
 opens with the rules for a later turn (interpreting the answer, marking lines, agenda
 changes and concluding), so those rules travel with each answer, then gives:

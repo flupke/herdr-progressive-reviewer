@@ -139,6 +139,7 @@ impl ExploreUi {
             reviewed: Vec::new(),
             reopened: Vec::new(),
             not_relevant: Vec::new(),
+            challenger_proposals: Vec::new(),
             interpretation: request.answer.as_ref().map(|answer| Interpretation {
                 answer: answer.id.clone(),
                 status: TopicStatus::Open,

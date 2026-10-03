@@ -89,6 +89,34 @@ fn a_period_adds_the_numbers_of_the_rounds_started_in_it() {
 }
 
 #[test]
+fn rounds_with_a_challenger_count_its_proposals_by_result() {
+    let repository = GitFixture::new();
+    let state = tempfile::tempdir().unwrap();
+    save(state.path(), repository.root(), ANSWERED);
+    save(state.path(), repository.root(), CHALLENGER);
+
+    let output = stats(
+        repository.root(),
+        &[("HERDR_PLUGIN_STATE_DIR", state.path())],
+        &[],
+    );
+
+    for (label, count) in [
+        ("Challenger's proposals", "5"),
+        ("  asked", "1"),
+        ("  merged with the implementer's", "1"),
+        ("  retired by a fact", "2"),
+        ("  kept for a later turn", "1"),
+    ] {
+        assert_eq!(
+            rows(&output, label),
+            vec![vec![count, count, "-"]],
+            "{label}"
+        );
+    }
+}
+
+#[test]
 fn without_a_plugin_state_directory_the_command_reads_the_user_state() {
     let repository = GitFixture::new();
     let state_home = tempfile::tempdir().unwrap();

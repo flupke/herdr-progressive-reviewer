@@ -82,6 +82,7 @@ fn update(request: &TurnRequest, next: Option<Question>) -> InterviewUpdate {
         reviewed: Vec::new(),
         reopened: Vec::new(),
         not_relevant: Vec::new(),
+        challenger_proposals: Vec::new(),
         interpretation: None,
         topics: vec![],
         conclusion: next
@@ -316,6 +317,8 @@ fn an_agent_cannot_invent_acceptance_rewrite_questions_or_bind_an_old_answer() {
 mod adaptive;
 #[path = "interview/cancel.rs"]
 mod cancel;
+#[path = "interview/challenger.rs"]
+mod challenger;
 #[path = "interview/not_relevant.rs"]
 mod not_relevant;
 

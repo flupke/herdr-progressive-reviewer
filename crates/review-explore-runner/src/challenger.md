@@ -106,3 +106,20 @@ nothing else:
   was stated and the facts already checked.
 - The challenger's objections to marks that are still open.
 - What the reviewer has shown they know or care about.
+
+### Report
+
+Each submit call reports, in `challenger_proposals`, what became of the challenger's candidates
+on that turn: every candidate it held, asked or not, but not "conclude". Each entry has a
+`title`, a few words that stay the same on every turn that reports the candidate, and a
+`result`:
+
+- `asked`: it is the turn's question;
+- `merged`: it was about the same decision as the implementer's candidate, and the two became
+  the turn's question;
+- `retired`: a fact settles it, checked in the source or given by the reviewer's answer; the
+  entry adds that fact and the lines that show it in `reason`;
+- `kept`: it is postponed, and the challenger judges it again after the reviewer's answer.
+
+The challenger returns the title and result of each of its candidates with the turn's
+question, and the implementer copies them into the call.

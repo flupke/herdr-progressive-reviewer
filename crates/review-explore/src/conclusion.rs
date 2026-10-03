@@ -39,6 +39,10 @@ pub struct ConclusionSubmission {
     /// reviewed at once, each with its reason; null lines mark the whole file.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub not_relevant: Vec<crate::NotRelevantMark>,
+    /// In a round with a challenger: what became of each question it
+    /// proposed on this turn.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub challenger_proposals: Vec<crate::ChallengerProposal>,
     #[serde(flatten)]
     pub conclusion: Conclusion,
 }
@@ -53,6 +57,7 @@ impl ConclusionSubmission {
             reviewed: self.reviewed,
             reopened: self.reopened,
             not_relevant: self.not_relevant,
+            challenger_proposals: self.challenger_proposals,
             reply: None,
             agenda: vec![],
             topics: vec![],

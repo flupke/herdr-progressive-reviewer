@@ -86,6 +86,12 @@ review the same change without the implementer's knowledge of why it was
 written. The two take turns proposing the round's questions.
 _Avoid_: adversary, second reviewer, critic
 
+**Challenger proposal**:
+A question the Challenger proposes for a turn, and what became of it: asked,
+merged with the implementer's question, retired because a fact settles it, or
+kept for a later turn.
+_Avoid_: suggestion, Challenger question (which may never be asked)
+
 **Citation**:
 A path, side and line range that a question puts before the reviewer as
 evidence, most decisive first. Citing lines does not mark them reviewed.

@@ -174,3 +174,43 @@ fn both_explore_tools_ask_each_not_relevant_mark_for_its_reason_and_test() {
         }
     }
 }
+
+#[test]
+fn both_explore_tools_take_the_challengers_proposals_with_their_results() {
+    let tools = Handler::tools();
+    for (name, pointer) in [
+        ("submit_question", Some("/properties/update/$ref")),
+        ("submit_conclusion", None),
+    ] {
+        let schema = serde_json::Value::Object(
+            (*tools
+                .iter()
+                .find(|tool| tool.name == name)
+                .unwrap()
+                .input_schema)
+                .clone(),
+        );
+        let submission = match pointer {
+            None => &schema,
+            Some(pointer) => {
+                let reference = schema.pointer(pointer).unwrap().as_str().unwrap();
+                schema.pointer(&reference[1..]).unwrap()
+            }
+        };
+        assert_eq!(
+            submission["properties"]["challenger_proposals"]["items"]["$ref"],
+            "#/$defs/ChallengerProposal",
+            "{name}"
+        );
+        let required = submission["required"].as_array().unwrap();
+        assert!(!required.contains(&json!("challenger_proposals")), "{name}");
+        let proposal = &schema["$defs"]["ChallengerProposal"];
+        let required = proposal["required"].as_array().unwrap();
+        assert!(required.contains(&json!("title")) && required.contains(&json!("result")));
+        assert!(!required.contains(&json!("reason")), "{name}");
+        let results = schema["$defs"]["ProposalResult"].to_string();
+        for result in ["asked", "merged", "retired", "kept"] {
+            assert!(results.contains(&format!("\"{result}\"")), "{results}");
+        }
+    }
+}

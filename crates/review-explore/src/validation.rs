@@ -70,6 +70,7 @@ impl Exploration {
         }
         self.validate_agenda(update, comparison)?;
         self.validate_marks(update, comparison)?;
+        self.validate_challenger_proposals(update)?;
         if let Some(question) = &update.next {
             self.validate_question(question, update, comparison)?;
         }
@@ -105,6 +106,18 @@ impl Exploration {
             .not_relevant
             .iter()
             .try_for_each(|mark| mark.validate(comparison))
+    }
+
+    /// Only a round with a challenger reports its proposals.
+    fn validate_challenger_proposals(&self, update: &InterviewUpdate) -> eyre::Result<()> {
+        eyre::ensure!(
+            self.challenger || update.challenger_proposals.is_empty(),
+            "challenger_proposals belong to a round with a challenger; this round has none"
+        );
+        update
+            .challenger_proposals
+            .iter()
+            .try_for_each(crate::ChallengerProposal::validate)
     }
 
     fn validate_interpretation(&self, update: &InterviewUpdate) -> eyre::Result<()> {

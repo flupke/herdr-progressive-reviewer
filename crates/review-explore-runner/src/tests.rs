@@ -452,3 +452,33 @@ fn only_a_round_with_a_challenger_carries_its_script() {
         assert!(!wakeup.contains(script), "the script is sent once");
     }
 }
+
+#[test]
+fn the_challengers_script_asks_for_every_field_and_result_of_a_proposal() {
+    const FIELD: &str = "challenger_proposals";
+    for tool in [
+        schemars::schema_for!(review_explore::InterviewUpdate),
+        schemars::schema_for!(review_explore::ConclusionSubmission),
+    ] {
+        let tool = serde_json::to_value(tool).unwrap();
+        assert!(tool["properties"].get(FIELD).is_some(), "{tool}");
+    }
+    let proposal =
+        serde_json::to_value(schemars::schema_for!(review_explore::ChallengerProposal)).unwrap();
+    let fields = proposal["properties"].as_object().unwrap().keys().cloned();
+    let mut results = Vec::new();
+    constants(
+        &serde_json::to_value(schemars::schema_for!(review_explore::ProposalResult)).unwrap(),
+        &mut results,
+    );
+    assert_eq!(results.len(), 4, "{results:?}");
+
+    let script = PreparedTurn::instructions(true, true);
+    for name in fields.chain(results).chain([FIELD.to_owned()]) {
+        assert!(script.contains(&format!("`{name}`")), "{name}");
+    }
+    assert!(PreparedTurn::instructions(false, true).contains(&format!("`{FIELD}`")));
+    for kickoff in [true, false] {
+        assert!(!PreparedTurn::instructions(kickoff, false).contains(FIELD));
+    }
+}

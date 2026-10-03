@@ -1,5 +1,5 @@
 //! What one saved round measured, read from its record.
-use crate::{summary::Share, words::Words};
+use crate::{proposals::ProposalCounts, summary::Share, words::Words};
 use review_explore::{Exploration, ExploreRound, Question, ReviewerAnswer, TopicStatus};
 use review_store::SavedRound;
 use std::time::UNIX_EPOCH;
@@ -31,6 +31,8 @@ pub(crate) struct RoundSample {
     pub(crate) reviewer_answers_ms: Vec<u64>,
     /// The words of each question's page that the agent wrote.
     pub(crate) question_words: Vec<usize>,
+    /// What became of the Challenger's proposals.
+    pub(crate) proposals: ProposalCounts,
 }
 
 impl RoundSample {
@@ -67,6 +69,7 @@ impl RoundSample {
                 .iter()
                 .map(|question| Self::question_words(exploration, question))
                 .collect(),
+            proposals: ProposalCounts::of(exploration),
         }
     }
 

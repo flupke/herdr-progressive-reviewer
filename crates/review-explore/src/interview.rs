@@ -120,6 +120,10 @@ pub struct InterviewUpdate {
     /// whole file.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub not_relevant: Vec<crate::NotRelevantMark>,
+    /// In a round with a challenger: what became of each question it
+    /// proposed on this turn.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub challenger_proposals: Vec<crate::ChallengerProposal>,
     pub reply: Option<Reply>,
     #[serde(default)]
     pub agenda: Vec<AgendaChange>,
