@@ -103,6 +103,7 @@ fn rounds_with_a_challenger_count_its_proposals_by_result() {
 
     for (label, count) in [
         ("Challenger's proposals", "5"),
+        ("  rounds that reported proposals", "1"),
         ("  asked", "1"),
         ("  merged with the implementer's", "1"),
         ("  retired by a fact", "2"),

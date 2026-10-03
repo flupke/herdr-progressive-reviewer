@@ -7,6 +7,9 @@ use std::collections::HashMap;
 /// result of the latest turn that reported it.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct ProposalCounts {
+    /// The rounds that reported any proposal: a round saved before turns
+    /// reported them has none, like a round whose Challenger proposed nothing.
+    pub(crate) rounds: usize,
     pub(crate) asked: usize,
     pub(crate) merged: usize,
     pub(crate) retired: usize,
@@ -28,6 +31,7 @@ impl ProposalCounts {
         for result in latest.into_values() {
             *counts.of_result(result) += 1;
         }
+        counts.rounds = usize::from(counts.total() > 0);
         counts
     }
 
@@ -47,6 +51,7 @@ impl ProposalCounts {
     /// The counts of several rounds, or none without a round.
     pub(crate) fn sum(counts: impl IntoIterator<Item = Self>) -> Option<Self> {
         counts.into_iter().reduce(|total, round| Self {
+            rounds: total.rounds + round.rounds,
             asked: total.asked + round.asked,
             merged: total.merged + round.merged,
             retired: total.retired + round.retired,

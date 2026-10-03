@@ -1,10 +1,13 @@
 use super::*;
-use crate::{PreparedTurn, Unreviewed, tests::comparison};
-use review_explore::{Comparison, TurnRequest};
+use crate::{
+    Unreviewed,
+    tests::{comparison, prepare_with as prepare},
+};
 use std::sync::Arc;
 
 /// An earlier round in which the reviewer gave `answers`, each a question ID,
-/// the chosen option ID (none for a reply to a conclusion) and a comment.
+/// the chosen option ID (none for a reply to a conclusion) and a comment, and
+/// the agent interpreted each choice as its option's outcome.
 fn round(answers: &[(&str, Option<&str>, &str)]) -> Exploration {
     let mut round = Exploration::new(Arc::new(comparison()));
     round.answers = answers
@@ -40,7 +43,30 @@ fn round(answers: &[(&str, Option<&str>, &str)]) -> Exploration {
             }
         })
         .collect();
+    round.interpretations = round
+        .answers
+        .iter()
+        .filter_map(|answer| {
+            Some(interpretation(
+                &answer.id,
+                answer.option.as_ref()?.outcome,
+                &[],
+            ))
+        })
+        .collect();
     round
+}
+
+fn interpretation(answer: &str, status: TopicStatus, follow_ups: &[&str]) -> Interpretation {
+    Interpretation {
+        answer: answer.into(),
+        status,
+        recap: "A recap the decision does not need".into(),
+        follow_ups: follow_ups
+            .iter()
+            .map(|&follow_up| follow_up.into())
+            .collect(),
+    }
 }
 
 fn kickoff(earlier: &EarlierDecisions) -> String {
@@ -49,17 +75,6 @@ fn kickoff(earlier: &EarlierDecisions) -> String {
         .request(None, None)
         .unwrap();
     prepare(&request, &comparison, earlier)
-}
-
-fn prepare(request: &TurnRequest, comparison: &Comparison, earlier: &EarlierDecisions) -> String {
-    PreparedTurn::prepare(
-        request,
-        comparison,
-        "access",
-        &Unreviewed::default(),
-        earlier,
-    )
-    .prompt()
 }
 
 #[test]
@@ -89,7 +104,11 @@ fn the_kickoff_lists_each_earlier_decision_oldest_first() {
         assert!(q2.contains(quoted), "{quoted} in {q2}");
     }
     assert!(!q2.contains("Keep q2\n"), "only the choice is given");
-    for absent in ["Context the decision", "A recommendation the decision"] {
+    for absent in [
+        "Context the decision",
+        "A recommendation the decision",
+        "A recap the decision",
+    ] {
         assert!(!prompt.contains(absent), "{absent}");
     }
 }
@@ -146,4 +165,87 @@ fn only_the_kickoff_lists_the_earlier_decisions() {
 
     assert_eq!(wakeup.matches("answer-q1").count(), 1, "{wakeup}");
     assert!(!wakeup.contains("> Keep q1?"), "{wakeup}");
+}
+
+/// Record that an agent turn of `round` took up `answer`.
+fn take_up(round: &mut Exploration, answer: &str) {
+    let update = serde_json::from_value(serde_json::json!({
+        "instance": round.instance, "request": format!("after-{answer}"),
+        "checkpoint": round.comparison.checkpoint, "interpretation": null,
+        "reply": {"text": "", "evidence": []}, "topics": [], "next": null,
+        "conclusion": null, "limitations": [], "findings": []
+    }))
+    .unwrap();
+    round.conversation.push(review_explore::ConversationTurn {
+        answer: Some(answer.into()),
+        update,
+    });
+}
+
+#[test]
+fn an_answer_decides_as_the_agent_interpreted_it() {
+    let mut first = round(&[
+        ("q1", Some("keep"), "Keep it, with a test"),
+        ("q2", Some("keep"), "Why is it kept?"),
+    ]);
+    first.interpretations = vec![interpretation(
+        "answer-q1",
+        TopicStatus::NeedsFollowUp,
+        &["Add the test"],
+    )];
+    take_up(&mut first, "answer-q1");
+    take_up(&mut first, "answer-q2");
+
+    let prompt = kickoff(&EarlierDecisions::new([&first]));
+
+    let q1 = &prompt[prompt.find("answer-q1").expect("q1 is decided")..];
+    for fact in ["needs_follow_up", "> Add the test\n"] {
+        assert!(q1.contains(fact), "{fact} in {q1}");
+    }
+    assert!(!q1.contains("accepted"), "{q1}");
+    assert!(
+        !prompt.contains("answer-q2"),
+        "an answer taken up without an interpretation decides nothing"
+    );
+}
+
+#[test]
+fn a_choice_the_round_ended_before_interpreting_keeps_its_outcome() {
+    let mut first = round(&[
+        ("q1", Some("keep"), "Why keep it?"),
+        ("q2", Some("change"), "Split it"),
+    ]);
+    first.interpretations.clear();
+    take_up(&mut first, "answer-q1");
+
+    let prompt = kickoff(&EarlierDecisions::new([&first]));
+
+    assert!(!prompt.contains("answer-q1"), "{prompt}");
+    let q2 = &prompt[prompt.find("answer-q2").expect("q2 is decided")..];
+    for fact in ["change", "needs_follow_up", "> Split it\n"] {
+        assert!(q2.contains(fact), "{fact} in {q2}");
+    }
+}
+
+#[test]
+fn a_round_saved_by_the_released_version_lists_its_decisions() {
+    let saved: serde_json::Value = serde_json::from_str(include_str!(
+        "../../review-store/testdata/explore/round.json"
+    ))
+    .unwrap();
+    let round: review_explore::ExploreRound =
+        serde_json::from_value(saved["value"].clone()).unwrap();
+    let answer = &round.exploration.answers[0];
+
+    let prompt = kickoff(&EarlierDecisions::new([&round.exploration]));
+
+    let decision = &prompt[prompt.find(&answer.id).expect("the answer is decided")..];
+    let question = answer.question.as_ref().unwrap();
+    for fact in [
+        question.id.as_str(),
+        answer.option.as_ref().unwrap().id.as_str(),
+        "accepted",
+    ] {
+        assert!(decision.contains(fact), "{fact} in {decision}");
+    }
 }

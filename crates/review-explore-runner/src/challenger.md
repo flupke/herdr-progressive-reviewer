@@ -61,6 +61,11 @@ corrects only a statement the source contradicts. The rest of the call is the im
 identity, reply, agenda, interpretation and marks. It leaves unmarked the lines the challenger
 objected to.
 
+While the reviewer answers, what the implementer prepares (see Preparing the next question) is
+its own candidate for the next turn, as an outline: its postponed candidate when it holds one,
+which it judges again once the answer arrives. The pick still decides whether that candidate
+is asked. The challenger does not work ahead.
+
 ### The challenger
 
 The challenger works from each prompt as the interviewer would, with these differences: it
@@ -109,16 +114,17 @@ nothing else:
 
 ### Report
 
-Each submit call reports, in `challenger_proposals`, what became of the challenger's candidates
-on that turn: every candidate it held, asked or not, but not "conclude". Each entry has a
-`title`, a few words that stay the same on every turn that reports the candidate, and a
-`result`:
+Each submit call reports, in `challenger_proposals`, what became of the challenger's
+candidates, its proposals, on that turn: every candidate it held, asked or not, but not
+"conclude". Each entry has a `title`, a few words that stay the same on every turn that
+reports the candidate, and a `result`:
 
 - `asked`: it is the turn's question;
 - `merged`: it was about the same decision as the implementer's candidate, and the two became
   the turn's question;
-- `retired`: a fact settles it, checked in the source or given by the reviewer's answer; the
-  entry adds that fact and the lines that show it in `reason`;
+- `retired`: a fact settles it, checked in the source or given by the reviewer's answer. This
+  is not retiring an agenda topic. The entry adds, in `reason`, that fact and the lines that show
+  it, as plain text naming path, side and lines;
 - `kept`: it is postponed, and the challenger judges it again after the reviewer's answer.
 
 The challenger returns the title and result of each of its candidates with the turn's

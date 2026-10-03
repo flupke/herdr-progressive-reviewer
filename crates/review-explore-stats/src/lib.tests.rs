@@ -198,6 +198,7 @@ fn proposals_count_once_at_their_latest_result_in_rounds_with_a_challenger() {
     let report = Report::new(&rounds(), None);
     let columns = &report.all_time;
     let counts = Some(ProposalCounts {
+        rounds: 1,
         asked: 1,
         merged: 1,
         retired: 2,

@@ -211,6 +211,22 @@ impl Exploration {
         self.outstanding.is_some()
     }
 
+    /// Whether an agent turn took up the answer `answer`.
+    pub fn took_up(&self, answer: &str) -> bool {
+        self.conversation
+            .iter()
+            .any(|turn| turn.answer.as_deref() == Some(answer))
+    }
+
+    /// How the agent interpreted the answer `answer`, the latest time, if it
+    /// did.
+    pub fn interpretation(&self, answer: &str) -> Option<&Interpretation> {
+        self.interpretations
+            .iter()
+            .rev()
+            .find(|interpretation| interpretation.answer == answer)
+    }
+
     pub fn request(
         &mut self,
         input: Option<AnswerInput>,

@@ -78,15 +78,14 @@ impl RoundSample {
     fn change_requests(exploration: &Exploration) -> Share {
         let mut share = Share::default();
         for answer in exploration.answers.iter().filter(|a| a.question.is_some()) {
-            let taken_up = exploration
-                .conversation
-                .iter()
-                .any(|turn| turn.answer.as_ref() == Some(&answer.id));
-            if taken_up {
-                share.add(exploration.interpretations.iter().any(|interpretation| {
-                    interpretation.answer == answer.id
-                        && interpretation.status == TopicStatus::NeedsFollowUp
-                }));
+            if exploration.took_up(&answer.id) {
+                share.add(
+                    exploration
+                        .interpretation(&answer.id)
+                        .is_some_and(|interpretation| {
+                            interpretation.status == TopicStatus::NeedsFollowUp
+                        }),
+                );
             }
         }
         share

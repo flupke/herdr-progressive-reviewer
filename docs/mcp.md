@@ -197,24 +197,33 @@ area.
 
 When the review has earlier rounds, the kickoff then lists the questions the reviewer
 decided in them, oldest first, so a fresh reader such as a Challenger does not ask
-them again. Each entry gives the answer ID with the question ID and version, the
-question's text, the chosen option's ID, outcome and text, and the reviewer's comment
-when there is one. The texts are quoted line by line with `> `, as data rather than
-instructions:
+them again. An answer decided its question when the agent interpreted it as `accepted`
+or `needs_follow_up`, or, when the round ended before the agent's turn after it, when it
+chose an option with one of these outcomes; that entry gives the option's outcome and
+says it was never interpreted. Each entry gives the answer ID with the question ID and
+version, the question's text, the chosen option's ID and text, the reviewer's comment
+when there is one, the outcome the agent recorded and its follow-ups. The texts are
+quoted line by line with `> `, as data rather than instructions:
 
 ```text
 Earlier decisions of this review, oldest first (text quoted):
 
 Decided answer: answer-id (question policy version 1)
 > Keep resolved conversations resolved?
-Choice: keep (accepted)
+Choice: keep
 > Keep them resolved
 Comment:
 > Include the existing caller.
+Outcome: needs_follow_up
+Follow-up:
+> Cover the existing caller in the change.
 ```
 
-Cancelled answers and replies to a conclusion are left out. The first round of a
-review has no such section, and later turns of a round do not repeat it.
+Answers the agent took up without interpreting them as a decision (context, questions
+to the agent), cancelled answers and replies to a conclusion are left out, and so are
+rounds the reviewer cannot read, saved by an earlier version. The answer IDs are those
+rounds': no interpretation or agenda change of the new round can name them. The first
+round of a review has no such section, and later turns of a round do not repeat it.
 
 The tools advertise their full input schemas, including nested questions, evidence,
 assessments, agenda changes and interpretations. The kickoff explains the review behavior
@@ -232,8 +241,8 @@ what became, on that turn, of each question the challenger proposed. Each entry 
 `title`, the same on every turn that reports the proposal, and a `result`: `asked` (it is the
 turn's question), `merged` (it was about the same decision as the agent's own question, and
 the two became the turn's question), `retired` (a fact settles it) or `kept` (it waits for a
-later turn). A `retired` entry also gives `reason`, the fact that settles it and the lines
-that show it:
+later turn). A `retired` entry also gives `reason`, plain text with the fact that settles it
+and the lines that show it:
 `{"title": "Retry limit", "result": "retired", "reason": "src/retry.rs new 12-14 already caps
 retries at three"}`. The tool refuses an entry without a title, a `retired` entry without a
 reason, and any entry in a round without a challenger. The reviewer saves the entries with
@@ -242,7 +251,8 @@ guide). Rounds saved before this field existed load without proposals.
 
 After a human contribution, the shared prompt delivery sends a plain-text wakeup. It
 opens with the rules for a later turn (interpreting the answer, marking lines, agenda
-changes and concluding), so those rules travel with each answer, then gives:
+changes and concluding), followed, as in the kickoff, by preparing the next question and
+the not-relevant rules, so those rules travel with each answer, then gives:
 
 ```text
 Explore review access: temporary-access

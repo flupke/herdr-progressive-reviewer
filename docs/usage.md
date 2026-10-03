@@ -365,10 +365,12 @@ rounds without. The rows are:
 - the median share of a round's time, agent turns plus answers, spent waiting for the agent;
 - the median number of words the agent wrote for a question: its text, context, sketch,
   choices with their recommendations, evidence notes, assessments, and the reply above it;
-- over the rounds with a Challenger, the number of questions the Challenger proposed, and how
-  many were asked, merged with the agent's own question, retired by a fact or kept for a
-  later turn. A proposal that several turns report, by the same title, counts once, at the
-  result of the latest turn; a round saved before the agent reported proposals has none.
+- over the rounds with a Challenger, the number of questions the Challenger proposed, the
+  number of rounds that reported any, and how many were asked, merged with the agent's own
+  question, retired by a fact or kept for a later turn. A proposal that several turns
+  report, by the same title, counts once, at the result of the latest turn. A round saved
+  before the agent reported proposals has none, so it is not among the rounds that
+  reported proposals.
 
 A round with no answer counts as a round and stays out of the numbers about answers. The
 command also says how many saved rounds it could not read: rounds saved by earlier

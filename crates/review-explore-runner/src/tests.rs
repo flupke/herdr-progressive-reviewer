@@ -16,6 +16,28 @@ pub(super) fn comparison() -> Comparison {
     }
 }
 
+/// The prompt for `request`, with nothing unreviewed and no earlier decisions.
+fn prepare(request: &TurnRequest, comparison: &Comparison) -> String {
+    prepare_with(request, comparison, &EarlierDecisions::default())
+}
+
+/// The prompt for `request`, with nothing unreviewed and the `earlier`
+/// decisions of the review.
+pub(super) fn prepare_with(
+    request: &TurnRequest,
+    comparison: &Comparison,
+    earlier: &EarlierDecisions,
+) -> String {
+    PreparedTurn::prepare(
+        request,
+        comparison,
+        "fresh-access",
+        &Unreviewed::default(),
+        earlier,
+    )
+    .prompt()
+}
+
 /// What a later prompt says after its fixed rules: identity, unreviewed lines and answer.
 fn turn_input(prompt: &str) -> &str {
     prompt
@@ -48,14 +70,7 @@ fn the_kickoff_supplies_its_rules_scope_and_identity() {
     let comparison = comparison();
     let mut exploration = Exploration::new(Arc::new(comparison.clone()));
     let request = exploration.request(None, None).unwrap();
-    let prompt = PreparedTurn::prepare(
-        &request,
-        &comparison,
-        "fresh-access",
-        &Unreviewed::default(),
-        &EarlierDecisions::default(),
-    )
-    .prompt();
+    let prompt = prepare(&request, &comparison);
     assert!(prompt.contains(&format!("Explore round: {}", request.instance)));
     assert!(prompt.contains(&format!("Explore request: {}", request.request)));
     assert!(prompt.contains("Explore review access: fresh-access\n"));
@@ -73,16 +88,8 @@ fn a_wakeup_names_the_unreviewed_diffs_before_the_answer() {
     let mut exploration = Exploration::new(Arc::new(comparison.clone()));
     let mut request = exploration.request(None, None).unwrap();
     request.answer = Some(answer(&request));
-    let unreviewed = Unreviewed::default();
 
-    let prompt = PreparedTurn::prepare(
-        &request,
-        &comparison,
-        "fresh-access",
-        &unreviewed,
-        &EarlierDecisions::default(),
-    )
-    .prompt();
+    let prompt = prepare(&request, &comparison);
 
     assert!(prompt.contains("Unreviewed diffs: none; every changed line is reviewed."));
     assert!(
@@ -101,14 +108,7 @@ fn wakeup_delivers_full_selected_text_and_comment_with_plain_identity() {
     let mut request = exploration.request(None, None).unwrap();
     request.answer = Some(answer(&request));
     let original = request.clone();
-    let prompt = PreparedTurn::prepare(
-        &request,
-        &comparison,
-        "fresh-access",
-        &Unreviewed::default(),
-        &EarlierDecisions::default(),
-    )
-    .prompt();
+    let prompt = prepare(&request, &comparison);
     assert!(prompt.contains("Answer ID: answer-id\nQuestion: earlier-question (version 7)\n"));
     assert!(prompt.contains("Selected option ID: keep\nSelected outcome: accepted\n"));
     assert!(prompt.contains("Selected option:\nKeep the full policy — including legacy callers\nWith \"bounded\" recovery\n"));
@@ -132,14 +132,7 @@ fn question_size_does_not_expand_the_wakeup() {
     let mut exploration = Exploration::new(Arc::new(comparison.clone()));
     let mut request = exploration.request(None, None).unwrap();
     request.answer = Some(answer(&request));
-    let before = PreparedTurn::prepare(
-        &request,
-        &comparison,
-        "fresh-access",
-        &Unreviewed::default(),
-        &EarlierDecisions::default(),
-    )
-    .prompt();
+    let before = prepare(&request, &comparison);
     let answer = request.answer.as_mut().unwrap();
     let mut question = serde_json::to_value(answer.question.as_ref().unwrap()).unwrap();
     let detailed = "Supporting investigation, unrelated to transmitting the answer. ".repeat(2_000);
@@ -156,17 +149,7 @@ fn question_size_does_not_expand_the_wakeup() {
     question["assessments"] = serde_json::json!({"door":"unknown","reversibility":consequence,"blast_radius":consequence});
     answer.question = Some(serde_json::from_value(question).unwrap());
     answer.option.as_mut().unwrap().recommendation = Some(detailed);
-    assert_eq!(
-        PreparedTurn::prepare(
-            &request,
-            &comparison,
-            "fresh-access",
-            &Unreviewed::default(),
-            &EarlierDecisions::default(),
-        )
-        .prompt(),
-        before
-    );
+    assert_eq!(prepare(&request, &comparison), before);
     assert!(serde_json::to_string(&request).unwrap().len() > 1_000_000);
 }
 
@@ -180,14 +163,7 @@ fn questionless_replies_keep_the_closing_turn_identity() {
     answer.option = None;
     let text = answer.text.clone();
     request.answer = Some(answer);
-    let prompt = PreparedTurn::prepare(
-        &request,
-        &comparison,
-        "fresh-access",
-        &Unreviewed::default(),
-        &EarlierDecisions::default(),
-    )
-    .prompt();
+    let prompt = prepare(&request, &comparison);
     assert!(prompt.contains("Answer ID: answer-id\nReply to conclusion: first-turn\n"));
     assert!(prompt.ends_with(&format!("Comment:\n{text}\n")));
     assert!(!turn_input(&prompt).contains("Question:"));
@@ -203,14 +179,7 @@ fn absent_comments_and_choices_do_not_imply_deferral_and_none_keeps_its_full_lab
     answer.option = answer.question.as_ref().unwrap().choices().last().cloned();
     answer.text.clear();
     request.answer = Some(answer);
-    let prompt = PreparedTurn::prepare(
-        &request,
-        &comparison,
-        "fresh-access",
-        &Unreviewed::default(),
-        &EarlierDecisions::default(),
-    )
-    .prompt();
+    let prompt = prepare(&request, &comparison);
     assert!(prompt.contains("Selected option ID: none-of-the-above\nSelected outcome: open\n"));
     assert!(prompt.ends_with("Selected option:\nNone of the above\n"));
     for absent in ["Comment:", "Previous response error:"] {
@@ -224,23 +193,9 @@ fn retries_only_add_the_previous_error() {
     let mut exploration = Exploration::new(Arc::new(comparison.clone()));
     let mut request = exploration.request(None, None).unwrap();
     request.answer = Some(answer(&request));
-    let ordinary = PreparedTurn::prepare(
-        &request,
-        &comparison,
-        "fresh-access",
-        &Unreviewed::default(),
-        &EarlierDecisions::default(),
-    )
-    .prompt();
+    let ordinary = prepare(&request, &comparison);
     request.response_error = Some("Fix the invalid line range\nKeep the literal {{ROOT}}".into());
-    let prompt = PreparedTurn::prepare(
-        &request,
-        &comparison,
-        "fresh-access",
-        &Unreviewed::default(),
-        &EarlierDecisions::default(),
-    )
-    .prompt();
+    let prompt = prepare(&request, &comparison);
     assert_eq!(
         prompt.replace(
             "\nPrevious response error:\nFix the invalid line range\nKeep the literal {{ROOT}}\n",
@@ -249,14 +204,7 @@ fn retries_only_add_the_previous_error() {
         ordinary
     );
     request.answer = None;
-    let kickoff = PreparedTurn::prepare(
-        &request,
-        &comparison,
-        "fresh-access",
-        &Unreviewed::default(),
-        &EarlierDecisions::default(),
-    )
-    .prompt();
+    let kickoff = prepare(&request, &comparison);
     assert!(kickoff.contains(
         "Previous response error:\nFix the invalid line range\nKeep the literal {{ROOT}}\n"
     ));
@@ -273,14 +221,7 @@ fn a_wakeup_names_the_cancelled_answers_before_the_answer_that_replaces_them() {
     request.answer = Some(answer(&request));
     request.cancelled = vec!["first-cancelled".into(), "second-cancelled".into()];
 
-    let prompt = PreparedTurn::prepare(
-        &request,
-        &comparison,
-        "fresh-access",
-        &Unreviewed::default(),
-        &EarlierDecisions::default(),
-    )
-    .prompt();
+    let prompt = prepare(&request, &comparison);
 
     assert!(prompt.contains(
         "\nCancelled answer: first-cancelled\nCancelled answer: second-cancelled\n\nAnswer ID: answer-id\n"
@@ -293,14 +234,7 @@ fn kickoff(base: serde_json::Value) -> String {
     comparison.base = Some(serde_json::from_value(base).unwrap());
     let mut exploration = Exploration::new(Arc::new(comparison.clone()));
     let request = exploration.request(None, None).unwrap();
-    PreparedTurn::prepare(
-        &request,
-        &comparison,
-        "access",
-        &Unreviewed::default(),
-        &EarlierDecisions::default(),
-    )
-    .prompt()
+    prepare(&request, &comparison)
 }
 
 fn jj(description: &str) -> serde_json::Value {
@@ -342,14 +276,7 @@ fn only_the_kickoff_carries_the_description() {
     let mut request = exploration.request(None, None).unwrap();
     request.answer = Some(answer(&request));
 
-    let wakeup = PreparedTurn::prepare(
-        &request,
-        &comparison,
-        "access",
-        &Unreviewed::default(),
-        &EarlierDecisions::default(),
-    )
-    .prompt();
+    let wakeup = prepare(&request, &comparison);
 
     assert!(!wakeup.contains("Change description"));
 }
@@ -449,20 +376,10 @@ fn only_a_round_with_a_challenger_carries_its_script() {
         let mut exploration = Exploration::new(Arc::new(comparison.clone()));
         exploration.challenger = challenger;
         let mut request = exploration.request(None, None).unwrap();
-        let prepare = |request: &TurnRequest| {
-            PreparedTurn::prepare(
-                request,
-                &comparison,
-                "access",
-                &Unreviewed::default(),
-                &EarlierDecisions::default(),
-            )
-            .prompt()
-        };
 
-        let kickoff = prepare(&request);
+        let kickoff = prepare(&request, &comparison);
         request.answer = Some(answer(&request));
-        let wakeup = prepare(&request);
+        let wakeup = prepare(&request, &comparison);
 
         assert_eq!(kickoff.contains(script), challenger);
         assert_eq!(wakeup.contains(reminder), challenger);
@@ -490,7 +407,8 @@ fn the_challengers_script_asks_for_every_field_and_result_of_a_proposal() {
     );
     assert_eq!(results.len(), 4, "{results:?}");
 
-    let script = PreparedTurn::instructions(true, true);
+    // The script alone: `reason` is also a field of a not-relevant mark.
+    let script = include_str!("challenger.md");
     for name in fields.chain(results).chain([FIELD.to_owned()]) {
         assert!(script.contains(&format!("`{name}`")), "{name}");
     }

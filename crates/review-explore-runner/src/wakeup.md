@@ -61,7 +61,7 @@ backed by an Answer ID or source evidence:
 - retire only a topic that depended on an invalidated premise; independent risks survive, and
   retirement does not cascade.
 - supersede names an active replacement topic and keeps the original wording and decisions.
-- reconsider flags an earlier decision without changing it, naming its Answer ID as decision
+- reconsider flags a decision of this round without changing it, naming its Answer ID as decision
   when one exists. A later decision by the reviewer resolves it.
 
 The latest operation on a topic defines its lifecycle. After a topic is decided, move to

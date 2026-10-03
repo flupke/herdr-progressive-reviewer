@@ -14,12 +14,8 @@ and Unreviewed diffs the next call needs. Once the draft is ready, stop and wait
 prompt; if it arrives first, stop preparing and take it up.
 
 When the answer arrives, do that turn as usual, then check the prepared question against
-the answer. Discard it when the answer settles or retires its topic, changes what the
-question rests on, or calls for a question that comes first. Otherwise revise what the answer
-changed and ask it. Its identity and marks come from the prompt that brought the answer.
-When an answer is cancelled, the question prepared after the turn it undoes goes with that
-turn.
-
-In a round with a challenger, the implementer prepares its own candidate for the next turn,
-as an outline: its postponed candidate when it holds one (see Candidates and picks). The
-pick still decides whether that candidate is asked. The challenger does not work ahead.
+the answer. Discard it when the answer settles its topic or leads you to retire it,
+changes what the question rests on, or calls for a question that comes first. Otherwise
+revise what the answer changed and ask it. Its identity and marks come from the prompt that
+brought the answer. When an answer is cancelled, the question prepared after the turn it
+undoes goes with that turn.

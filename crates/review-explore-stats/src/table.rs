@@ -25,7 +25,7 @@ enum Cell {
 }
 
 impl Row {
-    const ALL: [Row; 19] = [
+    const ALL: [Row; 20] = [
         Row {
             label: "Rounds",
             value: |s| Cell::Count(Some(s.rounds)),
@@ -85,6 +85,10 @@ impl Row {
         Row {
             label: "Challenger's proposals",
             value: |s| Cell::Count(s.proposals.map(ProposalCounts::total)),
+        },
+        Row {
+            label: "  rounds that reported proposals",
+            value: |s| Cell::Count(s.proposals.map(|p| p.rounds)),
         },
         Row {
             label: "  asked",

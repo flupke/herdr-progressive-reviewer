@@ -89,14 +89,18 @@ _Avoid_: adversary, second reviewer, critic
 **Challenger proposal**:
 A question the Challenger proposes for a turn, and what became of it: asked,
 merged with the implementer's question, retired because a fact settles it, or
-kept for a later turn.
+kept for a later turn. The Explore prompts call each side's question for the
+turn its candidate, so a proposal is a Challenger's candidate other than
+"conclude". Retiring a proposal is not retiring an agenda topic, which needs an
+invalidated premise.
 _Avoid_: suggestion, Challenger question (which may never be asked)
 
 **Prepared question**:
 The question the Explore agent drafts while the reviewer answers the posted one,
-for the next topic that does not depend on that answer. It is submitted only
-after the answer arrives, and discarded when the answer makes it wrong or
-unnecessary.
+for the next topic that does not depend on that answer; with a Challenger, it is
+the implementer's next candidate, judged again once the answer arrives. It is
+submitted only after the answer arrives, and discarded when the answer makes it
+wrong or unnecessary.
 _Avoid_: pending question (a topic's question not yet asked), queued question
 
 **Citation**:

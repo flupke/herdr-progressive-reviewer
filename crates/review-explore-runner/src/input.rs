@@ -18,21 +18,30 @@ pub(super) struct Kickoff<'a> {
     pub(super) decisions: &'a crate::EarlierDecisions,
 }
 
-/// Write `text` quoted line by line, so none of its lines can pass for a
-/// field of the prompt.
-pub(super) fn quote(output: &mut fmt::Formatter<'_>, text: &str) -> fmt::Result {
-    for line in text.lines() {
-        writeln!(output, ">{}{line}", if line.is_empty() { "" } else { " " })?;
+/// Text quoted line by line, so none of its lines can pass for a field of
+/// the prompt.
+pub(super) struct Quoted<'a>(pub(super) &'a str);
+
+impl fmt::Display for Quoted<'_> {
+    fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for line in self.0.lines() {
+            writeln!(output, ">{}{line}", if line.is_empty() { "" } else { " " })?;
+        }
+        Ok(())
     }
-    Ok(())
 }
 
-/// How a prompt names an option's outcome.
-pub(super) fn outcome(status: TopicStatus) -> &'static str {
-    match status {
-        TopicStatus::Open => "open",
-        TopicStatus::Accepted => "accepted",
-        TopicStatus::NeedsFollowUp => "needs_follow_up",
+/// An option's outcome or an interpretation's status, as a prompt and the
+/// tools name it.
+pub(super) struct Outcome(pub(super) TopicStatus);
+
+impl fmt::Display for Outcome {
+    fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
+        output.write_str(match self.0 {
+            TopicStatus::Open => "open",
+            TopicStatus::Accepted => "accepted",
+            TopicStatus::NeedsFollowUp => "needs_follow_up",
+        })
     }
 }
 
@@ -45,8 +54,11 @@ impl fmt::Display for Kickoff<'_> {
         )?;
         match self.description {
             Some(description) => {
-                writeln!(output, "\nChange description (quoted):")?;
-                quote(output, description)?;
+                write!(
+                    output,
+                    "\nChange description (quoted):\n{}",
+                    Quoted(description)
+                )?;
             }
             None => writeln!(output, "\nChange description: none")?,
         }
@@ -103,7 +115,7 @@ impl TurnInput<'_> {
                 output,
                 "Selected option ID: {}\nSelected outcome: {}",
                 option.id,
-                outcome(option.outcome)
+                Outcome(option.outcome)
             )?;
             writeln!(output, "\nSelected option:\n{}", option.text)?;
         }

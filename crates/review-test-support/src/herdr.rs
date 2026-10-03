@@ -26,8 +26,8 @@ impl HerdrTestServer {
     /// Start an isolated server and wait for its API socket.
     pub fn start(repository_root: &Path) -> Self {
         let directory = tempfile::tempdir().unwrap();
+        let config_directory = config_directory(directory.path());
         let herdr_config_directory = herdr_config_directory(directory.path());
-        let config_directory = herdr_config_directory.parent().unwrap().to_owned();
         let runtime_directory = directory.path().join("runtime");
         let state_directory = directory.path().join("state");
         let config_path = herdr_config_directory.join("config.toml");
@@ -192,9 +192,15 @@ exit "$status""#;
     }
 }
 
-/// The Herdr configuration directory of the server whose files are in `root`.
+/// The configuration directory (`XDG_CONFIG_HOME`) of the server whose files
+/// are in `root`.
+fn config_directory(root: &Path) -> PathBuf {
+    root.join("config")
+}
+
+/// Herdr's own configuration directory, inside [`config_directory`].
 fn herdr_config_directory(root: &Path) -> PathBuf {
-    root.join("config/herdr")
+    config_directory(root).join("herdr")
 }
 
 impl Drop for HerdrTestServer {
