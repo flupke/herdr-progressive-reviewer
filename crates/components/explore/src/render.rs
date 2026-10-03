@@ -8,7 +8,7 @@ use ratatui::{
     layout::Rect,
     widgets::{Block, Borders, Paragraph, Widget, Wrap},
 };
-use review_explore::Question;
+use review_explore::{MarkTense, Question};
 use ui_events::ExploreViewports;
 use ui_frame::Frame;
 use ui_theme::Palette;
@@ -391,7 +391,7 @@ impl ExploreComponent {
         else {
             return;
         };
-        let summary = marks_summary(marks.counts(), MarkTense::Applied);
+        let summary = marks.counts().summary(MarkTense::Applied);
         if summary.is_empty() && marks.problem.is_none() {
             return;
         }
@@ -435,7 +435,7 @@ impl ExploreComponent {
         else {
             return;
         };
-        let summary = marks_summary(update.requested_marks(), MarkTense::Pending);
+        let summary = update.requested_marks().summary(MarkTense::Pending);
         if summary.is_empty() {
             return;
         }
@@ -470,11 +470,7 @@ impl ExploreComponent {
             layout.text(format!("  ✓ {location}"), palette.dim, None);
         }
         for mark in not_relevant {
-            layout.text(
-                format!("  – {} ({})", mark.location, not_relevant_why(mark)),
-                palette.dim,
-                None,
-            );
+            layout.text(format!("  – {mark}"), palette.dim, None);
         }
         for location in reopened {
             layout.text(format!("  ↺ {location}"), palette.dim, None);
@@ -580,87 +576,6 @@ impl ExploreComponent {
             layout.text(format!("Finding: {finding}"), palette.warning, None);
         }
     }
-}
-
-/// "not relevant: mechanics covered by tests, see tests/lib.rs 3-9": the
-/// mark's reason and test; only "not relevant" for a mark saved before marks
-/// had reasons.
-fn not_relevant_why(mark: &review_explore::NotRelevantMark) -> String {
-    use review_explore::NotRelevantReason;
-    let Some(reason) = mark.reason else {
-        return "not relevant".into();
-    };
-    let reason = match reason {
-        NotRelevantReason::RemovedCode => "removed code the change is about",
-        NotRelevantReason::TestedMechanics => "mechanics covered by tests",
-        NotRelevantReason::FollowsCode => "follows the code",
-    };
-    match &mark.test {
-        Some(test) => format!("not relevant: {reason}, see {test}"),
-        None => format!("not relevant: {reason}"),
-    }
-}
-
-/// Whether a summary tells what marks changed or what they will change.
-#[derive(Clone, Copy)]
-enum MarkTense {
-    Applied,
-    Pending,
-}
-
-/// "Marked 4 lines reviewed · 30 lines not relevant · reopened 1 line",
-/// naming only what changed; "Will mark … · reopen 1 line" before it did.
-fn marks_summary(counts: review_explore::MarkCounts, tense: MarkTense) -> String {
-    let (mark, reopen, reopen_also) = match tense {
-        MarkTense::Applied => ("Marked", "Reopened", "reopened"),
-        MarkTense::Pending => ("Will mark", "Will reopen", "reopen"),
-    };
-    let amount = |lines: u32, files: u32| {
-        let plural = |count: u32, one: &str, many: &str| {
-            format!("{count} {}", if count == 1 { one } else { many })
-        };
-        match (lines, files) {
-            (0, 0) => None,
-            (lines, 0) => Some(plural(lines, "line", "lines")),
-            (0, files) => Some(plural(files, "whole file", "whole files")),
-            (lines, files) => Some(format!(
-                "{} and {}",
-                plural(lines, "line", "lines"),
-                plural(files, "whole file", "whole files")
-            )),
-        }
-    };
-    // Each part as it opens the summary and as it continues it.
-    let parts = [
-        amount(counts.reviewed_lines, counts.reviewed_files).map(|amount| {
-            (
-                format!("{mark} {amount} reviewed"),
-                format!("{amount} reviewed"),
-            )
-        }),
-        amount(counts.not_relevant_lines, counts.not_relevant_files).map(|amount| {
-            (
-                format!("{mark} {amount} not relevant"),
-                format!("{amount} not relevant"),
-            )
-        }),
-        amount(counts.reopened_lines, counts.reopened_files).map(|amount| {
-            (
-                format!("{reopen} {amount}"),
-                format!("{reopen_also} {amount}"),
-            )
-        }),
-    ];
-    let mut summary = String::new();
-    for (opening, continuing) in parts.into_iter().flatten() {
-        if summary.is_empty() {
-            summary = opening;
-        } else {
-            summary.push_str(" · ");
-            summary.push_str(&continuing);
-        }
-    }
-    summary
 }
 
 #[cfg(test)]

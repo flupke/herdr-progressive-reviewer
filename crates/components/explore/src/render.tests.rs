@@ -204,40 +204,6 @@ fn an_answers_marks_show_below_it_and_expand_to_their_lines() {
 }
 
 #[test]
-fn a_summary_names_only_what_changed() {
-    use super::MarkTense::Applied;
-    let counts = |reviewed_lines, reviewed_files, reopened_lines| review_explore::MarkCounts {
-        reviewed_lines,
-        reviewed_files,
-        reopened_lines,
-        ..review_explore::MarkCounts::default()
-    };
-
-    assert_eq!(super::marks_summary(counts(0, 0, 0), Applied), "");
-    assert_eq!(
-        super::marks_summary(counts(0, 0, 2), Applied),
-        "Reopened 2 lines"
-    );
-    assert_eq!(
-        super::marks_summary(counts(3, 1, 0), Applied),
-        "Marked 3 lines and 1 whole file reviewed"
-    );
-    let not_relevant = review_explore::MarkCounts {
-        not_relevant_lines: 5,
-        not_relevant_files: 1,
-        ..counts(0, 0, 2)
-    };
-    assert_eq!(
-        super::marks_summary(not_relevant, Applied),
-        "Marked 5 lines and 1 whole file not relevant · reopened 2 lines"
-    );
-    assert_eq!(
-        super::marks_summary(not_relevant, super::MarkTense::Pending),
-        "Will mark 5 lines and 1 whole file not relevant · reopen 2 lines"
-    );
-}
-
-#[test]
 fn a_reply_keeps_its_label_on_the_first_paragraph_unless_a_block_opens_it() {
     let labelled = |reply| super::ConversationLayout::labelled("Agent", reply);
 

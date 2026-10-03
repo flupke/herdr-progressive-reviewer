@@ -105,3 +105,34 @@ fn a_round_saved_before_marks_had_reasons_loads_as_before() {
     );
     assert_eq!(serde_json::to_value(&round).unwrap(), saved);
 }
+
+#[test]
+fn a_summary_names_only_what_changed() {
+    use MarkTense::Applied;
+    let counts = |reviewed_lines, reviewed_files, reopened_lines| MarkCounts {
+        reviewed_lines,
+        reviewed_files,
+        reopened_lines,
+        ..MarkCounts::default()
+    };
+
+    assert_eq!(counts(0, 0, 0).summary(Applied), "");
+    assert_eq!(counts(0, 0, 2).summary(Applied), "Reopened 2 lines");
+    assert_eq!(
+        counts(3, 1, 0).summary(Applied),
+        "Marked 3 lines and 1 whole file reviewed"
+    );
+    let not_relevant = MarkCounts {
+        not_relevant_lines: 5,
+        not_relevant_files: 1,
+        ..counts(0, 0, 2)
+    };
+    assert_eq!(
+        not_relevant.summary(Applied),
+        "Marked 5 lines and 1 whole file not relevant · reopened 2 lines"
+    );
+    assert_eq!(
+        not_relevant.summary(MarkTense::Pending),
+        "Will mark 5 lines and 1 whole file not relevant · reopen 2 lines"
+    );
+}

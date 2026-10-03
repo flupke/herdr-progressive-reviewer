@@ -1,11 +1,12 @@
-//! What the Explore page shows of the round the session owns.
+//! What the Explore page shows of the round the session owns, and the commands the reviewer
+//! sends from it.
 
 use std::path::Path;
 use std::sync::Arc;
 
-use review_explore::{Comparison, ExploreRound, Question};
+use review_explore::{Comparison, Exploration, ExploreRound, Question};
 use review_explore_citations::{Citation, CodeColors};
-use review_explore_page::RoundStage;
+use review_explore_page::{CommandRefusal, PageAnswer, PageCommand, QuestionMarks, RoundStage};
 use review_source::ReviewCheckpoint;
 
 use crate::ExploreSession;
@@ -64,6 +65,39 @@ impl ExploreSession {
         self.page.publish(round, stage);
     }
 
+    pub(crate) fn page_command(&mut self, command: PageCommand) -> Result<(), CommandRefusal> {
+        match command {
+            PageCommand::Answer(answer) => self.answer_from_page(answer),
+        }
+    }
+
+    /// Answers the question the page showed, as the pane would answer it. The turn comes from
+    /// the latest saved round, so the page never answers from a stale copy, and a question
+    /// answered already, from the pane or from another page, is refused.
+    fn answer_from_page(&mut self, answer: PageAnswer) -> Result<(), CommandRefusal> {
+        let failed = |error: &dyn std::fmt::Display| CommandRefusal::Failed(error.to_string());
+        let shown = self.state.round.as_ref().ok_or(CommandRefusal::Stale)?;
+        let round = self
+            .rounds
+            .round(
+                &shown.exploration.comparison.checkpoint.review_unit,
+                &shown.exploration.instance,
+            )
+            .map_err(|error| failed(&error))?
+            .ok_or(CommandRefusal::Stale)?;
+        let question = waiting_question(&round.exploration)
+            .filter(|question| question.is_version(&answer.question, answer.version))
+            .cloned()
+            .ok_or(CommandRefusal::Stale)?;
+        let request = round
+            .exploration
+            .clone()
+            .request(Some(answer.input), Some(&question))
+            .map_err(|error| failed(&error))?;
+        self.deliver_turn(request, None)
+            .map_err(CommandRefusal::Failed)
+    }
+
     fn page_stage(&mut self) -> RoundStage {
         let Some(round) = &self.state.round else {
             return RoundStage::NoRound;
@@ -78,21 +112,32 @@ impl ExploreSession {
             return if delivering {
                 RoundStage::AgentWorking
             } else {
-                RoundStage::Interrupted
+                RoundStage::Interrupted { failure: None }
             };
         }
-        if exploration.retry_request().is_some() {
-            return RoundStage::Interrupted;
+        if let Some(retry) = exploration.retry_request() {
+            return RoundStage::Interrupted {
+                failure: retry.response_error.clone(),
+            };
         }
         latest_turn(round, &mut self.citations, self.repository.root())
     }
+}
+
+/// The question the round waits for an answer to: the one the agent's latest turn posted,
+/// unless a turn is pending or waits for Retry.
+fn waiting_question(exploration: &Exploration) -> Option<&Question> {
+    if exploration.pending_request().is_some() || exploration.retry_request().is_some() {
+        return None;
+    }
+    exploration.conversation.last()?.update.next.as_ref()
 }
 
 /// The question or conclusion the agent's latest turn posted.
 fn latest_turn(round: &ExploreRound, citations: &mut PageCitations, root: &Path) -> RoundStage {
     let exploration = &round.exploration;
     let Some(turn) = exploration.conversation.last() else {
-        return RoundStage::Interrupted;
+        return RoundStage::Interrupted { failure: None };
     };
     if let Some(conclusion) = &turn.update.conclusion {
         return RoundStage::Conclusion(Box::new(conclusion.clone()));
@@ -102,7 +147,8 @@ fn latest_turn(round: &ExploreRound, citations: &mut PageCitations, root: &Path)
             number: exploration.questions.len(),
             question: Box::new(question.clone()),
             citations: citations.of(question, &exploration.comparison, root),
+            marks: QuestionMarks::requested(&turn.update),
         },
-        None => RoundStage::Interrupted,
+        None => RoundStage::Interrupted { failure: None },
     }
 }

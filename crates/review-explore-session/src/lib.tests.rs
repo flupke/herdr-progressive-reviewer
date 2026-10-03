@@ -36,6 +36,8 @@ struct Harness {
     inbox: mpsc::Receiver<Input>,
     inbox_sender: mpsc::Sender<Input>,
     agents: InMemoryAgents,
+    /// Holds up prompt delivery while closed.
+    delivery: DeliveryGate,
     store: ReviewStore,
     repository: Repository,
     unit: ReviewUnit,
@@ -61,10 +63,14 @@ impl Harness {
         let store = ReviewStore::open(state.path(), repository.root()).unwrap();
         let agents = InMemoryAgents::default();
         agents.upsert_agent(agent());
+        let delivery = DeliveryGate::default();
         // The thread service owns prompt delivery; it has no MCP listener here.
         let threads = review_thread_service::Worker::start(
             store.clone(),
-            agents.clone(),
+            GatedAgents {
+                agents: agents.clone(),
+                gate: delivery.clone(),
+            },
             target(),
             Err("No MCP listener in this test".into()),
             |_| Err("No MCP listener in this test".into()),
@@ -99,6 +105,7 @@ impl Harness {
             inbox,
             inbox_sender,
             agents,
+            delivery,
             store,
             repository,
             unit,
@@ -308,6 +315,61 @@ impl Harness {
             )
             .unwrap()
             .unwrap()
+    }
+}
+
+/// Holds up the delivery of prompts while closed: the prompt sender sees the agent only once
+/// the gate opens, after it checked whether its prompt was cancelled.
+#[derive(Clone, Default)]
+struct DeliveryGate(Arc<(std::sync::Mutex<bool>, std::sync::Condvar)>);
+
+impl DeliveryGate {
+    fn close(&self) {
+        *self.0.0.lock().unwrap() = true;
+    }
+
+    fn open(&self) {
+        *self.0.0.lock().unwrap() = false;
+        self.0.1.notify_all();
+    }
+
+    fn pass(&self) {
+        let (closed, opened) = &*self.0;
+        let _closed = opened
+            .wait_while(closed.lock().unwrap(), |closed| *closed)
+            .unwrap();
+    }
+}
+
+/// The agents as the prompt sender sees them, behind the delivery gate.
+struct GatedAgents {
+    agents: InMemoryAgents,
+    gate: DeliveryGate,
+}
+
+impl AgentPort for GatedAgents {
+    fn session_snapshot(&self) -> herdr_client::Result<herdr_client::protocol::SessionSnapshot> {
+        self.agents.session_snapshot()
+    }
+
+    fn list_agents(&self) -> herdr_client::Result<Vec<Agent>> {
+        self.agents.list_agents()
+    }
+
+    fn get_agent(&self, pane_id: &PaneId) -> herdr_client::Result<Option<Agent>> {
+        self.gate.pass();
+        self.agents.get_agent(pane_id)
+    }
+
+    fn pane_process_info(
+        &self,
+        pane_id: &PaneId,
+    ) -> herdr_client::Result<herdr_client::protocol::PaneProcessInfo> {
+        self.agents.pane_process_info(pane_id)
+    }
+
+    fn prompt_agent(&self, pane_id: &PaneId, text: &str) -> herdr_client::Result<()> {
+        self.agents.prompt_agent(pane_id, text)
     }
 }
 

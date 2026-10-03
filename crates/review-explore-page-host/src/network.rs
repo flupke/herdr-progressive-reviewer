@@ -13,7 +13,7 @@ use std::io;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, UdpSocket};
 use std::sync::{Arc, Mutex, PoisonError};
 
-use review_explore_page::{RoundFeed, Rounds, Token};
+use review_explore_page::{PageRound, Rounds, Token};
 
 /// The first port tried when the settings name none.
 const DEFAULT_PORT: u16 = 8790;
@@ -152,7 +152,7 @@ impl NetworkListener {
 /// token is made. Clones share the token.
 #[derive(Clone)]
 pub(crate) struct RoundTokens {
-    round: RoundFeed,
+    round: PageRound,
     current: Arc<Mutex<Option<RoundToken>>>,
 }
 
@@ -163,7 +163,7 @@ struct RoundToken {
 }
 
 impl RoundTokens {
-    pub(crate) fn new(round: RoundFeed) -> Self {
+    pub(crate) fn new(round: PageRound) -> Self {
         Self {
             round,
             current: Arc::default(),
@@ -174,7 +174,7 @@ impl RoundTokens {
     /// a new one for a new round, none when no round runs. Returns the address of the page
     /// served at `address` when it changed.
     pub(crate) fn renew(&self, address: SocketAddr) -> Option<Renewed> {
-        let running = self.round.round();
+        let running = self.round.stages().round();
         let mut current = self.current.lock().unwrap_or_else(PoisonError::into_inner);
         if current.as_ref().map(|token| &token.round) == running.as_ref() {
             return None;
@@ -193,8 +193,8 @@ impl RoundTokens {
 pub(crate) struct Renewed(pub(crate) Option<String>);
 
 impl Rounds for RoundTokens {
-    fn find(&self, token: &str) -> Option<RoundFeed> {
-        let running = self.round.round()?;
+    fn find(&self, token: &str) -> Option<PageRound> {
+        let running = self.round.stages().round()?;
         let current = self.current.lock().unwrap_or_else(PoisonError::into_inner);
         current
             .as_ref()

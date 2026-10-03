@@ -16,3 +16,15 @@ body { font: 16px/1.5 system-ui, sans-serif; margin: 0 auto; max-width: 44rem; p
 
 /* Phone: a long word or address wraps instead of widening the page. */
 .text, .choice { overflow-wrap: anywhere; }
+
+/* The answer form, what it marks, and the notice of a post that did not go through. */
+.answer { display: grid; gap: 12px; }
+.comment-label { font-weight: 600; }
+.comment { font: inherit; padding: 8px; border-radius: 6px; border: 1px solid var(--line); background: transparent; color: inherit; resize: vertical; }
+.marks summary { cursor: pointer; }
+.marks ul { margin: 8px 0 0; padding-left: 20px; font-size: 0.9em; overflow-wrap: anywhere; }
+.send { justify-self: end; font: inherit; padding: 8px 20px; border-radius: 6px; border: 0; background: var(--accent); color: white; cursor: pointer; }
+.send:disabled { opacity: 0.6; cursor: default; }
+.notice, .failure { padding: 10px; border-radius: 6px; border: 1px solid #c5221f; background: color-mix(in srgb, #c5221f 12%, transparent); }
+.failure p { margin: 0; }
+.failure .reason { margin-top: 6px; overflow-wrap: anywhere; }

@@ -22,3 +22,18 @@
   }
   setTimeout(poll, 500);
 })();
+
+// Sends an answer once: a second click would post the same answer again, which the tool
+// refuses since the question already has one.
+(() => {
+  for (const form of document.querySelectorAll('form.answer')) {
+    form.addEventListener('submit', (event) => {
+      if (form.dataset.sent === 'true') {
+        event.preventDefault();
+        return;
+      }
+      form.dataset.sent = 'true';
+      for (const button of form.querySelectorAll('button[type=submit]')) button.disabled = true;
+    });
+  }
+})();

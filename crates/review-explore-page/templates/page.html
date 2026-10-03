@@ -11,10 +11,13 @@
 <body>
 <main id="round" data-revision="{{ revision }}" data-working="{{ "true" if stage == "working" else "false" }}">
   <h1>Explore</h1>
+  {% include "notice.html" %}
   {% if stage == "no_round" %}
   <p class="state" role="status">No Explore round is running. Start one in the reviewer's Explore tab, then load this page again.</p>
   {% elif stage == "working" %}
   <p class="state working" role="status">The agent is working…</p>
+  {% elif stage == "interrupted" and failure %}
+  {% include "failure.html" %}
   {% elif stage == "interrupted" %}
   <p class="state" role="status">The agent is not working on its next turn. Retry in the reviewer, then load this page again.</p>
   {% endif %}
@@ -24,13 +27,7 @@
     <p class="text">{{ question.text }}</p>
     {% include "explanation.html" %}
     {% include "citations.html" %}
-    <fieldset class="choices">
-      <legend>Choices</legend>
-      {% for choice in question.choices %}
-      <label class="choice"><input type="radio" name="choice" value="{{ choice.id }}"> {{ choice.text }}</label>
-      {% endfor %}
-    </fieldset>
-    <p class="hint">Answer in the reviewer, then load this page again.</p>
+    {% include "answer.html" %}
   </section>
   {% endif %}
   {% if conclusion %}

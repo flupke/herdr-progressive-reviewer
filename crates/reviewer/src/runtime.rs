@@ -42,7 +42,7 @@ use herdr_client::client::HerdrClient;
 use herdr_client::protocol::{AgentTarget, PaneId, PluginContext, WorkspaceId};
 use ratatui::Terminal;
 use ratatui::backend::Backend;
-use review_explore_page::RoundPublisher;
+use review_explore_page::{CommandSender, PageRound, RoundFeed, RoundPublisher};
 use review_explore_page_host::{NetworkAccess, PageDirectory, PageHost};
 use review_explore_session as explore_session;
 use review_repository::repository::Repository;
@@ -154,7 +154,7 @@ impl Runtime {
         let (event_sender, events) = unbounded();
         let (input_sender, inputs) = unbounded();
         let page_round = RoundPublisher::default();
-        let page = self.serve_explore_page(&page_round, &event_sender);
+        let page_stages = page_round.subscribe();
         let watcher = RepositoryWatcher::new(self.repository.watch_plan());
         let mut effects = Effects::start(
             Setup {
@@ -174,6 +174,7 @@ impl Runtime {
                 interactive: input_sender.clone(),
             },
         );
+        let page = self.serve_explore_page(page_stages, effects.explore_inbox(), &event_sender);
         let producer_stop_requested = Arc::new(AtomicBool::new(false));
         let mut event_producers = RuntimeEventProducers::new(Arc::clone(&producer_stop_requested));
         event_producers.push(Self::start_herdr_events(
@@ -216,10 +217,12 @@ impl Runtime {
     }
 
     /// Serve the Explore page of the session's round, for the Herdr action that opens it, and
-    /// to the network for the pane's QR code unless the settings turn that off.
+    /// to the network for the pane's QR code unless the settings turn that off. The page's
+    /// commands join the session's other inputs.
     fn serve_explore_page(
         &self,
-        round: &RoundPublisher,
+        stages: RoundFeed,
+        explore: explore_session::Inbox,
         events: &EventSender<EventEnvelope>,
     ) -> Option<PageHost> {
         let toast = |text: String| {
@@ -229,7 +232,11 @@ impl Runtime {
             }));
         };
         let directory = PageDirectory::new(&self.state_dir);
-        let host = match PageHost::start(round.subscribe(), &directory, &self.workspace_id) {
+        let commands = CommandSender::new(move |command, reply| {
+            explore.deliver(explore_session::Input::Page { command, reply });
+        });
+        let round = PageRound::new(stages, commands);
+        let host = match PageHost::start(round, &directory, &self.workspace_id) {
             Ok(host) => host,
             Err(error) => {
                 toast(format!("Cannot serve the Explore page: {error}"));

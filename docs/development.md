@@ -75,7 +75,13 @@ templates and assets are in
 [`crates/review-explore-page`](../crates/review-explore-page): axum serves HTML
 rendered from minijinja templates, with no client framework. While the agent
 works, `assets/page.js` polls the page's status and loads the page again once
-the round has changed.
+the round has changed. The reviewer's actions are form posts that need the
+page's cookie: the page hands each one to the round's owner as a
+`PageCommand`, waits for its reply, then redirects to the page (post, redirect,
+get). A refusal travels to that next load in a short-lived cookie, which the
+page shows once. Before it sends an answer, the page checks that the round
+still asks the question it showed; the owner checks again against its own
+round.
 
 The agent's Markdown (a question's Context, Door and Blast radius, the
 conclusion) is rendered to HTML on the server by
@@ -92,7 +98,11 @@ question names (`Comparison::cited_lines`, on the `cited_source` lookup of the p
 evidence viewer), colored once per question on the session's thread by
 [`crates/review-explore-citations`](../crates/review-explore-citations), and
 [`crates/review-explore-page-host`](../crates/review-explore-page-host) serves
-the page of that round on a free loopback port behind a new token. It records
+the page of that round on a free loopback port behind a new token. The page's
+commands join the session's inputs, in the same order as the pane's. For an
+answer from the page, the session builds the turn from its latest saved round
+as the pane would, so the saved answer and the prompt are the same, and it
+refuses an answer to a question that has one already. It records
 the page's address, readable only by the user, under
 `$HERDR_PLUGIN_STATE_DIR/explore-page/`, one record per Herdr workspace. The
 Herdr action `explore-page` (`reviewer-control explore-page`) reads the record
@@ -179,8 +189,15 @@ Each test gets its own round on the server, through the `explore` fixture of
 `tests/explore-page/tests/session.ts`, and plays the Explore agent and the
 reviewer's pane: the round starts with the agent working,
 `explore.askQuestion()` posts the next question, `explore.answerInPane()`
-answers it in the pane, and `explore.interrupt()`, `explore.conclude()` and
-`explore.reset()` move the round to the other stages. The server's log of each
+answers it in the pane, `explore.cancelAnswerInPane()` cancels that answer,
+`explore.failDelivery()` fails the prompt of the agent's next turn, and
+`explore.interrupt()`, `explore.conclude()` and `explore.reset()` move the
+round to the other stages. An answer sent from the page puts the agent to work,
+and `explore.answers()` returns what the page sent. The server's control
+routes are listed in
+[`control.rs`](../crates/review-explore-page-server/src/control.rs); a
+`question` step takes an optional JSON `Question` body for a question of the
+test's own. The server's log of each
 target is in
 `tests/explore-page/.e2e/logs/`; a failed run prints its end. The run also
 fails when the browser reports that the page broke its content security policy,

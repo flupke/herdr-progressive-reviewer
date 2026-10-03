@@ -112,12 +112,7 @@ impl TokenCookie {
 
     /// The token a request's cookie carries.
     pub(crate) fn read(headers: &HeaderMap) -> Option<&str> {
-        headers
-            .get_all(header::COOKIE)
-            .iter()
-            .filter_map(|value| value.to_str().ok())
-            .flat_map(|value| value.split(';'))
-            .find_map(|pair| pair.trim().strip_prefix(Self::NAME)?.strip_prefix('='))
+        cookie(headers, Self::NAME)
     }
 
     /// The `Set-Cookie` value that keeps `token`.
@@ -128,4 +123,14 @@ impl TokenCookie {
         ))
         .ok()
     }
+}
+
+/// The value of a request's cookie `name`.
+pub(crate) fn cookie<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
+    headers
+        .get_all(header::COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(';'))
+        .find_map(|pair| pair.trim().strip_prefix(name)?.strip_prefix('='))
 }

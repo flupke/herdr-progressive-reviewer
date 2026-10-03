@@ -96,7 +96,7 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
 
-    use review_explore_page::RoundPublisher;
+    use review_explore_page::{CommandRefusal, CommandSender, PageRound, RoundPublisher};
     use review_explore_page_host::PageHost;
 
     use super::*;
@@ -118,8 +118,13 @@ mod tests {
         let state = tempfile::tempdir().unwrap();
         let workspace = WorkspaceId("w1".into());
         let round = RoundPublisher::default();
+        let commands = CommandSender::new(|_, reply| {
+            reply.send(Err(CommandRefusal::Failed(
+                "No session in this test".into(),
+            )));
+        });
         let host = PageHost::start(
-            round.subscribe(),
+            PageRound::new(round.subscribe(), commands),
             &PageDirectory::new(state.path()),
             &workspace,
         )

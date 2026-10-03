@@ -332,9 +332,10 @@ before/after code snippets and relative paths to TypeSafe AI. Missing or
 whitespace-only keys disable Jev. Uncertain, failed and oversized checks leave their
 lines unreviewed. Reopen a hunk in Files to review Jev's lines yourself.
 
-## Follow an Explore round in the browser
+## Follow and answer an Explore round in the browser
 
-The **Explore page** shows the open reviewer's Explore round in a browser. Run the Herdr
+The **Explore page** shows the open reviewer's Explore round in a browser, and you can
+answer the agent's questions there. Run the Herdr
 action **Open the Explore page of the progressive reviewer**
 (`herdr.progressive-reviewer.explore-page`) from the workspace of an open reviewer: it
 opens the page in the default browser of the machine that runs the reviewer. Set
@@ -352,10 +353,24 @@ description = "open the Explore page"
 
 The page shows the round's current question with its explanation and choices, or that the agent is
 working, that it is no longer working on its turn (Retry it in the reviewer), that no
-round is running, or the round's conclusion. You still answer in the reviewer's Explore tab. While the agent
-works, the page shows its next question or its conclusion as soon as the agent posts it.
-In every other state the page changes only when you load it again: after you answer a
-question in the reviewer, load the page again to follow the agent's next turn.
+round is running, or the round's conclusion.
+
+To answer a question, pick a choice or None of the above, write an optional comment, and
+press **Send**; a comment without a choice works too. The agent receives the answer as
+if you had given it in the reviewer's Explore tab, which shows it under the question.
+Above **Send**, the page says how many lines your answer will mark reviewed and not
+relevant; open that line to list them. Once you send, the page shows that the agent is
+working, then its next question or its conclusion as soon as the agent posts it. When
+the reviewer cannot deliver the prompt to the agent, the page says why: Retry in the
+reviewer. A Cancel answer or a Reset in the reviewer shows on a page that waits for the
+agent.
+
+An answer is recorded once. When the question already has an answer, given in the
+reviewer or in another tab, or the round moved on since the page was loaded, the page
+refuses to send yours, says so, and shows the round as it is now. In every state but the
+agent working, the page changes only when you load it again or send an answer: after
+you answer a question in the reviewer, load the page again to follow the agent's next
+turn.
 
 A question's explanation is its Context, which the agent writes in Markdown: short
 paragraphs, lists, code, and tables whose cells can carry a good, bad or warning mark, and

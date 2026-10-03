@@ -2,9 +2,13 @@
 
 use std::sync::Arc;
 
-use review_explore::{Conclusion, Question};
+use review_explore::{
+    CodeLocation, Conclusion, InterviewUpdate, MarkCounts, NotRelevantMark, Question,
+};
 use review_explore_citations::Citation;
 use tokio::sync::watch;
+
+use crate::CommandSender;
 
 /// The step of a round that the page shows.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -20,13 +24,53 @@ pub enum RoundStage {
         question: Box<Question>,
         /// The question's citations, in the order the agent gave them.
         citations: Arc<[Citation]>,
+        /// The lines an answer to the question marks.
+        marks: QuestionMarks,
     },
     /// The agent is not working on the turn the round waits for: its prompt failed, the
     /// reviewer stopped waiting, or the reviewer reopened during the turn. The reviewer
     /// retries in the pane.
-    Interrupted,
+    Interrupted {
+        /// Why the prompt of the turn could not be delivered, when it failed.
+        failure: Option<String>,
+    },
     /// The agent concluded the round.
     Conclusion(Box<Conclusion>),
+}
+
+impl RoundStage {
+    /// Whether the stage waits for an answer to version `version` of question `id`.
+    pub(crate) fn asks(&self, id: &str, version: u32) -> bool {
+        matches!(self, Self::Question { question, .. } if question.is_version(id, version))
+    }
+}
+
+/// The lines that an answer to a question marks reviewed, marks not relevant and reopens, as
+/// the agent's turn that posted the question asked.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct QuestionMarks {
+    pub reviewed: Vec<CodeLocation>,
+    pub not_relevant: Vec<NotRelevantMark>,
+    pub reopened: Vec<CodeLocation>,
+}
+
+impl QuestionMarks {
+    /// What `turn` asks to mark once its question has an answer.
+    pub fn requested(turn: &InterviewUpdate) -> Self {
+        Self {
+            reviewed: turn.reviewed.clone(),
+            not_relevant: turn.not_relevant.clone(),
+            reopened: turn.reopened.clone(),
+        }
+    }
+
+    pub(crate) fn counts(&self) -> MarkCounts {
+        MarkCounts::count(
+            &self.reviewed,
+            NotRelevantMark::locations(&self.not_relevant),
+            &self.reopened,
+        )
+    }
 }
 
 /// A stage, and a revision that changes with every published stage. A page that shows the
@@ -105,9 +149,28 @@ impl RoundFeed {
     }
 }
 
+/// A round as a page sees it: the stages its owner publishes, and where the reviewer's
+/// commands for it go.
+#[derive(Clone)]
+pub struct PageRound {
+    pub(crate) stages: RoundFeed,
+    pub(crate) commands: CommandSender,
+}
+
+impl PageRound {
+    pub fn new(stages: RoundFeed, commands: CommandSender) -> Self {
+        Self { stages, commands }
+    }
+
+    /// The stages the round's owner publishes.
+    pub fn stages(&self) -> &RoundFeed {
+        &self.stages
+    }
+}
+
 /// The rounds a page can show, each behind the token of the address that opens it.
 pub trait Rounds: Send + Sync + 'static {
     /// The round that `token` opens, or `None` when no round has that token. Compare tokens
     /// with [`Token::matches`](crate::Token::matches).
-    fn find(&self, token: &str) -> Option<RoundFeed>;
+    fn find(&self, token: &str) -> Option<PageRound>;
 }

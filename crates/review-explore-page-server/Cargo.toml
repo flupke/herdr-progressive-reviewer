@@ -17,6 +17,7 @@ review-explore-citations = { path = "../review-explore-citations" }
 review-explore-page = { path = "../review-explore-page" }
 review-repository = { path = "../review-repository" }
 review-source = { path = "../review-source" }
+serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 

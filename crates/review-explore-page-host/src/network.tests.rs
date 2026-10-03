@@ -25,7 +25,7 @@ impl Shared {
         let state = tempfile::tempdir().unwrap();
         let round = RoundPublisher::default();
         let host = PageHost::start(
-            round.subscribe(),
+            crate::tests::page_round(&round),
             &PageDirectory::new(state.path()),
             &WorkspaceId("w1".into()),
         )
@@ -122,7 +122,9 @@ fn each_round_opens_on_the_network_behind_a_token_of_its_own() {
     let cookie = format!("explore_token={}", first.rsplit('=').next().unwrap());
     assert_eq!(shared.status("GET", "/", &[("Cookie", &cookie)]), 200);
 
-    shared.round.publish(Some("r1"), RoundStage::Interrupted);
+    shared
+        .round
+        .publish(Some("r1"), RoundStage::Interrupted { failure: None });
     assert_eq!(shared.open(&first), 303, "the round keeps its token");
 
     let second = shared.start_round("r2");

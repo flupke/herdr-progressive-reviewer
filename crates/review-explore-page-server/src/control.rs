@@ -3,20 +3,28 @@
 //! - `POST /test/sessions` opens a session whose agent works on its first question, and
 //!   answers `{"token": "..."}`. The page of its round opens at `/?token=...`.
 //! - `POST /test/sessions/{token}/{step}` moves the session's round one step:
-//!   - `question`: the agent posts its next question, the fixed questions in turn;
+//!   - `question`: the agent posts its next question: the JSON `Question` of the request's
+//!     body, or the fixed questions in turn when the body is empty;
 //!   - `answer`: the reviewer answers in the pane, and the agent works on its next turn;
+//!   - `fail`: the prompt of the agent's next turn could not be delivered;
+//!   - `cancel`: the reviewer cancels the latest answer in the pane, and its question waits
+//!     again;
 //!   - `interrupt`: the agent stops before its next turn;
 //!   - `conclude`: the agent concludes the round;
 //!   - `reset`: the reviewer resets the round, and no round is running.
+//! - `GET /test/sessions/{token}/answers` lists the answers the reviewer sent from the page,
+//!   in order: `[{"question", "version", "choice", "comment"}]`.
 //!
 //! These routes exist only in the standalone server. They sit behind the page's host and origin
 //! checks, but need no token.
 
+use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::routing::post;
+use axum::routing::{get, post};
 use axum::{Json, Router};
+use review_explore::Question;
 use review_explore_page::Token;
 
 use crate::sessions::{Sessions, Step};
@@ -24,6 +32,7 @@ use crate::sessions::{Sessions, Step};
 pub(crate) fn router(sessions: Sessions) -> Router {
     Router::new()
         .route("/test/sessions", post(open_session))
+        .route("/test/sessions/{token}/answers", get(answers))
         .route("/test/sessions/{token}/{step}", post(step))
         .with_state(sessions)
 }
@@ -38,13 +47,35 @@ async fn open_session(State(sessions): State<Sessions>) -> Response {
 async fn step(
     State(sessions): State<Sessions>,
     Path((token, step)): Path<(String, String)>,
-) -> StatusCode {
+    body: Bytes,
+) -> Response {
     let Some(step) = Step::parse(&step) else {
-        return StatusCode::NOT_FOUND;
+        return StatusCode::NOT_FOUND.into_response();
     };
-    if sessions.step(&token, step) {
-        StatusCode::NO_CONTENT
+    let question = if body.is_empty() {
+        None
     } else {
-        StatusCode::NOT_FOUND
+        match serde_json::from_slice::<Question>(&body) {
+            Ok(question) => Some(question),
+            Err(error) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    format!("invalid question: {error}"),
+                )
+                    .into_response();
+            }
+        }
+    };
+    if sessions.step(&token, step, question) {
+        StatusCode::NO_CONTENT.into_response()
+    } else {
+        StatusCode::NOT_FOUND.into_response()
+    }
+}
+
+async fn answers(State(sessions): State<Sessions>, Path(token): Path<String>) -> Response {
+    match sessions.answers(&token) {
+        Some(answers) => Json(answers).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
     }
 }

@@ -66,6 +66,13 @@ pub struct Question {
     pub assessments: Option<Assessments>,
 }
 
+impl Question {
+    /// Whether this is version `version` of the question `id`.
+    pub fn is_version(&self, id: &str, version: u32) -> bool {
+        self.id == id && self.version == version
+    }
+}
+
 /// A literal reviewer contribution; choosing an option preserves its stable ID and wording.
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct ReviewerAnswer {

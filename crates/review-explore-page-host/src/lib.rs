@@ -22,7 +22,7 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use herdr_client::protocol::WorkspaceId;
-use review_explore_page::{ExplorePage, Hosts, PageFiles, RoundFeed, Rounds, Token};
+use review_explore_page::{ExplorePage, Hosts, PageFiles, PageRound, Rounds, Token};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::runtime::Handle;
@@ -116,11 +116,12 @@ impl PageDirectory {
 }
 
 /// The Explore page of one reviewer, served on this machine until the host drops. It shows the
-/// round that the reviewer's Explore session publishes.
+/// round that the reviewer's Explore session publishes, and sends the session the reviewer's
+/// commands.
 pub struct PageHost {
     address: PageAddress,
     record: PathBuf,
-    round: RoundFeed,
+    round: PageRound,
     /// The runtime of the page's thread.
     runtime: Handle,
     stop: Option<oneshot::Sender<()>>,
@@ -131,7 +132,7 @@ impl PageHost {
     /// Serves the page of `round` on a free loopback port, behind a new token, and records its
     /// address for `workspace` in `directory`.
     pub fn start(
-        round: RoundFeed,
+        round: PageRound,
         directory: &PageDirectory,
         workspace: &WorkspaceId,
     ) -> io::Result<Self> {
@@ -215,7 +216,7 @@ impl PageHost {
             };
             let _ = axum::serve(listener, app).await;
         });
-        let mut round = self.round.clone();
+        let mut round = self.round.stages().clone();
         self.runtime.spawn(async move {
             loop {
                 if let Some(network::Renewed(url)) = tokens.renew(address) {
@@ -251,11 +252,11 @@ impl Drop for PageHost {
 /// The one round of a reviewer, behind the token of its page's address.
 struct OneRound {
     token: Token,
-    round: RoundFeed,
+    round: PageRound,
 }
 
 impl Rounds for OneRound {
-    fn find(&self, token: &str) -> Option<RoundFeed> {
+    fn find(&self, token: &str) -> Option<PageRound> {
         self.token.matches(token).then(|| self.round.clone())
     }
 }

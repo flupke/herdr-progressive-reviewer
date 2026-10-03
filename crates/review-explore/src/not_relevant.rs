@@ -50,6 +50,13 @@ impl std::fmt::Display for TestLocation {
     }
 }
 
+/// `path new 7-9 (not relevant: follows the code)`: the lines and why.
+impl std::fmt::Display for NotRelevantMark {
+    fn fmt(&self, output: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(output, "{} ({})", self.location, self.why())
+    }
+}
+
 /// Changed lines that hold no decision, and why.
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, schemars::JsonSchema)]
 pub struct NotRelevantMark {
@@ -71,6 +78,23 @@ impl NotRelevantMark {
     /// The lines `marks` name.
     pub fn locations(marks: &[Self]) -> impl Iterator<Item = &CodeLocation> {
         marks.iter().map(|mark| &mark.location)
+    }
+
+    /// "not relevant: mechanics covered by tests, see tests/lib.rs 3-9": the mark's reason
+    /// and test; only "not relevant" for a mark saved before marks had reasons.
+    fn why(&self) -> String {
+        let Some(reason) = self.reason else {
+            return "not relevant".into();
+        };
+        let reason = match reason {
+            NotRelevantReason::RemovedCode => "removed code the change is about",
+            NotRelevantReason::TestedMechanics => "mechanics covered by tests",
+            NotRelevantReason::FollowsCode => "follows the code",
+        };
+        match &self.test {
+            Some(test) => format!("not relevant: {reason}, see {test}"),
+            None => format!("not relevant: {reason}"),
+        }
     }
 
     /// Whether the mark gives a reason, and a test, which `tested_mechanics`

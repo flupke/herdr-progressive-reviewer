@@ -1,0 +1,50 @@
+{
+  "schemaVersion": "trace-1",
+  "createdAt": "2026-10-03T21:12:01.312Z",
+  "payload": {
+    "actions": [
+      {
+        "name": "check",
+        "summary": "check radio \"Discard the draft\" in \"Choices\"",
+        "target": {
+          "role": "radio",
+          "name": "Discard the draft",
+          "within": "Choices"
+        },
+        "checked": true
+      },
+      {
+        "name": "type",
+        "summary": "type \"Keep it for a week instead.\" into textbox \"Comment (optional)\" in \"Question 1\"",
+        "target": {
+          "role": "textbox",
+          "name": "Comment (optional)",
+          "within": "Question 1"
+        },
+        "value": "Keep it for a week instead."
+      },
+      {
+        "name": "tap",
+        "summary": "tap button \"Send\" in \"Question 1\"",
+        "target": {
+          "role": "button",
+          "name": "Send",
+          "within": "Question 1"
+        }
+      }
+    ],
+    "executor": {
+      "name": "e2e-default-agent",
+      "version": "2"
+    },
+    "recordedFor": {
+      "testId": "tests/answer.e2e.ts::the%20reviewer%20answers%20on%20the%20page%2C%20then%20sees%20the%20agent%20work%20and%20its%20next%20question",
+      "targetId": "phone",
+      "instructionDigest": "0d916904aed978f3e1412ded047b5f28e9c72eaf7eee93e4a9c96207acb16602"
+    },
+    "summary": "Selected \"Discard the draft\" on Question 1, entered comment \"Keep it for a week instead.\", tapped Send. App now shows \"The agent is working…\" status.",
+    "startPath": "/",
+    "endPath": "/",
+    "endWaitMs": 11830
+  }
+}

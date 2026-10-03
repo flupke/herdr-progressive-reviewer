@@ -204,27 +204,103 @@ impl InterviewUpdate {
 
     /// How much the turn asks to mark, before any of it is applied.
     pub fn requested_marks(&self) -> MarkCounts {
-        let mut counts = MarkCounts::default();
-        MarkCounts::add(
+        MarkCounts::count(
             &self.reviewed,
+            crate::NotRelevantMark::locations(&self.not_relevant),
+            &self.reopened,
+        )
+    }
+}
+
+/// Whether a summary of marks tells what they changed or what they will change.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MarkTense {
+    Applied,
+    Pending,
+}
+
+impl MarkCounts {
+    /// How many lines and whole files the locations mark reviewed, mark not relevant and
+    /// reopen.
+    pub fn count<'a>(
+        reviewed: impl IntoIterator<Item = &'a crate::CodeLocation>,
+        not_relevant: impl IntoIterator<Item = &'a crate::CodeLocation>,
+        reopened: impl IntoIterator<Item = &'a crate::CodeLocation>,
+    ) -> Self {
+        let mut counts = Self::default();
+        Self::add(
+            reviewed,
             &mut counts.reviewed_lines,
             &mut counts.reviewed_files,
         );
-        MarkCounts::add(
-            crate::NotRelevantMark::locations(&self.not_relevant),
+        Self::add(
+            not_relevant,
             &mut counts.not_relevant_lines,
             &mut counts.not_relevant_files,
         );
-        MarkCounts::add(
-            &self.reopened,
+        Self::add(
+            reopened,
             &mut counts.reopened_lines,
             &mut counts.reopened_files,
         );
         counts
     }
-}
 
-impl MarkCounts {
+    /// "Marked 4 lines reviewed · 30 lines not relevant · reopened 1 line", naming only what
+    /// changed; "Will mark … · reopen 1 line" before it did. Empty when nothing changes.
+    pub fn summary(self, tense: MarkTense) -> String {
+        let (mark, reopen, reopen_also) = match tense {
+            MarkTense::Applied => ("Marked", "Reopened", "reopened"),
+            MarkTense::Pending => ("Will mark", "Will reopen", "reopen"),
+        };
+        let amount = |lines: u32, files: u32| {
+            let plural = |count: u32, one: &str, many: &str| {
+                format!("{count} {}", if count == 1 { one } else { many })
+            };
+            match (lines, files) {
+                (0, 0) => None,
+                (lines, 0) => Some(plural(lines, "line", "lines")),
+                (0, files) => Some(plural(files, "whole file", "whole files")),
+                (lines, files) => Some(format!(
+                    "{} and {}",
+                    plural(lines, "line", "lines"),
+                    plural(files, "whole file", "whole files")
+                )),
+            }
+        };
+        // Each part as it opens the summary and as it continues it.
+        let parts = [
+            amount(self.reviewed_lines, self.reviewed_files).map(|amount| {
+                (
+                    format!("{mark} {amount} reviewed"),
+                    format!("{amount} reviewed"),
+                )
+            }),
+            amount(self.not_relevant_lines, self.not_relevant_files).map(|amount| {
+                (
+                    format!("{mark} {amount} not relevant"),
+                    format!("{amount} not relevant"),
+                )
+            }),
+            amount(self.reopened_lines, self.reopened_files).map(|amount| {
+                (
+                    format!("{reopen} {amount}"),
+                    format!("{reopen_also} {amount}"),
+                )
+            }),
+        ];
+        let mut summary = String::new();
+        for (opening, continuing) in parts.into_iter().flatten() {
+            if summary.is_empty() {
+                summary = opening;
+            } else {
+                summary.push_str(" · ");
+                summary.push_str(&continuing);
+            }
+        }
+        summary
+    }
+
     fn add<'a>(
         locations: impl IntoIterator<Item = &'a crate::CodeLocation>,
         lines: &mut u32,
@@ -241,23 +317,11 @@ impl MarkCounts {
 
 impl TurnMarks {
     pub fn counts(&self) -> MarkCounts {
-        let mut counts = MarkCounts::default();
-        MarkCounts::add(
+        MarkCounts::count(
             &self.reviewed,
-            &mut counts.reviewed_lines,
-            &mut counts.reviewed_files,
-        );
-        MarkCounts::add(
             crate::NotRelevantMark::locations(&self.not_relevant),
-            &mut counts.not_relevant_lines,
-            &mut counts.not_relevant_files,
-        );
-        MarkCounts::add(
             self.reopened.iter().map(|reopened| &reopened.location),
-            &mut counts.reopened_lines,
-            &mut counts.reopened_files,
-        );
-        counts
+        )
     }
 }
 

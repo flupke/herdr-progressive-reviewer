@@ -3,21 +3,25 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::extract::{DefaultBodyLimit, FromRequestParts, Path, Query, Request, State};
+use axum::extract::{DefaultBodyLimit, Form, FromRequestParts, Path, Query, Request, State};
 use axum::http::request::Parts;
 use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use review_explore::{Alternative, Assessments, Conclusion, Question, QuestionSection};
+use review_explore::{
+    Alternative, AnswerInput, Assessments, Conclusion, MarkTense, Question, QuestionSection,
+};
 use review_explore_citations::Citation;
 use serde::{Deserialize, Serialize};
 
 use crate::access::{Hosts, TokenCookie};
 use crate::citation::CitationContext;
+use crate::command::{PageAnswer, PageCommand};
 use crate::files::PageFiles;
-use crate::round::{RoundFeed, RoundSnapshot, RoundStage, Rounds};
+use crate::notice::Notice;
+use crate::round::{PageRound, QuestionMarks, RoundSnapshot, RoundStage, Rounds};
 
 /// Scripts, styles and form posts only from the page itself, and no inline script or style.
 /// The browser reports what the policy blocks to `/csp-report`.
@@ -80,6 +84,7 @@ impl<R: Rounds> ExplorePage<R> {
         Router::new()
             .route("/", get(index::<R>))
             .route("/status", get(status))
+            .route("/answer", post(answer))
             .route("/assets/{name}", get(asset::<R>))
             .route("/dev/changes", get(dev_changes::<R>))
             .route(
@@ -94,7 +99,7 @@ impl<R: Rounds> ExplorePage<R> {
     }
 
     /// The round whose token the request's cookie carries.
-    fn admit(&self, headers: &HeaderMap) -> Result<RoundFeed, Refused> {
+    fn admit(&self, headers: &HeaderMap) -> Result<PageRound, Refused> {
         TokenCookie::read(headers)
             .and_then(|token| self.rounds.find(token))
             .ok_or_else(|| self.refuse(PageEvent::WrongToken))
@@ -114,19 +119,27 @@ impl<R: Rounds> ExplorePage<R> {
         response
     }
 
+    /// Shows the round, with the notice of a post that did not go through, once.
     fn show(&self, headers: &HeaderMap) -> Response {
         let round = match self.admit(headers) {
-            Ok(round) => round.latest(),
+            Ok(round) => round.stages.latest(),
             Err(refused) => return refused.into_response(),
         };
-        let context = PageContext::new(&round, self.files.dev_version());
+        let notice = Notice::read(headers);
+        let context = PageContext::new(&round, notice.as_ref(), self.files.dev_version());
         match self.files.render("page.html", context) {
             Ok(html) => {
                 let policy = (
                     header::CONTENT_SECURITY_POLICY,
                     HeaderValue::from_static(CONTENT_SECURITY_POLICY),
                 );
-                ([policy, NO_STORE], Html(html)).into_response()
+                let mut response = ([policy, NO_STORE], Html(html)).into_response();
+                if notice.is_some() {
+                    response
+                        .headers_mut()
+                        .insert(header::SET_COOKIE, Notice::clear());
+                }
+                response
             }
             Err(error) => {
                 self.log(PageEvent::TemplateError(format!("{error:#}")));
@@ -172,8 +185,9 @@ async fn admit_host<R: Rounds>(
     }
 }
 
-/// The round of a request whose cookie carries a round's token.
-struct Admitted(RoundFeed);
+/// The round of a request whose cookie carries a round's token. Every route that reads or
+/// changes a round requires it.
+struct Admitted(PageRound);
 
 impl<R: Rounds> FromRequestParts<Arc<ExplorePage<R>>> for Admitted {
     type Rejection = Refused;
@@ -204,6 +218,43 @@ async fn index<R: Rounds>(
     }
 }
 
+/// The reviewer's answer, as the question's form posts it.
+#[derive(Deserialize)]
+struct AnswerForm {
+    question: String,
+    version: u32,
+    /// The picked choice's ID; absent when the reviewer picked none.
+    choice: Option<String>,
+    #[serde(default)]
+    comment: String,
+}
+
+/// Hands the reviewer's answer to the round's owner, unless the page showed a question that
+/// no longer waits for an answer, then shows the page again with what became of it.
+async fn answer(Admitted(round): Admitted, Form(form): Form<AnswerForm>) -> Response {
+    let sent = if round.stages.stage().asks(&form.question, form.version) {
+        let answer = PageAnswer {
+            question: form.question,
+            version: form.version,
+            input: AnswerInput {
+                option: form.choice,
+                text: form.comment,
+                in_reply_to: None,
+            },
+        };
+        round.commands.send(PageCommand::Answer(answer)).await
+    } else {
+        Err(Notice::Stale)
+    };
+    let mut response = Redirect::to("/").into_response();
+    if let Err(notice) = sent {
+        response
+            .headers_mut()
+            .insert(header::SET_COOKIE, notice.cookie());
+    }
+    response
+}
+
 /// What the template `page.html` receives. The templates turn the agent's Markdown into HTML
 /// with the filter `markdown` (see [`PageFiles`]).
 #[derive(Serialize)]
@@ -212,6 +263,10 @@ struct PageContext<'a> {
     stage: Stage,
     question: Option<QuestionContext<'a>>,
     conclusion: Option<&'a Conclusion>,
+    /// Why the turn the agent no longer works on failed, when its prompt failed.
+    failure: Option<&'a str>,
+    /// Why the reviewer's latest post did not go through.
+    notice: Option<&'a Notice>,
     /// The count of file changes, in development only: the page reloads when it changes.
     dev_version: Option<u64>,
 }
@@ -219,6 +274,8 @@ struct PageContext<'a> {
 #[derive(Serialize)]
 struct QuestionContext<'a> {
     number: usize,
+    id: &'a str,
+    version: u32,
     text: &'a str,
     /// The Context section, in Markdown; empty when the question has none.
     context: String,
@@ -228,6 +285,19 @@ struct QuestionContext<'a> {
     choices: Vec<&'a Alternative>,
     /// The question's citations, most decisive first.
     citations: Vec<CitationContext<'a>>,
+    /// The lines an answer marks, `None` when it marks none.
+    marks: Option<MarksContext>,
+}
+
+/// What an answer to the question marks: a summary, and the lines on request.
+#[derive(Serialize)]
+struct MarksContext {
+    /// "Will mark 4 lines reviewed · 20 lines not relevant".
+    summary: String,
+    reviewed: Vec<String>,
+    /// Each with why it is not relevant.
+    not_relevant: Vec<String>,
+    reopened: Vec<String>,
 }
 
 /// The stage's name, as the template tests it: `no_round`, `working` (the page polls its status
@@ -243,36 +313,52 @@ enum Stage {
 }
 
 impl<'a> PageContext<'a> {
-    fn new(round: &'a RoundSnapshot, dev_version: Option<u64>) -> Self {
-        let (stage, question, conclusion) = match &round.stage {
-            RoundStage::NoRound => (Stage::NoRound, None, None),
-            RoundStage::AgentWorking => (Stage::Working, None, None),
+    fn new(round: &'a RoundSnapshot, notice: Option<&'a Notice>, dev_version: Option<u64>) -> Self {
+        let mut context = Self {
+            revision: round.revision,
+            stage: Stage::NoRound,
+            question: None,
+            conclusion: None,
+            failure: None,
+            notice,
+            dev_version,
+        };
+        match &round.stage {
+            RoundStage::NoRound => {}
+            RoundStage::AgentWorking => context.stage = Stage::Working,
             RoundStage::Question {
                 number,
                 question,
                 citations,
-            } => (
-                Stage::Question,
-                Some(QuestionContext::new(*number, question, citations)),
-                None,
-            ),
-            RoundStage::Interrupted => (Stage::Interrupted, None, None),
-            RoundStage::Conclusion(conclusion) => (Stage::Conclusion, None, Some(&**conclusion)),
-        };
-        Self {
-            revision: round.revision,
-            stage,
-            question,
-            conclusion,
-            dev_version,
+                marks,
+            } => {
+                context.stage = Stage::Question;
+                context.question = Some(QuestionContext::new(*number, question, citations, marks));
+            }
+            RoundStage::Interrupted { failure } => {
+                context.stage = Stage::Interrupted;
+                context.failure = failure.as_deref();
+            }
+            RoundStage::Conclusion(conclusion) => {
+                context.stage = Stage::Conclusion;
+                context.conclusion = Some(conclusion);
+            }
         }
+        context
     }
 }
 
 impl<'a> QuestionContext<'a> {
-    fn new(number: usize, question: &'a Question, citations: &'a [Citation]) -> Self {
+    fn new(
+        number: usize,
+        question: &'a Question,
+        citations: &'a [Citation],
+        marks: &QuestionMarks,
+    ) -> Self {
         Self {
             number,
+            id: &question.id,
+            version: question.version,
             text: &question.text,
             context: question.context(),
             sections: question
@@ -282,13 +368,29 @@ impl<'a> QuestionContext<'a> {
                 .collect(),
             choices: question.choices().collect(),
             citations: citations.iter().map(CitationContext::new).collect(),
+            marks: MarksContext::new(marks),
         }
+    }
+}
+
+impl MarksContext {
+    fn new(marks: &QuestionMarks) -> Option<Self> {
+        let summary = marks.counts().summary(MarkTense::Pending);
+        if summary.is_empty() {
+            return None;
+        }
+        Some(Self {
+            summary,
+            reviewed: marks.reviewed.iter().map(ToString::to_string).collect(),
+            not_relevant: marks.not_relevant.iter().map(ToString::to_string).collect(),
+            reopened: marks.reopened.iter().map(ToString::to_string).collect(),
+        })
     }
 }
 
 /// What the page's script polls while the agent works.
 async fn status(Admitted(round): Admitted) -> Response {
-    let revision = round.latest().revision;
+    let revision = round.stages.latest().revision;
     (
         [NO_STORE],
         Json(serde_json::json!({ "revision": revision })),

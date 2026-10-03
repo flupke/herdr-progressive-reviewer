@@ -18,6 +18,10 @@ const TEMPLATES: &[(&str, &str)] = &[
         "citations.html",
         include_str!("../templates/citations.html"),
     ),
+    ("notice.html", include_str!("../templates/notice.html")),
+    ("answer.html", include_str!("../templates/answer.html")),
+    ("marks.html", include_str!("../templates/marks.html")),
+    ("failure.html", include_str!("../templates/failure.html")),
 ];
 
 /// Assets by name, with their content type.

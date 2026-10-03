@@ -1,7 +1,7 @@
 use std::os::unix::fs::PermissionsExt;
 
 use herdr_client::protocol::WorkspaceId;
-use review_explore_page::RoundPublisher;
+use review_explore_page::{CommandRefusal, CommandSender, RoundPublisher};
 
 use super::*;
 
@@ -9,9 +9,19 @@ fn workspace(id: &str) -> WorkspaceId {
     WorkspaceId(id.into())
 }
 
+/// The page's side of `round`, whose commands no session takes.
+pub(crate) fn page_round(round: &RoundPublisher) -> PageRound {
+    let commands = CommandSender::new(|_, reply| {
+        reply.send(Err(CommandRefusal::Failed(
+            "No session in this test".into(),
+        )));
+    });
+    PageRound::new(round.subscribe(), commands)
+}
+
 fn host(directory: &PageDirectory, workspace: &WorkspaceId) -> PageHost {
     let round = RoundPublisher::default();
-    PageHost::start(round.subscribe(), directory, workspace).unwrap()
+    PageHost::start(page_round(&round), directory, workspace).unwrap()
 }
 
 #[test]

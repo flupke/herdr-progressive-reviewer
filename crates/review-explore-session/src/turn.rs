@@ -25,18 +25,21 @@ impl ExploreSession {
                 return;
             }
         };
-        self.deliver_turn(request, Some((&retry.0, retry.1)));
+        let _ = self.deliver_turn(request, Some((&retry.0, retry.1)));
     }
 
+    /// Saves the turn `request`, then prompts the agent with it, and tells the front ends
+    /// through `ExplorePosted`. Errs, with the reason, only when the turn was not saved: a
+    /// prompt that fails after the save leaves the turn waiting for Retry.
     pub(crate) fn deliver_turn(
         &mut self,
         request: TurnRequest,
         retry_agent: Option<(&Agent, PinnedAgent)>,
-    ) {
-        self.state.prompt = None;
-        self.state.implementation = None;
+    ) -> Result<(), String> {
+        // A kickoff saves the agent it selects with the new round.
+        let kickoff = self.state.round.is_none();
         // Preserve the posted contribution even when its subsequent wakeup cannot be sent.
-        if retry_agent.is_none() {
+        if retry_agent.is_none() && kickoff {
             let _ = self.select_agent();
         }
         let persisted =
@@ -44,13 +47,21 @@ impl ExploreSession {
         let round = match persisted {
             Ok(round) => round,
             Err(error) => {
+                // A refused turn leaves the pending prompt, its implementation and its agent
+                // alone: a second answer must not cancel the first one's queued prompt.
+                let error = error.to_string();
                 let _ = self.events.send(ui_events::ExplorePosted {
                     request,
-                    result: Err(error.to_string()),
+                    result: Err(error.clone()),
                 });
-                return;
+                return Err(error);
             }
         };
+        self.state.prompt = None;
+        self.state.implementation = None;
+        if retry_agent.is_none() && !kickoff {
+            let _ = self.select_agent();
+        }
         // Before the prompt, so its unreviewed diffs leave out what the answer marked.
         let round = self.apply_answered_marks(&request, &round).unwrap_or(round);
         if let Some((_, pinned)) = retry_agent {
@@ -76,7 +87,7 @@ impl ExploreSession {
                     },
                     &attempt,
                 );
-                return;
+                return Ok(());
             }
         };
         let observer = DurableDispatch {
@@ -108,6 +119,7 @@ impl ExploreSession {
                 });
             }
         });
+        Ok(())
     }
 
     /// The prompt for `request`, the record of it, and the agent to send it to.

@@ -3967,6 +3967,7 @@ name = "review-explore-page"
 version = "0.2.0"
 dependencies = [
  "axum",
+ "base64 0.22.1",
  "markdown-html",
  "minijinja",
  "notify",
@@ -4004,6 +4005,7 @@ dependencies = [
  "review-explore-page",
  "review-repository",
  "review-source",
+ "serde",
  "serde_json",
  "tokio",
 ]

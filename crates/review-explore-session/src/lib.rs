@@ -46,6 +46,12 @@ pub enum Input {
     },
     /// Saved Explore state changed on disk, possibly by another reviewer.
     StorageChanged,
+    /// A command the reviewer sent from the Explore page, and where to reply once it is
+    /// carried out or refused.
+    Page {
+        command: review_explore_page::PageCommand,
+        reply: review_explore_page::CommandReply,
+    },
 }
 
 /// Returns inputs the session produces later, such as prompt outcomes, to its owner's
@@ -184,6 +190,12 @@ impl ExploreSession {
             Input::Submission(request) => self.submission(*request),
             Input::PromptFinished { event, attempt } => self.prompt_finished(*event, &attempt),
             Input::StorageChanged => self.storage_changed(),
+            Input::Page { command, reply } => {
+                let result = self.page_command(command);
+                // The page loads itself again once it has the reply: it shows the new stage.
+                self.publish_page();
+                reply.send(result);
+            }
         }
         self.publish_page();
     }
@@ -206,7 +218,10 @@ impl ExploreSession {
             Command::Start => self.start(),
             Command::Reset => self.reset(),
             Command::SaveView(view) => self.save_view(*view),
-            Command::Turn(request) => self.deliver_turn(*request, None),
+            // The pane learns the outcome from the event the session sends.
+            Command::Turn(request) => {
+                let _ = self.deliver_turn(*request, None);
+            }
             Command::Retry(request) => self.retry(*request),
             Command::Implement(request) => self.implement(request),
             Command::CancelImplementation => self.state.implementation = None,

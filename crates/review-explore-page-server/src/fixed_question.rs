@@ -1,22 +1,29 @@
 //! The questions and the conclusion the standalone server's agent posts.
 
-use review_explore::{Alternative, Conclusion, EvidenceRef, Question, SourceSide, TopicStatus};
-use review_explore_page::RoundStage;
+use review_explore::{
+    Alternative, CodeLocation, Conclusion, EvidenceRef, NotRelevantMark, NotRelevantReason,
+    Question, SourceSide, TopicStatus,
+};
+use review_explore_page::{QuestionMarks, RoundStage};
+use review_repository::repository::RepoPath;
+use review_source::SourceLineRange;
 
 use crate::{cited_code, fixed_explanation};
 
-/// The round's question `number`, from 1: the fixed questions in turn.
-pub(crate) fn question_stage(number: usize) -> RoundStage {
-    let question = if number % 2 == 1 {
-        keep_draft()
-    } else {
-        draft_storage()
+/// The round's question `number`, from 1: `question` when given, which marks nothing, or else
+/// the fixed questions in turn. An answer to the first fixed question marks lines.
+pub(crate) fn question_stage(number: usize, question: Option<Question>) -> RoundStage {
+    let (question, marks) = match question {
+        Some(question) => (question, QuestionMarks::default()),
+        None if number % 2 == 1 => (keep_draft(), keep_draft_marks()),
+        None => (draft_storage(), QuestionMarks::default()),
     };
     let citations = question.evidence.iter().map(cited_code::cite).collect();
     RoundStage::Question {
         number,
         question: Box::new(question),
         citations,
+        marks,
     }
 }
 
@@ -55,6 +62,30 @@ fn keep_draft() -> Question {
                 ),
             ],
         )
+    }
+}
+
+/// Four lines reviewed and twenty not relevant.
+fn keep_draft_marks() -> QuestionMarks {
+    QuestionMarks {
+        reviewed: vec![lines("src/drafts.rs", 10, 13)],
+        not_relevant: vec![NotRelevantMark {
+            location: lines("tests/drafts.rs", 1, 20),
+            reason: Some(NotRelevantReason::FollowsCode),
+            test: None,
+        }],
+        reopened: Vec::new(),
+    }
+}
+
+fn lines(path: &str, first_line: u32, last_line: u32) -> CodeLocation {
+    CodeLocation {
+        path: RepoPath::from_bytes(path.as_bytes()),
+        side: SourceSide::New,
+        lines: Some(SourceLineRange {
+            first_line,
+            last_line,
+        }),
     }
 }
 

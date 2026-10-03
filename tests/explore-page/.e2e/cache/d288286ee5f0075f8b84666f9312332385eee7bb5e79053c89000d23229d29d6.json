@@ -1,0 +1,40 @@
+{
+  "schemaVersion": "trace-1",
+  "createdAt": "2026-10-03T21:20:25.552Z",
+  "payload": {
+    "actions": [
+      {
+        "name": "type",
+        "summary": "type \"Keep it for a week instead.\" into textbox \"Comment (optional)\" in \"Question 1\"",
+        "target": {
+          "role": "textbox",
+          "name": "Comment (optional)",
+          "within": "Question 1"
+        },
+        "value": "Keep it for a week instead."
+      },
+      {
+        "name": "tap",
+        "summary": "tap button \"Send\" in \"Question 1\"",
+        "target": {
+          "role": "button",
+          "name": "Send",
+          "within": "Question 1"
+        }
+      }
+    ],
+    "executor": {
+      "name": "e2e-default-agent",
+      "version": "2"
+    },
+    "recordedFor": {
+      "testId": "tests/answer.e2e.ts::a%20comment%20without%20a%20choice%20is%20sent%20as%20the%20answer",
+      "targetId": "phone",
+      "instructionDigest": "3fcd93ad48641d2beb7c6b269142f20eb1971facb3fe365251763a5b43ededbe"
+    },
+    "summary": "Typed \"Keep it for a week instead.\" into Question 1's comment box with no choice selected and tapped Send. The app then showed \"The agent is working…\", which suggests the submission was accepted. I did not observe the next question or a confirmation.",
+    "startPath": "/",
+    "endPath": "/",
+    "endWaitMs": 12234
+  }
+}
