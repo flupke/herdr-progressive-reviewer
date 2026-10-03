@@ -10,6 +10,8 @@
     },
     "summary": "**Outcome.** The helpers stay as written.\n\n- `add` keeps wrapping\n- no follow-up",
     "to_be_implemented": "",
-    "future_work": "Consider *saturating* variants."
+    "future_work": "Consider *saturating* variants.",
+    "quiz": [],
+    "quiz_empty_reason": "The helpers stay as written, so nothing changes at whiteboard level."
   }
 }

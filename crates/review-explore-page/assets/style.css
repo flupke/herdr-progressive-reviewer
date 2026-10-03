@@ -4,7 +4,7 @@
   --line: color-mix(in srgb, currentColor 20%, transparent);
 }
 body { font: 16px/1.5 system-ui, sans-serif; margin: 0 auto; max-width: 44rem; padding: 0 16px; }
-.question, .conclusion { border: 1px solid var(--line); border-radius: 8px; padding: 0 16px 16px; margin: 16px 0; }
+.question, .conclusion, .quiz { border: 1px solid var(--line); border-radius: 8px; padding: 0 16px 16px; margin: 16px 0; }
 .text { font-weight: 600; }
 .choices { border: 0; padding: 0; margin: 0; display: grid; gap: 8px; }
 .choices legend { padding: 0; margin-bottom: 8px; }
@@ -53,3 +53,18 @@ body { font: 16px/1.5 system-ui, sans-serif; margin: 0 auto; max-width: 44rem; p
 .implement .hint { margin: 0; }
 .tasks { font: inherit; padding: 8px; border-radius: 6px; border: 1px solid var(--line); background: transparent; color: inherit; resize: vertical; }
 .to-be-implemented .failure { margin: 0 0 12px; }
+
+/* The conclusion's quiz, one item at a time, then its results beside the conclusion. */
+.quiz-pick { display: grid; gap: 12px; }
+.quiz-skip { margin-top: 12px; }
+.quiz-answers { list-style: none; padding: 0; display: grid; gap: 8px; }
+.quiz-answers li { padding: 10px; border-radius: 6px; border: 1px solid var(--line); overflow-wrap: anywhere; }
+.quiz-answers .correct { border-color: #1e8e3e; }
+.quiz-answers .picked:not(.correct) { border-color: #c5221f; }
+.quiz-answers .tag { font-size: 0.85em; opacity: 0.75; }
+.verdict { font-weight: 600; padding: 10px; border-radius: 6px; background: color-mix(in srgb, #c5221f 12%, transparent); }
+.verdict.good { background: color-mix(in srgb, #1e8e3e 15%, transparent); }
+.verdict.skipped { background: transparent; border: 1px solid var(--line); }
+.quiz-results summary { cursor: pointer; }
+.quiz-results summary > h3 { display: inline-block; margin: 12px 0; }
+.quiz-results h4 { margin: 16px 0 4px; }

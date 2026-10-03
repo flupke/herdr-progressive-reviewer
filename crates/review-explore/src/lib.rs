@@ -27,6 +27,7 @@ mod diagram;
 mod interview;
 mod not_relevant;
 mod path_serde;
+mod quiz;
 mod sections;
 mod source;
 mod validation;
@@ -46,6 +47,7 @@ pub use interview::{
     ReviewerAnswer, Topic, TopicStatus, TurnRequest,
 };
 pub use not_relevant::{NotRelevantMark, NotRelevantReason, TestLocation};
+pub use quiz::{QuizAnswers, QuizItem, QuizPick, QuizResponse};
 pub use sections::QuestionSection;
 pub use source::{CodeLocation, EvidenceRef, Source, SourceSide};
 

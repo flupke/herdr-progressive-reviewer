@@ -18,6 +18,7 @@ const TEMPLATES: &[(&str, &str)] = &[
         "citations.html",
         include_str!("../templates/citations.html"),
     ),
+    ("citation.html", include_str!("../templates/citation.html")),
     ("notice.html", include_str!("../templates/notice.html")),
     (
         "notice-answer.html",
@@ -50,6 +51,19 @@ const TEMPLATES: &[(&str, &str)] = &[
     (
         "implement.html",
         include_str!("../templates/implement.html"),
+    ),
+    ("quiz.html", include_str!("../templates/quiz.html")),
+    (
+        "quiz-item.html",
+        include_str!("../templates/quiz-item.html"),
+    ),
+    (
+        "quiz-results.html",
+        include_str!("../templates/quiz-results.html"),
+    ),
+    (
+        "notice-quiz.html",
+        include_str!("../templates/notice-quiz.html"),
     ),
 ];
 

@@ -91,6 +91,8 @@ fn conclusion_task_and_reply_editors_keep_vim_escape_inside_the_active_field() {
             summary: "Review complete; human Files inspection remains required.".into(),
             to_be_implemented: "Agreed task".into(),
             future_work: String::new(),
+            quiz: Vec::new(),
+            quiz_empty_reason: Some("Nothing at whiteboard level.".into()),
         });
         fixture.app.publish(ExploreFinished {
             instance: request.instance,

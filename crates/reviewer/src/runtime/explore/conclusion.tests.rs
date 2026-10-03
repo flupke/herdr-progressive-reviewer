@@ -25,7 +25,8 @@ impl ExploreFlow {
             "interpretation": {"answer":request.answer.unwrap().id,"status":"accepted","recap":"Recorded: keep resolved.","follow_ups":[]},
             "summary": "Keep the current policy. Further human file inspection is required.",
             "to_be_implemented": "Add regression coverage.",
-            "future_work": "Revisit notifications later."
+            "future_work": "Revisit notifications later.",
+            "quiz": [], "quiz_empty_reason": "The policy stays as it was."
         });
         let accepted = self.call("submit_conclusion", input.clone());
         assert_ne!(accepted.is_error, Some(true), "{accepted:?}");

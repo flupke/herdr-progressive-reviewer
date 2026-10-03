@@ -5,52 +5,68 @@ use std::path::Path;
 use std::sync::Arc;
 
 use review_explore::{
-    Comparison, DispatchState, Exploration, ExploreRound, ImplementationDelivery, Question,
+    Comparison, DispatchState, EvidenceRef, Exploration, ExploreRound, ImplementationDelivery,
+    Question,
 };
 use review_explore_citations::{Citation, CodeColors};
 use review_explore_page::{
     CommandRefusal, CommandReply, ImplementationState, PageAnswer, PageCommand, PageImplement,
-    PageImplementation, PublishedRound, QuestionMarks, RoundStage,
+    PageImplementation, PageQuiz, PublishedRound, QuestionMarks, RoundStage,
 };
 use review_source::ReviewCheckpoint;
 
 use crate::{ExploreSession, Start};
 
-/// The citations of the question the page shows, found in the change and colored once per
-/// question rather than on every input the session handles.
+/// The citations the page shows, those of a question or the proofs of a conclusion's quiz,
+/// found in the change and colored once per stage rather than on every input the session
+/// handles.
 #[derive(Default)]
 pub(crate) struct PageCitations {
     colors: CodeColors,
     shown: Option<Shown>,
 }
 
-/// The question whose citations the page shows, and the checkpoint they were found at.
+/// The lists of citations the page shows, and the checkpoint they were found at.
 struct Shown {
     checkpoint: ReviewCheckpoint,
-    question: Question,
-    citations: Arc<[Citation]>,
+    lists: Vec<Vec<EvidenceRef>>,
+    citations: Vec<Arc<[Citation]>>,
 }
 
 impl PageCitations {
     /// The citations of `question`, with the lines `comparison` has for them in `root`.
     fn of(&mut self, question: &Question, comparison: &Comparison, root: &Path) -> Arc<[Citation]> {
+        self.lists(std::slice::from_ref(&question.evidence), comparison, root)
+            .swap_remove(0)
+    }
+
+    /// Each list of `lists` cited, with the lines `comparison` has for them in `root`.
+    fn lists(
+        &mut self,
+        lists: &[Vec<EvidenceRef>],
+        comparison: &Comparison,
+        root: &Path,
+    ) -> Vec<Arc<[Citation]>> {
         if let Some(shown) = &self.shown
             && shown.checkpoint == comparison.checkpoint
-            && shown.question == *question
+            && shown.lists == lists
         {
             return shown.citations.clone();
         }
-        let citations: Arc<[Citation]> = question
-            .evidence
+        let citations: Vec<Arc<[Citation]>> = lists
             .iter()
-            .map(|evidence| {
-                let lines = comparison.cited_lines(&evidence.location, root);
-                self.colors.cite(evidence.clone(), lines)
+            .map(|list| {
+                list.iter()
+                    .map(|evidence| {
+                        let lines = comparison.cited_lines(&evidence.location, root);
+                        self.colors.cite(evidence.clone(), lines)
+                    })
+                    .collect()
             })
             .collect();
         self.shown = Some(Shown {
             checkpoint: comparison.checkpoint.clone(),
-            question: question.clone(),
+            lists: lists.to_vec(),
             citations: citations.clone(),
         });
         citations
@@ -92,6 +108,11 @@ impl ExploreSession {
             }
             PageCommand::Implement(implement) => {
                 let result = self.implement_from_page(implement);
+                self.publish_page();
+                reply.send(result);
+            }
+            PageCommand::Quiz(response) => {
+                let result = self.quiz_from_page(response);
                 self.publish_page();
                 reply.send(result);
             }
@@ -185,7 +206,15 @@ impl ExploreSession {
             };
         }
         let sending = self.state.implementation.is_some();
-        latest_turn(round, sending, &mut self.citations, self.repository.root())
+        // What `save_from_page` refuses, the page does not ask.
+        let takes_quiz_answers = !self.state.historical && self.state.storage_error.is_none();
+        latest_turn(
+            round,
+            sending,
+            takes_quiz_answers,
+            &mut self.citations,
+            self.repository.root(),
+        )
     }
 }
 
@@ -199,10 +228,12 @@ fn waiting_question(exploration: &Exploration) -> Option<&Question> {
 }
 
 /// The question or conclusion the agent's latest turn posted. `sending` tells whether this
-/// process sends an implementation request.
+/// process sends an implementation request, `takes_quiz_answers` whether the round can save
+/// the reviewer's answers to the conclusion's quiz.
 fn latest_turn(
     round: &ExploreRound,
     sending: bool,
+    takes_quiz_answers: bool,
     citations: &mut PageCitations,
     root: &Path,
 ) -> RoundStage {
@@ -212,12 +243,25 @@ fn latest_turn(
     };
     if let Some(conclusion) = &turn.update.conclusion {
         let request = &turn.update.request;
+        let proofs: Vec<Vec<EvidenceRef>> = conclusion
+            .quiz
+            .iter()
+            .map(|item| item.proof.clone())
+            .collect();
         return RoundStage::Conclusion {
             request: request.clone(),
             conclusion: Box::new(conclusion.clone()),
             implementation: round
                 .latest_implementation(request)
                 .map(|delivery| page_implementation(delivery, sending)),
+            quiz: PageQuiz {
+                proofs: citations.lists(&proofs, &exploration.comparison, root),
+                answers: exploration
+                    .quiz_answers(request)
+                    .cloned()
+                    .unwrap_or_default(),
+                takes_answers: takes_quiz_answers,
+            },
         };
     }
     match &turn.update.next {

@@ -20,6 +20,7 @@ mod fixed_design;
 mod fixed_diagrams;
 mod fixed_explanation;
 mod fixed_question;
+mod fixed_quiz;
 mod sessions;
 
 use std::net::{Ipv4Addr, SocketAddr};

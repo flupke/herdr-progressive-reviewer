@@ -128,6 +128,21 @@ fn the_conclusion_tool_takes_its_sections_and_marks() {
         schema["properties"]["reviewed"]["items"]["$ref"],
         "#/$defs/CodeLocation"
     );
+    assert_eq!(
+        schema["properties"]["quiz_empty_reason"]["type"],
+        json!(["string", "null"])
+    );
+    assert_eq!(
+        schema["properties"]["quiz"]["items"]["$ref"],
+        "#/$defs/QuizItem"
+    );
+    let item = &schema["$defs"]["QuizItem"];
+    for field in ["question", "answers", "correct", "why", "proof", "level"] {
+        assert!(
+            item["required"].as_array().unwrap().contains(&json!(field)),
+            "{field}"
+        );
+    }
     assert!(schema["properties"].get("inspections").is_none());
     assert!(!tools.iter().any(|tool| tool.name == "get_coverage_gaps"));
 }

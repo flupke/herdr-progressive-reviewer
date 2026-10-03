@@ -1,0 +1,34 @@
+{#- The conclusion's quiz, before the conclusion, one item at a time: the item the reviewer
+    answers next, or the one just answered, with whether the pick is correct, why, and the
+    lines that prove it. The reviewer may skip the rest of the quiz. -#}
+{% from "quiz-item.html" import answered %}
+{% set quiz = conclusion.quiz %}
+{% set item = quiz.items[quiz.shown] %}
+<section class="quiz" aria-labelledby="quiz-title">
+  <h2 id="quiz-title">Quiz</h2>
+  <p class="hint">Before the conclusion, check that you could explain this change at a whiteboard.</p>
+  <h3 id="quiz-item-title">Question {{ item.number }} of {{ quiz.items | length }}</h3>
+  {% if item.picked_correct is none %}
+  <form class="quiz-pick" method="post" action="/quiz">
+    <input type="hidden" name="conclusion" value="{{ quiz.conclusion }}">
+    <input type="hidden" name="item" value="{{ item.number - 1 }}">
+    <fieldset class="choices">
+      <legend class="text">{{ item.question }}</legend>
+      {% for answer in item.answers %}
+      <label class="choice"><input type="radio" name="answer" value="{{ answer.index }}" required> {{ answer.text }}</label>
+      {% endfor %}
+    </fieldset>
+    <button class="send" type="submit">Check</button>
+  </form>
+  {% else %}
+  <p class="text">{{ item.question }}</p>
+  {{ answered(item, "quiz-item", true, false) }}
+  <p><a class="next" href="/">{{ "Next question" if quiz.asks else "Show the conclusion" }}</a></p>
+  {% endif %}
+  {% if quiz.asks %}
+  <form class="quiz-skip" method="post" action="/quiz/skip">
+    <input type="hidden" name="conclusion" value="{{ quiz.conclusion }}">
+    <button class="secondary" type="submit">Skip the quiz</button>
+  </form>
+  {% endif %}
+</section>

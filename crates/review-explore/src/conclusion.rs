@@ -11,6 +11,16 @@ pub struct Conclusion {
     pub to_be_implemented: String,
     /// Optional or later work, excluded from the Implement action. Empty if none.
     pub future_work: String,
+    /// At most three questions at whiteboard level, which the reviewer answers on the Explore
+    /// page before the summary. Empty when the change has nothing at that level. Rounds saved
+    /// before quizzes existed have none, so the schema cannot require it: the tool refuses a
+    /// conclusion with neither items nor `quiz_empty_reason`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schemars(length(max = 3))]
+    pub quiz: Vec<crate::QuizItem>,
+    /// Required when the quiz is empty: why, in one sentence. Null when it has items.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quiz_empty_reason: Option<String>,
 }
 
 /// A conclusion has its own tool contract; it is not an exploration question.

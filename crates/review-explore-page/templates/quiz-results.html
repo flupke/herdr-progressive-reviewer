@@ -1,0 +1,15 @@
+{#- The results of the conclusion's quiz, folded beside the conclusion once the reviewer
+    answered or skipped every item. -#}
+{% from "quiz-item.html" import answered %}
+{% set quiz = conclusion.quiz %}
+{% set unanswered = quiz.items | length - quiz.picked %}
+<section class="quiz-results" aria-labelledby="quiz-results-title">
+  <details>
+    <summary><h3 id="quiz-results-title">Quiz: {{ quiz.correct_picks }} of {{ quiz.items | length }} correct{% if unanswered %}, {{ unanswered }} {{ "skipped" if quiz.skipped else "not answered" }}{% endif %}</h3></summary>
+    {% for item in quiz.items %}
+    <h4>Question {{ item.number }}</h4>
+    <p class="text">{{ item.question }}</p>
+    {{ answered(item, "quiz-result-" ~ item.number, false, quiz.skipped) }}
+    {% endfor %}
+  </details>
+</section>

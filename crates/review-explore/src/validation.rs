@@ -21,6 +21,7 @@ impl Exploration {
                 !conclusion.summary.trim().is_empty(),
                 "Conclusion summary is required"
             );
+            conclusion.validate_quiz(comparison)?;
         }
         self.validate_design(update)?;
         if self

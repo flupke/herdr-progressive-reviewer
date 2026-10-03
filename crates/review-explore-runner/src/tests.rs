@@ -482,3 +482,51 @@ fn the_kickoff_names_the_fence_of_a_diagram_and_the_mermaid_version_the_page_dra
     assert!(kickoff.contains(mermaid_js::VERSION), "{kickoff}");
     assert!(!wakeup.contains(&fence), "the kickoff states it once");
 }
+
+#[test]
+fn every_prompt_states_the_same_quiz_rules() {
+    let rules = include_str!("quiz.md").trim_end();
+    let heading = rules.lines().next().unwrap();
+
+    for kickoff in [true, false] {
+        for challenger in [false, true] {
+            let instructions = PreparedTurn::instructions(kickoff, challenger);
+            assert!(
+                instructions.contains(rules),
+                "kickoff: {kickoff}, challenger: {challenger}"
+            );
+            assert_eq!(instructions.matches(heading).count(), 1);
+        }
+    }
+}
+
+#[test]
+fn the_quiz_rules_name_every_field_a_quiz_item_takes() {
+    let conclusion =
+        serde_json::to_value(schemars::schema_for!(review_explore::ConclusionSubmission)).unwrap();
+    let quiz = ["quiz", "quiz_empty_reason"];
+    for field in quiz {
+        assert!(
+            conclusion["properties"].get(field).is_some(),
+            "{conclusion}"
+        );
+    }
+    let item = serde_json::to_value(schemars::schema_for!(review_explore::QuizItem)).unwrap();
+    let fields: Vec<_> = item["properties"]
+        .as_object()
+        .unwrap()
+        .keys()
+        .cloned()
+        .collect();
+    assert_eq!(fields.len(), 6, "{fields:?}");
+
+    for kickoff in [true, false] {
+        let instructions = PreparedTurn::instructions(kickoff, false);
+        for name in fields.iter().map(String::as_str).chain(quiz) {
+            assert!(
+                instructions.contains(&format!("`{name}`")),
+                "kickoff: {kickoff}, {name}"
+            );
+        }
+    }
+}

@@ -763,9 +763,11 @@ mod adaptive;
 #[path = "explore_evidence.tests.rs"]
 mod evidence;
 
+/// A conclusion with `summary` and an empty quiz.
 fn conclusion(summary: &str) -> review_explore::Conclusion {
     review_explore::Conclusion {
         summary: summary.into(),
+        quiz_empty_reason: Some("Nothing at whiteboard level.".into()),
         ..Default::default()
     }
 }

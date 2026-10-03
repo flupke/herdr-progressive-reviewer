@@ -160,6 +160,8 @@ fn a_conclusion_completes_the_round_and_leaves_review_marks_alone() {
         summary: "Concepts explored.".into(),
         to_be_implemented: String::new(),
         future_work: String::new(),
+        quiz: Vec::new(),
+        quiz_empty_reason: Some("Nothing at whiteboard level.".into()),
     });
     let instance = investigation.round.exploration.instance.clone();
 
@@ -391,6 +393,8 @@ fn implementation(
         summary: "Inspect Files next".into(),
         to_be_implemented: "Generated tasks".into(),
         future_work: "Later tasks".into(),
+        quiz: Vec::new(),
+        quiz_empty_reason: Some("Nothing at whiteboard level.".into()),
     });
     fixture.submit(conclusion);
     fixture.mutate(|round| {

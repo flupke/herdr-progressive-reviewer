@@ -1,22 +1,6 @@
 {#- The question's citations, most decisive first: the first one, then the others folded until
     the reviewer opens them. Each shows its note and its lines as rows of the diff. -#}
-{% macro citation(citation, id) %}
-<section class="citation" aria-labelledby="{{ id }}">
-  <h4 id="{{ id }}"><code>{{ citation.location }}</code></h4>
-  <p class="notes">{{ citation.notes }}</p>
-  {% if citation.limitation %}
-  <p class="limitation">{{ citation.limitation }}</p>
-  {% else %}
-  <div class="code" tabindex="0" role="group" aria-label="Lines of {{ citation.location }}">
-    <table>
-      {% for row in citation.rows %}
-      <tr class="{{ row.kind }}"><td class="number">{{ row.old_line or "" }}</td><td class="number">{{ row.new_line or "" }}</td><td class="sign">{{ "+" if row.kind == "added" else "−" if row.kind == "removed" else " " }}</td><td class="line">{% for token in row.tokens %}{% if token.role %}<span class="c-{{ token.role }}">{{ token.text }}</span>{% else %}{{ token.text }}{% endif %}{% endfor %}</td></tr>
-      {% endfor %}
-    </table>
-  </div>
-  {% endif %}
-</section>
-{% endmacro %}
+{% from "citation.html" import citation %}
 {% if question.citations %}
 <section class="citations" aria-labelledby="question-{{ question.number }}-citations">
   <h3 id="question-{{ question.number }}-citations">Citations</h3>

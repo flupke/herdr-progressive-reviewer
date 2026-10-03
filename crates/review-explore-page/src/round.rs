@@ -4,12 +4,13 @@ use std::sync::Arc;
 
 use review_explore::{
     CodeLocation, Conclusion, Design, InterviewUpdate, MarkCounts, NotRelevantMark, Question,
+    QuizAnswers,
 };
 use review_explore_citations::Citation;
 use serde::Serialize;
 use tokio::sync::watch;
 
-use crate::CommandSender;
+use crate::{CommandSender, PageQuizResponse};
 
 /// The step of a round that the page shows.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -48,6 +49,8 @@ pub enum RoundStage {
         /// The latest implementation request the reviewer authorized for the conclusion, from
         /// the pane or from a page; `None` before the first.
         implementation: Option<PageImplementation>,
+        /// The lines of the proofs of the conclusion's quiz, and what the reviewer answered.
+        quiz: PageQuiz,
     },
 }
 
@@ -63,6 +66,28 @@ impl RoundStage {
     /// Whether the reviewer can start a round: none is running or starting.
     pub(crate) fn can_start(&self) -> bool {
         matches!(self, Self::NoRound | Self::StartFailed { .. })
+    }
+
+    /// Whether the stage shows the quiz `response` answers, where it fits, as the round would
+    /// record it: a pick of the item the quiz asks next, or of an item again with the same
+    /// option, or a skip.
+    pub(crate) fn takes_quiz(&self, response: &PageQuizResponse) -> bool {
+        let Self::Conclusion {
+            request,
+            conclusion,
+            quiz,
+            ..
+        } = self
+        else {
+            return false;
+        };
+        *request == response.conclusion
+            && quiz.takes_answers
+            && quiz
+                .answers
+                .clone()
+                .record(&conclusion.quiz, response.response)
+                .is_ok()
     }
 
     /// Whether the stage offers Implement for the conclusion of the turn `conclusion`, in place
@@ -96,6 +121,18 @@ pub struct PageImplementation {
     /// The list to be implemented that the request sends.
     pub text: String,
     pub state: ImplementationState,
+}
+
+/// What the page shows of a conclusion's quiz beside its items: the lines of each item's proof,
+/// and what the reviewer answered. A conclusion without a quiz has neither.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct PageQuiz {
+    /// The lines of each item's proof, in the order of the quiz.
+    pub proofs: Vec<Arc<[Citation]>>,
+    pub answers: QuizAnswers,
+    /// Whether the round can save the reviewer's answers. When it cannot (an earlier round, or
+    /// a storage failure), the page asks nothing and shows the conclusion.
+    pub takes_answers: bool,
 }
 
 /// What became of an implementation request, as the page shows it.

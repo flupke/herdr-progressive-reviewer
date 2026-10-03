@@ -52,6 +52,7 @@ fn the_page_follows_the_round_from_its_kickoff_to_its_conclusion_and_reset() {
         request,
         conclusion: shown,
         implementation,
+        quiz,
     } = harness.page.stage()
     else {
         panic!("the page shows {:?}", harness.page.stage());
@@ -59,6 +60,11 @@ fn the_page_follows_the_round_from_its_kickoff_to_its_conclusion_and_reset() {
     assert_eq!(request, answer.request);
     assert_eq!(shown.summary, CONCLUSION);
     assert_eq!(implementation, None);
+    let no_quiz = review_explore_page::PageQuiz {
+        takes_answers: true,
+        ..Default::default()
+    };
+    assert_eq!(quiz, no_quiz);
 
     harness.session.handle(Input::Command(Command::Reset));
     assert_eq!(harness.page.stage(), RoundStage::NoRound);

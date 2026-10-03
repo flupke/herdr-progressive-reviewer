@@ -24,10 +24,11 @@
   setTimeout(poll, 500);
 })();
 
-// Sends an answer or an implementation request once: a second click would post it again,
-// which the tool refuses since the question has an answer, or the conclusion a request, already.
+// Sends an answer, an implementation request or a quiz pick once: a second click would post it
+// again, which the tool refuses since the question has an answer, or the conclusion a request,
+// already.
 (() => {
-  for (const form of document.querySelectorAll('form.answer, form.implement')) {
+  for (const form of document.querySelectorAll('form.answer, form.implement, form.quiz-pick')) {
     form.addEventListener('submit', (event) => {
       if (form.dataset.sent === 'true') {
         event.preventDefault();

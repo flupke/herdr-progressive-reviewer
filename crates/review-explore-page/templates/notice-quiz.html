@@ -1,0 +1,8 @@
+{#- Why the reviewer's pick of a quiz item, or skip of the quiz, was not kept. -#}
+{%- if notice.problem.kind == "stale" -%}
+Your quiz answer was not kept: this question no longer waits for one. It was answered or skipped in another tab, or the round moved on. The page shows the round as it is now.
+{%- elif notice.problem.kind == "failed" -%}
+Your quiz answer was not kept: {{ notice.problem.reason }}
+{%- else -%}
+The reviewer did not reply. Load this page again to see whether it kept your quiz answer.
+{%- endif -%}

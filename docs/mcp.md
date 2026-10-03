@@ -373,7 +373,9 @@ Use `submit_conclusion` for the separate conclusion screen. Its top-level argume
   "interpretation": null,
   "summary": "Review outcome, decisions and remaining uncertainty.",
   "to_be_implemented": "1. First agreed task.\n2. Second agreed task.",
-  "future_work": "Optional or later work outside this implementation scope."
+  "future_work": "Optional or later work outside this implementation scope.",
+  "quiz": [],
+  "quiz_empty_reason": "The change only rewords the summary toast."
 }
 ```
 
@@ -381,6 +383,14 @@ The three sections are separate strings. Use an empty string for no implementati
 or future work. The final answer still needs its attributed interpretation when it
 records a decision; the same exact-answer and retry rules apply. There are no
 question, evidence, reply, topic or agenda fields in a conclusion submission.
+`quiz` holds at most three questions at whiteboard level, each `{question, answers,
+correct, why, proof, level}`: two to four `answers`, the zero-based index of the
+`correct` one, the sentence that says `why`, the `proof` citations of the lines that
+establish it, and `level`, the agent's own reason the item is at whiteboard level, which
+the round keeps and the page does not show. An empty quiz needs `quiz_empty_reason`; a
+quiz with items leaves it null. The tool refuses an item with no correct answer or no
+proof lines. The reviewer answers the quiz on the Explore page, which grades each pick
+itself; the pane ignores it.
 Summary and future work are displayed separately. Only `to_be_implemented` seeds
 the editable task box. Submitting a conclusion does not start implementation.
 A conclusion saves its outcome before acknowledging success; it can carry `reviewed`

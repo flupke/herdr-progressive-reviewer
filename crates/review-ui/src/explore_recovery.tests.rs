@@ -208,6 +208,8 @@ fn separate_conclusions_restore_independent_editors_and_old_conclusion_cannot_im
             summary: format!("Summary {version}"),
             to_be_implemented: format!("Generated tasks {version}"),
             future_work: "Future only".into(),
+            quiz: Vec::new(),
+            quiz_empty_reason: Some("Nothing at whiteboard level.".into()),
         });
         round.exploration.submit(update).unwrap();
         conclusions.push(request.request.clone());

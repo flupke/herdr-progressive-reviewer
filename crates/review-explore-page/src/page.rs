@@ -11,7 +11,8 @@ use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use review_explore::{
-    Alternative, AnswerInput, Assessments, Conclusion, Design, MarkTense, Question, QuestionSection,
+    Alternative, AnswerInput, Assessments, Conclusion, Design, MarkTense, Question,
+    QuestionSection, QuizItem, QuizResponse,
 };
 use review_explore_citations::Citation;
 use serde::{Deserialize, Serialize};
@@ -19,14 +20,14 @@ use serde::{Deserialize, Serialize};
 use crate::access::{Hosts, TokenCookie};
 use crate::blind::{BlindQuestion, FirstPick};
 use crate::citation::CitationContext;
-use crate::command::{PageAnswer, PageCommand, PageImplement};
+use crate::command::{PageAnswer, PageCommand, PageImplement, PageQuizResponse};
 use crate::diagram::{self, Diagrams};
 use crate::files::PageFiles;
 use crate::form::TextArea;
 use crate::notice::{Notice, Post, Problem};
 use crate::round::{
-    ImplementationState, PageImplementation, PageRound, QuestionMarks, RoundSnapshot, RoundStage,
-    Rounds,
+    ImplementationState, PageImplementation, PageQuiz, PageRound, QuestionMarks, RoundSnapshot,
+    RoundStage, Rounds,
 };
 
 /// Scripts, styles and form posts only from the page itself, and no inline script. Inline
@@ -99,6 +100,8 @@ impl<R: Rounds> ExplorePage<R> {
             .route("/answer", post(answer))
             .route("/start", post(start))
             .route("/implement", post(implement))
+            .route("/quiz", post(quiz_pick))
+            .route("/quiz/skip", post(quiz_skip))
             .route("/assets/{name}", get(asset::<R>))
             .route("/dev/changes", get(dev_changes::<R>))
             .route(
@@ -131,8 +134,9 @@ impl<R: Rounds> ExplorePage<R> {
         to_page(Some(cookie))
     }
 
-    /// Shows the round, with the notice of a post that did not go through, once.
-    fn show(&self, headers: &HeaderMap) -> Response {
+    /// Shows the round, with the notice of a post that did not go through, once. `answered` is
+    /// the quiz item, from 1, whose answer the page shows instead of the item it asks next.
+    fn show(&self, headers: &HeaderMap, answered: Option<usize>) -> Response {
         let round = match self.admit(headers) {
             Ok(round) => round.stages.latest(),
             Err(refused) => return refused.into_response(),
@@ -148,6 +152,7 @@ impl<R: Rounds> ExplorePage<R> {
             &round,
             notice.as_ref(),
             first_pick.as_ref(),
+            answered,
             self.files.dev_version(),
         );
         match self.files.render("page.html", context) {
@@ -224,20 +229,22 @@ impl<R: Rounds> FromRequestParts<Arc<ExplorePage<R>>> for Admitted {
 }
 
 #[derive(Deserialize)]
-struct TokenQuery {
+struct PageQuery {
     token: Option<String>,
+    /// The quiz item, from 1, whose answer the page shows: the one the reviewer just answered.
+    answered: Option<usize>,
 }
 
 /// The address the reviewer opens carries the token: the page trades it for a cookie, then
 /// drops it from the address bar. Without a token in the address, shows the round.
 async fn index<R: Rounds>(
     State(page): State<Arc<ExplorePage<R>>>,
-    Query(query): Query<TokenQuery>,
+    Query(query): Query<PageQuery>,
     headers: HeaderMap,
 ) -> Response {
     match query.token {
         Some(token) => page.open(&token),
-        None => page.show(&headers),
+        None => page.show(&headers, query.answered),
     }
 }
 
@@ -367,9 +374,71 @@ async fn implement(Admitted(round): Admitted, Form(form): Form<ImplementForm>) -
     )
 }
 
+/// The reviewer's pick of a quiz item, as the item's form posts it.
+#[derive(Deserialize)]
+struct QuizPickForm {
+    conclusion: String,
+    /// The item, from 0.
+    item: usize,
+    /// The option picked, from 0; absent when the reviewer picked none.
+    answer: Option<usize>,
+}
+
+/// Hands the reviewer's pick of a quiz item to the round's owner, unless the page showed an
+/// item that no longer waits for one, then shows the item with its answer: whether the pick is
+/// correct, why, and the lines that prove it. A form sent with no pick shows the item again.
+async fn quiz_pick(Admitted(round): Admitted, Form(form): Form<QuizPickForm>) -> Response {
+    let Some(answer) = form.answer else {
+        return to_page(None);
+    };
+    let item = form.item;
+    let response = PageQuizResponse {
+        conclusion: form.conclusion,
+        response: QuizResponse::Pick { item, answer },
+    };
+    match send_quiz(&round, response).await {
+        Ok(()) => redirect(&format!("/?answered={}", item + 1), None),
+        Err(problem) => to_page(Some(Notice::new(Post::Quiz, problem).cookie())),
+    }
+}
+
+/// The reviewer's skip of the quiz, as its form posts it.
+#[derive(Deserialize)]
+struct QuizSkipForm {
+    conclusion: String,
+}
+
+/// Hands the reviewer's skip of the quiz to the round's owner, unless the page showed a quiz
+/// that asks nothing more, then shows the conclusion.
+async fn quiz_skip(Admitted(round): Admitted, Form(form): Form<QuizSkipForm>) -> Response {
+    let response = PageQuizResponse {
+        conclusion: form.conclusion,
+        response: QuizResponse::Skip,
+    };
+    let sent = send_quiz(&round, response).await;
+    to_page(
+        sent.err()
+            .map(|problem| Notice::new(Post::Quiz, problem).cookie()),
+    )
+}
+
+/// Sends `response` to the round's owner, unless the round no longer shows the quiz where it
+/// fits.
+async fn send_quiz(round: &PageRound, response: PageQuizResponse) -> Result<(), Problem> {
+    if !round.stages.stage().takes_quiz(&response) {
+        return Err(Problem::Stale);
+    }
+    round.commands.send(PageCommand::Quiz(response)).await
+}
+
 /// Redirects to the page, setting `cookie` when given (post, redirect, get).
 fn to_page(cookie: Option<HeaderValue>) -> Response {
-    let mut response = Redirect::to("/").into_response();
+    redirect("/", cookie)
+}
+
+/// Redirects to `address` on the page, setting `cookie` when given.
+fn redirect(address: &str, cookie: Option<HeaderValue>) -> Response {
+    let mut response = Redirect::to(address).into_response();
     if let Some(cookie) = cookie {
         response.headers_mut().insert(header::SET_COOKIE, cookie);
     }
@@ -462,6 +531,51 @@ struct ConclusionContext<'a> {
     offers_implement: bool,
     /// The latest implementation request of the conclusion.
     implementation: Option<&'a PageImplementation>,
+    /// The conclusion's quiz, when it has one.
+    quiz: Option<QuizContext<'a>>,
+}
+
+/// A conclusion's quiz: the item the page shows before the conclusion, until the reviewer
+/// answered or skipped every item, then the results beside the conclusion.
+#[derive(Serialize)]
+struct QuizContext<'a> {
+    /// The request of the agent's turn that posted the conclusion.
+    conclusion: &'a str,
+    items: Vec<QuizItemContext<'a>>,
+    /// The item the page shows in place of the conclusion, from 0: the one whose answer the
+    /// reviewer asked to see, or else the next to answer. `None` once the quiz is done.
+    shown: Option<usize>,
+    /// Whether an item waits for an answer: the quiz is neither finished nor skipped.
+    asks: bool,
+    /// How many picks were correct, and how many items have a pick.
+    correct_picks: usize,
+    picked: usize,
+    /// Whether the reviewer skipped the items that have no pick.
+    skipped: bool,
+}
+
+/// One quiz item, and the reviewer's pick once there is one.
+#[derive(Serialize)]
+struct QuizItemContext<'a> {
+    /// The item's position, from 1.
+    number: usize,
+    question: &'a str,
+    answers: Vec<QuizAnswerContext<'a>>,
+    /// Whether the reviewer picked the correct option, once the reviewer picked one.
+    picked_correct: Option<bool>,
+    /// The correct option's text.
+    correct_answer: &'a str,
+    why: &'a str,
+    proof: Vec<CitationContext<'a>>,
+}
+
+#[derive(Serialize)]
+struct QuizAnswerContext<'a> {
+    /// The option's position, from 0, as the form posts it.
+    index: usize,
+    text: &'a str,
+    correct: bool,
+    picked: bool,
 }
 /// What an answer to the question marks: a summary, and the lines on request.
 #[derive(Serialize)]
@@ -510,6 +624,7 @@ impl<'a> PageContext<'a> {
         round: &'a RoundSnapshot,
         notice: Option<&'a Notice>,
         first_pick: Option<&FirstPick>,
+        answered: Option<usize>,
         dev_version: Option<u64>,
     ) -> Self {
         let mut context = Self {
@@ -561,6 +676,7 @@ impl<'a> PageContext<'a> {
                 request,
                 conclusion,
                 implementation,
+                quiz,
             } => {
                 context.stage = Stage::Conclusion;
                 context.polls = implementation.as_ref().is_some_and(|implementation| {
@@ -571,6 +687,8 @@ impl<'a> PageContext<'a> {
                     request,
                     conclusion,
                     implementation.as_ref(),
+                    quiz,
+                    answered,
                 ));
             }
         }
@@ -650,9 +768,13 @@ impl<'a> ConclusionContext<'a> {
         request: &'a str,
         conclusion: &'a Conclusion,
         implementation: Option<&'a PageImplementation>,
+        quiz: &'a PageQuiz,
+        answered: Option<usize>,
     ) -> Self {
         let replaces = implementation.map(|implementation| implementation.delivery.as_str());
         let offers_implement = stage.offers_implement(request, replaces);
+        let quiz = (!conclusion.quiz.is_empty())
+            .then(|| QuizContext::new(request, &conclusion.quiz, quiz, answered));
         Self {
             request,
             summary: &conclusion.summary,
@@ -663,6 +785,66 @@ impl<'a> ConclusionContext<'a> {
             },
             offers_implement,
             implementation,
+            quiz,
+        }
+    }
+}
+
+impl<'a> QuizContext<'a> {
+    /// `answered` is the item, from 1, whose answer the reviewer asked to see.
+    fn new(
+        conclusion: &'a str,
+        items: &'a [QuizItem],
+        quiz: &'a PageQuiz,
+        answered: Option<usize>,
+    ) -> Self {
+        let answers = &quiz.answers;
+        // A quiz the round cannot save answers to asks nothing: the conclusion shows.
+        let next = answers
+            .next_item(items.len())
+            .filter(|_| quiz.takes_answers);
+        let answered_item = answered
+            .and_then(|number| number.checked_sub(1))
+            .filter(|item| answers.pick(*item).is_some());
+        Self {
+            conclusion,
+            items: items
+                .iter()
+                .enumerate()
+                .map(|(index, item)| {
+                    let proof = quiz.proofs.get(index).map_or(&[][..], |proof| &proof[..]);
+                    QuizItemContext::new(index, item, proof, answers.pick(index).map(|p| p.answer))
+                })
+                .collect(),
+            shown: answered_item.or(next),
+            asks: next.is_some(),
+            correct_picks: answers.correct_picks(),
+            picked: answers.picks.len(),
+            skipped: answers.skipped,
+        }
+    }
+}
+
+impl<'a> QuizItemContext<'a> {
+    fn new(index: usize, item: &'a QuizItem, proof: &'a [Citation], picked: Option<usize>) -> Self {
+        Self {
+            number: index + 1,
+            question: &item.question,
+            answers: item
+                .answers
+                .iter()
+                .enumerate()
+                .map(|(option, text)| QuizAnswerContext {
+                    index: option,
+                    text,
+                    correct: option == item.correct,
+                    picked: picked == Some(option),
+                })
+                .collect(),
+            picked_correct: picked.map(|picked| picked == item.correct),
+            correct_answer: item.answers.get(item.correct).map_or("", String::as_str),
+            why: &item.why,
+            proof: proof.iter().map(CitationContext::new).collect(),
         }
     }
 }

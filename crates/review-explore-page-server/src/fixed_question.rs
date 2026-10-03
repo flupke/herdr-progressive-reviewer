@@ -2,13 +2,13 @@
 
 use review_explore::{
     Alternative, CodeLocation, Conclusion, EvidenceRef, NotRelevantMark, NotRelevantReason,
-    Question, SourceSide, TopicStatus,
+    Question, QuizAnswers, SourceSide, TopicStatus,
 };
 use review_explore_page::{PageImplementation, QuestionMarks, RoundStage};
 use review_repository::repository::RepoPath;
 use review_source::SourceLineRange;
 
-use crate::{cited_code, fixed_diagrams, fixed_explanation};
+use crate::{cited_code, fixed_diagrams, fixed_explanation, fixed_quiz};
 
 /// The round's question `number`, from 1: `question` when given, which marks nothing, or else
 /// the fixed questions in turn. An answer to the first fixed question marks lines.
@@ -33,16 +33,25 @@ pub(crate) const CONCLUSION_REQUEST: &str = "conclusion";
 /// The list to be implemented of the fixed conclusion.
 pub(crate) const TO_BE_IMPLEMENTED: &str = "Save the draft with the round.";
 
-/// The fixed conclusion, with the latest implementation request the reviewer authorized.
-pub(crate) fn conclusion_stage(implementation: Option<PageImplementation>) -> RoundStage {
+/// The fixed conclusion, with the latest implementation request the reviewer authorized, and
+/// the fixed quiz with the reviewer's answers when `quiz` is given.
+pub(crate) fn conclusion_stage(
+    implementation: Option<PageImplementation>,
+    quiz: Option<QuizAnswers>,
+) -> RoundStage {
     RoundStage::Conclusion {
         request: CONCLUSION_REQUEST.into(),
         conclusion: Box::new(Conclusion {
             summary: "A reopened round keeps the reviewer's unsent draft.".into(),
             to_be_implemented: TO_BE_IMPLEMENTED.into(),
             future_work: "Offer to discard an old draft.".into(),
+            quiz: quiz.is_some().then(fixed_quiz::items).unwrap_or_default(),
+            quiz_empty_reason: quiz
+                .is_none()
+                .then(|| "The change only keeps a field that existed already.".into()),
         }),
         implementation,
+        quiz: quiz.map(fixed_quiz::page_quiz).unwrap_or_default(),
     }
 }
 

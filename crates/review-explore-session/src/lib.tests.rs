@@ -27,6 +27,8 @@ mod diagram;
 mod front_ends;
 #[path = "page.tests.rs"]
 mod page;
+#[path = "quiz.tests.rs"]
+mod quiz;
 #[path = "recovery.tests.rs"]
 mod recovery;
 
@@ -431,17 +433,34 @@ fn design() -> serde_json::Value {
     })
 }
 
+/// The conclusion of the turn `request`, with an empty quiz.
 fn conclusion(request: &TurnRequest, summary: &str) -> Operation {
-    let submission = serde_json::from_value(serde_json::json!({
+    conclusion_with_quiz(
+        request,
+        summary,
+        serde_json::json!({"quiz": [], "quiz_empty_reason": "Nothing at whiteboard level."}),
+    )
+}
+
+/// The conclusion of the turn `request`, with the quiz fields `quiz`.
+fn conclusion_with_quiz(
+    request: &TurnRequest,
+    summary: &str,
+    quiz: serde_json::Value,
+) -> Operation {
+    let mut submission = serde_json::json!({
         "review": "", "instance": request.instance, "request": request.request,
         "checkpoint": request.checkpoint,
         "interpretation": request.answer.as_ref().map(|answer| serde_json::json!({
             "answer": answer.id, "status": "accepted", "recap": "Keep the policy.", "follow_ups": []
         })),
         "summary": summary, "to_be_implemented": "Add a regression test.", "future_work": "Later."
-    }))
-    .unwrap();
-    Operation::SubmitConclusion(Box::new(submission))
+    });
+    let serde_json::Value::Object(quiz) = quiz else {
+        panic!("the quiz fields are an object: {quiz}");
+    };
+    submission.as_object_mut().unwrap().extend(quiz);
+    Operation::SubmitConclusion(Box::new(serde_json::from_value(submission).unwrap()))
 }
 
 fn applied(result: Result<Response, String>) -> bool {

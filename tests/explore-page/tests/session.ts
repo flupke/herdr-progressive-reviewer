@@ -17,6 +17,14 @@ export interface SentStart {
   challenger: boolean;
 }
 
+/** What the reviewer answered of a conclusion's quiz, as the review tool saves it. */
+export interface QuizAnswers {
+  /** Each item picked, from 0, with the option picked, from 0; left out while empty. */
+  picks?: { item: number; answer: number; correct: boolean }[];
+  /** Whether the reviewer skipped the rest of the quiz; left out when not. */
+  skipped?: boolean;
+}
+
 /** A session of the standalone server, which stands in for the review tool's Explore session. */
 export interface Session {
   /** The token of the page's address. */
@@ -51,6 +59,10 @@ export interface Session {
   interrupt(): Promise<void>;
   /** The agent concludes the round with the standalone server's fixed conclusion. */
   conclude(): Promise<void>;
+  /** The agent concludes the round with the fixed conclusion and its quiz of two items. */
+  concludeWithQuiz(): Promise<void>;
+  /** What the reviewer answered of the conclusion's quiz from the page. */
+  quiz(): Promise<QuizAnswers>;
   /** The reviewer resets the round in the pane: no round is running. */
   reset(): Promise<void>;
   /**
@@ -98,6 +110,8 @@ export const test = base.extend<{ explore: Session }>({
       implementations: () => read<string[]>('implementations'),
       interrupt: () => step('interrupt'),
       conclude: () => step('conclude'),
+      concludeWithQuiz: () => step('conclude-with-quiz'),
+      quiz: () => read<QuizAnswers>('quiz'),
       reset: () => step('reset'),
       sendKickoff: () => step('kickoff'),
       failStart: () => step('fail-start'),

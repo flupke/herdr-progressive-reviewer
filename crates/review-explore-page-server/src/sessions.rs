@@ -1,18 +1,19 @@
 //! The sessions of the standalone server. Each stands in for the review tool's Explore session:
 //! it owns one round, behind its own token, moves it to the step its controller asks for, and
-//! takes the answers, the starts and the implementation requests the reviewer sends from the page.
+//! takes the answers, the starts, the implementation requests and the quiz answers the reviewer
+//! sends from the page.
 
 use std::sync::{Arc, Mutex, PoisonError};
 
-use review_explore::{DiagramError, Question};
+use review_explore::{DiagramError, Question, QuizAnswers};
 use review_explore_page::{
     CommandRefusal, CommandSender, ImplementationState, PageCommand, PageImplementation, PageRound,
     PublishedRound, RoundPublisher, RoundStage, Rounds, Token,
 };
 use serde::Serialize;
 
-use crate::fixed_design;
 use crate::fixed_question::{TO_BE_IMPLEMENTED, conclusion_stage, question_stage};
+use crate::{fixed_design, fixed_quiz};
 
 #[derive(Clone, Default)]
 pub(crate) struct Sessions(Arc<Mutex<Vec<Session>>>);
@@ -37,6 +38,8 @@ struct Session {
     starts: Vec<SentStart>,
     /// The lists to be implemented that the reviewer sent from the page, in order.
     implementations: Vec<String>,
+    /// What the reviewer answered of the conclusion's quiz, once the agent concluded with one.
+    quiz: Option<QuizAnswers>,
 }
 
 /// An answer the reviewer sent from the page, as a test reads it back.
@@ -95,7 +98,10 @@ impl Session {
                     failure: Some(DELIVERY_FAILURE.into()),
                 }),
             Step::Interrupt => RoundStage::Interrupted { failure: None },
-            Step::Conclude => conclusion_stage(None),
+            Step::Conclude { quiz } => {
+                self.quiz = quiz.then(QuizAnswers::default);
+                self.conclusion(None)
+            }
             Step::Implement | Step::Deliver => self.implementation_stage(step)?,
             Step::Reset => RoundStage::NoRound,
             Step::FailStart => RoundStage::StartFailed {
@@ -108,7 +114,7 @@ impl Session {
     /// sent one, or the agent received the one the session sends.
     fn implementation_stage(&self, step: Step) -> Option<RoundStage> {
         match step {
-            Step::Implement => Some(conclusion_stage(Some(PageImplementation {
+            Step::Implement => Some(self.conclusion(Some(PageImplementation {
                 delivery: "pane".into(),
                 text: TO_BE_IMPLEMENTED.into(),
                 state: ImplementationState::Sent,
@@ -130,10 +136,13 @@ impl Session {
         let sending = self
             .implementation()
             .filter(|implementation| implementation.state == ImplementationState::Sending)?;
-        Some(conclusion_stage(Some(PageImplementation {
-            state,
-            ..sending
-        })))
+        Some(self.conclusion(Some(PageImplementation { state, ..sending })))
+    }
+
+    /// The fixed conclusion, with `implementation` and, when the agent concluded with one, its
+    /// quiz.
+    fn conclusion(&self, implementation: Option<PageImplementation>) -> RoundStage {
+        conclusion_stage(implementation, self.quiz.clone())
     }
 }
 
@@ -154,8 +163,8 @@ pub(crate) enum Step {
     Cancel,
     /// The agent stops before its next turn.
     Interrupt,
-    /// The agent concludes the round.
-    Conclude,
+    /// The agent concludes the round, with a quiz when `quiz`.
+    Conclude { quiz: bool },
     /// The reviewer implements the conclusion in the pane, and the agent receives the request.
     Implement,
     /// The agent receives the conclusion's implementation request that the session sends.
@@ -171,13 +180,14 @@ pub(crate) enum Step {
 
 impl Step {
     /// Each step by the name of its control route.
-    const NAMES: [(&str, Self); 11] = [
+    const NAMES: [(&str, Self); 12] = [
         ("question", Self::Question),
         ("answer", Self::Answer),
         ("fail", Self::Fail),
         ("cancel", Self::Cancel),
         ("interrupt", Self::Interrupt),
-        ("conclude", Self::Conclude),
+        ("conclude", Self::Conclude { quiz: false }),
+        ("conclude-with-quiz", Self::Conclude { quiz: true }),
         ("implement", Self::Implement),
         ("deliver", Self::Deliver),
         ("reset", Self::Reset),
@@ -209,6 +219,7 @@ impl Sessions {
             diagram_errors: Vec::new(),
             starts: Vec::new(),
             implementations: Vec::new(),
+            quiz: None,
         };
         session.publish(stage);
         self.lock().push(session);
@@ -294,10 +305,25 @@ impl Sessions {
                     text: implement.text,
                     state: ImplementationState::Sending,
                 };
-                session.publish(conclusion_stage(Some(sending)));
+                let stage = session.conclusion(Some(sending));
+                session.publish(stage);
+            }
+            PageCommand::Quiz(quiz) => {
+                let answers = session.quiz.as_mut().ok_or(CommandRefusal::Stale)?;
+                answers
+                    .record(&fixed_quiz::items(), quiz.response)
+                    .map_err(|_| CommandRefusal::Stale)?;
+                let stage = session.conclusion(session.implementation());
+                session.publish(stage);
             }
         }
         Ok(())
+    }
+
+    /// What the reviewer answered of the quiz of the session behind `token`, nothing when its
+    /// round has no quiz, or `None` when no session has that token.
+    pub(crate) fn quiz(&self, token: &str) -> Option<QuizAnswers> {
+        find(&mut self.lock(), token).map(|session| session.quiz.clone().unwrap_or_default())
     }
 
     /// The diagram errors the page of the session behind `token` reported, or `None` when no

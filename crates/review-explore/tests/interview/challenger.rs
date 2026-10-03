@@ -96,6 +96,7 @@ fn a_conclusion_reports_proposals_too() {
         "review": "access", "instance": request.instance, "request": request.request,
         "checkpoint": request.checkpoint, "interpretation": null,
         "summary": "Nothing to decide.", "to_be_implemented": "", "future_work": "",
+        "quiz": [], "quiz_empty_reason": "Nothing at whiteboard level.",
         "challenger_proposals": proposals,
     }))
     .unwrap();

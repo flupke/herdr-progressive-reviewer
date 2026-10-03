@@ -82,5 +82,6 @@ submit_conclusion takes the final answer's interpretation and marks like any tur
 - to_be_implemented: only the agreed tasks, as a plain-text list; it fills the reviewer's
   editable task box. Empty when there is none.
 - future_work: optional or later work. Empty when there is none.
+- quiz, or quiz_empty_reason when it is empty: see Quiz.
 
 Only the reviewer's Implement action authorizes implementation.

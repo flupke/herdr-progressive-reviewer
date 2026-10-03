@@ -386,9 +386,11 @@ fn agent_choices_cannot_duplicate_the_builtin_none_choice() {
     }
 }
 
+/// A conclusion with `summary`, and an empty quiz.
 fn conclusion(summary: &str) -> review_explore::Conclusion {
     review_explore::Conclusion {
         summary: summary.into(),
+        quiz_empty_reason: Some("The change holds nothing at whiteboard level.".into()),
         ..Default::default()
     }
 }
@@ -411,7 +413,8 @@ fn dedicated_conclusion_preserves_the_final_choice_and_rejects_a_changed_retry()
         "interpretation": null,
         "summary": "Change the resolution policy; human Files inspection remains required.",
         "to_be_implemented": "Reopen resolved threads when new comments arrive.",
-        "future_work": "Review notification volume later."
+        "future_work": "Review notification volume later.",
+        "quiz": [], "quiz_empty_reason": "The change only adjusts one policy rule."
     });
     let mut submitted: ConclusionSubmission = serde_json::from_value(payload.clone()).unwrap();
     assert!(exploration.submit(submitted.clone().into_update()).is_err());
@@ -554,6 +557,8 @@ fn only_the_first_turn_explains_the_design() {
 }
 #[path = "interview/diagram.rs"]
 mod diagram;
+#[path = "interview/quiz.rs"]
+mod quiz;
 
 #[test]
 fn a_first_pick_is_saved_with_the_answer_when_it_names_a_choice() {

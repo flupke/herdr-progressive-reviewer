@@ -34,7 +34,9 @@
     {% include "answer.html" %}
   </section>
   {% endif %}
-  {% if conclusion %}
+  {% if conclusion and conclusion.quiz and conclusion.quiz.shown is not none %}
+  {% include "quiz.html" %}
+  {% elif conclusion %}
   {% include "conclusion.html" %}
   {% endif %}
 </main>

@@ -175,6 +175,8 @@ fn adaptive_history_and_separate_conclusions_round_trip_without_source_buffers()
             summary: "Further human Files inspection is required".into(),
             to_be_implemented: format!("Task {number}"),
             future_work: "Future only".into(),
+            quiz: Vec::new(),
+            quiz_empty_reason: Some("Nothing at whiteboard level.".into()),
         });
         fixture.submit(update);
         if number == 4 {

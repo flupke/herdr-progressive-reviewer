@@ -1,0 +1,62 @@
+{
+  "schemaVersion": "trace-1",
+  "createdAt": "2026-10-03T23:06:14.310Z",
+  "payload": {
+    "actions": [
+      {
+        "name": "tap",
+        "summary": "tap button \"Skip the quiz\" in \"Quiz\"",
+        "target": {
+          "role": "button",
+          "name": "Skip the quiz",
+          "within": "Quiz"
+        }
+      }
+    ],
+    "executor": {
+      "name": "e2e-default-agent",
+      "version": "2"
+    },
+    "recordedFor": {
+      "testId": "tests/quiz.e2e.ts::the%20reviewer%20skips%20the%20quiz%20and%20reads%20the%20conclusion",
+      "targetId": "desktop",
+      "instructionDigest": "e4b2e95f6e3eecd823fc6eb69a8fdc62663895d15d7420980ca69957c0add111"
+    },
+    "summary": "Skipped the quiz. The Conclusion screen is displayed, showing “Quiz: 0 of 2 correct, 2 skipped.”",
+    "startPath": "/",
+    "endPath": "/",
+    "endAnchors": [
+      {
+        "role": "heading",
+        "name": "Conclusion"
+      },
+      {
+        "text": "A reopened round keeps the reviewer's unsent draft."
+      },
+      {
+        "role": "heading",
+        "name": "To be implemented"
+      },
+      {
+        "role": "textbox",
+        "name": "To be implemented",
+        "text": "Save the draft with the round."
+      },
+      {
+        "text": "Implement asks the agent to implement this list, and nothing else."
+      },
+      {
+        "role": "button",
+        "name": "Implement"
+      },
+      {
+        "role": "heading",
+        "name": "Future work"
+      },
+      {
+        "text": "Offer to discard an old draft."
+      }
+    ],
+    "endWaitMs": 12170
+  }
+}

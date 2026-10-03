@@ -203,6 +203,10 @@ pub struct Exploration {
     /// The diagrams of posted questions that the Explore page could not draw.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub diagram_errors: Vec<crate::DiagramError>,
+    /// What the reviewer did with the quiz of each conclusion, by the request of the agent's
+    /// turn that posted it.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub(crate) quiz_answers: BTreeMap<String, crate::QuizAnswers>,
 }
 
 impl Exploration {
@@ -224,6 +228,7 @@ impl Exploration {
             cancelled: Vec::new(),
             challenger: false,
             diagram_errors: Vec::new(),
+            quiz_answers: BTreeMap::new(),
         }
     }
 

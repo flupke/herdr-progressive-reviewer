@@ -1,0 +1,61 @@
+{
+  "schemaVersion": "trace-1",
+  "createdAt": "2026-10-03T23:06:10.880Z",
+  "payload": {
+    "actions": [
+      {
+        "name": "tap",
+        "summary": "tap link \"Next question\" in \"Quiz\"",
+        "target": {
+          "role": "link",
+          "name": "Next question",
+          "within": "Quiz"
+        }
+      }
+    ],
+    "executor": {
+      "name": "e2e-default-agent",
+      "version": "2"
+    },
+    "recordedFor": {
+      "testId": "tests/quiz.e2e.ts::the%20reviewer%20answers%20the%20quiz%20one%20question%20at%20a%20time%2C%20and%20sees%20at%20once%20whether%20each%20pick%20is%20right",
+      "targetId": "phone",
+      "instructionDigest": "392b58fa235585ba7b864f09be3f8a86c1ec2ea74cb6d488a9f21648b01fe3a4"
+    },
+    "summary": "Selected Next question; the quiz now displays Question 2 of 2, “Where does the kept draft live while the pane is closed?”",
+    "startPath": "/?answered=1",
+    "endPath": "/",
+    "endAnchors": [
+      {
+        "role": "heading",
+        "name": "Question 2 of 2"
+      },
+      {
+        "text": "Where does the kept draft live while the pane is closed?"
+      },
+      {
+        "role": "radio",
+        "name": "With the round's record"
+      },
+      {
+        "role": "radio",
+        "name": "In the pane's editor"
+      },
+      {
+        "role": "button",
+        "name": "Check"
+      },
+      {
+        "role": "group",
+        "name": "Where does the kept draft live while the pane is closed?"
+      },
+      {
+        "text": "With the round's record"
+      },
+      {
+        "text": "In the pane's editor"
+      }
+    ],
+    "endWaitMs": 12191
+  }
+}

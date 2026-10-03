@@ -3,7 +3,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use review_explore::{AnswerInput, DiagramError};
+use review_explore::{AnswerInput, DiagramError, QuizResponse};
 use tokio::sync::oneshot;
 
 use crate::notice::Problem;
@@ -28,6 +28,18 @@ pub enum PageCommand {
     },
     /// Implement the conclusion the page showed.
     Implement(PageImplement),
+    /// Save the reviewer's pick of a quiz item, or skip of the quiz, of the conclusion the page
+    /// showed.
+    Quiz(PageQuizResponse),
+}
+
+/// What the reviewer did with the quiz of the conclusion the page showed. The page graded a
+/// pick already; the owner saves it with the round.
+#[derive(Debug)]
+pub struct PageQuizResponse {
+    /// The request of the agent's turn that posted the conclusion.
+    pub conclusion: String,
+    pub response: QuizResponse,
 }
 
 /// The reviewer's answer to the question the page showed: only the pick and the comment. The
@@ -62,7 +74,8 @@ pub enum CommandRefusal {
     /// The round moved on since the page was loaded: the question the page showed no longer
     /// waits for an answer, as it may have one already, from the pane or from another page; or
     /// a round started since the page showed none; or the conclusion the page showed has
-    /// another implementation request, from the pane or from another page.
+    /// another implementation request, from the pane or from another page; or its quiz item
+    /// has a pick already, from another page.
     Stale,
     /// The owner could not carry out the command, for this reason.
     Failed(String),

@@ -88,7 +88,11 @@ implementation request is being sent. On a question whose Door is not two-way,
 the page hides the recommendation until the reviewer's first pick
 (`src/blind.rs`): the pick is a form post that the page keeps in a cookie, not
 a command, and the answer then carries it to the owner as
-`AnswerInput::first_pick`.
+`AnswerInput::first_pick`. A conclusion with a quiz shows it first, one item at a time
+(`templates/quiz.html`): the page grades a pick itself, saves it through the owner
+(`PageCommand::Quiz`), then shows the item's answer at `/?answered=N` until the
+reviewer moves on; once every item is answered or the reviewer skips the rest, the
+conclusion shows with the results folded beside it.
 
 The agent's Markdown (the design explanation, a question's Context, Door and
 Blast radius, the conclusion) is rendered to HTML on the server by
@@ -235,7 +239,9 @@ started in the pane), `explore.failStart()` fails the start, and
 `explore.starts()` returns the starts the page sent. An Implement from the page
 shows the request as being sent until `explore.deliverImplementation()`;
 `explore.implementInPane()` sends the conclusion's request from the pane, and
-`explore.implementations()` returns the lists the page sent. The server's control
+`explore.implementations()` returns the lists the page sent. `explore.concludeWithQuiz()`
+concludes with a quiz of two items, and `explore.quiz()` returns what the reviewer
+answered of it, as the review tool saves it. The server's control
 routes are listed in
 [`control.rs`](../crates/review-explore-page-server/src/control.rs); a
 `question` step takes an optional JSON `Question` body for a question of the
@@ -582,7 +588,7 @@ agenda operations and one next question to the exact
 outstanding request. `Exploration` validates all citations and the
 agenda before applying anything. `submit_question` carries these turns;
 `submit_conclusion` carries a separate `ConclusionSubmission` with summary, editable
-implementation tasks, future work and final-answer interpretation. Both tools route through the
+implementation tasks, future work, the quiz and final-answer interpretation. Both tools route through the
 existing reviewer server to a locked store transaction and then the UI; success acknowledges
 validation, durable commit and application. Invalid updates remain pending and return their error
 to the agent for repair. Cancelled/obsolete requests cannot apply, and an exact

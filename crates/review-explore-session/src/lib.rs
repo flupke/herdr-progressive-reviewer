@@ -11,6 +11,8 @@ mod dispatch;
 mod implementation;
 mod marks;
 mod page;
+mod page_save;
+mod quiz;
 mod records;
 mod restore;
 mod submission;

@@ -26,6 +26,8 @@ fn finish(fixture: &mut ExploreUi, request: &TurnRequest) -> InterviewUpdate {
             summary: "Keep the agreed resolution policy.".into(),
             to_be_implemented: "1. Preserve resolved state.\n2. Add regression coverage.".into(),
             future_work: "Consider cross-repository notifications later.".into(),
+            quiz: Vec::new(),
+            quiz_empty_reason: Some("Nothing at whiteboard level.".into()),
         },
     }
     .into_update();

@@ -1,0 +1,67 @@
+{
+  "schemaVersion": "trace-1",
+  "createdAt": "2026-10-03T23:06:43.345Z",
+  "payload": {
+    "actions": [
+      {
+        "name": "tap",
+        "summary": "tap radio \"In the pane's editor\" in \"Where does the kept draft live while th…\"",
+        "target": {
+          "role": "radio",
+          "name": "In the pane's editor",
+          "within": "Where does the kept draft live while the pane is closed?"
+        }
+      },
+      {
+        "name": "tap",
+        "summary": "tap button \"Check\" in \"Quiz\"",
+        "target": {
+          "role": "button",
+          "name": "Check",
+          "within": "Quiz"
+        }
+      }
+    ],
+    "executor": {
+      "name": "e2e-default-agent",
+      "version": "2"
+    },
+    "recordedFor": {
+      "testId": "tests/quiz.e2e.ts::the%20reviewer%20answers%20the%20quiz%20one%20question%20at%20a%20time%2C%20and%20sees%20at%20once%20whether%20each%20pick%20is%20right",
+      "targetId": "desktop",
+      "instructionDigest": "c961fe1567a7446f38f1034a7266d9de1b10fc70d73541e7814f0e59ebed5d0b"
+    },
+    "summary": "Selected “In the pane's editor” and checked the answer. The quiz reports “Not quite. The correct answer: With the round's record.”",
+    "startPath": "/",
+    "endPath": "/?answered=2",
+    "endAnchors": [
+      {
+        "text": "correct answer"
+      },
+      {
+        "text": "your pick"
+      },
+      {
+        "role": "status",
+        "name": "Not quite. The correct answer: With the round's record"
+      },
+      {
+        "text": "The draft is a field of the round, saved wherever the round is saved."
+      },
+      {
+        "role": "heading",
+        "name": "Proof"
+      },
+      {
+        "text": "src/drafts.rs new 1-4"
+      },
+      {
+        "text": "The round holds the draft."
+      },
+      {
+        "text": "pub"
+      }
+    ],
+    "endWaitMs": 12087
+  }
+}

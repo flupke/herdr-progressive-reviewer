@@ -31,6 +31,8 @@ pub(crate) enum Post {
     Pick,
     /// The implementation request of the conclusion the page showed.
     Implement,
+    /// A pick of a quiz item, or a skip of the quiz, of the conclusion the page showed.
+    Quiz,
 }
 
 /// Why a post did not go through, as the templates test it.
@@ -55,7 +57,13 @@ impl From<CommandRefusal> for Problem {
 }
 
 impl Post {
-    const ALL: [Self; 4] = [Self::Answer, Self::Start, Self::Pick, Self::Implement];
+    const ALL: [Self; 5] = [
+        Self::Answer,
+        Self::Start,
+        Self::Pick,
+        Self::Implement,
+        Self::Quiz,
+    ];
 
     /// The post's name in the cookie, as in the name of its template partial.
     fn name(self) -> &'static str {
@@ -64,6 +72,7 @@ impl Post {
             Self::Start => "start",
             Self::Pick => "pick",
             Self::Implement => "implement",
+            Self::Quiz => "quiz",
         }
     }
 }

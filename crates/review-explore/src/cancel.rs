@@ -79,6 +79,7 @@ impl Exploration {
             self.absorb(turn.update, answer.as_ref());
         }
         self.forget_diagram_errors_of_withdrawn_questions();
+        self.forget_quiz_answers_of_withdrawn_conclusions();
     }
 }
 

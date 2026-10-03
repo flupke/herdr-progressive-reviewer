@@ -228,6 +228,8 @@ fn a_combined_external_refresh_keeps_every_conclusion_and_existing_editor() {
             summary: format!("Summary {version}"),
             to_be_implemented: format!("Tasks {version}"),
             future_work: String::new(),
+            quiz: Vec::new(),
+            quiz_empty_reason: Some("Nothing at whiteboard level.".into()),
         });
         round.exploration.submit(update).unwrap();
         let request = round

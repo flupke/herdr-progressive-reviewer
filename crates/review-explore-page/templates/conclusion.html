@@ -1,4 +1,5 @@
-{# The agent's conclusion: its summary, the list to be implemented, and the future work. #}
+{# The agent's conclusion: its summary, the list to be implemented, the future work, and the results
+   of its quiz. #}
 <section class="conclusion" aria-labelledby="conclusion-title">
   <h2 id="conclusion-title">Conclusion</h2>
   <div class="markdown">{{ conclusion.summary | markdown(2) }}</div>
@@ -8,5 +9,8 @@
     <h3 id="future-work-title">Future work</h3>
     <div class="markdown">{{ conclusion.future_work | markdown(3) }}</div>
   </section>
+  {% endif %}
+  {% if conclusion.quiz %}
+  {% include "quiz-results.html" %}
   {% endif %}
 </section>
