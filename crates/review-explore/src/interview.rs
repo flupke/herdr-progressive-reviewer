@@ -148,6 +148,13 @@ pub struct TurnRequest {
     pub challenger: bool,
 }
 
+impl TurnRequest {
+    /// Whether the request opens its round: it carries no answer.
+    pub fn is_kickoff(&self) -> bool {
+        self.answer.is_none()
+    }
+}
+
 /// The sole decision owner. Agent updates can interpret only the outstanding human answer.
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
 pub struct Exploration {

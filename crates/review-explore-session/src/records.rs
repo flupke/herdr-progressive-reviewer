@@ -44,6 +44,18 @@ impl SavedRounds {
         self.store.load_explore(unit, instance)
     }
 
+    /// The readable rounds of `unit` started before `instance`, oldest
+    /// first. An unreadable round is left out.
+    pub(crate) fn earlier(&self, unit: &ReviewUnit, instance: &str) -> Result<Vec<ExploreRound>> {
+        Ok(self
+            .history(unit)?
+            .rounds
+            .iter()
+            .take_while(|saved| *saved != instance)
+            .filter_map(|saved| self.round(unit, saved).ok().flatten())
+            .collect())
+    }
+
     pub(crate) fn view(&self, unit: &ReviewUnit, instance: &str) -> Result<Option<ViewSave>> {
         self.store.load_explore_view(unit, instance)
     }

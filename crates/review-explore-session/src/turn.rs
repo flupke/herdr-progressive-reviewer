@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use herdr_client::protocol::Agent;
 use review_explore::{ConversationBinding, Exploration, ExploreRound, TurnRequest};
+use review_explore_runner::EarlierDecisions;
 use review_thread_service::PinnedAgent;
 
 use crate::{ExploreSession, Input, dispatch::DurableDispatch, turn_log::SentTurn};
@@ -131,11 +132,21 @@ impl ExploreSession {
                 kind: toasts::ToastKind::Error,
             });
         })?;
+        // Only a kickoff lists them; a later turn's agent already has them.
+        let earlier = if request.is_kickoff() {
+            let rounds = self
+                .rounds
+                .earlier(&request.checkpoint.review_unit, &request.instance)?;
+            EarlierDecisions::new(rounds.iter().map(|round| &round.exploration))
+        } else {
+            EarlierDecisions::default()
+        };
         let prompt = review_explore_runner::PreparedTurn::prepare(
             request,
             &comparison,
             &self.state.access,
             &unreviewed,
+            &earlier,
         )
         .prompt();
         let sent = self.turns.is_some().then(|| {

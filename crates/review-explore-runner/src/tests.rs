@@ -2,7 +2,7 @@ use super::*;
 use review_explore::{Exploration, ReviewerAnswer};
 use std::sync::Arc;
 
-fn comparison() -> Comparison {
+pub(super) fn comparison() -> Comparison {
     Comparison {
         checkpoint: serde_json::from_value(serde_json::json!({"review_unit":"r","checkpoint":"c"}))
             .unwrap(),
@@ -53,6 +53,7 @@ fn the_kickoff_supplies_its_rules_scope_and_identity() {
         &comparison,
         "fresh-access",
         &Unreviewed::default(),
+        &EarlierDecisions::default(),
     )
     .prompt();
     assert!(prompt.contains(&format!("Explore round: {}", request.instance)));
@@ -74,7 +75,14 @@ fn a_wakeup_names_the_unreviewed_diffs_before_the_answer() {
     request.answer = Some(answer(&request));
     let unreviewed = Unreviewed::default();
 
-    let prompt = PreparedTurn::prepare(&request, &comparison, "fresh-access", &unreviewed).prompt();
+    let prompt = PreparedTurn::prepare(
+        &request,
+        &comparison,
+        "fresh-access",
+        &unreviewed,
+        &EarlierDecisions::default(),
+    )
+    .prompt();
 
     assert!(prompt.contains("Unreviewed diffs: none; every changed line is reviewed."));
     assert!(
@@ -98,6 +106,7 @@ fn wakeup_delivers_full_selected_text_and_comment_with_plain_identity() {
         &comparison,
         "fresh-access",
         &Unreviewed::default(),
+        &EarlierDecisions::default(),
     )
     .prompt();
     assert!(prompt.contains("Answer ID: answer-id\nQuestion: earlier-question (version 7)\n"));
@@ -128,6 +137,7 @@ fn question_size_does_not_expand_the_wakeup() {
         &comparison,
         "fresh-access",
         &Unreviewed::default(),
+        &EarlierDecisions::default(),
     )
     .prompt();
     let answer = request.answer.as_mut().unwrap();
@@ -151,7 +161,8 @@ fn question_size_does_not_expand_the_wakeup() {
             &request,
             &comparison,
             "fresh-access",
-            &Unreviewed::default()
+            &Unreviewed::default(),
+            &EarlierDecisions::default(),
         )
         .prompt(),
         before
@@ -174,6 +185,7 @@ fn questionless_replies_keep_the_closing_turn_identity() {
         &comparison,
         "fresh-access",
         &Unreviewed::default(),
+        &EarlierDecisions::default(),
     )
     .prompt();
     assert!(prompt.contains("Answer ID: answer-id\nReply to conclusion: first-turn\n"));
@@ -196,6 +208,7 @@ fn absent_comments_and_choices_do_not_imply_deferral_and_none_keeps_its_full_lab
         &comparison,
         "fresh-access",
         &Unreviewed::default(),
+        &EarlierDecisions::default(),
     )
     .prompt();
     assert!(prompt.contains("Selected option ID: none-of-the-above\nSelected outcome: open\n"));
@@ -216,6 +229,7 @@ fn retries_only_add_the_previous_error() {
         &comparison,
         "fresh-access",
         &Unreviewed::default(),
+        &EarlierDecisions::default(),
     )
     .prompt();
     request.response_error = Some("Fix the invalid line range\nKeep the literal {{ROOT}}".into());
@@ -224,6 +238,7 @@ fn retries_only_add_the_previous_error() {
         &comparison,
         "fresh-access",
         &Unreviewed::default(),
+        &EarlierDecisions::default(),
     )
     .prompt();
     assert_eq!(
@@ -239,6 +254,7 @@ fn retries_only_add_the_previous_error() {
         &comparison,
         "fresh-access",
         &Unreviewed::default(),
+        &EarlierDecisions::default(),
     )
     .prompt();
     assert!(kickoff.contains(
@@ -262,6 +278,7 @@ fn a_wakeup_names_the_cancelled_answers_before_the_answer_that_replaces_them() {
         &comparison,
         "fresh-access",
         &Unreviewed::default(),
+        &EarlierDecisions::default(),
     )
     .prompt();
 
@@ -276,7 +293,14 @@ fn kickoff(base: serde_json::Value) -> String {
     comparison.base = Some(serde_json::from_value(base).unwrap());
     let mut exploration = Exploration::new(Arc::new(comparison.clone()));
     let request = exploration.request(None, None).unwrap();
-    PreparedTurn::prepare(&request, &comparison, "access", &Unreviewed::default()).prompt()
+    PreparedTurn::prepare(
+        &request,
+        &comparison,
+        "access",
+        &Unreviewed::default(),
+        &EarlierDecisions::default(),
+    )
+    .prompt()
 }
 
 fn jj(description: &str) -> serde_json::Value {
@@ -318,8 +342,14 @@ fn only_the_kickoff_carries_the_description() {
     let mut request = exploration.request(None, None).unwrap();
     request.answer = Some(answer(&request));
 
-    let wakeup =
-        PreparedTurn::prepare(&request, &comparison, "access", &Unreviewed::default()).prompt();
+    let wakeup = PreparedTurn::prepare(
+        &request,
+        &comparison,
+        "access",
+        &Unreviewed::default(),
+        &EarlierDecisions::default(),
+    )
+    .prompt();
 
     assert!(!wakeup.contains("Change description"));
 }
@@ -355,7 +385,14 @@ fn only_a_round_with_a_challenger_carries_its_script() {
         exploration.challenger = challenger;
         let mut request = exploration.request(None, None).unwrap();
         let prepare = |request: &TurnRequest| {
-            PreparedTurn::prepare(request, &comparison, "access", &Unreviewed::default()).prompt()
+            PreparedTurn::prepare(
+                request,
+                &comparison,
+                "access",
+                &Unreviewed::default(),
+                &EarlierDecisions::default(),
+            )
+            .prompt()
         };
 
         let kickoff = prepare(&request);

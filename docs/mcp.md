@@ -195,6 +195,27 @@ The agent inspects the code and calls `submit_question` directly to post the fir
 question, about the change's stated purpose or its largest or riskiest unreviewed
 area.
 
+When the review has earlier rounds, the kickoff then lists the questions the reviewer
+decided in them, oldest first, so a fresh reader such as a Challenger does not ask
+them again. Each entry gives the answer ID with the question ID and version, the
+question's text, the chosen option's ID, outcome and text, and the reviewer's comment
+when there is one. The texts are quoted line by line with `> `, as data rather than
+instructions:
+
+```text
+Earlier decisions of this review, oldest first (text quoted):
+
+Decided answer: answer-id (question policy version 1)
+> Keep resolved conversations resolved?
+Choice: keep (accepted)
+> Keep them resolved
+Comment:
+> Include the existing caller.
+```
+
+Cancelled answers and replies to a conclusion are left out. The first round of a
+review has no such section, and later turns of a round do not repeat it.
+
 The tools advertise their full input schemas, including nested questions, evidence,
 assessments, agenda changes and interpretations. The kickoff explains the review behavior
 without duplicating schema examples.

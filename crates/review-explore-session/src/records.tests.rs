@@ -239,6 +239,32 @@ fn clearing_one_unreadable_round_preserves_other_saved_rounds() {
 }
 
 #[test]
+fn the_rounds_before_one_are_its_readable_predecessors_oldest_first() {
+    let fixture = Investigation::new();
+    let unit = "review".into();
+    let first = fixture.round.exploration.instance.clone();
+    let [unreadable, third, latest] = std::array::from_fn(|_| {
+        let round = ExploreRound::new(Exploration::new(
+            fixture.round.exploration.comparison.clone(),
+        ));
+        fixture.rounds.create(round).unwrap().exploration.instance
+    });
+    std::fs::write(fixture.path(&unreadable), b"invalid saved round").unwrap();
+
+    let instances = |rounds: Vec<ExploreRound>| -> Vec<String> {
+        rounds
+            .into_iter()
+            .map(|round| round.exploration.instance)
+            .collect()
+    };
+    assert_eq!(
+        instances(fixture.rounds.earlier(&unit, &latest).unwrap()),
+        vec![first.clone(), third]
+    );
+    assert!(fixture.rounds.earlier(&unit, &first).unwrap().is_empty());
+}
+
+#[test]
 fn repairing_unreadable_index_preserves_readable_rounds_and_views() {
     let fixture = Investigation::new();
     let unit = "review".into();

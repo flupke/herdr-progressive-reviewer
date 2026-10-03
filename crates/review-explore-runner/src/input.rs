@@ -10,10 +10,30 @@ pub(super) struct TurnInput<'a> {
     pub(super) unreviewed: &'a crate::Unreviewed,
 }
 
-/// Where the reviewed change is and what it says it does.
+/// Where the reviewed change is, what it says it does and what the reviewer
+/// decided in the review's earlier rounds.
 pub(super) struct Kickoff<'a> {
     pub(super) repository_root: &'a Path,
     pub(super) description: Option<&'a str>,
+    pub(super) decisions: &'a crate::EarlierDecisions,
+}
+
+/// Write `text` quoted line by line, so none of its lines can pass for a
+/// field of the prompt.
+pub(super) fn quote(output: &mut fmt::Formatter<'_>, text: &str) -> fmt::Result {
+    for line in text.lines() {
+        writeln!(output, ">{}{line}", if line.is_empty() { "" } else { " " })?;
+    }
+    Ok(())
+}
+
+/// How a prompt names an option's outcome.
+pub(super) fn outcome(status: TopicStatus) -> &'static str {
+    match status {
+        TopicStatus::Open => "open",
+        TopicStatus::Accepted => "accepted",
+        TopicStatus::NeedsFollowUp => "needs_follow_up",
+    }
 }
 
 impl fmt::Display for Kickoff<'_> {
@@ -23,15 +43,14 @@ impl fmt::Display for Kickoff<'_> {
             "Repository root: {}",
             self.repository_root.display()
         )?;
-        let Some(description) = self.description else {
-            return writeln!(output, "\nChange description: none");
-        };
-        // Quoted, so none of its lines can pass for a field of the prompt.
-        writeln!(output, "\nChange description (quoted):")?;
-        for line in description.lines() {
-            writeln!(output, ">{}{line}", if line.is_empty() { "" } else { " " })?;
+        match self.description {
+            Some(description) => {
+                writeln!(output, "\nChange description (quoted):")?;
+                quote(output, description)?;
+            }
+            None => writeln!(output, "\nChange description: none")?,
         }
-        Ok(())
+        write!(output, "{}", self.decisions)
     }
 }
 
@@ -80,15 +99,11 @@ impl TurnInput<'_> {
             writeln!(output, "Reply to conclusion: {}", answer.in_reply_to)?;
         }
         if let Some(option) = &answer.option {
-            let outcome = match option.outcome {
-                TopicStatus::Open => "open",
-                TopicStatus::Accepted => "accepted",
-                TopicStatus::NeedsFollowUp => "needs_follow_up",
-            };
             writeln!(
                 output,
-                "Selected option ID: {}\nSelected outcome: {outcome}",
-                option.id
+                "Selected option ID: {}\nSelected outcome: {}",
+                option.id,
+                outcome(option.outcome)
             )?;
             writeln!(output, "\nSelected option:\n{}", option.text)?;
         }

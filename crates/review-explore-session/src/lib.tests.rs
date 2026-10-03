@@ -688,6 +688,44 @@ fn a_reset_round_is_closed_and_reopening_shows_the_start_screen() {
 }
 
 #[test]
+fn a_new_rounds_kickoff_lists_the_earlier_rounds_decisions_without_cancelled_answers() {
+    let mut harness = Harness::start();
+    harness.capture();
+    let first = harness.request(None);
+    let access = harness.turn(&first);
+    let opening = harness.agents.prompts().last().unwrap().text.clone();
+    assert!(applied(harness.submit(&access, question(&first, 1))));
+    let (kept, access) = harness.answer("Keep it, round one.");
+    assert!(applied(harness.submit(&access, question(&kept, 2))));
+    let (withdrawn, _) = harness.answer("Withdrawn comment.");
+    let withdrawn = withdrawn.answer.unwrap().id;
+    harness
+        .session
+        .handle(Input::Command(Command::CancelAnswer(withdrawn.clone())));
+    assert!(
+        harness
+            .next::<ui_events::ExploreAnswerCancelled>()
+            .result
+            .is_ok()
+    );
+    harness.session.handle(Input::Command(Command::Reset));
+
+    harness.capture();
+    let kickoff = harness.request(None);
+    harness.turn(&kickoff);
+    let prompt = harness.agents.prompts().last().unwrap().text.clone();
+
+    let kept = kept.answer.unwrap();
+    assert!(prompt.contains(&kept.id), "{prompt}");
+    assert!(prompt.contains("> Keep it, round one.\n"), "{prompt}");
+    assert!(!prompt.contains(&withdrawn) && !prompt.contains("Withdrawn comment."));
+    assert!(
+        !opening.contains("\n> "),
+        "the first round has no earlier decisions"
+    );
+}
+
+#[test]
 fn resetting_a_latest_round_left_read_only_closes_it() {
     let mut harness = Harness::start();
     harness.capture();

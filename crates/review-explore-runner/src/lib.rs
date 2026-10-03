@@ -1,9 +1,11 @@
 //! Start an Explore interview once, then wake the same agent for each human answer.
 use review_explore::{Comparison, TurnRequest};
 
+mod decisions;
 mod input;
 mod unreviewed;
 
+pub use decisions::EarlierDecisions;
 pub use unreviewed::Unreviewed;
 
 #[derive(Debug)]
@@ -12,16 +14,19 @@ pub struct PreparedTurn {
 }
 
 impl PreparedTurn {
-    /// The prompt for `request`, listing the unreviewed lines.
+    /// The prompt for `request`, listing the unreviewed lines. A kickoff
+    /// also lists the `earlier` decisions of the review.
     pub fn prepare(
         request: &TurnRequest,
         comparison: &Comparison,
         access: &str,
         unreviewed: &Unreviewed,
+        earlier: &EarlierDecisions,
     ) -> Self {
-        let kickoff = request.answer.is_none().then(|| input::Kickoff {
+        let kickoff = request.is_kickoff().then(|| input::Kickoff {
             repository_root: &comparison.repository_root,
             description: comparison.change_description(),
+            decisions: earlier,
         });
         let instructions = Self::instructions(kickoff.is_some(), request.challenger);
         let input = input::TurnInput {
