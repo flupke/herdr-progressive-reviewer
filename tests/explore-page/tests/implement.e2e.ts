@@ -31,6 +31,21 @@ test('the reviewer edits the list to be implemented, sends it, then sees it sent
   await expect(screen.getByRole('button', 'Implement')).toHaveCount(0);
 });
 
+test('a list of several lines is sent with the line breaks a list written in the pane has', async ({
+  explore,
+  screen,
+}) => {
+  const tasks = 'Save the draft with the round.\nTest that a reopened round restores it.';
+  await explore.open();
+  await explore.conclude();
+
+  // Exact actions: the list must receive this exact text, line breaks included.
+  await screen.getByRole('textbox', 'To be implemented').fill(tasks);
+  await screen.getByRole('button', 'Implement').tap();
+  await expect(screen.getByRole('status')).toContainText('Sending the implementation request');
+  expect(await explore.implementations()).toEqual([tasks]);
+});
+
 test('an Implement after the pane sent the request is refused', async ({ explore, screen }) => {
   await explore.open();
   await explore.conclude();

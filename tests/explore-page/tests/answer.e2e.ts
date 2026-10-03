@@ -33,6 +33,24 @@ test('a comment without a choice is sent as the answer', async ({ explore, scree
   expect(await explore.answers()).toEqual([{ question: 'keep-draft', version: 1, choice: null, comment: COMMENT }]);
 });
 
+// A browser posts the line breaks of a text area as CRLF; the pane's editor keeps LF.
+const LINES = 'Keep it for a week.\nThen discard it.';
+
+test('a comment of several lines keeps the line breaks a comment written in the pane has', async ({
+  explore,
+  screen,
+}) => {
+  await explore.open();
+  await explore.askQuestion();
+
+  // Exact actions: the comment must receive this exact text, line breaks included.
+  await screen.getByRole('radio', 'Keep the draft').check();
+  await screen.getByRole('textbox', 'Comment (optional)').fill(LINES);
+  await screen.getByRole('button', 'Send').tap();
+  await expect(screen.getByRole('status')).toContainText('The agent is working');
+  expect(await explore.answers()).toEqual([{ question: 'keep-draft', version: 1, choice: 'keep', comment: LINES }]);
+});
+
 test('the page says how many lines an answer marks, and lists them on request', async ({
   explore,
   screen,

@@ -22,6 +22,7 @@ use crate::citation::CitationContext;
 use crate::command::{PageAnswer, PageCommand, PageImplement};
 use crate::diagram::{self, Diagrams};
 use crate::files::PageFiles;
+use crate::form::TextArea;
 use crate::notice::{Notice, Post, Problem};
 use crate::round::{
     ImplementationState, PageImplementation, PageRound, QuestionMarks, RoundSnapshot, RoundStage,
@@ -248,7 +249,7 @@ struct AnswerForm {
     /// The picked choice's ID; absent when the reviewer picked none.
     choice: Option<String>,
     #[serde(default)]
-    comment: String,
+    comment: TextArea,
 }
 
 /// Hands the reviewer's answer to the round's owner, with the reviewer's first pick of a blind
@@ -267,7 +268,7 @@ async fn answer(
             version: form.version,
             input: AnswerInput {
                 option: form.choice,
-                text: form.comment,
+                text: form.comment.into_string(),
                 in_reply_to: None,
                 first_pick: first_pick.map(|pick| pick.choice),
             },
@@ -340,7 +341,7 @@ struct ImplementForm {
     /// it showed none.
     replaces: Option<String>,
     #[serde(default)]
-    text: String,
+    text: TextArea,
 }
 
 /// Hands the reviewer's Implement to the round's owner, unless the page showed a conclusion
@@ -354,8 +355,7 @@ async fn implement(Admitted(round): Admitted, Form(form): Form<ImplementForm>) -
         let implement = PageImplement {
             conclusion: form.conclusion,
             replaces: form.replaces,
-            // A browser sends a text area's line breaks as CRLF; the pane's editor keeps LF.
-            text: form.text.replace("\r\n", "\n"),
+            text: form.text.into_string(),
         };
         round.commands.send(PageCommand::Implement(implement)).await
     } else {

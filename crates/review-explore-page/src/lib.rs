@@ -20,6 +20,7 @@ mod citation;
 mod command;
 mod diagram;
 mod files;
+mod form;
 mod notice;
 mod page;
 mod round;
