@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+markdown-marks = { path = "../markdown-marks" }
 ratatui.workspace = true
 ratatui-legacy.workspace = true
 ratatui-markdown.workspace = true

@@ -77,6 +77,14 @@ rendered from minijinja templates, with no client framework. While the agent
 works, `assets/page.js` polls the page's status and loads the page again once
 the round has changed.
 
+The agent's Markdown (a question's Context, Door and Blast radius, the
+conclusion) is rendered to HTML on the server by
+[`crates/markdown-html`](../crates/markdown-html), which shows raw HTML as text
+and keeps a fenced block's language as the class `language-<name>` of its
+`<code>`. Callouts (`> [!TIP]`) and table-cell status marks (`[!good]`) are
+defined once in [`crates/markdown-marks`](../crates/markdown-marks): the page,
+the pane's renderer and the kickoff prompt all read them from there.
+
 In the reviewer, the Explore session publishes the stage of its round (no
 round, the agent working, a question, an interrupted turn, the conclusion)
 after each input it handles, and

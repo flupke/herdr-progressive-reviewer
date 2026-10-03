@@ -11,6 +11,5 @@ body { font: 16px/1.5 system-ui, sans-serif; margin: 0 auto; max-width: 44rem; p
 .choice { display: flex; gap: 8px; align-items: center; padding: 10px; border-radius: 6px; border: 1px solid var(--line); }
 .choice:has(input:checked) { border-color: var(--accent); }
 .hint { margin: 12px 0 0; opacity: 0.75; font-size: 0.9em; }
-.prose { white-space: pre-wrap; overflow-wrap: anywhere; }
 .state { padding: 10px; border-radius: 6px; border: 1px solid var(--line); }
 .working { border-color: transparent; background: color-mix(in srgb, var(--accent) 15%, transparent); }

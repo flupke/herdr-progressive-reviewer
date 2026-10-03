@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+markdown-marks = { path = "../markdown-marks" }
 review-explore = { path = "../review-explore" }
 review-repository = { path = "../review-repository" }
 review-source = { path = "../review-source" }

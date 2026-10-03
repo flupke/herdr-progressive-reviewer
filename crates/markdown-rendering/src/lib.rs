@@ -9,6 +9,8 @@ mod compatibility;
 use compatibility::MarkdownStyles;
 mod code_blocks;
 use code_blocks::CodeBlocks;
+mod marks;
+use marks::ReadableMarks;
 
 #[cfg(test)]
 mod tests;
@@ -33,7 +35,7 @@ impl MarkdownRenderer {
         ));
         let theme = MarkdownStyles::new(palette).theme();
         renderer
-            .render(&renderer.parse(text), &theme)
+            .render(&ReadableMarks::apply(renderer.parse(text)), &theme)
             .into_iter()
             .map(MarkdownStyles::line)
             .collect()

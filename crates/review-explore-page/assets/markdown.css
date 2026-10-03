@@ -1,0 +1,60 @@
+/* The agent's Markdown, rendered by the tool (crates/markdown-html): explanations, the Door and
+   Blast radius sections, and the conclusion. */
+:root {
+  --good: light-dark(#1a7f37, #3fb950);
+  --bad: light-dark(#cf222e, #f85149);
+  --warn: light-dark(#9a6700, #d29922);
+  --tip: light-dark(#0969da, #4493f8);
+  --conclusion: light-dark(#8250df, #ab7df8);
+  --code-bg: color-mix(in srgb, currentColor 7%, transparent);
+}
+
+.markdown { overflow-wrap: anywhere; }
+.markdown > :first-child { margin-top: 0; }
+.markdown > :last-child { margin-bottom: 0; }
+.markdown p, .markdown ul, .markdown ol, .markdown pre, .markdown table, .markdown blockquote { margin: 0 0 12px; }
+.markdown ul, .markdown ol { padding-left: 1.4em; }
+.markdown li + li { margin-top: 2px; }
+.markdown h3, .markdown h4, .markdown h5, .markdown h6 { font-size: 1em; margin: 16px 0 6px; }
+.markdown code { font: 0.9em/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--code-bg); border-radius: 4px; padding: 1px 4px; }
+.markdown pre { background: var(--code-bg); border-radius: 6px; padding: 10px 12px; overflow-x: auto; }
+.markdown pre code { background: none; padding: 0; font-size: 0.85em; overflow-wrap: normal; }
+.markdown blockquote { border-left: 3px solid var(--line); padding-left: 12px; opacity: 0.85; }
+.markdown a { color: var(--accent); }
+
+/* Tables scroll sideways on a narrow screen instead of squeezing their columns. */
+.markdown table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; font-size: 0.95em; }
+.markdown th, .markdown td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; overflow-wrap: normal; min-width: 4em; }
+.markdown th { background: var(--code-bg); font-weight: 600; }
+.markdown .align-center { text-align: center; }
+.markdown .align-right { text-align: right; }
+
+/* A table cell's status: a round mark, and a tint of the same color. */
+.markdown .status { display: inline-grid; place-items: center; width: 1.3em; height: 1.3em; border-radius: 50%; color: #fff; font-size: 0.8em; font-weight: 700; line-height: 1; vertical-align: 0.05em; }
+.markdown .status-good { background: color-mix(in srgb, var(--good) 10%, transparent); }
+.markdown .status-bad { background: color-mix(in srgb, var(--bad) 10%, transparent); }
+.markdown .status-warning { background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.markdown .status-good .status { background: var(--good); }
+.markdown .status-bad .status { background: var(--bad); }
+.markdown .status-warning .status { background: var(--warn); }
+
+/* Callouts: a colored bar and title, by kind. */
+.markdown .callout { --kind: var(--tip); border-left: 4px solid var(--kind); background: color-mix(in srgb, var(--kind) 8%, transparent); border-radius: 0 6px 6px 0; padding: 8px 12px; margin: 0 0 12px; }
+.markdown .callout > :last-child { margin-bottom: 0; }
+.markdown .callout-title { color: var(--kind); font-weight: 650; margin: 0 0 4px; }
+.markdown .callout-title::before { display: inline-block; width: 1.2em; }
+.markdown .callout-conclusion { --kind: var(--conclusion); }
+.markdown .callout-conclusion .callout-title::before { content: "◆"; }
+.markdown .callout-tip .callout-title::before { content: "➜"; }
+.markdown .callout-warning { --kind: var(--warn); }
+.markdown .callout-warning .callout-title::before { content: "▲"; }
+.markdown .callout-error { --kind: var(--bad); }
+.markdown .callout-error .callout-title::before { content: "✕"; }
+
+/* The explanation above the choices, and the folded Door and Blast radius sections. */
+.explanation { margin: 0 0 16px; }
+.assessment { border: 1px solid var(--line); border-radius: 6px; margin: 0 0 8px; }
+.assessment > summary { cursor: pointer; padding: 8px 12px; font-weight: 600; }
+.assessment[open] > summary { border-bottom: 1px solid var(--line); }
+.assessment > .markdown { padding: 10px 12px; }
+.assessment:last-of-type { margin-bottom: 16px; }

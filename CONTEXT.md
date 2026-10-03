@@ -108,6 +108,16 @@ A path, side and line range that a question puts before the reviewer as
 evidence, most decisive first. Citing lines does not mark them reviewed.
 _Avoid_: source reference, inspection, supporting reference
 
+**Callout**:
+A quote in the agent's Markdown that opens with a marker, such as `[!TIP]`, for a
+conclusion, a tip, a warning or an error. It shows as a block titled with its kind.
+_Avoid_: alert, admonition
+
+**Status mark**:
+A good, bad or warning mark at the start of a table cell in the agent's Markdown,
+written as a marker such as `[!good]`.
+_Avoid_: badge, emoji
+
 **Not relevant**:
 What the Explore agent calls changed lines it read that hold no decision for the
 reviewer. They get a review mark without a question of their own, and a reason:

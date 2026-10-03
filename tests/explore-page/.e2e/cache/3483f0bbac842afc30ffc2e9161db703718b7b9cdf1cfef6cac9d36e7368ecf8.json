@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "trace-1",
+  "createdAt": "2026-10-03T21:03:10.938Z",
+  "payload": {
+    "actions": [
+      {
+        "name": "tap",
+        "summary": "tap node \"Door\"",
+        "target": {
+          "text": "Door"
+        }
+      }
+    ],
+    "executor": {
+      "name": "e2e-default-agent",
+      "version": "2"
+    },
+    "recordedFor": {
+      "testId": "tests/explanation.e2e.ts::a%20question%20shows%20its%20explanation%2C%20and%20its%20Door%20section%20on%20request",
+      "targetId": "desktop",
+      "instructionDigest": "65623603c056c3586b1592f7db411da4c59f9fbdd234a14dde5e13936ff0d5fb"
+    },
+    "summary": "Tapped the \"Door\" section in Question 1; it expanded and now shows \"Two-way — Removing the field later drops only unsent drafts.\"",
+    "startPath": "/",
+    "endPath": "/",
+    "endAnchors": [
+      {
+        "text": "Two-way — Removing the field later drops only unsent drafts."
+      }
+    ],
+    "endWaitMs": 11708
+  }
+}

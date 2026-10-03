@@ -350,12 +350,19 @@ command = "herdr.progressive-reviewer.explore-page"
 description = "open the Explore page"
 ```
 
-The page shows the round's current question with its choices, or that the agent is
+The page shows the round's current question with its explanation and choices, or that the agent is
 working, that it is no longer working on its turn (Retry it in the reviewer), that no
 round is running, or the round's conclusion. You still answer in the reviewer's Explore tab. While the agent
 works, the page shows its next question or its conclusion as soon as the agent posts it.
 In every other state the page changes only when you load it again: after you answer a
 question in the reviewer, load the page again to follow the agent's next turn.
+
+A question's explanation is its Context, which the agent writes in Markdown: short
+paragraphs, lists, code, and tables whose cells can carry a good, bad or warning mark, and
+callouts for a conclusion, a tip, a warning or an error. The **Door** and **Blast radius**
+sections are folded away until you open them. The page shows raw HTML in the agent's text as
+text. In the pane, a callout opens with its title and a marked cell with its mark (✓, ✗ or
+!).
 
 The page is served only on this machine (`127.0.0.1`), on a port chosen when the reviewer
 starts. Its address carries a token that changes each time the reviewer starts: the page

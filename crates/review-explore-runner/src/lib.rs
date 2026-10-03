@@ -1,4 +1,5 @@
 //! Start an Explore interview once, then wake the same agent for each human answer.
+use markdown_marks::{Callout, Mark, StatusMark};
 use review_explore::{Comparison, TurnRequest};
 
 mod decisions;
@@ -45,13 +46,17 @@ impl PreparedTurn {
     /// relevant) and by the challenger's script when the round has one.
     fn instructions(kickoff: bool, challenger: bool) -> String {
         let turn = if kickoff {
-            include_str!("interview.md")
+            format!(
+                "{}\n\n{}",
+                include_str!("interview.md").trim_end(),
+                Self::explanations()
+            )
         } else {
-            include_str!("wakeup.md")
+            include_str!("wakeup.md").trim_end().to_owned()
         };
         let mut instructions = format!(
             "{}\n\n{}\n\n{}",
-            turn.trim_end(),
+            turn,
             include_str!("prepare.md").trim_end(),
             include_str!("not_relevant.md").trim_end()
         );
@@ -65,6 +70,27 @@ impl PreparedTurn {
             instructions.push_str(script.trim_end());
         }
         instructions
+    }
+
+    /// How to write the Markdown of an explanation, with the markers of its callouts and status
+    /// marks.
+    fn explanations() -> String {
+        fn markers<M: Mark>() -> String {
+            M::ALL
+                .iter()
+                .map(|mark| format!("`{}`", mark.marker()))
+                .collect::<Vec<_>>()
+                .join(", ")
+        }
+        format!(
+            "{}\n\nA callout is a quote that opens with its marker, as in `> {} Run it twice.`: {}.\n\
+             A status mark opens a table cell, as in `| {} 2 ms |`: {}.",
+            include_str!("explanation.md").trim_end(),
+            Callout::Tip.marker(),
+            markers::<Callout>(),
+            StatusMark::Good.marker(),
+            markers::<StatusMark>(),
+        )
     }
 
     pub fn prompt(self) -> String {

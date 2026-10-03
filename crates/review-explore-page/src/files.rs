@@ -2,12 +2,19 @@
 
 use std::path::{Path, PathBuf};
 
-use minijinja::Environment;
+use markdown_html::HtmlRenderer;
+use minijinja::{Environment, Value};
 use serde::Serialize;
 use tokio::sync::watch;
 
 /// Templates by name. minijinja escapes HTML in templates whose name ends with `.html`.
-const TEMPLATES: &[(&str, &str)] = &[("page.html", include_str!("../templates/page.html"))];
+const TEMPLATES: &[(&str, &str)] = &[
+    ("page.html", include_str!("../templates/page.html")),
+    (
+        "explanation.html",
+        include_str!("../templates/explanation.html"),
+    ),
+];
 
 /// Assets by name, with their content type.
 const ASSETS: &[Asset] = &[
@@ -21,6 +28,12 @@ const ASSETS: &[Asset] = &[
         name: "style.css",
         content_type: "text/css",
         body: include_str!("../assets/style.css"),
+        development: false,
+    },
+    Asset {
+        name: "markdown.css",
+        content_type: "text/css",
+        body: include_str!("../assets/markdown.css"),
         development: false,
     },
     Asset {
@@ -61,7 +74,7 @@ impl PageFiles {
     ///
     /// When a built-in template does not parse; the e2e tests catch it.
     pub fn embedded() -> Self {
-        let mut environment = Environment::new();
+        let mut environment = environment();
         for (name, source) in TEMPLATES {
             environment
                 .add_template(name, source)
@@ -91,7 +104,7 @@ impl PageFiles {
         match &self.0 {
             Source::Embedded(environment) => environment.get_template(name)?.render(context),
             Source::Disk { root, .. } => {
-                let mut environment = Environment::new();
+                let mut environment = environment();
                 environment.set_loader(minijinja::path_loader(root.join("templates")));
                 environment.get_template(name)?.render(context)
             }
@@ -123,6 +136,21 @@ impl PageFiles {
             Source::Disk { changes, .. } => Some(changes.clone()),
         }
     }
+}
+
+/// The templates' environment, with the filter `markdown`: `{{ text | markdown(2) }}` renders
+/// the agent's Markdown `text` as HTML that sits under an `<h2>`, and puts it in the page as it
+/// is.
+fn environment() -> Environment<'static> {
+    let mut environment = Environment::new();
+    environment.add_filter("markdown", |text: &str, under_heading: usize| {
+        Value::from_safe_string(
+            HtmlRenderer::under_heading(under_heading)
+                .render(text)
+                .into_string(),
+        )
+    });
+    environment
 }
 
 fn watch_files(

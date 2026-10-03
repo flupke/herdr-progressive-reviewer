@@ -16,40 +16,10 @@ impl ExploreComponent {
         layout: &mut ConversationLayout,
         palette: Palette,
     ) {
-        let context = [&question.rationale, &question.visual]
-            .into_iter()
-            .flatten()
-            .map(String::as_str)
-            .filter(|text| !text.trim().is_empty())
-            .collect::<Vec<_>>()
-            .join("\n\n");
-        layout.section("Context", &context, palette);
+        layout.section("Context", &question.context(), palette);
         if let Some(assessment) = &question.assessments {
-            for (title, mut body, lens) in [
-                (
-                    "Door",
-                    format!(
-                        "{} — {}",
-                        assessment.door.label(),
-                        assessment.reversibility.summary
-                    ),
-                    &assessment.reversibility,
-                ),
-                (
-                    "Blast radius",
-                    assessment.blast_radius.summary.clone(),
-                    &assessment.blast_radius,
-                ),
-            ] {
-                if !lens.details.trim().is_empty() {
-                    body.push_str("\n\n");
-                    body.push_str(&lens.details);
-                }
-                for unknown in &lens.unknowns {
-                    body.push_str("\n\nUnknown: ");
-                    body.push_str(unknown);
-                }
-                layout.section(title, &body, palette);
+            for section in assessment.sections() {
+                layout.section(section.title, &section.body, palette);
             }
         }
     }

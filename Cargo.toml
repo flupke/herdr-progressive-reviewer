@@ -22,6 +22,8 @@ members = [
     "crates/diff-rendering",
     "crates/diff-search",
     "crates/diff-position",
+    "crates/markdown-html",
+    "crates/markdown-marks",
     "crates/markdown-rendering",
     "crates/syntax-highlighting",
     "crates/ui-actions",
@@ -80,6 +82,7 @@ lsp-server = "0.10"
 lsp-types = "0.97"
 minijinja = { version = "2", features = ["loader"] }
 notify = "8.2"
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 ratatui = { version = "0.30", default-features = false, features = ["underline-color"] }
 # ratatui-markdown has not migrated to 0.30; confine its types to markdown-rendering.
 ratatui-legacy = { package = "ratatui", version = "0.29", default-features = false }

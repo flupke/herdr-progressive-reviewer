@@ -3,6 +3,8 @@
 use review_explore::{Alternative, Conclusion, Question, TopicStatus};
 use review_explore_page::RoundStage;
 
+use crate::fixed_explanation;
+
 /// The round's question `number`, from 1: the fixed questions in turn.
 pub(crate) fn question_stage(number: usize) -> RoundStage {
     let question = if number % 2 == 1 {
@@ -26,14 +28,19 @@ pub(crate) fn conclusion_stage() -> RoundStage {
 }
 
 fn keep_draft() -> Question {
-    question(
-        "keep-draft",
-        "Should a reopened round keep the reviewer's unsent draft?",
-        vec![
-            alternative("keep", "Keep the draft", TopicStatus::Accepted),
-            alternative("discard", "Discard the draft", TopicStatus::NeedsFollowUp),
-        ],
-    )
+    Question {
+        rationale: Some(fixed_explanation::RATIONALE.into()),
+        visual: Some(fixed_explanation::VISUAL.into()),
+        assessments: Some(fixed_explanation::assessments()),
+        ..question(
+            "keep-draft",
+            "Should a reopened round keep the reviewer's unsent draft?",
+            vec![
+                alternative("keep", "Keep the draft", TopicStatus::Accepted),
+                alternative("discard", "Discard the draft", TopicStatus::NeedsFollowUp),
+            ],
+        )
+    }
 }
 
 fn draft_storage() -> Question {

@@ -15,6 +15,7 @@
 //! Each e2e test opens its own session through the routes of [`control`].
 
 mod control;
+mod fixed_explanation;
 mod fixed_question;
 mod sessions;
 

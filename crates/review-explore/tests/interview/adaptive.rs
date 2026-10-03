@@ -407,3 +407,34 @@ fn repeating_a_recorded_finding_on_a_new_turn_does_not_duplicate_required_work()
     );
     assert_eq!(exploration.conversation.len(), 3);
 }
+
+#[test]
+fn a_question_gives_its_context_then_its_door_and_blast_radius() {
+    let mut question = question(1);
+    question.rationale = Some("The cache sits before the origin.".into());
+    question.visual = Some("```text\nclient -> cache -> origin\n```".into());
+    assert_eq!(
+        question.context(),
+        "The cache sits before the origin.\n\n```text\nclient -> cache -> origin\n```"
+    );
+    question.rationale = Some("  ".into());
+    assert_eq!(
+        question.context(),
+        "```text\nclient -> cache -> origin\n```"
+    );
+
+    let [door, blast_radius] = assessments(Door::TwoWay).sections();
+    assert_eq!(door.title, "Door");
+    assert_eq!(
+        door.body,
+        "Two-way — Cache can be rebuilt\n\n\
+         Only while authoritative reads and rebuild capacity remain available"
+    );
+    assert_eq!(blast_radius.title, "Blast radius");
+    assert_eq!(
+        blast_radius.body,
+        "Concurrent cache misses can overload the shared origin\n\n\
+         Every instance uses the origin; local rollback cannot undo requests already sent\n\n\
+         Unknown: Deployment concurrency and origin capacity"
+    );
+}

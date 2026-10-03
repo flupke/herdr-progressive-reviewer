@@ -10,7 +10,7 @@ use axum::middleware::{self, Next};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use review_explore::{Alternative, Conclusion, Question};
+use review_explore::{Alternative, Assessments, Conclusion, Question, QuestionSection};
 use serde::{Deserialize, Serialize};
 
 use crate::access::{Hosts, TokenCookie};
@@ -195,7 +195,8 @@ async fn index<R: Rounds>(
     }
 }
 
-/// What the template `page.html` receives.
+/// What the template `page.html` receives. The templates turn the agent's Markdown into HTML
+/// with the filter `markdown` (see [`PageFiles`]).
 #[derive(Serialize)]
 struct PageContext<'a> {
     revision: u64,
@@ -210,6 +211,10 @@ struct PageContext<'a> {
 struct QuestionContext<'a> {
     number: usize,
     text: &'a str,
+    /// The Context section, in Markdown; empty when the question has none.
+    context: String,
+    /// The Door and Blast radius sections, folded away until the reviewer opens them.
+    sections: Vec<QuestionSection>,
     /// The agent's alternatives, then None of the above.
     choices: Vec<&'a Alternative>,
 }
@@ -254,6 +259,12 @@ impl<'a> QuestionContext<'a> {
         Self {
             number,
             text: &question.text,
+            context: question.context(),
+            sections: question
+                .assessments
+                .iter()
+                .flat_map(Assessments::sections)
+                .collect(),
             choices: question.choices().collect(),
         }
     }

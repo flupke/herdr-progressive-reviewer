@@ -1,4 +1,5 @@
 use super::*;
+use markdown_marks::{Callout, Mark, StatusMark};
 use review_explore::{Exploration, ReviewerAnswer};
 use std::sync::Arc;
 
@@ -415,5 +416,22 @@ fn the_challengers_script_asks_for_every_field_and_result_of_a_proposal() {
     assert!(PreparedTurn::instructions(false, true).contains(&format!("`{FIELD}`")));
     for kickoff in [true, false] {
         assert!(!PreparedTurn::instructions(kickoff, false).contains(FIELD));
+    }
+}
+
+#[test]
+fn the_kickoff_names_the_marker_of_every_callout_and_status_mark() {
+    let markers = Callout::ALL
+        .iter()
+        .map(|callout| callout.marker())
+        .chain(StatusMark::ALL.iter().map(|mark| mark.marker()));
+    let kickoff = PreparedTurn::instructions(true, false);
+    let wakeup = PreparedTurn::instructions(false, false);
+    for marker in markers {
+        assert!(kickoff.contains(&format!("`{marker}`")), "{marker}");
+        assert!(
+            !wakeup.contains(marker),
+            "the kickoff states them once: {marker}"
+        );
     }
 }

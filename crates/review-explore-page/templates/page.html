@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Explore</title>
 <link rel="stylesheet" href="/assets/style.css">
+<link rel="stylesheet" href="/assets/markdown.css">
 </head>
 <body>
 <main id="round" data-revision="{{ revision }}" data-working="{{ "true" if stage == "working" else "false" }}">
@@ -20,6 +21,7 @@
   <section class="question" aria-labelledby="question-{{ question.number }}-title">
     <h2 id="question-{{ question.number }}-title">Question {{ question.number }}</h2>
     <p class="text">{{ question.text }}</p>
+    {% include "explanation.html" %}
     <fieldset class="choices">
       <legend>Choices</legend>
       {% for choice in question.choices %}
@@ -32,17 +34,17 @@
   {% if conclusion %}
   <section class="conclusion" aria-labelledby="conclusion-title">
     <h2 id="conclusion-title">Conclusion</h2>
-    <p class="prose">{{ conclusion.summary }}</p>
+    <div class="markdown">{{ conclusion.summary | markdown(2) }}</div>
     {% if conclusion.to_be_implemented %}
     <section aria-labelledby="to-be-implemented-title">
       <h3 id="to-be-implemented-title">To be implemented</h3>
-      <p class="prose">{{ conclusion.to_be_implemented }}</p>
+      <div class="markdown">{{ conclusion.to_be_implemented | markdown(3) }}</div>
     </section>
     {% endif %}
     {% if conclusion.future_work %}
     <section aria-labelledby="future-work-title">
       <h3 id="future-work-title">Future work</h3>
-      <p class="prose">{{ conclusion.future_work }}</p>
+      <div class="markdown">{{ conclusion.future_work | markdown(3) }}</div>
     </section>
     {% endif %}
   </section>

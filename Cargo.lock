@@ -2981,9 +2981,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3e2e65a1a2e43cfcb47a895c4c8b10d1f4a61097f9f254f183aee60cad9c651d"
 
 [[package]]
+name = "markdown-html"
+version = "0.2.0"
+dependencies = [
+ "markdown-marks",
+ "pulldown-cmark",
+]
+
+[[package]]
+name = "markdown-marks"
+version = "0.2.0"
+
+[[package]]
 name = "markdown-rendering"
 version = "0.2.0"
 dependencies = [
+ "markdown-marks",
  "ratatui 0.29.0",
  "ratatui 0.30.2",
  "ratatui-markdown",
@@ -3516,6 +3529,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "pulldown-cmark"
+version = "0.13.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e9f068eba8e7071c5f9511831b44f32c740d5adf574e990f946ddb53db2f314e"
+dependencies = [
+ "bitflags 2.13.1",
+ "memchr",
+ "pulldown-cmark-escape",
+ "unicase",
+]
+
+[[package]]
+name = "pulldown-cmark-escape"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "007d8adb5ddab6f8e3f491ac63566a7d5002cc7ed73901f72057943fa71ae1ae"
+
+[[package]]
 name = "quinn"
 version = "0.11.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3918,6 +3949,7 @@ name = "review-explore-page"
 version = "0.2.0"
 dependencies = [
  "axum",
+ "markdown-html",
  "minijinja",
  "notify",
  "review-explore",
@@ -3956,6 +3988,7 @@ dependencies = [
 name = "review-explore-runner"
 version = "0.2.0"
 dependencies = [
+ "markdown-marks",
  "review-explore",
  "review-repository",
  "review-source",
@@ -5586,6 +5619,12 @@ checksum = "7c8a2469e56e6e5095c82ccd3afb98dad95f7af7929aab6d8ba8d6e0f73657da"
 dependencies = [
  "arrayvec",
 ]
+
+[[package]]
+name = "unicase"
+version = "2.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dbc4bc3a9f746d862c45cb89d705aa10f187bb96c76001afab07a0d35ce60142"
 
 [[package]]
 name = "unicode-bom"
