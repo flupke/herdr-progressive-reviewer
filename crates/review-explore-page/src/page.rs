@@ -19,11 +19,14 @@ use serde::{Deserialize, Serialize};
 use crate::access::{Hosts, TokenCookie};
 use crate::blind::{BlindQuestion, FirstPick};
 use crate::citation::CitationContext;
-use crate::command::{PageAnswer, PageCommand};
+use crate::command::{PageAnswer, PageCommand, PageImplement};
 use crate::diagram::{self, Diagrams};
 use crate::files::PageFiles;
 use crate::notice::{Notice, Post, Problem};
-use crate::round::{PageRound, QuestionMarks, RoundSnapshot, RoundStage, Rounds};
+use crate::round::{
+    ImplementationState, PageImplementation, PageRound, QuestionMarks, RoundSnapshot, RoundStage,
+    Rounds,
+};
 
 /// Scripts, styles and form posts only from the page itself, and no inline script. Inline
 /// styles are allowed for Mermaid, which writes them into each diagram it draws: without them
@@ -94,6 +97,7 @@ impl<R: Rounds> ExplorePage<R> {
             .route("/pick", post(pick))
             .route("/answer", post(answer))
             .route("/start", post(start))
+            .route("/implement", post(implement))
             .route("/assets/{name}", get(asset::<R>))
             .route("/dev/changes", get(dev_changes::<R>))
             .route(
@@ -328,6 +332,41 @@ async fn pick(
     })
 }
 
+/// The reviewer's Implement, as the conclusion's form posts it.
+#[derive(Deserialize)]
+struct ImplementForm {
+    conclusion: String,
+    /// The delivery of the conclusion's request that the page showed as not sent; absent when
+    /// it showed none.
+    replaces: Option<String>,
+    #[serde(default)]
+    text: String,
+}
+
+/// Hands the reviewer's Implement to the round's owner, unless the page showed a conclusion
+/// that no longer offers it, then shows the page again with what became of it.
+async fn implement(Admitted(round): Admitted, Form(form): Form<ImplementForm>) -> Response {
+    let offered = round
+        .stages
+        .stage()
+        .offers_implement(&form.conclusion, form.replaces.as_deref());
+    let sent = if offered {
+        let implement = PageImplement {
+            conclusion: form.conclusion,
+            replaces: form.replaces,
+            // A browser sends a text area's line breaks as CRLF; the pane's editor keeps LF.
+            text: form.text.replace("\r\n", "\n"),
+        };
+        round.commands.send(PageCommand::Implement(implement)).await
+    } else {
+        Err(Problem::Stale)
+    };
+    to_page(
+        sent.err()
+            .map(|problem| Notice::new(Post::Implement, problem).cookie()),
+    )
+}
+
 /// Redirects to the page, setting `cookie` when given (post, redirect, get).
 fn to_page(cookie: Option<HeaderValue>) -> Response {
     let mut response = Redirect::to("/").into_response();
@@ -343,8 +382,11 @@ fn to_page(cookie: Option<HeaderValue>) -> Response {
 struct PageContext<'a> {
     revision: u64,
     stage: Stage,
+    /// Whether the page polls its status: while the agent works, or an implementation request
+    /// is being sent.
+    polls: bool,
     question: Option<QuestionContext<'a>>,
-    conclusion: Option<&'a Conclusion>,
+    conclusion: Option<ConclusionContext<'a>>,
     /// Why the turn the agent no longer works on failed, when its prompt failed.
     failure: Option<&'a str>,
     /// Why the reviewer's latest start of a round failed, while no round runs.
@@ -406,6 +448,21 @@ struct ChoiceContext<'a> {
     checked: bool,
 }
 
+#[derive(Serialize)]
+struct ConclusionContext<'a> {
+    /// The request of the agent's turn that posted the conclusion.
+    request: &'a str,
+    /// The summary and the future work, in Markdown.
+    summary: &'a str,
+    future_work: &'a str,
+    /// The list to be implemented that the form starts from, as raw text: the agent's, or the
+    /// reviewer's own list of a request that was not sent.
+    draft: &'a str,
+    /// Whether the page offers Implement.
+    offers_implement: bool,
+    /// The latest implementation request of the conclusion.
+    implementation: Option<&'a PageImplementation>,
+}
 /// What an answer to the question marks: a summary, and the lines on request.
 #[derive(Serialize)]
 struct MarksContext {
@@ -458,6 +515,7 @@ impl<'a> PageContext<'a> {
         let mut context = Self {
             revision: round.revision,
             stage: Stage::NoRound,
+            polls: false,
             question: None,
             conclusion: None,
             failure: None,
@@ -472,12 +530,18 @@ impl<'a> PageContext<'a> {
         };
         match &round.stage {
             RoundStage::NoRound => {}
-            RoundStage::Starting => context.stage = Stage::Starting,
+            RoundStage::Starting => {
+                context.stage = Stage::Starting;
+                context.polls = true;
+            }
             RoundStage::StartFailed { failure } => {
                 context.stage = Stage::StartFailed;
                 context.start_failure = Some(failure);
             }
-            RoundStage::AgentWorking => context.stage = Stage::Working,
+            RoundStage::AgentWorking => {
+                context.stage = Stage::Working;
+                context.polls = true;
+            }
             RoundStage::Question {
                 number,
                 question,
@@ -493,9 +557,21 @@ impl<'a> PageContext<'a> {
                 context.stage = Stage::Interrupted;
                 context.failure = failure.as_deref();
             }
-            RoundStage::Conclusion(conclusion) => {
+            RoundStage::Conclusion {
+                request,
+                conclusion,
+                implementation,
+            } => {
                 context.stage = Stage::Conclusion;
-                context.conclusion = Some(conclusion);
+                context.polls = implementation.as_ref().is_some_and(|implementation| {
+                    implementation.state == ImplementationState::Sending
+                });
+                context.conclusion = Some(ConclusionContext::new(
+                    &round.stage,
+                    request,
+                    conclusion,
+                    implementation.as_ref(),
+                ));
             }
         }
         context
@@ -568,6 +644,28 @@ impl<'a> ChoiceContext<'a> {
     }
 }
 
+impl<'a> ConclusionContext<'a> {
+    fn new(
+        stage: &RoundStage,
+        request: &'a str,
+        conclusion: &'a Conclusion,
+        implementation: Option<&'a PageImplementation>,
+    ) -> Self {
+        let replaces = implementation.map(|implementation| implementation.delivery.as_str());
+        let offers_implement = stage.offers_implement(request, replaces);
+        Self {
+            request,
+            summary: &conclusion.summary,
+            future_work: &conclusion.future_work,
+            draft: match implementation {
+                Some(implementation) if offers_implement => &implementation.text,
+                _ => &conclusion.to_be_implemented,
+            },
+            offers_implement,
+            implementation,
+        }
+    }
+}
 impl MarksContext {
     fn new(marks: &QuestionMarks) -> Option<Self> {
         let summary = marks.counts().summary(MarkTense::Pending);

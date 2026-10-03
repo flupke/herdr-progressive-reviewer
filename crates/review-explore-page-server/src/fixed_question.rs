@@ -4,7 +4,7 @@ use review_explore::{
     Alternative, CodeLocation, Conclusion, EvidenceRef, NotRelevantMark, NotRelevantReason,
     Question, SourceSide, TopicStatus,
 };
-use review_explore_page::{QuestionMarks, RoundStage};
+use review_explore_page::{PageImplementation, QuestionMarks, RoundStage};
 use review_repository::repository::RepoPath;
 use review_source::SourceLineRange;
 
@@ -27,13 +27,23 @@ pub(crate) fn question_stage(number: usize, question: Option<Question>) -> Round
     }
 }
 
-/// The fixed conclusion.
-pub(crate) fn conclusion_stage() -> RoundStage {
-    RoundStage::Conclusion(Box::new(Conclusion {
-        summary: "A reopened round keeps the reviewer's unsent draft.".into(),
-        to_be_implemented: "Save the draft with the round.".into(),
-        future_work: "Offer to discard an old draft.".into(),
-    }))
+/// The request of the agent's turn that posts the fixed conclusion.
+pub(crate) const CONCLUSION_REQUEST: &str = "conclusion";
+
+/// The list to be implemented of the fixed conclusion.
+pub(crate) const TO_BE_IMPLEMENTED: &str = "Save the draft with the round.";
+
+/// The fixed conclusion, with the latest implementation request the reviewer authorized.
+pub(crate) fn conclusion_stage(implementation: Option<PageImplementation>) -> RoundStage {
+    RoundStage::Conclusion {
+        request: CONCLUSION_REQUEST.into(),
+        conclusion: Box::new(Conclusion {
+            summary: "A reopened round keeps the reviewer's unsent draft.".into(),
+            to_be_implemented: TO_BE_IMPLEMENTED.into(),
+            future_work: "Offer to discard an old draft.".into(),
+        }),
+        implementation,
+    }
 }
 
 /// Cites the new `reopen`, then the round as it was before the change.

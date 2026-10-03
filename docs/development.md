@@ -81,11 +81,14 @@ page's cookie: the page hands each one to the round's owner as a
 get). A refusal travels to that next load in a short-lived cookie, which the
 page shows once, worded by the template partial of its post
 (`templates/notice-{post}.html`). Before it sends an answer, the page checks that the round
-still asks the question it showed; the owner checks again against its own
-round. On a question whose Door is not two-way, the page hides the
-recommendation until the reviewer's first pick (`src/blind.rs`): the pick is a
-form post that the page keeps in a cookie, not a command, and the answer then
-carries it to the owner as `AnswerInput::first_pick`.
+still asks the question it showed; before an Implement, that the conclusion
+still offers it in place of the request the page showed, if any. The owner
+checks again against its own round. The page also polls while an
+implementation request is being sent. On a question whose Door is not two-way,
+the page hides the recommendation until the reviewer's first pick
+(`src/blind.rs`): the pick is a form post that the page keeps in a cookie, not
+a command, and the answer then carries it to the owner as
+`AnswerInput::first_pick`.
 
 The agent's Markdown (the design explanation, a question's Context, Door and
 Blast radius, the conclusion) is rendered to HTML on the server by
@@ -125,7 +128,14 @@ refuses an answer to a question that has one already. A start from the page
 replies at once, then captures the change and returns the kickoff to the
 reviewer's worker (`ExploreSession::start_from_page`), which lets Jev mark
 first as for a kickoff from the pane; the pane shows the round once the session
-announces the saved kickoff. It records
+announces the saved kickoff. An Implement from the page builds the request as
+the pane's does. Once the conclusion has a request that this process sends or
+that the agent received, the session refuses another, from the page or from the
+pane, so a repeated or stale Implement cannot start a second implementation; a
+request an earlier process left paused or unknown stays the pane's to resolve.
+The session's stage tells a request this process is sending from one an earlier
+process left paused or unknown, and follows its delivery through the storage
+watcher. The pane shows a request the page sent as its own. It records
 the page's address, readable only by the user, under
 `$HERDR_PLUGIN_STATE_DIR/explore-page/`, one record per Herdr workspace. The
 Herdr action `explore-page` (`reviewer-control explore-page`) reads the record
@@ -212,7 +222,8 @@ Each test gets its own round on the server, through the `explore` fixture of
 reviewer's pane: the round starts with the agent working,
 `explore.askQuestion()` posts the next question, `explore.answerInPane()`
 answers it in the pane, `explore.cancelAnswerInPane()` cancels that answer,
-`explore.failDelivery()` fails the prompt of the agent's next turn, and
+`explore.failDelivery()` fails the prompt the session sends (the conclusion's
+implementation request while it sends one, else the agent's next turn), and
 `explore.interrupt()`, `explore.conclude()` and `explore.reset()` move the
 round to the other stages. An answer sent from the page puts the agent to work,
 and `explore.answers()` returns what the page sent; `explore.diagramErrors()`
@@ -221,7 +232,10 @@ The second fixed question carries a diagram that draws and one that does not
 parse. A start sent from the page shows the round starting,
 `explore.sendKickoff()` puts the agent to work on it (or stands for a round
 started in the pane), `explore.failStart()` fails the start, and
-`explore.starts()` returns the starts the page sent. The server's control
+`explore.starts()` returns the starts the page sent. An Implement from the page
+shows the request as being sent until `explore.deliverImplementation()`;
+`explore.implementInPane()` sends the conclusion's request from the pane, and
+`explore.implementations()` returns the lists the page sent. The server's control
 routes are listed in
 [`control.rs`](../crates/review-explore-page-server/src/control.rs); a
 `question` step takes an optional JSON `Question` body for a question of the

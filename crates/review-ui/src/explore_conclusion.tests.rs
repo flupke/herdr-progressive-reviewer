@@ -250,6 +250,49 @@ fn conclusion_has_its_own_page_and_sends_only_the_edited_tasks_once() {
 }
 
 #[test]
+fn a_request_sent_from_the_explore_page_shows_as_sending_then_sent_and_cannot_be_sent_again() {
+    let (mut fixture, kickoff) = ExploreUi::new();
+    let conclusion = finish(&mut fixture, &kickoff);
+    let request = ImplementationRequest {
+        instance: kickoff.instance.clone(),
+        conclusion: conclusion.request.clone(),
+        delivery: "page-delivery".into(),
+        text: "Edited on the page.".into(),
+    };
+    let round = authorized_round(&fixture, &kickoff, conclusion, &request);
+    let saved = round.implementations[&request.delivery].clone();
+
+    fixture
+        .app
+        .publish(ui_events::ExploreImplementationSaved(saved.clone()));
+
+    let text = fixture.text();
+    assert!(text.contains("Sending implementation request"), "{text}");
+    assert!(text.contains("Edited on the page."), "{text}");
+    assert!(!text.contains(" Implement "), "{text}");
+    assert!(
+        !fixture
+            .app
+            .update(UserInput::Key(Key::ControlEnter))
+            .iter()
+            .any(|action| matches!(action, Action::Explore(Command::Implement(_))))
+    );
+    fixture
+        .app
+        .publish(ui_events::ExploreImplementationFinished {
+            request,
+            attempt: Some(saved.attempt),
+            state: review_explore::DispatchState::Delivered,
+        });
+    let text = fixture.text();
+    assert!(
+        text.contains("Implementation request sent to the agent."),
+        "{text}"
+    );
+    assert!(!text.contains(" Implement "), "{text}");
+}
+
+#[test]
 fn submitted_instructions_stay_read_only_in_both_editor_keymaps() {
     for keymap in [
         comment_editor::EditorKeymap::Regular,

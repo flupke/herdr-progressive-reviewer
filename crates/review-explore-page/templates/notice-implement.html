@@ -1,0 +1,8 @@
+{#- Why the implementation request was not sent. -#}
+{%- if notice.problem.kind == "stale" -%}
+The implementation request was not sent: this conclusion no longer waits for one. A request was sent from the reviewer or from another tab, or the round moved on. The page shows the round as it is now.
+{%- elif notice.problem.kind == "failed" -%}
+The implementation request was not sent: {{ notice.problem.reason }}
+{%- else -%}
+The reviewer did not reply. Load this page again to see whether it sent the implementation request.
+{%- endif -%}

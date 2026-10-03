@@ -1,22 +1,26 @@
 //! Explicitly authorized implementation of an Explore conclusion.
 
 use crate::{ExploreSession, dispatch::DurableDispatch, turn_log::SentTurn};
-use review_explore::ImplementationRequest;
+use review_explore::{DispatchState, ImplementationRequest};
 use std::sync::Arc;
 use ui_events::ExploreImplementationFinished;
 
 impl ExploreSession {
-    pub(crate) fn implement(&mut self, request: ImplementationRequest) {
+    /// Saves the authorized `request`, then prompts the agent with it, and tells the front
+    /// ends. Errs, with the reason, only when the request was not saved: a prompt that fails
+    /// after the save leaves the request saved as not sent.
+    pub(crate) fn implement(&mut self, request: ImplementationRequest) -> Result<(), String> {
         let result = self.prepare_implementation(&request);
         let (agent, round) = match result {
             Ok(result) => result,
             Err(error) => {
+                let error = error.to_string();
                 let _ = self.events.send(ExploreImplementationFinished {
                     request,
                     attempt: None,
-                    state: review_explore::DispatchState::NotSent(error.to_string()),
+                    state: DispatchState::NotSent(error.clone()),
                 });
-                return;
+                return Err(error);
             }
         };
         let _ = self.events.send(ui_events::ExploreImplementationSaved(
@@ -51,6 +55,7 @@ impl ExploreSession {
                 state: DurableDispatch::outcome(&receipt.wait()),
             });
         });
+        Ok(())
     }
 
     fn prepare_implementation(
@@ -70,7 +75,24 @@ impl ExploreSession {
             .loaded_unit
             .clone()
             .ok_or_else(|| eyre::eyre!("No Explore round"))?;
+        // A request this process sends, or one the agent received, holds the conclusion: a
+        // second front end that did not see it yet must not start another implementation. A
+        // request an earlier process left paused or unknown leaves the reviewer the choice.
+        let sending = self.state.implementation.is_some();
         let ((), round) = self.rounds.update(&unit, &request.instance, |round| {
+            let held = round
+                .latest_implementation(&request.conclusion)
+                .filter(|latest| latest.request.delivery != request.delivery)
+                .is_some_and(|latest| match latest.state {
+                    DispatchState::Delivered => true,
+                    DispatchState::Queued | DispatchState::Attempting => sending,
+                    _ => false,
+                });
+            if held {
+                return Err(
+                    "An implementation request for this conclusion was sent already".into(),
+                );
+            }
             round
                 .authorize(request)
                 .map_err(|error| error.to_string())?;
@@ -78,7 +100,7 @@ impl ExploreSession {
                 .implementations
                 .get_mut(&request.delivery)
                 .expect("authorized")
-                .state = review_explore::DispatchState::Queued;
+                .state = DispatchState::Queued;
             Ok(())
         })?;
         self.state.round = Some(round.clone());

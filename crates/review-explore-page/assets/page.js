@@ -1,9 +1,9 @@
-// While a round starts or the agent works, polls the page's status, and loads the page
-// again once the round has changed. In every other state the page changes only when it is loaded
-// again.
+// While a round starts, the agent works, or an implementation request is being sent, polls the
+// page's status, and loads the page again once the round has changed. In every other state the
+// page changes only when it is loaded again.
 (() => {
   const round = document.getElementById('round');
-  if (round.dataset.working !== 'true') return;
+  if (round.dataset.polls !== 'true') return;
   const revision = Number(round.dataset.revision);
 
   async function poll() {
@@ -24,10 +24,10 @@
   setTimeout(poll, 500);
 })();
 
-// Sends an answer once: a second click would post the same answer again, which the tool
-// refuses since the question already has one.
+// Sends an answer or an implementation request once: a second click would post it again,
+// which the tool refuses since the question has an answer, or the conclusion a request, already.
 (() => {
-  for (const form of document.querySelectorAll('form.answer')) {
+  for (const form of document.querySelectorAll('form.answer, form.implement')) {
     form.addEventListener('submit', (event) => {
       if (form.dataset.sent === 'true') {
         event.preventDefault();

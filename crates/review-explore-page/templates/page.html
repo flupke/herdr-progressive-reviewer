@@ -10,7 +10,7 @@
 <link rel="stylesheet" href="/assets/diagrams.css">
 </head>
 <body>
-<main id="round" data-revision="{{ revision }}" data-working="{{ "true" if stage in ["starting", "working"] else "false" }}">
+<main id="round" data-revision="{{ revision }}" data-polls="{{ "true" if polls else "false" }}">
   <h1>Explore</h1>
   {% include "notice.html" %}
   {% if stage in ["no_round", "start_failed"] %}
@@ -35,22 +35,7 @@
   </section>
   {% endif %}
   {% if conclusion %}
-  <section class="conclusion" aria-labelledby="conclusion-title">
-    <h2 id="conclusion-title">Conclusion</h2>
-    <div class="markdown">{{ conclusion.summary | markdown(2) }}</div>
-    {% if conclusion.to_be_implemented %}
-    <section aria-labelledby="to-be-implemented-title">
-      <h3 id="to-be-implemented-title">To be implemented</h3>
-      <div class="markdown">{{ conclusion.to_be_implemented | markdown(3) }}</div>
-    </section>
-    {% endif %}
-    {% if conclusion.future_work %}
-    <section aria-labelledby="future-work-title">
-      <h3 id="future-work-title">Future work</h3>
-      <div class="markdown">{{ conclusion.future_work | markdown(3) }}</div>
-    </section>
-    {% endif %}
-  </section>
+  {% include "conclusion.html" %}
   {% endif %}
 </main>
 <script src="/assets/page.js"></script>

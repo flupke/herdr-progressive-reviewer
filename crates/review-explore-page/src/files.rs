@@ -31,6 +31,10 @@ const TEMPLATES: &[(&str, &str)] = &[
         "notice-pick.html",
         include_str!("../templates/notice-pick.html"),
     ),
+    (
+        "notice-implement.html",
+        include_str!("../templates/notice-implement.html"),
+    ),
     ("start.html", include_str!("../templates/start.html")),
     ("answer.html", include_str!("../templates/answer.html")),
     ("pick.html", include_str!("../templates/pick.html")),
@@ -39,6 +43,14 @@ const TEMPLATES: &[(&str, &str)] = &[
     ("failure.html", include_str!("../templates/failure.html")),
     ("design.html", include_str!("../templates/design.html")),
     ("diagrams.html", include_str!("../templates/diagrams.html")),
+    (
+        "conclusion.html",
+        include_str!("../templates/conclusion.html"),
+    ),
+    (
+        "implement.html",
+        include_str!("../templates/implement.html"),
+    ),
 ];
 
 /// Assets by name, with their content type.

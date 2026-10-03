@@ -47,3 +47,9 @@ body { font: 16px/1.5 system-ui, sans-serif; margin: 0 auto; max-width: 44rem; p
 .choice.recommended { border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); }
 .recommendation { margin: -4px 0 0; padding: 0 10px 0 36px; font-size: 0.9em; overflow-wrap: anywhere; }
 .answer .hint { margin: 0; }
+
+/* The list to be implemented, which the reviewer edits and sends with Implement. */
+.implement { display: grid; gap: 12px; }
+.implement .hint { margin: 0; }
+.tasks { font: inherit; padding: 8px; border-radius: 6px; border: 1px solid var(--line); background: transparent; color: inherit; resize: vertical; }
+.to-be-implemented .failure { margin: 0 0 12px; }

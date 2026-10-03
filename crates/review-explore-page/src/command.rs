@@ -26,6 +26,8 @@ pub enum PageCommand {
         /// Whether the Challenger reviews the change beside the agent.
         challenger: bool,
     },
+    /// Implement the conclusion the page showed.
+    Implement(PageImplement),
 }
 
 /// The reviewer's answer to the question the page showed: only the pick and the comment. The
@@ -40,12 +42,27 @@ pub struct PageAnswer {
     pub input: AnswerInput,
 }
 
+/// The reviewer's Implement of the conclusion the page showed: the list to be implemented, as
+/// the reviewer edited it, and what the page showed of the conclusion's earlier request. The
+/// owner builds the request from its own round.
+#[derive(Debug)]
+pub struct PageImplement {
+    /// The request of the agent's turn that posted the conclusion.
+    pub conclusion: String,
+    /// The delivery of the conclusion's latest implementation request, which the page showed
+    /// as not sent and the new request replaces; `None` when the page showed no request.
+    pub replaces: Option<String>,
+    /// The list to be implemented, as the reviewer edited it.
+    pub text: String,
+}
+
 /// Why the round's owner did not carry out a command.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CommandRefusal {
     /// The round moved on since the page was loaded: the question the page showed no longer
     /// waits for an answer, as it may have one already, from the pane or from another page; or
-    /// a round started since the page showed none.
+    /// a round started since the page showed none; or the conclusion the page showed has
+    /// another implementation request, from the pane or from another page.
     Stale,
     /// The owner could not carry out the command, for this reason.
     Failed(String),

@@ -98,6 +98,11 @@ impl DispatchState {
         }
     }
 
+    /// Whether the agent cannot have received the prompt, so that another may take its place.
+    pub fn undelivered(&self) -> bool {
+        matches!(self, Self::NotSent(_) | Self::Cancelled)
+    }
+
     fn may_retry(&self) -> bool {
         matches!(self, Self::Queued | Self::NotSent(_) | Self::Cancelled)
     }
@@ -448,6 +453,15 @@ impl ExploreRound {
             },
         );
         Ok(true)
+    }
+
+    /// The latest implementation request the reviewer authorized for conclusion `conclusion`,
+    /// named by the request of the turn that posted it.
+    pub fn latest_implementation(&self, conclusion: &str) -> Option<&ImplementationDelivery> {
+        self.implementations
+            .values()
+            .filter(|record| record.request.conclusion == conclusion)
+            .max_by_key(|record| record.authorized_at)
     }
 
     pub fn authorize(&mut self, request: &ImplementationRequest) -> eyre::Result<bool> {

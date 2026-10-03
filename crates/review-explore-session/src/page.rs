@@ -4,11 +4,13 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use review_explore::{Comparison, Exploration, ExploreRound, Question};
+use review_explore::{
+    Comparison, DispatchState, Exploration, ExploreRound, ImplementationDelivery, Question,
+};
 use review_explore_citations::{Citation, CodeColors};
 use review_explore_page::{
-    CommandRefusal, CommandReply, PageAnswer, PageCommand, PublishedRound, QuestionMarks,
-    RoundStage,
+    CommandRefusal, CommandReply, ImplementationState, PageAnswer, PageCommand, PageImplement,
+    PageImplementation, PublishedRound, QuestionMarks, RoundStage,
 };
 use review_source::ReviewCheckpoint;
 
@@ -88,7 +90,25 @@ impl ExploreSession {
                     let _ = self.deliver_turn(kickoff, None);
                 }
             }
+            PageCommand::Implement(implement) => {
+                let result = self.implement_from_page(implement);
+                self.publish_page();
+                reply.send(result);
+            }
         }
+    }
+
+    /// The latest saved copy of the round the pane shows, so that the page never acts on a
+    /// stale copy.
+    fn saved_round(&self) -> Result<ExploreRound, CommandRefusal> {
+        let shown = self.state.round.as_ref().ok_or(CommandRefusal::Stale)?;
+        self.rounds
+            .round(
+                &shown.exploration.comparison.checkpoint.review_unit,
+                &shown.exploration.instance,
+            )
+            .map_err(|error| CommandRefusal::Failed(error.to_string()))?
+            .ok_or(CommandRefusal::Stale)
     }
 
     /// Answers the question the page showed, as the pane would answer it. The turn comes from
@@ -96,15 +116,7 @@ impl ExploreSession {
     /// answered already, from the pane or from another page, is refused.
     fn answer_from_page(&mut self, answer: PageAnswer) -> Result<(), CommandRefusal> {
         let failed = |error: &dyn std::fmt::Display| CommandRefusal::Failed(error.to_string());
-        let shown = self.state.round.as_ref().ok_or(CommandRefusal::Stale)?;
-        let round = self
-            .rounds
-            .round(
-                &shown.exploration.comparison.checkpoint.review_unit,
-                &shown.exploration.instance,
-            )
-            .map_err(|error| failed(&error))?
-            .ok_or(CommandRefusal::Stale)?;
+        let round = self.saved_round()?;
         let question = waiting_question(&round.exploration)
             .filter(|question| question.is_version(&answer.question, answer.version))
             .cloned()
@@ -116,6 +128,32 @@ impl ExploreSession {
             .map_err(|error| failed(&error))?;
         self.deliver_turn(request, None)
             .map_err(CommandRefusal::Failed)
+    }
+
+    /// Implements the conclusion the page showed, as the pane would: the request comes from
+    /// the latest saved round, and an empty list is refused. The page may send one only while
+    /// the conclusion has no request the agent may have received, and only in place of the request
+    /// it showed, so that a repeated or stale Implement cannot start a second implementation.
+    fn implement_from_page(&mut self, implement: PageImplement) -> Result<(), CommandRefusal> {
+        let round = self.saved_round()?;
+        if round.exploration.conclusion_request() != Some(implement.conclusion.as_str()) {
+            return Err(CommandRefusal::Stale);
+        }
+        let offered = match round.latest_implementation(&implement.conclusion) {
+            None => implement.replaces.is_none(),
+            Some(latest) => {
+                latest.state.undelivered()
+                    && implement.replaces.as_deref() == Some(latest.request.delivery.as_str())
+            }
+        };
+        if !offered {
+            return Err(CommandRefusal::Stale);
+        }
+        let request = round
+            .exploration
+            .implementation(implement.text)
+            .map_err(|error| CommandRefusal::Failed(error.to_string()))?;
+        self.implement(request).map_err(CommandRefusal::Failed)
     }
 
     fn page_stage(&mut self) -> RoundStage {
@@ -146,7 +184,8 @@ impl ExploreSession {
                 failure: retry.response_error.clone(),
             };
         }
-        latest_turn(round, &mut self.citations, self.repository.root())
+        let sending = self.state.implementation.is_some();
+        latest_turn(round, sending, &mut self.citations, self.repository.root())
     }
 }
 
@@ -159,14 +198,27 @@ fn waiting_question(exploration: &Exploration) -> Option<&Question> {
     exploration.conversation.last()?.update.next.as_ref()
 }
 
-/// The question or conclusion the agent's latest turn posted.
-fn latest_turn(round: &ExploreRound, citations: &mut PageCitations, root: &Path) -> RoundStage {
+/// The question or conclusion the agent's latest turn posted. `sending` tells whether this
+/// process sends an implementation request.
+fn latest_turn(
+    round: &ExploreRound,
+    sending: bool,
+    citations: &mut PageCitations,
+    root: &Path,
+) -> RoundStage {
     let exploration = &round.exploration;
     let Some(turn) = exploration.conversation.last() else {
         return RoundStage::Interrupted { failure: None };
     };
     if let Some(conclusion) = &turn.update.conclusion {
-        return RoundStage::Conclusion(Box::new(conclusion.clone()));
+        let request = &turn.update.request;
+        return RoundStage::Conclusion {
+            request: request.clone(),
+            conclusion: Box::new(conclusion.clone()),
+            implementation: round
+                .latest_implementation(request)
+                .map(|delivery| page_implementation(delivery, sending)),
+        };
     }
     match &turn.update.next {
         Some(question) => RoundStage::Question {
@@ -176,5 +228,26 @@ fn latest_turn(round: &ExploreRound, citations: &mut PageCitations, root: &Path)
             marks: QuestionMarks::requested(&turn.update),
         },
         None => RoundStage::Interrupted { failure: None },
+    }
+}
+
+/// An implementation request as the page shows it. A request saved as queued or attempting is
+/// on its way when this process sends it; otherwise an earlier process left it paused or with
+/// an unknown outcome.
+fn page_implementation(delivery: &ImplementationDelivery, sending: bool) -> PageImplementation {
+    let state = match &delivery.state {
+        DispatchState::Queued | DispatchState::Attempting if sending => {
+            ImplementationState::Sending
+        }
+        DispatchState::Queued => ImplementationState::Paused,
+        DispatchState::Attempting | DispatchState::Unknown => ImplementationState::Unknown,
+        DispatchState::Delivered => ImplementationState::Sent,
+        DispatchState::NotSent(reason) => ImplementationState::NotSent(reason.clone()),
+        DispatchState::Cancelled => ImplementationState::Cancelled,
+    };
+    PageImplementation {
+        delivery: delivery.request.delivery.clone(),
+        text: delivery.request.text.clone(),
+        state,
     }
 }

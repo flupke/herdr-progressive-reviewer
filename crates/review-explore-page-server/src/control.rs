@@ -6,11 +6,15 @@
 //!   - `question`: the agent posts its next question: the JSON `Question` of the request's
 //!     body, or the fixed questions in turn when the body is empty;
 //!   - `answer`: the reviewer answers in the pane, and the agent works on its next turn;
-//!   - `fail`: the prompt of the agent's next turn could not be delivered;
+//!   - `fail`: the prompt the session sends could not be delivered: the conclusion's
+//!     implementation request, while it sends one, or else the agent's next turn;
 //!   - `cancel`: the reviewer cancels the latest answer in the pane, and its question waits
 //!     again;
 //!   - `interrupt`: the agent stops before its next turn;
 //!   - `conclude`: the agent concludes the round;
+//!   - `implement`: the reviewer implements the conclusion in the pane, and the agent receives
+//!     the request;
+//!   - `deliver`: the agent receives the implementation request the session sends;
 //!   - `reset`: the reviewer resets the round, and no round is running;
 //!   - `kickoff`: the tool sent the kickoff of the round the reviewer started from the page,
 //!     and the agent works on its first turn;
@@ -22,6 +26,8 @@
 //!   reported, each once: `[{"question", "version", "source", "message"}]`.
 //! - `GET /test/sessions/{token}/starts` lists the rounds the reviewer started from the page,
 //!   in order: `[{"challenger"}]`.
+//! - `GET /test/sessions/{token}/implementations` lists the lists to be implemented that the
+//!   reviewer sent from the page, in order.
 //!
 //! These routes exist only in the standalone server. They sit behind the page's host and origin
 //! checks, but need no token.
@@ -43,6 +49,10 @@ pub(crate) fn router(sessions: Sessions) -> Router {
         .route("/test/sessions/{token}/answers", get(answers))
         .route("/test/sessions/{token}/diagram-errors", get(diagram_errors))
         .route("/test/sessions/{token}/starts", get(starts))
+        .route(
+            "/test/sessions/{token}/implementations",
+            get(implementations),
+        )
         .route("/test/sessions/{token}/{step}", post(step))
         .with_state(sessions)
 }
@@ -100,6 +110,13 @@ async fn diagram_errors(State(sessions): State<Sessions>, Path(token): Path<Stri
 async fn starts(State(sessions): State<Sessions>, Path(token): Path<String>) -> Response {
     match sessions.starts(&token) {
         Some(starts) => Json(starts).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+async fn implementations(State(sessions): State<Sessions>, Path(token): Path<String>) -> Response {
+    match sessions.implementations(&token) {
+        Some(implementations) => Json(implementations).into_response(),
         None => StatusCode::NOT_FOUND.into_response(),
     }
 }

@@ -335,7 +335,7 @@ lines unreviewed. Reopen a hunk in Files to review Jev's lines yourself.
 ## Start, follow and answer an Explore round in the browser
 
 The **Explore page** shows the open reviewer's Explore round in a browser, and you can
-start a round and answer the agent's questions there. Run the Herdr
+start a round, answer the agent's questions and implement its conclusion there. Run the Herdr
 action **Open the Explore page of the progressive reviewer**
 (`herdr.progressive-reviewer.explore-page`) from the workspace of an open reviewer: it
 opens the page in the default browser of the machine that runs the reviewer. Set
@@ -388,6 +388,17 @@ refuses to send yours, says so, and shows the round as it is now. In every state
 round starting and the agent working, the page changes only when you load it again,
 start a round or send an answer: after you answer a question in the reviewer, load the
 page again to follow the agent's next turn.
+
+The conclusion shows the agent's summary, the list to be implemented and the future
+work. The list is plain text that you can edit before you press **Implement**, which
+authorizes the agent to implement that list and nothing else, as **Implement** in the
+reviewer does: the agent receives the same request, and an empty list is refused. The
+page then says that the request is being sent, then that the agent received it, with the
+list it sent. A conclusion gets one request: once one was sent, from the reviewer or
+from another tab, the page refuses another and shows the request that was sent. When
+the request could not be sent, the page says why and offers **Implement** again with your
+list. A request saved before the reviewer was reopened, or one whose delivery is
+unknown, is handled in the reviewer.
 
 A question's explanation is its Context, which the agent writes in Markdown: short
 paragraphs, lists, code, and tables whose cells can carry a good, bad or warning mark, and

@@ -6,6 +6,7 @@ use review_explore::{
     CodeLocation, Conclusion, Design, InterviewUpdate, MarkCounts, NotRelevantMark, Question,
 };
 use review_explore_citations::Citation;
+use serde::Serialize;
 use tokio::sync::watch;
 
 use crate::CommandSender;
@@ -40,7 +41,14 @@ pub enum RoundStage {
         failure: Option<String>,
     },
     /// The agent concluded the round.
-    Conclusion(Box<Conclusion>),
+    Conclusion {
+        /// The request of the agent's turn that posted the conclusion.
+        request: String,
+        conclusion: Box<Conclusion>,
+        /// The latest implementation request the reviewer authorized for the conclusion, from
+        /// the pane or from a page; `None` before the first.
+        implementation: Option<PageImplementation>,
+    },
 }
 
 impl RoundStage {
@@ -55,6 +63,65 @@ impl RoundStage {
     /// Whether the reviewer can start a round: none is running or starting.
     pub(crate) fn can_start(&self) -> bool {
         matches!(self, Self::NoRound | Self::StartFailed { .. })
+    }
+
+    /// Whether the stage offers Implement for the conclusion of the turn `conclusion`, in place
+    /// of its request `replaces`, which was not sent, or as its first request when `replaces` is
+    /// `None`.
+    pub(crate) fn offers_implement(&self, conclusion: &str, replaces: Option<&str>) -> bool {
+        let Self::Conclusion {
+            request,
+            implementation,
+            ..
+        } = self
+        else {
+            return false;
+        };
+        request == conclusion
+            && match implementation {
+                None => replaces.is_none(),
+                Some(implementation) => {
+                    implementation.state.allows_another()
+                        && replaces == Some(implementation.delivery.as_str())
+                }
+            }
+    }
+}
+
+/// An implementation request the reviewer authorized for a conclusion, and what became of it.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct PageImplementation {
+    /// The request's delivery identity.
+    pub delivery: String,
+    /// The list to be implemented that the request sends.
+    pub text: String,
+    pub state: ImplementationState,
+}
+
+/// What became of an implementation request, as the page shows it.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(tag = "kind", content = "reason", rename_all = "snake_case")]
+pub enum ImplementationState {
+    /// The reviewer sends it to the agent now.
+    Sending,
+    /// The agent received it.
+    Sent,
+    /// It was saved, then not sent: the reviewer reopened first. The reviewer sends it, or a
+    /// new one, from the pane.
+    Paused,
+    /// Whether the agent received it is unknown.
+    Unknown,
+    /// It could not be sent, for this reason. The reviewer may send another.
+    NotSent(String),
+    /// The reviewer cancelled it before it was sent, and may send another.
+    Cancelled,
+}
+
+impl ImplementationState {
+    /// Whether the reviewer may send another request: the agent cannot have received this one,
+    /// as `review_explore::DispatchState::undelivered` says of the saved request.
+    fn allows_another(&self) -> bool {
+        matches!(self, Self::NotSent(_) | Self::Cancelled)
     }
 }
 

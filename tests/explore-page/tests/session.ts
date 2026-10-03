@@ -32,12 +32,21 @@ export interface Session {
   answerInPane(): Promise<void>;
   /** The reviewer cancels the latest answer in the pane: its question waits again. */
   cancelAnswerInPane(): Promise<void>;
-  /** The prompt of the agent's next turn could not be delivered. */
+  /**
+   * The prompt the session sends could not be delivered: the conclusion's implementation
+   * request, while the session sends one, or else the prompt of the agent's next turn.
+   */
   failDelivery(): Promise<void>;
   /** The answers the reviewer sent from the page, in order. */
   answers(): Promise<SentAnswer[]>;
   /** The diagram errors the page reported, each once: what the tool saves with a question. */
   diagramErrors(): Promise<unknown[]>;
+  /** The reviewer implements the conclusion in the pane, and the agent receives the request. */
+  implementInPane(): Promise<void>;
+  /** The agent receives the implementation request the session sends. */
+  deliverImplementation(): Promise<void>;
+  /** The lists to be implemented that the reviewer sent from the page, in order. */
+  implementations(): Promise<string[]>;
   /** The agent stops before its next turn. */
   interrupt(): Promise<void>;
   /** The agent concludes the round with the standalone server's fixed conclusion. */
@@ -84,6 +93,9 @@ export const test = base.extend<{ explore: Session }>({
       failDelivery: () => step('fail'),
       answers: () => read<SentAnswer[]>('answers'),
       diagramErrors: () => read<unknown[]>('diagram-errors'),
+      implementInPane: () => step('implement'),
+      deliverImplementation: () => step('deliver'),
+      implementations: () => read<string[]>('implementations'),
       interrupt: () => step('interrupt'),
       conclude: () => step('conclude'),
       reset: () => step('reset'),

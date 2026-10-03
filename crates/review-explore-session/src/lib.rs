@@ -238,7 +238,10 @@ impl ExploreSession {
                 let _ = self.deliver_turn(*request, None);
             }
             Command::Retry(request) => self.retry(*request),
-            Command::Implement(request) => self.implement(request),
+            // The pane learns the outcome from the events the session sends.
+            Command::Implement(request) => {
+                let _ = self.implement(request);
+            }
             Command::CancelImplementation => self.state.implementation = None,
             Command::CancelAnswer(answer) => self.cancel_answer(answer),
             Command::Cancel => {

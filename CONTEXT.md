@@ -146,11 +146,12 @@ _Avoid_: cancel (which stops a pending turn), correction, undo, defer
 A browser page, served by the open reviewer, that shows the current state of its
 Explore round: no round, a round starting, the agent working, the
 agent's question with its choices, a turn the agent is no longer working on, or
-the conclusion. The reviewer can start a round and answer the question there, as
-in the pane. Its address carries a token, and the page refuses requests without
-it. The reviewer serves it on this machine, for the Herdr action, and on the
-network, behind a new token for each round, for the QR code in the pane; while
-no round runs, the start screen's token is the one the next round keeps.
+the conclusion. The reviewer can start a round, answer the question and
+implement the conclusion there, as in the pane. Its address carries a token, and
+the page refuses requests without it. The reviewer serves it on this machine,
+for the Herdr action, and on the network, behind a new token for each round, for
+the QR code in the pane; while no round runs, the start screen's token is the
+one the next round keeps.
 _Avoid_: web UI, Explore web, browser view
 
 **First pick**:

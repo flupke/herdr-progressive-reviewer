@@ -1,0 +1,36 @@
+{#- The list to be implemented: raw text the reviewer edits, then sends with Implement; once a
+    request is on its way, what became of it and the list it sends. -#}
+{% set implementation = conclusion.implementation %}
+<section class="to-be-implemented" aria-labelledby="to-be-implemented-title">
+  <h3 id="to-be-implemented-title">To be implemented</h3>
+  {% if conclusion.offers_implement %}
+  {% if implementation and implementation.state.kind == "not_sent" %}
+  <p class="failure" role="alert">The implementation request could not be sent: {{ implementation.state.reason }}</p>
+  {% elif implementation and implementation.state.kind == "cancelled" %}
+  <p class="state" role="status">The implementation request was cancelled before it was sent.</p>
+  {% endif %}
+  <form class="implement" method="post" action="/implement">
+    <input type="hidden" name="conclusion" value="{{ conclusion.request }}">
+    {% if implementation %}
+    <input type="hidden" name="replaces" value="{{ implementation.delivery }}">
+    {% endif %}
+    {#- The parser drops the line break right after the opening tag, so a list that starts with
+        a blank line keeps it. #}
+    <textarea class="tasks" name="text" rows="6" aria-labelledby="to-be-implemented-title">
+{{ conclusion.draft }}</textarea>
+    <p class="hint">Implement asks the agent to implement this list, and nothing else.</p>
+    <button class="send" type="submit">Implement</button>
+  </form>
+  {% else %}
+  {% if implementation.state.kind == "sending" %}
+  <p class="state working" role="status">Sending the implementation request to the agent…</p>
+  {% elif implementation.state.kind == "sent" %}
+  <p class="state" role="status">The implementation request was sent to the agent.</p>
+  {% elif implementation.state.kind == "paused" %}
+  <p class="state" role="status">The implementation request was saved but not sent. Send it, or a new one, in the reviewer.</p>
+  {% else %}
+  <p class="state" role="status">Whether the agent received the implementation request is unknown. Check its conversation in the reviewer before you send a new one.</p>
+  {% endif %}
+  <div class="markdown">{{ implementation.text | markdown(3) }}</div>
+  {% endif %}
+</section>

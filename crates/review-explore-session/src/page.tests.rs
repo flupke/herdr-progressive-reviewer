@@ -1,7 +1,11 @@
 //! The stage of the round the session publishes for the Explore page.
 
 use review_explore::Command;
-use review_explore_page::{CommandRefusal, CommandReply, PageAnswer, PageCommand, RoundStage};
+use review_explore::DispatchState;
+use review_explore_page::{
+    CommandRefusal, CommandReply, ImplementationState, PageAnswer, PageCommand, PageImplement,
+    PageImplementation, RoundStage,
+};
 use review_repository::diff::DiffRow;
 
 use super::*;
@@ -44,10 +48,17 @@ fn the_page_follows_the_round_from_its_kickoff_to_its_conclusion_and_reset() {
     assert!(applied(
         harness.submit(&access, conclusion(&answer, CONCLUSION))
     ));
-    let RoundStage::Conclusion(shown) = harness.page.stage() else {
+    let RoundStage::Conclusion {
+        request,
+        conclusion: shown,
+        implementation,
+    } = harness.page.stage()
+    else {
         panic!("the page shows {:?}", harness.page.stage());
     };
+    assert_eq!(request, answer.request);
     assert_eq!(shown.summary, CONCLUSION);
+    assert_eq!(implementation, None);
 
     harness.session.handle(Input::Command(Command::Reset));
     assert_eq!(harness.page.stage(), RoundStage::NoRound);
@@ -562,4 +573,277 @@ fn a_page_answer_whose_first_pick_is_not_a_choice_is_refused() {
 
     assert!(matches!(reply, Err(CommandRefusal::Failed(_))), "{reply:?}");
     assert!(harness.saved().exploration.answers.is_empty());
+}
+
+impl Harness {
+    /// Send `text` from the Explore page as the list to implement for the conclusion of turn
+    /// `conclusion`, in place of the request `replaces` the page showed, and return the
+    /// session's reply.
+    fn implement_on_page(
+        &mut self,
+        conclusion: &str,
+        replaces: Option<&str>,
+        text: &str,
+    ) -> Result<(), CommandRefusal> {
+        let (reply, replied) = CommandReply::channel();
+        let implement = PageImplement {
+            conclusion: conclusion.into(),
+            replaces: replaces.map(str::to_owned),
+            text: text.into(),
+        };
+        self.session.handle(Input::Page {
+            command: PageCommand::Implement(implement),
+            reply,
+        });
+        replied.blocking_recv().expect("the session replies")
+    }
+
+    /// The request of the turn that posted the round's conclusion.
+    fn conclusion_request(&self) -> String {
+        self.saved()
+            .exploration
+            .conclusion_request()
+            .expect("a conclusion")
+            .to_owned()
+    }
+
+    /// The implementation request the page shows for the conclusion.
+    fn shown_implementation(&self) -> Option<PageImplementation> {
+        match self.page.stage() {
+            RoundStage::Conclusion { implementation, .. } => implementation,
+            stage => panic!("the page shows {stage:?}"),
+        }
+    }
+
+    /// Wait until the implementation request is sent or fails, then pick up the outcome the
+    /// prompt sender saved, as the storage watcher hands it to the session.
+    fn implementation_finished(&mut self) -> ui_events::ExploreImplementationFinished {
+        let finished = self.next::<ui_events::ExploreImplementationFinished>();
+        self.session.handle(Input::StorageChanged);
+        finished
+    }
+}
+
+const EDITED: &str = "Add a regression test.\nAnd document the policy.";
+
+#[test]
+fn an_implement_from_the_page_saves_and_prompts_the_request_the_pane_would() {
+    let mut harness = Harness::start();
+    harness.conclude();
+    let conclusion = harness.conclusion_request();
+    // What the pane would send for the same edited list, from its copy of the round.
+    let pane = harness
+        .saved()
+        .exploration
+        .implementation(EDITED.into())
+        .unwrap();
+
+    assert_eq!(harness.implement_on_page(&conclusion, None, EDITED), Ok(()));
+
+    let finished = harness.implementation_finished();
+    assert_eq!(finished.state, DispatchState::Delivered);
+    let saved = harness.saved();
+    let [delivery] = saved.implementations.values().collect::<Vec<_>>()[..] else {
+        panic!("saved requests: {:?}", saved.implementations);
+    };
+    let expected = review_explore::ImplementationRequest {
+        delivery: delivery.request.delivery.clone(),
+        ..pane
+    };
+    assert_eq!(delivery.request, expected);
+    assert_eq!(finished.request, expected);
+    let prompts = harness.agents.prompts();
+    assert_eq!(
+        prompts.last().unwrap().text,
+        review_explore_runner::implementation_prompt(&expected)
+    );
+}
+
+#[test]
+fn the_page_shows_its_implementation_request_as_sending_then_sent() {
+    let mut harness = Harness::start();
+    harness.conclude();
+    let conclusion = harness.conclusion_request();
+    harness.delivery.close();
+
+    assert_eq!(harness.implement_on_page(&conclusion, None, EDITED), Ok(()));
+
+    let shown = harness.shown_implementation().expect("a request");
+    assert_eq!(
+        (shown.text.as_str(), &shown.state),
+        (EDITED, &ImplementationState::Sending)
+    );
+    harness.delivery.open();
+    harness.implementation_finished();
+    assert_eq!(
+        harness.shown_implementation().map(|shown| shown.state),
+        Some(ImplementationState::Sent)
+    );
+    harness.reopen();
+    assert_eq!(
+        harness.shown_implementation().map(|shown| shown.state),
+        Some(ImplementationState::Sent)
+    );
+}
+
+#[test]
+fn a_request_saved_before_a_reopening_shows_as_paused_on_the_page() {
+    let mut harness = Harness::start();
+    harness.conclude();
+    let conclusion = harness.conclusion_request();
+    harness.delivery.close();
+    assert_eq!(harness.implement_on_page(&conclusion, None, EDITED), Ok(()));
+
+    harness.reopen();
+
+    let shown = harness.shown_implementation().expect("a request");
+    assert_eq!(shown.state, ImplementationState::Paused);
+    assert_eq!(
+        harness.implement_on_page(&conclusion, None, EDITED),
+        Err(CommandRefusal::Stale)
+    );
+    assert_eq!(
+        harness.implement_on_page(&conclusion, Some(&shown.delivery), EDITED),
+        Err(CommandRefusal::Stale),
+        "the reviewer sends a paused request from the pane"
+    );
+    harness.delivery.open();
+}
+
+#[test]
+fn a_repeated_or_stale_implement_from_the_page_starts_no_second_implementation() {
+    let mut harness = Harness::start();
+    harness.conclude();
+    let conclusion = harness.conclusion_request();
+    assert_eq!(harness.implement_on_page(&conclusion, None, EDITED), Ok(()));
+    harness.implementation_finished();
+    let prompts = harness.agents.prompts().len();
+
+    let repeated = harness.implement_on_page(&conclusion, None, EDITED);
+    let other_conclusion = harness.implement_on_page("another-turn", None, EDITED);
+
+    assert_eq!(repeated, Err(CommandRefusal::Stale));
+    assert_eq!(other_conclusion, Err(CommandRefusal::Stale));
+    assert_eq!(harness.saved().implementations.len(), 1);
+    assert_eq!(harness.agents.prompts().len(), prompts);
+
+    let mut pane = Harness::start();
+    pane.conclude();
+    let conclusion = pane.conclusion_request();
+    let request = pane
+        .saved()
+        .exploration
+        .implementation("From the pane.".into())
+        .unwrap();
+    pane.session
+        .handle(Input::Command(Command::Implement(request)));
+    let after_the_pane = pane.implement_on_page(&conclusion, None, EDITED);
+    assert_eq!(after_the_pane, Err(CommandRefusal::Stale));
+    assert_eq!(pane.saved().implementations.len(), 1);
+}
+
+#[test]
+fn an_empty_list_from_the_page_is_refused_as_in_the_pane() {
+    let mut harness = Harness::start();
+    harness.conclude();
+    let conclusion = harness.conclusion_request();
+    let pane = harness
+        .saved()
+        .exploration
+        .implementation(" \n".into())
+        .unwrap_err();
+
+    let reply = harness.implement_on_page(&conclusion, None, " \n");
+
+    assert_eq!(reply, Err(CommandRefusal::Failed(pane.to_string())));
+    assert!(harness.saved().implementations.is_empty());
+    assert_eq!(harness.shown_implementation(), None);
+}
+
+#[test]
+fn after_a_request_that_was_not_sent_the_page_may_send_another() {
+    let mut harness = Harness::start();
+    harness.conclude();
+    let conclusion = harness.conclusion_request();
+    // The agent leaves after the request is saved, before it is sent.
+    harness.delivery.close();
+    assert_eq!(harness.implement_on_page(&conclusion, None, EDITED), Ok(()));
+    harness.agents.remove_agent(&PaneId(PANE.into()));
+    harness.delivery.open();
+    let finished = harness.implementation_finished();
+    assert!(matches!(finished.state, DispatchState::NotSent(_)));
+    let shown = harness.shown_implementation().expect("a request");
+    assert!(
+        matches!(shown.state, ImplementationState::NotSent(_)),
+        "{shown:?}"
+    );
+    harness.agents.upsert_agent(agent());
+
+    assert_eq!(
+        harness.implement_on_page(&conclusion, None, EDITED),
+        Err(CommandRefusal::Stale),
+        "the page did not show the request that was not sent"
+    );
+    assert_eq!(
+        harness.implement_on_page(&conclusion, Some(&shown.delivery), "Only this."),
+        Ok(())
+    );
+    let finished = harness.implementation_finished();
+    assert_eq!(finished.state, DispatchState::Delivered);
+    assert_eq!(finished.request.text, "Only this.");
+}
+
+#[test]
+fn a_pane_implement_that_missed_the_pages_request_starts_no_second_implementation() {
+    let mut harness = Harness::start();
+    harness.conclude();
+    let conclusion = harness.conclusion_request();
+    harness.delivery.close();
+    assert_eq!(harness.implement_on_page(&conclusion, None, EDITED), Ok(()));
+    // The pane's copy of the round, taken before the page's request.
+    let pane = harness
+        .saved()
+        .exploration
+        .implementation("From the pane.".into())
+        .unwrap();
+
+    harness
+        .session
+        .handle(Input::Command(Command::Implement(pane.clone())));
+
+    harness.delivery.open();
+    let finished = [
+        harness.next::<ui_events::ExploreImplementationFinished>(),
+        harness.implementation_finished(),
+    ];
+    let outcomes: Vec<_> = finished
+        .iter()
+        .map(|finished| {
+            let sent = finished.state == DispatchState::Delivered;
+            (finished.request.text.as_str(), sent)
+        })
+        .collect();
+    assert_eq!(outcomes, [("From the pane.", false), (EDITED, true)]);
+    let late = harness
+        .saved()
+        .exploration
+        .implementation("From the pane, later.".into())
+        .unwrap();
+    harness
+        .session
+        .handle(Input::Command(Command::Implement(late)));
+    assert!(matches!(
+        harness
+            .next::<ui_events::ExploreImplementationFinished>()
+            .state,
+        DispatchState::NotSent(_)
+    ));
+    assert_eq!(harness.saved().implementations.len(), 1);
+    let implement_prompts = harness
+        .agents
+        .prompts()
+        .iter()
+        .filter(|prompt| prompt.text.contains("From the pane") || prompt.text.contains(EDITED))
+        .count();
+    assert_eq!(implement_prompts, 1);
 }

@@ -368,12 +368,7 @@ impl ExploreComponent {
 impl ExploreComponent {
     pub(super) fn refresh_implementation_delivery(&mut self, round: &review_explore::ExploreRound) {
         for (id, view) in &mut self.conclusions {
-            let Some(record) = round
-                .implementations
-                .values()
-                .filter(|record| &record.request.conclusion == id)
-                .max_by_key(|record| record.authorized_at)
-            else {
+            let Some(record) = round.latest_implementation(id) else {
                 continue;
             };
             let pending_here =
@@ -425,10 +420,7 @@ impl ExploreComponent {
                 continue;
             }
             let delivery = round
-                .implementations
-                .values()
-                .filter(|record| record.request.conclusion == turn.update.request)
-                .max_by_key(|record| record.authorized_at)
+                .latest_implementation(&turn.update.request)
                 .map_or(Delivery::Ready, Delivery::restored);
             self.conclusions.insert(
                 turn.update.request.clone(),
@@ -454,13 +446,23 @@ impl ExploreComponent {
             return;
         }
         self.implementation_requested = true;
-        if let Some(view) = self.conclusions.get_mut(&record.request.conclusion)
-            && view.delivery.pending_delivery() == Some(record.request.delivery.as_str())
-        {
+        let Some(view) = self.conclusions.get_mut(&record.request.conclusion) else {
+            return;
+        };
+        if view.delivery.pending_delivery() == Some(record.request.delivery.as_str()) {
             view.attempt = Some(record.attempt.clone());
             // A queued result is not a recovered paused request in this running process.
             if record.state != review_explore::DispatchState::Queued {
                 view.delivery = Delivery::restored(record);
+            }
+        } else if record.state == review_explore::DispatchState::Queued {
+            // Another front end, the Explore page, authorized it: this process sends it now.
+            view.delivery = Delivery::Pending(record.request.clone());
+            view.attempt = Some(record.attempt.clone());
+            if self.editor_target == EditorTarget::Implementation
+                && self.general_context.as_ref() == Some(&record.request.conclusion)
+            {
+                self.editing = false;
             }
         }
     }

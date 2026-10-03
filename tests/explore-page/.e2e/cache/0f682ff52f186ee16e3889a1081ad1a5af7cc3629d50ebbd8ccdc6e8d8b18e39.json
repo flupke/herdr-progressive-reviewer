@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "trace-1",
+  "createdAt": "2026-10-03T22:31:00.817Z",
+  "payload": {
+    "actions": [
+      {
+        "name": "tap",
+        "summary": "tap button \"Implement\" in \"To be implemented\"",
+        "target": {
+          "role": "button",
+          "name": "Implement",
+          "within": "To be implemented"
+        }
+      }
+    ],
+    "executor": {
+      "name": "e2e-default-agent",
+      "version": "2"
+    },
+    "recordedFor": {
+      "testId": "tests/implement.e2e.ts::a%20request%20that%20could%20not%20be%20sent%20shows%20why%2C%20and%20keeps%20the%20edited%20list%20to%20send%20again",
+      "targetId": "phone",
+      "instructionDigest": "06c61dc2c96a12ce8d1ca54432665a9f3ce8a95f0afbd1ed5c8126d930cce6e7"
+    },
+    "summary": "Pressed Implement again with the existing list. The page shows “Sending the implementation request to the agent…”",
+    "startPath": "/",
+    "endPath": "/",
+    "endAnchors": [
+      {
+        "role": "status",
+        "name": "Sending the implementation request to the agent…"
+      },
+      {
+        "text": "Save the draft with the round, and test that a reopened round restores it."
+      }
+    ],
+    "endWaitMs": 13013
+  }
+}

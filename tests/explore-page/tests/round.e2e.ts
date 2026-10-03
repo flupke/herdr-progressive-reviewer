@@ -30,7 +30,8 @@ test('the page shows the round once the agent concludes it', async ({ explore, s
   await explore.open();
   await explore.conclude();
   await expect(screen.getByRole('region', 'Conclusion')).toContainText("A reopened round keeps the reviewer's unsent draft.");
-  await expect(screen.getByRole('region', 'To be implemented')).toContainText('Save the draft with the round.');
+  // The list to be implemented is the text the reviewer edits before Implement.
+  await expect(screen.getByRole('textbox', 'To be implemented')).toHaveValue('Save the draft with the round.');
   await expect(screen.getByRole('region', 'Future work')).toContainText('Offer to discard an old draft.');
   await expect(screen.getByRole('status')).toBeHidden();
 });

@@ -80,3 +80,18 @@ test('a two-way question shows the recommendation at once', async ({ explore, sc
   expect(await choiceOrder(screen)).toEqual([...POSTED, 'none-of-the-above']);
   await expect(screen.getByRole('button', 'Send')).toBeVisible();
 });
+
+test('a pick on a question answered in the pane meanwhile is refused', async ({ explore, screen }) => {
+  await explore.open();
+  await explore.askQuestion(question('one_way'));
+  // The page shows the question, and does not follow the answer given in the pane.
+  await expect(screen.getByRole('region', 'Question 1')).toBeVisible();
+  await explore.answerInPane();
+
+  // An exact action: the refusal of this pick is the point of the test, which a goal to pick
+  // would count as a failure.
+  await screen.getByRole('radio', 'Overwrite the older file').check();
+  await screen.getByRole('button', 'Pick').tap();
+  await expect(screen.getByRole('alert')).toContainText('Your pick was not kept');
+  await expect(screen.getByRole('status')).toContainText('The agent is working');
+});
