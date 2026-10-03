@@ -37,3 +37,8 @@ body { font: 16px/1.5 system-ui, sans-serif; margin: 0 auto; max-width: 44rem; p
 .design h3 { font-size: 1em; margin: 16px 16px 6px; }
 .design .markdown { padding: 0 16px; }
 .design details > :last-child { padding-bottom: 16px; }
+
+/* The start of a round, when none is running. */
+.start .hint { margin: 12px 0; }
+.start-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.secondary { font: inherit; padding: 8px 20px; border-radius: 6px; border: 1px solid var(--accent); background: transparent; color: inherit; cursor: pointer; }

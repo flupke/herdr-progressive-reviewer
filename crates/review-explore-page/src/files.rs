@@ -19,6 +19,15 @@ const TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/citations.html"),
     ),
     ("notice.html", include_str!("../templates/notice.html")),
+    (
+        "notice-answer.html",
+        include_str!("../templates/notice-answer.html"),
+    ),
+    (
+        "notice-start.html",
+        include_str!("../templates/notice-start.html"),
+    ),
+    ("start.html", include_str!("../templates/start.html")),
     ("answer.html", include_str!("../templates/answer.html")),
     ("marks.html", include_str!("../templates/marks.html")),
     ("failure.html", include_str!("../templates/failure.html")),

@@ -1,0 +1,16 @@
+{# No round is running: Start and Start with Challenger, as in the reviewer's Explore tab, and
+   why the reviewer's latest start failed. #}
+{% if start_failure %}
+<div class="state failure" role="alert">
+  <p>The round could not be started.</p>
+  <p class="reason">{{ start_failure }}</p>
+</div>
+{% endif %}
+<p class="state" role="status">No Explore round is running.</p>
+<form class="start" method="post" action="/start">
+  <p class="hint">With the Challenger, a second agent with fresh context reviews the change beside the agent.</p>
+  <div class="start-buttons">
+    <button class="send" type="submit">Start</button>
+    <button class="secondary" type="submit" name="challenger" value="true">Start with Challenger</button>
+  </div>
+</form>

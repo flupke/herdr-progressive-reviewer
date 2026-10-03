@@ -74,12 +74,13 @@ The Explore page is a browser page that shows an Explore round. Its routes,
 templates and assets are in
 [`crates/review-explore-page`](../crates/review-explore-page): axum serves HTML
 rendered from minijinja templates, with no client framework. While the agent
-works, `assets/page.js` polls the page's status and loads the page again once
-the round has changed. The reviewer's actions are form posts that need the
+works, and while a round starts, `assets/page.js` polls the page's
+status and loads the page again once the round has changed. The reviewer's actions are form posts that need the
 page's cookie: the page hands each one to the round's owner as a
 `PageCommand`, waits for its reply, then redirects to the page (post, redirect,
 get). A refusal travels to that next load in a short-lived cookie, which the
-page shows once. Before it sends an answer, the page checks that the round
+page shows once, worded by the template partial of its post
+(`templates/notice-{post}.html`). Before it sends an answer, the page checks that the round
 still asks the question it showed; the owner checks again against its own
 round.
 
@@ -106,7 +107,8 @@ source with Mermaid's message and posts the error to `/diagram-errors`, and the
 Explore session saves it with the question (`Exploration::diagram_errors`).
 
 In the reviewer, the Explore session publishes the stage of its round (no
-round, the agent working, a question, an interrupted turn, the conclusion)
+round, a round starting or a failed start, the agent working, a question,
+an interrupted turn, the conclusion)
 after each input it handles, with the lines of the change that each citation of a
 question names (`Comparison::cited_lines`, on the `cited_source` lookup of the pane's
 evidence viewer), colored once per question on the session's thread by
@@ -116,7 +118,11 @@ the page of that round on a free loopback port behind a new token. The page's
 commands join the session's inputs, in the same order as the pane's. For an
 answer from the page, the session builds the turn from its latest saved round
 as the pane would, so the saved answer and the prompt are the same, and it
-refuses an answer to a question that has one already. It records
+refuses an answer to a question that has one already. A start from the page
+replies at once, then captures the change and returns the kickoff to the
+reviewer's worker (`ExploreSession::start_from_page`), which lets Jev mark
+first as for a kickoff from the pane; the pane shows the round once the session
+announces the saved kickoff. It records
 the page's address, readable only by the user, under
 `$HERDR_PLUGIN_STATE_DIR/explore-page/`, one record per Herdr workspace. The
 Herdr action `explore-page` (`reviewer-control explore-page`) reads the record
@@ -125,8 +131,10 @@ of its workspace, checks that the page answers, and opens it with `$BROWSER`,
 
 The host also serves the page on a network interface, for a phone, on the same
 thread and runtime: a second listener with its own host name and a new token for
-each round (`PageHost::share`). It announces the address of each round's page
-to the pane, which draws it with its QR code
+each round (`PageHost::share`). While no round runs, the listener has a token for
+the start screen, which the round started next keeps, so the page that started
+it stays connected. It announces the page's address to the pane each time the
+token or its round changes, and the pane draws it with its QR code
 ([`crates/ui-qr-code`](../crates/ui-qr-code)). The settings are in the
 [usage guide](usage.md#open-the-page-from-a-phone). Herdr test servers turn it
 off (`HERDR_REVIEWER_EXPLORE_NETWORK=off`); a `make vision` session serves it on
@@ -210,7 +218,11 @@ round to the other stages. An answer sent from the page puts the agent to work,
 and `explore.answers()` returns what the page sent; `explore.diagramErrors()`
 returns the diagram errors the page reported, as the review tool saves them.
 The second fixed question carries a diagram that draws and one that does not
-parse. The server's control routes are listed in
+parse. A start sent from the page shows the round starting,
+`explore.sendKickoff()` puts the agent to work on it (or stands for a round
+started in the pane), `explore.failStart()` fails the start, and
+`explore.starts()` returns the starts the page sent. The server's control
+routes are listed in
 [`control.rs`](../crates/review-explore-page-server/src/control.rs); a
 `question` step takes an optional JSON `Question` body for a question of the
 test's own. The server's log of each

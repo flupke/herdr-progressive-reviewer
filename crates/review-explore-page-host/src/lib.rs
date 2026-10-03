@@ -6,7 +6,8 @@
 //! new token, and leaves the page's address in the plugin's state directory, in the record of
 //! its Herdr workspace. The action reads that record through the [`PageDirectory`]. Unless the
 //! [`NetworkAccess`] settings turn it off, the host also [shares](PageHost::share) the page on
-//! a network interface, and announces the address of each round's page for the pane's QR code.
+//! a network interface, and announces the address of each round's page, and of the start
+//! screen's while no round runs, for the pane's QR code.
 
 mod network;
 
@@ -193,13 +194,10 @@ impl PageHost {
 
     /// Also serves the page on `listener`, a network interface's, on the page's thread until
     /// the host drops. Each round gets a new token there, and the token of a round that is no
-    /// longer running opens nothing. `announce` receives the address of each round's page, and
-    /// `None` once no round runs.
-    pub fn share(
-        &self,
-        listener: NetworkListener,
-        announce: impl Fn(Option<&str>) + Send + 'static,
-    ) {
+    /// longer running opens nothing. While no round runs, the page has a token for its start
+    /// screen, which the round started next keeps. `announce` receives the address of the
+    /// page each time its token or the token's round changes.
+    pub fn share(&self, listener: NetworkListener, announce: impl Fn(&str) + Send + 'static) {
         let address = listener.address();
         let tokens = network::RoundTokens::new(self.round.clone());
         let page = ExplorePage::new(
@@ -220,7 +218,7 @@ impl PageHost {
         self.runtime.spawn(async move {
             loop {
                 if let Some(network::Renewed(url)) = tokens.renew(address) {
-                    announce(url.as_deref());
+                    announce(&url);
                 }
                 if !round.changed().await {
                     return;

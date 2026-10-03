@@ -12,7 +12,8 @@ use review_explore::{
 use review_source::ReviewCheckpoint;
 use ui_actions::Action;
 use ui_events::{
-    ExploreCommitted, ExploreFinished, ExplorePosted, ExploreProgress, ExploreRestored,
+    ExploreCommitted, ExploreFinished, ExplorePageStart, ExplorePosted, ExploreProgress,
+    ExploreRestored,
 };
 
 use super::rows;
@@ -259,4 +260,190 @@ fn a_failed_delivery_of_an_answer_from_elsewhere_leaves_the_pane_unchanged() {
         "no Retry in the pane"
     );
     assert!(component.status.is_empty(), "{}", component.status);
+}
+
+/// What the session saves and announces when the Explore page starts a round: the kickoff,
+/// and the round it opens.
+fn started_elsewhere(challenger: bool) -> (TurnRequest, ExploreRound) {
+    let mut exploration = Exploration::new(asked_round().exploration.comparison);
+    exploration.challenger = challenger;
+    let mut copy = exploration.clone();
+    let kickoff = copy.request(None, None).unwrap();
+    let mut round = ExploreRound::new(exploration);
+    assert!(round.post(&kickoff).unwrap());
+    round.revision = 1;
+    (kickoff, round)
+}
+
+impl Pane {
+    /// The pane on its start screen.
+    fn starting() -> Self {
+        let mut bus = ComponentEventBus::<Action>::new();
+        let target = bus.mount(|events| {
+            ExploreComponent::with_keymap(events, comment_editor::KeymapSetting::default())
+        });
+        bus.publish(ExploreRestored {
+            result: Ok(None),
+            view: None,
+            historical: false,
+            storage_error: None,
+            progress: ExploreProgress::Ready,
+        })
+        .unwrap();
+        Self { bus, target }
+    }
+}
+
+#[test]
+fn a_round_started_elsewhere_shows_in_the_pane_as_one_started_there() {
+    let mut pane = Pane::starting();
+    let (kickoff, round) = started_elsewhere(true);
+
+    pane.bus
+        .publish(ExplorePosted {
+            request: kickoff.clone(),
+            result: Ok(Arc::new(round.clone())),
+        })
+        .unwrap();
+
+    let component = pane.component();
+    let shown = component
+        .exploration
+        .as_ref()
+        .expect("the pane shows the round");
+    assert_eq!(shown.instance, round.exploration.instance);
+    assert!(shown.challenger);
+    assert!(component.progress == Progress::Waiting);
+
+    let mut asked = round;
+    let first = question("q1");
+    let turn = agent_turn(&asked.exploration, &kickoff.request, None, &first);
+    asked.exploration.conversation.push(turn);
+    asked.exploration.questions.push(first);
+    asked.exploration.pause_delivery();
+    asked.revision += 1;
+    let (response, acknowledged) = std::sync::mpsc::channel();
+    pane.bus
+        .publish(ExploreCommitted {
+            round: Arc::new(asked),
+            applied: true,
+            response,
+        })
+        .unwrap();
+
+    assert_eq!(acknowledged.recv().unwrap(), Ok(true));
+    let component = pane.component();
+    assert_eq!(component.question().map(|q| q.id.as_str()), Some("q1"));
+    assert!(component.progress == Progress::Ready);
+}
+
+#[test]
+fn a_failed_kickoff_of_a_round_started_elsewhere_offers_retry_in_the_pane() {
+    let mut pane = Pane::starting();
+    let (kickoff, round) = started_elsewhere(false);
+    pane.bus
+        .publish(ExplorePosted {
+            request: kickoff.clone(),
+            result: Ok(Arc::new(round)),
+        })
+        .unwrap();
+
+    pane.bus
+        .publish(ExploreFinished {
+            instance: kickoff.instance,
+            request: kickoff.request,
+            result: Err("The selected agent is no longer available".into()),
+        })
+        .unwrap();
+
+    assert!(pane.component().progress == Progress::Retryable);
+}
+
+#[test]
+fn a_round_started_elsewhere_leaves_a_pane_that_is_starting_its_own() {
+    let mut pane = Pane::starting();
+    let actions = pane.component().start(false);
+    assert!(!actions.is_empty(), "the pane asks the session to capture");
+    let (kickoff, round) = started_elsewhere(false);
+
+    pane.bus
+        .publish(ExplorePosted {
+            request: kickoff,
+            result: Ok(Arc::new(round)),
+        })
+        .unwrap();
+
+    let component = pane.component();
+    assert!(component.exploration.is_none());
+    assert!(component.progress == Progress::Capturing);
+}
+
+#[test]
+fn a_round_starting_on_the_page_shows_in_the_pane_until_its_kickoff_is_saved() {
+    let mut pane = Pane::starting();
+
+    pane.bus.publish(ExplorePageStart(Ok(()))).unwrap();
+
+    let component = pane.component();
+    assert!(component.progress == Progress::Waiting);
+    assert!(
+        component.start(false).is_empty(),
+        "no second start from the pane"
+    );
+    let (kickoff, round) = started_elsewhere(false);
+    pane.bus
+        .publish(ExplorePosted {
+            request: kickoff,
+            result: Ok(Arc::new(round)),
+        })
+        .unwrap();
+    assert!(pane.component().exploration.is_some());
+}
+
+#[test]
+fn the_pane_stops_a_round_starting_on_the_page() {
+    let mut pane = Pane::starting();
+    pane.bus.publish(ExplorePageStart(Ok(()))).unwrap();
+
+    let actions = pane.component().cancel();
+
+    assert!(
+        matches!(
+            actions.as_slice(),
+            [Action::Explore(review_explore::Command::Cancel)]
+        ),
+        "{actions:?}"
+    );
+    let component = pane.component();
+    assert!(component.progress == Progress::Ready);
+    assert!(component.exploration.is_none());
+}
+
+#[test]
+fn a_round_that_could_not_start_on_the_page_leaves_the_pane_on_its_start_screen() {
+    for failure in ["capture", "kickoff"] {
+        let mut pane = Pane::starting();
+        pane.bus.publish(ExplorePageStart(Ok(()))).unwrap();
+
+        if failure == "capture" {
+            pane.bus
+                .publish(ExplorePageStart(Err(
+                    "Repository comparison is not ready".into()
+                )))
+                .unwrap();
+        } else {
+            let (kickoff, _) = started_elsewhere(false);
+            pane.bus
+                .publish(ExplorePosted {
+                    request: kickoff,
+                    result: Err("Explore storage is unavailable".into()),
+                })
+                .unwrap();
+        }
+
+        let component = pane.component();
+        assert!(component.progress == Progress::Ready, "{failure}");
+        assert!(component.exploration.is_none(), "{failure}");
+        assert!(!component.status.is_empty(), "{failure}: the pane says why");
+    }
 }

@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "trace-1",
+  "createdAt": "2026-10-03T21:58:59.228Z",
+  "payload": {
+    "actions": [
+      {
+        "name": "tap",
+        "summary": "tap button \"Start\"",
+        "target": {
+          "role": "button",
+          "name": "Start"
+        }
+      }
+    ],
+    "executor": {
+      "name": "e2e-default-agent",
+      "version": "2"
+    },
+    "recordedFor": {
+      "testId": "tests/start.e2e.ts::the%20reviewer%20starts%20a%20round%20on%20the%20page%2C%20then%20sees%20it%20prepared%20and%20its%20first%20question",
+      "targetId": "desktop",
+      "instructionDigest": "3cbcefd3361bac5327d74e778550bc379eeffee0680835e00171979b92a0f585"
+    },
+    "summary": "Started the Explore round using Start (without Challenger). The page now says “Preparing the round…”.",
+    "startPath": "/",
+    "endPath": "/",
+    "endAnchors": [
+      {
+        "role": "status",
+        "name": "Preparing the round…"
+      }
+    ],
+    "endWaitMs": 12298
+  }
+}

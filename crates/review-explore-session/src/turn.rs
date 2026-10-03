@@ -46,19 +46,11 @@ impl ExploreSession {
             self.persist_request(&request, retry_agent.as_ref().map(|(agent, _)| *agent));
         let round = match persisted {
             Ok(round) => round,
-            Err(error) => {
-                // A refused turn leaves the pending prompt, its implementation and its agent
-                // alone: a second answer must not cancel the first one's queued prompt.
-                let error = error.to_string();
-                let _ = self.events.send(ui_events::ExplorePosted {
-                    request,
-                    result: Err(error.clone()),
-                });
-                return Err(error);
-            }
+            Err(error) => return Err(self.turn_refused(request, &error)),
         };
         self.state.prompt = None;
         self.state.implementation = None;
+        self.state.start = crate::Start::Idle;
         if retry_agent.is_none() && !kickoff {
             let _ = self.select_agent();
         }
@@ -120,6 +112,22 @@ impl ExploreSession {
             }
         });
         Ok(())
+    }
+
+    /// Tells the front ends that the turn `request` was not saved, for `error`, and returns
+    /// the reason. A refused turn leaves the pending prompt, its implementation and its agent
+    /// alone: a second answer must not cancel the first one's queued prompt. A refused kickoff
+    /// ends the start.
+    fn turn_refused(&mut self, request: TurnRequest, error: &eyre::Report) -> String {
+        let error = error.to_string();
+        if self.state.round.is_none() {
+            self.state.start_failed(&error);
+        }
+        let _ = self.events.send(ui_events::ExplorePosted {
+            request,
+            result: Err(error.clone()),
+        });
+        error
     }
 
     /// The prompt for `request`, the record of it, and the agent to send it to.

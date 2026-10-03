@@ -6,7 +6,7 @@ use std::time::Duration;
 use review_explore::{AnswerInput, DiagramError};
 use tokio::sync::oneshot;
 
-use crate::notice::Notice;
+use crate::notice::Problem;
 
 /// How long a post waits for the owner's reply. The owner handles commands in turn with its
 /// other work, which a long repository refresh can hold up.
@@ -20,6 +20,12 @@ pub enum PageCommand {
     /// Mermaid could not draw a diagram of the question the page showed: save the error with
     /// the question.
     DiagramFailed(DiagramError),
+    /// Start a round, as Start or Start with Challenger in the pane: the page showed that no
+    /// round was running.
+    Start {
+        /// Whether the Challenger reviews the change beside the agent.
+        challenger: bool,
+    },
 }
 
 /// The reviewer's answer to the question the page showed: only the pick and the comment. The
@@ -38,7 +44,8 @@ pub struct PageAnswer {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CommandRefusal {
     /// The round moved on since the page was loaded: the question the page showed no longer
-    /// waits for an answer. It may have one already, from the pane or from another page.
+    /// waits for an answer, as it may have one already, from the pane or from another page; or
+    /// a round started since the page showed none.
     Stale,
     /// The owner could not carry out the command, for this reason.
     Failed(String),
@@ -71,15 +78,15 @@ impl CommandSender {
         Self(Arc::new(deliver))
     }
 
-    /// Sends `command` to the owner and waits for its reply: what to tell the reviewer when
-    /// the command did not go through.
-    pub(crate) async fn send(&self, command: PageCommand) -> Result<(), Notice> {
+    /// Sends `command` to the owner and waits for its reply: why the command did not go
+    /// through, when it did not.
+    pub(crate) async fn send(&self, command: PageCommand) -> Result<(), Problem> {
         let (reply, replied) = CommandReply::channel();
         (self.0)(command, reply);
         match tokio::time::timeout(REPLY_TIMEOUT, replied).await {
-            Ok(Ok(result)) => result.map_err(Notice::from),
+            Ok(Ok(result)) => result.map_err(Problem::from),
             // The owner stopped, or did not reply in time: the command may have gone through.
-            Ok(Err(_)) | Err(_) => Err(Notice::NoReply),
+            Ok(Err(_)) | Err(_) => Err(Problem::NoReply),
         }
     }
 }

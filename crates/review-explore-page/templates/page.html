@@ -10,11 +10,13 @@
 <link rel="stylesheet" href="/assets/diagrams.css">
 </head>
 <body>
-<main id="round" data-revision="{{ revision }}" data-working="{{ "true" if stage == "working" else "false" }}">
+<main id="round" data-revision="{{ revision }}" data-working="{{ "true" if stage in ["starting", "working"] else "false" }}">
   <h1>Explore</h1>
   {% include "notice.html" %}
-  {% if stage == "no_round" %}
-  <p class="state" role="status">No Explore round is running. Start one in the reviewer's Explore tab, then load this page again.</p>
+  {% if stage in ["no_round", "start_failed"] %}
+  {% include "start.html" %}
+  {% elif stage == "starting" %}
+  <p class="state working" role="status">Preparing the round…</p>
   {% elif stage == "working" %}
   <p class="state working" role="status">The agent is working…</p>
   {% elif stage == "interrupted" and failure %}

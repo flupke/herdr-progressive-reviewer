@@ -249,7 +249,7 @@ impl Runtime {
             Ok(Some(listener)) => {
                 let events = events.clone();
                 host.share(listener, move |url| {
-                    let shared = ui_events::ExplorePageShared(url.map(str::to_owned));
+                    let shared = ui_events::ExplorePageShared(url.to_owned());
                     let _ = events.send(EventEnvelope::new(shared));
                 });
             }

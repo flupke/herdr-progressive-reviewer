@@ -1,5 +1,5 @@
 //! The page on the network, for a phone or a tablet: served on the address of one network
-//! interface, behind a new token for each round.
+//! interface, behind a new token for each round and for the start screen before it.
 //!
 //! The reviewer's settings come from its environment:
 //!
@@ -147,19 +147,30 @@ impl NetworkListener {
     }
 }
 
-/// The round the page on the network shows, behind a token that changes with each round. The
-/// token of a round that is no longer running opens nothing, even before the round's next
-/// token is made. Clones share the token.
+/// The round the page on the network shows, behind a token that changes with each round. While
+/// no round runs, the page has a token too, for the start screen: the round that starts next
+/// keeps it, so the page that started the round stays connected to it. The token of a round
+/// that is no longer running opens nothing, even before the next token is made. Clones share
+/// the token.
 #[derive(Clone)]
 pub(crate) struct RoundTokens {
     round: PageRound,
     current: Arc<Mutex<Option<RoundToken>>>,
 }
 
-/// The token of one round.
+/// The token of one round, or of the round that starts next.
 struct RoundToken {
-    round: String,
+    /// The round the token belongs to; `None` for the round that starts next.
+    round: Option<String>,
     token: Token,
+}
+
+impl RoundToken {
+    /// Whether the token opens the page while `running` runs: the token of that round, or the
+    /// token made for the round that starts next.
+    fn opens(&self, running: Option<&String>) -> bool {
+        self.round.is_none() || self.round.as_ref() == running
+    }
 }
 
 impl RoundTokens {
@@ -170,35 +181,39 @@ impl RoundTokens {
         }
     }
 
-    /// Gives the round now running a token of its own: the same one while the same round runs,
-    /// a new one for a new round, none when no round runs. Returns the address of the page
-    /// served at `address` when it changed.
+    /// Gives the token to the round now running: the same one while the same round runs, the
+    /// token made while no round ran to the round that starts, a new one for a round that
+    /// replaces another, and a new one for the next round once no round runs. Returns the
+    /// address of the page served at `address` when the token or its round changed.
     pub(crate) fn renew(&self, address: SocketAddr) -> Option<Renewed> {
         let running = self.round.stages().round();
         let mut current = self.current.lock().unwrap_or_else(PoisonError::into_inner);
-        if current.as_ref().map(|token| &token.round) == running.as_ref() {
-            return None;
+        match current.as_mut() {
+            Some(token) if token.round == running => return None,
+            Some(token) if token.round.is_none() => token.round = running,
+            _ => {
+                *current = Some(RoundToken {
+                    round: running,
+                    token: Token::random(),
+                });
+            }
         }
-        *current = running.map(|round| RoundToken {
-            round,
-            token: Token::random(),
-        });
-        Some(Renewed(
-            current.as_ref().map(|current| current.token.url(address)),
-        ))
+        current
+            .as_ref()
+            .map(|current| Renewed(current.token.url(address)))
     }
 }
 
-/// The address of the running round's page once its token changed; `None` once no round runs.
-pub(crate) struct Renewed(pub(crate) Option<String>);
+/// The address of the page once its token or the token's round changed.
+pub(crate) struct Renewed(pub(crate) String);
 
 impl Rounds for RoundTokens {
     fn find(&self, token: &str) -> Option<PageRound> {
-        let running = self.round.stages().round()?;
+        let running = self.round.stages().round();
         let current = self.current.lock().unwrap_or_else(PoisonError::into_inner);
         current
             .as_ref()
-            .filter(|current| current.round == running && current.token.matches(token))
+            .filter(|current| current.opens(running.as_ref()) && current.token.matches(token))
             .map(|_| self.round.clone())
     }
 }

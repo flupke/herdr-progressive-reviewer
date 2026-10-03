@@ -11,11 +11,16 @@
 //!     again;
 //!   - `interrupt`: the agent stops before its next turn;
 //!   - `conclude`: the agent concludes the round;
-//!   - `reset`: the reviewer resets the round, and no round is running.
+//!   - `reset`: the reviewer resets the round, and no round is running;
+//!   - `kickoff`: the tool sent the kickoff of the round the reviewer started from the page,
+//!     and the agent works on its first turn;
+//!   - `fail-start`: that round could not start, and no round is running.
 //! - `GET /test/sessions/{token}/answers` lists the answers the reviewer sent from the page,
 //!   in order: `[{"question", "version", "choice", "comment"}]`.
 //! - `GET /test/sessions/{token}/diagram-errors` lists the diagram errors the session's page
 //!   reported, each once: `[{"question", "version", "source", "message"}]`.
+//! - `GET /test/sessions/{token}/starts` lists the rounds the reviewer started from the page,
+//!   in order: `[{"challenger"}]`.
 //!
 //! These routes exist only in the standalone server. They sit behind the page's host and origin
 //! checks, but need no token.
@@ -36,6 +41,7 @@ pub(crate) fn router(sessions: Sessions) -> Router {
         .route("/test/sessions", post(open_session))
         .route("/test/sessions/{token}/answers", get(answers))
         .route("/test/sessions/{token}/diagram-errors", get(diagram_errors))
+        .route("/test/sessions/{token}/starts", get(starts))
         .route("/test/sessions/{token}/{step}", post(step))
         .with_state(sessions)
 }
@@ -86,6 +92,13 @@ async fn answers(State(sessions): State<Sessions>, Path(token): Path<String>) ->
 async fn diagram_errors(State(sessions): State<Sessions>, Path(token): Path<String>) -> Response {
     match sessions.diagram_errors(&token) {
         Some(errors) => Json(errors).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+async fn starts(State(sessions): State<Sessions>, Path(token): Path<String>) -> Response {
+    match sessions.starts(&token) {
+        Some(starts) => Json(starts).into_response(),
         None => StatusCode::NOT_FOUND.into_response(),
     }
 }

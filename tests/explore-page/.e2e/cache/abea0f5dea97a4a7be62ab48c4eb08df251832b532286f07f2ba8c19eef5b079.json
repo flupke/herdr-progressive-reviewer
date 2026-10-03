@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "trace-1",
+  "createdAt": "2026-10-03T22:15:06.376Z",
+  "payload": {
+    "actions": [
+      {
+        "name": "tap",
+        "summary": "tap button \"Start\"",
+        "target": {
+          "role": "button",
+          "name": "Start"
+        }
+      }
+    ],
+    "executor": {
+      "name": "e2e-default-agent",
+      "version": "2"
+    },
+    "recordedFor": {
+      "testId": "tests/start.e2e.ts::a%20start%20that%20fails%20says%20why%2C%20and%20the%20reviewer%20can%20start%20again",
+      "targetId": "phone",
+      "instructionDigest": "3cbcefd3361bac5327d74e778550bc379eeffee0680835e00171979b92a0f585"
+    },
+    "summary": "The page shows “Preparing the round…”, confirming that the Explore round started without a Challenger.",
+    "startPath": "/",
+    "endPath": "/",
+    "endAnchors": [
+      {
+        "role": "status",
+        "name": "Preparing the round…"
+      }
+    ],
+    "endWaitMs": 28279
+  }
+}

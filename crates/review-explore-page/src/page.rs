@@ -21,7 +21,7 @@ use crate::citation::CitationContext;
 use crate::command::{PageAnswer, PageCommand};
 use crate::diagram::{self, Diagrams};
 use crate::files::PageFiles;
-use crate::notice::Notice;
+use crate::notice::{Notice, Post, Problem};
 use crate::round::{PageRound, QuestionMarks, RoundSnapshot, RoundStage, Rounds};
 
 /// Scripts, styles and form posts only from the page itself, and no inline script. Inline
@@ -91,6 +91,7 @@ impl<R: Rounds> ExplorePage<R> {
             .route("/diagram-errors", diagram::report_route::<R>())
             .route("/status", get(status))
             .route("/answer", post(answer))
+            .route("/start", post(start))
             .route("/assets/{name}", get(asset::<R>))
             .route("/dev/changes", get(dev_changes::<R>))
             .route(
@@ -250,13 +251,38 @@ async fn answer(Admitted(round): Admitted, Form(form): Form<AnswerForm>) -> Resp
         };
         round.commands.send(PageCommand::Answer(answer)).await
     } else {
-        Err(Notice::Stale)
+        Err(Problem::Stale)
     };
+    show_after(Post::Answer, sent)
+}
+
+/// The reviewer's start of a round, as the start form posts it.
+#[derive(Deserialize)]
+struct StartForm {
+    /// Set by Start with Challenger only.
+    #[serde(default)]
+    challenger: bool,
+}
+
+/// Hands the start of a round to the round's owner, unless a round started since the page
+/// showed none, then shows the page again with what became of it.
+async fn start(Admitted(round): Admitted, Form(form): Form<StartForm>) -> Response {
+    let sent = if round.stages.stage().can_start() {
+        let challenger = form.challenger;
+        round.commands.send(PageCommand::Start { challenger }).await
+    } else {
+        Err(Problem::Stale)
+    };
+    show_after(Post::Start, sent)
+}
+
+/// Redirects to the page after a post, with the notice of `post` when it did not go through.
+fn show_after(post: Post, sent: Result<(), Problem>) -> Response {
     let mut response = Redirect::to("/").into_response();
-    if let Err(notice) = sent {
+    if let Err(problem) = sent {
         response
             .headers_mut()
-            .insert(header::SET_COOKIE, notice.cookie());
+            .insert(header::SET_COOKIE, Notice::new(post, problem).cookie());
     }
     response
 }
@@ -271,6 +297,8 @@ struct PageContext<'a> {
     conclusion: Option<&'a Conclusion>,
     /// Why the turn the agent no longer works on failed, when its prompt failed.
     failure: Option<&'a str>,
+    /// Why the reviewer's latest start of a round failed, while no round runs.
+    start_failure: Option<&'a str>,
     /// Why the reviewer's latest post did not go through.
     notice: Option<&'a Notice>,
     /// The design of the change, as the round's first turn explained it.
@@ -327,12 +355,14 @@ impl DesignContext {
     }
 }
 
-/// The stage's name, as the template tests it: `no_round`, `working` (the page polls its status
-/// only then), `question`, `interrupted` or `conclusion`.
+/// The stage's name, as the template tests it: `no_round`, `starting` and `working` (the page
+/// polls its status only then), `start_failed`, `question`, `interrupted` or `conclusion`.
 #[derive(Serialize)]
 #[serde(rename_all = "snake_case")]
 enum Stage {
     NoRound,
+    Starting,
+    StartFailed,
     Working,
     Question,
     Interrupted,
@@ -347,6 +377,7 @@ impl<'a> PageContext<'a> {
             question: None,
             conclusion: None,
             failure: None,
+            start_failure: None,
             notice,
             design: round
                 .design
@@ -357,6 +388,11 @@ impl<'a> PageContext<'a> {
         };
         match &round.stage {
             RoundStage::NoRound => {}
+            RoundStage::Starting => context.stage = Stage::Starting,
+            RoundStage::StartFailed { failure } => {
+                context.stage = Stage::StartFailed;
+                context.start_failure = Some(failure);
+            }
             RoundStage::AgentWorking => context.stage = Stage::Working,
             RoundStage::Question {
                 number,

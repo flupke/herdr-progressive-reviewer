@@ -15,6 +15,11 @@ use crate::CommandSender;
 pub enum RoundStage {
     /// No round is running: none was started, or the reviewer reset it.
     NoRound,
+    /// The reviewer started a round, which is starting: the tool captures the change, and Jev
+    /// marks first when it is enabled. Then the agent works on its first turn.
+    Starting,
+    /// No round is running: the reviewer's latest start failed, for this reason.
+    StartFailed { failure: String },
     /// The agent works on its next turn.
     AgentWorking,
     /// The agent's question, waiting for the reviewer's answer.
@@ -42,6 +47,11 @@ impl RoundStage {
     /// Whether the stage waits for an answer to version `version` of question `id`.
     pub(crate) fn asks(&self, id: &str, version: u32) -> bool {
         matches!(self, Self::Question { question, .. } if question.is_version(id, version))
+    }
+
+    /// Whether the reviewer can start a round: none is running or starting.
+    pub(crate) fn can_start(&self) -> bool {
+        matches!(self, Self::NoRound | Self::StartFailed { .. })
     }
 }
 

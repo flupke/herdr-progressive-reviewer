@@ -1,12 +1,5 @@
-{# Why the reviewer's latest post did not go through, shown once. #}
+{# Why the reviewer's latest post did not go through, shown once. Each post words its notice in
+   its own partial, notice-{post}.html. #}
 {% if notice %}
-<p class="notice" role="alert">
-  {%- if notice.kind == "stale" -%}
-  Your answer was not sent: this question no longer waits for an answer. It was answered in the reviewer or in another tab, or the round moved on. The page shows the round as it is now.
-  {%- elif notice.kind == "failed" -%}
-  Your answer was not sent: {{ notice.reason }}
-  {%- else -%}
-  The reviewer did not reply. Load this page again to see whether it took your answer.
-  {%- endif -%}
-</p>
+<p class="notice" role="alert">{% include "notice-" ~ notice.post ~ ".html" %}</p>
 {% endif %}

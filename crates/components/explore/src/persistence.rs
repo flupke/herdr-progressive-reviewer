@@ -343,6 +343,9 @@ impl ExploreComponent {
     }
 
     pub(super) fn posted(&mut self, event: &ExplorePosted) {
+        if self.adopt_started(event) {
+            return;
+        }
         if self
             .exploration
             .as_ref()

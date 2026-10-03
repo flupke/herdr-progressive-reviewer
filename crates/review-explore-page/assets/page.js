@@ -1,5 +1,6 @@
-// While the agent works, polls the page's status, and loads the page again once the round has
-// changed. In every other state the page changes only when it is loaded again.
+// While a round starts or the agent works, polls the page's status, and loads the page
+// again once the round has changed. In every other state the page changes only when it is loaded
+// again.
 (() => {
   const round = document.getElementById('round');
   if (round.dataset.working !== 'true') return;
@@ -34,6 +35,17 @@
       }
       form.dataset.sent = 'true';
       for (const button of form.querySelectorAll('button[type=submit]')) button.disabled = true;
+    });
+  }
+})();
+
+// Starts a round once: a second click would ask for a second start, which the tool refuses.
+// The buttons stay enabled, since a disabled button would not send its Challenger choice.
+(() => {
+  for (const form of document.querySelectorAll('form.start')) {
+    form.addEventListener('submit', (event) => {
+      if (form.dataset.sent === 'true') event.preventDefault();
+      form.dataset.sent = 'true';
     });
   }
 })();

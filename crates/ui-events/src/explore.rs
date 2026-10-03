@@ -54,10 +54,16 @@ pub struct ExploreAnswerCancelled {
 #[derive(Clone, Debug)]
 pub struct ExploreStorageFailed(pub String);
 
-/// The address of the running round's Explore page on the network, with its token, for the
-/// pane's QR code; `None` when the page is not on the network or no round is running.
+/// The address of the Explore page on the network, with its token, for the pane's QR code: the
+/// running round's page, or while no round runs, the page that starts the next one. Never
+/// sent when the page is not on the network.
 #[derive(Clone, Debug)]
-pub struct ExplorePageShared(pub Option<String>);
+pub struct ExplorePageShared(pub String);
+
+/// A round the reviewer started on the Explore page: it is starting (`Ok`), or it could not
+/// start, for this reason. Once its kickoff is saved, `ExplorePosted` brings the round.
+#[derive(Clone, Debug)]
+pub struct ExplorePageStart(pub Result<(), String>);
 
 #[derive(Clone, Debug)]
 pub struct ExploreImplementationSaved(pub review_explore::ImplementationDelivery);

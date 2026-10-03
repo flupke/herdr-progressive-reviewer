@@ -7,11 +7,12 @@ use std::sync::Arc;
 use review_explore::{Comparison, Exploration, ExploreRound, Question};
 use review_explore_citations::{Citation, CodeColors};
 use review_explore_page::{
-    CommandRefusal, PageAnswer, PageCommand, PublishedRound, QuestionMarks, RoundStage,
+    CommandRefusal, CommandReply, PageAnswer, PageCommand, PublishedRound, QuestionMarks,
+    RoundStage,
 };
 use review_source::ReviewCheckpoint;
 
-use crate::ExploreSession;
+use crate::{ExploreSession, Start};
 
 /// The citations of the question the page shows, found in the change and colored once per
 /// question rather than on every input the session handles.
@@ -66,10 +67,27 @@ impl ExploreSession {
         self.page.publish(round, stage);
     }
 
-    pub(crate) fn page_command(&mut self, command: PageCommand) -> Result<(), CommandRefusal> {
+    /// Carries out `command` from the page, or refuses it, and replies.
+    pub(crate) fn page_command(&mut self, command: PageCommand, reply: CommandReply) {
         match command {
-            PageCommand::Answer(answer) => self.answer_from_page(answer),
-            PageCommand::DiagramFailed(error) => self.diagram_failed(error),
+            PageCommand::Answer(answer) => {
+                let result = self.answer_from_page(answer);
+                // The page loads itself again once it has the reply: it shows the new stage.
+                self.publish_page();
+                reply.send(result);
+            }
+            PageCommand::DiagramFailed(error) => {
+                let result = self.diagram_failed(error);
+                self.publish_page();
+                reply.send(result);
+            }
+            // A reviewer's worker calls `start_from_page` itself, so that Jev marks before the
+            // kickoff: this sends the kickoff at once.
+            PageCommand::Start { challenger } => {
+                if let Some(kickoff) = self.start_from_page(challenger, reply) {
+                    let _ = self.deliver_turn(kickoff, None);
+                }
+            }
         }
     }
 
@@ -102,7 +120,13 @@ impl ExploreSession {
 
     fn page_stage(&mut self) -> RoundStage {
         let Some(round) = &self.state.round else {
-            return RoundStage::NoRound;
+            return match &self.state.start {
+                Start::Idle => RoundStage::NoRound,
+                Start::Starting => RoundStage::Starting,
+                Start::Failed(failure) => RoundStage::StartFailed {
+                    failure: failure.clone(),
+                },
+            };
         };
         let exploration = &round.exploration;
         if let Some(request) = exploration.pending_request() {

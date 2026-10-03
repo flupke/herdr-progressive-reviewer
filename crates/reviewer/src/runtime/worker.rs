@@ -5,6 +5,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::{Receiver, Sender};
 
 use component_core::ApplicationEventSender;
+use review_explore_page::PageCommand;
 use review_explore_session::{self as explore_session, ExploreSession};
 use review_hunks::HunkMark;
 use review_repository::repository::{ChangeId, ChangedFile, PollResult, Repository, Snapshot};
@@ -93,10 +94,33 @@ impl Worker {
             }
             WorkerCommand::Repository(action) => self.handle_repository_action(action, messages),
             WorkerCommand::AutoReviewFinished(review) => self.finish_auto_review(&review, messages),
-            WorkerCommand::Explore(explore_session::Input::Command(
-                review_explore::Command::Turn(request),
-            )) if request.answer.is_none() => self.start_round(*request, messages),
-            WorkerCommand::Explore(input) => {
+            WorkerCommand::Explore(input) => self.handle_explore(input, messages),
+            #[cfg(test)]
+            WorkerCommand::Hold(release) => {
+                let _ = release.recv();
+            }
+            WorkerCommand::Quit => return false,
+        }
+        true
+    }
+
+    /// Explore work: a kickoff, from the pane or a start on the page, waits for Jev's marks.
+    fn handle_explore(&mut self, input: explore_session::Input, messages: &ApplicationEventSender) {
+        match input {
+            explore_session::Input::Command(review_explore::Command::Turn(request))
+                if request.answer.is_none() =>
+            {
+                self.start_round(*request, messages);
+            }
+            explore_session::Input::Page {
+                command: PageCommand::Start { challenger },
+                reply,
+            } => {
+                if let Some(kickoff) = self.explore.start_from_page(challenger, reply) {
+                    self.start_round(kickoff, messages);
+                }
+            }
+            input => {
                 if matches!(
                     input,
                     explore_session::Input::Command(
@@ -109,13 +133,7 @@ impl Worker {
                 }
                 self.explore.handle(input);
             }
-            #[cfg(test)]
-            WorkerCommand::Hold(release) => {
-                let _ = release.recv();
-            }
-            WorkerCommand::Quit => return false,
         }
-        true
     }
 
     fn handle_repository_action(

@@ -1,6 +1,6 @@
 //! The sessions of the standalone server. Each stands in for the review tool's Explore session:
 //! it owns one round, behind its own token, moves it to the step its controller asks for, and
-//! takes the answers the reviewer sends from the page.
+//! takes the answers and the starts the reviewer sends from the page.
 
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -33,6 +33,8 @@ struct Session {
     /// The diagram errors the page reported, each once, as the review tool saves them with
     /// their question.
     diagram_errors: Vec<DiagramError>,
+    /// The rounds the reviewer started from the page, in order.
+    starts: Vec<SentStart>,
 }
 
 /// An answer the reviewer sent from the page, as a test reads it back.
@@ -42,6 +44,12 @@ pub(crate) struct SentAnswer {
     version: u32,
     choice: Option<String>,
     comment: String,
+}
+
+/// A round the reviewer started from the page, as a test reads it back.
+#[derive(Clone, Debug, Serialize)]
+pub(crate) struct SentStart {
+    challenger: bool,
 }
 
 impl Session {
@@ -60,6 +68,31 @@ impl Session {
             design: (self.asked > 0).then_some(&design),
         });
         self.round.publish(round, stage);
+    }
+
+    /// The stage that `step` moves the round to; `question`, when given, is the question the
+    /// agent posts instead of the next fixed one. `None` when the agent asked no question whose
+    /// answer could be cancelled.
+    fn stage_after(&mut self, step: Step, question: Option<Question>) -> Option<RoundStage> {
+        Some(match step {
+            Step::Question => {
+                self.asked += 1;
+                let stage = question_stage(self.asked, question);
+                self.latest_question = Some(stage.clone());
+                stage
+            }
+            Step::Cancel => self.latest_question.clone()?,
+            Step::Answer | Step::Kickoff => RoundStage::AgentWorking,
+            Step::Fail => RoundStage::Interrupted {
+                failure: Some("The selected agent is no longer available".into()),
+            },
+            Step::Interrupt => RoundStage::Interrupted { failure: None },
+            Step::Conclude => conclusion_stage(),
+            Step::Reset => RoundStage::NoRound,
+            Step::FailStart => RoundStage::StartFailed {
+                failure: "Repository comparison is not ready; retry Start".into(),
+            },
+        })
     }
 }
 
@@ -80,6 +113,11 @@ pub(crate) enum Step {
     Conclude,
     /// The reviewer resets the round: no round is running.
     Reset,
+    /// The tool sent the kickoff of the round the reviewer started: the agent works on its first
+    /// turn.
+    Kickoff,
+    /// The round the reviewer started could not start: no round is running.
+    FailStart,
 }
 
 impl Step {
@@ -92,6 +130,8 @@ impl Step {
             "interrupt" => Self::Interrupt,
             "conclude" => Self::Conclude,
             "reset" => Self::Reset,
+            "kickoff" => Self::Kickoff,
+            "fail-start" => Self::FailStart,
             _ => return None,
         })
     }
@@ -112,6 +152,7 @@ impl Sessions {
             latest_question,
             answers: Vec::new(),
             diagram_errors: Vec::new(),
+            starts: Vec::new(),
         };
         session.publish(stage);
         self.lock().push(session);
@@ -125,36 +166,29 @@ impl Sessions {
         let Some(session) = find(&mut sessions, token) else {
             return false;
         };
-        if !session.running {
-            // A step after a reset starts the session's next round.
+        let Some(stage) = session.stage_after(step, question) else {
+            return false;
+        };
+        let running = !matches!(
+            stage,
+            RoundStage::NoRound | RoundStage::Starting | RoundStage::StartFailed { .. }
+        );
+        if !running {
+            session.asked = 0;
+            session.latest_question = None;
+        } else if !session.running {
+            // A running stage after none starts the session's next round.
             session.rounds += 1;
         }
-        let stage = match step {
-            Step::Question => {
-                session.asked += 1;
-                let stage = question_stage(session.asked, question);
-                session.latest_question = Some(stage.clone());
-                stage
-            }
-            Step::Cancel => match &session.latest_question {
-                Some(stage) => stage.clone(),
-                None => return false,
-            },
-            Step::Answer => RoundStage::AgentWorking,
-            Step::Fail => RoundStage::Interrupted {
-                failure: Some("The selected agent is no longer available".into()),
-            },
-            Step::Interrupt => RoundStage::Interrupted { failure: None },
-            Step::Conclude => conclusion_stage(),
-            Step::Reset => {
-                session.asked = 0;
-                session.latest_question = None;
-                RoundStage::NoRound
-            }
-        };
-        session.running = stage != RoundStage::NoRound;
+        session.running = running;
         session.publish(stage);
         true
+    }
+
+    /// The rounds the reviewer started from the page of the session behind `token`, or `None`
+    /// when no session has that token.
+    pub(crate) fn starts(&self, token: &str) -> Option<Vec<SentStart>> {
+        find(&mut self.lock(), token).map(|session| session.starts.clone())
     }
 
     /// The answers the reviewer sent from the page of the session behind `token`, or `None`
@@ -164,8 +198,9 @@ impl Sessions {
     }
 
     /// Takes a command the page sent for the session behind `token`. The page already refused
-    /// an answer to a question its round no longer asks; an answer that reaches the session
-    /// is kept, and the agent works on its next turn.
+    /// an answer to a question its round no longer asks, and a start while a round runs; an
+    /// answer that reaches the session is kept, and the agent works on its next turn; a start
+    /// is kept, and the round is starting.
     fn command(&self, token: &str, command: PageCommand) -> Result<(), CommandRefusal> {
         let mut sessions = self.lock();
         let session = find(&mut sessions, token).ok_or(CommandRefusal::Stale)?;
@@ -183,6 +218,10 @@ impl Sessions {
                 if !session.diagram_errors.contains(&error) {
                     session.diagram_errors.push(error);
                 }
+            }
+            PageCommand::Start { challenger } => {
+                session.starts.push(SentStart { challenger });
+                session.publish(RoundStage::Starting);
             }
         }
         Ok(())

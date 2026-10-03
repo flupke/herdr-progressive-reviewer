@@ -332,10 +332,10 @@ before/after code snippets and relative paths to TypeSafe AI. Missing or
 whitespace-only keys disable Jev. Uncertain, failed and oversized checks leave their
 lines unreviewed. Reopen a hunk in Files to review Jev's lines yourself.
 
-## Follow and answer an Explore round in the browser
+## Start, follow and answer an Explore round in the browser
 
 The **Explore page** shows the open reviewer's Explore round in a browser, and you can
-answer the agent's questions there. Run the Herdr
+start a round and answer the agent's questions there. Run the Herdr
 action **Open the Explore page of the progressive reviewer**
 (`herdr.progressive-reviewer.explore-page`) from the workspace of an open reviewer: it
 opens the page in the default browser of the machine that runs the reviewer. Set
@@ -355,6 +355,16 @@ The page shows the round's current question with its explanation and choices, or
 working, that it is no longer working on its turn (Retry it in the reviewer), that no
 round is running, or the round's conclusion.
 
+When no round is running, the page offers **Start** and **Start with Challenger**, as the
+reviewer's Explore tab does. The round starts as it does from the pane: the reviewer
+captures the change, Jev first marks what it dismisses when it is enabled, and the agent
+gets the kickoff. Meanwhile the page says that it prepares the round, then that the agent
+is working, then shows the agent's first question. The Explore tab shows the same round:
+while it starts, the tab says so and offers **Stop waiting**, which drops it.
+When the reviewer cannot capture the change, the page says why and offers Start again. A
+round started in the reviewer or in another tab after the page was loaded wins: the page
+refuses to start a second one, says so, and shows the round as it is now.
+
 To answer a question, pick a choice or None of the above, write an optional comment, and
 press **Send**; a comment without a choice works too. The agent receives the answer as
 if you had given it in the reviewer's Explore tab, which shows it under the question.
@@ -368,9 +378,9 @@ agent.
 An answer is recorded once. When the question already has an answer, given in the
 reviewer or in another tab, or the round moved on since the page was loaded, the page
 refuses to send yours, says so, and shows the round as it is now. In every state but the
-agent working, the page changes only when you load it again or send an answer: after
-you answer a question in the reviewer, load the page again to follow the agent's next
-turn.
+round starting and the agent working, the page changes only when you load it again,
+start a round or send an answer: after you answer a question in the reviewer, load the
+page again to follow the agent's next turn.
 
 A question's explanation is its Context, which the agent writes in Markdown: short
 paragraphs, lists, code, and tables whose cells can carry a good, bad or warning mark, and
@@ -403,18 +413,20 @@ between.
 
 ### Open the page from a phone
 
-Once a round has started, the end of each Explore page in the pane shows the address of
-the round's page on the network and its QR code. Scan it with a phone or a tablet on the
-same network to follow the round there. A page whose round was reset or replaced while
-the phone slept says that its address no longer opens a round: scan the new code. The
-reviewer serves this page on a second listener, on the address of one network interface,
-over plain HTTP. Each round gets a new token: after
-a reset or a new round, the old address is refused and the pane shows the new one. The page
-answers only the address the pane shows, and the MCP endpoint is never served on the
-network.
+The end of each Explore page in the pane, the start screen included, shows the address of
+the page on the network and its QR code. Scan it with a phone or a tablet on the same
+network to start a round there, or to follow the running round. A page whose round was
+reset or replaced while the phone slept says that its address no longer opens a round:
+scan the new code. The reviewer serves this page on a second listener, on the address of
+one network interface, over plain HTTP. Each round gets a new token. While no round is
+running, the start screen has a token of its own, and the round started next keeps it, so
+the phone that started the round stays on it. After a reset, the round's address is refused
+and the pane shows the address of the next round's page; a round started while another
+runs gets a new address too. The page answers only the address the pane shows, and the
+MCP endpoint is never served on the network.
 
-Anyone who can read your network's traffic can copy the token and use the page as you for
-the rest of the round ([ADR 0003](adr/0003-serve-the-explore-page-on-the-network.md)).
+Anyone who can read your network's traffic can copy the token and use the page as you until
+the round ends, and on the start screen before it ([ADR 0003](adr/0003-serve-the-explore-page-on-the-network.md)).
 Turn network access off where you do not trust the network. The settings are environment
 variables of the reviewer process, read when it starts. The reviewer pane inherits the
 environment Herdr runs in: set them before starting Herdr (for example in your shell

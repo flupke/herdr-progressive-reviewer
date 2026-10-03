@@ -25,8 +25,8 @@ use std::sync::Arc;
 
 use component_core::ApplicationEventSender;
 use herdr_client::protocol::{AgentPort, AgentTarget};
-use review_explore::{Command, Comparison, ExploreRound, ViewSave};
-use review_explore_page::RoundPublisher;
+use review_explore::{Command, Comparison, Exploration, ExploreRound, TurnRequest, ViewSave};
+use review_explore_page::{CommandRefusal, CommandReply, RoundPublisher};
 use review_repository::repository::Repository;
 use review_state::ReviewTracker;
 use review_store::ReviewStore;
@@ -120,12 +120,31 @@ struct State {
     pending: Option<(String, String)>,
     /// The latest round when the reviewer reset another one; it stays out of view.
     dismissed: Option<String>,
+    /// Where the reviewer's latest start of a round stands, while no round runs.
+    start: Start,
     agent: Option<PinnedAgent>,
     prompt: Option<PromptCancellation>,
     implementation: Option<PromptCancellation>,
 }
 
+/// Where the reviewer's latest start of a round stands, while the session has no round.
+#[derive(Debug, Default)]
+enum Start {
+    /// No start is under way, and the latest one, if any, succeeded.
+    #[default]
+    Idle,
+    /// The change is captured, or being captured, and the new round's kickoff is not saved yet.
+    Starting,
+    /// The latest start failed, for this reason.
+    Failed(String),
+}
+
 impl State {
+    /// The start under way failed, for `error`.
+    fn start_failed(&mut self, error: &dyn std::fmt::Display) {
+        self.start = Start::Failed(error.to_string());
+    }
+
     /// Revoke the MCP access of every earlier prompt.
     fn renew_access(&mut self) {
         self.access = uuid::Uuid::new_v4().to_string();
@@ -191,12 +210,7 @@ impl ExploreSession {
             Input::Submission(request) => self.submission(*request),
             Input::PromptFinished { event, attempt } => self.prompt_finished(*event, &attempt),
             Input::StorageChanged => self.storage_changed(),
-            Input::Page { command, reply } => {
-                let result = self.page_command(command);
-                // The page loads itself again once it has the reply: it shows the new stage.
-                self.publish_page();
-                reply.send(result);
-            }
+            Input::Page { command, reply } => self.page_command(command, reply),
         }
         self.publish_page();
     }
@@ -229,6 +243,7 @@ impl ExploreSession {
             Command::CancelAnswer(answer) => self.cancel_answer(answer),
             Command::Cancel => {
                 self.cancel_record();
+                self.state.start = Start::Idle;
                 self.state.renew_access();
                 self.state.prompt = None;
                 self.state.pending = None;
@@ -239,29 +254,82 @@ impl ExploreSession {
 
     fn start(&mut self) {
         if self.state.storage_error.is_some() || !self.cancel_record() {
-            let _ = self.events.send(ui_events::ExploreCaptured {
-                result: Err(self
-                    .state
-                    .storage_error
-                    .clone()
-                    .unwrap_or_else(|| "Explore could not save its state".into())),
-            });
+            let error = self
+                .state
+                .storage_error
+                .clone()
+                .unwrap_or_else(|| "Explore could not save its state".into());
+            self.state.start_failed(&error);
+            let _ = self
+                .events
+                .send(ui_events::ExploreCaptured { result: Err(error) });
             return;
         }
         self.state.prompt = None;
         self.state.implementation = None;
         self.state.pending = None;
         let result = self.capture();
-        if let Ok(comparison) = &result {
-            self.state.comparison = Some(comparison.clone());
-            self.state.agent = None;
-            self.state.round = None;
-            self.state.historical = false;
-            self.state.renew_access();
+        match &result {
+            Ok(comparison) => self.begin_start(comparison.clone()),
+            Err(error) => self.state.start_failed(error),
         }
         let _ = self.events.send(ui_events::ExploreCaptured {
             result: result.map_err(|error| error.to_string()),
         });
+    }
+
+    /// Starts a round from the Explore page, as Start or Start with Challenger in the pane
+    /// would, and returns its kickoff for the owner to send, after Jev's marks when Jev is
+    /// enabled. Refuses while a round runs or starts. It replies to the page before it captures
+    /// the change, so that the page shows the round starting; a capture that fails shows on the
+    /// page as a failed start. The pane hears of the start, and of its failure.
+    pub fn start_from_page(
+        &mut self,
+        challenger: bool,
+        reply: CommandReply,
+    ) -> Option<TurnRequest> {
+        let starting = matches!(self.state.start, Start::Starting);
+        let refusal = if self.state.round.is_some() || starting {
+            Some(CommandRefusal::Stale)
+        } else {
+            self.state.storage_error.clone().map(CommandRefusal::Failed)
+        };
+        if let Some(refusal) = refusal {
+            reply.send(Err(refusal));
+            return None;
+        }
+        self.state.start = Start::Starting;
+        self.publish_page();
+        reply.send(Ok(()));
+        let _ = self.events.send(ui_events::ExplorePageStart(Ok(())));
+        let kickoff = self.capture().and_then(|comparison| {
+            self.begin_start(comparison.clone());
+            let mut exploration = Exploration::new(comparison);
+            exploration.challenger = challenger;
+            exploration.request(None, None)
+        });
+        match kickoff {
+            Ok(kickoff) => Some(kickoff),
+            Err(error) => {
+                let _ = self
+                    .events
+                    .send(ui_events::ExplorePageStart(Err(error.to_string())));
+                self.state.start_failed(&error);
+                self.publish_page();
+                None
+            }
+        }
+    }
+
+    /// Takes `comparison`, the change a start captured, for the kickoff to come: the earlier
+    /// round's agent and access no longer apply.
+    fn begin_start(&mut self, comparison: Arc<Comparison>) {
+        self.state.comparison = Some(comparison);
+        self.state.agent = None;
+        self.state.round = None;
+        self.state.historical = false;
+        self.state.start = Start::Starting;
+        self.state.renew_access();
     }
 
     /// Close the round and forget it: reopening shows the start screen. A later

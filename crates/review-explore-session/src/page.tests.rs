@@ -383,3 +383,141 @@ fn the_page_keeps_the_design_the_first_turn_explained_for_the_rest_of_the_round(
     harness.session.handle(Input::Command(Command::Reset));
     assert_eq!(harness.page.design(), None);
 }
+
+impl Harness {
+    /// Start a round from the Explore page, and return the session's reply.
+    fn start_on_page(&mut self, challenger: bool) -> Result<(), CommandRefusal> {
+        let (reply, replied) = CommandReply::channel();
+        self.session.handle(Input::Page {
+            command: PageCommand::Start { challenger },
+            reply,
+        });
+        replied.blocking_recv().expect("the session replies")
+    }
+
+    /// Start a round from the Explore page as the reviewer's worker does, which sends the
+    /// kickoff itself; return the reply and the kickoff.
+    fn start_as_worker(&mut self) -> (Result<(), CommandRefusal>, Option<TurnRequest>) {
+        let (reply, replied) = CommandReply::channel();
+        let kickoff = self.session.start_from_page(false, reply);
+        let reply = replied.blocking_recv().expect("the session replies");
+        (reply, kickoff)
+    }
+}
+
+#[test]
+fn a_round_started_from_the_page_is_captured_saved_and_prompted_as_one_from_the_pane() {
+    let mut harness = Harness::start();
+
+    assert_eq!(harness.start_on_page(true), Ok(()));
+
+    assert!(harness.next::<ui_events::ExplorePageStart>().0.is_ok());
+    let posted = harness.next::<ui_events::ExplorePosted>();
+    assert!(posted.request.is_kickoff());
+    assert!(posted.request.challenger);
+    let round = posted.result.expect("the kickoff is saved");
+    assert_eq!(round.exploration.instance, posted.request.instance);
+    assert!(round.exploration.challenger);
+    assert_eq!(
+        round.exploration.comparison.checkpoint.review_unit,
+        harness.unit
+    );
+    harness.exploration = Some(round.exploration.clone());
+    let prompt = harness.delivered_prompt();
+    assert!(prompt.contains(&format!("Explore request: {}\n", posted.request.request)));
+    assert_eq!(harness.page.stage(), RoundStage::AgentWorking);
+    assert_eq!(
+        harness.page.round().as_ref(),
+        Some(&posted.request.instance)
+    );
+
+    let access = prompt
+        .lines()
+        .find_map(|line| line.strip_prefix("Explore review access: "))
+        .unwrap()
+        .to_owned();
+    assert!(applied(
+        harness.submit(&access, question(&posted.request, 1))
+    ));
+    assert_eq!(
+        shown_question(&harness.page.stage()),
+        Some((1, "q1".into()))
+    );
+}
+
+#[test]
+fn the_page_shows_a_starting_round_until_its_kickoff_is_saved() {
+    let mut harness = Harness::start();
+
+    let (reply, kickoff) = harness.start_as_worker();
+
+    assert_eq!(reply, Ok(()));
+    assert_eq!(harness.page.stage(), RoundStage::Starting);
+    assert_eq!(harness.page.round(), None);
+    let kickoff = kickoff.expect("the kickoff, for the worker to send");
+    harness
+        .session
+        .handle(Input::Command(Command::Turn(Box::new(kickoff))));
+    assert_eq!(harness.page.stage(), RoundStage::AgentWorking);
+
+    let mut pane = Harness::start();
+    pane.capture();
+    assert_eq!(
+        pane.page.stage(),
+        RoundStage::Starting,
+        "a round started in the pane"
+    );
+}
+
+#[test]
+fn a_start_from_the_page_is_refused_while_a_round_runs_or_starts() {
+    let mut harness = Harness::start();
+    let (_, kickoff) = harness.start_as_worker();
+    assert!(kickoff.is_some());
+
+    let (second, none) = harness.start_as_worker();
+    assert_eq!(second, Err(CommandRefusal::Stale));
+    assert!(none.is_none());
+
+    let mut running = Harness::start();
+    running.ask_first_question();
+    assert_eq!(running.start_on_page(false), Err(CommandRefusal::Stale));
+    assert_eq!(running.agents.prompts().len(), 1, "no second kickoff");
+}
+
+#[test]
+fn stopping_or_resetting_a_starting_round_shows_that_no_round_runs() {
+    for command in [Command::Cancel, Command::Reset] {
+        let mut harness = Harness::start();
+        let (reply, _) = harness.start_as_worker();
+        assert_eq!(reply, Ok(()));
+
+        harness.session.handle(Input::Command(command));
+
+        assert_eq!(harness.page.stage(), RoundStage::NoRound);
+    }
+}
+
+#[test]
+fn a_start_that_cannot_capture_the_change_shows_why_on_the_page() {
+    let mut harness = Harness::start();
+    std::fs::remove_dir_all(harness.files.root().join(".git")).unwrap();
+
+    assert_eq!(
+        harness.start_on_page(false),
+        Ok(()),
+        "the page loads the starting round at once"
+    );
+
+    assert!(harness.next::<ui_events::ExplorePageStart>().0.is_ok());
+    assert!(
+        harness.next::<ui_events::ExplorePageStart>().0.is_err(),
+        "the pane hears that the start failed"
+    );
+    assert!(
+        matches!(harness.page.stage(), RoundStage::StartFailed { .. }),
+        "the page shows {:?}",
+        harness.page.stage()
+    );
+    assert!(harness.agents.prompts().is_empty());
+}

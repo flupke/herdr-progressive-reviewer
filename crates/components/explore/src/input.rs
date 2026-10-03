@@ -71,7 +71,10 @@ impl ExploreComponent {
         Vec::new()
     }
 
-    fn cancel(&mut self) -> Vec<Action> {
+    pub(super) fn cancel(&mut self) -> Vec<Action> {
+        if self.awaiting_page_start() {
+            return self.stop_page_start();
+        }
         if let Some(exploration) = &mut self.exploration {
             exploration.cancel();
         }

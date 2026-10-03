@@ -24,6 +24,7 @@ mod flow;
 mod input;
 mod navigation;
 mod network_page;
+mod page_start;
 mod persistence;
 mod render;
 mod reset;
@@ -147,7 +148,7 @@ pub struct ExploreComponent {
     drag: Option<input::ResizeDrag>,
     split_drag: bool,
     pointer_view: Option<flow::Window>,
-    /// The running round's page on the network, once the page host announced it.
+    /// The page on the network, once the page host announced it.
     network_page: Option<network_page::NetworkPage>,
 }
 
@@ -262,25 +263,9 @@ impl ExploreComponent {
         self.progress = Progress::Ready;
         match &event.result {
             Ok(comparison) => {
-                self.durable.begin_round();
-                self.implementation_requested = false;
-                self.cancelling = None;
                 let mut exploration = Exploration::new(comparison.clone());
                 exploration.challenger = self.challenger;
-                self.exploration = Some(exploration);
-                self.selected = 0;
-                self.evidence_list_focused = false;
-                self.turns.clear();
-                self.drafts.clear();
-                self.heights.clear();
-                self.compose_scope = ComposeScope::Question;
-                self.general_context = None;
-                self.conclusions.clear();
-                self.editor_target = EditorTarget::Answer;
-                self.scroll.set(0);
-                self.editor = CommentEditor::new("", &self.keymap);
-                self.events
-                    .publish(ExploreComparisonAccepted(comparison.clone()));
+                self.open_round(exploration);
                 self.request(None)
             }
             Err(error) => {
@@ -289,6 +274,27 @@ impl ExploreComponent {
                 Vec::new()
             }
         }
+    }
+
+    /// Show the new round `exploration`, from its first page, before its kickoff.
+    fn open_round(&mut self, exploration: Exploration) {
+        self.durable.begin_round();
+        self.implementation_requested = false;
+        self.cancelling = None;
+        let comparison = exploration.comparison.clone();
+        self.exploration = Some(exploration);
+        self.selected = 0;
+        self.evidence_list_focused = false;
+        self.turns.clear();
+        self.drafts.clear();
+        self.heights.clear();
+        self.compose_scope = ComposeScope::Question;
+        self.general_context = None;
+        self.conclusions.clear();
+        self.editor_target = EditorTarget::Answer;
+        self.scroll.set(0);
+        self.editor = CommentEditor::new("", &self.keymap);
+        self.events.publish(ExploreComparisonAccepted(comparison));
     }
 
     fn finished(&mut self, event: &ExploreFinished) {
@@ -444,6 +450,7 @@ impl ExploreComponent {
     fn start(&mut self, challenger: bool) -> Vec<Action> {
         if self.exploration.is_some()
             || self.progress.awaiting_capture()
+            || self.awaiting_page_start()
             || self.durable.error.is_some()
         {
             return Vec::new();
@@ -548,6 +555,7 @@ impl Component<Action> for ExploreComponent {
         subscriptions.subscribe(Self::implementation_finished);
         subscriptions.subscribe(Self::expiration_tick);
         subscriptions.subscribe(Self::page_shared);
+        subscriptions.subscribe(Self::page_start);
         Self::register_input(subscriptions);
     }
 }

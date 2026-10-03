@@ -51,13 +51,15 @@ impl ExploreComponent {
         vec![Action::Explore(Command::Reset)]
     }
 
-    /// Show the start screen, keeping the navigation mode and storage.
+    /// Show the start screen, keeping the navigation mode, storage and the page on the network.
     pub(super) fn show_start_screen(&mut self) {
         let mode = self.mode;
         let enabled = self.durable.enabled;
+        let network_page = self.network_page.take();
         *self = Self::with_keymap(self.events.clone(), self.keymap.clone());
         self.mode = mode;
         self.durable.enabled = enabled;
+        self.network_page = network_page;
     }
 
     fn can_reset(&self) -> bool {

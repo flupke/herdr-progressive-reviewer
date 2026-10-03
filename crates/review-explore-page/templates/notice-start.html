@@ -1,0 +1,8 @@
+{#- Why the round the reviewer started from the page was not started. -#}
+{%- if notice.problem.kind == "stale" -%}
+The round was not started: a round was started meanwhile, in the reviewer or in another tab. The page shows the round as it is now.
+{%- elif notice.problem.kind == "failed" -%}
+The round was not started: {{ notice.problem.reason }}
+{%- else -%}
+The reviewer did not reply. Load this page again to see whether it started the round.
+{%- endif -%}

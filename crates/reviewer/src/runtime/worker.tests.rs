@@ -194,3 +194,46 @@ fn an_explore_kickoff_waits_for_jev_to_mark_what_it_dismisses(kind: RepoType) {
         "Jev marked line three before the kickoff was posted"
     );
 }
+
+#[test_case::test_case(RepoType::Git; "git")]
+#[test_case::test_case(RepoType::Jj; "jj")]
+fn a_round_started_from_the_page_waits_for_jev_to_mark_what_it_dismisses(kind: RepoType) {
+    let files = repository_fixture(kind);
+    files.write("file.rs", &text(&[]));
+    files.new_change("review");
+    files.write("file.rs", &text(&[(3, "three"), (20, "twenty")]));
+    let mut fixture = EffectsFixture::start(files, |setup| {
+        setup.jev =
+            review_significance::JevClassifier::enabled(std::sync::Arc::new(LineThreeClassifier));
+    });
+    fixture.refreshed_checkpoint();
+    let (reply, replied) = review_explore_page::CommandReply::channel();
+
+    fixture
+        .effects
+        .explore_inbox()
+        .deliver(review_explore_session::Input::Page {
+            command: review_explore_page::PageCommand::Start { challenger: true },
+            reply,
+        });
+
+    assert_eq!(replied.blocking_recv(), Ok(Ok(())));
+    let events = fixture.events_until::<ui_events::ExplorePosted>();
+    let marked = events.iter().any(|event| {
+        event
+            .downcast_ref::<ReviewStateSaved>()
+            .is_some_and(|saved| {
+                saved.path == "file.rs"
+                    && saved.result.map(|state| state.status) == Ok(ReviewStatus::PartiallyReviewed)
+            })
+    });
+    assert!(
+        marked,
+        "Jev marked line three before the kickoff was posted"
+    );
+    let posted = events
+        .iter()
+        .find_map(|event| event.downcast_ref::<ui_events::ExplorePosted>())
+        .unwrap();
+    assert!(posted.request.is_kickoff() && posted.request.challenger);
+}

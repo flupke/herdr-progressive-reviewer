@@ -16,7 +16,9 @@ struct Shared {
     round: RoundPublisher,
     host: PageHost,
     address: SocketAddr,
-    announced: mpsc::Receiver<Option<String>>,
+    announced: mpsc::Receiver<String>,
+    /// The address the host announced first, for the start screen, before any round started.
+    first: String,
     _state: tempfile::TempDir,
 }
 
@@ -34,28 +36,46 @@ impl Shared {
         let address = listener.address();
         let (announce, announced) = mpsc::channel();
         host.share(listener, move |url| {
-            let _ = announce.send(url.map(str::to_owned));
+            let _ = announce.send(url.to_owned());
         });
+        let first = announced
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the address of the page before any round");
         Self {
             round,
             host,
             address,
             announced,
+            first,
             _state: state,
         }
     }
 
-    /// Starts the round `id`, and returns the address of its page that the host announced.
-    fn start_round(&self, id: &str) -> String {
+    /// Starts the round `id`, which replaces a running round, and returns the address of its
+    /// page that the host announced.
+    fn replace_round(&self, id: &str) -> String {
         self.round.publish(
             Some(PublishedRound { id, design: None }),
             RoundStage::AgentWorking,
         );
         self.next_announcement()
-            .expect("the address of the round's page")
     }
 
-    fn next_announcement(&self) -> Option<String> {
+    /// Starts the round `id` while no round runs, and waits for the host to give it the token
+    /// of the address it announced for the start screen.
+    fn start_round(&self, id: &str) {
+        self.round.publish(
+            Some(PublishedRound { id, design: None }),
+            RoundStage::AgentWorking,
+        );
+        assert_eq!(
+            self.next_announcement(),
+            self.first,
+            "the round keeps the address"
+        );
+    }
+
+    fn next_announcement(&self) -> String {
         self.announced
             .recv_timeout(Duration::from_secs(5))
             .expect("an announcement")
@@ -72,6 +92,12 @@ impl Shared {
     /// The status of a request for the path and query of `url`.
     fn open(&self, url: &str) -> u16 {
         self.status("GET", path(url), &[])
+    }
+
+    /// The status of a load of the page by a browser whose cookie holds the token of `url`.
+    fn load(&self, url: &str) -> u16 {
+        let cookie = format!("explore_token={}", url.rsplit('=').next().unwrap());
+        self.status("GET", "/", &[("Cookie", &cookie)])
     }
 }
 
@@ -113,18 +139,24 @@ fn status(address: SocketAddr, method: &str, target: &str, headers: &[(&str, &st
 }
 
 #[test]
-fn each_round_opens_on_the_network_behind_a_token_of_its_own() {
+fn the_page_opens_on_the_network_before_any_round_and_stays_with_the_round_it_starts() {
     let shared = Shared::start();
-
-    let first = shared.start_round("r1");
     assert!(
-        first.starts_with(&format!("http://{}/?token=", shared.address)),
-        "{first}"
+        shared
+            .first
+            .starts_with(&format!("http://{}/?token=", shared.address)),
+        "{}",
+        shared.first
     );
-    assert_eq!(shared.open(&first), 303);
-    let cookie = format!("explore_token={}", first.rsplit('=').next().unwrap());
-    assert_eq!(shared.status("GET", "/", &[("Cookie", &cookie)]), 200);
+    assert_eq!(shared.open(&shared.first), 303);
+    assert_eq!(shared.load(&shared.first), 200);
 
+    shared.start_round("r1");
+    assert_eq!(
+        shared.load(&shared.first),
+        200,
+        "the page that started the round"
+    );
     shared.round.publish(
         Some(PublishedRound {
             id: "r1",
@@ -132,31 +164,58 @@ fn each_round_opens_on_the_network_behind_a_token_of_its_own() {
         }),
         RoundStage::Interrupted { failure: None },
     );
-    assert_eq!(shared.open(&first), 303, "the round keeps its token");
+    assert_eq!(shared.open(&shared.first), 303, "the round keeps its token");
+}
 
-    let second = shared.start_round("r2");
-    assert_ne!(second, first);
-    assert_eq!(shared.open(&first), 403, "the token of a closed round");
-    assert_eq!(shared.status("GET", "/", &[("Cookie", &cookie)]), 403);
+#[test]
+fn a_round_that_replaces_another_opens_behind_a_token_of_its_own() {
+    let shared = Shared::start();
+    shared.start_round("r1");
+
+    let second = shared.replace_round("r2");
+
+    assert_ne!(second, shared.first);
+    assert_eq!(
+        shared.open(&shared.first),
+        403,
+        "the token of a closed round"
+    );
+    assert_eq!(shared.load(&shared.first), 403);
     assert_eq!(shared.open(&second), 303);
 }
 
 #[test]
-fn a_reset_closes_the_rounds_page_on_the_network() {
+fn a_reset_closes_the_rounds_page_and_opens_a_new_one_for_the_next_round() {
     let shared = Shared::start();
-    let url = shared.start_round("r1");
+    shared.start_round("r1");
 
     shared.round.publish(None, RoundStage::NoRound);
 
-    assert_eq!(shared.next_announcement(), None);
-    assert_eq!(shared.open(&url), 403);
+    let next = shared.next_announcement();
+    assert_ne!(next, shared.first);
+    assert_eq!(shared.open(&shared.first), 403);
+    assert_eq!(shared.load(&shared.first), 403);
+    assert_eq!(shared.load(&next), 200);
+    shared.round.publish(
+        Some(PublishedRound {
+            id: "r2",
+            design: None,
+        }),
+        RoundStage::AgentWorking,
+    );
+    assert_eq!(shared.next_announcement(), next);
+    assert_eq!(
+        shared.load(&next),
+        200,
+        "the page that started the next round"
+    );
 }
 
 #[test]
 fn the_network_page_answers_only_the_address_it_gave_out() {
     let shared = Shared::start();
-    let url = shared.start_round("r1");
-    let target = path(&url);
+    shared.start_round("r1");
+    let target = path(&shared.first);
 
     for host in [
         "rebound.example",
