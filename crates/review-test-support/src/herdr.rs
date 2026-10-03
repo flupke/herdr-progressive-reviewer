@@ -9,6 +9,8 @@ use std::time::{Duration, Instant};
 
 use herdr_client::client::HerdrClient;
 
+use crate::detection_rules::DetectionRules;
+
 /// A real Herdr server with private sockets, configuration, and state.
 pub struct HerdrTestServer {
     directory: tempfile::TempDir,
@@ -24,20 +26,24 @@ impl HerdrTestServer {
     /// Start an isolated server and wait for its API socket.
     pub fn start(repository_root: &Path) -> Self {
         let directory = tempfile::tempdir().unwrap();
-        let config_directory = directory.path().join("config");
+        let herdr_config_directory = herdr_config_directory(directory.path());
+        let config_directory = herdr_config_directory.parent().unwrap().to_owned();
         let runtime_directory = directory.path().join("runtime");
         let state_directory = directory.path().join("state");
-        let config_path = config_directory.join("herdr/config.toml");
+        let config_path = herdr_config_directory.join("config.toml");
         let socket_path = directory.path().join("herdr.sock");
-        fs::create_dir_all(config_path.parent().unwrap()).unwrap();
+        fs::create_dir_all(&herdr_config_directory).unwrap();
         fs::create_dir_all(&runtime_directory).unwrap();
         fs::create_dir_all(&state_directory).unwrap();
-        // Use the installed binary's rules without background network updates.
+        // Detect agents with the repository's rules, and never download others.
         fs::write(
             &config_path,
             "onboarding = false\n[update]\nversion_check = false\nmanifest_check = false\n",
         )
         .unwrap();
+        for rules in &DetectionRules::ALL {
+            rules.install(&herdr_config_directory);
+        }
         let mut environment: BTreeMap<_, _> = std::env::vars_os()
             .filter(|(name, _)| !name.as_encoded_bytes().starts_with(b"HERDR_"))
             .collect();
@@ -57,7 +63,9 @@ impl HerdrTestServer {
         ]);
         let mut server = Self {
             directory,
-            binary: std::env::var_os("HERDR_BIN_PATH")
+            // The dev shell pins this release. HERDR_BIN_PATH is not used:
+            // Herdr sets it to its own binary in every pane.
+            binary: std::env::var_os("TEST_HERDR_BIN_PATH")
                 .map_or_else(|| PathBuf::from("herdr"), PathBuf::from),
             repository_root: repository_root.to_owned(),
             socket_path,
@@ -182,6 +190,11 @@ exit "$status""#;
         let log = fs::read_to_string(self.root().join("server.log")).unwrap_or_default();
         panic!("isolated Herdr server did not become ready:\n{log}");
     }
+}
+
+/// The Herdr configuration directory of the server whose files are in `root`.
+fn herdr_config_directory(root: &Path) -> PathBuf {
+    root.join("config/herdr")
 }
 
 impl Drop for HerdrTestServer {

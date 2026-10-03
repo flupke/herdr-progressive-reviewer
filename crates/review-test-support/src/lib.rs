@@ -16,6 +16,7 @@ use review_repository::repository::{PollResult, RepoType, Repository, Snapshot};
 
 mod port;
 pub use port::TestPort;
+mod detection_rules;
 mod herdr;
 pub use herdr::HerdrTestServer;
 

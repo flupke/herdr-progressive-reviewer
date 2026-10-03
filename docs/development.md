@@ -13,6 +13,35 @@ In addition to the build dependencies, the checks use Herdr, Codex, Claude Code,
 Python 3, `cargo-nextest`, `cccc`, and `jq`. Herdr integration tests run private
 servers with isolated configuration, state and agent paths.
 
+### The Herdr the tests run
+
+The tests do not use the Herdr installed on your machine. The Nix shell fetches
+a fixed Herdr release and points `TEST_HERDR_BIN_PATH` at it; the test servers
+run that binary. `herdr` on the `PATH` stays the installed Herdr, which
+`make install` uses. Outside the Nix shell, the tests fall back to `herdr` on
+the `PATH`. Set `TEST_HERDR_BIN_PATH` inside the shell to try another binary:
+`nix develop --command env TEST_HERDR_BIN_PATH=/path/to/herdr make check`.
+
+Each test server also detects agents with the rules in
+[`crates/review-test-support/agent-detection`](../crates/review-test-support/agent-detection),
+copies of Herdr's published Codex and Claude rules. It installs them as local
+overrides, which Herdr prefers to the rules built into its binary, so the fake
+agents of the tests reach the same states whatever release runs them. The test
+`agents_are_detected_with_the_rules_the_repository_keeps` fails when the pinned
+release does not use these files, for example because a manifest requires a
+newer rule engine than the release supports.
+
+To change the pinned release:
+
+1. In `flake.nix`, set `herdrVersion` and the `hash` of each `herdrAssets`
+   entry. GitHub lists each asset's SHA-256:
+   `gh release view v<version> --repo herdrdev/herdr --json assets --jq '.assets[] | "\(.name) \(.digest)"'`.
+   Convert each one with `nix hash convert --hash-algo sha256 --to sri <hex>`.
+2. If the release changes the agent detection, copy the current Codex and Claude
+   manifests from `distribution/agent-detection` in the Herdr repository into
+   `crates/review-test-support/agent-detection`.
+3. Run `nix develop --command make check`.
+
 The opt-in [`jev-evals` suite](jev-evals.md) compares Jev hunk-splitting strategies
 against frozen line-level labels. Offline checks and paid live runs are separate;
 neither runs during `make check`. The [history-based study](jev-history-study.md)
@@ -48,7 +77,7 @@ The pinned `tui-test-rs` beta requires Rust 1.90, provided by the Nix shell.
 The harness has its own Cargo workspace and lockfile because `tui-test` requires
 `unicode-width` 0.2.2 while the existing Ratatui 0.29 adapter pins 0.2.0.
 `make vision` builds the reviewer first and supplies `REVIEWER_BIN_PATH` to the
-driver. Set `HERDR_BIN_PATH` to use a specific Herdr executable.
+driver. Its private Herdr server runs the [pinned release](#the-herdr-the-tests-run).
 
 ### A second checkout
 

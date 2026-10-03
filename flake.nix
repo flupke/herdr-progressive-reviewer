@@ -25,6 +25,39 @@
             inherit system;
             overlays = [ (import rust-overlay) ];
           };
+          # The Herdr release that the tests run, whatever Herdr is installed.
+          # docs/development.md says how to change it.
+          herdrVersion = "0.9.3";
+          herdrAssets = {
+            aarch64-darwin = {
+              name = "herdr-macos-aarch64";
+              hash = "sha256-UXOj4K5C1dGrfr+l1eYyn3w9I/jho2d8fOMjHaKIQVc=";
+            };
+            aarch64-linux = {
+              name = "herdr-linux-aarch64";
+              hash = "sha256-TeeqPiVniBLpKWDeZPfCqqG8ofD4CjxeVZg34jHh9cA=";
+            };
+            x86_64-darwin = {
+              name = "herdr-macos-x86_64";
+              hash = "sha256-22LVSP8+gysIepaxiUoI0mvjkF8YMDCc1VZ4PyFdQFQ=";
+            };
+            x86_64-linux = {
+              name = "herdr-linux-x86_64";
+              hash = "sha256-GKjcZfHC+khYhDRDVt6hz9kRxvBs9G+njhk/QIf026c=";
+            };
+          };
+          testHerdr = pkgs.stdenvNoCC.mkDerivation {
+            pname = "herdr";
+            version = herdrVersion;
+            src = pkgs.fetchurl {
+              url = "https://github.com/herdrdev/herdr/releases/download/v${herdrVersion}/${herdrAssets.${system}.name}";
+              inherit (herdrAssets.${system}) hash;
+            };
+            dontUnpack = true;
+            # Keep the release binary byte for byte.
+            dontFixup = true;
+            installPhase = "install -Dm755 $src $out/bin/herdr";
+          };
           latestRustPlatform = pkgs.makeRustPlatform {
             cargo = pkgs.rust-bin.stable.latest.default;
             rustc = pkgs.rust-bin.stable.latest.default;
@@ -60,6 +93,9 @@
               pkgs.jq
               rustComplexityAnalyzer
             ];
+            # Not on PATH: `herdr` there stays the installed Herdr, which
+            # `make install` and the live server use.
+            TEST_HERDR_BIN_PATH = "${testHerdr}/bin/herdr";
           };
         }
       );

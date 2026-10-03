@@ -49,7 +49,8 @@ class IsolatedHerdr:
         self.client = None
         self.master = None
         self.log = None
-        self.binary = os.environ.get("HERDR_BIN_PATH", "herdr")
+        # The release the dev shell pins, as in review-test-support.
+        self.binary = os.environ.get("TEST_HERDR_BIN_PATH", "herdr")
         self.env = {key: value for key, value in os.environ.items()
                     if not key.startswith("HERDR_")}
         for name in ("config", "runtime", "state", "plugin", "work", "plugin-state"):
