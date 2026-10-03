@@ -14,6 +14,9 @@ use ui_actions::Action;
 use crate::ExploreComponent;
 use crate::flow::{Content, ConversationLayout};
 
+#[path = "front_ends.tests.rs"]
+mod front_ends;
+
 fn at(side: SourceSide, first_line: u32, last_line: u32) -> CodeLocation {
     CodeLocation {
         path: RepoPath::from_bytes(b"src/lib.rs"),
