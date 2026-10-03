@@ -1,0 +1,21 @@
+[package]
+name = "review-explore-page-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "explore-page-server"
+path = "src/main.rs"
+
+[dependencies]
+axum.workspace = true
+review-explore = { path = "../review-explore" }
+review-explore-page = { path = "../review-explore-page" }
+serde_json.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true

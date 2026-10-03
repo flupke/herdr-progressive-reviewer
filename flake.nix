@@ -92,10 +92,18 @@
               pkgs.cargo-mutants
               pkgs.jq
               rustComplexityAnalyzer
+              # The e2e tests of the Explore page (tests/explore-page) need Node 22.12 or later.
+              pkgs.nodejs_22
             ];
             # Not on PATH: `herdr` there stays the installed Herdr, which
             # `make install` and the live server use.
             TEST_HERDR_BIN_PATH = "${testHerdr}/bin/herdr";
+            # e2e sends usage data unless this is set.
+            E2E_TELEMETRY_DISABLED = "1";
+            # The browser the Explore page e2e tests attach to over CDP, instead of the build
+            # Playwright downloads, which does not run on NixOS. Playwright's headless shell,
+            # patched by nixpkgs: unlike the full Chromium, it does not call Google services.
+            E2E_CHROMIUM = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux "${pkgs.playwright-driver.components.chromium-headless-shell}/chrome-headless-shell-linux64/chrome-headless-shell";
           };
         }
       );

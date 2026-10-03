@@ -1,0 +1,13 @@
+{
+  "name": "explore-page-e2e",
+  "private": true,
+  "type": "module",
+  "description": "e2e tests of the Explore page, run by make e2e-explore",
+  "devDependencies": {
+    "@ai-sdk/anthropic": "4.0.71",
+    "@e2e-dev/web": "0.11.2",
+    "ai": "7.0.127",
+    "e2e": "0.16.0",
+    "playwright": "1.63.0"
+  }
+}

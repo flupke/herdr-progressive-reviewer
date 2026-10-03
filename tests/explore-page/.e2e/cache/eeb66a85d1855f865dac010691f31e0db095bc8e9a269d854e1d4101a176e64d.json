@@ -1,0 +1,31 @@
+{
+  "schemaVersion": "trace-1",
+  "createdAt": "2026-10-03T20:39:02.766Z",
+  "payload": {
+    "actions": [
+      {
+        "name": "check",
+        "summary": "check radio \"Discard the draft\" in \"Choices\"",
+        "target": {
+          "role": "radio",
+          "name": "Discard the draft",
+          "within": "Choices"
+        },
+        "checked": true
+      }
+    ],
+    "executor": {
+      "name": "e2e-default-agent",
+      "version": "2"
+    },
+    "recordedFor": {
+      "testId": "tests/question.e2e.ts::the%20page%20shows%20the%20question%20the%20agent%20posts%2C%20and%20the%20reviewer%20picks%20a%20choice",
+      "targetId": "phone",
+      "instructionDigest": "66e15a8b03b3adf5f5353dc6cde87509035849dea388474e954c26275dd45849"
+    },
+    "summary": "Selected the \"Discard the draft\" radio in Question 1. It now shows as checked.",
+    "startPath": "/",
+    "endPath": "/",
+    "endWaitMs": 11626
+  }
+}

@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Explore</title>
+<link rel="stylesheet" href="/assets/style.css">
+</head>
+<body>
+<main id="round" data-revision="{{ revision }}" data-working="{{ "true" if working else "false" }}">
+  <h1>Explore</h1>
+  {% if working %}
+  <p class="working" role="status">The agent is working…</p>
+  {% endif %}
+  {% if question %}
+  <section class="question" aria-labelledby="question-{{ question.number }}-title">
+    <h2 id="question-{{ question.number }}-title">Question {{ question.number }}</h2>
+    <p class="text">{{ question.text }}</p>
+    <fieldset class="choices">
+      <legend>Choices</legend>
+      {% for choice in question.choices %}
+      <label class="choice"><input type="radio" name="choice" value="{{ choice.id }}"> {{ choice.text }}</label>
+      {% endfor %}
+    </fieldset>
+  </section>
+  {% endif %}
+</main>
+<script src="/assets/page.js"></script>
+{% if dev_version is not none %}
+<script src="/assets/dev.js" data-version="{{ dev_version }}"></script>
+{% endif %}
+</body>
+</html>

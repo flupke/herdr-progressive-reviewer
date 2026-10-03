@@ -11,7 +11,9 @@ make check
 
 In addition to the build dependencies, the checks use Herdr, Codex, Claude Code,
 Python 3, `cargo-nextest`, `cccc`, and `jq`. Herdr integration tests run private
-servers with isolated configuration, state and agent paths.
+servers with isolated configuration, state and agent paths. The
+[Explore page tests](#explore-page) also use Node and a headless Chromium, which
+the Nix shell provides.
 
 ### The Herdr the tests run
 
@@ -65,6 +67,141 @@ See the [slice 2 recovery report](explore-slice-2-recovery.md) for current accep
 
 See [language server setup](language-servers.md) for the server commands, and
 [mutation testing](llm-mutation-testing.md) for mutation-test guidance.
+
+## Explore page
+
+The Explore page is a browser page that shows an Explore round. Its routes,
+templates and assets are in
+[`crates/review-explore-page`](../crates/review-explore-page): axum serves HTML
+rendered from minijinja templates, with no client framework. While the agent
+works, `assets/page.js` polls the page's status and loads the page again once
+the round has changed.
+
+### Serve the page alone
+
+```sh
+nix develop --command make explore-page
+```
+
+This runs the standalone server
+([`crates/review-explore-page-server`](../crates/review-explore-page-server)),
+with no pane, no agent and no Herdr. It prints the address of a page that shows
+a fixed question: `http://127.0.0.1:8790/?token=dev`. Open it in a browser.
+
+The server reads the templates and assets from disk on every request, and an
+open page loads itself again when one of them changes, so a markup or style edit
+shows at once. A Rust edit needs a rebuild: stop the server and run the command
+again, then reload the page. The token stays `dev`, so the page opens again
+without a new address.
+
+The server's own options: `--port N` (`0` picks a free port), `--token T`
+(random when omitted), and `--dev DIR`, the page crate's directory to read the
+files from. Without `--dev`, it serves the files built into the binary.
+
+### e2e tests
+
+The page is tested only with [e2e](https://github.com/tester-army/e2e), in
+[`tests/explore-page`](../tests/explore-page). A step that acts on the page is
+a goal for e2e's agent (`agent.act('pick "Discard the draft" as the answer to
+question 1')`), whose actions are recorded once with a model and then replayed.
+A fact the test must check exactly is a locator and an assertion
+(`expect(...).toBeChecked()`); the check after each goal also confirms its
+recording. Both address the page by roles and accessible names, so the markup
+must name what a test looks for (a `<section>` labelled by its heading, a
+`<fieldset>` with a `<legend>`, `role="status"`).
+
+```sh
+nix develop --command make e2e-explore
+```
+
+This target also runs during `make check`. It builds the standalone server and
+runs every test at a desktop and at a phone size, each against its own server.
+The first run in a checkout installs the npm packages from the committed
+lockfile, which needs the network. The Nix shell provides Node and the headless
+Chromium of nixpkgs (`E2E_CHROMIUM`), which the tests attach to instead of
+Playwright's own download, and turns e2e's telemetry off
+(`E2E_TELEMETRY_DISABLED`).
+
+Each test gets its own round on the server, through the `explore` fixture of
+`tests/explore-page/tests/session.ts`, and plays the Explore agent: the round
+starts with the agent working, and `explore.askQuestion()` posts the next
+question. The server's log of each target is in
+`tests/explore-page/.e2e/logs/`; a failed run prints its end. The run also
+fails when the browser reports that the page broke its content security policy,
+which allows scripts and styles only from the page itself. A failing test
+leaves the accessibility tree of the page and a Playwright trace under
+`tests/explore-page/.e2e/artifacts/`.
+
+### Agent steps and the model
+
+`make e2e-explore` uses e2e's replay cache the way
+[its documentation](https://e2e.tester.army/docs/cache) describes. A goal with a
+valid recording under `tests/explore-page/.e2e/cache` replays without a model
+call. A new goal, or one whose replay no longer matches the page, goes to the
+model, and the cache is updated once the check after the goal passes. Only
+`agent.act` replays; `agent.assert`, `agent.waitFor` and `agent.extract` always
+call the model, so the tests do not use them.
+
+The cache directory is committed, so a fresh checkout replays instead of paying
+for the model again. Read changed entries like test data before committing
+them: they hold the actions and the end state, never a prompt or a key. The run
+summary gives the model calls and tokens (`AI ... tokens · N model calls`) and
+what replayed (`Cache N replayed`). When a goal keeps going to the model on runs
+with no change to the page, find out why instead of running again. To record
+everything again, run `npx e2e cache clear` in `tests/explore-page` first.
+
+The model is Anthropic's `claude-sonnet-5-5`, set in
+`tests/explore-page/model.ts`, the only file that knows how the model is
+reached. The key comes from `ANTHROPIC_API_KEY`, or else from the
+`ANTHROPIC_API_KEY` line of `~/.secrets` (`NAME=value` or `export NAME=value`):
+`tests/explore-page/run.sh` reads that line only, so the file's other secrets
+stay out of the tests' environment. If the key needs a workspace ID, set it in
+`ANTHROPIC_WORKSPACE_ID`. With no key, a goal that needs the model fails at once
+and says so, and replayed goals still pass.
+
+Run every `npx e2e` command inside the dev shell: outside it, e2e's telemetry is
+on. `run.sh` refuses to run outside it.
+
+### Write a test with an agent's help
+
+The e2e skill, at `.agents/skills/e2e` (and `.claude/skills/e2e`), tells a
+coding agent how to write and run e2e tests. It is what `npx e2e init` writes
+for the pinned e2e version: when `package.json` moves to another e2e version,
+run `npx e2e init --yes` in a scratch directory and copy its
+`.agents/skills/e2e` over this one. Do not take the rest of what `init` writes:
+its `.gitignore` lines would ignore the committed recordings, and its example
+test fails in `make check`.
+
+e2e's MCP server lets a coding agent open the page in a browser, act on it
+(navigate, tap, type), read what it shows, and try a locator with `locate`
+before writing it into a test. Its sessions record nothing: `make check` gains
+no recording from them. Register it once for Claude Code, from the repository
+root:
+
+```sh
+claude mcp add e2e -- "$PWD/tests/explore-page/mcp.sh"
+```
+
+`tests/explore-page/mcp.sh` enters the Nix dev shell when it is not already in
+it, then starts the server with this project's e2e and
+`tests/explore-page/e2e.config.ts`, so it works from any directory. Install e2e
+once first with `nix develop --command make e2e-explore-deps`.
+
+An agent whose session has no server registered can drive the same server from
+the shell: `tests/explore-page/mcp-cli.mjs` starts `mcp.sh`, runs the tool calls
+given as arguments in one session, prints each result, then closes the session:
+
+```sh
+nix develop --command node tests/explore-page/mcp-cli.mjs \
+  '{"tool":"open_session","args":{"target":"desktop"}}' \
+  '{"tool":"call","args":{"tool":"navigate","args":{"url":"/?token=e2e"}}}' \
+  '{"tool":"call","args":{"tool":"locate","args":{"role":"radio","name":"Keep the draft"}}}'
+```
+
+`locate` answers with the locator a test would use, such as
+`screen.getByRole("radio", "Keep the draft")`. `/?token=e2e` opens the server's
+own round, which shows the fixed question. Each run of `mcp-cli.mjs` starts a
+new page server, and nothing it does is recorded.
 
 ## Terminal UI exploration
 
