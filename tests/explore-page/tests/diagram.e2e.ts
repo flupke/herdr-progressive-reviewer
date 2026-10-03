@@ -10,7 +10,7 @@ async function openQuestion2(explore: Session) {
   await explore.open();
 }
 
-test('a question draws its diagram, with Mermaid served by the tool', async ({ explore, screen, agent, browser, app }) => {
+test('a question draws its diagram, with Mermaid served by the tool', async ({ explore, screen, browser, app }) => {
   // The host of every request the page makes.
   const hosts = new Set<string>();
   await browser.route('**', async (route) => {
@@ -18,15 +18,12 @@ test('a question draws its diagram, with Mermaid served by the tool', async ({ e
     await route.continue();
   });
   await openQuestion2(explore);
-  // The figure appears once Mermaid has drawn the diagram; a judgement does not wait.
-  await expect(screen.getByRole('figure', 'Diagram 1')).toBeVisible();
-
-  // The drawing is in pixels: Mermaid's labels are not in the accessibility tree.
-  await agent.assert(
-    'question 2 shows a drawn diagram, not code: boxes joined by labelled arrows, starting from a ' +
-      'box labelled "Editor"',
-    { vision: true },
-  );
+  // Mermaid drew it: only the drawing shows a box's label on its own (a diagram that fails keeps
+  // its source as one block of code). The label alone would also show in a drawing with no size,
+  // so the figure's own visibility is checked too.
+  const figure = screen.getByRole('figure', 'Diagram 1');
+  await expect(figure.getByText('Editor')).toBeVisible();
+  await expect(figure).toBeVisible();
   expect([...hosts]).toEqual([new URL(app.baseUrl!).host]);
 });
 
@@ -62,15 +59,12 @@ test('at phone width, a wide diagram keeps its natural size and scrolls sideways
 test('a diagram that does not parse shows its source and the error, and the tool keeps it', async ({
   explore,
   screen,
-  agent,
 }) => {
   await openQuestion2(explore);
-  await expect(screen.getByRole('figure', 'Diagram 2')).toBeVisible();
-
-  await agent.assert(
-    "question 2's second diagram is not drawn: the page shows its source as code, with Mermaid's " +
-      'message that it could not parse it',
-  );
+  // The figure keeps the source, and shows Mermaid's message.
+  const failed = screen.getByRole('figure', 'Diagram 2');
+  await expect(failed).toContainText('draft --> record[saved (with the answers)]');
+  await expect(failed).toContainText('Parse error');
   await expect
     .poll(() => explore.diagramErrors(), { timeout: 10_000 })
     .toEqual([

@@ -10,13 +10,11 @@ test('the page shows the question the agent posts, and the reviewer picks a choi
   await explore.open();
   await expect(screen.getByRole('status')).toContainText('The agent is working');
   await explore.askQuestion();
-  await expect(screen.getByRole('region', 'Question 1')).toBeVisible();
-  // An absence is an exact fact: a judge reading a long page may not establish it.
+  const question = screen.getByRole('region', 'Question 1');
+  await expect(question).toContainText("Should a reopened round keep the reviewer's unsent draft?");
   await expect(screen.getByRole('status')).not.toBeVisible();
-  await agent.assert(
-    "question 1 asks whether a reopened round should keep the reviewer's unsent draft, and offers " +
-      'three choices: keep the draft, discard the draft, and none of the above',
-  );
+  // Beside the agent's choices, which the steps below pick, the page offers None of the above.
+  await expect(question.getByRole('radio', 'None of the above')).toBeVisible();
 
   await agent.act('pick "Discard the draft" as the answer to question 1');
   await expect(screen.getByRole('radio', 'Discard the draft')).toBeChecked();

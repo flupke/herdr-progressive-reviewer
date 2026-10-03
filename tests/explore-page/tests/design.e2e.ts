@@ -10,13 +10,9 @@ test('the round opens with the design of the change, which the reviewer opens ag
 }) => {
   await explore.open();
   await explore.askQuestion();
-  // The page loads the question once its script sees it; a judgement does not wait.
   await expect(screen.getByRole('region', 'Question 1')).toBeVisible();
-  await agent.assert(
-    'before question 1, the page explains the design of the change: what it adds and where, its ' +
-      'types and data flow, its algorithm and cost, and the alternatives that were rejected; the ' +
-      'explanation includes a table and a callout',
-  );
+  // At the first question, the design shows open, its Markdown drawn: the table of its data flow.
+  await expect(screen.getByRole('region', 'Design of the change').getByRole('table')).toBeVisible();
 
   // Later in the round, the design is folded away above the question.
   await explore.answerInPane();

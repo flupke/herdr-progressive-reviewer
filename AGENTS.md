@@ -22,6 +22,9 @@
   (https://e2e.tester.army/docs) says, using the `e2e` skill at
   `.agents/skills/e2e`. Write a flow the reviewer performs as goals and the
   outcomes the reviewer sees, not as an enumeration of the page's elements.
+  Check each outcome with `expect` on a locator, never with a judgement
+  (`agent.assert`, `agent.waitFor`, `agent.extract`), unless no locator can
+  reach the fact; then say why in a comment above it.
   Repository specifics: `docs/development.md#e2e-tests`.
 
 # Small feature workflow

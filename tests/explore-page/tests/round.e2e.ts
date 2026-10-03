@@ -22,22 +22,17 @@ test('the working state is replaced by the next question when it is ready', asyn
   await expect(screen.getByRole('status')).toContainText('The agent is working');
 
   await explore.askQuestion();
-  await expect(screen.getByRole('region', 'Question 2')).toBeVisible();
-  await agent.assert(
-    'the page shows question 2, which asks where the kept draft should be stored and offers three ' +
-      'choices; it shows no other question and no longer says that the agent is working',
-  );
+  await expect(screen.getByRole('region', 'Question 2')).toContainText('Where should the kept draft be stored?');
+  await expect(screen.getByRole('status')).toBeHidden();
 });
 
-test('the page shows the round once the agent concludes it', async ({ explore, screen, agent }) => {
+test('the page shows the round once the agent concludes it', async ({ explore, screen }) => {
   await explore.open();
   await explore.conclude();
-  await expect(screen.getByRole('region', 'Conclusion')).toBeVisible();
-  await agent.assert(
-    "the conclusion says that a reopened round keeps the reviewer's unsent draft, lists saving the " +
-      'draft with the round as to be implemented, and offering to discard an old draft as future ' +
-      'work; the page no longer says that the agent is working',
-  );
+  await expect(screen.getByRole('region', 'Conclusion')).toContainText("A reopened round keeps the reviewer's unsent draft.");
+  await expect(screen.getByRole('region', 'To be implemented')).toContainText('Save the draft with the round.');
+  await expect(screen.getByRole('region', 'Future work')).toContainText('Offer to discard an old draft.');
+  await expect(screen.getByRole('status')).toBeHidden();
 });
 
 test('the page says when no round is running', async ({ explore, screen }) => {

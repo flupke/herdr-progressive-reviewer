@@ -173,24 +173,21 @@ followed by a check of its outcome:
 - a step the reviewer would say in words is a goal for e2e's agent
   (`agent.act('pick "Discard the draft" as the answer to question 1')`), its
   actions recorded once with a model and then replayed;
-- what the reviewer should read on the page is a judgement
-  (`agent.assert("question 1 asks whether ... and offers three
-  choices")`), worded by its meaning rather than the page's sentences;
-- an exact fact is one locator and an assertion
+- its outcome is checked by exact facts, each one locator and an assertion
   (`expect(screen.getByRole('radio', 'Discard the draft')).toBeChecked()`).
 
-`agent.assert` looks at the screen once and does not wait. After the fixture
-moves the round, the page follows it a moment later, so wait for the new stage
-first, with a locator (`expect(screen.getByRole('region', 'Question
-1')).toBeVisible()`), then judge it: an assert made at once judges the old page.
-`agent.waitFor` waits too, but calls the model again each time the screen
-changes while it waits.
+Check outcomes with locators, not with a judgement (`agent.assert`,
+`agent.waitFor`, `agent.extract`), which calls a model on every run: every
+outcome of this page so far is a text, a role, a state or a visible element,
+Mermaid's drawn labels included. Should a locator ever be unable to check one,
+keep a judgement, with the reason in a comment above it.
 
-Check the outcome, not each element of the page: listing every choice, count and
-sentence with locators makes a test break on every markup change. Locators
-address the page by roles and accessible names, so the markup must name what a
-test looks for (a `<section>` labelled by its heading, a `<fieldset>` with a
-`<legend>`, `role="status"`).
+Check the facts that make the outcome, not each element of the page: listing
+every choice, count and sentence with locators makes a test break on every
+markup change. A matcher waits for the page, which follows the round a moment
+after the fixture moves it. Locators address the page by roles and accessible
+names, so the markup must name what a test looks for (a `<section>` labelled by
+its heading, a `<fieldset>` with a `<legend>`, `role="status"`).
 
 ```sh
 nix develop --command make e2e-explore
@@ -240,12 +237,10 @@ leaves the accessibility tree of the page and a Playwright trace under
 [its documentation](https://e2e.tester.army/docs/cache) describes. A goal with a
 valid recording under `tests/explore-page/.e2e/cache` replays without a model
 call. A new goal, or one whose replay no longer matches the page, goes to the
-model, and the cache is updated once the check after the goal passes. Only
-`agent.act` replays; `agent.assert`, `agent.waitFor` and `agent.extract` are
-judgments, which call a judge model on every run, so each `make check` makes
-model calls for its asserts even when every goal replays, and fails on a
-machine with neither of the two routes below. Keep judgments to the outcomes
-that need one, and check an exact fact with a locator instead.
+model, and the cache is updated once the check after the goal passes. The tests
+make no judgement, which e2e never replays, so a `make check` whose goals all
+replay calls no model, and passes on a machine with neither of the two routes
+below.
 
 The cache directory is committed, so a fresh checkout replays instead of paying
 for the model again. Read changed entries like test data before committing
@@ -255,18 +250,18 @@ what replayed (`Cache N replayed`). When a goal keeps going to the model on runs
 with no change to the page, find out why instead of running again. To record
 everything again, run `npx e2e cache clear` in `tests/explore-page` first.
 
-`tests/explore-page/model.ts` is the only file that knows how the models are
-reached: the model that acts out goals, and the
-[judge](https://e2e.tester.army/docs/models) that answers the judgments. It has
-two routes, each with fixed models, so switching to a costlier model means
-editing that file. The first route available wins:
+`tests/explore-page/model.ts` is the only file that knows how the model that
+acts out goals is reached. It has two routes, each with a fixed model, so
+switching to a costlier model means editing that file. It sets no
+[judge](https://e2e.tester.army/docs/models): a judgement would run on that
+model. The first route available wins:
 
 1. A ChatGPT subscription, through e2e's
    [subscription login](https://e2e.tester.army/docs/subscriptions).
-   `gpt-6-luna` both acts and judges: it is the smallest model the subscription
-   serves, a goal needs only tool calls and screenshots, and a small model uses
-   the least of the plan's usage limits. Log in once, from `tests/explore-page`
-   in the dev shell:
+   `gpt-6-luna` acts: it is the smallest model the subscription serves, a goal
+   needs only tool calls and screenshots, and a small model uses the least of
+   the plan's usage limits. Log in once, from `tests/explore-page` in the dev
+   shell:
 
    ```sh
    nix develop --command npx e2e login openai
@@ -280,18 +275,15 @@ editing that file. The first route available wins:
    cannot read or parse fails the run. `npx e2e models openai` lists the
    models the login serves. After `npx e2e logout openai`, goals use the
    second route.
-2. Anthropic, with an API key: `claude-sonnet-5-5` acts, and the cheaper
-   `claude-haiku-4-5-20251001` judges, because a judgment only reads the current
-   screen and answers one question. The key comes from
+2. Anthropic, with an API key: `claude-sonnet-5-5` acts. The key comes from
    `ANTHROPIC_API_KEY`, or else from the `ANTHROPIC_API_KEY` line of
    `~/.secrets` (`NAME=value` or `export NAME=value`):
    `tests/explore-page/run.sh` reads that line only, so the file's other
    secrets stay out of the tests' environment. If the key needs a workspace ID,
    set it in `ANTHROPIC_WORKSPACE_ID`.
 
-With neither, a goal that needs the model and every judgment fail at once and
-say so, and replayed goals still pass. The run summary names the models
-(`model ... · judge ...`, the judge only when it differs), and the `AI` line
+With neither, a goal that needs the model fails at once and says so, and
+replayed goals still pass. The run summary names the model, and the `AI` line
 names the models that were called. The cache key does not hold the model, so a
 recording made through one route replays under the other.
 

@@ -46,7 +46,7 @@ test('the page says how many lines an answer marks, and lists them on request', 
   await expect(screen.getByText('src/drafts.rs new 10-13', { exact: false })).toBeVisible();
 });
 
-test('an answer to a question answered in the pane meanwhile is refused', async ({ explore, screen, agent }) => {
+test('an answer to a question answered in the pane meanwhile is refused', async ({ explore, screen }) => {
   await explore.open();
   await explore.askQuestion();
   // The page shows the question, and does not follow the answer given in the pane.
@@ -57,10 +57,10 @@ test('an answer to a question answered in the pane meanwhile is refused', async 
   // answer would count as a failure.
   await screen.getByRole('radio', 'Keep the draft').check();
   await screen.getByRole('button', 'Send').tap();
-  await expect(screen.getByRole('alert')).toBeVisible();
-  await agent.assert(
-    'the page says the answer was not sent because the question was already answered, and shows that the agent is working',
-  );
+  // The refusal says why (not a failed delivery or a missing reply), and the page shows the round
+  // as it is now.
+  await expect(screen.getByRole('alert')).toContainText('this question no longer waits for an answer');
+  await expect(screen.getByRole('status')).toContainText('The agent is working');
   expect(await explore.answers()).toEqual([]);
 });
 

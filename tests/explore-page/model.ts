@@ -1,14 +1,15 @@
-// The models of the e2e agent, and the only file that knows how they are reached: one model for
-// `agent.act`, and a judge for `agent.assert`, `agent.waitFor` and `agent.extract`. Each route
-// fixes both, so switching to a costlier model means editing this file. The first route
-// available wins (docs/development.md, "Agent steps and the model"):
+// The model of the e2e agent, and the only file that knows how it is reached: the model that
+// acts out `agent.act` goals. Each route fixes it, so switching to a costlier model means editing
+// this file. The tests make no judgement (`agent.assert`, `agent.waitFor`, `agent.extract`), so
+// no judge is set; one would run on this model. The first route available wins
+// (docs/development.md, "Agent steps and the model"):
 //
 // 1. A ChatGPT login stored by `npx e2e login openai`, through e2e's `chatgpt()`.
 // 2. Anthropic, with the key in ANTHROPIC_API_KEY (run.sh reads it from ~/.secrets when the
 //    environment has none), and ANTHROPIC_WORKSPACE_ID when the key needs it.
 //
-// An act step with a valid recording under `.e2e/cache` replays without the model; a judgment
-// always calls the judge. With neither route, a call fails at once with the message below.
+// An act step with a valid recording under `.e2e/cache` replays without the model. With neither
+// route, a call fails at once with the message below.
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -16,11 +17,9 @@ import { createAnthropic } from '@ai-sdk/anthropic';
 import type { AgentOptions } from 'e2e';
 import { chatgpt } from 'e2e/oauth/chatgpt';
 
-// The smallest model the login serves (`npx e2e models openai`): it acts and judges, as the login
-// offers nothing cheaper for the judge.
+// The smallest model the login serves (`npx e2e models openai`).
 const CHATGPT_MODEL = 'gpt-6-luna';
-const ANTHROPIC_ACT_MODEL = 'claude-sonnet-5-5';
-const ANTHROPIC_JUDGE_MODEL = 'claude-haiku-4-5-20251001';
+const ANTHROPIC_MODEL = 'claude-sonnet-5-5';
 
 // True when e2e's credential store holds a ChatGPT login. e2e does not export its store, so this
 // repeats how node_modules/e2e/dist/oauth/store.js finds and reads it (check it again when e2e
@@ -66,17 +65,16 @@ const noKey: typeof fetch = async () =>
     { status: 401, headers: { 'content-type': 'application/json' } },
   );
 
-function chatgptModels(): AgentOptions {
-  const model = chatgpt(CHATGPT_MODEL);
-  return { model, judge: model };
+function chatgptAgent(): AgentOptions {
+  return { model: chatgpt(CHATGPT_MODEL) };
 }
 
-function anthropicModels(): AgentOptions {
+function anthropicAgent(): AgentOptions {
   const workspace = process.env.ANTHROPIC_WORKSPACE_ID;
   const anthropic = process.env.ANTHROPIC_API_KEY
     ? createAnthropic({ headers: workspace ? { 'anthropic-workspace-id': workspace } : {} })
     : createAnthropic({ apiKey: 'none', fetch: noKey });
-  return { model: anthropic(ANTHROPIC_ACT_MODEL), judge: anthropic(ANTHROPIC_JUDGE_MODEL) };
+  return { model: anthropic(ANTHROPIC_MODEL) };
 }
 
-export const models = chatgptLoginStored() ? chatgptModels() : anthropicModels();
+export const agent = chatgptLoginStored() ? chatgptAgent() : anthropicAgent();

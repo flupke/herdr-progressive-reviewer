@@ -11,17 +11,18 @@ test('a question shows the lines it cites, in the order the agent gave', async (
   await agent.act('show all the citations of question 1');
   const citations = screen.getByRole('region', 'Citations').getByRole('heading', { level: 4 });
   await expect(citations).toHaveText(['src/drafts.rs new 7-8', 'src/drafts.rs old 1-3']);
-  await agent.assert(
-    'two citations are shown, each with a note and with lines of code as numbered rows of a diff; ' +
-      'in the first citation (src/drafts.rs new 7-8), a removed line comes right before an added line',
-  );
+  // The first citation shows its note, and its lines as numbered rows of the diff: the removed
+  // line right before the line that replaced it.
+  const first = screen.getByRole('region', 'src/drafts.rs new 7-8');
+  await expect(first).toContainText('this is the decision');
+  await expect(first.getByRole('row')).toHaveText([/^6 7 /, /^7 − /, /^8 \+ /]);
 });
 
-test('a citation of a whole file says so and shows no lines', async ({ explore, screen, agent }) => {
+test('a citation of a whole file says so and shows no lines', async ({ explore, screen }) => {
   await explore.askQuestion();
   await explore.askQuestion();
   await explore.open();
-  await expect(screen.getByRole('region', 'Question 2')).toBeVisible();
-
-  await agent.assert('question 2 cites the whole file src/drafts.rs, shows no lines of code for it, and says why');
+  const citation = screen.getByRole('region', 'src/drafts.rs (whole file)');
+  await expect(citation).toContainText('the citation names the whole file, not lines of it');
+  await expect(citation.getByRole('row')).toHaveCount(0);
 });
