@@ -3,7 +3,7 @@
 import { resolve } from 'node:path';
 import type { E2EConfig } from 'e2e';
 import { web } from '@e2e-dev/web';
-import { model } from './model.ts';
+import { models } from './model.ts';
 import { nixChromium } from './nix-chromium.ts';
 
 // Cargo's target directory, as `make e2e-explore` builds the server into it.
@@ -31,7 +31,7 @@ export default {
     { name: 'desktop', engine: web({ browser }), app: page('desktop') },
     { name: 'phone', engine: web({ browser, viewport: { width: 390, height: 844 } }), app: page('phone') },
   ],
-  agents: { default: { model } },
+  agents: { default: models },
   retries: 0,
   // A failed test keeps a Playwright trace, beside the page's accessibility tree at the failure.
   trace: 'retain-on-failure',

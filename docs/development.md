@@ -153,8 +153,10 @@ leaves the accessibility tree of the page and a Playwright trace under
 valid recording under `tests/explore-page/.e2e/cache` replays without a model
 call. A new goal, or one whose replay no longer matches the page, goes to the
 model, and the cache is updated once the check after the goal passes. Only
-`agent.act` replays; `agent.assert`, `agent.waitFor` and `agent.extract` always
-call the model, so the tests do not use them.
+`agent.act` replays; `agent.assert`, `agent.waitFor` and `agent.extract` are
+judgments, which call a judge model on every run, so each `make check` makes
+model calls for its asserts even when every goal replays, and fails on a
+machine with neither of the two routes below.
 
 The cache directory is committed, so a fresh checkout replays instead of paying
 for the model again. Read changed entries like test data before committing
@@ -164,14 +166,45 @@ what replayed (`Cache N replayed`). When a goal keeps going to the model on runs
 with no change to the page, find out why instead of running again. To record
 everything again, run `npx e2e cache clear` in `tests/explore-page` first.
 
-The model is Anthropic's `claude-sonnet-5-5`, set in
-`tests/explore-page/model.ts`, the only file that knows how the model is
-reached. The key comes from `ANTHROPIC_API_KEY`, or else from the
-`ANTHROPIC_API_KEY` line of `~/.secrets` (`NAME=value` or `export NAME=value`):
-`tests/explore-page/run.sh` reads that line only, so the file's other secrets
-stay out of the tests' environment. If the key needs a workspace ID, set it in
-`ANTHROPIC_WORKSPACE_ID`. With no key, a goal that needs the model fails at once
-and says so, and replayed goals still pass.
+`tests/explore-page/model.ts` is the only file that knows how the models are
+reached: the model that acts out goals, and the
+[judge](https://e2e.tester.army/docs/models) that answers the judgments. It has
+two routes, each with fixed models, so switching to a costlier model means
+editing that file. The first route available wins:
+
+1. A ChatGPT subscription, through e2e's
+   [subscription login](https://e2e.tester.army/docs/subscriptions).
+   `gpt-6-luna` both acts and judges: it is the smallest model the subscription
+   serves, a goal needs only tool calls and screenshots, and a small model uses
+   the least of the plan's usage limits. Log in once, from `tests/explore-page`
+   in the dev shell:
+
+   ```sh
+   nix develop --command npx e2e login openai
+   ```
+
+   Add `--device` on a machine without a browser. e2e keeps the login in
+   `~/.config/e2e/oauth.json` (`$XDG_CONFIG_HOME/e2e/oauth.json` when that is
+   set), readable by you only, and refreshes its tokens itself;
+   `E2E_OAUTH_CREDENTIALS` holding the same JSON stands in for the file.
+   `model.ts` only checks that an `openai` login is stored; a login file it
+   cannot read or parse fails the run. `npx e2e models openai` lists the
+   models the login serves. After `npx e2e logout openai`, goals use the
+   second route.
+2. Anthropic, with an API key: `claude-sonnet-5-5` acts, and the cheaper
+   `claude-haiku-4-5-20251001` judges, because a judgment only reads the current
+   screen and answers one question. The key comes from
+   `ANTHROPIC_API_KEY`, or else from the `ANTHROPIC_API_KEY` line of
+   `~/.secrets` (`NAME=value` or `export NAME=value`):
+   `tests/explore-page/run.sh` reads that line only, so the file's other
+   secrets stay out of the tests' environment. If the key needs a workspace ID,
+   set it in `ANTHROPIC_WORKSPACE_ID`.
+
+With neither, a goal that needs the model and every judgment fail at once and
+say so, and replayed goals still pass. The run summary names the models
+(`model ... · judge ...`, the judge only when it differs), and the `AI` line
+names the models that were called. The cache key does not hold the model, so a
+recording made through one route replays under the other.
 
 Run every `npx e2e` command inside the dev shell: outside it, e2e's telemetry is
 on. `run.sh` refuses to run outside it.

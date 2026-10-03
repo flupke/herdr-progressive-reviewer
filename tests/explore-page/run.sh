@@ -3,9 +3,10 @@
 # policy, and prints the end of the servers' logs when the run failed.
 #
 # Steps with a valid recording under .e2e/cache replay without a model; a new step, or one whose
-# replay no longer matches the page, goes to the model that model.ts names, and the cache is
-# updated. The Anthropic key comes from ANTHROPIC_API_KEY, or else from the ANTHROPIC_API_KEY
-# line of ~/.secrets, and from nothing else in that file.
+# replay no longer matches the page, goes to the acting model that model.ts names, and the cache
+# is updated. Judgments (agent.assert) call model.ts's judge on every run. model.ts picks the route: a stored ChatGPT login wins over the Anthropic key. The
+# Anthropic key, passed whenever one is found, comes from ANTHROPIC_API_KEY, or else from the
+# ANTHROPIC_API_KEY line of ~/.secrets, and from nothing else in that file.
 { set +x; } 2>/dev/null
 set -uo pipefail
 cd "$(dirname "$0")"
