@@ -67,12 +67,7 @@ export class ConclusionScreen {
           ),
     );
     const quiz = conclusion.quiz;
-    this.results.show(keyOf(quiz), () => {
-      if (!quiz) return null;
-      const results = quizResults(quiz);
-      results.id = 'quiz-results';
-      return results;
-    });
+    this.results.show(keyOf(quiz), () => (quiz ? quizResults(quiz) : null));
     this.panel.component(conclusion.request, () => new Panel()).update(conclusion, reset);
   }
 }

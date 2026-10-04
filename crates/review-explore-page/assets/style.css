@@ -38,21 +38,6 @@
   .start .button { min-height: 48px; }
 }
 
-/* The conclusion's quiz, one item at a time, then its results beside the conclusion. */
-.quiz-pick { display: grid; gap: 12px; }
-.quiz-skip { margin-top: 12px; }
-.quiz-answers { list-style: none; padding: 0; display: grid; gap: 8px; }
-.quiz-answers li { padding: 10px 12px; border-radius: var(--radius); border: 1px solid var(--line); overflow-wrap: anywhere; }
-.quiz-answers .correct { border-color: var(--good); }
-.quiz-answers .picked:not(.correct) { border-color: color-mix(in srgb, var(--bad) 60%, transparent); }
-.quiz-answers .tag { color: var(--muted); font-size: 0.85em; }
-.verdict { font-weight: 600; padding: 10px 12px; border-radius: var(--radius); background: color-mix(in srgb, var(--bad) 10%, transparent); }
-.verdict.good { background: color-mix(in srgb, var(--good) 14%, transparent); }
-.verdict.skipped { background: transparent; border: 1px solid var(--line); }
-.quiz-results summary { cursor: pointer; }
-.quiz-results summary > h3 { display: inline-block; margin: 12px 0; }
-.quiz-results h4 { margin: 16px 0 4px; }
-
 /* Controlling the round, as in the reviewer's Explore tab: Cancel answer in the previous turn
    (turn.css), a reply to the conclusion and the saved implementation request; Reset is in the
    masthead's menu. Stop waiting, Retry and the cancel of an implementation request sit in the

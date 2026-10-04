@@ -1,15 +1,15 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-04T14:33:45.848Z",
+  "createdAt": "2026-10-04T15:52:20.852Z",
   "payload": {
     "actions": [
       {
         "name": "tap",
-        "summary": "tap link \"Show the conclusion\" in \"Quiz\"",
+        "summary": "tap button \"Show the conclusion\" in \"Not quite.\"",
         "target": {
-          "role": "link",
+          "role": "button",
           "name": "Show the conclusion",
-          "within": "Quiz"
+          "within": "Not quite."
         }
       }
     ],
@@ -18,14 +18,18 @@
       "version": "2"
     },
     "recordedFor": {
-      "testId": "tests/quiz.e2e.ts::the%20reviewer%20answers%20the%20quiz%20one%20question%20at%20a%20time%2C%20and%20sees%20at%20once%20whether%20each%20pick%20is%20right",
+      "testId": "tests/quiz.e2e.ts::the%20reviewer%20picks%20one%20right%20answer%20and%20one%20wrong%20one%2C%20reads%20each%20verdict%20and%20proof%2C%20then%20the%20conclusion",
       "targetId": "desktop",
       "instructionDigest": "c0ccf47988029cfd43f383116802659d786b3849d15e5f8e729951c4e5bbd7f9"
     },
-    "summary": "The conclusion is displayed. It states that a reopened round keeps the reviewer's unsent draft, and the quiz result is 1 of 2 correct.",
+    "summary": "Opened the conclusion. The page shows the conclusion that a reopened round keeps the reviewer’s unsent draft, with the quiz summary at 1 of 2 correct.",
     "startPath": "/",
     "endPath": "/",
     "endAnchors": [
+      {
+        "role": "listitem",
+        "name": "Quiz 1/2"
+      },
       {
         "text": "The round is over"
       },
@@ -45,16 +49,13 @@
       },
       {
         "role": "heading",
-        "name": "Quiz: 1 of 2 correct"
+        "name": "Quiz · 1 of 2 correct"
       },
       {
-        "text": "Quiz 1 of 2"
-      },
-      {
-        "role": "link",
-        "name": "See the answers"
+        "role": "button",
+        "name": "The answers, question by question"
       }
     ],
-    "endWaitMs": 29620
+    "endWaitMs": 12427
   }
 }

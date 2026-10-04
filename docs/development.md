@@ -464,8 +464,8 @@ what it names, `.hint` the muted help line. Every control has a focus ring (`:fo
     </div>
   </section>
   ```
-- **Choice card** (`choices.css`, `choiceCards(choices, { picking, revealed })` in
-  `client/question.js`): a card on the page's surface with an 18-pixel radio on its
+- **Choice card** (`choices.css`, `choiceCards(choices, { name, legend, picking, revealed })`
+  in `client/choices.js`, for a question's choices and a quiz item's answers): a card on the page's surface with an 18-pixel radio on its
   first line. Hover strengthens its frame (`--line-strong`); the selected card takes the
   accent frame, 2 pixels, and an accent tint; the keyboard's focus rings it with a 2-pixel
   outline. The radio is named by `choice-text` alone. A recommended card keeps a neutral frame
@@ -518,11 +518,36 @@ what it names, `.hint` the muted help line. Every control has a focus ring (`:fo
   comment (`COMMENT · optional`, a box that grows with its text), the gain line, and Send
   answer or Confirm answer, which stays in view at the panel's bottom when a short window makes
   the panel scroll. A form may say what it needs before it can be sent with `data-requires`
-  (`choice`, `choice-or-comment`; `REQUIRES` in `client/actions.js`): its button stays dimmed
+  (`choice`, `choice-or-comment`, `answer`; `REQUIRES` in `client/actions.js`): its button stays dimmed
   until then. After an action, the page brings the part it changed into view when the reviewer
   cannot see it (`CHANGED` in `client/actions.js`): the element its module marks with
-  `data-shows="<method>"` (the reveal line after a first pick, the question after Cancel
-  answer), or the status card after an answer.
+  `data-shows="<method>"` (the reveal line after a first pick, the verdict on a quiz answer,
+  the question after Cancel answer), or the status card after an answer.
+- **Quiz** (`quiz.css`, `QuizScreen` in `client/quiz.js`): one item at a time on a desk. The
+  head is "QUIZ · QUESTION 2 OF 3" with a dot for each item (named in words for a screen
+  reader) and the item as the headline; before Check the panel holds the answers as choice
+  cards (`choiceCards`, `data-requires="answer"`) and Check, with a quiet Skip the quiz. After Check the panel
+  opens with the verdict (`role="status"`, brought into view), then the answers with their
+  marks, each a glyph from the stylesheet and a tag in words (✓ `Correct`, ✗ `Your pick`), then
+  Next question (Show the conclusion after the last item); an answer after Check is a choice
+  card with its mark in the radio's place. The proof joins the reading column.
+  While the quiz shows an item, the page gives the masthead a rail whose quiz step is current
+  at that item (`railShowing`), even right after the last one is checked. The results beside
+  the conclusion (`quizResults`) reuse the verdict and the marked answers behind a fold, which
+  the panel's "See the answers" opens (`openQuizResults`, through `openDisclosure` of
+  `disclosure.js`):
+
+  ```html
+  <section class="quiz-panel panel" aria-label="Your answer to quiz question 2">
+    <p class="verdict bad" role="status" tabindex="-1" data-shows="quiz"><span><strong>Not quite.</strong> …</span></p>
+    <p class="eyebrow" id="quiz-answers-title">Answers</p>
+    <ol class="quiz-answers" aria-labelledby="quiz-answers-title">
+      <li class="choice quiz-answer wrong"><span class="mark" aria-hidden="true"></span><span class="choice-text">…</span>
+        <span class="choice-tags"><span class="tag accent">Your pick</span></span></li>
+    </ol>
+    <button class="button primary block" type="button">Next question <span aria-hidden="true">→</span></button>
+  </section>
+  ```
 - **Meter** (`meter.css`, drawn by `assets/client/meter.js` on the masthead's hairline): how
   much of the change the review marks cover, from `PageView.tally`
   (`review_explore_tally::MarkTally`). The session publishes the tally with each stage, in the
@@ -583,7 +608,7 @@ only, with no `unsafe` value; its `connect-src` names the page's own `ws:` addre
   request's params.
 - One module per screen or region: `start.js`, `status.js` (the status card),
   `design.js` (the design screen, with its map and the part in view), `turn.js` (the
-  previous turn), `chips.js` (the chip of a question's Door), `question.js` (with the answer panel and the first pick), `citations.js`,
+  previous turn), `chips.js` (the chip of a question's Door), `choices.js` (the choice cards), `question.js` (with the answer panel and the first pick), `citations.js`,
   `conclusion.js` (with the reviewer's decisions, the list to be implemented, each state of
   its request and the reply), `quiz.js`, `masthead.js` (above `main`, with Reset in its menu),
   `meter.js` (the meter on the masthead's hairline), `change-size.js` ("+125 −10", "4 files"),

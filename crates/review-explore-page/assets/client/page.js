@@ -13,7 +13,7 @@ import { h, keyOf, Region } from './dom.js';
 import { Masthead } from './masthead.js';
 import { Meter } from './meter.js';
 import { QuestionScreen } from './question.js';
-import { quizSection } from './quiz.js';
+import { QuizScreen, railShowing } from './quiz.js';
 import { openRound, route, STAGE } from './route.js';
 import { startCover } from './start.js';
 import { statusCard } from './status.js';
@@ -72,13 +72,16 @@ export class Page {
       start ? startCover(start, view.review, tally) : null,
     );
     this.renderQuestion(view);
-    const concluded = this.renderConclusion(view);
-    // The question and the conclusion show the previous turn on their own desk; any other stage,
-    // above it.
+    const quizItem = this.renderConclusion(view);
+    // The question, the quiz and the conclusion show the previous turn on their own desk; any
+    // other stage, above it.
     const turn = turnOf(view);
-    this.turn.show(view.question || concluded ? null : keyOf(turn), () => turnStrip(turn));
+    this.turn.show(view.question || view.conclusion ? null : keyOf(turn), () => turnStrip(turn));
     this.renderDesign(view);
-    this.masthead.update(view, !this.designScreen.hidden);
+    // While the quiz shows an item, the rail names it.
+    const quiz = view.conclusion?.quiz;
+    const rail = quiz && quizItem !== null ? railShowing(view.rail, quizItem, quiz.items.length) : view.rail;
+    this.masthead.update(rail === view.rail ? view : { ...view, rail }, !this.designScreen.hidden);
     this.meter.update(view);
     drawDiagrams(this.main);
   }
@@ -127,12 +130,12 @@ export class Page {
 
   /** The conclusion, or its quiz first: the item the reviewer just answered, or the next one.
    * @param {PageView} view
-   * @returns {boolean} whether the page shows the conclusion's own screen */
+   * @returns {number | null} the quiz item the page shows, from 0, if any */
   renderConclusion(view) {
     const conclusion = view.conclusion;
     if (!conclusion) {
       this.conclusion.clear();
-      return false;
+      return null;
     }
     const quiz = conclusion.quiz;
     const answered =
@@ -142,18 +145,18 @@ export class Page {
         : null;
     const shown = quiz ? (answered ?? quiz.next) : null;
     if (quiz && shown !== null) {
-      this.conclusion.show(keyOf(['quiz', quiz, conclusion.request, shown]), () =>
-        quizSection(quiz, conclusion.request, shown, () => {
+      this.conclusion
+        .component(`quiz:${conclusion.request}`, () => new QuizScreen())
+        .update(quiz, conclusion.request, shown, turnOf(view), () => {
           this.answered = null;
           this.render(/** @type {PageView} */ (this.view));
-        }),
-      );
-      return false;
+        });
+      return shown;
     }
     this.conclusion
       .component(`conclusion:${conclusion.request}`, () => new ConclusionScreen())
       .update(conclusion, view.reset, turnOf(view));
-    return true;
+    return null;
   }
 
   /**

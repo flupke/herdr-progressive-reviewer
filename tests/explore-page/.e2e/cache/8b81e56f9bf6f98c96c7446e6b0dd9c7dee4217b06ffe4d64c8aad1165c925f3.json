@@ -1,15 +1,15 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-04T14:35:43.394Z",
+  "createdAt": "2026-10-04T15:52:25.974Z",
   "payload": {
     "actions": [
       {
         "name": "tap",
-        "summary": "tap link \"Show the conclusion\" in \"Quiz\"",
+        "summary": "tap button \"Show the conclusion\" in \"Not quite.\"",
         "target": {
-          "role": "link",
+          "role": "button",
           "name": "Show the conclusion",
-          "within": "Quiz"
+          "within": "Not quite."
         }
       }
     ],
@@ -18,14 +18,18 @@
       "version": "2"
     },
     "recordedFor": {
-      "testId": "tests/quiz.e2e.ts::the%20reviewer%20answers%20the%20quiz%20one%20question%20at%20a%20time%2C%20and%20sees%20at%20once%20whether%20each%20pick%20is%20right",
+      "testId": "tests/quiz.e2e.ts::the%20reviewer%20picks%20one%20right%20answer%20and%20one%20wrong%20one%2C%20reads%20each%20verdict%20and%20proof%2C%20then%20the%20conclusion",
       "targetId": "phone",
       "instructionDigest": "c0ccf47988029cfd43f383116802659d786b3849d15e5f8e729951c4e5bbd7f9"
     },
-    "summary": "The screen is on the conclusion: “The round is over,” with the conclusion that a reopened round keeps the reviewer's unsent draft.",
+    "summary": "Selected “Show the conclusion.” The Conclusion view is now displayed, stating that a reopened round keeps the reviewer's unsent draft.",
     "startPath": "/",
     "endPath": "/",
     "endAnchors": [
+      {
+        "role": "listitem",
+        "name": "Conclusion"
+      },
       {
         "text": "The round is over"
       },
@@ -45,16 +49,13 @@
       },
       {
         "role": "heading",
-        "name": "Quiz: 1 of 2 correct"
+        "name": "Quiz · 1 of 2 correct"
       },
       {
-        "text": "Quiz 1 of 2"
-      },
-      {
-        "role": "link",
-        "name": "See the answers"
+        "role": "button",
+        "name": "The answers, question by question"
       }
     ],
-    "endWaitMs": 28288
+    "endWaitMs": 12491
   }
 }

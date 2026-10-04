@@ -25,13 +25,30 @@ export function disclosure(label, content, { open = false, button = 'disclosure-
       type: 'button',
       'aria-expanded': String(open),
       'aria-controls': id,
-      onclick: () => {
-        const opened = toggle.getAttribute('aria-expanded') !== 'true';
-        toggle.setAttribute('aria-expanded', String(opened));
-        body.hidden = !opened;
-      },
+      onclick: () => show(toggle, toggle.getAttribute('aria-expanded') !== 'true'),
     },
     label,
   );
   return { element: h('div', { class: 'disclosure' }, toggle, body), toggle };
+}
+
+/**
+ * Opens the disclosure `element` (the `element` that `disclosure` returned), from a link to what
+ * it hides.
+ * @param {Element} element
+ */
+export function openDisclosure(element) {
+  const toggle = element.querySelector(':scope > button[aria-controls]');
+  if (toggle instanceof HTMLButtonElement) show(toggle, true);
+}
+
+/**
+ * Shows or hides what `toggle` controls.
+ * @param {HTMLButtonElement} toggle
+ * @param {boolean} opened
+ */
+function show(toggle, opened) {
+  toggle.setAttribute('aria-expanded', String(opened));
+  const body = toggle.nextElementSibling;
+  if (body instanceof HTMLElement) body.hidden = !opened;
 }

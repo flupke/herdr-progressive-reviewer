@@ -1,6 +1,6 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-04T14:34:10.703Z",
+  "createdAt": "2026-10-04T15:52:29.943Z",
   "payload": {
     "actions": [
       {
@@ -18,11 +18,11 @@
       "version": "2"
     },
     "recordedFor": {
-      "testId": "tests/quiz.e2e.ts::the%20reviewer%20skips%20the%20quiz%20and%20reads%20the%20conclusion",
+      "testId": "tests/quiz.e2e.ts::the%20reviewer%20skips%20the%20quiz%2C%20reads%20the%20conclusion%2C%20then%20the%20answers",
       "targetId": "desktop",
       "instructionDigest": "01198e07b975a11b895fcf7dfa801cc79d744507622be7358eb88b65c741c8e7"
     },
-    "summary": "Opened “See the answers.” The quiz answers are displayed for both questions, including the correct answers: “The answer typed before closing” and “With the round's record.”",
+    "summary": "Opened “See the answers.” The quiz results are expanded and show answers for both questions, including the correct choices and supporting code excerpts.",
     "startPath": "/",
     "endPath": "/#quiz-results",
     "endAnchors": [
@@ -34,27 +34,24 @@
         "text": "The reviewer types an answer, closes the pane, then opens the round again. What does the answer box show?"
       },
       {
-        "role": "listitem",
-        "name": "An empty box"
+        "text": "Skipped."
       },
       {
-        "text": "correct answer"
+        "text": "Answers"
       },
       {
-        "role": "listitem",
-        "name": "The agent's recommended choice"
+        "text": "An empty box"
       },
       {
-        "text": "Skipped. The correct answer: The answer typed before closing"
+        "text": "The answer typed before closing"
       },
       {
-        "text": "Reopening a round no longer clears the draft that the round keeps."
+        "text": "Correct"
       },
       {
-        "role": "heading",
-        "name": "Proof"
+        "text": "The agent's recommended choice"
       }
     ],
-    "endWaitMs": 13141
+    "endWaitMs": 12878
   }
 }

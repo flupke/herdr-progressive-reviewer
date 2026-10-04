@@ -89,10 +89,11 @@ const CALLS = {
 
 /** Where the result of each action shows, which the page brings into view when the reviewer
  * cannot see it: the element its module marks with `data-shows` (the reveal of the
- * recommendation after a first pick, the question waiting again after Cancel answer), or the
- * round's state, a status card, after an answer. @type {Record<string, string>} */
+ * recommendation after a first pick, the verdict on a quiz answer, the question waiting again
+ * after Cancel answer), or the round's state, a status card, after an answer. @type {Record<string, string>} */
 const CHANGED = {
   pick: '[data-shows="pick"]',
+  quiz: '[data-shows="quiz"]',
   answer: '.status-card',
   'cancel-answer': '[data-shows="cancel-answer"]',
 };
@@ -101,6 +102,7 @@ const CHANGED = {
  * @type {Record<string, (form: HTMLFormElement) => boolean>} */
 const REQUIRES = {
   choice: (form) => form.querySelector('input[name="choice"]:checked') !== null,
+  answer: (form) => form.querySelector('input[name="answer"]:checked') !== null,
   'choice-or-comment': (form) =>
     REQUIRES.choice(form) || text(new FormData(form), 'comment').trim() !== '',
 };

@@ -7,7 +7,9 @@
 // menu (masthead.css). The browser tab's title says whose turn it is.
 //
 // The rail and the tab title come from the round's overview, which the tool derives: every
-// question number here is a step of the rail, never a count of the question's versions.
+// question number here is a step of the rail, never a count of the question's versions. While
+// the quiz shows an item, the page hands over a rail whose quiz step names it (railShowing in
+// quiz.js).
 
 /** @import { DesignView, PageView, RailStep, ReviewName, Step, TabTitle } from "./types.ts" */
 

@@ -17,6 +17,7 @@
 /** @import { Turn } from "./turn.js" */
 
 import { DOORS, doorChip } from './chips.js';
+import { choiceCards } from './choices.js';
 import { citationsSection } from './citations.js';
 import { disclosure } from './disclosure.js';
 import { h, keyOf, markdown, Region, setRenderedMarkdown } from './dom.js';
@@ -162,49 +163,6 @@ function revealLine(choices) {
         h('strong', {}, 'The agent recommends another choice.'),
         ' Read its reason, then keep yours or change it.',
       );
-}
-
-/** The choices as cards: on a blind question, the first pick is required, and once the
- * recommendation shows, the first pick keeps its tag. A recommended choice carries the agent's
- * tag and its reason, which describes it.
- * @param {ChoiceView[]} choices
- * @param {{ picking: boolean, revealed: boolean }} state whether the panel asks for the first
- *   pick of a blind question, or shows the recommendation after it */
-function choiceCards(choices, { picking, revealed }) {
-  return h(
-    'fieldset',
-    { class: 'choices' },
-    h('legend', { class: 'eyebrow' }, 'Choices'),
-    choices.map((choice, index) => {
-      const reason = choice.recommendation !== null ? `recommendation-${index + 1}` : null;
-      const text = `choice-${index + 1}`;
-      const firstPick = revealed && choice.checked;
-      return h(
-        'label',
-        { class: choice.recommendation !== null ? 'choice recommended' : 'choice' },
-        h('input', {
-          type: 'radio',
-          name: 'choice',
-          value: choice.id,
-          checked: choice.checked,
-          required: picking,
-          // The choice is named by its text alone: its tags and the agent's reason describe it.
-          'aria-labelledby': text,
-          'aria-describedby': reason,
-        }),
-        h('span', { class: 'choice-text', id: text }, choice.text),
-        firstPick || reason
-          ? h(
-              'span',
-              { class: 'choice-tags' },
-              firstPick ? h('span', { class: 'tag accent' }, 'Your first pick') : null,
-              reason ? h('span', { class: 'tag agent' }, '◆ Agent recommends') : null,
-            )
-          : null,
-        reason ? h('span', { class: 'choice-reason', id: reason }, choice.recommendation) : null,
-      );
-    }),
-  );
 }
 
 /** What answering marks, and the reviewed share of the change before and after, with its bar;

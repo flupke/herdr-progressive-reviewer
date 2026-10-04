@@ -43,11 +43,6 @@ main {
   max-width: var(--measure);
 }
 
-/* A quiz item's options, with Check, and its verdict are short lines, which a wide row only
-   spreads apart: they keep the width of a phrase. The proof's code below them takes the width
-   it needs. */
-.quiz-pick, .quiz-answers, .verdict { max-width: var(--phrase); box-sizing: border-box; }
-
 /* The panel: a tinted surface, no border. */
 .panel {
   box-sizing: border-box;

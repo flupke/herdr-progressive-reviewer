@@ -1,0 +1,122 @@
+/* The quiz (docs/design/explore-page/README.md, "4. Quiz"; design review, finding 18), drawn by
+   client/quiz.js on the desk: the item as the headline, the proof in the reading column after
+   Check; in the panel the verdict, the answers with their marks, and the next step. Every mark
+   has a glyph and a word beside its colour: ✓ and Correct, ✗ and Your pick, "Correct." and "Not
+   quite." on the verdict. The choice cards before Check are those of choices.css, the tags those
+   of tags.css, the proof's code frame that of citations.css.
+
+     <section class="quiz desk" id="quiz" aria-labelledby="quiz-label">
+       <header class="quiz-head">
+         <p class="eyebrow quiz-eyebrow"><span id="quiz-label">Quiz · Question 2 of 3</span>
+           <span class="quiz-dots" role="img" aria-label="Question 1 correct, …"><span class="dot good"></span>…</span></p>
+         <h2 class="quiz-item" tabindex="-1">…</h2>
+         <p class="hint">The quiz checks what you took from the design; nothing here marks lines.</p>
+       </header>
+       <section class="quiz-panel panel" aria-label="Your answer to quiz question 2">
+         <p class="verdict bad" role="status" tabindex="-1" data-shows="quiz"><span><strong>Not quite.</strong> …</span></p>
+         <p class="eyebrow" id="quiz-answers-title">Answers</p>
+         <ol class="quiz-answers" aria-labelledby="quiz-answers-title">
+           <li class="choice quiz-answer wrong"><span class="mark" aria-hidden="true"></span><span class="choice-text">…</span>
+             <span class="choice-tags"><span class="tag accent">Your pick</span></span></li>
+         </ol>
+         <button class="button primary block" type="button">Next question <span aria-hidden="true">→</span></button>
+         <form class="quiz-skip" data-method="quiz-skip">…<button class="button quiet" type="submit">Skip the quiz</button></form>
+       </section>
+       <section class="proof" aria-labelledby="quiz-2-proof"><h3 class="eyebrow" id="quiz-2-proof">Proof</h3>…</section>
+     </section> */
+
+/* The head: "QUIZ · QUESTION 2 OF 3" with a 7-pixel dot for each item (green correct, red wrong,
+   an outline not answered yet), the item as the headline, and a muted line under it. */
+.quiz-head { display: grid; gap: 8px; margin: 0 0 24px; }
+.quiz-eyebrow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.quiz-dots { display: flex; gap: 5px; }
+.quiz-dots .dot { box-sizing: border-box; width: 7px; height: 7px; border-radius: 50%; }
+.quiz-dots .dot.good { background: var(--good); }
+.quiz-dots .dot.bad { background: var(--bad); }
+.quiz-dots .dot.pending { border: 1px solid color-mix(in srgb, var(--ink) 40%, transparent); }
+.quiz-item { margin: 0; max-width: var(--measure); overflow-wrap: anywhere; text-wrap: pretty; }
+.quiz-item:focus { outline: none; }
+.quiz-head .hint { margin: 0; }
+
+/* The proof, after Check: its eyebrow, then each citation's note and code frame. Under the
+   head on the desk; after the panel on a narrower window. */
+.quiz .proof { margin-top: 28px; }
+@media (min-width: 70rem) {
+  .quiz .proof { margin-top: 0; }
+}
+.quiz .proof > .eyebrow { margin: 0 0 8px; }
+.quiz .proof .citation .notes { margin-bottom: 8px; }
+.quiz .proof .code-frame { max-width: 960px; }
+
+/* The panel: the answers and Check, or after Check the verdict, the marked answers, and Next
+   question with the quiet Skip the quiz centred under it. */
+.quiz-pick { display: grid; gap: 14px; }
+.quiz-skip { display: flex; justify-content: center; margin-top: -4px; }
+
+/* The verdict: a 20-pixel disc with its glyph, then the word in bold and why. */
+.verdict {
+  --kind: var(--muted);
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--kind) 10%, transparent);
+  font-size: 15px;
+  overflow-wrap: anywhere;
+}
+.verdict::before {
+  content: "–" / "";
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-top: 2px;
+  border-radius: 50%;
+  background: var(--kind);
+  color: #fff;
+  font: 700 12px/1 var(--font);
+}
+.verdict strong { font-weight: 650; }
+.verdict.good { --kind: var(--good); background: color-mix(in srgb, var(--good) 14%, transparent); }
+.verdict.good::before { content: "✓" / ""; }
+.verdict.bad { --kind: var(--bad); }
+.verdict.bad::before { content: "✗" / ""; }
+.verdict.open { background: transparent; border: 1px solid var(--line); }
+.verdict:focus { outline: none; }
+
+/* The answers after Check, each a choice card (choices.css) with no radio, its mark in the
+   radio's place: the correct one framed in green with ✓ and its Correct tag, a wrong pick framed
+   in red with ✗ and its Your pick tag, the others muted. Nothing to pick any more: no pointer,
+   no hover. */
+.quiz-answers { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.quiz-panel > .eyebrow { margin-bottom: -6px; }
+.choice.quiz-answer, .choice.quiz-answer:hover { border-color: var(--line); cursor: default; }
+.quiz-answer .mark { flex: none; width: 18px; height: 18px; margin-top: 3px; }
+.choice.quiz-answer.correct { border-color: var(--good); }
+.choice.quiz-answer.wrong { border-color: color-mix(in srgb, var(--bad) 60%, transparent); }
+.quiz-answer.other { color: var(--muted); }
+.quiz-answer.correct .mark, .quiz-answer.wrong .mark {
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #fff;
+  font: 700 11px/1 var(--font);
+}
+.quiz-answer.correct .mark { background: var(--good); }
+.quiz-answer.correct .mark::before { content: "✓"; }
+.quiz-answer.wrong .mark { background: var(--bad); }
+.quiz-answer.wrong .mark::before { content: "✗"; }
+
+/* The results beside the conclusion: the score as an eyebrow, then, behind a fold, each item with
+   its verdict, its answers and its proof. Its short lines keep the width of a phrase; the code
+   takes the width it needs. */
+.quiz-results { margin: 28px 0 0; }
+.quiz-results > .eyebrow { margin: 0 0 8px; }
+.quiz-result { display: grid; gap: 10px; margin: 0 0 28px; }
+.quiz-result > h4.eyebrow { margin: 8px 0 -4px; }
+.quiz-result-item { margin: 0; max-width: var(--measure); font-weight: 600; overflow-wrap: anywhere; }
+.quiz-result .verdict, .quiz-result .quiz-answers { box-sizing: border-box; max-width: var(--phrase); }
+.quiz-result .citation { margin: 4px 0 0; }

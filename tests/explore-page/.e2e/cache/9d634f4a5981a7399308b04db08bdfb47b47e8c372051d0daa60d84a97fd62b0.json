@@ -1,0 +1,57 @@
+{
+  "schemaVersion": "trace-1",
+  "createdAt": "2026-10-04T15:52:36.067Z",
+  "payload": {
+    "actions": [
+      {
+        "name": "tap",
+        "summary": "tap button \"The answers, question by question\" in \"Quiz · 0 of 2 correct, 2 skipped\"",
+        "target": {
+          "role": "button",
+          "name": "The answers, question by question",
+          "within": "Quiz · 0 of 2 correct, 2 skipped"
+        }
+      }
+    ],
+    "executor": {
+      "name": "e2e-default-agent",
+      "version": "2"
+    },
+    "recordedFor": {
+      "testId": "tests/quiz.e2e.ts::the%20reviewer%20skips%20the%20quiz%2C%20reads%20the%20conclusion%2C%20then%20the%20answers",
+      "targetId": "phone",
+      "instructionDigest": "01198e07b975a11b895fcf7dfa801cc79d744507622be7358eb88b65c741c8e7"
+    },
+    "summary": "Expanded “The answers, question by question.” The screen shows both quiz questions, their answers, and marks the correct answers (“The answer typed before closing” and “With the round’s record”).",
+    "startPath": "/",
+    "endPath": "/",
+    "endAnchors": [
+      {
+        "role": "heading",
+        "name": "Question 1"
+      },
+      {
+        "text": "The reviewer types an answer, closes the pane, then opens the round again. What does the answer box show?"
+      },
+      {
+        "text": "Skipped."
+      },
+      {
+        "text": "Answers"
+      },
+      {
+        "text": "An empty box"
+      },
+      {
+        "text": "The answer typed before closing"
+      },
+      {
+        "text": "Correct"
+      },
+      {
+        "text": "The agent's recommended choice"
+      }
+    ],
+    "endWaitMs": 12943
+  }
+}

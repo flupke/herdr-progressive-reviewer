@@ -148,6 +148,7 @@ const DROP = 'Drop the waiting notifications';
 const CLOSE = 'Send them in one last notification';
 const QUIZ_RIGHT = 'Once, about two seconds after the fifth reply';
 const QUIZ_WRONG = 'The reply itself, which was only in the queue';
+const QUIZ_LAST_RIGHT = 'At the twentieth reply';
 
 // The conclusion's Implement, which counts the ten items of its list.
 const IMPLEMENT = 'Implement 10 items';
@@ -430,12 +431,13 @@ export const STATES: GalleryState[] = [
   },
   {
     name: 'quiz',
-    about: 'The conclusion asks its quiz first: the first item of three.',
+    about: 'The conclusion asks its quiz first: the first item of three, its answers and Check in the panel.',
     reach: (session) => conclusion(session, true),
   },
   {
     name: 'quiz-correct',
-    about: 'The reviewer picked the correct answer of the first item: the verdict and its proof.',
+    about:
+      'The reviewer picked the correct answer of the first item: the verdict, the marked answers and Next question in the panel, the proof on the desk.',
     async reach(session, page) {
       await conclusion(session, true);
       await choose(page, QUIZ_RIGHT);
@@ -444,8 +446,18 @@ export const STATES: GalleryState[] = [
   },
   {
     name: 'quiz-wrong',
-    about: 'The reviewer picked a wrong answer of the second item.',
+    about: 'The reviewer picked a wrong answer of the second item: the wrong pick and the correct answer, each marked.',
     reach: quizRightThenWrong,
+  },
+  {
+    name: 'quiz-last-checked',
+    about: 'The reviewer checked the last item: Show the conclusion, and no Skip the quiz.',
+    async reach(session, page) {
+      await quizRightThenWrong(session, page);
+      await submit(page, 'Next question');
+      await choose(page, QUIZ_LAST_RIGHT);
+      await submit(page, 'Check');
+    },
   },
   {
     name: 'conclusion-quiz-results',
@@ -453,6 +465,15 @@ export const STATES: GalleryState[] = [
     async reach(session, page) {
       await quizRightThenWrong(session, page);
       await submit(page, 'Skip the quiz');
+    },
+  },
+  {
+    name: 'conclusion-quiz-answers',
+    about: 'The results of the quiz opened from the score: each item with its verdict, its marked answers and its proof.',
+    async reach(session, page) {
+      await quizRightThenWrong(session, page);
+      await submit(page, 'Skip the quiz');
+      await page.getByRole('button', { name: 'The answers, question by question' }).click();
     },
   },
   {
