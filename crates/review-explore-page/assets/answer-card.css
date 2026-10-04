@@ -1,0 +1,18 @@
+/* The reviewer's answer as a card on the page's surface, and the line of what it marked
+   (client/answer-card.js): in an earlier question's panel and in the panel of the answer the
+   agent's turn carries (docs/design/explore-page/README.md, "3. Waiting"). */
+.answer-card {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--canvas);
+}
+.answer-card p { margin: 0; }
+.answer-choice { font-weight: 600; overflow-wrap: anywhere; }
+.answer-comment { color: var(--muted); font-size: 15px; font-style: italic; overflow-wrap: anywhere; }
+.answer-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.answer-marked { margin: 0; color: var(--muted); font-size: 14px; }
+.answer-marked .check { color: var(--good); }

@@ -15,12 +15,14 @@ pub(crate) struct Notice {
 /// What the reviewer asked for with the action.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Action {
-    /// An answer to the question the page showed.
-    Answer,
+    /// An answer to the question the page showed, of this number on the rail when the page
+    /// said it.
+    Answer { number: Option<usize> },
     /// The start of a round.
     Start,
-    /// The reviewer's first pick of a blind question, before the recommendation shows.
-    Pick,
+    /// The reviewer's first pick of a blind question, before the recommendation shows, of this
+    /// number on the rail when the page said it.
+    Pick { number: Option<usize> },
     /// The implementation request of the conclusion the page showed.
     Implement,
     /// A pick of a quiz item, or a skip of the quiz, of the conclusion the page showed.
@@ -80,12 +82,21 @@ impl From<CommandRefusal> for Problem {
 }
 
 impl Action {
+    /// The number on the rail of the question the action answers or picks a choice of, when the
+    /// page said it.
+    pub(crate) fn question_number(self) -> Option<usize> {
+        match self {
+            Self::Answer { number } | Self::Pick { number } => number,
+            _ => None,
+        }
+    }
+
     /// The action's name, as the socket's replies say it.
     fn name(self) -> &'static str {
         match self {
-            Self::Answer => "answer",
+            Self::Answer { .. } => "answer",
             Self::Start => "start",
-            Self::Pick => "pick",
+            Self::Pick { .. } => "pick",
             Self::Implement => "implement",
             Self::Quiz => "quiz",
             Self::Reply => "reply",

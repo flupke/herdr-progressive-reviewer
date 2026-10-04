@@ -21,7 +21,7 @@ impl Harness {
     /// The turn the page shows the agent working on.
     fn working_on(&self) -> String {
         match self.page.stage() {
-            RoundStage::AgentWorking { request } => request,
+            RoundStage::AgentWorking { request, .. } => request,
             stage => panic!("the page shows {stage:?}"),
         }
     }
@@ -47,7 +47,7 @@ impl Harness {
     /// Stop waiting on the page for the start the page shows under way, if any.
     fn stop_start_on_page(&mut self) -> Result<(), CommandRefusal> {
         let start = match self.page.stage() {
-            RoundStage::Starting { start } => start,
+            RoundStage::Starting { start, .. } => start,
             _ => "no-start".into(),
         };
         self.on_page(PageCommand::Recover(Recovery::Stop(Waiting::Start(start))))

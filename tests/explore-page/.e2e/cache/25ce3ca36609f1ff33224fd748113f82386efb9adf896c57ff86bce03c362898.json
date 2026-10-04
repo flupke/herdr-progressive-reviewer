@@ -1,6 +1,6 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-04T12:01:29.795Z",
+  "createdAt": "2026-10-04T16:17:22.021Z",
   "payload": {
     "actions": [
       {
@@ -21,15 +21,15 @@
       "targetId": "desktop",
       "instructionDigest": "ccf807277a7cdca8d66c5af676fb0c16a7922aec136002482cda2614fb86141a"
     },
-    "summary": "The Explore page now shows “Preparing the round,” confirming the round with the Challenger has started.",
+    "summary": "The page shows “Preparing the round,” confirming the Explore round with Challenger has started.",
     "startPath": "/",
     "endPath": "/",
     "endAnchors": [
       {
-        "text": "Preparing the round"
+        "text": "Keep the reviewer's draft when a round reopens"
       },
       {
-        "text": "The review tool captures the change; Jev marks the insignificant lines first when it is on."
+        "text": "Preparing the round"
       },
       {
         "role": "button",
@@ -41,8 +41,11 @@
       {
         "role": "status",
         "name": "Preparing the round"
+      },
+      {
+        "text": "The review tool captures the change; Jev marks the insignificant lines first when it is on. Sent ago"
       }
     ],
-    "endWaitMs": 26935
+    "endWaitMs": 26588
   }
 }

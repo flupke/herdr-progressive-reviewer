@@ -52,7 +52,15 @@ class Options {
   }
 }
 
-/** The standalone page server, with the rich data set, on a free port. */
+/**
+ * The time of the server's fixed clock (`FIXED_NOW_MS` in
+ * crates/review-explore-page-server/src/sessions.rs), which stamps every start and turn: the
+ * pages stand 42 seconds after it, so that a time since reads "0:42" in every run.
+ */
+const SERVER_CLOCK_MS = 1_791_000_000_000;
+const PAGE_CLOCK_MS = SERVER_CLOCK_MS + 42_000;
+
+/** The standalone page server, with the rich data set and its fixed clock, on a free port. */
 class Server {
   private readonly child: ChildProcess;
   readonly baseUrl: string;
@@ -63,7 +71,7 @@ class Server {
   }
 
   static async start(): Promise<Server> {
-    const child = spawn(SERVER, ['--port', '0', '--data', 'rich'], {
+    const child = spawn(SERVER, ['--port', '0', '--data', 'rich', '--fixed-clock'], {
       stdio: ['ignore', 'pipe', 'inherit'],
     });
     const lines = createInterface({ input: child.stdout! });
@@ -150,6 +158,8 @@ async function shoot(studio: Studio, state: GalleryState, width: number, theme: 
     reducedMotion: 'reduce',
   });
   try {
+    // The page's clock stands still at a fixed time; its timers still run.
+    await context.clock.setFixedTime(PAGE_CLOCK_MS);
     const page = await context.newPage();
     const session = await openSession(studio.baseUrl, {
       open: (path) => page.goto(new URL(path, studio.baseUrl).href),

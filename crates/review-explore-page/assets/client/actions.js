@@ -24,6 +24,7 @@ const CALLS = {
       version: Number(text(data, 'version')),
       choice: optional(data, 'choice'),
       comment: text(data, 'comment'),
+      number: number(data, 'number'),
     },
   }),
   pick: ({ data }) => ({
@@ -33,6 +34,7 @@ const CALLS = {
       question: text(data, 'question'),
       version: Number(text(data, 'version')),
       choice: text(data, 'choice'),
+      number: number(data, 'number'),
     },
   }),
   start: ({ data, submitter }) => ({
@@ -123,6 +125,16 @@ function text(data, name) {
 function optional(data, name) {
   const value = data.get(name);
   return typeof value === 'string' ? value : null;
+}
+
+/**
+ * A whole number the form carries, or `null` when it carries none.
+ * @param {FormData} data
+ * @param {string} name
+ */
+function number(data, name) {
+  const value = optional(data, name);
+  return value === null || value === '' || Number.isNaN(Number(value)) ? null : Number(value);
 }
 
 export class Actions {

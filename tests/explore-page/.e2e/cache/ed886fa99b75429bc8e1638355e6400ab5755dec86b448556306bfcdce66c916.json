@@ -1,6 +1,6 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-04T12:03:35.516Z",
+  "createdAt": "2026-10-04T16:19:05.544Z",
   "payload": {
     "actions": [
       {
@@ -29,9 +29,6 @@
         "text": "Preparing the round"
       },
       {
-        "text": "The review tool captures the change; Jev marks the insignificant lines first when it is on."
-      },
-      {
         "role": "button",
         "name": "Stop waiting"
       },
@@ -41,8 +38,11 @@
       {
         "role": "status",
         "name": "Preparing the round"
+      },
+      {
+        "text": "The review tool captures the change; Jev marks the insignificant lines first when it is on. Sent ago"
       }
     ],
-    "endWaitMs": 28284
+    "endWaitMs": 27405
   }
 }

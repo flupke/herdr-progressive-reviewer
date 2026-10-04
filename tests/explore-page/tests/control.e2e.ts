@@ -66,7 +66,7 @@ test(
   await explore.askQuestion();
   await screen.getByRole('link', 'Go to question 1').tap();
   await explore.answerInPane();
-  await expect(screen.getByRole('region', 'You answered Q1')).toContainText('Keep the draft');
+  await expect(screen.getByRole('region', 'Your answer to question 1')).toContainText('Keep the draft');
 
   // Cancel this answer asks for a confirmation first, and takes nothing back yet. An exact
   // action: the point is what this one click does.
@@ -78,7 +78,7 @@ test(
   await expect(screen.getByRole('region', 'Question 1')).toBeVisible();
   await expect(screen.getByRole('button', 'Send answer')).toBeVisible();
   expect(await explore.actions()).toEqual(['cancel-answer']);
-  await expect(screen.getByRole('region', 'You answered Q1')).toHaveCount(0);
+  await expect(screen.getByRole('region', 'Your answer to question 1')).toHaveCount(0);
 });
 
 test(

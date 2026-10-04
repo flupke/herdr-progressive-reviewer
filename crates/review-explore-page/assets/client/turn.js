@@ -96,8 +96,12 @@ export function recorded(response, id = 'turn-record-title') {
   );
 }
 
-/** @param {LatestAnswer} answer */
-function cancelAnswer(answer) {
+/**
+ * Cancel this answer, behind its confirmation: in the previous turn, and in the panel of the
+ * answer the agent's turn carries.
+ * @param {LatestAnswer} answer
+ */
+export function cancelAnswer(answer) {
   return disclosure(
     'Cancel this answer…',
     h(

@@ -65,14 +65,27 @@ function tokens(row) {
 }
 
 /**
- * The question's citations, or `null` when it has none.
+ * The question's citations, or `null` when it has none: the first one, then the others behind a
+ * fold; or, `folded`, all of them behind one fold, for a question the reviewer answered.
  * @param {CitationView[]} citations
  * @param {number} number the question's number
+ * @param {{ folded?: boolean }} [options]
  */
-export function citationsSection(citations, number) {
+export function citationsSection(citations, number, { folded = false } = {}) {
   const [first, ...others] = citations;
   if (!first) return null;
   const id = (/** @type {number} */ index) => `question-${number}-citation-${index}`;
+  const citationsOf = (/** @type {number} */ many) => `citation${many > 1 ? 's' : ''}`;
+  if (folded) {
+    return h(
+      'section',
+      { class: 'citations folded', 'aria-label': 'Citations' },
+      disclosure(
+        `${citations.length} ${citationsOf(citations.length)}`,
+        citations.map((each, index) => citation(each, id(index + 1))),
+      ).element,
+    );
+  }
   return h(
     'section',
     { class: 'citations', 'aria-labelledby': `question-${number}-citations` },
@@ -80,7 +93,7 @@ export function citationsSection(citations, number) {
     citation(first, id(1)),
     others.length > 0
       ? disclosure(
-          `${others.length} more citation${others.length > 1 ? 's' : ''}`,
+          `${others.length} more ${citationsOf(others.length)}`,
           others.map((other, index) => citation(other, id(index + 2))),
         ).element
       : null,

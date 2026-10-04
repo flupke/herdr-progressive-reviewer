@@ -1,6 +1,6 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-04T12:04:04.858Z",
+  "createdAt": "2026-10-04T16:19:15.713Z",
   "payload": {
     "actions": [
       {
@@ -21,15 +21,12 @@
       "targetId": "phone",
       "instructionDigest": "3cbcefd3361bac5327d74e778550bc379eeffee0680835e00171979b92a0f585"
     },
-    "summary": "The page shows “Preparing the round,” confirming the Explore round has started without the Challenger.",
+    "summary": "The current screen shows “Preparing the round,” confirming the Explore round has started without the Challenger.",
     "startPath": "/",
     "endPath": "/",
     "endAnchors": [
       {
         "text": "Preparing the round"
-      },
-      {
-        "text": "The review tool captures the change; Jev marks the insignificant lines first when it is on."
       },
       {
         "role": "button",
@@ -41,8 +38,11 @@
       {
         "role": "status",
         "name": "Preparing the round"
+      },
+      {
+        "text": "The review tool captures the change; Jev marks the insignificant lines first when it is on. Sent ago"
       }
     ],
-    "endWaitMs": 26536
+    "endWaitMs": 32030
   }
 }

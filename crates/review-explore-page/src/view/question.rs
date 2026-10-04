@@ -11,7 +11,7 @@ use ts_rs::TS;
 
 use super::{SectionView, markdown, markdown_if_any};
 use crate::blind::{BlindQuestion, FirstPicks};
-use crate::round::{QuestionMarks, RoundSnapshot, RoundStage};
+use crate::round::{AnsweredQuestion, QuestionMarks, RoundSnapshot, RoundStage};
 
 #[derive(Debug, Serialize, TS)]
 pub(crate) struct QuestionView {
@@ -162,6 +162,29 @@ impl QuestionView {
             .answerable(!round.earlier)
             .gain(round.tally.as_ref().and_then(|tally| tally.gain.as_ref())),
         )
+    }
+
+    /// The question `answered` of the round `round`, number `number` on the rail, as the reviewer
+    /// answered it: the page shows it read only, beside the answer.
+    pub(crate) fn answered(
+        round: Option<String>,
+        number: usize,
+        answered: &AnsweredQuestion,
+    ) -> Self {
+        let mut view = Self::new(
+            round,
+            number,
+            &answered.question,
+            None,
+            &answered.citations,
+            &QuestionMarks::default(),
+            None,
+        )
+        .answerable(false);
+        if answered.picked_blind {
+            view.recommendation = Recommendation::ShownAfterPick;
+        }
+        view
     }
 
     /// `blind` is the question when it hides the agent's recommendation until the first pick;

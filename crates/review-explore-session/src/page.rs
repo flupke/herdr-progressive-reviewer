@@ -6,13 +6,13 @@ use std::sync::Arc;
 
 use review_explore::{
     Comparison, DispatchState, EvidenceRef, Exploration, ExploreRound, ImplementationDelivery,
-    Question, ReviewerAnswer, RoundOverview,
+    KeptAnswer, Question, ReviewerAnswer, RoundOverview, TurnMarks, TurnRequest,
 };
 use review_explore_citations::{Citation, CodeColors};
 use review_explore_page::{
-    Answered, CommandRefusal, CommandReply, ImplementationState, Interruption, LatestAnswer,
-    PageAnswer, PageCommand, PageImplement, PageImplementation, PageQuiz, PublishedRound,
-    QuestionMarks, Recovery, ReviewName, RoundStage, TurnResponse,
+    Answered, AnsweredQuestion, CommandRefusal, CommandReply, ImplementationState, Interruption,
+    LatestAnswer, PageAnswer, PageCommand, PageImplement, PageImplementation, PageQuiz,
+    PublishedRound, QuestionMarks, Recovery, ReviewName, RoundStage, SentAnswer, TurnResponse,
 };
 use review_repository::repository::SnapshotIdentity;
 use review_source::ReviewCheckpoint;
@@ -328,8 +328,12 @@ impl ExploreSession {
                 Start::Idle { offer } => RoundStage::NoRound {
                     start: offer.clone(),
                 },
-                Start::Starting { start } => RoundStage::Starting {
+                Start::Starting {
+                    start,
+                    started_at_ms,
+                } => RoundStage::Starting {
                     start: start.clone(),
+                    started_at_ms: Some(*started_at_ms),
                 },
                 Start::Failed { failure, offer } => RoundStage::StartFailed {
                     failure: failure.clone(),
@@ -338,22 +342,30 @@ impl ExploreSession {
             };
         };
         let exploration = &round.exploration;
+        let root = self.repository.root();
         if let Some(request) = exploration.pending_request() {
             // A turn saved as pending that no prompt of this process carries, after a
             // reopening or Stop waiting, waits for Retry.
             let delivering = self.state.pending.as_ref().is_some_and(|(instance, id)| {
                 *instance == request.instance && *id == request.request
             });
+            let answer = sent_answer(round, request, &mut self.citations, root);
             return if delivering {
                 RoundStage::AgentWorking {
                     request: request.request.clone(),
+                    sent_at_ms: round
+                        .turns
+                        .get(&request.request)
+                        .and_then(|delivery| delivery.started_at_ms),
+                    answer,
                 }
             } else {
-                interrupted(round, request)
+                interrupted(round, request, answer)
             };
         }
         if let Some(retry) = exploration.retry_request() {
-            return interrupted(round, retry);
+            let answer = sent_answer(round, retry, &mut self.citations, root);
+            return interrupted(round, retry, answer);
         }
         let sending = self.state.implementation.is_some();
         // What `save_from_page` refuses, the page does not ask.
@@ -363,13 +375,48 @@ impl ExploreSession {
             sending,
             takes_quiz_answers,
             &mut self.citations,
-            self.repository.root(),
+            root,
         )
     }
 }
 
-/// The turn `request` of `round`, which the agent is not working on, and why.
-fn interrupted(round: &ExploreRound, request: &review_explore::TurnRequest) -> RoundStage {
+/// The reviewer's answer that the turn `request` of `round` carries, with the question it
+/// answers, whose citations `citations` finds in the change in `root`, and the marks it applied.
+fn sent_answer(
+    round: &ExploreRound,
+    request: &TurnRequest,
+    citations: &mut PageCitations,
+    root: &Path,
+) -> Option<Box<SentAnswer>> {
+    let answer = request.answer.as_ref()?;
+    Some(Box::new(SentAnswer {
+        question: answer.question.as_ref().map(|question| AnsweredQuestion {
+            citations: citations.of(question, &round.exploration.comparison, root),
+            question: Box::new(question.clone()),
+            picked_blind: answer.first_pick.is_some(),
+        }),
+        kept: KeptAnswer::new(
+            answer.option.as_ref(),
+            &answer.text,
+            answer.first_pick.as_deref(),
+        ),
+        // The marks of the turn that asked the question, which the answer applied.
+        marked: round
+            .marks
+            .get(&answer.in_reply_to)
+            .filter(|marks| marks.answer.as_deref() == Some(answer.id.as_str()))
+            .map(TurnMarks::counts)
+            .unwrap_or_default(),
+    }))
+}
+
+/// The turn `request` of `round`, which the agent is not working on, and why; `answer` is the
+/// reviewer's answer the turn carries.
+fn interrupted(
+    round: &ExploreRound,
+    request: &TurnRequest,
+    answer: Option<Box<SentAnswer>>,
+) -> RoundStage {
     let delivery = round.turns.get(&request.request);
     let state = delivery.map(|delivery| &delivery.state);
     let interruption = match (state, &request.response_error) {
@@ -382,6 +429,7 @@ fn interrupted(round: &ExploreRound, request: &review_explore::TurnRequest) -> R
         request: Some(request.request.clone()),
         attempt: delivery.map(|delivery| delivery.attempt.clone()),
         interruption,
+        answer,
     }
 }
 
@@ -407,6 +455,7 @@ fn latest_turn(
         request: None,
         attempt: None,
         interruption: Interruption::Stopped,
+        answer: None,
     };
     let Some(turn) = exploration.conversation.last() else {
         return nothing();

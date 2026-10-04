@@ -7,6 +7,7 @@
 mod conclusion;
 mod earlier;
 mod question;
+mod sent;
 
 use markdown_html::HtmlRenderer;
 use review_explore::{AgentRecord, Design, QuestionSection, RailStep, TabTitle};
@@ -17,6 +18,7 @@ use ts_rs::TS;
 pub(crate) use self::conclusion::ConclusionView;
 use self::earlier::EarlierQuestionView;
 pub(crate) use self::question::QuestionView;
+use self::sent::SentView;
 use crate::blind::FirstPicks;
 use crate::round::{LatestAnswer, ReviewName, RoundSnapshot, RoundStage, TurnResponse};
 use crate::status::StatusCard;
@@ -58,6 +60,9 @@ pub(crate) struct PageView {
     tally: Option<MarkTally>,
     /// The questions the reviewer answered before, each a done step of the rail, in its order.
     earlier_questions: Vec<EarlierQuestionView>,
+    /// The reviewer's answer that the agent's turn carries, while the agent works on the turn
+    /// or the turn waits for Retry, with the turn's status card.
+    sent: Option<SentView>,
 }
 
 /// The start cover, when no round is running.
@@ -175,6 +180,7 @@ impl PageView {
                 EarlierQuestionView::all(&overview.earlier, &round.earlier_citations)
             }),
             tally: round.tally.as_deref().cloned(),
+            sent: SentView::of(round, offers_actions),
         }
     }
 }

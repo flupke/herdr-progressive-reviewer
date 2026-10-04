@@ -1,6 +1,6 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-04T15:09:50.688Z",
+  "createdAt": "2026-10-04T16:01:35.858Z",
   "payload": {
     "actions": [
       {
@@ -32,16 +32,29 @@
       "targetId": "desktop",
       "instructionDigest": "3fcd93ad48641d2beb7c6b269142f20eb1971facb3fe365251763a5b43ededbe"
     },
-    "summary": "Question 1 shows “You answered Q1” with the comment “Keep it for a week instead.” and the agent is working on your answer, confirming the comment-only response was sent.",
-    "startPath": "/",
-    "endPath": "/",
+    "summary": "The answer was sent without a choice. The screen confirms Question 1 is Answered and displays the comment “Keep it for a week instead.” while the agent works on it.",
+    "startPath": "/#round",
+    "endPath": "/#round",
     "endAnchors": [
       {
         "role": "listitem",
         "name": "Q1 · working"
       },
       {
-        "text": "The agent is working on your answer"
+        "role": "button",
+        "name": "Lines reviewed: 100%, 3 of 3 changed lines"
+      },
+      {
+        "text": "The agent is working on your answer to question 1"
+      },
+      {
+        "text": "You can leave this tab; its title changes when the next question is ready."
+      },
+      {
+        "text": "Your answer to question 1"
+      },
+      {
+        "text": "“Keep it for a week instead.”"
       },
       {
         "role": "button",
@@ -49,22 +62,8 @@
       },
       {
         "text": "Your answer stays; Retry sends it again."
-      },
-      {
-        "text": "You answered Q1"
-      },
-      {
-        "text": "“Keep it for a week instead.”"
-      },
-      {
-        "role": "button",
-        "name": "Cancel this answer…"
-      },
-      {
-        "role": "document",
-        "name": "Agent working… — Keep the reviewer's draft when a round reopens"
       }
     ],
-    "endWaitMs": 28893
+    "endWaitMs": 26759
   }
 }

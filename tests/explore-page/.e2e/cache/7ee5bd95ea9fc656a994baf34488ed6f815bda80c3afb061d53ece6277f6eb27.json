@@ -1,6 +1,6 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-04T15:12:23.819Z",
+  "createdAt": "2026-10-04T16:34:42.082Z",
   "payload": {
     "actions": [
       {
@@ -32,7 +32,7 @@
       "targetId": "phone",
       "instructionDigest": "355bfe9a4d1f87289293cc618c8fa8ea9d3f8968b69f2a27f1b8aac3b9b65706"
     },
-    "summary": "Question 1 shows the submitted choice “Rename the clashing files,” and the page status says “The agent is working on your answer.”",
+    "summary": "The current page shows Question 1 answered with “Rename the clashing files” as recommended and the status “The agent is working on your answer to question 1.”",
     "startPath": "/",
     "endPath": "/",
     "endAnchors": [
@@ -41,7 +41,16 @@
         "name": "Q1 · working"
       },
       {
-        "text": "The agent is working on your answer"
+        "text": "The agent is working on your answer to question 1"
+      },
+      {
+        "text": "You can leave this tab; its title changes when the next question is ready."
+      },
+      {
+        "text": "Your answer to question 1"
+      },
+      {
+        "text": "as recommended"
       },
       {
         "role": "button",
@@ -51,21 +60,10 @@
         "text": "Your answer stays; Retry sends it again."
       },
       {
-        "text": "You answered Q1"
-      },
-      {
         "role": "button",
         "name": "Cancel this answer…"
-      },
-      {
-        "role": "document",
-        "name": "Agent working… — Keep the reviewer's draft when a round reopens"
-      },
-      {
-        "role": "status",
-        "name": "The agent is working on your answer"
       }
     ],
-    "endWaitMs": 29075
+    "endWaitMs": 27362
   }
 }

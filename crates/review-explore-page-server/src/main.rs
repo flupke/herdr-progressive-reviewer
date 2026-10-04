@@ -1,7 +1,7 @@
 //! Serves the Explore page alone, with no pane, no agent and no Herdr: for working on the page,
 //! and for its e2e tests (`tests/explore-page`).
 //!
-//! `explore-page-server [--port N] [--token T] [--data short|rich] [--dev DIR]`
+//! `explore-page-server [--port N] [--token T] [--data short|rich] [--dev DIR] [--fixed-clock]`
 //!
 //! It listens on the loopback address and prints the address of a page that shows the fixed
 //! question.
@@ -13,6 +13,8 @@
 //! - `--dev` reads the templates and assets from `DIR`, the page crate's directory, on every
 //!   request, and loads an open page again when one of them changes. A release build refuses
 //!   it.
+//! - `--fixed-clock` stamps every start and every turn with the same time, so that two runs of
+//!   the screenshot gallery draw the same page.
 //!
 //! Each e2e test opens its own session through the routes of [`control`].
 
@@ -33,16 +35,16 @@ use std::process::ExitCode;
 use review_explore_page::{ExplorePage, Hosts, PageEvent, PageFiles, Token};
 
 use crate::round_data::RoundData;
-use crate::sessions::Sessions;
+use crate::sessions::{Clock, Sessions};
 
-const USAGE: &str =
-    "usage: explore-page-server [--port N] [--token T] [--data short|rich] [--dev DIR]";
+const USAGE: &str = "usage: explore-page-server [--port N] [--token T] [--data short|rich] [--dev DIR] [--fixed-clock]";
 
 struct Options {
     port: u16,
     token: Option<String>,
     data: &'static dyn RoundData,
     dev: Option<PathBuf>,
+    clock: Clock,
 }
 
 impl Options {
@@ -52,6 +54,7 @@ impl Options {
             token: None,
             data: &short::Short,
             dev: None,
+            clock: Clock::Real,
         };
         while let Some(arg) = args.next() {
             let mut value = || args.next().ok_or_else(|| format!("{arg} needs a value"));
@@ -68,6 +71,7 @@ impl Options {
                 }
                 "--dev" if cfg!(debug_assertions) => options.dev = Some(value()?.into()),
                 "--dev" => return Err("--dev is only in debug builds".into()),
+                "--fixed-clock" => options.clock = Clock::Fixed,
                 _ => return Err(format!("unknown argument {arg}")),
             }
         }
@@ -100,7 +104,7 @@ fn serve(options: Options) -> Result<(), String> {
         None => PageFiles::embedded(),
     };
 
-    let sessions = Sessions::new(options.data);
+    let sessions = Sessions::new(options.data, options.clock);
     let token = match options.token {
         Some(token) => Token::chosen(token)?,
         None => Token::random(),

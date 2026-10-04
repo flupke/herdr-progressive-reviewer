@@ -6,10 +6,10 @@
 // screen holds no form, and its data carries no identity an action could post with, so nothing
 // on it can change the round.
 
-/** @import { EarlierQuestionView, KeptAnswer, MarkPhrase } from "./types.ts" */
+/** @import { EarlierQuestionView } from "./types.ts" */
 /** @import { Current } from "./design.js" */
 
-import { decisionTag } from './chips.js';
+import { answerCard, markedLine } from './answer-card.js';
 import { citationsSection } from './citations.js';
 import { goTo } from './design.js';
 import { h } from './dom.js';
@@ -49,33 +49,9 @@ function panel(question, current) {
     { class: 'earlier-panel panel', 'aria-labelledby': title },
     h('p', { class: 'eyebrow', id: title }, `Your answer to question ${question.number}`),
     question.answer ? answerCard(question.answer) : h('p', { class: 'hint' }, 'The round left this question unanswered.'),
-    question.marks.map(marked),
+    question.marks.map(markedLine),
     record(question),
     current ? goTo(current) : null,
-  );
-}
-
-/** The answer the reviewer kept: the choice, the comment, and how the choice relates to the
- * first pick and to the agent's recommendation.
- * @param {KeptAnswer} answer */
-function answerCard(answer) {
-  return h(
-    'div',
-    { class: 'answer-card' },
-    answer.choice !== null ? h('p', { class: 'answer-choice' }, answer.choice) : null,
-    answer.comment ? h('p', { class: 'answer-comment' }, `“${answer.comment}”`) : null,
-    answer.choice === null && !answer.comment ? h('p', { class: 'answer-comment' }, 'No choice, no comment') : null,
-    answer.tags.length > 0 ? h('p', { class: 'answer-tags' }, answer.tags.map(decisionTag)) : null,
-  );
-}
-
-/** "✓ Marked 12 lines reviewed · 3 lines not relevant". @param {MarkPhrase} marks */
-function marked(marks) {
-  return h(
-    'p',
-    { class: 'answer-marked' },
-    h('span', { class: 'check', 'aria-hidden': 'true' }, '✓'),
-    ` ${marks.verb} ${marks.parts.join(' · ')}`,
   );
 }
 

@@ -1,6 +1,6 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-04T15:12:42.409Z",
+  "createdAt": "2026-10-04T16:18:35.907Z",
   "payload": {
     "actions": [
       {
@@ -22,16 +22,25 @@
       "targetId": "phone",
       "instructionDigest": "d3db6d303417fde5f5733fe10708b7a5ac02853df24eec6e657c49c326bfbdb5"
     },
-    "summary": "Question 1 is confirmed. The page shows “The agent is working on your answer” and the selected answer “Overwrite the older file.”",
-    "startPath": "/",
-    "endPath": "/",
+    "summary": "Question 1 is confirmed as answered, and the page shows “The agent is working on your answer to question 1.”",
+    "startPath": "/#round",
+    "endPath": "/#round",
     "endAnchors": [
       {
         "role": "listitem",
         "name": "Q1 · working"
       },
       {
-        "text": "The agent is working on your answer"
+        "text": "The agent is working on your answer to question 1"
+      },
+      {
+        "text": "You can leave this tab; its title changes when the next question is ready."
+      },
+      {
+        "text": "Your answer to question 1"
+      },
+      {
+        "text": "“Renaming hides which file the user meant to keep.”"
       },
       {
         "role": "button",
@@ -41,20 +50,10 @@
         "text": "Your answer stays; Retry sends it again."
       },
       {
-        "text": "You answered Q1"
-      },
-      {
-        "text": "“Renaming hides which file the user meant to keep.”"
-      },
-      {
         "role": "button",
         "name": "Cancel this answer…"
-      },
-      {
-        "role": "document",
-        "name": "Agent working… — Keep the reviewer's draft when a round reopens"
       }
     ],
-    "endWaitMs": 27092
+    "endWaitMs": 27029
   }
 }

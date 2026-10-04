@@ -170,6 +170,8 @@ test('once the agent received the request, the reviewer starts a new round', RES
   await explore.conclude();
   // Exact actions: the setup is a request the agent received.
   await screen.getByRole('button', IMPLEMENT).tap();
+  // The request is on its way before the agent can receive it.
+  await expect(screen.getByRole('status')).toContainText('Sending the implementation request');
   await explore.deliverImplementation();
   await expect(screen.getByRole('status')).toContainText('The agent received the implementation request');
 

@@ -15,7 +15,7 @@ test('the page follows an answer given in the pane, then shows the next question
   // in the pane puts it in the working state, with the answer the reviewer may cancel.
   await explore.answerInPane();
   await expect(screen.getByRole('status')).toContainText('The agent is working');
-  await expect(screen.getByRole('region', 'You answered Q1')).toContainText('Keep the draft');
+  await expect(screen.getByRole('region', 'Your answer to question 1')).toContainText('Keep the draft');
 
   await explore.askQuestion();
   await expect(screen.getByRole('region', 'Question 2')).toContainText('Where should the kept draft be stored?');

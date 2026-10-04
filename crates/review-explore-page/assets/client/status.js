@@ -48,12 +48,13 @@ function drawn(card, actions) {
     { class: `status-card ${card.kind}`, id: card.id, role: card.role, 'aria-labelledby': title },
     h('span', { class: 'status-glyph', 'aria-hidden': 'true' }),
     h('p', { class: 'status-title', id: title }, card.title),
-    card.reason || card.time
+    card.reason || card.time || card.since
       ? h(
           'p',
           { class: 'status-reason' },
           card.time ? `${time(card.time)}${card.reason ? ' ' : ''}` : null,
           card.reason && card.code ? h('code', {}, card.reason) : card.reason,
+          card.since ? [card.reason ? ' ' : null, since(card.since)] : null,
         )
       : null,
     card.kind === 'progress' ? h('div', { class: 'status-bar', 'aria-hidden': 'true' }) : null,
@@ -99,4 +100,46 @@ function time(at) {
   const today = new Date().toDateString() === date.toDateString();
   const day = today ? '' : ` on ${date.toLocaleDateString([], { day: 'numeric', month: 'short' })}`;
   return `${at.words} ${clock}${day}.`;
+}
+
+/**
+ * The time since what a card waits for began, counted in the page: "Sent 0:42 ago". The count
+ * goes on every second, quietly for a screen reader, which would otherwise read the card again
+ * at each change.
+ * @param {CardTime} at
+ */
+function since(at) {
+  ticker ??= setInterval(tick, 1000);
+  return [
+    `${at.words} `,
+    h('span', { class: 'status-elapsed', 'data-since': at.ms, 'aria-live': 'off' }, elapsed(at.ms)),
+    ' ago',
+  ];
+}
+
+/** The timer that counts every card's time since, while one shows. @type {number | null} */
+let ticker = null;
+
+/** Counts on every time since the page shows, and stops once it shows none. */
+function tick() {
+  const counts = document.querySelectorAll('.status-elapsed[data-since]');
+  if (counts.length === 0 && ticker !== null) {
+    clearInterval(ticker);
+    ticker = null;
+  }
+  for (const count of counts) {
+    if (count instanceof HTMLElement) count.textContent = elapsed(Number(count.dataset.since));
+  }
+}
+
+/**
+ * The time from `ms` to now: "0:42", "12:05", or "1:02:03" past an hour.
+ * @param {number} ms milliseconds since the epoch
+ */
+function elapsed(ms) {
+  const seconds = Math.max(0, Math.floor((Date.now() - ms) / 1000));
+  const two = (/** @type {number} */ value) => String(value).padStart(2, '0');
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor(seconds / 60) % 60;
+  return hours > 0 ? `${hours}:${two(minutes)}:${two(seconds % 60)}` : `${minutes}:${two(seconds % 60)}`;
 }

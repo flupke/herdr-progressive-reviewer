@@ -37,7 +37,7 @@ pub use command::{
 pub use files::PageFiles;
 pub use page::{ExplorePage, PageEvent};
 pub use round::{
-    Answered, ImplementationState, Interruption, LatestAnswer, PageImplementation, PageQuiz,
-    PageRound, PublishedRound, QuestionMarks, ReviewName, RoundFeed, RoundPublisher, RoundStage,
-    Rounds, TurnResponse,
+    Answered, AnsweredQuestion, ImplementationState, Interruption, LatestAnswer,
+    PageImplementation, PageQuiz, PageRound, PublishedRound, QuestionMarks, ReviewName, RoundFeed,
+    RoundPublisher, RoundStage, Rounds, SentAnswer, TurnResponse,
 };

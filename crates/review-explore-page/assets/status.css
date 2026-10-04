@@ -50,6 +50,8 @@
   font-size: 13px;
 }
 .status-next { font-size: 15px; }
+/* The time since what the card waits for began, which counts on: "Sent 0:42 ago". */
+.status-elapsed { color: var(--ink); font-variant-numeric: tabular-nums; }
 
 /* Progress has no end in sight: a runner slides along a track, or stands still when the reviewer
    asked for less motion. */

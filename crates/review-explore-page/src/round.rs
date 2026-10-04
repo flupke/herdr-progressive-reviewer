@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use review_explore::{
     CodeLocation, Conclusion, ConversationTurn, Design, Exploration, Interpretation,
-    InterviewUpdate, MarkCounts, NotRelevantMark, Question, QuizAnswers, QuizResponse,
+    InterviewUpdate, KeptAnswer, MarkCounts, NotRelevantMark, Question, QuizAnswers, QuizResponse,
     RoundOverview, StartBlock, Step, StepState,
 };
 use review_explore_citations::Citation;
@@ -27,13 +27,25 @@ pub enum RoundStage {
     NoRound { start: String },
     /// The reviewer started a round, the start `start`, which is starting: the tool captures the
     /// change, and Jev marks first when it is enabled. Then the agent works on its first turn.
-    Starting { start: String },
+    Starting {
+        start: String,
+        /// When the reviewer started it, in milliseconds since the epoch, if known.
+        started_at_ms: Option<u64>,
+    },
     /// No round is running: the reviewer's latest start failed, for this reason. `start` is the
     /// identity of the next start the stage offers.
     StartFailed { failure: String, start: String },
     /// The agent works on its next turn, the turn `request`. The reviewer may stop waiting for
     /// it.
-    AgentWorking { request: String },
+    AgentWorking {
+        request: String,
+        /// When the turn's latest attempt went out to the agent, in milliseconds since the
+        /// epoch; `None` while it waits to go out.
+        sent_at_ms: Option<u64>,
+        /// The reviewer's answer that the turn carries; `None` for a turn that carries none,
+        /// such as the kickoff.
+        answer: Option<Box<SentAnswer>>,
+    },
     /// The agent's question, waiting for the reviewer's answer.
     Question {
         /// The question's position in the round, from 1.
@@ -60,6 +72,8 @@ pub enum RoundStage {
         /// back, so that a repeat of a Retry that went through is not a second one.
         attempt: Option<String>,
         interruption: Interruption,
+        /// The reviewer's answer that the turn carries; `None` for a turn that carries none.
+        answer: Option<Box<SentAnswer>>,
     },
     /// The agent concluded the round.
     Conclusion {
@@ -77,6 +91,31 @@ pub enum RoundStage {
     /// The review tool cannot save the reviewer's rounds, for this reason: the page can do
     /// nothing until the review pane opens again.
     StorageFailed { failure: String },
+}
+
+/// The reviewer's answer that an agent's turn carries, as the page shows it beside the turn
+/// while the agent works on it, or while the turn waits for Retry.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SentAnswer {
+    /// The question the answer answers, as the reviewer answered it; `None` for a reply to the
+    /// conclusion.
+    pub question: Option<AnsweredQuestion>,
+    /// The choice and the comment the reviewer sent, and how the choice relates to the
+    /// reviewer's first pick and to the agent's recommendation.
+    pub kept: KeptAnswer,
+    /// The review marks the answer applied when the reviewer sent it.
+    pub marked: MarkCounts,
+}
+
+/// The question a sent answer answers, with its citations.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AnsweredQuestion {
+    pub question: Box<Question>,
+    /// The question's citations, in the order the agent gave them.
+    pub citations: Arc<[Citation]>,
+    /// Whether the reviewer picked a choice before the agent's recommendation showed: the
+    /// question was a blind pick.
+    pub picked_blind: bool,
 }
 
 /// Why the agent is not working on the turn the round waits for.
@@ -128,6 +167,17 @@ impl RoundStage {
         }
     }
 
+    /// The reviewer's answer that the agent's turn carries, while the agent works on the turn or
+    /// the turn waits for Retry.
+    pub(crate) fn sent(&self) -> Option<&SentAnswer> {
+        match self {
+            Self::AgentWorking { answer, .. } | Self::Interrupted { answer, .. } => {
+                answer.as_deref()
+            }
+            _ => None,
+        }
+    }
+
     /// No round is running or starting: the start the stage offers, by its identity.
     pub(crate) fn offered_start(&self) -> Option<&str> {
         match self {
@@ -140,8 +190,8 @@ impl RoundStage {
     /// agent's turn it names.
     pub(crate) fn stops(&self, waiting: &Waiting) -> bool {
         match (self, waiting) {
-            (Self::Starting { start }, Waiting::Start(stopped)) => start == stopped,
-            (Self::AgentWorking { request }, Waiting::Turn(stopped)) => request == stopped,
+            (Self::Starting { start, .. }, Waiting::Start(stopped)) => start == stopped,
+            (Self::AgentWorking { request, .. }, Waiting::Turn(stopped)) => request == stopped,
             _ => false,
         }
     }
@@ -421,7 +471,8 @@ impl QuestionMarks {
         }
     }
 
-    pub(crate) fn counts(&self) -> MarkCounts {
+    /// How many lines and whole files the marks mark reviewed, mark not relevant and reopen.
+    pub fn counts(&self) -> MarkCounts {
         MarkCounts::count(
             &self.reviewed,
             NotRelevantMark::locations(&self.not_relevant),
@@ -527,11 +578,25 @@ impl RoundSnapshot {
     }
 
     /// The number on the rail of the question that the reviewer's latest answer, which the
-    /// reviewer may still cancel, answered: the step before the question or the conclusion the
-    /// answer led to, or the step the agent works on, or waits for a Retry of. `None` for a reply
-    /// to the conclusion, and for a round with no overview.
+    /// reviewer may still cancel, answered. `None` for a reply to the conclusion, and for a round
+    /// with no overview.
     pub(crate) fn answered_number(&self) -> Option<usize> {
         self.cancellable.as_ref()?.answered.question.as_ref()?;
+        self.latest_answer_number()
+    }
+
+    /// The number on the rail of the question that the answer the agent's turn carries
+    /// answered. `None` when the turn carries no answer to a question, and for a round with no
+    /// overview.
+    pub(crate) fn sent_number(&self) -> Option<usize> {
+        self.stage.sent()?.question.as_ref()?;
+        self.latest_answer_number()
+    }
+
+    /// The number on the rail of the question the reviewer's latest answer answered: the step
+    /// before the question or the conclusion the answer led to, or the step the agent works on,
+    /// or waits for a Retry of.
+    fn latest_answer_number(&self) -> Option<usize> {
         let rail = &self.overview.as_deref()?.rail;
         let mut done = None;
         let mut current = None;

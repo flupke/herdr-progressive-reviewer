@@ -129,7 +129,7 @@ again with it.
 | The latest start failed | Retry, which starts again | The reason, and Start again (`StartFailed`) |
 | Capturing the change, waiting for a start from the page, or a kickoff waiting for Jev | Stop waiting | Stop waiting (`Starting`) |
 | Stopped while capturing | None: waits for the capture to end | `Starting`, then `NoRound` |
-| Waiting for the agent | Stop waiting; Cancel answer on the latest answer | Stop waiting; Cancel this answer in the previous turn (`AgentWorking`) |
+| Waiting for the agent | Stop waiting; Cancel answer on the latest answer | Stop waiting; Cancel this answer, in the panel of the answer the turn carries (`AgentWorking`) |
 | Interrupted: the prompt failed, the agent did not start on it, the reviewer stopped waiting, or reopened during the turn | Retry, with the reason; Cancel answer | Retry, with the failure, an unknown delivery or a stop (`Interrupted`); Cancel answer |
 | Interrupted with no turn to send again | Reset | That only Reset is left (`Interrupted` with no request) |
 | A question | Send; Cancel answer of the previous answer | Send answer; on a blind question, a first Send that shows the recommendation, then Confirm answer (`Question`); Cancel this answer |
@@ -292,7 +292,36 @@ what it names, `.hint` the muted help line. Every control has a focus ring (`:fo
   implementation request and each refused action to its kind, title, reason, next step and
   actions; `assets/client/status.js` only draws it. In a panel, where the primary action
   comes last at its full width, `panelCard` draws the card without its actions and
-  `panelActions` draws them as the panel's buttons (the conclusion's implementation request).
+  `panelActions` draws them as the panel's buttons (the conclusion's implementation request,
+  the answer the agent's turn carries). A card that waits says the time since what it waits for
+  began (`since`: "Sent 0:42 ago"), which the page counts on every second, in tabular numerals
+  and quietly for a screen reader; the tool says when (the start, or the turn's latest attempt
+  going out), the page counts.
+- **The answer the agent's turn carries** (`sent.css`, `client/sent.js`, from the view's
+  `sent`, `SentView` in `src/view/sent.rs`): while the agent works on a turn that carries the
+  reviewer's answer, and when that turn did not go through, the turn's status card sits on a
+  desk of its own (not above the stage), then the answered question, read again in muted text
+  (`questionReading`, "Question 2 · answered", its citations all behind one fold); the panel
+  holds the answer that was sent and what it marked (`answer-card.js`, `answer-card.css`, the
+  same card as an earlier question's panel), the card's one
+  action (Stop waiting, or Retry) and Cancel this answer. The panel comes right after the card
+  in the markup, so a phone shows the answer and its action before the question. A turn that
+  carries no answer (the kickoff) shows its card above the stage, as before:
+
+  ```html
+  <div class="sent desk">
+    <div class="status-card progress" id="waiting" role="status">…Sent <span class="status-elapsed">0:42</span> ago…</div>
+    <section class="sent-answer panel" aria-labelledby="sent-answer-title">
+      <p class="eyebrow" id="sent-answer-title">Your answer to question 2</p>
+      <div class="answer-card"><p class="answer-choice">…</p><p class="answer-comment">“…”</p><p class="answer-tags"><span class="tag accent">changed after your first pick</span></p></div>
+      <p class="answer-marked"><span class="check">✓</span> Marked 12 lines reviewed · 3 lines not relevant</p>
+      <form class="stop" data-method="stop">…<button class="button secondary block">Stop waiting</button><p class="hint">…</p></form>
+      <div class="disclosure">…Cancel this answer…</div>
+    </section>
+    <section class="answered-question" aria-labelledby="question-2-label">…</section>
+    <section class="citations folded" aria-label="Citations">…▸ 2 citations…</section>
+  </div>
+  ```
 - **Panel and desk** (`layout.css`): the page is capped at 90rem with a 32-pixel gutter (16 on
   a phone). From 70rem, a container with the class `desk` reads in two columns: its children
   in the reading column, each in its own grid row, and its child with the class `panel` (416
@@ -382,7 +411,7 @@ what it names, `.hint` the muted help line. Every control has a focus ring (`:fo
   (the overview's `earlier` records, with their citations resolved by the session): on the desk
   the question head ("Question 1 · answered" and its Door chip), Context, the Door and Blast
   radius rows and the citations, as the question screen draws them; in the panel the kept
-  answer in a card with its decision tags, what the answers marked, what the agent recorded
+  answer in a card with its decision tags and what the answers marked (`answer-card.js`), what the agent recorded
   (the previous turn's `recorded` block) and the way back to the round's step (`goTo` of
   `design.js`). It holds no form: nothing on it can change the round.
 
@@ -414,8 +443,10 @@ what it names, `.hint` the muted help line. Every control has a focus ring (`:fo
 - **Previous turn** (`turn.css`, `client/turn.js`, `turnStrip({ answer, response, number })`,
   with `number` the view's `answered`, the rail's number of the question the answer answered):
   one hairlined block, with no frame and no fill, above the stage the turn led to (the first
-  row of the question's desk and of the conclusion's; above the stage itself elsewhere, until
-  each stage's screen places it on its own desk). What the reviewer answered beside what the agent recorded and
+  row of the question's desk and of the conclusion's). While the agent works on the next turn,
+  or that turn waits for Retry, the panel of the answer the turn carries shows the answer and
+  Cancel this answer instead; the block sits above the stage only for a turn that carries no
+  answer. What the reviewer answered beside what the agent recorded and
   replied, each a region named by its eyebrow; then the follow-ups and Cancel this answer, a
   disclosure (`disclosure.js`) with the quiet button's tier that opens its hint and Confirm:
   cancel my answer. On a phone the columns stack, each `turn-text` clamps to two lines, and the
@@ -644,7 +675,7 @@ only, with no `unsafe` value; its `connect-src` names the page's own `ws:` addre
 - One module per screen or region: `start.js`, `status.js` (the status card),
   `design.js` (the design screen, with its map and the part in view), `earlier.js` (an earlier
   question, read only), `swipe.js` (the swipe between screens on a phone), `turn.js` (the
-  previous turn), `chips.js` (the chip of a question's Door and the tags of a kept answer), `choices.js` (the choice cards), `question.js` (with the answer panel and the first pick), `citations.js`,
+  previous turn), `sent.js` (the answer the agent's turn carries, beside the turn's card), `chips.js` (the chip of a question's Door and the tags of a kept answer), `choices.js` (the choice cards), `question.js` (with the answer panel and the first pick), `citations.js`,
   `conclusion.js` (with the reviewer's decisions, the list to be implemented, each state of
   its request and the reply), `quiz.js`, `masthead.js` (above `main`, with Reset in its menu),
   `meter.js` (the meter on the masthead's hairline), `change-size.js` ("+125 −10", "4 files"),
@@ -691,8 +722,10 @@ again; the open page reconnects by itself once the server is back. The token sta
 `dev`, so the page opens again without a new address.
 
 The server's own options: `--port N` (`0` picks a free port), `--token T`
-(random when omitted), `--data short|rich`, what the agent posts, and `--dev DIR`, the
-page crate's directory to read the files from. Without `--dev`, it serves the files built
+(random when omitted), `--data short|rich`, what the agent posts, `--dev DIR`, the
+page crate's directory to read the files from, and `--fixed-clock`, which stamps every start
+and turn with the same time (the gallery uses it, and holds its pages' clock 42 seconds
+later, so that a time since reads "0:42" in every run). Without `--dev`, it serves the files built
 into the binary. The `short` data set, the default, is the one the e2e tests check; the
 `rich` one is as long as a real round (a design in four full parts, questions with several
 paragraphs of Context, tables, diagrams, three citations of a change of three files, a

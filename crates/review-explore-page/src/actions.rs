@@ -110,6 +110,9 @@ impl<R: Rounds> Actions<'_, R> {
             .asks(&params.question, params.version)
             .filter(|_| params.round == shown.round);
         let comment = crlf_to_lf(params.comment);
+        let action = Action::Answer {
+            number: params.number,
+        };
         if asked.is_none() {
             // The round's latest answer is this one: a repeat of an answer that went through.
             let answered = Answered {
@@ -117,7 +120,7 @@ impl<R: Rounds> Actions<'_, R> {
                 option: params.choice,
                 in_reply_to: String::new(),
             };
-            return repeat(shown.repeats(&answered, &comment), Action::Answer);
+            return repeat(shown.repeats(&answered, &comment), action);
         }
         // A question answered before, whose recommendation the reviewer has seen, keeps no first
         // pick.
@@ -136,13 +139,16 @@ impl<R: Rounds> Actions<'_, R> {
                 first_pick,
             },
         };
-        self.send(PageCommand::Answer(answer), Action::Answer).await
+        self.send(PageCommand::Answer(answer), action).await
     }
 
     /// Keeps the reviewer's first pick of a blind question, once the round's owner says that it
     /// still asks it. A pick kept already stays the first one.
     async fn pick(&self, params: PickParams) -> Result<Outcome, Notice> {
-        let stale = || Notice::new(Action::Pick, Problem::Stale);
+        let action = Action::Pick {
+            number: params.number,
+        };
+        let stale = || Notice::new(action, Problem::Stale);
         let shown = self.round.stages.latest();
         let asked = shown
             .stage
@@ -175,7 +181,7 @@ impl<R: Rounds> Actions<'_, R> {
             .commands
             .send(command)
             .await
-            .map_err(|problem| Notice::new(Action::Pick, problem))?;
+            .map_err(|problem| Notice::new(action, problem))?;
         let kept = self.page.picks.keep(round, &blind, &params.choice);
         Ok(Outcome::applied(kept == Pick::First))
     }
@@ -185,8 +191,7 @@ impl<R: Rounds> Actions<'_, R> {
     async fn start(&self, params: StartParams) -> Result<Outcome, Notice> {
         let shown = self.round.stages.latest();
         if shown.stage.offered_start() != Some(params.start.as_str()) {
-            let starting =
-                matches!(&shown.stage, RoundStage::Starting { start } if *start == params.start);
+            let starting = matches!(&shown.stage, RoundStage::Starting { start, .. } if *start == params.start);
             return repeat(starting, Action::Start);
         }
         if let Some(block) = shown.start_block {

@@ -1,6 +1,6 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-04T15:22:28.735Z",
+  "createdAt": "2026-10-04T16:18:28.743Z",
   "payload": {
     "actions": [
       {
@@ -32,7 +32,7 @@
       "targetId": "phone",
       "instructionDigest": "5a52da29fb75e74a152b6de7969c601ee11918450ac414e446f706ee4dfb2580"
     },
-    "summary": "Sent the answer to question 1. The application confirms “You answered Q1” with “Discard the draft”; processing is still underway.",
+    "summary": "The answer was sent. The current screen shows “Your answer to question 1” with “Discard the draft,” and the question is marked Answered; the app is processing the answer.",
     "startPath": "/#round",
     "endPath": "/#round",
     "endAnchors": [
@@ -41,7 +41,17 @@
         "name": "Q1 · working"
       },
       {
-        "text": "The agent is working on your answer"
+        "role": "button",
+        "name": "Lines reviewed: 100%, 3 of 3 changed lines"
+      },
+      {
+        "text": "The agent is working on your answer to question 1"
+      },
+      {
+        "text": "You can leave this tab; its title changes when the next question is ready."
+      },
+      {
+        "text": "Your answer to question 1"
       },
       {
         "role": "button",
@@ -51,21 +61,10 @@
         "text": "Your answer stays; Retry sends it again."
       },
       {
-        "text": "You answered Q1"
-      },
-      {
         "role": "button",
         "name": "Cancel this answer…"
-      },
-      {
-        "role": "document",
-        "name": "Agent working… — Keep the reviewer's draft when a round reopens"
-      },
-      {
-        "role": "status",
-        "name": "The agent is working on your answer"
       }
     ],
-    "endWaitMs": 15007
+    "endWaitMs": 27453
   }
 }

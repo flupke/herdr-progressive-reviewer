@@ -221,7 +221,8 @@ export const STATES: GalleryState[] = [
   },
   {
     name: 'working-last-answer',
-    about: 'The agent works on the answer given in the pane: the previous turn, with Cancel this answer.',
+    about:
+      'The agent works on the answer given in the pane: the card with the time since it was sent, the answered question, and in the panel the answer with Stop waiting and Cancel this answer.',
     async reach(session) {
       await session.askQuestion();
       await after(session, () => session.answerInPane());
@@ -244,13 +245,42 @@ export const STATES: GalleryState[] = [
   },
   {
     name: 'delivery-failed-last-answer',
-    about: "The prompt with the reviewer's answer could not be delivered: Retry, and the previous turn with Cancel this answer.",
+    about:
+      "The prompt with the reviewer's answer could not be delivered: the card, the answered question, and in the panel the answer with Retry and Cancel this answer.",
     async reach(session, page) {
       await question(session, page, 1);
       await choose(page, IDLE_OR_FULL);
       await page.getByRole('textbox', { name: 'Comment · optional' }).fill(COMMENT);
       await submit(page, 'Send answer');
       await after(session, () => session.failDelivery());
+    },
+  },
+  {
+    name: 'stopped-last-answer',
+    about: 'The reviewer stopped waiting for the answer: the turn is paused, and the panel offers Retry.',
+    async reach(session) {
+      await session.askQuestion();
+      await session.answerInPane();
+      await after(session, () => session.interrupt());
+    },
+  },
+  {
+    name: 'not-started-last-answer',
+    about: 'The agent did not start on the answer: the warning, and Retry in the panel.',
+    async reach(session) {
+      await session.askQuestion();
+      await session.answerInPane();
+      await after(session, () => session.agentDoesNotStart());
+    },
+  },
+  {
+    name: 'uncertain-last-answer',
+    about:
+      "The review was reopened while the answer's prompt was being delivered: check the agent's conversation, and Retry as a secondary action in the panel.",
+    async reach(session) {
+      await session.askQuestion();
+      await session.answerInPane();
+      await after(session, () => session.reopenWhileSending());
     },
   },
   {
@@ -326,7 +356,7 @@ export const STATES: GalleryState[] = [
   },
   {
     name: 'working-after-answer',
-    about: 'The reviewer sent an answer from the page: the agent works.',
+    about: 'The reviewer sent an answer from the page: the agent works on it, the time since it was sent counts on.',
     async reach(session, page) {
       await question(session, page, 1);
       await choose(page, IDLE_OR_FULL);
@@ -358,6 +388,19 @@ export const STATES: GalleryState[] = [
       await question(session, page, 2);
       await choose(page, CLOSE);
       await submit(page, 'Send answer');
+    },
+  },
+  {
+    name: 'waiting-after-blind-answer',
+    about:
+      'The reviewer confirmed another choice than the first pick of a blind question, with a comment: the answered question with its chips, and the answer tagged "changed after your first pick".',
+    async reach(session, page) {
+      await question(session, page, 2);
+      await choose(page, DROP);
+      await page.getByRole('textbox', { name: 'Comment · optional' }).fill(COMMENT);
+      await submit(page, 'Send answer');
+      await choose(page, CLOSE);
+      await submit(page, 'Confirm answer');
     },
   },
   {

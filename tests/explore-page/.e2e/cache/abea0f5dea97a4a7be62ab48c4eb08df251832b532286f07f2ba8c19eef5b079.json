@@ -1,6 +1,6 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-04T12:04:39.624Z",
+  "createdAt": "2026-10-04T16:19:50.316Z",
   "payload": {
     "actions": [
       {
@@ -21,15 +21,12 @@
       "targetId": "phone",
       "instructionDigest": "3cbcefd3361bac5327d74e778550bc379eeffee0680835e00171979b92a0f585"
     },
-    "summary": "The current screen confirms the Explore round is preparing, indicating it was started without the Challenger.",
+    "summary": "The page shows “Preparing the round,” confirming the Explore round has started; no Challenger start action is shown.",
     "startPath": "/",
     "endPath": "/",
     "endAnchors": [
       {
         "text": "Preparing the round"
-      },
-      {
-        "text": "The review tool captures the change; Jev marks the insignificant lines first when it is on."
       },
       {
         "role": "button",
@@ -41,8 +38,11 @@
       {
         "role": "status",
         "name": "Preparing the round"
+      },
+      {
+        "text": "The review tool captures the change; Jev marks the insignificant lines first when it is on. Sent ago"
       }
     ],
-    "endWaitMs": 26121
+    "endWaitMs": 27295
   }
 }

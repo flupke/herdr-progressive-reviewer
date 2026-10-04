@@ -7,7 +7,11 @@ round: string | null, question: string, version: number,
 /**
  * The picked choice's ID; `None` when the reviewer picked none.
  */
-choice: string | null, comment: string, };
+choice: string | null, comment: string, 
+/**
+ * The question's number on the rail, as the page showed it, which a refusal names.
+ */
+number: number | null, };
 /**
  * The tier of an action's button (assets/buttons.css).
  */
@@ -20,11 +24,12 @@ export type Call = RoundCall | ConclusionCall;
 export type CancelAnswerParams = { answer: string, };
 export type CancelImplementationParams = { delivery: string, };
 /**
- * A time a card's reason opens with: "Sent at 14:36." The page words it in the reader's clock.
+ * A time a card's reason tells: "Sent at 14:36.", in the reader's clock, or "Sent 0:42 ago",
+ * counted in the page.
  */
 export type CardTime = { 
 /**
- * What happened at that time: "Sent at".
+ * What happened at that time: "Sent at", or "Sent" before the time since then.
  */
 words: string, 
 /**
@@ -513,7 +518,12 @@ tally: MarkTally | null,
 /**
  * The questions the reviewer answered before, each a done step of the rail, in its order.
  */
-earlier_questions: Array<EarlierQuestionView>, };
+earlier_questions: Array<EarlierQuestionView>, 
+/**
+ * The reviewer's answer that the agent's turn carries, while the agent works on the turn
+ * or the turn waits for Retry, with the turn's status card.
+ */
+sent: SentView | null, };
 /**
  * The open lines that answering the question the round waits for marks.
  */
@@ -526,7 +536,11 @@ reviewed: number,
  * Marked not relevant: the lines the agent found to hold no decision.
  */
 not_relevant: number, };
-export type PickParams = { round: string | null, question: string, version: number, choice: string, };
+export type PickParams = { round: string | null, question: string, version: number, choice: string, 
+/**
+ * The question's number on the rail, as the page showed it, which a refusal names.
+ */
+number: number | null, };
 export type QuestionView = { 
 /**
  * The identity of the round that asks the question, which the answer carries back: a
@@ -709,6 +723,30 @@ export type SectionView = { title: string, lead_html: string,
  * `None` when the part is its lead alone.
  */
 details_html: string | null, };
+export type SentView = { 
+/**
+ * The status card of the turn, whose actions the panel holds.
+ */
+card: StatusCard, 
+/**
+ * The number on the rail of the question the answer answers, when known.
+ */
+number: number | null, 
+/**
+ * The question the answer answers, as the reviewer answered it; `None` for a reply to the
+ * conclusion.
+ */
+question: QuestionView | null, 
+/**
+ * The choice and the comment the reviewer sent, and how the choice relates to the first
+ * pick and to the agent's recommendation.
+ */
+answer: KeptAnswer, 
+/**
+ * What the answer marked: "Marked", then "12 lines reviewed", "3 lines not relevant";
+ * `None` when it marked nothing.
+ */
+marked: MarkPhrase | null, };
 /**
  * The number of a view: the revision of the round's published stage, then how many first
  * picks this page kept for the round, which change the view without changing the revision.
@@ -784,6 +822,11 @@ id: string, role: StatusRole, title: string,
  * When the state began, which the reason opens with, in the reader's clock.
  */
 time: CardTime | null, reason: string | null, 
+/**
+ * When what the card waits for began, which the reason ends with as the time since then,
+ * counted in the page: "Sent 0:42 ago".
+ */
+since: CardTime | null, 
 /**
  * Whether the reason is a verbatim error, shown as code.
  */

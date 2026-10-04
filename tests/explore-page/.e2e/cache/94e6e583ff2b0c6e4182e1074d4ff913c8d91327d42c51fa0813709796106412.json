@@ -1,6 +1,6 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-04T15:42:59.782Z",
+  "createdAt": "2026-10-04T16:16:38.566Z",
   "payload": {
     "actions": [
       {
@@ -40,7 +40,7 @@
       "targetId": "desktop",
       "instructionDigest": "9013a52814d0ab4cc03672b1376267bdf29a9e0c3e30c3459d79ab831e2fea7f"
     },
-    "summary": "Selected “Keep the draft” and sent the answer. The screen confirms “You answered Q1” with the response “Keep the draft”; processing completed.",
+    "summary": "The answer was sent: the screen shows Question 1 · Answered and the submitted choice “Keep the draft.” The app is still processing the answer, but the sent-answer region confirms it was accepted.",
     "startPath": "/#design",
     "endPath": "/#round",
     "endAnchors": [
@@ -53,7 +53,16 @@
         "name": "Lines reviewed: 100%, 3 of 3 changed lines"
       },
       {
-        "text": "The agent is working on your answer"
+        "text": "The agent is working on your answer to question 1"
+      },
+      {
+        "text": "You can leave this tab; its title changes when the next question is ready."
+      },
+      {
+        "text": "Your answer to question 1"
+      },
+      {
+        "text": "Keep the draft"
       },
       {
         "role": "button",
@@ -61,18 +70,8 @@
       },
       {
         "text": "Your answer stays; Retry sends it again."
-      },
-      {
-        "text": "You answered Q1"
-      },
-      {
-        "text": "Keep the draft"
-      },
-      {
-        "role": "button",
-        "name": "Cancel this answer…"
       }
     ],
-    "endWaitMs": 16281
+    "endWaitMs": 37154
   }
 }

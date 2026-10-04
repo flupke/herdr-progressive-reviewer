@@ -141,6 +141,8 @@ function panel(question) {
     question.round !== null ? h('input', { type: 'hidden', name: 'round', value: question.round }) : null,
     h('input', { type: 'hidden', name: 'question', value: question.id }),
     h('input', { type: 'hidden', name: 'version', value: question.version }),
+    // The number a refusal names the question by.
+    question.number > 0 ? h('input', { type: 'hidden', name: 'number', value: question.number }) : null,
     picking
       ? h(
           'p',

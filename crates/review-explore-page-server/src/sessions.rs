@@ -6,14 +6,14 @@
 use std::sync::{Arc, Mutex, PoisonError};
 
 use review_explore::{
-    AgentRecord, Decision, DiagramError, EarlierQuestion, KeptAnswer, Question, QuizAnswers,
-    QuizProgress, QuizResponse, RoundOverview, StartBlock, TurnMarks,
+    AgentRecord, Decision, DiagramError, EarlierQuestion, KeptAnswer, MarkCounts, Question,
+    QuizAnswers, QuizProgress, QuizResponse, RoundOverview, StartBlock, TurnMarks,
 };
 use review_explore_citations::Citation;
 use review_explore_page::{
-    Answered, CommandRefusal, CommandSender, ImplementationState, Interruption, LatestAnswer,
-    PageCommand, PageImplementation, PageRound, PublishedRound, QuestionMarks, Recovery,
-    RoundPublisher, RoundStage, Rounds, Token, Waiting,
+    Answered, AnsweredQuestion, CommandRefusal, CommandSender, ImplementationState, Interruption,
+    LatestAnswer, PageCommand, PageImplementation, PageRound, PublishedRound, QuestionMarks,
+    Recovery, RoundPublisher, RoundStage, Rounds, SentAnswer, Token, Waiting,
 };
 use review_explore_tally::MarkTally;
 use serde::Serialize;
@@ -26,11 +26,20 @@ use crate::tally::SessionMarks;
 pub(crate) struct Sessions {
     /// What the agent of every session posts.
     data: &'static dyn RoundData,
-    sessions: Arc<Mutex<Vec<Session>>>,
+    /// The clock of every session.
+    clock: Clock,
+    open: Arc<Mutex<Vec<Session>>>,
 }
 
 struct Session {
     token: Token,
+    /// When things happen: when the reviewer starts a round, and when a turn goes out.
+    clock: Clock,
+    /// The reviewer's answer the agent's latest turn carries, if any.
+    turn_answer: Option<Box<SentAnswer>>,
+    /// When the latest attempt of the agent's latest turn went out, in milliseconds since the
+    /// epoch.
+    sent_at_ms: Option<u64>,
     /// Names the session's rounds, so that no two sessions' rounds have the same identity.
     id: String,
     /// What the agent posts.
@@ -47,7 +56,7 @@ struct Session {
     /// Whether the agent's latest turn posted the conclusion.
     concluded: bool,
     /// The answers the reviewer sent from the page, in order.
-    answers: Vec<SentAnswer>,
+    answers: Vec<PostedAnswer>,
     /// The diagram errors the page reported, each once, as the review tool saves them with
     /// their question.
     diagram_errors: Vec<DiagramError>,
@@ -88,6 +97,28 @@ struct Session {
     page: PageLink,
 }
 
+/// The clock of the sessions: the time now, or always the same time, so that two gallery runs
+/// draw the same page.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum Clock {
+    Real,
+    Fixed,
+}
+
+impl Clock {
+    /// The time now by this clock, in milliseconds since the epoch.
+    fn now_ms(self) -> u64 {
+        match self {
+            Self::Real => review_explore::now_ms(),
+            Self::Fixed => FIXED_NOW_MS,
+        }
+    }
+}
+
+/// The time of a fixed clock, in milliseconds since the epoch: the gallery's pages stand 42
+/// seconds after it (`tests/explore-page/gallery/gallery.ts`).
+const FIXED_NOW_MS: u64 = 1_791_000_000_000;
+
 /// How a session's page follows its round.
 #[derive(Default)]
 enum PageLink {
@@ -103,7 +134,7 @@ enum PageLink {
 
 /// An answer the reviewer sent from the page, as a test reads it back.
 #[derive(Clone, Debug, Serialize)]
-pub(crate) struct SentAnswer {
+pub(crate) struct PostedAnswer {
     question: String,
     version: u32,
     choice: Option<String>,
@@ -219,8 +250,9 @@ impl Session {
         self.publish(stage);
     }
 
-    /// Takes the reviewer's answer to the agent's latest question.
-    fn take_answer(&mut self, answer: AnswerTaken<'_>) {
+    /// Takes the reviewer's answer to the agent's latest question, and returns it as the agent's
+    /// next turn carries it.
+    fn take_answer(&mut self, answer: AnswerTaken<'_>) -> SentAnswer {
         let (alternatives, question) = match &self.latest_question {
             Some(RoundStage::Question { question, .. }) => (
                 question.alternatives.as_slice(),
@@ -256,6 +288,12 @@ impl Session {
                 first_pick,
             ),
         };
+        let kept = KeptAnswer::new(picked, &comment, first_pick);
+        let mut turn_answer = SentAnswer {
+            question: None,
+            kept: kept.clone(),
+            marked: MarkCounts::default(),
+        };
         if let Some(RoundStage::Question {
             question,
             citations,
@@ -264,16 +302,15 @@ impl Session {
         }) = &self.latest_question
         {
             let number = self.decisions.len() + 1;
-            let answer = KeptAnswer::new(picked, &comment, first_pick);
             self.decisions.push(Decision {
                 number,
                 question: question.text.clone(),
-                answer: answer.clone(),
+                answer: kept.clone(),
             });
             let record = EarlierQuestion {
                 number,
                 question: (**question).clone(),
-                answer: Some(answer),
+                answer: Some(kept),
                 // What the agent records, once it takes the answer up.
                 recorded: AgentRecord::default(),
                 marks: vec![TurnMarks {
@@ -283,6 +320,12 @@ impl Session {
                 }],
             };
             self.answered_questions.push((record, citations.clone()));
+            turn_answer.question = Some(AnsweredQuestion {
+                question: question.clone(),
+                citations: citations.clone(),
+                picked_blind: first_pick.is_some(),
+            });
+            turn_answer.marked = marks.counts();
         }
         self.answer_marks.push(match &self.latest_question {
             Some(RoundStage::Question { marks, .. }) => marks.clone(),
@@ -298,6 +341,7 @@ impl Session {
                 in_reply_to: self.turn_id(),
             },
         });
+        turn_answer
     }
 
     /// The agent's turn that posted `stage` took up the answers it follows: their questions
@@ -323,6 +367,7 @@ impl Session {
         self.taken_up = 0;
         self.answer_marks.clear();
         self.latest_question = None;
+        self.turn_answer = None;
         self.concluded = false;
         self.earlier = false;
     }
@@ -330,22 +375,29 @@ impl Session {
     /// The agent works on the turn that `step` asks for: after the reviewer's answer in the
     /// pane, or the kickoff.
     fn turn_after(&mut self, step: Step) -> RoundStage {
-        match step {
+        let answer = match step {
             Step::Answer {
                 after_first_pick: false,
-            } => self.take_answer(AnswerTaken::InPane),
+            } => Some(self.take_answer(AnswerTaken::InPane)),
             Step::Answer {
                 after_first_pick: true,
-            } => self.take_answer(AnswerTaken::AfterFirstPick),
-            _ => {}
-        }
-        self.new_turn()
+            } => Some(self.take_answer(AnswerTaken::AfterFirstPick)),
+            _ => None,
+        };
+        self.new_turn(answer)
     }
 
-    /// The agent works on a new turn.
-    fn new_turn(&mut self) -> RoundStage {
+    /// The agent works on a new turn, which carries the reviewer's `answer`, if any.
+    fn new_turn(&mut self, answer: Option<SentAnswer>) -> RoundStage {
         self.turns += 1;
+        self.turn_answer = answer.map(Box::new);
+        self.attempt_again()
+    }
+
+    /// The latest turn goes out to the agent again, which works on it.
+    fn attempt_again(&mut self) -> RoundStage {
         self.attempts += 1;
+        self.sent_at_ms = Some(self.clock.now_ms());
         self.working()
     }
 
@@ -371,6 +423,8 @@ impl Session {
     fn working(&self) -> RoundStage {
         RoundStage::AgentWorking {
             request: self.turn_id(),
+            sent_at_ms: self.sent_at_ms,
+            answer: self.turn_answer.clone(),
         }
     }
 
@@ -380,6 +434,7 @@ impl Session {
             request: Some(self.turn_id()),
             attempt: Some(self.attempt()),
             interruption,
+            answer: self.turn_answer.clone(),
         }
     }
 
@@ -586,10 +641,7 @@ impl Session {
             Recovery::Stop(Waiting::Turn(_)) => {
                 ("stop", Some(self.interrupted(Interruption::Stopped)))
             }
-            Recovery::Retry { .. } => {
-                self.attempts += 1;
-                ("retry", Some(self.working()))
-            }
+            Recovery::Retry { .. } => ("retry", Some(self.attempt_again())),
             Recovery::CancelAnswer { .. } => ("cancel-answer", self.question_after_cancel_answer()),
             Recovery::Reset { .. } => ("reset", Some(self.no_round())),
             Recovery::CancelImplementation { .. } => (
@@ -630,19 +682,19 @@ impl Session {
     fn take(&mut self, command: PageCommand) -> Result<(), CommandRefusal> {
         match command {
             PageCommand::Answer(answer) => {
-                self.take_answer(AnswerTaken::FromPage {
+                let sent = self.take_answer(AnswerTaken::FromPage {
                     choice: answer.input.option.as_deref(),
                     comment: &answer.input.text,
                     first_pick: answer.input.first_pick.as_deref(),
                 });
-                self.answers.push(SentAnswer {
+                self.answers.push(PostedAnswer {
                     question: answer.question,
                     version: answer.version,
                     choice: answer.input.option,
                     comment: answer.input.text,
                     first_pick: answer.input.first_pick,
                 });
-                let stage = self.new_turn();
+                let stage = self.new_turn(Some(sent));
                 self.publish(stage);
             }
             // The page keeps the pick; the round still asks the question, which the page checked.
@@ -654,7 +706,10 @@ impl Session {
             }
             PageCommand::Start { challenger, start } => {
                 self.starts.push(SentStart { challenger });
-                self.publish(RoundStage::Starting { start });
+                self.publish(RoundStage::Starting {
+                    start,
+                    started_at_ms: Some(self.clock.now_ms()),
+                });
             }
             PageCommand::Implement(implement) => {
                 self.implementations.push(implement.text.clone());
@@ -670,9 +725,14 @@ impl Session {
                 self.publish(stage);
             }
             PageCommand::Quiz(quiz) => self.take_quiz(quiz.response)?,
-            PageCommand::Reply(_) => {
+            PageCommand::Reply(text) => {
                 self.actions.push("reply".into());
-                let stage = self.new_turn();
+                let reply = SentAnswer {
+                    question: None,
+                    kept: KeptAnswer::new(None, &text.text, None),
+                    marked: MarkCounts::default(),
+                };
+                let stage = self.new_turn(Some(reply));
                 self.publish(stage);
             }
             PageCommand::Recover(recovery) => self.recover(&recovery)?,
@@ -795,10 +855,11 @@ impl Step {
 
 impl Sessions {
     /// No session yet; the agent of each posts `data`.
-    pub(crate) fn new(data: &'static dyn RoundData) -> Self {
+    pub(crate) fn new(data: &'static dyn RoundData, clock: Clock) -> Self {
         Self {
             data,
-            sessions: Arc::default(),
+            clock,
+            open: Arc::default(),
         }
     }
 
@@ -806,14 +867,20 @@ impl Sessions {
     /// or the agent works on its first one.
     pub(crate) fn open(&self, token: Token, asked: usize) {
         let latest_question = (asked > 0).then(|| self.data.question_stage(asked, None));
+        let sent_at_ms = Some(self.clock.now_ms());
         let stage = latest_question.clone().unwrap_or(RoundStage::AgentWorking {
             request: "turn-0".into(),
+            sent_at_ms,
+            answer: None,
         });
         let round = RoundPublisher::default();
         round.name(self.data.review());
         let mut session = Session {
             id: format!("session-{}", self.lock().len() + 1),
             token,
+            clock: self.clock,
+            turn_answer: None,
+            sent_at_ms,
             data: self.data,
             round,
             rounds: 1,
@@ -927,7 +994,7 @@ impl Sessions {
 
     /// The answers the reviewer sent from the page of the session behind `token`, or `None`
     /// when no session has that token.
-    pub(crate) fn answers(&self, token: &str) -> Option<Vec<SentAnswer>> {
+    pub(crate) fn answers(&self, token: &str) -> Option<Vec<PostedAnswer>> {
         find(&mut self.lock(), token).map(|session| session.answers.clone())
     }
 
@@ -973,7 +1040,7 @@ impl Sessions {
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Vec<Session>> {
-        self.sessions.lock().unwrap_or_else(PoisonError::into_inner)
+        self.open.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 

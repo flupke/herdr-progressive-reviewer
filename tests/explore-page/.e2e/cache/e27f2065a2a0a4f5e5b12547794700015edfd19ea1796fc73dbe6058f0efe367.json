@@ -1,6 +1,6 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-04T14:41:14.040Z",
+  "createdAt": "2026-10-04T16:33:26.735Z",
   "payload": {
     "actions": [
       {
@@ -41,25 +41,38 @@
       "targetId": "desktop",
       "instructionDigest": "1d267130a34f48ac8ce1217327a1c0bd4d2f5a8e7fc3869b69be7bb281eabf33"
     },
-    "summary": "Sent “Why not keep the draft in memory?” in reply to the conclusion. The page now says the agent is working on the design and its first question.",
+    "summary": "The reply “Why not keep the draft in memory?” is shown as sent, and the page says the agent is working on your reply.",
     "startPath": "/",
     "endPath": "/",
     "endAnchors": [
       {
-        "text": "The agent is working on the design and its first question"
+        "role": "listitem",
+        "name": "Conclusion · working"
+      },
+      {
+        "text": "The agent is working on your reply"
+      },
+      {
+        "text": "You can leave this tab; its title changes when the agent's turn is ready."
+      },
+      {
+        "text": "Your reply to the conclusion"
+      },
+      {
+        "text": "“Why not keep the draft in memory?”"
       },
       {
         "role": "button",
         "name": "Stop waiting"
       },
       {
-        "text": "After Stop waiting, Retry sends the turn again."
+        "text": "Your reply stays; Retry sends it again."
       },
       {
-        "role": "status",
-        "name": "The agent is working on the design and its first question"
+        "role": "document",
+        "name": "Agent working… — Keep the reviewer's draft when a round reopens"
       }
     ],
-    "endWaitMs": 12272
+    "endWaitMs": 27849
   }
 }

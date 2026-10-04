@@ -150,6 +150,8 @@ fn no_round() -> RoundStage {
 fn working() -> RoundStage {
     RoundStage::AgentWorking {
         request: "turn".into(),
+        sent_at_ms: None,
+        answer: None,
     }
 }
 
@@ -228,6 +230,7 @@ fn the_page_opens_on_the_network_before_any_round_and_stays_with_the_round_it_st
             request: None,
             attempt: None,
             interruption: review_explore_page::Interruption::Stopped,
+            answer: None,
         },
     );
     assert_eq!(shared.open(&shared.first), 303, "the round keeps its token");

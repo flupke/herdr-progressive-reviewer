@@ -61,6 +61,9 @@ pub(crate) struct StatusCard {
     /// When the state began, which the reason opens with, in the reader's clock.
     time: Option<CardTime>,
     reason: Option<String>,
+    /// When what the card waits for began, which the reason ends with as the time since then,
+    /// counted in the page: "Sent 0:42 ago".
+    since: Option<CardTime>,
     /// Whether the reason is a verbatim error, shown as code.
     code: bool,
     /// A next step the reviewer must not miss, in bold before `next`.
@@ -83,10 +86,11 @@ struct StatusAction {
     hint: Option<&'static str>,
 }
 
-/// A time a card's reason opens with: "Sent at 14:36." The page words it in the reader's clock.
+/// A time a card's reason tells: "Sent at 14:36.", in the reader's clock, or "Sent 0:42 ago",
+/// counted in the page.
 #[derive(Debug, Serialize, TS)]
 struct CardTime {
-    /// What happened at that time: "Sent at".
+    /// What happened at that time: "Sent at", or "Sent" before the time since then.
     words: &'static str,
     /// Milliseconds since the epoch.
     ms: u64,
@@ -107,6 +111,7 @@ impl StatusCard {
             title: title.into(),
             time: None,
             reason: None,
+            since: None,
             code: false,
             imperative: None,
             next: None,
@@ -121,6 +126,11 @@ impl StatusCard {
 
     fn time(mut self, words: &'static str, ms: Option<u64>) -> Self {
         self.time = ms.map(|ms| CardTime { words, ms });
+        self
+    }
+
+    fn since(mut self, words: &'static str, ms: Option<u64>) -> Self {
+        self.since = ms.map(|ms| CardTime { words, ms });
         self
     }
 
@@ -299,9 +309,16 @@ impl StatusCard {
     pub(crate) fn of_notice(notice: &Notice) -> Self {
         let words = NoticeWords::of(notice.action);
         let card = match &notice.problem {
-            Problem::Stale => Self::new(StatusKind::Info, "notice", words.moved)
-                .reason(words.stale)
-                .next("This page now shows the round as it is."),
+            Problem::Stale => Self::new(
+                StatusKind::Info,
+                "notice",
+                notice.action.question_number().map_or_else(
+                    || words.moved.to_owned(),
+                    |number| format!("Question {number} was already answered"),
+                ),
+            )
+            .reason(words.stale)
+            .next("This page now shows the round as it is."),
             Problem::Failed(reason) => {
                 Self::new(StatusKind::Danger, "notice", words.title).reason(reason.as_str())
             }
@@ -326,28 +343,56 @@ impl StatusCard {
     /// The cards of a stage that is not a question: the start under way or failed, the agent's
     /// turn under way or interrupted, a storage failure; and on the start cover, that nothing
     /// is left to review. `offers_actions` tells whether the page offers actions on the round.
+    /// The card of a turn that carries the reviewer's answer shows beside that answer instead
+    /// ([`Self::of_turn`]).
     fn of_stage(round: &RoundSnapshot, offers_actions: bool) -> Vec<Self> {
-        let answered = round.cancellable.is_some() && offers_actions;
         match &round.stage {
             RoundStage::NoRound { .. } => Self::start(round, None),
             RoundStage::StartFailed { failure, .. } => Self::start(round, Some(failure)),
-            RoundStage::Starting { start } => vec![Self::starting(start)],
-            RoundStage::AgentWorking { request } => {
-                vec![Self::working(round, request, answered, offers_actions)]
+            RoundStage::Starting {
+                start,
+                started_at_ms,
+            } => vec![Self::starting(start, *started_at_ms)],
+            RoundStage::AgentWorking { .. } | RoundStage::Interrupted { .. } => {
+                if round.stage.sent().is_some() && offers_actions {
+                    Vec::new()
+                } else {
+                    Self::of_turn(round, offers_actions).into_iter().collect()
+                }
             }
+            RoundStage::StorageFailed { failure } => vec![Self::storage(failure)],
+            RoundStage::Question { .. } | RoundStage::Conclusion { .. } => Vec::new(),
+        }
+    }
+
+    /// The card of the agent's turn the round waits for, which it works on or which waits for
+    /// Retry, with the action that fits; `None` in another stage, and for an interrupted turn
+    /// when the page offers no action on the round. `offers_actions` tells whether the page
+    /// offers actions on the round.
+    pub(crate) fn of_turn(round: &RoundSnapshot, offers_actions: bool) -> Option<Self> {
+        let sent = Sent::of(round);
+        match &round.stage {
+            RoundStage::AgentWorking {
+                request,
+                sent_at_ms,
+                ..
+            } => Some(Self::working(
+                round,
+                request,
+                *sent_at_ms,
+                sent,
+                offers_actions,
+            )),
             RoundStage::Interrupted {
                 request,
                 attempt,
                 interruption,
-            } => offers_actions
-                .then(|| {
-                    let turn = request.as_deref().zip(attempt.as_deref());
-                    Self::interrupted(request.is_some(), turn, interruption, answered)
-                })
-                .into_iter()
-                .collect(),
-            RoundStage::StorageFailed { failure } => vec![Self::storage(failure)],
-            RoundStage::Question { .. } | RoundStage::Conclusion { .. } => Vec::new(),
+                ..
+            } => offers_actions.then(|| {
+                let turn = request.as_deref().zip(attempt.as_deref());
+                Self::interrupted(request.is_some(), turn, interruption, sent)
+            }),
+            _ => None,
         }
     }
 
@@ -384,28 +429,43 @@ impl StatusCard {
         failed.into_iter().chain(blocked).collect()
     }
 
-    /// The start `start` is under way.
-    fn starting(start: &str) -> Self {
+    /// The start `start`, started at `started_at_ms`, is under way.
+    fn starting(start: &str, started_at_ms: Option<u64>) -> Self {
         Self::new(StatusKind::Progress, "waiting", "Preparing the round")
             .reason(
                 "The review tool captures the change; Jev marks the insignificant lines first \
                  when it is on.",
             )
-            .action(Some(StatusAction::stop(Stopped::Start(start), false)))
+            .since("Sent", started_at_ms)
+            .action(Some(StatusAction::stop(Stopped::Start(start))))
     }
 
-    /// The agent works on its turn `request`; `answered` tells whether the turn carries the
-    /// reviewer's answer, `offers_actions` whether the page offers Stop waiting.
-    fn working(round: &RoundSnapshot, request: &str, answered: bool, offers_actions: bool) -> Self {
-        let title = if answered {
-            "The agent is working on your answer"
-        } else if round.design.is_none() {
-            "The agent is working on the design and its first question"
+    /// The agent works on its turn `request`, whose latest attempt went out at `sent_at_ms`;
+    /// `sent` tells what the turn carries of the reviewer's, `offers_actions` whether the page
+    /// offers Stop waiting.
+    fn working(
+        round: &RoundSnapshot,
+        request: &str,
+        sent_at_ms: Option<u64>,
+        sent: Option<Sent>,
+        offers_actions: bool,
+    ) -> Self {
+        let title = match sent {
+            Some(sent) => format!("The agent is working on {}", sent.named()),
+            None if round.design.is_none() => {
+                "The agent is working on the design and its first question".to_owned()
+            }
+            None => "The agent is working on its next turn".to_owned(),
+        };
+        let next = if sent.is_some_and(Sent::answers_question) {
+            "You can leave this tab; its title changes when the next question is ready."
         } else {
-            "The agent is working on its next turn"
+            "You can leave this tab; its title changes when the agent's turn is ready."
         };
         Self::new(StatusKind::Progress, "waiting", title)
-            .action(offers_actions.then(|| StatusAction::stop(Stopped::Turn(request), answered)))
+            .since("Sent", sent_at_ms)
+            .next(next)
+            .action(offers_actions.then(|| StatusAction::stop(Stopped::Turn(request, sent))))
     }
 
     fn storage(failure: &str) -> Self {
@@ -421,20 +481,19 @@ impl StatusCard {
     }
 
     /// The agent is not working on the turn the round waits for, if `any`; Retry sends `turn`
-    /// again, its request and latest attempt. `answered` tells whether the turn carries the
-    /// reviewer's answer.
+    /// again, its request and latest attempt. `sent` tells what the turn carries of the
+    /// reviewer's.
     fn interrupted(
         any: bool,
         turn: Option<(&str, &str)>,
         interruption: &Interruption,
-        answered: bool,
+        sent: Option<Sent>,
     ) -> Self {
         use StatusKind::{Danger, Info, Warn};
         const ID: &str = "interruption";
-        let (subject, what) = if answered {
-            ("Your answer", "your answer")
-        } else {
-            ("The turn's prompt", "the turn's prompt")
+        let (subject, what) = match sent {
+            Some(sent) => (sent.subject(), sent.noun()),
+            None => ("The turn's prompt", "the turn's prompt"),
         };
         match interruption {
             Interruption::Failed(failure) => {
@@ -445,7 +504,8 @@ impl StatusCard {
                         turn,
                         Some("Look at the review pane, then Retry."),
                         ButtonTier::Primary,
-                        answered.then_some("Your answer and its marks are kept."),
+                        sent.filter(|sent| sent.answers_question())
+                            .map(|_| "Your answer and its marks are kept."),
                     )
             }
             Interruption::NotStarted => {
@@ -481,10 +541,10 @@ impl StatusCard {
                 )
                 .retry(
                     turn,
-                    Some(if answered {
-                        "Retry sends it again, with your answer."
-                    } else {
-                        "Retry sends it again."
+                    Some(match sent {
+                        Some(Sent::Answer { .. }) => "Retry sends it again, with your answer.",
+                        Some(Sent::Reply) => "Retry sends it again, with your reply.",
+                        None => "Retry sends it again.",
                     }),
                     ButtonTier::Primary,
                     None,
@@ -494,15 +554,18 @@ impl StatusCard {
 }
 
 impl StatusAction {
-    /// Stop waiting for `stopped`; `answered` tells whether the agent's turn carries the
-    /// reviewer's answer.
-    fn stop(stopped: Stopped<'_>, answered: bool) -> Self {
+    /// Stop waiting for `stopped`.
+    fn stop(stopped: Stopped<'_>) -> Self {
         let (hint, field) = match stopped {
-            Stopped::Turn(request) if answered => (
+            Stopped::Turn(request, Some(Sent::Answer { .. })) => (
                 "Your answer stays; Retry sends it again.",
                 Field::new("request", request),
             ),
-            Stopped::Turn(request) => (
+            Stopped::Turn(request, Some(Sent::Reply)) => (
+                "Your reply stays; Retry sends it again.",
+                Field::new("request", request),
+            ),
+            Stopped::Turn(request, None) => (
                 "After Stop waiting, Retry sends the turn again.",
                 Field::new("request", request),
             ),
@@ -535,11 +598,64 @@ impl StatusAction {
     }
 }
 
+/// What an agent's turn carries of the reviewer's, as a card names it.
+#[derive(Clone, Copy)]
+enum Sent {
+    /// An answer to a question, of this number on the rail when known.
+    Answer { number: Option<usize> },
+    /// A reply to the conclusion.
+    Reply,
+}
+
+impl Sent {
+    /// What the agent's turn of `round` carries of the reviewer's, if anything.
+    fn of(round: &RoundSnapshot) -> Option<Self> {
+        let answer = round.stage.sent()?;
+        Some(match answer.question {
+            Some(_) => Self::Answer {
+                number: round.sent_number(),
+            },
+            None => Self::Reply,
+        })
+    }
+
+    fn answers_question(self) -> bool {
+        matches!(self, Self::Answer { .. })
+    }
+
+    /// "your answer", "your reply".
+    fn noun(self) -> &'static str {
+        match self {
+            Self::Answer { .. } => "your answer",
+            Self::Reply => "your reply",
+        }
+    }
+
+    /// "Your answer", "Your reply", to open a sentence.
+    fn subject(self) -> &'static str {
+        match self {
+            Self::Answer { .. } => "Your answer",
+            Self::Reply => "Your reply",
+        }
+    }
+
+    /// "your answer to question 2", or the noun alone when the number is not known.
+    fn named(self) -> String {
+        match self {
+            Self::Answer {
+                number: Some(number),
+            } => format!("your answer to question {number}"),
+            _ => self.noun().to_owned(),
+        }
+    }
+}
+
 /// What a Stop waiting stops: a start, or an agent's turn.
 #[derive(Clone, Copy)]
 enum Stopped<'a> {
     Start(&'a str),
-    Turn(&'a str),
+    /// The agent's turn, by its request, with what it carries of the reviewer's.
+    Turn(&'a str, Option<Sent>),
 }
 
 impl Field {
@@ -580,7 +696,7 @@ impl NoticeWords {
 
     fn of(action: Action) -> Self {
         match action {
-            Action::Answer => Self::new(
+            Action::Answer { .. } => Self::new(
                 "Your answer was not sent",
                 QUESTION_ANSWERED,
                 "In the review pane or in another tab, or the round moved on, so your answer was \
@@ -593,7 +709,7 @@ impl NoticeWords {
                 "In the pane or in another tab, so this start did nothing.",
                 "Load this page again to see whether it started the round.",
             ),
-            Action::Pick => Self::new(
+            Action::Pick { .. } => Self::new(
                 "Your pick was not kept",
                 QUESTION_ANSWERED,
                 "In the review pane or in another tab, or the round moved on, so your pick was not \

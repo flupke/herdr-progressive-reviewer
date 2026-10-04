@@ -33,8 +33,10 @@
 .turn-follow-ups { overflow-wrap: anywhere; }
 .turn-foot .button.quiet { font-size: 13px; }
 .turn-foot .disclosure:has(> [aria-expanded="true"]) { flex-basis: 100%; }
-.turn-foot .disclosure-body > form { display: grid; justify-items: start; gap: 12px; margin: 0; }
-.turn-foot .disclosure-body .hint { margin: 0; max-width: var(--measure); font-size: 14px; }
+/* Cancel this answer's confirmation, wherever the fold shows (here, and in the panel of the
+   answer the agent's turn carries, sent.css): its hint, then Confirm: cancel my answer. */
+.disclosure-body > .cancel-answer { display: grid; justify-items: start; gap: 12px; margin: 0; }
+.disclosure-body > .cancel-answer .hint { margin: 0; max-width: var(--measure); font-size: 14px; }
 
 @media (max-width: 56rem) {
   .turn { grid-template-columns: minmax(0, 1fr); gap: 12px; }

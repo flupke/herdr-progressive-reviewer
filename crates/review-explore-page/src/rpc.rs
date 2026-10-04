@@ -107,6 +107,9 @@ pub(crate) struct AnswerParams {
     /// The picked choice's ID; `None` when the reviewer picked none.
     pub(crate) choice: Option<String>,
     pub(crate) comment: String,
+    /// The question's number on the rail, as the page showed it, which a refusal names.
+    #[serde(default)]
+    pub(crate) number: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, TS)]
@@ -115,6 +118,9 @@ pub(crate) struct PickParams {
     pub(crate) question: String,
     pub(crate) version: u32,
     pub(crate) choice: String,
+    /// The question's number on the rail, as the page showed it, which a refusal names.
+    #[serde(default)]
+    pub(crate) number: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, TS)]

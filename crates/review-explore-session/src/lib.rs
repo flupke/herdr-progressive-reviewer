@@ -146,9 +146,10 @@ struct State {
 enum Start {
     /// No start is under way, and the latest one, if any, succeeded; `offer` is the next one.
     Idle { offer: String },
-    /// The start `start`: the change is captured, or being captured, and the new round's
-    /// kickoff is not saved yet.
-    Starting { start: String },
+    /// The start `start`, which the reviewer started at `started_at_ms`, in milliseconds since
+    /// the epoch: the change is captured, or being captured, and the new round's kickoff is not
+    /// saved yet.
+    Starting { start: String, started_at_ms: u64 },
     /// The latest start failed, for `failure`; `offer` is the next one.
     Failed { failure: String, offer: String },
 }
@@ -173,7 +174,7 @@ impl Start {
     /// The start under way, if any.
     fn starting(&self) -> Option<&str> {
         match self {
-            Self::Starting { start } => Some(start),
+            Self::Starting { start, .. } => Some(start),
             _ => None,
         }
     }
@@ -183,6 +184,7 @@ impl Start {
         if let Some(offer) = self.offered() {
             *self = Self::Starting {
                 start: offer.to_owned(),
+                started_at_ms: review_explore::now_ms(),
             };
         }
     }

@@ -1,16 +1,26 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-04T16:34:22.158Z",
+  "createdAt": "2026-10-04T16:03:18.696Z",
   "payload": {
     "actions": [
       {
         "name": "tap",
-        "summary": "tap radio \"Rename the clashing files\" in \"Choices\"",
+        "summary": "tap radio \"Discard the draft\" in \"Choices\"",
         "target": {
           "role": "radio",
-          "name": "Rename the clashing files",
+          "name": "Discard the draft",
           "within": "Choices"
         }
+      },
+      {
+        "name": "type",
+        "summary": "type \"Keep it for a week instead.\" into textbox \"Comment · optional\" in \"Question 1\"",
+        "target": {
+          "role": "textbox",
+          "name": "Comment · optional",
+          "within": "Question 1"
+        },
+        "value": "Keep it for a week instead."
       },
       {
         "name": "tap",
@@ -27,17 +37,21 @@
       "version": "2"
     },
     "recordedFor": {
-      "testId": "tests/blind.e2e.ts::a%20two-way%20question%20shows%20the%20recommendation%20at%20once%20and%20sends%20with%20one%20Send",
+      "testId": "tests/waiting.e2e.ts::the%20reviewer%20answers%2C%20sees%20the%20sent%20answer%20while%20the%20agent%20works%2C%20stops%20waiting%2C%20then%20retries",
       "targetId": "phone",
-      "instructionDigest": "67e5e96c7ce0e446a07d2f6af633cdcd3dfb5c79482b6da29c10fada3648fa97"
+      "instructionDigest": "0d916904aed978f3e1412ded047b5f28e9c72eaf7eee93e4a9c96207acb16602"
     },
-    "summary": "Question 1 shows the submitted answer “Rename the clashing files” as recommended, and the page status says the agent is working on the answer.",
+    "summary": "Selected “Discard the draft,” entered “Keep it for a week instead.”, and sent the answer. The page confirms the answer and says the agent is working on the answer to question 1.",
     "startPath": "/#round",
     "endPath": "/#round",
     "endAnchors": [
       {
         "role": "listitem",
         "name": "Q1 · working"
+      },
+      {
+        "role": "button",
+        "name": "Lines reviewed: 100%, 3 of 3 changed lines"
       },
       {
         "text": "The agent is working on your answer to question 1"
@@ -49,7 +63,7 @@
         "text": "Your answer to question 1"
       },
       {
-        "text": "as recommended"
+        "text": "“Keep it for a week instead.”"
       },
       {
         "role": "button",
@@ -57,12 +71,8 @@
       },
       {
         "text": "Your answer stays; Retry sends it again."
-      },
-      {
-        "role": "button",
-        "name": "Cancel this answer…"
       }
     ],
-    "endWaitMs": 27505
+    "endWaitMs": 13063
   }
 }

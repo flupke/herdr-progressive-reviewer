@@ -17,6 +17,7 @@ import { Meter } from './meter.js';
 import { QuestionScreen } from './question.js';
 import { QuizScreen, railShowing } from './quiz.js';
 import { DESIGN, earlierQuestion, openRound, route, STAGE } from './route.js';
+import { SentScreen } from './sent.js';
 import { startCover } from './start.js';
 import { statusCard } from './status.js';
 import { Swipe } from './swipe.js';
@@ -46,6 +47,7 @@ export class Page {
     this.cards = new Region(this.stage, 'cards');
     this.start = new Region(this.stage, 'start');
     this.turn = new Region(this.stage, 'turn');
+    this.sent = new Region(this.stage, 'sent');
     this.question = new Region(this.stage, 'question');
     this.conclusion = new Region(this.stage, 'conclusion');
     /** The screen the page shows, and the part of the design it shows. @type {string | null} */
@@ -97,10 +99,12 @@ export class Page {
     );
     this.renderQuestion(view);
     const quizItem = this.renderConclusion(view);
-    // The question, the quiz and the conclusion show the previous turn on their own desk; any
-    // other stage, above it.
+    // The question, the quiz and the conclusion show the previous turn on their own desk, and a
+    // turn that carries the reviewer's answer shows that answer in its panel; any other stage,
+    // above it.
     const turn = turnOf(view);
-    this.turn.show(view.question || view.conclusion ? null : keyOf(turn), () => turnStrip(turn));
+    this.turn.show(view.question || view.conclusion || view.sent ? null : keyOf(turn), () => turnStrip(turn));
+    this.renderSent(view);
     this.renderScreens(view);
     // While the quiz shows an item, the rail names it.
     const quiz = view.conclusion?.quiz;
@@ -206,6 +210,17 @@ export class Page {
     const viewed = this.viewed;
     const step = viewed === null ? 'round' : viewed.kind === 'design' ? 'design' : `question-${viewed.number}`;
     return { screens, shown: Math.max(screens.findIndex((screen) => screen.step === step), 0) };
+  }
+
+  /** The answer the agent's turn carries, beside the turn's card.
+   * @param {PageView} view */
+  renderSent(view) {
+    const sent = view.sent;
+    if (!sent) {
+      this.sent.clear();
+      return;
+    }
+    this.sent.component(`sent:${view.reset ?? ''}`, () => new SentScreen()).update(sent, view.cancellable);
   }
 
   /** @param {PageView} view */

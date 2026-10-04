@@ -616,7 +616,8 @@ impl ExploreRound {
     }
 }
 
-fn now_ms() -> u64 {
+/// The time now, in milliseconds since the epoch, as rounds save their times.
+pub fn now_ms() -> u64 {
     u64::try_from(
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)

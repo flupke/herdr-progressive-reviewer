@@ -792,7 +792,13 @@ fn the_page_shows_a_starting_round_until_its_kickoff_is_saved() {
     let (reply, kickoff) = harness.start_as_worker();
 
     assert_eq!(reply, Ok(()));
-    assert!(matches!(harness.page.stage(), RoundStage::Starting { .. }));
+    assert!(matches!(
+        harness.page.stage(),
+        RoundStage::Starting {
+            started_at_ms: Some(_),
+            ..
+        }
+    ));
     assert_eq!(harness.page.round(), None);
     let kickoff = kickoff.expect("the kickoff, for the worker to send");
     harness
@@ -1270,4 +1276,53 @@ fn the_page_shows_where_the_round_stands_on_its_rail_and_in_the_tab_title() {
 
     harness.session.handle(Input::Command(Command::Reset));
     assert_eq!(shown_rail(&harness.page), None);
+}
+
+#[test]
+fn the_page_shows_the_answer_the_agents_turn_carries_and_when_the_turn_went_out() {
+    let mut harness = Harness::start();
+    harness.capture();
+    let first = harness.request(None);
+    let access = harness.turn(&first);
+    // The kickoff carries no answer.
+    assert!(matches!(
+        harness.page.stage(),
+        RoundStage::AgentWorking { answer: None, .. }
+    ));
+    assert!(applied(harness.submit(&access, question(&first, 1))));
+
+    let (answer, _) = harness.answer("Keep it.");
+    // The prompt went out on another thread, which saved when: the storage watcher follows.
+    harness.session.handle(Input::StorageChanged);
+
+    let RoundStage::AgentWorking {
+        request,
+        sent_at_ms,
+        answer: Some(sent),
+    } = harness.page.stage()
+    else {
+        panic!("the page shows {:?}", harness.page.stage());
+    };
+    assert_eq!(request, answer.request);
+    assert!(sent_at_ms.is_some());
+    assert_eq!(
+        sent_at_ms,
+        harness.saved().turns[&answer.request].started_at_ms
+    );
+    let answered = sent.question.as_ref().expect("the question it answers");
+    assert_eq!(answered.question.id, "q1");
+    assert!(!answered.picked_blind);
+    assert_eq!(sent.kept.choice.as_deref(), Some("Keep it"));
+    assert_eq!(sent.kept.comment, "Keep it.");
+
+    // Stopped, the turn waits for Retry with the same answer.
+    harness.session.handle(Input::Command(Command::Cancel));
+    let RoundStage::Interrupted {
+        answer: Some(stopped),
+        ..
+    } = harness.page.stage()
+    else {
+        panic!("the page shows {:?}", harness.page.stage());
+    };
+    assert_eq!(stopped, sent);
 }

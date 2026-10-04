@@ -1,6 +1,6 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-04T12:01:11.937Z",
+  "createdAt": "2026-10-04T16:17:05.042Z",
   "payload": {
     "actions": [
       {
@@ -21,15 +21,15 @@
       "targetId": "desktop",
       "instructionDigest": "3cbcefd3361bac5327d74e778550bc379eeffee0680835e00171979b92a0f585"
     },
-    "summary": "The page now displays “Preparing the round,” confirming the Explore round started without the Challenger.",
+    "summary": "The page now shows “Preparing the round,” confirming the Explore round has started. No Challenger is present.",
     "startPath": "/",
     "endPath": "/",
     "endAnchors": [
       {
-        "text": "Preparing the round"
+        "text": "Keep the reviewer's draft when a round reopens"
       },
       {
-        "text": "The review tool captures the change; Jev marks the insignificant lines first when it is on."
+        "text": "Preparing the round"
       },
       {
         "role": "button",
@@ -41,8 +41,11 @@
       {
         "role": "status",
         "name": "Preparing the round"
+      },
+      {
+        "text": "The review tool captures the change; Jev marks the insignificant lines first when it is on. Sent ago"
       }
     ],
-    "endWaitMs": 26416
+    "endWaitMs": 26959
   }
 }

@@ -32,6 +32,8 @@ const ASSETS: &[Asset] = &[
     asset!("markdown.css", "text/css"),
     asset!("tags.css", "text/css"),
     asset!("turn.css", "text/css"),
+    asset!("sent.css", "text/css"),
+    asset!("answer-card.css", "text/css"),
     asset!("choices.css", "text/css"),
     asset!("question.css", "text/css"),
     asset!("quiz.css", "text/css"),
@@ -67,6 +69,8 @@ const ASSETS: &[Asset] = &[
     asset!("client/status.js", "text/javascript"),
     asset!("client/swipe.js", "text/javascript"),
     asset!("client/turn.js", "text/javascript"),
+    asset!("client/sent.js", "text/javascript"),
+    asset!("client/answer-card.js", "text/javascript"),
 ];
 
 struct Asset {

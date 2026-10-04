@@ -1,17 +1,26 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-04T16:16:07.150Z",
+  "createdAt": "2026-10-04T16:02:05.402Z",
   "payload": {
     "actions": [
       {
-        "name": "check",
-        "summary": "check radio \"Discard the draft\" in \"Choices\"",
+        "name": "tap",
+        "summary": "tap radio \"Discard the draft\" in \"Choices\"",
         "target": {
           "role": "radio",
           "name": "Discard the draft",
           "within": "Choices"
+        }
+      },
+      {
+        "name": "type",
+        "summary": "type \"Keep it for a week instead.\" into textbox \"Comment · optional\" in \"Question 1\"",
+        "target": {
+          "role": "textbox",
+          "name": "Comment · optional",
+          "within": "Question 1"
         },
-        "checked": true
+        "value": "Keep it for a week instead."
       },
       {
         "name": "tap",
@@ -28,11 +37,11 @@
       "version": "2"
     },
     "recordedFor": {
-      "testId": "tests/masthead.e2e.ts::the%20rail%20and%20the%20tab%20title%20follow%20the%20round%20through%20an%20answer",
+      "testId": "tests/waiting.e2e.ts::the%20reviewer%20answers%2C%20sees%20the%20sent%20answer%20while%20the%20agent%20works%2C%20stops%20waiting%2C%20then%20retries",
       "targetId": "desktop",
-      "instructionDigest": "5a52da29fb75e74a152b6de7969c601ee11918450ac414e446f706ee4dfb2580"
+      "instructionDigest": "0d916904aed978f3e1412ded047b5f28e9c72eaf7eee93e4a9c96207acb16602"
     },
-    "summary": "The answer was sent. The screen shows Question 1 marked Answered and the submitted answer “Discard the draft”; the agent is working on the answer.",
+    "summary": "Selected “Discard the draft,” entered the comment “Keep it for a week instead.”, and sent the answer. The page now says the agent is working on the answer to question 1 and displays the submitted choice and comment.",
     "startPath": "/#round",
     "endPath": "/#round",
     "endAnchors": [
@@ -54,17 +63,16 @@
         "text": "Your answer to question 1"
       },
       {
+        "text": "“Keep it for a week instead.”"
+      },
+      {
         "role": "button",
         "name": "Stop waiting"
       },
       {
         "text": "Your answer stays; Retry sends it again."
-      },
-      {
-        "role": "button",
-        "name": "Cancel this answer…"
       }
     ],
-    "endWaitMs": 27176
+    "endWaitMs": 12820
   }
 }

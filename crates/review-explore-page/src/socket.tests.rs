@@ -96,7 +96,13 @@ impl Owner {
                 ("answer", Some(working("turn-2")))
             }
             PageCommand::Pick { .. } => ("pick", None),
-            PageCommand::Start { start, .. } => ("start", Some(RoundStage::Starting { start })),
+            PageCommand::Start { start, .. } => (
+                "start",
+                Some(RoundStage::Starting {
+                    start,
+                    started_at_ms: None,
+                }),
+            ),
             PageCommand::Recover(Recovery::Stop(Waiting::Start(_))) => (
                 "stop",
                 Some(RoundStage::NoRound {
@@ -185,6 +191,8 @@ impl Rounds for Owner {
 fn working(request: &str) -> RoundStage {
     RoundStage::AgentWorking {
         request: request.into(),
+        sent_at_ms: None,
+        answer: None,
     }
 }
 
@@ -193,6 +201,7 @@ fn interrupted(request: &str, attempt: &str) -> RoundStage {
         request: Some(request.into()),
         attempt: Some(attempt.into()),
         interruption: Interruption::Stopped,
+        answer: None,
     }
 }
 
@@ -467,6 +476,79 @@ async fn the_previous_turn_names_the_question_the_latest_answer_answered_by_the_
     assert_eq!(next(&mut socket).await["params"]["view"]["answered"], 2);
 }
 
+/// The reviewer's answer to `question`, sent with "Keep the draft" after a first pick of
+/// "Discard the draft", and the marks it applied.
+fn sent_answer(question: Question) -> crate::SentAnswer {
+    let kept = question.alternatives[0].clone();
+    crate::SentAnswer {
+        question: Some(crate::AnsweredQuestion {
+            question: Box::new(question),
+            citations: Arc::from([]),
+            picked_blind: true,
+        }),
+        kept: review_explore::KeptAnswer::new(Some(&kept), "Keep it.", Some("discard")),
+        marked: review_explore::MarkCounts {
+            reviewed_lines: 12,
+            not_relevant_lines: 3,
+            ..Default::default()
+        },
+    }
+}
+
+#[tokio::test]
+async fn a_turn_that_carries_the_answer_shows_it_beside_its_card_with_its_question() {
+    let owner = Owner::new(no_round());
+    *lock(&owner.overview) = at_question_2(true);
+    owner.publish(RoundStage::AgentWorking {
+        request: "turn-2".into(),
+        sent_at_ms: Some(1_000),
+        answer: Some(Box::new(sent_answer(question("q2", "one_way")))),
+    });
+    let address = serve(owner.clone()).await;
+    let mut socket = Upgrade::of(address).connect(address).await.unwrap();
+
+    // The turn's card sits beside the answer, not above the stage.
+    let view = next(&mut socket).await["params"]["view"].clone();
+    assert_eq!(view["cards"], json!([]));
+    let sent = &view["sent"];
+    assert_eq!(sent["card"]["since"]["ms"], 1_000);
+    assert_eq!(sent["card"]["actions"][0]["method"], "stop");
+    assert_eq!(sent["card"]["actions"][0]["fields"][0]["value"], "turn-2");
+    assert_eq!(sent["number"], 2);
+    assert_eq!(sent["question"]["id"], "q2");
+    assert_eq!(sent["question"]["number"], 2);
+    assert_eq!(sent["question"]["answerable"], false);
+    assert_eq!(sent["question"]["recommendation"], "shown_after_pick");
+    assert_eq!(sent["answer"]["choice"], "Keep the draft");
+    assert_eq!(sent["answer"]["comment"], "Keep it.");
+    assert_eq!(
+        sent["answer"]["tags"],
+        json!(["changed_after_first_pick", "as_recommended"])
+    );
+    assert_eq!(
+        sent["marked"]["parts"],
+        json!(["12 lines reviewed", "3 lines not relevant"])
+    );
+
+    // The turn did not go through: the same answer, with Retry of the turn.
+    owner.publish(RoundStage::Interrupted {
+        request: Some("turn-2".into()),
+        attempt: Some("attempt-2".into()),
+        interruption: Interruption::NotStarted,
+        answer: Some(Box::new(sent_answer(question("q2", "one_way")))),
+    });
+    let view = next(&mut socket).await["params"]["view"].clone();
+    assert_eq!(view["cards"], json!([]));
+    assert_eq!(view["sent"]["card"]["actions"][0]["method"], "retry");
+    assert_eq!(view["sent"]["question"]["id"], "q2");
+
+    // A turn that carries no answer, as the kickoff, shows its card above the stage.
+    owner.publish(working("turn-3"));
+    let view = next(&mut socket).await["params"]["view"].clone();
+    assert_eq!(view["sent"], Value::Null);
+    assert_eq!(view["cards"][0]["actions"][0]["method"], "stop");
+}
+
 #[tokio::test]
 async fn the_socket_sends_the_round_again_when_only_its_review_marks_change() {
     let owner = Owner::new(working("turn-1"));
@@ -604,6 +686,7 @@ async fn a_socket_whose_token_no_longer_opens_the_round_is_closed() {
     *lock(&owner.open) = false;
     owner.publish(RoundStage::Starting {
         start: "start-1".into(),
+        started_at_ms: None,
     });
 
     let closed = tokio::time::timeout(Duration::from_secs(5), socket.next())
@@ -661,6 +744,17 @@ async fn an_action_on_what_the_round_moved_past_is_refused_with_its_notice() {
     assert_eq!(reply["error"]["data"]["id"], "notice");
     assert_eq!(reply["error"]["data"]["role"], "alert");
     assert!(owner.commands().is_empty());
+
+    // A refused answer names the question by the number the page showed.
+    let answer = json!({ "round": ROUND, "question": "q1", "version": 1, "choice": "keep", "comment": "", "number": 1 });
+    request(
+        &mut socket,
+        json!({ "id": 4, "method": "answer", "params": answer }),
+    )
+    .await;
+    let reply = next(&mut socket).await;
+    let title = reply["error"]["data"]["title"].as_str().unwrap();
+    assert!(title.contains("Question 1"), "{title}");
 }
 
 #[tokio::test]
