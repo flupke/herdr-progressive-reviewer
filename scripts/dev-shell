@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Runs a command, or an interactive shell, in this repository's Nix dev shell, from the main
+# checkout or from a jj workspace. Nix evaluates a copy of flake.nix and flake.lock alone
+# (docs/development.md, "Parallel workspaces").
+#
+# Usage: scripts/dev-shell [command [argument...]]
+set -euo pipefail
+root="$(cd "$(dirname "$0")/.." && pwd)"
+flake="$(mktemp -d)"
+trap 'rm -rf "$flake"' EXIT
+cp "$root/flake.nix" "$root/flake.lock" "$flake/"
+if [ "$#" -eq 0 ]; then
+  nix develop "path:$flake"
+else
+  nix develop "path:$flake" --command "$@"
+fi

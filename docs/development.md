@@ -70,6 +70,26 @@ See the [slice 2 recovery report](explore-slice-2-recovery.md) for current accep
 See [language server setup](language-servers.md) for the server commands, and
 [mutation testing](llm-mutation-testing.md) for mutation-test guidance.
 
+### Parallel workspaces
+
+`/tmp` may be a RAM disk, and a full build needs about 16 GB. Put a second jj
+workspace or checkout on disk, or point `CARGO_TARGET_DIR` at the main
+checkout's `target/`, before running `make check` in it.
+
+A jj workspace has no `.git`, so `nix develop` there copies the whole directory,
+`target/` included, into the Nix store. Enter the dev shell through
+`scripts/dev-shell`, which hands Nix a copy of `flake.nix` and `flake.lock`
+alone, a changed flake included:
+
+```sh
+scripts/dev-shell make check
+```
+
+The Herdr integration tests copy their test binary, about 400 MB, into a
+private directory under `/tmp` for each test. Run several `make check` at once
+with `NEXTEST_TEST_THREADS=6` each. Under that load, a test that talks to the
+Herdr socket can fail with `WouldBlock`, and pass when run alone.
+
 ## Explore page
 
 The Explore page is a browser page that shows an Explore round. Its routes,
@@ -891,7 +911,9 @@ Check outcomes with locators, not with a judgement (`agent.assert`,
 `agent.waitFor`, `agent.extract`), which calls a model on every run: every
 outcome of this page so far is a text, a role, a state or a visible element,
 Mermaid's drawn labels included. Should a locator ever be unable to check one,
-keep a judgement, with the reason in a comment above it.
+keep the judgement under a comment that starts with `// judgement:` and gives
+the reason. `make e2e-explore` fails on a judgement without one, in any script
+under `tests/explore-page`.
 
 Check the facts that make the outcome, not each element of the page: listing
 every choice, count and sentence with locators makes a test break on every
@@ -994,6 +1016,12 @@ what replayed (`Cache N replayed`). When a goal keeps going to the model on runs
 with no change to the page, find out why instead of running again. To record
 everything again, run `npx e2e cache clear` in `tests/explore-page` first.
 
+After a run of every test passes, with no `E2E_ARGS`, `make e2e-explore`
+fails when the cache holds recordings the run did not look up: those of a test
+that was renamed, changed or removed. Delete the files it lists and commit the
+removal. `tests/explore-page/cache-lookups.ts` notes the lookups of such a
+run.
+
 `tests/explore-page/model.ts` is the only file that knows how the model that
 acts out goals is reached. It has two routes, each with a fixed model, so
 switching to a costlier model means editing that file. It sets no
@@ -1087,12 +1115,6 @@ The harness has its own Cargo workspace and lockfile because `tui-test` requires
 `unicode-width` 0.2.2 while the existing Ratatui 0.29 adapter pins 0.2.0.
 `make vision` builds the reviewer first and supplies `REVIEWER_BIN_PATH` to the
 driver. Its private Herdr server runs the [pinned release](#the-herdr-the-tests-run).
-
-### A second checkout
-
-`/tmp` may be a RAM disk, and a full build needs about 16 GB. Put a second jj
-workspace or checkout on disk, or point `CARGO_TARGET_DIR` at the main
-checkout's `target/`, before running `make check` in it.
 
 ### LLM-directed exploration
 

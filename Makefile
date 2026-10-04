@@ -1,4 +1,4 @@
-.PHONY: build check complexity e2e-tui e2e-explore e2e-explore-deps explore-gallery explore-page explore-types vision install mutants uninstall
+.PHONY: build check complexity e2e-tui e2e-explore e2e-explore-deps e2e-explore-judgements explore-gallery explore-page explore-types vision install mutants uninstall
 
 build:
 	cargo build --release --locked --bins
@@ -36,9 +36,14 @@ $(EXPLORE_E2E)/node_modules/.installed: $(EXPLORE_E2E)/package-lock.json
 # Installs the npm packages only, for the MCP server (tests/explore-page/mcp.sh).
 e2e-explore-deps: $(EXPLORE_E2E)/node_modules/.installed
 
+# The rule on judgements in the e2e tests (docs/development.md, "e2e tests").
+e2e-explore-judgements:
+	node --test --test-reporter=dot $(EXPLORE_E2E)/judgements.test.ts
+	node $(EXPLORE_E2E)/judgements.ts
+
 # Checks the page's client against the TypeScript declarations of its socket's messages, then
 # runs the e2e tests.
-e2e-explore: e2e-explore-deps
+e2e-explore: e2e-explore-judgements e2e-explore-deps
 	cd $(EXPLORE_E2E) && node_modules/.bin/tsc -p tsconfig.client.json
 	cargo build --locked -p review-explore-page-server
 	$(EXPLORE_E2E)/run.sh $(E2E_ARGS)

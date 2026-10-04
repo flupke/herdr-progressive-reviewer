@@ -24,7 +24,8 @@
   outcomes the reviewer sees, not as an enumeration of the page's elements.
   Check each outcome with `expect` on a locator, never with a judgement
   (`agent.assert`, `agent.waitFor`, `agent.extract`), unless no locator can
-  reach the fact; then say why in a comment above it.
+  reach the fact; then say why in a comment above it that starts with
+  `// judgement:`, which `make check` checks.
   Repository specifics: `docs/development.md#e2e-tests`.
 
 # Small feature workflow
@@ -57,6 +58,10 @@ of overriding `-Dwarnings`. With the current `eyre` version, use
 `Err(eyre::eyre!(...))` in expression-position match arms, or put
 `eyre::bail!(...);` in a statement block, to avoid the trailing-semicolon
 macro warning.
+
+When you work in a jj workspace or run gates in parallel, read
+`docs/development.md#parallel-workspaces`: how to enter the dev shell there,
+and what several gates at once need.
 
 # Sandbox E2E Tests
 
