@@ -38,8 +38,8 @@ pub(super) trait WithSources: Clone + Serialize + DeserializeOwned {
     /// Every source the value serializes, in the order it serializes them.
     fn sources_mut(&mut self) -> impl Iterator<Item = &mut Arc<ThreadSource>>;
 
-    /// The records that hold one source each, within the value's JSON.
-    fn records(json: &mut Value) -> Option<&mut Vec<Value>>;
+    /// The records that may hold a source, within the value's JSON, in source order.
+    fn records(json: &mut Value) -> Vec<&mut Value>;
 }
 
 /// Takes a source's place while a document is converted. Stored documents never contain
@@ -84,6 +84,15 @@ impl SourceSlot {
             // A merged source contributes its fields, without its own braces.
             Self::Merged => &object[1..object.len() - 1],
             Self::Field(_) => object,
+        }
+    }
+
+    /// Whether `record` holds a source reference. A merged slot may hold none: a round
+    /// conversation is a thread on no code. A record with a field of its own always holds one.
+    fn holds_reference(self, record: &Value) -> bool {
+        match self {
+            Self::Merged => StoredSource::deserialize(record).is_ok(),
+            Self::Field(_) => true,
         }
     }
 
@@ -194,13 +203,14 @@ impl ReviewStore {
         operation: &'static str,
     ) -> Result<T> {
         let decode = Error::json(operation, path);
-        let references = match (form, T::records(&mut json)) {
-            (SourceForm::Referenced, Some(records)) => records
-                .iter_mut()
+        let references = match form {
+            SourceForm::Referenced => T::records(&mut json)
+                .into_iter()
+                .filter(|record| T::SLOT.holds_reference(record))
                 .map(|record| T::SLOT.take_reference(record))
                 .collect::<serde_json::Result<Vec<_>>>()
                 .map_err(&decode)?,
-            _ => Vec::new(),
+            SourceForm::Inline => Vec::new(),
         };
         let mut value: T = serde_json::from_value(json).map_err(&decode)?;
         if form == SourceForm::Referenced {

@@ -125,6 +125,13 @@ agent status or revisiting the review does not repeat an already attempted one.
 The agent checks pending threads through MCP, including before finishing. Reading
 never consumes comments: a successful reply acknowledges its exact snapshot.
 
+A round conversation, the review thread attached to one Explore round, is delivered
+the same way. Its wakeup also names the round, each waiting message and the question
+ID and version, or the stage, that message was asked under, and says that a message
+does not answer the question; `get_new_messages` returns the thread with its
+`explore_round` and each message's `asked_under` and `quote`. The agent answers with
+`reply`, as for any thread.
+
 Delivery errors are reported while comments remain saved. When the agent did not
 start on the notification, the text may still wait in its prompt box: look at the
 agent's pane before you retry. Use **Retry agent** on

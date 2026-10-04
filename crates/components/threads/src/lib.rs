@@ -96,13 +96,18 @@ impl ThreadsComponent {
                 };
                 matches_filter
                     && (query.is_empty()
-                        || thread.path().to_lowercase().contains(&query)
+                        || Self::location(thread).to_lowercase().contains(&query)
                         || thread
                             .messages
                             .iter()
                             .any(|message| message.text.to_lowercase().contains(&query)))
             })
             .collect()
+    }
+
+    /// What a thread is about, as its card names it: its file, or its Explore round.
+    fn location(thread: &ReviewThread) -> &str {
+        thread.path().unwrap_or("Round conversation")
     }
 
     fn select(&mut self, id: Option<ThreadId>) {
@@ -232,7 +237,7 @@ impl ThreadsComponent {
         projection: &ThreadProjection,
         thread: &ReviewThread,
     ) -> Option<&ui_events::FileSummary> {
-        let path = projection.current_path(thread.path());
+        let path = projection.current_path(thread.path()?);
         self.files.iter().find(|file| file.path() == path)
     }
 

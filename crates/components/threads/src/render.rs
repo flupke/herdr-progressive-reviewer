@@ -120,7 +120,8 @@ impl ThreadsComponent {
             Line::raw(format!("{} {question}", if selected { "▸" } else { " " })).style(style),
         );
         lines.push(
-            Line::raw(format!("  {}", thread.path())).style(Style::default().fg(palette.dim)),
+            Line::raw(format!("  {}", Self::location(thread)))
+                .style(Style::default().fg(palette.dim)),
         );
         let mut attention = if thread.has_unread_replies() {
             Line::from(vec![

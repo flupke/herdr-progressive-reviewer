@@ -7,7 +7,7 @@ use review_threads::{MessageId, Post, Resolution, ThreadId, ThreadSource};
 use serde_json::json;
 
 use super::*;
-use crate::stored_fixtures::{CONTEXT, CONTEXT_KEY, THREADS_V4, inline_thread};
+use crate::stored_fixtures::{CONTEXT, CONTEXT_KEY, THREADS_V4, code_source, inline_thread};
 
 const THREAD: &str = "0b6f2a4e-1c3d-4e5f-8a9b-0c1d2e3f4a5b";
 
@@ -63,11 +63,11 @@ fn a_version_4_document_loads_and_is_written_back_byte_for_byte() {
     assert!(waiting.is_waiting());
     assert_eq!(threads.new_messages().len(), 1);
     assert_eq!(
-        *answered.source,
+        **code_source(answered),
         serde_json::from_str::<ThreadSource>(CONTEXT).unwrap()
     );
     assert!(
-        Arc::ptr_eq(&answered.source, &waiting.source),
+        Arc::ptr_eq(code_source(answered), code_source(waiting)),
         "threads with the same source share one loaded copy"
     );
 
@@ -206,7 +206,7 @@ fn version_2_recovery_only_delivers_comments_still_waiting_for_an_answer() {
         assert_eq!(recovered.counts().open, 1);
         assert_eq!(recovered.counts().unread, 1);
         assert_eq!(
-            *thread.source,
+            **code_source(thread),
             serde_json::from_str::<ThreadSource>(CONTEXT).unwrap()
         );
         assert_eq!(recovered.has_new_messages(), !late_before_reply);

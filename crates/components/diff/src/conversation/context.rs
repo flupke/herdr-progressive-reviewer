@@ -2,7 +2,7 @@ use review_repository::{
     diff::{DiffRow, parse_file_diff},
     repository::ChangedFile,
 };
-use review_threads::{ReviewThread, ThreadId};
+use review_threads::{ThreadId, ThreadSource};
 use syntax_highlighting::{HighlightedRow, SyntaxHighlighter};
 
 pub(super) struct OriginalCode {
@@ -12,11 +12,8 @@ pub(super) struct OriginalCode {
 }
 
 impl OriginalCode {
-    fn source_rows(thread: &ReviewThread) -> Vec<DiffRow> {
-        let parsed = parse_file_diff(
-            thread.excerpt.as_bytes(),
-            &ChangedFile::modified(thread.path()),
-        );
+    fn source_rows(path: &str, code: &ThreadSource) -> Vec<DiffRow> {
+        let parsed = parse_file_diff(code.excerpt.as_bytes(), &ChangedFile::modified(path));
         let rows: Vec<_> = parsed
             .into_iter()
             .filter(|row| {
@@ -29,18 +26,17 @@ impl OriginalCode {
         if !rows.is_empty() {
             return rows;
         }
-        let old = thread
+        let old = code
             .anchor
             .old_lines
             .as_ref()
             .map_or(0, |range| range.start);
-        let new = thread
+        let new = code
             .anchor
             .new_lines
             .as_ref()
             .map_or(old, |range| range.start);
-        thread
-            .excerpt
+        code.excerpt
             .lines()
             .enumerate()
             .map(|(index, text)| {
@@ -54,13 +50,19 @@ impl OriginalCode {
             .collect()
     }
 
-    pub(super) fn new(thread: &ReviewThread, highlighter: &SyntaxHighlighter) -> Self {
+    /// The saved code of thread `thread`, a selection of `path`.
+    pub(super) fn new(
+        thread: ThreadId,
+        path: &str,
+        code: &ThreadSource,
+        highlighter: &SyntaxHighlighter,
+    ) -> Self {
         let mut rows = highlighter
             .highlight(
-                thread.path(),
-                Self::source_rows(thread),
-                thread.anchor.old_content.as_deref(),
-                thread.anchor.new_content.as_deref(),
+                path,
+                Self::source_rows(path, code),
+                code.anchor.old_content.as_deref(),
+                code.anchor.new_content.as_deref(),
             )
             .rows;
         // Preserve the saved excerpt even when an old history lacks full source content.
@@ -69,11 +71,11 @@ impl OriginalCode {
             .map(|row| Self::text(&row.diff))
             .collect::<Vec<_>>()
             .join("\n");
-        let fallback = highlighter.highlight_snippet(thread.path(), &text);
+        let fallback = highlighter.highlight_snippet(path, &text);
         for (row, fallback) in rows.iter_mut().zip(fallback) {
             let source_missing = match row.diff {
-                DiffRow::Delete { .. } => thread.anchor.old_content.is_none(),
-                _ => thread.anchor.new_content.is_none(),
+                DiffRow::Delete { .. } => code.anchor.old_content.is_none(),
+                _ => code.anchor.new_content.is_none(),
             };
             if source_missing
                 || row
@@ -96,7 +98,7 @@ impl OriginalCode {
             .max()
             .unwrap_or_default();
         Self {
-            thread: thread.id.clone(),
+            thread,
             rows,
             number_width: last.to_string().len(),
         }

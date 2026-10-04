@@ -210,7 +210,14 @@ impl DiffComponent {
     }
 
     fn context_rows(&self, thread: &ReviewThread, palette: Palette, output: &mut ConversationRows) {
-        output.file_link(thread.path(), palette);
+        let Some(path) = thread.path() else {
+            output.text(
+                "Round conversation of an Explore round",
+                Style::default().fg(palette.dim),
+            );
+            return;
+        };
+        output.file_link(path, palette);
         output.rule(FrameRule::Middle);
         self.original_context_rows(palette, output);
     }

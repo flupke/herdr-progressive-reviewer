@@ -5,6 +5,7 @@ mod agent_identity;
 mod delivery;
 mod notification;
 mod pinned_agent;
+mod round_prompt;
 mod state;
 mod wakeup;
 
@@ -14,7 +15,8 @@ use std::thread::{self, JoinHandle};
 use herdr_client::protocol::{AgentPort, AgentTarget, HerdrEvent};
 use review_mcp::Endpoint;
 use review_store::ReviewStore;
-use review_threads::ThreadCommand;
+use review_threads::{ThreadCommand, WakeupFailure};
+use review_types::ReviewUnit;
 
 pub use delivery::{
     DispatchObserver, PromptCancellation, PromptError, PromptReceipt, PromptSender,
@@ -49,6 +51,12 @@ enum Input {
 pub enum Event {
     Loaded(ui_events::ReviewThreadsLoaded),
     Posted(ui_events::ThreadPostFinished),
+    /// What became of the latest wakeup for the pending comments of `review_unit`: `None`
+    /// once one is on its way to the agent, or why one did not reach it.
+    Wakeup {
+        review_unit: ReviewUnit,
+        failure: Option<WakeupFailure>,
+    },
     Error(String),
 }
 

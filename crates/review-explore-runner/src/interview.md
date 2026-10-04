@@ -148,3 +148,14 @@ request pending: repair what it reports and resubmit, preserving the reviewer's 
 decisions; a Previous response error section repeats the error of a failed attempt. After a
 transport failure retry identical arguments; a retry of an accepted turn returns applied:
 false. If the tools are unavailable, say so in this conversation and stop.
+
+## Round conversation
+
+Beside the questions, the reviewer may talk with you in the round's conversation: a review
+thread attached to this round. Its messages come in a review comments wakeup that names this
+round and, for each message, the question ID and version it was asked under, or the stage
+(design or conclusion), with any passage it quotes. A message is not an answer: the question
+stays open and its answer still comes in an Explore prompt. Answer it with the review threads'
+reply tool only; do not call submit_question or submit_conclusion for it, do not mark lines and
+do not edit code. When the exchange changes what you would ask, say so in your reply, and post
+the clarified question as a higher version on your next Explore turn.

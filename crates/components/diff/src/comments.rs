@@ -213,17 +213,25 @@ impl Comments {
         for thread in book.threads() {
             let mapped = documents
                 .iter()
-                .find(|file| self.matches_path(file, thread.path()))
+                .find(|file| self.shows_thread(file, thread))
                 .filter(|file| !file.comments_only)
                 .and_then(|file| file.content.as_ref())
-                .and_then(|content| {
-                    thread.anchor.map_lines(
+                .zip(thread.code())
+                .and_then(|(content, code)| {
+                    code.anchor.map_lines(
                         content.old_content.as_deref(),
                         content.new_content.as_deref(),
                     )
                 });
             self.mapped.insert(thread.id.clone(), mapped);
         }
+    }
+
+    /// Whether `file` holds the code `thread` discusses; a round conversation is on no file.
+    pub(super) fn shows_thread(&self, file: &LoadedDocument, thread: &ReviewThread) -> bool {
+        thread
+            .path()
+            .is_some_and(|path| self.matches_path(file, path))
     }
 
     pub(super) fn matches_path(&self, file: &LoadedDocument, path: &str) -> bool {
@@ -488,7 +496,7 @@ impl SourceViewer {
         let threads = self
             .comments
             .open_threads()
-            .filter(|thread| self.comments.matches_path(file, thread.path()))
+            .filter(|thread| self.comments.shows_thread(file, thread))
             .collect::<Vec<_>>();
         if let Some(id) = &self.comments.selected
             && threads
@@ -511,11 +519,12 @@ impl SourceViewer {
         let comments = self
             .comments
             .open_threads()
-            .flat_map(|thread| {
+            .filter_map(|thread| Some((thread.path()?, thread)))
+            .flat_map(|(path, thread)| {
                 thread
                     .messages
                     .iter()
-                    .map(move |comment| (thread.path(), &comment.id))
+                    .map(move |comment| (path, &comment.id))
             })
             .collect::<Vec<_>>();
         if comments.is_empty() {
@@ -651,7 +660,7 @@ impl SourceViewer {
         let Some(file) = self
             .documents
             .iter()
-            .find(|file| !file.comments_only && self.comments.matches_path(file, thread.path()))
+            .find(|file| !file.comments_only && self.comments.shows_thread(file, thread))
         else {
             return ThreadPlacement::OutsideDiff;
         };
@@ -689,7 +698,7 @@ impl SourceViewer {
         for path in self
             .comments
             .threads()
-            .map(ReviewThread::path)
+            .filter_map(ReviewThread::path)
             .chain(draft_paths.iter().map(String::as_str))
         {
             if self

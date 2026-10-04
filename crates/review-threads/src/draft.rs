@@ -2,7 +2,9 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{Message, MessageId, Post, ReviewThread, ReviewThreads, ThreadId, ThreadSource};
+use crate::{
+    Message, MessageId, Post, ReviewThread, ReviewThreads, ThreadId, ThreadSource, ThreadSubject,
+};
 
 /// Where an unposted editor belongs: a new thread in a file or a reply to an existing one.
 #[derive(Clone, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
@@ -56,15 +58,20 @@ impl Draft {
         }
     }
 
-    pub fn reply(thread: &ReviewThread, reply_to: MessageId) -> Self {
-        Self {
+    /// A reply to a thread on code; the reviewer writes in a round conversation from the
+    /// Explore page instead.
+    pub fn reply(thread: &ReviewThread, reply_to: MessageId) -> Option<Self> {
+        let ThreadSubject::Code(source) = &thread.subject else {
+            return None;
+        };
+        Some(Self {
             target: DraftTarget::Thread(thread.id.clone()),
-            source: thread.source.clone(),
+            source: source.clone(),
             reply_to: Some(reply_to),
             text: String::new(),
             id: Message::reviewer(String::new()).id,
             thread: thread.id.clone(),
-        }
+        })
     }
 
     pub fn path(&self) -> &str {
@@ -87,7 +94,9 @@ impl Draft {
         Post {
             thread_id: self.thread.clone(),
             message,
-            source: self.is_new_thread().then(|| self.source.clone()),
+            subject: self
+                .is_new_thread()
+                .then(|| ThreadSubject::Code(self.source.clone())),
         }
     }
 }

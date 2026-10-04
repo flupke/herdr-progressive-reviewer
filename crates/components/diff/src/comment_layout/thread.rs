@@ -5,7 +5,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use review_threads::{Author, Message, MessageId, ReviewThread};
+use review_threads::{AskedUnder, Author, Message, MessageId, ReviewThread};
 use ui_frame::Frame;
 use ui_theme::Palette;
 use unicode_width::UnicodeWidthStr;
@@ -60,7 +60,11 @@ impl Comments {
             self.editor_rows(&mut rows, parked, false, layout);
         } else if let Some(comment) = thread.messages.last() {
             layout.separator(&mut rows, Some(&comment.id));
-            layout.reply_field(&mut rows, &comment.id);
+            if thread.round().is_some() {
+                layout.round_hint(&mut rows, &comment.id);
+            } else {
+                layout.reply_field(&mut rows, &comment.id);
+            }
             layout.controls(&mut rows, Some(thread), None);
         }
         rows
@@ -146,15 +150,28 @@ impl ThreadLayout {
     ) {
         let id = Some(&message.id);
         let status = if self.outdated {
-            "original context"
+            "original context".to_owned()
         } else {
-            ""
+            message
+                .asked_under
+                .as_ref()
+                .map(Self::asked_under)
+                .unwrap_or_default()
         };
         self.blank(rows, id);
-        self.header(rows, message.author, status, id);
+        self.header(rows, message.author, &status, id);
         self.blank(rows, id);
-        if show_excerpt {
-            self.plain(rows, &thread.excerpt, self.palette.dim, id);
+        if show_excerpt && let Some(code) = thread.code() {
+            self.plain(rows, &code.excerpt, self.palette.dim, id);
+            self.blank(rows, id);
+        }
+        if let Some(quote) = &message.quote {
+            let quoted = quote
+                .lines()
+                .map(|line| format!("> {line}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            self.plain(rows, &quoted, self.palette.dim, id);
             self.blank(rows, id);
         }
         let body = rows.len();
@@ -165,6 +182,17 @@ impl ThreadLayout {
             }
         }
         self.blank(rows, id);
+    }
+
+    /// Where in its Explore round the reviewer wrote a message of a round conversation.
+    fn asked_under(asked_under: &AskedUnder) -> String {
+        match asked_under {
+            AskedUnder::Question { question, version } => {
+                format!("under question {question}, version {version}")
+            }
+            AskedUnder::Design => "under the design".into(),
+            AskedUnder::Conclusion { .. } => "under the conclusion".into(),
+        }
     }
 
     fn style(self) -> Style {
@@ -327,6 +355,18 @@ impl ThreadLayout {
             ..self
         }
         .line(rows, Line::from(spans), id);
+    }
+
+    /// The reviewer writes in a round conversation from the Explore page, beside the question.
+    fn round_hint(self, rows: &mut Vec<CommentRow>, id: &MessageId) {
+        self.blank(rows, Some(id));
+        self.plain(
+            rows,
+            "Write in this conversation from the Explore page.",
+            self.palette.dim,
+            Some(id),
+        );
+        self.blank(rows, Some(id));
     }
 
     fn reply_field(self, rows: &mut Vec<CommentRow>, id: &MessageId) {

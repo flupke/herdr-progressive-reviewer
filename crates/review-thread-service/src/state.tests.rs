@@ -6,7 +6,7 @@ use herdr_client::memory::{InMemoryAgents, SentPrompt};
 use herdr_client::protocol::{AgentSession, AgentStatus, TabId, WorkspaceId};
 use review_mcp::{Operation, Response};
 use review_source::{AnchorKind, DiffRangeAnchor};
-use review_threads::{MessageId, ReviewThread, ThreadId};
+use review_threads::{AskedUnder, MessageId, ReviewThread, ThreadId, WakeupFailure};
 use tempfile::TempDir;
 
 use super::*;
@@ -21,6 +21,8 @@ struct Service {
     agents: InMemoryAgents,
     target: AgentTarget,
     errors: Arc<Mutex<Vec<String>>>,
+    /// The outcome of each wakeup, as the worker published it.
+    wakeups: Arc<Mutex<Vec<Option<WakeupFailure>>>>,
     seen_prompts: usize,
     _store: TempDir,
 }
@@ -33,11 +35,18 @@ impl Service {
         agents.upsert_agent(agent("first", "session-1"));
         let target = AgentTarget::new(workspace(), Some(pane("first")));
         let errors = Arc::new(Mutex::new(Vec::new()));
+        let wakeups = Arc::new(Mutex::new(Vec::new()));
         let published = errors.clone();
-        let publish = move |event| {
-            if let Event::Error(error) = event {
-                published.lock().unwrap().push(error);
+        let outcomes = wakeups.clone();
+        let publish = move |event| match event {
+            Event::Error(error) => published.lock().unwrap().push(error),
+            Event::Wakeup { failure, .. } => {
+                if let Some(failure) = &failure {
+                    published.lock().unwrap().push(failure.error.clone());
+                }
+                outcomes.lock().unwrap().push(failure);
             }
+            _ => {}
         };
         let (sender, inputs) = std::sync::mpsc::channel();
         let mut state = State::new(
@@ -55,6 +64,7 @@ impl Service {
             agents,
             target,
             errors,
+            wakeups,
             seen_prompts: 0,
             _store: directory,
         }
@@ -147,6 +157,21 @@ impl Service {
 
     fn errors(&self) -> Vec<String> {
         self.errors.lock().unwrap().clone()
+    }
+
+    fn wakeup_outcomes(&self) -> Vec<Option<WakeupFailure>> {
+        self.wakeups.lock().unwrap().clone()
+    }
+
+    /// Post a message to the conversation of `round` and return its posted identity.
+    fn talk(&mut self, round: &str, text: &str, asked_under: Option<AskedUnder>) -> MessageId {
+        let post = Post::to_round(round, text.into(), asked_under, Some("a passage".into()));
+        let id = post.message().id.clone();
+        self.thread(ThreadCommand::Post {
+            review_unit: UNIT.into(),
+            post,
+        });
+        id
     }
 }
 
@@ -504,4 +529,111 @@ fn the_worker_keeps_serving_while_an_agent_takes_its_time_to_start_on_a_prompt()
     assert!(loaded.result.is_ok());
     release.send(()).unwrap();
     receipt.wait().unwrap();
+}
+
+#[test]
+fn a_round_message_wakes_the_agent_with_its_round_and_the_question_it_was_asked_under() {
+    let mut service = Service::start();
+    let first = service.talk(
+        "round-7",
+        "Why a lock here?",
+        Some(AskedUnder::Question {
+            question: "q-lock".into(),
+            version: 3,
+        }),
+    );
+    let second = service.talk("round-7", "And in the design?", Some(AskedUnder::Design));
+
+    let prompts = service.poll();
+    let (_, access) = only_wakeup(&prompts);
+    let prompt = &prompts[0].text;
+    let thread = service.fetch(&access).unwrap().remove(0);
+    assert_eq!(thread.round(), Some("round-7"));
+    assert!(
+        prompt.contains(&format!(
+            "Round conversation: {}\nExplore round: round-7\n",
+            thread.id.as_str()
+        )),
+        "{prompt}"
+    );
+    assert!(
+        prompt.contains(&format!(
+            "Message: {}\nQuestion: q-lock (version 3)\n",
+            first.as_str()
+        )),
+        "{prompt}"
+    );
+    assert!(
+        prompt.contains(&format!("Message: {}\nStage: design\n", second.as_str())),
+        "{prompt}"
+    );
+
+    service.answer(&access, &thread).unwrap();
+    assert!(service.fetch(&access).unwrap().is_empty());
+    service.talk("round-7", "One more", None);
+    let prompts = service.poll();
+    only_wakeup(&prompts);
+    assert!(
+        !prompts[0].text.contains(first.as_str()),
+        "an answered message is not brought again"
+    );
+}
+
+#[test]
+fn a_wakeup_for_comments_on_code_names_no_round() {
+    let mut service = Service::start();
+    service.start_thread("Rename this");
+    let prompts = service.poll();
+    only_wakeup(&prompts);
+    assert!(
+        prompts[0]
+            .text
+            .ends_with(&format!("Logical review: {UNIT}")),
+        "nothing about a round follows the review: {}",
+        prompts[0].text
+    );
+}
+
+#[test]
+fn a_wakeup_that_does_not_reach_the_agent_names_the_comments_it_left_waiting() {
+    let mut service = Service::start();
+    service.agents.swallow_prompts(&pane("first"), true);
+    service.talk("round-7", "Why a lock here?", None);
+    only_wakeup(&service.poll());
+    let book = service.state.books[&UNIT.into()].clone();
+    let through = book.round_conversation("round-7").unwrap().messages[0].sequence();
+    assert_eq!(
+        service.wakeup_outcomes(),
+        [
+            None,
+            Some(WakeupFailure {
+                through,
+                error: PromptError::NotStarted.to_string(),
+            })
+        ],
+        "a wakeup on its way clears the failure, then its outcome reports it"
+    );
+
+    service.agents.swallow_prompts(&pane("first"), false);
+    let thread = book.round_conversation("round-7").unwrap().id.clone();
+    service.retry(&thread);
+    only_wakeup(&service.poll());
+    assert_eq!(service.wakeup_outcomes().last(), Some(&None));
+}
+
+#[test]
+fn a_wakeup_without_an_agent_to_receive_it_names_the_comments_it_left_waiting() {
+    let mut service = Service::start();
+    service.agents.remove_agent(&pane("first"));
+    service.talk("round-7", "Anyone there?", None);
+    assert!(service.poll().is_empty());
+    let outcomes = service.wakeup_outcomes();
+    let [Some(failure)] = outcomes.as_slice() else {
+        panic!("one failed wakeup, got {outcomes:?}");
+    };
+    let book = &service.state.books[&UNIT.into()];
+    assert_eq!(
+        failure.through,
+        book.round_conversation("round-7").unwrap().messages[0].sequence()
+    );
 }

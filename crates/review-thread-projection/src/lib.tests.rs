@@ -89,7 +89,10 @@ fn a_thread_on_a_renamed_file_belongs_to_its_new_path() {
     let id = review.start("src/old.rs");
     let projection = review.projection.read();
     let thread = review.thread(&id);
-    assert_eq!(projection.current_path(thread.path()), "src/new.rs");
+    assert_eq!(
+        projection.current_path(thread.path().unwrap()),
+        "src/new.rs"
+    );
     assert!(projection.is_on_reviewed_file(&thread));
     assert_eq!(projection.file_counts("src/new.rs").open, 1);
     assert_eq!(projection.file_counts("src/old.rs").total, 0);
@@ -109,7 +112,10 @@ fn a_thread_on_a_copied_file_stays_on_the_source() {
     let id = review.start("src/source.rs");
     let projection = review.projection.read();
     let thread = review.thread(&id);
-    assert_eq!(projection.current_path(thread.path()), "src/source.rs");
+    assert_eq!(
+        projection.current_path(thread.path().unwrap()),
+        "src/source.rs"
+    );
     assert_eq!(projection.file_counts("src/source.rs").total, 1);
     assert_eq!(projection.file_counts("src/copy.rs").total, 0);
     assert_eq!(projection.placement(&thread), ThreadPlacement::Original);
@@ -128,7 +134,10 @@ fn a_thread_whose_source_was_copied_twice_keeps_its_saved_path() {
     let id = review.start("src/source.rs");
     let projection = review.projection.read();
     let thread = review.thread(&id);
-    assert_eq!(projection.current_path(thread.path()), "src/source.rs");
+    assert_eq!(
+        projection.current_path(thread.path().unwrap()),
+        "src/source.rs"
+    );
     assert!(!projection.is_on_reviewed_file(&thread));
     assert_eq!(projection.file_counts("src/source.rs").total, 1);
     assert_eq!(projection.placement(&thread), ThreadPlacement::OutsideDiff);
@@ -141,7 +150,7 @@ fn a_thread_on_a_missing_file_lies_outside_the_diff() {
     let id = review.start("gone.rs");
     let projection = review.projection.read();
     let thread = review.thread(&id);
-    assert_eq!(projection.current_path(thread.path()), "gone.rs");
+    assert_eq!(projection.current_path(thread.path().unwrap()), "gone.rs");
     assert!(!projection.is_on_reviewed_file(&thread));
     assert_eq!(projection.file_counts("gone.rs").total, 1);
     assert_eq!(projection.file_counts("src/lib.rs").total, 0);
@@ -222,4 +231,26 @@ fn another_review_forgets_threads_and_placement_and_ignores_stale_loads() {
         projection.placement(&review.thread(&id)),
         ThreadPlacement::Original
     );
+}
+
+#[test]
+fn a_round_conversation_belongs_to_no_file_and_places_in_its_round() {
+    let mut review = Review::new();
+    review.list("change", vec![modified("src/lib.rs")]);
+    review
+        .threads
+        .post(Post::to_round(
+            "round-1",
+            "Beside the question".into(),
+            None,
+            None,
+        ))
+        .unwrap();
+    review.load(Ok(review.threads.clone()));
+    let projection = review.projection.read();
+    let thread = review.threads.round_conversation("round-1").unwrap();
+    assert!(!projection.is_on_reviewed_file(thread));
+    assert_eq!(projection.file_counts("src/lib.rs").total, 0);
+    assert_eq!(projection.file_counts("").total, 0);
+    assert_eq!(projection.placement(thread), ThreadPlacement::ExploreRound);
 }

@@ -5,6 +5,7 @@ use review_source::{AnchorKind, DiffRangeAnchor};
 use review_threads::{Draft, MessageId, Post, ThreadSource};
 
 use super::*;
+use crate::stored_fixtures::code_source;
 
 fn source() -> Arc<ThreadSource> {
     Arc::new(ThreadSource {
@@ -57,12 +58,12 @@ fn small_updates_share_context_and_do_not_rewrite_it() {
         .update_threads(&unit, |book| book.mark_read(&thread, book.sequence()))
         .unwrap();
     assert!(Arc::ptr_eq(
-        &first.threads()[0].source,
-        &second.threads()[0].source
+        code_source(&first.threads()[0]),
+        code_source(&second.threads()[0])
     ));
     assert!(Arc::ptr_eq(
-        &first.threads()[0].source,
-        &third.threads()[0].source
+        code_source(&first.threads()[0]),
+        code_source(&third.threads()[0])
     ));
     assert_eq!(std::fs::metadata(context).unwrap().ino(), inode);
     let path = store.threads_path(&unit).unwrap();
@@ -103,4 +104,42 @@ fn damaged_or_missing_context_never_replaces_the_history() {
         assert!(reopened.update_threads(&unit, |_| Ok(())).is_err());
         assert_eq!(std::fs::read(&index).unwrap(), original);
     }
+}
+
+#[test]
+fn a_round_conversation_is_stored_between_threads_on_code_and_loads_again() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = ReviewStore::open(directory.path().join("state"), directory.path()).unwrap();
+    let unit: ReviewUnit = "change".into();
+    let mut code = Draft::start("source.rs".into(), source());
+    code.text = "On code".into();
+    let mut later = Draft::start("source.rs".into(), source());
+    later.text = "Later on code".into();
+    let round = Post::to_round(
+        "round-1",
+        "Beside the question".into(),
+        Some(review_threads::AskedUnder::Question {
+            question: "q-1".into(),
+            version: 2,
+        }),
+        Some("a quoted passage".into()),
+    );
+    let ((), written) = store
+        .update_threads(&unit, |book| {
+            book.post(code.post())?;
+            book.post(round)?;
+            book.post(later.post())?;
+            Ok(())
+        })
+        .unwrap();
+
+    let reopened = ReviewStore::open(directory.path().join("state"), directory.path()).unwrap();
+    let loaded = reopened.load_threads(&unit).unwrap();
+    assert_eq!(loaded, written);
+    let conversation = loaded.round_conversation("round-1").unwrap();
+    assert_eq!(
+        conversation.messages[0].quote.as_deref(),
+        Some("a quoted passage")
+    );
+    assert_eq!(code_source(&loaded.threads()[2]).excerpt, "+source");
 }

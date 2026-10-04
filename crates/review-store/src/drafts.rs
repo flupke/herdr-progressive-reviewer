@@ -34,8 +34,8 @@ impl WithSources for SavedDrafts {
         SavedDrafts::sources_mut(self)
     }
 
-    fn records(json: &mut Value) -> Option<&mut Vec<Value>> {
-        json.as_array_mut()
+    fn records(json: &mut Value) -> Vec<&mut Value> {
+        json.as_array_mut().into_iter().flatten().collect()
     }
 }
 

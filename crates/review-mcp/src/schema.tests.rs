@@ -11,6 +11,37 @@ fn explore_results_say_only_whether_the_turn_was_new() {
 }
 
 #[test]
+fn a_round_conversation_names_its_round_and_each_message_its_question_and_quote() {
+    let mut book = review_threads::ReviewThreads::new("change".into());
+    book.post(review_threads::Post::to_round(
+        "round-1",
+        "Why a lock?".into(),
+        Some(review_threads::AskedUnder::Question {
+            question: "q-lock".into(),
+            version: 2,
+        }),
+        Some("the store takes a lock".into()),
+    ))
+    .unwrap();
+    let thread = book.round_conversation("round-1").unwrap().clone();
+    let result = Handler::result(super::Response::Threads(vec![thread.clone()]));
+    let text = result.content[0].as_text().unwrap();
+    let value: serde_json::Value = serde_json::from_str(&text.text).unwrap();
+
+    let fetched = &value["threads"][0];
+    assert_eq!(fetched["thread_id"], json!(thread.id));
+    assert_eq!(fetched["explore_round"], "round-1");
+    assert_eq!(fetched["in_reply_to"], json!(thread.messages[0].id));
+    assert_eq!(fetched.get("code_context"), None);
+    let message = &fetched["messages"][0];
+    assert_eq!(
+        message["asked_under"],
+        json!({"stage": "question", "question": "q-lock", "version": 2})
+    );
+    assert_eq!(message["quote"], "the store takes a lock");
+}
+
+#[test]
 fn explore_tool_schemas_describe_the_full_submission_without_a_kickoff_example() {
     let tools = Handler::tools();
     let question = tools

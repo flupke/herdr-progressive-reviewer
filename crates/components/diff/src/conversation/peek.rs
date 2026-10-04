@@ -8,6 +8,7 @@ use ratatui::{
     widgets::{Paragraph, Widget},
 };
 use review_lsp::SourceLocation;
+use review_threads::ReviewThread;
 use ui_actions::{Action, DocumentAction, DocumentLoad};
 use ui_events::{SourceContentLoadFailed, SourceContentLoaded, SourceLoadMode};
 use ui_theme::Palette;
@@ -128,16 +129,16 @@ impl DiffComponent {
     }
 
     pub(super) fn peek_conversation(&mut self) -> Vec<Action> {
-        let Some(thread) = self.conversation_thread() else {
+        let Some((thread, saved_path)) = self.conversation_code_thread() else {
             return Vec::new();
         };
         let files = &self.files;
         let path = files
             .documents
             .iter()
-            .find(|file| !file.comments_only && files.comments.matches_path(file, thread.path()))
+            .find(|file| !file.comments_only && files.comments.shows_thread(file, thread))
             .map_or_else(
-                || thread.path().to_owned(),
+                || saved_path.to_owned(),
                 |file| file.new_path.clone().unwrap_or_else(|| file.path.clone()),
             );
         let line = files
@@ -188,7 +189,8 @@ impl DiffComponent {
     pub(crate) fn peek_loaded(&mut self, event: &SourceContentLoaded) -> Vec<Action> {
         let highlight = self
             .conversation_thread()
-            .and_then(|thread| thread.anchor.map_new_lines(&event.content));
+            .and_then(ReviewThread::code)
+            .and_then(|code| code.anchor.map_new_lines(&event.content));
         let Some(peek) = self.visible_peek_mut() else {
             return Vec::new();
         };

@@ -1,5 +1,6 @@
 use super::*;
 use review_source::DiffRangeAnchor;
+use std::sync::Arc;
 
 #[test]
 fn resolving_stops_pending_delivery_and_late_answers_do_not_reopen_it() {
@@ -37,7 +38,7 @@ fn a_file_keeps_each_new_thread_draft_and_saving_replaces_only_the_same_one() {
     let book = ReviewThreads::new("change".into());
     let mut drafts = crate::SavedDrafts::default();
     let source = Arc::new(ThreadSource {
-        anchor: start("unused").source.as_ref().unwrap().anchor.clone(),
+        anchor: code_anchor(),
         excerpt: "+original".into(),
     });
     let mut first = crate::Draft::start("gone.rs".into(), source.clone());
@@ -64,7 +65,7 @@ fn a_posted_draft_is_no_longer_saved_and_cannot_be_saved_again() {
     let mut book = ReviewThreads::new("change".into());
     let mut drafts = crate::SavedDrafts::default();
     let source = Arc::new(ThreadSource {
-        anchor: start("unused").source.as_ref().unwrap().anchor.clone(),
+        anchor: code_anchor(),
         excerpt: "+original".into(),
     });
     let mut posted = crate::Draft::start("file.rs".into(), source.clone());
@@ -79,23 +80,23 @@ fn a_posted_draft_is_no_longer_saved_and_cannot_be_saved_again() {
     assert!(drafts.save(posted, &book).is_err());
 }
 
+fn code_anchor() -> DiffRangeAnchor {
+    DiffRangeAnchor {
+        source_checkpoint: "initial".into(),
+        old_path: None,
+        new_path: Some("gone.rs".into()),
+        old_lines: None,
+        new_lines: Some(0..1),
+        target_kind: review_source::AnchorKind::Lines,
+        source_hunk_count: 1,
+        old_content: None,
+        new_content: Some(b"original\n".to_vec()),
+        diff_hash: "hash".into(),
+    }
+}
+
 fn start(text: &str) -> Post {
-    Post::start(
-        DiffRangeAnchor {
-            source_checkpoint: "initial".into(),
-            old_path: None,
-            new_path: Some("gone.rs".into()),
-            old_lines: None,
-            new_lines: Some(0..1),
-            target_kind: review_source::AnchorKind::Lines,
-            source_hunk_count: 1,
-            old_content: None,
-            new_content: Some(b"original\n".to_vec()),
-            diff_hash: "hash".into(),
-        },
-        "+original".into(),
-        text.into(),
-    )
+    Post::start(code_anchor(), "+original".into(), text.into())
 }
 
 fn agent_reply(thread: &ThreadId, text: &str) -> Post {
@@ -141,7 +142,7 @@ fn updates_include_full_history_only_for_threads_with_new_comments() {
     let updated = book.new_messages();
     assert_eq!(updated.len(), 1);
     assert_eq!(updated[0].id, thread);
-    assert_eq!(updated[0].excerpt, "+original");
+    assert_eq!(updated[0].code().unwrap().excerpt, "+original");
     assert_eq!(
         updated[0]
             .messages

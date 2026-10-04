@@ -6,7 +6,9 @@ use review_threads::{Draft, ThreadSource};
 use serde_json::json;
 
 use super::*;
-use crate::stored_fixtures::{CONTEXT_KEY, DRAFTS_V1, THREADS_V4, inline_source, inline_thread};
+use crate::stored_fixtures::{
+    CONTEXT_KEY, DRAFTS_V1, THREADS_V4, code_source, inline_source, inline_thread,
+};
 
 fn source() -> Arc<ThreadSource> {
     Arc::new(ThreadSource {
@@ -66,7 +68,8 @@ fn saving_or_discarding_a_draft_leaves_the_thread_document_untouched() {
         .unwrap();
     let written = std::fs::read(&threads).unwrap();
     let inode = std::fs::metadata(&threads).unwrap().ino();
-    let mut reply = Draft::reply(&book.threads()[0], book.threads()[0].messages[0].id.clone());
+    let mut reply =
+        Draft::reply(&book.threads()[0], book.threads()[0].messages[0].id.clone()).unwrap();
     reply.text = "Reply".into();
     save(&store, &unit, &reply);
     store
@@ -210,7 +213,7 @@ fn a_version_1_draft_document_loads_and_is_written_back_byte_for_byte() {
     assert!(new_thread.is_new_thread());
     assert_eq!(new_thread.path(), "source.rs");
     assert!(
-        Arc::ptr_eq(&reply.source, &threads.threads()[1].source)
+        Arc::ptr_eq(&reply.source, code_source(&threads.threads()[1]))
             && Arc::ptr_eq(&new_thread.source, &reply.source),
         "drafts and threads with the same source share one loaded copy"
     );
@@ -350,7 +353,10 @@ fn drafts_inside_a_version_3_thread_document_move_to_the_draft_store() {
     let drafts = store.load_drafts(&unit).unwrap();
     assert_eq!(drafts.drafts().len(), 1);
     assert_eq!(drafts.drafts()[0].text, "Inline draft");
-    assert_eq!(*drafts.drafts()[0].source, *threads.threads()[0].source);
+    assert_eq!(
+        *drafts.drafts()[0].source,
+        **code_source(&threads.threads()[0])
+    );
     let migrated = decoded(&index);
     assert_eq!(migrated["version"], 4);
     assert!(migrated["conversations"].get("drafts").is_none());

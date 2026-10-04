@@ -137,7 +137,8 @@ impl Drafts {
         self.insert(unit, draft, editor)
     }
 
-    /// Begin a reply to `thread` answering `reply_to`, unless one is already composed.
+    /// Begin a reply to `thread` answering `reply_to`, unless one is already composed or
+    /// the thread is a round conversation, which the reviewer writes in from the Explore page.
     pub fn start_reply(
         &mut self,
         unit: ReviewUnit,
@@ -147,7 +148,7 @@ impl Drafts {
         if self.for_thread(&unit, &thread.id).is_some() {
             return None;
         }
-        Some(self.start(unit, Draft::reply(thread, reply_to)))
+        Some(self.start(unit, Draft::reply(thread, reply_to)?))
     }
 
     pub fn get(&self, id: DraftId) -> Option<&OpenDraft> {

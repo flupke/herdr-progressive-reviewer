@@ -364,6 +364,16 @@ fn start_comments(
             comments::Event::Posted(event) => {
                 let _ = messages.send(event);
             }
+            comments::Event::Wakeup {
+                failure: Some(failure),
+                ..
+            } => {
+                let _ = messages.send(ui_events::ToastRequested {
+                    text: failure.error,
+                    kind: toasts::ToastKind::Error,
+                });
+            }
+            comments::Event::Wakeup { failure: None, .. } => {}
             comments::Event::Error(text) => {
                 let _ = messages.send(ui_events::ToastRequested {
                     text,

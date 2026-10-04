@@ -7,7 +7,7 @@ use std::time::Duration;
 use herdr_client::protocol::{Agent, AgentPort, AgentTarget, HerdrEvent, PaneId};
 use review_mcp::{Operation, Response};
 use review_store::ReviewStore;
-use review_threads::{Post, Resolution, ReviewThreads, SavedDrafts, ThreadCommand};
+use review_threads::{Post, Resolution, ReviewThreads, SavedDrafts, ThreadCommand, WakeupFailure};
 use review_types::ReviewUnit;
 
 use crate::delivery::{Courier, PromptError, PromptQueue};
@@ -97,15 +97,55 @@ impl State {
     /// its outcome. One that failed is not sent again until the reviewer retries or posts
     /// another comment, which a wakeup requested since then already did.
     fn notified(&mut self, token: &str, through: u64, result: Result<(), PromptError>) {
-        if let Err(error) = result {
-            if self
-                .wakeups
-                .get(token)
-                .is_some_and(|wakeup| wakeup.unchanged_since(through))
-            {
-                self.wakeups.remove(token);
+        let Err(error) = result else {
+            return;
+        };
+        if self
+            .wakeups
+            .get(token)
+            .is_some_and(|wakeup| wakeup.unchanged_since(through))
+        {
+            self.wakeups.remove(token);
+        }
+        let unit = self
+            .access
+            .get(token)
+            .map(|access| access.review_unit.clone());
+        self.report_wakeup(
+            unit.as_ref(),
+            Some(WakeupFailure {
+                through,
+                error: error.to_string(),
+            }),
+        );
+    }
+
+    /// The wakeup for the pending comments of `unit` cannot reach the agent: say why, and
+    /// which comments wait.
+    fn undelivered(&self, unit: Option<&ReviewUnit>, error: String) {
+        match unit
+            .and_then(|unit| self.books.get(unit))
+            .and_then(ReviewThreads::pending_comment_sequence)
+        {
+            Some(through) => self.report_wakeup(unit, Some(WakeupFailure { through, error })),
+            None => (self.publish)(Event::Error(error)),
+        }
+    }
+
+    /// Publish what became of the latest wakeup for `unit`: `None` while one is on its way, or
+    /// why one did not reach the agent. Without a review or a waiting comment to name, a
+    /// failure is only an error.
+    fn report_wakeup(&self, unit: Option<&ReviewUnit>, failure: Option<WakeupFailure>) {
+        match unit {
+            Some(unit) => (self.publish)(Event::Wakeup {
+                review_unit: unit.clone(),
+                failure,
+            }),
+            None => {
+                if let Some(failure) = failure {
+                    (self.publish)(Event::Error(failure.error));
+                }
             }
-            (self.publish)(Event::Error(error.to_string()));
         }
     }
 
@@ -242,9 +282,8 @@ impl State {
             message_id,
             result,
         }));
-        if posted {
-            let notify = self.schedule(review_unit, false);
-            self.report(notify);
+        if posted && let Err(error) = self.schedule(review_unit, false) {
+            self.undelivered(Some(review_unit), error);
         }
     }
 
@@ -450,7 +489,7 @@ impl State {
         for unit in self.notifications.keys().cloned().collect::<Vec<_>>() {
             if let Err(error) = self.prepare_notification(&unit) {
                 self.notifications.remove(&unit);
-                (self.publish)(Event::Error(error));
+                self.undelivered(Some(&unit), error);
             }
         }
         let tokens = self
@@ -462,7 +501,11 @@ impl State {
         for token in tokens {
             if let Err(error) = self.notify(&token) {
                 self.wakeups.remove(&token);
-                (self.publish)(Event::Error(error));
+                let unit = self
+                    .access
+                    .get(&token)
+                    .map(|access| access.review_unit.clone());
+                self.undelivered(unit.as_ref(), error);
             }
         }
     }
@@ -496,11 +539,12 @@ impl State {
         let Some(access) = self.access.get(token) else {
             return Ok(());
         };
-        let unread = self
+        let pending = self
             .books
             .get(&access.review_unit)
-            .is_some_and(ReviewThreads::has_new_messages);
-        if !unread {
+            .map(ReviewThreads::new_messages)
+            .unwrap_or_default();
+        if pending.is_empty() {
             return Ok(());
         }
         let current = self
@@ -513,12 +557,14 @@ impl State {
             self.wakeups.remove(token);
             return self.schedule(&unit, false);
         }
-        let prompt = access.prompt();
+        let prompt = access.prompt(&pending);
         let Some(wakeup) = self.wakeups.get_mut(token) else {
             return Ok(());
         };
         if wakeup.needs_poll() {
             let through = wakeup.sent();
+            let unit = access.review_unit.clone();
+            self.report_wakeup(Some(&unit), None);
             let inputs = self.inputs.clone();
             let token = token.to_owned();
             self.courier.send(current, prompt, None, move |result| {

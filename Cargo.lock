@@ -4162,6 +4162,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "review-round-conversation"
+version = "0.2.0"
+dependencies = [
+ "review-threads",
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
 name = "review-significance"
 version = "0.2.0"
 dependencies = [

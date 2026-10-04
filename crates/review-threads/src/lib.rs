@@ -6,13 +6,14 @@ mod draft;
 mod message;
 mod paths;
 mod post;
+mod round;
 mod source;
+mod wakeup;
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use review_types::ReviewUnit;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
 pub use attention::{Resolution, ThreadCounts};
 pub use command::ThreadCommand;
@@ -20,19 +21,28 @@ pub use draft::{Draft, DraftTarget, SavedDrafts};
 pub use message::{Author, Message, MessageId};
 pub use paths::ThreadPaths;
 pub use post::Post;
-pub use source::ThreadSource;
+pub use round::AskedUnder;
+pub use source::{ThreadSource, ThreadSubject};
+pub use wakeup::WakeupFailure;
 
 /// The stable identity of one review thread.
 #[derive(Clone, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(transparent)]
 pub struct ThreadId(String);
 
+impl ThreadId {
+    /// The identity text.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 /// A conversation that survives changes to, or deletion of, its anchor.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct ReviewThread {
     pub id: ThreadId,
     #[serde(flatten)]
-    pub source: Arc<ThreadSource>,
+    pub subject: ThreadSubject,
     pub messages: Vec<Message>,
     #[serde(default)]
     pub resolution: Resolution,
@@ -51,13 +61,13 @@ impl ReviewThread {
             .find(|message| message.author == Author::Reviewer)
     }
 
-    /// Path that originally held the selected source.
-    pub fn path(&self) -> &str {
-        self.anchor
-            .new_path
-            .as_deref()
-            .or(self.anchor.old_path.as_deref())
-            .unwrap_or("")
+    /// Append a posted message. A reviewer's message reopens a round conversation, which
+    /// would otherwise never bring it to the agent.
+    fn receive(&mut self, message: Message) {
+        if message.author == Author::Reviewer && self.round().is_some() {
+            self.resolution = Resolution::Open;
+        }
+        self.messages.push(message);
     }
 
     fn has_comments_after(&self, sequence: u64) -> bool {
@@ -207,25 +217,34 @@ impl ReviewThreads {
         let next = self.sequence.checked_add(1).ok_or("Too many messages")?;
         let id = post.message.id.clone();
         post.message.sequence = next;
-        if let Some(source) = post.source {
-            if self.thread(&post.thread_id).is_some() {
-                return Err("This review thread already exists".into());
+        post.message.stamp_posting();
+        let existing = self
+            .threads
+            .iter_mut()
+            .find(|thread| thread.id == post.thread_id);
+        if let Some(subject) = post.subject {
+            match existing {
+                // A round's conversation is one thread, which its first message starts.
+                Some(thread) if matches!(subject, ThreadSubject::Round { .. }) => {
+                    if thread.subject != subject {
+                        return Err("This review thread belongs to another subject".into());
+                    }
+                    thread.receive(post.message);
+                }
+                Some(_) => return Err("This review thread already exists".into()),
+                None => self.threads.push(ReviewThread {
+                    id: post.thread_id,
+                    subject,
+                    messages: vec![post.message],
+                    resolution: Resolution::Open,
+                    seen_reply_through: 0,
+                    seen_replies: BTreeSet::new(),
+                }),
             }
-            self.threads.push(ReviewThread {
-                id: post.thread_id,
-                source,
-                messages: vec![post.message],
-                resolution: Resolution::Open,
-                seen_reply_through: 0,
-                seen_replies: BTreeSet::new(),
-            });
         } else {
-            let thread = self
-                .threads
-                .iter_mut()
-                .find(|thread| thread.id == post.thread_id)
-                .ok_or("The review thread no longer exists")?;
-            thread.messages.push(post.message);
+            existing
+                .ok_or("The review thread no longer exists")?
+                .receive(post.message);
         }
         self.sequence = next;
         Ok(id)

@@ -202,9 +202,7 @@ impl Comments {
             || self
                 .parked_file_drafts(&self.drafts())
                 .any(|(_, parked)| self.matches_path(file, parked.draft().path()))
-            || self
-                .threads()
-                .any(|thread| self.matches_path(file, thread.path()))
+            || self.threads().any(|thread| self.shows_thread(file, thread))
     }
 
     pub(super) fn layout(
@@ -242,7 +240,7 @@ impl Comments {
         }
         for thread in self
             .threads()
-            .filter(|thread| self.matches_path(file, thread.path()))
+            .filter(|thread| self.shows_thread(file, thread))
         {
             let range = self.thread_range(thread, file);
             let source_row = anchor_end(range.as_ref(), file);

@@ -34,6 +34,8 @@ pub enum ThreadPlacement {
     Original,
     /// The thread's current source could not be read.
     Unavailable,
+    /// The thread is the conversation of an Explore round, on no code.
+    ExploreRound,
 }
 
 impl ThreadPlacement {
@@ -45,6 +47,7 @@ impl ThreadPlacement {
             Self::OutsideDiff => "Outside diff",
             Self::Original => "Saved context",
             Self::Unavailable => "Unavailable",
+            Self::ExploreRound => "Explore round",
         }
     }
 }
@@ -83,7 +86,9 @@ impl ThreadProjection {
 
     /// Whether `thread` belongs to one of the reviewed files.
     fn is_on_reviewed_file(&self, thread: &ReviewThread) -> bool {
-        self.files.contains(self.current_path(thread.path()))
+        thread
+            .path()
+            .is_some_and(|path| self.files.contains(self.current_path(path)))
     }
 
     /// Counts of the threads that belong to `path`.
@@ -93,8 +98,11 @@ impl ThreadProjection {
 
     /// Where the diff last placed `thread`. Before the diff reports it, a
     /// thread on a reviewed file shows its saved context and any other
-    /// thread lies outside the diff.
+    /// thread on code lies outside the diff.
     pub fn placement(&self, thread: &ReviewThread) -> ThreadPlacement {
+        if thread.round().is_some() {
+            return ThreadPlacement::ExploreRound;
+        }
         self.placements
             .get(&thread.id)
             .copied()
@@ -139,7 +147,15 @@ impl ThreadProjection {
 
     fn count_files(&mut self) {
         self.file_counts = self.threads.as_ref().map_or_else(HashMap::new, |threads| {
-            threads.counts_by(|thread| self.paths.resolve(thread.path()).to_owned())
+            threads
+                .counts_by(|thread| {
+                    thread
+                        .path()
+                        .map(|path| self.paths.resolve(path).to_owned())
+                })
+                .into_iter()
+                .filter_map(|(path, counts)| Some((path?, counts)))
+                .collect()
         });
     }
 }

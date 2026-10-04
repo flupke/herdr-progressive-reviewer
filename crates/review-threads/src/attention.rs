@@ -50,13 +50,20 @@ impl ReviewThread {
     }
 
     pub fn is_waiting(&self) -> bool {
-        let Some(comment) = self.last_comment() else {
-            return false;
-        };
-        !self.messages.iter().any(|message| {
+        self.last_comment()
+            .is_some_and(|comment| !self.is_answered(comment))
+    }
+
+    /// Whether an agent reply took up the reviewer's `comment`: one that acknowledges it or
+    /// a later comment, or, from builds before acknowledgements, one posted after it.
+    pub fn is_answered(&self, comment: &Message) -> bool {
+        self.messages.iter().any(|message| {
             message.author == Author::Agent
                 && match &message.in_reply_to {
-                    Some(id) => id == &comment.id,
+                    Some(id) => self
+                        .messages
+                        .iter()
+                        .any(|covered| &covered.id == id && covered.sequence >= comment.sequence),
                     None => message.sequence > comment.sequence,
                 }
         })

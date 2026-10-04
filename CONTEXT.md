@@ -15,8 +15,9 @@ A particular version of the code within a review.
 _Avoid_: review
 
 **Review thread**:
-A discussion about a code selection within one review. It remains part of the
-review when the selected code changes or disappears.
+A discussion about a code selection within one review, or the round conversation of
+one Explore round. It remains part of the review when the selected code changes or
+disappears.
 _Avoid_: agent thread, conversation without qualification
 
 **Thread message**:
@@ -136,6 +137,16 @@ reviewer. They get a review mark without a question of their own, and a reason:
 removed code the change is about, mechanics a named test covers, or tests, docs
 and manifests that follow the code.
 _Avoid_: skipped, ignored, insignificant (which is Jev's judgement)
+
+**Round conversation**:
+The review thread attached to one Explore round instead of a code selection, where
+the reviewer asks, challenges or adds context beside the round's questions. Each of
+the reviewer's messages names the question, by identity and version, or the stage
+(the design, the conclusion) it was asked under, and may quote a passage of the round.
+A message never answers the question, which stays open; the agent answers with a
+thread reply. The round's first message starts it, and each round, including one
+started after a Reset, has its own.
+_Avoid_: chat thread, agent chat (in the domain model), Explore turn
 
 **Cancel answer**:
 Withdrawing the reviewer's latest answer in an Explore round, which returns the

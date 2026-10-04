@@ -65,11 +65,13 @@ impl Access {
         error.into_message("Herdr did not identify the selected agent process")
     }
 
-    pub(super) fn prompt(&self) -> String {
+    /// The wakeup that brings the agent the `pending` threads.
+    pub(super) fn prompt(&self, pending: &[review_threads::ReviewThread]) -> String {
         format!(
-            "There are review comments for you. Use the herdr_reviewer MCP tools with review access value `{}`. Call get_new_messages to retrieve all pending threads with their full conversations and original code context. Address the feedback and append your responses with the reply tool, copying in_reply_to from each fetched thread. Unresolved comments remain pending until a reply succeeds. An agent reply is a thread message and may address several comments. Before finishing, call get_new_messages again and address any comments that arrived while you worked. Do not resolve threads. If a reply call fails, retry using its exact same message_id, text and in_reply_to. If the reviewer is closed or MCP is unavailable, report that and stop.\n\nLogical review: {}",
+            "There are review comments for you. Use the herdr_reviewer MCP tools with review access value `{}`. Call get_new_messages to retrieve all pending threads with their full conversations and original code context. Address the feedback and append your responses with the reply tool, copying in_reply_to from each fetched thread. Unresolved comments remain pending until a reply succeeds. An agent reply is a thread message and may address several comments. Before finishing, call get_new_messages again and address any comments that arrived while you worked. Do not resolve threads. If a reply call fails, retry using its exact same message_id, text and in_reply_to. If the reviewer is closed or MCP is unavailable, report that and stop.\n\nLogical review: {}{}",
             self.token,
             self.review_unit.as_str(),
+            crate::round_prompt::RoundConversations(pending),
         )
     }
 }

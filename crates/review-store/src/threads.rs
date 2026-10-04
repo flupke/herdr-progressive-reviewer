@@ -79,8 +79,12 @@ impl WithSources for ReviewThreads {
         ReviewThreads::sources_mut(self)
     }
 
-    fn records(json: &mut Value) -> Option<&mut Vec<Value>> {
-        json.get_mut("threads")?.as_array_mut()
+    fn records(json: &mut Value) -> Vec<&mut Value> {
+        json.get_mut("threads")
+            .and_then(Value::as_array_mut)
+            .into_iter()
+            .flatten()
+            .collect()
     }
 }
 

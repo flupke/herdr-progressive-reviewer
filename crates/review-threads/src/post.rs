@@ -1,6 +1,6 @@
 use review_source::DiffRangeAnchor;
 
-use crate::{Message, MessageId, ThreadId, ThreadSource};
+use crate::{Message, MessageId, ThreadId, ThreadSource, ThreadSubject};
 use std::sync::Arc;
 
 /// One explicit publication, shared by the UI and the serial conversation owner.
@@ -8,7 +8,8 @@ use std::sync::Arc;
 pub struct Post {
     pub(super) thread_id: ThreadId,
     pub(super) message: Message,
-    pub(super) source: Option<Arc<ThreadSource>>,
+    /// What the thread discusses, for a post that may start it.
+    pub(super) subject: Option<ThreadSubject>,
 }
 
 impl Post {
@@ -16,7 +17,10 @@ impl Post {
         Self {
             thread_id: ThreadId(uuid::Uuid::new_v4().to_string()),
             message: Message::reviewer(text),
-            source: Some(Arc::new(ThreadSource { anchor, excerpt })),
+            subject: Some(ThreadSubject::Code(Arc::new(ThreadSource {
+                anchor,
+                excerpt,
+            }))),
         }
     }
 
@@ -24,7 +28,7 @@ impl Post {
         Self {
             thread_id,
             message: Message::reviewer(text),
-            source: None,
+            subject: None,
         }
     }
 
@@ -32,7 +36,7 @@ impl Post {
         Self {
             thread_id,
             message: Message::agent(id, text),
-            source: None,
+            subject: None,
         }
     }
 

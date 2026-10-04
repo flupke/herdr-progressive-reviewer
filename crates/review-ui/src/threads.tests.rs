@@ -15,6 +15,9 @@ mod live_peek;
 #[path = "threads/paths.tests.rs"]
 mod paths;
 
+#[path = "threads/round.tests.rs"]
+mod round;
+
 struct ThreadUi {
     app: ReviewApplication,
     book: ReviewThreads,
@@ -815,7 +818,7 @@ fn filename_opens_files_and_preserves_the_conversation_draft() {
 #[test]
 fn current_source_peek_highlights_only_a_verified_range() {
     let mut ui = ThreadUi::new(110);
-    let mut value = ui.book.threads()[0].anchor.clone();
+    let mut value = ui.book.threads()[0].code().unwrap().anchor.clone();
     value.new_lines = Some(0..1);
     let post = Post::start(
         value,
@@ -859,7 +862,10 @@ fn current_source_peek_highlights_only_a_verified_range() {
         .collect::<String>();
     assert!(highlighted.contains("original"), "{highlighted}");
     assert!(!highlighted.contains("inserted"));
-    assert_eq!(ui.book.thread(&id).unwrap().excerpt, "+original");
+    assert_eq!(
+        ui.book.thread(&id).unwrap().code().unwrap().excerpt,
+        "+original"
+    );
 }
 
 #[test]

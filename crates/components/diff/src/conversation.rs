@@ -64,15 +64,26 @@ impl ConversationView {
 
 impl DiffComponent {
     pub(super) fn refresh_conversation_context(&mut self) {
-        let original = self.conversation_thread().and_then(|thread| {
-            self.conversation
-                .original
-                .as_ref()
-                .is_none_or(|code| code.thread != thread.id)
-                .then(|| context::OriginalCode::new(thread, &self.services.highlighter))
-        });
-        if original.is_some() {
-            self.conversation.original = original;
+        let Some(thread) = self.conversation_thread() else {
+            return;
+        };
+        let Some((path, code)) = thread.path().zip(thread.code()) else {
+            // A round conversation discusses no code.
+            self.conversation.original = None;
+            return;
+        };
+        if self
+            .conversation
+            .original
+            .as_ref()
+            .is_none_or(|original| original.thread != thread.id)
+        {
+            self.conversation.original = Some(context::OriginalCode::new(
+                thread.id.clone(),
+                path,
+                code,
+                &self.services.highlighter,
+            ));
         }
     }
 
@@ -177,16 +188,22 @@ impl DiffComponent {
         Vec::new()
     }
 
+    /// The shown thread and the path its code was saved on; a round conversation has none.
+    pub(super) fn conversation_code_thread(&self) -> Option<(&ReviewThread, &str)> {
+        let thread = self.conversation_thread()?;
+        Some((thread, thread.path()?))
+    }
+
     fn open_conversation_file(&self) {
-        let Some(thread) = self.conversation_thread() else {
+        let Some((thread, saved_path)) = self.conversation_code_thread() else {
             return;
         };
         let path = self
             .files
             .documents
             .iter()
-            .find(|file| self.files.comments.matches_path(file, thread.path()))
-            .map_or_else(|| thread.path().to_owned(), |file| file.path.clone());
+            .find(|file| self.files.comments.shows_thread(file, thread))
+            .map_or_else(|| saved_path.to_owned(), |file| file.path.clone());
         let events = &self.services.events;
         events.publish(ReviewNavigationChanged(ReviewNavigation::Files));
         events.publish(ui_events::FileSelectionRequested { path });

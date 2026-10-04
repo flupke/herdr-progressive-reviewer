@@ -1360,8 +1360,8 @@ fn dragging_diff_lines_opens_an_inline_comment_on_release() {
         book.threads()[0].messages[0].text,
         "Please explain this rangej"
     );
-    assert!(book.threads()[0].excerpt.contains("-    old();"));
-    assert!(book.threads()[0].excerpt.contains("+    new();"));
+    let excerpt = &book.threads()[0].code().unwrap().excerpt;
+    assert!(excerpt.contains("-    old();") && excerpt.contains("+    new();"));
     let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
     terminal
         .draw(|frame| frame.render_widget(app.frame(), frame.area()))

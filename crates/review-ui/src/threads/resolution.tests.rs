@@ -4,8 +4,8 @@ impl ThreadUi {
     fn add_thread(&mut self, question: &str) -> usize {
         let original = self.book.thread(&self.ids[0]).unwrap();
         let post = Post::start(
-            original.anchor.clone(),
-            original.excerpt.clone(),
+            original.code().unwrap().anchor.clone(),
+            original.code().unwrap().excerpt.clone(),
             question.into(),
         );
         self.ids.push(post.thread_id().clone());

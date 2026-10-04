@@ -3,10 +3,20 @@
 //! before the store owned the format wrote for the same content.
 
 use std::path::Path;
+use std::sync::Arc;
 
+use review_threads::{ReviewThread, ThreadSource, ThreadSubject};
 use serde_json::Value;
 
 use crate::ReviewStore;
+
+/// The loaded source of a thread on code, to check what loaded copies it shares.
+pub(super) fn code_source(thread: &ReviewThread) -> &Arc<ThreadSource> {
+    match &thread.subject {
+        ThreadSubject::Code(source) => source,
+        ThreadSubject::Round { .. } => panic!("the fixture thread is on code"),
+    }
+}
 
 /// The one source every fixture thread and draft shares.
 pub(super) const CONTEXT: &str = r#"{"anchor":{"source_checkpoint":"checkpoint","old_path":null,"new_path":"source.rs","old_lines":null,"new_lines":{"start":0,"end":1},"target_kind":"lines","source_hunk_count":1,"old_content":null,"new_content":[102,110,32,109,97,105,110,40,41,32,123,125,10],"diff_hash":"hash"},"excerpt":"+fn main() {}"}"#;
