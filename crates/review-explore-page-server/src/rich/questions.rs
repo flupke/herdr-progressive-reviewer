@@ -18,7 +18,7 @@ use crate::question_parts;
 pub(super) fn question(number: usize) -> (Question, QuestionMarks) {
     match (number - 1) % 3 {
         0 => (flush_rule(), flush_rule_marks()),
-        1 => (closing(), QuestionMarks::default()),
+        1 => (closing(), closing_marks()),
         _ => (size_setting(), QuestionMarks::default()),
     }
 }
@@ -34,7 +34,7 @@ pub(super) fn answer_response(number: usize) -> TurnResponse {
         interpretations: vec![Interpretation {
             answer: "previous-answer".into(),
             status: TopicStatus::NeedsFollowUp,
-            recap: "Recorded: **send the queue after two seconds of quiet, or at once at twenty \
+            recap: "**Send the queue after two seconds of quiet, or at once at twenty \
                     replies**, as the change does."
                 .into(),
             follow_ups: vec![
@@ -57,7 +57,7 @@ fn closing_response() -> TurnResponse {
         interpretations: vec![Interpretation {
             answer: "previous-answer".into(),
             status: TopicStatus::Accepted,
-            recap: "Recorded: **send the waiting replies in one notification when the pane \
+            recap: "**Send the waiting replies in one notification when the pane \
                     closes**."
                 .into(),
             follow_ups: Vec::new(),
@@ -210,6 +210,20 @@ fn flush_rule() -> Question {
                 ),
             ],
         )
+    }
+}
+
+/// What an answer to the question about the queue on close marks: the closing code of the
+/// threads reviewed, the queue's opening lines not relevant.
+fn closing_marks() -> QuestionMarks {
+    QuestionMarks {
+        reviewed: vec![question_parts::lines(REPLY.path, 16, 27)],
+        not_relevant: vec![NotRelevantMark {
+            location: question_parts::lines(QUEUE.path, 1, 3),
+            reason: Some(NotRelevantReason::FollowsCode),
+            test: None,
+        }],
+        reopened: Vec::new(),
     }
 }
 

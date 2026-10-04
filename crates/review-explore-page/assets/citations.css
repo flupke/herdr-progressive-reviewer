@@ -1,21 +1,46 @@
-/* The question's citations: each note, then the cited lines as rows of the diff. A long row
+/* Cited code (docs/design/explore-page/README.md, "Question screen", Citations; design review,
+   finding 15): the note, then the code frame, a --panel surface with no border, whose head names
+   the file and the lines. Rows are 14px mono; two muted number columns (one on a phone); an
+   added row is tinted green with a green bar in the gutter, a removed row red with a red bar.
+   When every row is added, the tint says nothing: the gutter alone marks them. A long row
    scrolls sideways at its natural size; nothing shrinks the code to fit a phone. */
-.citations h3 { font-size: 1em; margin: 16px 0 8px; }
-.citations details { margin-top: 8px; }
-.citations summary { cursor: pointer; padding: 6px 0; }
-.citation { margin: 8px 0 16px; }
-.citation h4 { margin: 0; font-size: 0.9em; overflow-wrap: anywhere; }
-.citation h4 code, .code table { font-family: var(--mono); }
-.citation .notes { margin: 4px 0 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.citation .limitation { margin: 0; padding: 8px 10px; border: 1px dashed var(--line); border-radius: var(--radius); font-size: 0.9em; opacity: 0.85; }
-.code { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); -webkit-overflow-scrolling: touch; }
-.code table { border-collapse: collapse; min-width: 100%; font-size: 14px; line-height: 1.5; }
+.citations { margin-top: 32px; }
+.citations > h3 { margin: 0 0 8px; }
+.citations > .disclosure { margin-top: 12px; }
+.citation { margin: 0 0 20px; }
+.citation .notes { margin: 0 0 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.code-frame { border-radius: var(--radius); background: var(--panel); overflow: hidden; }
+.code-head {
+  margin: 0;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.code-head code { color: var(--ink); font: 600 13px/1.5 var(--mono); }
+.citation .limitation { margin: 0; padding: 10px 12px; color: var(--muted); font-size: 14px; }
+.code { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.code table { border-collapse: collapse; min-width: 100%; font: 14px/1.6 var(--mono); }
 .code td { padding: 0 6px; white-space: pre; vertical-align: top; }
-.code td.number { text-align: right; opacity: 0.6; user-select: none; min-width: 2ch; }
-.code td.sign { user-select: none; padding: 0 2px; }
+.code td.number { text-align: right; color: var(--muted); user-select: none; min-width: 2ch; }
+.code td.number.old { padding-left: 12px; }
+.code td.sign { user-select: none; padding: 0 4px; border-left: 3px solid transparent; }
 .code td.line { padding-right: 12px; width: 100%; }
 .code tr.added { background: color-mix(in srgb, var(--good) 9%, transparent); }
 .code tr.removed { background: color-mix(in srgb, var(--bad) 9%, transparent); }
+.code tr.added td.sign { border-left-color: var(--good); color: var(--good); }
+.code tr.removed td.sign { border-left-color: var(--bad); color: var(--bad); }
+.code table.all-added tr.added { background: none; }
+
+/* Phone: one number column, the new line's number, or the old one on a removed row; the
+   numbers stay in view while the code scrolls sideways. */
+@media (max-width: 40rem) {
+  .code tr:not(.removed) td.number.old, .code tr.removed td.number.new { display: none; }
+  .code td.number { position: sticky; left: 0; padding-left: 12px; background: var(--panel); }
+}
 
 /* Syntax colors: the server names each token's color by its role in the Catppuccin palette
    (PALETTE in crates/review-explore-citations, which holds the Mocha colors below). Latte on a

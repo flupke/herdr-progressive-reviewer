@@ -1,30 +1,37 @@
-// Cited lines: each citation with its note and its lines as rows of the diff, colored by the
-// tool (each token's colour role is a class, `c-<role>`, in citations.css). The question shows
-// its citations most decisive first: the first one, then the others folded until the reviewer
-// opens them. A quiz item's proof uses the same citation.
+// Cited lines: each citation with its note, then its lines as rows of the diff in a code frame
+// whose head names the file and the lines, colored by the tool (each token's colour role is a
+// class, `c-<role>`, in citations.css). An added or removed row is marked by a bar in the
+// gutter. The question shows its citations most decisive first: the first one, then the others
+// folded until the reviewer opens them. A quiz item's proof uses the same citation.
 
 /** @import { CitationView, RowView } from "./types.ts" */
 
+import { disclosure } from './disclosure.js';
 import { h } from './dom.js';
 
 /**
- * One citation; `id` names its heading.
+ * One citation; `id` names its heading, the head of its code frame.
  * @param {CitationView} citation
  * @param {string} id
  */
 export function citation(citation, id) {
+  const added = citation.rows.length > 0 && citation.rows.every((row) => row.kind === 'added');
   return h(
     'section',
     { class: 'citation', 'aria-labelledby': id },
-    h('h4', { id }, h('code', {}, citation.location)),
     h('p', { class: 'notes' }, citation.notes),
-    citation.limitation !== null
-      ? h('p', { class: 'limitation' }, citation.limitation)
-      : h(
-          'div',
-          { class: 'code', tabindex: 0, role: 'group', 'aria-label': `Lines of ${citation.location}` },
-          h('table', {}, h('tbody', {}, citation.rows.map(row))),
-        ),
+    h(
+      'div',
+      { class: 'code-frame' },
+      h('h4', { class: 'code-head', id }, h('code', {}, citation.path), ' ', h('span', {}, citation.span)),
+      citation.limitation !== null
+        ? h('p', { class: 'limitation' }, citation.limitation)
+        : h(
+            'div',
+            { class: 'code', tabindex: 0, role: 'group', 'aria-label': `Lines of ${citation.location}` },
+            h('table', { class: added ? 'all-added' : null }, h('tbody', {}, citation.rows.map(row))),
+          ),
+    ),
   );
 }
 
@@ -35,8 +42,8 @@ function row(row) {
   return h(
     'tr',
     { class: row.kind },
-    h('td', { class: 'number' }, row.old_line ?? ''),
-    h('td', { class: 'number' }, row.new_line ?? ''),
+    h('td', { class: 'number old' }, row.old_line ?? ''),
+    h('td', { class: 'number new' }, row.new_line ?? ''),
     h('td', { class: 'sign' }, SIGNS[row.kind]),
     h('td', { class: 'line' }, tokens(row)),
   );
@@ -69,15 +76,13 @@ export function citationsSection(citations, number) {
   return h(
     'section',
     { class: 'citations', 'aria-labelledby': `question-${number}-citations` },
-    h('h3', { id: `question-${number}-citations` }, 'Citations'),
+    h('h3', { class: 'eyebrow', id: `question-${number}-citations` }, 'Citations'),
     citation(first, id(1)),
     others.length > 0
-      ? h(
-          'details',
-          {},
-          h('summary', {}, `${others.length} more citation${others.length > 1 ? 's' : ''}`),
+      ? disclosure(
+          `${others.length} more citation${others.length > 1 ? 's' : ''}`,
           others.map((other, index) => citation(other, id(index + 2))),
-        )
+        ).element
       : null,
   );
 }

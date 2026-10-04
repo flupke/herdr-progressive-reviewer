@@ -4,11 +4,25 @@ use serde::Serialize;
 
 use crate::{Assessments, Consequence, Question};
 
-/// A section of a question: its heading, and its body in Markdown.
+/// A section of a question: its heading, its lead (the decisive reason, which the Explore page
+/// shows while the section is folded), and the rest of its body, in Markdown.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct QuestionSection {
     pub title: &'static str,
-    pub body: String,
+    /// The section's first paragraph.
+    pub lead: String,
+    /// The paragraphs after the lead; empty when it has none.
+    pub details: String,
+}
+
+impl QuestionSection {
+    /// The whole body: the lead, then the details.
+    pub fn body(&self) -> String {
+        if self.details.is_empty() {
+            return self.lead.clone();
+        }
+        format!("{}\n\n{}", self.lead, self.details)
+    }
 }
 
 impl Question {
@@ -30,28 +44,28 @@ impl Assessments {
         [
             QuestionSection {
                 title: "Door",
-                body: Self::body(
-                    format!("{} — {}", self.door.label(), self.reversibility.summary),
-                    &self.reversibility,
-                ),
+                lead: format!("{} — {}", self.door.label(), self.reversibility.summary),
+                details: Self::details(&self.reversibility),
             },
             QuestionSection {
                 title: "Blast radius",
-                body: Self::body(self.blast_radius.summary.clone(), &self.blast_radius),
+                lead: self.blast_radius.summary.clone(),
+                details: Self::details(&self.blast_radius),
             },
         ]
     }
 
-    /// `summary`, then the lens's details and each of its unknowns.
-    fn body(mut summary: String, lens: &Consequence) -> String {
-        if !lens.details.trim().is_empty() {
-            summary.push_str("\n\n");
-            summary.push_str(&lens.details);
-        }
-        for unknown in &lens.unknowns {
-            summary.push_str("\n\nUnknown: ");
-            summary.push_str(unknown);
-        }
-        summary
+    /// The lens's details, then each of its unknowns.
+    fn details(lens: &Consequence) -> String {
+        let unknowns = lens
+            .unknowns
+            .iter()
+            .map(|unknown| format!("Unknown: {unknown}"));
+        (!lens.details.trim().is_empty())
+            .then(|| lens.details.clone())
+            .into_iter()
+            .chain(unknowns)
+            .collect::<Vec<_>>()
+            .join("\n\n")
     }
 }

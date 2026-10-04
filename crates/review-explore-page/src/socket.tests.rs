@@ -408,6 +408,62 @@ async fn the_socket_sends_the_round_when_it_opens_then_at_each_change() {
     assert_eq!(action["fields"][0]["value"], "turn-1");
 }
 
+/// The rail of a round whose question 1 is done and question 2 current, the agent working on it
+/// when `working`.
+fn at_question_2(working: bool) -> RoundOverview {
+    RoundOverview {
+        rail: vec![
+            RailStep {
+                step: Step::Design,
+                state: StepState::Done,
+            },
+            RailStep {
+                step: Step::Question { number: 1 },
+                state: StepState::Done,
+            },
+            RailStep {
+                step: Step::Question { number: 2 },
+                state: StepState::Current { working },
+            },
+        ],
+        decisions: Vec::new(),
+        earlier: Vec::new(),
+        title: TabTitle::YourTurn { question: 2 },
+    }
+}
+
+/// The reviewer's latest answer, to the question `question`.
+fn answer_to(question: &str) -> LatestAnswer {
+    LatestAnswer {
+        id: format!("answer-{question}"),
+        choice: Some("Keep the draft".into()),
+        comment: String::new(),
+        answered: Answered {
+            question: Some((question.into(), 1)),
+            option: Some("keep".into()),
+            in_reply_to: "turn-1".into(),
+        },
+    }
+}
+
+#[tokio::test]
+async fn the_previous_turn_names_the_question_the_latest_answer_answered_by_the_rail() {
+    let owner = Owner::new(working("turn-1"));
+    *lock(&owner.overview) = at_question_2(false);
+    *lock(&owner.latest) = Some(answer_to("q1"));
+    owner.publish(asking(question("q2", "two_way")));
+    let address = serve(owner.clone()).await;
+    let mut socket = Upgrade::of(address).connect(address).await.unwrap();
+    // Question 2 asks: the latest answer answered the step before it.
+    assert_eq!(next(&mut socket).await["params"]["view"]["answered"], 1);
+
+    // The agent works on the answer to question 2: the latest answer answered the current step.
+    *lock(&owner.overview) = at_question_2(true);
+    *lock(&owner.latest) = Some(answer_to("q2"));
+    owner.publish(working("turn-2"));
+    assert_eq!(next(&mut socket).await["params"]["view"]["answered"], 2);
+}
+
 #[tokio::test]
 async fn a_clarified_question_keeps_the_number_of_its_step_on_the_rail() {
     let owner = Owner::new(working("turn-1"));
@@ -572,6 +628,17 @@ async fn a_blind_questions_first_pick_shows_its_recommendation_and_is_kept_once(
         hidden["params"]["view"]["question"]["recommendation"],
         "hidden_until_pick"
     );
+    // Nothing the page holds before the first pick tells the recommended choice: not its reason,
+    // nor a mark on the choice.
+    assert!(!hidden.to_string().contains("It is cheap."));
+    let choices = &hidden["params"]["view"]["question"]["choices"];
+    assert!(
+        choices
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|choice| choice["recommendation"].is_null() && choice["checked"] == false)
+    );
 
     let pick = json!({ "round": ROUND, "question": "q1", "version": 1, "choice": "discard" });
     request(
@@ -582,7 +649,21 @@ async fn a_blind_questions_first_pick_shows_its_recommendation_and_is_kept_once(
     let shown = next(&mut socket).await;
     let view = &shown["params"]["view"]["question"];
     assert_eq!(view["recommendation"], "shown_after_pick");
-    assert_eq!(view["first_pick"], "Discard the draft");
+    let picked: Vec<&Value> = view["choices"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|choice| choice["checked"] == true)
+        .map(|choice| &choice["id"])
+        .collect();
+    assert_eq!(picked, [&json!("discard")]);
+    let recommended = view["choices"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|choice| choice["id"] == "keep")
+        .unwrap();
+    assert_eq!(recommended["recommendation"], "It is cheap.");
     assert_eq!(next(&mut socket).await["result"]["applied"], true);
 
     let again = json!({ "round": ROUND, "question": "q1", "version": 1, "choice": "keep" });
@@ -593,6 +674,72 @@ async fn a_blind_questions_first_pick_shows_its_recommendation_and_is_kept_once(
     .await;
     assert_eq!(next(&mut socket).await["result"]["applied"], false);
     assert_eq!(owner.commands(), ["pick"]);
+}
+
+#[tokio::test]
+async fn a_question_names_its_door_the_lead_of_each_section_and_the_share_its_answer_adds() {
+    let mut stage = asking(question("q1", "one_way"));
+    if let RoundStage::Question { marks, .. } = &mut stage {
+        marks.reviewed = vec![lines("src/drafts.rs", 1, 12)];
+    }
+    let owner = Owner::new(stage);
+    owner.publisher.mark_gain(Some(gain(52, 64, 135)));
+    let address = serve(owner).await;
+    let mut socket = Upgrade::of(address).connect(address).await.unwrap();
+
+    let view = next(&mut socket).await;
+    let question = &view["params"]["view"]["question"];
+    assert_eq!(question["door"], "one_way");
+    let sections = question["sections"].as_array().unwrap();
+    assert_eq!(sections[0]["title"], "Door");
+    assert!(
+        sections[0]["lead_html"]
+            .as_str()
+            .unwrap()
+            .contains("Reason.")
+    );
+    assert!(
+        sections[0]["details_html"]
+            .as_str()
+            .unwrap()
+            .contains("None known.")
+    );
+    assert_eq!(
+        question["marks"]["summary"],
+        json!({ "verb": "Answering marks", "parts": ["12 lines reviewed"] })
+    );
+    assert_eq!(question["gain"], json!({ "before": 38, "after": 47 }));
+}
+
+#[tokio::test]
+async fn a_question_whose_answer_marks_nothing_shows_no_gain() {
+    let owner = Owner::new(asking(question("q1", "two_way")));
+    owner.publisher.mark_gain(Some(gain(52, 52, 135)));
+    let address = serve(owner).await;
+    let mut socket = Upgrade::of(address).connect(address).await.unwrap();
+
+    let view = next(&mut socket).await;
+    assert_eq!(view["params"]["view"]["question"]["marks"], Value::Null);
+    assert_eq!(view["params"]["view"]["question"]["gain"], Value::Null);
+}
+
+/// What answering marks: the share goes from `before` to `after` marked lines of `changed`.
+fn gain(before: u64, after: u64, changed: u64) -> review_explore_tally::Gain {
+    let pending = review_explore_tally::PendingLines {
+        reviewed: after - before,
+        not_relevant: 0,
+    };
+    review_explore_tally::Gain::new(pending, 0, review_explore_tally::Share::of(before, changed))
+}
+
+/// Lines of `path` after the change.
+fn lines(path: &str, first_line: u32, last_line: u32) -> review_explore::CodeLocation {
+    serde_json::from_value(json!({
+        "path": path,
+        "side": "new",
+        "lines": { "first_line": first_line, "last_line": last_line },
+    }))
+    .unwrap()
 }
 
 #[tokio::test]

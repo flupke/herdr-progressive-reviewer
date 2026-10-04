@@ -425,16 +425,35 @@ fn a_question_gives_its_context_then_its_door_and_blast_radius() {
 
     let [door, blast_radius] = assessments(Door::TwoWay).sections();
     assert_eq!(door.title, "Door");
+    assert_eq!(door.lead, "Two-way — Cache can be rebuilt");
     assert_eq!(
-        door.body,
+        door.details,
+        "Only while authoritative reads and rebuild capacity remain available"
+    );
+    assert_eq!(
+        door.body(),
         "Two-way — Cache can be rebuilt\n\n\
          Only while authoritative reads and rebuild capacity remain available"
     );
     assert_eq!(blast_radius.title, "Blast radius");
     assert_eq!(
-        blast_radius.body,
+        blast_radius.lead,
+        "Concurrent cache misses can overload the shared origin"
+    );
+    assert_eq!(
+        blast_radius.body(),
         "Concurrent cache misses can overload the shared origin\n\n\
          Every instance uses the origin; local rollback cannot undo requests already sent\n\n\
          Unknown: Deployment concurrency and origin capacity"
     );
+}
+
+#[test]
+fn a_section_without_details_or_unknowns_is_its_lead() {
+    let mut assessments = assessments(Door::OneWay);
+    assessments.reversibility.details = "  ".into();
+    assessments.reversibility.unknowns.clear();
+    let [door, _] = assessments.sections();
+    assert_eq!(door.details, "");
+    assert_eq!(door.body(), door.lead);
 }

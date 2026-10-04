@@ -51,7 +51,15 @@ export type CitationView = {
 /**
  * The path, side and lines: `src/main.rs new 7-9`.
  */
-location: string, notes: string, rows: Array<RowView>, 
+location: string, 
+/**
+ * The path alone: `src/main.rs`.
+ */
+path: string, 
+/**
+ * The side and lines alone: `new 7-9`, or `whole file`.
+ */
+span: string, notes: string, rows: Array<RowView>, 
 /**
  * Why the citation shows no rows.
  */
@@ -167,7 +175,13 @@ source: string,
  * Mermaid's message.
  */
 message: string, };
+export type Door = "one_way" | "two_way" | "mixed" | "unknown";
 export type Field = { name: string, value: string, };
+/**
+ * The reviewed share of the change before and after the answer, in whole percent, as the
+ * reviewer's file list rounds it: "39% → 50%".
+ */
+export type GainView = { before: number, after: number, };
 export type ImplementParams = { conclusion: string, 
 /**
  * The delivery of the conclusion's request that the page showed as not sent; `None` when
@@ -228,13 +242,24 @@ edit: boolean,
  */
 new_round: boolean, };
 /**
+ * A summary of marks in two parts: its verb, and what it marks, each amount on its own, so
+ * that a page can set the first amount apart. `verb` names the first part's action: "Marked"
+ * when it marks lines, "Reopened" when it only reopens them.
+ */
+export type MarkPhrase = { verb: string, 
+/**
+ * "4 lines reviewed", "30 lines not relevant", "reopened 1 line": the parts after the
+ * first carry their own verb when it differs from `verb`. Empty when nothing changes.
+ */
+parts: Array<string>, };
+/**
  * What an answer to the question marks: a summary, and the lines on request.
  */
 export type MarksView = { 
 /**
- * "Will mark 4 lines reviewed · 20 lines not relevant".
+ * "Answering marks", then "12 lines reviewed", "3 lines not relevant".
  */
-summary: string, reviewed: Array<string>, 
+summary: MarkPhrase, reviewed: Array<string>, 
 /**
  * Each with why it is not relevant.
  */
@@ -279,6 +304,10 @@ cards: Array<StatusCard>,
  */
 cancellable: LatestAnswer | null, 
 /**
+ * The number on the rail of the question the latest answer answered, when known.
+ */
+answered: number | null, 
+/**
  * The design of the change, as the round's first turn explained it.
  */
 design: DesignView | null, 
@@ -320,11 +349,16 @@ round: string | null,
  */
 number: number, id: string, version: number, text_html: string, 
 /**
+ * How hard the decision is to reverse, as the agent assessed it; `None` when it did not.
+ */
+door: Door | null, 
+/**
  * The Context section; `None` when the question has none.
  */
 context_html: string | null, 
 /**
- * The Door and Blast radius sections, folded away until the reviewer opens them.
+ * The Door and Blast radius sections, folded away until the reviewer opens them, each
+ * showing its lead.
  */
 sections: Array<SectionView>, 
 /**
@@ -332,13 +366,10 @@ sections: Array<SectionView>,
  */
 recommendation: Recommendation, 
 /**
- * The agent's alternatives, then None of the above.
+ * The agent's alternatives, then None of the above; once the recommendation shows after
+ * the first pick, the choice picked first is the checked one.
  */
 choices: Array<ChoiceView>, 
-/**
- * The text of the choice the reviewer picked first, once the recommendation shows.
- */
-first_pick: string | null, 
 /**
  * The question's citations, most decisive first.
  */
@@ -347,6 +378,11 @@ citations: Array<CitationView>,
  * The lines an answer marks, `None` when it marks none.
  */
 marks: MarksView | null, 
+/**
+ * The reviewed share of the change before and after the answer; `None` when the tool
+ * cannot tell, as when the code changed since the round started.
+ */
+gain: GainView | null, 
 /**
  * Whether the page offers to answer: not in an earlier round.
  */
@@ -476,9 +512,14 @@ export type RpcError = { code: number, message: string,
  */
 data: StatusCard | null, };
 /**
- * One titled part of the agent's Markdown, rendered.
+ * One titled part of the agent's Markdown, rendered: its lead, which shows while the part is
+ * folded, then the rest.
  */
-export type SectionView = { title: string, body_html: string, };
+export type SectionView = { title: string, lead_html: string, 
+/**
+ * `None` when the part is its lead alone.
+ */
+details_html: string | null, };
 /**
  * The number of a view: the revision of the round's published stage, then how many first
  * picks this page kept for the round, which change the view without changing the revision.

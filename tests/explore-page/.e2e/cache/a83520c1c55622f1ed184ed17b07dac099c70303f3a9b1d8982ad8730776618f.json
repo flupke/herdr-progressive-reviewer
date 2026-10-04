@@ -1,6 +1,6 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-04T14:34:34.653Z",
+  "createdAt": "2026-10-04T15:21:05.216Z",
   "payload": {
     "actions": [
       {
@@ -22,39 +22,36 @@
       "targetId": "desktop",
       "instructionDigest": "3236fa573bc8c94199a2e9e6d7e39f9d44808c1824769269063f56c0f85c679c"
     },
-    "summary": "Followed the “Go to question 2” link. Question 2 is now visible, asking where the kept draft should be stored.",
+    "summary": "The current screen shows the Question 2 region, confirming the step is already at question 2.",
     "startPath": "/#design",
     "endPath": "/#round",
     "endAnchors": [
       {
-        "role": "heading",
-        "name": "Your last answer"
+        "text": "You answered Q1"
       },
       {
         "text": "Keep the draft"
       },
       {
-        "text": "Cancel answer takes this answer back, with the agent's turn after it and the review marks it led to: its question waits for your answer again."
-      },
-      {
-        "role": "button",
-        "name": "Cancel answer"
-      },
-      {
-        "role": "heading",
-        "name": "Reply from the agent"
+        "text": "The agent recorded"
       },
       {
         "text": "keep"
       },
       {
-        "role": "listitem",
-        "name": "Follow-up: Say when a kept draft is older than a day."
+        "text": "reopen()"
       },
       {
-        "text": "reopen()"
+        "text": "Follow-ups · Say when a kept draft is older than a day."
+      },
+      {
+        "role": "button",
+        "name": "Cancel this answer…"
+      },
+      {
+        "text": "Question 2"
       }
     ],
-    "endWaitMs": 12563
+    "endWaitMs": 27455
   }
 }

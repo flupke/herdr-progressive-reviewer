@@ -136,3 +136,41 @@ fn a_summary_names_only_what_changed() {
         "Will mark 5 lines and 1 whole file not relevant · reopen 2 lines"
     );
 }
+
+#[test]
+fn a_phrase_names_its_verb_apart_from_what_it_marks() {
+    let counts = MarkCounts {
+        reviewed_lines: 12,
+        not_relevant_lines: 3,
+        reopened_lines: 1,
+        ..MarkCounts::default()
+    };
+    let phrase = counts.phrase(MarkTense::Answering);
+    assert_eq!(phrase.verb, "Answering marks");
+    assert_eq!(
+        phrase.parts,
+        [
+            "12 lines reviewed",
+            "3 lines not relevant",
+            "reopens 1 line"
+        ]
+    );
+    assert_eq!(
+        counts.summary(MarkTense::Answering),
+        "Answering marks 12 lines reviewed · 3 lines not relevant · reopens 1 line"
+    );
+
+    let reopening = MarkCounts {
+        reopened_files: 1,
+        ..MarkCounts::default()
+    };
+    let phrase = reopening.phrase(MarkTense::Answering);
+    assert_eq!(phrase.verb, "Answering reopens");
+    assert_eq!(phrase.parts, ["1 whole file"]);
+    assert!(
+        MarkCounts::default()
+            .phrase(MarkTense::Applied)
+            .parts
+            .is_empty()
+    );
+}

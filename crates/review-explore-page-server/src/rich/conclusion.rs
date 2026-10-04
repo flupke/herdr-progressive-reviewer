@@ -64,7 +64,7 @@ pub(super) fn conclusion_response() -> TurnResponse {
         interpretations: vec![Interpretation {
             answer: "previous-answer".into(),
             status: TopicStatus::Accepted,
-            recap: "Recorded: **keep the cap of twenty replies a constant** until a reviewer asks \
+            recap: "**Keep the cap of twenty replies a constant** until a reviewer asks \
                     for another number."
                 .into(),
             follow_ups: Vec::new(),

@@ -13,6 +13,7 @@ mermaid-js = { path = "../mermaid-js" }
 notify.workspace = true
 review-explore = { path = "../review-explore" }
 review-explore-citations = { path = "../review-explore-citations" }
+review-explore-tally = { path = "../review-explore-tally" }
 review-repository = { path = "../review-repository" }
 serde.workspace = true
 serde_json.workspace = true

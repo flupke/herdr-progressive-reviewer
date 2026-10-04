@@ -3,40 +3,13 @@
    masthead.css, and the page's frame with the desk-and-panel grid in layout.css. No stage has a
    border: space, hairlines and type weight group things; only what the reviewer acts on or
    reads as one object (a choice, a text box, code, a table, a figure) has a frame. */
-.question, .conclusion, .quiz, .response { margin: 0 0 32px; }
+.question, .conclusion, .quiz { margin: 0 0 32px; }
 .text { font-weight: 600; }
 
-/* The question's choices: cards on the page's own surface. Hover strengthens the frame; the
-   selected choice takes the accent; the keyboard's focus rings the card. */
-.choices { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 8px; }
-.choices legend { padding: 0; margin-bottom: 8px; }
-.choice {
-  display: flex;
-  gap: 10px;
-  align-items: flex-start;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--canvas);
-  cursor: pointer;
-  transition: border-color 150ms;
-}
-.choice input { flex: none; width: 18px; height: 18px; margin: 3px 0 0; accent-color: var(--accent); }
-.choice input:focus-visible { outline: none; }
-.choice:hover { border-color: var(--line-strong); }
-.choice:has(input:checked) {
-  border-color: var(--accent);
-  box-shadow: inset 0 0 0 1px var(--accent);
-  background: color-mix(in srgb, var(--accent) 10%, var(--canvas));
-}
-.choice:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
-
 /* Phone: a long word or address wraps instead of widening the page. */
-.text, .choice { overflow-wrap: anywhere; }
+.text { overflow-wrap: anywhere; }
 
-/* The answer form and what it marks. */
-.answer { display: grid; gap: 14px; }
-.answer .hint { margin: 0; }
+/* A text box and its label: a comment, a reply, the list to be implemented. */
 .comment-label { font-weight: 600; }
 .comment, .tasks {
   padding: 8px 10px;
@@ -47,13 +20,6 @@
   font: inherit;
   resize: vertical;
 }
-.marks summary { cursor: pointer; }
-.marks ul { margin: 8px 0 0; padding-left: 20px; font-size: 0.9em; overflow-wrap: anywhere; }
-
-/* The agent's recommendation under its choice: the agent's judgement, in purple. */
-.recommendation { margin: -4px 0 0; padding: 0 12px 0 40px; font-size: 14px; overflow-wrap: anywhere; }
-.recommendation strong { color: var(--agent); }
-
 /* The start cover, when no round is running: the review's title as the headline, a muted line
    that says where it is, then Start and Start with Challenger, each with one line under it. */
 .start-cover { max-width: calc(var(--measure) + 34px); padding-top: 24px; }
@@ -87,26 +53,13 @@
 .quiz-results summary > h3 { display: inline-block; margin: 12px 0; }
 .quiz-results h4 { margin: 16px 0 4px; }
 
-/* What the agent said back to the previous answer, above its question or conclusion. */
-.response h2 { font-size: 17px; margin: 0; }
-.response .markdown { margin-top: 8px; }
-.follow-ups { margin: 8px 0 0; padding: 0; list-style: none; overflow-wrap: anywhere; }
-
-/* The question, in the agent's Markdown, keeps the spacing of a paragraph. */
-.question > .text { margin: 16px 0; }
-
-/* Controlling the round, as in the reviewer's Explore tab: the latest answer with Cancel
-   answer, a reply to the conclusion and the saved implementation request; Reset is in the
+/* Controlling the round, as in the reviewer's Explore tab: Cancel answer in the previous turn
+   (turn.css), a reply to the conclusion and the saved implementation request; Reset is in the
    masthead's menu. Stop waiting, Retry and the cancel of an implementation request sit in the
    actions of their status card. */
 .cancel-answer, .reply, .resend-implementation { display: grid; gap: 12px; margin: 12px 0; }
 .cancel-answer .hint, .reply .hint { margin: 0; }
 .cancel-answer button, .reply button, .resend-implementation button { justify-self: start; }
-.last-answer { margin: 0 0 32px; }
-.last-answer h2 { font-size: 17px; margin: 0 0 6px; }
-.last-answer p { margin: 0 0 6px; overflow-wrap: anywhere; }
-.last-answer .choice { border: 0; padding: 0; background: none; cursor: auto; font-weight: 600; }
-.last-answer .answer-comment { color: var(--muted); font-style: italic; }
 
 /* The quiet line that says when the page cannot reach the review tool, and the line that says
    the page needs JavaScript. */

@@ -1,6 +1,6 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-03T23:06:43.572Z",
+  "createdAt": "2026-10-04T15:32:28.451Z",
   "payload": {
     "actions": [
       {
@@ -31,10 +31,14 @@
       "targetId": "phone",
       "instructionDigest": "c961fe1567a7446f38f1034a7266d9de1b10fc70d73541e7814f0e59ebed5d0b"
     },
-    "summary": "Selected “In the pane's editor” and checked the answer. The quiz reports “Not quite. The correct answer: With the round's record,” as expected for this selection.",
+    "summary": "The recorded selection was checked. The quiz shows “Not quite. The correct answer: With the round's record,” and displays the explanation that the draft is a field of the round.",
     "startPath": "/",
-    "endPath": "/?answered=2",
+    "endPath": "/",
     "endAnchors": [
+      {
+        "role": "listitem",
+        "name": "Conclusion"
+      },
       {
         "text": "correct answer"
       },
@@ -53,15 +57,12 @@
         "name": "Proof"
       },
       {
-        "text": "src/drafts.rs new 1-4"
-      },
-      {
         "text": "The round holds the draft."
       },
       {
-        "text": "pub"
+        "text": "src/drafts.rs"
       }
     ],
-    "endWaitMs": 12277
+    "endWaitMs": 26921
   }
 }

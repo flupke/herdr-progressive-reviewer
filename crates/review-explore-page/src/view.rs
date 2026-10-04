@@ -30,6 +30,8 @@ pub(crate) struct PageView {
     cards: Vec<StatusCard>,
     /// The reviewer's latest answer, when the page offers to cancel it.
     cancellable: Option<LatestAnswer>,
+    /// The number on the rail of the question the latest answer answered, when known.
+    answered: Option<usize>,
     /// The design of the change, as the round's first turn explained it.
     design: Option<DesignView>,
     /// What the agent's turn said back to the reviewer's previous answer, above its question or
@@ -63,11 +65,14 @@ struct StartView {
     block: Option<String>,
 }
 
-/// One titled part of the agent's Markdown, rendered.
+/// One titled part of the agent's Markdown, rendered: its lead, which shows while the part is
+/// folded, then the rest.
 #[derive(Debug, Serialize, TS)]
 pub(crate) struct SectionView {
     title: String,
-    body_html: String,
+    lead_html: String,
+    /// `None` when the part is its lead alone.
+    details_html: Option<String>,
 }
 
 impl SectionView {
@@ -75,7 +80,8 @@ impl SectionView {
     pub(crate) fn new(section: &QuestionSection, level: usize) -> Self {
         Self {
             title: section.title.to_owned(),
-            body_html: markdown(&section.body, level),
+            lead_html: markdown(&section.lead, level),
+            details_html: markdown_if_any(&section.details, level),
         }
     }
 }
@@ -136,6 +142,7 @@ impl PageView {
                 .cancellable
                 .clone()
                 .filter(|_| offers_actions && !storage_failed),
+            answered: round.answered_number(),
             design: round
                 .design
                 .as_deref()

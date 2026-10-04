@@ -7,6 +7,7 @@
 
 /** @import { DesignView, DesignPartView, QuestionView } from "./types.ts" */
 
+import { DOORS, doorChip } from './chips.js';
 import { h, keyOf, markdown, Region, setRenderedMarkdown } from './dom.js';
 import { designPart, STAGE } from './route.js';
 
@@ -15,15 +16,6 @@ import { designPart, STAGE } from './route.js';
  * @typedef {{ kind: 'question', number: number, working: boolean } | { kind: 'quiz' }
  *   | { kind: 'conclusion' }} Current
  */
-
-/** What the panel says of the Door of the question the round waits for. */
-// eslint-disable-next-line -- TEMPORARY: read once the view carries the question's Door (#101).
-export const DOORS = {
-  one_way: 'One-way door',
-  two_way: 'Two-way door',
-  mixed: 'Mixed door',
-  unknown: 'Door unknown',
-};
 
 export class DesignScreen {
   constructor() {
@@ -45,14 +37,15 @@ export class DesignScreen {
     this.head.show(keyOf([design.thesis_html, design.parts.length, design.minutes, design.changed_files]), () =>
       head(design),
     );
-    const map = this.map.show(keyOf([design.parts, current, asked?.text_html]), () =>
+    const map = this.map.show(keyOf([design.parts, current, asked?.text_html, asked?.door]), () =>
       designMap(design.parts, current, asked),
     );
     const parts = this.parts.show(keyOf(design.parts), () => [
       ...design.parts.map(partSection),
       h('span', { class: 'design-end', 'aria-hidden': 'true' }),
     ]);
-    this.bar.show(keyOf(current), () => (current ? bar(current) : null));
+    const door = asked?.door ?? null;
+    this.bar.show(keyOf([current, door]), () => (current ? bar(current, door) : null));
     if (map || parts) this.spy.watch();
   }
 
@@ -127,19 +120,22 @@ function next(current, question) {
   return h(
     'div',
     { class: 'design-next' },
-    h('p', { class: 'eyebrow' }, `Then · ${stepName(current)}`, question ? doorChip(question) : null),
+    h('p', { class: 'eyebrow' }, `Then · ${stepName(current)}`, question?.door ? doorChip(question.door) : null),
     question ? markdown(question.text_html, 'next-text') : null,
     question ? h('p', { class: 'hint' }, 'Its choices and evidence open on the next screen.') : null,
     goTo(current),
   );
 }
 
-/** The bar pinned to the bottom of a phone's screen: where the round stands, and the way to it.
- * @param {Current} current */
-function bar(current) {
+/** The bar pinned to the bottom of a phone's screen: where the round stands, with the Door of
+ * the question it waits for, and the way to it.
+ * @param {Current} current
+ * @param {import('./types.ts').Door | null} door */
+function bar(current, door) {
   const name = stepName(current);
   const state = [`Current · ${name.charAt(0).toUpperCase()}${name.slice(1)}`];
   if (current.kind === 'question' && current.working) state.push('working');
+  if (door) state.push(DOORS[door].name);
   return h('div', { class: 'design-bar' }, h('p', {}, state.join(' · ')), goTo(current));
 }
 
@@ -163,13 +159,6 @@ function stepName(current) {
     case 'conclusion':
       return 'the conclusion';
   }
-}
-
-/** The chip of the question's Door, when the agent assessed it.
- * TEMPORARY: none until the view carries the question's Door (#101).
- * @param {QuestionView} _question */
-function doorChip(_question) {
-  return null;
 }
 
 /** One part: its number, its name and "2 / 4", its thesis, then its text.

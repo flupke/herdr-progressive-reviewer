@@ -1,13 +1,15 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-03T21:06:10.793Z",
+  "createdAt": "2026-10-04T15:31:18.676Z",
   "payload": {
     "actions": [
       {
         "name": "tap",
-        "summary": "tap node \"1 more citation\"",
+        "summary": "tap button \"1 more citation\" in \"Citations\"",
         "target": {
-          "text": "1 more citation"
+          "role": "button",
+          "name": "1 more citation",
+          "within": "Citations"
         }
       }
     ],
@@ -20,37 +22,35 @@
       "targetId": "desktop",
       "instructionDigest": "5e7b7514762628473c3397f34f8010e033355a1b793fc82757de95893b7d5cc1"
     },
-    "summary": "Expanded \"1 more citation\" on Question 1. Both citations are now visible: src/drafts.rs new 7-8 and src/drafts.rs new 1-4.",
-    "startPath": "/",
-    "endPath": "/",
+    "summary": "The citations region is expanded and shows both citations: src/drafts.rs new 7–8 and src/drafts.rs old 1–3.",
+    "startPath": "/#round",
+    "endPath": "/#round",
     "endAnchors": [
       {
-        "role": "heading",
-        "name": "Question 1"
+        "text": "The round had no draft before the change."
       },
       {
-        "text": "Should a reopened round keep the reviewer's unsent draft?"
+        "text": "old 1-3"
       },
       {
-        "role": "heading",
-        "name": "Citations"
+        "text": "struct"
       },
       {
-        "text": "src/drafts.rs new 7-8"
+        "text": "Round"
       },
       {
-        "text": "reopen() no longer clears the draft: this is the decision."
+        "text": ":"
       },
       {
-        "text": "pub"
+        "text": "Option"
       },
       {
-        "text": "fn"
+        "text": "<"
       },
       {
-        "text": "reopen"
+        "text": "Draft"
       }
     ],
-    "endWaitMs": 12641
+    "endWaitMs": 27466
   }
 }

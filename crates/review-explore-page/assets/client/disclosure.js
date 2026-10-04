@@ -8,7 +8,7 @@ import { h } from './dom.js';
 let next = 0;
 
 /**
- * @param {string} label the button's words
+ * @param {import('./dom.js').Children} label the button's words, or what it shows folded
  * @param {Node | Node[]} content what the button shows
  * @param {{ open?: boolean, button?: string }} [options] whether it starts open, and the
  *   button's classes (by default the muted line with its ▸)

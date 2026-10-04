@@ -9,6 +9,7 @@ use review_explore::{
     RoundOverview, StartBlock, Step, StepState,
 };
 use review_explore_citations::Citation;
+use review_explore_tally::Gain;
 use review_repository::repository::SnapshotIdentity;
 use serde::Serialize;
 use tokio::sync::watch;
@@ -495,6 +496,9 @@ pub(crate) struct RoundSnapshot {
     pub(crate) review: Option<ReviewName>,
     /// Why the reviewer cannot start a round on the review, when nothing is left to review.
     pub(crate) start_block: Option<StartBlock>,
+    /// What answering the question the round waits for does to the reviewed share of the
+    /// change; `None` when no question waits, or when its answer marks nothing.
+    pub(crate) gain: Option<Gain>,
 }
 
 impl RoundSnapshot {
@@ -516,6 +520,28 @@ impl RoundSnapshot {
                 })
         });
         Some(step.unwrap_or(number))
+    }
+
+    /// The number on the rail of the question that the reviewer's latest answer, which the
+    /// reviewer may still cancel, answered: the step before the question or the conclusion the
+    /// answer led to, or the step the agent works on, or waits for a Retry of. `None` for a reply
+    /// to the conclusion, and for a round with no overview.
+    pub(crate) fn answered_number(&self) -> Option<usize> {
+        self.cancellable.as_ref()?.answered.question.as_ref()?;
+        let rail = &self.overview.as_deref()?.rail;
+        let mut done = None;
+        let mut current = None;
+        for step in rail {
+            match (&step.step, step.state) {
+                (Step::Question { number }, StepState::Done) => done = Some(*number),
+                (Step::Question { number }, StepState::Current { .. }) => current = Some(*number),
+                _ => {}
+            }
+        }
+        match self.stage {
+            RoundStage::Question { .. } | RoundStage::Conclusion { .. } => done,
+            _ => current.or(done),
+        }
     }
 
     /// Whether the round's latest answer, which the reviewer may still cancel, is `answered`
@@ -555,6 +581,7 @@ impl RoundSnapshot {
         stage: RoundStage,
         review: Option<ReviewName>,
         start_block: Option<StartBlock>,
+        gain: Option<Gain>,
     ) -> Self {
         Self {
             revision,
@@ -567,6 +594,7 @@ impl RoundSnapshot {
             stage,
             review,
             start_block,
+            gain,
         }
     }
 }
@@ -579,7 +607,7 @@ impl RoundPublisher {
     /// running.
     pub fn new(round: Option<PublishedRound<'_>>, stage: RoundStage) -> Self {
         Self(watch::Sender::new(RoundSnapshot::new(
-            1, round, stage, None, None,
+            1, round, stage, None, None, None,
         )))
     }
 
@@ -597,6 +625,7 @@ impl RoundPublisher {
                 stage,
                 snapshot.review.take(),
                 snapshot.start_block,
+                snapshot.gain,
             );
             true
         });
@@ -623,6 +652,19 @@ impl RoundPublisher {
             }
             snapshot.revision += 1;
             snapshot.start_block = block;
+            true
+        });
+    }
+
+    /// Says what answering the question the round waits for does to the reviewed share of the
+    /// change, or, with `None`, that no answer marks anything. The same again changes nothing.
+    pub fn mark_gain(&self, gain: Option<Gain>) {
+        self.0.send_if_modified(|snapshot| {
+            if snapshot.gain == gain {
+                return false;
+            }
+            snapshot.revision += 1;
+            snapshot.gain = gain;
             true
         });
     }
@@ -683,6 +725,11 @@ impl RoundFeed {
     /// Why the reviewer cannot start a round on the review; `None` when a round can start.
     pub fn start_block(&self) -> Option<StartBlock> {
         self.0.borrow().start_block
+    }
+
+    /// What answering the question the latest round waits for does to the reviewed share.
+    pub fn gain(&self) -> Option<Gain> {
+        self.0.borrow().gain
     }
 
     /// Waits for the next published stage. Returns false once the publisher is gone.

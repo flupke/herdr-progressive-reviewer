@@ -37,6 +37,10 @@ impl RoundData for Rich {
         questions::answer_response(number)
     }
 
+    fn pane_comment(&self) -> &'static str {
+        "Two seconds feels short when I read the cited code between replies."
+    }
+
     fn conclusion(&self, quiz: bool) -> Conclusion {
         conclusion::conclusion(quiz)
     }

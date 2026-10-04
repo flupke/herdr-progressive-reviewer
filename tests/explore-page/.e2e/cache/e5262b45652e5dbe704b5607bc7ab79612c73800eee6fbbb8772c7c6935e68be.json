@@ -1,24 +1,24 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-03T21:20:21.604Z",
+  "createdAt": "2026-10-04T15:09:50.688Z",
   "payload": {
     "actions": [
       {
         "name": "type",
-        "summary": "type \"Keep it for a week instead.\" into textbox \"Comment (optional)\" in \"Question 1\"",
+        "summary": "type \"Keep it for a week instead.\" into textbox \"Comment · optional\" in \"Question 1\"",
         "target": {
           "role": "textbox",
-          "name": "Comment (optional)",
+          "name": "Comment · optional",
           "within": "Question 1"
         },
         "value": "Keep it for a week instead."
       },
       {
         "name": "tap",
-        "summary": "tap button \"Send\" in \"Question 1\"",
+        "summary": "tap button \"Send answer\" in \"Question 1\"",
         "target": {
           "role": "button",
-          "name": "Send",
+          "name": "Send answer",
           "within": "Question 1"
         }
       }
@@ -32,9 +32,39 @@
       "targetId": "desktop",
       "instructionDigest": "3fcd93ad48641d2beb7c6b269142f20eb1971facb3fe365251763a5b43ededbe"
     },
-    "summary": "I typed \"Keep it for a week instead.\" into the Question 1 comment box without picking a choice, then tapped Send. The form was replaced by the status \"The agent is working…\", which was still showing after one more observe.",
+    "summary": "Question 1 shows “You answered Q1” with the comment “Keep it for a week instead.” and the agent is working on your answer, confirming the comment-only response was sent.",
     "startPath": "/",
     "endPath": "/",
-    "endWaitMs": 14556
+    "endAnchors": [
+      {
+        "role": "listitem",
+        "name": "Q1 · working"
+      },
+      {
+        "text": "The agent is working on your answer"
+      },
+      {
+        "role": "button",
+        "name": "Stop waiting"
+      },
+      {
+        "text": "Your answer stays; Retry sends it again."
+      },
+      {
+        "text": "You answered Q1"
+      },
+      {
+        "text": "“Keep it for a week instead.”"
+      },
+      {
+        "role": "button",
+        "name": "Cancel this answer…"
+      },
+      {
+        "role": "document",
+        "name": "Agent working… — Keep the reviewer's draft when a round reopens"
+      }
+    ],
+    "endWaitMs": 28893
   }
 }

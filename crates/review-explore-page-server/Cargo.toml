@@ -15,6 +15,7 @@ axum.workspace = true
 review-explore = { path = "../review-explore" }
 review-explore-citations = { path = "../review-explore-citations" }
 review-explore-page = { path = "../review-explore-page" }
+review-explore-tally = { path = "../review-explore-tally" }
 review-repository = { path = "../review-repository" }
 review-source = { path = "../review-source" }
 serde.workspace = true

@@ -1,6 +1,6 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-03T23:06:09.700Z",
+  "createdAt": "2026-10-04T14:35:44.209Z",
   "payload": {
     "actions": [
       {
@@ -32,9 +32,9 @@
       "targetId": "desktop",
       "instructionDigest": "c961fe1567a7446f38f1034a7266d9de1b10fc70d73541e7814f0e59ebed5d0b"
     },
-    "summary": "Selected “The answer typed before closing” and checked the answer. The quiz displayed “Correct.”",
+    "summary": "The answer is selected and the quiz displays “Correct.”",
     "startPath": "/",
-    "endPath": "/?answered=1",
+    "endPath": "/",
     "endAnchors": [
       {
         "role": "listitem",
@@ -62,9 +62,9 @@
         "name": "Proof"
       },
       {
-        "text": "src/drafts.rs new 7-8"
+        "text": "reopen() leaves the draft alone."
       }
     ],
-    "endWaitMs": 12279
+    "endWaitMs": 27062
   }
 }

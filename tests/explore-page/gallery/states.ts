@@ -79,9 +79,15 @@ async function ask(session: Session, count: number): Promise<void> {
   await session.open();
 }
 
-/** Opens every folded part of the page: Door, Blast radius, the other citations. */
+/**
+ * Opens every folded part of what the page gives to read: Door, Blast radius, the other
+ * citations, the lines an answer marks. A fold that holds an action opens from a button of a
+ * button tier (`.button`), and stays closed.
+ */
 async function unfold(page: Page): Promise<void> {
-  const folded = page.locator('details:not([open]) > summary:visible');
+  const folded = page.locator(
+    'main details:not([open]) > summary:visible, main button[aria-expanded="false"]:not(.button):visible',
+  );
   while ((await folded.count()) > 0) await folded.first().click();
 }
 
@@ -128,6 +134,7 @@ async function refused(session: Session, page: Page, move: () => Promise<void>, 
 const IDLE_OR_FULL = 'Send the queue after two seconds';
 const MERGE = 'Keep sending each reply at once';
 const DROP = 'Drop the waiting notifications';
+const CLOSE = 'Send them in one last notification';
 const QUIZ_RIGHT = 'Once, about two seconds after the fifth reply';
 const QUIZ_WRONG = 'The reply itself, which was only in the queue';
 
@@ -202,7 +209,7 @@ export const STATES: GalleryState[] = [
   },
   {
     name: 'working-last-answer',
-    about: 'The agent works on the answer given in the pane: Your last answer, with Cancel answer.',
+    about: 'The agent works on the answer given in the pane: the previous turn, with Cancel this answer.',
     async reach(session) {
       await session.askQuestion();
       await after(session, () => session.answerInPane());
@@ -225,12 +232,12 @@ export const STATES: GalleryState[] = [
   },
   {
     name: 'delivery-failed-last-answer',
-    about: "The prompt with the reviewer's answer could not be delivered: Retry, and Your last answer with Cancel answer.",
+    about: "The prompt with the reviewer's answer could not be delivered: Retry, and the previous turn with Cancel this answer.",
     async reach(session, page) {
       await question(session, page, 1);
       await choose(page, IDLE_OR_FULL);
-      await page.getByRole('textbox', { name: 'Comment (optional)' }).fill(COMMENT);
-      await submit(page, 'Send');
+      await page.getByRole('textbox', { name: 'Comment · optional' }).fill(COMMENT);
+      await submit(page, 'Send answer');
       await after(session, () => session.failDelivery());
     },
   },
@@ -302,7 +309,7 @@ export const STATES: GalleryState[] = [
     async reach(session, page) {
       await question(session, page, 1);
       await choose(page, MERGE);
-      await refused(session, page, () => session.answerInPane(), 'Send');
+      await refused(session, page, () => session.answerInPane(), 'Send answer');
     },
   },
   {
@@ -311,8 +318,8 @@ export const STATES: GalleryState[] = [
     async reach(session, page) {
       await question(session, page, 1);
       await choose(page, IDLE_OR_FULL);
-      await page.getByRole('textbox', { name: 'Comment (optional)' }).fill(COMMENT);
-      await submit(page, 'Send');
+      await page.getByRole('textbox', { name: 'Comment · optional' }).fill(COMMENT);
+      await submit(page, 'Send answer');
     },
   },
   {
@@ -323,12 +330,30 @@ export const STATES: GalleryState[] = [
   },
   {
     name: 'question-2-blind-picked',
-    about: 'The reviewer picked a choice: the recommendation shows, with the comment kept.',
+    about:
+      "The first Send of a blind question: the recommendation shows, with the line that says the agent picked another choice, the first pick's tag, the comment kept, and Confirm answer.",
     async reach(session, page) {
       await question(session, page, 2);
       await choose(page, DROP);
-      await page.getByRole('textbox', { name: 'Comment (optional)' }).fill(COMMENT);
-      await submit(page, 'Pick');
+      await page.getByRole('textbox', { name: 'Comment · optional' }).fill(COMMENT);
+      await submit(page, 'Send answer');
+    },
+  },
+  {
+    name: 'question-2-blind-same-pick',
+    about: 'The first Send picked the choice the agent recommends: the line says that both picked the same choice.',
+    async reach(session, page) {
+      await question(session, page, 2);
+      await choose(page, CLOSE);
+      await submit(page, 'Send answer');
+    },
+  },
+  {
+    name: 'question-2-cancel-asked',
+    about: 'Cancel this answer, opened in the previous turn: the hint and Confirm: cancel my answer.',
+    async reach(session, page) {
+      await question(session, page, 2);
+      await page.getByText('Cancel this answer…').click();
     },
   },
   {
@@ -353,7 +378,7 @@ export const STATES: GalleryState[] = [
     async reach(session, page) {
       await question(session, page, 2);
       await choose(page, DROP);
-      await refused(session, page, () => session.answerInPane(), 'Pick');
+      await refused(session, page, () => session.answerInPane(), 'Send answer');
     },
   },
   {

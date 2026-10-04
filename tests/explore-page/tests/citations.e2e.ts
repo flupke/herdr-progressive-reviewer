@@ -16,14 +16,15 @@ test('a question shows the lines it cites, in the order the agent gave', async (
   // line right before the line that replaced it.
   const first = screen.getByRole('region', 'src/drafts.rs new 7-8');
   await expect(first).toContainText('this is the decision');
-  await expect(first.getByRole('row')).toHaveText([/^6 7 /, /^7 − /, /^8 \+ /]);
+  // A phone shows one number column: the new line's, or the old one's on a removed row.
+  await expect(first.getByRole('row')).toHaveText([/7 pub fn reopen/, /^7 − self\.draft/, /^8 \+ /]);
 });
 
 test('a citation of a whole file says so and shows no lines', async ({ explore, screen }) => {
   await explore.askQuestion();
   await explore.askQuestion();
   await explore.open();
-  const citation = screen.getByRole('region', 'src/drafts.rs (whole file)');
+  const citation = screen.getByRole('region', 'src/drafts.rs whole file');
   await expect(citation).toContainText('the citation names the whole file, not lines of it');
   await expect(citation.getByRole('row')).toHaveCount(0);
 });

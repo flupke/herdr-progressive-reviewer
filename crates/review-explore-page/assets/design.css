@@ -68,18 +68,6 @@
 .design-next .next-text p { margin: 0; }
 .design-next .hint { margin: 0; font-size: 13px; }
 .design-next .button { margin-top: 4px; }
-.door-chip {
-  padding: 1px 8px;
-  border: 1px solid currentColor;
-  border-radius: var(--radius-pill);
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 650;
-  letter-spacing: 0;
-  text-transform: none;
-}
-.door-chip.one-way { color: var(--warn); }
-.door-chip.two-way { color: var(--good); }
 
 /* The bar pinned to the bottom, on a phone only. */
 .design-bar { display: none; }

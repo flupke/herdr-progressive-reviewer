@@ -1,0 +1,60 @@
+{
+  "schemaVersion": "trace-1",
+  "createdAt": "2026-10-04T14:41:27.142Z",
+  "payload": {
+    "actions": [
+      {
+        "name": "tap",
+        "summary": "tap radio \"Overwrite the older file\" in \"Choices\"",
+        "target": {
+          "role": "radio",
+          "name": "Overwrite the older file",
+          "within": "Choices"
+        }
+      },
+      {
+        "name": "tap",
+        "summary": "tap button \"Send answer\" in \"Question 1\"",
+        "target": {
+          "role": "button",
+          "name": "Send answer",
+          "within": "Question 1"
+        }
+      }
+    ],
+    "executor": {
+      "name": "e2e-default-agent",
+      "version": "2"
+    },
+    "recordedFor": {
+      "testId": "tests/blind.e2e.ts::on%20a%20blind%20question%2C%20the%20first%20Send%20shows%20the%20recommendation%2C%20and%20the%20reviewer%20changes%20the%20pick%2C%20then%20confirms",
+      "targetId": "phone",
+      "instructionDigest": "4846e65a576cd6e571d76a57eef9ede6d3583dc3d5d9f67e3636971ff968be30"
+    },
+    "summary": "The recorded answer submission took effect: Question 1 shows the agent’s recommendation, “Rename the clashing files,” with its reason, while “Overwrite the older file” remains selected as the first pick. I did not send the answer again.",
+    "startPath": "/",
+    "endPath": "/",
+    "endAnchors": [
+      {
+        "text": "The agent recommends another choice."
+      },
+      {
+        "text": "◆ Agent recommends"
+      },
+      {
+        "text": "Renaming keeps every file, and the new names stay readable."
+      },
+      {
+        "text": "Your first pick"
+      },
+      {
+        "role": "button",
+        "name": "Confirm answer"
+      },
+      {
+        "text": "Read its reason, then keep yours or change it."
+      }
+    ],
+    "endWaitMs": 30464
+  }
+}

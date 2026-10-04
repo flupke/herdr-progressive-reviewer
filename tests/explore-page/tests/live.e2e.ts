@@ -34,12 +34,12 @@ test('the page waits while the reviewer restarts, then shows the round as it is 
   await explore.restartReviewer();
   await expect(screen.getByText('Reconnecting to the review tool', { exact: false })).toBeVisible();
   // Actions wait until the tool is back.
-  await expect(screen.getByRole('button', 'Send')).toBeDisabled();
+  await expect(screen.getByRole('button', 'Send answer')).toBeDisabled();
 
   await explore.answerInPane();
   await explore.reviewerBack();
   // The page tries again with a growing delay, of a few seconds by now.
   await expect(screen.getByRole('status')).toContainText('The agent is working on your answer', { timeout: 15_000 });
-  await expect(screen.getByRole('region', 'Your last answer')).toContainText('Keep the draft');
+  await expect(screen.getByRole('region', 'You answered Q1')).toContainText('Keep the draft');
   await expect(screen.getByText('Reconnecting to the review tool', { exact: false })).toBeHidden();
 });

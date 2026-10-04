@@ -10,14 +10,13 @@ import { ConclusionScreen } from './conclusion.js';
 import { DesignScreen } from './design.js';
 import { drawDiagrams, fitDiagrams } from './diagrams.js';
 import { h, keyOf, Region } from './dom.js';
-import { lastAnswer } from './last-answer.js';
 import { Masthead } from './masthead.js';
 import { QuestionScreen } from './question.js';
 import { quizSection } from './quiz.js';
-import { responseSection } from './response.js';
 import { openRound, route, STAGE } from './route.js';
 import { startCover } from './start.js';
 import { statusCard } from './status.js';
+import { turnStrip } from './turn.js';
 
 export class Page {
   /**
@@ -38,8 +37,7 @@ export class Page {
     this.design = new Region(this.designScreen, 'design');
     this.cards = new Region(this.stage, 'cards');
     this.start = new Region(this.stage, 'start');
-    this.lastAnswer = new Region(this.stage, 'last-answer');
-    this.response = new Region(this.stage, 'response');
+    this.turn = new Region(this.stage, 'turn');
     this.question = new Region(this.stage, 'question');
     this.conclusion = new Region(this.stage, 'conclusion');
     /** The screen the page shows, and the part of the design it shows. @type {string | null} */
@@ -68,12 +66,12 @@ export class Page {
     this.cards.show(keyOf(cards), () => cards.map(statusCard));
     const start = view.start;
     this.start.show(keyOf([start, view.review]), () => (start ? startCover(start, view.review) : null));
-    const answer = view.cancellable;
-    this.lastAnswer.show(keyOf(answer), () => (answer ? lastAnswer(answer) : null));
-    const response = view.response;
-    this.response.show(keyOf(response), () => (response ? responseSection(response) : null));
     this.renderQuestion(view);
-    this.renderConclusion(view);
+    const concluded = this.renderConclusion(view);
+    // The question and the conclusion show the previous turn on their own desk; any other stage,
+    // above it.
+    const turn = turnOf(view);
+    this.turn.show(view.question || concluded ? null : keyOf(turn), () => turnStrip(turn));
     this.renderDesign(view);
     this.masthead.update(view, !this.designScreen.hidden);
     drawDiagrams(this.main);
@@ -118,16 +116,17 @@ export class Page {
       return;
     }
     const key = keyOf([question.round, question.id, question.version, question.number]);
-    this.question.component(key, () => new QuestionScreen(question)).update(question);
+    this.question.component(key, () => new QuestionScreen(question)).update(question, turnOf(view));
   }
 
   /** The conclusion, or its quiz first: the item the reviewer just answered, or the next one.
-   * @param {PageView} view */
+   * @param {PageView} view
+   * @returns {boolean} whether the page shows the conclusion's own screen */
   renderConclusion(view) {
     const conclusion = view.conclusion;
     if (!conclusion) {
       this.conclusion.clear();
-      return;
+      return false;
     }
     const quiz = conclusion.quiz;
     const answered =
@@ -143,11 +142,12 @@ export class Page {
           this.render(/** @type {PageView} */ (this.view));
         }),
       );
-      return;
+      return false;
     }
     this.conclusion
       .component(`conclusion:${conclusion.request}`, () => new ConclusionScreen())
-      .update(conclusion, view.reset);
+      .update(conclusion, view.reset, turnOf(view));
+    return true;
   }
 
   /**
@@ -188,4 +188,12 @@ function scrollToFragment(top) {
   const target = named ? document.getElementById(location.hash.slice(1)) : null;
   if (target && !target.closest('[hidden]')) target.scrollIntoView();
   else window.scrollTo(0, top);
+}
+
+/** The previous turn of the view: the reviewer's latest answer, while it can be cancelled, and
+ * what the agent's turn said back to it.
+ * @param {PageView} view
+ * @returns {import('./turn.js').Turn} */
+function turnOf(view) {
+  return { answer: view.cancellable, response: view.response, number: view.answered };
 }

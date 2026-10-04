@@ -1,6 +1,6 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-03T21:11:59.075Z",
+  "createdAt": "2026-10-04T15:09:30.720Z",
   "payload": {
     "actions": [
       {
@@ -15,20 +15,20 @@
       },
       {
         "name": "type",
-        "summary": "type \"Keep it for a week instead.\" into textbox \"Comment (optional)\" in \"Question 1\"",
+        "summary": "type \"Keep it for a week instead.\" into textbox \"Comment · optional\" in \"Question 1\"",
         "target": {
           "role": "textbox",
-          "name": "Comment (optional)",
+          "name": "Comment · optional",
           "within": "Question 1"
         },
         "value": "Keep it for a week instead."
       },
       {
         "name": "tap",
-        "summary": "tap button \"Send\" in \"Question 1\"",
+        "summary": "tap button \"Send answer\" in \"Question 1\"",
         "target": {
           "role": "button",
-          "name": "Send",
+          "name": "Send answer",
           "within": "Question 1"
         }
       }
@@ -42,9 +42,39 @@
       "targetId": "desktop",
       "instructionDigest": "0d916904aed978f3e1412ded047b5f28e9c72eaf7eee93e4a9c96207acb16602"
     },
-    "summary": "Selected \"Discard the draft\", entered comment \"Keep it for a week instead.\", tapped Send. App now shows \"The agent is working…\".",
+    "summary": "Q1 shows the submitted answer “Discard the draft” and comment “Keep it for a week instead.” The agent is working on the answer.",
     "startPath": "/",
     "endPath": "/",
-    "endWaitMs": 14187
+    "endAnchors": [
+      {
+        "role": "listitem",
+        "name": "Q1 · working"
+      },
+      {
+        "text": "The agent is working on your answer"
+      },
+      {
+        "role": "button",
+        "name": "Stop waiting"
+      },
+      {
+        "text": "Your answer stays; Retry sends it again."
+      },
+      {
+        "text": "You answered Q1"
+      },
+      {
+        "text": "“Keep it for a week instead.”"
+      },
+      {
+        "role": "button",
+        "name": "Cancel this answer…"
+      },
+      {
+        "role": "document",
+        "name": "Agent working… — Keep the reviewer's draft when a round reopens"
+      }
+    ],
+    "endWaitMs": 27822
   }
 }

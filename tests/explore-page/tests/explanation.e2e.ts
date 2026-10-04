@@ -2,8 +2,12 @@ import { expect } from 'e2e';
 import { test } from './session.ts';
 
 // The standalone server's first question explains itself with a table whose cells carry status
-// marks, a Tip callout, raw HTML, and folded Door and Blast radius sections.
-test('a question shows its explanation, and its Door section on request', async ({ explore, screen, agent }) => {
+// marks, a Tip callout, raw HTML, and Door and Blast radius sections folded to their leads.
+test('a question shows its explanation, the lead of Blast radius, and the rest on request', async ({
+  explore,
+  screen,
+  agent,
+}) => {
   await explore.open();
   await explore.askQuestion();
   await screen.getByRole('link', 'Go to question 1').tap();
@@ -14,8 +18,11 @@ test('a question shows its explanation, and its Door section on request', async 
   // The agent's raw HTML shows as the text it typed.
   await expect(screen.getByText('A draft keeps what the reviewer typed, such as <b>tags</b>, as plain text.')).toBeVisible();
 
-  const door = screen.getByText('Two-way — Removing the field later drops only unsent drafts.');
-  await expect(door).toBeHidden();
-  await agent.act('open the "Door" section of question 1');
-  await expect(door).toBeVisible();
+  // Folded, a section shows its lead: the decisive reason.
+  await expect(question.getByText('Two-way — Removing the field later drops only unsent drafts.')).toBeVisible();
+  await expect(question).toContainText('Two-way door');
+  const unknown = screen.getByText('Unknown: How long drafts grow in long rounds.');
+  await expect(unknown).toBeHidden();
+  await agent.act('open the "Blast radius" section of question 1');
+  await expect(unknown).toBeVisible();
 });

@@ -1,7 +1,9 @@
 use crate::{Comparison, EvidenceRef};
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq, schemars::JsonSchema)]
+#[derive(
+    Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq, schemars::JsonSchema, ts_rs::TS,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum Door {
     OneWay,

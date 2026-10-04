@@ -59,20 +59,26 @@ test(
   'the reviewer cancels the last answer, and its question waits again',
   {
     agentContext:
-      'Cancel answer on this page is done once the question waits for an answer again, with Send.',
+      'Cancel answer on this page is done once the question waits for an answer again, with Send answer.',
   },
   async ({ explore, screen, agent }) => {
   await explore.open();
   await explore.askQuestion();
   await screen.getByRole('link', 'Go to question 1').tap();
   await explore.answerInPane();
-  await expect(screen.getByRole('region', 'Your last answer')).toContainText('Keep the draft');
+  await expect(screen.getByRole('region', 'You answered Q1')).toContainText('Keep the draft');
 
-  await agent.act('cancel your last answer');
+  // Cancel this answer asks for a confirmation first, and takes nothing back yet. An exact
+  // action: the point is what this one click does.
+  await screen.getByText('Cancel this answer…').tap();
+  await expect(screen.getByRole('button', 'Confirm: cancel my answer')).toBeVisible();
+  expect(await explore.actions()).toEqual([]);
+
+  await agent.act('confirm that you cancel your last answer');
   await expect(screen.getByRole('region', 'Question 1')).toBeVisible();
-  await expect(screen.getByRole('button', 'Send')).toBeVisible();
+  await expect(screen.getByRole('button', 'Send answer')).toBeVisible();
   expect(await explore.actions()).toEqual(['cancel-answer']);
-  await expect(screen.getByRole('region', 'Your last answer')).toHaveCount(0);
+  await expect(screen.getByRole('region', 'You answered Q1')).toHaveCount(0);
 });
 
 test(
@@ -149,11 +155,11 @@ test('a comment being typed comes back when the page follows the round back to i
   await screen.getByRole('link', 'Go to question 1').tap();
   // Exact actions: the comment must receive this exact text, then the pane moves the round away
   // from the question and back.
-  await screen.getByRole('textbox', 'Comment (optional)').fill('Keep it, but log the overflow.');
+  await screen.getByRole('textbox', 'Comment · optional').fill('Keep it, but log the overflow.');
   await explore.answerInPane();
   await expect(screen.getByRole('status')).toContainText('The agent is working');
 
   await explore.cancelAnswerInPane();
   await expect(screen.getByRole('region', 'Question 1')).toBeVisible();
-  await expect(screen.getByRole('textbox', 'Comment (optional)')).toHaveValue('Keep it, but log the overflow.');
+  await expect(screen.getByRole('textbox', 'Comment · optional')).toHaveValue('Keep it, but log the overflow.');
 });

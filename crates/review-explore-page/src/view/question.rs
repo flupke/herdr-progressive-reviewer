@@ -2,8 +2,9 @@
 //! agent's recommendation (hidden until the reviewer's first pick on a blind question), the
 //! lines an answer marks, and the citations.
 
-use review_explore::{Alternative, Assessments, MarkTense, Question};
+use review_explore::{Alternative, Assessments, Door, MarkPhrase, MarkTense, Question};
 use review_explore_citations::{Citation, CodeColors, HighlightedRow, Token};
+use review_explore_tally::Gain;
 use review_repository::diff::DiffRow;
 use serde::Serialize;
 use ts_rs::TS;
@@ -22,20 +23,25 @@ pub(crate) struct QuestionView {
     id: String,
     version: u32,
     text_html: String,
+    /// How hard the decision is to reverse, as the agent assessed it; `None` when it did not.
+    door: Option<Door>,
     /// The Context section; `None` when the question has none.
     context_html: Option<String>,
-    /// The Door and Blast radius sections, folded away until the reviewer opens them.
+    /// The Door and Blast radius sections, folded away until the reviewer opens them, each
+    /// showing its lead.
     sections: Vec<SectionView>,
     /// When the page shows the agent's recommendation.
     recommendation: Recommendation,
-    /// The agent's alternatives, then None of the above.
+    /// The agent's alternatives, then None of the above; once the recommendation shows after
+    /// the first pick, the choice picked first is the checked one.
     choices: Vec<ChoiceView>,
-    /// The text of the choice the reviewer picked first, once the recommendation shows.
-    first_pick: Option<String>,
     /// The question's citations, most decisive first.
     citations: Vec<CitationView>,
     /// The lines an answer marks, `None` when it marks none.
     marks: Option<MarksView>,
+    /// The reviewed share of the change before and after the answer; `None` when the tool
+    /// cannot tell, as when the code changed since the round started.
+    gain: Option<GainView>,
     /// Whether the page offers to answer: not in an earlier round.
     answerable: bool,
 }
@@ -68,12 +74,20 @@ struct ChoiceView {
 /// What an answer to the question marks: a summary, and the lines on request.
 #[derive(Debug, Serialize, TS)]
 struct MarksView {
-    /// "Will mark 4 lines reviewed · 20 lines not relevant".
-    summary: String,
+    /// "Answering marks", then "12 lines reviewed", "3 lines not relevant".
+    summary: MarkPhrase,
     reviewed: Vec<String>,
     /// Each with why it is not relevant.
     not_relevant: Vec<String>,
     reopened: Vec<String>,
+}
+
+/// The reviewed share of the change before and after the answer, in whole percent, as the
+/// reviewer's file list rounds it: "39% → 50%".
+#[derive(Debug, Serialize, TS)]
+struct GainView {
+    before: u64,
+    after: u64,
 }
 
 /// One citation: its location, its note, and the cited lines of the change, colored on the
@@ -82,6 +96,10 @@ struct MarksView {
 pub(crate) struct CitationView {
     /// The path, side and lines: `src/main.rs new 7-9`.
     location: String,
+    /// The path alone: `src/main.rs`.
+    path: String,
+    /// The side and lines alone: `new 7-9`, or `whole file`.
+    span: String,
     notes: String,
     rows: Vec<RowView>,
     /// Why the citation shows no rows.
@@ -141,7 +159,8 @@ impl QuestionView {
                 marks,
                 picked.as_deref(),
             )
-            .answerable(!round.earlier),
+            .answerable(!round.earlier)
+            .gain(round.gain.as_ref()),
         )
     }
 
@@ -171,6 +190,10 @@ impl QuestionView {
             id: question.id.clone(),
             version: question.version,
             text_html: markdown(&question.text, 2),
+            door: question
+                .assessments
+                .as_ref()
+                .map(|assessments| assessments.door),
             context_html: markdown_if_any(&question.context(), 2),
             sections: question
                 .assessments
@@ -179,19 +202,25 @@ impl QuestionView {
                 .map(|section| SectionView::new(&section, 2))
                 .collect(),
             recommendation,
-            first_pick: choices
-                .iter()
-                .find(|choice| choice.checked)
-                .map(|choice| choice.text.clone()),
             choices,
             citations: citations.iter().map(CitationView::new).collect(),
             marks: MarksView::new(marks),
+            gain: None,
             answerable: true,
         }
     }
 
     fn answerable(mut self, answerable: bool) -> Self {
         self.answerable = answerable;
+        self
+    }
+
+    /// The share the answer adds, when the answer marks lines.
+    fn gain(mut self, gain: Option<&Gain>) -> Self {
+        self.gain = gain.filter(|_| self.marks.is_some()).map(|gain| GainView {
+            before: gain.before.percent,
+            after: gain.after.percent,
+        });
         self
     }
 }
@@ -212,8 +241,8 @@ impl ChoiceView {
 
 impl MarksView {
     fn new(marks: &QuestionMarks) -> Option<Self> {
-        let summary = marks.counts().summary(MarkTense::Pending);
-        if summary.is_empty() {
+        let summary = marks.counts().phrase(MarkTense::Answering);
+        if summary.parts.is_empty() {
             return None;
         }
         Some(Self {
@@ -231,8 +260,14 @@ impl CitationView {
             Ok(rows) => (rows.iter().filter_map(RowView::new).collect(), None),
             Err(limitation) => (Vec::new(), Some(limitation.to_string())),
         };
+        let location = &citation.evidence.location;
         Self {
-            location: citation.evidence.location.to_string(),
+            location: location.to_string(),
+            path: location.path.display().to_string(),
+            span: location.lines.as_ref().map_or_else(
+                || "whole file".to_owned(),
+                |lines| format!("{} {lines}", location.side),
+            ),
             notes: citation.evidence.notes.clone(),
             rows,
             limitation,

@@ -7,6 +7,7 @@
 // leaves a reply being typed as it is.
 
 /** @import { ConclusionView, DecisionView, ImplementationView, QuizView } from "./types.ts" */
+/** @import { Turn } from "./turn.js" */
 
 import { h, keyOf, markdown, Region } from './dom.js';
 import { keepDraft } from './drafts.js';
@@ -14,6 +15,7 @@ import { openQuizResults, quizResults } from './quiz.js';
 import { disclosure } from './disclosure.js';
 import { resetConfirmation } from './masthead.js';
 import { panelActions, panelCard } from './status.js';
+import { turnStrip } from './turn.js';
 
 /** The words of each tag of a decision, and its colour. */
 const TAGS = {
@@ -26,9 +28,10 @@ const SHOWN_ITEMS = 3;
 
 export class ConclusionScreen {
   constructor() {
-    this.element = h(
-      'section',
-      { class: 'conclusion desk wide', 'aria-labelledby': 'conclusion-title' },
+    this.element = h('section', { class: 'conclusion desk wide', 'aria-labelledby': 'conclusion-title' });
+    // The previous turn, above the conclusion it led to.
+    this.turn = new Region(this.element, 'turn');
+    this.element.append(
       h('p', { class: 'eyebrow' }, 'The round is over'),
       h('h2', { id: 'conclusion-title' }, 'Conclusion'),
     );
@@ -43,8 +46,10 @@ export class ConclusionScreen {
   /**
    * @param {ConclusionView} conclusion
    * @param {string | null} reset the round Reset closes, when the page offers it
+   * @param {Turn} turn the turn that led to the conclusion
    */
-  update(conclusion, reset) {
+  update(conclusion, reset, turn) {
+    this.turn.show(keyOf(turn), () => turnStrip(turn));
     const lead = conclusion.lead_html;
     this.lead.show(keyOf(lead), () => (lead === null ? null : markdown(lead, 'lead')));
     const decisions = conclusion.decisions;

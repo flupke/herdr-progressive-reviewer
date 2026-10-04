@@ -82,6 +82,7 @@ impl ExploreSession {
     /// the stage changed.
     pub(crate) fn publish_page(&mut self) {
         let stage = self.page_stage();
+        self.publish_gain();
         let cancellable = self.cancellable();
         let overview = self.state.round.as_ref().map(|round| {
             // The turn this process delivers to the agent now, as `page_stage` tells it.

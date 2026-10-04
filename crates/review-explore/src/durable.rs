@@ -228,11 +228,24 @@ impl InterviewUpdate {
     }
 }
 
-/// Whether a summary of marks tells what they changed or what they will change.
+/// Whether a summary of marks tells what they changed, what they will change, or what answering
+/// the question that asks for them changes.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MarkTense {
     Applied,
     Pending,
+    Answering,
+}
+
+/// A summary of marks in two parts: its verb, and what it marks, each amount on its own, so
+/// that a page can set the first amount apart. `verb` names the first part's action: "Marked"
+/// when it marks lines, "Reopened" when it only reopens them.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, ts_rs::TS)]
+pub struct MarkPhrase {
+    pub verb: &'static str,
+    /// "4 lines reviewed", "30 lines not relevant", "reopened 1 line": the parts after the
+    /// first carry their own verb when it differs from `verb`. Empty when nothing changes.
+    pub parts: Vec<String>,
 }
 
 impl MarkCounts {
@@ -265,9 +278,19 @@ impl MarkCounts {
     /// "Marked 4 lines reviewed · 30 lines not relevant · reopened 1 line", naming only what
     /// changed; "Will mark … · reopen 1 line" before it did. Empty when nothing changes.
     pub fn summary(self, tense: MarkTense) -> String {
+        let phrase = self.phrase(tense);
+        if phrase.parts.is_empty() {
+            return String::new();
+        }
+        format!("{} {}", phrase.verb, phrase.parts.join(" · "))
+    }
+
+    /// The summary's verb, and what it marks.
+    pub fn phrase(self, tense: MarkTense) -> MarkPhrase {
         let (mark, reopen, reopen_also) = match tense {
             MarkTense::Applied => ("Marked", "Reopened", "reopened"),
             MarkTense::Pending => ("Will mark", "Will reopen", "reopen"),
+            MarkTense::Answering => ("Answering marks", "Answering reopens", "reopens"),
         };
         let amount = |lines: u32, files: u32| {
             let plural = |count: u32, one: &str, many: &str| {
@@ -284,37 +307,27 @@ impl MarkCounts {
                 )),
             }
         };
-        // Each part as it opens the summary and as it continues it.
-        let parts = [
-            amount(self.reviewed_lines, self.reviewed_files).map(|amount| {
-                (
-                    format!("{mark} {amount} reviewed"),
-                    format!("{amount} reviewed"),
-                )
-            }),
-            amount(self.not_relevant_lines, self.not_relevant_files).map(|amount| {
-                (
-                    format!("{mark} {amount} not relevant"),
-                    format!("{amount} not relevant"),
-                )
-            }),
-            amount(self.reopened_lines, self.reopened_files).map(|amount| {
-                (
-                    format!("{reopen} {amount}"),
-                    format!("{reopen_also} {amount}"),
-                )
-            }),
+        let marked = [
+            amount(self.reviewed_lines, self.reviewed_files)
+                .map(|amount| format!("{amount} reviewed")),
+            amount(self.not_relevant_lines, self.not_relevant_files)
+                .map(|amount| format!("{amount} not relevant")),
         ];
-        let mut summary = String::new();
-        for (opening, continuing) in parts.into_iter().flatten() {
-            if summary.is_empty() {
-                summary = opening;
+        let mut parts: Vec<String> = marked.into_iter().flatten().collect();
+        let reopened = amount(self.reopened_lines, self.reopened_files);
+        let verb = if parts.is_empty() && reopened.is_some() {
+            reopen
+        } else {
+            mark
+        };
+        if let Some(reopened) = reopened {
+            parts.push(if parts.is_empty() {
+                reopened
             } else {
-                summary.push_str(" · ");
-                summary.push_str(&continuing);
-            }
+                format!("{reopen_also} {reopened}")
+            });
         }
-        summary
+        MarkPhrase { verb, parts }
     }
 
     fn add<'a>(

@@ -93,3 +93,19 @@
 .disclosure-toggle[aria-expanded="true"]::before { content: "▾" / ""; }
 .disclosure-toggle:hover { color: var(--ink); }
 .disclosure-body { margin: 12px 0 0; }
+/* A row that opens as a whole (Door and Blast radius, the gain line): the disclosure's button
+   holds what the row shows folded, after its ▸. */
+.disclosure-row {
+  display: flex;
+  align-items: baseline;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.disclosure-row::before { content: "▸" / ""; flex: none; color: var(--muted); font-size: 12px; }
+.disclosure-row[aria-expanded="true"]::before { content: "▾" / ""; }

@@ -250,3 +250,27 @@ fn cancelling_an_answer_gives_a_binary_file_back_to_who_had_marked_it() {
         "a whole-file mark, not a mark of text lines"
     );
 }
+
+#[test]
+fn the_page_hears_what_answering_the_waiting_question_adds_as_marks_change() {
+    let mut harness = Harness::three_lines();
+    harness.capture();
+    let first = harness.request(None);
+    let access = harness.turn(&first);
+    assert!(applied(harness.submit(&access, first_question(&first))));
+    let shares = |harness: &Harness| {
+        harness
+            .page
+            .gain()
+            .map(|gain| (gain.before.percent, gain.after.percent))
+    };
+    assert_eq!(shares(&harness), Some((0, 33)));
+
+    // A line marked by hand while the question waits counts before and after the answer.
+    harness.mark_lines(&[1], &MarkAuthor::Reviewer);
+    assert_eq!(shares(&harness), Some((33, 66)));
+
+    // Once the question has its answer, none waits.
+    harness.answer("Keep it.");
+    assert_eq!(shares(&harness), None);
+}

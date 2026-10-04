@@ -1,8 +1,10 @@
 // The reviewer's actions: every form of the page names the request it sends (`data-method`),
 // and one listener turns its submit into that request on the socket, with the identities its
 // hidden fields carry. A form waits for its reply, so a second click sends nothing; while the
-// socket is down, every action waits, its button disabled. A refusal shows its notice; what an
-// action changed arrives as the next view, before its reply.
+// socket is down, every action waits, its button disabled. A form may also say what it needs
+// before it can be sent (`data-requires`): its button stays dimmed until then. A refusal shows
+// its notice; what an action changed arrives as the next view, before its reply, and the page
+// then brings the part that changed into view (`CHANGED`).
 
 /** @import { Call, Reply } from "./types.ts" */
 /** @import { Link } from "./socket.js" */
@@ -85,6 +87,24 @@ const CALLS = {
   }),
 };
 
+/** Where the result of each action shows, which the page brings into view when the reviewer
+ * cannot see it: the element its module marks with `data-shows` (the reveal of the
+ * recommendation after a first pick, the question waiting again after Cancel answer), or the
+ * round's state, a status card, after an answer. @type {Record<string, string>} */
+const CHANGED = {
+  pick: '[data-shows="pick"]',
+  answer: '.status-card',
+  'cancel-answer': '[data-shows="cancel-answer"]',
+};
+
+/** What each value of `data-requires` asks of a form before it can be sent.
+ * @type {Record<string, (form: HTMLFormElement) => boolean>} */
+const REQUIRES = {
+  choice: (form) => form.querySelector('input[name="choice"]:checked') !== null,
+  'choice-or-comment': (form) =>
+    REQUIRES.choice(form) || text(new FormData(form), 'comment').trim() !== '',
+};
+
 /**
  * @param {FormData} data
  * @param {string} name
@@ -126,7 +146,7 @@ export class Actions {
     if (!(form instanceof HTMLFormElement)) return;
     event.preventDefault();
     const make = CALLS[form.dataset.method ?? ''];
-    if (!make || form.dataset.sent === 'true' || !this.connected) return;
+    if (!make || form.dataset.sent === 'true' || !this.connected || !ready(form)) return;
     const call = make({ form, data: new FormData(form), submitter: event.submitter });
     this.sending(form, true);
     this.page.showNotice(null);
@@ -155,7 +175,11 @@ export class Actions {
       if (this.page.view) this.page.render(this.page.view);
     }
     // A Reset on the network ends the page's token: the page opens again with the next one.
-    if (reply.result.reopen !== null) location.replace(`/?token=${encodeURIComponent(reply.result.reopen)}`);
+    if (reply.result.reopen !== null) {
+      location.replace(`/?token=${encodeURIComponent(reply.result.reopen)}`);
+      return;
+    }
+    showChange(this.main, call.method);
   }
 
   /**
@@ -176,13 +200,40 @@ export class Actions {
     this.enable();
   }
 
-  /** Enables each submit button unless its form waits, the socket is down, or the round blocks
-   * it (`data-blocked`). Called after each render too. */
+  /** Enables each submit button unless its form waits, the socket is down, the round blocks it
+   * (`data-blocked`), or its form lacks what it requires. Called after each render and each edit
+   * too. */
   enable() {
     for (const button of this.main.ownerDocument.querySelectorAll('button[type="submit"]')) {
       if (!(button instanceof HTMLButtonElement)) continue;
       const form = button.form;
-      button.disabled = !this.connected || form?.dataset.sent === 'true' || button.dataset.blocked === 'true';
+      button.disabled =
+        !this.connected ||
+        form?.dataset.sent === 'true' ||
+        button.dataset.blocked === 'true' ||
+        (form !== null && !ready(form));
     }
   }
+}
+
+/** Whether `form` has what its `data-requires` asks for.
+ * @param {HTMLFormElement} form */
+function ready(form) {
+  const requires = form.dataset.requires;
+  return !requires || (REQUIRES[requires]?.(form) ?? true);
+}
+
+/**
+ * Brings the result of the action `method` into view, when it is out of view, and gives it the
+ * focus when it can take it.
+ * @param {HTMLElement} main
+ * @param {string} method
+ */
+function showChange(main, method) {
+  const selector = CHANGED[method];
+  const changed = selector ? main.querySelector(selector) : null;
+  if (!(changed instanceof HTMLElement)) return;
+  const box = changed.getBoundingClientRect();
+  if (box.top < 0 || box.top > window.innerHeight - 48) changed.scrollIntoView({ block: 'start' });
+  if (changed.tabIndex >= 0 || changed.hasAttribute('tabindex')) changed.focus({ preventScroll: true });
 }

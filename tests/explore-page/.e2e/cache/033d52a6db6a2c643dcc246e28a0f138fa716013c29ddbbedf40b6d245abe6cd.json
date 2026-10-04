@@ -1,0 +1,59 @@
+{
+  "schemaVersion": "trace-1",
+  "createdAt": "2026-10-04T15:21:48.151Z",
+  "payload": {
+    "actions": [
+      {
+        "name": "tap",
+        "summary": "tap button \"Confirm: cancel my answer\"",
+        "target": {
+          "role": "button",
+          "name": "Confirm: cancel my answer"
+        }
+      }
+    ],
+    "executor": {
+      "name": "e2e-default-agent",
+      "version": "2"
+    },
+    "recordedFor": {
+      "testId": "tests/control.e2e.ts::the%20reviewer%20cancels%20the%20last%20answer%2C%20and%20its%20question%20waits%20again",
+      "targetId": "phone",
+      "instructionDigest": "dcec82372d06359d293dd00bd989f801c3db97d9a8e4109a042b0ddcebfb6430"
+    },
+    "summary": "The confirm action has taken effect: Question 1 is back in its unanswered state, with the answer choices available and Send answer shown disabled until a new answer is selected.",
+    "startPath": "/#round",
+    "endPath": "/#round",
+    "endAnchors": [
+      {
+        "role": "listitem",
+        "name": "Q1"
+      },
+      {
+        "text": "Question 1"
+      },
+      {
+        "text": "Two-way door"
+      },
+      {
+        "role": "link",
+        "name": "Choices ↓"
+      },
+      {
+        "text": "Should a reopened round keep the reviewer's unsent draft?"
+      },
+      {
+        "text": "When the reviewer reopens a round, the pane rebuilds its editor from the saved round. The unsent draft lives only in memory today, so a reopen loses it."
+      },
+      {
+        "role": "columnheader",
+        "name": "Choice"
+      },
+      {
+        "role": "columnheader",
+        "name": "Survives a reopen"
+      }
+    ],
+    "endWaitMs": 26899
+  }
+}

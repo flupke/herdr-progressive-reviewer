@@ -1,0 +1,70 @@
+{
+  "schemaVersion": "trace-1",
+  "createdAt": "2026-10-04T15:09:31.930Z",
+  "payload": {
+    "actions": [
+      {
+        "name": "tap",
+        "summary": "tap radio \"Rename the clashing files\" in \"Choices\"",
+        "target": {
+          "role": "radio",
+          "name": "Rename the clashing files",
+          "within": "Choices"
+        }
+      },
+      {
+        "name": "tap",
+        "summary": "tap button \"Confirm answer\" in \"Question 1\"",
+        "target": {
+          "role": "button",
+          "name": "Confirm answer",
+          "within": "Question 1"
+        }
+      }
+    ],
+    "executor": {
+      "name": "e2e-default-agent",
+      "version": "2"
+    },
+    "recordedFor": {
+      "testId": "tests/blind.e2e.ts::on%20a%20blind%20question%2C%20the%20first%20Send%20shows%20the%20recommendation%2C%20and%20the%20reviewer%20changes%20the%20pick%2C%20then%20confirms",
+      "targetId": "desktop",
+      "instructionDigest": "2eb632ba586b89e6294ec7a32a8c8a035e37989aa4da3b7b366aa71ee9e622aa"
+    },
+    "summary": "Question 1 is answered with the agent-recommended choice, “Rename the clashing files.” The page now shows “The agent is working on your answer.”",
+    "startPath": "/",
+    "endPath": "/",
+    "endAnchors": [
+      {
+        "role": "listitem",
+        "name": "Q1 · working"
+      },
+      {
+        "text": "The agent is working on your answer"
+      },
+      {
+        "role": "button",
+        "name": "Stop waiting"
+      },
+      {
+        "text": "Your answer stays; Retry sends it again."
+      },
+      {
+        "text": "You answered Q1"
+      },
+      {
+        "role": "button",
+        "name": "Cancel this answer…"
+      },
+      {
+        "role": "document",
+        "name": "Agent working… — Keep the reviewer's draft when a round reopens"
+      },
+      {
+        "role": "status",
+        "name": "The agent is working on your answer"
+      }
+    ],
+    "endWaitMs": 28580
+  }
+}

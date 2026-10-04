@@ -27,6 +27,16 @@ impl ExploreSession {
         self.marks.mark_tally(round, question)
     }
 
+    /// Tells the page what answering the question the round waits for adds to the reviewed
+    /// share of the change. The tally is counted only while a question waits.
+    pub(crate) fn publish_gain(&self) {
+        let waits = self.state.round.as_ref().is_some_and(|round| {
+            !self.state.historical && round.exploration.waiting_turn().is_some()
+        });
+        let gain = if waits { self.mark_tally().gain } else { None };
+        self.page.mark_gain(gain);
+    }
+
     /// Read the review marks of `snapshot` again.
     pub(crate) fn read_marks(&mut self, snapshot: &Snapshot) {
         self.marks.read(&self.tracker, snapshot);

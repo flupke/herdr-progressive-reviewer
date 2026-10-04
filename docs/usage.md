@@ -406,20 +406,23 @@ the Explore tab; a page loaded before the last line was marked shows it once you
 again.
 
 To answer a question, pick a choice or None of the above, write an optional comment, and
-press **Send**; a comment without a choice works too. Under the choice the agent
-recommends, the page gives its reason. A question whose Door is one-way, mixed or unknown
-first hides the recommendation: the page lists the agent's choices in a mixed order, the
-same each time it shows the question, with None of the above last and none selected. Pick
-one, write your comment already if you like, and press **Pick**: the page then shows the
-recommendation, with your pick selected and your comment still in its box, and you keep or
-change them before you send. The comment is not part of an answer until you send it. The
+press **Send answer**; a comment without a choice works too. The choice the agent
+recommends carries a purple tag, with its reason. A question whose Door is one-way, mixed or
+unknown (its chip says so, beside "Blind pick") first hides the recommendation: the page
+lists the agent's choices in a mixed order, the same each time it shows the question, with
+None of the above last and none selected. Pick one, write your comment already if you like,
+and press **Send answer**: this first Send sends nothing yet. The page shows the
+recommendation, with a line that says whether you and the agent picked the same choice, your
+first pick tagged and selected, and your comment still in its box; you keep or change them,
+then press **Confirm answer**. The comment is not part of an answer until you confirm it. The
 reviewer saves your first pick with the answer, for statistics; the agent receives only the answer you send. A two-way question,
 or one with no Door, shows the recommendation at once, in the agent's order. So does a
 question asked again after a Cancel answer: you have seen its recommendation, and the
 answer keeps no new first pick. The agent receives the answer as
 if you had given it in the reviewer's Explore tab, which shows it under the question.
-Above **Send**, the page says how many lines your answer will mark reviewed and not
-relevant; open that line to list them. Once you send, the page shows that the agent is
+Above **Send answer**, the page says how many lines your answer marks reviewed and not
+relevant, and the share of the change that is reviewed before and after it; open that line
+to list the lines. Once you send, the page shows that the agent is
 working, then its next question or its conclusion as soon as the agent posts it.
 
 The page offers the actions of the reviewer's Explore tab for the round's state, and they
@@ -434,9 +437,10 @@ save the same result and send the agent the same prompt as there:
   reopened during the turn (when the prompt may have reached the agent already, the page
   says so: check the agent's conversation first). Retry sends the same turn again, the
   kickoff included.
-- **Cancel answer**, under **Your last answer**: the round goes back to the question that
-  answer answered, with the agent's turn after it and the review marks it led to taken back.
-  It is offered until an implementation request is made.
+- **Cancel this answer…**, in the previous turn above the question (what you answered,
+  beside what the agent recorded), behind **Confirm: cancel my answer**: the round goes back
+  to the question that answer answered, with the agent's turn after it and the review marks
+  it led to taken back. It is offered until an implementation request is made.
 - **Reply to the conclusion**: free text, which the agent takes up in its next turn.
 - **Reset**, in the page's ⋯ menu at the top right ("Reset this round…"), behind
   **Confirm reset**: it closes the round for good and the page offers Start again. The

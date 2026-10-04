@@ -141,6 +141,11 @@ impl Session {
         if let PageLink::Held { unseen } = &mut self.page {
             *unseen = Some(Box::new(stage));
         } else {
+            let gain = match &stage {
+                RoundStage::Question { marks, .. } => crate::round_data::fixed_gain(marks),
+                _ => None,
+            };
+            self.round.mark_gain(gain);
             self.round.publish(round, stage);
         }
     }
@@ -174,6 +179,7 @@ impl Session {
             round.name(review);
         }
         round.block_starts(feed.start_block());
+        round.mark_gain(feed.gain());
         self.round = round;
         self.page = PageLink::Away;
         self.publish(stage);
@@ -189,7 +195,11 @@ impl Session {
             _ => (&[][..], None),
         };
         let (picked, comment, first_pick) = match answer {
-            AnswerTaken::InPane => (alternatives.first(), String::new(), None),
+            AnswerTaken::InPane => (
+                alternatives.first(),
+                self.data.pane_comment().to_owned(),
+                None,
+            ),
             AnswerTaken::AfterFirstPick => {
                 let kept = alternatives
                     .iter()

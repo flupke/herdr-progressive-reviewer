@@ -1,0 +1,91 @@
+/* The question screen (docs/design/explore-page/README.md, "2. Question screen"). The previous
+   turn is in turn.css, the choice cards in choices.css, the chips and tags in tags.css, the
+   code frame of the citations in citations.css, the desk and the panel in layout.css. */
+
+/* The question's head: "QUESTION 2" with its chips, then the question as the headline. On a
+   phone, a link beside the eyebrow leads to the choices. */
+.question-head { margin: 0 0 14px; }
+.question-eyebrow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-bottom: 6px; }
+.choices-link { display: none; margin-left: auto; font-size: 13px; font-weight: 600; letter-spacing: normal; text-transform: none; }
+@media (max-width: 40rem) {
+  .choices-link { display: inline; }
+}
+.question-text { margin: 0; max-width: var(--measure); overflow-wrap: anywhere; }
+.question-text p { margin: 0; }
+.question-text p + p { margin-top: 8px; }
+.question-text code { font-size: 0.85em; background: var(--code-bg); border-radius: 4px; padding: 1px 4px; }
+
+/* Door and Blast radius: hairlined rows that open (client/disclosure.js). Folded, the lead
+   follows the label on one line, cut with an ellipsis; open, it wraps and the rest follows. */
+.assessments { max-width: 820px; margin: 20px 0 0; }
+.assessment { border-top: 1px solid var(--line); }
+.assessment:last-child { border-bottom: 1px solid var(--line); }
+.assessment-toggle { gap: 10px; padding: 11px 0; }
+.assessment-title { flex: none; font-weight: 650; }
+.assessment-lead { flex: 1 1 0; min-width: 0; color: var(--muted); }
+.assessment-lead p { display: inline; margin: 0; }
+.assessment-toggle[aria-expanded="false"] .assessment-lead { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.assessment > .disclosure-body { margin: 0; padding: 0 0 14px 22px; max-width: var(--measure); }
+.assessment > .disclosure-body:empty { padding: 0; }
+
+/* The panel: the reviewer's answer. */
+.answer > .hint { margin: 0; }
+
+/* The line that reveals the agent's recommendation after the first Send of a blind question:
+   purple when the agent recommends another choice, green when both picked the same. */
+.reveal { margin: 0; padding: 10px 12px; border-radius: var(--radius); font-size: 15px; }
+.reveal strong { display: block; font-weight: 650; }
+.reveal.other { background: color-mix(in srgb, var(--agent) 14%, transparent); }
+.reveal.same { background: color-mix(in srgb, var(--good) 14%, transparent); }
+.reveal:focus { outline: none; }
+
+/* "COMMENT · optional", and a box that grows with the comment. */
+.answer .comment-label { margin-top: 2px; font-weight: 650; }
+.answer .comment-label .optional { font-weight: 400; letter-spacing: 0; text-transform: none; }
+.answer .comment-label + .comment {
+  margin-top: -6px;
+  field-sizing: content;
+  min-height: 4.5lh;
+  max-height: 14lh;
+  line-height: 1.5;
+}
+
+/* The gain line: what answering marks, and the reviewed share of the change before and after,
+   with its bar (reviewed in green, what the answer adds hatched in accent); the lines open on
+   request. */
+.gain { padding: 12px; border-radius: var(--radius); background: var(--canvas); }
+.gain-toggle { flex-wrap: wrap; gap: 8px 6px; }
+.gain-toggle::before { font-size: 11px; }
+.gain > .disclosure-body { margin: 10px 0 0; }
+.gain-line { flex: 1 1 0; min-width: 0; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-size: 14px; }
+.gain-text { min-width: 0; overflow-wrap: anywhere; }
+.gain-text strong { font-weight: 650; }
+.gain-share { flex: none; color: var(--muted); font: 13px/1.5 var(--mono); white-space: nowrap; }
+.gain-share strong { color: var(--ink); font-weight: 400; }
+.gain-bar {
+  flex-basis: 100%;
+  display: flex;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--ink) 10%, transparent);
+}
+.gain-done { background: var(--good); }
+.gain-added {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--accent) 0 3px,
+    color-mix(in srgb, var(--accent) 35%, transparent) 3px 6px
+  );
+}
+.gain-lines { margin: 0; padding-left: 20px; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+
+/* Send answer stays in view at the bottom of the panel when a short window makes the panel
+   scroll on its own (design review, finding 8). */
+@media (min-width: 70rem) {
+  .answer > button[type="submit"] {
+    position: sticky;
+    bottom: 0;
+    box-shadow: 0 0 0 12px var(--panel), 0 16px 0 12px var(--panel);
+  }
+}

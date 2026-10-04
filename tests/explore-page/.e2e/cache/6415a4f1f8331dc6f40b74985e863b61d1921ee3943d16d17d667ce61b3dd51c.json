@@ -1,6 +1,6 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-04T14:35:41.879Z",
+  "createdAt": "2026-10-04T15:20:45.006Z",
   "payload": {
     "actions": [
       {
@@ -22,13 +22,12 @@
       "targetId": "desktop",
       "instructionDigest": "0fed0c0a3b770534daf79db42bba03b39b6bead6548413aa9018619bf5d6d475"
     },
-    "summary": "Opened Question 1 from the design; the question, choice options, comment field, and Send button are visible.",
+    "summary": "The current screen is Question 1: the “Should a reopened round keep the reviewer's unsent draft?” prompt, with its answer choices and citations, confirming navigation from the design succeeded.",
     "startPath": "/#design",
     "endPath": "/#round",
     "endAnchors": [
       {
-        "role": "heading",
-        "name": "Question 1"
+        "text": "Question 1"
       },
       {
         "text": "When the reviewer reopens a round, the pane rebuilds its editor from the saved round. The unsent draft lives only in memory today, so a reopen loses it."
@@ -59,6 +58,6 @@
         "text": "✗"
       }
     ],
-    "endWaitMs": 14828
+    "endWaitMs": 26964
   }
 }

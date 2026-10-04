@@ -1,6 +1,6 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-04T14:35:43.975Z",
+  "createdAt": "2026-10-04T15:21:54.757Z",
   "payload": {
     "actions": [
       {
@@ -22,13 +22,19 @@
       "targetId": "phone",
       "instructionDigest": "0fed0c0a3b770534daf79db42bba03b39b6bead6548413aa9018619bf5d6d475"
     },
-    "summary": "Opened Question 1 from the design. The screen shows the question, choices, comment field, and Send button.",
+    "summary": "The screen is on Question 1, showing the prompt “Should a reopened round keep the reviewer's unsent draft?” The transition from the design took effect.",
     "startPath": "/#design",
     "endPath": "/#round",
     "endAnchors": [
       {
-        "role": "heading",
-        "name": "Question 1"
+        "text": "Question 1"
+      },
+      {
+        "text": "Two-way door"
+      },
+      {
+        "role": "link",
+        "name": "Choices ↓"
       },
       {
         "text": "Should a reopened round keep the reviewer's unsent draft?"
@@ -47,16 +53,8 @@
       {
         "role": "columnheader",
         "name": "Cost"
-      },
-      {
-        "role": "cell",
-        "name": "Keep the draft"
-      },
-      {
-        "role": "cell",
-        "name": "Discard the draft"
       }
     ],
-    "endWaitMs": 14880
+    "endWaitMs": 30322
   }
 }

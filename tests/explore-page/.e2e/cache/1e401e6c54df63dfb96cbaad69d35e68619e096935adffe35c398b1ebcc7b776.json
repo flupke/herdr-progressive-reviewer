@@ -1,0 +1,40 @@
+{
+  "schemaVersion": "trace-1",
+  "createdAt": "2026-10-04T15:12:09.474Z",
+  "payload": {
+    "actions": [
+      {
+        "name": "tap",
+        "summary": "tap button \"Answering marks 4 lines reviewed · 20 l…\" in \"Question 1\"",
+        "target": {
+          "role": "button",
+          "name": "Answering marks 4 lines reviewed · 20 lines not relevant 38% → 56%",
+          "within": "Question 1"
+        }
+      }
+    ],
+    "executor": {
+      "name": "e2e-default-agent",
+      "version": "2"
+    },
+    "recordedFor": {
+      "testId": "tests/answer.e2e.ts::the%20page%20says%20what%20an%20answer%20marks%20and%20the%20share%20of%20the%20change%20it%20leaves%20reviewed%2C%20and%20lists%20the%20lines%20on%20request",
+      "targetId": "phone",
+      "instructionDigest": "217c6755288dd7b4be553b31bb5bd0118254fd92173acaad3f10bf92dc839296"
+    },
+    "summary": "Opened the “Answering marks” line. The expanded list shows src/drafts.rs new 10–13 (reviewed) and tests/drafts.rs new 1–20 (not relevant: follows the code).",
+    "startPath": "/",
+    "endPath": "/",
+    "endAnchors": [
+      {
+        "role": "listitem",
+        "name": "src/drafts.rs new 10-13 (reviewed)"
+      },
+      {
+        "role": "listitem",
+        "name": "tests/drafts.rs new 1-20 (not relevant: follows the code)"
+      }
+    ],
+    "endWaitMs": 13540
+  }
+}

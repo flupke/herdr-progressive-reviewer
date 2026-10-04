@@ -98,11 +98,15 @@ current one, so it cannot act twice (`CommandRefusal::AlreadyApplied`,
 
 On a question whose Door is not two-way, the page hides the recommendation until the
 reviewer's first pick (`src/blind.rs`), unless the reviewer answered the question
-before and cancelled the answer (`RoundStage::Question::answer_cancelled`): the pick is
-a request that the owner accepts while the round asks the question (`PageCommand::Pick`),
-then the page keeps it (`FirstPicks`), shows it to every tab, and the answer carries it
-to the owner as `AnswerInput::first_pick`. The comment typed with the pick stays in the
-answer's comment box, which keeps the same draft. A conclusion with a quiz shows it
+before and cancelled the answer (`RoundStage::Question::answer_cancelled`): the view the
+page holds before that pick carries neither the agent's reason nor any mark of the
+recommended choice, and the choices come in a mixed order. The reviewer's first Send is
+the pick, and sends no answer: a request that the owner accepts while the round asks the
+question (`PageCommand::Pick`), after which the page keeps it (`FirstPicks`) and shows
+every tab the recommendation, with the line that says whether the reviewer and the agent
+picked the same choice; the button becomes Confirm answer, and the answer it sends carries
+the first pick to the owner as `AnswerInput::first_pick`. The comment typed before the
+first Send stays in the answer's comment box, which keeps the same draft. A conclusion with a quiz shows it
 first, one item at a time (`assets/client/quiz.js`): the page grades a pick itself,
 saves it through the owner (`PageCommand::Quiz`), then shows the item's answer until the
 reviewer moves on; once every item is answered or the reviewer skips the rest, the
@@ -125,10 +129,10 @@ again with it.
 | The latest start failed | Retry, which starts again | The reason, and Start again (`StartFailed`) |
 | Capturing the change, waiting for a start from the page, or a kickoff waiting for Jev | Stop waiting | Stop waiting (`Starting`) |
 | Stopped while capturing | None: waits for the capture to end | `Starting`, then `NoRound` |
-| Waiting for the agent | Stop waiting; Cancel answer on the latest answer | Stop waiting; Cancel answer under Your last answer (`AgentWorking`) |
+| Waiting for the agent | Stop waiting; Cancel answer on the latest answer | Stop waiting; Cancel this answer in the previous turn (`AgentWorking`) |
 | Interrupted: the prompt failed, the agent did not start on it, the reviewer stopped waiting, or reopened during the turn | Retry, with the reason; Cancel answer | Retry, with the failure, an unknown delivery or a stop (`Interrupted`); Cancel answer |
 | Interrupted with no turn to send again | Reset | That only Reset is left (`Interrupted` with no request) |
-| A question | Send; Cancel answer of the previous answer | Send, after the first pick on a blind question (`Question`); Cancel answer |
+| A question | Send; Cancel answer of the previous answer | Send answer; on a blind question, a first Send that shows the recommendation, then Confirm answer (`Question`); Cancel this answer |
 | An earlier question in the history | A free-text answer | None: the page shows the current stage only |
 | The conclusion | Implement; Reply; Cancel answer until a request is made | Implement; Reply to the conclusion; Cancel answer (`Conclusion`), after the quiz, which only the page asks |
 | An implementation request being sent | Cancel implementation | Cancel the implementation request |
@@ -368,6 +372,157 @@ what it names, `.hint` the muted help line. Every control has a focus ring (`:fo
     <div class="design-bar"><p>Current · Question 1</p><a class="button primary block" href="#round">Go to question 1</a></div>
   </section>
   ```
+- **Chips and tags** (`tags.css`): a pill of 12 pixels. A chip names what a thing is, outlined
+  in its colour; a tag marks one item of a list, on a tint of its colour. One colour among
+  `good`, `warn`, `bad`, `agent`, `accent` and `neutral`. The chip of a question's Door comes
+  from `doorChip(door)` in `client/chips.js`, on the question screen and in the design
+  screen's panel:
+
+  ```html
+  <span class="chip warn">One-way door</span>   <span class="chip agent">Blind pick</span>
+  <span class="tag agent">◆ Agent recommends</span>   <span class="tag accent">Your first pick</span>
+  ```
+- **Previous turn** (`turn.css`, `client/turn.js`, `turnStrip({ answer, response, number })`,
+  with `number` the view's `answered`, the rail's number of the question the answer answered):
+  one hairlined block, with no frame and no fill, above the stage the turn led to (the first
+  row of the question's desk and of the conclusion's; above the stage itself elsewhere, until
+  each stage's screen places it on its own desk). What the reviewer answered beside what the agent recorded and
+  replied, each a region named by its eyebrow; then the follow-ups and Cancel this answer, a
+  disclosure (`disclosure.js`) with the quiet button's tier that opens its hint and Confirm:
+  cancel my answer. On a phone the columns stack, each `turn-text` clamps to two lines, and the
+  follow-ups hide:
+
+  ```html
+  <div class="turn">
+    <section class="turn-answer" aria-labelledby="turn-answer-title">
+      <p class="eyebrow" id="turn-answer-title">You answered Q1</p>
+      <div class="turn-text"><p class="turn-choice">…</p><p class="turn-comment">“…”</p></div>
+    </section>
+    <section class="turn-record" aria-labelledby="turn-record-title">
+      <p class="eyebrow" id="turn-record-title">The agent recorded</p>
+      <div class="turn-text"><div class="markdown turn-recap">…</div><div class="markdown turn-reply">…</div></div>
+    </section>
+    <div class="turn-foot">
+      <p class="turn-follow-ups">Follow-ups · … · …</p>
+      <div class="disclosure">
+        <button class="button quiet" type="button" aria-expanded="false" aria-controls="disclosure-1">Cancel this answer…</button>
+        <div class="disclosure-body" id="disclosure-1" hidden>
+          <form class="cancel-answer" data-method="cancel-answer">…hint…<button class="button secondary" type="submit">Confirm: cancel my answer</button></form>
+        </div>
+      </div>
+    </div>
+  </div>
+  ```
+- **Question head** (`question.css`): the eyebrow with the question's number, which names the
+  question's region, its chips, and on a phone the link to the answer; then the question as the
+  headline (`h2`, the agent's Markdown):
+
+  ```html
+  <header class="question-head">
+    <p class="eyebrow question-eyebrow">
+      <span id="question-2-label">Question 2</span>
+      <span class="chip warn">One-way door</span> <span class="chip agent">Blind pick</span>
+      <a class="choices-link" href="#answer">Choices ↓</a>
+    </p>
+    <h2 class="question-text">…</h2>
+  </header>
+  ```
+
+  The door's chip: "One-way door" `warn`, "Two-way door" `good`, "Mixed door" and "Door
+  unknown" `neutral`; "Blind pick" while the question is blind.
+- **Door and Blast radius rows** (`question.css`, each a disclosure of `disclosure.js` whose
+  button is a `disclosure-row`, a whole row after its ▸, in `buttons.css`): hairlined rows that
+  open; folded, the lead
+  (`SectionView::lead_html`, the section's decisive reason) follows the label on one line, cut
+  with an ellipsis; open, it wraps and the rest (`details_html`) follows:
+
+  ```html
+  <div class="assessments">
+    <div class="disclosure assessment">
+      <button class="disclosure-row assessment-toggle" type="button" aria-expanded="false" aria-controls="disclosure-2">
+        <span class="assessment-title">Door</span><span class="assessment-lead"><p>…</p></span>
+      </button>
+      <div class="disclosure-body" id="disclosure-2" hidden><div class="markdown">…</div></div>
+    </div>
+  </div>
+  ```
+- **Code frame** (`citations.css`, `client/citations.js`, `citation(view, id)`): the note, then
+  a `--panel` frame whose head (the citation's heading, which names its region) gives the path
+  and the lines; added and removed rows carry a bar in the gutter, and their tint unless every
+  row is added (`all-added`). A phone shows one number column, the new line's or, on a removed
+  row, the old one's. Citations after the first wait behind a disclosure ("▸ 1 more citation").
+  The quiz's proofs use the same frame:
+
+  ```html
+  <section class="citation" aria-labelledby="question-2-citation-1">
+    <p class="notes">…</p>
+    <div class="code-frame">
+      <h4 class="code-head" id="question-2-citation-1"><code>src/threads/reply.rs</code> <span>new 20-27</span></h4>
+      <div class="code" tabindex="0" role="group" aria-label="Lines of …">
+        <table><tbody><tr class="added"><td class="number old"></td><td class="number new">20</td><td class="sign">+</td><td class="line">…</td></tr></tbody></table>
+      </div>
+    </div>
+  </section>
+  ```
+- **Choice card** (`choices.css`, `choiceCards(choices, { picking, revealed })` in
+  `client/question.js`): a card on the page's surface with an 18-pixel radio on its
+  first line. Hover strengthens its frame (`--line-strong`); the selected card takes the
+  accent frame, 2 pixels, and an accent tint; the keyboard's focus rings it with a 2-pixel
+  outline. The radio is named by `choice-text` alone. A recommended card keeps a neutral frame
+  and adds the **recommendation tag**, a `choice-tags` row with the purple tag, and the
+  agent's reason under a dashed hairline, which describes the radio; the reviewer's first pick
+  of a blind question keeps the accent tag "Your first pick" once the recommendation shows:
+
+  ```html
+  <fieldset class="choices">
+    <legend class="eyebrow">Choices</legend>
+    <label class="choice recommended">
+      <input type="radio" name="choice" value="…" aria-labelledby="choice-3" aria-describedby="recommendation-3">
+      <span class="choice-text" id="choice-3">…</span>
+      <span class="choice-tags"><span class="tag agent">◆ Agent recommends</span></span>
+      <span class="choice-reason" id="recommendation-3">…</span>
+    </label>
+  </fieldset>
+  ```
+- **Reveal line** (`question.css`, `revealLine(choices)` in `client/question.js`): at the top of the answer panel once the first Send of a
+  blind question showed the recommendation; purple when the agent recommends another choice,
+  green when both picked the same. Never warn or red: disagreeing is information.
+
+  ```html
+  <p class="reveal other" tabindex="-1" data-shows="pick"><strong>The agent recommends another choice.</strong> Read its reason, then keep yours or change it.</p>
+  <p class="reveal same" tabindex="-1" data-shows="pick"><strong>You and the agent picked the same choice.</strong></p>
+  ```
+- **Gain line** (`question.css`, `gainLine(marks, gain)` in `client/question.js`): what answering marks (`MarksView::summary`, a
+  `MarkPhrase`: its verb, then each amount, the first in bold) and the reviewed share of the
+  change before and after (`GainView`, from the mark tally's `Gain`, rounded as the reviewer's
+  file list rounds it), with a bar: reviewed in `--good`, what the answer adds hatched in
+  accent. The lines open on request: the whole block is a disclosure's button. Without a share
+  (the tool cannot tell), the line shows the amounts alone:
+
+  ```html
+  <div class="disclosure gain">
+    <button class="disclosure-row gain-toggle" type="button" aria-expanded="false" aria-controls="disclosure-3">
+      <span class="gain-line">
+        <span class="gain-text">Answering marks <strong>12 lines reviewed</strong> · 3 lines not relevant</span>
+        <span class="gain-share">38% → <strong>49%</strong></span>
+      </span>
+      <span class="gain-bar" aria-hidden="true"><span class="gain-done" style="width: 38%"></span><span class="gain-added" style="width: 11%"></span></span>
+    </button>
+    <div class="disclosure-body" id="disclosure-3" hidden>
+      <ul class="gain-lines"><li>src/threads/reply.rs new 16-27 (reviewed)</li></ul>
+    </div>
+  </div>
+  ```
+
+  The answer panel holds, in order: the blind hint or the reveal line, the choices, the
+  comment (`COMMENT · optional`, a box that grows with its text), the gain line, and Send
+  answer or Confirm answer, which stays in view at the panel's bottom when a short window makes
+  the panel scroll. A form may say what it needs before it can be sent with `data-requires`
+  (`choice`, `choice-or-comment`; `REQUIRES` in `client/actions.js`): its button stays dimmed
+  until then. After an action, the page brings the part it changed into view when the reviewer
+  cannot see it (`CHANGED` in `client/actions.js`): the element its module marks with
+  `data-shows="<method>"` (the reveal line after a first pick, the question after Cancel
+  answer), or the status card after an answer.
 
 ### The page's client
 
@@ -407,8 +562,8 @@ only, with no `unsafe` value; its `connect-src` names the page's own `ws:` addre
   each form names its method (`data-method`), and `CALLS` says how its fields make the
   request's params.
 - One module per screen or region: `start.js`, `status.js` (the status card),
-  `last-answer.js`, `design.js` (the design screen, with its map and the part in view),
-  `response.js`, `question.js` (with the answer panel and the first pick), `citations.js`,
+  `design.js` (the design screen, with its map and the part in view), `turn.js` (the
+  previous turn), `chips.js` (the chip of a question's Door), `question.js` (with the answer panel and the first pick), `citations.js`,
   `conclusion.js` (with the reviewer's decisions, the list to be implemented, each state of
   its request and the reply), `quiz.js`, `masthead.js` (above `main`, with Reset in its menu),
   `disclosure.js` (a button that shows or hides an action behind a fold), and `diagrams.js`,

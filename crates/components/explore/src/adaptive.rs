@@ -19,7 +19,7 @@ impl ExploreComponent {
         layout.section("Context", &question.context(), palette);
         if let Some(assessment) = &question.assessments {
             for section in assessment.sections() {
-                layout.section(section.title, &section.body, palette);
+                layout.section(section.title, &section.body(), palette);
             }
         }
     }

@@ -172,12 +172,18 @@ impl MarkTally {
 
 impl Gain {
     fn of(change: &Tally) -> Self {
-        let marked = (change.share.marked + change.pending.total()).saturating_sub(change.reopened);
+        Self::new(change.pending, change.reopened, change.share)
+    }
+
+    /// What an answer that marks `pending` lines and reopens `reopened` marked ones does to the
+    /// share `before`.
+    pub fn new(pending: PendingLines, reopened: u64, before: Share) -> Self {
+        let marked = (before.marked + pending.total()).saturating_sub(reopened);
         Self {
-            pending: change.pending,
-            reopened: change.reopened,
-            before: change.share,
-            after: Share::of(marked, change.share.changed),
+            pending,
+            reopened,
+            before,
+            after: Share::of(marked.min(before.changed), before.changed),
         }
     }
 }
@@ -207,7 +213,9 @@ impl PendingLines {
 }
 
 impl Share {
-    fn of(marked: u64, changed: u64) -> Self {
+    /// `marked` of `changed` lines, with its percent rounded as the reviewer rounds a file's
+    /// reviewed share.
+    pub fn of(marked: u64, changed: u64) -> Self {
         let lines = |count: u64| u32::try_from(count).unwrap_or(u32::MAX);
         let count = LineCount {
             reviewed: lines(marked),

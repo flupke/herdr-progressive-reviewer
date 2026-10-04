@@ -19,6 +19,7 @@ impl ExploreSession {
             let _ = self.events.send(ui_events::ExploreStartBlock(block));
         }
         self.page.block_starts(block);
+        self.publish_gain();
     }
 
     /// Reads the review marks of `snapshot` again, tells the pane and the page as

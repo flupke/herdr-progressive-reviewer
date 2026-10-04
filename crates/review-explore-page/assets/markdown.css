@@ -61,10 +61,5 @@
 .markdown .callout-error { --kind: var(--bad); }
 .markdown .callout-error .callout-title::before { content: "✕"; }
 
-/* The explanation above the choices, and the folded Door and Blast radius sections. */
+/* The explanation above the choices. */
 .explanation { margin: 0 0 16px; }
-/* The folded sections are rows between hairlines, not boxes. */
-.assessment { border-top: 1px solid var(--line); }
-.assessment:last-of-type { border-bottom: 1px solid var(--line); margin-bottom: 16px; }
-.assessment > summary { cursor: pointer; padding: 10px 0; font-weight: 650; }
-.assessment > .markdown { padding: 0 0 12px; }
