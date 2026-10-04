@@ -13,6 +13,7 @@ resolver = "3"
 anyhow = "1.0"
 herdr-client = { path = "../../crates/herdr-client" }
 notify = "8.2"
+review-explore-page-settings = { path = "../../crates/review-explore-page-settings" }
 review-repository = { path = "../../crates/review-repository" }
 review-test-support = { path = "../../crates/review-test-support" }
 serde = { version = "1.0", features = ["derive"] }

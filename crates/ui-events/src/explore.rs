@@ -67,10 +67,16 @@ pub struct ExplorePageShared(pub String);
 #[derive(Clone, Debug)]
 pub struct ExplorePageNotShared(pub String);
 
-/// What Start and Start with Challenger do in the pane, as the settings say. Sent once, when the
-/// reviewer starts.
+/// The settings turned network access off: the Explore page is no longer served on the network,
+/// and the pane removes its address and QR code. No address of the page served before is sent
+/// after this.
+#[derive(Clone, Copy, Debug)]
+pub struct ExplorePageOffNetwork;
+
+/// The settings of the Explore page as they are saved: read when the reviewer starts, and again
+/// after each change the pane saves, with the changes another reviewer saved in between.
 #[derive(Clone, Debug)]
-pub struct ExplorePaneStarts(pub review_explore_page_opening::PaneStarts);
+pub struct ExplorePageSettingsLoaded(pub review_explore_page_settings::ExplorePageSettings);
 
 /// The browser could not open the Explore page the pane asked for: the pane says why and shows
 /// the page's address, when the page has one.

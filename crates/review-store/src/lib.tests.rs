@@ -2,6 +2,7 @@ use std::fs;
 use std::os::unix::fs::symlink;
 use std::time::{Duration, SystemTime};
 
+use review_explore_page_settings::{ExplorePageSetting, ExplorePageSettings, PaneStarts};
 use review_types::ReviewUnit;
 use tempfile::TempDir;
 
@@ -52,6 +53,82 @@ fn settings_are_shared_between_repositories() {
     assert_eq!(settings.file_pane_width().unwrap(), Some(42));
     assert_eq!(
         settings.editor_keymap().unwrap(),
+        review_types::EditorKeymap::Regular
+    );
+}
+
+#[test]
+fn explore_page_settings_start_with_their_defaults() {
+    let fixture = Fixture::new();
+
+    assert_eq!(
+        fixture.store().explore_page_settings().unwrap(),
+        ExplorePageSettings::default()
+    );
+}
+
+#[test]
+fn a_saved_explore_page_setting_is_read_back_and_keeps_the_other_settings() {
+    let fixture = Fixture::new();
+    fixture.store().save_file_pane_width(42).unwrap();
+    fixture
+        .store()
+        .save_explore_page_setting(ExplorePageSetting::Interface(Some("tailscale0".into())))
+        .unwrap();
+
+    let saved = fixture
+        .store()
+        .save_explore_page_setting(ExplorePageSetting::NetworkEnabled(false))
+        .unwrap();
+
+    let store = fixture.store();
+    assert_eq!(store.explore_page_settings().unwrap(), saved);
+    assert!(!saved.network.enabled);
+    assert_eq!(saved.network.interface.as_deref(), Some("tailscale0"));
+    assert_eq!(saved.pane_starts, PaneStarts::OnPage);
+    assert_eq!(store.file_pane_width().unwrap(), Some(42));
+    let file: serde_json::Value =
+        serde_json::from_slice(&fs::read(fixture.state.join("settings.json")).unwrap()).unwrap();
+    assert_eq!(file["explore_page"]["network"]["enabled"], false);
+    assert_eq!(file["explore_page"]["network"]["interface"], "tailscale0");
+}
+
+#[test]
+fn a_setting_saved_by_one_reviewer_keeps_the_setting_another_one_saved() {
+    let fixture = Fixture::new();
+    let first = fixture.store();
+    let second = fixture.store();
+
+    first
+        .save_explore_page_setting(ExplorePageSetting::NetworkEnabled(false))
+        .unwrap();
+    let saved = second
+        .save_explore_page_setting(ExplorePageSetting::PaneStarts(PaneStarts::InPane))
+        .unwrap();
+
+    assert!(!saved.network.enabled);
+    assert_eq!(saved.pane_starts, PaneStarts::InPane);
+}
+
+#[test]
+fn settings_saved_before_the_explore_page_settings_existed_give_their_defaults() {
+    let fixture = Fixture::new();
+    fs::create_dir_all(&fixture.state).unwrap();
+    fs::write(
+        fixture.state.join("settings.json"),
+        br#"{"file_pane_width": 37, "editor_keymap": "regular"}"#,
+    )
+    .unwrap();
+
+    let store = fixture.store();
+
+    assert_eq!(
+        store.explore_page_settings().unwrap(),
+        ExplorePageSettings::default()
+    );
+    assert_eq!(store.file_pane_width().unwrap(), Some(37));
+    assert_eq!(
+        store.editor_keymap().unwrap(),
         review_types::EditorKeymap::Regular
     );
 }

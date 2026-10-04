@@ -6,8 +6,7 @@
 use review_explore::RoundFront;
 use ui_actions::{Action, ExplorePageAction};
 use ui_controls::KeyHint;
-use ui_events::ExplorePaneStarts;
-use ui_shortcuts::{ExploreCommand, ExploreShortcut};
+use ui_shortcuts::{ExploreCommand, ExploreShortcut, ExploreTurnShortcut};
 use ui_theme::Palette;
 
 use super::start::{FrontControl, PageRoundButton, StartButton};
@@ -21,10 +20,6 @@ impl ExploreComponent {
             && (self.exploration.is_some()
                 || self.progress.awaiting_capture()
                 || self.awaiting_page_start())
-    }
-
-    pub(super) fn pane_starts_set(&mut self, event: &ExplorePaneStarts) {
-        self.pane_starts = event.0;
     }
 
     /// Run a control that chooses where the reviewer follows the round: a start, or a button
@@ -47,15 +42,21 @@ impl ExploreComponent {
         let Some(ExploreCommand::Explore(ExploreShortcut::Turn(shortcut))) = command else {
             return Vec::new();
         };
+        if let ExploreTurnShortcut::Setting(setting) = shortcut {
+            return self.page_setting(setting);
+        }
         PageRoundButton::of(shortcut)
             .map(|button| self.front_control(button.control))
             .unwrap_or_default()
     }
 
-    /// The keys the footer shows for the pane: those of the four starts on the start screen,
-    /// those of the buttons of a round on the page.
+    /// The keys the footer shows for the pane: none while a setting of the Explore page is
+    /// typed, those of the four starts on the start screen, those of the buttons of a round on
+    /// the page.
     pub fn footer_hints(&self) -> Vec<KeyHint> {
-        if self.shows_page_round() {
+        if self.page_settings.editing() {
+            Vec::new()
+        } else if self.shows_page_round() {
             PageRoundButton::hints()
         } else if self.offers_starts() {
             StartButton::hints(self.start_block)

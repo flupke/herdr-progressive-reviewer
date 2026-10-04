@@ -31,6 +31,7 @@ use review_ui::{
 use super::actions::ActionExecutors;
 use super::document;
 use super::highlighting;
+use super::page_sharing::PageSharing;
 use super::route::WorkerStopped;
 use super::worker::{Worker, WorkerCommand};
 use crate::watcher::SourceWatchRequests;
@@ -72,6 +73,9 @@ pub(super) struct Effects {
     commands: Sender<WorkerCommand>,
     documents: Sender<document::Command>,
     page_opener: Option<PageOpener>,
+    /// Applies the network settings to the Explore page; `None` until the page is served, and
+    /// in tests that serve no page.
+    page_sharing: Option<PageSharing>,
     /// Where results of slow or unrequested work go.
     messages: ApplicationEventSender,
     /// Taken first on drop, so agent delivery stops before repository work does.
@@ -166,6 +170,7 @@ impl Effects {
             commands,
             documents,
             page_opener,
+            page_sharing: None,
             messages,
             front: Some(FrontWorkers {
                 comments,
@@ -220,6 +225,11 @@ impl Effects {
 
     fn front(&self) -> &FrontWorkers {
         self.front.as_ref().expect("front workers run until drop")
+    }
+
+    /// Apply later network settings to the Explore page through `sharing`.
+    pub(super) fn share_page(&mut self, sharing: PageSharing) {
+        self.page_sharing = Some(sharing);
     }
 
     /// Where inputs for the Explore session join repository work.
@@ -435,6 +445,16 @@ impl ActionExecutors for Performer<'_, '_> {
         match action {
             SettingsAction::SaveFilePaneWidth(columns) => settings.save_file_pane_width(columns)?,
             SettingsAction::SaveEditorKeymap(keymap) => settings.save_editor_keymap(keymap)?,
+            SettingsAction::SaveExplorePage(setting) => {
+                let saved = settings.save_explore_page_setting(setting)?;
+                if let Some(sharing) = &self.effects.page_sharing {
+                    sharing.apply(&saved.network);
+                }
+                let _ = self
+                    .effects
+                    .messages
+                    .send(ui_events::ExplorePageSettingsLoaded(saved));
+            }
         }
         Ok(())
     }

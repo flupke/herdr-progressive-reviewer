@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 fs2.workspace = true
 herdr-client = { path = "../herdr-client" }
+review-explore-page-settings = { path = "../review-explore-page-settings" }
 review-repository = { path = "../review-repository" }
 serde_json.workspace = true
 tempfile.workspace = true

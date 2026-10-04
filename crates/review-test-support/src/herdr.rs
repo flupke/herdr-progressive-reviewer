@@ -9,7 +9,20 @@ use std::time::{Duration, Instant};
 
 use herdr_client::client::HerdrClient;
 
+use review_explore_page_settings::ExplorePageSettings;
+
 use crate::detection_rules::DetectionRules;
+
+/// Writes the reviewer settings file of the state directory `state` with the Explore page
+/// `settings`, as the reviewer saves them, and the defaults of the other settings.
+fn write_reviewer_settings(state: &Path, settings: &ExplorePageSettings) {
+    let saved = serde_json::json!({ "explore_page": settings });
+    fs::write(
+        state.join("settings.json"),
+        serde_json::to_vec(&saved).unwrap(),
+    )
+    .unwrap();
+}
 
 /// A real Herdr server with private sockets, configuration, and state.
 pub struct HerdrTestServer {
@@ -60,9 +73,11 @@ impl HerdrTestServer {
                 state_directory.clone().into_os_string(),
             ),
             ("SHELL".into(), "/bin/sh".into()),
-            // A test reviewer serves its Explore page on this machine only.
-            ("HERDR_REVIEWER_EXPLORE_NETWORK".into(), "off".into()),
         ]);
+        // A test reviewer serves its Explore page on this machine only.
+        let mut settings = ExplorePageSettings::default();
+        settings.network.enabled = false;
+        write_reviewer_settings(&state_directory, &settings);
         let mut server = Self {
             directory,
             // The dev shell pins this release. HERDR_BIN_PATH is not used:
@@ -104,6 +119,12 @@ impl HerdrTestServer {
     /// Return the private state directory.
     pub fn state_directory(&self) -> &Path {
         &self.state_directory
+    }
+
+    /// Give the reviewers this server starts the Explore page `settings`, in place of the
+    /// default of the tests, which keeps the page off the network.
+    pub fn set_explore_page_settings(&self, settings: &ExplorePageSettings) {
+        write_reviewer_settings(&self.state_directory, settings);
     }
 
     /// Return the environment for processes connected to this server.

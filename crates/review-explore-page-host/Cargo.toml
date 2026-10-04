@@ -12,12 +12,14 @@ herdr-client = { path = "../herdr-client" }
 nix = { version = "0.29", default-features = false, features = ["net"] }
 review-explore-page = { path = "../review-explore-page" }
 review-explore-page-opening = { path = "../review-explore-page-opening" }
+review-explore-page-settings = { path = "../review-explore-page-settings" }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
+review-test-support = { path = "../review-test-support" }
 tempfile.workspace = true
 
 [lints]

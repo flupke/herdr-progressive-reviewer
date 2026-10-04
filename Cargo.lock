@@ -1000,6 +1000,7 @@ dependencies = [
  "ratatui 0.30.2",
  "review-explore",
  "review-explore-page-opening",
+ "review-explore-page-settings",
  "review-repository",
  "review-source",
  "review-types",
@@ -3998,6 +3999,8 @@ dependencies = [
  "nix",
  "review-explore-page",
  "review-explore-page-opening",
+ "review-explore-page-settings",
+ "review-test-support",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -4022,6 +4025,14 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "review-explore-page-settings"
+version = "0.2.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -4194,6 +4205,7 @@ dependencies = [
  "herdr-client",
  "libc",
  "review-explore",
+ "review-explore-page-settings",
  "review-hunks",
  "review-repository",
  "review-source",
@@ -4214,6 +4226,7 @@ version = "0.2.0"
 dependencies = [
  "fs2",
  "herdr-client",
+ "review-explore-page-settings",
  "review-repository",
  "serde_json",
  "tempfile",
@@ -4284,6 +4297,7 @@ dependencies = [
  "ratatui-markdown",
  "review-explore",
  "review-explore-page-opening",
+ "review-explore-page-settings",
  "review-hunks",
  "review-lsp",
  "review-repository",
@@ -4328,7 +4342,7 @@ dependencies = [
  "review-explore",
  "review-explore-page",
  "review-explore-page-host",
- "review-explore-page-opening",
+ "review-explore-page-settings",
  "review-explore-session",
  "review-explore-stats",
  "review-hunks",
@@ -5576,6 +5590,7 @@ name = "ui-actions"
 version = "0.2.0"
 dependencies = [
  "review-explore",
+ "review-explore-page-settings",
  "review-hunks",
  "review-lsp",
  "review-repository",
@@ -5600,6 +5615,7 @@ version = "0.2.0"
 dependencies = [
  "review-explore",
  "review-explore-page-opening",
+ "review-explore-page-settings",
  "review-hunks",
  "review-lsp",
  "review-repository",

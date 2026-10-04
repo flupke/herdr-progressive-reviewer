@@ -6,7 +6,6 @@ use super::recovery::{restore, round, saved};
 use super::*;
 use crate::ExplorePageAction;
 use review_explore::{ExploreViewState, RoundFront, ViewSave};
-use review_explore_page_opening::PaneStarts;
 
 const RUNS_ON_PAGE: &str = "runs on the Explore page";
 
@@ -192,22 +191,4 @@ fn a_concluded_round_on_the_page_says_so() {
     let text = fixture.text();
     assert!(text.contains("Concluded"), "{text}");
     assert!(!text.contains("Nothing else to ask."), "{text}");
-}
-
-#[test]
-fn with_the_opening_turned_off_start_starts_a_round_in_the_pane() {
-    let mut fixture = ExploreUi::start_screen(BASE, POLICY);
-    fixture
-        .app
-        .publish(ui_events::ExplorePaneStarts(PaneStarts::InPane));
-
-    fixture.app.update(UserInput::Key(Key::Char('s')));
-    let captured = fixture.app.publish(ExploreCaptured {
-        result: Ok(fixture.comparison.clone()),
-    });
-
-    assert!(!captured.contains(&Action::ExplorePage(ExplorePageAction::Open)));
-    let request = ExploreUi::request(captured);
-    fixture.respond(&request, 1);
-    assert!(fixture.text().contains("Question 1"));
 }

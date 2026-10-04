@@ -214,10 +214,19 @@ it stays connected. It announces the page's address to the pane each time the
 token or its round changes, and the pane draws it with its QR code
 ([`crates/ui-qr-code`](../crates/ui-qr-code)). When the listener cannot start, the pane
 says why in place of the address (`ExplorePageNotShared`), with no toast. The settings
-are in the [usage guide](usage.md#open-the-page-from-a-phone). Herdr test servers turn it
-off (`HERDR_REVIEWER_EXPLORE_NETWORK=off`); a `make vision` session serves it on
-the loopback interface, so the pane shows a QR code that only this machine can
-open.
+are the reviewer's Explore page settings (`ExplorePageSettings` in
+[`crates/review-explore-page-settings`](../crates/review-explore-page-settings), saved by
+`ReviewStore` in `settings.json`; [usage guide](usage.md#explore-page-settings)). The pane
+changes one at a time and sends it as `SettingsAction::SaveExplorePage(ExplorePageSetting)`;
+the runtime saves that setting alone (`ReviewStore::save_explore_page_setting`, which keeps
+what another reviewer saved), sends the pane the settings as saved
+(`ExplorePageSettingsLoaded`), and `PageSharing` applies their network part at once: it moves the page to a new listener
+(`PageNetwork::share`) or takes it off the network (`PageNetwork::unshare`, then
+`ExplorePageOffNetwork`, after which no address of the old listener reaches the pane). Herdr
+test servers write a `settings.json` that turns network access off into their private state
+directory (`HerdrTestServer`); a `make vision` session sets the loopback interface and any free
+port instead (`HerdrTestServer::set_explore_page_settings`), so the pane shows a QR code that
+only this machine can open. Test sessions open no browser: they set `BROWSER` to a stand-in.
 
 ### Serve the page alone
 

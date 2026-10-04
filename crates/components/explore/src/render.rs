@@ -3,6 +3,7 @@ use super::{
     ComposeScope, Control, EditorTarget, ExploreComponent, Progress,
     flow::{Content, ConversationLayout},
 };
+use comment_editor::CommentEditor;
 use diff_component::{ClippedViewport, DiffComponent};
 use ratatui::{
     buffer::Buffer,
@@ -16,6 +17,34 @@ use ui_theme::Palette;
 
 fn format_elapsed(milliseconds: u64) -> String {
     format!("{}.{:01}s", milliseconds / 1000, milliseconds % 1000 / 100)
+}
+
+/// Draws `text_editor` in a frame titled `title`, highlighted while `editing`, with its status
+/// on the bottom border.
+fn draw_editor(
+    text_editor: &CommentEditor,
+    title: &str,
+    editing: bool,
+    viewport: ClippedViewport,
+    buffer: &mut Buffer,
+    palette: Palette,
+) {
+    let area = viewport.area();
+    let mut editor = Buffer::empty(area);
+    let frame = Frame::Pane { focused: editing };
+    let block = frame.block(palette, title);
+    let inner = block.inner(area);
+    block.render(area, &mut editor);
+    text_editor.render(inner, &mut editor, palette, true);
+    if area.height > 1 {
+        text_editor
+            .status_border(inner.width, frame.border_style(palette), palette)
+            .render(
+                Rect::new(inner.x, area.bottom() - 1, inner.width, 1),
+                &mut editor,
+            );
+    }
+    viewport.draw(&editor, buffer);
 }
 
 impl ExploreComponent {
@@ -60,6 +89,7 @@ impl ExploreComponent {
             self.transcript(&mut layout, diff, palette);
         }
         self.lay_out_unopened_page(&mut layout, palette);
+        self.lay_out_page_settings(&mut layout, palette);
         self.lay_out_network_page(&mut layout, palette);
         layout.position(self.scroll.get(), self.reveal.take());
         self.scroll.set(layout.scroll);
@@ -138,6 +168,18 @@ impl ExploreComponent {
                     focused,
                 );
             }
+            Content::SettingEditor => {
+                if let Some((editor, title)) = self.page_settings.editor() {
+                    draw_editor(
+                        editor,
+                        title,
+                        focused,
+                        ClippedViewport::new(area, skipped, item.height),
+                        buffer,
+                        palette,
+                    );
+                }
+            }
             Content::Controls(buttons) => {
                 super::controls::Button::render_row(buttons, area, buffer, palette);
             }
@@ -188,27 +230,19 @@ impl ExploreComponent {
         palette: Palette,
         focused: bool,
     ) {
-        let area = viewport.area();
-        let mut editor = Buffer::empty(area);
         let editing = self.editing && focused && self.editor_target == target;
-        let frame = Frame::Pane { focused: editing };
-        let block = frame.block(palette, self.editor_title(target, editing));
-        let inner = block.inner(area);
-        block.render(area, &mut editor);
         let text_editor = match target {
             EditorTarget::Answer => &self.editor,
             EditorTarget::Implementation => &self.conclusion().expect("conclusion editor").editor,
         };
-        text_editor.render(inner, &mut editor, palette, true);
-        if area.height > 1 {
-            text_editor
-                .status_border(inner.width, frame.border_style(palette), palette)
-                .render(
-                    Rect::new(inner.x, area.bottom() - 1, inner.width, 1),
-                    &mut editor,
-                );
-        }
-        viewport.draw(&editor, buffer);
+        draw_editor(
+            text_editor,
+            &self.editor_title(target, editing),
+            editing,
+            viewport,
+            buffer,
+            palette,
+        );
     }
 
     fn transcript(&self, layout: &mut ConversationLayout, diff: &DiffComponent, palette: Palette) {

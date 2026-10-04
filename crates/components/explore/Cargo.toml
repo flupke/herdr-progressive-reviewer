@@ -11,6 +11,7 @@ diff-component = { path = "../diff" }
 files-component = { path = "../files" }
 review-explore = { path = "../../review-explore" }
 review-explore-page-opening = { path = "../../review-explore-page-opening" }
+review-explore-page-settings = { path = "../../review-explore-page-settings" }
 review-source = { path = "../../review-source" }
 component-core = { path = "../../component-core" }
 ui-actions = { path = "../../ui-actions" }

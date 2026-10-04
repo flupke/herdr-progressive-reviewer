@@ -8,6 +8,7 @@ mod effects;
 mod events;
 mod highlighting;
 mod jev;
+mod page_sharing;
 mod review_marks;
 mod route;
 mod terminal;
@@ -43,8 +44,8 @@ use herdr_client::protocol::{AgentTarget, PaneId, PluginContext, WorkspaceId};
 use ratatui::Terminal;
 use ratatui::backend::Backend;
 use review_explore_page::{CommandSender, PageRound, RoundFeed, RoundPublisher};
-use review_explore_page_host::{Browser, NetworkAccess, PageDirectory, PageHost, PageOpener};
-use review_explore_page_opening::PaneStarts;
+use review_explore_page_host::{Browser, PageDirectory, PageHost, PageOpener};
+use review_explore_page_settings::ExplorePageSettings;
 use review_explore_session as explore_session;
 use review_repository::repository::Repository;
 use review_store::ReviewStore;
@@ -143,7 +144,8 @@ impl Runtime {
         let mut terminal = TerminalGuard::new()?;
         let mut app = ReviewApplication::new(self.theme, file_pane_width, root);
         app.set_editor_keymap(settings.editor_keymap()?);
-        Self::apply_pane_starts(&mut app);
+        let explore_page = settings.explore_page_settings()?;
+        let _ = app.publish(ui_events::ExplorePageSettingsLoaded(explore_page.clone()));
         let area = terminal.terminal.size()?;
         let _ = app.update(UserInput::Resize {
             width: area.width,
@@ -177,7 +179,7 @@ impl Runtime {
                 interactive: input_sender.clone(),
             },
         );
-        let page = self.serve_explore_page(page_stages, effects.explore_inbox(), &event_sender);
+        let page = self.serve_explore_page(page_stages, &explore_page, &mut effects, &event_sender);
         let producer_stop_requested = Arc::new(AtomicBool::new(false));
         let mut event_producers = RuntimeEventProducers::new(Arc::clone(&producer_stop_requested));
         event_producers.push(Self::start_herdr_events(
@@ -220,21 +222,17 @@ impl Runtime {
     }
 
     /// Serve the Explore page of the session's round, for the Herdr action that opens it, and
-    /// to the network for the pane's QR code unless the settings turn that off. The page's
-    /// commands join the session's other inputs.
+    /// to the network for the pane's QR code as the `settings` say. The page's commands join
+    /// the session's other inputs, and later settings reach the page through the `effects`.
     fn serve_explore_page(
         &self,
         stages: RoundFeed,
-        explore: explore_session::Inbox,
+        settings: &ExplorePageSettings,
+        effects: &mut Effects,
         events: &EventSender<EventEnvelope>,
     ) -> Option<PageHost> {
-        let toast = |text: String| {
-            let _ = events.send(EventEnvelope::new(ui_events::ToastRequested {
-                text,
-                kind: toasts::ToastKind::Error,
-            }));
-        };
         let directory = PageDirectory::new(&self.state_dir);
+        let explore = effects.explore_inbox();
         let commands = CommandSender::new(move |command, reply| {
             explore.deliver(explore_session::Input::Page { command, reply });
         });
@@ -242,28 +240,16 @@ impl Runtime {
         let host = match PageHost::start(round, &directory, &self.workspace_id) {
             Ok(host) => host,
             Err(error) => {
-                toast(format!("Cannot serve the Explore page: {error}"));
+                let _ = events.send(EventEnvelope::new(ui_events::ToastRequested {
+                    text: format!("Cannot serve the Explore page: {error}"),
+                    kind: toasts::ToastKind::Error,
+                }));
                 return None;
             }
         };
-        let listener = NetworkAccess::from_env()
-            .and_then(|access| access.listen().map_err(|error| error.to_string()));
-        match listener {
-            Ok(Some(listener)) => {
-                let events = events.clone();
-                host.share(listener, move |url| {
-                    let shared = ui_events::ExplorePageShared(url.to_owned());
-                    let _ = events.send(EventEnvelope::new(shared));
-                });
-            }
-            Ok(None) => {}
-            // Not an error toast: without a network, or with the ports busy, it would show at
-            // every start. The pane says it in place of the address.
-            Err(error) => {
-                let not_shared = ui_events::ExplorePageNotShared(error);
-                let _ = events.send(EventEnvelope::new(not_shared));
-            }
-        }
+        let sharing = page_sharing::PageSharing::new(host.network(), events.clone());
+        sharing.apply(&settings.network);
+        effects.share_page(sharing);
         Some(host)
     }
 
@@ -274,20 +260,6 @@ impl Runtime {
             self.workspace_id.clone(),
             Browser::from_env(),
         )
-    }
-
-    /// Tell the pane what Start and Start with Challenger do, as the settings say. A setting the
-    /// reviewer cannot read keeps the default, and a toast says why.
-    fn apply_pane_starts(app: &mut ReviewApplication) {
-        let setting = env::var(PaneStarts::VARIABLE).ok();
-        let starts = PaneStarts::from_setting(setting.as_deref()).unwrap_or_else(|error| {
-            let _ = app.publish(ui_events::ToastRequested {
-                text: error,
-                kind: toasts::ToastKind::Error,
-            });
-            PaneStarts::default()
-        });
-        let _ = app.publish(ui_events::ExplorePaneStarts(starts));
     }
 
     /// Saved Explore state changed by another reviewer reaches the Explore session.

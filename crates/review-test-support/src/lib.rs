@@ -35,6 +35,14 @@ pub fn eventually(timeout: Duration, mut condition: impl FnMut() -> bool) -> boo
     }
 }
 
+/// Whether `address` refuses TCP connections within five seconds: a listener closes on the thread
+/// that serves it, soon after it is told to.
+pub fn refuses_connections(address: std::net::SocketAddr) -> bool {
+    eventually(Duration::from_secs(5), || {
+        std::net::TcpStream::connect(address).is_err()
+    })
+}
+
 /// The repository layout for a jj integration fixture.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum JjLayout {

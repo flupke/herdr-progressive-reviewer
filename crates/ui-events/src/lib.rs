@@ -6,10 +6,10 @@ pub use explore::{
     EvidenceView, ExploreAnswerCancelled, ExploreAutosave, ExploreCaptured, ExploreCommitted,
     ExploreComparisonAccepted, ExploreEvidence, ExploreEvidenceInput, ExploreFinished,
     ExploreHistoryChanged, ExploreImplementationFinished, ExploreImplementationSaved,
-    ExplorePageNotOpened, ExplorePageNotShared, ExplorePageReset, ExplorePageShared,
-    ExplorePageStart, ExplorePageStopped, ExplorePaneStarts, ExplorePositionsRestored,
-    ExplorePosted, ExploreProgress, ExploreRestored, ExploreStartBlock, ExploreStorageFailed,
-    ExploreSubmission, ExploreViewports,
+    ExplorePageNotOpened, ExplorePageNotShared, ExplorePageOffNetwork, ExplorePageReset,
+    ExplorePageSettingsLoaded, ExplorePageShared, ExplorePageStart, ExplorePageStopped,
+    ExplorePositionsRestored, ExplorePosted, ExploreProgress, ExploreRestored, ExploreStartBlock,
+    ExploreStorageFailed, ExploreSubmission, ExploreViewports,
 };
 pub use threads::{
     NewRepliesRequested, ReviewNavigation, ReviewNavigationChanged, ReviewPane,

@@ -232,9 +232,15 @@ mod explore_page {
 
     use herdr_client::protocol::WorkspaceId;
     use review_explore_page::{CommandRefusal, CommandSender, PageRound, RoundPublisher};
-    use review_explore_page_host::{Browser, PageDirectory, PageHost, PageOpener};
+    use review_explore_page_host::{Browser, NetworkAccess, PageDirectory, PageHost, PageOpener};
+    use review_explore_page_settings::{ExplorePageSetting, PaneStarts};
     use review_ui::ExplorePageAction;
-    use ui_events::ExplorePageNotOpened;
+    use ui_events::{
+        ExplorePageNotOpened, ExplorePageNotShared, ExplorePageOffNetwork,
+        ExplorePageSettingsLoaded, ExplorePageShared,
+    };
+
+    use crate::runtime::page_sharing::PageSharing;
 
     use super::*;
 
@@ -328,5 +334,122 @@ mod explore_page {
                 .chain(events)
                 .all(|event| event.downcast_ref::<ExplorePageNotOpened>().is_none())
         );
+    }
+
+    /// Network access on the loopback interface, which stands in for a network interface.
+    fn loopback() -> NetworkAccess {
+        let mut access = NetworkAccess::default();
+        access.set_interface(if cfg!(target_os = "linux") {
+            "lo"
+        } else {
+            "lo0"
+        });
+        access.first_port = 0;
+        access
+    }
+
+    /// The address of `url`, an address of the page on the network.
+    fn socket(url: &str) -> std::net::SocketAddr {
+        let rest = url.strip_prefix("http://").unwrap();
+        rest[..rest.find('/').unwrap()].parse().unwrap()
+    }
+
+    /// Effects that apply the network settings to the page of `host`, with the loopback
+    /// interface and any free port saved, and the address the page got there.
+    fn sharing(host: &PageHost) -> (EffectsFixture, String) {
+        let mut fixture = EffectsFixture::new(RepoType::Git);
+        let access = loopback();
+        for setting in [
+            ExplorePageSetting::Interface(access.interface.clone()),
+            ExplorePageSetting::FirstPort(access.first_port),
+        ] {
+            fixture.store.save_explore_page_setting(setting).unwrap();
+        }
+        let sharing = PageSharing::new(host.network(), fixture.background.clone());
+        sharing.apply(&access);
+        let ExplorePageShared(url) = fixture.wait_for::<ExplorePageShared>();
+        fixture.effects.share_page(sharing);
+        (fixture, url)
+    }
+
+    fn save(setting: ExplorePageSetting) -> Action {
+        Action::Settings(SettingsAction::SaveExplorePage(setting))
+    }
+
+    #[test]
+    fn turning_network_access_off_takes_the_page_off_the_network_and_on_brings_it_back() {
+        let pages = tempfile::tempdir().unwrap();
+        let host = host(pages.path());
+        let (mut fixture, url) = sharing(&host);
+
+        fixture.perform([save(ExplorePageSetting::NetworkEnabled(false))]);
+
+        fixture.wait_for::<ExplorePageOffNetwork>();
+        assert!(review_test_support::refuses_connections(socket(&url)));
+        let ExplorePageSettingsLoaded(saved) = fixture.wait_for::<ExplorePageSettingsLoaded>();
+        assert!(!saved.network.enabled);
+        assert_eq!(saved, fixture.store.explore_page_settings().unwrap());
+
+        fixture.perform([save(ExplorePageSetting::NetworkEnabled(true))]);
+        let ExplorePageShared(again) = fixture.wait_for::<ExplorePageShared>();
+        assert!(std::net::TcpStream::connect(socket(&again)).is_ok());
+        assert!(
+            fixture
+                .store
+                .explore_page_settings()
+                .unwrap()
+                .network
+                .enabled
+        );
+    }
+
+    #[test]
+    fn a_change_keeps_the_settings_another_reviewer_saved_and_shows_them() {
+        let pages = tempfile::tempdir().unwrap();
+        let host = host(pages.path());
+        let (mut fixture, url) = sharing(&host);
+        let other = ReviewStore::open(fixture.state.path(), fixture.repository.root()).unwrap();
+        other
+            .save_explore_page_setting(ExplorePageSetting::NetworkEnabled(false))
+            .unwrap();
+
+        fixture.perform([save(ExplorePageSetting::PaneStarts(PaneStarts::InPane))]);
+
+        let ExplorePageSettingsLoaded(saved) = fixture.wait_for::<ExplorePageSettingsLoaded>();
+        assert_eq!(saved.pane_starts, PaneStarts::InPane);
+        assert!(!saved.network.enabled, "the other reviewer's change stays");
+        assert!(review_test_support::refuses_connections(socket(&url)));
+    }
+
+    #[test]
+    fn an_interface_with_no_address_says_why_and_is_tried_again_when_saved_again() {
+        let pages = tempfile::tempdir().unwrap();
+        let host = host(pages.path());
+        let (mut fixture, url) = sharing(&host);
+        let unknown = ExplorePageSetting::Interface(Some("no-such-interface0".into()));
+
+        fixture.perform([save(unknown.clone())]);
+
+        let ExplorePageNotShared(reason) = fixture.wait_for::<ExplorePageNotShared>();
+        assert!(reason.contains("no-such-interface0"), "{reason}");
+        assert!(review_test_support::refuses_connections(socket(&url)));
+        fixture.perform([save(unknown)]);
+        fixture.wait_for::<ExplorePageNotShared>();
+    }
+
+    #[test]
+    fn a_setting_that_leaves_the_network_as_it_was_keeps_the_page_where_it_is() {
+        let pages = tempfile::tempdir().unwrap();
+        let host = host(pages.path());
+        let (mut fixture, url) = sharing(&host);
+
+        fixture.perform([save(ExplorePageSetting::PaneStarts(PaneStarts::InPane))]);
+
+        let events = fixture.events_until::<ExplorePageSettingsLoaded>();
+        assert!(events.iter().all(|event| {
+            event.downcast_ref::<ExplorePageShared>().is_none()
+                && event.downcast_ref::<ExplorePageOffNetwork>().is_none()
+        }));
+        assert!(std::net::TcpStream::connect(socket(&url)).is_ok());
     }
 }

@@ -379,10 +379,10 @@ command = "herdr.progressive-reviewer.explore-page"
 description = "open the Explore page"
 ```
 
-If you always work in the pane, set `HERDR_REVIEWER_EXPLORE_BROWSER=off` in the environment
-Herdr runs in, then reopen the reviewer: Start and Start with Challenger then start the round
-in the pane, as Start in the pane does. `on`, the default, opens the page. The action
-opens the page whatever this setting says.
+If you always work in the pane, turn **Open the page on Start** off in the
+[Explore page settings](#explore-page-settings) (`w`): Start and Start
+with Challenger then start the round in the pane, as Start in the pane does. On, the default,
+opens the page. The action opens the page whatever this setting says.
 
 The page shows the round's current question with its explanation and choices, or that the agent is
 working, that it is no longer working on its turn and why, that no round is running, or the
@@ -541,16 +541,8 @@ MCP endpoint is never served on the network.
 Anyone who can read your network's traffic can copy the token and use the page as you until
 the round ends, and on the start screen before it; a Reset from such a copy hands it the
 next start screen's token too ([ADR 0003](adr/0003-serve-the-explore-page-on-the-network.md)).
-Turn network access off where you do not trust the network. The settings are environment
-variables of the reviewer process, read when it starts. The reviewer pane inherits the
-environment Herdr runs in: set them before starting Herdr (for example in your shell
-profile), then reopen the reviewer.
-
-| Variable | Effect |
-| --- | --- |
-| `HERDR_REVIEWER_EXPLORE_NETWORK=off` | Keeps the page on this machine: no network listener, no QR code. `on`, the default, serves it. |
-| `HERDR_REVIEWER_EXPLORE_INTERFACE` | The interface whose IPv4 address the page listens on, such as `wlan0` or a VPN's `tailscale0`. By default, the interface of the route to the internet. |
-| `HERDR_REVIEWER_EXPLORE_PORT` | The first port tried, 8790 by default. When another reviewer holds it, the page takes the next free one of the ten ports from it. |
+Turn network access off where you do not trust the network, in the
+[Explore page settings](#explore-page-settings).
 
 A reviewer that cannot serve the page on the network (no network address, an unknown
 interface, all ten ports taken) keeps the page on this machine, and the pane says, in one
@@ -565,6 +557,31 @@ sudo ufw allow from 192.168.1.0/24 to any port 8790:8799 proto tcp
 ```
 
 Remove the rule with `sudo ufw delete allow from 192.168.1.0/24 to any port 8790:8799 proto tcp`.
+
+### Explore page settings
+
+Every screen of the Explore tab shows the settings of the Explore page with their values, at
+its end, above the page's address and QR code. No setting needs the reviewer to be reopened:
+a change takes effect at once, and is saved with the reviewer's other settings
+(`settings.json` in `$HERDR_PLUGIN_STATE_DIR`), which the reviewers of the machine share. A
+change saves only the setting it changes, so it keeps what another reviewer saved, and the pane
+then shows the settings as saved. Another reviewer that is already open does not see a change
+at once: it keeps its own settings, and network access as it was, until it is reopened or
+saves a change of its own; then it applies the saved settings, including what this reviewer
+changed. Turn network access off in each open reviewer, or reopen them.
+
+| Setting | Key | Effect |
+| --- | --- | --- |
+| **Open the page on Start** | `w` | On, the default: Start and Start with Challenger open the round's page in the browser. Off: they start the round in the pane. |
+| **Serve on the network** | `n` | On, the default: the page is also served to the network, and the pane shows its address and QR code. Off: the page stays on this machine; the network listener stops, a phone's page stops working, and the address and QR code leave the pane. |
+| **Interface** | `N` | The interface whose IPv4 address the page listens on, such as `wlan0` or a VPN's `tailscale0`. Empty, the default (shown as "default route"): the interface of the route to the internet. |
+| **First port** | `#` | The first port tried, 8790 by default. When another reviewer holds it, the page takes the next free one of the ten ports from it. |
+
+Click a setting, or press its key while you are not typing an answer, to change it. The two
+switches turn over at once. Interface and First port open a one-line editor under the
+buttons, with the current value: `Enter` saves it, `Tab` or any other button leaves it
+unchanged, and a first port that is not a number from 1 to 65535 is refused with the reason. A new interface or port moves the page to a new address,
+and the pane shows the new QR code; scan it again.
 
 ## Explore statistics
 

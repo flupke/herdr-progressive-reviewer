@@ -171,6 +171,16 @@ impl ExploreComponent {
         }
     }
 
+    /// Run a control of the implementation request: send it, start a new one, or cancel it.
+    pub(super) fn implementation_control(&mut self, control: Control) -> Vec<Action> {
+        match control {
+            Control::Implement => self.implement(),
+            Control::NewImplementation => self.new_implementation(),
+            Control::CancelImplementation => self.cancel_implementation(),
+            _ => Vec::new(),
+        }
+    }
+
     pub(super) fn implement(&mut self) -> Vec<Action> {
         if self.compose_scope != ComposeScope::Conclusion
             || !self.progress.can_submit()

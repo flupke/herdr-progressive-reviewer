@@ -2,7 +2,7 @@
 use comment_editor::{CommentEditor, KeymapSetting};
 use component_core::{Component, ComponentSubscriptions, EventPublisher};
 use review_explore::{AnswerInput, Command, Exploration, Question, RoundFront};
-use review_explore_page_opening::PaneStarts;
+use review_explore_page_settings::PaneStarts;
 use std::{
     cell::{Cell, RefCell},
     collections::{BTreeMap, BTreeSet},
@@ -27,6 +27,7 @@ mod navigation;
 mod network_page;
 mod page_actions;
 mod page_round;
+mod page_settings;
 mod page_start;
 mod persistence;
 mod render;
@@ -43,6 +44,8 @@ enum Control {
     Reset,
     /// Confirm a Reset asked for within the last five seconds.
     ConfirmReset,
+    /// Change a setting of the Explore page.
+    PageSetting(ui_shortcuts::ExploreSettingShortcut),
     NewImplementation,
     Send,
     History(navigation::History),
@@ -137,8 +140,8 @@ pub struct ExploreComponent {
     challenger: bool,
     /// The round being started opens its Explore page once its change is captured.
     open_page: bool,
-    /// What Start and Start with Challenger do, as the settings say.
-    pane_starts: PaneStarts,
+    /// The settings of the Explore page, which the pane changes.
+    page_settings: page_settings::PageSettings,
     /// Where the reviewer follows the round being started or shown.
     front: RoundFront,
     map: bool,
@@ -192,7 +195,7 @@ impl ExploreComponent {
             reset: reset::ResetConfirmation::default(),
             challenger: false,
             open_page: false,
-            pane_starts: PaneStarts::default(),
+            page_settings: page_settings::PageSettings::default(),
             front: RoundFront::Pane,
             map: false,
             marks: BTreeMap::new(),
@@ -479,7 +482,7 @@ impl ExploreComponent {
     /// Start a round from the start screen as `start` asks: on the page, it opens once the
     /// change is captured, unless the settings keep every start in the pane.
     fn start(&mut self, start: start::RoundStart) -> Vec<Action> {
-        let front = match self.pane_starts {
+        let front = match self.page_settings.pane_starts() {
             PaneStarts::OnPage => start.front,
             PaneStarts::InPane => RoundFront::Pane,
         };
@@ -610,7 +613,8 @@ impl Component<Action> for ExploreComponent {
         subscriptions.subscribe(Self::page_not_shared);
         subscriptions.subscribe(Self::page_start);
         subscriptions.subscribe(Self::page_not_opened);
-        subscriptions.subscribe(Self::pane_starts_set);
+        subscriptions.subscribe(Self::page_settings_loaded);
+        subscriptions.subscribe(Self::page_off_network);
         subscriptions.subscribe(Self::start_block_set);
         subscriptions.subscribe(Self::page_stopped);
         subscriptions.subscribe(Self::page_reset);

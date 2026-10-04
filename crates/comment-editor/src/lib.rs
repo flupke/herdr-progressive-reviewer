@@ -31,6 +31,8 @@ pub struct CommentEditor {
     keymap: EditorKeymap,
     setting: KeymapSetting,
     viewport: RefCell<EditorViewport>,
+    /// The text stays on one line: Enter is left to the view, and no key or paste breaks a line.
+    single_line: bool,
 }
 
 /// The keymap chosen for every editor that shares this setting.
@@ -72,7 +74,18 @@ impl CommentEditor {
             keymap,
             setting: setting.clone(),
             viewport: RefCell::default(),
+            single_line: false,
         }
+    }
+
+    /// An editor for a one-line value, such as a setting, with the cursor after `text`. Enter
+    /// is left to the view that saves the value, and no key or paste breaks the line.
+    pub fn single_line(text: &str, setting: &KeymapSetting) -> Self {
+        let mut editor = Self::new(&text.replace(['\r', '\n'], " "), setting);
+        editor.single_line = true;
+        let state = editor.state.get_mut();
+        state.cursor = edtui::Index2::new(0, text.chars().count());
+        editor
     }
 
     pub fn saved_state(&self) -> review_types::TextEditorState {
@@ -117,11 +130,18 @@ impl CommentEditor {
         self.follow_setting();
         if key == Key::EditorMode {
             self.toggle_keymap();
+        } else if self.single_line && key == Key::Enter {
         } else if let Some(event) = editor_key(key) {
             let state = self.state.get_mut();
+            let before = self.single_line.then(|| state.clone());
             let motion = motion::VisualMotion::resolve(event, state.mode, &self.handler);
             let cursor = state.cursor;
             self.handler.on_key_event(event, state);
+            if let Some(before) = before
+                && state.lines.len() > 1
+            {
+                *state = before;
+            }
             let viewport = self.viewport.get_mut();
             if let Some(motion) = motion {
                 viewport.move_cursor(state, cursor, motion);
@@ -165,7 +185,10 @@ impl CommentEditor {
 
     pub fn paste(&mut self, text: &str) {
         self.follow_setting();
-        let text = clean_text(text);
+        let mut text = clean_text(text);
+        if self.single_line {
+            text = text.replace('\n', " ");
+        }
         let state = self.state.get_mut();
         if state.mode != EditorMode::Insert {
             self.handler.on_paste_event(text, state);
@@ -271,6 +294,26 @@ mod tests {
             assert_eq!(editor.text(), "abc abc");
             editor.input(Key::Char('x'));
             assert_eq!(editor.text(), "axbc abc");
+        }
+    }
+
+    #[test]
+    fn a_single_line_editor_starts_after_its_text_and_never_breaks_the_line() {
+        for keymap in [EditorKeymap::Vim, EditorKeymap::Regular] {
+            let mut editor = CommentEditor::single_line("8790", &KeymapSetting::new(keymap));
+            editor.input(Key::Char('1'));
+            assert_eq!(editor.text(), "87901");
+            editor.input(Key::Enter);
+            editor.paste("2\n3");
+            assert_eq!(editor.text(), "879012 3");
+            editor.input(Key::Escape);
+            editor.input(Key::Char('o'));
+            editor.input(Key::Char('4'));
+            assert!(
+                !editor.text().contains('\n'),
+                "{keymap:?}: {:?}",
+                editor.text()
+            );
         }
     }
 

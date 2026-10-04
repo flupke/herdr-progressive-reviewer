@@ -1,91 +1,144 @@
 //! The page on the network, for a phone or a tablet: served on the address of one network
-//! interface, behind a new token for each round and for the start screen before it.
-//!
-//! The reviewer's settings come from its environment:
-//!
-//! - `HERDR_REVIEWER_EXPLORE_NETWORK=off` keeps the page on this machine.
-//! - `HERDR_REVIEWER_EXPLORE_INTERFACE` names the interface, such as `wlan0`; by default, the
-//!   interface of the route to the internet.
-//! - `HERDR_REVIEWER_EXPLORE_PORT` is the first port tried (8790 by default); when another
-//!   reviewer holds it, the page takes the next free one of the [`PORTS_TRIED`].
+//! interface, behind a new token for each round and for the start screen before it. The
+//! reviewer's [`NetworkAccess`] settings say whether, and on which interface and port.
 
 use std::io;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, UdpSocket};
 use std::sync::{Arc, Mutex, PoisonError};
+use std::thread;
+use std::time::{Duration, Instant};
 
-use review_explore_page::{PageRound, Rounds, Token};
-
-/// The first port tried when the settings name none.
-const DEFAULT_PORT: u16 = 8790;
+use review_explore_page::{ExplorePage, Hosts, PageFiles, PageRound, Rounds, Token};
+pub use review_explore_page_settings::NetworkAccess;
+use tokio::runtime::Handle;
+use tokio::task::JoinHandle;
 
 /// How many ports, from the first one, the page tries: a firewall rule can open them all.
 const PORTS_TRIED: u16 = 10;
 
-/// Whether, and where, the reviewer serves its Explore page to the network.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum NetworkAccess {
-    /// The page stays on this machine.
-    Off,
-    On {
-        /// The interface whose address the page listens on; `None` for the interface of the
-        /// route to the internet.
-        interface: Option<String>,
-        /// The first port tried; 0 takes any free port.
-        port: u16,
-    },
+/// How long taking the page off the network waits for its listener to close.
+const STOP_TIMEOUT: Duration = Duration::from_secs(1);
+
+/// The page on the network of one [`PageHost`](crate::PageHost), shared on one listener at a
+/// time until the host drops. Clones share it.
+#[derive(Clone)]
+pub struct PageNetwork {
+    round: PageRound,
+    /// The runtime of the page's thread.
+    runtime: Handle,
+    current: Arc<Mutex<Option<NetworkShare>>>,
 }
 
-impl NetworkAccess {
-    /// The settings of the reviewer's environment.
-    pub fn from_env() -> Result<Self, String> {
-        let variable = |name| std::env::var(name).ok();
-        Self::from_settings(
-            variable("HERDR_REVIEWER_EXPLORE_NETWORK").as_deref(),
-            variable("HERDR_REVIEWER_EXPLORE_INTERFACE").as_deref(),
-            variable("HERDR_REVIEWER_EXPLORE_PORT").as_deref(),
-        )
-    }
-
-    fn from_settings(
-        network: Option<&str>,
-        interface: Option<&str>,
-        port: Option<&str>,
-    ) -> Result<Self, String> {
-        match network {
-            None | Some("on") => {}
-            Some("off") => return Ok(Self::Off),
-            Some(other) => {
-                return Err(format!(
-                    "HERDR_REVIEWER_EXPLORE_NETWORK must be on or off, not {other:?}"
-                ));
-            }
+impl PageNetwork {
+    pub(crate) fn new(round: PageRound, runtime: Handle) -> Self {
+        Self {
+            round,
+            runtime,
+            current: Arc::default(),
         }
-        let port = match port {
-            None => DEFAULT_PORT,
-            Some(port) => port
-                .parse()
-                .map_err(|_| format!("HERDR_REVIEWER_EXPLORE_PORT must be a port, not {port:?}"))?,
-        };
-        Ok(Self::On {
-            interface: interface.filter(|name| !name.is_empty()).map(str::to_owned),
-            port,
-        })
     }
 
-    /// Listens on the address of the chosen interface, at the first free port of the
-    /// [`PORTS_TRIED`]; `None` when network access is off.
-    pub fn listen(&self) -> io::Result<Option<NetworkListener>> {
-        let Self::On { interface, port } = self else {
+    /// Serves the page on `listener`, a network interface's, in place of any earlier listener,
+    /// on the page's thread. Each round gets a new token there, and the token of a round that
+    /// is no longer running opens nothing. While no round runs, the page has a token for its
+    /// start screen, which the round started next keeps. `announce` receives the address of
+    /// the page each time its token or the token's round changes. The page that resets a
+    /// round receives the start screen's token, so that it can start the next round.
+    pub fn share(
+        &self,
+        listener: NetworkListener,
+        announce: impl Fn(&str) + Send + Sync + 'static,
+    ) {
+        self.unshare();
+        let address = listener.address();
+        let tokens = RoundTokens::new(self.round.clone(), address, announce);
+        let page = ExplorePage::new(
+            tokens.clone(),
+            Hosts::network(address),
+            PageFiles::embedded(),
+            |_| {},
+        );
+        let app = page.into_router(axum::Router::new());
+        let listener = listener.into_std();
+        let server = self.runtime.spawn(async move {
+            let Ok(listener) = tokio::net::TcpListener::from_std(listener) else {
+                return;
+            };
+            let _ = axum::serve(listener, app).await;
+        });
+        let mut round = self.round.stages().clone();
+        let renewing = tokens.clone();
+        let renewal = self.runtime.spawn(async move {
+            loop {
+                renewing.renew();
+                if !round.changed().await {
+                    return;
+                }
+            }
+        });
+        *self.lock() = Some(NetworkShare {
+            tokens,
+            tasks: [server, renewal],
+        });
+    }
+
+    /// Stops serving the page on the network: its tokens open nothing any more, no address is
+    /// announced after this returns, and the listener is closed by then (it waits for the
+    /// page's thread up to a second).
+    pub fn unshare(&self) {
+        drop(self.lock().take());
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, Option<NetworkShare>> {
+        self.current.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+/// The page served on one listener, until it drops.
+struct NetworkShare {
+    tokens: RoundTokens,
+    /// The server, which owns the listener, and the task that renews the token.
+    tasks: [JoinHandle<()>; 2],
+}
+
+impl Drop for NetworkShare {
+    /// Closes the tokens, then stops both tasks and waits, briefly, for the page's thread to
+    /// drop them: the listener is closed once this returns, so that the next listener can take
+    /// its port.
+    fn drop(&mut self) {
+        self.tokens.close();
+        for task in &self.tasks {
+            task.abort();
+        }
+        let deadline = Instant::now() + STOP_TIMEOUT;
+        while !self.tasks.iter().all(JoinHandle::is_finished) && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(1));
+        }
+    }
+}
+
+/// A listener on a network interface, for the page on the network.
+pub struct NetworkListener {
+    listener: TcpListener,
+    address: SocketAddr,
+}
+
+impl NetworkListener {
+    /// Listens on the address of the interface `access` names, at the first free port of the
+    /// [`PORTS_TRIED`] from its first port; `None` when network access is off.
+    pub fn bind(access: &NetworkAccess) -> io::Result<Option<Self>> {
+        if !access.enabled {
             return Ok(None);
-        };
-        let ip = match interface {
+        }
+        let ip = match &access.interface {
             Some(name) => interface_address(name)?,
             None => default_address()?,
         };
-        let ports = if *port == 0 {
+        let first = access.first_port;
+        let ports = if first == 0 {
             0..=0
         } else {
-            *port..=port.saturating_add(PORTS_TRIED - 1)
+            first..=first.saturating_add(PORTS_TRIED - 1)
         };
         let mut last = None;
         for port in ports {
@@ -93,13 +146,22 @@ impl NetworkAccess {
                 Ok(listener) => {
                     listener.set_nonblocking(true)?;
                     let address = listener.local_addr()?;
-                    return Ok(Some(NetworkListener { listener, address }));
+                    return Ok(Some(Self { listener, address }));
                 }
                 Err(error) if error.kind() == io::ErrorKind::AddrInUse => last = Some(error),
                 Err(error) => return Err(error),
             }
         }
         Err(last.unwrap_or_else(|| io::Error::other("no port to try")))
+    }
+
+    /// The address the page is served at.
+    pub(crate) fn address(&self) -> SocketAddr {
+        self.address
+    }
+
+    fn into_std(self) -> TcpListener {
+        self.listener
     }
 }
 
@@ -130,35 +192,26 @@ fn default_address() -> io::Result<Ipv4Addr> {
     }
 }
 
-/// A listener on a network interface, for the page on the network.
-pub struct NetworkListener {
-    listener: TcpListener,
-    address: SocketAddr,
-}
-
-impl NetworkListener {
-    /// The address the page is served at.
-    pub(crate) fn address(&self) -> SocketAddr {
-        self.address
-    }
-
-    pub(crate) fn into_std(self) -> TcpListener {
-        self.listener
-    }
-}
-
 /// The round the page on the network shows, behind a token that changes with each round. While
 /// no round runs, the page has a token too, for the start screen: the round that starts next
 /// keeps it, so the page that started the round stays connected to it. The token of a round
 /// that is no longer running opens nothing, even before the next token is made. Each new token
 /// or round of the token is announced with the page's address. Clones share the token.
 #[derive(Clone)]
-pub(crate) struct RoundTokens {
+struct RoundTokens {
     round: PageRound,
-    current: Arc<Mutex<Option<RoundToken>>>,
+    current: Arc<Mutex<Current>>,
     /// The address the page is served at.
     address: SocketAddr,
     announce: Arc<dyn Fn(&str) + Send + Sync>,
+}
+
+/// The token the page on the network opens with, if any.
+#[derive(Default)]
+struct Current {
+    token: Option<RoundToken>,
+    /// The page left the network: no token opens it any more, and none is made.
+    closed: bool,
 }
 
 /// The token of one round, or of the round that starts next.
@@ -179,7 +232,7 @@ impl RoundToken {
 impl RoundTokens {
     /// The tokens of the page of `round` served at `address`; `announce` receives the page's
     /// address each time its token or the token's round changes.
-    pub(crate) fn new(
+    fn new(
         round: PageRound,
         address: SocketAddr,
         announce: impl Fn(&str) + Send + Sync + 'static,
@@ -195,23 +248,34 @@ impl RoundTokens {
     /// Gives the token to the round now running: the same one while the same round runs, the
     /// token made while no round ran to the round that starts, a new one for a round that
     /// replaces another, and a new one for the next round once no round runs. Announces the
-    /// address of the page when the token or its round changed.
-    pub(crate) fn renew(&self) {
-        let url = {
-            let mut current = self.current.lock().unwrap_or_else(PoisonError::into_inner);
-            self.renew_locked(&mut current)
-        };
-        if let Some(url) = url {
-            (self.announce)(&url);
-        }
+    /// address of the page when the token or its round changed. Does nothing once closed.
+    fn renew(&self) {
+        let mut current = self.lock();
+        self.renew_locked(&mut current);
     }
 
-    /// Renews `current`, the locked token, and returns the address to announce when the token
-    /// or its round changed.
-    fn renew_locked(&self, current: &mut Option<RoundToken>) -> Option<String> {
+    /// Opens the page with no token any more, and makes none: the page left the network. No
+    /// address is announced after this returns, since announcements hold the lock.
+    fn close(&self) {
+        let mut current = self.lock();
+        current.closed = true;
+        current.token = None;
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, Current> {
+        self.current.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Renews the locked token, unless the page left the network, and announces the address
+    /// when the token or its round changed.
+    fn renew_locked(&self, current: &mut Current) {
+        if current.closed {
+            return;
+        }
+        let current = &mut current.token;
         let running = self.round.stages().round();
         match current.as_mut() {
-            Some(token) if token.round == running => return None,
+            Some(token) if token.round == running => return,
             Some(token) if token.round.is_none() => token.round = running,
             _ => {
                 *current = Some(RoundToken {
@@ -220,17 +284,18 @@ impl RoundTokens {
                 });
             }
         }
-        current
-            .as_ref()
-            .map(|current| current.token.url(self.address))
+        if let Some(current) = current {
+            (self.announce)(&current.token.url(self.address));
+        }
     }
 }
 
 impl Rounds for RoundTokens {
     fn find(&self, token: &str) -> Option<PageRound> {
         let running = self.round.stages().round();
-        let current = self.current.lock().unwrap_or_else(PoisonError::into_inner);
+        let current = self.lock();
         current
+            .token
             .as_ref()
             .filter(|current| current.opens(running.as_ref()) && current.token.matches(token))
             .map(|_| self.round.clone())
@@ -240,19 +305,13 @@ impl Rounds for RoundTokens {
     /// for the round that starts next, while no round runs. The reset round's own token opens
     /// nothing any more.
     fn after_reset(&self) -> Option<Token> {
-        let (url, token) = {
-            let mut current = self.current.lock().unwrap_or_else(PoisonError::into_inner);
-            let url = self.renew_locked(&mut current);
-            let token = current
-                .as_ref()
-                .filter(|current| current.round.is_none())
-                .map(|current| current.token.clone());
-            (url, token)
-        };
-        if let Some(url) = url {
-            (self.announce)(&url);
-        }
-        token
+        let mut current = self.lock();
+        self.renew_locked(&mut current);
+        current
+            .token
+            .as_ref()
+            .filter(|current| current.round.is_none())
+            .map(|current| current.token.clone())
     }
 }
 

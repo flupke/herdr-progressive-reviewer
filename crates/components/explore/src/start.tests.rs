@@ -15,7 +15,7 @@ use ui_events::{
 use super::rows;
 use crate::flow::{Content, ConversationLayout};
 use crate::start::StartButton;
-use crate::{ExploreComponent, Progress};
+use crate::{Control, ExploreComponent, Progress};
 
 struct Pane {
     bus: ComponentEventBus<Action>,
@@ -56,7 +56,8 @@ impl Pane {
         layout
     }
 
-    /// The labels of the start screen's buttons, and whether each one acts.
+    /// The labels of the start screen's buttons, the settings of the Explore page aside, and
+    /// whether each one acts.
     fn buttons(&mut self) -> Vec<(String, bool)> {
         self.layout()
             .items
@@ -64,6 +65,7 @@ impl Pane {
             .flat_map(|item| match &item.content {
                 Content::Controls(buttons) => buttons
                     .iter()
+                    .filter(|button| !matches!(button.control, Some(Control::PageSetting(_))))
                     .map(|button| (button.text.trim().to_owned(), button.control.is_some()))
                     .collect(),
                 _ => Vec::new(),

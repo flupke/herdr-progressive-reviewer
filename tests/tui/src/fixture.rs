@@ -4,6 +4,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use herdr_client::protocol::{PaneId, PluginContext, WorkspaceId};
+use review_explore_page_settings::ExplorePageSettings;
 use review_repository::repository::RepoType;
 use review_test_support::{HerdrTestServer, ReviewRepositoryFixture, TestPort, repository_fixture};
 use tui_test::{
@@ -60,6 +61,13 @@ impl ReviewWorkspace {
             "# Review fixture\n\nUnicode: café, 日本語, 🦀.\n\nA deliberately long line to explore wrapping and horizontal scrolling in a narrow terminal, with enough text to extend beyond the default diff pane width.\n".as_bytes(),
         );
         let server = HerdrTestServer::start(repository.root());
+        // The Explore page's network listener, and the pane's QR code, on the loopback
+        // interface: shown as on a real network, reachable from this machine only, on any free
+        // port.
+        let mut settings = ExplorePageSettings::default();
+        settings.network.set_interface(LOOPBACK);
+        settings.network.first_port = 0;
+        server.set_explore_page_settings(&settings);
         let workspace = server.run_cli_json(&[
             "workspace",
             "create",
@@ -289,11 +297,6 @@ impl ReviewWorkspace {
                 "HERDR_REVIEWER_MCP_PORT".into(),
                 self.port.number().to_string(),
             ),
-            // The Explore page's network listener, and the pane's QR code, on the loopback
-            // interface: shown as on a real network, reachable from this machine only.
-            ("HERDR_REVIEWER_EXPLORE_NETWORK".into(), "on".into()),
-            ("HERDR_REVIEWER_EXPLORE_INTERFACE".into(), LOOPBACK.into()),
-            ("HERDR_REVIEWER_EXPLORE_PORT".into(), "0".into()),
         ]);
         environment
     }

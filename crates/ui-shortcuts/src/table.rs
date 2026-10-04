@@ -3,10 +3,10 @@
 use crate::Key;
 use crate::commands::{
     ApplicationShortcut, CommentShortcut, ConversationShortcut, DiffGlobalShortcut, DiffShortcut,
-    ExploreEvidenceShortcut, ExploreGlobalShortcut, ExploreShortcut, ExploreStartShortcut,
-    ExploreTurnShortcut, FilesShortcut, HunkShortcut, LocationShortcut, LspShortcut,
-    MovementShortcut, OverlayShortcut, RevisionShortcut, SearchMatchShortcut, SearchShortcut,
-    ShortcutCommand, SourceShortcut, ThreadsShortcut,
+    ExploreEvidenceShortcut, ExploreGlobalShortcut, ExploreSettingShortcut, ExploreShortcut,
+    ExploreStartShortcut, ExploreTurnShortcut, FilesShortcut, HunkShortcut, LocationShortcut,
+    LspShortcut, MovementShortcut, OverlayShortcut, RevisionShortcut, SearchMatchShortcut,
+    SearchShortcut, ShortcutCommand, SourceShortcut, ThreadsShortcut,
 };
 
 const fn application(command: ApplicationShortcut) -> ShortcutCommand {
@@ -79,6 +79,10 @@ const fn explore(command: ExploreShortcut) -> ShortcutCommand {
 
 const fn explore_turn(command: ExploreTurnShortcut) -> ShortcutCommand {
     explore(ExploreShortcut::Turn(command))
+}
+
+const fn explore_setting(command: ExploreSettingShortcut) -> ShortcutCommand {
+    explore_turn(ExploreTurnShortcut::Setting(command))
 }
 
 const fn explore_start(command: ExploreStartShortcut) -> ShortcutCommand {
@@ -659,6 +663,34 @@ pub(crate) const SHORTCUTS: &[ShortcutDefinition] = &[
             ShortcutBinding::one(
                 Key::Char('i'),
                 explore_turn(ExploreTurnShortcut::ContinueInPane),
+            ),
+        ],
+    },
+    ShortcutDefinition {
+        description: Some(
+            "Explore page settings: turn over opening the page on Start / network access",
+        ),
+        bindings: &[
+            ShortcutBinding::one(
+                Key::Char('w'),
+                explore_setting(ExploreSettingShortcut::PaneStarts),
+            ),
+            ShortcutBinding::one(
+                Key::Char('n'),
+                explore_setting(ExploreSettingShortcut::Network),
+            ),
+        ],
+    },
+    ShortcutDefinition {
+        description: Some("Explore page settings: edit the network interface / first port"),
+        bindings: &[
+            ShortcutBinding::one(
+                Key::Char('N'),
+                explore_setting(ExploreSettingShortcut::Interface),
+            ),
+            ShortcutBinding::one(
+                Key::Char('#'),
+                explore_setting(ExploreSettingShortcut::FirstPort),
             ),
         ],
     },

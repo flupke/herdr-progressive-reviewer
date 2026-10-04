@@ -5,17 +5,18 @@
 //! The reviewer starts a [`PageHost`], which serves the page on a free loopback port behind a
 //! new token, and leaves the page's address in the plugin's state directory, in the record of
 //! its Herdr workspace. The action reads that record through the [`PageDirectory`]. Unless the
-//! [`NetworkAccess`] settings turn it off, the host also [shares](PageHost::share) the page on
-//! a network interface, and announces the address of each round's page, and of the start
-//! screen's while no round runs, for the pane's QR code. A [`PageOpener`] opens the page of a
-//! workspace in the default browser, for the action and for the pane's Start and Start with
-//! Challenger.
+//! [`NetworkAccess`] settings turn it off, the host also [shares](PageNetwork::share) the page
+//! on a network interface, and announces the address of each round's page, and of the start
+//! screen's while no round runs, for the pane's QR code; a change of the settings moves it to
+//! another listener or [takes it off](PageNetwork::unshare) the network. A [`PageOpener`] opens
+//! the page of a workspace in the default browser, for the action and for the pane's Start and
+//! Start with Challenger.
 
 mod browser;
 mod network;
 
 pub use browser::{Browser, PageOpener};
-pub use network::{NetworkAccess, NetworkListener};
+pub use network::{NetworkAccess, NetworkListener, PageNetwork};
 
 use std::fmt::Write as _;
 use std::fs::{self, DirBuilder, OpenOptions};
@@ -30,7 +31,6 @@ use herdr_client::protocol::WorkspaceId;
 use review_explore_page::{ExplorePage, Hosts, PageFiles, PageRound, Rounds, Token};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use tokio::runtime::Handle;
 use tokio::sync::oneshot;
 
 /// How long the action waits for a recorded page to answer.
@@ -127,9 +127,7 @@ impl PageDirectory {
 pub struct PageHost {
     address: PageAddress,
     record: PathBuf,
-    round: PageRound,
-    /// The runtime of the page's thread.
-    runtime: Handle,
+    network: PageNetwork,
     stop: Option<oneshot::Sender<()>>,
     thread: Option<JoinHandle<()>>,
 }
@@ -182,8 +180,7 @@ impl PageHost {
         let host = Self {
             address,
             record: directory.record(workspace),
-            round,
-            runtime: handle,
+            network: PageNetwork::new(round, handle),
             stop: Some(stop),
             thread: Some(thread),
         };
@@ -197,43 +194,9 @@ impl PageHost {
         &self.address.url
     }
 
-    /// Also serves the page on `listener`, a network interface's, on the page's thread until
-    /// the host drops. Each round gets a new token there, and the token of a round that is no
-    /// longer running opens nothing. While no round runs, the page has a token for its start
-    /// screen, which the round started next keeps. `announce` receives the address of the
-    /// page each time its token or the token's round changes.
-    /// The page that resets a round receives the start screen's token, so that it can start
-    /// the next round.
-    pub fn share(
-        &self,
-        listener: NetworkListener,
-        announce: impl Fn(&str) + Send + Sync + 'static,
-    ) {
-        let address = listener.address();
-        let tokens = network::RoundTokens::new(self.round.clone(), address, announce);
-        let page = ExplorePage::new(
-            tokens.clone(),
-            Hosts::network(address),
-            PageFiles::embedded(),
-            |_| {},
-        );
-        let app = page.into_router(axum::Router::new());
-        let listener = listener.into_std();
-        self.runtime.spawn(async move {
-            let Ok(listener) = tokio::net::TcpListener::from_std(listener) else {
-                return;
-            };
-            let _ = axum::serve(listener, app).await;
-        });
-        let mut round = self.round.stages().clone();
-        self.runtime.spawn(async move {
-            loop {
-                tokens.renew();
-                if !round.changed().await {
-                    return;
-                }
-            }
-        });
+    /// The page on the network, which the reviewer's settings share and take off it.
+    pub fn network(&self) -> PageNetwork {
+        self.network.clone()
     }
 }
 
@@ -247,6 +210,7 @@ impl Drop for PageHost {
         if ours {
             let _ = fs::remove_file(&self.record);
         }
+        self.network.unshare();
         if let Some(stop) = self.stop.take() {
             let _ = stop.send(());
         }

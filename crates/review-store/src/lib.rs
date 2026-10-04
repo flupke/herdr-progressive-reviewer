@@ -7,6 +7,7 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use review_explore_page_settings::{ExplorePageSetting, ExplorePageSettings};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -91,11 +92,12 @@ impl Error {
 }
 
 /// Persistent global reviewer settings.
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(default)]
 struct Settings {
     file_pane_width: Option<u16>,
     editor_keymap: review_types::EditorKeymap,
+    explore_page: ExplorePageSettings,
 }
 
 /// Review state for one canonical repository.
@@ -153,8 +155,13 @@ impl ReviewStore {
 
     /// Save the file-pane width in terminal columns.
     pub fn save_file_pane_width(&self, columns: u16) -> Result<()> {
+        self.update_settings(|settings| settings.file_pane_width = Some(columns))
+    }
+
+    /// Save the settings with the change `update` makes, keeping the others as saved.
+    fn update_settings(&self, update: impl FnOnce(&mut Settings)) -> Result<()> {
         let mut settings = self.settings()?;
-        settings.file_pane_width = Some(columns);
+        update(&mut settings);
         self.atomic_json(&self.settings_path(), &settings, "write settings")
     }
 
@@ -165,9 +172,26 @@ impl ReviewStore {
 
     /// Save the keymap shared by every text editor.
     pub fn save_editor_keymap(&self, keymap: review_types::EditorKeymap) -> Result<()> {
-        let mut settings = self.settings()?;
-        settings.editor_keymap = keymap;
-        self.atomic_json(&self.settings_path(), &settings, "write settings")
+        self.update_settings(|settings| settings.editor_keymap = keymap)
+    }
+
+    /// Get the settings of the Explore page.
+    pub fn explore_page_settings(&self) -> Result<ExplorePageSettings> {
+        Ok(self.settings()?.explore_page)
+    }
+
+    /// Save one setting of the Explore page, keeping the others as saved, and return the
+    /// settings of the Explore page as they are now saved.
+    pub fn save_explore_page_setting(
+        &self,
+        setting: ExplorePageSetting,
+    ) -> Result<ExplorePageSettings> {
+        let mut saved = ExplorePageSettings::default();
+        self.update_settings(|settings| {
+            settings.explore_page.set(setting);
+            saved = settings.explore_page.clone();
+        })?;
+        Ok(saved)
     }
 
     fn read_json<T: DeserializeOwned>(target: &Path, operation: &'static str) -> Result<Option<T>> {

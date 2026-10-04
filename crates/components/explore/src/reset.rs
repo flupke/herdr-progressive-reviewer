@@ -57,13 +57,13 @@ impl ExploreComponent {
         let mode = self.mode;
         let enabled = self.durable.enabled;
         let network_page = self.network_page.take();
-        let pane_starts = self.pane_starts;
+        let page_settings = std::mem::take(&mut self.page_settings);
         let start_block = self.start_block;
         *self = Self::with_keymap(self.events.clone(), self.keymap.clone());
         self.mode = mode;
         self.durable.enabled = enabled;
         self.network_page = network_page;
-        self.pane_starts = pane_starts;
+        self.page_settings = page_settings;
         self.start_block = start_block;
     }
 

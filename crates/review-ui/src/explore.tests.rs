@@ -25,6 +25,8 @@ mod editor;
 mod flow;
 #[path = "explore_page_round.tests.rs"]
 mod page_round;
+#[path = "explore_page_settings.tests.rs"]
+mod page_settings;
 #[path = "explore_phone.tests.rs"]
 mod phone;
 #[path = "explore_recovery.tests.rs"]

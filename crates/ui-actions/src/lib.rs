@@ -92,6 +92,8 @@ pub enum SettingsAction {
     SaveFilePaneWidth(u16),
     /// Save the keymap shared by every text editor.
     SaveEditorKeymap(review_types::EditorKeymap),
+    /// Save one setting of the Explore page, which takes effect at once.
+    SaveExplorePage(review_explore_page_settings::ExplorePageSetting),
 }
 
 /// Repository and review-mark work run by the repository worker.

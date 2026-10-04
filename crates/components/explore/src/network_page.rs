@@ -32,6 +32,11 @@ impl ExploreComponent {
         self.network_page = Some(NetworkPage::NotShared(event.0.clone()));
     }
 
+    #[allow(clippy::trivially_copy_pass_by_ref)]
+    pub(super) fn page_off_network(&mut self, _: &ui_events::ExplorePageOffNetwork) {
+        self.network_page = None;
+    }
+
     /// The end of each page of the pane: the address of the page on the network, and its QR
     /// code when the pane is wide enough to draw it, or why the page is not on the network.
     pub(super) fn lay_out_network_page(&self, layout: &mut ConversationLayout, palette: Palette) {

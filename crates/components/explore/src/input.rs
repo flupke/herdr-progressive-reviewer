@@ -37,7 +37,7 @@ impl ExploreComponent {
             AnyInput,
             |component: &mut Self, input: TextPasted| {
                 component.reset.cancel();
-                if component.shows_page_round() {
+                if component.shows_page_round() || component.paste_page_setting(&input.0) {
                     return;
                 }
                 if component.compose_scope == ComposeScope::Conclusion
@@ -58,17 +58,22 @@ impl ExploreComponent {
         if matches!(control, Control::Reset | Control::ConfirmReset) {
             return self.reset(std::time::Instant::now());
         }
-        // Any other control cancels a Reset waiting for its confirmation.
+        // Any other control cancels a Reset waiting for its confirmation, and any control but a
+        // setting's leaves the setting being typed.
         self.reset.cancel();
+        if !matches!(control, Control::PageSetting(_)) {
+            self.leave_page_setting();
+        }
         match control {
             Control::Front(control) => return self.front_control(control),
-            Control::Implement => return self.implement(),
-            Control::NewImplementation => return self.new_implementation(),
+            Control::PageSetting(setting) => return self.page_setting(setting),
+            Control::Implement | Control::NewImplementation | Control::CancelImplementation => {
+                return self.implementation_control(control);
+            }
             Control::Send => return self.answer(control),
             Control::Cancel => return self.cancel(),
             Control::Retry => return self.retry(),
             Control::CancelAnswer(index) => return self.cancel_answer(index),
-            Control::CancelImplementation => return self.cancel_implementation(),
             control => self.navigate(control),
         }
         Vec::new()
@@ -187,6 +192,9 @@ impl ExploreComponent {
     fn key(&mut self, input: ExploreKey, focus: ReviewPane) -> Vec<Action> {
         // Reset has no key, so any key cancels a Reset waiting for its confirmation.
         self.reset.cancel();
+        if let Some(actions) = self.page_setting_key(input) {
+            return actions;
+        }
         if self.shows_page_round() {
             return self.page_round_key(input.command);
         }
@@ -299,6 +307,7 @@ impl ExploreComponent {
             }
             ExploreTurnShortcut::OpenPage => Control::Front(FrontControl::OpenPage),
             ExploreTurnShortcut::ContinueInPane => Control::Front(FrontControl::ContinueInPane),
+            ExploreTurnShortcut::Setting(setting) => Control::PageSetting(setting),
             ExploreTurnShortcut::Cancel => Control::Cancel,
             ExploreTurnShortcut::Retry => Control::Retry,
             ExploreTurnShortcut::PreviousTurn => Control::History(History::Previous),
@@ -516,16 +525,17 @@ impl ExploreComponent {
     /// application. Switching navigation always passes; opening Files,
     /// Threads or help and quitting pass unless an answer is being composed.
     fn passes_through(&self, key: Key) -> bool {
+        let typing = self.editing || self.page_settings.editing();
         match ApplicationShortcut::bound_to(key) {
             Some(ApplicationShortcut::ToggleNavigation) => return true,
             Some(
                 ApplicationShortcut::OpenFiles
                 | ApplicationShortcut::OpenThreads
                 | ApplicationShortcut::Quit,
-            ) => return !self.editing,
+            ) => return !typing,
             _ => {}
         }
-        !self.editing && OverlayShortcut::bound_to(key) == Some(OverlayShortcut::OpenHelp)
+        !typing && OverlayShortcut::bound_to(key) == Some(OverlayShortcut::OpenHelp)
     }
 }
 

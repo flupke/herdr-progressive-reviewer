@@ -3,7 +3,7 @@
 The reviewer wants to do an Explore round from a phone or a tablet on the same
 network. The open review pane serves the Explore page on a second listener, bound
 to the address of one network interface (the interface of the route to the
-internet, or the one a setting names), over plain HTTP. The pane shows the
+internet, or the one the **Interface** setting names), over plain HTTP. The pane shows the
 address of the running round's page, or of the start screen's page while no round
 runs, and its QR code.
 
@@ -44,6 +44,8 @@ the same address.
 
 Considered: HTTPS with a self-signed certificate (every phone warns and needs
 an exception for each new certificate); a pairing step with a code typed on the
-phone (more friction on every round). A setting turns network access off for a
-reviewer who does not accept the risk, and a setting picks the interface, such
-as a VPN's, to keep the page off an untrusted network.
+phone (more friction on every round). The reviewer's Explore page
+settings, changed in the pane's Explore tab and applied at once, turn network
+access off (**Serve on the network**) for a reviewer who does not accept the
+risk, and pick the interface (**Interface**), such as a VPN's, to keep the page
+off an untrusted network.

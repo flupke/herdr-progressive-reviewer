@@ -46,12 +46,7 @@ impl Shared {
             &WorkspaceId("w1".into()),
         )
         .unwrap();
-        let listener = loopback(0).listen().unwrap().unwrap();
-        let address = listener.address();
-        let (announce, announced) = mpsc::channel();
-        host.share(listener, move |url| {
-            let _ = announce.send(url.to_owned());
-        });
+        let (address, announced) = share_on_loopback(&host);
         let first = announced
             .recv_timeout(Duration::from_secs(5))
             .expect("the address of the page before any round");
@@ -111,6 +106,18 @@ impl Shared {
     }
 }
 
+/// Shares the page of `host` on a free port of the loopback interface, and returns the address
+/// it is served at and the addresses the host announces for it.
+fn share_on_loopback(host: &PageHost) -> (SocketAddr, mpsc::Receiver<String>) {
+    let listener = NetworkListener::bind(&loopback(0)).unwrap().unwrap();
+    let address = listener.address();
+    let (announce, announced) = mpsc::channel();
+    host.network().share(listener, move |url| {
+        let _ = announce.send(url.to_owned());
+    });
+    (address, announced)
+}
+
 /// The round `id`, with nothing more to publish.
 fn published(id: &str) -> PublishedRound<'_> {
     PublishedRound {
@@ -127,10 +134,11 @@ fn working() -> RoundStage {
     }
 }
 
-fn loopback(port: u16) -> NetworkAccess {
-    NetworkAccess::On {
+fn loopback(first_port: u16) -> NetworkAccess {
+    NetworkAccess {
+        enabled: true,
         interface: Some(LOOPBACK.into()),
-        port,
+        first_port,
     }
 }
 
@@ -323,57 +331,73 @@ fn a_taken_port_moves_the_page_to_the_next_free_one() {
     let taken = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
     let port = taken.local_addr().unwrap().port();
 
-    let listener = loopback(port).listen().unwrap().unwrap();
+    let listener = NetworkListener::bind(&loopback(port)).unwrap().unwrap();
 
     let chosen = listener.address().port();
     assert!(chosen > port && chosen < port + PORTS_TRIED, "{chosen}");
 }
 
 #[test]
-fn the_settings_turn_the_network_off_and_pick_the_interface_and_port() {
-    let parse = |network: Option<&str>, interface: Option<&str>, port: Option<&str>| {
-        NetworkAccess::from_settings(network, interface, port)
-    };
-    assert_eq!(
-        parse(None, None, None),
-        Ok(NetworkAccess::On {
-            interface: None,
-            port: DEFAULT_PORT
-        })
-    );
-    assert_eq!(
-        parse(Some("off"), Some("wlan0"), None),
-        Ok(NetworkAccess::Off)
-    );
-    assert_eq!(
-        parse(Some("on"), Some("wlan0"), Some("9000")),
-        Ok(NetworkAccess::On {
-            interface: Some("wlan0".into()),
-            port: 9000
-        })
-    );
-    assert_eq!(
-        parse(None, Some(""), None),
-        Ok(NetworkAccess::On {
-            interface: None,
-            port: DEFAULT_PORT
-        })
-    );
-    assert!(parse(Some("maybe"), None, None).is_err());
-    assert!(parse(None, None, Some("port")).is_err());
-}
-
-#[test]
 fn an_unknown_interface_is_an_error() {
-    let access = NetworkAccess::On {
-        interface: Some("no-such-interface0".into()),
-        port: 0,
-    };
+    let mut access = loopback(0);
+    access.set_interface("no-such-interface0");
 
-    assert!(access.listen().is_err());
+    assert!(NetworkListener::bind(&access).is_err());
 }
 
 #[test]
 fn network_access_turned_off_listens_nowhere() {
-    assert!(NetworkAccess::Off.listen().unwrap().is_none());
+    let mut access = loopback(0);
+    access.enabled = false;
+
+    assert!(NetworkListener::bind(&access).unwrap().is_none());
+}
+
+#[test]
+fn unsharing_closes_the_page_on_the_network_and_announces_nothing_more() {
+    let shared = Shared::start();
+    shared.start_round("r1");
+
+    shared.host.network().unshare();
+
+    assert!(review_test_support::refuses_connections(shared.address));
+    shared.round.publish(Some(published("r2")), working());
+    assert!(
+        shared
+            .announced
+            .recv_timeout(Duration::from_millis(300))
+            .is_err(),
+        "no address after the page left the network"
+    );
+}
+
+#[test]
+fn sharing_again_moves_the_page_to_the_new_listener() {
+    let shared = Shared::start();
+    shared.start_round("r1");
+
+    let (address, announced) = share_on_loopback(&shared.host);
+
+    let url = announced
+        .recv_timeout(Duration::from_secs(5))
+        .expect("the address on the new listener");
+    assert!(
+        url.starts_with(&format!("http://{address}/?token=")),
+        "{url}"
+    );
+    assert!(review_test_support::refuses_connections(shared.address));
+    let host = address.to_string();
+    assert_eq!(status(address, "GET", path(&url), &[("Host", &host)]), 303);
+}
+
+#[test]
+fn the_port_of_the_page_taken_off_the_network_is_free_at_once() {
+    let shared = Shared::start();
+
+    shared.host.network().unshare();
+
+    let again = NetworkListener::bind(&loopback(shared.address.port()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(again.address(), shared.address);
 }

@@ -24,6 +24,8 @@ pub(super) enum Content {
     Text(Text<'static>, Option<Control>),
     EvidenceSplit(EvidenceList),
     Editor(super::EditorTarget),
+    /// The editor of the Explore page setting being typed.
+    SettingEditor,
     Controls(Vec<Button>),
 }
 
@@ -306,6 +308,7 @@ impl ConversationLayout {
                 Content::Editor(super::EditorTarget::Implementation) => {
                     Some(Control::EditImplementation)
                 }
+                Content::SettingEditor => None,
                 Content::EvidenceSplit(list) => list
                     .control_at(
                         evidence_panes(area, list.width).left,
