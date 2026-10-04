@@ -21,21 +21,37 @@ const storage = (() => {
  * @returns {HTMLTextAreaElement}
  */
 export function keepDraft(box, key, initial) {
-  const name = `explore-draft:${key}`;
   box.dataset.draft = key;
-  let kept = null;
+  box.value = kept(key) ?? initial;
+  box.addEventListener('input', () => keep(key, box.value));
+  return box;
+}
+
+/**
+ * The value kept under `key` for the tab, if any: a draft, or what goes with it (the chat's
+ * quote).
+ * @param {string} key
+ * @returns {string | null}
+ */
+export function kept(key) {
   try {
-    kept = storage?.getItem(name) ?? null;
+    return storage?.getItem(`explore-draft:${key}`) ?? null;
   } catch {
     // The browser keeps nothing for this page.
+    return null;
   }
-  box.value = kept ?? initial;
-  box.addEventListener('input', () => {
-    try {
-      storage?.setItem(name, box.value);
-    } catch {
-      // The browser keeps nothing for this page: the text is lost on a rebuild.
-    }
-  });
-  return box;
+}
+
+/**
+ * Keeps `value` under `key` for the tab, or forgets it with `null`.
+ * @param {string} key
+ * @param {string | null} value
+ */
+export function keep(key, value) {
+  try {
+    if (value === null) storage?.removeItem(`explore-draft:${key}`);
+    else storage?.setItem(`explore-draft:${key}`, value);
+  } catch {
+    // The browser keeps nothing for this page: the text is lost on a rebuild.
+  }
 }

@@ -5,6 +5,7 @@
 //! of what it acts on, which its params carry (the question and its version, the turn's request,
 //! the conclusion's request, the delivery, the round).
 
+use review_threads::AskedUnder;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -31,11 +32,14 @@ pub(crate) struct StateParams {
 }
 
 /// The number of a view: the revision of the round's published stage, then how many first
-/// picks this page kept for the round, which change the view without changing the revision.
+/// picks this page kept for the round, then the revision of the review threads, which hold the
+/// round's conversation: the last two change the view without changing the first. Each part
+/// only goes up.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, TS)]
 pub(crate) struct Seq {
     pub(crate) revision: u64,
     pub(crate) picks: u64,
+    pub(crate) threads: u64,
 }
 
 /// A request of the page: the reviewer's action, or a check that the tool is there.
@@ -48,12 +52,13 @@ pub(crate) struct Request {
 }
 
 /// What the page asks, with the identities of what it acts on: a `method` and its `params`,
-/// on the round or on its conclusion.
+/// on the round, on its conclusion, or in its conversation with the agent.
 #[derive(Debug, Deserialize, TS)]
 #[serde(untagged)]
 pub(crate) enum Call {
     Round(RoundCall),
     Conclusion(ConclusionCall),
+    Conversation(ConversationCall),
 }
 
 /// What the page asks of the round.
@@ -90,8 +95,6 @@ pub(crate) enum ConclusionCall {
     Quiz(QuizParams),
     /// Skip the rest of the conclusion's quiz.
     QuizSkip(QuizSkipParams),
-    /// Reply to the conclusion the page showed.
-    Reply(ReplyParams),
     /// Cancel the implementation request the page showed as being sent.
     CancelImplementation(CancelImplementationParams),
     /// Send again, as it is, the implementation request the page showed.
@@ -181,10 +184,43 @@ pub(crate) struct QuizSkipParams {
     pub(crate) conclusion: String,
 }
 
+/// What the page asks in the round's conversation with the agent, a review thread: the
+/// reviewer's messages do not answer the round's questions.
 #[derive(Debug, Deserialize, TS)]
-pub(crate) struct ReplyParams {
-    pub(crate) conclusion: String,
+#[serde(tag = "method", content = "params", rename_all = "kebab-case")]
+pub(crate) enum ConversationCall {
+    /// Post the reviewer's message in the round's conversation, which wakes the agent.
+    SendMessage(MessageParams),
+    /// The chat showed the agent's replies: mark them read.
+    ReadMessages(ReadParams),
+    /// Wake the agent again for the reviewer's messages that did not reach it.
+    RetryMessages(RetryMessagesParams),
+}
+
+#[derive(Debug, Deserialize, TS)]
+pub(crate) struct MessageParams {
+    /// The round the page showed, whose conversation the message joins.
+    pub(crate) round: String,
+    /// The message's identity, a UUID the page chose, so that sending it again posts it once.
+    pub(crate) id: String,
     pub(crate) text: String,
+    /// Where in the round the page showed the chat: the question and its version, the design,
+    /// or the conclusion; `None` elsewhere.
+    pub(crate) asked_under: Option<AskedUnder>,
+    /// The passage of the round the reviewer quoted.
+    pub(crate) quote: Option<String>,
+}
+
+#[derive(Debug, Deserialize, TS)]
+pub(crate) struct ReadParams {
+    pub(crate) round: String,
+    /// The position the view said to mark read through.
+    pub(crate) through: u64,
+}
+
+#[derive(Debug, Deserialize, TS)]
+pub(crate) struct RetryMessagesParams {
+    pub(crate) round: String,
 }
 
 #[derive(Debug, Deserialize, TS)]

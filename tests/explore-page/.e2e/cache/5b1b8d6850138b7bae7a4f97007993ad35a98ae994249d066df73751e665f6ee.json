@@ -1,0 +1,80 @@
+{
+  "schemaVersion": "trace-1",
+  "createdAt": "2026-10-04T16:09:17.912Z",
+  "payload": {
+    "actions": [
+      {
+        "name": "tap",
+        "summary": "tap button \"Talk to the agent\"",
+        "target": {
+          "role": "button",
+          "name": "Talk to the agent"
+        }
+      },
+      {
+        "name": "type",
+        "summary": "type \"Why keep a draft nobody sent?\" into textbox \"Message to the agent\"",
+        "target": {
+          "role": "textbox",
+          "name": "Message to the agent",
+          "placeholder": "Ask, challenge, or add context…"
+        },
+        "value": "Why keep a draft nobody sent?"
+      },
+      {
+        "name": "tap",
+        "summary": "tap button \"Send\"",
+        "target": {
+          "role": "button",
+          "name": "Send"
+        }
+      }
+    ],
+    "executor": {
+      "name": "e2e-default-agent",
+      "version": "2"
+    },
+    "recordedFor": {
+      "testId": "tests/chat.e2e.ts::the%20reviewer%20asks%20the%20agent%20from%20a%20question%20and%20reads%20its%20reply%2C%20and%20the%20question%20stays%20open",
+      "targetId": "desktop",
+      "instructionDigest": "1dde81b959ab6076cb7137c1c245bc06c7727f950c8ede0ec9e03f831f818bc5"
+    },
+    "summary": "Sent “Why keep a draft nobody sent?” in the agent chat; it appears as a message from you and the agent is answering.",
+    "startPath": "/#round",
+    "endPath": "/#round",
+    "endAnchors": [
+      {
+        "role": "heading",
+        "name": "Agent"
+      },
+      {
+        "text": "this round · 1 message"
+      },
+      {
+        "role": "button",
+        "name": "Close the conversation",
+        "text": "×"
+      },
+      {
+        "text": "Why keep a draft nobody sent?"
+      },
+      {
+        "role": "textbox",
+        "name": "Message to the agent",
+        "placeholder": "Ask, challenge, or add context…"
+      },
+      {
+        "role": "button",
+        "name": "Send"
+      },
+      {
+        "text": "The question stays open. Ctrl+↵"
+      },
+      {
+        "role": "complementary",
+        "name": "Conversation with the agent"
+      }
+    ],
+    "endWaitMs": 18980
+  }
+}

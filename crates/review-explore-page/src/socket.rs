@@ -18,6 +18,7 @@ use tokio::sync::mpsc;
 
 use crate::access::TokenCookie;
 use crate::actions::Actions;
+use crate::conversation::ThreadsFeed;
 use crate::page::{ExplorePage, PageEvent};
 use crate::round::{PageRound, RoundFeed};
 use crate::rpc::{Notification, Outcome, Reply, Request, RpcError, Seq, StateParams};
@@ -114,6 +115,11 @@ impl<R: Rounds> Connection<R> {
     async fn serve(&mut self, socket: &mut WebSocket) -> End {
         let mut stages: RoundFeed = self.round.stages.clone();
         let mut picks = self.page.picks.subscribe();
+        let mut threads = self
+            .round
+            .conversation
+            .as_ref()
+            .map(|conversation| conversation.threads.clone());
         let (done, mut replies) = mpsc::unbounded_channel::<Reply>();
         let mut heartbeat = tokio::time::interval(HEARTBEAT);
         heartbeat.tick().await;
@@ -143,6 +149,7 @@ impl<R: Rounds> Connection<R> {
                     }
                 }
                 Ok(()) = picks.changed() => self.send_view(socket).await,
+                true = threads_changed(&mut threads) => self.send_view(socket).await,
                 Some(reply) = replies.recv() => {
                     self.pending -= 1;
                     if let Reply::Result { result: Outcome { reopen: Some(token), .. }, .. } = &reply {
@@ -222,14 +229,20 @@ impl<R: Rounds> Connection<R> {
     /// Sends the view, unless the page has this number already.
     async fn send_view(&mut self, socket: &mut WebSocket) -> Result<(), axum::Error> {
         let snapshot = self.round.stages.latest();
+        let threads = self
+            .round
+            .conversation
+            .as_ref()
+            .map(|conversation| conversation.threads.latest());
         let seq = Seq {
             revision: snapshot.revision,
             picks: self.page.picks.count(snapshot.round.as_deref()),
+            threads: threads.as_ref().map_or(0, |threads| threads.revision),
         };
         if self.sent == Some(seq) {
             return Ok(());
         }
-        let view = PageView::new(&snapshot, &self.page.picks);
+        let view = PageView::new(&snapshot, &self.page.picks, threads.as_ref());
         let state = Notification::State(Box::new(StateParams {
             epoch: self.page.epoch().to_owned(),
             seq,
@@ -239,6 +252,19 @@ impl<R: Rounds> Connection<R> {
         self.sent = Some(seq);
         Ok(())
     }
+}
+
+/// Waits for the next change of the review threads, when the page offers a conversation; never
+/// returns otherwise. False once their publisher is gone, after which it never returns either.
+async fn threads_changed(threads: &mut Option<ThreadsFeed>) -> bool {
+    let Some(feed) = threads else {
+        return std::future::pending().await;
+    };
+    if feed.changed().await {
+        return true;
+    }
+    *threads = None;
+    false
 }
 
 /// The reply to the request `id`.

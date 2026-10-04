@@ -44,7 +44,7 @@ pub struct ConversationMessage {
 }
 
 /// What became of a message the reviewer wrote.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, ts_rs::TS)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum Delivery {
     /// The agent has not replied yet: the wakeup is on its way, or the agent is working on it.

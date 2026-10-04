@@ -13,15 +13,18 @@ import { Link } from './socket.js';
 const main = /** @type {HTMLElement} */ (document.getElementById('round'));
 const line = /** @type {HTMLElement} */ (document.getElementById('connection'));
 const header = /** @type {HTMLElement} */ (document.querySelector('header.masthead'));
-const page = new Page(main, header);
+// The page's own requests (the chat marks replies read) go on the socket, opened below.
+const page = new Page(main, header, (call) => link.call(call));
 /** The epoch and number of the view the page shows. @type {{ epoch: string, seq: Seq }} */
-let shown = { epoch: '', seq: { revision: -1, picks: -1 } };
+let shown = { epoch: '', seq: { revision: -1, picks: -1, threads: -1 } };
 
 /** Whether the view numbered `seq` comes after the one numbered `than`.
  * @param {Seq} seq
  * @param {Seq} than */
 function after(seq, than) {
-  return seq.revision > than.revision || (seq.revision === than.revision && seq.picks > than.picks);
+  if (seq.revision !== than.revision) return seq.revision > than.revision;
+  if (seq.picks !== than.picks) return seq.picks > than.picks;
+  return seq.threads > than.threads;
 }
 
 const link = new Link({
@@ -37,13 +40,13 @@ const link = new Link({
       });
     });
     page.render(params.view);
-    main.dataset.seq = `${params.seq.revision}.${params.seq.picks}`;
+    main.dataset.seq = `${params.seq.revision}.${params.seq.picks}.${params.seq.threads}`;
     actions.enable();
   },
   link: (state) => {
     // A new socket starts from the round as it is now, whatever the number of its first view:
     // a restarted tool numbers its views from 1 again.
-    if (state === 'open') shown = { epoch: '', seq: { revision: -1, picks: -1 } };
+    if (state === 'open') shown = { epoch: '', seq: { revision: -1, picks: -1, threads: -1 } };
     showConnection(line, state);
     actions.connection(state === 'open');
   },

@@ -42,6 +42,11 @@ impl RoundData for Rich {
         "Two seconds feels short when I read the cited code between replies."
     }
 
+    fn chat_reply(&self) -> &'static str {
+        "Three callers: `push` when the cap is reached, `tick` after two seconds of quiet, and \
+         `close_threads` when the pane closes. Each sends the whole queue at once."
+    }
+
     fn conclusion(&self, quiz: bool) -> Conclusion {
         conclusion::conclusion(quiz)
     }

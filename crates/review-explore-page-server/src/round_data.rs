@@ -37,6 +37,12 @@ pub(crate) trait RoundData: Send + Sync {
         ""
     }
 
+    /// What the agent replies to the reviewer's message in the round's conversation.
+    fn chat_reply(&self) -> &'static str {
+        "The draft lives in the round: a reset drops it with the round, so `Keep the draft` costs \
+         nothing once the round ends."
+    }
+
     /// The fixed conclusion: with its quiz when `quiz`, or else with the reason it has none.
     fn conclusion(&self, quiz: bool) -> Conclusion;
 

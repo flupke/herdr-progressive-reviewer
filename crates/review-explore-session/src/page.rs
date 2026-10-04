@@ -117,6 +117,7 @@ impl ExploreSession {
             .zip(overview.as_ref())
             .map(|(round, overview)| PublishedRound {
                 id: &round.exploration.instance,
+                review_unit: &round.exploration.comparison.checkpoint.review_unit,
                 design: round.exploration.design(),
                 changed_files: round.exploration.comparison.files.len(),
                 cancellable: cancellable.as_ref(),
@@ -187,10 +188,6 @@ impl ExploreSession {
                 let result = self.quiz_from_page(response);
                 self.publish_page();
                 reply.send(result);
-            }
-            PageCommand::Reply(text) => {
-                let result = self.reply_from_page(text);
-                let _ = self.reply_to_page(reply, result);
             }
             PageCommand::Recover(recovery) => {
                 self.recover_from_page(recovery, reply);

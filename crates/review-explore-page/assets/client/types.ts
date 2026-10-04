@@ -13,14 +13,23 @@ choice: string | null, comment: string,
  */
 number: number | null, };
 /**
+ * Where in its round the reviewer wrote a message: under a question, by its identity and
+ * version, or at a stage that shows no question.
+ */
+export type AskedUnder = { "stage": "question", question: string, version: number, } | { "stage": "design" } | { "stage": "conclusion", conclusion: string, };
+/**
+ * The author role of a posted thread message.
+ */
+export type Author = "reviewer" | "agent";
+/**
  * The tier of an action's button (assets/buttons.css).
  */
 export type ButtonTier = "primary" | "secondary";
 /**
  * What the page asks, with the identities of what it acts on: a `method` and its `params`,
- * on the round or on its conclusion.
+ * on the round, on its conclusion, or in its conversation with the agent.
  */
-export type Call = RoundCall | ConclusionCall;
+export type Call = RoundCall | ConclusionCall | ConversationCall;
 export type CancelAnswerParams = { answer: string, };
 export type CancelImplementationParams = { delivery: string, };
 /**
@@ -36,6 +45,35 @@ words: string,
  * Milliseconds since the epoch.
  */
 ms: number, };
+/**
+ * One message of the conversation.
+ */
+export type ChatMessageView = { id: string, author: Author, 
+/**
+ * The text, as Markdown rendered.
+ */
+html: string, 
+/**
+ * When the review received it, in milliseconds since the Unix epoch.
+ */
+posted_at_ms: number | null, 
+/**
+ * Where in the round the reviewer wrote it, as the rail names it: "Q2", "Design",
+ * "Conclusion"; `None` when it names no step, or one the round no longer shows.
+ */
+place: string | null, 
+/**
+ * The passage of the round the reviewer quoted.
+ */
+quote: string | null, 
+/**
+ * What became of a message of the reviewer's; an agent's reply has none.
+ */
+delivery: Delivery | null, 
+/**
+ * Whether the reviewer has not read this reply.
+ */
+unread: boolean, };
 /**
  * One choice of a question.
  */
@@ -72,7 +110,7 @@ limitation: string | null, };
 /**
  * What the page asks of the round's conclusion.
  */
-export type ConclusionCall = { "method": "implement", "params": ImplementParams } | { "method": "quiz", "params": QuizParams } | { "method": "quiz-skip", "params": QuizSkipParams } | { "method": "reply", "params": ReplyParams } | { "method": "cancel-implementation", "params": CancelImplementationParams } | { "method": "resend-implementation", "params": ResendImplementationParams };
+export type ConclusionCall = { "method": "implement", "params": ImplementParams } | { "method": "quiz", "params": QuizParams } | { "method": "quiz-skip", "params": QuizSkipParams } | { "method": "cancel-implementation", "params": CancelImplementationParams } | { "method": "resend-implementation", "params": ResendImplementationParams };
 export type ConclusionView = { 
 /**
  * The request of the agent's turn that posted the conclusion.
@@ -119,6 +157,39 @@ reply_label: string | null,
  */
 quiz: QuizView | null, };
 /**
+ * What the page asks in the round's conversation with the agent, a review thread: the
+ * reviewer's messages do not answer the round's questions.
+ */
+export type ConversationCall = { "method": "send-message", "params": MessageParams } | { "method": "read-messages", "params": ReadParams } | { "method": "retry-messages", "params": RetryMessagesParams };
+/**
+ * The conversation of the round the page shows.
+ */
+export type ConversationView = { 
+/**
+ * The round, by its instance, which a message the reviewer sends names.
+ */
+round: string, 
+/**
+ * The messages in posting order.
+ */
+messages: Array<ChatMessageView>, 
+/**
+ * How many of the agent's replies the reviewer has not read.
+ */
+unread: number, 
+/**
+ * What the page marks read through once the chat showed the replies.
+ */
+read_through: number, 
+/**
+ * That the reviewer's waiting messages did not reach the agent, with Retry.
+ */
+card: StatusCard | null, 
+/**
+ * Whether the reviewer can write: not in an earlier round, which offers Reset only.
+ */
+writable: boolean, };
+/**
  * How the kept choice relates to the reviewer's first pick and to the agent's recommendation.
  */
 export type DecisionTag = "changed_after_first_pick" | "as_recommended";
@@ -143,6 +214,10 @@ comment: string,
  * recommendation.
  */
 tags: Array<"changed_after_first_pick" | "as_recommended">, };
+/**
+ * What became of a message the reviewer wrote.
+ */
+export type Delivery = { "state": "waiting" } | { "state": "not_delivered", error: string, } | { "state": "answered" };
 /**
  * One part of the design, under its heading: its thesis, then the rest of its text.
  */
@@ -237,7 +312,12 @@ marks: Array<MarkPhrase>,
 /**
  * The question's citations, most decisive first.
  */
-citations: Array<CitationView>, };
+citations: Array<CitationView>, 
+/**
+ * The question's identity and latest version, which a message of the chat written beside
+ * it names.
+ */
+id: string, version: number, };
 export type Field = { name: string, value: string, };
 /**
  * One changed file's review marks.
@@ -437,6 +517,24 @@ summary: MarkPhrase, reviewed: Array<string>,
  * Each with why it is not relevant.
  */
 not_relevant: Array<string>, reopened: Array<string>, };
+export type MessageParams = { 
+/**
+ * The round the page showed, whose conversation the message joins.
+ */
+round: string, 
+/**
+ * The message's identity, a UUID the page chose, so that sending it again posts it once.
+ */
+id: string, text: string, 
+/**
+ * Where in the round the page showed the chat: the question and its version, the design,
+ * or the conclusion; `None` elsewhere.
+ */
+asked_under: AskedUnder | null, 
+/**
+ * The passage of the round the reviewer quoted.
+ */
+quote: string | null, };
 /**
  * A message the tool sends the page on its own.
  */
@@ -523,7 +621,12 @@ earlier_questions: Array<EarlierQuestionView>,
  * The reviewer's answer that the agent's turn carries, while the agent works on the turn
  * or the turn waits for Retry, with the turn's status card.
  */
-sent: SentView | null, };
+sent: SentView | null, 
+/**
+ * The round's conversation with the agent; `None` when no round is running, and when the
+ * page offers no conversation.
+ */
+conversation: ConversationView | null, };
 /**
  * The open lines that answering the question the round waits for marks.
  */
@@ -647,6 +750,11 @@ skipped: boolean, };
  * One step of the round rail and its state.
  */
 export type RailStep = { step: Step, state: StepState, };
+export type ReadParams = { round: string, 
+/**
+ * The position the view said to mark read through.
+ */
+through: number, };
 /**
  * When the page shows the agent's recommendation for a question.
  */
@@ -655,7 +763,6 @@ export type Recommendation = "shown" | "hidden_until_pick" | "shown_after_pick";
  * The reply to one request.
  */
 export type Reply = { id: number, result: Outcome, } | { id: number, error: RpcError, };
-export type ReplyParams = { conclusion: string, text: string, };
 /**
  * A request of the page: the reviewer's action, or a check that the tool is there.
  */
@@ -663,7 +770,7 @@ export type Request = {
 /**
  * Matches the reply to the request, on this socket only.
  */
-id: number, } & (RoundCall | ConclusionCall);
+id: number, } & (RoundCall | ConclusionCall | ConversationCall);
 export type ResendImplementationParams = { conclusion: string, delivery: string, 
 /**
  * The request's latest attempt, as the page showed it.
@@ -674,6 +781,7 @@ export type ResetParams = { round: string, };
  * What the agent's turn said back to the reviewer's previous answer.
  */
 export type ResponseView = { interpretations: Array<InterpretationView>, reply_html: string | null, };
+export type RetryMessagesParams = { round: string, };
 export type RetryParams = { request: string, 
 /**
  * The turn's latest attempt, as the page showed it.
@@ -749,9 +857,11 @@ answer: KeptAnswer,
 marked: MarkPhrase | null, };
 /**
  * The number of a view: the revision of the round's published stage, then how many first
- * picks this page kept for the round, which change the view without changing the revision.
+ * picks this page kept for the round, then the revision of the review threads, which hold the
+ * round's conversation: the last two change the view without changing the first. Each part
+ * only goes up.
  */
-export type Seq = { revision: number, picks: number, };
+export type Seq = { revision: number, picks: number, threads: number, };
 /**
  * A share of changed lines that review marks cover: "38% reviewed · 52 of 135 changed lines".
  */

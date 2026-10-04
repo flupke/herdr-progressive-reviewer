@@ -9,7 +9,7 @@
 /* Phone: a long word or address wraps instead of widening the page. */
 .text { overflow-wrap: anywhere; }
 
-/* A text box and its label: a comment, a reply, the list to be implemented. */
+/* A text box and its label: a comment, the list to be implemented. */
 .comment-label { font-weight: 600; }
 .comment, .tasks {
   padding: 8px 10px;
@@ -39,12 +39,12 @@
 }
 
 /* Controlling the round, as in the reviewer's Explore tab: Cancel answer in the previous turn
-   (turn.css), a reply to the conclusion and the saved implementation request; Reset is in the
-   masthead's menu. Stop waiting, Retry and the cancel of an implementation request sit in the
-   actions of their status card. */
-.cancel-answer, .reply, .resend-implementation { display: grid; gap: 12px; margin: 12px 0; }
-.cancel-answer .hint, .reply .hint { margin: 0; }
-.cancel-answer button, .reply button, .resend-implementation button { justify-self: start; }
+   (turn.css) and the saved implementation request; Reset is in the masthead's menu. Stop
+   waiting, Retry and the cancel of an implementation request sit in the actions of their
+   status card. */
+.cancel-answer, .resend-implementation { display: grid; gap: 12px; margin: 12px 0; }
+.cancel-answer .hint { margin: 0; }
+.cancel-answer button, .resend-implementation button { justify-self: start; }
 
 /* The quiet line that says when the page cannot reach the review tool, and the line that says
    the page needs JavaScript. */

@@ -25,6 +25,20 @@ export interface QuizAnswers {
   skipped?: boolean;
 }
 
+/** A message the reviewer sent from the page's chat, as the review threads saved it. */
+export interface SentMessage {
+  /** The round whose conversation it joined. */
+  round: string;
+  text: string;
+  /** Where in the round it was written, or `null`. */
+  asked_under:
+    | { stage: 'question'; question: string; version: number }
+    | { stage: 'design' }
+    | { stage: 'conclusion'; conclusion: string }
+    | null;
+  quote: string | null;
+}
+
 /** A session of the standalone server, which stands in for the review tool's Explore session. */
 export interface Session {
   /** The token of the page's address. */
@@ -109,8 +123,8 @@ export interface Session {
   markByHand(): Promise<void>;
   /**
    * The other actions the reviewer took on the page to recover or close the round, by name, in
-   * order: `stop`, `retry`, `cancel-answer`, `reset`, `reply`, `cancel-implementation`,
-   * `resend-implementation`.
+   * order: `stop`, `retry`, `cancel-answer`, `reset`, `cancel-implementation`,
+   * `resend-implementation`, and `retry-messages`, the chat's Retry.
    */
   actions(): Promise<string[]>;
   /**
@@ -126,7 +140,19 @@ export interface Session {
   restartReviewer(): Promise<void>;
   /** The restarted reviewer is back: the page opens its socket again. */
   reviewerBack(): Promise<void>;
+  /**
+   * The agent replies, with the server's fixed reply (`CHAT_REPLY`), to the reviewer's latest
+   * message in the round's conversation.
+   */
+  agentReplies(): Promise<void>;
+  /** The wakeup for the reviewer's waiting messages did not reach the agent. */
+  messagesNotDelivered(): Promise<void>;
+  /** The messages the reviewer sent from the chat, in order. */
+  messages(): Promise<SentMessage[]>;
 }
+
+/** The start of the fixed reply of the short data set's agent in the round's conversation. */
+export const CHAT_REPLY = 'The draft lives in the round';
 
 async function control(baseUrl: string | undefined, path: string, body?: object): Promise<Response> {
   const response = await fetch(new URL(path, baseUrl), {
@@ -195,6 +221,9 @@ export async function openSession(baseUrl: string | undefined, page: SessionPage
     holdPage: () => step('hold'),
     restartReviewer: () => step('restart'),
     reviewerBack: () => step('back'),
+    agentReplies: () => step('agent-replies'),
+    messagesNotDelivered: () => step('messages-not-delivered'),
+    messages: () => read<SentMessage[]>('messages'),
   };
 }
 

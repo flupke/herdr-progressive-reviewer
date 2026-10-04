@@ -9,6 +9,7 @@ license.workspace = true
 review-source = { path = "../review-source" }
 review-types = { path = "../review-types" }
 serde.workspace = true
+ts-rs.workspace = true
 uuid.workspace = true
 
 [lints]

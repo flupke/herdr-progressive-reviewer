@@ -96,8 +96,8 @@
 }
 .to-be-implemented .more:hover { color: var(--ink); text-decoration: underline; }
 
-/* The forms behind a disclosure (buttons.css): "Edit before sending", the reply, the
-   confirmation of "Start a new round…". */
+/* The forms behind a disclosure (buttons.css): "Edit before sending", the confirmation of
+   "Start a new round…". */
 .to-be-implemented .disclosure-body > form { display: grid; gap: 12px; margin: 0; }
 .to-be-implemented .disclosure-body > form .hint { margin: 0; }
 .to-be-implemented .disclosure-body > form > button { justify-self: start; }

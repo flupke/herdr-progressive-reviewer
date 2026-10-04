@@ -2,12 +2,13 @@
 //! reviewer talks with the agent beside the round's questions without answering them.
 
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
-use crate::{Message, Post, ReviewThread, ReviewThreads, ThreadId, ThreadSubject};
+use crate::{Message, MessageId, Post, ReviewThread, ReviewThreads, ThreadId, ThreadSubject};
 
 /// Where in its round the reviewer wrote a message: under a question, by its identity and
 /// version, or at a stage that shows no question.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, TS)]
 #[serde(tag = "stage", rename_all = "snake_case")]
 pub enum AskedUnder {
     /// Version `version` of the question `question`.
@@ -44,6 +45,14 @@ impl Post {
                 round: round.to_owned(),
             }),
         }
+    }
+
+    /// The same message under the identity `id`, which its sender chose, so that sending it
+    /// again, after a reply that did not arrive, posts it once.
+    #[must_use]
+    pub fn with_id(mut self, id: MessageId) -> Self {
+        self.message.id = id;
+        self
     }
 }
 

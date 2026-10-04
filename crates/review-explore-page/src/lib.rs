@@ -17,6 +17,7 @@ mod access;
 mod actions;
 mod blind;
 mod command;
+mod conversation;
 mod diagram;
 mod files;
 mod notice;
@@ -32,8 +33,9 @@ mod view;
 pub use access::{Hosts, Token};
 pub use command::{
     CommandRefusal, CommandReply, CommandSender, PageAnswer, PageCommand, PageImplement,
-    PageQuizResponse, PageReply, Recovery, Waiting,
+    PageQuizResponse, Recovery, Waiting,
 };
+pub use conversation::{PageConversation, ThreadSender, ThreadsFeed, ThreadsPublisher};
 pub use files::PageFiles;
 pub use page::{ExplorePage, PageEvent};
 pub use round::{

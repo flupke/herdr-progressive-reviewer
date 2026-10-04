@@ -4,7 +4,7 @@
    - `secondary`: an action beside it, with a strong hairline and ink text;
    - `outline`: an accent outline and accent text (the chat's Send, Ask);
    - `quiet`: underlined muted text, for actions that should not compete (Cancel answer, Skip
-     the quiz, Reset, "Not ready? Reply");
+     the quiz, Reset);
    - `danger`: a red fill, only for Confirm reset.
    Add `block` for the full width of the panel. In the panel the primary action comes last, at
    full width; in a status card and in the flow, actions sit in a left-aligned row, primary
@@ -76,7 +76,7 @@
 }
 
 /* A disclosure (client/disclosure.js): a muted line with its ▸ that shows or hides an action
-   behind a fold ("Not ready? Reply to the agent instead"). A disclosure may open from a button
+   behind a fold ("Edit before sending"). A disclosure may open from a button
    of another tier instead. */
 .disclosure-toggle {
   padding: 0;

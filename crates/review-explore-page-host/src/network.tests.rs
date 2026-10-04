@@ -124,6 +124,7 @@ fn share_on_loopback(host: &PageHost) -> (SocketAddr, mpsc::Receiver<String>) {
 fn published(id: &str) -> PublishedRound<'_> {
     PublishedRound {
         id,
+        review_unit: &REVIEW,
         design: None,
         changed_files: 0,
         cancellable: None,
@@ -132,6 +133,10 @@ fn published(id: &str) -> PublishedRound<'_> {
         earlier_citations: &[],
     }
 }
+
+/// The review of every round, which these tests do not look at.
+static REVIEW: std::sync::LazyLock<review_types::ReviewUnit> =
+    std::sync::LazyLock::new(|| "review".into());
 
 /// A round's overview, which these tests do not look at.
 static OVERVIEW: RoundOverview = RoundOverview {

@@ -1,11 +1,11 @@
 //! The actions the Explore page offers to recover or close a round, as the pane offers them:
-//! Stop waiting, Retry, Cancel answer, Reset, a reply to the conclusion, and the recoveries of an
-//! implementation request. Each is refused as stale when the round no longer offers it, then
-//! carried out by the path the pane's command takes, so that it saves the same result and sends
-//! the same prompt; the pane hears of it through the events it follows.
+//! Stop waiting, Retry, Cancel answer, Reset, and the recoveries of an implementation request.
+//! Each is refused as stale when the round no longer offers it, then carried out by the path the
+//! pane's command takes, so that it saves the same result and sends the same prompt; the pane
+//! hears of it through the events it follows.
 
-use review_explore::{AnswerInput, Command, DispatchState};
-use review_explore_page::{CommandRefusal, PageReply, Waiting};
+use review_explore::{Command, DispatchState};
+use review_explore_page::{CommandRefusal, Waiting};
 
 use crate::ExploreSession;
 
@@ -105,38 +105,6 @@ impl ExploreSession {
             round: round.to_owned(),
         });
         Ok(())
-    }
-
-    /// Replies to the conclusion the page showed, as Reply in the pane: the turn comes from the
-    /// latest saved round, while it still shows that conclusion.
-    pub(crate) fn reply_from_page(&mut self, reply: PageReply) -> Result<(), CommandRefusal> {
-        let round = self.saved_round()?;
-        let exploration = &round.exploration;
-        let concludes = exploration.pending_request().is_none()
-            && exploration.retry_request().is_none()
-            && exploration.conclusion_request() == Some(reply.conclusion.as_str());
-        if !concludes {
-            // The round's latest answer is this reply: a repeat of a reply that went through.
-            let repeat = exploration.answers.last().is_some_and(|latest| {
-                latest.question.is_none()
-                    && latest.option.is_none()
-                    && latest.in_reply_to == reply.conclusion
-                    && latest.text == reply.text
-            });
-            return Err(CommandRefusal::stale_unless_repeat(repeat));
-        }
-        let input = AnswerInput {
-            option: None,
-            text: reply.text,
-            in_reply_to: Some(reply.conclusion),
-            first_pick: None,
-        };
-        let request = exploration
-            .clone()
-            .request(Some(input), None)
-            .map_err(|error| CommandRefusal::Failed(error.to_string()))?;
-        self.deliver_turn(request, None)
-            .map_err(CommandRefusal::Failed)
     }
 
     /// Cancels the implementation request `delivery`, as the pane's Cancel implementation, while

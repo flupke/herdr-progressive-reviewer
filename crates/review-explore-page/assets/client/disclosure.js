@@ -1,5 +1,5 @@
 // A disclosure: a button that shows or hides what it controls, for an action that waits behind
-// a fold ("Edit before sending", "Not ready? Reply to the agent instead", "Start a new round…").
+// a fold ("Edit before sending", "Start a new round…").
 // A button with `aria-expanded`, rather than `<details>`, so that every reader, and the e2e
 // agent, sees a control.
 

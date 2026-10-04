@@ -1,0 +1,81 @@
+{
+  "schemaVersion": "trace-1",
+  "createdAt": "2026-10-04T16:09:37.116Z",
+  "payload": {
+    "actions": [
+      {
+        "name": "tap",
+        "summary": "tap button \"Talk to the agent\"",
+        "target": {
+          "role": "button",
+          "name": "Talk to the agent"
+        }
+      },
+      {
+        "name": "type",
+        "summary": "type \"Why not keep the draft in memory?\" into textbox \"Message to the agent\"",
+        "target": {
+          "role": "textbox",
+          "name": "Message to the agent",
+          "placeholder": "Ask, challenge, or add context…"
+        },
+        "value": "Why not keep the draft in memory?"
+      },
+      {
+        "name": "tap",
+        "summary": "tap button \"Send\"",
+        "target": {
+          "role": "button",
+          "name": "Send"
+        }
+      }
+    ],
+    "executor": {
+      "name": "e2e-default-agent",
+      "version": "2"
+    },
+    "recordedFor": {
+      "testId": "tests/chat.e2e.ts::the%20reviewer%20replies%20to%20the%20conclusion%20through%20the%20chat",
+      "targetId": "phone",
+      "instructionDigest": "1d267130a34f48ac8ce1217327a1c0bd4d2f5a8e7fc3869b69be7bb281eabf33"
+    },
+    "summary": "Sent “Why not keep the draft in memory?” in the agent conversation. The message is visible and the agent is answering.",
+    "startPath": "/",
+    "endPath": "/",
+    "endAnchors": [
+      {
+        "role": "heading",
+        "name": "Agent"
+      },
+      {
+        "text": "this round · 1 message"
+      },
+      {
+        "role": "button",
+        "name": "Close the conversation",
+        "text": "×"
+      },
+      {
+        "text": "Why not keep the draft in memory?"
+      },
+      {
+        "role": "textbox",
+        "name": "Message to the agent",
+        "placeholder": "Ask, challenge, or add context…"
+      },
+      {
+        "role": "button",
+        "name": "Send"
+      },
+      {
+        "role": "complementary",
+        "name": "Conversation with the agent"
+      },
+      {
+        "role": "log",
+        "name": "Messages"
+      }
+    ],
+    "endWaitMs": 20553
+  }
+}

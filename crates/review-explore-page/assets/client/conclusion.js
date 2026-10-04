@@ -4,12 +4,14 @@
 //
 // The section stays while the page shows the same conclusion, and each part is rebuilt only when
 // its own data changes: a request that goes from being sent to received changes its card and
-// leaves a reply being typed as it is.
+// leaves the rest as it is. "Not ready? Reply to the agent instead" opens the chat (chat.js),
+// where a message about the conclusion does not answer it.
 
 /** @import { ConclusionView, DecisionView, ImplementationView, QuizView } from "./types.ts" */
 /** @import { Turn } from "./turn.js" */
 
 import { decisionTag } from './chips.js';
+import { requestChat } from './chat.js';
 import { h, keyOf, markdown, Region } from './dom.js';
 import { keepDraft } from './drafts.js';
 import { openQuizResults, quizResults } from './quiz.js';
@@ -112,7 +114,7 @@ function decisionList(decisions) {
 }
 
 /** The panel: the quiz's score, then the list to be implemented and what became of its latest
- * request, with the one primary action of each state, then the reply under its disclosure. */
+ * request, with the one primary action of each state, then the line that opens the chat. */
 class Panel {
   constructor() {
     this.element = h('section', { class: 'to-be-implemented panel', 'aria-label': 'To be implemented' });
@@ -120,9 +122,6 @@ class Panel {
     this.card = new Region(this.element, 'implementation');
     this.list = new Region(this.element, 'list');
     this.reply = new Region(this.element, 'reply');
-    /** The button that opens the reply, whose words follow the request.
-     * @type {HTMLButtonElement | null} */
-    this.replyToggle = null;
   }
 
   /**
@@ -136,15 +135,11 @@ class Panel {
     this.card.show(keyOf(card), () => (card ? panelCard(card) : null));
     const { list: shown, implementation, draft, request, reply_label: reply } = conclusion;
     this.list.show(keyOf({ shown, implementation, card, draft, request, reset }), () => list(conclusion, reset));
-    // The fold keeps a reply being typed, open, while the request goes out: only its words
-    // follow the request.
-    this.reply.show(keyOf([request, reply !== null]), () => {
-      if (reply === null) return null;
-      const fold = replyFold(request, reply);
-      this.replyToggle = fold.toggle;
-      return fold.element;
-    });
-    if (reply !== null && this.replyToggle) this.replyToggle.textContent = reply;
+    this.reply.show(keyOf(reply), () =>
+      reply === null
+        ? null
+        : h('button', { class: 'chat-opener', type: 'button', 'aria-controls': 'chat', onclick: () => requestChat() }, reply),
+    );
   }
 }
 
@@ -323,31 +318,4 @@ function countItems(text) {
 /** @param {number} items */
 function itemsWords(items) {
   return `${items} ${items === 1 ? 'item' : 'items'}`;
-}
-
-/**
- * A reply to the conclusion, as Reply in the reviewer's Explore tab: free text, which the agent
- * takes up in its next turn. It waits under a disclosure, so that the panel has one primary
- * action.
- * @param {string} conclusion
- * @param {string} label the words that open it
- * @returns {{ element: HTMLElement, toggle: HTMLButtonElement }}
- */
-function replyFold(conclusion, label) {
-  const box = keepDraft(
-    h('textarea', { class: 'comment', id: 'reply', name: 'text', rows: 3, required: true }),
-    `reply:${conclusion}`,
-    '',
-  );
-  const form = h(
-    'form',
-    { class: 'reply', 'data-method': 'reply' },
-    h('input', { type: 'hidden', name: 'conclusion', value: conclusion }),
-    h('label', { class: 'comment-label', for: 'reply' }, 'Reply to the conclusion'),
-    box,
-    h('p', { class: 'hint' }, 'The agent takes your reply up in its next turn.'),
-    h('button', { class: 'button secondary', type: 'submit' }, 'Send the reply'),
-  );
-  // A reply the reviewer had begun shows open again.
-  return disclosure(label, form, { open: box.value !== '' });
 }

@@ -50,6 +50,14 @@
 //! - `POST /test/sessions/{token}/mark-by-hand`: the reviewer marks three more lines of the
 //!   change's first file by hand, which the page's meter shows at once. The round stays where
 //!   it is.
+//! - `POST /test/sessions/{token}/agent-replies`: the agent replies, with the data set's fixed
+//!   reply, to the reviewer's latest message in the conversation of the session's latest round.
+//! - `POST /test/sessions/{token}/messages-not-delivered`: the wakeup for the reviewer's waiting
+//!   messages did not reach the agent.
+//! - `GET /test/sessions/{token}/messages` lists the messages the reviewer sent from the page's
+//!   chat, in order: `[{"round", "text", "asked_under", "quote"}]`, `asked_under` as the review
+//!   threads save it (`{"stage": "question", "question", "version"}`, `{"stage": "design"}`,
+//!   `{"stage": "conclusion", "conclusion"}`) or `null`.
 //! - `GET /test/sessions/{token}/answers` lists the answers the reviewer sent from the page,
 //!   in order: `[{"question", "version", "choice", "comment"}]`, with `"first_pick"` when
 //!   the question hid its recommendation until the reviewer's first pick.
@@ -61,8 +69,8 @@
 //!   reviewer sent from the page, in order.
 //! - `GET /test/sessions/{token}/actions` lists, by name and in order, the other actions the
 //!   reviewer took on the page to recover or close the round: `"stop"`, `"retry"`,
-//!   `"cancel-answer"`, `"reset"`, `"reply"`, `"cancel-implementation"`,
-//!   `"resend-implementation"`.
+//!   `"cancel-answer"`, `"reset"`, `"cancel-implementation"`, `"resend-implementation"`, and
+//!   `"retry-messages"`, the chat's Retry of messages that did not reach the agent.
 //! - `GET /test/sessions/{token}/quiz` gives what the reviewer answered of the conclusion's quiz,
 //!   as the review tool saves it: `{"picks": [{"item", "answer", "correct"}], "skipped"}`, each
 //!   field left out while empty, so `{}` when the round has no quiz.
@@ -105,6 +113,12 @@ pub(crate) fn router(sessions: Sessions) -> Router {
         )
         .route("/test/sessions/{token}/mark-by-hand", post(mark_by_hand))
         .route("/test/sessions/{token}/actions", get(actions))
+        .route("/test/sessions/{token}/messages", get(messages))
+        .route("/test/sessions/{token}/agent-replies", post(agent_replies))
+        .route(
+            "/test/sessions/{token}/messages-not-delivered",
+            post(messages_not_delivered),
+        )
         .route(
             "/test/sessions/{token}/hold",
             post(|state, path| async move { change_page(state, path, PageChange::Hold) }),
@@ -224,6 +238,33 @@ async fn implementations(State(sessions): State<Sessions>, Path(token): Path<Str
 async fn quiz(State(sessions): State<Sessions>, Path(token): Path<String>) -> Response {
     match sessions.quiz(&token) {
         Some(quiz) => Json(quiz).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+/// No content when the change was made, else not found.
+fn found(changed: bool) -> StatusCode {
+    if changed {
+        StatusCode::NO_CONTENT
+    } else {
+        StatusCode::NOT_FOUND
+    }
+}
+
+async fn agent_replies(State(sessions): State<Sessions>, Path(token): Path<String>) -> StatusCode {
+    found(sessions.agent_replies(&token))
+}
+
+async fn messages_not_delivered(
+    State(sessions): State<Sessions>,
+    Path(token): Path<String>,
+) -> StatusCode {
+    found(sessions.messages_not_delivered(&token))
+}
+
+async fn messages(State(sessions): State<Sessions>, Path(token): Path<String>) -> Response {
+    match sessions.messages(&token) {
+        Some(messages) => Json(messages).into_response(),
         None => StatusCode::NOT_FOUND.into_response(),
     }
 }

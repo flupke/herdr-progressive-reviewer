@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 review-threads = { path = "../review-threads" }
 serde.workspace = true
+ts-rs.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true

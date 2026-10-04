@@ -64,6 +64,7 @@ impl EffectsFixture {
             source_watches: None,
             page: review_explore_page::RoundPublisher::default(),
             page_opener: None,
+            page_threads: std::sync::Arc::default(),
         };
         configure(&mut setup);
         let offline = setup.endpoint.is_err();

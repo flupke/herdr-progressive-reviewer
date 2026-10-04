@@ -11,12 +11,13 @@ use review_explore::{
 use review_explore_citations::Citation;
 use review_explore_tally::MarkTally;
 use review_repository::repository::SnapshotIdentity;
+use review_types::ReviewUnit;
 use serde::Serialize;
 use tokio::sync::watch;
 use ts_rs::TS;
 
 use crate::blind::BlindQuestion;
-use crate::{CommandSender, PageQuizResponse, Token, Waiting};
+use crate::{CommandSender, PageConversation, PageQuizResponse, Token, Waiting};
 
 /// The step of a round that the page shows.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -136,8 +137,14 @@ pub enum Interruption {
 impl RoundStage {
     /// The question the stage waits for an answer to, when it is version `version` of `id`.
     pub(crate) fn asks(&self, id: &str, version: u32) -> Option<&Question> {
+        self.asked_question()
+            .filter(|question| question.is_version(id, version))
+    }
+
+    /// The question the stage waits for an answer to, whatever its version.
+    pub(crate) fn asked_question(&self) -> Option<&Question> {
         match self {
-            Self::Question { question, .. } if question.is_version(id, version) => Some(question),
+            Self::Question { question, .. } => Some(question),
             _ => None,
         }
     }
@@ -486,6 +493,8 @@ impl QuestionMarks {
 pub struct PublishedRound<'a> {
     /// The round's identity.
     pub id: &'a str,
+    /// The review the round belongs to, whose threads hold the round's conversation.
+    pub review_unit: &'a ReviewUnit,
     /// The design of the change, once the round's first turn explained it.
     pub design: Option<&'a Design>,
     /// How many files the round's change touches, which the design's meta line counts.
@@ -535,6 +544,8 @@ pub(crate) struct RoundSnapshot {
     pub(crate) revision: u64,
     /// The identity of the round the stage belongs to; `None` when no round is running.
     pub(crate) round: Option<String>,
+    /// The review the round belongs to; `None` when no round is running.
+    pub(crate) review_unit: Option<ReviewUnit>,
     /// The design of the change, as the round's first turn explained it.
     pub(crate) design: Option<Arc<Design>>,
     /// How many files the round's change touches.
@@ -613,6 +624,39 @@ impl RoundSnapshot {
         }
     }
 
+    /// The round whose conversation the page offers, by its instance, with the review whose
+    /// threads hold it: `None` when no round is running, and when the review tool cannot save
+    /// the round.
+    pub(crate) fn conversation_round(&self) -> Option<(&str, &ReviewUnit)> {
+        if matches!(self.stage, RoundStage::StorageFailed { .. }) {
+            return None;
+        }
+        self.round.as_deref().zip(self.review_unit.as_ref())
+    }
+
+    /// The number on the rail of the question `id`: a question the round went past, the one the
+    /// stage asks, or the one the reviewer's latest answer answered. `None` for another question,
+    /// and for a round with no overview.
+    pub(crate) fn number_of_question(&self, id: &str) -> Option<usize> {
+        let overview = self.overview.as_deref()?;
+        if let Some(earlier) = overview
+            .earlier
+            .iter()
+            .find(|earlier| earlier.question.id == id)
+        {
+            return Some(earlier.number);
+        }
+        if self
+            .stage
+            .asked_question()
+            .is_some_and(|asked| asked.id == id)
+        {
+            return self.question_number();
+        }
+        let answered = self.cancellable.as_ref()?.answered.question.as_ref()?;
+        (answered.0 == id).then(|| self.answered_number()).flatten()
+    }
+
     /// Whether the round's latest answer, which the reviewer may still cancel, is `answered`
     /// with the comment `comment`: a repeat of an answer or a reply that went through.
     pub(crate) fn repeats(&self, answered: &Answered, comment: &str) -> bool {
@@ -635,6 +679,7 @@ impl RoundSnapshot {
     fn shows(&self, round: Option<PublishedRound<'_>>, stage: &RoundStage) -> bool {
         self.stage == *stage
             && self.round.as_deref() == round.map(|round| round.id)
+            && self.review_unit.as_ref() == round.map(|round| round.review_unit)
             && self.design.as_deref() == round.and_then(|round| round.design)
             && self.changed_files == round.map_or(0, |round| round.changed_files)
             && self.cancellable.as_ref() == round.and_then(|round| round.cancellable)
@@ -655,6 +700,7 @@ impl RoundSnapshot {
         Self {
             revision,
             round: round.map(|round| round.id.to_owned()),
+            review_unit: round.map(|round| round.review_unit.clone()),
             design: round.and_then(|round| round.design.cloned().map(Arc::new)),
             changed_files: round.map_or(0, |round| round.changed_files),
             cancellable: round.and_then(|round| round.cancellable.cloned()),
@@ -860,11 +906,25 @@ impl RoundFeed {
 pub struct PageRound {
     pub(crate) stages: RoundFeed,
     pub(crate) commands: CommandSender,
+    /// The review threads, which hold the round's conversation; `None` when the page offers no
+    /// conversation.
+    pub(crate) conversation: Option<PageConversation>,
 }
 
 impl PageRound {
     pub fn new(stages: RoundFeed, commands: CommandSender) -> Self {
-        Self { stages, commands }
+        Self {
+            stages,
+            commands,
+            conversation: None,
+        }
+    }
+
+    /// The round, whose conversation the page reads from and writes to `conversation`.
+    #[must_use]
+    pub fn with_conversation(mut self, conversation: PageConversation) -> Self {
+        self.conversation = Some(conversation);
+        self
     }
 
     /// The stages the round's owner publishes.

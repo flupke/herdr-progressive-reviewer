@@ -21,6 +21,7 @@ tokio.workspace = true
 [dev-dependencies]
 review-explore = { path = "../review-explore" }
 review-test-support = { path = "../review-test-support" }
+review-types = { path = "../review-types" }
 tempfile.workspace = true
 tokio-tungstenite.workspace = true
 

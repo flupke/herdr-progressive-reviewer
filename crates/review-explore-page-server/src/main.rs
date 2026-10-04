@@ -20,6 +20,7 @@
 
 mod changed_source;
 mod control;
+mod conversation;
 mod overview;
 mod question_parts;
 mod rich;

@@ -1,0 +1,289 @@
+/* The chat: the round's conversation with the agent (docs/design/explore-page/README.md, "Agent
+   chat"), drawn by client/chat.js, with "Add to chat" from client/chat-quote.js. On a desktop it
+   lies over the answer column, under the masthead, and never over the reading column; below the
+   desk's two columns it is a bottom sheet over the dimmed page. */
+
+/* The bubble in the masthead: a speech bubble drawn with a border, with the unread count. */
+.chat-bubble {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: background-color 150ms, color 150ms;
+}
+.chat-bubble:hover { color: var(--ink); }
+.chat-bubble.open {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+.bubble-shape {
+  box-sizing: border-box;
+  display: block;
+  width: 16px;
+  height: 12px;
+  border: 2px solid currentColor;
+  border-radius: 6px 6px 6px 1px;
+}
+.chat-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--canvas);
+  font-size: 10px;
+  font-weight: 700;
+}
+.chat-bubble [hidden] { display: none; }
+
+/* The drawer, over the answer column: the page's panel lines up with it. */
+.chat {
+  /* The handoff's chat surface: a shade under the panel in the dark theme, the panel in the
+     light one ("Agent chat"). */
+  --chat-surface: light-dark(var(--panel), #161719);
+  position: fixed;
+  z-index: 20;
+  top: 81px;
+  right: max(var(--gutter), calc((100vw - var(--page)) / 2 + var(--gutter)));
+  bottom: 24px;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: var(--panel-width);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--chat-surface);
+  box-shadow: var(--shadow-drawer);
+  opacity: 0;
+  transform: translateX(24px);
+  /* Closing fades out over 220ms (chat.js hides the drawer after it). */
+  transition: opacity 220ms ease, transform 220ms ease;
+}
+.chat.open {
+  opacity: 1;
+  transform: none;
+  transition: opacity 280ms cubic-bezier(0.2, 0.8, 0.2, 1), transform 280ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+/* Over the conclusion's wider panel. */
+body:has(.screen:not([hidden]) > .desk.wide) .chat { width: var(--panel-width-wide); }
+.chat[hidden] { display: none; }
+.chat-scrim { display: none; }
+.chat-grabber { display: none; }
+
+.chat-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px 15px;
+  border-bottom: 1px solid var(--line);
+}
+.chat-title { margin: 0; font-size: 15px; font-weight: 650; }
+.chat-meta { color: var(--muted); font-size: 13px; }
+.chat-close {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 18px;
+  cursor: pointer;
+}
+.chat-close:hover { background: color-mix(in srgb, var(--ink) 9%, transparent); color: var(--ink); }
+
+/* The messages: the reviewer's as a label and bold text, the agent's on the panel's surface. */
+.chat-log {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+  padding: 16px;
+  overflow-y: auto;
+  font-size: 15px;
+}
+.chat-empty { margin: 0; }
+.chat-message { display: grid; gap: 6px; min-width: 0; }
+.chat-message .markdown > :first-child { margin-top: 0; }
+.chat-message .markdown > :last-child { margin-bottom: 0; }
+.chat-message.mine .chat-text-shown { font-weight: 600; }
+.chat-message.agent {
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  /* Apart from the chat's surface: the panel on the darker dark surface, the page's surface on
+     the light theme's panel. */
+  background: light-dark(var(--canvas), var(--panel));
+}
+/* A quote: in a message, and in the composer. */
+.chat-quote-shown, .chat-quote {
+  margin: 0;
+  padding: 6px 10px;
+  border-left: 3px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  border-radius: 0 6px 6px 0;
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  color: var(--muted);
+  font-size: 13px;
+}
+.chat-pending {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  font-size: 14px;
+}
+.chat-pending-glyph {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--canvas);
+  font-size: 12px;
+  font-weight: 800;
+}
+.chat-pending-time { font-variant-numeric: tabular-nums; }
+.chat-log .status-card { max-width: none; }
+
+/* The composer: the quote, the text box, Send with its hint. */
+.chat-composer {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding: 12px 16px 16px;
+  border-top: 1px solid var(--line);
+}
+.chat-composer[hidden] { display: none; }
+.chat-quote { display: flex; align-items: flex-start; gap: 8px; padding-right: 8px; }
+.chat-quote[hidden] { display: none; }
+.chat-quote-text {
+  flex: 1 1 0;
+  min-width: 0;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.chat-quote-remove {
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+.chat-text {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 64px;
+  max-height: 10lh;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--canvas);
+  color: var(--ink);
+  font: inherit;
+  font-size: 15px;
+  field-sizing: content;
+  resize: none;
+}
+.chat-send { display: flex; align-items: center; gap: 12px; }
+.chat-send .button { padding-inline: 18px; font-size: 15px; font-weight: 600; }
+.chat-send .hint { font-size: 12px; }
+
+/* "Not ready? Reply to the agent instead", on the conclusion: a muted line, as a fold's. */
+.chat-opener {
+  justify-self: start;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+.chat-opener::before { content: "▸" / ""; display: inline-block; width: 1.1em; font-size: 11px; }
+.chat-opener:hover { color: var(--ink); }
+
+/* "Add to chat", above the selected passage. */
+.chat-pick {
+  position: absolute;
+  z-index: 15;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  outline: 4px solid var(--panel);
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
+  box-shadow: var(--shadow-popover);
+  color: var(--accent);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.chat-pick[hidden] { display: none; }
+main ::selection { background: color-mix(in srgb, var(--accent) 28%, transparent); }
+
+/* Below the desk's two columns: a bottom sheet to two thirds of the window, draggable to its
+   full height, over the dimmed page. */
+@media (max-width: 69.99rem) {
+  .chat {
+    top: auto;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: auto;
+    height: min(66vh, calc(100% - 16px));
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    border-width: 1px 0 0;
+    border-radius: 16px 16px 0 0;
+    transform: translateY(24px);
+  }
+  .chat.full { height: calc(100% - 16px); }
+  .chat-scrim:not([hidden]) {
+    position: fixed;
+    z-index: 19;
+    inset: 0;
+    display: block;
+    /* The page behind dims to 45% ("Phone"). */
+    background: rgba(0, 0, 0, 0.55);
+  }
+  .chat-grabber {
+    display: block;
+    width: 36px;
+    height: 4px;
+    margin: 8px auto 0;
+    border-radius: 2px;
+    background: var(--line-strong);
+    cursor: grab;
+    touch-action: none;
+  }
+  .chat-head { padding-top: 6px; }
+  .chat-send { flex-wrap: wrap; }
+  .chat-send .button { flex: 1 1 100%; min-height: 48px; }
+  .chat-send .hint { display: none; }
+}

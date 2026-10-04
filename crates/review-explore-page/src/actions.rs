@@ -5,20 +5,22 @@
 //! (the same answer to the same version of a question, the same pick, list, quiz answer or
 //! reply) is answered as applied already, and changes nothing; a repeat of a Start, a Stop
 //! waiting, a Retry or a resend names a start, a turn or an attempt that is no longer the
-//! current one, so it cannot start, stop or send anything a second time.
+//! current one, so it cannot start, stop or send anything a second time. A message in the
+//! round's conversation goes to the owner of the review threads instead (`conversation`).
+
+mod conversation;
 
 use review_explore::{AnswerInput, DiagramError, QuizResponse};
 
 use crate::blind::Pick;
-use crate::command::{PageAnswer, PageCommand, PageImplement, PageQuizResponse, PageReply};
+use crate::command::{PageAnswer, PageCommand, PageImplement, PageQuizResponse};
 use crate::notice::{Action, Notice, Problem, RecoveryAction};
 use crate::page::ExplorePage;
 use crate::round::PageRound;
 use crate::round::{Answered, ImplementationState, Interruption, RoundStage};
 use crate::rpc::{
     AnswerParams, Call, ConclusionCall, ImplementParams, Outcome, PickParams, QuizParams,
-    ReplyParams, ResendImplementationParams, ResetParams, RetryParams, RoundCall, StartParams,
-    StopParams,
+    ResendImplementationParams, ResetParams, RetryParams, RoundCall, StartParams, StopParams,
 };
 use crate::{Recovery, Rounds, Waiting};
 
@@ -34,6 +36,7 @@ impl<R: Rounds> Actions<'_, R> {
         match call {
             Call::Round(call) => self.on_round(call).await,
             Call::Conclusion(call) => self.on_conclusion(call).await,
+            Call::Conversation(call) => self.in_conversation(call).await,
         }
     }
 
@@ -84,7 +87,6 @@ impl<R: Rounds> Actions<'_, R> {
                 };
                 self.quiz(response).await
             }
-            ConclusionCall::Reply(params) => self.reply(params).await,
             ConclusionCall::CancelImplementation(params) => {
                 let offered = self
                     .round
@@ -246,26 +248,6 @@ impl<R: Rounds> Actions<'_, R> {
             attempt: params.attempt,
         });
         self.send(command, action).await
-    }
-
-    /// Hands the reviewer's reply to the round's owner, unless the page showed a conclusion that
-    /// the round moved past. A repeat of a reply that went through finds it the latest answer.
-    async fn reply(&self, params: ReplyParams) -> Result<Outcome, Notice> {
-        let shown = self.round.stages.latest();
-        let text = crlf_to_lf(params.text);
-        if !shown.stage.concludes(&params.conclusion) {
-            let answered = Answered {
-                question: None,
-                option: None,
-                in_reply_to: params.conclusion,
-            };
-            return repeat(shown.repeats(&answered, &text), Action::Reply);
-        }
-        let command = PageCommand::Reply(PageReply {
-            conclusion: params.conclusion,
-            text,
-        });
-        self.send(command, Action::Reply).await
     }
 
     /// Hands the saved implementation request to the round's owner to send again, unless the

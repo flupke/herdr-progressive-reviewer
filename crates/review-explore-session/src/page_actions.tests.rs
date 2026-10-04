@@ -4,8 +4,8 @@
 
 use review_explore::{Command, DispatchState};
 use review_explore_page::{
-    CommandRefusal, CommandReply, ImplementationState, Interruption, PageCommand, PageReply,
-    Recovery, RoundStage, Waiting,
+    CommandRefusal, CommandReply, ImplementationState, Interruption, PageCommand, Recovery,
+    RoundStage, Waiting,
 };
 
 use super::*;
@@ -407,56 +407,6 @@ fn reset_on_the_page_closes_the_round_as_reset_in_the_pane() {
         "reopening shows the start screen"
     );
     assert_eq!(harness.start_on_page(false), Ok(()), "a new round starts");
-}
-
-#[test]
-fn a_reply_to_the_conclusion_from_the_page_is_saved_and_prompted_as_the_panes() {
-    let mut harness = Harness::start();
-    harness.conclude();
-    let conclusion = harness
-        .saved()
-        .exploration
-        .conclusion_request()
-        .unwrap()
-        .to_owned();
-
-    let stale = harness.on_page(PageCommand::Reply(PageReply {
-        conclusion: "another-turn".into(),
-        text: "Why?".into(),
-    }));
-    let replied = harness.on_page(PageCommand::Reply(PageReply {
-        conclusion: conclusion.clone(),
-        text: "Why not a cache?".into(),
-    }));
-
-    assert_eq!(stale, Err(CommandRefusal::Stale));
-    assert_eq!(replied, Ok(()));
-    let posted = harness.next::<ui_events::ExplorePosted>();
-    let answer = posted.request.answer.clone().expect("the reply");
-    assert_eq!(
-        (
-            answer.in_reply_to.as_str(),
-            answer.question.is_none(),
-            answer.option.is_none()
-        ),
-        (conclusion.as_str(), true, true)
-    );
-    assert_eq!(answer.text, "Why not a cache?");
-    assert!(harness.delivered_prompt().contains("Why not a cache?"));
-    assert_eq!(harness.working_on(), posted.request.request);
-    let answers = harness.saved().exploration.answers.len();
-
-    let repeated = harness.on_page(PageCommand::Reply(PageReply {
-        conclusion: conclusion.clone(),
-        text: "Why not a cache?".into(),
-    }));
-    let another = harness.on_page(PageCommand::Reply(PageReply {
-        conclusion,
-        text: "And a database?".into(),
-    }));
-    assert_eq!(repeated, Err(CommandRefusal::AlreadyApplied));
-    assert_eq!(another, Err(CommandRefusal::Stale));
-    assert_eq!(harness.saved().exploration.answers.len(), answers);
 }
 
 #[test]

@@ -35,6 +35,10 @@ pub(crate) struct EarlierQuestionView {
     marks: Vec<MarkPhrase>,
     /// The question's citations, most decisive first.
     citations: Vec<CitationView>,
+    /// The question's identity and latest version, which a message of the chat written beside
+    /// it names.
+    id: String,
+    version: u32,
 }
 
 impl EarlierQuestionView {
@@ -64,6 +68,8 @@ impl EarlierQuestionView {
                 .filter(|phrase| !phrase.parts.is_empty())
                 .collect(),
             citations: citations.iter().map(CitationView::new).collect(),
+            id: question.id.clone(),
+            version: question.version,
         }
     }
 

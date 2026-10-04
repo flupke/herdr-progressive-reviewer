@@ -2,9 +2,10 @@ import { expect } from 'e2e';
 import { test } from './session.ts';
 
 // The reviewer controls the whole round from the page, as from the reviewer's Explore tab: Stop
-// waiting, Retry, Cancel answer, Reset, a reply to the conclusion, and the cancel of an
-// implementation request. The fixture's round starts with the agent working on its first turn,
-// the kickoff; `explore.actions()` lists the actions the page sent, as the session took them.
+// waiting, Retry, Cancel answer, Reset, and the cancel of an implementation request; a reply to
+// the conclusion goes through the chat (chat.e2e.ts). The fixture's round starts with the agent
+// working on its first turn, the kickoff; `explore.actions()` lists the actions the page sent, as
+// the session took them.
 
 // What a Retry achieves on the page: the agent works on the turn again.
 const RETRYING = {
@@ -102,21 +103,6 @@ test(
     expect(await explore.starts()).toEqual([{ challenger: false }]);
   },
 );
-
-// What a reply achieves: the agent takes it up afterwards, out of the page's hands.
-const REPLYING = {
-  agentContext: 'Replying to the conclusion on this page is done once the page says that the agent is working.',
-};
-
-test('the reviewer replies to the conclusion', REPLYING, async ({ explore, screen, agent }) => {
-  await explore.open();
-  await explore.conclude();
-  await expect(screen.getByRole('region', 'Conclusion')).toBeVisible();
-
-  await agent.act('reply {reply} to the conclusion', { params: { reply: 'Why not keep the draft in memory?' } });
-  await expect(screen.getByRole('status')).toContainText('The agent is working');
-  expect(await explore.actions()).toEqual(['reply']);
-});
 
 test('the reviewer cancels an implementation request that is being sent', async ({ explore, screen, agent }) => {
   await explore.open();

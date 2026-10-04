@@ -303,6 +303,27 @@ impl StatusCard {
         }
     }
 
+    /// That the agent did not get the reviewer's waiting messages in the conversation of the
+    /// round `round`, because the wakeup that carried them failed with `error`: Retry wakes it
+    /// again, as Retry agent does for a thread in the pane.
+    pub(crate) fn undelivered_messages(error: &str, round: &str) -> Self {
+        Self::new(
+            StatusKind::Danger,
+            "conversation-delivery",
+            "Your message did not reach the agent",
+        )
+        .reason(error)
+        .code()
+        .role(StatusRole::Alert)
+        .action(Some(StatusAction {
+            method: "retry-messages",
+            fields: vec![Field::new("round", round)],
+            label: "Retry",
+            tier: ButtonTier::Secondary,
+            hint: Some("Wakes the agent again for your waiting messages."),
+        }))
+    }
+
     /// Why the reviewer's latest action did not go through. An action the round moved past is
     /// information; one that failed shows the failure; one the review tool did not answer asks
     /// the reviewer to check.
@@ -730,11 +751,18 @@ impl NoticeWords {
                  answer was not kept.",
                 "Load this page again to see whether it kept your quiz answer.",
             ),
-            Action::Reply => Self::new(
-                "Your reply was not sent",
-                "The round moved past this conclusion",
-                "In the pane or in another tab, so your reply was not sent.",
-                "Load this page again to see whether it took your reply.",
+            Action::Message => Self::new(
+                "Your message was not sent",
+                "This round is over",
+                "It was reset or replaced, in the pane or in another tab, so your message was not \
+                 sent.",
+                "Load this page again to see whether the conversation took your message.",
+            ),
+            Action::RetryMessages => Self::new(
+                "Retry did nothing",
+                "No message waits for the agent",
+                "The agent replied, or the round moved on, so Retry did nothing.",
+                "Load this page again to see whether the agent was woken again.",
             ),
             Action::Recover(recovery) => Self::recovery(recovery),
         }

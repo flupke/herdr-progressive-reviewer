@@ -4009,6 +4009,9 @@ dependencies = [
  "review-explore-citations",
  "review-explore-tally",
  "review-repository",
+ "review-round-conversation",
+ "review-threads",
+ "review-types",
  "serde",
  "serde_json",
  "tokio",
@@ -4029,6 +4032,7 @@ dependencies = [
  "review-explore-page-opening",
  "review-explore-page-settings",
  "review-test-support",
+ "review-types",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -4052,6 +4056,8 @@ dependencies = [
  "review-explore-tally",
  "review-repository",
  "review-source",
+ "review-threads",
+ "review-types",
  "serde",
  "serde_json",
  "tokio",
@@ -4216,6 +4222,7 @@ dependencies = [
  "review-threads",
  "serde",
  "serde_json",
+ "ts-rs",
  "uuid",
 ]
 
@@ -4328,6 +4335,7 @@ dependencies = [
  "review-types",
  "serde",
  "serde_json",
+ "ts-rs",
  "uuid",
 ]
 
@@ -4408,6 +4416,7 @@ dependencies = [
  "review-mcp",
  "review-mcp-config",
  "review-repository",
+ "review-round-conversation",
  "review-significance",
  "review-source",
  "review-state",

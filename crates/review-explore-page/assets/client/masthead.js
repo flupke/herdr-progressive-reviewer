@@ -1,10 +1,12 @@
 // The masthead, one row above every screen (docs/design/explore-page/README.md, "Masthead"):
 // the product's name, the review's title, the round rail, a place for the chat's bubble, and the
 // ⋯ menu. "Design ▾" on the rail opens the design map in place; the menu copies the round's
-// link and holds Reset, behind its confirmation, which the page offers nowhere else. The
-// masthead's bottom hairline is an element of its own, which the meter draws on. On a phone the
-// rail shows chips: the design, the current step, the screen in view and the screens beside it,
-// and the review's title moves into the menu (masthead.css, swipe.css). The browser tab's title says whose turn it is.
+// link, opens the agent's conversation (chat.js), and holds Reset, behind its confirmation,
+// which the page offers nowhere else. The masthead's bottom hairline is an element of its own,
+// which the meter draws on. On a phone the rail shows chips: the design, the current step, the
+// screen in view and the screens beside it, and the review's title moves into the menu
+// (masthead.css, swipe.css). The browser tab's title says whose turn it is, after the count of
+// the agent's replies the reviewer has not seen.
 //
 // The rail and the tab title come from the round's overview, which the tool derives: every
 // question number here is a step of the rail, never a count of the question's versions. While
@@ -16,6 +18,7 @@
 
 /** @import { DesignView, PageView, RailStep, ReviewName, Step, TabTitle } from "./types.ts" */
 
+import { requestChat } from './chat.js';
 import { h, keyOf, markdown, Region } from './dom.js';
 import { earlierQuestion, STAGE } from './route.js';
 
@@ -67,8 +70,9 @@ export class Masthead {
    * @param {PageView} view
    * @param {Viewing} viewing the screen the page shows, other than the stage, which the rail then
    *   shows as the step in view, the round's own step next
+   * @param {number} [unread] how many of the agent's replies the tab's title counts as unread
    */
-  update(view, viewing) {
+  update(view, viewing, unread = 0) {
     const cover = view.start !== null;
     this.review.show(keyOf([view.review, cover]), () => reviewLine(view.review, cover));
     const rail = view.rail;
@@ -87,13 +91,15 @@ export class Masthead {
     }
     this.drawMenu(view);
     this.showOpen();
-    document.title = tabTitle(view.title, view.review);
+    const title = tabTitle(view.title, view.review);
+    document.title = unread > 0 ? `(${unread}) ${title}` : title;
   }
 
   /** @param {PageView} view */
   drawMenu(view) {
     const round = view.reset;
-    this.menu.show(keyOf([view.review, round, view.rail.length > 0, this.confirming]), () =>
+    const chat = view.conversation !== null;
+    this.menu.show(keyOf([view.review, round, view.rail.length > 0, this.confirming, chat]), () =>
       h(
         'div',
         { class: 'menu' },
@@ -117,6 +123,20 @@ export class Masthead {
             ? resetConfirmation(round)
             : [
                 copyLink(view.rail.length > 0 ? "Copy the round's link" : "Copy the page's link"),
+                chat
+                  ? h(
+                      'button',
+                      {
+                        class: 'menu-item',
+                        type: 'button',
+                        onclick: () => {
+                          this.close(false);
+                          requestChat();
+                        },
+                      },
+                      "Open the agent's conversation",
+                    )
+                  : null,
                 round !== null
                   ? [
                       h('hr', {}),

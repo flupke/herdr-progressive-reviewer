@@ -37,8 +37,6 @@ pub enum PageCommand {
     /// Save the reviewer's pick of a quiz item, or skip of the quiz, of the conclusion the page
     /// showed.
     Quiz(PageQuizResponse),
-    /// Reply to the conclusion the page showed, as Reply in the pane.
-    Reply(PageReply),
     /// Recover or close the round, as the pane offers it.
     Recover(Recovery),
 }
@@ -74,15 +72,6 @@ pub enum Waiting {
     Start(String),
     /// The agent's turn, by its request.
     Turn(String),
-}
-
-/// The reviewer's reply to the conclusion the page showed: free text, with no choice. The owner
-/// builds the turn from its own round.
-#[derive(Debug)]
-pub struct PageReply {
-    /// The request of the agent's turn that posted the conclusion.
-    pub conclusion: String,
-    pub text: String,
 }
 
 /// What the reviewer did with the quiz of the conclusion the page showed. The page graded a
@@ -181,12 +170,20 @@ impl CommandSender {
     pub(crate) async fn send(&self, command: PageCommand) -> Result<bool, Problem> {
         let (reply, replied) = CommandReply::channel();
         (self.0)(command, reply);
-        match tokio::time::timeout(REPLY_TIMEOUT, replied).await {
-            Ok(Ok(Ok(()))) => Ok(true),
-            Ok(Ok(Err(CommandRefusal::AlreadyApplied))) => Ok(false),
-            Ok(Ok(Err(refusal))) => Err(Problem::from(refusal)),
-            // The owner stopped, or did not reply in time: the command may have gone through.
-            Ok(Err(_)) | Err(_) => Err(Problem::NoReply),
-        }
+        await_reply(replied).await
+    }
+}
+
+/// Waits for an owner's reply to a command: whether the command changed anything (false for a
+/// repeat of one carried out already), or why it did not go through.
+pub(crate) async fn await_reply(
+    replied: oneshot::Receiver<Result<(), CommandRefusal>>,
+) -> Result<bool, Problem> {
+    match tokio::time::timeout(REPLY_TIMEOUT, replied).await {
+        Ok(Ok(Ok(()))) => Ok(true),
+        Ok(Ok(Err(CommandRefusal::AlreadyApplied))) => Ok(false),
+        Ok(Ok(Err(refusal))) => Err(Problem::from(refusal)),
+        // The owner stopped, or did not reply in time: the command may have gone through.
+        Ok(Err(_)) | Err(_) => Err(Problem::NoReply),
     }
 }

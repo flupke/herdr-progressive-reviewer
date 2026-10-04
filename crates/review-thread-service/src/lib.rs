@@ -127,6 +127,22 @@ impl Worker {
     pub fn send(&self, command: Command) {
         let _ = self.sender.send(Input::Ui(command));
     }
+
+    /// Where another thread sends thread commands, as the pane's actions do: the Explore page
+    /// writes the round's conversation through it.
+    pub fn thread_commands(&self) -> ThreadCommands {
+        ThreadCommands(self.sender.clone())
+    }
+}
+
+/// Sends thread commands to the worker, from any thread.
+#[derive(Clone)]
+pub struct ThreadCommands(Sender<Input>);
+
+impl ThreadCommands {
+    pub fn send(&self, command: ThreadCommand) {
+        let _ = self.0.send(Input::Ui(Command::Thread(command)));
+    }
 }
 
 impl Drop for Worker {

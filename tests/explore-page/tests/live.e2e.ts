@@ -5,23 +5,23 @@ import { test } from './session.ts';
 // it is. When the review tool cannot be reached, the page says so, waits, then shows the round
 // as it is once the tool is back.
 
-test('a reply being typed keeps its text and its focus while the implementation request goes out', async ({
+test('a message being typed in the chat keeps its text and its focus while the implementation request goes out', async ({
   explore,
   screen,
 }) => {
   await explore.open();
   await explore.conclude();
-  // Exact actions: the setup is a request on its way and a reply being typed.
+  // Exact actions: the setup is a request on its way and a message to the agent being typed.
   await screen.getByRole('button', 'Implement 1 item').tap();
   await expect(screen.getByRole('status')).toContainText('Sending the implementation request');
   await screen.getByRole('button', 'Not ready? Reply to the agent instead').tap();
-  const reply = screen.getByRole('textbox', 'Reply to the conclusion');
+  const reply = screen.getByRole('textbox', 'Message to the agent');
   await reply.fill('Keep the old name for one release.');
 
   await explore.deliverImplementation();
   await expect(screen.getByRole('status')).toContainText('The agent received the implementation request');
   await expect(reply).toHaveValue('Keep the old name for one release.');
-  // A page loaded again would have taken the focus from the reply.
+  // A page loaded again would have taken the focus from the message.
   await expect(reply).toBeFocused();
 });
 

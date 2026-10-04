@@ -27,8 +27,10 @@ pub(crate) enum Action {
     Implement,
     /// A pick of a quiz item, or a skip of the quiz, of the conclusion the page showed.
     Quiz,
-    /// A reply to the conclusion the page showed.
-    Reply,
+    /// A message in the round's conversation.
+    Message,
+    /// Retry of the reviewer's messages that did not reach the agent.
+    RetryMessages,
     /// An action that recovers or closes the round.
     Recover(RecoveryAction),
 }
@@ -99,7 +101,8 @@ impl Action {
             Self::Pick { .. } => "pick",
             Self::Implement => "implement",
             Self::Quiz => "quiz",
-            Self::Reply => "reply",
+            Self::Message => "send-message",
+            Self::RetryMessages => "retry-messages",
             Self::Recover(recovery) => recovery.name(),
         }
     }

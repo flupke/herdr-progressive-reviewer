@@ -18,6 +18,8 @@ review-explore-page = { path = "../review-explore-page" }
 review-explore-tally = { path = "../review-explore-tally" }
 review-repository = { path = "../review-repository" }
 review-source = { path = "../review-source" }
+review-threads = { path = "../review-threads" }
+review-types = { path = "../review-types" }
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

@@ -5,6 +5,7 @@
 //! (`crate::typescript`), so that the client is checked against them.
 
 mod conclusion;
+mod conversation;
 mod earlier;
 mod question;
 mod sent;
@@ -16,10 +17,12 @@ use serde::Serialize;
 use ts_rs::TS;
 
 pub(crate) use self::conclusion::ConclusionView;
+use self::conversation::ConversationView;
 use self::earlier::EarlierQuestionView;
 pub(crate) use self::question::QuestionView;
 use self::sent::SentView;
 use crate::blind::FirstPicks;
+use crate::conversation::ThreadsSnapshot;
 use crate::round::{LatestAnswer, ReviewName, RoundSnapshot, RoundStage, TurnResponse};
 use crate::status::StatusCard;
 
@@ -63,6 +66,9 @@ pub(crate) struct PageView {
     /// The reviewer's answer that the agent's turn carries, while the agent works on the turn
     /// or the turn waits for Retry, with the turn's status card.
     sent: Option<SentView>,
+    /// The round's conversation with the agent; `None` when no round is running, and when the
+    /// page offers no conversation.
+    conversation: Option<ConversationView>,
 }
 
 /// The start cover, when no round is running.
@@ -137,8 +143,13 @@ struct InterpretationView {
 }
 
 impl PageView {
-    /// The view of `round`, with the reviewer's first picks `picks` kept by this page.
-    pub(crate) fn new(round: &RoundSnapshot, picks: &FirstPicks) -> Self {
+    /// The view of `round`, with the reviewer's first picks `picks` kept by this page, and the
+    /// round's conversation from the review threads `threads`, when the page offers one.
+    pub(crate) fn new(
+        round: &RoundSnapshot,
+        picks: &FirstPicks,
+        threads: Option<&ThreadsSnapshot>,
+    ) -> Self {
         // An earlier round offers Reset only.
         let offers_actions = !round.earlier;
         let cards = StatusCard::above_stage(round, offers_actions);
@@ -181,6 +192,7 @@ impl PageView {
             }),
             tally: round.tally.as_deref().cloned(),
             sent: SentView::of(round, offers_actions),
+            conversation: threads.and_then(|threads| ConversationView::of(round, threads)),
         }
     }
 }

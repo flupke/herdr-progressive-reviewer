@@ -12,12 +12,15 @@ use review_explore::{
 use review_explore_citations::Citation;
 use review_explore_page::{
     Answered, AnsweredQuestion, CommandRefusal, CommandSender, ImplementationState, Interruption,
-    LatestAnswer, PageCommand, PageImplementation, PageRound, PublishedRound, QuestionMarks,
-    Recovery, RoundPublisher, RoundStage, Rounds, SentAnswer, Token, Waiting,
+    LatestAnswer, PageCommand, PageConversation, PageImplementation, PageRound, PublishedRound,
+    QuestionMarks, Recovery, RoundPublisher, RoundStage, Rounds, SentAnswer, ThreadSender, Token,
+    Waiting,
 };
 use review_explore_tally::MarkTally;
+use review_threads::ThreadCommand;
 use serde::Serialize;
 
+use crate::conversation::{SentMessage, SessionThreads};
 use crate::overview::Posted;
 use crate::round_data::RoundData;
 use crate::tally::SessionMarks;
@@ -90,6 +93,8 @@ struct Session {
     marked_by_hand: u64,
     /// The other actions the reviewer took on the page, by name, in order.
     actions: Vec<String>,
+    /// The review threads, which hold the conversation of each of the session's rounds.
+    threads: SessionThreads,
     /// Whether another reviewer saved a newer round of the review since: the reviewer can only
     /// Reset this one.
     earlier: bool,
@@ -180,8 +185,10 @@ impl Session {
             }
             .overview(&stage)
         };
+        let review = SessionThreads::review();
         let round = self.running.then(|| PublishedRound {
             id: &id,
+            review_unit: &review,
             design: (self.asked > 0).then_some(&design),
             changed_files: self.data.change().0.len(),
             cancellable: self.answered.last(),
@@ -725,16 +732,6 @@ impl Session {
                 self.publish(stage);
             }
             PageCommand::Quiz(quiz) => self.take_quiz(quiz.response)?,
-            PageCommand::Reply(text) => {
-                self.actions.push("reply".into());
-                let reply = SentAnswer {
-                    question: None,
-                    kept: KeptAnswer::new(None, &text.text, None),
-                    marked: MarkCounts::default(),
-                };
-                let stage = self.new_turn(Some(reply));
-                self.publish(stage);
-            }
             PageCommand::Recover(recovery) => self.recover(&recovery)?,
         }
         Ok(())
@@ -903,6 +900,7 @@ impl Sessions {
             answer_marks: Vec::new(),
             marked_by_hand: 0,
             actions: Vec::new(),
+            threads: SessionThreads::new(),
             earlier: false,
             page: PageLink::Following,
         };
@@ -1039,6 +1037,43 @@ impl Sessions {
         find(&mut self.lock(), token).map(|session| session.diagram_errors.clone())
     }
 
+    /// Carries out a thread command the page sent for the session behind `token`, which writes
+    /// the conversation of its round.
+    fn thread_command(&self, token: &str, command: ThreadCommand) -> Result<(), CommandRefusal> {
+        let mut sessions = self.lock();
+        let session = find(&mut sessions, token).ok_or(CommandRefusal::Stale)?;
+        if matches!(command, ThreadCommand::Retry { .. }) {
+            session.actions.push("retry-messages".into());
+        }
+        session.threads.take(command)
+    }
+
+    /// The agent replies to the reviewer's latest message in the conversation of the latest
+    /// round of the session behind `token`. Returns false when no session has that token, or
+    /// when that conversation has no message.
+    pub(crate) fn agent_replies(&self, token: &str) -> bool {
+        let mut sessions = self.lock();
+        let Some(session) = find(&mut sessions, token) else {
+            return false;
+        };
+        let round = session.round_id();
+        let text = session.data.chat_reply();
+        session.threads.agent_replies(&round, text)
+    }
+
+    /// The wakeup for the reviewer's waiting messages of the session behind `token` did not
+    /// reach the agent. Returns false when no session has that token, or no message waits.
+    pub(crate) fn messages_not_delivered(&self, token: &str) -> bool {
+        find(&mut self.lock(), token)
+            .is_some_and(|session| session.threads.not_delivered(NOT_DELIVERED))
+    }
+
+    /// The messages the reviewer sent from the page of the session behind `token`, or `None`
+    /// when no session has that token.
+    pub(crate) fn messages(&self, token: &str) -> Option<Vec<SentMessage>> {
+        find(&mut self.lock(), token).map(|session| session.threads.sent())
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, Vec<Session>> {
         self.open.lock().unwrap_or_else(PoisonError::into_inner)
     }
@@ -1046,13 +1081,25 @@ impl Sessions {
 
 impl Rounds for Sessions {
     fn find(&self, token: &str) -> Option<PageRound> {
-        let stages = find(&mut self.lock(), token)?.round.subscribe();
+        let (stages, threads) = {
+            let mut sessions = self.lock();
+            let session = find(&mut sessions, token)?;
+            (session.round.subscribe(), session.threads.subscribe())
+        };
         let sessions = self.clone();
-        let token = token.to_owned();
+        let owner = token.to_owned();
         let commands = CommandSender::new(move |command, reply| {
-            reply.send(sessions.command(&token, command));
+            reply.send(sessions.command(&owner, command));
         });
-        Some(PageRound::new(stages, commands))
+        let sessions = self.clone();
+        let owner = token.to_owned();
+        let sender = ThreadSender::new(move |command, reply| {
+            reply.send(sessions.thread_command(&owner, command));
+        });
+        Some(
+            PageRound::new(stages, commands)
+                .with_conversation(PageConversation::new(threads, sender)),
+        )
     }
 }
 

@@ -15,10 +15,14 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
 use tokio_tungstenite::tungstenite::{Error, Message};
 
+use review_threads::{MessageId, Post, ReviewThreads, ThreadCommand, WakeupFailure};
+use review_types::ReviewUnit;
+
 use crate::{
-    Answered, CommandSender, ExplorePage, Hosts, ImplementationState, Interruption, LatestAnswer,
-    PageCommand, PageFiles, PageImplementation, PageRound, PublishedRound, Recovery,
-    RoundPublisher, RoundStage, Rounds, Token, Waiting,
+    Answered, CommandRefusal, CommandSender, ExplorePage, Hosts, ImplementationState, Interruption,
+    LatestAnswer, PageCommand, PageConversation, PageFiles, PageImplementation, PageRound,
+    PublishedRound, Recovery, RoundPublisher, RoundStage, Rounds, ThreadSender, ThreadsPublisher,
+    Token, Waiting,
 };
 
 type Socket =
@@ -26,6 +30,7 @@ type Socket =
 
 const TOKEN: &str = "test-token";
 const ROUND: &str = "round-1";
+const REVIEW: &str = "review-1";
 
 /// The round of the test's page, its owner's commands, and whether its token still opens it.
 /// The owner takes each command as the review tool would, in a few lines: an answer or a Retry
@@ -39,6 +44,11 @@ struct Owner {
     latest: Arc<Mutex<Option<LatestAnswer>>>,
     /// The round's overview, which most tests leave empty.
     overview: Arc<Mutex<RoundOverview>>,
+    /// The review's threads, which hold the round's conversation, as their owner keeps them.
+    book: Arc<Mutex<ReviewThreads>>,
+    threads: Arc<ThreadsPublisher>,
+    /// The thread commands the page sent, by kind, in order.
+    thread_commands: Arc<Mutex<Vec<String>>>,
 }
 
 impl Owner {
@@ -54,6 +64,9 @@ impl Owner {
                 earlier: Vec::new(),
                 title: TabTitle::AgentWorking,
             })),
+            book: Arc::new(Mutex::new(ReviewThreads::new(REVIEW.into()))),
+            threads: Arc::default(),
+            thread_commands: Arc::default(),
         };
         owner.publish(stage);
         owner
@@ -62,8 +75,10 @@ impl Owner {
     fn publish(&self, stage: RoundStage) {
         let latest = lock(&self.latest).clone();
         let overview = lock(&self.overview).clone();
+        let review: ReviewUnit = REVIEW.into();
         let round = PublishedRound {
             id: ROUND,
+            review_unit: &review,
             design: None,
             changed_files: 0,
             cancellable: latest.as_ref(),
@@ -174,6 +189,53 @@ impl Owner {
     }
 }
 
+impl Owner {
+    /// Carries out a thread command the page sent, as the owner of the review threads would,
+    /// then publishes the threads.
+    fn take_thread_command(&self, command: ThreadCommand) -> Result<(), CommandRefusal> {
+        let mut book = lock(&self.book);
+        let (kind, result) = match command {
+            ThreadCommand::Post { post, .. } => ("post", book.post(post).map(|_| ())),
+            ThreadCommand::MarkRead {
+                thread_id, through, ..
+            } => ("mark-read", book.mark_read(&thread_id, through)),
+            ThreadCommand::Retry { thread_id, .. } => ("retry", book.retry(&thread_id)),
+            _ => ("other", Ok(())),
+        };
+        lock(&self.thread_commands).push(kind.to_owned());
+        self.threads.loaded(book.clone());
+        result.map_err(CommandRefusal::Failed)
+    }
+
+    fn thread_commands(&self) -> Vec<String> {
+        lock(&self.thread_commands).clone()
+    }
+
+    /// The agent replies `text` to the reviewer's latest message of the round's conversation.
+    fn agent_replies(&self, text: &str) {
+        let mut book = lock(&self.book);
+        let thread = book.round_conversation(ROUND).unwrap();
+        let post = Post::answer(
+            thread.id.clone(),
+            MessageId::parse(&uuid::Uuid::new_v4().to_string()).unwrap(),
+            text.into(),
+            thread.last_comment().unwrap().id.clone(),
+        );
+        book.answer(post).unwrap();
+        self.threads.loaded(book.clone());
+    }
+
+    /// The wakeup for the reviewer's pending messages did not reach the agent, for `error`.
+    fn wakeup_fails(&self, error: &str) {
+        let through = lock(&self.book).pending_comment_sequence().unwrap();
+        let failure = WakeupFailure {
+            through,
+            error: error.into(),
+        };
+        self.threads.wakeup(REVIEW.into(), Some(failure));
+    }
+}
+
 impl Rounds for Owner {
     fn find(&self, token: &str) -> Option<PageRound> {
         if !*lock(&self.open) || !Token::chosen(TOKEN.into()).unwrap().matches(token) {
@@ -184,7 +246,12 @@ impl Rounds for Owner {
             owner.take(command);
             reply.send(Ok(()));
         });
-        Some(PageRound::new(self.publisher.subscribe(), commands))
+        let owner = self.clone();
+        let threads = ThreadSender::new(move |command, reply| {
+            reply.send(owner.take_thread_command(command));
+        });
+        let conversation = PageConversation::new(self.threads.subscribe(), threads);
+        Some(PageRound::new(self.publisher.subscribe(), commands).with_conversation(conversation))
     }
 }
 
@@ -592,8 +659,10 @@ async fn the_socket_sends_the_round_again_when_only_its_review_marks_change() {
 
     // A stage and its marks come in one view.
     let overview = lock(&owner.overview).clone();
+    let review: ReviewUnit = REVIEW.into();
     let round = PublishedRound {
         id: ROUND,
+        review_unit: &review,
         design: None,
         cancellable: None,
         earlier: false,
@@ -1071,4 +1140,172 @@ async fn a_repeated_quiz_answer_is_saved_once() {
         (Some(true), Some(false))
     );
     assert_eq!(owner.commands(), ["quiz"]);
+}
+
+/// A message of the reviewer's, for the round's conversation, with the identity `id`.
+fn message(id: &str, round: &str) -> Value {
+    json!({
+        "round": round,
+        "id": id,
+        "text": "Why keep the draft?",
+        "asked_under": { "stage": "question", "question": "q1", "version": 1 },
+        "quote": "Keep the draft",
+    })
+}
+
+const MESSAGE_ID: &str = "4f0c3d1e-58a2-4b6e-9d61-0a9f0f7c2b11";
+
+/// The round's conversation in the latest view the socket sent, past the reply `id`.
+async fn conversation_after(socket: &mut Socket, id: u64) -> (Value, Value) {
+    let mut conversation = Value::Null;
+    loop {
+        let message = next(socket).await;
+        if message["method"] == "state" {
+            conversation = message["params"]["view"]["conversation"].clone();
+        }
+        if message["id"] == id {
+            return (message, conversation);
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_message_joins_the_rounds_conversation_and_leaves_its_question_waiting() {
+    let mut overview = at_question_2(false);
+    overview.rail[2].state = StepState::Later;
+    overview.rail[1].state = StepState::Current { working: false };
+    let owner = Owner::new(working("turn-1"));
+    *lock(&owner.overview) = overview;
+    owner.publish(asking(question("q1", "two_way")));
+    let mut socket = open(&owner).await;
+
+    request(
+        &mut socket,
+        json!({ "id": 1, "method": "send-message", "params": message(MESSAGE_ID, ROUND) }),
+    )
+    .await;
+    let (reply, conversation) = conversation_after(&mut socket, 1).await;
+
+    assert_eq!(applied(&reply), Some(true));
+    // A message is a thread's comment, never a command of the round's owner.
+    assert_eq!(owner.commands(), Vec::<String>::new());
+    assert_eq!(owner.thread_commands(), ["post"]);
+    let thread = lock(&owner.book).round_conversation(ROUND).unwrap().clone();
+    let posted = &thread.messages[0];
+    assert_eq!(posted.id.as_str(), MESSAGE_ID);
+    assert_eq!(
+        posted.asked_under,
+        Some(review_threads::AskedUnder::Question {
+            question: "q1".into(),
+            version: 1
+        })
+    );
+    assert_eq!(posted.quote.as_deref(), Some("Keep the draft"));
+    let shown = &conversation["messages"][0];
+    assert_eq!(shown["author"], "reviewer");
+    assert_eq!(shown["place"], "Q1");
+    assert_eq!(shown["quote"], "Keep the draft");
+    assert_eq!(shown["delivery"]["state"], "waiting");
+    assert_eq!(conversation["round"], ROUND);
+}
+
+#[tokio::test]
+async fn a_repeated_message_is_posted_once() {
+    let owner = Owner::new(asking(question("q1", "two_way")));
+    let mut socket = open(&owner).await;
+
+    let (first, second) = twice(&mut socket, "send-message", &message(MESSAGE_ID, ROUND)).await;
+
+    assert_eq!(
+        (applied(&first), applied(&second)),
+        (Some(true), Some(false))
+    );
+    assert_eq!(owner.thread_commands(), ["post"]);
+    let book = lock(&owner.book);
+    assert_eq!(book.round_conversation(ROUND).unwrap().messages.len(), 1);
+}
+
+#[tokio::test]
+async fn a_message_for_a_round_the_page_no_longer_shows_is_refused() {
+    let owner = Owner::new(asking(question("q1", "two_way")));
+    let mut socket = open(&owner).await;
+
+    request(
+        &mut socket,
+        json!({ "id": 1, "method": "send-message", "params": message(MESSAGE_ID, "round-0") }),
+    )
+    .await;
+
+    assert_eq!(reply(&mut socket, 1).await["error"]["code"], 409);
+    assert_eq!(owner.thread_commands(), Vec::<String>::new());
+}
+
+#[tokio::test]
+async fn the_agents_reply_shows_unread_until_the_chat_marks_it_read() {
+    let owner = Owner::new(asking(question("q1", "two_way")));
+    let mut socket = open(&owner).await;
+    request(
+        &mut socket,
+        json!({ "id": 1, "method": "send-message", "params": message(MESSAGE_ID, ROUND) }),
+    )
+    .await;
+    reply(&mut socket, 1).await;
+
+    owner.agent_replies("Because it is cheap.");
+    let view = next(&mut socket).await;
+    let conversation = &view["params"]["view"]["conversation"];
+    assert_eq!(conversation["unread"], 1);
+    assert_eq!(conversation["messages"][0]["delivery"]["state"], "answered");
+    assert_eq!(conversation["messages"][1]["author"], "agent");
+    assert_eq!(conversation["messages"][1]["unread"], true);
+
+    let through = conversation["read_through"].clone();
+    request(
+        &mut socket,
+        json!({ "id": 2, "method": "read-messages", "params": { "round": ROUND, "through": through } }),
+    )
+    .await;
+    let (_, read) = conversation_after(&mut socket, 2).await;
+    assert_eq!(read["unread"], 0);
+    assert_eq!(owner.thread_commands(), ["post", "mark-read"]);
+}
+
+#[tokio::test]
+async fn a_message_that_did_not_reach_the_agent_offers_retry_once() {
+    let owner = Owner::new(asking(question("q1", "two_way")));
+    let mut socket = open(&owner).await;
+    request(
+        &mut socket,
+        json!({ "id": 1, "method": "send-message", "params": message(MESSAGE_ID, ROUND) }),
+    )
+    .await;
+    reply(&mut socket, 1).await;
+
+    owner.wakeup_fails("No agent is focused");
+    let view = next(&mut socket).await;
+    let conversation = &view["params"]["view"]["conversation"];
+    assert_eq!(
+        conversation["messages"][0]["delivery"]["state"],
+        "not_delivered"
+    );
+    let action = &conversation["card"]["actions"][0];
+    assert_eq!(action["method"], "retry-messages");
+    assert_eq!(action["fields"][0]["value"], ROUND);
+
+    let retry = json!({ "round": ROUND });
+    request(
+        &mut socket,
+        json!({ "id": 2, "method": "retry-messages", "params": retry }),
+    )
+    .await;
+    assert_eq!(applied(&reply(&mut socket, 2).await), Some(true));
+    // Once the agent replied, no message waits: a late Retry wakes nothing.
+    owner.agent_replies("Sorry, here it is.");
+    request(
+        &mut socket,
+        json!({ "id": 3, "method": "retry-messages", "params": retry }),
+    )
+    .await;
+    assert_eq!(reply(&mut socket, 3).await["error"]["code"], 409);
+    assert_eq!(owner.thread_commands(), ["post", "retry"]);
 }

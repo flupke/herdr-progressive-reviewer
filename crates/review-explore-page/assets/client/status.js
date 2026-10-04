@@ -90,13 +90,21 @@ function action(action, width) {
 }
 
 /**
+ * "14:36": the time `ms`, milliseconds since the epoch, in the reader's clock.
+ * @param {number} ms
+ */
+export function clockTime(ms) {
+  return new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+}
+
+/**
  * When a card's state began, in the reader's clock: "Sent at 14:36.", with the day when it is
  * not today.
  * @param {CardTime} at
  */
 function time(at) {
   const date = new Date(at.ms);
-  const clock = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  const clock = clockTime(at.ms);
   const today = new Date().toDateString() === date.toDateString();
   const day = today ? '' : ` on ${date.toLocaleDateString([], { day: 'numeric', month: 'short' })}`;
   return `${at.words} ${clock}${day}.`;

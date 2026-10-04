@@ -9,6 +9,7 @@ mod events;
 mod highlighting;
 mod jev;
 mod page_sharing;
+mod page_threads;
 mod review_marks;
 mod route;
 mod terminal;
@@ -43,7 +44,9 @@ use herdr_client::client::HerdrClient;
 use herdr_client::protocol::{AgentTarget, PaneId, PluginContext, WorkspaceId};
 use ratatui::Terminal;
 use ratatui::backend::Backend;
-use review_explore_page::{CommandSender, PageRound, RoundFeed, RoundPublisher};
+use review_explore_page::{
+    CommandSender, PageConversation, PageRound, RoundFeed, RoundPublisher, ThreadsFeed,
+};
 use review_explore_page_host::{Browser, PageDirectory, PageHost, PageOpener};
 use review_explore_page_settings::ExplorePageSettings;
 use review_explore_session as explore_session;
@@ -159,6 +162,7 @@ impl Runtime {
         let (input_sender, inputs) = unbounded();
         let page_round = RoundPublisher::default();
         let page_stages = page_round.subscribe();
+        let page_threads = Arc::new(page_threads::PageThreads::default());
         let watcher = RepositoryWatcher::new(self.repository.watch_plan());
         let mut effects = Effects::start(
             Setup {
@@ -173,13 +177,20 @@ impl Runtime {
                 source_watches: Some(watcher.source_requests()),
                 page: page_round,
                 page_opener: Some(self.page_opener()),
+                page_threads: Arc::clone(&page_threads),
             },
             &Outputs {
                 background: event_sender.clone(),
                 interactive: input_sender.clone(),
             },
         );
-        let page = self.serve_explore_page(page_stages, &explore_page, &mut effects, &event_sender);
+        let page = self.serve_explore_page(
+            page_stages,
+            page_threads.subscribe(),
+            &explore_page,
+            &mut effects,
+            &event_sender,
+        );
         let producer_stop_requested = Arc::new(AtomicBool::new(false));
         let mut event_producers = RuntimeEventProducers::new(Arc::clone(&producer_stop_requested));
         event_producers.push(Self::start_herdr_events(
@@ -227,6 +238,7 @@ impl Runtime {
     fn serve_explore_page(
         &self,
         stages: RoundFeed,
+        threads: ThreadsFeed,
         settings: &ExplorePageSettings,
         effects: &mut Effects,
         events: &EventSender<EventEnvelope>,
@@ -236,7 +248,8 @@ impl Runtime {
         let commands = CommandSender::new(move |command, reply| {
             explore.deliver(explore_session::Input::Page { command, reply });
         });
-        let round = PageRound::new(stages, commands);
+        let conversation = PageConversation::new(threads, effects.page_thread_sender());
+        let round = PageRound::new(stages, commands).with_conversation(conversation);
         let review = self.repository.root();
         let host = match PageHost::start(round, &directory, &self.workspace_id, review) {
             Ok(host) => host,

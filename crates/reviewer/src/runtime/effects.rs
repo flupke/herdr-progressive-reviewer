@@ -32,6 +32,7 @@ use super::actions::ActionExecutors;
 use super::document;
 use super::highlighting;
 use super::page_sharing::PageSharing;
+use super::page_threads::PageThreads;
 use super::route::WorkerStopped;
 use super::worker::{Worker, WorkerCommand};
 use crate::watcher::SourceWatchRequests;
@@ -52,6 +53,8 @@ pub(super) struct Setup {
     pub(super) page: RoundPublisher,
     /// Opens the Explore page when the pane asks; `None` in tests, which never open a browser.
     pub(super) page_opener: Option<PageOpener>,
+    /// The Explore page's link to the review threads, which hold the round's conversation.
+    pub(super) page_threads: Arc<PageThreads>,
 }
 
 /// Where effects deliver their results.
@@ -73,6 +76,7 @@ pub(super) struct Effects {
     commands: Sender<WorkerCommand>,
     documents: Sender<document::Command>,
     page_opener: Option<PageOpener>,
+    page_threads: Arc<PageThreads>,
     /// Applies the network settings to the Explore page; `None` until the page is served, and
     /// in tests that serve no page.
     page_sharing: Option<PageSharing>,
@@ -108,6 +112,7 @@ impl Effects {
             source_watches,
             page,
             page_opener,
+            page_threads,
         } = setup;
         let messages = ApplicationEventSender::new(outputs.background.clone());
         let tracker = Arc::new(ReviewTracker::new(repository.clone(), store.clone()));
@@ -130,6 +135,7 @@ impl Effects {
             endpoint,
             &commands,
             messages.clone(),
+            Arc::clone(&page_threads),
         );
         let explore = ExploreSession::new(explore_session::Collaborators {
             repository: repository.clone(),
@@ -170,6 +176,7 @@ impl Effects {
             commands,
             documents,
             page_opener,
+            page_threads,
             page_sharing: None,
             messages,
             front: Some(FrontWorkers {
@@ -235,6 +242,13 @@ impl Effects {
     /// Where inputs for the Explore session join repository work.
     pub(super) fn explore_inbox(&self) -> explore_session::Inbox {
         inbox_for(self.commands.clone())
+    }
+
+    /// Where the Explore page sends its thread commands, which write the round's conversation:
+    /// to the thread worker, as the pane's do.
+    pub(super) fn page_thread_sender(&self) -> review_explore_page::ThreadSender {
+        self.page_threads
+            .sender(self.front().comments.thread_commands())
     }
 
     /// Language-server events, which the runtime forwards on its own schedule.
@@ -343,6 +357,7 @@ fn start_comments(
     endpoint: Result<review_mcp::Endpoint, String>,
     commands: &Sender<WorkerCommand>,
     messages: ApplicationEventSender,
+    page: Arc<PageThreads>,
 ) -> comments::Worker {
     let commands = commands.clone();
     comments::Worker::start(
@@ -357,31 +372,39 @@ fn start_comments(
                 )))
                 .map_err(|_| "The reviewer is closed".to_owned())
         },
-        move |event| match event {
-            comments::Event::Loaded(event) => {
-                let _ = messages.send(event);
-            }
-            comments::Event::Posted(event) => {
-                let _ = messages.send(event);
-            }
-            comments::Event::Wakeup {
-                failure: Some(failure),
-                ..
-            } => {
-                let _ = messages.send(ui_events::ToastRequested {
-                    text: failure.error,
-                    kind: toasts::ToastKind::Error,
-                });
-            }
-            comments::Event::Wakeup { failure: None, .. } => {}
-            comments::Event::Error(text) => {
-                let _ = messages.send(ui_events::ToastRequested {
-                    text,
-                    kind: toasts::ToastKind::Error,
-                });
-            }
+        move |event| {
+            page.observe(&event);
+            publish_thread_event(&messages, event);
         },
     )
+}
+
+/// Shows the thread worker's `event` in the pane.
+fn publish_thread_event(messages: &ApplicationEventSender, event: comments::Event) {
+    match event {
+        comments::Event::Loaded(event) => {
+            let _ = messages.send(event);
+        }
+        comments::Event::Posted(event) => {
+            let _ = messages.send(event);
+        }
+        comments::Event::Wakeup {
+            failure: Some(failure),
+            ..
+        } => {
+            let _ = messages.send(ui_events::ToastRequested {
+                text: failure.error,
+                kind: toasts::ToastKind::Error,
+            });
+        }
+        comments::Event::Wakeup { failure: None, .. } => {}
+        comments::Event::Error(text) => {
+            let _ = messages.send(ui_events::ToastRequested {
+                text,
+                kind: toasts::ToastKind::Error,
+            });
+        }
+    }
 }
 
 /// Hands each action group to the worker that runs it.

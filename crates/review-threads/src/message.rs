@@ -19,7 +19,7 @@ impl MessageId {
 }
 
 /// The author role of a posted thread message.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ts_rs::TS)]
 #[serde(rename_all = "snake_case")]
 pub enum Author {
     Reviewer,

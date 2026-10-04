@@ -71,10 +71,17 @@ const CALLS = {
     },
   }),
   'quiz-skip': ({ data }) => ({ method: 'quiz-skip', params: { conclusion: text(data, 'conclusion') } }),
-  reply: ({ data }) => ({
-    method: 'reply',
-    params: { conclusion: text(data, 'conclusion'), text: text(data, 'text') },
+  'send-message': ({ data }) => ({
+    method: 'send-message',
+    params: {
+      round: text(data, 'round'),
+      id: text(data, 'id'),
+      text: text(data, 'text'),
+      asked_under: askedUnder(data),
+      quote: optional(data, 'quote') || null,
+    },
   }),
+  'retry-messages': ({ data }) => ({ method: 'retry-messages', params: { round: text(data, 'round') } }),
   'cancel-implementation': ({ data }) => ({
     method: 'cancel-implementation',
     params: { delivery: text(data, 'delivery') },
@@ -107,7 +114,26 @@ const REQUIRES = {
   answer: (form) => form.querySelector('input[name="answer"]:checked') !== null,
   'choice-or-comment': (form) =>
     REQUIRES.choice(form) || text(new FormData(form), 'comment').trim() !== '',
+  text: (form) => text(new FormData(form), 'text').trim() !== '',
 };
+
+/**
+ * Where in the round the chat's message was written, from its form's fields.
+ * @param {FormData} data
+ * @returns {import('./types.ts').AskedUnder | null}
+ */
+function askedUnder(data) {
+  switch (text(data, 'stage')) {
+    case 'question':
+      return { stage: 'question', question: text(data, 'question'), version: Number(text(data, 'version')) };
+    case 'design':
+      return { stage: 'design' };
+    case 'conclusion':
+      return { stage: 'conclusion', conclusion: text(data, 'conclusion') };
+    default:
+      return null;
+  }
+}
 
 /**
  * @param {FormData} data
@@ -150,8 +176,9 @@ export class Actions {
     this.connected = false;
     // The forms of the masthead (Reset, in its menu) are outside `main`.
     main.ownerDocument.addEventListener('submit', (event) => this.submit(event));
-    // An edit may block or unblock its form's button (`data-blocked`).
-    main.addEventListener('input', () => this.enable());
+    // An edit may block or unblock its form's button (`data-blocked`), in the chat too, which
+    // is outside `main`.
+    main.ownerDocument.addEventListener('input', () => this.enable());
   }
 
   /** @param {SubmitEvent} event */
@@ -165,7 +192,10 @@ export class Actions {
     this.sending(form, true);
     this.page.showNotice(null);
     try {
-      this.settle(call, await this.link.call(call));
+      const reply = await this.link.call(call);
+      this.settle(call, reply);
+      // The form's own module may follow what went through: the chat clears its composer.
+      if ('result' in reply) form.dispatchEvent(new CustomEvent('sent'));
     } catch {
       // The socket closed before the reply: the next view shows what became of the action.
     } finally {

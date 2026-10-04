@@ -49,6 +49,7 @@ serde = { workspace = true, optional = true }
 tiktoken-rs = "0.12"
 
 [dev-dependencies]
+review-round-conversation = { path = "../review-round-conversation" }
 uuid.workspace = true
 rmcp = { workspace = true, features = ["client", "transport-streamable-http-client-reqwest"] }
 tokio.workspace = true

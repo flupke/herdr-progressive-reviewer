@@ -149,3 +149,25 @@ fn a_round_conversation_survives_serialization_beside_code_threads() {
     let restored: ReviewThreads = serde_json::from_value(json).unwrap();
     assert_eq!(restored, book);
 }
+
+#[test]
+fn a_round_message_sent_again_with_its_identity_is_posted_once() {
+    let mut book = ReviewThreads::new("change".into());
+    let id = MessageId::parse(&uuid::Uuid::new_v4().to_string()).unwrap();
+    let post = || {
+        Post::to_round(
+            "round-1",
+            "Why a lock here?".into(),
+            Some(question("q-lock", 1)),
+            None,
+        )
+        .with_id(id.clone())
+    };
+
+    assert_eq!(book.post(post()), Ok(id.clone()));
+    assert_eq!(book.post(post()), Ok(id.clone()));
+
+    let thread = book.round_conversation("round-1").unwrap();
+    assert_eq!(thread.messages.len(), 1);
+    assert_eq!(thread.messages[0].id, id);
+}

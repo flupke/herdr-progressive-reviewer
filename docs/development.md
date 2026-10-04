@@ -134,7 +134,7 @@ again with it.
 | Interrupted with no turn to send again | Reset | That only Reset is left (`Interrupted` with no request) |
 | A question | Send; Cancel answer of the previous answer | Send answer; on a blind question, a first Send that shows the recommendation, then Confirm answer (`Question`); Cancel this answer |
 | An earlier question in the history | A free-text answer | None: the question opens read only from its step on the rail (`#question-N`), with the answer and what the agent recorded |
-| The conclusion | Implement; Reply; Cancel answer until a request is made | Implement; Reply to the conclusion; Cancel answer (`Conclusion`), after the quiz, which only the page asks |
+| The conclusion | Implement; Reply; Cancel answer until a request is made | Implement; "Not ready? Reply to the agent instead", which opens the chat, whose message answers nothing; Cancel answer (`Conclusion`), after the quiz, which only the page asks |
 | An implementation request being sent | Cancel implementation | Cancel the implementation request |
 | A request saved but not sent, by an earlier process | Send saved implementation request; New implementation request | Send the saved request; Send a new request |
 | A request whose delivery is unknown | New implementation request | Send a new request anyway, after the warning |
@@ -224,6 +224,22 @@ of its workspace, checks that the page answers, and opens it with `$BROWSER`,
 the reviewer closes: a reviewer of the same review that starts again in the workspace
 serves the page at the same address with the same token, when its port is free, so that a
 page left open reconnects to it.
+
+The page also shows the round's conversation with the agent, the chat: a review thread
+attached to the round (`Post::to_round` in `crates/review-threads`, read through
+`review_round_conversation::RoundConversation`), never an Explore turn. The page reads it from
+the review threads, which their owner publishes (`ThreadsPublisher`, `ThreadsFeed`), and writes
+it with the pane's thread commands (`ThreadSender`): `PageRound::with_conversation` gives a
+page both (`PageConversation`). In the reviewer, the thread worker's events publish the threads and the
+latest wakeup of each review, and a post from the page gets its reply once the worker reports
+it (`crates/reviewer/src/runtime/page_threads.rs`); the round names its review
+(`PublishedRound::review_unit`), whose threads hold its conversation. A message carries the
+identity the page chose for it, so that a repeat posts it once; the place in the round the page
+showed (`AskedUnder`: the question and its version, the design, the conclusion) and the
+passage it quotes; it wakes the agent with the threads' usual prompt, which names the round
+and the question and says that it is no answer. The view's `conversation` holds the messages
+with their Markdown rendered and their place named as the rail names it, the unread count, and
+a status card with Retry when a wakeup did not reach the agent.
 
 The host also serves the page on a network interface, for a phone, on the same
 thread and runtime: a second listener with its own host name and a new token for
@@ -361,10 +377,11 @@ what it names, `.hint` the muted help line. Every control has a focus ring (`:fo
   and the tab title come from the round's overview (`review_explore::RoundOverview`, which the
   session derives in `publish_page` and the view carries as `rail` and `title`): take every
   question number from it, never from a count of the question's versions. "Design ▾" opens the
-  design map in place; the menu copies the page's address and holds Reset, which the page
-  offers nowhere else. Its map links to the design screen (`#design`, `#design-part-N`), and
-  while that screen shows, the rail shows Design as current (`aria-current="page"`) and the
-  round's own step as the next one (class `next`), which keeps `aria-current="step"`. Each done
+  design map in place; the menu copies the page's address, opens the agent's conversation, and
+  holds Reset, which the page offers nowhere else. Its map links to the design screen
+  (`#design`, `#design-part-N`), and while that screen shows, the rail shows Design as current
+  (`aria-current="page"`) and the round's own step as the next one (class `next`), which keeps
+  `aria-current="step"`. Each done
   question is a link to its earlier question (`#question-N`), which shows the same way; the
   round's own step is then a link back to the stage (`#round`), and a step that is a link
   carries its `aria-current` on the link. Each step names the screen it leads to in
@@ -382,11 +399,34 @@ what it names, `.hint` the muted help line. Every control has a focus ring (`:fo
       <li class="step current" aria-current="step">Q2 · working</li>
       <li class="step later">Quiz</li>
     </ol></nav>
-    <div class="masthead-chat" id="masthead-chat"></div>   <!-- the chat's bubble -->
+    <div class="masthead-chat" id="masthead-chat">          <!-- the chat's bubble -->
+      <button class="chat-bubble" aria-label="Talk to the agent" aria-controls="chat"><span class="bubble-shape"></span><span class="chat-badge">1</span></button></div>
     <div class="menu"><button class="menu-toggle" aria-label="Round menu">⋯</button>
       <div class="menu-popover" id="round-menu" hidden>…</div></div>
     <div class="masthead-line" id="masthead-line"></div>   <!-- the meter draws here -->
   </header>
+  ```
+- **Chat** (`chat.css`, `client/chat.js`, `client/chat-quote.js`): the round's conversation
+  with the agent, after `main`. On a desktop it lies over the answer column, under the
+  masthead; below the desk's two columns it is a bottom sheet over the dimmed page, whose
+  grabber drags it to the full height or closes it. It opens from the bubble, from the menu,
+  from "Not ready? Reply to the agent instead" (`requestChat()`), and from "Add to chat", which
+  a passage selected in the reading offers and which it quotes. The composer is a form of
+  `actions.js` (`send-message`); its draft and quote are kept for the tab. A reply the reviewer
+  has not seen counts on the bubble and in the tab's title until the chat shows it, which marks
+  it read (`read-messages`):
+
+  ```html
+  <aside class="chat open" id="chat" aria-label="Conversation with the agent">
+    <header class="chat-head"><h2 class="chat-title">Agent</h2><span class="chat-meta">this round · 3 messages</span><button class="chat-close" aria-label="Close the conversation">×</button></header>
+    <div class="chat-log" role="log" aria-label="Messages">
+      <article class="chat-message mine" aria-label="Your message"><p class="eyebrow">You · Q2 · 14:21</p><blockquote class="chat-quote-shown">…</blockquote><div class="markdown chat-text-shown">…</div></article>
+      <article class="chat-message agent" aria-label="Reply from the agent"><p class="eyebrow">Agent · 14:22</p><div class="markdown chat-text-shown">…</div></article>
+      <p class="chat-pending" role="status"><span class="chat-pending-glyph">…</span><span>The agent is answering · <span class="chat-pending-time">0:31</span></span></p>
+      <div class="status-card danger" id="conversation-delivery" role="alert">…Retry…</div>
+    </div>
+    <form class="chat-composer" data-method="send-message" data-requires="text">…<div class="chat-quote">…</div><textarea class="chat-text" aria-label="Message to the agent"></textarea><div class="chat-send"><button class="button outline" type="submit">Send</button><span class="hint">The question stays open. ⌘↵</span></div></form>
+  </aside>
   ```
 - **Design screen** (`design.css`): the design of the change on the desk, its map in the panel.
   The part in view carries the class `current` (and its map link `aria-current="location"`),
@@ -677,7 +717,8 @@ only, with no `unsafe` value; its `connect-src` names the page's own `ws:` addre
   question, read only), `swipe.js` (the swipe between screens on a phone), `turn.js` (the
   previous turn), `sent.js` (the answer the agent's turn carries, beside the turn's card), `chips.js` (the chip of a question's Door and the tags of a kept answer), `choices.js` (the choice cards), `question.js` (with the answer panel and the first pick), `citations.js`,
   `conclusion.js` (with the reviewer's decisions, the list to be implemented, each state of
-  its request and the reply), `quiz.js`, `masthead.js` (above `main`, with Reset in its menu),
+  its request), `quiz.js`, `masthead.js` (above `main`, with Reset in its menu), `chat.js`
+  (the chat, with its bubble in the masthead), `chat-quote.js` ("Add to chat" on a selection),
   `meter.js` (the meter on the masthead's hairline), `change-size.js` ("+125 −10", "4 files"),
   `disclosure.js` (a button that shows or hides an action behind a fold), and `diagrams.js`,
   which draws each diagram of a region that was built.
@@ -852,9 +893,13 @@ shows the request as being sent until `explore.deliverImplementation()`;
 `explore.implementInPane()` sends the conclusion's request from the pane, and
 `explore.implementations()` returns the lists the page sent. `explore.actions()`
 returns, by name, the other actions the page sent (Stop waiting, Retry, Cancel
-answer, Reset, a reply, a cancel of an implementation request), and
+answer, Reset, a cancel of an implementation request, the chat's Retry), and
 `explore.holdPage()` stops the page from following the round until it sends an action,
 which is then refused, for a test of an action refused on a stale page.
+In the chat, `explore.messages()` returns the messages the review threads saved, with the
+place in the round each was written at and its quote, `explore.agentReplies()` plays the
+agent's fixed reply to the latest one, and `explore.messagesNotDelivered()` stands for a wakeup
+that did not reach the agent.
 `explore.restartReviewer()` closes the page's socket and refuses a new one until
 `explore.reviewerBack()`, as a reviewer that restarts. `explore.reopenBeforeSending()` and
 `explore.reopenWhileSending()` stand for a reopen of the review while the session sends a

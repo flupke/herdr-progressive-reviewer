@@ -4,9 +4,11 @@
 // order the page shows them, drawn from the latest view (dom.js has the rules). Each screen or
 // region has its own module; a new part of the page is one more region here, and one module.
 
-/** @import { PageView, StatusCard } from "./types.ts" */
+/** @import { AskedUnder, Call, PageView, Reply, StatusCard } from "./types.ts" */
 /** @import { Current } from "./design.js" */
 
+import { Chat } from './chat.js';
+import { QuotePicker } from './chat-quote.js';
 import { ConclusionScreen } from './conclusion.js';
 import { DesignScreen } from './design.js';
 import { earlierScreen } from './earlier.js';
@@ -27,14 +29,20 @@ export class Page {
   /**
    * @param {HTMLElement} main
    * @param {HTMLElement} header the masthead, above `main`
+   * @param {(call: Call) => Promise<Reply>} call sends a request on the page's socket
    */
-  constructor(main, header) {
+  constructor(main, header, call) {
     this.main = main;
     // What only the masthead knows (what it has open) changes the page through `render` too.
     this.masthead = new Masthead(header, () => {
       if (this.view) this.render(this.view);
     });
     this.meter = new Meter(/** @type {HTMLElement} */ (header.querySelector('#masthead-line')));
+    // The round's conversation with the agent, whose bubble sits in the masthead.
+    this.chat = new Chat(/** @type {HTMLElement} */ (header.querySelector('#masthead-chat')), call, () => {
+      if (this.view) this.render(this.view);
+    });
+    this.quotes = new QuotePicker(main);
     /** The design screen. */
     this.designScreen = h('div', { class: 'screen', hidden: true });
     /** The round's current stage. */
@@ -106,10 +114,12 @@ export class Page {
     this.turn.show(view.question || view.conclusion || view.sent ? null : keyOf(turn), () => turnStrip(turn));
     this.renderSent(view);
     this.renderScreens(view);
+    this.chat.update(view, chatPlace(view, this.viewed));
+    this.quotes.update(view.conversation?.writable ?? false);
     // While the quiz shows an item, the rail names it.
     const quiz = view.conclusion?.quiz;
     const rail = quiz && quizItem !== null ? railShowing(view.rail, quizItem, quiz.items.length) : view.rail;
-    this.masthead.update(rail === view.rail ? view : { ...view, rail }, this.viewed);
+    this.masthead.update(rail === view.rail ? view : { ...view, rail }, this.viewed, this.chat.unread());
     const { screens, shown } = this.track();
     this.masthead.neighbours([screens[shown - 1]?.step, screens[shown + 1]?.step]);
     this.meter.update(view);
@@ -274,6 +284,27 @@ export class Page {
     this.notice = notice;
     if (this.view) this.render(this.view);
   }
+}
+
+/**
+ * Where the page shows the chat, which a message is written under: the design, an earlier
+ * question, the question with its version, or the conclusion; nothing in another stage.
+ * @param {PageView} view
+ * @param {import('./masthead.js').Viewing} viewed the screen the page shows, other than the stage
+ * @returns {import('./chat.js').Place}
+ */
+function chatPlace(view, viewed) {
+  if (viewed?.kind === 'design') return { askedUnder: { stage: 'design' }, question: false };
+  if (viewed?.kind === 'question') {
+    const earlier = view.earlier_questions.find((question) => question.number === viewed.number);
+    const askedUnder = earlier ? { stage: /** @type {const} */ ('question'), question: earlier.id, version: earlier.version } : null;
+    return { askedUnder, question: false };
+  }
+  /** @type {AskedUnder | null} */
+  let askedUnder = null;
+  if (view.question) askedUnder = { stage: 'question', question: view.question.id, version: view.question.version };
+  else if (view.conclusion) askedUnder = { stage: 'conclusion', conclusion: view.conclusion.request };
+  return { askedUnder, question: view.question !== null };
 }
 
 /** The step the round stands at, from the rail; `null` when no round is running.

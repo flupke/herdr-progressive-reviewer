@@ -53,6 +53,54 @@ async function choose(page: Page, name: string): Promise<void> {
   await page.getByRole('radio', { name }).check();
 }
 
+/**
+ * Sends `text` from the chat, which opens first when it is closed, and waits until the chat shows
+ * the message.
+ */
+async function chatTo(page: Page, text: string): Promise<void> {
+  const chat = page.getByRole('complementary', { name: 'Conversation with the agent' });
+  if (!(await chat.isVisible())) await page.getByRole('button', { name: 'Talk to the agent' }).click();
+  await chat.getByRole('textbox', { name: 'Message to the agent' }).fill(text);
+  await chat.getByRole('button', { name: 'Send', exact: true }).click();
+  await chat.getByRole('article', { name: 'Your message' }).filter({ hasText: text.replaceAll('`', '') }).waitFor();
+}
+
+/**
+ * Selects the last sentence of paragraph `index` of the question's Context, as the reviewer
+ * selects a passage.
+ */
+async function selectPassage(page: Page, index: number): Promise<void> {
+  await page.locator('.explanation > p').nth(index).waitFor();
+  await page.evaluate((index) => {
+    const paragraph = document.querySelectorAll('.explanation > p')[index];
+    if (!paragraph) throw new Error(`no paragraph ${index}`);
+    // The paragraph's last stretch of plain text that holds a sentence.
+    const walker = document.createTreeWalker(paragraph, NodeFilter.SHOW_TEXT);
+    let text: Text | null = null;
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if ((node.textContent ?? '').trim().length > 24) text = node as Text;
+    }
+    if (!text) throw new Error(`no text in paragraph ${index}`);
+    const content = text.textContent ?? '';
+    const start = content.lastIndexOf('. ', content.length - 3);
+    const range = document.createRange();
+    range.setStart(text, start < 0 ? 0 : start + 2);
+    range.setEnd(text, content.trimEnd().length);
+    document.getSelection()?.removeAllRanges();
+    document.getSelection()?.addRange(range);
+  }, index);
+}
+
+/** Selects the last sentence of paragraph `index` of the Context, then adds it to the chat. */
+async function quote(page: Page, index: number): Promise<void> {
+  // On a phone the open chat covers the page: the reviewer closes it to select.
+  if (await page.locator('.chat-scrim').isVisible()) {
+    await page.getByRole('button', { name: 'Close the conversation' }).click();
+  }
+  await selectPassage(page, index);
+  await page.getByRole('button', { name: 'Add to chat' }).click();
+}
+
 /** The start screen of a session whose round the reviewer reset. */
 async function startScreen(session: Session): Promise<void> {
   await session.reset();
@@ -421,7 +469,7 @@ export const STATES: GalleryState[] = [
   },
   {
     name: 'question-2-menu',
-    about: "The masthead's ⋯ menu: Copy the round's link, and Reset this round.",
+    about: "The masthead's ⋯ menu: Copy the round's link, Open the agent's conversation, and Reset this round.",
     async reach(session, page) {
       await question(session, page, 2);
       await page.getByRole('button', { name: 'Round menu' }).click();
@@ -454,6 +502,50 @@ export const STATES: GalleryState[] = [
       await page.mouse.down();
       await page.mouse.move(box.x + 80, y);
       await page.mouse.move(box.x + 160, y);
+    },
+  },
+  {
+    name: 'question-2-chat',
+    about:
+      "The chat over the answer column: a message under Q2 and the agent's reply, a message quoting a passage that the agent is answering, and a quote waiting in the composer.",
+    async reach(session, page) {
+      await question(session, page, 2);
+      await chatTo(page, 'Who else calls `flush`?');
+      await session.agentReplies();
+      await page.getByRole('article', { name: 'Reply from the agent' }).waitFor();
+      await quote(page, 0);
+      await chatTo(page, 'Why not wait? What is lost if the notification never arrives?');
+      await quote(page, 1);
+    },
+  },
+  {
+    name: 'question-2-chat-select',
+    about: 'A passage of the question selected: the one option above it, Add to chat.',
+    async reach(session, page) {
+      await question(session, page, 2);
+      await selectPassage(page, 1);
+      await page.getByRole('button', { name: 'Add to chat' }).waitFor();
+    },
+  },
+  {
+    name: 'question-2-chat-unread',
+    about: "The agent replied while the chat was closed: the unread count on the bubble and in the tab's title.",
+    async reach(session, page) {
+      await question(session, page, 2);
+      await chatTo(page, 'Who else calls `flush`?');
+      await page.getByRole('button', { name: 'Close the conversation' }).click();
+      await session.agentReplies();
+      await page.getByRole('button', { name: 'Talk to the agent' }).getByText('1').waitFor();
+    },
+  },
+  {
+    name: 'question-2-chat-not-delivered',
+    about: 'A message of the chat did not reach the agent: the failure, with Retry.',
+    async reach(session, page) {
+      await question(session, page, 2);
+      await chatTo(page, 'Who else calls `flush`?');
+      await session.messagesNotDelivered();
+      await page.getByRole('alert').filter({ hasText: 'did not reach the agent' }).waitFor();
     },
   },
   {
@@ -578,10 +670,11 @@ export const STATES: GalleryState[] = [
   },
   {
     name: 'conclusion-reply-open',
-    about: 'The conclusion with "Not ready? Reply to the agent instead" open.',
+    about: 'The conclusion after "Not ready? Reply to the agent instead": the chat, open over the panel.',
     async reach(session, page) {
       await conclusion(session, false);
       await page.getByRole('button', { name: 'Not ready? Reply to the agent instead' }).click();
+      await page.getByRole('complementary', { name: 'Conversation with the agent' }).waitFor();
     },
   },
   {
