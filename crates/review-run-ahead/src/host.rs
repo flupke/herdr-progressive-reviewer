@@ -134,6 +134,18 @@ pub trait ForkHost: Send + Sync {
         done: Box<dyn FnOnce(Result<Agent, SwitchFailure>) + Send>,
     );
 
+    /// Has the agent of `pane`, idle with an empty input box, resume the session `session`, on
+    /// a thread of its own, and waits until Herdr reports the agent on that session and ready
+    /// for a prompt, as [`ForkHost::switch`] does once the fork stopped: it puts the agent back
+    /// on the session its forks were taken from. `done` gets the agent as Herdr then reports
+    /// it, or why it was not put back.
+    fn resume(
+        &self,
+        pane: &PaneId,
+        session: &str,
+        done: Box<dyn FnOnce(Result<Agent, SwitchFailure>) + Send>,
+    );
+
     /// Adds `line` to run-ahead's log, which says what the forks did.
     fn log(&self, line: &str);
 }

@@ -12,7 +12,7 @@ use super::*;
 
 impl Harness {
     /// Send `command` from the Explore page, and return the session's reply.
-    fn on_page(&mut self, command: PageCommand) -> Result<(), CommandRefusal> {
+    pub(super) fn on_page(&mut self, command: PageCommand) -> Result<(), CommandRefusal> {
         let (reply, replied) = CommandReply::channel();
         self.session.handle(Input::Page { command, reply });
         replied.blocking_recv().expect("the session replies")
@@ -39,7 +39,7 @@ impl Harness {
     }
 
     /// Stop waiting on the page for the turn the page shows the agent working on.
-    fn stop_on_page(&mut self) -> Result<(), CommandRefusal> {
+    pub(super) fn stop_on_page(&mut self) -> Result<(), CommandRefusal> {
         let request = self.working_on();
         self.on_page(PageCommand::Recover(Recovery::Stop(Waiting::Turn(request))))
     }
@@ -54,7 +54,7 @@ impl Harness {
     }
 
     /// The latest attempt of the turn the page offers to retry, as the page shows it.
-    fn attempt(&self) -> String {
+    pub(super) fn attempt(&self) -> String {
         match self.page.stage() {
             RoundStage::Interrupted {
                 attempt: Some(attempt),

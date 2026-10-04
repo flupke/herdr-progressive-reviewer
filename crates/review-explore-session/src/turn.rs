@@ -254,7 +254,7 @@ impl ExploreSession {
             .and_then(|(round, answer)| round.exploration.answered_number(answer))
             .map(Into::into);
         let prompt = review_explore_runner::PreparedTurn::prepare(
-            request,
+            &self.request_as_told(request),
             comparison,
             access,
             &unreviewed,

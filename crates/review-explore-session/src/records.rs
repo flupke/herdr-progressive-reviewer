@@ -62,6 +62,15 @@ impl SavedRounds {
         self.store.load_round_forks(unit, instance)
     }
 
+    /// The review and identity of every round of the repository whose run-ahead forks
+    /// `wanted` picks.
+    pub(crate) fn rounds_with_forks(
+        &self,
+        wanted: impl Fn(&RoundForks) -> bool,
+    ) -> Result<Vec<(ReviewUnit, String)>> {
+        self.store.rounds_with_forks(wanted)
+    }
+
     /// Change the run-ahead forks saved beside the round `instance`, closed or not.
     pub(crate) fn update_forks<T>(
         &self,

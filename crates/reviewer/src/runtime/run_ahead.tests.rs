@@ -10,7 +10,7 @@ use std::process::Stdio;
 use agent_fork::ProcessStamp;
 use review_explore::{AnswerInput, Command as ExploreCommand};
 use review_explore_round_settings::RunAhead;
-use review_run_ahead::{DiscardReason, RoundForks};
+use review_run_ahead::{Continuation, DiscardReason, RoundForks};
 
 use super::explore_flow::ExploreFlow;
 use super::*;
@@ -497,6 +497,27 @@ impl RunAheadFlow {
         }
     }
 
+    /// Waits until the stand-in in the pane is done with the prompt it read last, which it
+    /// works on for a moment after the agent's turn was already submitted, and Herdr reports it
+    /// idle.
+    fn wait_until_idle(&self) {
+        thread::sleep(Duration::from_secs(2));
+        let pane = self.flow.fixture.herdr.pane_id.clone();
+        let deadline = Instant::now() + HERDR_WAIT;
+        while !self
+            .flow
+            .fixture
+            .herdr
+            .client()
+            .get_agent(&pane)
+            .unwrap()
+            .is_some_and(|agent| agent.agent_status.waits_for_prompt())
+        {
+            assert!(Instant::now() < deadline, "the agent stays busy");
+            thread::sleep(Duration::from_millis(25));
+        }
+    }
+
     /// The sessions the agent in the pane resumed, in order.
     fn resumed(&self) -> Vec<String> {
         fs::read_to_string(resumes_path(&self.root().join("prompt.txt")))
@@ -600,6 +621,73 @@ fn a_bare_answer_continues_as_its_fork_and_the_next_answer_reaches_the_fork_s_se
             .windows(2)
             .any(|pair| pair == ["--resume", fork.as_str()]),
         "forks of the next question copy the fork's session"
+    );
+}
+
+#[test]
+fn a_switch_herdr_never_confirms_puts_the_agent_back_and_retry_reaches_its_own_session_once() {
+    let mut run = RunAheadFlow::start();
+    run.flow.turn(None, 1);
+    let sessions = run.wait_for_forks(2);
+    let fork = sessions[0].clone();
+    run.fork_submits(&fork);
+    fs::write(run.root().join("prompt.unreported-resumes"), "").unwrap();
+    let prompts = fs::read_to_string(run.root().join("prompt.txt")).unwrap();
+    run.wait_until_idle();
+
+    let request = run.answer_bare("keep");
+
+    // The switch waits for Herdr in vain, then the agent goes back to its own session.
+    let deadline = Instant::now() + Duration::from_secs(60);
+    while !matches!(
+        run.saved().forks[0].continued,
+        Some(Continuation::Undone { .. })
+    ) {
+        assert!(Instant::now() < deadline, "{}", run.log());
+        thread::sleep(Duration::from_millis(100));
+    }
+    assert_eq!(run.resumed(), [fork.clone(), "session".to_owned()]);
+    assert_eq!(
+        fs::read_to_string(run.root().join("prompt.txt")).unwrap(),
+        prompts,
+        "the agent in the pane got no prompt yet"
+    );
+    run.wait_until_gone(&run.processes()[..1]);
+    let saved = run.wait_for_questions(1);
+    assert_eq!(saved.exploration.conversation.len(), 1);
+
+    fs::remove_file(run.root().join("prompt.unreported-resumes")).unwrap();
+    run.flow
+        .fixture
+        .explore(ExploreCommand::Retry(Box::new(request.clone())));
+
+    let deadline = Instant::now() + HERDR_WAIT;
+    let delivered = loop {
+        let delivered = fs::read_to_string(run.root().join("prompt.txt")).unwrap();
+        if delivered.len() > prompts.len() {
+            break delivered[prompts.len()..].to_owned();
+        }
+        assert!(Instant::now() < deadline, "{}", run.log());
+        thread::sleep(Duration::from_millis(25));
+    };
+    assert!(
+        delivered.contains(&format!("Explore request: {}\n", request.request)),
+        "{delivered}"
+    );
+    assert!(
+        fs::read_to_string(run.transcript("session"))
+            .unwrap()
+            .contains("\"uuid\":\"prompt-2\""),
+        "the answer reached the agent's own session"
+    );
+    thread::sleep(Duration::from_millis(500));
+    assert_eq!(
+        fs::read_to_string(run.root().join("prompt.txt"))
+            .unwrap()
+            .matches(&format!("Explore request: {}\n", request.request))
+            .count(),
+        1,
+        "the answer reached the agent once"
     );
 }
 

@@ -219,6 +219,51 @@ impl ReviewStore {
         Ok(saved)
     }
 
+    /// The review and the identity of every round of every review of this repository whose
+    /// run-ahead forks `wanted` picks, such as forks a stopped reviewer left. It takes no lock,
+    /// as [`Self::saved_explore_rounds`]; a record it cannot read is left out.
+    pub fn rounds_with_forks(
+        &self,
+        wanted: impl Fn(&RoundForks) -> bool,
+    ) -> Result<Vec<(ReviewUnit, String)>> {
+        let mut rounds = Vec::new();
+        let directory = self.explore_directory();
+        if !directory.exists() {
+            return Ok(rounds);
+        }
+        for review in Self::explore_entries(&directory)? {
+            let review = review?.path();
+            if !review.is_dir() {
+                continue;
+            }
+            for entry in Self::explore_entries(&review)? {
+                let entry = entry?;
+                let Some(instance) = entry
+                    .file_name()
+                    .to_str()
+                    .and_then(|name| name.strip_suffix(".forks.json"))
+                    .filter(|instance| Self::explore_id(instance).is_ok())
+                    .map(str::to_owned)
+                else {
+                    continue;
+                };
+                let picked = Self::read_explore::<RoundForks>(&entry.path(), MAX_FORKS)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|forks| wanted(&forks));
+                if !picked {
+                    continue;
+                }
+                let round = review.join(format!("{instance}.json"));
+                if let Ok(Some(round)) = Self::read_explore::<ExploreRound>(&round, MAX_DOMAIN) {
+                    let unit = round.exploration.comparison.checkpoint.review_unit.clone();
+                    rounds.push((unit, instance));
+                }
+            }
+        }
+        Ok(rounds)
+    }
+
     /// The identity and modification time of every round file in one review's
     /// directory, readable or not.
     fn round_files_in(directory: &Path) -> Result<Vec<(String, SystemTime)>> {

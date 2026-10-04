@@ -19,6 +19,7 @@
 mod answer;
 mod calls;
 mod clean;
+mod settle;
 mod switch;
 mod take;
 
@@ -61,6 +62,13 @@ enum Event {
         request: String,
         result: Box<Result<Agent, SwitchFailure>>,
     },
+    /// The pane's agent, which may have run the session of the fork `fork` of the round
+    /// `round`, was put on the session the round needs, or why not.
+    Settled {
+        round: RoundKey,
+        fork: String,
+        result: Box<Result<Agent, SwitchFailure>>,
+    },
 }
 
 /// The round a fork belongs to: its review and its instance.
@@ -83,8 +91,17 @@ pub(crate) struct RunAheadState {
     discarded: HashSet<String>,
     /// The switch of the pane's agent to the fork an answer chose, while it runs.
     switching: Option<switch::Switching>,
-    /// A turn saved while the switch runs, and its attempt: its prompt goes out once the
-    /// switch ends.
+    /// The pane's agent being put on the session the round needs, after a switch that did not
+    /// end with the round taking the fork's turn, while it runs.
+    settling: Option<settle::Settling>,
+    /// The forks, by session, whose session the agent was not put back from without the
+    /// reviewer asking: run-ahead does not try again by itself, a prompt to the agent does.
+    settle_failed: HashSet<String>,
+    /// The forks, by session, whose session this reviewer saw the agent leave, though their
+    /// record could not be saved to say so.
+    left_unrecorded: HashSet<String>,
+    /// A turn saved while the switch or the settling runs, and its attempt: its prompt goes out
+    /// once it ends.
     held: Option<crate::turn::SavedTurn>,
     /// The path each turn of the session's round took after an answer to a question run-ahead
     /// watched, by request, as the reviewer is shown it.
@@ -166,6 +183,9 @@ impl RunAheadState {
             armed: None,
             discarded: HashSet::new(),
             switching: None,
+            settling: None,
+            settle_failed: HashSet::new(),
+            left_unrecorded: HashSet::new(),
             held: None,
             paths: BTreeMap::new(),
         }
@@ -382,6 +402,11 @@ impl ExploreSession {
                 request,
                 result,
             } => self.run_ahead_switched(&round, &request, *result),
+            Event::Settled {
+                round,
+                fork,
+                result,
+            } => self.run_ahead_settled(&round, &fork, *result),
         }
     }
 
@@ -424,6 +449,81 @@ impl ExploreSession {
             self.discard_taken(DiscardReason::SessionMoved);
             self.run_ahead_take();
         }
+    }
+}
+
+/// Where the agent of a pane goes: a session it resumes, or a fork's session it switches to.
+enum Move {
+    Resume(String),
+    Switch {
+        session: String,
+        process: Option<ProcessStamp>,
+        transcripts: std::path::PathBuf,
+    },
+}
+
+impl Move {
+    /// The switch to the fork `trace` names.
+    fn switch(trace: review_run_ahead::ForkTrace<'_>) -> Self {
+        Self::Switch {
+            session: trace.session.to_owned(),
+            process: trace.process,
+            transcripts: trace.transcripts.to_owned(),
+        }
+    }
+
+    /// Moves the agent of `pane` through `host`, on a thread of its own, once the prompt the
+    /// courier was sending when `hold` began, if any, is sent: nothing else is typed in the
+    /// pane meanwhile, and the session's thread does not wait. `done` gets the outcome.
+    fn start_once_drained(
+        self,
+        host: &Arc<dyn ForkHost>,
+        hold: &review_thread_service::PromptHold,
+        pane: &PaneId,
+        done: Box<dyn FnOnce(Result<Agent, SwitchFailure>) + Send>,
+    ) {
+        let (host, drained, pane) = (Arc::clone(host), hold.drained(), pane.clone());
+        std::thread::spawn(move || {
+            drained.wait();
+            match &self {
+                Self::Resume(session) => host.resume(&pane, session, done),
+                Self::Switch {
+                    session,
+                    process,
+                    transcripts,
+                } => host.switch(
+                    review_run_ahead::SwitchTo {
+                        pane: &pane,
+                        fork: review_run_ahead::ForkTrace {
+                            session,
+                            process: *process,
+                            transcripts,
+                        },
+                    },
+                    done,
+                ),
+            }
+        });
+    }
+}
+
+impl ExploreSession {
+    /// `request` as the pane's agent knows it: each cancelled answer by the ID the agent was
+    /// told, which is its fork's when the agent continued as the fork that answer chose.
+    pub(crate) fn request_as_told(&self, request: &TurnRequest) -> TurnRequest {
+        let mut told = request.clone();
+        if told.cancelled.is_empty() {
+            return told;
+        }
+        if let Ok(forks) = self
+            .rounds
+            .forks(&request.checkpoint.review_unit, &request.instance)
+        {
+            for answer in &mut told.cancelled {
+                *answer = forks.answer_as_told(answer).to_owned();
+            }
+        }
+        told
     }
 }
 

@@ -27,6 +27,10 @@ fn each_reason_the_reviewer_can_use_has_a_line_of_its_own() {
         plain(PlainReason::SessionMoved),
         plain(PlainReason::UnreviewedChanged),
         plain(PlainReason::PromptChanged),
+        plain(PlainReason::SwitchFailed {
+            error: "the agent is working".into(),
+        }),
+        plain(PlainReason::Withdrawn),
     ];
 
     let lines: Vec<_> = shown.iter().map(TurnPath::line).collect();
@@ -38,16 +42,10 @@ fn each_reason_the_reviewer_can_use_has_a_line_of_its_own() {
 }
 
 #[test]
-fn the_tool_s_own_faults_and_a_withdrawn_answer_show_nothing() {
-    for reason in [
-        PlainReason::Unchecked {
-            error: "the agent's pane is gone".into(),
-        },
-        PlainReason::SwitchFailed {
-            error: "the agent is working".into(),
-        },
-        PlainReason::Withdrawn,
-    ] {
-        assert_eq!(plain(reason.clone()).line(), None, "{reason:?}");
-    }
+fn a_check_that_could_not_be_made_shows_nothing() {
+    let reason = PlainReason::Unchecked {
+        error: "the agent's pane is gone".into(),
+    };
+
+    assert_eq!(plain(reason).line(), None);
 }

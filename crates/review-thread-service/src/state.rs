@@ -10,7 +10,7 @@ use review_store::ReviewStore;
 use review_threads::{Post, Resolution, ReviewThreads, SavedDrafts, ThreadCommand, WakeupFailure};
 use review_types::ReviewUnit;
 
-use crate::delivery::{Courier, PromptError, PromptQueue};
+use crate::delivery::{Courier, PromptError, PromptGate, PromptQueue};
 use crate::{Command, Event, Input, access::Access, notification::Notification, wakeup::Wakeup};
 
 pub(super) struct State {
@@ -37,10 +37,11 @@ impl State {
         available: bool,
         publish: Box<dyn Fn(Event) + Send>,
         inputs: Sender<Input>,
+        gate: Arc<PromptGate>,
     ) -> Self {
         Self {
             store,
-            courier: Courier::start(port.clone()),
+            courier: Courier::start(port.clone(), gate),
             inputs,
             port,
             target,

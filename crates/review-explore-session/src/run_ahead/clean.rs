@@ -56,7 +56,7 @@ impl ExploreSession {
 
     /// Stops the fork `fork` of `round` and deletes its transcript; its record says so once
     /// both are done.
-    fn discard_in_background(&self, round: &RoundKey, fork: ForkTrace<'_>) {
+    pub(super) fn discard_in_background(&self, round: &RoundKey, fork: ForkTrace<'_>) {
         let inbox = self.inbox.clone();
         let cleaned = Event::Cleaned {
             round: round.clone(),
@@ -134,21 +134,22 @@ impl ExploreSession {
         ));
     }
 
-    /// The reviewer opened the review: discards the forks of its rounds that a stopped reviewer
-    /// left running or on disk. Forks of a reviewer that still runs stay its own.
+    /// The reviewer opened a review: discards the forks a stopped reviewer left running or on
+    /// disk, in the rounds of every review of the repository. Forks of a reviewer that still
+    /// runs stay its own, and a fork whose session the pane's agent may run stays until the
+    /// agent settles.
     pub(crate) fn run_ahead_restore(&mut self) {
-        let Some(unit) = self.state.loaded_unit.clone() else {
+        let reviewer = self.run_ahead.reviewer;
+        let Ok(rounds) = self.rounds.rounds_with_forks(|forks| {
+            forks
+                .forks
+                .iter()
+                .any(|record| record.left_by_a_stopped_reviewer(reviewer))
+        }) else {
             return;
         };
-        let Ok(history) = self.rounds.history(&unit) else {
-            return;
-        };
-        for instance in history.rounds {
-            let round = RoundKey {
-                unit: unit.clone(),
-                instance,
-            };
-            self.discard_left(&round);
+        for (unit, instance) in rounds {
+            self.discard_left(&RoundKey { unit, instance });
         }
     }
 
@@ -160,12 +161,7 @@ impl ExploreSession {
             forks
                 .forks
                 .iter_mut()
-                .filter(|record| {
-                    !record.cleaned
-                        && !record.is_agent_session()
-                        && record.reviewer != reviewer
-                        && !record.reviewer.is_running()
-                })
+                .filter(|record| record.left_by_a_stopped_reviewer(reviewer))
                 .map(|record| {
                     record.discard(DiscardReason::ReviewerStopped, now);
                     record.clone()
@@ -186,18 +182,24 @@ impl ExploreSession {
         }
     }
 
-    /// The fork `session` of `round` ended: its record keeps how, and its tokens.
+    /// The fork `session` of `round` ended: its record keeps how, and its tokens. A fork that
+    /// ended without a turn before it was discarded failed; too many in a row stop run-ahead
+    /// for the round.
     pub(super) fn run_ahead_ended(&mut self, round: &RoundKey, session: &str, end: &ForkEnd) {
         if let Some(fork) = self.run_ahead.fork_mut(session) {
             fork.ended = true;
         }
+        let now = review_explore::now_ms();
         let saved = self.update_forks(round, |forks| {
             let record = forks.fork_mut(session)?;
             record.exit = Some(end.exit.clone());
             record.usage = Some(end.usage);
-            Some(record.choice.clone())
+            let failed = record.ending_is_a_failure();
+            let choice = record.choice.clone();
+            let halted = failed && forks.fork_failed(now);
+            Some((choice, failed, halted))
         });
-        if let Ok(Some(choice)) = saved {
+        if let Ok(Some((choice, failed, halted))) = saved {
             let usage = end.usage;
             self.run_ahead.host.log(&format!(
                 "the fork for {choice} ({session}) ended ({}{}): {} input, {} cache write, {} cache read, {} output tokens",
@@ -208,6 +210,38 @@ impl ExploreSession {
                 usage.cache_read,
                 usage.output,
             ));
+            if failed {
+                self.run_ahead.host.log(&format!(
+                    "the fork for {choice} failed: it ended without a turn"
+                ));
+            }
+            if halted {
+                self.halt(round);
+            }
+        }
+    }
+
+    /// Too many forks of the round failed in a row: run-ahead stops for the round. The forks of
+    /// the question that waits are discarded, the reviewer hears of it, and answers run the
+    /// plain chain until the round ends.
+    pub(super) fn halt(&mut self, round: &RoundKey) {
+        if self
+            .run_ahead
+            .armed
+            .as_ref()
+            .is_none_or(|armed| armed.asked.round != *round)
+        {
+            return;
+        }
+        self.discard_taken(DiscardReason::TooManyFailures);
+        let refusal = super::take::halted();
+        self.run_ahead.log(&refusal);
+        let _ = self.events.send(ui_events::ToastRequested {
+            text: format!("{refusal}: your answers go to the agent in the pane"),
+            kind: toasts::ToastKind::Error,
+        });
+        if let Some(armed) = self.run_ahead.armed.as_mut() {
+            armed.refusal = Some(refusal);
         }
     }
 

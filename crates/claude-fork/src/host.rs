@@ -21,7 +21,7 @@ use review_run_ahead::{
 use crate::guard::SUBMITS;
 use crate::pane::PaneClaude;
 use crate::stream::StreamTally;
-use crate::switch::{AgentPane, ForkProcess, LiveFork, Switch};
+use crate::switch::{AgentPane, ForkProcess, LiveFork, Resume, Switch};
 use crate::transcripts::Transcripts;
 
 /// How long a status watch waits before it subscribes again after Herdr dropped it.
@@ -154,6 +154,11 @@ impl ForkHost for ClaudeForks {
     }
 
     fn point(&self, agent: &Agent) -> Result<ForkPoint, String> {
+        if !cfg!(target_os = "linux") {
+            // Only Linux has the parent-death signal that keeps a fork from outliving the
+            // reviewer when the reviewer runs outside a terminal.
+            return Err("run-ahead forks only on Linux".into());
+        }
         if agent.agent.as_deref() != Some("claude") {
             return Err(format!(
                 "run-ahead forks Claude Code, and the agent's pane runs {}",
@@ -296,6 +301,25 @@ impl ForkHost for ClaudeForks {
                 fork,
             };
             done(switch.run());
+        });
+    }
+
+    fn resume(
+        &self,
+        pane: &PaneId,
+        session: &str,
+        done: Box<dyn FnOnce(Result<Agent, SwitchFailure>) + Send>,
+    ) {
+        let (herdr, pane, session) = (self.herdr.clone(), pane.clone(), session.to_owned());
+        thread::spawn(move || {
+            let resume = Resume {
+                pane: AgentPane {
+                    herdr: &herdr,
+                    pane: &pane,
+                },
+                session: &session,
+            };
+            done(resume.run());
         });
     }
 

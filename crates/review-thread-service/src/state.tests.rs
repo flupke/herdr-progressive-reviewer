@@ -56,6 +56,7 @@ impl Service {
             true,
             Box::new(publish),
             sender,
+            Arc::default(),
         );
         state.command(Command::Thread(ThreadCommand::Load(UNIT.into())));
         Self {

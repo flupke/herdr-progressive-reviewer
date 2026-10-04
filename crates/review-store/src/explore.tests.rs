@@ -492,7 +492,9 @@ fn the_forks_of_a_round_are_saved_beside_it_even_once_it_is_closed_and_are_no_ro
         question: "cache-eviction".into(),
         version: 1,
         choice: "keep".into(),
+        answer: None,
         session: "fork-session".into(),
+        from: None,
         transcripts: "/state/projects".into(),
         reviewer: agent_fork::ProcessStamp { pid: 1, started: 2 },
         process: None,
@@ -524,5 +526,20 @@ fn the_forks_of_a_round_are_saved_beside_it_even_once_it_is_closed_and_are_no_ro
         .into_iter()
         .map(|(instance, _)| instance)
         .collect();
-    assert_eq!(listed, [instance]);
+    assert_eq!(listed, std::slice::from_ref(&instance));
+    assert_eq!(
+        fixture
+            .store
+            .rounds_with_forks(|forks| forks.forks.iter().any(|fork| !fork.cleaned))
+            .unwrap(),
+        [(unit, instance)],
+        "the rounds of every review whose forks are wanted are found"
+    );
+    assert!(
+        fixture
+            .store
+            .rounds_with_forks(|forks| forks.forks.iter().all(|fork| fork.cleaned))
+            .unwrap()
+            .is_empty()
+    );
 }

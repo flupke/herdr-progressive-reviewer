@@ -20,5 +20,7 @@ pub use host::{
     ForkEnd, ForkHost, ForkPoint, ForkStart, ForkTrace, PaneWatch, StatusReport, SwitchFailure,
     SwitchTo,
 };
-pub use record::{Continuation, Discard, DiscardReason, ForkRecord, RoundForks, TokenUsage};
+pub use record::{
+    Continuation, Discard, DiscardReason, FAILURES_TO_HALT, ForkRecord, RoundForks, TokenUsage,
+};
 pub use review_turn_path::{PlainReason, TurnPath};

@@ -85,20 +85,22 @@ impl PlainReason {
         })
     }
 
-    /// The line of a reason that the forks had not done what the answer needs, or `None` for
-    /// the tool's own faults (`Unchecked`, `SwitchFailed`, `Withdrawn`): a check that could not
-    /// be made is in run-ahead's log, a switch that failed already left the turn waiting for
-    /// Retry with its reason, and a withdrawn answer has no turn to show.
+    /// The line of a reason that the forks had not done what the answer needs, or that the
+    /// switch to a fork did not end with its turn, or `None` for a check that could not be made,
+    /// which is in run-ahead's log. A failed or withdrawn switch leaves the turn waiting for
+    /// Retry, which runs the plain chain: the turn it brings says why it took the agent's time.
     fn not_ready_line(&self) -> Option<&'static str> {
         match self {
             Self::NoForks { .. } => Some("Not prepared: nothing was prepared for this question"),
             Self::NotForked => Some("Not prepared: only the recommended choice is prepared"),
             Self::StillWorking => Some("Not prepared: the turn for this choice was not ready yet"),
             Self::NoTurn => Some("Not prepared: the turn for this choice did not finish"),
-            // The tool's own faults, then the reasons whose lines are in `line`.
+            Self::SwitchFailed { .. } => {
+                Some("Not prepared: the agent could not switch to the prepared turn")
+            }
+            Self::Withdrawn => Some("Not prepared: you stopped waiting while it was being used"),
+            // A check that could not be made, then the reasons whose lines are in `line`.
             Self::Unchecked { .. }
-            | Self::SwitchFailed { .. }
-            | Self::Withdrawn
             | Self::Comment
             | Self::NoneOfTheAbove
             | Self::ChatMessage

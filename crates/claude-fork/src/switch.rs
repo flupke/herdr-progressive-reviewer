@@ -1,6 +1,7 @@
 //! Switching the Claude Code agent of a Herdr pane to a fork's session: the fork stops once
 //! its submit has its answer, then the agent resumes the fork's session with Claude Code's own
-//! `/resume`, and Herdr reports it on that session.
+//! `/resume`, and Herdr reports it on that session. The same `/resume` puts the agent back on
+//! the session its forks were taken from.
 
 use std::sync::Arc;
 use std::thread;
@@ -117,14 +118,34 @@ impl Switch<'_> {
     /// Runs the switch, as [`review_run_ahead::ForkHost::switch`] describes it: the agent as
     /// Herdr then reports it, or why the switch failed.
     pub(crate) fn run(self) -> Result<Agent, SwitchFailure> {
-        let failed = |error: String| SwitchFailure {
-            error,
-            typed: false,
-        };
         // From here on, only the agent writes the fork's transcript, which ends with the
         // answer to its submit.
         self.fork.wait_for_answer();
         self.fork.stop(self.session);
+        Resume {
+            pane: self.pane,
+            session: self.session,
+        }
+        .run()
+    }
+}
+
+/// The agent of `pane` resuming the session `session` with Claude Code's own `/resume`.
+pub(crate) struct Resume<'a> {
+    pub(crate) pane: AgentPane<'a>,
+    pub(crate) session: &'a str,
+}
+
+impl Resume<'_> {
+    /// Has the agent, idle with an empty input box, resume the session, then waits until
+    /// Herdr reports it there, idle with an empty input box: the agent as Herdr then reports
+    /// it, or why not. Claude Code takes what is typed in its pane in order, so once the
+    /// command is typed, the agent ends on this session even after an earlier `/resume`.
+    pub(crate) fn run(self) -> Result<Agent, SwitchFailure> {
+        let failed = |error: String| SwitchFailure {
+            error,
+            typed: false,
+        };
         let agent = self.pane.agent().map_err(failed)?;
         if !agent.agent_status.waits_for_prompt() {
             return Err(failed("the agent in the pane is working".into()));

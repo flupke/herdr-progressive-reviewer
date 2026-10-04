@@ -3,17 +3,21 @@
 //! the agent working. Once Herdr reports the agent on the fork's session, the fork's turn
 //! becomes the round's, under the identities of the reviewer's answer, and only that session
 //! may call the reviewer. A switch that fails leaves the turn interrupted with the reason, and
-//! Retry sends the answer to the agent in the pane: the round is never ahead of the agent.
+//! Retry sends the answer to the agent in the pane: the round is never ahead of the agent. When
+//! the agent may run the fork's session but the round does not take the fork's turn, the agent
+//! goes back to the session it ran before (`settle.rs`), so that it never takes the answer
+//! twice. No prompt reaches the agent while it switches.
 
 use herdr_client::protocol::Agent;
-use review_explore::{ConversationBinding, InterviewUpdate, TurnRequest};
+use review_explore::{InterviewUpdate, TurnRequest};
 use review_run_ahead::{
-    Continuation, DiscardReason, ForkPoint, PlainReason, SwitchFailure, SwitchTo, TurnPath,
+    Continuation, DiscardReason, ForkPoint, PlainReason, SwitchFailure, TurnPath,
 };
-use review_thread_service::{DispatchObserver, PinnedAgent, PromptError};
+use review_thread_service::{DispatchObserver, PromptError, PromptHold};
 
+use super::settle::Trigger;
 use super::take::ForkFiles;
-use super::{Asked, Event, RoundKey, RunAheadInput, TakenFork};
+use super::{Asked, Event, Move, RoundKey, RunAheadInput, TakenFork};
 use crate::dispatch::DurableDispatch;
 use crate::turn::SavedTurn;
 use crate::{ExploreSession, Input};
@@ -29,6 +33,8 @@ pub(super) struct Switching {
     pub(super) point: ForkPoint,
     pub(super) fork: TakenFork,
     pub(super) files: ForkFiles,
+    /// No prompt reaches the agent while it switches, the thread service's included.
+    pub(super) hold: PromptHold,
 }
 
 impl Switching {
@@ -64,13 +70,32 @@ impl ExploreSession {
     /// it. Returns why the answer goes to the agent instead, after discarding the fork, when
     /// the turn could not be recorded as on its way.
     pub(super) fn start_switch(&mut self, switching: Switching) -> Result<(), PlainReason> {
+        // Recorded before the agent is told anything, so that a reviewer that stops meanwhile
+        // leaves the switch for the next one to settle.
         let began = self
-            .agents
-            .get_agent(&switching.asked.pane)
-            .map_err(|error| error.to_string())
+            .record_continuation(
+                &switching,
+                Continuation::Switching {
+                    at_ms: review_explore::now_ms(),
+                },
+            )
+            .and_then(|()| {
+                self.agents
+                    .get_agent(&switching.asked.pane)
+                    .map_err(|error| error.to_string())
+            })
             .and_then(|agent| agent.ok_or_else(|| "the agent's pane is gone".to_owned()))
             .and_then(|agent| switching.dispatch.before_attempt(&agent));
         if let Err(error) = began {
+            // Nothing was typed: the fork's session is not the agent's.
+            let _ = self.record_continuation(
+                &switching,
+                Continuation::Failed {
+                    at_ms: review_explore::now_ms(),
+                    error: error.clone(),
+                    typed: false,
+                },
+            );
             self.discard_switching_fork(&switching);
             return Err(PlainReason::SwitchFailed { error });
         }
@@ -80,22 +105,15 @@ impl ExploreSession {
         }
         self.state.prompt = None;
         self.state.pend(&switching.turn.request);
-        self.record_continuation(
-            &switching,
-            Continuation::Switching {
-                at_ms: review_explore::now_ms(),
-            },
-        );
         let inbox = self.inbox.clone();
         let (round, request) = (
             switching.asked.round.clone(),
             switching.turn.request.request.clone(),
         );
-        self.run_ahead.host.switch(
-            SwitchTo {
-                pane: &switching.asked.pane,
-                fork: switching.fork.trace(&switching.point),
-            },
+        Move::switch(switching.fork.trace(&switching.point)).start_once_drained(
+            &self.run_ahead.host,
+            &switching.hold,
+            &switching.asked.pane,
             Box::new(move |result| {
                 inbox.deliver(Input::RunAhead(RunAheadInput(Event::Switched {
                     round,
@@ -126,19 +144,9 @@ impl ExploreSession {
             Ok(agent) => self.continue_as_fork(switching, &agent),
             Err(failure) => self.switch_failed(&switching, &failure),
         }
-        if let Some(held) = self.run_ahead.held.take() {
-            self.send_held(held);
-        }
-        // A question that waits again, after a Cancel answer, is forked now that the agent runs
-        // its session.
-        if self
-            .run_ahead
-            .armed
-            .as_ref()
-            .is_some_and(|armed| armed.taken.is_none())
-        {
-            self.run_ahead_take();
-        }
+        // A question that waits again, after a Cancel answer, is forked once the agent runs the
+        // session the round needs.
+        self.after_agent_moved();
     }
 
     /// Holds the saved turn `turn` while the pane's agent switches to a fork's session: no
@@ -146,7 +154,7 @@ impl ExploreSession {
     /// sent once the switch ends.
     pub(crate) fn run_ahead_hold(&mut self, turn: &SavedTurn) -> bool {
         let Some(switching) = &self.run_ahead.switching else {
-            return false;
+            return self.settle_before(turn);
         };
         self.log_switch(
             switching,
@@ -158,26 +166,11 @@ impl ExploreSession {
         true
     }
 
-    /// Sends the turn `held` that waited, unless it no longer waits.
-    fn send_held(&mut self, held: SavedTurn) {
-        if self
-            .state
-            .is_pending(&held.request.instance, &held.request.request)
-        {
-            self.send_turn(held);
-        }
-    }
-
-    /// The pane's agent `agent` runs the fork's session of `switching`: it alone may call the
-    /// reviewer from now on, and the fork's turn becomes the round's, unless the reviewer moved
-    /// the round on meanwhile.
+    /// The pane's agent `agent` runs the fork's session of `switching`: the fork's turn becomes
+    /// the round's, and that session alone may call the reviewer from now on, unless the
+    /// reviewer moved the round on meanwhile or the turn could not be saved; the agent then goes
+    /// back to the session it ran before.
     fn continue_as_fork(&mut self, switching: Switching, agent: &Agent) {
-        self.record_continuation(
-            &switching,
-            Continuation::Switched {
-                at_ms: review_explore::now_ms(),
-            },
-        );
         self.log_switch(
             &switching,
             &format!(
@@ -185,19 +178,6 @@ impl ExploreSession {
                 switching.fork.session
             ),
         );
-        self.state.agent = Some(PinnedAgent::new(agent.clone()));
-        // Whatever became of the turn, the agent runs the fork's session now.
-        let round = &switching.asked.round;
-        let followed = self.rounds.update(&round.unit, &round.instance, |round| {
-            round.last_agent_session = ConversationBinding::from_agent(agent);
-            Ok(())
-        });
-        if let Err(error) = followed {
-            self.log_switch(
-                &switching,
-                &format!("the agent's session was not recorded: {error}"),
-            );
-        }
         let request = &switching.turn.request;
         let delivering = self.state.is_pending(&request.instance, &request.request)
             && self
@@ -212,10 +192,23 @@ impl ExploreSession {
             );
             self.record_plain(&switching, PlainReason::Withdrawn);
             switching.finish(&Err(PromptError::Cancelled));
+            self.undo_switch(
+                &switching,
+                "the reviewer withdrew the answer while the agent switched",
+            );
             return;
         };
+        self.follow_agent(&switching.asked.round, agent);
         match self.commit(&turn) {
             Ok((_, round)) => {
+                // Recorded once the round holds the fork's turn: a reviewer that stops before
+                // leaves the switch unsettled, for the next one to settle.
+                let _ = self.record_continuation(
+                    &switching,
+                    Continuation::Switched {
+                        at_ms: review_explore::now_ms(),
+                    },
+                );
                 switching.finish(&Ok(()));
                 self.log_switch(
                     &switching,
@@ -251,12 +244,14 @@ impl ExploreSession {
                     },
                 );
                 self.turn_failed(&switching, &error);
+                self.undo_switch(&switching, &error);
             }
         }
     }
 
     /// The switch of `switching` failed: the turn waits for Retry, which sends the answer to
-    /// the agent in the pane.
+    /// the agent in the pane. When the agent was told to resume the fork's session, which it
+    /// may still do, it goes back to the session it ran before.
     fn switch_failed(&mut self, switching: &Switching, failure: &SwitchFailure) {
         self.log_switch(
             switching,
@@ -265,7 +260,7 @@ impl ExploreSession {
                 failure.error
             ),
         );
-        self.record_continuation(
+        let _ = self.record_continuation(
             switching,
             Continuation::Failed {
                 at_ms: review_explore::now_ms(),
@@ -279,7 +274,6 @@ impl ExploreSession {
                 error: failure.error.clone(),
             },
         );
-        // The agent may run the fork's session once told to resume it: its transcript stays.
         if !failure.typed {
             self.discard_switching_fork(switching);
         }
@@ -292,6 +286,29 @@ impl ExploreSession {
                 failure.error
             ),
         );
+        if failure.typed {
+            self.undo_switch(switching, &failure.error);
+        }
+    }
+
+    /// The agent may run the fork's session of `switching`, whose turn the round does not
+    /// take, for `reason`: it goes back to the session it ran before.
+    fn undo_switch(&mut self, switching: &Switching, reason: &str) {
+        let round = &switching.asked.round;
+        let record = self
+            .rounds
+            .forks(&round.unit, &round.instance)
+            .ok()
+            .and_then(|forks| forks.fork(&switching.fork.session).cloned());
+        let Some(record) = record else {
+            self.log_switch(
+                switching,
+                "the fork's record is gone: the agent stays on the session it runs",
+            );
+            return;
+        };
+        let pane = switching.asked.pane.clone();
+        self.settle(round, record, &pane, reason.to_owned(), Trigger::RunAhead);
     }
 
     /// The answer's turn of `switching` failed, for `error`: it waits for Retry.
@@ -334,16 +351,25 @@ impl ExploreSession {
         }
     }
 
-    /// Records where the switch of `switching` stands, on its fork's record.
-    fn record_continuation(&self, switching: &Switching, continued: Continuation) {
+    /// Records where the switch of `switching` stands, on its fork's record; logs it when it was
+    /// not recorded, and errs with the reason, which only the start of a switch needs.
+    fn record_continuation(
+        &self,
+        switching: &Switching,
+        continued: Continuation,
+    ) -> Result<(), String> {
         let saved = self.update_forks(&switching.asked.round, |forks| {
-            if let Some(record) = forks.fork_mut(&switching.fork.session) {
-                record.continued = Some(continued);
-            }
+            forks
+                .fork_mut(&switching.fork.session)
+                .map(|record| record.continued = Some(continued))
         });
-        if let Err(error) = saved {
-            self.log_switch(switching, &format!("the switch was not recorded: {error}"));
-        }
+        let error = match saved {
+            Ok(Some(())) => return Ok(()),
+            Ok(None) => "the switch was not recorded: the fork's record is gone".to_owned(),
+            Err(error) => format!("the switch was not recorded: {error}"),
+        };
+        self.log_switch(switching, &error);
+        Err(error)
     }
 
     /// Adds `line` about `switching` to run-ahead's log.

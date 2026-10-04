@@ -421,7 +421,14 @@ impl AgentPrompts {
     fn read(&mut self, prompt: &str) {
         if let Some(session) = prompt.trim().strip_prefix("/resume ") {
             self.transcript.resume(session);
-            self.hook.report(session, "resume");
+            // While this file exists, Herdr never hears of the resume, as when Claude Code's
+            // session hook fails or comes too late.
+            if !Path::new(&self.path)
+                .with_extension("unreported-resumes")
+                .exists()
+            {
+                self.hook.report(session, "resume");
+            }
             run_ahead::record_resume(&self.path, session);
             return;
         }

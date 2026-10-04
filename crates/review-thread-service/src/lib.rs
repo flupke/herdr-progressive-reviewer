@@ -19,7 +19,8 @@ use review_threads::{ThreadCommand, WakeupFailure};
 use review_types::ReviewUnit;
 
 pub use delivery::{
-    DispatchObserver, PromptCancellation, PromptError, PromptReceipt, PromptSender,
+    DispatchObserver, Drained, PromptCancellation, PromptError, PromptHold, PromptReceipt,
+    PromptSender,
 };
 pub use pinned_agent::PinnedAgent;
 use state::State;
@@ -63,6 +64,8 @@ pub enum Event {
 /// A reviewer-owned worker; dropping it closes its HTTP listener.
 pub struct Worker {
     sender: Sender<Input>,
+    /// Holds the courier's prompts while a [`PromptHold`] lives.
+    gate: std::sync::Arc<delivery::PromptGate>,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -76,6 +79,7 @@ impl Worker {
     pub fn prompt_sender(&self) -> PromptSender {
         PromptSender {
             sender: self.sender.clone(),
+            gate: self.gate.clone(),
         }
     }
 
@@ -92,6 +96,8 @@ impl Worker {
         let (sender, receiver) = mpsc::channel();
         let requests = sender.clone();
         let inputs = sender.clone();
+        let gate = std::sync::Arc::<delivery::PromptGate>::default();
+        let courier_gate = gate.clone();
         let thread = thread::spawn(move || {
             let server = endpoint.and_then(|endpoint| {
                 review_mcp::Server::start(endpoint, move |request| {
@@ -114,12 +120,14 @@ impl Worker {
                 available,
                 Box::new(publish),
                 inputs,
+                courier_gate,
             )
             .run(&receiver);
             drop(server);
         });
         Self {
             sender,
+            gate,
             thread: Some(thread),
         }
     }

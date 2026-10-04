@@ -59,6 +59,7 @@ impl ExploreSession {
                     point: taken.point,
                     fork,
                     files: taken.files,
+                    hold: self.prompts.hold(),
                 })
             }
             (chosen, taken) => {
