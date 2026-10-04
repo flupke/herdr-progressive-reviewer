@@ -43,13 +43,15 @@ For each small feature:
    remain when the limit is reached.
 5. After the review passes, describe the change with `jj describe`: a plain
    imperative subject, then what changed for the user and why.
-6. Run `make install`, unless the user deferred installing; say so when you
-   skip it. It runs `make check` first and installs nothing when a check fails.
+6. Run `make install` once the checks of step 2 and the review pass, unless
+   the user deferred installing; say so when you skip it. It builds and
+   installs only; it does not run the checks.
 7. Keep later user-feedback fixes in the same change. Create another change
    only when the user requests the next feature.
 
-Run `make check` and `make install` through `nix develop --command` so the
-pinned Rust toolchain, `cccc`, and `cargo-nextest` are available. Keep the
+Run `make check` through `nix develop --command` so the pinned Rust toolchain,
+`cccc`, and `cargo-nextest` are available, and `make install` through it too so
+the installed build uses the same toolchain. Keep the
 `make check` warning gate enabled; fix warnings in the current change instead
 of overriding `-Dwarnings`. With the current `eyre` version, use
 `Err(eyre::eyre!(...))` in expression-position match arms, or put

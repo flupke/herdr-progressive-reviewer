@@ -73,8 +73,8 @@ complexity:
 mutants:
 	cargo mutants --workspace --test-workspace=true --test-tool=nextest
 
-# Only a build that passes every check is installed.
-install: check build
+# Builds and installs without running the checks: run `make check` before installing.
+install: build
 	bin/reviewer-control mcp-install
 	herdr plugin link . --enabled
 
