@@ -49,7 +49,7 @@ pub(super) fn answer_response(number: usize) -> TurnResponse {
              about that first: a setting would have to cover both."
                 .into(),
         ),
-        prepared: false,
+        path: None,
     }
 }
 
@@ -69,7 +69,7 @@ fn closing_response() -> TurnResponse {
              sure the agent hears about them. One question is left, about the size cap."
                 .into(),
         ),
-        prepared: false,
+        path: None,
     }
 }
 

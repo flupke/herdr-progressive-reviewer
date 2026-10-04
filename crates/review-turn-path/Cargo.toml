@@ -1,0 +1,14 @@
+[package]
+name = "review-turn-path"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "The path an Explore turn took after an answer, with run-ahead, and what the reviewer reads of it."
+
+[dependencies]
+serde.workspace = true
+
+[lints]
+workspace = true

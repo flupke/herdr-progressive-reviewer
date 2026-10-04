@@ -6,9 +6,10 @@ use std::path::PathBuf;
 
 use agent_fork::ProcessStamp;
 use review_explore::InterviewUpdate;
+use review_turn_path::TurnPath;
 use serde::{Deserialize, Serialize};
 
-use crate::answer::{AnswerRecord, TurnPath};
+use crate::answer::AnswerRecord;
 
 /// Every fork run-ahead started in one Explore round, oldest first, and the path each answer
 /// to a question it watched took.
@@ -32,20 +33,19 @@ impl RoundForks {
             .find(|answer| answer.request == request)
     }
 
-    /// The turns, by request, that the pane's agent took as a fork: their turns were prepared
-    /// while the reviewer thought about the answer.
-    pub fn prepared_turns(&self) -> impl Iterator<Item = &str> {
+    /// The path of each turn an answer started, by request: a prepared turn once the pane's
+    /// agent runs its fork's session, and every plain chain. A turn whose switch to a fork did not
+    /// end, after a reviewer that stopped meanwhile, has no path: Retry sends it to the agent.
+    pub fn turn_paths(&self) -> impl Iterator<Item = (&str, &TurnPath)> {
         self.answers.iter().filter_map(|answer| {
-            let TurnPath::Prepared { session } = &answer.path else {
-                return None;
-            };
-            self.forks
-                .iter()
-                .any(|fork| {
+            let shown = match &answer.path {
+                TurnPath::Prepared { session } => self.forks.iter().any(|fork| {
                     fork.session == *session
                         && matches!(fork.continued, Some(Continuation::Switched { .. }))
-                })
-                .then_some(answer.request.as_str())
+                }),
+                TurnPath::Plain { .. } => true,
+            };
+            shown.then_some((answer.request.as_str(), &answer.path))
         })
     }
 }

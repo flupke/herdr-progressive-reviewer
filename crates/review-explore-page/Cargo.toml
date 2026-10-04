@@ -17,6 +17,7 @@ review-explore-tally = { path = "../review-explore-tally" }
 review-repository = { path = "../review-repository" }
 review-round-conversation = { path = "../review-round-conversation" }
 review-threads = { path = "../review-threads" }
+review-turn-path = { path = "../review-turn-path" }
 review-types = { path = "../review-types" }
 serde.workspace = true
 serde_json.workspace = true

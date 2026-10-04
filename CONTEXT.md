@@ -264,5 +264,6 @@ _Avoid_: cached turn, speculative turn
 
 **Plain chain**:
 The path of a turn without run-ahead: the reviewer's answer goes to the agent in the pane, which
-takes the turn. Every answer that cannot use a prepared turn runs the plain chain.
+takes the turn. Every answer that cannot use a prepared turn runs the plain chain; when run-ahead
+watched the question, the pane and the Explore page say with the turn, in one quiet line, why.
 _Avoid_: fallback, normal path

@@ -82,7 +82,8 @@ fn a_fork_whose_session_the_pane_agent_may_run_is_never_discarded() {
 }
 
 #[test]
-fn a_turn_is_prepared_once_the_pane_s_agent_runs_its_fork_s_session() {
+fn a_turn_is_prepared_once_the_pane_s_agent_runs_its_fork_s_session_and_every_plain_chain_has_its_reason()
+ {
     let answer = |request: &str, path: TurnPath| AnswerRecord {
         question: "cache-eviction".into(),
         version: 1,
@@ -120,5 +121,25 @@ fn a_turn_is_prepared_once_the_pane_s_agent_runs_its_fork_s_session() {
         ],
     };
 
-    assert_eq!(forks.prepared_turns().collect::<Vec<_>>(), ["r1"]);
+    let paths: Vec<_> = forks
+        .turn_paths()
+        .map(|(request, path)| (request, path.clone()))
+        .collect();
+    assert_eq!(
+        paths,
+        [
+            (
+                "r1",
+                TurnPath::Prepared {
+                    session: "fork-session".into()
+                }
+            ),
+            (
+                "r2",
+                TurnPath::Plain {
+                    reason: PlainReason::Comment
+                }
+            ),
+        ]
+    );
 }

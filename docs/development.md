@@ -1531,8 +1531,10 @@ pieces:
   - The checks. The answer continues as the fork of its choice only when that turn is exactly
     the one the pane's agent would take for it: a choice (not None of the above) with no comment
     (white space is none, in the prompt too), a fork that submitted, no message of the reviewer
-    in the round's conversation under the question or since it was asked, the agent idle with an
-    empty input box (`ForkHost::input_is_empty`), on the session the forks were taken from, whose
+    in the round's conversation, under the question or since it was asked, that the forks do not
+    hold (one posted once they were taken, or one the agent has not answered: a talk the agent
+    answered moved its session, and the forks taken again after it hold it), the agent idle with
+    an empty input box (`ForkHost::input_is_empty`), on the session the forks were taken from, whose
     last entry did not move, and a prompt and unreviewed diffs that are the fork's but for their
     identities (request, answer, access, diffs directory). Anything else runs the plain chain.
   - The switch. The turn's dispatch begins (the page shows the agent working) and
@@ -1552,15 +1554,24 @@ pieces:
     with the reason, and Retry runs the plain chain. A fork the agent was told to resume keeps its
     transcript (`Continuation::Failed { typed: true }`); a fork whose session may be the agent's
     is never discarded nor cleaned up.
-  - What the reviewer sees. The page's `TurnResponse::prepared` and the pane's
-    `ExploreTurnPrepared` (and `ExploreRestored::prepared_turns`) say which turns were prepared:
-    "Prepared while you were thinking".
+  - What the reviewer sees. The path of each answer's turn (`TurnPath`, `PlainReason`, in the
+    tiny crate [`crates/review-turn-path`](../crates/review-turn-path), which the records, the
+    pane's events and the page share) reaches the page as `TurnResponse::path` and the pane as
+    `ExploreTurnPath` (and `ExploreRestored::turn_paths`, from `RoundForks::turn_paths`): a
+    prepared turn once the agent runs its fork's session, a plain chain as soon as the answer is
+    recorded. Both show `TurnPath::line`, the one place of its wording, with the turn: the dim
+    line under the question or conclusion in the pane, the previous turn's foot on the page.
+    "Prepared while you were thinking", or "Not prepared: " and the reason in plain words. The
+    tool's own faults say nothing there (`Unchecked` is in the log, `SwitchFailed` already left
+    the turn waiting for Retry with its reason, `Withdrawn` has no turn), nor does a question
+    run-ahead did not watch (run-ahead off). The standalone server's `question-not-prepared`
+    step and the gallery's `question-2-not-prepared` state show a plain chain's line.
 
 Tests: `review-explore-session` checks the session with a fake `ForkHost` (prompts, access,
-discards, records, each reason of the plain chain, a switch, a failed one, a turn held during a
-switch); `reviewer` checks real forks on an isolated Herdr with a forkable Claude Code stand-in
-(`runtime/run_ahead.tests.rs`):
-the stand-in in the pane takes `/resume <session>` as Claude Code does, reporting the session to
+discards, records, each reason of the plain chain and the path the pane and the page are given,
+forks taken again after a talk in the chat or in the pane and used by the next bare answer, a
+switch, a failed one, a turn held during a switch); `reviewer` checks real forks on an isolated
+Herdr with a forkable Claude Code stand-in (`runtime/run_ahead.tests.rs`): the stand-in in the pane takes `/resume <session>` as Claude Code does, reporting the session to
 Herdr as Claude Code's session hook does (with a newer `--seq` and `--session-start-source
 resume`; without them Herdr kept reporting the first session), and a fork stand-in prints its submit's answer
 once the test submitted for it; and the parent-death signal (`tests/fork_lifetime.rs`). Two tests

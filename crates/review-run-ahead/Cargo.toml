@@ -11,6 +11,7 @@ description = "Run-ahead's records and the interface to the agent whose session 
 agent-fork = { path = "../agent-fork" }
 herdr-client = { path = "../herdr-client" }
 review-explore = { path = "../review-explore" }
+review-turn-path = { path = "../review-turn-path" }
 serde.workspace = true
 
 [dev-dependencies]

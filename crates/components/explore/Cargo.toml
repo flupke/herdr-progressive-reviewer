@@ -14,6 +14,7 @@ review-explore-page-opening = { path = "../../review-explore-page-opening" }
 review-explore-page-settings = { path = "../../review-explore-page-settings" }
 review-explore-round-settings = { path = "../../review-explore-round-settings" }
 review-source = { path = "../../review-source" }
+review-turn-path = { path = "../../review-turn-path" }
 component-core = { path = "../../component-core" }
 ui-actions = { path = "../../ui-actions" }
 ui-controls = { path = "../../ui-controls" }

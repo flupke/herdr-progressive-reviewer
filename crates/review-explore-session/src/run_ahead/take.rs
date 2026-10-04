@@ -218,6 +218,7 @@ impl ExploreSession {
         armed.refusal = None;
         armed.taken = Some(Taken {
             point: plan.point,
+            at_ms: taken_at_ms,
             forks,
             files: plan.files,
         });

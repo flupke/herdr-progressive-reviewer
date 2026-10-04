@@ -15,9 +15,6 @@ use ui_events::ExploreViewports;
 use ui_frame::Frame;
 use ui_theme::Palette;
 
-/// What the pane says of a turn run-ahead prepared, under the question or conclusion it posted.
-pub(super) const PREPARED: &str = "Prepared while you were thinking";
-
 fn format_elapsed(milliseconds: u64) -> String {
     format!("{}.{:01}s", milliseconds / 1000, milliseconds % 1000 / 100)
 }
@@ -313,8 +310,8 @@ impl ExploreComponent {
         let composing = self.composing_answer(index, !answers.is_empty());
         let heading = layout.height;
         Self::question_heading(index, question, layout, palette);
-        if self.prepared_turn(|turn| turn.next.as_ref() == Some(question)) {
-            layout.text(PREPARED, palette.dim, None);
+        if let Some(line) = self.run_ahead_line(|turn| turn.next.as_ref() == Some(question)) {
+            layout.text(line, palette.dim, None);
         }
         if composing {
             self.composer(
@@ -339,14 +336,19 @@ impl ExploreComponent {
         }
     }
 
-    /// Whether run-ahead prepared the agent's turn that `posted` picks out.
-    pub(super) fn prepared_turn(&self, posted: impl Fn(&InterviewUpdate) -> bool) -> bool {
-        self.exploration.as_ref().is_some_and(|exploration| {
-            exploration
-                .conversation
-                .iter()
-                .any(|turn| posted(&turn.update) && self.prepared.contains(&turn.update.request))
-        })
+    /// What the pane says, under the question or conclusion it posted, of the path the agent's
+    /// turn that `posted` picks out took after an answer run-ahead watched: prepared while the
+    /// reviewer was thinking, or why not.
+    pub(super) fn run_ahead_line(
+        &self,
+        posted: impl Fn(&InterviewUpdate) -> bool,
+    ) -> Option<&'static str> {
+        let exploration = self.exploration.as_ref()?;
+        exploration
+            .conversation
+            .iter()
+            .filter(|turn| posted(&turn.update))
+            .find_map(|turn| self.turn_paths.get(&turn.update.request)?.line())
     }
 
     fn question_heading(

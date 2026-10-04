@@ -57,6 +57,11 @@ export interface Session {
    * thought about the answer: the agent in the pane continued as the fork that took it.
    */
   askPreparedQuestion(): Promise<void>;
+  /**
+   * The agent posts its next fixed question from a turn it took itself while run-ahead watched
+   * the question: the turn prepared for the answer's choice was not ready yet.
+   */
+  askNotPreparedQuestion(): Promise<void>;
   /** The reviewer answers in the pane, and the agent works on its next turn. */
   answerInPane(): Promise<void>;
   /**
@@ -203,6 +208,7 @@ export async function openSession(baseUrl: string | undefined, page: SessionPage
     },
     askQuestion: (question?: object) => step('question', question),
     askPreparedQuestion: () => step('question-prepared'),
+    askNotPreparedQuestion: () => step('question-not-prepared'),
     answerInPane: () => step('answer'),
     answerAfterFirstPick: () => step('answer-after-first-pick'),
     cancelAnswerInPane: () => step('cancel'),

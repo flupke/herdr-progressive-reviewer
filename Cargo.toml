@@ -4,6 +4,7 @@ members = [
     "crates/agent-fork",
     "crates/claude-fork",
     "crates/review-run-ahead",
+    "crates/review-turn-path",
     "crates/review-explore",
     "crates/review-round-conversation",
     "crates/review-explore-runner",

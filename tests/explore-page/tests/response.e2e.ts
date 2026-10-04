@@ -1,11 +1,13 @@
 // The previous turn: what the reviewer answered beside what the agent recorded of it (its recap,
 // its follow-ups and its reply), in one block above the next question and above the conclusion,
-// and whether run-ahead prepared the turn while the reviewer was thinking.
+// and, when run-ahead watched the question, whether it prepared the turn while the reviewer was
+// thinking, or why not.
 import { expect } from 'e2e';
 import { test } from './session.ts';
 
 const RECORDED = 'The agent recorded';
 const PREPARED = 'Prepared while you were thinking';
+const NOT_READY = 'Not prepared: the turn for this choice was not ready yet';
 
 test('the previous turn shows the answer beside what the agent recorded, above the next question and the conclusion', async ({
   explore,
@@ -62,4 +64,18 @@ test('a turn prepared while the reviewer was thinking says so above the question
   await explore.open();
   await expect(screen.getByRole('region', 'Question 3')).toBeVisible();
   await expect(screen.getByText(PREPARED)).toHaveCount(0);
+});
+
+test('a turn the agent took itself while run-ahead watched says why no prepared turn was used', async ({
+  explore,
+  screen,
+}) => {
+  await explore.open();
+  await explore.askQuestion();
+  await explore.answerInPane();
+  await explore.askNotPreparedQuestion();
+  await explore.open();
+  const question = screen.getByRole('region', 'Question 2');
+  await expect(question.getByText(NOT_READY)).toBeVisible();
+  await expect(question.getByText(PREPARED)).toHaveCount(0);
 });

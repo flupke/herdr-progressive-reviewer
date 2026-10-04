@@ -1,7 +1,7 @@
 //! What the Explore page shows of the round the session owns, and the commands the reviewer
 //! sends from it.
 
-use std::collections::HashSet;
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -16,6 +16,7 @@ use review_explore_page::{
     PublishedRound, QuestionMarks, Recovery, ReviewName, RoundStage, SentAnswer, TurnResponse,
 };
 use review_repository::repository::SnapshotIdentity;
+use review_run_ahead::TurnPath;
 use review_source::ReviewCheckpoint;
 
 use crate::{ExploreSession, Start};
@@ -373,7 +374,7 @@ impl ExploreSession {
             LatestTurn {
                 sending,
                 takes_quiz_answers,
-                prepared: self.run_ahead.prepared_turns(),
+                paths: self.run_ahead.turn_paths(),
             },
             &mut self.citations,
             root,
@@ -447,8 +448,8 @@ struct LatestTurn<'a> {
     sending: bool,
     /// Whether the round can save the reviewer's answers to the conclusion's quiz.
     takes_quiz_answers: bool,
-    /// The turns, by request, that run-ahead prepared.
-    prepared: &'a HashSet<String>,
+    /// The path each turn took after an answer to a question run-ahead watched, by request.
+    paths: &'a BTreeMap<String, TurnPath>,
 }
 
 /// The question or conclusion the agent's latest turn posted, as `latest` says to show it.
@@ -470,7 +471,7 @@ fn latest_turn(
         return nothing();
     };
     let response = TurnResponse {
-        prepared: latest.prepared.contains(&turn.update.request),
+        path: latest.paths.get(&turn.update.request).cloned(),
         ..TurnResponse::of(exploration, turn)
     };
     if let Some(conclusion) = &turn.update.conclusion {

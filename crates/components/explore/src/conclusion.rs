@@ -255,8 +255,8 @@ impl ExploreComponent {
         let Some(view) = self.conclusion() else {
             return;
         };
-        if self.prepared_turn(|turn| turn.request == view.request) {
-            layout.text(super::render::PREPARED, palette.dim, None);
+        if let Some(line) = self.run_ahead_line(|turn| turn.request == view.request) {
+            layout.text(line, palette.dim, None);
         }
         if let Some(reply) = self.initial_reply() {
             layout.prose(reply, palette);

@@ -222,6 +222,7 @@ impl ExploreSession {
                     "the fork's turn is saved as the round's next turn",
                 );
                 let Switching {
+                    asked,
                     turn: SavedTurn { request, .. },
                     fork,
                     files,
@@ -230,11 +231,13 @@ impl ExploreSession {
                 // The agent's latest prompt is the fork's: its access, and the diffs it names.
                 self.state.access = fork.access;
                 self.diffs = Some(files.into_diffs());
-                self.run_ahead.prepared.insert(request.request.clone());
-                let _ = self.events.send(ui_events::ExploreTurnPrepared {
-                    round: request.instance,
-                    request: request.request,
-                });
+                self.show_path(
+                    &asked.round,
+                    &request.request,
+                    TurnPath::Prepared {
+                        session: fork.session,
+                    },
+                );
                 crate::publish_committed(&self.events, round);
             }
             Err(error) => {
@@ -314,10 +317,13 @@ impl ExploreSession {
     }
 
     /// Records that the answer of `switching` runs the plain chain after all, for `reason`.
-    fn record_plain(&self, switching: &Switching, reason: PlainReason) {
+    fn record_plain(&mut self, switching: &Switching, reason: PlainReason) {
+        let path = TurnPath::Plain { reason };
+        let request = &switching.turn.request.request;
+        self.show_path(&switching.asked.round, request, path.clone());
         let saved = self.update_forks(&switching.asked.round, |forks| {
-            if let Some(answer) = forks.answer_mut(&switching.turn.request.request) {
-                answer.path = TurnPath::Plain { reason };
+            if let Some(answer) = forks.answer_mut(request) {
+                answer.path = path;
             }
         });
         if let Err(error) = saved {

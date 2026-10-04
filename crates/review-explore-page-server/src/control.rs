@@ -10,6 +10,9 @@
 //!     on, after a fixed response to the previous answer;
 //!   - `question-prepared`: the same, as a turn that run-ahead prepared while the reviewer
 //!     thought about the answer, which the page says;
+//!   - `question-not-prepared`: the same, as a turn the agent took itself while run-ahead
+//!     watched the question, because the fork of the answer's choice had not finished, which
+//!     the page says;
 //!   - `answer`: the reviewer answers in the pane, and the agent works on its next turn;
 //!   - `answer-after-first-pick`: the reviewer answers with the recommended choice (the first
 //!     one when none is) after a first pick of another choice, as on a blind question on the

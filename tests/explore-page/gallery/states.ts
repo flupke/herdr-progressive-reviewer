@@ -456,6 +456,17 @@ export const STATES: GalleryState[] = [
     },
   },
   {
+    name: 'question-2-not-prepared',
+    about:
+      'The second question from a turn the agent took itself while run-ahead watched the question: the previous turn says, quietly, why no prepared turn was used.',
+    async reach(session) {
+      await session.askQuestion();
+      await session.answerInPane();
+      await session.askNotPreparedQuestion();
+      await session.open();
+    },
+  },
+  {
     name: 'question-2-blind-picked',
     about:
       "The first Send of a blind question: the recommendation shows, with the line that says the agent picked another choice, the first pick's tag, the comment kept, and Confirm answer.",

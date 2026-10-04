@@ -18,6 +18,7 @@ use review_explore_page::{
 };
 use review_explore_tally::MarkTally;
 use review_threads::{ReviewThreads, ThreadCommand};
+use review_turn_path::{PlainReason, TurnPath};
 use serde::Serialize;
 
 use crate::conversation::{SentMessage, SessionThreads};
@@ -466,12 +467,12 @@ impl Session {
     /// is being sent.
     fn stage_after(&mut self, step: Step, question: Option<Question>) -> Option<RoundStage> {
         Some(match step {
-            Step::Question { prepared } => {
+            Step::Question { path } => {
                 self.asked += 1;
                 self.concluded = false;
                 let mut stage = self.data.question_stage(self.asked, question);
                 if let RoundStage::Question { response, .. } = &mut stage {
-                    response.prepared = prepared;
+                    response.path = path.path();
                 }
                 self.latest_question = Some(stage.clone());
                 self.take_up_answers(&stage);
@@ -777,9 +778,8 @@ pub(crate) enum PageChange {
 /// What happens next in a session's round.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Step {
-    /// The agent posts its next question; `prepared` when a fork took the turn while the
-    /// reviewer thought about the answer (run-ahead), and the agent continued as it.
-    Question { prepared: bool },
+    /// The agent posts its next question, from a turn that took the path `path`.
+    Question { path: RunAheadPath },
     /// The reviewer answered: the agent works on its next turn. The answer keeps the
     /// question's first choice, as one in the pane does; or, `after_first_pick`, the choice the
     /// agent recommends (its first choice when it recommends none) after a first pick of another
@@ -805,6 +805,32 @@ pub(crate) enum Step {
     Round(RoundEvent),
 }
 
+/// The path of the turn that posts a question, as run-ahead took it.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum RunAheadPath {
+    /// Run-ahead did not watch the question the turn answers.
+    Unwatched,
+    /// A fork took the turn while the reviewer thought about the answer, and the agent
+    /// continued as it.
+    Prepared,
+    /// The agent took the turn itself: the fork of the answer's choice had not finished.
+    NotReady,
+}
+
+impl RunAheadPath {
+    fn path(self) -> Option<TurnPath> {
+        match self {
+            Self::Unwatched => None,
+            Self::Prepared => Some(TurnPath::Prepared {
+                session: "fork".into(),
+            }),
+            Self::NotReady => Some(TurnPath::Plain {
+                reason: PlainReason::StillWorking,
+            }),
+        }
+    }
+}
+
 /// What the reviewer or the review tool does to a session's round outside the agent's turns.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum RoundEvent {
@@ -821,9 +847,25 @@ pub(crate) enum RoundEvent {
 
 impl Step {
     /// Each step by the name of its control route.
-    const NAMES: [(&str, Self); 19] = [
-        ("question", Self::Question { prepared: false }),
-        ("question-prepared", Self::Question { prepared: true }),
+    const NAMES: [(&str, Self); 20] = [
+        (
+            "question",
+            Self::Question {
+                path: RunAheadPath::Unwatched,
+            },
+        ),
+        (
+            "question-prepared",
+            Self::Question {
+                path: RunAheadPath::Prepared,
+            },
+        ),
+        (
+            "question-not-prepared",
+            Self::Question {
+                path: RunAheadPath::NotReady,
+            },
+        ),
         (
             "answer",
             Self::Answer {

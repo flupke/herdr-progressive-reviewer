@@ -711,6 +711,65 @@ impl Harness {
     fn latest_path(&self) -> TurnPath {
         self.forks_saved().answers.last().unwrap().path.clone()
     }
+
+    /// The paths of turns the pane heard of since the test last read the session's events, by
+    /// request, oldest first.
+    fn paths_heard(&self) -> Vec<(String, TurnPath)> {
+        let mut heard = Vec::new();
+        while let Ok(event) = self.events.try_recv() {
+            if let Some(event) = event.downcast_ref::<ui_events::ExploreTurnPath>() {
+                heard.push((event.request.clone(), event.path.clone()));
+            }
+        }
+        heard
+    }
+
+    /// The agent in the pane takes the turn `request` that the plain chain sent it, and posts
+    /// the next question; returns the path the page shows with it.
+    fn agent_takes(&mut self, request: &TurnRequest) -> Option<TurnPath> {
+        let prompt = self.delivered_prompt();
+        assert!(prompt.contains(&format!("Explore request: {}\n", request.request)));
+        let access = fork_line(&prompt, "Explore review access: ");
+        let Operation::SubmitQuestion(mut update) = question(request, 2) else {
+            unreachable!("a question");
+        };
+        let changes = request
+            .answer
+            .as_ref()
+            .and_then(|answer| answer.option.as_ref())
+            .is_some_and(|choice| choice.id == "change");
+        if let (true, Some(interpretation)) = (changes, &mut update.interpretation) {
+            interpretation.status = review_explore::TopicStatus::NeedsFollowUp;
+        }
+        assert!(applied(
+            self.submit(&access, Operation::SubmitQuestion(update))
+        ));
+        let RoundStage::Question { response, .. } = self.page.stage() else {
+            panic!("the page shows the next question");
+        };
+        response.path
+    }
+
+    /// The reviewer writes `text` in the round's conversation, under the first question;
+    /// returns the conversation and the message.
+    fn write_in_chat(&self, text: &str) -> (review_threads::ThreadId, review_threads::MessageId) {
+        let instance = self.exploration().instance.clone();
+        let post = review_threads::Post::to_round(
+            &instance,
+            text.into(),
+            Some(review_threads::AskedUnder::Question {
+                question: "q1".into(),
+                version: 1,
+                number: None,
+            }),
+            None,
+        );
+        let written = (post.thread_id().clone(), post.message().id.clone());
+        self.store
+            .update_threads(&self.unit, |threads| threads.post(post).map(|_| ()))
+            .unwrap();
+        written
+    }
 }
 
 /// The turn the agent submits with `operation`.
@@ -747,15 +806,12 @@ fn a_bare_answer_whose_fork_submitted_switches_the_agent_to_it_and_takes_its_tur
         harness.no_prompt_sent(),
         "the agent in the pane gets no prompt"
     );
-    let mut prepared = None;
-    while let Ok(event) = harness.events.try_recv() {
-        if let Some(event) = event.downcast_ref::<ui_events::ExploreTurnPrepared>() {
-            prepared = Some(event.request.clone());
-        }
-    }
+    let prepared = TurnPath::Prepared {
+        session: fork.clone(),
+    };
     assert_eq!(
-        prepared.as_ref(),
-        Some(&request.request),
+        harness.paths_heard(),
+        [(request.request.clone(), prepared.clone())],
         "the pane hears that the turn was prepared"
     );
     let saved = harness.saved();
@@ -787,7 +843,11 @@ fn a_bare_answer_whose_fork_submitted_switches_the_agent_to_it_and_takes_its_tur
     let RoundStage::Question { response, .. } = harness.page.stage() else {
         panic!("the page shows the next question");
     };
-    assert!(response.prepared, "the page says the turn was prepared");
+    assert_eq!(
+        response.path,
+        Some(prepared),
+        "the page says the turn was prepared"
+    );
 
     // The agent continues as the fork: its access holds until its next prompt, from the
     // fork's session only.
@@ -838,24 +898,7 @@ fn an_answer_the_fork_was_not_told_exactly_goes_to_the_agent_and_the_reason_is_r
             (Some("keep"), "")
         }),
         (PlainReason::ChatMessage, |harness| {
-            let instance = harness.exploration().instance.clone();
-            harness
-                .store
-                .update_threads(&harness.unit, |threads| {
-                    threads
-                        .post(review_threads::Post::to_round(
-                            &instance,
-                            "Why does the policy exist?".into(),
-                            Some(review_threads::AskedUnder::Question {
-                                question: "q1".into(),
-                                version: 1,
-                                number: None,
-                            }),
-                            None,
-                        ))
-                        .map(|_| ())
-                })
-                .unwrap();
+            harness.write_in_chat("Why does the policy exist?");
             (Some("keep"), "")
         }),
         (PlainReason::UnreviewedChanged, |harness| {
@@ -888,14 +931,147 @@ fn an_answer_the_fork_was_not_told_exactly_goes_to_the_agent_and_the_reason_is_r
         );
         assert!(harness.forks.switches().is_empty(), "{reason:?}");
         assert_eq!(harness.forks.discarded().len(), 2, "{reason:?}");
+        let path = TurnPath::Plain {
+            reason: reason.clone(),
+        };
+        assert!(
+            harness
+                .paths_heard()
+                .contains(&(request.request.clone(), path.clone())),
+            "{reason:?}: the pane hears why"
+        );
+        // The agent in the pane gets the answer, takes the turn, and the page says why with it.
         if reason != PlainReason::AgentBusy {
-            let prompt = harness.delivered_prompt();
-            assert!(
-                prompt.contains(&format!("Explore request: {}\n", request.request)),
-                "{reason:?}: the agent in the pane gets the answer"
-            );
+            assert_eq!(harness.agent_takes(&request), Some(path), "{reason:?}");
         }
     }
+}
+
+#[test]
+fn an_answer_whose_choice_has_no_fork_says_why_and_with_run_ahead_off_nothing_is_said() {
+    // No fork yet: the agent was still working when the question came.
+    let mut harness = Harness::start();
+    harness
+        .store
+        .save_explore_run_ahead(RunAhead::Every)
+        .unwrap();
+    harness.capture();
+    let first = harness.request(None);
+    let access = harness.turn(&first);
+    let mut busy = agent();
+    busy.agent_status = AgentStatus::Working;
+    harness.agents.upsert_agent(busy);
+    assert!(applied(harness.submit(&access, question(&first, 1))));
+    let request = harness.post_answer(Some("keep"), "");
+    assert!(matches!(
+        harness.latest_path(),
+        TurnPath::Plain {
+            reason: PlainReason::NoForks { .. }
+        }
+    ));
+    assert_eq!(
+        harness.paths_heard(),
+        [(request.request, harness.latest_path())],
+        "the pane hears why"
+    );
+
+    // The setting prepares the recommended choice only.
+    let mut harness = Harness::start();
+    harness
+        .store
+        .save_explore_run_ahead(RunAhead::Recommended)
+        .unwrap();
+    harness.capture();
+    let first = harness.request(None);
+    let access = harness.turn(&first);
+    let Operation::SubmitQuestion(mut update) = question(&first, 1) else {
+        unreachable!("a question");
+    };
+    update.next.as_mut().unwrap().alternatives[1].recommendation = Some("Safer.".into());
+    assert!(applied(
+        harness.submit(&access, Operation::SubmitQuestion(update))
+    ));
+    harness.exploration = Some(harness.saved().exploration);
+    let request = harness.post_answer(Some("keep"), "");
+    let not_forked = TurnPath::Plain {
+        reason: PlainReason::NotForked,
+    };
+    assert_eq!(harness.latest_path(), not_forked);
+    assert_eq!(harness.agent_takes(&request), Some(not_forked));
+
+    let mut harness = Harness::start();
+    harness.ask(RunAhead::Off);
+    let request = harness.post_answer(Some("keep"), "Keep it, with a test.");
+    assert_eq!(harness.agent_takes(&request), None);
+    assert!(harness.paths_heard().is_empty());
+    assert!(harness.forks_saved().answers.is_empty());
+}
+
+#[test]
+fn after_a_talk_in_the_chat_forks_taken_again_hold_it_and_a_bare_answer_uses_one() {
+    let mut harness = Harness::start();
+    harness.ask(RunAhead::Every);
+    let first = harness.forks.started();
+    let (conversation, message) = harness.write_in_chat("Why does the policy exist?");
+
+    // The agent answers in the chat: its session moves, and once it is idle again the forks
+    // are taken again, from its session as the talk left it.
+    harness.forks.report(AgentStatus::Working);
+    harness
+        .store
+        .update_threads(&harness.unit, |threads| {
+            threads
+                .post(review_threads::Post::answer(
+                    conversation,
+                    review_threads::MessageId::parse(&uuid::Uuid::new_v4().to_string()).unwrap(),
+                    "It keeps old drafts.".into(),
+                    message,
+                ))
+                .map(|_| ())
+        })
+        .unwrap();
+    harness.forks.move_session("after-the-talk");
+    // Forks taken in the same millisecond as the message would not be told apart from it.
+    std::thread::sleep(Duration::from_millis(5));
+    harness.forks.report(AgentStatus::Idle);
+    harness.pump();
+    assert_eq!(harness.forks.started().len(), first.len() * 2);
+    assert!(
+        harness
+            .forks_saved()
+            .forks
+            .iter()
+            .take(first.len())
+            .all(|fork| discarded_for(fork) == Some(DiscardReason::SessionMoved))
+    );
+    let (fork, _) = harness.fork_submits("keep");
+    assert!(!first.iter().any(|(session, _)| *session == fork));
+
+    harness.post_answer(Some("keep"), "");
+
+    assert_eq!(harness.forks.switches(), std::slice::from_ref(&fork));
+    assert_eq!(harness.latest_path(), TurnPath::Prepared { session: fork });
+}
+
+#[test]
+fn after_a_talk_in_the_agent_s_pane_forks_taken_again_hold_it_and_a_bare_answer_uses_one() {
+    let mut harness = Harness::start();
+    harness.ask(RunAhead::Every);
+    let first = harness.forks.started();
+    harness.fork_submits("keep");
+
+    // The reviewer talks with the agent in its pane: it works, and its session moves.
+    harness.forks.report(AgentStatus::Working);
+    harness.forks.move_session("after-the-talk");
+    harness.forks.report(AgentStatus::Idle);
+    harness.pump();
+    let (fork, _) = harness.fork_submits("keep");
+    assert!(!first.iter().any(|(session, _)| *session == fork));
+
+    harness.post_answer(Some("keep"), "");
+
+    assert_eq!(harness.forks.switches(), std::slice::from_ref(&fork));
+    assert_eq!(harness.latest_path(), TurnPath::Prepared { session: fork });
 }
 
 #[test]
@@ -977,12 +1153,18 @@ fn a_reopened_reviewer_shows_the_prepared_turn_and_keeps_the_session_the_agent_r
     let restored = harness.reopen();
     stopper.join().unwrap();
 
-    assert_eq!(restored.prepared_turns, [request.request]);
+    let prepared = TurnPath::Prepared {
+        session: fork.clone(),
+    };
+    assert_eq!(
+        restored.turn_paths,
+        [(request.request, prepared.clone())].into()
+    );
     assert!(!harness.forks.discarded().contains(&fork));
     let RoundStage::Question { response, .. } = harness.page.stage() else {
         panic!("the page shows the next question");
     };
-    assert!(response.prepared);
+    assert_eq!(response.path, Some(prepared));
 }
 
 #[test]

@@ -128,13 +128,14 @@ struct DesignPartView {
     body_html: String,
 }
 
-/// What the agent's turn said back to the reviewer's previous answer, and whether run-ahead
-/// prepared the turn while the reviewer thought about the answer.
+/// What the agent's turn said back to the reviewer's previous answer, and, when run-ahead
+/// watched the question, one quiet line on the turn: prepared while the reviewer was thinking,
+/// or why not.
 #[derive(Debug, Serialize, TS)]
 struct ResponseView {
     interpretations: Vec<InterpretationView>,
     reply_html: Option<String>,
-    prepared: bool,
+    path_line: Option<String>,
 }
 
 /// The agent's recap of the answer, and the follow-ups it recorded.
@@ -232,7 +233,7 @@ impl ResponseView {
         Self::new(&TurnResponse {
             interpretations: record.interpretation.iter().cloned().collect(),
             reply: record.reply.clone().filter(|text| !text.trim().is_empty()),
-            prepared: false,
+            path: None,
         })
     }
 
@@ -247,7 +248,7 @@ impl ResponseView {
                 })
                 .collect(),
             reply_html: response.reply.as_deref().map(|reply| markdown(reply, 2)),
-            prepared: response.prepared,
+            path_line: response.path_line().map(str::to_owned),
         }
     }
 }

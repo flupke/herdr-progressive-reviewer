@@ -1035,6 +1035,7 @@ dependencies = [
  "review-explore-round-settings",
  "review-repository",
  "review-source",
+ "review-turn-path",
  "review-types",
  "serde_json",
  "ui-actions",
@@ -4035,6 +4036,7 @@ dependencies = [
  "review-repository",
  "review-round-conversation",
  "review-threads",
+ "review-turn-path",
  "review-types",
  "serde",
  "serde_json",
@@ -4081,6 +4083,7 @@ dependencies = [
  "review-repository",
  "review-source",
  "review-threads",
+ "review-turn-path",
  "review-types",
  "serde",
  "serde_json",
@@ -4272,6 +4275,7 @@ dependencies = [
  "agent-fork",
  "herdr-client",
  "review-explore",
+ "review-turn-path",
  "serde",
  "serde_json",
 ]
@@ -4393,6 +4397,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "review-turn-path"
+version = "0.2.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "review-types"
 version = "0.2.0"
 dependencies = [
@@ -4426,6 +4437,7 @@ dependencies = [
  "review-test-support",
  "review-thread-projection",
  "review-threads",
+ "review-turn-path",
  "review-types",
  "revision-component",
  "serde_json",
@@ -5837,6 +5849,7 @@ dependencies = [
  "review-source",
  "review-state",
  "review-threads",
+ "review-turn-path",
  "review-types",
  "syntax-highlighting",
  "toasts",

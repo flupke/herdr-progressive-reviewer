@@ -126,13 +126,16 @@ impl ExploreSession {
         let unchecked = |error: &dyn std::fmt::Display| PlainReason::Unchecked {
             error: error.to_string(),
         };
+        // A talk in the chat that the agent answered before the forks were taken is in their
+        // sessions: forks taken again after it hold it.
         if self
             .rounds
-            .reviewer_wrote(
+            .reviewer_wrote_unknown_to_forks(
                 &armed.asked.round.unit,
                 &armed.asked.round.instance,
                 &armed.asked.question.id,
                 armed.asked_at_ms,
+                taken.at_ms,
             )
             .map_err(|error| unchecked(&error))?
         {
@@ -216,7 +219,8 @@ impl ExploreSession {
     }
 
     /// Records the path `path` of the answer `request` to the question `asked`, and logs it.
-    /// Returns whether the pane's agent continues as a fork.
+    /// The reviewer is shown the path of a plain chain at once: it shows with the turn once the
+    /// agent took it. Returns whether the pane's agent continues as a fork.
     fn record_answer(&mut self, asked: &Asked, request: &TurnRequest, path: &TurnPath) -> bool {
         let answer = request.answer.as_ref().expect("an answer");
         let record = AnswerRecord {
@@ -240,6 +244,11 @@ impl ExploreSession {
             self.run_ahead
                 .log(&format!("the answer's path was not recorded: {error}"));
         }
-        matches!(path, TurnPath::Prepared { .. })
+        // A prepared turn shows once the pane's agent runs its fork's session.
+        if matches!(path, TurnPath::Prepared { .. }) {
+            return true;
+        }
+        self.show_path(&asked.round, &request.request, path.clone());
+        false
     }
 }

@@ -11,6 +11,7 @@ use review_explore::{
 use review_explore_citations::Citation;
 use review_explore_tally::MarkTally;
 use review_repository::repository::SnapshotIdentity;
+use review_turn_path::TurnPath;
 use review_types::ReviewUnit;
 use serde::Serialize;
 use tokio::sync::watch;
@@ -361,18 +362,19 @@ pub struct PageQuiz {
 }
 
 /// What an agent's turn said back to the reviewer's previous answer, as the pane shows it: its
-/// interpretations of the answer, each with its recap and follow-ups, and its reply, and whether
-/// run-ahead prepared the turn. Empty for a turn that follows no answer, replies nothing and was
-/// not prepared.
+/// interpretations of the answer, each with its recap and follow-ups, its reply, and the path
+/// the turn took when run-ahead watched the question. Empty for a turn that follows no answer,
+/// replies nothing and has no path to tell.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
 pub struct TurnResponse {
     /// The agent's interpretations of the answer the turn follows, in the order it gave them.
     pub interpretations: Vec<Interpretation>,
     /// The agent's reply, in Markdown.
     pub reply: Option<String>,
-    /// Whether a fork took the turn while the reviewer thought about the answer, and the agent
-    /// continued as that fork.
-    pub prepared: bool,
+    /// The path of the turn, when run-ahead watched the question it answers: a fork took the
+    /// turn while the reviewer thought about the answer and the agent continued as it, or the
+    /// agent took it itself, and why.
+    pub path: Option<TurnPath>,
 }
 
 impl TurnResponse {
@@ -394,12 +396,17 @@ impl TurnResponse {
                 .as_ref()
                 .map(|reply| reply.text.clone())
                 .filter(|text| !text.trim().is_empty()),
-            prepared: false,
+            path: None,
         }
     }
 
+    /// The line the page shows of the turn's path, when the reviewer can use it.
+    pub(crate) fn path_line(&self) -> Option<&'static str> {
+        self.path.as_ref().and_then(TurnPath::line)
+    }
+
     fn is_empty(&self) -> bool {
-        self.interpretations.is_empty() && self.reply.is_none() && !self.prepared
+        self.interpretations.is_empty() && self.reply.is_none() && self.path_line().is_none()
     }
 }
 

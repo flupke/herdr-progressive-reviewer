@@ -22,13 +22,15 @@ mod clean;
 mod switch;
 mod take;
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 
 use agent_fork::ProcessStamp;
 use herdr_client::protocol::{Agent, AgentStatus, PaneId};
 use review_explore::{InterviewUpdate, Question, TurnRequest};
-use review_run_ahead::{DiscardReason, ForkEnd, ForkHost, ForkPoint, PaneWatch, SwitchFailure};
+use review_run_ahead::{
+    DiscardReason, ForkEnd, ForkHost, ForkPoint, PaneWatch, SwitchFailure, TurnPath,
+};
 use review_types::ReviewUnit;
 
 use crate::{ExploreSession, Input};
@@ -84,8 +86,9 @@ pub(crate) struct RunAheadState {
     /// A turn saved while the switch runs, and its attempt: its prompt goes out once the
     /// switch ends.
     held: Option<crate::turn::SavedTurn>,
-    /// The turns of the session's round, by request, that the pane's agent took as a fork.
-    prepared: HashSet<String>,
+    /// The path each turn of the session's round took after an answer to a question run-ahead
+    /// watched, by request, as the reviewer is shown it.
+    paths: BTreeMap<String, TurnPath>,
 }
 
 /// A question that waits, and the agent watched for its forks.
@@ -130,6 +133,9 @@ fn label(number: Option<usize>) -> String {
 /// The forks of one question, taken from one point of the agent's session.
 struct Taken {
     point: ForkPoint,
+    /// When they were taken, in milliseconds since the epoch: what the reviewer wrote in the
+    /// round's conversation from then on, the forks know nothing of.
+    at_ms: u64,
     forks: Vec<TakenFork>,
     /// The files the forks' prompts name, which live as long as the forks.
     files: take::ForkFiles,
@@ -161,19 +167,20 @@ impl RunAheadState {
             discarded: HashSet::new(),
             switching: None,
             held: None,
-            prepared: HashSet::new(),
+            paths: BTreeMap::new(),
         }
     }
 
-    /// The turns of the session's round that the pane's agent took as a fork are now
-    /// `prepared`, as a restored round records them.
-    pub(crate) fn prepared_again(&mut self, prepared: impl Iterator<Item = String>) {
-        self.prepared = prepared.collect();
+    /// The paths of the turns of the session's round are now `paths`, as a restored round
+    /// records them.
+    pub(crate) fn paths_again(&mut self, paths: BTreeMap<String, TurnPath>) {
+        self.paths = paths;
     }
 
-    /// The turns of the session's round, by request, that the pane's agent took as a fork.
-    pub(crate) fn prepared_turns(&self) -> &HashSet<String> {
-        &self.prepared
+    /// The path each turn of the session's round took after an answer to a question run-ahead
+    /// watched, by request.
+    pub(crate) fn turn_paths(&self) -> &BTreeMap<String, TurnPath> {
+        &self.paths
     }
 
     /// The fork that holds `access`, among those of the question that waits and the one the
@@ -257,6 +264,19 @@ impl ExploreSession {
         {
             self.run_ahead_arm(round, question);
         }
+    }
+
+    /// Shows the reviewer the path `path` the turn `request` of `round` took: the pane and the
+    /// page say it with the turn, when the reviewer can use it.
+    fn show_path(&mut self, round: &RoundKey, request: &str, path: TurnPath) {
+        self.run_ahead
+            .paths
+            .insert(request.to_owned(), path.clone());
+        let _ = self.events.send(ui_events::ExploreTurnPath {
+            round: round.instance.clone(),
+            request: request.to_owned(),
+            path,
+        });
     }
 
     /// The question of the session's round that waits for the reviewer, when the round may

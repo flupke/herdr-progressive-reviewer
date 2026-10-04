@@ -787,10 +787,11 @@ export type ResendImplementationParams = { conclusion: string, delivery: string,
 attempt: string, };
 export type ResetParams = { round: string, };
 /**
- * What the agent's turn said back to the reviewer's previous answer, and whether run-ahead
- * prepared the turn while the reviewer thought about the answer.
+ * What the agent's turn said back to the reviewer's previous answer, and, when run-ahead
+ * watched the question, one quiet line on the turn: prepared while the reviewer was thinking,
+ * or why not.
  */
-export type ResponseView = { interpretations: Array<InterpretationView>, reply_html: string | null, prepared: boolean, };
+export type ResponseView = { interpretations: Array<InterpretationView>, reply_html: string | null, path_line: string | null, };
 export type RetryMessagesParams = { round: string, };
 export type RetryParams = { request: string, 
 /**

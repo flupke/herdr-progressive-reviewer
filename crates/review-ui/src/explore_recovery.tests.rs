@@ -30,7 +30,7 @@ pub(super) fn restore(
         historical: false,
         storage_error: None,
         progress: ui_events::ExploreProgress::Ready,
-        prepared_turns: Vec::new(),
+        turn_paths: std::collections::BTreeMap::new(),
     })
 }
 
@@ -156,7 +156,7 @@ fn historical_question_offers_reset_after_round_navigation_is_removed() {
         historical: true,
         storage_error: None,
         progress: ui_events::ExploreProgress::Ready,
-        prepared_turns: Vec::new(),
+        turn_paths: std::collections::BTreeMap::new(),
     }));
     let text = fixture.text();
     assert!(
@@ -447,7 +447,7 @@ fn restored_progress_from_the_session_decides_the_recovery_status() {
             historical: false,
             storage_error: None,
             progress,
-            prepared_turns: Vec::new(),
+            turn_paths: std::collections::BTreeMap::new(),
         }));
         let text = fixture.text();
         match status {
@@ -523,17 +523,39 @@ fn cancelling_the_latest_answer_brings_its_question_back_to_answer_again() {
 }
 
 #[test]
-fn a_turn_that_run_ahead_prepared_says_so_under_the_question_it_asked() {
+fn the_path_run_ahead_took_for_a_turn_shows_under_the_question_it_asked() {
+    use review_turn_path::{PlainReason, TurnPath};
     let (mut fixture, request) = ExploreUi::new();
     let round = round(&fixture, &request);
     restore(&mut fixture, &round, None);
-    assert!(!fixture.text().contains(PREPARED));
-
-    fixture.app.publish(ui_events::ExploreTurnPrepared {
+    let prepared = TurnPath::Prepared {
+        session: "fork".into(),
+    };
+    let comment = TurnPath::Plain {
+        reason: PlainReason::Comment,
+    };
+    let silent = TurnPath::Plain {
+        reason: PlainReason::Unchecked {
+            error: "the agent's pane is gone".into(),
+        },
+    };
+    let lines = [&prepared, &comment].map(|path| path.line().unwrap());
+    let shows = |fixture: &ExploreUi| lines.map(|line| fixture.text().contains(line));
+    assert_eq!(shows(&fixture), [false, false]);
+    let path_of_turn = |path: &TurnPath| ui_events::ExploreTurnPath {
         round: request.instance.clone(),
         request: request.request.clone(),
-    });
-    assert!(fixture.text().contains(PREPARED), "{}", fixture.text());
+        path: path.clone(),
+    };
+
+    fixture.app.publish(path_of_turn(&comment));
+    assert_eq!(shows(&fixture), [false, true], "{}", fixture.text());
+
+    fixture.app.publish(path_of_turn(&silent));
+    assert_eq!(shows(&fixture), [false, false], "{}", fixture.text());
+
+    fixture.app.publish(path_of_turn(&prepared));
+    assert_eq!(shows(&fixture), [true, false], "{}", fixture.text());
 
     // A reopened reviewer knows it from the saved forks.
     let saved = serde_json::from_slice(&serde_json::to_vec(&round).unwrap()).unwrap();
@@ -543,9 +565,7 @@ fn a_turn_that_run_ahead_prepared_says_so_under_the_question_it_asked() {
         historical: false,
         storage_error: None,
         progress: ui_events::ExploreProgress::Ready,
-        prepared_turns: vec![request.request.clone()],
+        turn_paths: [(request.request.clone(), comment.clone())].into(),
     });
-    assert!(fixture.text().contains(PREPARED));
+    assert_eq!(shows(&fixture), [false, true]);
 }
-
-const PREPARED: &str = "Prepared while you were thinking";

@@ -119,7 +119,7 @@ impl Pane {
             historical: false,
             storage_error: None,
             progress: ExploreProgress::Ready,
-            prepared_turns: Vec::new(),
+            turn_paths: std::collections::BTreeMap::new(),
         })
         .unwrap();
         Self { bus, target }
@@ -290,7 +290,7 @@ impl Pane {
             historical: false,
             storage_error: None,
             progress: ExploreProgress::Ready,
-            prepared_turns: Vec::new(),
+            turn_paths: std::collections::BTreeMap::new(),
         })
         .unwrap();
         Self { bus, target }

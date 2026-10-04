@@ -1,8 +1,9 @@
 // The previous turn, in one quiet block above the stage it led to: what the reviewer answered,
-// beside what the agent recorded of it and replied, then whether run-ahead prepared the turn,
-// the follow-ups the agent noted and Cancel this answer, behind its confirmation. Cancel answer
-// takes the answer back, as in the reviewer's Explore tab: the round goes back to its question,
-// and the review marks the answer led to are given back.
+// beside what the agent recorded of it and replied, then, when run-ahead watched the question,
+// whether it prepared the turn or why not, the follow-ups the agent noted and Cancel this
+// answer, behind its confirmation. Cancel answer takes the answer back, as in the reviewer's
+// Explore tab: the round goes back to its question, and the review marks the answer led to are
+// given back.
 
 /** @import { KeptAnswer, LatestAnswer, ResponseView } from "./types.ts" */
 
@@ -27,21 +28,20 @@ import { codeSpans, h, markdown } from './dom.js';
 export function turnStrip({ answer, kept = null, response, number }) {
   if (!answer && !response) return null;
   const followUps = response ? followUpsLine(response, 'turn-follow-ups') : null;
-  // A turn a fork took while the reviewer thought about the answer, which the agent continued.
-  const prepared = response?.prepared
-    ? h('p', { class: 'turn-prepared' }, 'Prepared while you were thinking')
-    : null;
+  // One quiet line: a fork took the turn while the reviewer thought about the answer, or why the
+  // agent took it itself.
+  const path = response?.path_line ? h('p', { class: 'turn-path' }, response.path_line) : null;
   const shown = answer ?? kept;
   return h(
     'div',
     { class: 'turn' },
     shown ? answered(shown, number) : null,
     response ? recorded(response) : null,
-    prepared || followUps || answer
+    path || followUps || answer
       ? h(
           'div',
           { class: 'turn-foot' },
-          prepared,
+          path,
           followUps,
           answer ? cancelAnswer(answer) : null,
         )

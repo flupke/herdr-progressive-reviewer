@@ -27,7 +27,7 @@ pub(super) fn answer_response() -> TurnResponse {
             vec!["Say when a kept draft is older than a day.".into()],
         )],
         reply: Some("Agreed: the draft stays with the round, so `reopen()` keeps it.".into()),
-        prepared: false,
+        path: None,
     }
 }
 
@@ -65,7 +65,7 @@ pub(super) fn conclusion_response() -> TurnResponse {
             Vec::new(),
         )],
         reply: None,
-        prepared: false,
+        path: None,
     }
 }
 

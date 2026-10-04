@@ -1,4 +1,6 @@
 use review_explore::{Comparison, EvidenceRef, InterviewUpdate};
+use review_turn_path::TurnPath;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 #[derive(Clone, Debug)]
@@ -16,18 +18,19 @@ pub struct ExploreRestored {
     pub storage_error: Option<String>,
     /// Where the restored interview stands; reopening never sends anything itself.
     pub progress: ExploreProgress,
-    /// The turns of the restored round, by request, that run-ahead prepared while the reviewer
-    /// thought about the answer.
-    pub prepared_turns: Vec<String>,
+    /// The path each turn of the restored round took after an answer to a question run-ahead
+    /// watched, by request.
+    pub turn_paths: BTreeMap<String, TurnPath>,
 }
 
-/// The agent in the pane continued as the fork that prepared the turn `request` of the round
-/// `round` while the reviewer thought about the answer: the fork's turn is the round's, and the
-/// pane says, with it, that it was prepared.
+/// The turn `request` of the round `round` took the path `path` after the reviewer's answer to
+/// a question run-ahead watched: the agent in the pane continued as the fork that prepared it,
+/// or took it itself. The pane says which, with the turn, when the reviewer can use it.
 #[derive(Clone, Debug)]
-pub struct ExploreTurnPrepared {
+pub struct ExploreTurnPath {
     pub round: String,
     pub request: String,
+    pub path: TurnPath,
 }
 
 /// Where a restored interview stands, decided by the Explore session.

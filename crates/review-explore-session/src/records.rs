@@ -73,15 +73,17 @@ impl SavedRounds {
         Ok(records.update_round_forks(instance, update)?.0)
     }
 
-    /// Whether the reviewer wrote in the conversation of the round `instance` under the
-    /// question `question`, in any version, or since `since_ms`, in milliseconds since the
-    /// epoch.
-    pub(crate) fn reviewer_wrote(
+    /// Whether the reviewer wrote in the conversation of the round `instance`, under the
+    /// question `question` (in any version) or since `since_ms`, a message that forks taken at
+    /// `taken_ms` know nothing of: one posted from then on, or one the agent has not answered.
+    /// Times are in milliseconds since the epoch.
+    pub(crate) fn reviewer_wrote_unknown_to_forks(
         &self,
         unit: &ReviewUnit,
         instance: &str,
         question: &str,
         since_ms: u64,
+        taken_ms: u64,
     ) -> Result<bool> {
         let threads = self.store.load_threads(unit)?;
         let Some(conversation) = threads.round_conversation(instance) else {
@@ -95,7 +97,10 @@ impl SavedRounds {
             let since = message
                 .posted_at_ms
                 .is_some_and(|posted| posted >= since_ms);
-            message.author == Author::Reviewer && (under || since)
+            // A message of unknown time may be newer than the forks.
+            let unknown_to_forks = message.posted_at_ms.is_none_or(|posted| posted >= taken_ms)
+                || !conversation.is_answered(message);
+            message.author == Author::Reviewer && (under || since) && unknown_to_forks
         }))
     }
 
