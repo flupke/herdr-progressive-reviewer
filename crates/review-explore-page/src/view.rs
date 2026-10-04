@@ -9,6 +9,7 @@ mod question;
 
 use markdown_html::HtmlRenderer;
 use review_explore::{Design, QuestionSection, RailStep, TabTitle};
+use review_explore_tally::MarkTally;
 use serde::Serialize;
 use ts_rs::TS;
 
@@ -50,6 +51,9 @@ pub(crate) struct PageView {
     /// What the browser tab's title says before the review's name; `None` when no round is
     /// running, and when the review tool cannot save the round, which then waits for nothing.
     title: Option<TabTitle>,
+    /// How much of the change the review marks cover, for the meter on the masthead's hairline
+    /// and the start cover's size of the change; `None` until the owner counted them.
+    tally: Option<MarkTally>,
 }
 
 /// The start cover, when no round is running.
@@ -163,6 +167,7 @@ impl PageView {
                 .as_ref()
                 .filter(|_| !storage_failed)
                 .map(|overview| overview.title),
+            tally: round.tally.as_deref().cloned(),
         }
     }
 }

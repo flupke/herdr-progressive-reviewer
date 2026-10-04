@@ -261,7 +261,8 @@ fn the_page_hears_what_answering_the_waiting_question_adds_as_marks_change() {
     let shares = |harness: &Harness| {
         harness
             .page
-            .gain()
+            .tally()
+            .and_then(|tally| tally.gain)
             .map(|gain| (gain.before.percent, gain.after.percent))
     };
     assert_eq!(shares(&harness), Some((0, 33)));
@@ -273,4 +274,46 @@ fn the_page_hears_what_answering_the_waiting_question_adds_as_marks_change() {
     // Once the question has its answer, none waits.
     harness.answer("Keep it.");
     assert_eq!(shares(&harness), None);
+}
+
+#[test]
+fn the_page_hears_the_mark_tally_as_marks_change_during_a_round() {
+    let mut harness = Harness::three_lines();
+    let marked = |harness: &Harness| harness.page.tally().map(|tally| tally.change.marked);
+    harness.capture();
+    let first = harness.request(None);
+    let access = harness.turn(&first);
+    assert!(applied(harness.submit(&access, first_question(&first))));
+    // The question waits: the page hears what its answer marks with the question.
+    let waiting = harness
+        .page
+        .tally()
+        .expect("the tally comes with the round");
+    assert_eq!(waiting.change.pending.not_relevant, 1);
+    assert!(waiting.gain.is_some());
+
+    // A run of Jev and a mark by hand reach the page while the question waits.
+    harness.mark_lines(&[1], &MarkAuthor::Jev);
+    harness.mark_lines(&[2], &MarkAuthor::Reviewer);
+    assert_eq!(
+        marked(&harness),
+        Some(MarkedLines {
+            jev: 1,
+            by_hand: 1,
+            ..MarkedLines::default()
+        })
+    );
+
+    // The answer applies its marks, which the page hears with the agent at work.
+    harness.answer("Keep it.");
+    assert_eq!(
+        marked(&harness),
+        Some(MarkedLines {
+            jev: 1,
+            not_relevant: 1,
+            by_hand: 1,
+            ..MarkedLines::default()
+        })
+    );
+    assert_eq!(harness.page.tally().and_then(|tally| tally.gain), None);
 }

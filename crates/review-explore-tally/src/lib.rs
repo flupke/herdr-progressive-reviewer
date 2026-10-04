@@ -9,7 +9,8 @@
 //! saved with no author was saved before marks named one, when only the reviewer marked lines,
 //! by hand: the store reads it as the reviewer's, so it counts as marked by hand.
 //!
-//! The numbers are plain data for the page: they derive `Serialize` and draw nothing.
+//! The numbers are plain data for the page: they derive `Serialize` and `TS`, for the page's
+//! client, and draw nothing.
 
 mod marks;
 mod round;
@@ -21,10 +22,11 @@ use review_explore::{ExploreRound, InterviewUpdate};
 use review_hunks::LineCount;
 use review_repository::repository::DiffStatistics;
 use serde::Serialize;
+use ts_rs::TS;
 
 /// The review marks of the change under review: the change as a whole, each changed file, and
 /// what answering the question the round waits for adds.
-#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, TS)]
 pub struct MarkTally {
     /// The whole change: "+125 −10 · 4 files", "38% reviewed · 52 of 135 changed lines".
     pub change: Tally,
@@ -37,7 +39,7 @@ pub struct MarkTally {
 }
 
 /// One changed file's review marks.
-#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, TS)]
 pub struct FileTally {
     /// The repository-relative path.
     pub path: String,
@@ -51,7 +53,7 @@ pub struct FileTally {
 }
 
 /// How the changed lines of a file, or of the whole change, stand.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, TS)]
 pub struct Tally {
     /// The changed lines, added and removed: "+125 −10".
     pub changed: DiffStatistics,
@@ -70,7 +72,7 @@ pub struct Tally {
 
 /// Marked lines by who marked them, in the meter's three groups: `answers`; `jev` and
 /// `not_relevant`; `by_hand` and `other_rounds`.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, TS)]
 pub struct MarkedLines {
     /// Lines an answer of the round settled.
     pub answers: u64,
@@ -85,7 +87,7 @@ pub struct MarkedLines {
 }
 
 /// The open lines that answering the question the round waits for marks.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, TS)]
 pub struct PendingLines {
     /// Marked reviewed: the lines the answer settles.
     pub reviewed: u64,
@@ -94,7 +96,7 @@ pub struct PendingLines {
 }
 
 /// A share of changed lines that review marks cover: "38% reviewed · 52 of 135 changed lines".
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, TS)]
 pub struct Share {
     pub marked: u64,
     pub changed: u64,
@@ -106,7 +108,7 @@ pub struct Share {
 
 /// What answering the question the round waits for does to the whole change: "Answering
 /// marks 12 lines reviewed · 3 not relevant", "38% → 49%".
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, TS)]
 pub struct Gain {
     /// Open lines it marks reviewed and not relevant.
     pub pending: PendingLines,
@@ -119,7 +121,7 @@ pub struct Gain {
 }
 
 /// A file without lines to mark one by one, marked or left as a whole.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, TS)]
 pub struct WholeFile {
     /// Who marked the file, in the meter's groups; `None` while it is left.
     pub marked_by: Option<Marker>,
@@ -128,7 +130,7 @@ pub struct WholeFile {
 }
 
 /// Who marked lines, in the groups the meter shows.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum Marker {
     Answer,
@@ -139,7 +141,7 @@ pub enum Marker {
 }
 
 /// What answering a question does to a file it marks or reopens as a whole.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum WholeChange {
     Reviewed,
@@ -157,13 +159,19 @@ impl MarkTally {
     ) -> Self {
         let round = round::RoundMarks::new(round);
         let answering = question.map(round::Answering::new);
-        let files: Vec<FileTally> = files
+        let files = files
             .iter()
             .map(|file| file.tally(&round, answering.as_ref()))
             .collect();
+        Self::of_files(files, answering.is_some())
+    }
+
+    /// The tally of the change whose files, in order, have the tallies `files`, with what
+    /// answering adds when `waits`, a question waiting for an answer that marks lines.
+    pub fn of_files(files: Vec<FileTally>, waits: bool) -> Self {
         let change = files.iter().map(|file| file.tally).sum();
         Self {
-            gain: answering.map(|_| Gain::of(&change)),
+            gain: waits.then(|| Gain::of(&change)),
             change,
             files,
         }

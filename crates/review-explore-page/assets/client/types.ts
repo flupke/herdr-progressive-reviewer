@@ -175,8 +175,62 @@ source: string,
  * Mermaid's message.
  */
 message: string, };
+/**
+ * Added and removed text lines in one diff.
+ */
+export type DiffStatistics = { 
+/**
+ * Number of added text lines.
+ */
+lines_added: number, 
+/**
+ * Number of removed text lines.
+ */
+lines_removed: number, };
 export type Door = "one_way" | "two_way" | "mixed" | "unknown";
 export type Field = { name: string, value: string, };
+/**
+ * One changed file's review marks.
+ */
+export type FileTally = { 
+/**
+ * The repository-relative path.
+ */
+path: string, 
+/**
+ * The file's changed lines. A file without lines to mark one by one has none.
+ */
+tally: Tally, 
+/**
+ * A file without lines to mark one by one (a binary or another non-text change), which
+ * is marked or left whole; `None` for a file of text lines.
+ */
+whole: WholeFile | null, 
+/**
+ * Whether the question the round waits for cites the file ("cited here").
+ */
+cited: boolean, };
+/**
+ * What answering the question the round waits for does to the whole change: "Answering
+ * marks 12 lines reviewed · 3 not relevant", "38% → 49%".
+ */
+export type Gain = { 
+/**
+ * Open lines it marks reviewed and not relevant.
+ */
+pending: PendingLines, 
+/**
+ * Marked lines it reopens.
+ */
+reopened: number, 
+/**
+ * The marked share now.
+ */
+before: Share, 
+/**
+ * The marked share once the answer's marks apply.
+ */
+after: Share, };
 /**
  * The reviewed share of the change before and after the answer, in whole percent, as the
  * reviewer's file list rounds it: "39% → 50%".
@@ -252,6 +306,54 @@ export type MarkPhrase = { verb: string,
  * first carry their own verb when it differs from `verb`. Empty when nothing changes.
  */
 parts: Array<string>, };
+/**
+ * The review marks of the change under review: the change as a whole, each changed file, and
+ * what answering the question the round waits for adds.
+ */
+export type MarkTally = { 
+/**
+ * The whole change: "+125 −10 · 4 files", "38% reviewed · 52 of 135 changed lines".
+ */
+change: Tally, 
+/**
+ * Each changed file, in the order of the change.
+ */
+files: Array<FileTally>, 
+/**
+ * What answering the question the round waits for does; `None` when no question waits
+ * for an answer, or when the code changed since the round started and an answer marks
+ * nothing.
+ */
+gain: Gain | null, };
+/**
+ * Marked lines by who marked them, in the meter's three groups: `answers`; `jev` and
+ * `not_relevant`; `by_hand` and `other_rounds`.
+ */
+export type MarkedLines = { 
+/**
+ * Lines an answer of the round settled.
+ */
+answers: number, 
+/**
+ * Lines Jev dismissed as too insignificant to need the reviewer's attention.
+ */
+jev: number, 
+/**
+ * Lines the round's agent read and found to hold no decision for the reviewer.
+ */
+not_relevant: number, 
+/**
+ * Lines the reviewer marked by hand, and lines whose mark names no author.
+ */
+by_hand: number, 
+/**
+ * Lines an answer or a turn of another round of the review marked.
+ */
+other_rounds: number, };
+/**
+ * Who marked lines, in the groups the meter shows.
+ */
+export type Marker = "answer" | "jev" | "not_relevant" | "by_hand" | "other_round";
 /**
  * What an answer to the question marks: a summary, and the lines on request.
  */
@@ -336,7 +438,24 @@ rail: Array<RailStep>,
  * What the browser tab's title says before the review's name; `None` when no round is
  * running, and when the review tool cannot save the round, which then waits for nothing.
  */
-title: TabTitle | null, };
+title: TabTitle | null, 
+/**
+ * How much of the change the review marks cover, for the meter on the masthead's hairline
+ * and the start cover's size of the change; `None` until the owner counted them.
+ */
+tally: MarkTally | null, };
+/**
+ * The open lines that answering the question the round waits for marks.
+ */
+export type PendingLines = { 
+/**
+ * Marked reviewed: the lines the answer settles.
+ */
+reviewed: number, 
+/**
+ * Marked not relevant: the lines the agent found to hold no decision.
+ */
+not_relevant: number, };
 export type PickParams = { round: string | null, question: string, version: number, choice: string, };
 export type QuestionView = { 
 /**
@@ -525,6 +644,16 @@ details_html: string | null, };
  * picks this page kept for the round, which change the view without changing the revision.
  */
 export type Seq = { revision: number, picks: number, };
+/**
+ * A share of changed lines that review marks cover: "38% reviewed · 52 of 135 changed lines".
+ */
+export type Share = { marked: number, changed: number, 
+/**
+ * `marked` of `changed` in whole percent, as the reviewer shows a file's reviewed share
+ * ([`LineCount::percent`]): rounded down, but never 0% once a line is marked nor 100%
+ * while one is not; 0 when nothing changed.
+ */
+percent: number, };
 export type StartParams = { 
 /**
  * Whether the Challenger reviews the change beside the agent.
@@ -634,8 +763,53 @@ request: string | null, };
  * turn it is. The quiz belongs to the conclusion's stage.
  */
 export type TabTitle = { "kind": "your_turn", question: number, } | { "kind": "agent_working" } | { "kind": "retry_needed" } | { "kind": "conclusion" };
+/**
+ * How the changed lines of a file, or of the whole change, stand.
+ */
+export type Tally = { 
+/**
+ * The changed lines, added and removed: "+125 −10".
+ */
+changed: DiffStatistics, 
+/**
+ * The changed lines a review mark covers, by who marked them.
+ */
+marked: MarkedLines, 
+/**
+ * The open lines that answering the question the round waits for marks.
+ */
+pending: PendingLines, 
+/**
+ * The marked lines that answering the question the round waits for reopens.
+ */
+reopened: number, 
+/**
+ * The open lines the question does not mark: changed, less marked, less pending ("Left
+ * to explore"). Unlike the unreviewed lines, they leave out the lines the question marks.
+ */
+left: number, 
+/**
+ * The marked share of the changed lines.
+ */
+share: Share, };
 export type TokenView = { text: string, 
 /**
  * The palette role of the token's color, or `None` for the page's text color.
  */
 role: string | null, };
+/**
+ * What answering a question does to a file it marks or reopens as a whole.
+ */
+export type WholeChange = "reviewed" | "not_relevant" | "reopened";
+/**
+ * A file without lines to mark one by one, marked or left as a whole.
+ */
+export type WholeFile = { 
+/**
+ * Who marked the file, in the meter's groups; `None` while it is left.
+ */
+marked_by: Marker | null, 
+/**
+ * What answering the question the round waits for does to the file.
+ */
+answering: WholeChange | null, };

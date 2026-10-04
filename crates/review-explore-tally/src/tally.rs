@@ -58,7 +58,7 @@ impl FileMarks {
             lines_added: count(open.added.len() + reviewed.added.len()),
             lines_removed: count(open.removed.len() + reviewed.removed.len()),
         };
-        Tally::new(changed, marked, effect)
+        Tally::new(changed, marked, effect.pending, effect.reopened)
     }
 
     fn whole(
@@ -76,24 +76,30 @@ impl FileMarks {
 }
 
 impl Tally {
-    /// The tally of `changed` lines of which `marked` are marked, which answering changes as
-    /// `effect` says.
-    fn new(changed: DiffStatistics, marked: MarkedLines, effect: AnswerEffect) -> Self {
+    /// The tally of `changed` lines of which `marked` are marked, of which answering the
+    /// question the round waits for marks the open lines `pending` and reopens `reopened`
+    /// marked lines.
+    pub fn new(
+        changed: DiffStatistics,
+        marked: MarkedLines,
+        pending: PendingLines,
+        reopened: u64,
+    ) -> Self {
         let total = changed.lines();
         let share = Share::of(marked.total(), total);
         Self {
             changed,
             marked,
-            pending: effect.pending,
-            reopened: effect.reopened,
-            left: total.saturating_sub(share.marked + effect.pending.total()),
+            pending,
+            reopened,
+            left: total.saturating_sub(share.marked + pending.total()),
             share,
         }
     }
 
     /// `changed` lines, none of them marked.
     fn left(changed: DiffStatistics) -> Self {
-        Self::new(changed, MarkedLines::default(), AnswerEffect::default())
+        Self::new(changed, MarkedLines::default(), PendingLines::default(), 0)
     }
 }
 
@@ -109,7 +115,7 @@ impl std::iter::Sum for Tally {
             effect.pending += tally.pending;
             effect.reopened += tally.reopened;
         }
-        Self::new(changed, marked, effect)
+        Self::new(changed, marked, effect.pending, effect.reopened)
     }
 }
 

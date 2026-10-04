@@ -37,6 +37,17 @@ async function submit(page: Page, name: string): Promise<void> {
   });
 }
 
+/**
+ * Opens the meter on the masthead's hairline with a click a third of the way across, as a
+ * pointer would, and moves the pointer away: the window stays pinned.
+ */
+async function openMeter(page: Page): Promise<void> {
+  const strip = page.getByRole('button', { name: /^Lines reviewed/ });
+  const box = await strip.boundingBox();
+  await strip.click({ position: { x: (box?.width ?? 0) * 0.52, y: 4 } });
+  await page.mouse.move(0, 0);
+}
+
 /** Selects the choice `name` of the question or the quiz item on the page. */
 async function choose(page: Page, name: string): Promise<void> {
   await page.getByRole('radio', { name }).check();
@@ -370,6 +381,24 @@ export const STATES: GalleryState[] = [
     async reach(session, page) {
       await question(session, page, 2);
       await page.getByRole('button', { name: 'Round menu' }).click();
+    },
+  },
+  {
+    name: 'question-2-meter',
+    about:
+      "The meter on the masthead's hairline, open: the bar split by who marked the lines, and the window with the totals, the legend and a row for each file.",
+    async reach(session, page) {
+      await question(session, page, 2);
+      await openMeter(page);
+    },
+  },
+  {
+    name: 'question-2-meter-by-hand',
+    about: 'The meter, open after the reviewer marked lines by hand during the round: their own part and legend row.',
+    async reach(session, page) {
+      await question(session, page, 2);
+      await after(session, () => session.markByHand());
+      await openMeter(page);
     },
   },
   {

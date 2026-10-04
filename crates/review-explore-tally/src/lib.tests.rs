@@ -465,3 +465,61 @@ fn a_file_whose_marks_cannot_be_read_is_left_whole() {
     assert_eq!(tally.changed.lines_added + tally.changed.lines_removed, 5);
     assert_eq!((tally.left, tally.share.marked), (5, 0));
 }
+
+#[test]
+fn a_tally_of_counted_files_adds_them_up_as_a_tally_of_marks_does() {
+    let file = |path: &str, added: u64, marked: MarkedLines, pending: PendingLines| FileTally {
+        path: path.into(),
+        tally: Tally::new(
+            DiffStatistics {
+                lines_added: added,
+                lines_removed: 0,
+            },
+            marked,
+            pending,
+            0,
+        ),
+        whole: None,
+        cited: false,
+    };
+    let files = || {
+        vec![
+            file(
+                "src/queue.rs",
+                6,
+                MarkedLines {
+                    answers: 2,
+                    ..MarkedLines::default()
+                },
+                PendingLines {
+                    reviewed: 1,
+                    not_relevant: 0,
+                },
+            ),
+            file(
+                "src/flush.rs",
+                4,
+                MarkedLines {
+                    jev: 1,
+                    ..MarkedLines::default()
+                },
+                PendingLines::default(),
+            ),
+        ]
+    };
+
+    let waiting = MarkTally::of_files(files(), true);
+
+    assert_eq!(waiting.files[0].tally.left, 3);
+    assert_eq!(
+        waiting.change.share,
+        Share {
+            marked: 3,
+            changed: 10,
+            percent: 30
+        }
+    );
+    assert_eq!(waiting.change.left, 6);
+    assert_eq!(waiting.gain.map(|gain| gain.after.percent), Some(40));
+    assert_eq!(MarkTally::of_files(files(), false).gain, None);
+}

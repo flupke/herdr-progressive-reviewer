@@ -1,0 +1,55 @@
+{
+  "schemaVersion": "trace-1",
+  "createdAt": "2026-10-04T15:24:47.833Z",
+  "payload": {
+    "actions": [
+      {
+        "name": "tap",
+        "summary": "tap button \"Lines reviewed: 33%, 1 of 3 changed lin…\"",
+        "target": {
+          "role": "button",
+          "name": "Lines reviewed: 33%, 1 of 3 changed lines"
+        }
+      }
+    ],
+    "executor": {
+      "name": "e2e-default-agent",
+      "version": "2"
+    },
+    "recordedFor": {
+      "testId": "tests/meter.e2e.ts::an%20answer%20advances%20the%20reviewed%20share%20of%20the%20change",
+      "targetId": "desktop",
+      "instructionDigest": "3c191882fcd01f0efbba87c36eddfc138932d375eb5d8d9602a8bd332c832b3d"
+    },
+    "summary": "Opened the Lines reviewed meter; its button now shows expanded, indicating its details are pinned open.",
+    "startPath": "/#design",
+    "endPath": "/#design",
+    "endAnchors": [
+      {
+        "text": "33% reviewed"
+      },
+      {
+        "text": "1 of 3 changed lines"
+      },
+      {
+        "text": "+2"
+      },
+      {
+        "text": "−1"
+      },
+      {
+        "text": "Your answers"
+      },
+      {
+        "text": "Jev at the start 1 · not relevant 0"
+      },
+      {
+        "text": "This question marks when you answer"
+      },
+      {
+        "text": "Left to explore"
+      }
+    ],
+    "endWaitMs": 12198
+  }
+}

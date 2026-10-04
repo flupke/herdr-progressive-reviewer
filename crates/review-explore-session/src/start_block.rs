@@ -19,7 +19,8 @@ impl ExploreSession {
             let _ = self.events.send(ui_events::ExploreStartBlock(block));
         }
         self.page.block_starts(block);
-        self.publish_gain();
+        // A mark by hand or a run of Jev during a round reaches the page at once.
+        self.page.tally(self.mark_tally());
     }
 
     /// Reads the review marks of `snapshot` again, tells the pane and the page as

@@ -105,6 +105,8 @@ export interface Session {
   reviewEverything(): Promise<void>;
   /** The reviewer unmarks a line: a round can start again. */
   unreviewLine(): Promise<void>;
+  /** The reviewer marks three more lines of the change by hand; the round stays where it is. */
+  markByHand(): Promise<void>;
   /**
    * The other actions the reviewer took on the page to recover or close the round, by name, in
    * order: `stop`, `retry`, `cancel-answer`, `reset`, `reply`, `cancel-implementation`,
@@ -188,6 +190,7 @@ export async function openSession(baseUrl: string | undefined, page: SessionPage
     starts: () => read<SentStart[]>('starts'),
     reviewEverything: () => step('review-everything'),
     unreviewLine: () => step('unreview-line'),
+    markByHand: () => step('mark-by-hand'),
     actions: () => read<string[]>('actions'),
     holdPage: () => step('hold'),
     restartReviewer: () => step('restart'),

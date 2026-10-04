@@ -11,6 +11,7 @@ import { DesignScreen } from './design.js';
 import { drawDiagrams, fitDiagrams } from './diagrams.js';
 import { h, keyOf, Region } from './dom.js';
 import { Masthead } from './masthead.js';
+import { Meter } from './meter.js';
 import { QuestionScreen } from './question.js';
 import { quizSection } from './quiz.js';
 import { openRound, route, STAGE } from './route.js';
@@ -29,6 +30,7 @@ export class Page {
     this.masthead = new Masthead(header, () => {
       if (this.view) this.render(this.view);
     });
+    this.meter = new Meter(/** @type {HTMLElement} */ (header.querySelector('#masthead-line')));
     /** The design screen. */
     this.designScreen = h('div', { class: 'screen', hidden: true });
     /** The round's current stage. */
@@ -65,7 +67,10 @@ export class Page {
     const cards = this.notice ? [this.notice, ...view.cards] : view.cards;
     this.cards.show(keyOf(cards), () => cards.map(statusCard));
     const start = view.start;
-    this.start.show(keyOf([start, view.review]), () => (start ? startCover(start, view.review) : null));
+    const tally = view.tally;
+    this.start.show(keyOf([start, view.review, tally?.change.changed, tally?.files.length]), () =>
+      start ? startCover(start, view.review, tally) : null,
+    );
     this.renderQuestion(view);
     const concluded = this.renderConclusion(view);
     // The question and the conclusion show the previous turn on their own desk; any other stage,
@@ -74,6 +79,7 @@ export class Page {
     this.turn.show(view.question || concluded ? null : keyOf(turn), () => turnStrip(turn));
     this.renderDesign(view);
     this.masthead.update(view, !this.designScreen.hidden);
+    this.meter.update(view);
     drawDiagrams(this.main);
   }
 

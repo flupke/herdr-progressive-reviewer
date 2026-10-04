@@ -9,7 +9,7 @@ use review_explore::{
     RoundOverview, StartBlock, Step, StepState,
 };
 use review_explore_citations::Citation;
-use review_explore_tally::Gain;
+use review_explore_tally::MarkTally;
 use review_repository::repository::SnapshotIdentity;
 use serde::Serialize;
 use tokio::sync::watch;
@@ -496,9 +496,8 @@ pub(crate) struct RoundSnapshot {
     pub(crate) review: Option<ReviewName>,
     /// Why the reviewer cannot start a round on the review, when nothing is left to review.
     pub(crate) start_block: Option<StartBlock>,
-    /// What answering the question the round waits for does to the reviewed share of the
-    /// change; `None` when no question waits, or when its answer marks nothing.
-    pub(crate) gain: Option<Gain>,
+    /// How much of the change the review marks cover, once the owner counted them.
+    pub(crate) tally: Option<Arc<MarkTally>>,
 }
 
 impl RoundSnapshot {
@@ -581,7 +580,6 @@ impl RoundSnapshot {
         stage: RoundStage,
         review: Option<ReviewName>,
         start_block: Option<StartBlock>,
-        gain: Option<Gain>,
     ) -> Self {
         Self {
             revision,
@@ -594,7 +592,7 @@ impl RoundSnapshot {
             stage,
             review,
             start_block,
-            gain,
+            tally: None,
         }
     }
 }
@@ -607,7 +605,7 @@ impl RoundPublisher {
     /// running.
     pub fn new(round: Option<PublishedRound<'_>>, stage: RoundStage) -> Self {
         Self(watch::Sender::new(RoundSnapshot::new(
-            1, round, stage, None, None, None,
+            1, round, stage, None, None,
         )))
     }
 
@@ -615,18 +613,54 @@ impl RoundPublisher {
     /// of the same round again changes nothing, so a page that waits for the agent does not
     /// load itself again for nothing.
     pub fn publish(&self, round: Option<PublishedRound<'_>>, stage: RoundStage) {
+        self.publish_with(round, stage, None);
+    }
+
+    /// Publishes `stage` of the round `round` as [`Self::publish`] does, with how much of the
+    /// change the review marks cover as `tally` says, in one change: the page never shows the
+    /// marks an answer applied beside the question that still waits for it.
+    pub fn publish_counted(
+        &self,
+        round: Option<PublishedRound<'_>>,
+        stage: RoundStage,
+        tally: MarkTally,
+    ) {
+        self.publish_with(round, stage, Some(tally));
+    }
+
+    fn publish_with(
+        &self,
+        round: Option<PublishedRound<'_>>,
+        stage: RoundStage,
+        tally: Option<MarkTally>,
+    ) {
         self.0.send_if_modified(|snapshot| {
-            if snapshot.shows(round, &stage) {
+            let tally = tally
+                .filter(|tally| snapshot.tally.as_deref() != Some(tally))
+                .map(Arc::new);
+            // The page shows this stage already: only new marks change it.
+            let shown = snapshot.shows(round, &stage);
+            if shown && tally.is_none() {
                 return false;
             }
-            *snapshot = RoundSnapshot::new(
-                snapshot.revision + 1,
-                round,
-                stage,
-                snapshot.review.take(),
-                snapshot.start_block,
-                snapshot.gain,
-            );
+            if shown {
+                snapshot.revision += 1;
+            } else {
+                let kept = snapshot.tally.take();
+                *snapshot = RoundSnapshot {
+                    tally: kept,
+                    ..RoundSnapshot::new(
+                        snapshot.revision + 1,
+                        round,
+                        stage,
+                        snapshot.review.take(),
+                        snapshot.start_block,
+                    )
+                };
+            }
+            if tally.is_some() {
+                snapshot.tally = tally;
+            }
             true
         });
     }
@@ -656,15 +690,15 @@ impl RoundPublisher {
         });
     }
 
-    /// Says what answering the question the round waits for does to the reviewed share of the
-    /// change, or, with `None`, that no answer marks anything. The same again changes nothing.
-    pub fn mark_gain(&self, gain: Option<Gain>) {
+    /// Publishes how much of the change the review marks cover, as they stand now. The same
+    /// tally again changes nothing.
+    pub fn tally(&self, tally: MarkTally) {
         self.0.send_if_modified(|snapshot| {
-            if snapshot.gain == gain {
+            if snapshot.tally.as_deref() == Some(&tally) {
                 return false;
             }
             snapshot.revision += 1;
-            snapshot.gain = gain;
+            snapshot.tally = Some(Arc::new(tally));
             true
         });
     }
@@ -727,9 +761,9 @@ impl RoundFeed {
         self.0.borrow().start_block
     }
 
-    /// What answering the question the latest round waits for does to the reviewed share.
-    pub fn gain(&self) -> Option<Gain> {
-        self.0.borrow().gain
+    /// How much of the change the review marks cover; `None` until the owner counted them.
+    pub fn tally(&self) -> Option<Arc<MarkTally>> {
+        self.0.borrow().tally.clone()
     }
 
     /// Waits for the next published stage. Returns false once the publisher is gone.

@@ -47,6 +47,9 @@
 //!   reviewed, and no round can start: nothing is left to review. The round stays where it is.
 //! - `POST /test/sessions/{token}/unreview-line`: the reviewer unmarks a line, and a round can
 //!   start again.
+//! - `POST /test/sessions/{token}/mark-by-hand`: the reviewer marks three more lines of the
+//!   change's first file by hand, which the page's meter shows at once. The round stays where
+//!   it is.
 //! - `GET /test/sessions/{token}/answers` lists the answers the reviewer sent from the page,
 //!   in order: `[{"question", "version", "choice", "comment"}]`, with `"first_pick"` when
 //!   the question hid its recommendation until the reviewer's first pick.
@@ -100,6 +103,7 @@ pub(crate) fn router(sessions: Sessions) -> Router {
             "/test/sessions/{token}/unreview-line",
             post(|state, path| async move { block_starts(state, path, None) }),
         )
+        .route("/test/sessions/{token}/mark-by-hand", post(mark_by_hand))
         .route("/test/sessions/{token}/actions", get(actions))
         .route(
             "/test/sessions/{token}/hold",
@@ -161,6 +165,15 @@ fn block_starts(
     block: Option<StartBlock>,
 ) -> StatusCode {
     if sessions.block_starts(&token, block) {
+        StatusCode::NO_CONTENT
+    } else {
+        StatusCode::NOT_FOUND
+    }
+}
+
+/// The reviewer marks lines of the change of the session behind `token` by hand.
+async fn mark_by_hand(State(sessions): State<Sessions>, Path(token): Path<String>) -> StatusCode {
+    if sessions.mark_by_hand(&token) {
         StatusCode::NO_CONTENT
     } else {
         StatusCode::NOT_FOUND

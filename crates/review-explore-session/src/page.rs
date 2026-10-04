@@ -82,7 +82,6 @@ impl ExploreSession {
     /// the stage changed.
     pub(crate) fn publish_page(&mut self) {
         let stage = self.page_stage();
-        self.publish_gain();
         let cancellable = self.cancellable();
         let overview = self.state.round.as_ref().map(|round| {
             // The turn this process delivers to the agent now, as `page_stage` tells it.
@@ -107,7 +106,7 @@ impl ExploreSession {
                 earlier: self.state.historical,
                 overview,
             });
-        self.page.publish(round, stage);
+        self.page.publish_counted(round, stage, self.mark_tally());
     }
 
     /// The reviewer's latest answer, while the reviewer may cancel it, as the pane offers it:

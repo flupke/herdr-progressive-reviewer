@@ -190,7 +190,9 @@ pub struct ChangedFile {
 }
 
 /// Added and removed text lines in one diff.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Clone, Copy, Debug, Default, Eq, PartialEq, serde::Serialize, serde::Deserialize, ts_rs::TS,
+)]
 pub struct DiffStatistics {
     /// Number of added text lines.
     pub lines_added: u64,

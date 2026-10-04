@@ -4132,6 +4132,7 @@ dependencies = [
  "review-types",
  "serde",
  "serde_json",
+ "ts-rs",
 ]
 
 [[package]]
@@ -4205,6 +4206,7 @@ dependencies = [
  "tempfile",
  "test-case",
  "thiserror 2.0.19",
+ "ts-rs",
 ]
 
 [[package]]

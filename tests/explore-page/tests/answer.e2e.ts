@@ -64,9 +64,9 @@ test('the page says what an answer marks and the share of the change it leaves r
   await screen.getByRole('link', 'Go to question 1').tap();
   const answer = screen.getByRole('form', 'Your answer to question 1');
   await expect(answer).toContainText('Answering marks 4 lines reviewed · 20 lines not relevant');
-  // The fixture's change has 135 changed lines, 52 marked before the question: the 24 lines the
-  // answer marks bring the share from 38% to 56%.
-  await expect(answer).toContainText('38% → 56%');
+  // The fixture's change has 3 changed lines, one of which Jev marked when the round started:
+  // the answer marks the other two of them, which brings the share from 33% to 100%.
+  await expect(answer).toContainText('33% → 100%');
 
   await agent.act('open the line that says what answering marks, to list the lines it marks');
   await expect(screen.getByText('src/drafts.rs new 10-13', { exact: false })).toBeVisible();

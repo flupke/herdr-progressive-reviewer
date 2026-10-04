@@ -24,6 +24,7 @@ mod rich;
 mod round_data;
 mod sessions;
 mod short;
+mod tally;
 
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;

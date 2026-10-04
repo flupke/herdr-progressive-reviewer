@@ -6,7 +6,8 @@
 //! run of Jev), after each mark by hand and once a round ends; and the session reads them again
 //! itself after it applies an answer's marks and after it gives back the marks of a cancelled
 //! answer. The round and the question it waits for come from the session's state, so the
-//! tally is right for the stage the page shows.
+//! tally is right for the stage the page shows. The page hears the tally with each stage the
+//! session publishes and each time the marks change.
 
 use review_explore_tally::MarkTally;
 use review_repository::repository::Snapshot;
@@ -25,16 +26,6 @@ impl ExploreSession {
             .filter(|_| !self.state.historical)
             .and_then(|round| round.exploration.waiting_turn());
         self.marks.mark_tally(round, question)
-    }
-
-    /// Tells the page what answering the question the round waits for adds to the reviewed
-    /// share of the change. The tally is counted only while a question waits.
-    pub(crate) fn publish_gain(&self) {
-        let waits = self.state.round.as_ref().is_some_and(|round| {
-            !self.state.historical && round.exploration.waiting_turn().is_some()
-        });
-        let gain = if waits { self.mark_tally().gain } else { None };
-        self.page.mark_gain(gain);
     }
 
     /// Read the review marks of `snapshot` again.

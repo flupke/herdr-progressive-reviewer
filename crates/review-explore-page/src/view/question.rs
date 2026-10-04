@@ -160,7 +160,7 @@ impl QuestionView {
                 picked.as_deref(),
             )
             .answerable(!round.earlier)
-            .gain(round.gain.as_ref()),
+            .gain(round.tally.as_ref().and_then(|tally| tally.gain.as_ref())),
         )
     }
 

@@ -1,0 +1,79 @@
+{
+  "schemaVersion": "trace-1",
+  "createdAt": "2026-10-04T15:43:31.456Z",
+  "payload": {
+    "actions": [
+      {
+        "name": "tap",
+        "summary": "tap link \"Go to question 1\" in \"Design of the change · read before ques…\"",
+        "target": {
+          "role": "link",
+          "name": "Go to question 1",
+          "within": "Design of the change · read before question 1"
+        }
+      },
+      {
+        "name": "check",
+        "summary": "check radio \"Keep the draft\" in \"Choices\"",
+        "target": {
+          "role": "radio",
+          "name": "Keep the draft",
+          "within": "Choices"
+        },
+        "checked": true
+      },
+      {
+        "name": "tap",
+        "summary": "tap button \"Send answer\" in \"Question 1\"",
+        "target": {
+          "role": "button",
+          "name": "Send answer",
+          "within": "Question 1"
+        }
+      }
+    ],
+    "executor": {
+      "name": "e2e-default-agent",
+      "version": "2"
+    },
+    "recordedFor": {
+      "testId": "tests/meter.e2e.ts::an%20answer%20advances%20the%20reviewed%20share%20of%20the%20change",
+      "targetId": "phone",
+      "instructionDigest": "9013a52814d0ab4cc03672b1376267bdf29a9e0c3e30c3459d79ab831e2fea7f"
+    },
+    "summary": "Selected “Keep the draft” and sent the answer. The screen confirms “You answered Q1” with “Keep the draft”; the review meter shows 100%. The app is still working on the answer.",
+    "startPath": "/#design",
+    "endPath": "/#round",
+    "endAnchors": [
+      {
+        "role": "listitem",
+        "name": "Q1 · working"
+      },
+      {
+        "role": "button",
+        "name": "Lines reviewed: 100%, 3 of 3 changed lines"
+      },
+      {
+        "text": "The agent is working on your answer"
+      },
+      {
+        "role": "button",
+        "name": "Stop waiting"
+      },
+      {
+        "text": "Your answer stays; Retry sends it again."
+      },
+      {
+        "text": "You answered Q1"
+      },
+      {
+        "text": "Keep the draft"
+      },
+      {
+        "role": "button",
+        "name": "Cancel this answer…"
+      }
+    ],
+    "endWaitMs": 15951
+  }
+}

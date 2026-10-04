@@ -1,0 +1,173 @@
+/* The meter on the masthead's hairline (docs/design/explore-page/README.md, "Meter"), drawn by
+   client/meter.js inside `.masthead-line`: at rest a 2px green bar, the marked share of the
+   changed lines; hovered, focused or open, an 8px bar split by who marked the lines, and a
+   window with the numbers. */
+.meter {
+  --meter-track: light-dark(color-mix(in srgb, var(--ink) 8%, transparent), rgba(255, 255, 255, 0.08));
+  --meter-others: color-mix(in srgb, var(--good) 70%, transparent);
+  --meter-jev: color-mix(in srgb, var(--good) 40%, transparent);
+  --meter-hatch: repeating-linear-gradient(135deg, var(--accent) 0 5px, color-mix(in srgb, var(--accent) 35%, transparent) 5px 10px);
+  --meter-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  position: absolute;
+  inset: auto 0 0;
+  height: 1px;
+}
+.meter[hidden] { display: none; }
+
+/* The bar: 2px at rest, 8px (3px below the masthead's edge to 5px above) once grown. */
+.meter-bar, .meter-glow {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 2px;
+  transition: height 180ms ease, bottom 180ms ease, background-color 180ms ease;
+}
+.meter-bar { right: 0; }
+.meter.grown .meter-bar, .meter.grown .meter-glow {
+  bottom: -3px;
+  height: 8px;
+}
+.meter.grown .meter-bar {
+  background: var(--meter-track);
+}
+
+/* The segments: every marked line in green at rest, so that the bar reads as one share; split
+   by who marked them once grown. The green edge advances over 800ms. */
+.meter-segment {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--good);
+  transition: left 800ms var(--meter-ease), width 800ms var(--meter-ease), background-color 180ms ease,
+    opacity 500ms ease, box-shadow 180ms ease;
+}
+.meter-segment.pending { background: var(--meter-hatch); opacity: 0; }
+.meter.grown .meter-segment {
+  /* A canvas-coloured separator at the end of each part. */
+  box-shadow: inset -1px 0 var(--canvas);
+}
+.meter.grown .meter-segment.others { background: var(--meter-others); }
+.meter.grown .meter-segment.jev { background: var(--meter-jev); }
+.meter.grown .meter-segment.pending[data-lines] { opacity: 1; }
+
+/* A one-shot glow on the marked share when an answer marked more lines. */
+.meter-glow { opacity: 0; pointer-events: none; }
+.meter-glow.glowing {
+  background: var(--good);
+  box-shadow: 0 0 16px 3px color-mix(in srgb, var(--good) 90%, transparent);
+  animation: meter-glow 1.2s ease-out forwards;
+}
+@keyframes meter-glow {
+  0% { opacity: 0; }
+  25% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* What the pointer and the keyboard reach: an 8px strip across the window, the size of the
+   grown bar, so that the target never moves. */
+.meter-strip {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -3px;
+  z-index: 1;
+  height: 8px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.meter-strip:focus-visible { outline-offset: 3px; }
+
+/* The window: under the pointer, 15px below the masthead, after a 120ms grace so that a pointer
+   passing by does not flash it. */
+.meter-window {
+  position: absolute;
+  top: 15px;
+  z-index: 1;
+  box-sizing: border-box;
+  display: grid;
+  gap: 10px;
+  width: 520px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: var(--shadow-popover);
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.5;
+  opacity: 0;
+  transform: translateY(-6px);
+  visibility: hidden;
+  transition: opacity 220ms ease, transform 220ms ease, visibility 0s linear 220ms;
+}
+.meter.open .meter-window {
+  opacity: 1;
+  transform: none;
+  visibility: visible;
+  transition: opacity 220ms ease 120ms, transform 220ms ease 120ms, visibility 0s linear 120ms;
+}
+.meter-totals { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 12px; }
+.meter-share { font-size: 18px; font-weight: 650; }
+.meter-lines { color: var(--muted); }
+.meter-size { margin-left: auto; font: 13px var(--mono); }
+.meter-legend {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 5px 12px;
+  align-items: center;
+  padding: 0 2px;
+}
+.meter-count { color: var(--muted); font-variant-numeric: tabular-nums; }
+.meter-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--good);
+}
+.meter-swatch.others { background: var(--meter-others); }
+.meter-swatch.jev { background: var(--meter-jev); }
+.meter-swatch.pending {
+  background: repeating-linear-gradient(135deg, var(--accent) 0 3px, color-mix(in srgb, var(--accent) 35%, transparent) 3px 6px);
+}
+.meter-swatch.left { background: var(--meter-track); }
+.meter-files {
+  display: grid;
+  grid-template-columns: 176px minmax(0, 1fr) auto;
+  gap: 6px 12px;
+  align-items: center;
+  padding: 10px 2px 0;
+  border-top: 1px solid var(--line);
+  font: 12px/1.5 var(--mono);
+}
+.meter-path { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.meter-file-bar {
+  display: flex;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--meter-track);
+}
+.meter-file-bar .meter-swatch { height: 6px; border-radius: 0; }
+.meter-file-state { color: var(--muted); white-space: nowrap; }
+.meter-file-state .cited { color: var(--accent); }
+
+/* The size of a change, in the window and on the start cover (client/change-size.js):
+   "+125 −10". */
+.change-size .added { color: var(--good); }
+.change-size .removed { color: var(--bad); }
+
+@media (max-width: 40rem) {
+  .meter-window { width: auto; right: var(--gutter); }
+  .meter-files { grid-template-columns: minmax(0, 1fr) 64px auto; }
+  /* A path that does not fit keeps its file's name: the ellipsis takes its start. */
+  .meter-path { direction: rtl; text-align: left; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .meter-bar, .meter-glow, .meter-segment, .meter-window, .meter.open .meter-window { transition: none; }
+  .meter-glow.glowing { animation: none; }
+}

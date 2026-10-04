@@ -523,6 +523,26 @@ what it names, `.hint` the muted help line. Every control has a focus ring (`:fo
   cannot see it (`CHANGED` in `client/actions.js`): the element its module marks with
   `data-shows="<method>"` (the reveal line after a first pick, the question after Cancel
   answer), or the status card after an answer.
+- **Meter** (`meter.css`, drawn by `assets/client/meter.js` on the masthead's hairline): how
+  much of the change the review marks cover, from `PageView.tally`
+  (`review_explore_tally::MarkTally`). The session publishes the tally with each stage, in the
+  same change (`RoundPublisher::publish_counted` in `publish_page`), and again from
+  `marks_changed`, so a mark by hand or a run of Jev during a round reaches the page at once
+  (`RoundPublisher::tally`). At rest the bar is the marked share
+  in green; hovered, focused or open it grows and splits into the reviewer's answers, marks by
+  hand or from earlier rounds, Jev and not relevant, and what the waiting question marks, and a
+  window gives the totals, a legend and a row for each file. The strip is a button whose name
+  carries the share for a screen reader; Enter or a click pins the window, Escape closes it.
+  The start cover takes the change's size from the same tally (`change-size.js`).
+
+  ```html
+  <div class="meter open grown">
+    <div class="meter-bar" aria-hidden="true"><span class="meter-segment answers"></span>…</div>
+    <button class="meter-strip" aria-label="Lines reviewed: 38%, 52 of 135 changed lines"
+            aria-expanded="true" aria-controls="meter-window"></button>
+    <div class="meter-window" id="meter-window" role="group" aria-label="Review marks of the change">…</div>
+  </div>
+  ```
 
 ### The page's client
 
@@ -566,6 +586,7 @@ only, with no `unsafe` value; its `connect-src` names the page's own `ws:` addre
   previous turn), `chips.js` (the chip of a question's Door), `question.js` (with the answer panel and the first pick), `citations.js`,
   `conclusion.js` (with the reviewer's decisions, the list to be implemented, each state of
   its request and the reply), `quiz.js`, `masthead.js` (above `main`, with Reset in its menu),
+  `meter.js` (the meter on the masthead's hairline), `change-size.js` ("+125 −10", "4 files"),
   `disclosure.js` (a button that shows or hides an action behind a fold), and `diagrams.js`,
   which draws each diagram of a region that was built.
 
@@ -730,7 +751,9 @@ shows above it. The session's review has a fixed name, which the start screen sh
 started in the pane), `explore.failStart()` fails the start, and
 `explore.starts()` returns the starts the page sent. `explore.reviewEverything()` leaves
 nothing to review, so the start screen offers no start and a start fails for that reason,
-and `explore.unreviewLine()` lets a round start again. An Implement from the page
+and `explore.unreviewLine()` lets a round start again. The change's review marks follow the
+round: Jev marks a line of it once a round runs, each answer marks what its question said it
+would, and `explore.markByHand()` marks more lines by hand, which the meter shows at once. An Implement from the page
 shows the request as being sent until `explore.deliverImplementation()`;
 `explore.implementInPane()` sends the conclusion's request from the pane, and
 `explore.implementations()` returns the lists the page sent. `explore.actions()`

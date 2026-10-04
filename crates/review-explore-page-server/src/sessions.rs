@@ -11,13 +11,15 @@ use review_explore::{
 };
 use review_explore_page::{
     Answered, CommandRefusal, CommandSender, ImplementationState, Interruption, LatestAnswer,
-    PageCommand, PageImplementation, PageRound, PublishedRound, Recovery, RoundPublisher,
-    RoundStage, Rounds, Token, Waiting,
+    PageCommand, PageImplementation, PageRound, PublishedRound, QuestionMarks, Recovery,
+    RoundPublisher, RoundStage, Rounds, Token, Waiting,
 };
+use review_explore_tally::MarkTally;
 use serde::Serialize;
 
 use crate::overview::Posted;
 use crate::round_data::RoundData;
+use crate::tally::SessionMarks;
 
 #[derive(Clone)]
 pub(crate) struct Sessions {
@@ -66,6 +68,10 @@ struct Session {
     answered: Vec<LatestAnswer>,
     /// The same answers, as the conclusion lists them in "Your decisions".
     decisions: Vec<Decision>,
+    /// The lines each of the same answers marked.
+    answer_marks: Vec<QuestionMarks>,
+    /// The lines the reviewer marked by hand in the change.
+    marked_by_hand: u64,
     /// The other actions the reviewer took on the page, by name, in order.
     actions: Vec<String>,
     /// Whether another reviewer saved a newer round of the review since: the reviewer can only
@@ -141,13 +147,28 @@ impl Session {
         if let PageLink::Held { unseen } = &mut self.page {
             *unseen = Some(Box::new(stage));
         } else {
-            let gain = match &stage {
-                RoundStage::Question { marks, .. } => crate::round_data::fixed_gain(marks),
-                _ => None,
-            };
-            self.round.mark_gain(gain);
-            self.round.publish(round, stage);
+            let tally = self.tally(&stage);
+            self.round.publish_counted(round, stage, tally);
         }
+    }
+
+    /// How much of the change the review marks cover while the round is at `stage`.
+    fn tally(&self, stage: &RoundStage) -> MarkTally {
+        let waiting = match stage {
+            RoundStage::Question {
+                question, marks, ..
+            } if self.running && !self.earlier => Some((&**question, marks)),
+            _ => None,
+        };
+        SessionMarks {
+            change: self.data.change(),
+            jev: self.data.jev_marks(),
+            running: self.running,
+            answered: &self.answer_marks,
+            by_hand: self.marked_by_hand,
+            waiting,
+        }
+        .tally()
     }
 
     /// The stage the round is at, which a held page may not show yet.
@@ -179,7 +200,6 @@ impl Session {
             round.name(review);
         }
         round.block_starts(feed.start_block());
-        round.mark_gain(feed.gain());
         self.round = round;
         self.page = PageLink::Away;
         self.publish(stage);
@@ -229,6 +249,10 @@ impl Session {
                 answer: KeptAnswer::new(picked, &comment, first_pick),
             });
         }
+        self.answer_marks.push(match &self.latest_question {
+            Some(RoundStage::Question { marks, .. }) => marks.clone(),
+            _ => QuestionMarks::default(),
+        });
         self.answered.push(LatestAnswer {
             id: format!("answer-{}", self.answered.len() + 1),
             choice: picked.map(|alternative| alternative.text.clone()),
@@ -246,6 +270,7 @@ impl Session {
         self.asked = 0;
         self.answered.clear();
         self.decisions.clear();
+        self.answer_marks.clear();
         self.latest_question = None;
         self.concluded = false;
         self.earlier = false;
@@ -369,6 +394,7 @@ impl Session {
         self.answered.pop();
         self.concluded = false;
         self.decisions.pop();
+        self.answer_marks.pop();
         if let RoundStage::Question {
             answer_cancelled, ..
         } = &mut stage
@@ -488,6 +514,9 @@ const SENT_AT_MS: u64 = 1_790_000_000_000;
 
 /// Why the standalone server's prompts cannot be delivered.
 const NOT_DELIVERED: &str = "The selected agent is no longer available";
+
+/// The lines the reviewer marks by hand at a time.
+const HAND_MARKED_LINES: u64 = 3;
 
 /// Why the standalone server cannot save the reviewer's rounds.
 const STORAGE_FAILURE: &str = "No space left on device (os error 28)";
@@ -746,6 +775,8 @@ impl Sessions {
             offers: 0,
             answered: Vec::new(),
             decisions: Vec::new(),
+            answer_marks: Vec::new(),
+            marked_by_hand: 0,
             actions: Vec::new(),
             earlier: false,
             page: PageLink::Following,
@@ -791,6 +822,22 @@ impl Sessions {
             return false;
         };
         session.round.block_starts(block);
+        true
+    }
+
+    /// The reviewer marks lines of the change by hand, in the session behind `token`: the
+    /// page hears the marks at once, whatever the round's stage. Returns false when no session
+    /// has that token.
+    pub(crate) fn mark_by_hand(&self, token: &str) -> bool {
+        let mut sessions = self.lock();
+        let Some(session) = find(&mut sessions, token) else {
+            return false;
+        };
+        session.marked_by_hand += HAND_MARKED_LINES;
+        // A held page hears the marks with the round's next stage.
+        if !matches!(session.page, PageLink::Held { .. }) {
+            session.round.tally(session.tally(&session.stage()));
+        }
         true
     }
 

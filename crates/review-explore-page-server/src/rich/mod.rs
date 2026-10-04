@@ -13,6 +13,7 @@ use review_explore_page::{QuestionMarks, ReviewName, TurnResponse};
 
 use crate::changed_source::FixedChange;
 use crate::round_data::RoundData;
+use crate::tally::JevMark;
 
 pub(crate) struct Rich;
 
@@ -51,6 +52,19 @@ impl RoundData for Rich {
 
     fn change(&self) -> &FixedChange {
         &change::CHANGE
+    }
+
+    fn jev_marks(&self) -> &'static [JevMark] {
+        &[
+            JevMark {
+                path: change::QUEUE.path,
+                lines: 4,
+            },
+            JevMark {
+                path: change::FLUSH.path,
+                lines: 6,
+            },
+        ]
     }
 }
 

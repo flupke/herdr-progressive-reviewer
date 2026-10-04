@@ -1,17 +1,20 @@
 // The start cover, when no round is running: the review the page belongs to as the headline,
-// where it is, then Start and Start with Challenger, each with one line that says what it does.
+// where it is and how large its change is, then Start and Start with Challenger, each with one
+// line that says what it does.
 // The status cards above it say why the latest start failed, or that nothing is left to review,
 // in place of the eyebrow; then both buttons are inactive, described by that card.
 
-/** @import { StartView, ReviewName } from "./types.ts" */
+/** @import { MarkTally, StartView, ReviewName } from "./types.ts" */
 
 import { h } from './dom.js';
+import { changeSize, fileCount } from './change-size.js';
 
 /**
  * @param {StartView} start
  * @param {ReviewName | null} review
+ * @param {MarkTally | null} tally the review marks of the change, which give its size
  */
-export function startCover(start, review) {
+export function startCover(start, review, tally) {
   const choice = (/** @type {string} */ label, /** @type {string} */ about, /** @type {string} */ id, challenger = false) =>
     h(
       'div',
@@ -37,7 +40,14 @@ export function startCover(start, review) {
     start.idle ? h('p', { class: 'eyebrow', role: 'status' }, 'No round is running') : null,
     review ? h('h1', {}, review.title || review.revision) : null,
     review
-      ? h('p', { class: 'meta' }, h('code', {}, review.revision), ' in ', h('code', {}, review.repository))
+      ? h(
+          'p',
+          { class: 'meta' },
+          h('code', {}, review.revision),
+          ' in ',
+          h('code', {}, review.repository),
+          tally && tally.files.length > 0 ? [' · ', changeSize(tally), ` in ${fileCount(tally.files.length)}`] : null,
+        )
       : null,
     h(
       'form',

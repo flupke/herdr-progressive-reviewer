@@ -8,6 +8,8 @@ use std::time::Duration;
 
 use futures::{SinkExt, StreamExt};
 use review_explore::{Question, RailStep, RoundOverview, Step, StepState, TabTitle};
+use review_explore_tally::{FileTally, MarkTally, MarkedLines, PendingLines, Tally};
+use review_repository::repository::DiffStatistics;
 use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
@@ -465,6 +467,65 @@ async fn the_previous_turn_names_the_question_the_latest_answer_answered_by_the_
 }
 
 #[tokio::test]
+async fn the_socket_sends_the_round_again_when_only_its_review_marks_change() {
+    let owner = Owner::new(working("turn-1"));
+    let mut socket = open(&owner).await;
+    let tally = |marked: u64| {
+        MarkTally::of_files(
+            vec![FileTally {
+                path: "src/queue.rs".into(),
+                tally: Tally::new(
+                    DiffStatistics {
+                        lines_added: 4,
+                        lines_removed: 0,
+                    },
+                    MarkedLines {
+                        by_hand: marked,
+                        ..MarkedLines::default()
+                    },
+                    PendingLines::default(),
+                    0,
+                ),
+                whole: None,
+                cited: false,
+            }],
+            false,
+        )
+    };
+
+    owner.publisher.tally(tally(1));
+    let view = &next(&mut socket).await["params"]["view"];
+    assert_eq!(
+        view["tally"]["change"]["share"],
+        json!({ "marked": 1, "changed": 4, "percent": 25 })
+    );
+    assert_eq!(view["tally"]["files"][0]["path"], "src/queue.rs");
+
+    // The same marks again send nothing; the next view is the next change.
+    owner.publisher.tally(tally(1));
+    owner.publisher.tally(tally(2));
+    let view = &next(&mut socket).await["params"]["view"];
+    assert_eq!(view["tally"]["change"]["share"]["marked"], 2);
+
+    // A stage and its marks come in one view.
+    let overview = lock(&owner.overview).clone();
+    let round = PublishedRound {
+        id: ROUND,
+        design: None,
+        cancellable: None,
+        earlier: false,
+        overview: &overview,
+        changed_files: 1,
+    };
+    owner
+        .publisher
+        .publish_counted(Some(round), asking(question("q1", "two_way")), tally(3));
+    let view = &next(&mut socket).await["params"]["view"];
+    assert_eq!(view["question"]["id"], "q1");
+    assert_eq!(view["tally"]["change"]["share"]["marked"], 3);
+}
+
+#[tokio::test]
 async fn a_clarified_question_keeps_the_number_of_its_step_on_the_rail() {
     let owner = Owner::new(working("turn-1"));
     *lock(&owner.overview) = RoundOverview {
@@ -683,7 +744,7 @@ async fn a_question_names_its_door_the_lead_of_each_section_and_the_share_its_an
         marks.reviewed = vec![lines("src/drafts.rs", 1, 12)];
     }
     let owner = Owner::new(stage);
-    owner.publisher.mark_gain(Some(gain(52, 64, 135)));
+    owner.publisher.tally(waiting(gain(52, 64, 135)));
     let address = serve(owner).await;
     let mut socket = Upgrade::of(address).connect(address).await.unwrap();
 
@@ -714,13 +775,21 @@ async fn a_question_names_its_door_the_lead_of_each_section_and_the_share_its_an
 #[tokio::test]
 async fn a_question_whose_answer_marks_nothing_shows_no_gain() {
     let owner = Owner::new(asking(question("q1", "two_way")));
-    owner.publisher.mark_gain(Some(gain(52, 52, 135)));
+    owner.publisher.tally(waiting(gain(52, 52, 135)));
     let address = serve(owner).await;
     let mut socket = Upgrade::of(address).connect(address).await.unwrap();
 
     let view = next(&mut socket).await;
     assert_eq!(view["params"]["view"]["question"]["marks"], Value::Null);
     assert_eq!(view["params"]["view"]["question"]["gain"], Value::Null);
+}
+
+/// The tally of a change whose waiting question's answer does as `gain` says.
+fn waiting(gain: review_explore_tally::Gain) -> MarkTally {
+    MarkTally {
+        gain: Some(gain),
+        ..MarkTally::default()
+    }
 }
 
 /// What answering marks: the share goes from `before` to `after` marked lines of `changed`.

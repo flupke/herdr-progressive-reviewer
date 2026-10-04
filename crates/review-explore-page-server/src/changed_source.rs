@@ -47,6 +47,11 @@ impl ChangedSource {
         )
     }
 
+    /// The file's added and removed lines.
+    pub(crate) fn statistics(&self) -> DiffStatistics {
+        self.changed_file().statistics
+    }
+
     fn changed_file(&self) -> ChangedFile {
         let rows = || {
             self.diff
