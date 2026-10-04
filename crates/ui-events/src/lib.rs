@@ -8,7 +8,7 @@ pub use explore::{
     ExploreHistoryChanged, ExploreImplementationFinished, ExploreImplementationSaved,
     ExplorePageNotOpened, ExplorePageNotShared, ExplorePageShared, ExplorePageStart,
     ExplorePaneStarts, ExplorePositionsRestored, ExplorePosted, ExploreProgress, ExploreRestored,
-    ExploreStorageFailed, ExploreSubmission, ExploreViewports,
+    ExploreStartBlock, ExploreStorageFailed, ExploreSubmission, ExploreViewports,
 };
 pub use threads::{
     NewRepliesRequested, ReviewNavigation, ReviewNavigationChanged, ReviewPane,

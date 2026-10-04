@@ -31,6 +31,8 @@ mod page;
 mod quiz;
 #[path = "recovery.tests.rs"]
 mod recovery;
+#[path = "start_block.tests.rs"]
+mod start_block;
 
 /// One session driven directly, as the reviewer's worker drives it.
 struct Harness {

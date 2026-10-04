@@ -80,12 +80,15 @@ fn a_hunk_from_an_older_comparison_is_refused() {
     );
 }
 
-/// Classifies line 3 of the first file insignificant on both sides.
-struct LineThreeClassifier;
+/// Classifies these lines of the first file insignificant on both sides.
+struct InsignificantLines(&'static [u32]);
 
-impl review_significance::SignificanceClassifier for LineThreeClassifier {
+/// Classifies line 3 of the first file insignificant on both sides.
+const LINE_THREE: InsignificantLines = InsignificantLines(&[3]);
+
+impl review_significance::SignificanceClassifier for InsignificantLines {
     fn rubric(&self) -> &'static str {
-        "line three"
+        "chosen lines"
     }
 
     fn plan(
@@ -93,30 +96,33 @@ impl review_significance::SignificanceClassifier for LineThreeClassifier {
         _: &review_explore::Comparison,
         _: &dyn Fn(&str) -> bool,
     ) -> review_significance::SignificancePlan {
-        review_significance::SignificancePlan::new(1, |record| {
-            record(review_significance::SignificanceResult {
-                id: "line-3".into(),
-                units: [
-                    review_explore::SourceSide::Old,
-                    review_explore::SourceSide::New,
-                ]
-                .into_iter()
-                .map(|side| review_significance::ChangeUnit::Lines {
-                    file: 0,
-                    side,
-                    first: 3,
-                    end: 4,
+        let lines = self.0;
+        review_significance::SignificancePlan::new(lines.len(), move |record| {
+            lines.iter().all(|&line| {
+                record(review_significance::SignificanceResult {
+                    id: format!("line-{line}"),
+                    units: [
+                        review_explore::SourceSide::Old,
+                        review_explore::SourceSide::New,
+                    ]
+                    .into_iter()
+                    .map(|side| review_significance::ChangeUnit::Lines {
+                        file: 0,
+                        side,
+                        first: line,
+                        end: line + 1,
+                    })
+                    .collect(),
+                    outcome: review_significance::Significance::Insignificant,
+                    model: None,
+                    rubric: "chosen lines".into(),
+                    criterion: String::new(),
+                    input_references: vec![],
+                    omissions: vec![],
+                    probabilities: std::collections::BTreeMap::default(),
+                    confidence: None,
+                    error: None,
                 })
-                .collect(),
-                outcome: review_significance::Significance::Insignificant,
-                model: None,
-                rubric: "line three".into(),
-                criterion: String::new(),
-                input_references: vec![],
-                omissions: vec![],
-                probabilities: std::collections::BTreeMap::default(),
-                confidence: None,
-                error: None,
             })
         })
     }
@@ -130,8 +136,7 @@ fn automatic_review_announces_the_hunks_it_marks(kind: RepoType) {
     files.new_change("review");
     files.write("file.rs", &text(&[(3, "three"), (20, "twenty")]));
     let mut fixture = EffectsFixture::start(files, |setup| {
-        setup.jev =
-            review_significance::JevClassifier::enabled(std::sync::Arc::new(LineThreeClassifier));
+        setup.jev = review_significance::JevClassifier::enabled(std::sync::Arc::new(LINE_THREE));
     });
     let checkpoint = fixture.refreshed_checkpoint();
 
@@ -164,8 +169,7 @@ fn an_explore_kickoff_waits_for_jev_to_mark_what_it_dismisses(kind: RepoType) {
     files.new_change("review");
     files.write("file.rs", &text(&[(3, "three"), (20, "twenty")]));
     let mut fixture = EffectsFixture::start(files, |setup| {
-        setup.jev =
-            review_significance::JevClassifier::enabled(std::sync::Arc::new(LineThreeClassifier));
+        setup.jev = review_significance::JevClassifier::enabled(std::sync::Arc::new(LINE_THREE));
     });
     fixture.refreshed_checkpoint();
     fixture.perform([Action::Explore(review_explore::Command::Start)]);
@@ -203,8 +207,7 @@ fn a_round_started_from_the_page_waits_for_jev_to_mark_what_it_dismisses(kind: R
     files.new_change("review");
     files.write("file.rs", &text(&[(3, "three"), (20, "twenty")]));
     let mut fixture = EffectsFixture::start(files, |setup| {
-        setup.jev =
-            review_significance::JevClassifier::enabled(std::sync::Arc::new(LineThreeClassifier));
+        setup.jev = review_significance::JevClassifier::enabled(std::sync::Arc::new(LINE_THREE));
     });
     fixture.refreshed_checkpoint();
     let (reply, replied) = review_explore_page::CommandReply::channel();
@@ -236,4 +239,57 @@ fn a_round_started_from_the_page_waits_for_jev_to_mark_what_it_dismisses(kind: R
         .find_map(|event| event.downcast_ref::<ui_events::ExplorePosted>())
         .unwrap();
     assert!(posted.request.is_kickoff() && posted.request.challenger);
+}
+
+#[test]
+fn marking_every_changed_file_reviewed_turns_the_explore_starts_off_until_one_is_unmarked() {
+    let mut fixture = fixture(RepoType::Jj);
+    fixture.refreshed_checkpoint();
+
+    fixture.perform([Action::Repository(RepositoryAction::SetReviewed {
+        path: "file.rs".to_owned(),
+        reviewed: true,
+    })]);
+    assert_eq!(
+        fixture.wait_for::<ui_events::ExploreStartBlock>().0,
+        Some(review_explore::StartBlock::NothingToReview)
+    );
+
+    fixture.perform([Action::Repository(RepositoryAction::SetReviewed {
+        path: "file.rs".to_owned(),
+        reviewed: false,
+    })]);
+    assert_eq!(fixture.wait_for::<ui_events::ExploreStartBlock>().0, None);
+}
+
+#[test]
+fn a_kickoff_is_not_sent_once_jev_marked_every_changed_line() {
+    let files = repository_fixture(RepoType::Jj);
+    files.write("file.rs", &text(&[]));
+    files.new_change("review");
+    files.write("file.rs", &text(&[(3, "three"), (20, "twenty")]));
+    let mut fixture = EffectsFixture::start(files, |setup| {
+        setup.jev = review_significance::JevClassifier::enabled(std::sync::Arc::new(
+            InsignificantLines(&[3, 20]),
+        ));
+    });
+    fixture.refreshed_checkpoint();
+    fixture.perform([Action::Explore(review_explore::Command::Start)]);
+    let comparison = fixture
+        .wait_for::<ui_events::ExploreCaptured>()
+        .result
+        .unwrap();
+    let kickoff = review_explore::Exploration::new(comparison)
+        .request(None, None)
+        .unwrap();
+
+    fixture.perform([Action::Explore(review_explore::Command::Turn(Box::new(
+        kickoff,
+    )))]);
+
+    let posted = fixture.wait_for::<ui_events::ExplorePosted>();
+    assert_eq!(
+        posted.result.err().as_deref(),
+        Some(review_explore::StartBlock::NothingToReview.reason())
+    );
 }

@@ -1,9 +1,11 @@
 {# No round is running: the review the page belongs to, Start and Start with Challenger, as in
-   the reviewer's Explore tab, and why the reviewer's latest start failed. #}
+   the reviewer's Explore tab, and why the reviewer's latest start failed. With nothing left to
+   review, the two buttons are inactive and a line says why, which a start that failed for that
+   reason does not repeat. #}
 {% if start_failure %}
 <div class="state failure" role="alert">
   <p>The round could not be started.</p>
-  <p class="reason">{{ start_failure }}</p>
+  {% if start_failure != start_block %}<p class="reason">{{ start_failure }}</p>{% endif %}
 </div>
 {% endif %}
 <p class="state" role="status">No Explore round is running.</p>
@@ -13,7 +15,10 @@
 <form class="start" method="post" action="/start">
   <p class="hint">With the Challenger, a second agent with fresh context reviews the change beside the agent.</p>
   <div class="start-buttons">
-    <button class="send" type="submit">Start</button>
-    <button class="secondary" type="submit" name="challenger" value="true">Start with Challenger</button>
+    <button class="send" type="submit"{% if start_block %} disabled aria-describedby="start-block"{% endif %}>Start</button>
+    <button class="secondary" type="submit" name="challenger" value="true"{% if start_block %} disabled aria-describedby="start-block"{% endif %}>Start with Challenger</button>
   </div>
+  {% if start_block %}
+  <p class="start-block" id="start-block">{{ start_block }}</p>
+  {% endif %}
 </form>

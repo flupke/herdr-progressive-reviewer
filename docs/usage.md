@@ -139,6 +139,13 @@ from both. You still answer one question per turn and nothing in the pane change
 that turns take longer. The round ends when neither has a question left. The choice holds
 for the round.
 
+When every changed line is marked as reviewed, a round has nothing to ask: the four start
+buttons stay on the start screen, inactive, with a line that says nothing is left to review,
+and their keys do nothing. Unmark a line or a file, in Files or in the diff, and they are
+active again, without reopening the reviewer. A start that finds nothing left to review once
+it began, because Jev or another reviewer marked the rest meanwhile, sends no kickoff and
+says why. A round that already runs goes on when its last line is marked.
+
 **Reset**, in the top-right corner of the Explore pane, closes the round and returns to the
 start screen, where you choose how to start the next round. Click it, then click
 **Confirm reset** within five seconds; any other action cancels it. The closed round stays
@@ -388,7 +395,10 @@ is working, then shows the agent's first question. The Explore tab shows the sam
 while it starts, the tab says so and offers **Stop waiting**, which drops it.
 When the reviewer cannot capture the change, the page says why and offers Start again. A
 round started in the reviewer or in another tab after the page was loaded wins: the page
-refuses to start a second one, says so, and shows the round as it is now.
+refuses to start a second one, says so, and shows the round as it is now. When nothing is
+left to review, the page's Start and Start with Challenger are inactive and say why, as in
+the Explore tab; a page loaded before the last line was marked shows it once you load it
+again.
 
 To answer a question, pick a choice or None of the above, write an optional comment, and
 press **Send**; a comment without a choice works too. Under the choice the agent

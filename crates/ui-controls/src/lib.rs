@@ -15,6 +15,8 @@ pub enum ButtonTone {
     Secondary,
     /// An action that discards work.
     Danger,
+    /// An action that cannot be taken now; nearby text says why.
+    Inactive,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -36,15 +38,16 @@ impl ActionButton {
     }
 
     pub fn style(&self, palette: Palette) -> Style {
-        let (foreground, background) = match self.tone {
-            ButtonTone::Primary => (palette.background, palette.insertion),
-            ButtonTone::Secondary => (palette.text, palette.selection),
-            ButtonTone::Danger => (palette.background, palette.deletion),
+        let (foreground, background, weight) = match self.tone {
+            ButtonTone::Primary => (palette.background, palette.insertion, Modifier::BOLD),
+            ButtonTone::Secondary => (palette.text, palette.selection, Modifier::BOLD),
+            ButtonTone::Danger => (palette.background, palette.deletion, Modifier::BOLD),
+            ButtonTone::Inactive => (palette.dim, palette.selection, Modifier::empty()),
         };
         Style::default()
             .fg(foreground)
             .bg(background)
-            .add_modifier(Modifier::BOLD)
+            .add_modifier(weight)
     }
 
     pub fn render(&self, area: Rect, buffer: &mut Buffer, palette: Palette) {

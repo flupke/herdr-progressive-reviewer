@@ -1,11 +1,15 @@
 //! How the reviewer chooses where to follow a round: the four buttons of the start screen, and
 //! the two buttons of a round on the page, with their keys.
 
-use review_explore::RoundFront;
+use review_explore::{RoundFront, StartBlock};
 use ui_controls::KeyHint;
 use ui_shortcuts::{
     ExploreShortcut, ExploreStartShortcut, ExploreTurnShortcut, ShortcutSubscription,
 };
+use ui_theme::Palette;
+
+use super::Control;
+use super::flow::ConversationLayout;
 
 /// How the reviewer starts a round from the start screen.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -141,12 +145,37 @@ impl PageRoundButton {
 }
 
 impl StartButton {
-    /// The footer's hints for the buttons.
-    pub(super) fn hints() -> Vec<KeyHint> {
+    /// The footer's hints for the buttons: none while `block` says why no round can start, as
+    /// their keys then do nothing.
+    pub(super) fn hints(block: Option<StartBlock>) -> Vec<KeyHint> {
+        if block.is_some() {
+            return Vec::new();
+        }
         Self::ALL
             .into_iter()
             .filter_map(|button| key_hint(ExploreTurnShortcut::Start(button.shortcut), button.hint))
             .collect()
+    }
+
+    /// The start screen's buttons, then, while `block` says why no round can start, the same
+    /// buttons inactive and a line that says why.
+    pub(super) fn lay_out(
+        block: Option<StartBlock>,
+        layout: &mut ConversationLayout,
+        palette: Palette,
+    ) {
+        let Some(block) = block else {
+            layout.controls(Self::ALL.map(|button| {
+                (
+                    button.label.into(),
+                    Control::Front(FrontControl::Start(button.start)),
+                )
+            }));
+            return;
+        };
+        layout.inactive_controls(Self::ALL.map(|button| button.label.into()));
+        layout.gap();
+        layout.text(block.reason(), palette.dim, None);
     }
 }
 

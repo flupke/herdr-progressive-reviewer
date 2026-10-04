@@ -31,6 +31,7 @@ mod path_serde;
 mod quiz;
 mod sections;
 mod source;
+mod start;
 mod validation;
 
 pub use agenda::{AgendaAction, AgendaChange};
@@ -51,6 +52,7 @@ pub use not_relevant::{NotRelevantMark, NotRelevantReason, TestLocation};
 pub use quiz::{QuizAnswers, QuizItem, QuizPick, QuizResponse};
 pub use sections::QuestionSection;
 pub use source::{CodeLocation, EvidenceRef, Source, SourceSide};
+pub use start::StartBlock;
 
 /// Work requested explicitly from Explore.
 #[derive(Clone, Debug, Eq, PartialEq)]

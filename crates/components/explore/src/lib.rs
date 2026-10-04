@@ -10,7 +10,7 @@ use std::{
 use ui_actions::{Action, ExplorePageAction};
 use ui_events::{
     EvidenceView, ExploreCaptured, ExploreComparisonAccepted, ExploreEvidence, ExploreFinished,
-    ReviewNavigation, ReviewNavigationChanged,
+    ExploreStartBlock, ReviewNavigation, ReviewNavigationChanged,
 };
 use ui_shortcuts::{MovementShortcut, ShortcutMatcher};
 
@@ -161,6 +161,8 @@ pub struct ExploreComponent {
     network_page: Option<network_page::NetworkPage>,
     /// Why the browser could not open the page of the round the pane started last.
     unopened_page: Option<review_explore_page_opening::PageNotOpened>,
+    /// Why no round can start, as the session last said: the start buttons are inactive.
+    start_block: Option<review_explore::StartBlock>,
 }
 
 impl ExploreComponent {
@@ -206,6 +208,7 @@ impl ExploreComponent {
             pointer_view: None,
             network_page: None,
             unopened_page: None,
+            start_block: None,
         }
     }
 
@@ -289,7 +292,13 @@ impl ExploreComponent {
                 actions
             }
             Err(error) => {
-                self.status.clone_from(error);
+                // With nothing left to review, the inactive starts show in place of Retry, and
+                // the line under them says why.
+                self.status = if self.start_block.is_some() {
+                    self.failed_start("The round could not start", error)
+                } else {
+                    error.clone()
+                };
                 self.progress = Progress::Retryable;
                 Vec::new()
             }
@@ -483,6 +492,7 @@ impl ExploreComponent {
             || self.progress.awaiting_capture()
             || self.awaiting_page_start()
             || self.durable.error.is_some()
+            || self.start_block.is_some()
         {
             return Vec::new();
         }
@@ -548,6 +558,10 @@ impl ExploreComponent {
         }
     }
 
+    fn start_block_set(&mut self, event: &ExploreStartBlock) {
+        self.start_block = event.0;
+    }
+
     /// Show or hide the provisional map or one answer's marks.
     fn toggle(&mut self, control: Control) {
         match control {
@@ -596,6 +610,7 @@ impl Component<Action> for ExploreComponent {
         subscriptions.subscribe(Self::page_start);
         subscriptions.subscribe(Self::page_not_opened);
         subscriptions.subscribe(Self::pane_starts_set);
+        subscriptions.subscribe(Self::start_block_set);
         Self::register_input(subscriptions);
     }
 }

@@ -140,7 +140,14 @@ may be open from the network), colored once per question on the session's thread
 [`crates/review-explore-page-host`](../crates/review-explore-page-host) serves
 the page of that round on a free loopback port behind a new token. The worker names the
 review the page belongs to after each snapshot (`ExploreSession::name_review`,
-`RoundPublisher::name`), and the start screen shows it. The page's
+`RoundPublisher::name`), and the start screen shows it. Whether a round can start follows
+one rule, `review_explore::StartBlock`: not once every changed line is marked as reviewed.
+The worker hands the session the review states after each snapshot, each mark the reviewer
+sets, and each Explore input that ends a round (`ExploreSession::marks_changed`); the
+session tells the pane (`ExploreStartBlock`) and the page (`RoundPublisher::block_starts`),
+which show the start buttons inactive with the reason, and it reads the marks again as it
+captures the change and before it sends a kickoff, so a start that finds nothing left to
+review fails without one. The page's
 commands join the session's inputs, in the same order as the pane's. For an
 answer from the page, the session builds the turn from its latest saved round
 as the pane would, so the saved answer and the prompt are the same, and it
@@ -257,7 +264,9 @@ question on, and with the conclusion, the agent's fixed response to the previous
 shows above it. The session's review has a fixed name, which the start screen shows. A start sent from the page shows the round starting,
 `explore.sendKickoff()` puts the agent to work on it (or stands for a round
 started in the pane), `explore.failStart()` fails the start, and
-`explore.starts()` returns the starts the page sent. An Implement from the page
+`explore.starts()` returns the starts the page sent. `explore.reviewEverything()` leaves
+nothing to review, so the start screen offers no start, and `explore.unreviewLine()` lets a
+round start again. An Implement from the page
 shows the request as being sent until `explore.deliverImplementation()`;
 `explore.implementInPane()` sends the conclusion's request from the pane, and
 `explore.implementations()` returns the lists the page sent. `explore.concludeWithQuiz()`

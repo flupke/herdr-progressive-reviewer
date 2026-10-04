@@ -5,7 +5,7 @@
 
 use std::sync::{Arc, Mutex, PoisonError};
 
-use review_explore::{DiagramError, Question, QuizAnswers};
+use review_explore::{DiagramError, Question, QuizAnswers, StartBlock};
 use review_explore_page::{
     CommandRefusal, CommandSender, ImplementationState, PageCommand, PageImplementation, PageRound,
     PublishedRound, ReviewName, RoundPublisher, RoundStage, Rounds, Token,
@@ -268,6 +268,18 @@ impl Sessions {
         }
         session.running = running;
         session.publish(stage);
+        true
+    }
+
+    /// The reviewer changes the review marks of the session behind `token`, so that `block` says
+    /// why no round can start, or with `None` that one can. The round stays where it is. Returns
+    /// false when no session has that token.
+    pub(crate) fn block_starts(&self, token: &str, block: Option<StartBlock>) -> bool {
+        let mut sessions = self.lock();
+        let Some(session) = find(&mut sessions, token) else {
+            return false;
+        };
+        session.round.block_starts(block);
         true
     }
 

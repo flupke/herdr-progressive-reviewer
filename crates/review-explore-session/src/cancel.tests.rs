@@ -81,6 +81,10 @@ fn cancelling_an_answer_reopens_its_lines_and_the_next_prompt_says_so() {
 #[test]
 fn lines_the_answer_took_over_return_to_their_previous_author() {
     let mut harness = Harness::start();
+    // Another file stays unreviewed: a change with nothing left to review starts no round.
+    harness
+        .files
+        .write("unreviewed.rs", b"pub fn unreviewed() {}\n");
     harness.mark_as_reviewer();
     let (request, access) = harness.answered();
     assert!(applied(

@@ -40,7 +40,7 @@ impl ExploreSession {
         let kickoff = self.state.round.is_none();
         // Preserve the posted contribution even when its subsequent wakeup cannot be sent.
         if retry_agent.is_none() && kickoff {
-            let _ = self.select_agent();
+            self.admit_kickoff(&request)?;
         }
         let persisted =
             self.persist_request(&request, retry_agent.as_ref().map(|(agent, _)| *agent));
@@ -111,6 +111,16 @@ impl ExploreSession {
                 });
             }
         });
+        Ok(())
+    }
+
+    /// Refuses the kickoff `request` when nothing is left to review, as Jev or another reviewer
+    /// may have marked the rest since the start; otherwise selects the agent the new round saves.
+    fn admit_kickoff(&mut self, request: &TurnRequest) -> Result<(), String> {
+        if let Some(block) = self.kickoff_block() {
+            return Err(self.turn_refused(request.clone(), &eyre::eyre!("{block}")));
+        }
+        let _ = self.select_agent();
         Ok(())
     }
 

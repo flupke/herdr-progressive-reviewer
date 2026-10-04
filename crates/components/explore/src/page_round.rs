@@ -58,7 +58,7 @@ impl ExploreComponent {
         if self.shows_page_round() {
             PageRoundButton::hints()
         } else if self.offers_starts() {
-            StartButton::hints()
+            StartButton::hints(self.start_block)
         } else {
             Vec::new()
         }

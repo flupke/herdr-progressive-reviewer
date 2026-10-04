@@ -274,7 +274,7 @@ impl ExploreComponent {
         if !self.status.is_empty() {
             layout.gap();
             layout.text(&self.status, palette.text, None);
-            self.status_controls(layout);
+            self.status_controls(layout, palette);
         }
         if view.replying {
             self.composer(None, false, layout, palette);

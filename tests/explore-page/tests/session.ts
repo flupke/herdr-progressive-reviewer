@@ -74,6 +74,10 @@ export interface Session {
   failStart(): Promise<void>;
   /** The rounds the reviewer started from the page, in order. */
   starts(): Promise<SentStart[]>;
+  /** The reviewer marks every changed line as reviewed: nothing is left to review. */
+  reviewEverything(): Promise<void>;
+  /** The reviewer unmarks a line: a round can start again. */
+  unreviewLine(): Promise<void>;
 }
 
 async function control(baseUrl: string | undefined, path: string, body?: object): Promise<Response> {
@@ -116,6 +120,8 @@ export const test = base.extend<{ explore: Session }>({
       sendKickoff: () => step('kickoff'),
       failStart: () => step('fail-start'),
       starts: () => read<SentStart[]>('starts'),
+      reviewEverything: () => step('review-everything'),
+      unreviewLine: () => step('unreview-line'),
     });
   },
 });

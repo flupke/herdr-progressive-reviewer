@@ -12,7 +12,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use review_explore::{
     Alternative, AnswerInput, Assessments, Conclusion, Design, MarkTense, Question,
-    QuestionSection, QuizItem, QuizResponse,
+    QuestionSection, QuizItem, QuizResponse, StartBlock,
 };
 use review_explore_citations::Citation;
 use serde::{Deserialize, Serialize};
@@ -331,13 +331,16 @@ struct StartForm {
 }
 
 /// Hands the start of a round to the round's owner, unless a round started since the page
-/// showed none, then shows the page again with what became of it.
+/// showed none, or nothing is left to review, then shows the page again with what became of it.
 async fn start(Admitted(round): Admitted, Form(form): Form<StartForm>) -> Response {
-    let sent = if round.stages.stage().can_start() {
-        let challenger = form.challenger;
-        round.commands.send(PageCommand::Start { challenger }).await
-    } else {
-        Err(Problem::Stale)
+    let shown = round.stages.latest();
+    let sent = match (shown.stage.can_start(), shown.start_block) {
+        (false, _) => Err(Problem::Stale),
+        (true, Some(block)) => Err(Problem::Failed(block.reason().into())),
+        (true, None) => {
+            let challenger = form.challenger;
+            round.commands.send(PageCommand::Start { challenger }).await
+        }
     };
     to_page(
         sent.err()
@@ -506,6 +509,9 @@ struct PageContext<'a> {
     failure: Option<&'a str>,
     /// Why the reviewer's latest start of a round failed, while no round runs.
     start_failure: Option<&'a str>,
+    /// Why the reviewer cannot start a round, when nothing is left to review: the start
+    /// buttons are inactive.
+    start_block: Option<&'static str>,
     /// Why the reviewer's latest post did not go through.
     notice: Option<&'a Notice>,
     /// The design of the change, as the round's first turn explained it.
@@ -700,6 +706,7 @@ impl<'a> PageContext<'a> {
             conclusion: None,
             failure: None,
             start_failure: None,
+            start_block: round.start_block.map(StartBlock::reason),
             notice,
             design: round
                 .design

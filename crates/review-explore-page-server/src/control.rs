@@ -23,6 +23,10 @@
 //!   - `kickoff`: the tool sent the kickoff of the round the reviewer started from the page,
 //!     and the agent works on its first turn;
 //!   - `fail-start`: that round could not start, and no round is running.
+//! - `POST /test/sessions/{token}/review-everything`: the reviewer marks every changed line as
+//!   reviewed, and no round can start: nothing is left to review. The round stays where it is.
+//! - `POST /test/sessions/{token}/unreview-line`: the reviewer unmarks a line, and a round can
+//!   start again.
 //! - `GET /test/sessions/{token}/answers` lists the answers the reviewer sent from the page,
 //!   in order: `[{"question", "version", "choice", "comment"}]`, with `"first_pick"` when
 //!   the question hid its recommendation until the reviewer's first pick.
@@ -45,7 +49,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use review_explore::Question;
+use review_explore::{Question, StartBlock};
 use review_explore_page::Token;
 
 use crate::sessions::{Sessions, Step};
@@ -61,6 +65,16 @@ pub(crate) fn router(sessions: Sessions) -> Router {
             get(implementations),
         )
         .route("/test/sessions/{token}/quiz", get(quiz))
+        .route(
+            "/test/sessions/{token}/review-everything",
+            post(|state, path| async move {
+                block_starts(state, path, Some(StartBlock::NothingToReview))
+            }),
+        )
+        .route(
+            "/test/sessions/{token}/unreview-line",
+            post(|state, path| async move { block_starts(state, path, None) }),
+        )
         .route("/test/sessions/{token}/{step}", post(step))
         .with_state(sessions)
 }
@@ -98,6 +112,20 @@ async fn step(
         StatusCode::NO_CONTENT.into_response()
     } else {
         StatusCode::NOT_FOUND.into_response()
+    }
+}
+
+/// The review marks of the session behind `token` change, so that `block` says why no round can
+/// start, or with `None` that one can.
+fn block_starts(
+    State(sessions): State<Sessions>,
+    Path(token): Path<String>,
+    block: Option<StartBlock>,
+) -> StatusCode {
+    if sessions.block_starts(&token, block) {
+        StatusCode::NO_CONTENT
+    } else {
+        StatusCode::NOT_FOUND
     }
 }
 

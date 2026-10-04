@@ -1,4 +1,4 @@
-use super::start::{FrontControl, StartButton};
+use super::start::StartButton;
 use super::{
     ComposeScope, Control, EditorTarget, ExploreComponent, Progress,
     flow::{Content, ConversationLayout},
@@ -55,7 +55,7 @@ impl ExploreComponent {
             .is_none_or(|exploration| exploration.conversation.is_empty())
         {
             layout.text(&self.status, palette.text, None);
-            self.status_controls(&mut layout);
+            self.status_controls(&mut layout, palette);
         } else {
             self.transcript(&mut layout, diff, palette);
         }
@@ -294,7 +294,7 @@ impl ExploreComponent {
         if self.status_turn == Some(index) && !self.status.is_empty() {
             layout.gap();
             layout.text(&self.status, palette.warning, None);
-            self.status_controls(layout);
+            self.status_controls(layout, palette);
         }
     }
 
@@ -539,24 +539,26 @@ impl ExploreComponent {
         }
     }
 
-    /// Whether the pane shows its start screen with the buttons that start a round.
+    /// Whether the pane shows its start screen with the buttons that start a round. After a
+    /// failed start, it offers Retry instead, unless nothing is left to review: the inactive
+    /// buttons then say why.
     pub(super) fn offers_starts(&self) -> bool {
-        self.progress == Progress::Ready && self.exploration.is_none()
+        self.exploration.is_none()
+            && match self.progress {
+                Progress::Ready => true,
+                Progress::Retryable => self.start_block.is_some(),
+                _ => false,
+            }
     }
 
-    pub(super) fn status_controls(&self, layout: &mut ConversationLayout) {
+    pub(super) fn status_controls(&self, layout: &mut ConversationLayout, palette: Palette) {
         layout.gap();
         if matches!(self.progress, Progress::Waiting | Progress::Capturing) {
             layout.controls([("Stop waiting".into(), Control::Cancel)]);
+        } else if self.offers_starts() {
+            StartButton::lay_out(self.start_block, layout, palette);
         } else if self.progress == Progress::Retryable {
             layout.controls([("Retry".into(), Control::Retry)]);
-        } else if self.offers_starts() {
-            layout.controls(StartButton::ALL.map(|button| {
-                (
-                    button.label.into(),
-                    Control::Front(FrontControl::Start(button.start)),
-                )
-            }));
         }
     }
 

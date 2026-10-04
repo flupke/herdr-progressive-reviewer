@@ -1,5 +1,9 @@
 //! Document coordinates and clipping shared by drawing and pointer routing.
-use super::{Control, Reveal, controls::Button, evidence::EvidenceList};
+use super::{
+    Control, Reveal,
+    controls::{Button, ControlVisual},
+    evidence::EvidenceList,
+};
 use diff_component::ClippedViewport;
 use markdown_rendering::MarkdownRenderer;
 use ratatui::{
@@ -9,6 +13,7 @@ use ratatui::{
     widgets::{Paragraph, Wrap},
 };
 use std::ops::Range;
+use ui_controls::{ActionButton, ButtonTone};
 use ui_events::{DiffViewportChanged, EvidenceView, ExploreViewports};
 use ui_panes::SplitPane;
 use ui_shortcuts::MovementShortcut;
@@ -158,6 +163,17 @@ impl ConversationLayout {
         let labels = controls
             .into_iter()
             .map(|(label, control)| (control.visual(label), Some(control)));
+        self.push_control_rows(Button::wrap(self.area.width, labels));
+    }
+
+    /// Buttons that cannot be pressed now: they show, and clicks on them do nothing.
+    pub(super) fn inactive_controls(&mut self, labels: impl IntoIterator<Item = String>) {
+        let labels = labels.into_iter().map(|label| {
+            (
+                ControlVisual::Action(ActionButton::new(label, ButtonTone::Inactive)),
+                None,
+            )
+        });
         self.push_control_rows(Button::wrap(self.area.width, labels));
     }
 

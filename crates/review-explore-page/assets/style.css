@@ -43,6 +43,10 @@ body { font: 16px/1.5 system-ui, sans-serif; margin: 0 auto; }
 .start-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
 .secondary { font: inherit; padding: 8px 20px; border-radius: 6px; border: 1px solid var(--accent); background: transparent; color: inherit; cursor: pointer; }
 
+/* Nothing is left to review: the start buttons are inactive, and a line says why. */
+.secondary:disabled { opacity: 0.6; cursor: default; }
+.start-block { margin: 10px 0 0; opacity: 0.75; font-size: 0.9em; }
+
 /* The blind first pick, and the agent's recommendation under its choice. */
 .choice.recommended { border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); }
 .recommendation { margin: -4px 0 0; padding: 0 10px 0 36px; font-size: 0.9em; overflow-wrap: anywhere; }

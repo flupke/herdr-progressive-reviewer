@@ -1,6 +1,7 @@
 //! A round the reviewer started on the Explore page: the pane shows it starting, can stop it,
 //! and shows the round once the session announces its saved kickoff, as if the pane had
-//! started it.
+//! started it. A kickoff the session refuses, from the page or the pane, leaves the pane on its
+//! start screen with the reason.
 use super::{ExploreComponent, Progress};
 use review_explore::{Command, RoundFront};
 use ui_actions::Action;
@@ -54,6 +55,38 @@ impl ExploreComponent {
         true
     }
 
+    /// Show the start screen again when the session refused the kickoff the pane posted: the
+    /// round was not saved. Returns whether `event` is such a refusal.
+    pub(super) fn refused_kickoff(&mut self, event: &ExplorePosted) -> bool {
+        let Err(reason) = &event.result else {
+            return false;
+        };
+        let posted = self
+            .durable
+            .posting
+            .as_ref()
+            .is_some_and(|request| request.request == event.request.request);
+        if !posted || !event.request.is_kickoff() {
+            return false;
+        }
+        self.show_start_screen();
+        self.status = self.failed_start("The round could not start", reason);
+        true
+    }
+
+    /// What the pane says of a start that failed for `reason`, after `failure`. A start that
+    /// found nothing left to review leaves the reason to the line under the inactive buttons.
+    pub(super) fn failed_start(&self, failure: &str, reason: &str) -> String {
+        if self
+            .start_block
+            .is_some_and(|block| block.reason() == reason)
+        {
+            format!("{failure}.")
+        } else {
+            format!("{failure}: {reason}")
+        }
+    }
+
     /// The pane shows no round and does not start one of its own.
     fn on_start_screen(&self) -> bool {
         self.exploration.is_none() && !self.progress.awaiting_capture()
@@ -62,8 +95,10 @@ impl ExploreComponent {
     fn page_start_failed(&mut self, reason: &str) {
         if self.awaiting_page_start() {
             self.progress = Progress::Ready;
-            self.status =
-                format!("The round started on the Explore page could not start: {reason}");
+            self.status = self.failed_start(
+                "The round started on the Explore page could not start",
+                reason,
+            );
         }
     }
 }

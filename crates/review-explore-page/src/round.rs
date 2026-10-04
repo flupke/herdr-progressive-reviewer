@@ -6,7 +6,7 @@ use std::sync::Arc;
 use axum::http::HeaderMap;
 use review_explore::{
     CodeLocation, Conclusion, ConversationTurn, Design, Exploration, Interpretation,
-    InterviewUpdate, MarkCounts, NotRelevantMark, Question, QuizAnswers,
+    InterviewUpdate, MarkCounts, NotRelevantMark, Question, QuizAnswers, StartBlock,
 };
 use review_explore_citations::Citation;
 use review_repository::repository::SnapshotIdentity;
@@ -311,6 +311,8 @@ pub(crate) struct RoundSnapshot {
     pub(crate) stage: RoundStage,
     /// The review the page belongs to, once its owner named it.
     pub(crate) review: Option<ReviewName>,
+    /// Why the reviewer cannot start a round on the review, when nothing is left to review.
+    pub(crate) start_block: Option<StartBlock>,
 }
 
 impl RoundSnapshot {
@@ -341,6 +343,7 @@ impl RoundPublisher {
             design: round.and_then(|round| round.design.cloned().map(Arc::new)),
             stage,
             review: None,
+            start_block: None,
         }))
     }
 
@@ -358,6 +361,7 @@ impl RoundPublisher {
                 design: round.and_then(|round| round.design.cloned().map(Arc::new)),
                 stage,
                 review: snapshot.review.take(),
+                start_block: snapshot.start_block,
             };
             true
         });
@@ -371,6 +375,19 @@ impl RoundPublisher {
             }
             snapshot.revision += 1;
             snapshot.review = Some(review);
+            true
+        });
+    }
+
+    /// Says why the reviewer cannot start a round on the review, or, with `None`, that a round
+    /// can start. The same again changes nothing.
+    pub fn block_starts(&self, block: Option<StartBlock>) {
+        self.0.send_if_modified(|snapshot| {
+            if snapshot.start_block == block {
+                return false;
+            }
+            snapshot.revision += 1;
+            snapshot.start_block = block;
             true
         });
     }
@@ -410,6 +427,11 @@ impl RoundFeed {
     /// The review the page belongs to, once the owner named it.
     pub fn review(&self) -> Option<ReviewName> {
         self.0.borrow().review.clone()
+    }
+
+    /// Why the reviewer cannot start a round on the review; `None` when a round can start.
+    pub fn start_block(&self) -> Option<StartBlock> {
+        self.0.borrow().start_block
     }
 
     /// Waits for the next published stage. Returns false once the publisher is gone.

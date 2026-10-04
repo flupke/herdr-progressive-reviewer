@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "trace-1",
+  "createdAt": "2026-10-04T03:25:20.054Z",
+  "payload": {
+    "actions": [
+      {
+        "name": "tap",
+        "summary": "tap button \"Start\"",
+        "target": {
+          "role": "button",
+          "name": "Start"
+        }
+      }
+    ],
+    "executor": {
+      "name": "e2e-default-agent",
+      "version": "2"
+    },
+    "recordedFor": {
+      "testId": "tests/reviewed.e2e.ts::once%20a%20line%20is%20unreviewed%2C%20the%20reviewer%20starts%20a%20round",
+      "targetId": "phone",
+      "instructionDigest": "3cbcefd3361bac5327d74e778550bc379eeffee0680835e00171979b92a0f585"
+    },
+    "summary": "Started the Explore round without the Challenger. The page now shows “Preparing the round…”, confirming the round has begun.",
+    "startPath": "/",
+    "endPath": "/",
+    "endAnchors": [
+      {
+        "role": "status",
+        "name": "Preparing the round…"
+      }
+    ],
+    "endWaitMs": 11948
+  }
+}

@@ -16,6 +16,8 @@ use crate::flow::{Content, ConversationLayout};
 
 #[path = "front_ends.tests.rs"]
 mod front_ends;
+#[path = "start.tests.rs"]
+mod start;
 
 fn at(side: SourceSide, first_line: u32, last_line: u32) -> CodeLocation {
     CodeLocation {

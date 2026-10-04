@@ -80,6 +80,11 @@ pub struct ExplorePageNotOpened(pub review_explore_page_opening::PageNotOpened);
 #[derive(Clone, Debug)]
 pub struct ExplorePageStart(pub Result<(), String>);
 
+/// Whether the reviewer can start a round on the review: why not, when the review marks leave
+/// nothing to review, or `None` once a round can start again. Sent when it changes.
+#[derive(Clone, Debug)]
+pub struct ExploreStartBlock(pub Option<review_explore::StartBlock>);
+
 #[derive(Clone, Debug)]
 pub struct ExploreImplementationSaved(pub review_explore::ImplementationDelivery);
 

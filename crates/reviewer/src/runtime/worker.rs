@@ -121,6 +121,7 @@ impl Worker {
                 }
             }
             input => {
+                let ran = self.explore.runs_round();
                 if matches!(
                     input,
                     explore_session::Input::Command(
@@ -132,7 +133,22 @@ impl Worker {
                     self.held_kickoff = None;
                 }
                 self.explore.handle(input);
+                // The round's own marks count once the start screen shows again.
+                if ran && !self.explore.runs_round() {
+                    self.marks_changed();
+                }
             }
+        }
+    }
+
+    /// Tell Explore what the review marks leave of the current snapshot to review: its start
+    /// screen says whether a round can start.
+    fn marks_changed(&mut self) {
+        let Some(snapshot) = &self.snapshot else {
+            return;
+        };
+        if let Ok(states) = self.tracker.statuses(snapshot) {
+            self.explore.marks_changed(&states);
         }
     }
 
@@ -162,6 +178,7 @@ impl Worker {
             RepositoryAction::SetReviewed { path, reviewed } => {
                 self.cancel_auto_review();
                 self.set_reviewed(messages, path, reviewed);
+                self.marks_changed();
             }
             RepositoryAction::SetHunkReviewed {
                 review_checkpoint,
@@ -170,6 +187,7 @@ impl Worker {
             } => {
                 self.cancel_auto_review();
                 self.set_hunk_reviewed(messages, &review_checkpoint, path, &mark);
+                self.marks_changed();
             }
             RepositoryAction::AutoReview(checkpoint) => {
                 self.start_auto_review(&checkpoint, messages);
@@ -230,6 +248,7 @@ impl Worker {
             files,
         });
         let review_unit = snapshot.identity.review_unit().clone();
+        self.explore.marks_changed(&states);
         self.explore.name_review(&snapshot.identity);
         self.explore.checkpoint_changed(&review_unit);
         self.snapshot = Some(snapshot);

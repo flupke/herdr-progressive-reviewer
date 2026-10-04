@@ -15,6 +15,7 @@ mod page_save;
 mod quiz;
 mod records;
 mod restore;
+mod start_block;
 mod submission;
 mod turn;
 mod turn_log;
@@ -107,6 +108,8 @@ pub struct ExploreSession {
     citations: page::PageCitations,
     /// The unreviewed lines of the latest prompt, as files.
     diffs: Option<unreviewed_diffs::UnreviewedDiffs>,
+    /// Why no round can start, as the latest review marks the session read say.
+    start_block: Option<review_explore::StartBlock>,
     state: State,
 }
 
@@ -202,6 +205,7 @@ impl ExploreSession {
             page,
             citations: page::PageCitations::default(),
             diffs: None,
+            start_block: None,
             state: State::default(),
         }
     }
@@ -215,6 +219,11 @@ impl ExploreSession {
             Input::Page { command, reply } => self.page_command(command, reply),
         }
         self.publish_page();
+    }
+
+    /// Whether a round runs: the start screen, and whether it can start a round, do not show.
+    pub fn runs_round(&self) -> bool {
+        self.state.round.is_some()
     }
 
     /// The reviewer now shows `unit`; restore its latest round when the unit changed.
@@ -285,9 +294,10 @@ impl ExploreSession {
 
     /// Starts a round from the Explore page, as Start or Start with Challenger in the pane
     /// would, and returns its kickoff for the owner to send, after Jev's marks when Jev is
-    /// enabled. Refuses while a round runs or starts. It replies to the page before it captures
-    /// the change, so that the page shows the round starting; a capture that fails shows on the
-    /// page as a failed start. The pane hears of the start, and of its failure.
+    /// enabled. Refuses while a round runs or starts, and when nothing is left to review. It
+    /// replies to the page before it captures the change, so that the page shows the round
+    /// starting; a capture that fails shows on the page as a failed start. The pane hears of the
+    /// start, and of its failure.
     pub fn start_from_page(
         &mut self,
         challenger: bool,
@@ -296,6 +306,8 @@ impl ExploreSession {
         let starting = matches!(self.state.start, Start::Starting);
         let refusal = if self.state.round.is_some() || starting {
             Some(CommandRefusal::Stale)
+        } else if let Some(block) = self.start_block {
+            Some(CommandRefusal::Failed(block.reason().into()))
         } else {
             self.state.storage_error.clone().map(CommandRefusal::Failed)
         };
@@ -366,12 +378,16 @@ impl ExploreSession {
         }
     }
 
-    fn capture(&self) -> eyre::Result<Arc<Comparison>> {
+    /// Captures the change for a new round, unless nothing is left to review in it.
+    fn capture(&mut self) -> eyre::Result<Arc<Comparison>> {
         let review_repository::repository::PollResult::Complete(snapshot) =
             self.repository.poll()?
         else {
             eyre::bail!("Repository comparison is not ready; retry Start");
         };
+        if let Some(block) = self.refresh_start_block(&snapshot) {
+            eyre::bail!("{block}");
+        }
         Ok(Arc::new(Comparison::prepare(&self.repository, &snapshot)?))
     }
 
