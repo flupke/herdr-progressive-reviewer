@@ -391,6 +391,7 @@ impl ExploreSession {
             self.begin_start(comparison.clone());
             let mut exploration = Exploration::new(comparison);
             exploration.challenger = challenger;
+            exploration.writing = self.rounds.next_writing()?;
             exploration.request(None, None)
         });
         match kickoff {

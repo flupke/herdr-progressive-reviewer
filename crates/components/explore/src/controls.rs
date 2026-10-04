@@ -134,7 +134,7 @@ impl Control {
                 | Self::CancelAnswer(_)
                 | Self::Reset
                 | Self::ConfirmReset
-                | Self::PageSetting(_)
+                | Self::Setting(_)
         ) {
             let tone = match self {
                 Self::Front(FrontControl::OpenPage) | Self::Send | Self::Implement => {

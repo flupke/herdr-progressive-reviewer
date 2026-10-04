@@ -786,6 +786,23 @@ fn a_round_started_from_the_page_is_captured_saved_and_prompted_as_one_from_the_
 }
 
 #[test]
+fn a_round_started_from_the_page_takes_the_writing_style_the_settings_give_the_next_round() {
+    use review_explore_round_settings::WritingStyle;
+    for writing in [
+        WritingStyle::Plain,
+        WritingStyle::SimplifiedTechnicalEnglish,
+    ] {
+        let mut harness = Harness::start();
+        harness.store.save_explore_writing_style(writing).unwrap();
+
+        let (reply, kickoff) = harness.start_as_worker();
+
+        assert_eq!(reply, Ok(()));
+        assert_eq!(kickoff.expect("a kickoff").writing, writing);
+    }
+}
+
+#[test]
 fn the_page_shows_a_starting_round_until_its_kickoff_is_saved() {
     let mut harness = Harness::start();
 

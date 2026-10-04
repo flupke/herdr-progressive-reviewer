@@ -139,6 +139,11 @@ from both. You still answer one question per turn and nothing in the pane change
 that turns take longer. The round ends when neither has a question left. The choice holds
 for the round.
 
+The agent writes every text you read in the round (the design, the questions with their
+context, choices, door and blast radius, its replies, the conclusion and the quiz) in the
+[writing style](#explore-round-settings) the round started with: ASD-STE100 Simplified Technical
+English by default, or plain.
+
 When every changed line is marked as reviewed, a round has nothing to ask: the four start
 buttons stay on the start screen, inactive, with a line that says nothing is left to review,
 and their keys do nothing. Unmark a line or a file, in Files or in the diff, and they are
@@ -662,6 +667,20 @@ sudo ufw allow from 192.168.1.0/24 to any port 8790:8799 proto tcp
 ```
 
 Remove the rule with `sudo ufw delete allow from 192.168.1.0/24 to any port 8790:8799 proto tcp`.
+
+### Explore round settings
+
+Every screen of the Explore tab also shows the settings for the next round, above the Explore
+page settings. They are saved with the reviewer's other settings, as the page settings are, and
+a round keeps the values it started with: a change applies to the next round, not to a round
+that runs.
+
+| Setting | Key | Effect |
+| --- | --- | --- |
+| **Writing style of the next round** | `W` | Simplified Technical English, the default: the prompts ask the agent to write every text you read in ASD-STE100 Simplified Technical English (short sentences, one topic each, in the active voice, technical names kept as they are in the code), on every turn of the round, the conclusion and the quiz included. Plain: the agent writes in its own style, as before this setting existed. The style changes the wording and the length, not what the agent tells you. |
+
+Click the setting, or press `W` while you are not typing an answer, to turn it over. Rounds saved
+before this setting existed continue in the plain style.
 
 ### Explore page settings
 

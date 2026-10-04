@@ -1,6 +1,7 @@
 //! Start an Explore interview once, then wake the same agent for each human answer.
 use markdown_marks::{Callout, Mark, StatusMark};
 use review_explore::{Comparison, TurnRequest};
+use review_explore_round_settings::WritingStyle;
 
 mod decisions;
 mod input;
@@ -29,7 +30,8 @@ impl PreparedTurn {
             description: comparison.change_description(),
             decisions: earlier,
         });
-        let instructions = Self::instructions(kickoff.is_some(), request.challenger);
+        let instructions =
+            Self::instructions(kickoff.is_some(), request.challenger, request.writing);
         let input = input::TurnInput {
             request,
             access,
@@ -42,9 +44,10 @@ impl PreparedTurn {
     }
 
     /// The rules of a turn: the kickoff's, or a later turn's, followed by the
-    /// sections every prompt states (the conclusion's quiz, then Not relevant)
-    /// and by the challenger's script when the round has one.
-    fn instructions(kickoff: bool, challenger: bool) -> String {
+    /// sections every prompt states (the conclusion's quiz, then Not relevant),
+    /// by the challenger's script when the round has one, and by the rules of
+    /// the round's writing style when it has some.
+    fn instructions(kickoff: bool, challenger: bool, writing: WritingStyle) -> String {
         let turn = if kickoff {
             format!(
                 "{}\n\n{}",
@@ -69,7 +72,24 @@ impl PreparedTurn {
             instructions.push_str("\n\n");
             instructions.push_str(script.trim_end());
         }
+        if let Some(style) = Self::writing(kickoff, writing) {
+            instructions.push_str("\n\n");
+            instructions.push_str(style.trim_end());
+        }
         instructions
+    }
+
+    /// The rules of the writing style `writing`: in full in the kickoff, and as a short
+    /// reminder in every later turn, so that the style holds in a long round, whose earlier
+    /// turns the agent may have compacted, and after a restore. The plain style has none.
+    fn writing(kickoff: bool, writing: WritingStyle) -> Option<&'static str> {
+        match (writing, kickoff) {
+            (WritingStyle::Plain, _) => None,
+            (WritingStyle::SimplifiedTechnicalEnglish, true) => Some(include_str!("writing.md")),
+            (WritingStyle::SimplifiedTechnicalEnglish, false) => {
+                Some(include_str!("writing_wakeup.md"))
+            }
+        }
     }
 
     /// How to write the Markdown of an explanation, with the markers of its callouts and status

@@ -165,7 +165,7 @@ pub enum ExploreTurnShortcut {
     OpenPage,
     /// Show the interview of a round on the page in the pane.
     ContinueInPane,
-    /// Change a setting of the Explore page.
+    /// Change an Explore setting: one of the next round or of the Explore page.
     Setting(ExploreSettingShortcut),
     Cancel,
     Retry,
@@ -187,9 +187,18 @@ pub enum ExploreStartShortcut {
     StartInPaneWithChallenger,
 }
 
-/// The settings of the Explore page that the pane changes.
+/// The Explore settings that the pane changes: the next round's and the Explore page's.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExploreSettingShortcut {
+    /// Turn over the writing style of the next round.
+    WritingStyle,
+    /// Change a setting of the Explore page.
+    Page(ExplorePageSettingShortcut),
+}
+
+/// The settings of the Explore page that the pane changes.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExplorePageSettingShortcut {
     /// Turn over whether Start and Start with Challenger open the page in the browser.
     PaneStarts,
     /// Turn network access on or off.

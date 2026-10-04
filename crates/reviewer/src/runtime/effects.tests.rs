@@ -183,6 +183,21 @@ fn settings_save_and_terminal_actions_run_in_order_until_quit() {
 }
 
 #[test]
+fn a_saved_writing_style_is_kept_for_the_next_round_and_shown_as_saved() {
+    use review_explore_round_settings::WritingStyle;
+    let mut fixture = EffectsFixture::new(RepoType::Git);
+
+    fixture.perform([Action::Settings(SettingsAction::SaveExploreWritingStyle(
+        WritingStyle::Plain,
+    ))]);
+
+    let ui_events::ExploreRoundSettingsLoaded(saved) =
+        fixture.wait_for::<ui_events::ExploreRoundSettingsLoaded>();
+    assert_eq!(saved.writing, WritingStyle::Plain);
+    assert_eq!(saved, fixture.store.explore_round_settings().unwrap());
+}
+
+#[test]
 fn source_loads_prefer_frozen_content_when_a_deleted_path_is_recreated() {
     let files = repository_fixture(RepoType::Git);
     let deleted_content = b"fn deleted_from_worktree() {}\n";

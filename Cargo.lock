@@ -1010,6 +1010,7 @@ dependencies = [
  "review-explore",
  "review-explore-page-opening",
  "review-explore-page-settings",
+ "review-explore-round-settings",
  "review-repository",
  "review-source",
  "review-types",
@@ -3969,6 +3970,7 @@ dependencies = [
  "eyre",
  "herdr-client",
  "pulldown-cmark",
+ "review-explore-round-settings",
  "review-hunks",
  "review-repository",
  "review-source",
@@ -4072,12 +4074,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "review-explore-round-settings"
+version = "0.2.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "review-explore-runner"
 version = "0.2.0"
 dependencies = [
  "markdown-marks",
  "mermaid-js",
  "review-explore",
+ "review-explore-round-settings",
  "review-repository",
  "review-source",
  "schemars",
@@ -4095,6 +4106,7 @@ dependencies = [
  "review-explore",
  "review-explore-citations",
  "review-explore-page",
+ "review-explore-round-settings",
  "review-explore-runner",
  "review-explore-tally",
  "review-hunks",
@@ -4271,6 +4283,7 @@ dependencies = [
  "libc",
  "review-explore",
  "review-explore-page-settings",
+ "review-explore-round-settings",
  "review-hunks",
  "review-repository",
  "review-source",
@@ -4364,6 +4377,7 @@ dependencies = [
  "review-explore",
  "review-explore-page-opening",
  "review-explore-page-settings",
+ "review-explore-round-settings",
  "review-hunks",
  "review-lsp",
  "review-repository",
@@ -4409,6 +4423,7 @@ dependencies = [
  "review-explore-page",
  "review-explore-page-host",
  "review-explore-page-settings",
+ "review-explore-round-settings",
  "review-explore-session",
  "review-explore-stats",
  "review-hunks",
@@ -5746,6 +5761,7 @@ version = "0.2.0"
 dependencies = [
  "review-explore",
  "review-explore-page-settings",
+ "review-explore-round-settings",
  "review-hunks",
  "review-lsp",
  "review-repository",
@@ -5771,6 +5787,7 @@ dependencies = [
  "review-explore",
  "review-explore-page-opening",
  "review-explore-page-settings",
+ "review-explore-round-settings",
  "review-hunks",
  "review-lsp",
  "review-repository",

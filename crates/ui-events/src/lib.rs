@@ -8,8 +8,9 @@ pub use explore::{
     ExploreHistoryChanged, ExploreImplementationFinished, ExploreImplementationSaved,
     ExplorePageNotOpened, ExplorePageNotShared, ExplorePageOffNetwork, ExplorePageReset,
     ExplorePageSettingsLoaded, ExplorePageShared, ExplorePageStart, ExplorePageStopped,
-    ExplorePositionsRestored, ExplorePosted, ExploreProgress, ExploreRestored, ExploreStartBlock,
-    ExploreStorageFailed, ExploreSubmission, ExploreViewports,
+    ExplorePositionsRestored, ExplorePosted, ExploreProgress, ExploreRestored,
+    ExploreRoundSettingsLoaded, ExploreStartBlock, ExploreStorageFailed, ExploreSubmission,
+    ExploreViewports,
 };
 pub use threads::{
     NewRepliesRequested, ReviewNavigation, ReviewNavigationChanged, ReviewPane,

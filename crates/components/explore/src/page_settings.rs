@@ -11,7 +11,8 @@ use review_explore_page_settings::{
 use ui_actions::{Action, SettingsAction};
 use ui_events::ExplorePageSettingsLoaded;
 use ui_shortcuts::{
-    ExploreCommand, ExploreGlobalShortcut, ExploreSettingShortcut, ExploreShortcut,
+    ExploreCommand, ExploreGlobalShortcut, ExplorePageSettingShortcut, ExploreSettingShortcut,
+    ExploreShortcut,
 };
 use ui_theme::Palette;
 
@@ -90,19 +91,23 @@ impl PageSettings {
 
     /// Runs `setting`'s control: turns a switch over and saves it, or opens a field's editor
     /// with the setting's text.
-    fn change(&mut self, setting: ExploreSettingShortcut, keymap: &KeymapSetting) -> Vec<Action> {
+    pub(super) fn change(
+        &mut self,
+        setting: ExplorePageSettingShortcut,
+        keymap: &KeymapSetting,
+    ) -> Vec<Action> {
         let field = match setting {
-            ExploreSettingShortcut::PaneStarts => {
+            ExplorePageSettingShortcut::PaneStarts => {
                 let mut starts = self.saved.pane_starts;
                 starts.toggle();
                 return self.save(ExplorePageSetting::PaneStarts(starts));
             }
-            ExploreSettingShortcut::Network => {
+            ExplorePageSettingShortcut::Network => {
                 let enabled = !self.saved.network.enabled;
                 return self.save(ExplorePageSetting::NetworkEnabled(enabled));
             }
-            ExploreSettingShortcut::Interface => TextField::Interface,
-            ExploreSettingShortcut::FirstPort => TextField::FirstPort,
+            ExplorePageSettingShortcut::Interface => TextField::Interface,
+            ExplorePageSettingShortcut::FirstPort => TextField::FirstPort,
         };
         self.field = Some(FieldEdit {
             field,
@@ -176,22 +181,30 @@ impl PageSettings {
                     "Open the page on Start: {}",
                     on(self.saved.pane_starts == PaneStarts::OnPage)
                 ),
-                Control::PageSetting(ExploreSettingShortcut::PaneStarts),
+                Control::Setting(ExploreSettingShortcut::Page(
+                    ExplorePageSettingShortcut::PaneStarts,
+                )),
             ),
             (
                 format!("Serve on the network: {}", on(network.enabled)),
-                Control::PageSetting(ExploreSettingShortcut::Network),
+                Control::Setting(ExploreSettingShortcut::Page(
+                    ExplorePageSettingShortcut::Network,
+                )),
             ),
             (
                 format!(
                     "Interface: {}",
                     network.interface.as_deref().unwrap_or("default route")
                 ),
-                Control::PageSetting(ExploreSettingShortcut::Interface),
+                Control::Setting(ExploreSettingShortcut::Page(
+                    ExplorePageSettingShortcut::Interface,
+                )),
             ),
             (
                 format!("First port: {}", network.first_port),
-                Control::PageSetting(ExploreSettingShortcut::FirstPort),
+                Control::Setting(ExploreSettingShortcut::Page(
+                    ExplorePageSettingShortcut::FirstPort,
+                )),
             ),
         ]);
         let Some(edit) = &self.field else {
@@ -208,12 +221,6 @@ impl ExploreComponent {
     /// Shows the settings as saved, keeping the setting being typed.
     pub(super) fn page_settings_loaded(&mut self, event: &ExplorePageSettingsLoaded) {
         self.page_settings.saved = event.0.clone();
-    }
-
-    /// Runs a setting's control. The answer being typed, if any, keeps its text.
-    pub(super) fn page_setting(&mut self, setting: ExploreSettingShortcut) -> Vec<Action> {
-        self.editing = false;
-        self.page_settings.change(setting, &self.keymap)
     }
 
     /// Leaves the setting being typed unsaved: another control of the pane was used.

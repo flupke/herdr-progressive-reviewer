@@ -41,8 +41,13 @@ pub(super) fn prepare_with(
 
 /// What a later prompt says after its fixed rules: identity, unreviewed lines and answer.
 fn turn_input(prompt: &str) -> &str {
+    turn_input_in(prompt, WritingStyle::Plain)
+}
+
+/// What a later prompt of a round written in `writing` says after its fixed rules.
+fn turn_input_in(prompt: &str, writing: WritingStyle) -> &str {
     prompt
-        .strip_prefix(PreparedTurn::instructions(false, false).as_str())
+        .strip_prefix(PreparedTurn::instructions(false, false, writing).as_str())
         .expect("a later prompt starts with its rules")
 }
 
@@ -81,7 +86,9 @@ fn the_kickoff_supplies_its_rules_scope_and_identity() {
         "Repository root: {}",
         comparison.repository_root.display()
     )));
-    assert!(prompt.starts_with(PreparedTurn::instructions(true, false).as_str()));
+    assert!(
+        prompt.starts_with(PreparedTurn::instructions(true, false, WritingStyle::Plain).as_str())
+    );
 }
 
 #[test]
@@ -311,7 +318,7 @@ fn every_prompt_states_the_same_not_relevant_rules() {
     let rules = include_str!("not_relevant.md").trim_end();
 
     for kickoff in [true, false] {
-        let instructions = PreparedTurn::instructions(kickoff, false);
+        let instructions = PreparedTurn::instructions(kickoff, false, WritingStyle::Plain);
         assert!(instructions.ends_with(rules), "kickoff: {kickoff}");
         assert_eq!(instructions.matches("## Not relevant").count(), 1);
     }
@@ -325,39 +332,60 @@ fn sections(rules: &str) -> Vec<&str> {
         .collect()
 }
 
-#[test]
-fn every_prompt_holds_its_turns_rules_the_quiz_and_not_relevant_then_the_challengers_script() {
-    for kickoff in [true, false] {
-        for challenger in [false, true] {
-            let turn: &[&str] = if kickoff {
-                &[
-                    include_str!("interview.md"),
-                    include_str!("explanation.md"),
-                    include_str!("diagrams.md"),
-                ]
-            } else {
-                &[include_str!("wakeup.md")]
-            };
-            let script: &[&str] = match (challenger, kickoff) {
-                (false, _) => &[],
-                (true, true) => &[include_str!("challenger.md")],
-                (true, false) => &[include_str!("challenger_wakeup.md")],
-            };
-            let shared = [include_str!("quiz.md"), include_str!("not_relevant.md")];
-            let expected: Vec<_> = turn
-                .iter()
-                .chain(&shared)
-                .chain(script)
-                .flat_map(|rules| sections(rules))
-                .collect();
+/// The rule files of a prompt, in order: the turn's, the quiz and Not relevant, the
+/// challenger's script and the writing style's rules.
+fn rule_files(kickoff: bool, challenger: bool, writing: WritingStyle) -> Vec<&'static str> {
+    let mut files = if kickoff {
+        vec![
+            include_str!("interview.md"),
+            include_str!("explanation.md"),
+            include_str!("diagrams.md"),
+        ]
+    } else {
+        vec![include_str!("wakeup.md")]
+    };
+    files.extend([include_str!("quiz.md"), include_str!("not_relevant.md")]);
+    if challenger {
+        files.push(if kickoff {
+            include_str!("challenger.md")
+        } else {
+            include_str!("challenger_wakeup.md")
+        });
+    }
+    if writing == WritingStyle::SimplifiedTechnicalEnglish {
+        files.push(if kickoff {
+            include_str!("writing.md")
+        } else {
+            include_str!("writing_wakeup.md")
+        });
+    }
+    files
+}
 
-            let instructions = PreparedTurn::instructions(kickoff, challenger);
-            assert_eq!(
-                sections(&instructions),
-                expected,
-                "kickoff: {kickoff}, challenger: {challenger}"
-            );
-        }
+#[test]
+fn every_prompt_holds_its_turns_rules_the_quiz_and_not_relevant_then_the_challengers_script_then_the_writing_style()
+ {
+    let styles = [
+        WritingStyle::Plain,
+        WritingStyle::SimplifiedTechnicalEnglish,
+    ];
+    for (kickoff, challenger, writing) in [true, false]
+        .into_iter()
+        .flat_map(|kickoff| [(kickoff, false), (kickoff, true)])
+        .flat_map(|(kickoff, challenger)| styles.map(|writing| (kickoff, challenger, writing)))
+    {
+        let expected: Vec<_> = rule_files(kickoff, challenger, writing)
+            .into_iter()
+            .flat_map(sections)
+            .collect();
+
+        let instructions = PreparedTurn::instructions(kickoff, challenger, writing);
+
+        assert_eq!(
+            sections(&instructions),
+            expected,
+            "kickoff: {kickoff}, challenger: {challenger}, writing: {writing:?}"
+        );
     }
 }
 
@@ -399,7 +427,7 @@ fn the_not_relevant_rules_name_every_field_and_reason_a_mark_takes() {
     assert_eq!(reasons.len(), 3, "{reasons:?}");
 
     for kickoff in [true, false] {
-        let instructions = PreparedTurn::instructions(kickoff, false);
+        let instructions = PreparedTurn::instructions(kickoff, false, WritingStyle::Plain);
         for name in fields.clone().chain(reasons.iter().cloned()) {
             assert!(
                 instructions.contains(&format!("`{name}`")),
@@ -430,6 +458,39 @@ fn only_a_round_with_a_challenger_carries_its_script() {
 }
 
 #[test]
+fn only_a_round_in_simplified_technical_english_carries_the_rules_of_its_style() {
+    let comparison = comparison();
+    let rules = include_str!("writing.md").trim_end();
+    let reminder = include_str!("writing_wakeup.md").trim_end();
+    let mut inputs = Vec::new();
+    for writing in [
+        WritingStyle::Plain,
+        WritingStyle::SimplifiedTechnicalEnglish,
+    ] {
+        let ste = writing == WritingStyle::SimplifiedTechnicalEnglish;
+        let mut exploration = Exploration::new(Arc::new(comparison.clone()));
+        exploration.writing = writing;
+        let mut request = exploration.request(None, None).unwrap();
+
+        let kickoff = prepare(&request, &comparison);
+        request.answer = Some(answer(&request));
+        let wakeup = prepare(&request, &comparison);
+
+        assert_eq!(kickoff.contains(rules), ste, "{writing:?}");
+        assert_eq!(wakeup.contains(reminder), ste, "{writing:?}");
+        assert!(!wakeup.contains(rules), "the full rules are sent once");
+        let input = turn_input_in(&wakeup, writing);
+        inputs.push(
+            input
+                .replace(&request.instance, "")
+                .replace(&request.request, ""),
+        );
+    }
+    // The style changes the rules only, never what the prompt brings.
+    assert_eq!(inputs[0], inputs[1]);
+}
+
+#[test]
 fn the_challengers_script_asks_for_every_field_and_result_of_a_proposal() {
     const FIELD: &str = "challenger_proposals";
     for tool in [
@@ -454,9 +515,12 @@ fn the_challengers_script_asks_for_every_field_and_result_of_a_proposal() {
     for name in fields.chain(results).chain([FIELD.to_owned()]) {
         assert!(script.contains(&format!("`{name}`")), "{name}");
     }
-    assert!(PreparedTurn::instructions(false, true).contains(&format!("`{FIELD}`")));
+    assert!(
+        PreparedTurn::instructions(false, true, WritingStyle::Plain)
+            .contains(&format!("`{FIELD}`"))
+    );
     for kickoff in [true, false] {
-        assert!(!PreparedTurn::instructions(kickoff, false).contains(FIELD));
+        assert!(!PreparedTurn::instructions(kickoff, false, WritingStyle::Plain).contains(FIELD));
     }
 }
 
@@ -466,8 +530,8 @@ fn the_kickoff_names_the_marker_of_every_callout_and_status_mark() {
         .iter()
         .map(|callout| callout.marker())
         .chain(StatusMark::ALL.iter().map(|mark| mark.marker()));
-    let kickoff = PreparedTurn::instructions(true, false);
-    let wakeup = PreparedTurn::instructions(false, false);
+    let kickoff = PreparedTurn::instructions(true, false, WritingStyle::Plain);
+    let wakeup = PreparedTurn::instructions(false, false, WritingStyle::Plain);
     for marker in markers {
         assert!(kickoff.contains(&format!("`{marker}`")), "{marker}");
         assert!(
@@ -504,7 +568,7 @@ fn the_kickoff_asks_for_the_theses_and_every_part_of_the_design() {
     assert_eq!(required(part), 2, "{part}");
 
     for challenger in [false, true] {
-        let kickoff = PreparedTurn::instructions(true, challenger);
+        let kickoff = PreparedTurn::instructions(true, challenger, WritingStyle::Plain);
         for name in parts
             .iter()
             .chain(&part_fields)
@@ -518,8 +582,8 @@ fn the_kickoff_asks_for_the_theses_and_every_part_of_the_design() {
 
 #[test]
 fn the_kickoff_names_the_fence_of_a_diagram_and_the_mermaid_version_the_page_draws_it_with() {
-    let kickoff = PreparedTurn::instructions(true, false);
-    let wakeup = PreparedTurn::instructions(false, false);
+    let kickoff = PreparedTurn::instructions(true, false, WritingStyle::Plain);
+    let wakeup = PreparedTurn::instructions(false, false, WritingStyle::Plain);
     let fence = format!("```{}", mermaid_js::FENCE);
     assert!(kickoff.contains(&fence), "{kickoff}");
     assert!(kickoff.contains(mermaid_js::VERSION), "{kickoff}");
@@ -533,7 +597,7 @@ fn every_prompt_states_the_same_quiz_rules() {
 
     for kickoff in [true, false] {
         for challenger in [false, true] {
-            let instructions = PreparedTurn::instructions(kickoff, challenger);
+            let instructions = PreparedTurn::instructions(kickoff, challenger, WritingStyle::Plain);
             assert!(
                 instructions.contains(rules),
                 "kickoff: {kickoff}, challenger: {challenger}"
@@ -564,7 +628,7 @@ fn the_quiz_rules_name_every_field_a_quiz_item_takes() {
     assert_eq!(fields.len(), 6, "{fields:?}");
 
     for kickoff in [true, false] {
-        let instructions = PreparedTurn::instructions(kickoff, false);
+        let instructions = PreparedTurn::instructions(kickoff, false, WritingStyle::Plain);
         for name in fields.iter().map(String::as_str).chain(quiz) {
             assert!(
                 instructions.contains(&format!("`{name}`")),
@@ -579,7 +643,7 @@ fn every_kickoff_states_the_same_diagram_rules() {
     // One prompt, whether the reviewer follows the round in the pane or on the Explore page.
     let rules = include_str!("diagrams.md").trim_end();
     for challenger in [false, true] {
-        let kickoff = PreparedTurn::instructions(true, challenger);
+        let kickoff = PreparedTurn::instructions(true, challenger, WritingStyle::Plain);
         assert!(kickoff.contains(rules), "challenger: {challenger}");
     }
 }

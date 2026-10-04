@@ -94,6 +94,8 @@ pub enum SettingsAction {
     SaveEditorKeymap(review_types::EditorKeymap),
     /// Save one setting of the Explore page, which takes effect at once.
     SaveExplorePage(review_explore_page_settings::ExplorePageSetting),
+    /// Save the writing style of the next Explore round.
+    SaveExploreWritingStyle(review_explore_round_settings::WritingStyle),
 }
 
 /// Repository and review-mark work run by the repository worker.

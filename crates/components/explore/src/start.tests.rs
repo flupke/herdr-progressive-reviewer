@@ -65,7 +65,7 @@ impl Pane {
             .flat_map(|item| match &item.content {
                 Content::Controls(buttons) => buttons
                     .iter()
-                    .filter(|button| !matches!(button.control, Some(Control::PageSetting(_))))
+                    .filter(|button| !matches!(button.control, Some(Control::Setting(_))))
                     .map(|button| (button.text.trim().to_owned(), button.control.is_some()))
                     .collect(),
                 _ => Vec::new(),

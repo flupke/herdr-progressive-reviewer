@@ -488,6 +488,13 @@ impl ActionExecutors for Performer<'_, '_> {
                     .messages
                     .send(ui_events::ExplorePageSettingsLoaded(saved));
             }
+            SettingsAction::SaveExploreWritingStyle(writing) => {
+                let saved = settings.save_explore_writing_style(writing)?;
+                let _ = self
+                    .effects
+                    .messages
+                    .send(ui_events::ExploreRoundSettingsLoaded(saved));
+            }
         }
         Ok(())
     }

@@ -266,6 +266,7 @@ impl ExploreSession {
             );
             exploration.instance.clone_from(&request.instance);
             exploration.challenger = request.challenger;
+            exploration.writing = request.writing;
             let mut round = ExploreRound::new(exploration);
             round.post(request)?;
             round.last_agent_session = self

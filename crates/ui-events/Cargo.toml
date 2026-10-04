@@ -9,6 +9,7 @@ license.workspace = true
 review-explore = { path = "../review-explore" }
 review-explore-page-opening = { path = "../review-explore-page-opening" }
 review-explore-page-settings = { path = "../review-explore-page-settings" }
+review-explore-round-settings = { path = "../review-explore-round-settings" }
 review-hunks = { path = "../review-hunks" }
 review-threads = { path = "../review-threads" }
 review-source = { path = "../review-source" }

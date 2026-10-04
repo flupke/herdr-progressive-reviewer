@@ -598,6 +598,8 @@ fn only_the_first_turn_explains_the_design() {
 mod diagram;
 #[path = "interview/quiz.rs"]
 mod quiz;
+#[path = "interview/writing.rs"]
+mod writing;
 
 #[test]
 fn a_first_pick_is_saved_with_the_answer_when_it_names_a_choice() {

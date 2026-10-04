@@ -78,6 +78,12 @@ pub struct ExplorePageOffNetwork;
 #[derive(Clone, Debug)]
 pub struct ExplorePageSettingsLoaded(pub review_explore_page_settings::ExplorePageSettings);
 
+/// The settings for the next Explore round as they are saved: read when the reviewer starts,
+/// and again after each change the pane saves, with the changes another reviewer saved in
+/// between.
+#[derive(Clone, Debug)]
+pub struct ExploreRoundSettingsLoaded(pub review_explore_round_settings::ExploreRoundSettings);
+
 /// The browser could not open the Explore page the pane asked for: the pane says why and shows
 /// the page's address, when the page has one.
 #[derive(Clone, Debug)]

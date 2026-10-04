@@ -149,6 +149,9 @@ impl Runtime {
         app.set_editor_keymap(settings.editor_keymap()?);
         let explore_page = settings.explore_page_settings()?;
         let _ = app.publish(ui_events::ExplorePageSettingsLoaded(explore_page.clone()));
+        let _ = app.publish(ui_events::ExploreRoundSettingsLoaded(
+            settings.explore_round_settings()?,
+        ));
         let area = terminal.terminal.size()?;
         let _ = app.update(UserInput::Resize {
             width: area.width,

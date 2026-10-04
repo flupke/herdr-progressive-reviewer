@@ -12,6 +12,7 @@ files-component = { path = "../files" }
 review-explore = { path = "../../review-explore" }
 review-explore-page-opening = { path = "../../review-explore-page-opening" }
 review-explore-page-settings = { path = "../../review-explore-page-settings" }
+review-explore-round-settings = { path = "../../review-explore-round-settings" }
 review-source = { path = "../../review-source" }
 component-core = { path = "../../component-core" }
 ui-actions = { path = "../../ui-actions" }

@@ -9,6 +9,7 @@ license.workspace = true
 markdown-marks = { path = "../markdown-marks" }
 mermaid-js = { path = "../mermaid-js" }
 review-explore = { path = "../review-explore" }
+review-explore-round-settings = { path = "../review-explore-round-settings" }
 review-repository = { path = "../review-repository" }
 review-source = { path = "../review-source" }
 

@@ -3,10 +3,11 @@
 use crate::Key;
 use crate::commands::{
     ApplicationShortcut, CommentShortcut, ConversationShortcut, DiffGlobalShortcut, DiffShortcut,
-    ExploreEvidenceShortcut, ExploreGlobalShortcut, ExploreSettingShortcut, ExploreShortcut,
-    ExploreStartShortcut, ExploreTurnShortcut, FilesShortcut, HunkShortcut, LocationShortcut,
-    LspShortcut, MovementShortcut, OverlayShortcut, RevisionShortcut, SearchMatchShortcut,
-    SearchShortcut, ShortcutCommand, SourceShortcut, ThreadsShortcut,
+    ExploreEvidenceShortcut, ExploreGlobalShortcut, ExplorePageSettingShortcut,
+    ExploreSettingShortcut, ExploreShortcut, ExploreStartShortcut, ExploreTurnShortcut,
+    FilesShortcut, HunkShortcut, LocationShortcut, LspShortcut, MovementShortcut, OverlayShortcut,
+    RevisionShortcut, SearchMatchShortcut, SearchShortcut, ShortcutCommand, SourceShortcut,
+    ThreadsShortcut,
 };
 
 const fn application(command: ApplicationShortcut) -> ShortcutCommand {
@@ -667,17 +668,28 @@ pub(crate) const SHORTCUTS: &[ShortcutDefinition] = &[
         ],
     },
     ShortcutDefinition {
+        description: Some("Explore round settings: turn over the writing style of the next round"),
+        bindings: &[ShortcutBinding::one(
+            Key::Char('W'),
+            explore_setting(ExploreSettingShortcut::WritingStyle),
+        )],
+    },
+    ShortcutDefinition {
         description: Some(
             "Explore page settings: turn over opening the page on Start / network access",
         ),
         bindings: &[
             ShortcutBinding::one(
                 Key::Char('w'),
-                explore_setting(ExploreSettingShortcut::PaneStarts),
+                explore_setting(ExploreSettingShortcut::Page(
+                    ExplorePageSettingShortcut::PaneStarts,
+                )),
             ),
             ShortcutBinding::one(
                 Key::Char('n'),
-                explore_setting(ExploreSettingShortcut::Network),
+                explore_setting(ExploreSettingShortcut::Page(
+                    ExplorePageSettingShortcut::Network,
+                )),
             ),
         ],
     },
@@ -686,11 +698,15 @@ pub(crate) const SHORTCUTS: &[ShortcutDefinition] = &[
         bindings: &[
             ShortcutBinding::one(
                 Key::Char('N'),
-                explore_setting(ExploreSettingShortcut::Interface),
+                explore_setting(ExploreSettingShortcut::Page(
+                    ExplorePageSettingShortcut::Interface,
+                )),
             ),
             ShortcutBinding::one(
                 Key::Char('#'),
-                explore_setting(ExploreSettingShortcut::FirstPort),
+                explore_setting(ExploreSettingShortcut::Page(
+                    ExplorePageSettingShortcut::FirstPort,
+                )),
             ),
         ],
     },

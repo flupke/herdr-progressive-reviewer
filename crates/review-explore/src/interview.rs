@@ -1,6 +1,7 @@
 use crate::{
     AgendaChange, Assessments, CodeLocation, Comparison, ConversationTurn, EvidenceRef, Reply,
 };
+use review_explore_round_settings::WritingStyle;
 use review_source::ReviewCheckpoint;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, sync::Arc};
@@ -174,6 +175,18 @@ pub struct TurnRequest {
     /// The round has a challenger, so the prompt carries its script.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub challenger: bool,
+    /// How the agent writes the texts the reviewer reads, as the round started with it.
+    #[serde(
+        default = "before_writing_styles",
+        skip_serializing_if = "WritingStyle::is_plain"
+    )]
+    pub writing: WritingStyle,
+}
+
+/// The writing style of a round saved before writing styles existed, and of a new round until
+/// its start gives it the reviewer's setting: the agent's own.
+fn before_writing_styles() -> WritingStyle {
+    WritingStyle::Plain
 }
 
 impl TurnRequest {
@@ -207,6 +220,13 @@ pub struct Exploration {
     /// A fresh-context subagent of the agent reviews the change beside it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub challenger: bool,
+    /// How the agent writes the texts the reviewer reads. The reviewer's setting gives it when
+    /// the round starts, and the round keeps it.
+    #[serde(
+        default = "before_writing_styles",
+        skip_serializing_if = "WritingStyle::is_plain"
+    )]
+    pub writing: WritingStyle,
     /// The diagrams of posted questions that the Explore page could not draw.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub diagram_errors: Vec<crate::DiagramError>,
@@ -234,6 +254,7 @@ impl Exploration {
             retry: None,
             cancelled: Vec::new(),
             challenger: false,
+            writing: before_writing_styles(),
             diagram_errors: Vec::new(),
             quiz_answers: BTreeMap::new(),
         }
@@ -295,6 +316,7 @@ impl Exploration {
             cancelled,
             response_error: None,
             challenger: self.challenger,
+            writing: self.writing,
         };
         self.outstanding = Some(request.clone());
         self.retry = Some(request.clone());

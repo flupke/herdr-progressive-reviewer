@@ -3,6 +3,7 @@ use std::os::unix::fs::symlink;
 use std::time::{Duration, SystemTime};
 
 use review_explore_page_settings::{ExplorePageSetting, ExplorePageSettings, PaneStarts};
+use review_explore_round_settings::{ExploreRoundSettings, WritingStyle};
 use review_types::ReviewUnit;
 use tempfile::TempDir;
 
@@ -126,6 +127,10 @@ fn settings_saved_before_the_explore_page_settings_existed_give_their_defaults()
         store.explore_page_settings().unwrap(),
         ExplorePageSettings::default()
     );
+    assert_eq!(
+        store.explore_round_settings().unwrap(),
+        ExploreRoundSettings::default()
+    );
     assert_eq!(store.file_pane_width().unwrap(), Some(37));
     assert_eq!(
         store.editor_keymap().unwrap(),
@@ -214,3 +219,29 @@ fn reads_do_not_follow_symbolic_links() {
 
 #[path = "checkpoint.tests.rs"]
 mod checkpoint_tests;
+
+#[test]
+fn a_saved_writing_style_is_read_back_and_keeps_the_other_settings() {
+    let fixture = Fixture::new();
+    fixture
+        .store()
+        .save_explore_page_setting(ExplorePageSetting::NetworkEnabled(false))
+        .unwrap();
+
+    let saved = fixture
+        .store()
+        .save_explore_writing_style(WritingStyle::Plain)
+        .unwrap();
+
+    let store = fixture.store();
+    assert_eq!(saved.writing, WritingStyle::Plain);
+    assert_eq!(store.explore_round_settings().unwrap(), saved);
+    assert!(!store.explore_page_settings().unwrap().network.enabled);
+    store
+        .save_explore_writing_style(WritingStyle::SimplifiedTechnicalEnglish)
+        .unwrap();
+    assert_eq!(
+        fixture.store().explore_round_settings().unwrap().writing,
+        WritingStyle::SimplifiedTechnicalEnglish
+    );
+}

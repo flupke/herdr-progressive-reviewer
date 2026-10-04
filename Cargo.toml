@@ -10,6 +10,7 @@ members = [
     "crates/review-explore-page-host",
     "crates/review-explore-page-opening",
     "crates/review-explore-page-settings",
+    "crates/review-explore-round-settings",
     "crates/review-explore-page-server",
     "crates/review-explore-session",
     "crates/review-explore-stats",

@@ -7,6 +7,7 @@
 use review_explore::{
     DispatchResult, ExploreHistory, ExploreRound, InterviewUpdate, ReviewCompletion, ViewSave,
 };
+use review_explore_round_settings::WritingStyle;
 use review_store::{Error, Result, ReviewStore};
 use review_types::ReviewUnit;
 
@@ -34,6 +35,11 @@ pub(crate) struct SavedRounds {
 impl SavedRounds {
     pub(crate) fn new(store: ReviewStore) -> Self {
         Self { store }
+    }
+
+    /// The writing style the reviewer's settings give the next round.
+    pub(crate) fn next_writing(&self) -> Result<WritingStyle> {
+        Ok(self.store.explore_round_settings()?.writing)
     }
 
     pub(crate) fn history(&self, unit: &ReviewUnit) -> Result<ExploreHistory> {

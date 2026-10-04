@@ -9,8 +9,8 @@ use ui_events::{
 };
 use ui_shortcuts::{
     ApplicationShortcut, ExploreCommand, ExploreEvidenceShortcut, ExploreGlobalShortcut,
-    ExploreShortcut, ExploreTurnShortcut, Key, OverlayShortcut, ShortcutMatcher,
-    ShortcutSubscription,
+    ExploreSettingShortcut, ExploreShortcut, ExploreTurnShortcut, Key, OverlayShortcut,
+    ShortcutMatcher, ShortcutSubscription,
 };
 
 pub(super) struct ResizeDrag {
@@ -54,6 +54,18 @@ impl ExploreComponent {
         );
     }
 
+    /// Runs a setting's control, of the next round or of the page. The answer being typed, if
+    /// any, keeps its text.
+    pub(super) fn setting(&mut self, setting: ExploreSettingShortcut) -> Vec<Action> {
+        self.editing = false;
+        match setting {
+            ExploreSettingShortcut::WritingStyle => self.round_settings.toggle_writing(),
+            ExploreSettingShortcut::Page(setting) => {
+                self.page_settings.change(setting, &self.keymap)
+            }
+        }
+    }
+
     fn activate(&mut self, control: Control) -> Vec<Action> {
         if matches!(control, Control::Reset | Control::ConfirmReset) {
             return self.reset(std::time::Instant::now());
@@ -61,12 +73,12 @@ impl ExploreComponent {
         // Any other control cancels a Reset waiting for its confirmation, and any control but a
         // setting's leaves the setting being typed.
         self.reset.cancel();
-        if !matches!(control, Control::PageSetting(_)) {
+        if !matches!(control, Control::Setting(_)) {
             self.leave_page_setting();
         }
         match control {
             Control::Front(control) => return self.front_control(control),
-            Control::PageSetting(setting) => return self.page_setting(setting),
+            Control::Setting(setting) => return self.setting(setting),
             Control::Implement | Control::NewImplementation | Control::CancelImplementation => {
                 return self.implementation_control(control);
             }
@@ -307,7 +319,7 @@ impl ExploreComponent {
             }
             ExploreTurnShortcut::OpenPage => Control::Front(FrontControl::OpenPage),
             ExploreTurnShortcut::ContinueInPane => Control::Front(FrontControl::ContinueInPane),
-            ExploreTurnShortcut::Setting(setting) => Control::PageSetting(setting),
+            ExploreTurnShortcut::Setting(setting) => Control::Setting(setting),
             ExploreTurnShortcut::Cancel => Control::Cancel,
             ExploreTurnShortcut::Retry => Control::Retry,
             ExploreTurnShortcut::PreviousTurn => Control::History(History::Previous),

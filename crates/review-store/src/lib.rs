@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use review_explore_page_settings::{ExplorePageSetting, ExplorePageSettings};
+use review_explore_round_settings::{ExploreRoundSettings, WritingStyle};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -98,6 +99,7 @@ struct Settings {
     file_pane_width: Option<u16>,
     editor_keymap: review_types::EditorKeymap,
     explore_page: ExplorePageSettings,
+    explore_round: ExploreRoundSettings,
 }
 
 /// Review state for one canonical repository.
@@ -190,6 +192,25 @@ impl ReviewStore {
         self.update_settings(|settings| {
             settings.explore_page.set(setting);
             saved = settings.explore_page.clone();
+        })?;
+        Ok(saved)
+    }
+
+    /// Get the settings for the next Explore round.
+    pub fn explore_round_settings(&self) -> Result<ExploreRoundSettings> {
+        Ok(self.settings()?.explore_round)
+    }
+
+    /// Save the writing style of the next Explore round, keeping the other settings as saved,
+    /// and return the settings for the next round as they are now saved.
+    pub fn save_explore_writing_style(
+        &self,
+        writing: WritingStyle,
+    ) -> Result<ExploreRoundSettings> {
+        let mut saved = ExploreRoundSettings::default();
+        self.update_settings(|settings| {
+            settings.explore_round.writing = writing;
+            saved = settings.explore_round;
         })?;
         Ok(saved)
     }

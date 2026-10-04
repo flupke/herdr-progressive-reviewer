@@ -1306,7 +1306,14 @@ thesis. A message to the page carries those, never `Design`
 itself, which saves such a round's parts as the plain strings they were. The pane shows it before the first question, and the page
 shows it open above the first question and folded in every later stage of the round. The tools advertise complete schemas derived from the
 shared submission types; the kickoff carries behavior instructions without schema
-examples. The runner formats later wakeups as the later-turn rules (`wakeup.md`: interpretation,
+examples. A round's writing style (`WritingStyle` in
+[`crates/review-explore-round-settings`](../crates/review-explore-round-settings)) comes from
+the reviewer's settings for the next round (`ExploreRoundSettings`, saved by `ReviewStore` in
+`settings.json`, changed in the pane with `W` through `SettingsAction::SaveExploreWritingStyle`) when
+the round starts; `Exploration` and every `TurnRequest` keep it, so it survives a restore. In
+Simplified Technical English the kickoff ends with the style's rules (`writing.md`) and every
+later turn with a short reminder (`writing_wakeup.md`), since a long round's agent may have
+compacted the kickoff; the plain style adds nothing. The runner formats later wakeups as the later-turn rules (`wakeup.md`: interpretation,
 review marks, agenda changes, concluding) followed by labeled plain text: turn identity,
 one checkpoint, answer ID, question ID/version, the
 selected option's full text/ID/outcome and any exact comment, after the Unreviewed

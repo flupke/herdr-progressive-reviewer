@@ -96,6 +96,12 @@ theses existed, the first paragraph of the first part stands in for the change's
 and the first paragraph of each part (the next one for the first part) for its own.
 _Avoid_: summary, lead paragraph
 
+**Writing style**:
+How the Explore agent writes every text the reviewer reads in a round: plain (the agent's own
+style) or ASD-STE100 Simplified Technical English. The reviewer's setting gives it to a round when the
+round starts, and the round keeps it on every turn.
+_Avoid_: tone, language
+
 **Challenger**:
 A subagent with fresh context that the Explore agent starts for a round, to
 review the same change without the implementer's knowledge of why it was

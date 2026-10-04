@@ -45,6 +45,7 @@ review-test-support = { path = "../review-test-support" }
 review-explore = { path = "../review-explore" }
 review-explore-page-opening = { path = "../review-explore-page-opening" }
 review-explore-page-settings = { path = "../review-explore-page-settings" }
+review-explore-round-settings = { path = "../review-explore-round-settings" }
 
 review-threads = { path = "../review-threads" }
 tempfile.workspace = true

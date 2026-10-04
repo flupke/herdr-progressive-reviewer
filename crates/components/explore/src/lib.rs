@@ -32,6 +32,7 @@ mod page_start;
 mod persistence;
 mod render;
 mod reset;
+mod round_settings;
 mod start;
 mod unopened_page;
 use flow::ConversationLayout;
@@ -44,8 +45,8 @@ enum Control {
     Reset,
     /// Confirm a Reset asked for within the last five seconds.
     ConfirmReset,
-    /// Change a setting of the Explore page.
-    PageSetting(ui_shortcuts::ExploreSettingShortcut),
+    /// Change a setting of the next round or of the Explore page.
+    Setting(ui_shortcuts::ExploreSettingShortcut),
     NewImplementation,
     Send,
     History(navigation::History),
@@ -142,6 +143,7 @@ pub struct ExploreComponent {
     open_page: bool,
     /// The settings of the Explore page, which the pane changes.
     page_settings: page_settings::PageSettings,
+    round_settings: round_settings::RoundSettings,
     /// Where the reviewer follows the round being started or shown.
     front: RoundFront,
     map: bool,
@@ -196,6 +198,7 @@ impl ExploreComponent {
             challenger: false,
             open_page: false,
             page_settings: page_settings::PageSettings::default(),
+            round_settings: round_settings::RoundSettings::default(),
             front: RoundFront::Pane,
             map: false,
             marks: BTreeMap::new(),
@@ -288,6 +291,7 @@ impl ExploreComponent {
             Ok(comparison) => {
                 let mut exploration = Exploration::new(comparison.clone());
                 exploration.challenger = self.challenger;
+                exploration.writing = self.round_settings.writing();
                 self.open_round(exploration);
                 let mut actions = self.request(None);
                 if open_page {
@@ -614,6 +618,7 @@ impl Component<Action> for ExploreComponent {
         subscriptions.subscribe(Self::page_start);
         subscriptions.subscribe(Self::page_not_opened);
         subscriptions.subscribe(Self::page_settings_loaded);
+        subscriptions.subscribe(Self::round_settings_loaded);
         subscriptions.subscribe(Self::page_off_network);
         subscriptions.subscribe(Self::start_block_set);
         subscriptions.subscribe(Self::page_stopped);

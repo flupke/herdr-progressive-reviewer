@@ -43,7 +43,7 @@ impl ExploreComponent {
             return Vec::new();
         };
         if let ExploreTurnShortcut::Setting(setting) = shortcut {
-            return self.page_setting(setting);
+            return self.setting(setting);
         }
         PageRoundButton::of(shortcut)
             .map(|button| self.front_control(button.control))
