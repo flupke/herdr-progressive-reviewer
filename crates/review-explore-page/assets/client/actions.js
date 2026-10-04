@@ -116,6 +116,8 @@ export class Actions {
     this.connected = false;
     // The forms of the masthead (Reset, in its menu) are outside `main`.
     main.ownerDocument.addEventListener('submit', (event) => this.submit(event));
+    // An edit may block or unblock its form's button (`data-blocked`).
+    main.addEventListener('input', () => this.enable());
   }
 
   /** @param {SubmitEvent} event */

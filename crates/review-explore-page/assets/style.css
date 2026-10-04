@@ -79,12 +79,6 @@
   .start .button { min-height: 48px; }
 }
 
-/* The list to be implemented, which the reviewer edits and sends with Implement. */
-.to-be-implemented > h3 { margin: 0; }
-.to-be-implemented > .status-card { margin: 0; }
-.implement { display: grid; gap: 12px; }
-.implement .hint { margin: 0; }
-
 /* The conclusion's quiz, one item at a time, then its results beside the conclusion. */
 .quiz-pick { display: grid; gap: 12px; }
 .quiz-skip { margin-top: 12px; }

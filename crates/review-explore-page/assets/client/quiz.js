@@ -107,6 +107,12 @@ export function quizResults(quiz) {
   );
 }
 
+/** Opens the results of the quiz, from a link to them. */
+export function openQuizResults() {
+  const fold = document.querySelector('.quiz-results > details');
+  if (fold instanceof HTMLDetailsElement) fold.open = true;
+}
+
 /**
  * What became of one item: its options, with the reviewer's pick and the correct one, whether the
  * pick was correct, why, and the lines that prove it. `id` names the item's headings; `status`

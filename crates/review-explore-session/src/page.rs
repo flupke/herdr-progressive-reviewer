@@ -449,6 +449,7 @@ fn page_implementation(delivery: &ImplementationDelivery, sending: bool) -> Page
         attempt: delivery.attempt.clone(),
         text: delivery.request.text.clone(),
         state,
+        sent_at_ms: delivery.sent_at_ms,
     }
 }
 

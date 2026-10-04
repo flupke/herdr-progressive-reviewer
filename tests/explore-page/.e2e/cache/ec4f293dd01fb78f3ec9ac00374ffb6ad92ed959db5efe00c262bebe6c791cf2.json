@@ -1,0 +1,69 @@
+{
+  "schemaVersion": "trace-1",
+  "createdAt": "2026-10-04T14:39:16.859Z",
+  "payload": {
+    "actions": [
+      {
+        "name": "tap",
+        "summary": "tap button \"Start a new round…\" in \"The agent received the implementation r…\"",
+        "target": {
+          "role": "button",
+          "name": "Start a new round…",
+          "within": "The agent received the implementation request"
+        }
+      },
+      {
+        "name": "tap",
+        "summary": "tap button \"Confirm reset\" in \"The agent received the implementation r…\"",
+        "target": {
+          "role": "button",
+          "name": "Confirm reset",
+          "within": "The agent received the implementation request"
+        }
+      }
+    ],
+    "executor": {
+      "name": "e2e-default-agent",
+      "version": "2"
+    },
+    "recordedFor": {
+      "testId": "tests/implement.e2e.ts::once%20the%20agent%20received%20the%20request%2C%20the%20reviewer%20starts%20a%20new%20round",
+      "targetId": "desktop",
+      "instructionDigest": "38233e594c3842bf91b754acc8fa455f5163de9b82e7a947e4923e4d21e22c21"
+    },
+    "summary": "Pressed “Start a new round…” and confirmed the reset. The round is closed; the page now shows “No round is running” and offers Start.",
+    "startPath": "/",
+    "endPath": "/",
+    "endAnchors": [
+      {
+        "role": "status",
+        "name": "No round is running"
+      },
+      {
+        "role": "heading",
+        "name": "Keep the reviewer's draft when a round reopens"
+      },
+      {
+        "text": "kmzqvtyx"
+      },
+      {
+        "text": "drafts-demo"
+      },
+      {
+        "role": "button",
+        "name": "Start"
+      },
+      {
+        "text": "The agent explains the design, then asks one question at a time."
+      },
+      {
+        "role": "button",
+        "name": "Start with Challenger"
+      },
+      {
+        "text": "A second agent with fresh context proposes questions too. Turns take longer."
+      }
+    ],
+    "endWaitMs": 15068
+  }
+}

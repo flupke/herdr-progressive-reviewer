@@ -98,7 +98,9 @@ export class Page {
       );
       return;
     }
-    this.conclusion.component(`conclusion:${conclusion.request}`, () => new ConclusionScreen()).update(conclusion);
+    this.conclusion
+      .component(`conclusion:${conclusion.request}`, () => new ConclusionScreen())
+      .update(conclusion, view.reset);
   }
 
   /**

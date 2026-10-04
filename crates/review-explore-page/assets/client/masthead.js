@@ -354,14 +354,20 @@ async function copy(text) {
   }
 }
 
-/** @param {string} round the round Reset closes */
-function resetConfirmation(round) {
+/**
+ * Reset's hint and its Confirm reset: in the menu, and, worded as starting a new round, behind
+ * "Start a new round…" in the panel of a round whose implementation request the agent received
+ * (conclusion.js). Both send the same request.
+ * @param {string} round the round Reset closes
+ * @param {{ hint: string, label: string }} [words] the hint and the button's words
+ */
+export function resetConfirmation(round, { hint, label } = { hint: RESET_HINT, label: 'Confirm reset' }) {
   return h(
     'form',
     { class: 'reset', 'data-method': 'reset' },
     h('input', { type: 'hidden', name: 'round', value: round }),
-    h('p', { class: 'hint' }, RESET_HINT),
-    h('button', { class: 'button danger', type: 'submit' }, 'Confirm reset'),
+    h('p', { class: 'hint' }, hint),
+    h('button', { class: 'button danger', type: 'submit' }, label),
   );
 }
 

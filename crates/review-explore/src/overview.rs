@@ -50,10 +50,7 @@ impl RoundOverview {
                 steps.len(),
                 &position,
             ),
-            decisions: steps
-                .iter()
-                .filter_map(|step| Decision::of(exploration, step))
-                .collect(),
+            decisions: Decision::of_round(exploration),
             earlier: steps
                 .iter()
                 .filter(|step| position.passed(step))

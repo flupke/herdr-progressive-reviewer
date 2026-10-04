@@ -12,8 +12,9 @@ test('a reply being typed keeps its text and its focus while the implementation 
   await explore.open();
   await explore.conclude();
   // Exact actions: the setup is a request on its way and a reply being typed.
-  await screen.getByRole('button', 'Implement').tap();
+  await screen.getByRole('button', 'Implement 1 item').tap();
   await expect(screen.getByRole('status')).toContainText('Sending the implementation request');
+  await screen.getByRole('button', 'Not ready? Reply to the agent instead').tap();
   const reply = screen.getByRole('textbox', 'Reply to the conclusion');
   await reply.fill('Keep the old name for one release.');
 

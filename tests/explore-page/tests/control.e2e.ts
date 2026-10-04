@@ -113,13 +113,13 @@ test('the reviewer cancels an implementation request that is being sent', async 
   await explore.open();
   await explore.conclude();
   // An exact action: the setup is a request on its way.
-  await screen.getByRole('button', 'Implement').tap();
+  await screen.getByRole('button', 'Implement 1 item').tap();
   await expect(screen.getByRole('status')).toContainText('Sending the implementation request');
 
   await agent.act('cancel the implementation request');
   await expect(screen.getByRole('status')).toContainText('cancelled before it was sent');
   expect(await explore.actions()).toEqual(['cancel-implementation']);
-  await expect(screen.getByRole('button', 'Implement')).toBeVisible();
+  await expect(screen.getByRole('button', 'Implement 1 item')).toBeVisible();
 });
 
 test('a Retry of a turn the round moved past meanwhile is refused with a notice that names it', async ({ explore, screen }) => {

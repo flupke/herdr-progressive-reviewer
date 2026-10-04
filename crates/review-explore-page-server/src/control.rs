@@ -8,6 +8,9 @@
 //!     body, or the fixed questions in turn when the body is empty; from the second question
 //!     on, after a fixed response to the previous answer;
 //!   - `answer`: the reviewer answers in the pane, and the agent works on its next turn;
+//!   - `answer-after-first-pick`: the reviewer answers with the recommended choice (the first
+//!     one when none is) after a first pick of another choice, as on a blind question on the
+//!     page, and the agent works on its next turn;
 //!   - `fail`: the prompt the session sends could not be delivered: the conclusion's
 //!     implementation request, while it sends one, or else the agent's next turn;
 //!   - `not-started`: the agent did not start on the prompt the session sends: the

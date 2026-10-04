@@ -66,6 +66,14 @@ fn the_page_follows_the_round_from_its_kickoff_to_its_conclusion_and_reset() {
     };
     assert_eq!(request, answer.request);
     assert_eq!(shown.summary, CONCLUSION);
+    // Each answered question, with the answer the reviewer kept.
+    let overview = harness.page.overview().expect("an overview");
+    let kept: Vec<_> = overview
+        .decisions
+        .iter()
+        .map(|decision| (decision.number, decision.answer.comment.as_str()))
+        .collect();
+    assert_eq!(kept, vec![(1, "Keep it."), (2, "Keep it too.")]);
     assert_eq!(implementation, None);
     let no_quiz = review_explore_page::PageQuiz {
         takes_answers: true,
@@ -958,15 +966,15 @@ fn the_page_shows_its_implementation_request_as_sending_then_sent() {
 
     let shown = harness.shown_implementation().expect("a request");
     assert_eq!(
-        (shown.text.as_str(), &shown.state),
-        (EDITED, &ImplementationState::Sending)
+        (shown.text.as_str(), &shown.state, shown.sent_at_ms),
+        (EDITED, &ImplementationState::Sending, None)
     );
     harness.delivery.open();
     harness.implementation_finished();
-    assert_eq!(
-        harness.shown_implementation().map(|shown| shown.state),
-        Some(ImplementationState::Sent)
-    );
+    let shown = harness.shown_implementation().expect("a request");
+    assert_eq!(shown.state, ImplementationState::Sent);
+    // The page says when the agent received it.
+    assert!(shown.sent_at_ms.is_some());
     harness.reopen();
     assert_eq!(
         harness.shown_implementation().map(|shown| shown.state),

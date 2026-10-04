@@ -133,10 +133,10 @@ again with it.
 | The conclusion | Implement; Reply; Cancel answer until a request is made | Implement; Reply to the conclusion; Cancel answer (`Conclusion`), after the quiz, which only the page asks |
 | An implementation request being sent | Cancel implementation | Cancel the implementation request |
 | A request saved but not sent, by an earlier process | Send saved implementation request; New implementation request | Send the saved request; Send a new request |
-| A request whose delivery is unknown | New implementation request | Send a new request, after the warning |
+| A request whose delivery is unknown | New implementation request | Send a new request anyway, after the warning |
 | A request the agent did not start on | Retry; New implementation request | Retry only: the list may still wait in the agent's prompt box |
 | A request that was not sent or was cancelled | Implement | Implement |
-| A request the agent received | None | None |
+| A request the agent received | None | Start a new round… (Reset, then Confirm reset) |
 | Any running round | Reset, then Confirm reset | Reset, then Confirm reset, in the masthead's ⋯ menu |
 | An earlier round, or one whose history was repaired | Reset only | That it can no longer change, and Reset only (`earlier`) |
 | A storage error | None: the status says why | Why, and to reopen the pane once fixed (`StorageFailed`) |
@@ -250,6 +250,11 @@ what it names, `.hint` the muted help line. Every control has a focus ring (`:fo
   `primary` (the one thing to do in the view), `secondary`, `outline`, `quiet` (underlined
   text) and `danger` (only Confirm reset); add `block` for the full width of a panel. A link
   may carry the same classes.
+- **Disclosure** (`client/disclosure.js`, styled in `buttons.css`): a button with
+  `aria-expanded` that shows or hides an action behind a fold, a muted line with its ▸ by
+  default (`<button class="disclosure-toggle" aria-expanded="false">`), or a button of any
+  tier (the conclusion's "Start a new round…"). A button rather than `<details>`, so that
+  readers and the e2e agent see a control.
 - **Status card** (`status.css`), for every state that is not a question:
 
   ```html
@@ -274,7 +279,9 @@ what it names, `.hint` the muted help line. Every control has a focus ring (`:fo
   card, with its words and actions, is data: `StatusCard` in
   [`src/status.rs`](../crates/review-explore-page/src/status.rs) maps each stage, each
   implementation request and each refused action to its kind, title, reason, next step and
-  actions; `assets/client/status.js` only draws it.
+  actions; `assets/client/status.js` only draws it. In a panel, where the primary action
+  comes last at its full width, `panelCard` draws the card without its actions and
+  `panelActions` draws them as the panel's buttons (the conclusion's implementation request).
 - **Panel and desk** (`layout.css`): the page is capped at 90rem with a 32-pixel gutter (16 on
   a phone). From 70rem, a container with the class `desk` reads in two columns: its children
   in the reading column, each in its own grid row, and its child with the class `panel` (416
@@ -367,9 +374,11 @@ only, with no `unsafe` value; its `connect-src` names the page's own `ws:` addre
   request's params.
 - One module per screen or region: `start.js`, `status.js` (the status card),
   `last-answer.js`, `design.js`, `response.js`, `question.js` (with the answer panel and
-  the first pick), `citations.js`, `conclusion.js` (with the list to be implemented and
-  the reply), `quiz.js`, `masthead.js` (above `main`, with Reset in its menu), and `diagrams.js`, which draws each diagram of a
-  region that was built.
+  the first pick), `citations.js`, `conclusion.js` (with the reviewer's decisions, the list
+  to be implemented, each state of its request and the reply), `quiz.js`, `masthead.js`
+  (above `main`, with Reset in its menu), `disclosure.js` (a button that shows or hides an
+  action behind a fold), and `diagrams.js`, which draws each diagram of a region that was
+  built.
 
 To add a screen or a region: give the view the data it needs (a field of `PageView` or of
 the type of its screen, in `src/view.rs`, built from the round's snapshot), run
@@ -512,7 +521,8 @@ Each test gets its own round on the server, through the `explore` fixture of
 `tests/explore-page/tests/session.ts`, and plays the Explore agent and the
 reviewer's pane: the round starts with the agent working,
 `explore.askQuestion()` posts the next question, `explore.answerInPane()`
-answers it in the pane, `explore.cancelAnswerInPane()` cancels that answer (the question
+answers it in the pane, `explore.answerAfterFirstPick()` answers it with the recommended choice
+after a first pick of another, as a blind question on the page would, `explore.cancelAnswerInPane()` cancels that answer (the question
 then shows its recommendation at once),
 `explore.failDelivery()` fails the prompt the session sends (the conclusion's
 implementation request while it sends one, else the agent's next turn), and

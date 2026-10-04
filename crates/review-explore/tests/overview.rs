@@ -49,11 +49,11 @@ fn pending(round: &ExploreRound) -> String {
     round.exploration.pending_request().unwrap().request.clone()
 }
 
-fn kept(choice: Option<&str>, comment: &str, tag: Option<DecisionTag>) -> KeptAnswer {
+fn kept(choice: Option<&str>, comment: &str, tags: &[DecisionTag]) -> KeptAnswer {
     KeptAnswer {
         choice: choice.map(Into::into),
         comment: comment.into(),
-        tag,
+        tags: tags.to_vec(),
     }
 }
 
@@ -250,23 +250,27 @@ fn the_decisions_tag_the_kept_choice() {
             (
                 1,
                 "Keep a write cache in front of the store?",
-                &kept(Some("Keep the cache"), "", Some(DecisionTag::AsRecommended))
+                &kept(Some("Keep the cache"), "", &[DecisionTag::AsRecommended])
             ),
-            // The reviewer first picked "A queue per writer", then took the recommendation.
+            // The reviewer first picked "A queue per writer", then took the recommendation: both
+            // tags show.
             (
                 2,
                 "How do writers share the cache?",
                 &kept(
                     Some("One mutex"),
                     "",
-                    Some(DecisionTag::ChangedAfterFirstPick)
+                    &[
+                        DecisionTag::ChangedAfterFirstPick,
+                        DecisionTag::AsRecommended
+                    ]
                 )
             ),
             // Clarified once: the decision is the answer to the second version, a comment.
             (
                 3,
                 "When does the cache flush: on a timer or on size?",
-                &kept(None, "A timer of five seconds, and on close.", None)
+                &kept(None, "A timer of five seconds, and on close.", &[])
             ),
             (
                 4,
@@ -274,7 +278,7 @@ fn the_decisions_tag_the_kept_choice() {
                 &kept(
                     Some("None of the above"),
                     "Lose nothing that was acknowledged.",
-                    Some(DecisionTag::ChangedAfterFirstPick)
+                    &[DecisionTag::ChangedAfterFirstPick]
                 )
             ),
         ]
@@ -290,7 +294,7 @@ fn an_earlier_question_holds_its_latest_version_and_what_the_agent_recorded() {
     assert_eq!(record.question.version, 2);
     assert_eq!(
         record.answer,
-        Some(kept(None, "A timer of five seconds, and on close.", None))
+        Some(kept(None, "A timer of five seconds, and on close.", &[]))
     );
     let interpretation = record.recorded.interpretation.as_ref().unwrap();
     assert_eq!(
@@ -339,7 +343,7 @@ fn a_question_asked_again_after_another_is_a_step_of_its_own() {
         Some(kept(
             Some("None of the above"),
             "It depends on question two.",
-            None
+            &[]
         ))
     );
     assert_eq!(numbers(&overview), (vec![1, 2], vec![1, 2]));
@@ -363,7 +367,7 @@ fn a_round_saved_before_designs_and_quizzes_has_neither_step() {
         vec![Decision {
             number: 1,
             question: "Explain this line?".into(),
-            answer: kept(Some("Keep it"), "Keep \"it\"\nwith a test", None),
+            answer: kept(Some("Keep it"), "Keep \"it\"\nwith a test", &[]),
         }]
     );
     let record = &overview.earlier[0];
@@ -386,8 +390,8 @@ fn the_overview_serializes_each_kind_by_name() {
     );
     assert_eq!(value["title"], serde_json::json!({"kind": "retry_needed"}));
     assert_eq!(
-        value["decisions"][1]["answer"]["tag"],
-        serde_json::json!("changed_after_first_pick")
+        value["decisions"][1]["answer"]["tags"],
+        serde_json::json!(["changed_after_first_pick", "as_recommended"])
     );
 }
 

@@ -121,6 +121,10 @@ pub struct ImplementationDelivery {
     pub attempt: String,
     pub request: ImplementationRequest,
     pub state: DispatchState,
+    /// When the agent received the request, in milliseconds since the epoch; `None` until
+    /// then, and for a request saved before rounds kept the time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sent_at_ms: Option<u64>,
 }
 
 /// Identifies a particular queued attempt without changing its logical request.
@@ -530,6 +534,7 @@ impl ExploreRound {
                 attempt: uuid::Uuid::new_v4().to_string(),
                 request: request.clone(),
                 state: DispatchState::Queued,
+                sent_at_ms: None,
             },
         );
         Ok(true)
@@ -588,6 +593,12 @@ impl ExploreRound {
                 || (!result.began && *state == DispatchState::Queued))
         {
             *state = result.state.clone();
+            if let DispatchId::Implementation { request, .. } = &result.id
+                && result.state == DispatchState::Delivered
+                && let Some(delivery) = self.implementations.get_mut(request)
+            {
+                delivery.sent_at_ms = Some(now_ms());
+            }
         }
     }
 }

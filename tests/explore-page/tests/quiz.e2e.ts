@@ -62,4 +62,9 @@ test('the reviewer skips the quiz and reads the conclusion', async ({ explore, s
   await expect(screen.getByRole('region', 'Conclusion')).toBeVisible();
   await expect(screen.getByRole('heading', 'Quiz: 0 of 2 correct, 2 skipped')).toBeVisible();
   expect(await explore.quiz()).toEqual({ skipped: true });
+
+  // The score opens the panel, with a way to the answers.
+  await expect(screen.getByText('Quiz 0 of 2')).toBeVisible();
+  await agent.act('see the answers of the quiz');
+  await expect(screen.getByRole('heading', 'Question 1')).toBeVisible();
 });

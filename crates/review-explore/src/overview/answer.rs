@@ -3,7 +3,7 @@
 use serde::Serialize;
 
 use super::steps::QuestionStep;
-use crate::{Exploration, ReviewerAnswer};
+use crate::{Alternative, Exploration, ReviewerAnswer};
 
 /// The answer the reviewer kept on a question: the latest answer to its latest version.
 ///
@@ -16,40 +16,47 @@ pub struct KeptAnswer {
     pub choice: Option<String>,
     /// The reviewer's comment; empty when there is none.
     pub comment: String,
-    pub tag: Option<DecisionTag>,
+    /// Each tag that applies, in the order of [`DecisionTag`]: none, one, or both when the
+    /// reviewer moved to the recommendation after a first pick of another choice.
+    pub tags: Vec<DecisionTag>,
 }
 
-/// How the kept choice relates to the agent's recommendation and to the reviewer's first pick.
+/// How the kept choice relates to the reviewer's first pick and to the agent's recommendation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DecisionTag {
+    /// "changed after your first pick": the reviewer's saved first pick is not the kept
+    /// choice.
+    ChangedAfterFirstPick,
     /// "as recommended": the kept choice is one the agent recommended.
     AsRecommended,
-    /// "changed after your first pick": the reviewer's saved first pick is not the kept
-    /// choice. It wins over "as recommended": a reviewer who moved to the recommendation after
-    /// seeing it changed their pick.
-    ChangedAfterFirstPick,
 }
 
 impl KeptAnswer {
     pub(super) fn of(answer: &ReviewerAnswer) -> Self {
-        let kept = answer.option.as_ref();
-        let changed = answer
-            .first_pick
-            .as_ref()
-            .is_some_and(|first| kept.is_none_or(|kept| &kept.id != first));
+        Self::new(
+            answer.option.as_ref(),
+            &answer.text,
+            answer.first_pick.as_deref(),
+        )
+    }
+
+    /// The answer that kept the choice `kept`, if any, with the comment `comment`, after the
+    /// reviewer's first pick `first_pick`, by the choice's ID, on a question that hid its
+    /// recommendation until then.
+    pub fn new(kept: Option<&Alternative>, comment: &str, first_pick: Option<&str>) -> Self {
+        let changed = first_pick.is_some_and(|first| kept.is_none_or(|kept| kept.id != first));
         let recommended = kept.is_some_and(|kept| kept.recommendation.is_some());
-        let tag = if changed {
-            Some(DecisionTag::ChangedAfterFirstPick)
-        } else if recommended {
-            Some(DecisionTag::AsRecommended)
-        } else {
-            None
-        };
         Self {
             choice: kept.map(|kept| kept.text.clone()),
-            comment: answer.text.clone(),
-            tag,
+            comment: comment.to_owned(),
+            tags: [
+                changed.then_some(DecisionTag::ChangedAfterFirstPick),
+                recommended.then_some(DecisionTag::AsRecommended),
+            ]
+            .into_iter()
+            .flatten()
+            .collect(),
         }
     }
 }
@@ -65,6 +72,15 @@ pub struct Decision {
 }
 
 impl Decision {
+    /// The reviewer's decisions in `exploration`: one for each question step whose latest
+    /// version was answered, in the order of the rail.
+    pub fn of_round(exploration: &Exploration) -> Vec<Self> {
+        QuestionStep::of(exploration)
+            .iter()
+            .filter_map(|step| Self::of(exploration, step))
+            .collect()
+    }
+
     /// The decision of `step`, once the reviewer answered its latest version.
     pub(super) fn of(exploration: &Exploration, step: &QuestionStep<'_>) -> Option<Self> {
         let answer = step.answer(exploration)?;

@@ -1,6 +1,6 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-04T13:10:06.312Z",
+  "createdAt": "2026-10-04T14:35:43.394Z",
   "payload": {
     "actions": [
       {
@@ -22,10 +22,13 @@
       "targetId": "phone",
       "instructionDigest": "c0ccf47988029cfd43f383116802659d786b3849d15e5f8e729951c4e5bbd7f9"
     },
-    "summary": "The conclusion is visible, stating that a reopened round keeps the reviewer's unsent draft. The requested navigation has taken effect.",
+    "summary": "The screen is on the conclusion: “The round is over,” with the conclusion that a reopened round keeps the reviewer's unsent draft.",
     "startPath": "/",
     "endPath": "/",
     "endAnchors": [
+      {
+        "text": "The round is over"
+      },
       {
         "role": "heading",
         "name": "Conclusion"
@@ -35,27 +38,23 @@
       },
       {
         "role": "heading",
-        "name": "To be implemented"
+        "name": "Future work"
       },
       {
-        "role": "textbox",
-        "name": "To be implemented"
+        "text": "Offer to discard an old draft."
       },
       {
-        "text": "Implement asks the agent to implement this list, and nothing else."
+        "role": "heading",
+        "name": "Quiz: 1 of 2 correct"
       },
       {
-        "role": "button",
-        "name": "Implement"
+        "text": "Quiz 1 of 2"
       },
       {
-        "text": "Reply to the conclusion"
-      },
-      {
-        "role": "textbox",
-        "name": "Reply to the conclusion"
+        "role": "link",
+        "name": "See the answers"
       }
     ],
-    "endWaitMs": 27714
+    "endWaitMs": 28288
   }
 }

@@ -74,3 +74,22 @@
 @media (max-width: 40rem) {
   .button.primary { min-height: 48px; }
 }
+
+/* A disclosure (client/disclosure.js): a muted line with its ▸ that shows or hides an action
+   behind a fold ("Not ready? Reply to the agent instead"). A disclosure may open from a button
+   of another tier instead. */
+.disclosure-toggle {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+/* The marks are decoration: the empty alternative text keeps them out of the button's name. */
+.disclosure-toggle::before { content: "▸" / ""; display: inline-block; width: 1.1em; font-size: 11px; }
+.disclosure-toggle[aria-expanded="true"]::before { content: "▾" / ""; }
+.disclosure-toggle:hover { color: var(--ink); }
+.disclosure-body { margin: 12px 0 0; }

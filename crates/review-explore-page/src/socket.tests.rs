@@ -121,6 +121,7 @@ impl Owner {
                     attempt: "attempt-1".into(),
                     text: implement.text,
                     state: ImplementationState::Sending,
+                    sent_at_ms: None,
                 };
                 let next = RoundStage::Conclusion {
                     request,

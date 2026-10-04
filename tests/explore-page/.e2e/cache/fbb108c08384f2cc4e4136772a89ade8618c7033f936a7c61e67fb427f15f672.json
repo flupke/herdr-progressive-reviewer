@@ -1,25 +1,25 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-03T21:53:53.900Z",
+  "createdAt": "2026-10-04T14:32:57.504Z",
   "payload": {
     "actions": [
       {
         "name": "type",
-        "summary": "type \"Save the draft with the round, and test…\" into textbox \"To be implemented\"",
+        "summary": "type \"Save the draft with the round, and test…\" into textbox \"To be implemented\" in \"1 item\"",
         "target": {
           "role": "textbox",
           "name": "To be implemented",
-          "text": "Save the draft with the round."
+          "within": "1 item"
         },
         "value": "Save the draft with the round, and test that a reopened round restores it."
       },
       {
         "name": "tap",
-        "summary": "tap button \"Implement\" in \"To be implemented\"",
+        "summary": "tap button \"Implement 1 item\" in \"1 item\"",
         "target": {
           "role": "button",
-          "name": "Implement",
-          "within": "To be implemented"
+          "name": "Implement 1 item",
+          "within": "1 item"
         }
       }
     ],
@@ -32,18 +32,28 @@
       "targetId": "desktop",
       "instructionDigest": "df9106863ecb6ad663e95c2c77d596c03f5279454c9ca3df011e57ed952a1d6c"
     },
-    "summary": "Replaced the implementation list with the requested task and pressed Implement. The page confirms it is sending the implementation request to the agent.",
+    "summary": "Replaced the implementation list with the requested task and pressed Implement. The page confirms it is sending the one-item implementation request to the agent.",
     "startPath": "/",
     "endPath": "/",
     "endAnchors": [
       {
-        "role": "status",
-        "name": "Sending the implementation request to the agent…"
+        "text": "Sending the implementation request to the agent…"
       },
       {
         "text": "Save the draft with the round, and test that a reopened round restores it."
+      },
+      {
+        "role": "button",
+        "name": "Cancel the implementation request"
+      },
+      {
+        "text": "Cancel stops the request if it has not reached the agent yet."
+      },
+      {
+        "role": "status",
+        "name": "Sending the implementation request to the agent…"
       }
     ],
-    "endWaitMs": 12191
+    "endWaitMs": 12859
   }
 }

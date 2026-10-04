@@ -1,15 +1,15 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-04T13:08:12.026Z",
+  "createdAt": "2026-10-04T14:33:18.984Z",
   "payload": {
     "actions": [
       {
         "name": "tap",
-        "summary": "tap button \"Cancel the implementation request\" in \"To be implemented\"",
+        "summary": "tap button \"Cancel the implementation request\" in \"Sending the implementation request to t…\"",
         "target": {
           "role": "button",
           "name": "Cancel the implementation request",
-          "within": "To be implemented"
+          "within": "Sending the implementation request to the agent…"
         }
       }
     ],
@@ -22,7 +22,7 @@
       "targetId": "desktop",
       "instructionDigest": "242f328c4ea4a6fba282b44684309e03bb35b486f01b5dc49e9ff9c953c8e682"
     },
-    "summary": "The current screen confirms the implementation request was cancelled before it was sent.",
+    "summary": "Cancelled the implementation request. The page confirms it was cancelled before being sent, and the draft remains in the To be implemented field.",
     "startPath": "/",
     "endPath": "/",
     "endAnchors": [
@@ -37,14 +37,13 @@
         "text": "Implement asks the agent to implement this list, and nothing else."
       },
       {
-        "role": "button",
-        "name": "Implement"
-      },
-      {
         "role": "status",
         "name": "The implementation request was cancelled before it was sent"
+      },
+      {
+        "text": "To be implemented ·"
       }
     ],
-    "endWaitMs": 27068
+    "endWaitMs": 12480
   }
 }

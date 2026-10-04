@@ -58,6 +58,8 @@ pub(crate) struct StatusCard {
     id: &'static str,
     role: StatusRole,
     title: String,
+    /// When the state began, which the reason opens with, in the reader's clock.
+    time: Option<CardTime>,
     reason: Option<String>,
     /// Whether the reason is a verbatim error, shown as code.
     code: bool,
@@ -81,6 +83,15 @@ struct StatusAction {
     hint: Option<&'static str>,
 }
 
+/// A time a card's reason opens with: "Sent at 14:36." The page words it in the reader's clock.
+#[derive(Debug, Serialize, TS)]
+struct CardTime {
+    /// What happened at that time: "Sent at".
+    words: &'static str,
+    /// Milliseconds since the epoch.
+    ms: u64,
+}
+
 #[derive(Debug, Serialize, TS)]
 struct Field {
     name: &'static str,
@@ -94,6 +105,7 @@ impl StatusCard {
             id,
             role: StatusRole::Status,
             title: title.into(),
+            time: None,
             reason: None,
             code: false,
             imperative: None,
@@ -104,6 +116,11 @@ impl StatusCard {
 
     fn reason(mut self, reason: impl Into<String>) -> Self {
         self.reason = Some(reason.into());
+        self
+    }
+
+    fn time(mut self, words: &'static str, ms: Option<u64>) -> Self {
+        self.time = ms.map(|ms| CardTime { words, ms });
         self
     }
 
@@ -223,7 +240,13 @@ impl StatusCard {
                 hint: Some("Cancel stops the request if it has not reached the agent yet."),
             })),
             ImplementationState::Sent => {
+                let items = implementation.items();
                 Self::new(Ok, ID, "The agent received the implementation request")
+                    .time("Sent at", implementation.sent_at_ms)
+                    .reason(format!(
+                        "It implements the {items} {}; this round is done.",
+                        if items == 1 { "item" } else { "items" }
+                    ))
             }
             ImplementationState::NotStarted => Self::new(
                 Warn,
@@ -238,20 +261,24 @@ impl StatusCard {
             )
             .action(offers_actions.then(|| resend("Retry"))),
             ImplementationState::Paused => Self::new(Info, ID, "The request was never sent")
-                .reason(
-                    "The review pane was reopened before it went out. The list you authorized \
-                     is saved.",
-                )
-                .next_if(
-                    offers_implement,
-                    "Send it as it was saved, or edit the list and send a new one.",
-                )
+                .reason("The pane closed before it went out. The list you authorised is saved.")
                 .action(offers_implement.then(|| resend("Send the saved request"))),
             ImplementationState::Unknown => {
                 Self::new(Warn, ID, "The agent may or may not have the request")
                     .reason("The review pane was reopened while it sent the request.")
                     .imperative("Check the agent's conversation first.")
                     .next_if(offers_implement, "Send again only if it never arrived.")
+                    .action(offers_implement.then(|| StatusAction {
+                        method: "implement",
+                        fields: vec![
+                            Field::new("conclusion", request),
+                            Field::new("replaces", &implementation.delivery),
+                            Field::new("text", &implementation.text),
+                        ],
+                        label: "Send a new request anyway",
+                        tier: ButtonTier::Secondary,
+                        hint: None,
+                    }))
             }
             ImplementationState::NotSent(reason) => {
                 Self::new(Danger, ID, "The implementation request could not be sent")

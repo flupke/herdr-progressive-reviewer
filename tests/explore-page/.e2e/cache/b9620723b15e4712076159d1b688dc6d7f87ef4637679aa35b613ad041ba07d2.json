@@ -1,6 +1,6 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-04T13:10:23.233Z",
+  "createdAt": "2026-10-04T14:36:05.279Z",
   "payload": {
     "actions": [
       {
@@ -22,10 +22,13 @@
       "targetId": "phone",
       "instructionDigest": "e4b2e95f6e3eecd823fc6eb69a8fdc62663895d15d7420980ca69957c0add111"
     },
-    "summary": "The quiz is skipped. The current screen shows “Quiz: 0 of 2 correct, 2 skipped,” confirming the skip took effect.",
+    "summary": "The quiz is over and shows “Quiz: 0 of 2 correct, 2 skipped” with “You skipped 2 questions,” confirming the quiz was skipped.",
     "startPath": "/",
     "endPath": "/",
     "endAnchors": [
+      {
+        "text": "The round is over"
+      },
       {
         "role": "heading",
         "name": "Conclusion"
@@ -35,27 +38,23 @@
       },
       {
         "role": "heading",
-        "name": "To be implemented"
+        "name": "Future work"
       },
       {
-        "role": "textbox",
-        "name": "To be implemented"
+        "text": "Offer to discard an old draft."
       },
       {
-        "text": "Implement asks the agent to implement this list, and nothing else."
+        "role": "heading",
+        "name": "Quiz: 0 of 2 correct, 2 skipped"
       },
       {
-        "role": "button",
-        "name": "Implement"
+        "text": "Quiz 0 of 2"
       },
       {
-        "text": "Reply to the conclusion"
-      },
-      {
-        "role": "textbox",
-        "name": "Reply to the conclusion"
+        "role": "link",
+        "name": "See the answers"
       }
     ],
-    "endWaitMs": 26617
+    "endWaitMs": 27081
   }
 }

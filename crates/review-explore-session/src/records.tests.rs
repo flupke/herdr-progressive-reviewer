@@ -478,6 +478,75 @@ fn archived_attempt_keeps_authoritative_success_and_cancel_cannot_rewrite_it() {
     }
 }
 
+/// The time `run` takes place, in milliseconds since the epoch, as a range.
+fn during(run: impl FnOnce()) -> std::ops::RangeInclusive<u64> {
+    let now = || {
+        u64::try_from(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis(),
+        )
+        .unwrap()
+    };
+    let before = now();
+    run();
+    before..=now()
+}
+
+#[test]
+fn an_implementation_request_the_agent_received_keeps_when_it_was_sent() {
+    let mut fixture = Investigation::new();
+    let (request, id) = implementation(&mut fixture);
+    fixture.mutate(|round| {
+        round
+            .begin_dispatch(&id, &agent())
+            .map_err(|e| e.to_string())
+    });
+    assert_eq!(
+        fixture.round.implementations[&request.delivery].sent_at_ms,
+        None
+    );
+    let mut round = None;
+    let sent = during(|| {
+        round = Some(
+            fixture
+                .rounds
+                .finish_dispatch(
+                    &"review".into(),
+                    &request.instance,
+                    &DispatchResult {
+                        id,
+                        began: true,
+                        state: DispatchState::Delivered,
+                    },
+                )
+                .unwrap(),
+        );
+    });
+    let delivery = &round.unwrap().implementations[&request.delivery];
+    assert!(sent.contains(&delivery.sent_at_ms.unwrap()));
+}
+
+#[test]
+fn an_implementation_request_the_agent_did_not_receive_has_no_sent_time() {
+    let mut fixture = Investigation::new();
+    let (request, id) = implementation(&mut fixture);
+    let round = fixture
+        .rounds
+        .finish_dispatch(
+            &"review".into(),
+            &request.instance,
+            &DispatchResult {
+                id,
+                began: false,
+                state: DispatchState::NotSent("No agent".into()),
+            },
+        )
+        .unwrap();
+    assert_eq!(round.implementations[&request.delivery].sent_at_ms, None);
+}
+
 #[test]
 fn superseded_attempt_cannot_change_new_attempt_or_authorized_payload() {
     let mut fixture = Investigation::new();

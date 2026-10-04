@@ -38,6 +38,11 @@ export interface Session {
   askQuestion(question?: object): Promise<void>;
   /** The reviewer answers in the pane, and the agent works on its next turn. */
   answerInPane(): Promise<void>;
+  /**
+   * The reviewer answers with the recommended choice (the first one when none is) after a first
+   * pick of another choice, as on a blind question on the page; the agent works on its next turn.
+   */
+  answerAfterFirstPick(): Promise<void>;
   /** The reviewer cancels the latest answer in the pane: its question waits again. */
   cancelAnswerInPane(): Promise<void>;
   /**
@@ -155,6 +160,7 @@ export async function openSession(baseUrl: string | undefined, page: SessionPage
     },
     askQuestion: (question?: object) => step('question', question),
     answerInPane: () => step('answer'),
+    answerAfterFirstPick: () => step('answer-after-first-pick'),
     cancelAnswerInPane: () => step('cancel'),
     failDelivery: () => step('fail'),
     agentDoesNotStart: () => step('not-started'),

@@ -69,11 +69,14 @@ async function unfold(page: Page): Promise<void> {
   while ((await folded.count()) > 0) await folded.first().click();
 }
 
-/** The page shows the conclusion, with its quiz when `quiz`, after the three questions. */
+/**
+ * The page shows the conclusion, with its quiz when `quiz`, after the three questions: the
+ * second, a blind one, answered with the recommendation after a first pick of another choice.
+ */
 async function conclusion(session: Session, quiz: boolean): Promise<void> {
   for (let asked = 1; asked <= 3; asked++) {
     await session.askQuestion();
-    await session.answerInPane();
+    await (asked === 2 ? session.answerAfterFirstPick() : session.answerInPane());
   }
   await after(session, () => (quiz ? session.concludeWithQuiz() : session.conclude()));
 }
@@ -81,7 +84,7 @@ async function conclusion(session: Session, quiz: boolean): Promise<void> {
 /** The page sent the conclusion's implementation request, and the session is sending it. */
 async function implementing(session: Session, page: Page): Promise<void> {
   await conclusion(session, false);
-  await submit(page, 'Implement');
+  await submit(page, IMPLEMENT);
 }
 
 /** The page shows the first item of the quiz answered right, then the second answered wrong. */
@@ -111,6 +114,9 @@ const MERGE = 'Keep sending each reply at once';
 const DROP = 'Drop the waiting notifications';
 const QUIZ_RIGHT = 'Once, about two seconds after the fifth reply';
 const QUIZ_WRONG = 'The reply itself, which was only in the queue';
+
+// The conclusion's Implement, which counts the ten items of its list.
+const IMPLEMENT = 'Implement 10 items';
 
 const COMMENT =
   'Two seconds feels short when I read the cited code between replies; I would rather see the count of waiting replies first.';
@@ -371,7 +377,7 @@ export const STATES: GalleryState[] = [
   {
     name: 'conclusion',
     about:
-      'The conclusion without a quiz: the reply to the last answer, a long summary, the list to be implemented, Future work, Reply to the conclusion.',
+      'The conclusion without a quiz: the reply to the last answer, the lead, Your decisions, the rest of the summary, Future work, and the list to be implemented with Implement and the folded reply.',
     reach: (session) => conclusion(session, false),
   },
   {
@@ -385,6 +391,23 @@ export const STATES: GalleryState[] = [
     async reach(session, page) {
       await implementing(session, page);
       await after(session, () => session.deliverImplementation());
+    },
+  },
+  {
+    name: 'implement-sent-new-round',
+    about: 'The agent received the request: "Start a new round…" open, with its confirmation.',
+    async reach(session, page) {
+      await implementing(session, page);
+      await after(session, () => session.deliverImplementation());
+      await page.getByRole('button', { name: 'Start a new round…' }).click();
+    },
+  },
+  {
+    name: 'conclusion-reply-open',
+    about: 'The conclusion with "Not ready? Reply to the agent instead" open.',
+    async reach(session, page) {
+      await conclusion(session, false);
+      await page.getByRole('button', { name: 'Not ready? Reply to the agent instead' }).click();
     },
   },
   {
@@ -420,6 +443,15 @@ export const STATES: GalleryState[] = [
     },
   },
   {
+    name: 'implement-paused-editing',
+    about: 'The saved request, with "Edit before sending" open: the list to edit and Send a new request.',
+    async reach(session, page) {
+      await implementing(session, page);
+      await after(session, () => session.reopenBeforeSending());
+      await page.getByRole('button', { name: 'Edit before sending' }).click();
+    },
+  },
+  {
     name: 'implement-unknown',
     about: 'The review was reopened while the request was being delivered: whether the agent got it is unknown.',
     async reach(session, page) {
@@ -432,7 +464,7 @@ export const STATES: GalleryState[] = [
     about: 'An Implement posted after the request was sent from the pane: the notice.',
     async reach(session, page) {
       await conclusion(session, false);
-      await refused(session, page, () => session.implementInPane(), 'Implement');
+      await refused(session, page, () => session.implementInPane(), IMPLEMENT);
     },
   },
 ];

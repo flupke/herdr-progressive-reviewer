@@ -1,15 +1,15 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-04T14:40:03.242Z",
+  "createdAt": "2026-10-04T14:40:08.201Z",
   "payload": {
     "actions": [
       {
         "name": "tap",
-        "summary": "tap button \"Retry\" in \"The agent did not start on the implemen…\"",
+        "summary": "tap button \"Send the saved request\" in \"The request was never sent\"",
         "target": {
           "role": "button",
-          "name": "Retry",
-          "within": "The agent did not start on the implementation request"
+          "name": "Send the saved request",
+          "within": "The request was never sent"
         }
       }
     ],
@@ -18,11 +18,11 @@
       "version": "2"
     },
     "recordedFor": {
-      "testId": "tests/implement.e2e.ts::a%20request%20the%20agent%20did%20not%20start%20on%20says%20so%2C%20and%20the%20reviewer%20sends%20it%20again%20with%20Retry",
+      "testId": "tests/implement.e2e.ts::a%20request%20the%20review%20never%20sent%20waits%2C%20and%20the%20reviewer%20sends%20it%20as%20it%20was%20saved",
       "targetId": "phone",
-      "instructionDigest": "5e4769955e3f30cff448ba1c0866910255ea0102450f5bc38b78f8e3529ec6f8"
+      "instructionDigest": "213cc55315cd09705b890513fa9026bcfcbd2f44c65642b4f0272304e90888f3"
     },
-    "summary": "Clicked Retry. The page confirms the same one-item implementation request is being sent to the agent.",
+    "summary": "Sent the saved implementation request. The page confirms it is sending the 1-item request (“Save the draft with the round.”) to the agent.",
     "startPath": "/",
     "endPath": "/",
     "endAnchors": [
@@ -41,6 +41,6 @@
         "name": "Sending the implementation request to the agent…"
       }
     ],
-    "endWaitMs": 13675
+    "endWaitMs": 12643
   }
 }

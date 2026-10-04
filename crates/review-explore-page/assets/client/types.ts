@@ -20,6 +20,18 @@ export type Call = RoundCall | ConclusionCall;
 export type CancelAnswerParams = { answer: string, };
 export type CancelImplementationParams = { delivery: string, };
 /**
+ * A time a card's reason opens with: "Sent at 14:36." The page words it in the reader's clock.
+ */
+export type CardTime = { 
+/**
+ * What happened at that time: "Sent at".
+ */
+words: string, 
+/**
+ * Milliseconds since the epoch.
+ */
+ms: number, };
+/**
  * One choice of a question.
  */
 export type ChoiceView = { id: string, text: string, 
@@ -52,20 +64,30 @@ export type ConclusionView = {
 /**
  * The request of the agent's turn that posted the conclusion.
  */
-request: string, summary_html: string, future_work_html: string | null, 
+request: string, 
+/**
+ * The summary's first paragraph, which leads the conclusion; `None` when the summary
+ * opens with something else.
+ */
+lead_html: string | null, 
+/**
+ * The rest of the summary, under the reviewer's decisions: its limitations and remaining
+ * uncertainty.
+ */
+summary_html: string, 
+/**
+ * The reviewer's decisions in the round, in the order of the round rail.
+ */
+decisions: Array<DecisionView>, future_work_html: string | null, 
 /**
  * The list to be implemented that the form starts from, as raw text: the agent's, or the
  * reviewer's own list of a request that was not sent.
  */
 draft: string, 
 /**
- * The same list rendered, shown when the page does not offer to edit it.
+ * How the panel shows the list, with the actions around it.
  */
-draft_html: string, 
-/**
- * Whether the page offers Implement.
- */
-offers_implement: boolean, 
+list: ListView, 
 /**
  * The latest implementation request of the conclusion, with its list rendered.
  */
@@ -75,14 +97,35 @@ implementation: ImplementationView | null,
  */
 implementation_card: StatusCard | null, 
 /**
- * Whether the page offers actions on the conclusion: Implement and its recoveries, and
- * Reply. An earlier round offers none.
+ * The words that open the reply to the conclusion; `None` when the page offers no actions
+ * on the conclusion, as in an earlier round.
  */
-offers_actions: boolean, 
+reply_label: string | null, 
 /**
  * The conclusion's quiz, when it has one.
  */
 quiz: QuizView | null, };
+/**
+ * A question the reviewer answered, and the answer kept: a line of "Your decisions".
+ */
+export type DecisionView = { 
+/**
+ * The question's number in the round rail.
+ */
+number: number, question: string, 
+/**
+ * The text of the kept choice; `None` for a comment-only answer.
+ */
+choice: string | null, 
+/**
+ * The reviewer's comment; empty when there is none.
+ */
+comment: string, 
+/**
+ * How the kept choice relates to the reviewer's first pick and to the agent's
+ * recommendation.
+ */
+tags: Array<"changed_after_first_pick" | "as_recommended">, };
 /**
  * One part of the design, under its heading: its thesis, then the rest of its text.
  */
@@ -120,17 +163,17 @@ export type ImplementParams = { conclusion: string,
  */
 replaces: string | null, text: string, };
 /**
- * What became of an implementation request, as the page shows it.
- */
-export type ImplementationState = { "kind": "sending" } | { "kind": "sent" } | { "kind": "paused" } | { "kind": "unknown" } | { "kind": "not_started" } | { "kind": "not_sent", "reason": string } | { "kind": "cancelled" };
-/**
  * An implementation request of the conclusion.
  */
 export type ImplementationView = { 
 /**
  * The request's delivery identity.
  */
-delivery: string, text_html: string, state: ImplementationState, };
+delivery: string, text_html: string, 
+/**
+ * How many items its list has: its lines that are not blank.
+ */
+items: number, };
 /**
  * The agent's recap of the answer, and the follow-ups it recorded.
  */
@@ -151,6 +194,27 @@ choice: string | null,
  * The reviewer's comment; empty when there is none.
  */
 comment: string, };
+/**
+ * How the panel shows the list to be implemented, and the actions around it besides the card's.
+ */
+export type ListView = { "kind": "editable" } | { "kind": "draft", html: string, items: number, } | { "kind": "request", 
+/**
+ * What the list is, before its count: "Saved request", "The request", "Sent".
+ */
+label: string, 
+/**
+ * Whether the request is out of the reviewer's hands, which mutes its list.
+ */
+settled: boolean, 
+/**
+ * Whether "Edit before sending" offers to edit the draft and send it in place of the
+ * request.
+ */
+edit: boolean, 
+/**
+ * Whether "Start a new round…" offers Reset.
+ */
+new_round: boolean, };
 /**
  * What an answer to the question marks: a summary, and the lines on request.
  */
@@ -463,7 +527,11 @@ export type StatusCard = { kind: StatusKind,
 /**
  * Names the card, once on the page.
  */
-id: string, role: StatusRole, title: string, reason: string | null, 
+id: string, role: StatusRole, title: string, 
+/**
+ * When the state began, which the reason opens with, in the reader's clock.
+ */
+time: CardTime | null, reason: string | null, 
 /**
  * Whether the reason is a verbatim error, shown as code.
  */

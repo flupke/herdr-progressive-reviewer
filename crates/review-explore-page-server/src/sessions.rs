@@ -5,7 +5,10 @@
 
 use std::sync::{Arc, Mutex, PoisonError};
 
-use review_explore::{DiagramError, Question, QuizAnswers, QuizProgress, QuizResponse, StartBlock};
+use review_explore::{
+    Decision, DiagramError, KeptAnswer, Question, QuizAnswers, QuizProgress, QuizResponse,
+    RoundOverview, StartBlock,
+};
 use review_explore_page::{
     Answered, CommandRefusal, CommandSender, ImplementationState, Interruption, LatestAnswer,
     PageCommand, PageImplementation, PageRound, PublishedRound, Recovery, RoundPublisher,
@@ -61,6 +64,8 @@ struct Session {
     /// The reviewer's answers of the latest round that were not cancelled, in the pane or from
     /// the page, in order, as the page shows them: the latest one may be cancelled.
     answered: Vec<LatestAnswer>,
+    /// The same answers, as the conclusion lists them in "Your decisions".
+    decisions: Vec<Decision>,
     /// The other actions the reviewer took on the page, by name, in order.
     actions: Vec<String>,
     /// Whether another reviewer saved a newer round of the review since: the reviewer can only
@@ -113,15 +118,18 @@ impl Session {
         let id = self.round_id();
         let design = self.data.design();
         let items = self.data.quiz_items().len();
-        let overview = Posted {
-            asked: self.asked,
-            concluded: self.concluded,
-            quiz: self.quiz.as_ref().map(|answers| QuizProgress {
-                items,
-                answers: Some(answers),
-            }),
-        }
-        .overview(&stage);
+        let overview = RoundOverview {
+            decisions: self.decisions.clone(),
+            ..Posted {
+                asked: self.asked,
+                concluded: self.concluded,
+                quiz: self.quiz.as_ref().map(|answers| QuizProgress {
+                    items,
+                    answers: Some(answers),
+                }),
+            }
+            .overview(&stage)
+        };
         let round = self.running.then(|| PublishedRound {
             id: &id,
             design: (self.asked > 0).then_some(&design),
@@ -179,15 +187,37 @@ impl Session {
             ),
             _ => (&[][..], None),
         };
-        let (picked, comment) = match answer {
-            AnswerTaken::InPane => (alternatives.first(), String::new()),
-            AnswerTaken::FromPage { choice, comment } => (
+        let (picked, comment, first_pick) = match answer {
+            AnswerTaken::InPane => (alternatives.first(), String::new(), None),
+            AnswerTaken::AfterFirstPick => {
+                let kept = alternatives
+                    .iter()
+                    .find(|alternative| alternative.recommendation.is_some())
+                    .or(alternatives.first());
+                let first = alternatives.iter().find(|alternative| {
+                    Some(alternative.id.as_str()) != kept.map(|kept| kept.id.as_str())
+                });
+                (kept, String::new(), first.map(|first| first.id.as_str()))
+            }
+            AnswerTaken::FromPage {
+                choice,
+                comment,
+                first_pick,
+            } => (
                 alternatives
                     .iter()
                     .find(|alternative| Some(alternative.id.as_str()) == choice),
                 comment.to_owned(),
+                first_pick,
             ),
         };
+        if let Some(RoundStage::Question { question, .. }) = &self.latest_question {
+            self.decisions.push(Decision {
+                number: self.decisions.len() + 1,
+                question: question.text.clone(),
+                answer: KeptAnswer::new(picked, &comment, first_pick),
+            });
+        }
         self.answered.push(LatestAnswer {
             id: format!("answer-{}", self.answered.len() + 1),
             choice: picked.map(|alternative| alternative.text.clone()),
@@ -204,6 +234,7 @@ impl Session {
     fn forget_round(&mut self) {
         self.asked = 0;
         self.answered.clear();
+        self.decisions.clear();
         self.latest_question = None;
         self.concluded = false;
         self.earlier = false;
@@ -212,8 +243,14 @@ impl Session {
     /// The agent works on the turn that `step` asks for: after the reviewer's answer in the
     /// pane, or the kickoff.
     fn turn_after(&mut self, step: Step) -> RoundStage {
-        if matches!(step, Step::Answer) {
-            self.take_answer(AnswerTaken::InPane);
+        match step {
+            Step::Answer {
+                after_first_pick: false,
+            } => self.take_answer(AnswerTaken::InPane),
+            Step::Answer {
+                after_first_pick: true,
+            } => self.take_answer(AnswerTaken::AfterFirstPick),
+            _ => {}
         }
         self.new_turn()
     }
@@ -277,7 +314,7 @@ impl Session {
                 stage
             }
             Step::Cancel => self.question_after_cancel_answer()?,
-            Step::Answer | Step::Kickoff => self.turn_after(step),
+            Step::Answer { .. } | Step::Kickoff => self.turn_after(step),
             Step::Prompt(outcome) => self.prompt_unworked(outcome),
             Step::Interrupt => self.interrupted(Interruption::Stopped),
             Step::Conclude { quiz } => {
@@ -320,6 +357,7 @@ impl Session {
         let mut stage = self.latest_question.clone()?;
         self.answered.pop();
         self.concluded = false;
+        self.decisions.pop();
         if let RoundStage::Question {
             answer_cancelled, ..
         } = &mut stage
@@ -338,6 +376,7 @@ impl Session {
                 attempt: self.attempt(),
                 text: self.data.to_be_implemented(),
                 state: ImplementationState::Sent,
+                sent_at_ms: Some(SENT_AT_MS),
             }))),
             _ => self.finish_sending(ImplementationState::Sent),
         }
@@ -364,7 +403,12 @@ impl Session {
         let sending = self
             .implementation()
             .filter(|implementation| implementation.state == ImplementationState::Sending)?;
-        Some(self.conclusion(Some(PageImplementation { state, ..sending })))
+        let sent_at_ms = (state == ImplementationState::Sent).then_some(SENT_AT_MS);
+        Some(self.conclusion(Some(PageImplementation {
+            state,
+            sent_at_ms,
+            ..sending
+        })))
     }
 
     /// The fixed conclusion, with `implementation` and, when the agent concluded with one, its
@@ -380,10 +424,14 @@ impl Session {
 enum AnswerTaken<'a> {
     /// In the pane, which picks the first choice, with no comment.
     InPane,
-    /// From the page: the choice picked, by ID, if any, and the comment.
+    /// The recommended choice, after a first pick of another, with no comment.
+    AfterFirstPick,
+    /// From the page: the choice picked, by ID, if any, the comment, and the choice picked
+    /// first on a blind question.
     FromPage {
         choice: Option<&'a str>,
         comment: &'a str,
+        first_pick: Option<&'a str>,
     },
 }
 
@@ -422,6 +470,10 @@ impl PromptOutcome {
         }
     }
 }
+
+/// When the standalone agent receives an implementation request, in milliseconds since the
+/// epoch: always the same time, so that two gallery runs draw the same page.
+const SENT_AT_MS: u64 = 1_790_000_000_000;
 
 /// Why the standalone server's prompts cannot be delivered.
 const NOT_DELIVERED: &str = "The selected agent is no longer available";
@@ -485,6 +537,7 @@ impl Session {
                 self.take_answer(AnswerTaken::FromPage {
                     choice: answer.input.option.as_deref(),
                     comment: &answer.input.text,
+                    first_pick: answer.input.first_pick.as_deref(),
                 });
                 self.answers.push(SentAnswer {
                     question: answer.question,
@@ -515,6 +568,7 @@ impl Session {
                     attempt: self.attempt(),
                     text: implement.text,
                     state: ImplementationState::Sending,
+                    sent_at_ms: None,
                 };
                 let stage = self.conclusion(Some(sending));
                 self.publish(stage);
@@ -558,8 +612,11 @@ pub(crate) enum PageChange {
 pub(crate) enum Step {
     /// The agent posts its next question.
     Question,
-    /// The reviewer answered in the pane: the agent works on its next turn.
-    Answer,
+    /// The reviewer answered: the agent works on its next turn. The answer keeps the
+    /// question's first choice, as one in the pane does; or, `after_first_pick`, the choice the
+    /// agent recommends (its first choice when it recommends none) after a first pick of another
+    /// choice, as a blind question on the page records it.
+    Answer { after_first_pick: bool },
     /// The prompt the session sends ends without the agent working on it: the conclusion's
     /// implementation request, while the session sends one, or else the agent's next turn.
     Prompt(PromptOutcome),
@@ -596,9 +653,20 @@ pub(crate) enum RoundEvent {
 
 impl Step {
     /// Each step by the name of its control route.
-    const NAMES: [(&str, Self); 17] = [
+    const NAMES: [(&str, Self); 18] = [
         ("question", Self::Question),
-        ("answer", Self::Answer),
+        (
+            "answer",
+            Self::Answer {
+                after_first_pick: false,
+            },
+        ),
+        (
+            "answer-after-first-pick",
+            Self::Answer {
+                after_first_pick: true,
+            },
+        ),
         ("fail", Self::Prompt(PromptOutcome::NotSent)),
         ("not-started", Self::Prompt(PromptOutcome::NotStarted)),
         (
@@ -666,6 +734,7 @@ impl Sessions {
             attempts: 0,
             offers: 0,
             answered: Vec::new(),
+            decisions: Vec::new(),
             actions: Vec::new(),
             earlier: false,
             page: PageLink::Following,

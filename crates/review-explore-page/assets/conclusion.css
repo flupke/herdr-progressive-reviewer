@@ -1,0 +1,109 @@
+/* The end of the round (docs/design/explore-page/README.md, "5. Conclusion"; design review,
+   findings 10 and 24): the conclusion to read on the left, with the reviewer's decisions, and
+   the panel with the list to be implemented, whole, on the right. The panel is the wide one
+   (`desk wide`). assets/client/conclusion.js builds it. */
+
+/* The reading column: the eyebrow, the headline, the lead paragraph, "Your decisions", the rest
+   of the summary with its run-in labels, then Future work. */
+.conclusion > .eyebrow { margin: 0 0 4px; }
+.conclusion > h2 { margin: 0 0 12px; }
+.conclusion .lead { margin: 0 0 20px; font-size: 17px; }
+.conclusion .summary { margin: 0 0 20px; }
+.conclusion .summary strong { font-weight: 650; }
+.future-work > .eyebrow { margin: 0 0 6px; }
+
+/* "Your decisions": one hairlined row per question, its number in a narrow column, the question
+   muted, then the choice kept with its tags. */
+.decisions { max-width: var(--measure); margin: 0 0 20px; }
+.decisions > .eyebrow { margin: 0 0 8px; }
+.decision-list { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--line); }
+.decision {
+  display: grid;
+  grid-template-columns: 2.4rem minmax(0, 1fr);
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+  overflow-wrap: anywhere;
+}
+.decision-number { color: var(--muted); font-size: 13px; font-weight: 700; line-height: 22px; }
+.decision-question { margin: 0; color: var(--muted); font-size: 14px; }
+.decision-kept { margin: 2px 0 0; }
+.decision-kept strong, .decision-kept.comment-only { font-weight: 600; }
+.decision-comment { margin: 2px 0 0; color: var(--muted); font-size: 14px; font-style: italic; }
+/* A tag after the choice: the agent's judgement in purple, the reviewer's change in accent. */
+.decision-kept .tag {
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  font-weight: 650;
+  vertical-align: 0.1em;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+.decision-kept .tag.recommended { color: var(--agent); background: color-mix(in srgb, var(--agent) 16%, transparent); }
+.decision-kept .tag.changed { color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+
+/* The panel opens with the quiz's score: warn below two-thirds, good from there. */
+.quiz-banner {
+  --kind: var(--warn);
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--kind) 12%, transparent);
+  font-size: 14px;
+}
+.quiz-banner.good { --kind: var(--good); }
+.quiz-banner strong { margin-right: 4px; font-size: 16px; font-weight: 650; }
+
+/* What became of the latest request: its card, without the actions, which come last in the
+   panel at its full width. */
+.to-be-implemented > .status-card { margin: 0; max-width: none; }
+.to-be-implemented .status-reason, .to-be-implemented .status-next { font-size: 14px; }
+.to-be-implemented > form:not(.implement) { display: grid; gap: 8px; }
+.to-be-implemented > form:not(.implement) > .hint { margin: 0; font-size: 13px; }
+
+/* The list to be implemented, which shows every item: the box grows with its text. */
+.implement { display: grid; gap: 12px; }
+.implement .hint { margin: 0; }
+.implement .tasks {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 16lh;
+  field-sizing: content;
+  padding: 10px 12px;
+  font-size: 15px;
+  line-height: 1.45;
+}
+
+/* A request's list, read only, on the page's own surface: muted once it is out of the
+   reviewer's hands, its first items shown until "… N more" (assets/client/conclusion.js). */
+.saved-list {
+  padding: 12px;
+  border-radius: var(--radius);
+  background: var(--canvas);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.saved-list.muted { color: var(--muted); }
+.saved-list > ol, .saved-list > ul { padding-left: 18px; }
+.to-be-implemented .more {
+  justify-self: start;
+  margin: -6px 0 0;
+  padding: 0 0 0 12px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.to-be-implemented .more:hover { color: var(--ink); text-decoration: underline; }
+
+/* The forms behind a disclosure (buttons.css): "Edit before sending", the reply, the
+   confirmation of "Start a new round…". */
+.to-be-implemented .disclosure-body > form { display: grid; gap: 12px; margin: 0; }
+.to-be-implemented .disclosure-body > form .hint { margin: 0; }
+.to-be-implemented .disclosure-body > form > button { justify-self: start; }
+
+@media (max-width: 40rem) {
+  .to-be-implemented .disclosure-toggle { display: block; width: 100%; text-align: center; }
+}
