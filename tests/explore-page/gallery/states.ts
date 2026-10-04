@@ -20,11 +20,21 @@ export interface GalleryState {
   reach(session: Session, page: Page): Promise<void>;
 }
 
-/** Clicks `name`, a button or a link that loads the page again, and waits for the new page. */
+/**
+ * Clicks `name`, a button or a link, and waits until the page has the reply to the action it
+ * sent, if any: the round it changed is drawn by then.
+ */
 async function submit(page: Page, name: string): Promise<void> {
-  const loaded = page.waitForEvent('load');
   await page.getByRole('button', { name, exact: true }).or(page.getByRole('link', { name, exact: true })).click();
-  await loaded;
+  await page.waitForFunction(() => !document.querySelector('main[aria-busy="true"]'));
+  // The page changes in place, under the pointer and where the click scrolled it: move the
+  // pointer away and scroll back to the top, so that no control shows as hovered and no part
+  // as scrolled, as on a page loaded again.
+  await page.mouse.move(0, 0);
+  await page.evaluate(() => {
+    for (const panel of document.querySelectorAll('.panel')) panel.scrollTop = 0;
+    window.scrollTo(0, 0);
+  });
 }
 
 /** Selects the choice `name` of the question or the quiz item on the page. */
@@ -38,7 +48,7 @@ async function startScreen(session: Session): Promise<void> {
   await session.open();
 }
 
-/** The page shows the round once `move` changed it. */
+/** The page, opened again, shows the round once `move` changed it. */
 async function after(session: Session, move: () => Promise<void>): Promise<void> {
   await move();
   await session.open();
@@ -86,7 +96,8 @@ async function quizRightThenWrong(session: Session, page: Page): Promise<void> {
 
 /**
  * Moves the round with `move` behind the page's back, then takes the page's action `action`,
- * which the round no longer offers: the page shows the refusal's notice.
+ * which the round no longer offers: the page shows the refusal's notice, over the round as it
+ * is now.
  */
 async function refused(session: Session, page: Page, move: () => Promise<void>, action: string): Promise<void> {
   await session.holdPage();
@@ -219,6 +230,17 @@ export const STATES: GalleryState[] = [
     async reach(session) {
       await session.interrupt();
       await after(session, () => session.becomeEarlierRound());
+    },
+  },
+  {
+    name: 'reconnecting',
+    about: 'The review tool restarts: the quiet line says the page reconnects, and its actions wait.',
+    async reach(session, page) {
+      await session.interrupt();
+      await session.open();
+      await page.getByRole('button', { name: 'Retry', exact: true }).waitFor();
+      await session.restartReviewer();
+      await page.getByText('Reconnecting to the review tool', { exact: false }).waitFor();
     },
   },
   {

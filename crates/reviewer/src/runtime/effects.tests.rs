@@ -256,6 +256,7 @@ mod explore_page {
             PageRound::new(round.subscribe(), commands),
             &PageDirectory::new(state),
             &WorkspaceId("w1".into()),
+            std::path::Path::new("/repositories/drafts"),
         )
         .unwrap()
     }

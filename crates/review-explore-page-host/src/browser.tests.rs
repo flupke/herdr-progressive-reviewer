@@ -15,7 +15,13 @@ fn workspace() -> WorkspaceId {
 /// The page of [`workspace`]'s reviewer, recorded under `state`.
 fn host(state: &Path) -> PageHost {
     let round = RoundPublisher::default();
-    PageHost::start(page_round(&round), &PageDirectory::new(state), &workspace()).unwrap()
+    PageHost::start(
+        page_round(&round),
+        &PageDirectory::new(state),
+        &workspace(),
+        Path::new("/repositories/drafts"),
+    )
+    .unwrap()
 }
 
 /// Opens the page of [`workspace`] under `state` with `browser`.

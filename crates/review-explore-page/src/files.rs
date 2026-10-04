@@ -1,158 +1,71 @@
-//! The page's templates and assets: built into the binary, or read from disk in development.
+//! The page's shell, client modules, styles and scripts: built into the binary, or read from
+//! disk in development.
 
 use std::path::{Path, PathBuf};
 
-use markdown_html::HtmlRenderer;
-use minijinja::{Environment, Value};
-use serde::Serialize;
 use tokio::sync::watch;
 
-/// Templates by name. minijinja escapes HTML in templates whose name ends with `.html`.
-const TEMPLATES: &[(&str, &str)] = &[
-    ("page.html", include_str!("../templates/page.html")),
-    (
-        "explanation.html",
-        include_str!("../templates/explanation.html"),
-    ),
-    (
-        "citations.html",
-        include_str!("../templates/citations.html"),
-    ),
-    ("citation.html", include_str!("../templates/citation.html")),
-    ("start.html", include_str!("../templates/start.html")),
-    ("answer.html", include_str!("../templates/answer.html")),
-    ("pick.html", include_str!("../templates/pick.html")),
-    ("comment.html", include_str!("../templates/comment.html")),
-    ("choices.html", include_str!("../templates/choices.html")),
-    ("marks.html", include_str!("../templates/marks.html")),
-    ("design.html", include_str!("../templates/design.html")),
-    ("response.html", include_str!("../templates/response.html")),
-    ("diagrams.html", include_str!("../templates/diagrams.html")),
-    (
-        "conclusion.html",
-        include_str!("../templates/conclusion.html"),
-    ),
-    (
-        "implement.html",
-        include_str!("../templates/implement.html"),
-    ),
-    ("quiz.html", include_str!("../templates/quiz.html")),
-    (
-        "quiz-item.html",
-        include_str!("../templates/quiz-item.html"),
-    ),
-    (
-        "quiz-results.html",
-        include_str!("../templates/quiz-results.html"),
-    ),
-    (
-        "cancel-answer.html",
-        include_str!("../templates/cancel-answer.html"),
-    ),
-    ("reset.html", include_str!("../templates/reset.html")),
-    ("reply.html", include_str!("../templates/reply.html")),
-    ("status.html", include_str!("../templates/status.html")),
-    ("masthead.html", include_str!("../templates/masthead.html")),
-];
+/// An asset, by its path under `assets/`, with its content type.
+macro_rules! asset {
+    ($name:literal, $content_type:literal) => {
+        Asset {
+            name: $name,
+            content_type: $content_type,
+            body: include_str!(concat!("../assets/", $name)),
+        }
+    };
+}
 
-/// Assets by name, with their content type.
+/// The page that loads the client; `{dev}` takes the count of file changes in development.
+const SHELL: &str = include_str!("../assets/page.html");
+
+/// Assets by name, with their content type. A module of the client must be listed here, with
+/// the strict content type of a script, or the browser refuses to load it.
 const ASSETS: &[Asset] = &[
-    Asset {
-        name: "page.js",
-        content_type: "text/javascript",
-        body: include_str!("../assets/page.js"),
-        development: false,
-    },
-    Asset {
-        name: "wake.js",
-        content_type: "text/javascript",
-        body: include_str!("../assets/wake.js"),
-        development: false,
-    },
-    Asset {
-        name: "tokens.css",
-        content_type: "text/css",
-        body: include_str!("../assets/tokens.css"),
-        development: false,
-    },
-    Asset {
-        name: "buttons.css",
-        content_type: "text/css",
-        body: include_str!("../assets/buttons.css"),
-        development: false,
-    },
-    Asset {
-        name: "status.css",
-        content_type: "text/css",
-        body: include_str!("../assets/status.css"),
-        development: false,
-    },
-    Asset {
-        name: "masthead.css",
-        content_type: "text/css",
-        body: include_str!("../assets/masthead.css"),
-        development: false,
-    },
-    Asset {
-        name: "style.css",
-        content_type: "text/css",
-        body: include_str!("../assets/style.css"),
-        development: false,
-    },
-    Asset {
-        name: "markdown.css",
-        content_type: "text/css",
-        body: include_str!("../assets/markdown.css"),
-        development: false,
-    },
-    Asset {
-        name: "citations.css",
-        content_type: "text/css",
-        body: include_str!("../assets/citations.css"),
-        development: false,
-    },
-    Asset {
-        name: "diagrams.js",
-        content_type: "text/javascript",
-        body: include_str!("../assets/diagrams.js"),
-        development: false,
-    },
-    Asset {
-        name: "diagrams.css",
-        content_type: "text/css",
-        body: include_str!("../assets/diagrams.css"),
-        development: false,
-    },
-    Asset {
-        name: "layout.css",
-        content_type: "text/css",
-        body: include_str!("../assets/layout.css"),
-        development: false,
-    },
-    Asset {
-        name: "dev.js",
-        content_type: "text/javascript",
-        body: include_str!("../assets/dev.js"),
-        development: true,
-    },
+    asset!("tokens.css", "text/css"),
+    asset!("buttons.css", "text/css"),
+    asset!("status.css", "text/css"),
+    asset!("masthead.css", "text/css"),
+    asset!("style.css", "text/css"),
+    asset!("markdown.css", "text/css"),
+    asset!("citations.css", "text/css"),
+    asset!("diagrams.css", "text/css"),
+    asset!("layout.css", "text/css"),
+    asset!("client/main.js", "text/javascript"),
+    asset!("client/actions.js", "text/javascript"),
+    asset!("client/citations.js", "text/javascript"),
+    asset!("client/conclusion.js", "text/javascript"),
+    asset!("client/connection.js", "text/javascript"),
+    asset!("client/design.js", "text/javascript"),
+    asset!("client/dev.js", "text/javascript"),
+    asset!("client/diagrams.js", "text/javascript"),
+    asset!("client/dom.js", "text/javascript"),
+    asset!("client/drafts.js", "text/javascript"),
+    asset!("client/last-answer.js", "text/javascript"),
+    asset!("client/page.js", "text/javascript"),
+    asset!("client/question.js", "text/javascript"),
+    asset!("client/quiz.js", "text/javascript"),
+    asset!("client/reset.js", "text/javascript"),
+    asset!("client/response.js", "text/javascript"),
+    asset!("client/socket.js", "text/javascript"),
+    asset!("client/start.js", "text/javascript"),
+    asset!("client/status.js", "text/javascript"),
 ];
 
 struct Asset {
     name: &'static str,
     content_type: &'static str,
     body: &'static str,
-    /// Served only while the templates are read from disk.
-    development: bool,
 }
 
-/// Where the page's markup, scripts and styles come from.
+/// Where the page's files come from.
 pub struct PageFiles(Source);
 
 enum Source {
-    Embedded(Environment<'static>),
+    Embedded,
     /// Development: the files are read again on every request.
     Disk {
-        /// The directory that holds `templates/` and `assets/`.
+        /// The directory that holds `assets/`.
         root: PathBuf,
         /// Counts the changes under `root`.
         changes: watch::Receiver<u64>,
@@ -162,18 +75,8 @@ enum Source {
 
 impl PageFiles {
     /// The files built into the binary.
-    ///
-    /// # Panics
-    ///
-    /// When a built-in template does not parse; the e2e tests catch it.
     pub fn embedded() -> Self {
-        let mut environment = environment();
-        for (name, source) in TEMPLATES {
-            environment
-                .add_template(name, source)
-                .unwrap_or_else(|error| panic!("the built-in template {name} is invalid: {error}"));
-        }
-        Self(Source::Embedded(environment))
+        Self(Source::Embedded)
     }
 
     /// Development: reads the files under `root`, this crate's directory, on every request,
@@ -189,27 +92,24 @@ impl PageFiles {
         }))
     }
 
-    pub(crate) fn render(
-        &self,
-        name: &str,
-        context: impl Serialize,
-    ) -> Result<String, minijinja::Error> {
+    /// The page that loads the client, which loads itself again on a file change in
+    /// development.
+    pub(crate) fn shell(&self) -> String {
         match &self.0 {
-            Source::Embedded(environment) => environment.get_template(name)?.render(context),
-            Source::Disk { root, .. } => {
-                let mut environment = environment();
-                environment.set_loader(minijinja::path_loader(root.join("templates")));
-                environment.get_template(name)?.render(context)
+            Source::Embedded => SHELL.replace("{dev}", ""),
+            Source::Disk { root, changes, .. } => {
+                let shell = std::fs::read_to_string(root.join("assets/page.html"))
+                    .unwrap_or_else(|_| SHELL.to_owned());
+                shell.replace("{dev}", &changes.borrow().to_string())
             }
         }
     }
 
-    /// The content type and body of the asset `name`.
+    /// The content type and body of the asset `name`, a path under `assets/`.
     pub(crate) fn asset(&self, name: &str) -> Option<(&'static str, String)> {
         let asset = ASSETS.iter().find(|asset| asset.name == name)?;
         match &self.0 {
-            Source::Embedded(_) if asset.development => None,
-            Source::Embedded(_) => Some((asset.content_type, asset.body.to_owned())),
+            Source::Embedded => Some((asset.content_type, asset.body.to_owned())),
             Source::Disk { root, .. } => {
                 let body = std::fs::read_to_string(root.join("assets").join(asset.name)).ok()?;
                 Some((asset.content_type, body))
@@ -217,33 +117,13 @@ impl PageFiles {
         }
     }
 
-    /// The count of file changes so far, in development only.
-    pub(crate) fn dev_version(&self) -> Option<u64> {
-        self.changes().map(|changes| *changes.borrow())
-    }
-
     /// The count of file changes, in development only.
     pub(crate) fn changes(&self) -> Option<watch::Receiver<u64>> {
         match &self.0 {
-            Source::Embedded(_) => None,
+            Source::Embedded => None,
             Source::Disk { changes, .. } => Some(changes.clone()),
         }
     }
-}
-
-/// The templates' environment, with the filter `markdown`: `{{ text | markdown(2) }}` renders
-/// the agent's Markdown `text` as HTML that sits under an `<h2>`, and puts it in the page as it
-/// is.
-fn environment() -> Environment<'static> {
-    let mut environment = Environment::new();
-    environment.add_filter("markdown", |text: &str, under_heading: usize| {
-        Value::from_safe_string(
-            HtmlRenderer::under_heading(under_heading)
-                .render(text)
-                .into_string(),
-        )
-    });
-    environment
 }
 
 fn watch_files(
@@ -256,8 +136,6 @@ fn watch_files(
             counter.send_modify(|count| *count += 1);
         }
     })?;
-    for directory in ["templates", "assets"] {
-        watcher.watch(&root.join(directory), notify::RecursiveMode::Recursive)?;
-    }
+    watcher.watch(&root.join("assets"), notify::RecursiveMode::Recursive)?;
     Ok(watcher)
 }

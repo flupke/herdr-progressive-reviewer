@@ -105,11 +105,18 @@ export interface Session {
    */
   actions(): Promise<string[]>;
   /**
-   * The page stops following the round, as a page whose polls do not get through: it keeps
-   * showing the round as it was until the reviewer acts on it. A test of a refusal of an action
-   * on a stale page holds the page first, then moves the round.
+   * The page stops following the round, as a page whose socket does not get the tool's
+   * messages: it keeps showing the round as it was until the reviewer acts on it. A test of a
+   * refusal of an action on a stale page holds the page first, then moves the round.
    */
   holdPage(): Promise<void>;
+  /**
+   * The reviewer restarts: the page's socket closes, and the page cannot open another one until
+   * `reviewerBack()`. The round stays where it is, and the test may move it meanwhile.
+   */
+  restartReviewer(): Promise<void>;
+  /** The restarted reviewer is back: the page opens its socket again. */
+  reviewerBack(): Promise<void>;
 }
 
 async function control(baseUrl: string | undefined, path: string, body?: object): Promise<Response> {
@@ -125,8 +132,6 @@ async function control(baseUrl: string | undefined, path: string, body?: object)
 export interface SessionPage {
   /** Loads `path` of the server. */
   open(path: string): Promise<unknown>;
-  /** Aborts each request of the page to `url`, a glob. */
-  abort(url: string): Promise<unknown>;
 }
 
 /**
@@ -173,18 +178,15 @@ export async function openSession(baseUrl: string | undefined, page: SessionPage
     reviewEverything: () => step('review-everything'),
     unreviewLine: () => step('unreview-line'),
     actions: () => read<string[]>('actions'),
-    holdPage: async () => {
-      await page.abort('**/status');
-    },
+    holdPage: () => step('hold'),
+    restartReviewer: () => step('restart'),
+    reviewerBack: () => step('back'),
   };
 }
 
 export const test = base.extend<{ explore: Session }>({
-  explore: async ({ app, browser }, use) => {
-    const page: SessionPage = {
-      open: (path) => app.open(path),
-      abort: (url) => browser.route(url, (route) => route.abort()),
-    };
+  explore: async ({ app }, use) => {
+    const page: SessionPage = { open: (path) => app.open(path) };
     await use(await openSession(app.baseUrl, page));
   },
 });

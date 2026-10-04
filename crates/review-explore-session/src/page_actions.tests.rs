@@ -5,7 +5,7 @@
 use review_explore::{Command, DispatchState};
 use review_explore_page::{
     CommandRefusal, CommandReply, ImplementationState, Interruption, PageCommand, PageReply,
-    Recovery, RoundStage,
+    Recovery, RoundStage, Waiting,
 };
 
 use super::*;
@@ -32,6 +32,7 @@ impl Harness {
             RoundStage::Interrupted {
                 request,
                 interruption,
+                ..
             } => (request, interruption),
             stage => panic!("the page shows {stage:?}"),
         }
@@ -39,8 +40,28 @@ impl Harness {
 
     /// Stop waiting on the page for the turn the page shows the agent working on.
     fn stop_on_page(&mut self) -> Result<(), CommandRefusal> {
-        let request = Some(self.working_on());
-        self.on_page(PageCommand::Recover(Recovery::Stop { request }))
+        let request = self.working_on();
+        self.on_page(PageCommand::Recover(Recovery::Stop(Waiting::Turn(request))))
+    }
+
+    /// Stop waiting on the page for the start the page shows under way, if any.
+    fn stop_start_on_page(&mut self) -> Result<(), CommandRefusal> {
+        let start = match self.page.stage() {
+            RoundStage::Starting { start } => start,
+            _ => "no-start".into(),
+        };
+        self.on_page(PageCommand::Recover(Recovery::Stop(Waiting::Start(start))))
+    }
+
+    /// The latest attempt of the turn the page offers to retry, as the page shows it.
+    fn attempt(&self) -> String {
+        match self.page.stage() {
+            RoundStage::Interrupted {
+                attempt: Some(attempt),
+                ..
+            } => attempt,
+            _ => "no-attempt".into(),
+        }
     }
 }
 
@@ -93,14 +114,14 @@ fn a_stop_for_a_turn_the_agent_no_longer_works_on_is_refused() {
     harness.ask_first_question();
     let (answer, access) = harness.answer("Keep it.");
 
-    let other = harness.on_page(PageCommand::Recover(Recovery::Stop {
-        request: Some("another-turn".into()),
-    }));
-    let start = harness.on_page(PageCommand::Recover(Recovery::Stop { request: None }));
+    let other = harness.on_page(PageCommand::Recover(Recovery::Stop(Waiting::Turn(
+        "another-turn".into(),
+    ))));
+    let start = harness.stop_start_on_page();
     assert!(applied(harness.submit(&access, question(&answer, 2))));
-    let after_the_reply = harness.on_page(PageCommand::Recover(Recovery::Stop {
-        request: Some(answer.request.clone()),
-    }));
+    let after_the_reply = harness.on_page(PageCommand::Recover(Recovery::Stop(Waiting::Turn(
+        answer.request.clone(),
+    ))));
 
     assert_eq!(other, Err(CommandRefusal::Stale));
     assert_eq!(start, Err(CommandRefusal::Stale), "no start is under way");
@@ -114,12 +135,9 @@ fn stop_waiting_on_the_page_drops_a_round_that_is_starting() {
     let (reply, _kickoff) = harness.start_as_worker();
     assert_eq!(reply, Ok(()));
 
-    assert_eq!(
-        harness.on_page(PageCommand::Recover(Recovery::Stop { request: None })),
-        Ok(())
-    );
+    assert_eq!(harness.stop_start_on_page(), Ok(()));
 
-    assert_eq!(harness.page.stage(), RoundStage::NoRound);
+    assert!(matches!(harness.page.stage(), RoundStage::NoRound { .. }));
     assert_eq!(harness.next::<ui_events::ExplorePageStopped>().round, None);
 }
 
@@ -130,17 +148,14 @@ fn a_kickoff_the_pane_posts_after_a_stop_on_the_page_starts_nothing() {
     // page's Stop waiting arrives first.
     harness.capture();
     let kickoff = harness.request(None);
-    assert_eq!(
-        harness.on_page(PageCommand::Recover(Recovery::Stop { request: None })),
-        Ok(())
-    );
+    assert_eq!(harness.stop_start_on_page(), Ok(()));
 
     harness
         .session
         .handle(Input::Command(Command::Turn(Box::new(kickoff))));
 
     assert!(harness.next::<ui_events::ExplorePosted>().result.is_err());
-    assert_eq!(harness.page.stage(), RoundStage::NoRound);
+    assert!(matches!(harness.page.stage(), RoundStage::NoRound { .. }));
     assert!(harness.agents.prompts().is_empty(), "no kickoff was sent");
 }
 
@@ -154,7 +169,8 @@ fn retry_on_the_page_sends_the_prompt_retry_in_the_pane_sends() {
 
     assert_eq!(
         harness.on_page(PageCommand::Recover(Recovery::Retry {
-            request: answer.request.clone()
+            request: answer.request.clone(),
+            attempt: harness.attempt(),
         })),
         Ok(())
     );
@@ -187,6 +203,7 @@ fn stop_waiting_then_retry_on_the_page_sends_a_kickoff_again() {
 
     let retried = harness.on_page(PageCommand::Recover(Recovery::Retry {
         request: kickoff.request.clone(),
+        attempt: harness.attempt(),
     }));
 
     assert_eq!(retried, Ok(()));
@@ -218,6 +235,7 @@ fn retry_on_the_page_recovers_a_prompt_that_could_not_be_delivered() {
 
     let retried = harness.on_page(PageCommand::Recover(Recovery::Retry {
         request: answer.request.clone(),
+        attempt: harness.attempt(),
     }));
 
     assert_eq!(retried, Ok(()));
@@ -230,7 +248,7 @@ fn retry_on_the_page_recovers_a_prompt_that_could_not_be_delivered() {
 }
 
 #[test]
-fn a_retry_of_a_turn_that_is_not_interrupted_is_refused() {
+fn a_retry_of_a_turn_that_is_not_interrupted_sends_nothing() {
     let mut harness = Harness::start();
     harness.ask_first_question();
     let (answer, _) = harness.answer("Keep it.");
@@ -238,14 +256,44 @@ fn a_retry_of_a_turn_that_is_not_interrupted_is_refused() {
 
     let while_working = harness.on_page(PageCommand::Recover(Recovery::Retry {
         request: answer.request.clone(),
+        attempt: harness.attempt(),
     }));
     assert_eq!(harness.stop_on_page(), Ok(()));
     let other = harness.on_page(PageCommand::Recover(Recovery::Retry {
         request: "another-turn".into(),
+        attempt: harness.attempt(),
     }));
 
-    assert_eq!(while_working, Err(CommandRefusal::Stale));
+    // The turn is on its way, as after a Retry that went through.
+    assert_eq!(while_working, Err(CommandRefusal::AlreadyApplied));
     assert_eq!(other, Err(CommandRefusal::Stale));
+    assert_eq!(harness.agents.prompts().len(), prompts);
+}
+
+#[test]
+fn a_repeated_retry_sends_the_turn_once_and_a_retry_of_an_earlier_attempt_none() {
+    let mut harness = Harness::start();
+    harness.ask_first_question();
+    let (answer, _) = harness.answer("Keep it.");
+    assert_eq!(harness.stop_on_page(), Ok(()));
+    let attempt = harness.attempt();
+    let retry = |harness: &mut Harness, attempt: &str| {
+        harness.on_page(PageCommand::Recover(Recovery::Retry {
+            request: answer.request.clone(),
+            attempt: attempt.to_owned(),
+        }))
+    };
+
+    assert_eq!(retry(&mut harness, &attempt), Ok(()));
+    harness.delivered_prompt();
+    let prompts = harness.agents.prompts().len();
+    assert_eq!(
+        retry(&mut harness, &attempt),
+        Err(CommandRefusal::AlreadyApplied)
+    );
+    assert_eq!(harness.stop_on_page(), Ok(()));
+    assert_ne!(harness.attempt(), attempt, "the Retry made a new attempt");
+    assert_eq!(retry(&mut harness, &attempt), Err(CommandRefusal::Stale));
     assert_eq!(harness.agents.prompts().len(), prompts);
 }
 
@@ -351,7 +399,7 @@ fn reset_on_the_page_closes_the_round_as_reset_in_the_pane() {
 
     assert_eq!(stale, Err(CommandRefusal::Stale));
     assert_eq!(reset, Ok(()));
-    assert_eq!(harness.page.stage(), RoundStage::NoRound);
+    assert!(matches!(harness.page.stage(), RoundStage::NoRound { .. }));
     assert_eq!(harness.page.round(), None);
     assert_eq!(harness.next::<ui_events::ExplorePageReset>().round, round);
     assert!(
@@ -396,6 +444,19 @@ fn a_reply_to_the_conclusion_from_the_page_is_saved_and_prompted_as_the_panes() 
     assert_eq!(answer.text, "Why not a cache?");
     assert!(harness.delivered_prompt().contains("Why not a cache?"));
     assert_eq!(harness.working_on(), posted.request.request);
+    let answers = harness.saved().exploration.answers.len();
+
+    let repeated = harness.on_page(PageCommand::Reply(PageReply {
+        conclusion: conclusion.clone(),
+        text: "Why not a cache?".into(),
+    }));
+    let another = harness.on_page(PageCommand::Reply(PageReply {
+        conclusion,
+        text: "And a database?".into(),
+    }));
+    assert_eq!(repeated, Err(CommandRefusal::AlreadyApplied));
+    assert_eq!(another, Err(CommandRefusal::Stale));
+    assert_eq!(harness.saved().exploration.answers.len(), answers);
 }
 
 #[test]
@@ -452,6 +513,7 @@ fn the_page_sends_a_saved_request_that_a_reopening_paused() {
     let sent = harness.on_page(PageCommand::Recover(Recovery::ResendImplementation {
         conclusion: conclusion.clone(),
         delivery: paused.delivery.clone(),
+        attempt: paused.attempt.clone(),
     }));
 
     assert_eq!(sent, Ok(()));
@@ -471,8 +533,10 @@ fn the_page_sends_a_saved_request_that_a_reopening_paused() {
     let again = harness.on_page(PageCommand::Recover(Recovery::ResendImplementation {
         conclusion,
         delivery: paused.delivery,
+        attempt: paused.attempt,
     }));
-    assert_eq!(again, Err(CommandRefusal::Stale));
+    // The agent received it: a repeat of the resend sends nothing.
+    assert_eq!(again, Err(CommandRefusal::AlreadyApplied));
 }
 
 #[test]
@@ -535,6 +599,7 @@ fn retry_on_the_page_sends_a_request_the_agent_did_not_start_on_again_as_it_was(
     let retried = harness.on_page(PageCommand::Recover(Recovery::ResendImplementation {
         conclusion,
         delivery: shown.delivery.clone(),
+        attempt: shown.attempt.clone(),
     }));
 
     assert_eq!(retried, Ok(()));

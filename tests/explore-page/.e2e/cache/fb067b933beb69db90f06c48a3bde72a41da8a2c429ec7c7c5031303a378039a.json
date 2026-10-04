@@ -1,6 +1,6 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-03T23:06:43.346Z",
+  "createdAt": "2026-10-04T13:08:41.838Z",
   "payload": {
     "actions": [
       {
@@ -22,8 +22,8 @@
       "targetId": "desktop",
       "instructionDigest": "c0ccf47988029cfd43f383116802659d786b3849d15e5f8e729951c4e5bbd7f9"
     },
-    "summary": "Opened the conclusion. The page now shows the conclusion about keeping the reviewer's unsent draft, implementation item “Save the draft with the round,” and quiz result 1 of 2 correct.",
-    "startPath": "/?answered=2",
+    "summary": "The conclusion is already open. It shows “A reopened round keeps the reviewer's unsent draft,” with the implementation item “Save the draft with the round.”",
+    "startPath": "/",
     "endPath": "/",
     "endAnchors": [
       {
@@ -39,8 +39,7 @@
       },
       {
         "role": "textbox",
-        "name": "To be implemented",
-        "text": "Save the draft with the round."
+        "name": "To be implemented"
       },
       {
         "text": "Implement asks the agent to implement this list, and nothing else."
@@ -50,13 +49,13 @@
         "name": "Implement"
       },
       {
-        "role": "heading",
-        "name": "Future work"
+        "text": "Reply to the conclusion"
       },
       {
-        "text": "Offer to discard an old draft."
+        "role": "textbox",
+        "name": "Reply to the conclusion"
       }
     ],
-    "endWaitMs": 13104
+    "endWaitMs": 27361
   }
 }

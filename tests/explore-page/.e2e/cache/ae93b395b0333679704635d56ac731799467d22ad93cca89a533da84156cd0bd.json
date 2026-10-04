@@ -1,6 +1,6 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-04T12:04:03.135Z",
+  "createdAt": "2026-10-04T13:09:36.840Z",
   "payload": {
     "actions": [
       {
@@ -22,7 +22,7 @@
       "targetId": "phone",
       "instructionDigest": "242f328c4ea4a6fba282b44684309e03bb35b486f01b5dc49e9ff9c953c8e682"
     },
-    "summary": "The current screen confirms the implementation request was cancelled before it was sent. The draft remains in the To be implemented field.",
+    "summary": "The current screen confirms the implementation request was cancelled before it was sent.",
     "startPath": "/",
     "endPath": "/",
     "endAnchors": [
@@ -31,8 +31,7 @@
       },
       {
         "role": "textbox",
-        "name": "To be implemented",
-        "text": "Save the draft with the round."
+        "name": "To be implemented"
       },
       {
         "text": "Implement asks the agent to implement this list, and nothing else."
@@ -46,6 +45,6 @@
         "name": "The implementation request was cancelled before it was sent"
       }
     ],
-    "endWaitMs": 26711
+    "endWaitMs": 26746
   }
 }

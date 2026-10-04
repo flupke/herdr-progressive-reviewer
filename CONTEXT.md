@@ -171,8 +171,9 @@ The reviewer can run the whole round there, as in the pane: start it, answer,
 stop waiting, retry, cancel an answer, reply to the conclusion, implement it and
 reset it. Its address carries a token, and the page refuses requests without it.
 The pane serves it on this machine, for the Herdr action and for Start and Start
-with Challenger, which open it in the browser (Start in the pane does not), and on
-the network, behind a new token for each round, for the QR code in the pane; while
+with Challenger, which open it in the browser (Start in the pane does not), behind a
+token that the next pane of the same review keeps, so that an open page reconnects
+after a restart, and on the network, behind a new token for each round, for the QR code in the pane; while
 no round runs, the start screen's token is the one the next round keeps, and a
 Reset from the page hands that page the next one.
 _Avoid_: web UI, Explore web, browser view

@@ -206,17 +206,26 @@ fn a_round_started_from_the_page_waits_for_jev_to_mark_what_it_dismisses(kind: R
     files.write("file.rs", &text(&[]));
     files.new_change("review");
     files.write("file.rs", &text(&[(3, "three"), (20, "twenty")]));
+    let mut page = None;
     let mut fixture = EffectsFixture::start(files, |setup| {
         setup.jev = review_significance::JevClassifier::enabled(std::sync::Arc::new(LINE_THREE));
+        page = Some(setup.page.subscribe());
     });
     fixture.refreshed_checkpoint();
     let (reply, replied) = review_explore_page::CommandReply::channel();
+    // The start the page offers.
+    let review_explore_page::RoundStage::NoRound { start } = page.unwrap().stage() else {
+        panic!("the page offers no start");
+    };
 
     fixture
         .effects
         .explore_inbox()
         .deliver(review_explore_session::Input::Page {
-            command: review_explore_page::PageCommand::Start { challenger: true },
+            command: review_explore_page::PageCommand::Start {
+                challenger: true,
+                start,
+            },
             reply,
         });
 

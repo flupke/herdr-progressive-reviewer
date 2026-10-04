@@ -1,20 +1,21 @@
 //! The status card, as data: what the page shows for every state that is not a question. Each
 //! state maps here, and only here, to a kind, a title that says the state, the reason, the next
 //! step and the actions that fit it (docs/design/explore-page/README.md, "Start cover and status
-//! cards"; design-review.md, findings 6 and 23). The action names are the pane's. The template
-//! `status.html` draws a card; a client that draws the page from data draws it from the same
-//! fields.
+//! cards"; design-review.md, findings 6 and 23). The action names are the pane's. The page's
+//! client draws a card from these fields (`assets/client/status.js`); a refused action's card
+//! travels in the socket's reply.
 
 use review_explore::StartBlock;
 use serde::Serialize;
+use ts_rs::TS;
 
-use crate::notice::{Notice, Post, Problem, RecoveryPost};
+use crate::notice::{Action, Notice, Problem, RecoveryAction};
 use crate::round::{
     ImplementationState, Interruption, PageImplementation, RoundSnapshot, RoundStage,
 };
 
 /// What a card tells, by its colour and glyph.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, TS)]
 #[serde(rename_all = "snake_case")]
 enum StatusKind {
     /// The review tool or the agent is at work: a moving bar.
@@ -30,19 +31,19 @@ enum StatusKind {
 }
 
 /// How a reader is told of a card.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, TS)]
 #[serde(rename_all = "snake_case")]
 enum StatusRole {
     /// A state the page shows.
     Status,
-    /// A failure, or a refusal of the reviewer's post, which the reviewer has to see at once.
+    /// A failure, or a refusal of the reviewer's action, which the reviewer has to see at once.
     Alert,
     /// A lasting fact about the round.
     Note,
 }
 
 /// The tier of an action's button (assets/buttons.css).
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, TS)]
 #[serde(rename_all = "snake_case")]
 enum ButtonTier {
     Primary,
@@ -50,7 +51,7 @@ enum ButtonTier {
 }
 
 /// One state that is not a question: the state first, then the next step.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, TS)]
 pub(crate) struct StatusCard {
     kind: StatusKind,
     /// Names the card, once on the page.
@@ -67,13 +68,12 @@ pub(crate) struct StatusCard {
     actions: Vec<StatusAction>,
 }
 
-/// An action of a card: a form that posts to the page.
-#[derive(Debug, Serialize)]
+/// An action of a card: a request the page sends.
+#[derive(Debug, Serialize, TS)]
 struct StatusAction {
-    /// The page's route the action posts to, without its slash, which also names its form:
-    /// `retry` posts to `/retry`.
-    post: &'static str,
-    /// The identities the form posts.
+    /// The method of the page's request, which also names its form: `retry` sends a Retry.
+    method: &'static str,
+    /// The identities the request carries.
     fields: Vec<Field>,
     label: &'static str,
     tier: ButtonTier,
@@ -81,7 +81,7 @@ struct StatusAction {
     hint: Option<&'static str>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, TS)]
 struct Field {
     name: &'static str,
     value: String,
@@ -137,23 +137,23 @@ impl StatusCard {
         if shown { self.next(next) } else { self }
     }
 
-    /// Retry of the agent's turn `request`, with its next step, when there is a turn to send
-    /// again.
+    /// Retry of the agent's turn `turn`, its request and its latest attempt, with its next
+    /// step, when there is a turn to send again.
     fn retry(
         self,
-        request: Option<&str>,
+        turn: Option<(&str, &str)>,
         next: Option<&'static str>,
         tier: ButtonTier,
         hint: Option<&'static str>,
     ) -> Self {
-        let Some(request) = request else {
+        let Some((request, attempt)) = turn else {
             return self;
         };
         let card = match next {
             Some(next) => self.next(next),
             None => self,
         };
-        card.action(Some(StatusAction::retry(request, tier, hint)))
+        card.action(Some(StatusAction::retry(request, attempt, tier, hint)))
     }
 
     /// The ID of the card in `cards` that says why no round can start, if any.
@@ -172,16 +172,11 @@ impl StatusCard {
             .any(|card| [START_FAILURE, START_BLOCK].contains(&card.id))
     }
 
-    /// The cards above the round's stage: why the reviewer's latest post did not go through,
-    /// that the round is an earlier one, then the stage's own cards. `offers_actions` tells
-    /// whether the page offers actions on the round: an earlier round offers Reset only, and
-    /// shows its own card in place of the stage's.
-    pub(crate) fn above_stage(
-        round: &RoundSnapshot,
-        notice: Option<&Notice>,
-        offers_actions: bool,
-    ) -> Vec<Self> {
-        let mut cards: Vec<Self> = notice.map(Self::notice).into_iter().collect();
+    /// The cards above the round's stage: that the round is an earlier one, then the stage's
+    /// own cards. `offers_actions` tells whether the page offers actions on the round: an
+    /// earlier round offers Reset only, and shows its own card in place of the stage's.
+    pub(crate) fn above_stage(round: &RoundSnapshot, offers_actions: bool) -> Vec<Self> {
+        let mut cards = Vec::new();
         if !offers_actions {
             cards.push(Self::earlier());
         }
@@ -204,8 +199,12 @@ impl StatusCard {
         let delivery = || Field::new("delivery", &implementation.delivery);
         // Sends the request again, as it was saved.
         let resend = |label| StatusAction {
-            post: "resend-implementation",
-            fields: vec![Field::new("conclusion", request), delivery()],
+            method: "resend-implementation",
+            fields: vec![
+                Field::new("conclusion", request),
+                delivery(),
+                Field::new("attempt", &implementation.attempt),
+            ],
             label,
             tier: ButtonTier::Primary,
             hint: None,
@@ -217,7 +216,7 @@ impl StatusCard {
                 "Sending the implementation request to the agent…",
             )
             .action(offers_actions.then(|| StatusAction {
-                post: "cancel-implementation",
+                method: "cancel-implementation",
                 fields: vec![delivery()],
                 label: "Cancel the implementation request",
                 tier: ButtonTier::Secondary,
@@ -267,11 +266,11 @@ impl StatusCard {
         }
     }
 
-    /// Why the reviewer's latest post did not go through. A post the round moved past is
+    /// Why the reviewer's latest action did not go through. An action the round moved past is
     /// information; one that failed shows the failure; one the review tool did not answer asks
     /// the reviewer to check.
-    fn notice(notice: &Notice) -> Self {
-        let words = NoticeWords::of(notice.post);
+    pub(crate) fn of_notice(notice: &Notice) -> Self {
+        let words = NoticeWords::of(notice.action);
         let card = match &notice.problem {
             Problem::Stale => Self::new(StatusKind::Info, "notice", words.moved)
                 .reason(words.stale)
@@ -300,17 +299,21 @@ impl StatusCard {
     fn of_stage(round: &RoundSnapshot, offers_actions: bool) -> Vec<Self> {
         let answered = round.cancellable.is_some() && offers_actions;
         match &round.stage {
-            RoundStage::NoRound => Self::start(round, None),
-            RoundStage::StartFailed { failure } => Self::start(round, Some(failure)),
-            RoundStage::Starting => vec![Self::starting()],
+            RoundStage::NoRound { .. } => Self::start(round, None),
+            RoundStage::StartFailed { failure, .. } => Self::start(round, Some(failure)),
+            RoundStage::Starting { start } => vec![Self::starting(start)],
             RoundStage::AgentWorking { request } => {
                 vec![Self::working(round, request, answered, offers_actions)]
             }
             RoundStage::Interrupted {
                 request,
+                attempt,
                 interruption,
             } => offers_actions
-                .then(|| Self::interrupted(request.as_deref(), interruption, answered))
+                .then(|| {
+                    let turn = request.as_deref().zip(attempt.as_deref());
+                    Self::interrupted(request.is_some(), turn, interruption, answered)
+                })
                 .into_iter()
                 .collect(),
             RoundStage::StorageFailed { failure } => vec![Self::storage(failure)],
@@ -351,13 +354,14 @@ impl StatusCard {
         failed.into_iter().chain(blocked).collect()
     }
 
-    fn starting() -> Self {
+    /// The start `start` is under way.
+    fn starting(start: &str) -> Self {
         Self::new(StatusKind::Progress, "waiting", "Preparing the round")
             .reason(
                 "The review tool captures the change; Jev marks the insignificant lines first \
                  when it is on.",
             )
-            .action(Some(StatusAction::stop(None, false)))
+            .action(Some(StatusAction::stop(Stopped::Start(start), false)))
     }
 
     /// The agent works on its turn `request`; `answered` tells whether the turn carries the
@@ -371,7 +375,7 @@ impl StatusCard {
             "The agent is working on its next turn"
         };
         Self::new(StatusKind::Progress, "waiting", title)
-            .action(offers_actions.then(|| StatusAction::stop(Some(request), answered)))
+            .action(offers_actions.then(|| StatusAction::stop(Stopped::Turn(request), answered)))
     }
 
     fn storage(failure: &str) -> Self {
@@ -386,9 +390,15 @@ impl StatusCard {
         .role(StatusRole::Alert)
     }
 
-    /// The agent is not working on the turn `request` the round waits for, which Retry sends
-    /// again; `answered` tells whether the turn carries the reviewer's answer.
-    fn interrupted(request: Option<&str>, interruption: &Interruption, answered: bool) -> Self {
+    /// The agent is not working on the turn the round waits for, if `any`; Retry sends `turn`
+    /// again, its request and latest attempt. `answered` tells whether the turn carries the
+    /// reviewer's answer.
+    fn interrupted(
+        any: bool,
+        turn: Option<(&str, &str)>,
+        interruption: &Interruption,
+        answered: bool,
+    ) -> Self {
         use StatusKind::{Danger, Info, Warn};
         const ID: &str = "interruption";
         let (subject, what) = if answered {
@@ -402,7 +412,7 @@ impl StatusCard {
                     .reason(failure.as_str())
                     .role(StatusRole::Alert)
                     .retry(
-                        request,
+                        turn,
                         Some("Look at the review pane, then Retry."),
                         ButtonTier::Primary,
                         answered.then_some("Your answer and its marks are kept."),
@@ -413,7 +423,7 @@ impl StatusCard {
                     .reason("Its prompt may still wait in the agent's prompt box.")
                     .role(StatusRole::Alert)
                     .retry(
-                        request,
+                        turn,
                         Some("Look at the agent's pane, then Retry: it sends the same turn again."),
                         ButtonTier::Primary,
                         None,
@@ -424,13 +434,13 @@ impl StatusCard {
                     .reason("The review pane was reopened while it sent the prompt.")
                     .imperative("Check the agent's conversation before you retry.")
                     .retry(
-                        request,
+                        turn,
                         None,
                         ButtonTier::Secondary,
                         Some("Sends the same turn again, which could duplicate it."),
                     )
             }
-            Interruption::Stopped if request.is_none() => {
+            Interruption::Stopped if !any => {
                 Self::new(Info, ID, "The round has no turn to send again")
                     .next("Reset the round, then start a new one.")
             }
@@ -440,7 +450,7 @@ impl StatusCard {
                      out.",
                 )
                 .retry(
-                    request,
+                    turn,
                     Some(if answered {
                         "Retry sends it again, with your answer."
                     } else {
@@ -454,36 +464,52 @@ impl StatusCard {
 }
 
 impl StatusAction {
-    /// Stop waiting for the agent's turn `request`, or for the start under way when `None`;
-    /// `answered` tells whether the turn carries the reviewer's answer.
-    fn stop(request: Option<&str>, answered: bool) -> Self {
-        let hint = match request {
-            Some(_) if answered => "Your answer stays; Retry sends it again.",
-            Some(_) => "After Stop waiting, Retry sends the turn again.",
-            None => "Stop waiting drops the round before it starts.",
+    /// Stop waiting for `stopped`; `answered` tells whether the agent's turn carries the
+    /// reviewer's answer.
+    fn stop(stopped: Stopped<'_>, answered: bool) -> Self {
+        let (hint, field) = match stopped {
+            Stopped::Turn(request) if answered => (
+                "Your answer stays; Retry sends it again.",
+                Field::new("request", request),
+            ),
+            Stopped::Turn(request) => (
+                "After Stop waiting, Retry sends the turn again.",
+                Field::new("request", request),
+            ),
+            Stopped::Start(start) => (
+                "Stop waiting drops the round before it starts.",
+                Field::new("start", start),
+            ),
         };
         Self {
-            post: "stop",
-            fields: request
-                .map(|request| Field::new("request", request))
-                .into_iter()
-                .collect(),
+            method: "stop",
+            fields: vec![field],
             label: "Stop waiting",
             tier: ButtonTier::Secondary,
             hint: Some(hint),
         }
     }
 
-    /// Retry of the agent's turn `request`.
-    fn retry(request: &str, tier: ButtonTier, hint: Option<&'static str>) -> Self {
+    /// Retry of the attempt `attempt` of the agent's turn `request`.
+    fn retry(request: &str, attempt: &str, tier: ButtonTier, hint: Option<&'static str>) -> Self {
         Self {
-            post: "retry",
-            fields: vec![Field::new("request", request)],
+            method: "retry",
+            fields: vec![
+                Field::new("request", request),
+                Field::new("attempt", attempt),
+            ],
             label: "Retry",
             tier,
             hint,
         }
     }
+}
+
+/// What a Stop waiting stops: a start, or an agent's turn.
+#[derive(Clone, Copy)]
+enum Stopped<'a> {
+    Start(&'a str),
+    Turn(&'a str),
 }
 
 impl Field {
@@ -495,15 +521,15 @@ impl Field {
     }
 }
 
-/// How a notice words a post that did not go through.
+/// How a notice words an action that did not go through.
 struct NoticeWords {
-    /// What did not happen, when the post failed.
+    /// What did not happen, when the action failed.
     title: &'static str,
-    /// The state first, when the round moved past the post.
+    /// The state first, when the round moved past the action.
     moved: &'static str,
-    /// Then what it meant for the post.
+    /// Then what it meant for the action.
     stale: &'static str,
-    /// What to do when the review tool did not reply: the post may have gone through.
+    /// What to do when the review tool did not reply: the action may have gone through.
     unknown: &'static str,
 }
 
@@ -522,82 +548,82 @@ impl NoticeWords {
         }
     }
 
-    fn of(post: Post) -> Self {
-        match post {
-            Post::Answer => Self::new(
+    fn of(action: Action) -> Self {
+        match action {
+            Action::Answer => Self::new(
                 "Your answer was not sent",
                 QUESTION_ANSWERED,
                 "In the review pane or in another tab, or the round moved on, so your answer was \
                  not sent.",
                 "Load this page again to see whether it took your answer.",
             ),
-            Post::Start => Self::new(
+            Action::Start => Self::new(
                 "The round was not started",
                 "A round was started meanwhile",
                 "In the pane or in another tab, so this start did nothing.",
                 "Load this page again to see whether it started the round.",
             ),
-            Post::Pick => Self::new(
+            Action::Pick => Self::new(
                 "Your pick was not kept",
                 QUESTION_ANSWERED,
                 "In the review pane or in another tab, or the round moved on, so your pick was not \
                  kept.",
                 "Load this page again to see whether it kept your pick.",
             ),
-            Post::Implement => Self::new(
+            Action::Implement => Self::new(
                 "The implementation request was not sent",
                 "This conclusion no longer waits for a request",
                 "A request was sent from the pane or from another tab, or the round moved on, so \
                  this one was not sent.",
                 "Load this page again to see whether it sent the implementation request.",
             ),
-            Post::Quiz => Self::new(
+            Action::Quiz => Self::new(
                 "Your quiz answer was not kept",
                 "This quiz question no longer waits for an answer",
                 "It was answered or skipped in another tab, or the round moved on, so your quiz \
                  answer was not kept.",
                 "Load this page again to see whether it kept your quiz answer.",
             ),
-            Post::Reply => Self::new(
+            Action::Reply => Self::new(
                 "Your reply was not sent",
                 "The round moved past this conclusion",
                 "In the pane or in another tab, so your reply was not sent.",
                 "Load this page again to see whether it took your reply.",
             ),
-            Post::Recover(recovery) => Self::recovery(recovery),
+            Action::Recover(recovery) => Self::recovery(recovery),
         }
     }
 
     /// How a notice words an action that recovers or closes the round.
-    fn recovery(post: RecoveryPost) -> Self {
-        match post {
-            RecoveryPost::Stop => Self::new(
+    fn recovery(action: RecoveryAction) -> Self {
+        match action {
+            RecoveryAction::Stop => Self::new(
                 "Stop waiting did nothing",
                 "The page no longer waits for what it showed",
                 "The round moved on, in the pane or in another tab, so Stop waiting did nothing.",
                 "Load this page again to see whether it stopped waiting.",
             ),
-            RecoveryPost::Retry => Self::new(
+            RecoveryAction::Retry => Self::new(
                 "Retry did nothing",
                 "The turn is no longer interrupted",
                 "It was sent again in the pane or in another tab, or the round moved on, so Retry \
                  did nothing.",
                 "Load this page again to see whether it sent the turn again.",
             ),
-            RecoveryPost::CancelAnswer => Self::new(
+            RecoveryAction::CancelAnswer => Self::new(
                 "Your answer was not cancelled",
                 "It is no longer your last answer",
                 "The round moved on, in the pane or in another tab, so your answer was not \
                  cancelled.",
                 "Load this page again to see whether it cancelled your answer.",
             ),
-            RecoveryPost::Reset => Self::new(
+            RecoveryAction::Reset => Self::new(
                 "The round was not reset",
                 "The round was already reset or replaced",
                 "In the pane or in another tab, so this reset did nothing.",
                 "Load this page again to see whether it reset the round.",
             ),
-            RecoveryPost::CancelImplementation => Self::new(
+            RecoveryAction::CancelImplementation => Self::new(
                 "The implementation request was not cancelled",
                 "The implementation request is no longer being sent",
                 "It was sent or cancelled meanwhile, so it was not cancelled.",

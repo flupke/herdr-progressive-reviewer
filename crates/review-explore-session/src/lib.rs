@@ -136,22 +136,71 @@ struct State {
     implementation: Option<PromptCancellation>,
 }
 
-/// Where the reviewer's latest start of a round stands, while the session has no round.
-#[derive(Debug, Default)]
+/// Where the reviewer's latest start of a round stands, while the session has no round. Each
+/// start has an identity, made before the reviewer starts it: the page shows it with the start
+/// screen, and a Start from the page carries it back, so that a late repeat of a start that
+/// went through, or was stopped since, starts nothing.
+#[derive(Debug)]
 enum Start {
-    /// No start is under way, and the latest one, if any, succeeded.
-    #[default]
-    Idle,
-    /// The change is captured, or being captured, and the new round's kickoff is not saved yet.
-    Starting,
-    /// The latest start failed, for this reason.
-    Failed(String),
+    /// No start is under way, and the latest one, if any, succeeded; `offer` is the next one.
+    Idle { offer: String },
+    /// The start `start`: the change is captured, or being captured, and the new round's
+    /// kickoff is not saved yet.
+    Starting { start: String },
+    /// The latest start failed, for `failure`; `offer` is the next one.
+    Failed { failure: String, offer: String },
+}
+
+impl Default for Start {
+    fn default() -> Self {
+        Self::Idle {
+            offer: uuid::Uuid::new_v4().to_string(),
+        }
+    }
+}
+
+impl Start {
+    /// The start the session offers, while none is under way.
+    fn offered(&self) -> Option<&str> {
+        match self {
+            Self::Idle { offer } | Self::Failed { offer, .. } => Some(offer),
+            Self::Starting { .. } => None,
+        }
+    }
+
+    /// The start under way, if any.
+    fn starting(&self) -> Option<&str> {
+        match self {
+            Self::Starting { start } => Some(start),
+            _ => None,
+        }
+    }
+
+    /// The offered start begins; a start under way goes on.
+    fn begin(&mut self) {
+        if let Some(offer) = self.offered() {
+            *self = Self::Starting {
+                start: offer.to_owned(),
+            };
+        }
+    }
+
+    /// The start under way ended with its round, or was stopped: the next one is offered. A
+    /// failed start stays failed.
+    fn settle(&mut self) {
+        if self.starting().is_some() {
+            *self = Self::default();
+        }
+    }
 }
 
 impl State {
     /// The start under way failed, for `error`.
     fn start_failed(&mut self, error: &dyn std::fmt::Display) {
-        self.start = Start::Failed(error.to_string());
+        self.start = Start::Failed {
+            failure: error.to_string(),
+            offer: uuid::Uuid::new_v4().to_string(),
+        };
     }
 
     /// Revoke the MCP access of every earlier prompt.
@@ -268,7 +317,7 @@ impl ExploreSession {
             }
             Command::Cancel => {
                 self.cancel_record();
-                self.state.start = Start::Idle;
+                self.state.start.settle();
                 self.state.renew_access();
                 self.state.prompt = None;
                 self.state.pending = None;
@@ -312,10 +361,13 @@ impl ExploreSession {
     pub fn start_from_page(
         &mut self,
         challenger: bool,
+        start: &str,
         reply: CommandReply,
     ) -> Option<TurnRequest> {
-        let starting = matches!(self.state.start, Start::Starting);
-        let refusal = if self.state.round.is_some() || starting {
+        let refusal = if self.state.round.is_none() && self.state.start.starting() == Some(start) {
+            // A repeat of the start under way.
+            Some(CommandRefusal::AlreadyApplied)
+        } else if self.state.round.is_some() || self.state.start.offered() != Some(start) {
             Some(CommandRefusal::Stale)
         } else if let Some(block) = self.start_block {
             Some(CommandRefusal::Failed(block.reason().into()))
@@ -326,7 +378,7 @@ impl ExploreSession {
             reply.send(Err(refusal));
             return None;
         }
-        self.state.start = Start::Starting;
+        self.state.start.begin();
         self.publish_page();
         reply.send(Ok(()));
         let _ = self.events.send(ui_events::ExplorePageStart(Ok(())));
@@ -356,7 +408,7 @@ impl ExploreSession {
         self.state.agent = None;
         self.state.round = None;
         self.state.historical = false;
-        self.state.start = Start::Starting;
+        self.state.start.begin();
         self.state.renew_access();
     }
 

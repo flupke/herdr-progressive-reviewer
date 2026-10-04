@@ -73,33 +73,38 @@ See [language server setup](language-servers.md) for the server commands, and
 ## Explore page
 
 The Explore page is a browser page that shows an Explore round. Its routes,
-templates and assets are in
-[`crates/review-explore-page`](../crates/review-explore-page): axum serves HTML
-rendered from minijinja templates, with no client framework. In every stage,
-`assets/page.js` polls the page's status, which holds only the revision of the
-published stage, and loads the page again once it changed, or once the page's
-token no longer opens a round; it polls faster while a round starts, the agent
-works or an implementation request is being sent. The reviewer's actions are form posts that need the
-page's cookie: the page hands each one to the round's owner as a
-`PageCommand`, waits for its reply, then redirects to the page (post, redirect,
-get). A refusal travels to that next load in a short-lived cookie, which the
-page shows once as a status card, worded for its post by `StatusCard` in
-`src/status.rs`. Before it sends an answer, the page checks that the round
-still asks the question it showed; before an Implement, that the conclusion
-still offers it in place of the request the page showed, if any; before Stop
-waiting, Retry, Cancel answer, Reset, a reply or a cancel of an implementation
-request, that the stage still offers it, by the identity of the turn, answer,
-round, conclusion or request the form posts. The owner checks again against its
-own round. On a question whose Door is not two-way,
-the page hides the recommendation until the reviewer's first pick
-(`src/blind.rs`), unless the reviewer answered the question before and cancelled the
-answer (`RoundStage::Question::answer_cancelled`): the pick is a form post that the
-page keeps in a cookie, not a command, and the answer then carries it to the owner as
-`AnswerInput::first_pick`. The comment typed with the pick stays in the page's memory
-(`PickComments`), under an ID the cookie carries, until the answer is sent; an answer that is
-not sent keeps its comment there. A conclusion with a quiz shows it first, one item at a time
-(`templates/quiz.html`): the page grades a pick itself, saves it through the owner
-(`PageCommand::Quiz`), then shows the item's answer at `/?answered=N` until the
+socket and client are in
+[`crates/review-explore-page`](../crates/review-explore-page): axum serves a shell
+page that loads a small JavaScript client (`assets/client`, see
+[The page's client](#the-pages-client)), with no framework, no bundler and no
+package manager. Each open page holds one WebSocket at `/ws`: the tool sends the round
+as typed data (`PageView` in `src/view.rs`), whole, when the socket opens and at each
+change, and the client draws every screen from it and changes in place what changed,
+so the reader's scroll, focus, selection and typed text stay. The reviewer's actions go
+back over the same socket as requests in the shape of JSON-RPC 2.0 (`src/rpc.rs`); the
+page hands each one to the round's owner as a `PageCommand`, waits for its reply, sends
+the view it changed, then the reply. A refusal carries its notice, a status card
+worded for the action by `StatusCard` in `src/status.rs`, which the page shows until
+the round changes. Before it hands an action to the owner, the page checks that the
+round still offers it, by the identity of what the action acts on: the version of the
+question, the start, the turn and its latest attempt, the answer, the round, the
+conclusion, the implementation request and its attempt. The owner checks again against
+its own round. A repeat of an action that went through (the same answer to the same
+version of a question, the same first pick, list to be implemented, quiz answer or
+reply) is answered as applied already and changes nothing; a repeat of a Start, a Stop
+waiting, a Retry or a resend names a start, a turn or an attempt that is no longer the
+current one, so it cannot act twice (`CommandRefusal::AlreadyApplied`,
+`src/actions.rs`). With scripts off, the page says that it needs them.
+
+On a question whose Door is not two-way, the page hides the recommendation until the
+reviewer's first pick (`src/blind.rs`), unless the reviewer answered the question
+before and cancelled the answer (`RoundStage::Question::answer_cancelled`): the pick is
+a request that the owner accepts while the round asks the question (`PageCommand::Pick`),
+then the page keeps it (`FirstPicks`), shows it to every tab, and the answer carries it
+to the owner as `AnswerInput::first_pick`. The comment typed with the pick stays in the
+answer's comment box, which keeps the same draft. A conclusion with a quiz shows it
+first, one item at a time (`assets/client/quiz.js`): the page grades a pick itself,
+saves it through the owner (`PageCommand::Quiz`), then shows the item's answer until the
 reviewer moves on; once every item is answered or the reviewer skips the rest, the
 conclusion shows with the results folded beside it.
 
@@ -111,7 +116,8 @@ through the events it already follows (`ExplorePosted`, `ExploreAnswerCancelled`
 `ExploreImplementationSaved`, `ExploreImplementationFinished`), and through
 `ExplorePageStopped` and `ExplorePageReset`; its own behaviour does not change.
 On the network, Reset ends the round's token, and the page that sent it receives
-the start screen's next token (`Rounds::after_reset`, ADR 0003).
+the start screen's next token in the reply (`Rounds::after_reset`, ADR 0003), and opens
+again with it.
 
 | State of the pane's Explore tab | Pane action | On the page (`RoundStage`) |
 | --- | --- | --- |
@@ -149,8 +155,8 @@ The page follows the reviewer's design handoff in
 specification, `screenshots/` the reference captures, and `design-review.md` the detailed
 findings; "The page's components" below says where each building block lives.
 
-A fenced `mermaid` block is a diagram, which `assets/diagrams.js` draws in the
-browser with Mermaid, again with its dark theme when the page turns dark, at
+A fenced `mermaid` block is a diagram, which `assets/client/diagrams.js` draws in the
+browser with Mermaid when the region that holds it is built, again with its dark theme when the page turns dark, at
 the diagram's natural size in a frame that scrolls sideways. Mermaid is
 vendored, pinned and gzipped at build time in
 [`crates/mermaid-js`](../crates/mermaid-js) (its `vendor/README.md` says how to
@@ -160,8 +166,8 @@ version. Mermaid writes inline styles into each diagram, so the page's content
 security policy allows inline styles (`style-src 'self' 'unsafe-inline'`); it
 still allows scripts only from the page itself. The tool cannot check a diagram
 when the agent submits it: when Mermaid cannot parse one, the page shows its
-source with Mermaid's message and posts the error to `/diagram-errors`, and the
-Explore session saves it with the question (`Exploration::diagram_errors`).
+source with Mermaid's message and sends the error over the socket (`diagram-failed`), and
+the Explore session saves it with the question (`Exploration::diagram_errors`).
 
 In the reviewer, the Explore session publishes the stage of its round (no
 round, a round starting or a failed start, the agent working, a question,
@@ -174,7 +180,7 @@ evidence viewer, for files the change touches or the repository tracks only, sin
 may be open from the network), colored once per question on the session's thread by
 [`crates/review-explore-citations`](../crates/review-explore-citations), and
 [`crates/review-explore-page-host`](../crates/review-explore-page-host) serves
-the page of that round on a free loopback port behind a new token. The worker names the
+the page of that round on a loopback port behind a token (below). The worker names the
 review the page belongs to after each snapshot (`ExploreSession::name_review`,
 `RoundPublisher::name`), and the start screen shows it. Whether a round can start follows
 one rule, `review_explore::StartBlock`: not once every changed line is marked as reviewed.
@@ -203,7 +209,10 @@ the page's address, readable only by the user, under
 `$HERDR_PLUGIN_STATE_DIR/explore-page/`, one record per Herdr workspace. The
 Herdr action `explore-page` (`reviewer-control explore-page`) reads the record
 of its workspace, checks that the page answers, and opens it with `$BROWSER`,
-`xdg-open` or `open`.
+`xdg-open` or `open`. The record keeps the page's token and the review it shows after
+the reviewer closes: a reviewer of the same review that starts again in the workspace
+serves the page at the same address with the same token, when its port is free, so that a
+page left open reconnects to it.
 
 The host also serves the page on a network interface, for a phone, on the same
 thread and runtime: a second listener with its own host name and a new token for
@@ -230,8 +239,8 @@ only this machine can open. Test sessions open no browser: they set `BROWSER` to
 ### The page's components
 
 Each component is plain markup with a few classes, styled in one stylesheet of
-`crates/review-explore-page/assets`, so that a template and a script that draws the page
-produce it alike. Colours, type, radii and shadows come from the tokens in `tokens.css`
+`crates/review-explore-page/assets`, which the client's modules build with the same
+classes. Colours, type, radii and shadows come from the tokens in `tokens.css`
 (one meaning per colour: accent where the reviewer acts or what is selected, good for done,
 warn for "check before you act", bad for failed or destructive, agent for the agent's
 judgement); `h1` to `h4` follow the type scale, `.eyebrow` is the small uppercase label above
@@ -251,7 +260,7 @@ what it names, `.hint` the muted help line. Every control has a focus ring (`:fo
     <div class="status-bar" aria-hidden="true"></div>   <!-- progress only -->
     <p class="status-next"><strong>Check the agent's conversation before you retry.</strong></p>
     <div class="status-actions">
-      <form class="retry" method="post" action="/retry">
+      <form class="retry" data-method="retry">
         <input type="hidden" name="request" value="…">
         <button class="button secondary" type="submit">Retry</button>
         <p class="hint">Sends the same turn again, which could duplicate it.</p>
@@ -264,8 +273,8 @@ what it names, `.hint` the muted help line. Every control has a focus ring (`:fo
   from the stylesheet. A verbatim error in the reason is a `<code>`. Which state shows which
   card, with its words and actions, is data: `StatusCard` in
   [`src/status.rs`](../crates/review-explore-page/src/status.rs) maps each stage, each
-  implementation request and each refused post to its kind, title, reason, next step and
-  actions; `templates/status.html` only draws it.
+  implementation request and each refused action to its kind, title, reason, next step and
+  actions; `assets/client/status.js` only draws it.
 - **Panel and desk** (`layout.css`): the page is capped at 90rem with a 32-pixel gutter (16 on
   a phone). From 70rem, a container with the class `desk` reads in two columns: its children
   in the reading column, each in its own grid row, and its child with the class `panel` (416
@@ -278,7 +287,7 @@ what it names, `.hint` the muted help line. Every control has a focus ring (`:fo
   <section class="question desk" aria-labelledby="question-1-title">
     <h2 id="question-1-title">Question 1</h2>
     <div class="text markdown">…</div>
-    <form class="answer panel" method="post" action="/answer">…</form>
+    <form class="answer panel" data-method="answer">…</form>
     <section class="citations">…</section>
   </section>
   ```
@@ -290,7 +299,7 @@ what it names, `.hint` the muted help line. Every control has a focus ring (`:fo
     <p class="eyebrow" role="status">No round is running</p>   <!-- only without a card -->
     <h1>The review's title</h1>
     <p class="meta"><code>revision</code> in <code>repository</code></p>
-    <form class="start" method="post" action="/start">
+    <form class="start" data-method="start">
       <div class="start-choice">
         <button class="button primary block" type="submit">Start</button>
         <p class="hint">The agent explains the design, then asks one question at a time.</p>
@@ -301,6 +310,64 @@ what it names, `.hint` the muted help line. Every control has a focus ring (`:fo
   ```
 - **Masthead** (`masthead.css`): `<header class="masthead"><p class="product">Explore</p></header>`,
   above `main`, with its hairline across the window.
+
+### The page's client
+
+The client is plain JavaScript ES modules in
+[`crates/review-explore-page/assets/client`](../crates/review-explore-page/assets/client),
+committed as they are: there is no build step, and the browser loads each module from
+`/assets/client/<name>`. Every module must be listed in `ASSETS` in `src/files.rs`, which
+builds it into the binary and serves it with the script content type browsers require
+for modules. The page's content security policy allows scripts from the page itself
+only, with no `unsafe` value; its `connect-src` names the page's own `ws:` address.
+
+- `main.js` starts the client: it opens the socket and draws each view it receives.
+- `socket.js` is the socket (`Link`): requests in the shape of JSON-RPC 2.0, each matched
+  to its reply by an `id`; a new socket after a close, with a doubling delay capped at ten
+  seconds and full jitter; a watchdog that opens a new one when the tool's pings (every ten
+  seconds, `HEARTBEAT` in `src/socket.rs`) stop for 25 seconds; and an immediate check when
+  the page is shown again, gets the focus, or the network comes back. Nothing is replayed
+  after a reconnect: the new socket gets the current view, which the page draws whatever
+  its number. While the socket is down, `connection.js` says so in a quiet line and every
+  action waits, its button disabled; no action is queued. A socket closed with the code
+  4001 had a token that no longer opens a round: the page says how to open it again.
+- `dom.js` holds the rendering rules, the one place to read before changing a screen: one
+  view, one entry point; stable regions, each rebuilt only when its key (its data) changes,
+  so that the nodes the reviewer uses survive every push; text from the data through
+  `textContent` (the helper `h`), and HTML only through `setRenderedMarkdown`, for the
+  agent's Markdown the tool rendered, and `setDiagramDrawing`, for Mermaid's drawings; a text box's value set only when it is built, from
+  its draft (`drafts.js`), and the focus given back to the text box of the same draft
+  after a rebuild.
+- `page.js` lists the regions of `main` in the order the page shows them, and draws each
+  from its part of the view. `actions.js` turns the submit of any form into its request:
+  each form names its method (`data-method`), and `CALLS` says how its fields make the
+  request's params.
+- One module per screen or region: `start.js`, `status.js` (the status card),
+  `last-answer.js`, `design.js`, `response.js`, `question.js` (with the answer panel and
+  the first pick), `citations.js`, `conclusion.js` (with the list to be implemented and
+  the reply), `quiz.js`, `reset.js`, and `diagrams.js`, which draws each diagram of a
+  region that was built.
+
+To add a screen or a region: give the view the data it needs (a field of `PageView` or of
+the type of its screen, in `src/view.rs`, built from the round's snapshot), run
+`make explore-types`, write the module that builds the region from that data, add its
+region to `Page` in `page.js`, and list the module in `ASSETS`. An action the region
+offers is a form with a `data-method`, an entry in `CALLS`, a variant of `Call` in
+`src/rpc.rs`, and its check in `src/actions.rs`, which hands it to the owner as a
+`PageCommand`. A new field of the view is one line on each side.
+
+The client's types come from the Rust types of the socket's messages: ts-rs generates
+`assets/client/types.ts` from them (`src/typescript.rs`), and each module names them in
+its JSDoc (`/** @import { PageView } from "./types.ts" */`). The file is committed. A
+Rust test fails once it no longer matches the Rust types (`make explore-types` writes it
+again), and `make e2e-explore`, in `make check`, first runs `tsc` over the client
+(`tests/explore-page/tsconfig.client.json`, with the `typescript` package of that
+project), which fails on a field or a variant that one side no longer has. `tsc` emits
+nothing: the browser loads the modules as they are.
+
+The socket is tested in Rust (`src/socket.tests.rs`: admission, the view at each change,
+a repeat of each action), and what the reviewer does on the page with the e2e tests
+below; the client has no unit tests.
 
 ### Serve the page alone
 
@@ -313,11 +380,12 @@ This runs the standalone server
 with no pane, no agent and no Herdr. It prints the address of a page that shows
 a fixed question: `http://127.0.0.1:8790/?token=dev`. Open it in a browser.
 
-The server reads the templates and assets from disk on every request, and an
-open page loads itself again when one of them changes, so a markup or style edit
-shows at once. A Rust edit needs a rebuild: stop the server and run the command
-again, then reload the page. The token stays `dev`, so the page opens again
-without a new address.
+The server reads the shell, the client's modules and the stylesheets from disk on
+every request, and an open page loads itself again when one of them changes (its
+file watcher answers `/dev/changes`; nothing polls the files), so a client or style
+edit shows at once. A Rust edit needs a rebuild: stop the server and run the command
+again; the open page reconnects by itself once the server is back. The token stays
+`dev`, so the page opens again without a new address.
 
 The server's own options: `--port N` (`0` picks a free port), `--token T`
 (random when omitted), `--data short|rich`, what the agent posts, and `--dev DIR`, the
@@ -342,8 +410,9 @@ sheet, `index.html`, which shows each state's screenshots side by side. It start
 the standalone server with the rich data set and, for each screenshot, moves a fresh
 session of it to the state, in a page loaded at that width and theme, through the
 e2e fixture's helpers (`openSession` in `tests/explore-page/tests/session.ts`) and
-exact actions on the page. It waits until the page shows the round's latest revision
-with its diagrams drawn, then makes the window as tall as the page, so that the
+exact actions on the page. It waits until the client has drawn the round, with its fonts
+and diagrams, and has the reply to the last action it sent, then makes the window as tall
+as the page, so that the
 sticky column of the reviewer's actions shows whole rather than scrolling inside
 itself, and shoots with the dev shell's headless Chromium. It calls no model, needs
 no network once the npm packages are installed, and is not part of `make check`. A
@@ -370,7 +439,7 @@ what the state shows; and `reach`, which moves a fresh session, whose agent work
 its first question, to the state with the fixture's helpers, and leaves the page
 showing it; the helpers of that file cover the usual paths (`after` for a move of the
 round, `question`, `conclusion`). Before an action the round no longer offers, hold the
-page (`refused` in that file) so that its poll does not follow the round first. A state
+page (`refused` in that file) so that it does not follow the round first. A state
 that needs a new move of the round needs a control route of the server first, as
 for an e2e test.
 
@@ -443,8 +512,10 @@ shows the request as being sent until `explore.deliverImplementation()`;
 `explore.implementations()` returns the lists the page sent. `explore.actions()`
 returns, by name, the other actions the page sent (Stop waiting, Retry, Cancel
 answer, Reset, a reply, a cancel of an implementation request), and
-`explore.holdPage()` stops the page from following the round, for a test of an
-action refused on a stale page. `explore.reopenBeforeSending()` and
+`explore.holdPage()` stops the page from following the round until it sends an action,
+which is then refused, for a test of an action refused on a stale page.
+`explore.restartReviewer()` closes the page's socket and refuses a new one until
+`explore.reviewerBack()`, as a reviewer that restarts. `explore.reopenBeforeSending()` and
 `explore.reopenWhileSending()` stand for a reopen of the review while the session sends a
 prompt (the request is then saved but not sent, or its delivery unknown; the turn stopped,
 or its delivery unknown), `explore.becomeEarlierRound()` makes the round an earlier one,
@@ -458,8 +529,9 @@ test's own. The server's log of each
 target is in
 `tests/explore-page/.e2e/logs/`; a failed run prints its end. The run also
 fails when the browser reports that the page broke its content security policy,
-which allows scripts and styles only from the page itself, and inline styles
-for Mermaid's diagrams. A failing test
+which allows scripts and styles only from the page itself, inline styles for
+Mermaid's diagrams, requests to the page and its socket only, and no form post. A
+failing test
 leaves the accessibility tree of the page and a Playwright trace under
 `tests/explore-page/.e2e/artifacts/`.
 

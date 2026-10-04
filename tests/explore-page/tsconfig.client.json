@@ -1,0 +1,19 @@
+{
+  // Checks the Explore page's client (crates/review-explore-page/assets/client), plain
+  // JavaScript with JSDoc, against the TypeScript declarations generated from the Rust types of
+  // its socket's messages (types.ts). It emits nothing: the browser loads the modules as they are.
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": true,
+    "target": "es2023",
+    "lib": ["es2023", "dom", "dom.iterable"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "noUnusedLocals": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["../../crates/review-explore-page/assets/client/*.js"]
+}

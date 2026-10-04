@@ -123,10 +123,10 @@ impl Worker {
                 self.start_round(*request, messages);
             }
             explore_session::Input::Page {
-                command: PageCommand::Start { challenger },
+                command: PageCommand::Start { challenger, start },
                 reply,
             } => {
-                if let Some(kickoff) = self.explore.start_from_page(challenger, reply) {
+                if let Some(kickoff) = self.explore.start_from_page(challenger, &start, reply) {
                     self.start_round(kickoff, messages);
                 }
             }
@@ -136,8 +136,7 @@ impl Worker {
                 command: PageCommand::Recover(recovery),
                 reply,
             } => {
-                let drops_kickoff =
-                    matches!(recovery, Recovery::Stop { .. } | Recovery::Reset { .. });
+                let drops_kickoff = matches!(recovery, Recovery::Stop(_) | Recovery::Reset { .. });
                 if self.explore.recover_from_page(recovery, reply) && drops_kickoff {
                     self.held_kickoff = None;
                 }

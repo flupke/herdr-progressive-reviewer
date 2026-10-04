@@ -5,11 +5,11 @@
 
 use std::sync::{Arc, Mutex, PoisonError};
 
-use review_explore::{DiagramError, Question, QuizAnswers, StartBlock};
+use review_explore::{DiagramError, Question, QuizAnswers, QuizResponse, StartBlock};
 use review_explore_page::{
-    CommandRefusal, CommandSender, ImplementationState, Interruption, LatestAnswer, PageCommand,
-    PageImplementation, PageRound, PublishedRound, Recovery, RoundPublisher, RoundStage, Rounds,
-    Token,
+    Answered, CommandRefusal, CommandSender, ImplementationState, Interruption, LatestAnswer,
+    PageCommand, PageImplementation, PageRound, PublishedRound, Recovery, RoundPublisher,
+    RoundStage, Rounds, Token, Waiting,
 };
 use serde::Serialize;
 
@@ -24,6 +24,8 @@ pub(crate) struct Sessions {
 
 struct Session {
     token: Token,
+    /// Names the session's rounds, so that no two sessions' rounds have the same identity.
+    id: String,
     /// What the agent posts.
     data: &'static dyn RoundData,
     round: RoundPublisher,
@@ -48,6 +50,11 @@ struct Session {
     quiz: Option<QuizAnswers>,
     /// The agent's turns the session asked for so far, which name each turn.
     turns: usize,
+    /// The attempts to reach the agent so far, of a turn or an implementation request, which
+    /// name each attempt.
+    attempts: usize,
+    /// The starts the session offered so far, which name each start.
+    offers: usize,
     /// The reviewer's answers of the latest round that were not cancelled, in the pane or from
     /// the page, in order, as the page shows them: the latest one may be cancelled.
     answered: Vec<LatestAnswer>,
@@ -56,6 +63,21 @@ struct Session {
     /// Whether another reviewer saved a newer round of the review since: the reviewer can only
     /// Reset this one.
     earlier: bool,
+    /// How the session's page follows the round.
+    page: PageLink,
+}
+
+/// How a session's page follows its round.
+#[derive(Default)]
+enum PageLink {
+    /// It shows each change.
+    #[default]
+    Following,
+    /// It no longer follows the round, as a page whose socket does not get the tool's messages,
+    /// until it sends an action; the round may have moved to `unseen` meanwhile.
+    Held { unseen: Option<Box<RoundStage>> },
+    /// The reviewer is restarting: the page cannot open its socket.
+    Away,
 }
 
 /// An answer the reviewer sent from the page, as a test reads it back.
@@ -79,12 +101,12 @@ pub(crate) struct SentStart {
 impl Session {
     /// The identity of the session's latest round.
     fn round_id(&self) -> String {
-        self.rounds.to_string()
+        format!("{}-{}", self.id, self.rounds)
     }
 
     /// Publishes `stage` of the latest round, with the design once the agent asked its first
     /// question, and the reviewer's latest answer, which the reviewer may cancel.
-    fn publish(&self, stage: RoundStage) {
+    fn publish(&mut self, stage: RoundStage) {
         let id = self.round_id();
         let design = self.data.design();
         let round = self.running.then(|| PublishedRound {
@@ -93,14 +115,55 @@ impl Session {
             cancellable: self.answered.last(),
             earlier: self.earlier,
         });
-        self.round.publish(round, stage);
+        if let PageLink::Held { unseen } = &mut self.page {
+            *unseen = Some(Box::new(stage));
+        } else {
+            self.round.publish(round, stage);
+        }
+    }
+
+    /// The stage the round is at, which a held page may not show yet.
+    fn stage(&self) -> RoundStage {
+        match &self.page {
+            PageLink::Held {
+                unseen: Some(stage),
+            } => (**stage).clone(),
+            _ => self.round.subscribe().stage(),
+        }
+    }
+
+    /// The page follows the round again: it shows the stage the round moved to meanwhile.
+    fn release(&mut self) {
+        if let PageLink::Held { unseen } = std::mem::take(&mut self.page)
+            && let Some(stage) = unseen
+        {
+            self.publish(*stage);
+        }
+    }
+
+    /// The reviewer restarts: the page's socket closes, and the page cannot open another one
+    /// until the reviewer is back. The round stays where it is.
+    fn restart(&mut self) {
+        let stage = self.stage();
+        let feed = self.round.subscribe();
+        let round = RoundPublisher::default();
+        if let Some(review) = feed.review() {
+            round.name(review);
+        }
+        round.block_starts(feed.start_block());
+        self.round = round;
+        self.page = PageLink::Away;
+        self.publish(stage);
     }
 
     /// Takes the reviewer's answer to the agent's latest question.
     fn take_answer(&mut self, answer: AnswerTaken<'_>) {
-        let alternatives = match &self.latest_question {
-            Some(RoundStage::Question { question, .. }) => question.alternatives.as_slice(),
-            _ => &[],
+        let (alternatives, question) = match &self.latest_question {
+            Some(RoundStage::Question { question, .. }) => (
+                question.alternatives.as_slice(),
+                Some((question.id.clone(), question.version)),
+            ),
+            _ => (&[][..], None),
         };
         let (picked, comment) = match answer {
             AnswerTaken::InPane => (alternatives.first(), String::new()),
@@ -115,6 +178,11 @@ impl Session {
             id: format!("answer-{}", self.answered.len() + 1),
             choice: picked.map(|alternative| alternative.text.clone()),
             comment,
+            answered: Answered {
+                question,
+                option: picked.map(|alternative| alternative.id.clone()),
+                in_reply_to: self.turn_id(),
+            },
         });
     }
 
@@ -138,7 +206,26 @@ impl Session {
     /// The agent works on a new turn.
     fn new_turn(&mut self) -> RoundStage {
         self.turns += 1;
+        self.attempts += 1;
         self.working()
+    }
+
+    /// The identity of the latest attempt to reach the agent.
+    fn attempt(&self) -> String {
+        format!("attempt-{}", self.attempts)
+    }
+
+    /// The start the session offers while no round runs.
+    fn offered_start(&self) -> String {
+        format!("{}-start-{}", self.id, self.offers)
+    }
+
+    /// No round is running: the session offers its next start.
+    fn no_round(&mut self) -> RoundStage {
+        self.offers += 1;
+        RoundStage::NoRound {
+            start: self.offered_start(),
+        }
     }
 
     /// The agent works on the latest turn.
@@ -152,6 +239,7 @@ impl Session {
     fn interrupted(&self, interruption: Interruption) -> RoundStage {
         RoundStage::Interrupted {
             request: Some(self.turn_id()),
+            attempt: Some(self.attempt()),
             interruption,
         }
     }
@@ -188,16 +276,20 @@ impl Session {
     /// The stage after `event`, outside the agent's turns.
     fn after_round_event(&mut self, event: RoundEvent) -> RoundStage {
         match event {
-            RoundEvent::Reset => RoundStage::NoRound,
-            RoundEvent::FailStart => RoundStage::StartFailed {
-                failure: self.round.subscribe().start_block().map_or_else(
-                    || "Repository comparison is not ready; retry Start".into(),
-                    |block| block.reason().into(),
-                ),
-            },
+            RoundEvent::Reset => self.no_round(),
+            RoundEvent::FailStart => {
+                self.offers += 1;
+                RoundStage::StartFailed {
+                    failure: self.round.subscribe().start_block().map_or_else(
+                        || "Repository comparison is not ready; retry Start".into(),
+                        |block| block.reason().into(),
+                    ),
+                    start: self.offered_start(),
+                }
+            }
             RoundEvent::Earlier => {
                 self.earlier = true;
-                self.round.subscribe().stage()
+                self.stage()
             }
             RoundEvent::FailStorage => RoundStage::StorageFailed {
                 failure: STORAGE_FAILURE.into(),
@@ -225,6 +317,7 @@ impl Session {
         match step {
             Step::Implement => Some(self.conclusion(Some(PageImplementation {
                 delivery: "pane".into(),
+                attempt: self.attempt(),
                 text: self.data.to_be_implemented(),
                 state: ImplementationState::Sent,
             }))),
@@ -234,7 +327,7 @@ impl Session {
 
     /// The implementation request of the conclusion the round shows, if any.
     fn implementation(&self) -> Option<PageImplementation> {
-        match self.round.subscribe().stage() {
+        match self.stage() {
             RoundStage::Conclusion { implementation, .. } => implementation,
             _ => None,
         }
@@ -323,13 +416,16 @@ impl Session {
     /// would. The page already refused one its round no longer offers.
     fn recover(&mut self, recovery: &Recovery) -> Result<(), CommandRefusal> {
         let (name, stage) = match recovery {
-            Recovery::Stop { request: None } => ("stop", Some(RoundStage::NoRound)),
-            Recovery::Stop { request: Some(_) } => {
+            Recovery::Stop(Waiting::Start(_)) => ("stop", Some(self.no_round())),
+            Recovery::Stop(Waiting::Turn(_)) => {
                 ("stop", Some(self.interrupted(Interruption::Stopped)))
             }
-            Recovery::Retry { .. } => ("retry", Some(self.working())),
+            Recovery::Retry { .. } => {
+                self.attempts += 1;
+                ("retry", Some(self.working()))
+            }
             Recovery::CancelAnswer { .. } => ("cancel-answer", self.question_after_cancel_answer()),
-            Recovery::Reset { .. } => ("reset", Some(RoundStage::NoRound)),
+            Recovery::Reset { .. } => ("reset", Some(self.no_round())),
             Recovery::CancelImplementation { .. } => (
                 "cancel-implementation",
                 self.finish_sending(ImplementationState::Cancelled),
@@ -339,7 +435,7 @@ impl Session {
             }
         };
         let stage = stage.ok_or(CommandRefusal::Stale)?;
-        if matches!(stage, RoundStage::NoRound) {
+        if matches!(stage, RoundStage::NoRound { .. }) {
             self.running = false;
             self.forget_round();
         }
@@ -349,15 +445,94 @@ impl Session {
     }
 
     /// The conclusion with its implementation request sent again, as it is.
-    fn resend_implementation(&self) -> RoundStage {
+    fn resend_implementation(&mut self) -> RoundStage {
+        self.attempts += 1;
+        let attempt = self.attempt();
         let implementation = self
             .implementation()
             .map(|implementation| PageImplementation {
                 state: ImplementationState::Sending,
+                attempt,
                 ..implementation
             });
         self.conclusion(implementation)
     }
+}
+
+impl Session {
+    /// Takes a command the page sent, which the page checked against the round already.
+    fn take(&mut self, command: PageCommand) -> Result<(), CommandRefusal> {
+        match command {
+            PageCommand::Answer(answer) => {
+                self.take_answer(AnswerTaken::FromPage {
+                    choice: answer.input.option.as_deref(),
+                    comment: &answer.input.text,
+                });
+                self.answers.push(SentAnswer {
+                    question: answer.question,
+                    version: answer.version,
+                    choice: answer.input.option,
+                    comment: answer.input.text,
+                    first_pick: answer.input.first_pick,
+                });
+                let stage = self.new_turn();
+                self.publish(stage);
+            }
+            // The page keeps the pick; the round still asks the question, which the page checked.
+            PageCommand::Pick { .. } => {}
+            PageCommand::DiagramFailed(error) => {
+                if !self.diagram_errors.contains(&error) {
+                    self.diagram_errors.push(error);
+                }
+            }
+            PageCommand::Start { challenger, start } => {
+                self.starts.push(SentStart { challenger });
+                self.publish(RoundStage::Starting { start });
+            }
+            PageCommand::Implement(implement) => {
+                self.implementations.push(implement.text.clone());
+                self.attempts += 1;
+                let sending = PageImplementation {
+                    delivery: format!("page-{}", self.implementations.len()),
+                    attempt: self.attempt(),
+                    text: implement.text,
+                    state: ImplementationState::Sending,
+                };
+                let stage = self.conclusion(Some(sending));
+                self.publish(stage);
+            }
+            PageCommand::Quiz(quiz) => self.take_quiz(quiz.response)?,
+            PageCommand::Reply(_) => {
+                self.actions.push("reply".into());
+                let stage = self.new_turn();
+                self.publish(stage);
+            }
+            PageCommand::Recover(recovery) => self.recover(&recovery)?,
+        }
+        Ok(())
+    }
+
+    /// Saves the reviewer's quiz `response`.
+    fn take_quiz(&mut self, response: QuizResponse) -> Result<(), CommandRefusal> {
+        let answers = self.quiz.as_mut().ok_or(CommandRefusal::Stale)?;
+        answers
+            .record(&self.data.quiz_items(), response)
+            .map_err(|_| CommandRefusal::Stale)?;
+        let stage = self.conclusion(self.implementation());
+        self.publish(stage);
+        Ok(())
+    }
+}
+
+/// What happens to the page of a session, outside its round.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum PageChange {
+    /// The page no longer follows the round, until it sends an action.
+    Hold,
+    /// The reviewer restarts: the page's socket closes, and it cannot open another one.
+    Restart,
+    /// The reviewer is back: the page opens its socket again.
+    Back,
 }
 
 /// What happens next in a session's round.
@@ -454,7 +629,8 @@ impl Sessions {
         });
         let round = RoundPublisher::default();
         round.name(self.data.review());
-        let session = Session {
+        let mut session = Session {
+            id: format!("session-{}", self.lock().len() + 1),
             token,
             data: self.data,
             round,
@@ -468,9 +644,12 @@ impl Sessions {
             implementations: Vec::new(),
             quiz: None,
             turns: 0,
+            attempts: 0,
+            offers: 0,
             answered: Vec::new(),
             actions: Vec::new(),
             earlier: false,
+            page: PageLink::Following,
         };
         session.publish(stage);
         self.lock().push(session);
@@ -489,7 +668,9 @@ impl Sessions {
         };
         let running = !matches!(
             stage,
-            RoundStage::NoRound | RoundStage::Starting | RoundStage::StartFailed { .. }
+            RoundStage::NoRound { .. }
+                | RoundStage::Starting { .. }
+                | RoundStage::StartFailed { .. }
         );
         if !running {
             session.forget_round();
@@ -512,6 +693,26 @@ impl Sessions {
         };
         session.round.block_starts(block);
         true
+    }
+
+    /// Holds the page of the session behind `token`, restarts its reviewer, or brings the
+    /// reviewer back, as `change` says. Returns false when no session has that token.
+    pub(crate) fn change_page(&self, token: &str, change: PageChange) -> bool {
+        let mut sessions = self.lock();
+        let Some(session) = find(&mut sessions, token) else {
+            return false;
+        };
+        match change {
+            PageChange::Hold => session.page = PageLink::Held { unseen: None },
+            PageChange::Restart => session.restart(),
+            PageChange::Back => session.page = PageLink::Following,
+        }
+        true
+    }
+
+    /// Whether `token` opens a session whose reviewer is restarting.
+    pub(crate) fn away(&self, token: &str) -> bool {
+        find(&mut self.lock(), token).is_some_and(|session| matches!(session.page, PageLink::Away))
     }
 
     /// The rounds the reviewer started from the page of the session behind `token`, or `None`
@@ -540,57 +741,13 @@ impl Sessions {
     fn command(&self, token: &str, command: PageCommand) -> Result<(), CommandRefusal> {
         let mut sessions = self.lock();
         let session = find(&mut sessions, token).ok_or(CommandRefusal::Stale)?;
-        match command {
-            PageCommand::Answer(answer) => {
-                session.take_answer(AnswerTaken::FromPage {
-                    choice: answer.input.option.as_deref(),
-                    comment: &answer.input.text,
-                });
-                session.answers.push(SentAnswer {
-                    question: answer.question,
-                    version: answer.version,
-                    choice: answer.input.option,
-                    comment: answer.input.text,
-                    first_pick: answer.input.first_pick,
-                });
-                let stage = session.new_turn();
-                session.publish(stage);
-            }
-            PageCommand::DiagramFailed(error) => {
-                if !session.diagram_errors.contains(&error) {
-                    session.diagram_errors.push(error);
-                }
-            }
-            PageCommand::Start { challenger } => {
-                session.starts.push(SentStart { challenger });
-                session.publish(RoundStage::Starting);
-            }
-            PageCommand::Implement(implement) => {
-                session.implementations.push(implement.text.clone());
-                let sending = PageImplementation {
-                    delivery: format!("page-{}", session.implementations.len()),
-                    text: implement.text,
-                    state: ImplementationState::Sending,
-                };
-                let stage = session.conclusion(Some(sending));
-                session.publish(stage);
-            }
-            PageCommand::Quiz(quiz) => {
-                let answers = session.quiz.as_mut().ok_or(CommandRefusal::Stale)?;
-                answers
-                    .record(&session.data.quiz_items(), quiz.response)
-                    .map_err(|_| CommandRefusal::Stale)?;
-                let stage = session.conclusion(session.implementation());
-                session.publish(stage);
-            }
-            PageCommand::Reply(_) => {
-                session.actions.push("reply".into());
-                let stage = session.new_turn();
-                session.publish(stage);
-            }
-            PageCommand::Recover(recovery) => session.recover(&recovery)?,
+        let held = matches!(session.page, PageLink::Held { .. });
+        if held && !matches!(command, PageCommand::DiagramFailed(_)) {
+            // The page acted on the round as it showed it, which the round moved past.
+            session.release();
+            return Err(CommandRefusal::Stale);
         }
-        Ok(())
+        session.take(command)
     }
 
     /// The other actions the reviewer took on the page of the session behind `token`, by name,

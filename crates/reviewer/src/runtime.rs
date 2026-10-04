@@ -237,7 +237,8 @@ impl Runtime {
             explore.deliver(explore_session::Input::Page { command, reply });
         });
         let round = PageRound::new(stages, commands);
-        let host = match PageHost::start(round, &directory, &self.workspace_id) {
+        let review = self.repository.root();
+        let host = match PageHost::start(round, &directory, &self.workspace_id, review) {
             Ok(host) => host,
             Err(error) => {
                 let _ = events.send(EventEnvelope::new(ui_events::ToastRequested {

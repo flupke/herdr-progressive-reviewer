@@ -40,7 +40,8 @@ impl Harness {
     /// Start a round from the page, as the reviewer's worker does; return the reply.
     fn start_from_page(&mut self) -> Result<(), CommandRefusal> {
         let (reply, replied) = CommandReply::channel();
-        if let Some(kickoff) = self.session.start_from_page(false, reply) {
+        let start = self.offered_start();
+        if let Some(kickoff) = self.session.start_from_page(false, &start, reply) {
             self.session
                 .handle(Input::Command(Command::Turn(Box::new(kickoff))));
         }
@@ -84,12 +85,7 @@ fn a_fully_reviewed_review_cannot_start_a_round_through_the_session() {
 
     let captured = harness.next::<ui_events::ExploreCaptured>();
     assert_eq!(captured.result.err(), Some(nothing_to_review()));
-    assert_eq!(
-        harness.page.stage(),
-        RoundStage::StartFailed {
-            failure: nothing_to_review()
-        }
-    );
+    assert_eq!(failure(&harness), Some(nothing_to_review()));
     assert!(harness.agents.prompts().is_empty());
 }
 
@@ -103,7 +99,7 @@ fn a_fully_reviewed_review_cannot_start_a_round_from_the_page() {
         harness.start_from_page(),
         Err(CommandRefusal::Failed(nothing_to_review()))
     );
-    assert_eq!(harness.page.stage(), RoundStage::NoRound);
+    assert!(matches!(harness.page.stage(), RoundStage::NoRound { .. }));
     assert!(harness.agents.prompts().is_empty());
 
     // Once a line is unreviewed, the same session starts one.
@@ -125,7 +121,8 @@ fn a_start_that_finds_nothing_left_to_review_sends_no_kickoff() {
         let mut harness = Harness::start();
         let kickoff = if from_page {
             let (reply, replied) = CommandReply::channel();
-            let kickoff = harness.session.start_from_page(false, reply);
+            let start = harness.offered_start();
+            let kickoff = harness.session.start_from_page(false, &start, reply);
             assert_eq!(replied.blocking_recv().unwrap(), Ok(()));
             kickoff.expect("the kickoff, for the worker to send")
         } else {
@@ -140,12 +137,7 @@ fn a_start_that_finds_nothing_left_to_review_sends_no_kickoff() {
 
         let posted = harness.next::<ui_events::ExplorePosted>();
         assert_eq!(posted.result.err(), Some(nothing_to_review()));
-        assert_eq!(
-            harness.page.stage(),
-            RoundStage::StartFailed {
-                failure: nothing_to_review()
-            }
-        );
+        assert_eq!(failure(&harness), Some(nothing_to_review()));
         assert!(harness.agents.prompts().is_empty(), "no kickoff");
         assert!(
             harness.history().restorable().is_none(),
@@ -180,17 +172,23 @@ fn a_page_post_does_not_bypass_the_rule() {
 
     let (reply, replied) = CommandReply::channel();
     harness.session.handle(Input::Page {
-        command: PageCommand::Start { challenger: false },
+        command: PageCommand::Start {
+            challenger: false,
+            start: harness.offered_start(),
+        },
         reply,
     });
 
     // The session learns of the marks only as it captures the change.
     assert_eq!(replied.blocking_recv().unwrap(), Ok(()));
-    assert_eq!(
-        harness.page.stage(),
-        RoundStage::StartFailed {
-            failure: nothing_to_review()
-        }
-    );
+    assert_eq!(failure(&harness), Some(nothing_to_review()));
     assert!(harness.agents.prompts().is_empty());
+}
+
+/// Why the latest start failed, as the page shows it.
+fn failure(harness: &Harness) -> Option<String> {
+    match harness.page.stage() {
+        RoundStage::StartFailed { failure, .. } => Some(failure),
+        _ => None,
+    }
 }

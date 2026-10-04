@@ -13,6 +13,11 @@ function status(
       response.resume();
       resolve(response.statusCode!);
     })
+      // An accepted upgrade of the page's socket.
+      .on('upgrade', (response, socket) => {
+        socket.destroy();
+        resolve(response.statusCode!);
+      })
       .on('error', reject)
       .end();
   });
@@ -26,7 +31,7 @@ function tokenCookie(baseUrl: string | undefined, token: string): string {
 test('the page refuses a request without the token of its address', async ({ explore, app }) => {
   expect(await status(app.baseUrl, '/?token=wrong')).toBe(403);
   expect(await status(app.baseUrl, '/')).toBe(403);
-  expect(await status(app.baseUrl, '/status')).toBe(403);
+  expect(await status(app.baseUrl, '/token')).toBe(403);
   expect(await status(app.baseUrl, '/', { headers: { cookie: tokenCookie(app.baseUrl, 'wrong') } })).toBe(403);
   expect(await status(app.baseUrl, `/?token=${explore.token}`)).toBe(303);
 });
@@ -39,16 +44,17 @@ test('the page reads the token only from the cookie of its own port', async ({ e
   expect(await status(app.baseUrl, '/', { headers: { cookie: tokenCookie(app.baseUrl, explore.token) } })).toBe(200);
 });
 
-test('every post of the page refuses a request without the token', async ({ explore, app }) => {
-  const posts = ['/answer', '/pick', '/start', '/implement', '/quiz', '/quiz/skip', '/diagram-errors'];
-  for (const path of posts) {
-    expect(await status(app.baseUrl, path, { method: 'POST' })).toBe(403);
-    const cookie = tokenCookie(app.baseUrl, 'wrong');
-    expect(await status(app.baseUrl, path, { method: 'POST', headers: { cookie } })).toBe(403);
-  }
-  expect(await explore.answers()).toEqual([]);
-  expect(await explore.starts()).toEqual([]);
-  expect(await explore.implementations()).toEqual([]);
+// The headers of a browser's upgrade of the page's socket, with `extra`.
+function upgrade(extra: Record<string, string> = {}): Record<string, string> {
+  return { connection: 'Upgrade', upgrade: 'websocket', 'sec-websocket-version': '13', 'sec-websocket-key': 'dGhlIHNhbXBsZSBub25jZQ==', ...extra };
+}
+
+test("the page's socket refuses an upgrade without the token", async ({ explore, app }) => {
+  expect(await status(app.baseUrl, '/ws', { headers: upgrade() })).toBe(403);
+  const wrong = tokenCookie(app.baseUrl, 'wrong');
+  expect(await status(app.baseUrl, '/ws', { headers: upgrade({ cookie: wrong }) })).toBe(403);
+  const cookie = tokenCookie(app.baseUrl, explore.token);
+  expect(await status(app.baseUrl, '/ws', { headers: upgrade({ cookie }) })).toBe(101);
 });
 
 test('the page refuses a request for another host name', async ({ explore, app }) => {
@@ -65,11 +71,12 @@ test('the page refuses a post from another site', async ({ app }) => {
   expect(await status(app.baseUrl, '/test/sessions', { method: 'POST', headers: { origin } })).toBe(403);
 });
 
-test('the page and its status refuse a script of another site', async ({ explore, app }) => {
+test('the page and its socket refuse a script of another site', async ({ explore, app }) => {
   const cookie = tokenCookie(app.baseUrl, explore.token);
   const origin = 'http://127.0.0.1:1';
   expect(await status(app.baseUrl, '/', { headers: { cookie } })).toBe(200);
-  expect(await status(app.baseUrl, '/status', { headers: { cookie } })).toBe(200);
   expect(await status(app.baseUrl, '/', { headers: { cookie, origin } })).toBe(403);
-  expect(await status(app.baseUrl, '/status', { headers: { cookie, origin } })).toBe(403);
+  expect(await status(app.baseUrl, '/ws', { headers: upgrade({ cookie, origin }) })).toBe(403);
+  const host = `rebound.example:${new URL(app.baseUrl!).port}`;
+  expect(await status(app.baseUrl, '/ws', { headers: upgrade({ cookie, host }) })).toBe(403);
 });

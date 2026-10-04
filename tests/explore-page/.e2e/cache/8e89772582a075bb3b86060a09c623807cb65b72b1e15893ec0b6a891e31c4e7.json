@@ -1,18 +1,8 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-04T02:49:33.101Z",
+  "createdAt": "2026-10-04T13:11:32.027Z",
   "payload": {
     "actions": [
-      {
-        "name": "check",
-        "summary": "check radio \"Overwrite the older file\" in \"Choices\"",
-        "target": {
-          "role": "radio",
-          "name": "Overwrite the older file",
-          "within": "Choices"
-        },
-        "checked": true
-      },
       {
         "name": "type",
         "summary": "type \"Renaming hides which file the user mean…\" into textbox \"Comment (optional)\" in \"Question 1\"",
@@ -22,6 +12,15 @@
           "within": "Question 1"
         },
         "value": "Renaming hides which file the user meant to keep."
+      },
+      {
+        "name": "tap",
+        "summary": "tap radio \"Overwrite the older file\" in \"Choices\"",
+        "target": {
+          "role": "radio",
+          "name": "Overwrite the older file",
+          "within": "Choices"
+        }
       },
       {
         "name": "tap",
@@ -42,7 +41,7 @@
       "targetId": "desktop",
       "instructionDigest": "bed8075e51d553c8f7d3d5a0d25de5f0f933f415f480d84138525a9a11e65e5e"
     },
-    "summary": "On Question 1, entered the requested comment and selected “Overwrite the older file.” Pick revealed the recommendation; the draft remains present and the answer has not been sent.",
+    "summary": "Entered the requested comment, selected “Overwrite the older file,” and pressed Pick. The recommendation/pick confirmation is now shown and the Send button is available; no answer was sent.",
     "startPath": "/",
     "endPath": "/",
     "endAnchors": [
@@ -53,11 +52,6 @@
         "text": "Recommended:"
       },
       {
-        "role": "textbox",
-        "name": "Comment (optional)",
-        "text": "Renaming hides which file the user meant to keep."
-      },
-      {
         "role": "button",
         "name": "Send"
       },
@@ -65,6 +59,6 @@
         "text": "Renaming keeps every file, and the new names stay readable."
       }
     ],
-    "endWaitMs": 12593
+    "endWaitMs": 12712
   }
 }

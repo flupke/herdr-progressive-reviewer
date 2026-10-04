@@ -1,9 +1,0 @@
-{#- A reply to the conclusion, as Reply in the reviewer's Explore tab: free text, which the agent
-    takes up in its next turn. -#}
-<form class="reply" method="post" action="/reply">
-  <input type="hidden" name="conclusion" value="{{ conclusion.request }}">
-  <label class="comment-label" for="reply">Reply to the conclusion</label>
-  <textarea class="comment" id="reply" name="text" rows="3" required></textarea>
-  <p class="hint">The agent takes your reply up in its next turn.</p>
-  <button class="button secondary" type="submit">Send the reply</button>
-</form>

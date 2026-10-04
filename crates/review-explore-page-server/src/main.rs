@@ -106,7 +106,9 @@ fn serve(options: Options) -> Result<(), String> {
     let url = token.loopback_url(port);
     sessions.open(token, 1);
     let page = ExplorePage::new(sessions.clone(), Hosts::loopback(port), templates, log);
-    let app = page.into_router(control::router(sessions));
+    let app = page.into_router(control::router(sessions.clone())).layer(
+        axum::middleware::from_fn_with_state(sessions, control::away),
+    );
 
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -130,6 +132,5 @@ fn log(event: PageEvent) {
         PageEvent::ForeignOrigin => println!("refused: foreign origin"),
         PageEvent::WrongToken => println!("refused: wrong token"),
         PageEvent::CspViolation(report) => println!("csp violation: {report:?}"),
-        PageEvent::TemplateError(error) => println!("template error: {error}"),
     }
 }

@@ -1,4 +1,5 @@
 use std::os::unix::fs::PermissionsExt;
+use std::path::Path;
 
 use herdr_client::protocol::WorkspaceId;
 use review_explore_page::{CommandRefusal, CommandSender, RoundPublisher};
@@ -19,9 +20,66 @@ pub(crate) fn page_round(round: &RoundPublisher) -> PageRound {
     PageRound::new(round.subscribe(), commands)
 }
 
+/// The review of the tests' reviewers.
+const REVIEW: &str = "/repositories/drafts";
+
 fn host(directory: &PageDirectory, workspace: &WorkspaceId) -> PageHost {
+    host_of(directory, workspace, REVIEW)
+}
+
+fn host_of(directory: &PageDirectory, workspace: &WorkspaceId, review: &str) -> PageHost {
     let round = RoundPublisher::default();
-    PageHost::start(page_round(&round), directory, workspace).unwrap()
+    PageHost::start(page_round(&round), directory, workspace, Path::new(review)).unwrap()
+}
+
+/// The token of the page's address `url`.
+fn token(url: &str) -> &str {
+    url.rsplit('=').next().unwrap()
+}
+
+#[test]
+fn a_restarted_reviewer_serves_its_page_at_the_same_address_with_the_same_token() {
+    let state = tempfile::tempdir().unwrap();
+    let directory = PageDirectory::new(state.path());
+    let before = host(&directory, &workspace("w1"));
+    let url = before.url().to_owned();
+    drop(before);
+
+    let after = host(&directory, &workspace("w1"));
+
+    assert_eq!(
+        after.url(),
+        url,
+        "an open tab reconnects to the restarted reviewer"
+    );
+    assert_eq!(
+        directory.address(&workspace("w1")).unwrap().as_deref(),
+        Some(url.as_str())
+    );
+}
+
+#[test]
+fn a_reviewer_of_another_review_opens_its_page_behind_a_new_token() {
+    let state = tempfile::tempdir().unwrap();
+    let directory = PageDirectory::new(state.path());
+    let before = host(&directory, &workspace("w1"));
+    let url = before.url().to_owned();
+    drop(before);
+
+    let other = host_of(&directory, &workspace("w1"), "/repositories/other");
+
+    assert_ne!(token(other.url()), token(&url));
+}
+
+#[test]
+fn a_second_open_reviewer_of_the_workspace_gets_a_token_of_its_own() {
+    let state = tempfile::tempdir().unwrap();
+    let directory = PageDirectory::new(state.path());
+    let first = host(&directory, &workspace("w1"));
+
+    let second = host(&directory, &workspace("w1"));
+
+    assert_ne!(token(first.url()), token(second.url()));
 }
 
 #[test]

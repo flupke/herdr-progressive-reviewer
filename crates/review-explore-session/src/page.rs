@@ -6,13 +6,13 @@ use std::sync::Arc;
 
 use review_explore::{
     Comparison, DispatchState, EvidenceRef, Exploration, ExploreRound, ImplementationDelivery,
-    Question,
+    Question, ReviewerAnswer,
 };
 use review_explore_citations::{Citation, CodeColors};
 use review_explore_page::{
-    CommandRefusal, CommandReply, ImplementationState, Interruption, LatestAnswer, PageAnswer,
-    PageCommand, PageImplement, PageImplementation, PageQuiz, PublishedRound, QuestionMarks,
-    Recovery, ReviewName, RoundStage, TurnResponse,
+    Answered, CommandRefusal, CommandReply, ImplementationState, Interruption, LatestAnswer,
+    PageAnswer, PageCommand, PageImplement, PageImplementation, PageQuiz, PublishedRound,
+    QuestionMarks, Recovery, ReviewName, RoundStage, TurnResponse,
 };
 use review_repository::repository::SnapshotIdentity;
 use review_source::ReviewCheckpoint;
@@ -107,6 +107,7 @@ impl ExploreSession {
             id: answer.id.clone(),
             choice: answer.option.as_ref().map(|option| option.text.clone()),
             comment: answer.text.clone(),
+            answered: answered(answer),
         })
     }
 
@@ -126,6 +127,10 @@ impl ExploreSession {
                 self.publish_page();
                 reply.send(result);
             }
+            PageCommand::Pick { question, version } => {
+                let result = self.pick_from_page(&question, version);
+                reply.send(result);
+            }
             PageCommand::DiagramFailed(error) => {
                 let result = self.diagram_failed(error);
                 self.publish_page();
@@ -133,8 +138,8 @@ impl ExploreSession {
             }
             // A reviewer's worker calls `start_from_page` itself, so that Jev marks before the
             // kickoff: this sends the kickoff at once.
-            PageCommand::Start { challenger } => {
-                if let Some(kickoff) = self.start_from_page(challenger, reply) {
+            PageCommand::Start { challenger, start } => {
+                if let Some(kickoff) = self.start_from_page(challenger, &start, reply) {
                     let _ = self.deliver_turn(kickoff, None);
                 }
             }
@@ -163,9 +168,9 @@ impl ExploreSession {
     /// holds once a Stop waiting or a Reset went through.
     pub fn recover_from_page(&mut self, recovery: Recovery, reply: CommandReply) -> bool {
         let result = match recovery {
-            Recovery::Stop { request } => self.stop(request.as_deref()),
+            Recovery::Stop(waiting) => self.stop(&waiting),
             Recovery::Reset { round } => self.reset_round(&round),
-            Recovery::Retry { request } => self.retry_from_page(&request),
+            Recovery::Retry { request, attempt } => self.retry_from_page(&request, &attempt),
             Recovery::CancelAnswer { answer } => self.cancel_answer_from_page(answer),
             Recovery::CancelImplementation { delivery } => {
                 self.cancel_implementation_from_page(&delivery)
@@ -173,7 +178,8 @@ impl ExploreSession {
             Recovery::ResendImplementation {
                 conclusion,
                 delivery,
-            } => self.resend_from_page(&conclusion, &delivery),
+                attempt,
+            } => self.resend_from_page(&conclusion, &delivery, &attempt),
         };
         self.reply_to_page(reply, result)
     }
@@ -206,10 +212,19 @@ impl ExploreSession {
     fn answer_from_page(&mut self, answer: PageAnswer) -> Result<(), CommandRefusal> {
         let failed = |error: &dyn std::fmt::Display| CommandRefusal::Failed(error.to_string());
         let round = self.saved_round()?;
-        let question = waiting_question(&round.exploration)
+        let Some(question) = waiting_question(&round.exploration)
             .filter(|question| question.is_version(&answer.question, answer.version))
             .cloned()
-            .ok_or(CommandRefusal::Stale)?;
+        else {
+            // The round's latest answer is this one: a repeat of an answer that went through.
+            let repeat = round.exploration.answers.last().is_some_and(|latest| {
+                let latest_answered = answered(latest);
+                latest_answered.question == Some((answer.question.clone(), answer.version))
+                    && latest_answered.option == answer.input.option
+                    && latest.text == answer.input.text
+            });
+            return Err(CommandRefusal::stale_unless_repeat(repeat));
+        };
         let request = round
             .exploration
             .clone()
@@ -217,6 +232,17 @@ impl ExploreSession {
             .map_err(|error| failed(&error))?;
         self.deliver_turn(request, None)
             .map_err(CommandRefusal::Failed)
+    }
+
+    /// Accepts the reviewer's first pick of version `version` of `question`, which the page
+    /// keeps, while the latest saved round still waits for an answer to it. A pick saves
+    /// nothing: the answer carries it.
+    fn pick_from_page(&self, question: &str, version: u32) -> Result<(), CommandRefusal> {
+        let round = self.saved_round()?;
+        waiting_question(&round.exploration)
+            .filter(|waiting| waiting.is_version(question, version))
+            .map(|_| ())
+            .ok_or(CommandRefusal::Stale)
     }
 
     /// Implements the conclusion the page showed, as the pane would: the request comes from
@@ -238,7 +264,16 @@ impl ExploreSession {
             }
         };
         if !offered {
-            return Err(CommandRefusal::Stale);
+            // The conclusion's latest request is this list, on its way or received, in place of
+            // the one the page showed: a repeat of an Implement that went through.
+            let repeat = round
+                .latest_implementation(&implement.conclusion)
+                .is_some_and(|latest| {
+                    latest.request.text == implement.text
+                        && !page_implementation(latest, sending).state.allows_another()
+                        && implement.replaces.as_deref() != Some(latest.request.delivery.as_str())
+                });
+            return Err(CommandRefusal::stale_unless_repeat(repeat));
         }
         let request = round
             .exploration
@@ -255,10 +290,15 @@ impl ExploreSession {
         }
         let Some(round) = &self.state.round else {
             return match &self.state.start {
-                Start::Idle => RoundStage::NoRound,
-                Start::Starting => RoundStage::Starting,
-                Start::Failed(failure) => RoundStage::StartFailed {
+                Start::Idle { offer } => RoundStage::NoRound {
+                    start: offer.clone(),
+                },
+                Start::Starting { start } => RoundStage::Starting {
+                    start: start.clone(),
+                },
+                Start::Failed { failure, offer } => RoundStage::StartFailed {
                     failure: failure.clone(),
+                    start: offer.clone(),
                 },
             };
         };
@@ -295,10 +335,8 @@ impl ExploreSession {
 
 /// The turn `request` of `round`, which the agent is not working on, and why.
 fn interrupted(round: &ExploreRound, request: &review_explore::TurnRequest) -> RoundStage {
-    let state = round
-        .turns
-        .get(&request.request)
-        .map(|delivery| &delivery.state);
+    let delivery = round.turns.get(&request.request);
+    let state = delivery.map(|delivery| &delivery.state);
     let interruption = match (state, &request.response_error) {
         (Some(DispatchState::NotStarted), _) => Interruption::NotStarted,
         (_, Some(failure)) => Interruption::Failed(failure.clone()),
@@ -307,6 +345,7 @@ fn interrupted(round: &ExploreRound, request: &review_explore::TurnRequest) -> R
     };
     RoundStage::Interrupted {
         request: Some(request.request.clone()),
+        attempt: delivery.map(|delivery| delivery.attempt.clone()),
         interruption,
     }
 }
@@ -331,6 +370,7 @@ fn latest_turn(
     // A round with no turn to answer and none to send again: only Reset is left.
     let nothing = || RoundStage::Interrupted {
         request: None,
+        attempt: None,
         interruption: Interruption::Stopped,
     };
     let Some(turn) = exploration.conversation.last() else {
@@ -390,7 +430,20 @@ fn page_implementation(delivery: &ImplementationDelivery, sending: bool) -> Page
     };
     PageImplementation {
         delivery: delivery.request.delivery.clone(),
+        attempt: delivery.attempt.clone(),
         text: delivery.request.text.clone(),
         state,
+    }
+}
+
+/// What `answer` answered, so that the page knows a repeat of it.
+pub(crate) fn answered(answer: &ReviewerAnswer) -> Answered {
+    Answered {
+        question: answer
+            .question
+            .as_ref()
+            .map(|question| (question.id.clone(), question.version)),
+        option: answer.option.as_ref().map(|option| option.id.clone()),
+        in_reply_to: answer.in_reply_to.clone(),
     }
 }

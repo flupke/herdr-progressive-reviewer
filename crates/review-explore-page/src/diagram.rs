@@ -1,55 +1,24 @@
 //! The diagrams of the agent's Markdown: the page draws each fenced `mermaid` block in the
 //! browser with Mermaid, which the page serves itself, and reports a diagram Mermaid cannot
-//! parse to the round's owner (`assets/diagrams.js`).
+//! parse to the round's owner through its socket (`assets/client/diagrams.js`).
 
 use std::sync::Arc;
 
-use axum::Json;
-use axum::extract::DefaultBodyLimit;
-use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
+use axum::http::{HeaderMap, HeaderValue, header};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{MethodRouter, get, post};
-use review_explore::DiagramError;
-use serde::Serialize;
+use axum::routing::{MethodRouter, get};
 
-use crate::page::{Admitted, ExplorePage};
-use crate::{PageCommand, Rounds};
-
-/// The largest report of a diagram error the page reads: the diagram's source and Mermaid's
-/// message.
-const REPORT_LIMIT: usize = 64 * 1024;
-
-/// What the templates need to draw diagrams.
-#[derive(Serialize)]
-pub(crate) struct Diagrams {
-    /// The address of Mermaid's script.
-    script: String,
-    /// The language of a fenced block that holds a diagram.
-    fence: &'static str,
-}
-
-impl Diagrams {
-    pub(crate) fn new() -> Self {
-        Self {
-            script: script_path(),
-            fence: mermaid_js::FENCE,
-        }
-    }
-}
+use crate::Rounds;
+use crate::page::ExplorePage;
 
 /// The address of Mermaid's script. It names the version, so the browser may keep the file.
-fn script_path() -> String {
+pub(crate) fn script_path() -> String {
     format!("/assets/{}", mermaid_js::FILE_NAME)
 }
 
 /// The address of Mermaid's script, and its route.
 pub(crate) fn script_route<R: Rounds>() -> (String, MethodRouter<Arc<ExplorePage<R>>>) {
     (script_path(), get(script))
-}
-
-/// The route the page reports a diagram error to.
-pub(crate) fn report_route<R: Rounds>() -> MethodRouter<Arc<ExplorePage<R>>> {
-    post(report).layer(DefaultBodyLimit::max(REPORT_LIMIT))
 }
 
 /// Mermaid's script, gzipped unless the browser does not accept it. Its address names its
@@ -80,14 +49,4 @@ fn accepts_gzip(headers: &HeaderMap) -> bool {
         .flat_map(|value| value.split(','))
         .filter_map(|coding| coding.split(';').next())
         .any(|coding| coding.trim().eq_ignore_ascii_case("gzip"))
-}
-
-/// A diagram of the question the page showed that Mermaid could not parse: the round's owner
-/// saves the error with the question. The page shows the error whatever the owner replies.
-async fn report(Admitted(round): Admitted, Json(error): Json<DiagramError>) -> StatusCode {
-    match round.commands.send(PageCommand::DiagramFailed(error)).await {
-        Ok(()) => StatusCode::NO_CONTENT,
-        // The round moved on, or the owner could not save the error.
-        Err(_) => StatusCode::CONFLICT,
-    }
 }

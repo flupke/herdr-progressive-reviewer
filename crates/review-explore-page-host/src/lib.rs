@@ -2,9 +2,10 @@
 //! reviewer's Explore session, and found by the Herdr action that opens it in a browser; and
 //! served to the network for a phone, behind a new token for each round.
 //!
-//! The reviewer starts a [`PageHost`], which serves the page on a free loopback port behind a
-//! new token, and leaves the page's address in the plugin's state directory, in the record of
-//! its Herdr workspace. The action reads that record through the [`PageDirectory`]. Unless the
+//! The reviewer starts a [`PageHost`], which serves the page on a loopback port behind a token,
+//! and leaves the page's address in the plugin's state directory, in the record of its Herdr
+//! workspace; a reviewer of the same review that starts again keeps the address and the token,
+//! so that an open page reconnects. The action reads that record through the [`PageDirectory`]. Unless the
 //! [`NetworkAccess`] settings turn it off, the host also [shares](PageNetwork::share) the page
 //! on a network interface, and announces the address of each round's page, and of the start
 //! screen's while no round runs, for the pane's QR code; a change of the settings moves it to
@@ -41,12 +42,20 @@ const ANSWER_TIMEOUT: Duration = Duration::from_secs(2);
 #[derive(Clone, Debug)]
 pub struct PageDirectory(PathBuf);
 
-/// The address of a page, as its record holds it.
+/// The address of a page, as its record holds it, and the review it shows. The record stays
+/// after its reviewer closes: the next reviewer of the same review serves the page at the same
+/// address with the same token, so that a tab left open reconnects to it.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 struct PageAddress {
     port: u16,
     /// The address that opens the page, with its token.
     url: String,
+    /// The token of the address.
+    #[serde(default)]
+    token: String,
+    /// The review the page shows: the root of its repository.
+    #[serde(default)]
+    review: PathBuf,
 }
 
 impl PageAddress {
@@ -101,6 +110,16 @@ impl PageDirectory {
         self.0.join(name)
     }
 
+    /// The address the reviewer of `review` in `workspace` that closed last served its page at,
+    /// when no reviewer serves it now.
+    fn closed(&self, workspace: &WorkspaceId, review: &Path) -> Option<PageAddress> {
+        let record = fs::read(self.record(workspace)).ok()?;
+        serde_json::from_slice::<PageAddress>(&record)
+            .ok()
+            .filter(|address| address.review == review && !address.token.is_empty())
+            .filter(|address| !address.answers())
+    }
+
     /// Writes `address` to `record`, one of this directory's records, replacing any earlier
     /// record whole.
     fn publish(&self, record: &Path, address: &PageAddress) -> io::Result<()> {
@@ -133,20 +152,36 @@ pub struct PageHost {
 }
 
 impl PageHost {
-    /// Serves the page of `round` on a free loopback port, behind a new token, and records its
-    /// address for `workspace` in `directory`.
+    /// Serves the page of `round`, of the review of the repository at `review`, on the loopback
+    /// interface, and records its address for `workspace` in `directory`. The page keeps the
+    /// address and the token of the page of the same review that the workspace's reviewer served
+    /// before it restarted, when its port is free; else it takes a free port, and a new token.
     pub fn start(
         round: PageRound,
         directory: &PageDirectory,
         workspace: &WorkspaceId,
+        review: &Path,
     ) -> io::Result<Self> {
-        let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
+        let earlier = directory.closed(workspace, review);
+        let (listener, token) = earlier
+            .and_then(|earlier| {
+                let listener = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, earlier.port));
+                Some((listener.ok()?, Token::chosen(earlier.token).ok()?))
+            })
+            .map_or_else(
+                || {
+                    std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+                        .map(|listener| (listener, Token::random()))
+                },
+                Ok,
+            )?;
         listener.set_nonblocking(true)?;
         let port = listener.local_addr()?.port();
-        let token = Token::random();
         let address = PageAddress {
             port,
             url: token.loopback_url(port),
+            token: token.to_string(),
+            review: review.to_owned(),
         };
         let page = ExplorePage::new(
             OneRound {
@@ -184,7 +219,6 @@ impl PageHost {
             stop: Some(stop),
             thread: Some(thread),
         };
-        // Once recorded, the address leaves with the host, however this ends.
         directory.publish(&host.record, &host.address)?;
         Ok(host)
     }
@@ -201,15 +235,9 @@ impl PageHost {
 }
 
 impl Drop for PageHost {
+    /// Stops serving the page. Its record stays, for the next reviewer of the review: the action
+    /// finds no page there, since nothing answers at its address.
     fn drop(&mut self) {
-        // A newer reviewer of the workspace may have replaced the record: leave its record.
-        let ours = fs::read(&self.record)
-            .ok()
-            .and_then(|record| serde_json::from_slice::<PageAddress>(&record).ok())
-            .is_some_and(|address| address == self.address);
-        if ours {
-            let _ = fs::remove_file(&self.record);
-        }
         self.network.unshare();
         if let Some(stop) = self.stop.take() {
             let _ = stop.send(());

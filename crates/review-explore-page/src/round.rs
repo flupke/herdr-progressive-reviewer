@@ -3,29 +3,32 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use axum::http::HeaderMap;
 use review_explore::{
     CodeLocation, Conclusion, ConversationTurn, Design, Exploration, Interpretation,
-    InterviewUpdate, MarkCounts, NotRelevantMark, Question, QuizAnswers, StartBlock,
+    InterviewUpdate, MarkCounts, NotRelevantMark, Question, QuizAnswers, QuizResponse, StartBlock,
 };
 use review_explore_citations::Citation;
 use review_repository::repository::SnapshotIdentity;
 use serde::Serialize;
 use tokio::sync::watch;
+use ts_rs::TS;
 
-use crate::blind::{BlindQuestion, FirstPick};
-use crate::{CommandSender, PageQuizResponse, Token};
+use crate::blind::BlindQuestion;
+use crate::{CommandSender, PageQuizResponse, Token, Waiting};
 
 /// The step of a round that the page shows.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RoundStage {
-    /// No round is running: none was started, or the reviewer reset it.
-    NoRound,
-    /// The reviewer started a round, which is starting: the tool captures the change, and Jev
-    /// marks first when it is enabled. Then the agent works on its first turn.
-    Starting,
-    /// No round is running: the reviewer's latest start failed, for this reason.
-    StartFailed { failure: String },
+    /// No round is running: none was started, or the reviewer reset it. `start` is the
+    /// identity of the start the stage offers, which a Start from the page carries back, so that
+    /// a late repeat of an earlier start starts nothing.
+    NoRound { start: String },
+    /// The reviewer started a round, the start `start`, which is starting: the tool captures the
+    /// change, and Jev marks first when it is enabled. Then the agent works on its first turn.
+    Starting { start: String },
+    /// No round is running: the reviewer's latest start failed, for this reason. `start` is the
+    /// identity of the next start the stage offers.
+    StartFailed { failure: String, start: String },
     /// The agent works on its next turn, the turn `request`. The reviewer may stop waiting for
     /// it.
     AgentWorking { request: String },
@@ -51,6 +54,9 @@ pub enum RoundStage {
         /// The turn that Retry sends again; `None` when the round has no turn to send again,
         /// and only Reset is left.
         request: Option<String>,
+        /// The turn's latest attempt to reach the agent, which a Retry from the page carries
+        /// back, so that a repeat of a Retry that went through is not a second one.
+        attempt: Option<String>,
         interruption: Interruption,
     },
     /// The agent concluded the round.
@@ -120,24 +126,31 @@ impl RoundStage {
         }
     }
 
-    /// Whether the reviewer can start a round: none is running or starting.
-    pub(crate) fn can_start(&self) -> bool {
-        matches!(self, Self::NoRound | Self::StartFailed { .. })
+    /// No round is running or starting: the start the stage offers, by its identity.
+    pub(crate) fn offered_start(&self) -> Option<&str> {
+        match self {
+            Self::NoRound { start } | Self::StartFailed { start, .. } => Some(start),
+            _ => None,
+        }
     }
 
-    /// Whether the stage waits for what Stop waiting with `request` stops: the start under way
-    /// when `request` is `None`, else the agent's turn `request`.
-    pub(crate) fn stops(&self, request: Option<&str>) -> bool {
-        match (self, request) {
-            (Self::Starting, None) => true,
-            (Self::AgentWorking { request: working }, Some(request)) => working == request,
+    /// Whether the stage waits for what Stop waiting with `waiting` stops: the start or the
+    /// agent's turn it names.
+    pub(crate) fn stops(&self, waiting: &Waiting) -> bool {
+        match (self, waiting) {
+            (Self::Starting { start }, Waiting::Start(stopped)) => start == stopped,
+            (Self::AgentWorking { request }, Waiting::Turn(stopped)) => request == stopped,
             _ => false,
         }
     }
 
-    /// Whether the stage offers Retry of the agent's turn `request`.
-    pub(crate) fn retries(&self, request: &str) -> bool {
-        matches!(self, Self::Interrupted { request: Some(retried), .. } if retried == request)
+    /// Whether the stage offers Retry of the attempt `attempt` of the agent's turn `request`.
+    pub(crate) fn retries(&self, request: &str, attempt: &str) -> bool {
+        matches!(
+            self,
+            Self::Interrupted { request: Some(retried), attempt: Some(latest), .. }
+                if retried == request && latest == attempt
+        )
     }
 
     /// Whether the stage shows the conclusion of the turn `conclusion`, to which the reviewer
@@ -157,15 +170,21 @@ impl RoundStage {
         )
     }
 
-    /// Whether the stage offers to send again, as it is, the implementation request `delivery`
-    /// of the conclusion of the turn `conclusion`: it was saved but not sent, or the agent did
-    /// not start on it.
-    pub(crate) fn resends_implementation(&self, conclusion: &str, delivery: &str) -> bool {
+    /// Whether the stage offers to send again, as it is, the attempt `attempt` of the
+    /// implementation request `delivery` of the conclusion of the turn `conclusion`: it was saved
+    /// but not sent, or the agent did not start on it.
+    pub(crate) fn resends_implementation(
+        &self,
+        conclusion: &str,
+        delivery: &str,
+        attempt: &str,
+    ) -> bool {
         matches!(
             self,
             Self::Conclusion { request, implementation: Some(implementation), .. }
                 if request == conclusion
                     && implementation.delivery == delivery
+                    && implementation.attempt == attempt
                     && matches!(
                         implementation.state,
                         ImplementationState::Paused | ImplementationState::NotStarted
@@ -193,6 +212,30 @@ impl RoundStage {
                 .clone()
                 .record(&conclusion.quiz, response.response)
                 .is_ok()
+    }
+
+    /// The latest implementation request of the conclusion the stage shows, if any.
+    pub(crate) fn implementation(&self) -> Option<&PageImplementation> {
+        match self {
+            Self::Conclusion { implementation, .. } => implementation.as_ref(),
+            _ => None,
+        }
+    }
+
+    /// Whether the conclusion's quiz has `response` saved already: the same pick of an item, or
+    /// a skip.
+    pub(crate) fn quiz_has(&self, response: &PageQuizResponse) -> bool {
+        let Self::Conclusion { request, quiz, .. } = self else {
+            return false;
+        };
+        *request == response.conclusion
+            && match response.response {
+                QuizResponse::Pick { item, answer } => quiz
+                    .answers
+                    .pick(item)
+                    .is_some_and(|pick| pick.answer == answer),
+                QuizResponse::Skip => quiz.answers.skipped,
+            }
     }
 
     /// Whether the stage offers Implement for the conclusion of the turn `conclusion`, in place
@@ -223,6 +266,8 @@ impl RoundStage {
 pub struct PageImplementation {
     /// The request's delivery identity.
     pub delivery: String,
+    /// Its latest attempt to reach the agent.
+    pub attempt: String,
     /// The list to be implemented that the request sends.
     pub text: String,
     pub state: ImplementationState,
@@ -280,7 +325,7 @@ impl TurnResponse {
 
 /// The review a page belongs to, as the pane's header names it, with the repository: two
 /// reviewers' pages can be told apart.
-#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, TS)]
 pub struct ReviewName {
     /// The name of the repository's directory.
     pub repository: String,
@@ -305,7 +350,7 @@ impl ReviewName {
 }
 
 /// What became of an implementation request, as the page shows it.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, TS)]
 #[serde(tag = "kind", content = "reason", rename_all = "snake_case")]
 pub enum ImplementationState {
     /// The reviewer sends it to the agent now.
@@ -382,7 +427,7 @@ pub struct PublishedRound<'a> {
 }
 
 /// The reviewer's latest answer of a round, which the page offers to cancel as the pane does.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, TS)]
 pub struct LatestAnswer {
     /// The answer's identity.
     pub id: String,
@@ -390,6 +435,21 @@ pub struct LatestAnswer {
     pub choice: Option<String>,
     /// The reviewer's comment; empty when there is none.
     pub comment: String,
+    /// What the answer answered, so that the page knows a repeat of it.
+    #[serde(skip)]
+    #[ts(skip)]
+    pub answered: Answered,
+}
+
+/// What an answer answered, and how: a question, or the conclusion of a turn.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct Answered {
+    /// The question and its version; `None` for a reply to the conclusion.
+    pub question: Option<(String, u32)>,
+    /// The picked choice's ID, if any.
+    pub option: Option<String>,
+    /// The request of the agent's turn the answer replied to.
+    pub in_reply_to: String,
 }
 
 /// A stage, and a revision that changes with every published stage. A page that shows the
@@ -413,11 +473,23 @@ pub(crate) struct RoundSnapshot {
 }
 
 impl RoundSnapshot {
-    /// The reviewer's first pick of the blind question the snapshot asks, as the request's
-    /// cookie carries it; `None` when the question shows its recommendation at once.
-    pub(crate) fn first_pick(&self, headers: &HeaderMap) -> Option<FirstPick> {
-        let blind = self.stage.blind()?;
-        FirstPick::read(headers, self.round.as_deref(), &blind)
+    /// Whether the round's latest answer, which the reviewer may still cancel, is `answered`
+    /// with the comment `comment`: a repeat of an answer or a reply that went through.
+    pub(crate) fn repeats(&self, answered: &Answered, comment: &str) -> bool {
+        self.cancellable.as_ref().is_some_and(|latest| {
+            let same = match &answered.question {
+                Some(_) => {
+                    latest.answered.question == answered.question
+                        && latest.answered.option == answered.option
+                }
+                None => {
+                    latest.answered.question.is_none()
+                        && latest.answered.option.is_none()
+                        && latest.answered.in_reply_to == answered.in_reply_to
+                }
+            };
+            same && latest.comment == comment
+        })
     }
 
     fn shows(&self, round: Option<PublishedRound<'_>>, stage: &RoundStage) -> bool {
@@ -514,7 +586,8 @@ impl RoundPublisher {
 /// A round no one started yet.
 impl Default for RoundPublisher {
     fn default() -> Self {
-        Self::new(None, RoundStage::NoRound)
+        let start = uuid::Uuid::new_v4().simple().to_string();
+        Self::new(None, RoundStage::NoRound { start })
     }
 }
 

@@ -23,7 +23,7 @@ fn shown_question(stage: &RoundStage) -> Option<(usize, String)> {
 #[test]
 fn the_page_follows_the_round_from_its_kickoff_to_its_conclusion_and_reset() {
     let mut harness = Harness::start();
-    assert_eq!(harness.page.stage(), RoundStage::NoRound);
+    assert!(matches!(harness.page.stage(), RoundStage::NoRound { .. }));
 
     harness.capture();
     let first = harness.request(None);
@@ -74,7 +74,7 @@ fn the_page_follows_the_round_from_its_kickoff_to_its_conclusion_and_reset() {
     assert_eq!(quiz, no_quiz);
 
     harness.session.handle(Input::Command(Command::Reset));
-    assert_eq!(harness.page.stage(), RoundStage::NoRound);
+    assert!(matches!(harness.page.stage(), RoundStage::NoRound { .. }));
 }
 
 #[test]
@@ -90,7 +90,8 @@ fn the_page_shows_a_turn_the_agent_no_longer_works_on_as_interrupted() {
         harness.page.stage(),
         RoundStage::Interrupted {
             request: Some(_),
-            interruption: Interruption::Stopped
+            interruption: Interruption::Stopped,
+            ..
         }
     ));
 }
@@ -116,7 +117,8 @@ fn a_reopened_reviewer_shows_its_restored_round_on_the_page() {
             harness.page.stage(),
             RoundStage::Interrupted {
                 request: Some(_),
-                interruption: Interruption::Stopped
+                interruption: Interruption::Stopped,
+                ..
             }
         ),
         "the reopened reviewer no longer waits for the agent's turn"
@@ -493,6 +495,76 @@ fn a_second_answer_from_another_page_or_after_the_pane_is_refused() {
     assert_eq!(pane.saved().exploration.answers.len(), 1);
 }
 
+impl Harness {
+    /// The reviewer's first pick on the page of version `version` of `question`, as the session
+    /// replies to it.
+    fn pick_on_page(&mut self, question: &str, version: u32) -> Result<(), CommandRefusal> {
+        let (reply, replied) = CommandReply::channel();
+        let command = PageCommand::Pick {
+            question: question.into(),
+            version,
+        };
+        self.session.handle(Input::Page { command, reply });
+        replied.blocking_recv().expect("the session replies")
+    }
+}
+
+#[test]
+fn a_first_pick_on_the_page_is_accepted_while_its_question_waits_for_an_answer() {
+    let mut harness = Harness::start();
+    harness.ask_first_question();
+
+    assert_eq!(harness.pick_on_page("q1", 1), Ok(()));
+    assert_eq!(
+        harness.pick_on_page("q1", 2),
+        Err(CommandRefusal::Stale),
+        "the agent posted version 1"
+    );
+
+    harness.answer("Keep it.");
+    assert_eq!(harness.pick_on_page("q1", 1), Err(CommandRefusal::Stale));
+    assert!(
+        harness.saved().exploration.answers.len() == 1,
+        "a pick saves nothing"
+    );
+}
+
+#[test]
+fn a_repeated_answer_from_the_page_is_applied_once() {
+    let mut harness = Harness::start();
+    harness.ask_first_question();
+    assert_eq!(harness.answer_on_page("q1", 1, keep("Keep it.")), Ok(()));
+
+    let repeated = harness.answer_on_page("q1", 1, keep("Keep it."));
+
+    assert_eq!(repeated, Err(CommandRefusal::AlreadyApplied));
+    assert_eq!(harness.saved().exploration.answers.len(), 1);
+}
+
+#[test]
+fn a_repeated_start_from_the_page_starts_one_round_and_a_late_one_none() {
+    let mut harness = Harness::start();
+    let start = harness.offered_start();
+    let send = |harness: &mut Harness| {
+        let (reply, replied) = CommandReply::channel();
+        let kickoff = harness.session.start_from_page(false, &start, reply);
+        (replied.blocking_recv().unwrap(), kickoff.is_some())
+    };
+
+    assert_eq!(send(&mut harness), (Ok(()), true));
+    assert_eq!(
+        send(&mut harness),
+        (Err(CommandRefusal::AlreadyApplied), false)
+    );
+    harness.session.handle(Input::Command(Command::Cancel));
+    assert_ne!(
+        harness.offered_start(),
+        start,
+        "the next start is another one"
+    );
+    assert_eq!(send(&mut harness), (Err(CommandRefusal::Stale), false));
+}
+
 #[test]
 fn a_page_answer_to_a_question_the_agent_moved_past_is_refused() {
     let mut harness = Harness::start();
@@ -501,8 +573,13 @@ fn a_page_answer_to_a_question_the_agent_moved_past_is_refused() {
     assert!(applied(harness.submit(&access, question(&answer, 2))));
 
     assert_eq!(
-        harness.answer_on_page("q1", 1, keep("Keep it.")),
+        harness.answer_on_page("q1", 1, keep("Keep it, but log it.")),
         Err(CommandRefusal::Stale)
+    );
+    assert_eq!(
+        harness.answer_on_page("q1", 1, keep("Keep it.")),
+        Err(CommandRefusal::AlreadyApplied),
+        "the answer the round has"
     );
     assert_eq!(
         harness.answer_on_page("q2", 2, keep("Keep it.")),
@@ -590,11 +667,22 @@ fn the_page_keeps_the_design_the_first_turn_explained_for_the_rest_of_the_round(
 }
 
 impl Harness {
+    /// The start the page offers, or a start no stage offers.
+    pub(super) fn offered_start(&self) -> String {
+        match self.page.stage() {
+            RoundStage::NoRound { start } | RoundStage::StartFailed { start, .. } => start,
+            _ => "no-start".into(),
+        }
+    }
+
     /// Start a round from the Explore page, and return the session's reply.
     pub(super) fn start_on_page(&mut self, challenger: bool) -> Result<(), CommandRefusal> {
         let (reply, replied) = CommandReply::channel();
         self.session.handle(Input::Page {
-            command: PageCommand::Start { challenger },
+            command: PageCommand::Start {
+                challenger,
+                start: self.offered_start(),
+            },
             reply,
         });
         replied.blocking_recv().expect("the session replies")
@@ -604,7 +692,8 @@ impl Harness {
     /// kickoff itself; return the reply and the kickoff.
     pub(super) fn start_as_worker(&mut self) -> (Result<(), CommandRefusal>, Option<TurnRequest>) {
         let (reply, replied) = CommandReply::channel();
-        let kickoff = self.session.start_from_page(false, reply);
+        let start = self.offered_start();
+        let kickoff = self.session.start_from_page(false, &start, reply);
         let reply = replied.blocking_recv().expect("the session replies");
         (reply, kickoff)
     }
@@ -660,7 +749,7 @@ fn the_page_shows_a_starting_round_until_its_kickoff_is_saved() {
     let (reply, kickoff) = harness.start_as_worker();
 
     assert_eq!(reply, Ok(()));
-    assert_eq!(harness.page.stage(), RoundStage::Starting);
+    assert!(matches!(harness.page.stage(), RoundStage::Starting { .. }));
     assert_eq!(harness.page.round(), None);
     let kickoff = kickoff.expect("the kickoff, for the worker to send");
     harness
@@ -673,9 +762,8 @@ fn the_page_shows_a_starting_round_until_its_kickoff_is_saved() {
 
     let mut pane = Harness::start();
     pane.capture();
-    assert_eq!(
-        pane.page.stage(),
-        RoundStage::Starting,
+    assert!(
+        matches!(pane.page.stage(), RoundStage::Starting { .. }),
         "a round started in the pane"
     );
 }
@@ -705,7 +793,7 @@ fn stopping_or_resetting_a_starting_round_shows_that_no_round_runs() {
 
         harness.session.handle(Input::Command(command));
 
-        assert_eq!(harness.page.stage(), RoundStage::NoRound);
+        assert!(matches!(harness.page.stage(), RoundStage::NoRound { .. }));
     }
 }
 
@@ -917,7 +1005,7 @@ fn a_request_saved_before_a_reopening_shows_as_paused_and_may_be_replaced_on_the
 }
 
 #[test]
-fn a_repeated_or_stale_implement_from_the_page_starts_no_second_implementation() {
+fn a_repeated_implement_is_applied_once_and_a_stale_one_starts_no_second_implementation() {
     let mut harness = Harness::start();
     harness.conclude();
     let conclusion = harness.conclusion_request();
@@ -928,7 +1016,7 @@ fn a_repeated_or_stale_implement_from_the_page_starts_no_second_implementation()
     let repeated = harness.implement_on_page(&conclusion, None, EDITED);
     let other_conclusion = harness.implement_on_page("another-turn", None, EDITED);
 
-    assert_eq!(repeated, Err(CommandRefusal::Stale));
+    assert_eq!(repeated, Err(CommandRefusal::AlreadyApplied));
     assert_eq!(other_conclusion, Err(CommandRefusal::Stale));
     assert_eq!(harness.saved().implementations.len(), 1);
     assert_eq!(harness.agents.prompts().len(), prompts);

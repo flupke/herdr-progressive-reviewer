@@ -5,17 +5,19 @@
 //! the same prompt; the pane hears of it through the events it follows.
 
 use review_explore::{AnswerInput, Command, DispatchState};
-use review_explore_page::{CommandRefusal, PageReply};
+use review_explore_page::{CommandRefusal, PageReply, Waiting};
 
-use crate::{ExploreSession, Start};
+use crate::ExploreSession;
 
 impl ExploreSession {
-    /// Stops waiting, as Stop waiting in the pane: for the start under way when `request` is
-    /// `None`, else for the agent's turn `request`.
-    pub(crate) fn stop(&mut self, request: Option<&str>) -> Result<(), CommandRefusal> {
-        let waits = match request {
-            None => self.state.round.is_none() && matches!(self.state.start, Start::Starting),
-            Some(request) => self.delivering(request),
+    /// Stops waiting, as Stop waiting in the pane: for the start or the agent's turn `waiting`
+    /// names.
+    pub(crate) fn stop(&mut self, waiting: &Waiting) -> Result<(), CommandRefusal> {
+        let waits = match waiting {
+            Waiting::Start(start) => {
+                self.state.round.is_none() && self.state.start.starting() == Some(start.as_str())
+            }
+            Waiting::Turn(request) => self.delivering(request),
         };
         if !waits {
             return Err(CommandRefusal::Stale);
@@ -46,14 +48,26 @@ impl ExploreSession {
     }
 
     /// Sends the agent's turn `request` again, as Retry in the pane, when the round waits for it
-    /// and the agent is not working on it.
-    pub(crate) fn retry_from_page(&mut self, request: &str) -> Result<(), CommandRefusal> {
+    /// after its attempt `attempt`, and the agent is not working on it. A repeat of a Retry that
+    /// went through finds the turn on its way; one after a later attempt failed sends nothing.
+    pub(crate) fn retry_from_page(
+        &mut self,
+        request: &str,
+        attempt: &str,
+    ) -> Result<(), CommandRefusal> {
         let round = self.saved_round()?;
+        if self.delivering(request) {
+            return Err(CommandRefusal::AlreadyApplied);
+        }
         let retried = round
             .exploration
             .retry_request()
-            .is_some_and(|retry| retry.request == request);
-        if !retried || self.delivering(request) {
+            .is_some_and(|retry| retry.request == request)
+            && round
+                .turns
+                .get(request)
+                .is_some_and(|delivery| delivery.attempt == attempt);
+        if !retried {
             return Err(CommandRefusal::Stale);
         }
         // As the pane does: a turn saved as pending that no prompt of this process carries waits
@@ -102,7 +116,14 @@ impl ExploreSession {
             && exploration.retry_request().is_none()
             && exploration.conclusion_request() == Some(reply.conclusion.as_str());
         if !concludes {
-            return Err(CommandRefusal::Stale);
+            // The round's latest answer is this reply: a repeat of a reply that went through.
+            let repeat = exploration.answers.last().is_some_and(|latest| {
+                latest.question.is_none()
+                    && latest.option.is_none()
+                    && latest.in_reply_to == reply.conclusion
+                    && latest.text == reply.text
+            });
+            return Err(CommandRefusal::stale_unless_repeat(repeat));
         }
         let input = AnswerInput {
             option: None,
@@ -146,12 +167,28 @@ impl ExploreSession {
         &mut self,
         conclusion: &str,
         delivery: &str,
+        attempt: &str,
     ) -> Result<(), CommandRefusal> {
         let round = self.saved_round()?;
-        let saved = round
-            .latest_implementation(conclusion)
+        let latest = round.latest_implementation(conclusion);
+        // A repeat of a resend that went through finds the request on its way, or received.
+        let resent = latest.is_some_and(|latest| {
+            latest.request.delivery == delivery
+                && match latest.state {
+                    DispatchState::Queued | DispatchState::Attempting => {
+                        self.state.implementation.is_some()
+                    }
+                    DispatchState::Delivered => true,
+                    _ => false,
+                }
+        });
+        if resent {
+            return Err(CommandRefusal::AlreadyApplied);
+        }
+        let saved = latest
             .filter(|latest| {
                 latest.request.delivery == delivery
+                    && latest.attempt == attempt
                     && match latest.state {
                         // Queued in this process: on its way already.
                         DispatchState::Queued => self.state.implementation.is_none(),

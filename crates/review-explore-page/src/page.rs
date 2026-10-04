@@ -1,44 +1,35 @@
-//! The page's routes. Every response comes from the latest stage the round's owner published.
+//! The page's routes: the shell that loads the page's client, its assets, and its socket.
 
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::extract::{DefaultBodyLimit, Form, FromRequestParts, Path, Query, Request, State};
+use axum::extract::{DefaultBodyLimit, FromRequestParts, Path, Query, Request, State};
 use axum::http::request::Parts;
 use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use review_explore::{
-    Alternative, AnswerInput, Assessments, Conclusion, Design, MarkTense, Question,
-    QuestionSection, QuizItem, QuizResponse,
-};
-use review_explore_citations::Citation;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use crate::access::{Hosts, TokenCookie};
-use crate::blind::{BlindQuestion, FirstPick, PickComments};
-use crate::citation::CitationContext;
-use crate::command::{PageAnswer, PageCommand, PageImplement, PageQuizResponse};
-use crate::command::{PageReply, Recovery};
-use crate::diagram::{self, Diagrams};
+use crate::blind::FirstPicks;
+use crate::diagram;
 use crate::files::PageFiles;
-use crate::form::TextArea;
-use crate::notice::{Notice, Post, Problem, RecoveryPost};
-use crate::round::{
-    ImplementationState, LatestAnswer, PageImplementation, PageQuiz, PageRound, QuestionMarks,
-    ReviewName, RoundSnapshot, RoundStage, Rounds, TurnResponse,
-};
-use crate::status::StatusCard;
+use crate::round::Rounds;
 
-/// Scripts, styles and form posts only from the page itself, and no inline script. Inline
-/// styles are allowed for Mermaid, which writes them into each diagram it draws: without them
-/// its boxes and labels are misplaced. The browser reports what the policy blocks to
-/// `/csp-report`.
-const CONTENT_SECURITY_POLICY: &str = "default-src 'none'; script-src 'self'; \
-     style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self'; form-action 'self'; \
-     base-uri 'none'; frame-ancestors 'none'; report-uri /csp-report";
+/// Scripts and styles only from the page itself, and no inline script; the page's requests go
+/// only to itself, its socket included (named in full: older browsers do not count `ws:` to the
+/// page's own address as `'self'`). Inline styles are allowed for Mermaid, which writes them into
+/// each diagram it draws: without them its boxes and labels are misplaced. The page posts no
+/// form. The browser reports what the policy blocks to `/csp-report`.
+fn content_security_policy(host: &str) -> String {
+    format!(
+        "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; \
+         connect-src 'self' ws://{host}; img-src 'self'; form-action 'none'; base-uri 'none'; \
+         frame-ancestors 'none'; report-uri /csp-report"
+    )
+}
 
 /// Every response is read again, never from the browser's cache.
 const NO_STORE: (HeaderName, HeaderValue) =
@@ -61,8 +52,6 @@ pub enum PageEvent {
     WrongToken,
     /// The browser blocked something under the content security policy; the browser's report.
     CspViolation(String),
-    /// A template failed to render.
-    TemplateError(String),
 }
 
 /// The Explore page of a set of rounds, served by the caller on the page's own listener.
@@ -70,8 +59,10 @@ pub struct ExplorePage<R> {
     rounds: R,
     hosts: Hosts,
     files: PageFiles,
-    /// The comments typed with the first pick of a blind question, until its answer.
-    comments: PickComments,
+    /// The reviewer's first picks of blind questions.
+    pub(crate) picks: FirstPicks,
+    /// Changes with each start of the tool, when the revisions start again.
+    epoch: String,
     log: Box<dyn Fn(PageEvent) + Send + Sync>,
 }
 
@@ -87,7 +78,8 @@ impl<R: Rounds> ExplorePage<R> {
             rounds,
             hosts,
             files,
-            comments: PickComments::default(),
+            picks: FirstPicks::default(),
+            epoch: uuid::Uuid::new_v4().simple().to_string(),
             log: Box::new(log),
         }
     }
@@ -99,22 +91,13 @@ impl<R: Rounds> ExplorePage<R> {
         Router::new()
             .route("/", get(index::<R>))
             .route(&script_path, script)
-            .route("/diagram-errors", diagram::report_route::<R>())
-            .route("/status", get(status))
-            .route("/pick", post(pick::<R>))
-            .route("/answer", post(answer::<R>))
-            .route("/start", post(start))
-            .route("/implement", post(implement))
-            .route("/quiz", post(quiz_pick))
-            .route("/quiz/skip", post(quiz_skip))
-            .route("/stop", post(stop))
-            .route("/retry", post(retry))
-            .route("/cancel-answer", post(cancel_answer))
-            .route("/reset", post(reset::<R>))
-            .route("/reply", post(reply))
-            .route("/cancel-implementation", post(cancel_implementation))
-            .route("/resend-implementation", post(resend_implementation))
+            .route("/ws", get(crate::socket::upgrade::<R>))
+            .route(
+                "/token",
+                get(|_: Admitted| async { StatusCode::NO_CONTENT }),
+            )
             .route("/assets/{name}", get(asset::<R>))
+            .route("/assets/client/{name}", get(client_asset::<R>))
             .route("/dev/changes", get(dev_changes::<R>))
             .route(
                 "/csp-report",
@@ -127,10 +110,21 @@ impl<R: Rounds> ExplorePage<R> {
             .layer(middleware::from_fn_with_state(page, admit_host::<R>))
     }
 
-    /// The round whose token the request's cookie carries.
-    fn admit(&self, headers: &HeaderMap) -> Result<PageRound, Refused> {
+    /// The rounds the page shows.
+    pub(crate) fn rounds(&self) -> &R {
+        &self.rounds
+    }
+
+    /// The value that tells this start of the tool from the others.
+    pub(crate) fn epoch(&self) -> &str {
+        &self.epoch
+    }
+
+    /// Whether the request's cookie carries a token that opens a round.
+    fn admits(&self, headers: &HeaderMap) -> Result<(), Refused> {
         TokenCookie::read(headers)
             .and_then(|token| self.rounds.find(token))
+            .map(|_| ())
             .ok_or_else(|| self.refuse(PageEvent::WrongToken))
     }
 
@@ -143,62 +137,40 @@ impl<R: Rounds> ExplorePage<R> {
         else {
             return self.refuse(PageEvent::WrongToken).into_response();
         };
-        to_page(Some(cookie))
+        let mut response = Redirect::to("/").into_response();
+        response.headers_mut().insert(header::SET_COOKIE, cookie);
+        response
     }
 
-    /// Shows the round, with the notice of a post that did not go through, once. `answered` is
-    /// the quiz item, from 1, whose answer the page shows instead of the item it asks next.
-    fn show(&self, headers: &HeaderMap, answered: Option<usize>) -> Response {
-        let round = match self.admit(headers) {
-            Ok(round) => round.stages.latest(),
-            Err(refused) => return refused.into_response(),
-        };
-        let notice = Notice::read(headers);
-        let first_pick = round.first_pick(headers);
-        let comment = first_pick.as_ref().map(|pick| self.comments.of(pick));
-        let shown_pick = (first_pick.as_ref().zip(comment.as_deref()))
-            .map(|(pick, comment)| ShownPick { pick, comment });
-        let context = PageContext::new(
-            &round,
-            notice.as_ref(),
-            shown_pick,
-            answered,
-            self.files.dev_version(),
-        );
-        match self.files.render("page.html", context) {
-            Ok(html) => {
-                let policy = (
-                    header::CONTENT_SECURITY_POLICY,
-                    HeaderValue::from_static(CONTENT_SECURITY_POLICY),
-                );
-                // A link in the agent's text does not tell another site the page's address on
-                // this network. Not `no-referrer`: under it, the browser names the origin of the
-                // page's own form posts `null`, and the page refuses them as from another site.
-                let referrer = (
-                    header::REFERRER_POLICY,
-                    HeaderValue::from_static("same-origin"),
-                );
-                let sniffing = (
-                    header::X_CONTENT_TYPE_OPTIONS,
-                    HeaderValue::from_static("nosniff"),
-                );
-                let headers = [policy, NO_STORE, referrer, sniffing];
-                let mut response = (headers, Html(html)).into_response();
-                if notice.is_some() {
-                    response
-                        .headers_mut()
-                        .insert(header::SET_COOKIE, Notice::clear());
-                }
-                response
-            }
-            Err(error) => {
-                self.log(PageEvent::TemplateError(format!("{error:#}")));
-                StatusCode::INTERNAL_SERVER_ERROR.into_response()
-            }
+    /// The shell that loads the page's client, which draws the round from its socket.
+    fn show(&self, headers: &HeaderMap) -> Response {
+        if let Err(refused) = self.admits(headers) {
+            return refused.into_response();
         }
+        // The host was checked against the page's own names already.
+        let host = headers
+            .get(header::HOST)
+            .and_then(|host| host.to_str().ok())
+            .unwrap_or_default();
+        let Ok(policy) = HeaderValue::from_str(&content_security_policy(host)) else {
+            return StatusCode::BAD_REQUEST.into_response();
+        };
+        let policy = (header::CONTENT_SECURITY_POLICY, policy);
+        // A link in the agent's text does not tell another site the page's address on this
+        // network.
+        let referrer = (
+            header::REFERRER_POLICY,
+            HeaderValue::from_static("same-origin"),
+        );
+        let sniffing = (
+            header::X_CONTENT_TYPE_OPTIONS,
+            HeaderValue::from_static("nosniff"),
+        );
+        let html = self.files.shell();
+        ([policy, NO_STORE, referrer, sniffing], Html(html)).into_response()
     }
 
-    fn refuse(&self, event: PageEvent) -> Refused {
+    pub(crate) fn refuse(&self, event: PageEvent) -> Refused {
         self.log(event);
         Refused
     }
@@ -240,9 +212,8 @@ async fn admit_host<R: Rounds>(
     }
 }
 
-/// The round of a request whose cookie carries a round's token. Every route that reads or
-/// changes a round requires it.
-pub(crate) struct Admitted(pub(crate) PageRound);
+/// A request whose cookie carries a round's token.
+pub(crate) struct Admitted;
 
 impl<R: Rounds> FromRequestParts<Arc<ExplorePage<R>>> for Admitted {
     type Rejection = Refused;
@@ -251,19 +222,17 @@ impl<R: Rounds> FromRequestParts<Arc<ExplorePage<R>>> for Admitted {
         parts: &mut Parts,
         page: &Arc<ExplorePage<R>>,
     ) -> Result<Self, Refused> {
-        page.admit(&parts.headers).map(Self)
+        page.admits(&parts.headers).map(|()| Self)
     }
 }
 
 #[derive(Deserialize)]
 struct PageQuery {
     token: Option<String>,
-    /// The quiz item, from 1, whose answer the page shows: the one the reviewer just answered.
-    answered: Option<usize>,
 }
 
 /// The address the reviewer opens carries the token: the page trades it for a cookie, then
-/// drops it from the address bar. Without a token in the address, shows the round.
+/// drops it from the address bar. Without a token in the address, serves the page.
 async fn index<R: Rounds>(
     State(page): State<Arc<ExplorePage<R>>>,
     Query(query): Query<PageQuery>,
@@ -271,906 +240,27 @@ async fn index<R: Rounds>(
 ) -> Response {
     match query.token {
         Some(token) => page.open(&token),
-        None => page.show(&headers, query.answered),
+        None => page.show(&headers),
     }
-}
-
-/// The reviewer's answer, as the question's form posts it.
-#[derive(Deserialize)]
-struct AnswerForm {
-    /// The identity of the round that showed the question, when it has one.
-    round: Option<String>,
-    question: String,
-    version: u32,
-    /// The picked choice's ID; absent when the reviewer picked none.
-    choice: Option<String>,
-    #[serde(default)]
-    comment: TextArea,
-}
-
-/// Hands the reviewer's answer to the round's owner, with the reviewer's first pick of a blind
-/// question, unless the page showed a question that no longer waits for an answer, then shows
-/// the page again with what became of it. On a blind question, an answer that was not sent
-/// keeps its comment, which the page shows again with the first pick.
-async fn answer<R: Rounds>(
-    State(page): State<Arc<ExplorePage<R>>>,
-    Admitted(round): Admitted,
-    headers: HeaderMap,
-    Form(form): Form<AnswerForm>,
-) -> Response {
-    let shown = round.stages.latest();
-    let asked = shown
-        .stage
-        .asks(&form.question, form.version)
-        .filter(|_| form.round == shown.round);
-    // A question answered before, whose recommendation the reviewer has seen, keeps no first
-    // pick.
-    let first_pick = asked.and_then(|_| shown.first_pick(&headers));
-    let comment = form.comment.into_string();
-    let sent = if asked.is_some() {
-        let answer = PageAnswer {
-            question: form.question,
-            version: form.version,
-            input: AnswerInput {
-                option: form.choice,
-                text: comment.clone(),
-                in_reply_to: None,
-                first_pick: first_pick.as_ref().map(|pick| pick.choice.clone()),
-            },
-        };
-        round.commands.send(PageCommand::Answer(answer)).await
-    } else {
-        Err(Problem::Stale)
-    };
-    if let Some(pick) = &first_pick {
-        page.comments.settle(pick, sent.is_ok(), comment);
-    }
-    to_page(Some(match sent {
-        Ok(()) => FirstPick::clear(),
-        Err(problem) => Notice::new(Post::Answer, problem).cookie(),
-    }))
-}
-
-/// The reviewer's start of a round, as the start form posts it.
-#[derive(Deserialize)]
-struct StartForm {
-    /// Set by Start with Challenger only.
-    #[serde(default)]
-    challenger: bool,
-}
-
-/// Hands the start of a round to the round's owner, unless a round started since the page
-/// showed none, or nothing is left to review, then shows the page again with what became of it.
-async fn start(Admitted(round): Admitted, Form(form): Form<StartForm>) -> Response {
-    let shown = round.stages.latest();
-    let sent = match (shown.stage.can_start(), shown.start_block) {
-        (false, _) => Err(Problem::Stale),
-        (true, Some(block)) => Err(Problem::Failed(block.reason().into())),
-        (true, None) => {
-            let challenger = form.challenger;
-            round.commands.send(PageCommand::Start { challenger }).await
-        }
-    };
-    to_page(
-        sent.err()
-            .map(|problem| Notice::new(Post::Start, problem).cookie()),
-    )
-}
-
-/// The reviewer's first pick of a blind question, as its form posts it.
-#[derive(Deserialize)]
-struct PickForm {
-    /// The identity of the round that showed the question, when it has one.
-    round: Option<String>,
-    question: String,
-    version: u32,
-    /// The picked choice's ID; absent when the reviewer picked none.
-    choice: Option<String>,
-    /// The comment typed with the pick, which the answer's form shows again.
-    #[serde(default)]
-    comment: TextArea,
-}
-
-/// Keeps the reviewer's first pick of a blind question, with the comment typed beside it, then
-/// shows the page again, now with the agent's recommendation. A pick kept already stays the
-/// first one, and a question that shows its recommendation at once keeps none.
-async fn pick<R: Rounds>(
-    State(page): State<Arc<ExplorePage<R>>>,
-    Admitted(round): Admitted,
-    headers: HeaderMap,
-    Form(form): Form<PickForm>,
-) -> Response {
-    let shown = round.stages.latest();
-    let asked = shown
-        .stage
-        .asks(&form.question, form.version)
-        .filter(|_| form.round == shown.round);
-    to_page(match (asked, shown.round.as_deref()) {
-        (Some(_), Some(round)) => form
-            .choice
-            .zip(shown.stage.blind())
-            .and_then(|(choice, blind)| {
-                let comment = form.comment.into_string();
-                FirstPick::to_keep(&headers, round, &blind, choice, &page.comments, comment)
-            })
-            .map(|pick| pick.cookie()),
-        _ => Some(Notice::new(Post::Pick, Problem::Stale).cookie()),
-    })
-}
-
-/// The reviewer's Implement, as the conclusion's form posts it.
-#[derive(Deserialize)]
-struct ImplementForm {
-    conclusion: String,
-    /// The delivery of the conclusion's request that the page showed as not sent; absent when
-    /// it showed none.
-    replaces: Option<String>,
-    #[serde(default)]
-    text: TextArea,
-}
-
-/// Hands the reviewer's Implement to the round's owner, unless the page showed a conclusion
-/// that no longer offers it, then shows the page again with what became of it.
-async fn implement(Admitted(round): Admitted, Form(form): Form<ImplementForm>) -> Response {
-    let offered = round
-        .stages
-        .stage()
-        .offers_implement(&form.conclusion, form.replaces.as_deref());
-    let sent = if offered {
-        let implement = PageImplement {
-            conclusion: form.conclusion,
-            replaces: form.replaces,
-            text: form.text.into_string(),
-        };
-        round.commands.send(PageCommand::Implement(implement)).await
-    } else {
-        Err(Problem::Stale)
-    };
-    to_page(
-        sent.err()
-            .map(|problem| Notice::new(Post::Implement, problem).cookie()),
-    )
-}
-
-/// The reviewer's pick of a quiz item, as the item's form posts it.
-#[derive(Deserialize)]
-struct QuizPickForm {
-    conclusion: String,
-    /// The item, from 0.
-    item: usize,
-    /// The option picked, from 0; absent when the reviewer picked none.
-    answer: Option<usize>,
-}
-
-/// Hands the reviewer's pick of a quiz item to the round's owner, unless the page showed an
-/// item that no longer waits for one, then shows the item with its answer: whether the pick is
-/// correct, why, and the lines that prove it. A form sent with no pick shows the item again.
-async fn quiz_pick(Admitted(round): Admitted, Form(form): Form<QuizPickForm>) -> Response {
-    let Some(answer) = form.answer else {
-        return to_page(None);
-    };
-    let item = form.item;
-    let response = PageQuizResponse {
-        conclusion: form.conclusion,
-        response: QuizResponse::Pick { item, answer },
-    };
-    match send_quiz(&round, response).await {
-        Ok(()) => redirect(&format!("/?answered={}", item + 1), None),
-        Err(problem) => to_page(Some(Notice::new(Post::Quiz, problem).cookie())),
-    }
-}
-
-/// The reviewer's skip of the quiz, as its form posts it.
-#[derive(Deserialize)]
-struct QuizSkipForm {
-    conclusion: String,
-}
-
-/// Hands the reviewer's skip of the quiz to the round's owner, unless the page showed a quiz
-/// that asks nothing more, then shows the conclusion.
-async fn quiz_skip(Admitted(round): Admitted, Form(form): Form<QuizSkipForm>) -> Response {
-    let response = PageQuizResponse {
-        conclusion: form.conclusion,
-        response: QuizResponse::Skip,
-    };
-    let sent = send_quiz(&round, response).await;
-    to_page(
-        sent.err()
-            .map(|problem| Notice::new(Post::Quiz, problem).cookie()),
-    )
-}
-
-/// Sends `response` to the round's owner, unless the round no longer shows the quiz where it
-/// fits.
-async fn send_quiz(round: &PageRound, response: PageQuizResponse) -> Result<(), Problem> {
-    if !round.stages.stage().takes_quiz(&response) {
-        return Err(Problem::Stale);
-    }
-    round.commands.send(PageCommand::Quiz(response)).await
-}
-
-/// Hands `command` to the round's owner when the page offers it (`offered`), then shows the page
-/// again, with the notice of `post` when the command did not go through.
-async fn send_offered(
-    round: &PageRound,
-    offered: bool,
-    command: PageCommand,
-    post: Post,
-) -> Response {
-    let sent = send_if(round, offered, command).await;
-    to_page(
-        sent.err()
-            .map(|problem| Notice::new(post, problem).cookie()),
-    )
-}
-
-/// Hands `command` to the round's owner when the page offers it (`offered`), and returns why it
-/// did not go through, when it did not.
-async fn send_if(round: &PageRound, offered: bool, command: PageCommand) -> Result<(), Problem> {
-    if offered {
-        round.commands.send(command).await
-    } else {
-        Err(Problem::Stale)
-    }
-}
-
-/// Stop waiting, as its form posts it.
-#[derive(Deserialize)]
-struct StopForm {
-    /// The agent's turn the page showed the agent working on; absent while a round starts.
-    request: Option<String>,
-}
-
-/// Hands Stop waiting to the round's owner, unless the page showed a start or a turn that is no
-/// longer waited for.
-async fn stop(Admitted(round): Admitted, Form(form): Form<StopForm>) -> Response {
-    let offered = round.stages.stage().stops(form.request.as_deref());
-    let command = PageCommand::Recover(Recovery::Stop {
-        request: form.request,
-    });
-    send_offered(&round, offered, command, Post::Recover(RecoveryPost::Stop)).await
-}
-
-/// Retry, as its form posts it.
-#[derive(Deserialize)]
-struct RetryForm {
-    /// The agent's turn the page showed as interrupted.
-    request: String,
-}
-
-/// Hands Retry to the round's owner, unless the page showed a turn that is no longer
-/// interrupted.
-async fn retry(Admitted(round): Admitted, Form(form): Form<RetryForm>) -> Response {
-    let offered = round.stages.stage().retries(&form.request);
-    let command = PageCommand::Recover(Recovery::Retry {
-        request: form.request,
-    });
-    send_offered(&round, offered, command, Post::Recover(RecoveryPost::Retry)).await
-}
-
-/// Cancel answer, as its form posts it.
-#[derive(Deserialize)]
-struct CancelAnswerForm {
-    /// The reviewer's latest answer, as the page showed it.
-    answer: String,
-}
-
-/// Hands Cancel answer to the round's owner, unless the answer the page offered to cancel is no
-/// longer the latest one.
-async fn cancel_answer(Admitted(round): Admitted, Form(form): Form<CancelAnswerForm>) -> Response {
-    let offered = round
-        .stages
-        .latest()
-        .cancellable
-        .is_some_and(|answer| answer.id == form.answer);
-    let command = PageCommand::Recover(Recovery::CancelAnswer {
-        answer: form.answer,
-    });
-    send_offered(
-        &round,
-        offered,
-        command,
-        Post::Recover(RecoveryPost::CancelAnswer),
-    )
-    .await
-}
-
-/// Reset, as its confirmation's form posts it.
-#[derive(Deserialize)]
-struct ResetForm {
-    /// The round the page showed.
-    round: String,
-}
-
-/// Hands Reset to the round's owner, unless the page showed a round that is no longer running,
-/// then shows the start screen. A Reset ends the token of a round on the network: the page that
-/// sent it receives the token of the start screen, so that it can start the next round.
-async fn reset<R: Rounds>(
-    State(page): State<Arc<ExplorePage<R>>>,
-    Admitted(round): Admitted,
-    Form(form): Form<ResetForm>,
-) -> Response {
-    let offered = round.stages.round().as_deref() == Some(form.round.as_str());
-    let command = PageCommand::Recover(Recovery::Reset { round: form.round });
-    match send_if(&round, offered, command).await {
-        Ok(()) => to_page(
-            page.rounds
-                .after_reset()
-                .and_then(|token| TokenCookie::set(&token.to_string())),
-        ),
-        Err(problem) => to_page(Some(
-            Notice::new(Post::Recover(RecoveryPost::Reset), problem).cookie(),
-        )),
-    }
-}
-
-/// The reviewer's reply to the conclusion, as its form posts it.
-#[derive(Deserialize)]
-struct ReplyForm {
-    conclusion: String,
-    #[serde(default)]
-    text: TextArea,
-}
-
-/// Hands the reviewer's reply to the round's owner, unless the page showed a conclusion that the
-/// round moved past.
-async fn reply(Admitted(round): Admitted, Form(form): Form<ReplyForm>) -> Response {
-    let offered = round.stages.stage().concludes(&form.conclusion);
-    let command = PageCommand::Reply(PageReply {
-        conclusion: form.conclusion,
-        text: form.text.into_string(),
-    });
-    send_offered(&round, offered, command, Post::Reply).await
-}
-
-/// Cancel of an implementation request, as its form posts it.
-#[derive(Deserialize)]
-struct CancelImplementationForm {
-    /// The request the page showed as being sent.
-    delivery: String,
-}
-
-/// Hands the cancel of the implementation request to the round's owner, unless the page showed
-/// a request that is no longer being sent.
-async fn cancel_implementation(
-    Admitted(round): Admitted,
-    Form(form): Form<CancelImplementationForm>,
-) -> Response {
-    let offered = round.stages.stage().sends_implementation(&form.delivery);
-    let command = PageCommand::Recover(Recovery::CancelImplementation {
-        delivery: form.delivery,
-    });
-    send_offered(
-        &round,
-        offered,
-        command,
-        Post::Recover(RecoveryPost::CancelImplementation),
-    )
-    .await
-}
-
-/// Sending a saved implementation request again, as its form posts it.
-#[derive(Deserialize)]
-struct ResendImplementationForm {
-    conclusion: String,
-    /// The request the page showed as saved but not sent.
-    delivery: String,
-}
-
-/// Hands the saved implementation request to the round's owner to send, unless the page showed a
-/// request that is no longer saved but not sent.
-async fn resend_implementation(
-    Admitted(round): Admitted,
-    Form(form): Form<ResendImplementationForm>,
-) -> Response {
-    let offered = round
-        .stages
-        .stage()
-        .resends_implementation(&form.conclusion, &form.delivery);
-    let command = PageCommand::Recover(Recovery::ResendImplementation {
-        conclusion: form.conclusion,
-        delivery: form.delivery,
-    });
-    send_offered(&round, offered, command, Post::Implement).await
-}
-
-/// Redirects to the page, setting `cookie` when given (post, redirect, get).
-fn to_page(cookie: Option<HeaderValue>) -> Response {
-    redirect("/", cookie)
-}
-
-/// Redirects to `address` on the page, setting `cookie` when given.
-fn redirect(address: &str, cookie: Option<HeaderValue>) -> Response {
-    let mut response = Redirect::to(address).into_response();
-    if let Some(cookie) = cookie {
-        response.headers_mut().insert(header::SET_COOKIE, cookie);
-    }
-    response
-}
-
-/// What the template `page.html` receives. The templates turn the agent's Markdown into HTML
-/// with the filter `markdown` (see [`PageFiles`]).
-#[derive(Serialize)]
-struct PageContext<'a> {
-    revision: u64,
-    /// The start cover, when no round is running.
-    start: Option<StartContext>,
-    /// Whether the round waits for the review tool or the agent: a round starts, the agent
-    /// works, or an implementation request is being sent. The page polls its status more often
-    /// then; it polls in every stage, to follow the round.
-    working: bool,
-    question: Option<QuestionContext<'a>>,
-    conclusion: Option<ConclusionContext<'a>>,
-    /// The reviewer's latest answer, when the page offers to cancel it.
-    cancellable: Option<&'a LatestAnswer>,
-    /// The round Reset closes, when the page offers it.
-    reset: Option<&'a str>,
-    /// Whether the round is an earlier one, which the reviewer can only Reset.
-    earlier: bool,
-    /// The status cards above the round's stage: why the reviewer's latest post did not go
-    /// through, that the round is an earlier one, and the stage when it is not a question.
-    cards: Vec<StatusCard>,
-    /// The design of the change, as the round's first turn explained it.
-    design: Option<DesignContext>,
-    /// What the agent's turn said back to the reviewer's previous answer, above its question
-    /// or conclusion; `None` when it said nothing.
-    response: Option<&'a TurnResponse>,
-    /// The review the page belongs to, once its owner named it.
-    review: Option<&'a ReviewName>,
-    /// Where the page finds Mermaid, and the fence of a diagram block.
-    diagrams: Diagrams,
-    /// The count of file changes, in development only: the page reloads when it changes.
-    dev_version: Option<u64>,
-}
-
-/// The start cover, when no round is running.
-#[derive(Serialize)]
-struct StartContext {
-    /// Whether no status card says the cover's state, so that the cover says that no round is
-    /// running.
-    idle: bool,
-    /// The status card that says why the reviewer cannot start a round, by its ID: the start
-    /// buttons are inactive, and it describes them.
-    block: Option<&'static str>,
-}
-
-/// The reviewer's first pick of the blind question the page shows, with the comment typed
-/// beside it.
-#[derive(Clone, Copy)]
-struct ShownPick<'p, 'a> {
-    pick: &'p FirstPick,
-    comment: &'a str,
-}
-
-#[derive(Serialize)]
-struct QuestionContext<'a> {
-    /// The identity of the round that asks the question, which its forms post back: a
-    /// question of the same ID in a later round is another question.
-    round: Option<&'a str>,
-    number: usize,
-    id: &'a str,
-    version: u32,
-    /// The question, in Markdown.
-    text: &'a str,
-    /// The Context section, in Markdown; empty when the question has none.
-    context: String,
-    /// The Door and Blast radius sections, folded away until the reviewer opens them.
-    sections: Vec<QuestionSection>,
-    /// When the page shows the agent's recommendation.
-    recommendation: Recommendation,
-    /// The agent's alternatives, then None of the above.
-    choices: Vec<ChoiceContext<'a>>,
-    /// The text of the choice the reviewer picked first, once the recommendation shows.
-    first_pick: Option<&'a str>,
-    /// The comment the answer's form starts with: the one typed with the first pick.
-    comment: &'a str,
-    /// The question's citations, most decisive first.
-    citations: Vec<CitationContext<'a>>,
-    /// The lines an answer marks, `None` when it marks none.
-    marks: Option<MarksContext>,
-}
-
-/// When the page shows the agent's recommendation for a question, as the template tests it.
-#[derive(Clone, Copy, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum Recommendation {
-    /// At once, with the choices in the agent's order.
-    Shown,
-    /// Not yet, on a blind question: the choices in a mixed order, and a form that posts the
-    /// reviewer's first pick.
-    HiddenUntilPick,
-    /// After the first pick of a blind question: the choices in the same mixed order, the pick
-    /// selected, and the answer's form.
-    ShownAfterPick,
-}
-
-/// One choice of a question.
-#[derive(Serialize)]
-struct ChoiceContext<'a> {
-    id: &'a str,
-    text: &'a str,
-    /// Why the agent recommends the choice, when it does and the page shows it.
-    recommendation: Option<&'a str>,
-    /// Whether the choice is selected: the reviewer's first pick.
-    checked: bool,
-}
-
-#[derive(Serialize)]
-struct ConclusionContext<'a> {
-    /// The request of the agent's turn that posted the conclusion.
-    request: &'a str,
-    /// The summary and the future work, in Markdown.
-    summary: &'a str,
-    future_work: &'a str,
-    /// The list to be implemented that the form starts from, as raw text: the agent's, or the
-    /// reviewer's own list of a request that was not sent.
-    draft: &'a str,
-    /// Whether the page offers Implement.
-    offers_implement: bool,
-    /// The latest implementation request of the conclusion.
-    implementation: Option<&'a PageImplementation>,
-    /// What became of it, as a status card with the action that recovers it.
-    implementation_card: Option<StatusCard>,
-    /// Whether the page offers actions on the conclusion: Implement and its recoveries, and
-    /// Reply. An earlier round offers none.
-    offers_actions: bool,
-    /// The conclusion's quiz, when it has one.
-    quiz: Option<QuizContext<'a>>,
-}
-
-/// A conclusion's quiz: the item the page shows before the conclusion, until the reviewer
-/// answered or skipped every item, then the results beside the conclusion.
-#[derive(Serialize)]
-struct QuizContext<'a> {
-    /// The request of the agent's turn that posted the conclusion.
-    conclusion: &'a str,
-    items: Vec<QuizItemContext<'a>>,
-    /// The item the page shows in place of the conclusion, from 0: the one whose answer the
-    /// reviewer asked to see, or else the next to answer. `None` once the quiz is done.
-    shown: Option<usize>,
-    /// Whether an item waits for an answer: the quiz is neither finished nor skipped.
-    asks: bool,
-    /// How many picks were correct, and how many items have a pick.
-    correct_picks: usize,
-    picked: usize,
-    /// Whether the reviewer skipped the items that have no pick.
-    skipped: bool,
-}
-
-/// One quiz item, and the reviewer's pick once there is one.
-#[derive(Serialize)]
-struct QuizItemContext<'a> {
-    /// The item's position, from 1.
-    number: usize,
-    question: &'a str,
-    answers: Vec<QuizAnswerContext<'a>>,
-    /// Whether the reviewer picked the correct option, once the reviewer picked one.
-    picked_correct: Option<bool>,
-    /// The correct option's text.
-    correct_answer: &'a str,
-    why: &'a str,
-    proof: Vec<CitationContext<'a>>,
-}
-
-#[derive(Serialize)]
-struct QuizAnswerContext<'a> {
-    /// The option's position, from 0, as the form posts it.
-    index: usize,
-    text: &'a str,
-    correct: bool,
-    picked: bool,
-}
-/// What an answer to the question marks: a summary, and the lines on request.
-#[derive(Serialize)]
-struct MarksContext {
-    /// "Will mark 4 lines reviewed · 20 lines not relevant".
-    summary: String,
-    reviewed: Vec<String>,
-    /// Each with why it is not relevant.
-    not_relevant: Vec<String>,
-    reopened: Vec<String>,
-}
-
-/// The design of the change: open above the round's first question, folded away in every
-/// later stage of the round.
-#[derive(Serialize)]
-struct DesignContext {
-    open: bool,
-    sections: [QuestionSection; 4],
-}
-
-impl DesignContext {
-    fn new(design: &Design, stage: &RoundStage) -> Self {
-        Self {
-            open: matches!(stage, RoundStage::Question { number: 1, .. }),
-            // Until the design screen (#100) draws them, each thesis opens its part's text.
-            sections: design.parts().map(|part| QuestionSection {
-                title: part.title,
-                body: format!("{}\n\n{}", part.thesis, part.body),
-            }),
-        }
-    }
-}
-
-impl<'a> PageContext<'a> {
-    fn new(
-        round: &'a RoundSnapshot,
-        notice: Option<&'a Notice>,
-        first_pick: Option<ShownPick<'_, 'a>>,
-        answered: Option<usize>,
-        dev_version: Option<u64>,
-    ) -> Self {
-        // An earlier round offers Reset only.
-        let offers_actions = !round.earlier;
-        let mut context = Self {
-            revision: round.revision,
-            start: None,
-            working: false,
-            question: None,
-            conclusion: None,
-            cancellable: round.cancellable.as_ref().filter(|_| offers_actions),
-            reset: round.round.as_deref(),
-            earlier: round.earlier,
-            cards: StatusCard::above_stage(round, notice, offers_actions),
-            design: round
-                .design
-                .as_deref()
-                .map(|design| DesignContext::new(design, &round.stage)),
-            response: round.stage.response(),
-            review: round.review.as_ref(),
-            diagrams: Diagrams::new(),
-            dev_version,
-        };
-        match &round.stage {
-            RoundStage::NoRound
-            | RoundStage::StartFailed { .. }
-            | RoundStage::Interrupted { .. } => {}
-            RoundStage::Starting | RoundStage::AgentWorking { .. } => context.working = true,
-            RoundStage::Question {
-                number,
-                question,
-                citations,
-                marks,
-                ..
-            } => {
-                context.question = Some(QuestionContext::new(
-                    round.round.as_deref(),
-                    *number,
-                    question,
-                    round.stage.blind().as_ref(),
-                    citations,
-                    marks,
-                    first_pick,
-                ));
-            }
-            RoundStage::Conclusion {
-                request,
-                conclusion,
-                implementation,
-                quiz,
-                ..
-            } => {
-                context.working = implementation.as_ref().is_some_and(|implementation| {
-                    implementation.state == ImplementationState::Sending
-                });
-                context.conclusion = Some(ConclusionContext::new(
-                    &round.stage,
-                    request,
-                    conclusion,
-                    implementation.as_ref(),
-                    quiz,
-                    answered,
-                    offers_actions,
-                ));
-            }
-            RoundStage::StorageFailed { .. } => {
-                context.cancellable = None;
-                context.reset = None;
-            }
-        }
-        if round.stage.can_start() {
-            context.start = Some(StartContext {
-                idle: !StatusCard::say_start(&context.cards),
-                block: StatusCard::start_block(&context.cards),
-            });
-        }
-        context
-    }
-}
-
-impl<'a> QuestionContext<'a> {
-    /// `blind` is the question when it hides the agent's recommendation until the first pick.
-    fn new(
-        round: Option<&'a str>,
-        number: usize,
-        question: &'a Question,
-        blind: Option<&BlindQuestion<'a>>,
-        citations: &'a [Citation],
-        marks: &QuestionMarks,
-        first_pick: Option<ShownPick<'_, 'a>>,
-    ) -> Self {
-        let offered =
-            first_pick.filter(|shown| blind.is_some_and(|blind| blind.offers(&shown.pick.choice)));
-        let comment = offered.map_or("", |shown| shown.comment);
-        let picked = offered.map(|shown| shown.pick.choice.as_str());
-        let (recommendation, choices) = match (blind, picked) {
-            (None, _) => (Recommendation::Shown, question.choices().collect()),
-            (Some(blind), None) => (Recommendation::HiddenUntilPick, blind.choices()),
-            (Some(blind), Some(_)) => (Recommendation::ShownAfterPick, blind.choices()),
-        };
-        let choices: Vec<_> = choices
-            .into_iter()
-            .map(|choice| ChoiceContext::new(choice, recommendation, picked))
-            .collect();
-        Self {
-            round,
-            number,
-            id: &question.id,
-            version: question.version,
-            text: &question.text,
-            context: question.context(),
-            sections: question
-                .assessments
-                .iter()
-                .flat_map(Assessments::sections)
-                .collect(),
-            recommendation,
-            first_pick: choices
-                .iter()
-                .find(|choice| choice.checked)
-                .map(|choice| choice.text),
-            comment,
-            choices,
-            citations: citations.iter().map(CitationContext::new).collect(),
-            marks: MarksContext::new(marks),
-        }
-    }
-}
-
-impl<'a> ChoiceContext<'a> {
-    fn new(
-        choice: &'a Alternative,
-        recommendation: Recommendation,
-        first_pick: Option<&str>,
-    ) -> Self {
-        Self {
-            id: &choice.id,
-            text: &choice.text,
-            recommendation: choice
-                .recommendation
-                .as_deref()
-                .filter(|_| recommendation != Recommendation::HiddenUntilPick),
-            checked: first_pick == Some(choice.id.as_str()),
-        }
-    }
-}
-
-impl<'a> ConclusionContext<'a> {
-    fn new(
-        stage: &RoundStage,
-        request: &'a str,
-        conclusion: &'a Conclusion,
-        implementation: Option<&'a PageImplementation>,
-        quiz: &'a PageQuiz,
-        answered: Option<usize>,
-        offers_actions: bool,
-    ) -> Self {
-        let replaces = implementation.map(|implementation| implementation.delivery.as_str());
-        let offers_implement = offers_actions && stage.offers_implement(request, replaces);
-        let quiz = (!conclusion.quiz.is_empty())
-            .then(|| QuizContext::new(request, &conclusion.quiz, quiz, answered));
-        Self {
-            request,
-            summary: &conclusion.summary,
-            future_work: &conclusion.future_work,
-            draft: match implementation {
-                Some(implementation) if offers_implement => &implementation.text,
-                _ => &conclusion.to_be_implemented,
-            },
-            offers_implement,
-            implementation,
-            implementation_card: implementation.map(|implementation| {
-                StatusCard::implementation(
-                    implementation,
-                    request,
-                    offers_actions,
-                    offers_implement,
-                )
-            }),
-            offers_actions,
-            quiz,
-        }
-    }
-}
-
-impl<'a> QuizContext<'a> {
-    /// `answered` is the item, from 1, whose answer the reviewer asked to see.
-    fn new(
-        conclusion: &'a str,
-        items: &'a [QuizItem],
-        quiz: &'a PageQuiz,
-        answered: Option<usize>,
-    ) -> Self {
-        let answers = &quiz.answers;
-        // A quiz the round cannot save answers to asks nothing: the conclusion shows.
-        let next = answers
-            .next_item(items.len())
-            .filter(|_| quiz.takes_answers);
-        let answered_item = answered
-            .and_then(|number| number.checked_sub(1))
-            .filter(|item| answers.pick(*item).is_some());
-        Self {
-            conclusion,
-            items: items
-                .iter()
-                .enumerate()
-                .map(|(index, item)| {
-                    let proof = quiz.proofs.get(index).map_or(&[][..], |proof| &proof[..]);
-                    QuizItemContext::new(index, item, proof, answers.pick(index).map(|p| p.answer))
-                })
-                .collect(),
-            shown: answered_item.or(next),
-            asks: next.is_some(),
-            correct_picks: answers.correct_picks(),
-            picked: answers.picks.len(),
-            skipped: answers.skipped,
-        }
-    }
-}
-
-impl<'a> QuizItemContext<'a> {
-    fn new(index: usize, item: &'a QuizItem, proof: &'a [Citation], picked: Option<usize>) -> Self {
-        Self {
-            number: index + 1,
-            question: &item.question,
-            answers: item
-                .answers
-                .iter()
-                .enumerate()
-                .map(|(option, text)| QuizAnswerContext {
-                    index: option,
-                    text,
-                    correct: option == item.correct,
-                    picked: picked == Some(option),
-                })
-                .collect(),
-            picked_correct: picked.map(|picked| picked == item.correct),
-            correct_answer: item.answers.get(item.correct).map_or("", String::as_str),
-            why: &item.why,
-            proof: proof.iter().map(CitationContext::new).collect(),
-        }
-    }
-}
-impl MarksContext {
-    fn new(marks: &QuestionMarks) -> Option<Self> {
-        let summary = marks.counts().summary(MarkTense::Pending);
-        if summary.is_empty() {
-            return None;
-        }
-        Some(Self {
-            summary,
-            reviewed: marks.reviewed.iter().map(ToString::to_string).collect(),
-            not_relevant: marks.not_relevant.iter().map(ToString::to_string).collect(),
-            reopened: marks.reopened.iter().map(ToString::to_string).collect(),
-        })
-    }
-}
-
-/// What the page's script polls to follow the round: the revision of the published stage.
-async fn status(Admitted(round): Admitted) -> Response {
-    let revision = round.stages.latest().revision;
-    (
-        [NO_STORE],
-        Json(serde_json::json!({ "revision": revision })),
-    )
-        .into_response()
 }
 
 async fn asset<R: Rounds>(
     State(page): State<Arc<ExplorePage<R>>>,
     Path(name): Path<String>,
 ) -> Response {
-    match page.files.asset(&name) {
+    serve_asset(&page.files, &name)
+}
+
+/// A module of the page's client.
+async fn client_asset<R: Rounds>(
+    State(page): State<Arc<ExplorePage<R>>>,
+    Path(name): Path<String>,
+) -> Response {
+    serve_asset(&page.files, &format!("client/{name}"))
+}
+
+fn serve_asset(files: &PageFiles, name: &str) -> Response {
+    match files.asset(name) {
         Some((content_type, body)) => (
             [
                 (header::CONTENT_TYPE, HeaderValue::from_static(content_type)),
@@ -1188,8 +278,8 @@ struct ChangesQuery {
     since: u64,
 }
 
-/// Development only: answers once a template or an asset changes after `since`, or after a
-/// while with the same count.
+/// Development only: answers once a file of the page changes after `since`, or after a while
+/// with the same count.
 async fn dev_changes<R: Rounds>(
     State(page): State<Arc<ExplorePage<R>>>,
     _: Admitted,

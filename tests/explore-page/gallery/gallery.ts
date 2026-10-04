@@ -103,35 +103,24 @@ async function launch(): Promise<{ browser: Browser; close: () => Promise<void> 
 }
 
 /**
- * Waits until the page is drawn and will not load itself again: its fonts loaded, every diagram
- * drawn or failed, and its revision the round's latest, which its poll follows. A page held
- * from its status (Session.holdPage) cannot tell, and counts as current.
+ * Waits until the client has drawn the round, with its fonts loaded and every diagram drawn or
+ * failed. A state's moves leave the page showing the round's latest view: the page was opened
+ * after the round moved, or the action it sent has its reply, which follows the view.
  */
 async function settle(page: Page): Promise<void> {
-  for (;;) {
-    await page.waitForLoadState('load');
-    try {
-      await page.waitForFunction(drawnAndCurrent);
-      return;
-    } catch (error) {
-      // The page loaded itself again meanwhile: wait for the new one.
-      if (!/context was destroyed|navigat/i.test(String(error))) throw error;
-    }
-  }
+  await page.waitForFunction(drawn);
 }
 
-/** In the page: whether it is drawn and shows the round's latest revision. */
-async function drawnAndCurrent(): Promise<boolean> {
+/** In the page: whether the client drew a view, its fonts and diagrams included. */
+function drawn(): boolean {
   const sources = document.querySelectorAll('.markdown pre > code.language-mermaid').length;
   const failed = document.querySelectorAll('figure.diagram.failed').length;
-  if (document.fonts.status !== 'loaded' || sources !== failed) return false;
-  try {
-    const response = await fetch('/status', { cache: 'no-store' });
-    const { revision } = (await response.json()) as { revision: number };
-    return revision === Number(document.getElementById('round')?.dataset.revision);
-  } catch {
-    return true;
-  }
+  return (
+    document.querySelector('main[data-seq]') !== null &&
+    !document.querySelector('main[aria-busy="true"]') &&
+    document.fonts.status === 'loaded' &&
+    sources === failed
+  );
 }
 
 /**
@@ -163,7 +152,6 @@ async function shoot(studio: Studio, state: GalleryState, width: number, theme: 
     const page = await context.newPage();
     const session = await openSession(studio.baseUrl, {
       open: (path) => page.goto(new URL(path, studio.baseUrl).href),
-      abort: (url) => page.route(url, (route) => route.abort()),
     });
     await state.reach(session, page);
     await settle(page);

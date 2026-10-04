@@ -20,11 +20,17 @@ pub enum PageCommand {
     /// Mermaid could not draw a diagram of the question the page showed: save the error with
     /// the question.
     DiagramFailed(DiagramError),
+    /// The reviewer picked a choice first on the blind question the page showed, version
+    /// `version` of `question`: the owner says whether the round still asks it. The page keeps
+    /// the pick, which the answer carries.
+    Pick { question: String, version: u32 },
     /// Start a round, as Start or Start with Challenger in the pane: the page showed that no
     /// round was running.
     Start {
         /// Whether the Challenger reviews the change beside the agent.
         challenger: bool,
+        /// The identity of the start the page offered.
+        start: String,
     },
     /// Implement the conclusion the page showed.
     Implement(PageImplement),
@@ -40,12 +46,11 @@ pub enum PageCommand {
 /// What the reviewer does on the page to recover the round, or to close it, as in the pane.
 #[derive(Debug)]
 pub enum Recovery {
-    /// Stop waiting: for the start under way when `request` is `None`, which the page showed as
-    /// starting, else for the agent's turn `request`, which the page showed the agent working
-    /// on.
-    Stop { request: Option<String> },
-    /// Send again the agent's turn `request`, which the page showed as interrupted.
-    Retry { request: String },
+    /// Stop waiting for the start or the agent's turn the page showed.
+    Stop(Waiting),
+    /// Send again the agent's turn `request`, which the page showed as interrupted after its
+    /// attempt `attempt`.
+    Retry { request: String, attempt: String },
     /// Cancel the reviewer's latest answer, `answer`.
     CancelAnswer { answer: String },
     /// Close the round `round` that the page showed, and return to the start screen.
@@ -53,12 +58,22 @@ pub enum Recovery {
     /// Cancel the implementation request `delivery`, which the page showed as being sent.
     CancelImplementation { delivery: String },
     /// Send the implementation request `delivery` of the conclusion of the turn `conclusion`,
-    /// which the page showed as saved but not sent, as "Send saved implementation request" in
-    /// the pane.
+    /// which the page showed as saved but not sent after its attempt `attempt`, as "Send saved
+    /// implementation request" in the pane.
     ResendImplementation {
         conclusion: String,
         delivery: String,
+        attempt: String,
     },
+}
+
+/// What Stop waiting stops.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Waiting {
+    /// The start of a round, by its identity.
+    Start(String),
+    /// The agent's turn, by its request.
+    Turn(String),
 }
 
 /// The reviewer's reply to the conclusion the page showed: free text, with no choice. The owner
@@ -118,6 +133,20 @@ pub enum CommandRefusal {
     Stale,
     /// The owner could not carry out the command, for this reason.
     Failed(String),
+    /// The owner carried out this command already: it is a repeat, which changes nothing.
+    AlreadyApplied,
+}
+
+impl CommandRefusal {
+    /// The refusal of a command the round no longer offers: applied already when it is a
+    /// `repeat` of one that went through, else stale.
+    pub fn stale_unless_repeat(repeat: bool) -> Self {
+        if repeat {
+            Self::AlreadyApplied
+        } else {
+            Self::Stale
+        }
+    }
 }
 
 /// The owner's reply to one command.
@@ -147,13 +176,15 @@ impl CommandSender {
         Self(Arc::new(deliver))
     }
 
-    /// Sends `command` to the owner and waits for its reply: why the command did not go
-    /// through, when it did not.
-    pub(crate) async fn send(&self, command: PageCommand) -> Result<(), Problem> {
+    /// Sends `command` to the owner and waits for its reply: whether the command changed the
+    /// round (false for a repeat of one carried out already), or why it did not go through.
+    pub(crate) async fn send(&self, command: PageCommand) -> Result<bool, Problem> {
         let (reply, replied) = CommandReply::channel();
         (self.0)(command, reply);
         match tokio::time::timeout(REPLY_TIMEOUT, replied).await {
-            Ok(Ok(result)) => result.map_err(Problem::from),
+            Ok(Ok(Ok(()))) => Ok(true),
+            Ok(Ok(Err(CommandRefusal::AlreadyApplied))) => Ok(false),
+            Ok(Ok(Err(refusal))) => Err(Problem::from(refusal)),
             // The owner stopped, or did not reply in time: the command may have gone through.
             Ok(Err(_)) | Err(_) => Err(Problem::NoReply),
         }

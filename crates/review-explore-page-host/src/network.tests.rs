@@ -34,7 +34,7 @@ impl Shared {
         let commands = CommandSender::new(move |command, reply| match command {
             PageCommand::Recover(Recovery::Reset { .. }) => {
                 if let Some(round) = owner.upgrade() {
-                    round.publish(None, RoundStage::NoRound);
+                    round.publish(None, no_round());
                 }
                 reply.send(Ok(()));
             }
@@ -44,6 +44,7 @@ impl Shared {
             PageRound::new(round.subscribe(), commands),
             &PageDirectory::new(state.path()),
             &WorkspaceId("w1".into()),
+            std::path::Path::new("/repositories/drafts"),
         )
         .unwrap();
         let (address, announced) = share_on_loopback(&host);
@@ -128,6 +129,12 @@ fn published(id: &str) -> PublishedRound<'_> {
     }
 }
 
+fn no_round() -> RoundStage {
+    RoundStage::NoRound {
+        start: "start".into(),
+    }
+}
+
 fn working() -> RoundStage {
     RoundStage::AgentWorking {
         request: "turn".into(),
@@ -207,6 +214,7 @@ fn the_page_opens_on_the_network_before_any_round_and_stays_with_the_round_it_st
         Some(published("r1")),
         RoundStage::Interrupted {
             request: None,
+            attempt: None,
             interruption: review_explore_page::Interruption::Stopped,
         },
     );
@@ -235,7 +243,7 @@ fn a_reset_closes_the_rounds_page_and_opens_a_new_one_for_the_next_round() {
     let shared = Shared::start();
     shared.start_round("r1");
 
-    shared.round.publish(None, RoundStage::NoRound);
+    shared.round.publish(None, no_round());
 
     let next = shared.next_announcement();
     assert_ne!(next, shared.first);
@@ -253,35 +261,43 @@ fn a_reset_closes_the_rounds_page_and_opens_a_new_one_for_the_next_round() {
 
 #[test]
 fn a_reset_on_the_network_page_hands_that_page_the_start_screens_token() {
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+    use tokio_tungstenite::tungstenite::{Message, client};
+
     let shared = Shared::start();
     shared.start_round("r1");
     let token = shared.first.rsplit('=').next().unwrap();
     let host = shared.address.to_string();
+    let mut upgrade = format!("ws://{host}/ws").into_client_request().unwrap();
+    let headers = upgrade.headers_mut();
     let cookie = format!("explore_token_{}={token}", shared.address.port());
+    headers.insert("cookie", cookie.parse().unwrap());
+    headers.insert("origin", format!("http://{host}").parse().unwrap());
+    let stream = TcpStream::connect(shared.address).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .unwrap();
+    let (mut socket, _) = client(upgrade, stream).unwrap();
 
-    let response = request(
-        shared.address,
-        "POST",
-        "/reset",
-        &[
-            ("Host", &host),
-            ("Cookie", &cookie),
-            ("Content-Type", "application/x-www-form-urlencoded"),
-        ],
-        "round=r1",
-    );
+    let reset = r#"{"id":1,"method":"reset","params":{"round":"r1"}}"#;
+    socket.send(Message::Text(reset.into())).unwrap();
+    let reply = loop {
+        let Message::Text(text) = socket.read().unwrap() else {
+            continue;
+        };
+        let message: serde_json::Value = serde_json::from_str(&text).unwrap();
+        if message["id"] == 1 {
+            break message;
+        }
+    };
 
-    assert!(response.starts_with("HTTP/1.1 303"), "{response}");
     let next = shared.next_announcement();
     assert_ne!(next, shared.first);
-    let handed = response
-        .lines()
-        .find_map(|line| line.strip_prefix("set-cookie: "))
-        .and_then(|cookie| cookie.split(';').next())
-        .and_then(|pair| pair.split_once('='))
-        .map(|(_, token)| token)
-        .expect("a new token cookie");
-    assert_eq!(next.rsplit('=').next(), Some(handed));
+    assert_eq!(
+        reply["result"]["reopen"].as_str(),
+        next.rsplit('=').next(),
+        "the page opens with the start screen's token"
+    );
     assert_eq!(shared.load(&next), 200, "the page shows the start screen");
     assert_eq!(shared.load(&shared.first), 403, "the round's token ended");
 }

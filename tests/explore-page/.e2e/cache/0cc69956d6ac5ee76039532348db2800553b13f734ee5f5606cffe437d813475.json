@@ -1,6 +1,6 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-04T02:49:53.118Z",
+  "createdAt": "2026-10-04T13:11:30.950Z",
   "payload": {
     "actions": [
       {
@@ -42,7 +42,7 @@
       "targetId": "phone",
       "instructionDigest": "bed8075e51d553c8f7d3d5a0d25de5f0f933f415f480d84138525a9a11e65e5e"
     },
-    "summary": "Entered the requested comment, selected “Overwrite the older file,” and pressed Pick. The question now shows that choice as checked with a Send button; no answer has been sent.",
+    "summary": "Entered the requested comment, selected “Overwrite the older file,” and pressed Pick. The screen now shows the picked answer and comment with a Send button; no answer has been sent.",
     "startPath": "/",
     "endPath": "/",
     "endAnchors": [
@@ -53,11 +53,6 @@
         "text": "Recommended:"
       },
       {
-        "role": "textbox",
-        "name": "Comment (optional)",
-        "text": "Renaming hides which file the user meant to keep."
-      },
-      {
         "role": "button",
         "name": "Send"
       },
@@ -65,6 +60,6 @@
         "text": "Renaming keeps every file, and the new names stay readable."
       }
     ],
-    "endWaitMs": 12884
+    "endWaitMs": 13723
   }
 }

@@ -126,3 +126,15 @@
 .reset form { display: grid; gap: 12px; margin-top: 12px; }
 .reset form .hint { margin: 0; }
 .reset form button { justify-self: start; }
+
+/* The quiet line that says when the page cannot reach the review tool, and the line that says
+   the page needs JavaScript. */
+.connection, .no-script {
+  box-sizing: border-box;
+  max-width: var(--page);
+  margin: 0 auto;
+  padding: 8px var(--gutter) 0;
+  color: var(--muted);
+  font-size: 14px;
+}
+.connection.ended { color: var(--ink); font-weight: 600; }

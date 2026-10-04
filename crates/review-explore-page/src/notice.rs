@@ -1,27 +1,20 @@
-//! What the page tells the reviewer after a post it could not carry out. The post redirects to
-//! the page, so the notice travels in a cookie that the next load shows once and clears.
+//! What the page tells the reviewer after an action it could not carry out: the socket's reply
+//! to the action carries it, as a status card (`StatusCard`), which the page shows until the
+//! round changes.
 
-use axum::http::{HeaderMap, HeaderValue};
-use base64::Engine as _;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-
-use crate::access::cookie;
 use crate::command::CommandRefusal;
 
-/// The longest reason a notice keeps, in bytes, so that its cookie stays small.
-const REASON_LIMIT: usize = 1000;
-
-/// A post that did not go through, and why. The page shows it as a status card
-/// (`StatusCard`), which words it for the post.
+/// An action that did not go through, and why. The page shows it as a status card
+/// (`StatusCard`), which words it for the action.
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct Notice {
-    pub(crate) post: Post,
+    pub(crate) action: Action,
     pub(crate) problem: Problem,
 }
 
-/// What the reviewer asked for with the post.
+/// What the reviewer asked for with the action.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum Post {
+pub(crate) enum Action {
     /// An answer to the question the page showed.
     Answer,
     /// The start of a round.
@@ -35,12 +28,12 @@ pub(crate) enum Post {
     /// A reply to the conclusion the page showed.
     Reply,
     /// An action that recovers or closes the round.
-    Recover(RecoveryPost),
+    Recover(RecoveryAction),
 }
 
 /// An action of the page that recovers or closes the round, as the pane offers it.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum RecoveryPost {
+pub(crate) enum RecoveryAction {
     /// Stop waiting for the start or the agent's turn the page showed.
     Stop,
     /// Retry of the agent's turn the page showed as interrupted.
@@ -53,7 +46,7 @@ pub(crate) enum RecoveryPost {
     CancelImplementation,
 }
 
-impl RecoveryPost {
+impl RecoveryAction {
     fn name(self) -> &'static str {
         match self {
             Self::Stop => "stop",
@@ -65,42 +58,29 @@ impl RecoveryPost {
     }
 }
 
-/// Why a post did not go through.
+/// Why an action did not go through.
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum Problem {
     /// The round moved on since the page was loaded.
     Stale,
-    /// The round's owner could not carry out the post, for this reason.
+    /// The round's owner could not carry out the action, for this reason.
     Failed(String),
-    /// The round's owner did not reply: the post may have gone through.
+    /// The round's owner did not reply: the action may have gone through.
     NoReply,
 }
 
 impl From<CommandRefusal> for Problem {
     fn from(refusal: CommandRefusal) -> Self {
         match refusal {
-            CommandRefusal::Stale => Self::Stale,
+            // `CommandSender::send` answers a repeat as applied, not as a problem.
+            CommandRefusal::Stale | CommandRefusal::AlreadyApplied => Self::Stale,
             CommandRefusal::Failed(reason) => Self::Failed(reason),
         }
     }
 }
 
-impl Post {
-    const ALL: [Self; 11] = [
-        Self::Answer,
-        Self::Start,
-        Self::Pick,
-        Self::Implement,
-        Self::Quiz,
-        Self::Reply,
-        Self::Recover(RecoveryPost::Stop),
-        Self::Recover(RecoveryPost::Retry),
-        Self::Recover(RecoveryPost::CancelAnswer),
-        Self::Recover(RecoveryPost::Reset),
-        Self::Recover(RecoveryPost::CancelImplementation),
-    ];
-
-    /// The post's name in the cookie.
+impl Action {
+    /// The action's name, as the socket's replies say it.
     fn name(self) -> &'static str {
         match self {
             Self::Answer => "answer",
@@ -115,56 +95,26 @@ impl Post {
 }
 
 impl Notice {
-    const COOKIE: &str = "explore_notice";
-
-    pub(crate) fn new(post: Post, problem: Problem) -> Self {
-        Self { post, problem }
+    /// The code of the socket's reply that carries the notice.
+    pub(crate) fn code(&self) -> i32 {
+        match self.problem {
+            Problem::Stale => crate::rpc::RpcError::STALE,
+            Problem::Failed(_) => crate::rpc::RpcError::FAILED,
+            Problem::NoReply => crate::rpc::RpcError::NO_REPLY,
+        }
     }
 
-    /// The notice a request's cookie carries.
-    pub(crate) fn read(headers: &HeaderMap) -> Option<Self> {
-        let (post, problem) = cookie(headers, Self::COOKIE)?.split_once('.')?;
-        let post = Post::ALL.into_iter().find(|known| known.name() == post)?;
-        let problem = match problem {
-            "stale" => Problem::Stale,
-            "no-reply" => Problem::NoReply,
-            _ => {
-                let encoded = problem.strip_prefix("failed.")?;
-                let reason = URL_SAFE_NO_PAD.decode(encoded).ok()?;
-                Problem::Failed(String::from_utf8(reason).ok()?)
-            }
-        };
-        Some(Self { post, problem })
+    /// What became of the action, in a few words, for the socket's reply: the page shows the
+    /// notice's status card.
+    pub(crate) fn message(&self) -> String {
+        match &self.problem {
+            Problem::Stale => format!("{} is stale", self.action.name()),
+            Problem::Failed(reason) => reason.clone(),
+            Problem::NoReply => "The review tool did not reply".to_owned(),
+        }
     }
 
-    /// The `Set-Cookie` value that carries the notice to the next load.
-    pub(crate) fn cookie(&self) -> HeaderValue {
-        let problem = match &self.problem {
-            Problem::Stale => "stale".to_owned(),
-            Problem::NoReply => "no-reply".to_owned(),
-            Problem::Failed(reason) => {
-                let mut end = reason.len().min(REASON_LIMIT);
-                while !reason.is_char_boundary(end) {
-                    end -= 1;
-                }
-                format!("failed.{}", URL_SAFE_NO_PAD.encode(&reason[..end]))
-            }
-        };
-        // The post redirects at once, so the next load comes within seconds.
-        Self::header(&format!("{}.{problem}", self.post.name()), 10)
-    }
-
-    /// The `Set-Cookie` value that clears the notice once shown.
-    pub(crate) fn clear() -> HeaderValue {
-        Self::header("", 0)
-    }
-
-    fn header(value: &str, max_age: u32) -> HeaderValue {
-        // The value holds only letters, digits, `-`, `_` and `.`.
-        HeaderValue::from_str(&format!(
-            "{}={value}; Path=/; HttpOnly; SameSite=Strict; Max-Age={max_age}",
-            Self::COOKIE
-        ))
-        .expect("a notice cookie is a valid header")
+    pub(crate) fn new(action: Action, problem: Problem) -> Self {
+        Self { action, problem }
     }
 }

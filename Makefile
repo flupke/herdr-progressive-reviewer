@@ -1,4 +1,4 @@
-.PHONY: build check complexity e2e-tui e2e-explore e2e-explore-deps explore-gallery explore-page vision install mutants uninstall
+.PHONY: build check complexity e2e-tui e2e-explore e2e-explore-deps explore-gallery explore-page explore-types vision install mutants uninstall
 
 build:
 	cargo build --release --locked --bins
@@ -36,7 +36,10 @@ $(EXPLORE_E2E)/node_modules/.installed: $(EXPLORE_E2E)/package-lock.json
 # Installs the npm packages only, for the MCP server (tests/explore-page/mcp.sh).
 e2e-explore-deps: $(EXPLORE_E2E)/node_modules/.installed
 
+# Checks the page's client against the TypeScript declarations of its socket's messages, then
+# runs the e2e tests.
 e2e-explore: e2e-explore-deps
+	cd $(EXPLORE_E2E) && node_modules/.bin/tsc -p tsconfig.client.json
 	cargo build --locked -p review-explore-page-server
 	$(EXPLORE_E2E)/run.sh $(E2E_ARGS)
 
@@ -52,6 +55,12 @@ explore-gallery: e2e-explore-deps
 # (`EXPLORE_PAGE_ARGS='--data rich'` serves the gallery's long round).
 explore-page:
 	cargo run --locked -p review-explore-page-server -- --port 8790 --token dev --dev crates/review-explore-page $(EXPLORE_PAGE_ARGS)
+
+# Writes the TypeScript declarations of the Explore page's socket messages from their Rust
+# types (crates/review-explore-page/assets/client/types.ts); `make check` fails while the
+# committed file differs from them.
+explore-types:
+	EXPLORE_TYPES=write cargo test --locked -p review-explore-page typescript
 
 vision:
 	cargo build --locked -p reviewer --bin reviewer --bin reviewer-control

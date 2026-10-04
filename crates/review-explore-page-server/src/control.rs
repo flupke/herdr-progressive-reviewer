@@ -34,6 +34,12 @@
 //!   - `earlier`: another reviewer saved a newer round of the review: the round stays where it
 //!     is, and offers only Reset;
 //!   - `fail-storage`: the review tool cannot save the reviewer's rounds any more.
+//! - `POST /test/sessions/{token}/hold`: the page stops following the round, as a page whose
+//!   socket does not get the tool's messages: it shows the round as it was until the reviewer
+//!   acts on it; the action is then refused as stale, and the page follows the round again.
+//! - `POST /test/sessions/{token}/restart`: the reviewer restarts: the page's socket closes, and
+//!   the page cannot open another one (its upgrade gets 503) until
+//!   `POST /test/sessions/{token}/back`. The round stays where it is, and may move meanwhile.
 //! - `POST /test/sessions/{token}/review-everything`: the reviewer marks every changed line as
 //!   reviewed, and no round can start: nothing is left to review. The round stays where it is.
 //! - `POST /test/sessions/{token}/unreview-line`: the reviewer unmarks a line, and a round can
@@ -59,15 +65,16 @@
 //! checks, but need no token.
 
 use axum::body::Bytes;
-use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use axum::extract::{Path, Request, State};
+use axum::http::{StatusCode, header};
+use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use review_explore::{Question, StartBlock};
 use review_explore_page::Token;
 
-use crate::sessions::{Sessions, Step};
+use crate::sessions::{PageChange, Sessions, Step};
 
 pub(crate) fn router(sessions: Sessions) -> Router {
     Router::new()
@@ -91,6 +98,18 @@ pub(crate) fn router(sessions: Sessions) -> Router {
             post(|state, path| async move { block_starts(state, path, None) }),
         )
         .route("/test/sessions/{token}/actions", get(actions))
+        .route(
+            "/test/sessions/{token}/hold",
+            post(|state, path| async move { change_page(state, path, PageChange::Hold) }),
+        )
+        .route(
+            "/test/sessions/{token}/restart",
+            post(|state, path| async move { change_page(state, path, PageChange::Restart) }),
+        )
+        .route(
+            "/test/sessions/{token}/back",
+            post(|state, path| async move { change_page(state, path, PageChange::Back) }),
+        )
         .route("/test/sessions/{token}/{step}", post(step))
         .with_state(sessions)
 }
@@ -145,6 +164,19 @@ fn block_starts(
     }
 }
 
+/// The page of the session behind `token` changes as `change` says.
+fn change_page(
+    State(sessions): State<Sessions>,
+    Path(token): Path<String>,
+    change: PageChange,
+) -> StatusCode {
+    if sessions.change_page(&token, change) {
+        StatusCode::NO_CONTENT
+    } else {
+        StatusCode::NOT_FOUND
+    }
+}
+
 async fn answers(State(sessions): State<Sessions>, Path(token): Path<String>) -> Response {
     match sessions.answers(&token) {
         Some(answers) => Json(answers).into_response(),
@@ -185,4 +217,26 @@ async fn actions(State(sessions): State<Sessions>, Path(token): Path<String>) ->
         Some(actions) => Json(actions).into_response(),
         None => StatusCode::NOT_FOUND.into_response(),
     }
+}
+
+/// Refuses the socket of a page whose reviewer is restarting, as a reviewer that is not there
+/// yet: the page tries again later.
+pub(crate) async fn away(
+    State(sessions): State<Sessions>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let restarting = request.uri().path() == "/ws"
+        && request
+            .headers()
+            .get_all(header::COOKIE)
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .flat_map(|value| value.split(';'))
+            .filter_map(|pair| pair.trim().split_once('='))
+            .any(|(name, token)| name.starts_with("explore_token_") && sessions.away(token));
+    if restarting {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    }
+    next.run(request).await
 }

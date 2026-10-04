@@ -52,7 +52,7 @@ impl ExploreSession {
         };
         self.state.prompt = None;
         self.state.implementation = None;
-        self.state.start = crate::Start::Idle;
+        self.state.start.settle();
         if retry_agent.is_none() && !kickoff {
             let _ = self.select_agent();
         }
@@ -122,7 +122,7 @@ impl ExploreSession {
     fn admit_kickoff(&mut self, request: &TurnRequest) -> Result<(), String> {
         // A kickoff that arrives after its start was stopped, from the page while the pane
         // posted it, starts nothing, and leaves no failed start.
-        if !matches!(self.state.start, crate::Start::Starting) {
+        if self.state.start.starting().is_none() {
             let error = "The start of this round was stopped".to_owned();
             let _ = self.events.send(ui_events::ExplorePosted {
                 request: request.clone(),
