@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 review-types = { path = "../review-types" }
 herdr-client = { path = "../herdr-client" }
+review-hunks = { path = "../review-hunks" }
 review-repository = { path = "../review-repository" }
 review-source = { path = "../review-source" }
 serde.workspace = true

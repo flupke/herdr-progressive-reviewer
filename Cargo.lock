@@ -3946,6 +3946,7 @@ dependencies = [
  "base64 0.22.1",
  "eyre",
  "herdr-client",
+ "review-hunks",
  "review-repository",
  "review-source",
  "review-test-support",
@@ -4060,6 +4061,7 @@ dependencies = [
  "review-explore-citations",
  "review-explore-page",
  "review-explore-runner",
+ "review-explore-tally",
  "review-hunks",
  "review-mcp",
  "review-repository",
@@ -4086,6 +4088,21 @@ dependencies = [
  "review-store",
  "serde_json",
  "time",
+]
+
+[[package]]
+name = "review-explore-tally"
+version = "0.2.0"
+dependencies = [
+ "review-explore",
+ "review-hunks",
+ "review-repository",
+ "review-source",
+ "review-state",
+ "review-store",
+ "review-types",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

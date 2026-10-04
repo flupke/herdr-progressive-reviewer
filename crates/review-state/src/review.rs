@@ -367,8 +367,12 @@ impl ReviewTracker {
         )
     }
 
-    /// The open and reviewed lines of one path.
+    /// The open and reviewed lines of one path. A path whose change has no text lines has
+    /// none, even when a whole-file mark's content reads as lines.
     pub fn lines(&self, snapshot: &Snapshot, file: &ChangedFile) -> eyre::Result<FileLines> {
+        if !file.changes_text_lines() {
+            return Ok(FileLines::default());
+        }
         let diff = self.diff(snapshot, file)?;
         if diff.hunks.is_empty() {
             return Ok(FileLines::default());

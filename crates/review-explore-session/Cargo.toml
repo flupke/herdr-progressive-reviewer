@@ -11,6 +11,7 @@ eyre.workspace = true
 herdr-client = { path = "../herdr-client" }
 review-explore = { path = "../review-explore" }
 review-explore-citations = { path = "../review-explore-citations" }
+review-explore-tally = { path = "../review-explore-tally" }
 review-explore-page = { path = "../review-explore-page" }
 review-explore-runner = { path = "../review-explore-runner" }
 review-hunks = { path = "../review-hunks" }

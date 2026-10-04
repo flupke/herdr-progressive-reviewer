@@ -26,6 +26,7 @@ mod conversation;
 mod design;
 mod diagram;
 mod interview;
+mod named_lines;
 mod not_relevant;
 mod overview;
 mod path_serde;
@@ -49,6 +50,7 @@ pub use interview::{
     Alternative, AnswerInput, Exploration, Interpretation, InterviewUpdate, Question,
     ReviewerAnswer, Topic, TopicStatus, TurnRequest,
 };
+pub use named_lines::NamedLines;
 pub use not_relevant::{NotRelevantMark, NotRelevantReason, TestLocation};
 pub use overview::{
     AgentRecord, Decision, DecisionTag, EarlierQuestion, KeptAnswer, QuizStage, RailStep,

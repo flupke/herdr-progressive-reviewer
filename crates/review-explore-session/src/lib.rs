@@ -9,6 +9,7 @@ mod cancel;
 mod diagram;
 mod dispatch;
 mod implementation;
+mod mark_tally;
 mod marks;
 mod page;
 mod page_actions;
@@ -107,6 +108,8 @@ pub struct ExploreSession {
     page: RoundPublisher,
     /// The citations of the question the page shows.
     citations: page::PageCitations,
+    /// The review marks of the reviewer's snapshot, as the session read them last.
+    marks: review_explore_tally::ChangeMarks,
     /// The unreviewed lines of the latest prompt, as files.
     diffs: Option<unreviewed_diffs::UnreviewedDiffs>,
     /// Why no round can start, as the latest review marks the session read say.
@@ -196,6 +199,7 @@ impl ExploreSession {
         Self {
             repository,
             tracker,
+            marks: review_explore_tally::ChangeMarks::new(store.clone()),
             rounds: records::SavedRounds::new(store),
             agents,
             target,

@@ -199,6 +199,11 @@ pub struct DiffStatistics {
 }
 
 impl DiffStatistics {
+    /// The added and removed lines.
+    pub fn lines(&self) -> u64 {
+        self.lines_added + self.lines_removed
+    }
+
     /// Count changed text lines in a unified diff.
     pub fn from_unified_diff(diff: &[u8]) -> Self {
         let mut statistics = Self::default();
@@ -243,6 +248,12 @@ impl ChangedFile {
             .as_ref()
             .or(self.old_path.as_ref())
             .expect("a changed file always has a path")
+    }
+
+    /// Whether the change adds or removes text lines. A binary file, a mode change, a pure
+    /// rename and an empty file change none: they are reviewed whole.
+    pub fn changes_text_lines(&self) -> bool {
+        self.statistics.lines() > 0
     }
 
     fn sort_by_review_path(files: &mut [Self]) {

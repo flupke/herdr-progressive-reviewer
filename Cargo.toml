@@ -5,6 +5,7 @@ members = [
     "crates/review-round-conversation",
     "crates/review-explore-runner",
     "crates/review-explore-citations",
+    "crates/review-explore-tally",
     "crates/review-explore-page",
     "crates/review-explore-page-host",
     "crates/review-explore-page-opening",

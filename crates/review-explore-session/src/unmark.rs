@@ -4,13 +4,14 @@
 
 use std::collections::BTreeMap;
 
-use review_explore::{CodeLocation, ExploreRound, NotRelevantMark, ReopenedLines, TurnMarks};
+use review_explore::{
+    CodeLocation, ExploreRound, NamedLines, NotRelevantMark, ReopenedLines, TurnMarks,
+};
 use review_hunks::LineSelection;
 use review_repository::repository::{ChangedFile, PollResult, Snapshot};
 use review_state::{FileLines, ReviewTracker};
 use review_types::MarkAuthor;
 
-use super::FileRequest;
 use crate::ExploreSession;
 
 /// The marks a cancelled turn changed on one file.
@@ -76,7 +77,7 @@ impl<'a> FileUnmark<'a> {
         }
         for (previous, locations) in by_author {
             let open = tracker.lines(snapshot, self.file)?.open_selection();
-            let named = FileRequest::selection(&locations, || open.clone());
+            let named = NamedLines::of(locations).or_whole(|| open.clone());
             let restore = named.difference(&named.difference(&open));
             if !restore.is_empty() {
                 tracker.accept_lines(snapshot, self.file, &restore, previous)?;
@@ -131,7 +132,7 @@ impl ExploreSession {
     /// it reopened stay open when the code changed since the round started;
     /// the returned problem says so.
     pub(crate) fn unmark(
-        &self,
+        &mut self,
         round: &ExploreRound,
         answer: &str,
         marks: &TurnMarks,
@@ -139,10 +140,7 @@ impl ExploreSession {
         let PollResult::Complete(snapshot) = self.repository.poll()? else {
             eyre::bail!("the repository is not ready; try again");
         };
-        let unchanged = round.exploration.comparison.checkpoint.matches(
-            snapshot.identity.review_unit(),
-            snapshot.identity.snapshot_id(),
-        );
+        let unchanged = round.is_at(&snapshot.identity);
         let author = MarkAuthor::Explore {
             answer: answer.to_owned(),
         };
@@ -162,6 +160,7 @@ impl ExploreSession {
                 result: self.tracker.status(&snapshot, file.file).map_err(|_| ()),
             });
         }
+        self.read_marks(&snapshot);
         if let Some(failed) = failed {
             eyre::bail!("review marks were not given back: {failed}");
         }

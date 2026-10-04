@@ -8,9 +8,11 @@ use review_state::ReviewState;
 use crate::ExploreSession;
 
 impl ExploreSession {
-    /// The review marks leave the changed files of the reviewer's snapshot in `states`: the
-    /// pane and the page hear whether a round can start, when that changed.
-    pub fn marks_changed(&mut self, states: &[ReviewState]) {
+    /// The review marks of the reviewer's `snapshot` changed, and leave its changed files in
+    /// `states`: the pane and the page hear whether a round can start, when that changed, and
+    /// the session reads the marks again for the mark tally of the change.
+    pub fn marks_changed(&mut self, snapshot: &Snapshot, states: &[ReviewState]) {
+        self.read_marks(snapshot);
         let block = StartBlock::of(states.iter().map(|state| state.status.needs_review()));
         if block != self.start_block {
             self.start_block = block;
@@ -24,7 +26,7 @@ impl ExploreSession {
     /// Marks that cannot be read block nothing: the prompt, which needs them too, says why.
     pub(crate) fn refresh_start_block(&mut self, snapshot: &Snapshot) -> Option<StartBlock> {
         let states = self.tracker.statuses(snapshot).ok()?;
-        self.marks_changed(&states);
+        self.marks_changed(snapshot, &states);
         self.start_block
     }
 

@@ -1,6 +1,7 @@
 //! Durable investigation state. Sources and runtime capabilities are never stored here.
 use crate::{Exploration, ImplementationRequest, InterviewUpdate, TurnRequest};
 use herdr_client::protocol::AgentSession;
+use review_repository::repository::SnapshotIdentity;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -347,6 +348,15 @@ impl ExploreRound {
             completion: None,
             marks: BTreeMap::new(),
         }
+    }
+
+    /// Whether the round explores the code of `snapshot`: the code did not change since the
+    /// round started.
+    pub fn is_at(&self, snapshot: &SnapshotIdentity) -> bool {
+        self.exploration
+            .comparison
+            .checkpoint
+            .matches(snapshot.review_unit(), snapshot.snapshot_id())
     }
 
     /// Validate on a candidate so rejection retains the pending request and

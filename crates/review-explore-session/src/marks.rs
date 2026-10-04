@@ -6,8 +6,8 @@
 use std::ops::Range;
 
 use review_explore::{
-    CodeLocation, ExploreRound, InterviewUpdate, NotRelevantMark, ReopenedLines, SourceSide,
-    TurnMarks, TurnRequest,
+    CodeLocation, ExploreRound, InterviewUpdate, NamedLines, NotRelevantMark, ReopenedLines,
+    SourceSide, TurnMarks, TurnRequest,
 };
 use review_hunks::{LineSelection, ReviewedLines};
 use review_repository::repository::{ChangedFile, PollResult, Snapshot};
@@ -161,7 +161,11 @@ impl ExploreSession {
             return None;
         }
         let marks = match self.marked_snapshot(round) {
-            Ok(snapshot) => self.mark(&snapshot, update, answer),
+            Ok(snapshot) => {
+                let marks = self.mark(&snapshot, update, answer);
+                self.read_marks(&snapshot);
+                marks
+            }
             Err(problem) => TurnMarks {
                 answer,
                 problem: Some(problem),
@@ -200,10 +204,7 @@ impl ExploreSession {
         else {
             return Err("the repository is not ready; no lines were marked".into());
         };
-        if !round.exploration.comparison.checkpoint.matches(
-            snapshot.identity.review_unit(),
-            snapshot.identity.snapshot_id(),
-        ) {
+        if !round.is_at(&snapshot.identity) {
             return Err("the code changed since this round started; no lines were marked".into());
         }
         Ok(snapshot)
@@ -279,28 +280,6 @@ impl ExploreSession {
 }
 
 impl<'a> FileRequest<'a> {
-    /// The zero-based lines marks name, or `whole` when one names the whole file.
-    fn selection(
-        locations: &[&CodeLocation],
-        whole: impl FnOnce() -> LineSelection,
-    ) -> LineSelection {
-        if locations.iter().any(|location| location.lines.is_none()) {
-            return whole();
-        }
-        let mut selection = LineSelection::default();
-        for location in locations {
-            let Some(lines) = &location.lines else {
-                continue;
-            };
-            let lines = lines.first_line.saturating_sub(1)..lines.last_line;
-            match location.side {
-                SourceSide::Old => selection.removed.extend(lines),
-                SourceSide::New => selection.added.extend(lines),
-            }
-        }
-        selection
-    }
-
     /// The marks of a turn grouped by the changed file they name, in
     /// snapshot order.
     fn group(
@@ -360,11 +339,13 @@ impl<'a> FileRequest<'a> {
         author: &MarkAuthor,
         before: &FileLines,
     ) -> eyre::Result<()> {
-        let reopen = Self::selection(&self.reopened, || before.reviewed.selection());
+        let reopen =
+            NamedLines::of(self.reopened.iter().copied()).or_whole(|| before.reviewed.selection());
         if !reopen.is_empty() {
             tracker.reopen_lines(snapshot, self.file, &reopen)?;
         }
-        let accept = Self::selection(&self.reviewed, || before.open_selection());
+        let accept =
+            NamedLines::of(self.reviewed.iter().copied()).or_whole(|| before.open_selection());
         if !accept.is_empty() {
             tracker.accept_lines(snapshot, self.file, &accept, author)?;
         }

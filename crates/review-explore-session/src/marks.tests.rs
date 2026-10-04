@@ -17,33 +17,6 @@ fn at(side: SourceSide, lines: Option<(u32, u32)>) -> CodeLocation {
 }
 
 #[test]
-fn marks_name_zero_based_lines_on_their_side() {
-    let marks = [
-        at(SourceSide::Old, Some((2, 3))),
-        at(SourceSide::New, Some((5, 5))),
-    ];
-
-    let selection = FileRequest::selection(&marks.iter().collect::<Vec<_>>(), || unreachable!());
-
-    assert_eq!(selection.removed, [1, 2].into());
-    assert_eq!(selection.added, [4].into());
-}
-
-#[test]
-fn a_whole_file_mark_names_every_line() {
-    let marks = [at(SourceSide::New, None)];
-    let every = LineSelection {
-        removed: [0].into(),
-        added: [0, 1].into(),
-    };
-
-    assert_eq!(
-        FileRequest::selection(&marks.iter().collect::<Vec<_>>(), || every.clone()),
-        every
-    );
-}
-
-#[test]
 fn applied_lines_read_back_as_one_based_runs() {
     let file = ChangedFile::modified("src/lib.rs");
     let selection = LineSelection {

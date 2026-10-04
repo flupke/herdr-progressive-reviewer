@@ -1,0 +1,23 @@
+[package]
+name = "review-explore-tally"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+review-explore = { path = "../review-explore" }
+review-hunks = { path = "../review-hunks" }
+review-repository = { path = "../review-repository" }
+review-state = { path = "../review-state" }
+review-store = { path = "../review-store" }
+review-types = { path = "../review-types" }
+serde.workspace = true
+
+[dev-dependencies]
+review-source = { path = "../review-source" }
+serde_json.workspace = true
+
+[lints]
+workspace = true

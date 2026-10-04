@@ -3,6 +3,7 @@
 
 use review_explore::StartBlock;
 use review_explore_page::{CommandRefusal, CommandReply, PageCommand, RoundStage};
+use review_repository::repository::Snapshot;
 use review_state::ReviewState;
 use review_types::MarkAuthor;
 
@@ -10,17 +11,17 @@ use super::*;
 
 impl Harness {
     /// Mark every changed file as reviewed, as another component of the reviewer would; returns
-    /// the review states the marks leave.
-    fn review_everything(&self) -> Vec<ReviewState> {
+    /// the snapshot and the review states the marks leave.
+    fn review_everything(&self) -> (Snapshot, Vec<ReviewState>) {
         self.mark_every_file(true)
     }
 
-    /// Unmark every changed file; returns the review states left.
-    fn unreview_everything(&self) -> Vec<ReviewState> {
+    /// Unmark every changed file; returns the snapshot and the review states left.
+    fn unreview_everything(&self) -> (Snapshot, Vec<ReviewState>) {
         self.mark_every_file(false)
     }
 
-    fn mark_every_file(&self, reviewed: bool) -> Vec<ReviewState> {
+    fn mark_every_file(&self, reviewed: bool) -> (Snapshot, Vec<ReviewState>) {
         let tracker = review_state::ReviewTracker::new(self.repository.clone(), self.store.clone());
         let snapshot = complete_repository_snapshot(&self.repository);
         for file in &snapshot.files {
@@ -32,7 +33,8 @@ impl Harness {
                 tracker.unreview(&snapshot, file).unwrap();
             }
         }
-        tracker.statuses(&snapshot).unwrap()
+        let states = tracker.statuses(&snapshot).unwrap();
+        (snapshot, states)
     }
 
     /// Start a round from the page, as the reviewer's worker does; return the reply.
@@ -54,8 +56,8 @@ fn nothing_to_review() -> String {
 fn the_pane_and_the_page_hear_whether_the_review_marks_leave_something_to_review() {
     let mut harness = Harness::start();
 
-    let reviewed = harness.review_everything();
-    harness.session.marks_changed(&reviewed);
+    let (snapshot, reviewed) = harness.review_everything();
+    harness.session.marks_changed(&snapshot, &reviewed);
 
     assert_eq!(
         harness.next::<ui_events::ExploreStartBlock>().0,
@@ -66,8 +68,8 @@ fn the_pane_and_the_page_hear_whether_the_review_marks_leave_something_to_review
         Some(StartBlock::NothingToReview)
     );
 
-    let unreviewed = harness.unreview_everything();
-    harness.session.marks_changed(&unreviewed);
+    let (snapshot, unreviewed) = harness.unreview_everything();
+    harness.session.marks_changed(&snapshot, &unreviewed);
 
     assert_eq!(harness.next::<ui_events::ExploreStartBlock>().0, None);
     assert_eq!(harness.page.start_block(), None);
@@ -94,8 +96,8 @@ fn a_fully_reviewed_review_cannot_start_a_round_through_the_session() {
 #[test]
 fn a_fully_reviewed_review_cannot_start_a_round_from_the_page() {
     let mut harness = Harness::start();
-    let reviewed = harness.review_everything();
-    harness.session.marks_changed(&reviewed);
+    let (snapshot, reviewed) = harness.review_everything();
+    harness.session.marks_changed(&snapshot, &reviewed);
 
     assert_eq!(
         harness.start_from_page(),
@@ -105,8 +107,8 @@ fn a_fully_reviewed_review_cannot_start_a_round_from_the_page() {
     assert!(harness.agents.prompts().is_empty());
 
     // Once a line is unreviewed, the same session starts one.
-    let unreviewed = harness.unreview_everything();
-    harness.session.marks_changed(&unreviewed);
+    let (snapshot, unreviewed) = harness.unreview_everything();
+    harness.session.marks_changed(&snapshot, &unreviewed);
     assert_eq!(harness.start_from_page(), Ok(()));
     assert!(matches!(
         harness.page.stage(),
@@ -160,8 +162,8 @@ fn a_running_round_goes_on_once_its_last_line_is_marked() {
     let access = harness.turn(&first);
     assert!(applied(harness.submit(&access, question(&first, 1))));
 
-    let reviewed = harness.review_everything();
-    harness.session.marks_changed(&reviewed);
+    let (snapshot, reviewed) = harness.review_everything();
+    harness.session.marks_changed(&snapshot, &reviewed);
     harness.answer("Keep it.");
 
     assert_eq!(

@@ -165,7 +165,7 @@ impl Worker {
             return;
         };
         if let Ok(states) = self.tracker.statuses(snapshot) {
-            self.explore.marks_changed(&states);
+            self.explore.marks_changed(snapshot, &states);
         }
     }
 
@@ -265,7 +265,7 @@ impl Worker {
             files,
         });
         let review_unit = snapshot.identity.review_unit().clone();
-        self.explore.marks_changed(&states);
+        self.explore.marks_changed(&snapshot, &states);
         self.explore.name_review(&snapshot.identity);
         self.explore.checkpoint_changed(&review_unit);
         self.snapshot = Some(snapshot);

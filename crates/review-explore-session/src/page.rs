@@ -314,10 +314,7 @@ fn interrupted(round: &ExploreRound, request: &review_explore::TurnRequest) -> R
 /// The question the round waits for an answer to: the one the agent's latest turn posted,
 /// unless a turn is pending or waits for Retry.
 fn waiting_question(exploration: &Exploration) -> Option<&Question> {
-    if exploration.pending_request().is_some() || exploration.retry_request().is_some() {
-        return None;
-    }
-    exploration.conversation.last()?.update.next.as_ref()
+    exploration.waiting_turn()?.next.as_ref()
 }
 
 /// The question or conclusion the agent's latest turn posted. `sending` tells whether this

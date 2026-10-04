@@ -620,3 +620,26 @@ fn open_rows_number_removed_lines_like_the_base_and_the_rest_like_the_current_fi
         "{context:?}"
     );
 }
+
+#[test_case(RepoType::Git; "git")]
+#[test_case(RepoType::Jj; "jj")]
+fn a_binary_file_marked_whole_has_no_lines(repository_type: RepoType) {
+    let review = Review::new(repository_type);
+    review
+        .files
+        .write("logo.png", b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0");
+    let snapshot = review.snapshot();
+    let logo = snapshot
+        .files
+        .iter()
+        .find(|file| file.review_path().display() == "logo.png")
+        .unwrap();
+    review
+        .tracker
+        .mark(&snapshot, logo, &MarkAuthor::Reviewer)
+        .unwrap();
+
+    let lines = review.tracker.lines(&snapshot, logo).unwrap();
+
+    assert_eq!(lines, review_state::FileLines::default());
+}
