@@ -41,7 +41,16 @@ impl ExploreComponent {
     }
 
     pub(super) fn answer_cancelled(&mut self, event: &ExploreAnswerCancelled) {
-        if self.cancelling.as_ref() != Some(&event.answer) {
+        // An answer cancelled on the Explore page: the pane follows it as its own, when it shows
+        // the answer as the latest one.
+        let elsewhere = self.cancelling.is_none()
+            && event.result.is_ok()
+            && self
+                .exploration
+                .as_ref()
+                .and_then(|exploration| exploration.answers.last())
+                .is_some_and(|latest| latest.id == event.answer);
+        if self.cancelling.as_ref() != Some(&event.answer) && !elsewhere {
             return;
         }
         self.cancelling = None;
@@ -71,7 +80,12 @@ impl ExploreComponent {
         self.durable.posting = None;
         self.forget_removed_pages();
         self.progress = Progress::Ready;
-        self.status = "Answer cancelled. Change it and send it again.".into();
+        self.status = if elsewhere {
+            "Answer cancelled on the Explore page. Change it and send it again."
+        } else {
+            "Answer cancelled. Change it and send it again."
+        }
+        .into();
         self.expanded_marks
             .retain(|request| self.marks.contains_key(request));
         self.reopen_answer(&answer);

@@ -12,8 +12,8 @@ use review_explore::{
 use review_source::ReviewCheckpoint;
 use ui_actions::Action;
 use ui_events::{
-    ExploreCommitted, ExploreFinished, ExplorePageStart, ExplorePosted, ExploreProgress,
-    ExploreRestored,
+    ExploreAnswerCancelled, ExploreCommitted, ExploreFinished, ExplorePageReset, ExplorePageStart,
+    ExplorePageStopped, ExplorePosted, ExploreProgress, ExploreRestored,
 };
 
 use super::rows;
@@ -480,4 +480,161 @@ fn a_round_that_could_not_start_on_the_page_leaves_the_pane_on_its_start_screen(
         assert!(component.exploration.is_none(), "{failure}");
         assert!(!component.status.is_empty(), "{failure}: the pane says why");
     }
+}
+
+impl Pane {
+    /// The pane answers the first question itself, and the session saves the answer: the agent
+    /// works on its turn. Returns the turn and the saved round.
+    fn answer_first_question(&mut self, round: &ExploreRound) -> (TurnRequest, ExploreRound) {
+        let component = self.component();
+        component.turns[0].choice = 0;
+        let actions = component.answer(Control::Send);
+        let [Action::Explore(review_explore::Command::Turn(request))] = actions.as_slice() else {
+            panic!("the pane sends a turn: {actions:?}");
+        };
+        let request = (**request).clone();
+        let mut saved = round.clone();
+        assert!(saved.post(&request).unwrap());
+        saved.revision += 1;
+        self.bus
+            .publish(ExplorePosted {
+                request: request.clone(),
+                result: Ok(Arc::new(saved.clone())),
+            })
+            .unwrap();
+        assert!(self.component().progress == Progress::Waiting);
+        (request, saved)
+    }
+}
+
+#[test]
+fn the_pane_follows_stop_waiting_on_the_page() {
+    let round = asked_round();
+    let mut pane = Pane::showing(&round);
+    pane.answer_first_question(&round);
+
+    pane.bus
+        .publish(ExplorePageStopped {
+            round: Some(round.exploration.instance.clone()),
+        })
+        .unwrap();
+
+    let component = pane.component();
+    assert!(
+        component.progress == Progress::Retryable,
+        "the pane offers Retry"
+    );
+    assert!(!component.status.is_empty(), "the pane says why");
+    assert!(
+        component
+            .exploration
+            .as_ref()
+            .unwrap()
+            .pending_request()
+            .is_none()
+    );
+}
+
+#[test]
+fn the_pane_follows_a_stop_on_the_page_of_a_round_starting_there() {
+    let mut pane = Pane::starting();
+    pane.bus.publish(ExplorePageStart(Ok(()))).unwrap();
+
+    pane.bus
+        .publish(ExplorePageStopped { round: None })
+        .unwrap();
+
+    let component = pane.component();
+    assert!(component.exploration.is_none());
+    assert!(
+        component.progress == Progress::Ready,
+        "the pane offers Start"
+    );
+}
+
+#[test]
+fn the_pane_follows_retry_on_the_page_of_its_own_turn() {
+    let round = asked_round();
+    let mut pane = Pane::showing(&round);
+    let (request, saved) = pane.answer_first_question(&round);
+    pane.bus
+        .publish(ExploreFinished {
+            instance: request.instance.clone(),
+            request: request.request.clone(),
+            result: Err("The selected agent is no longer available".into()),
+        })
+        .unwrap();
+    assert!(pane.component().progress == Progress::Retryable);
+    let mut retried = saved;
+    retried.revision += 1;
+
+    pane.bus
+        .publish(ExplorePosted {
+            request: request.clone(),
+            result: Ok(Arc::new(retried)),
+        })
+        .unwrap();
+
+    let component = pane.component();
+    assert!(
+        component.progress == Progress::Waiting,
+        "the pane waits for the agent again"
+    );
+    assert_eq!(
+        component
+            .exploration
+            .as_ref()
+            .unwrap()
+            .pending_request()
+            .map(|pending| &pending.request),
+        Some(&request.request)
+    );
+}
+
+#[test]
+fn the_pane_follows_cancel_answer_on_the_page() {
+    let round = asked_round();
+    let mut pane = Pane::showing(&round);
+    let (request, saved) = answered_elsewhere(&round);
+    pane.bus
+        .publish(ExplorePosted {
+            request: request.clone(),
+            result: Ok(Arc::new(saved.clone())),
+        })
+        .unwrap();
+    let answer = request.answer.unwrap().id;
+    let mut cancelled = saved;
+    cancelled.cancel_answer(&answer).unwrap();
+    cancelled.revision += 1;
+
+    pane.bus
+        .publish(ExploreAnswerCancelled {
+            answer,
+            result: Ok(Arc::new(cancelled)),
+        })
+        .unwrap();
+
+    let component = pane.component();
+    assert!(component.exploration.as_ref().unwrap().answers.is_empty());
+    assert!(component.progress == Progress::Ready);
+    assert!(!component.status.is_empty(), "the pane says what happened");
+}
+
+#[test]
+fn the_pane_follows_reset_on_the_page() {
+    let round = asked_round();
+    let mut pane = Pane::showing(&round);
+
+    pane.bus
+        .publish(ExplorePageReset {
+            round: round.exploration.instance.clone(),
+        })
+        .unwrap();
+
+    let component = pane.component();
+    assert!(
+        component.exploration.is_none(),
+        "the pane shows its start screen"
+    );
+    assert!(component.progress == Progress::Ready);
 }

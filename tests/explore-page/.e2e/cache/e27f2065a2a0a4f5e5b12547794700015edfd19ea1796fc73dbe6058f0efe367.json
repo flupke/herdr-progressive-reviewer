@@ -1,0 +1,53 @@
+{
+  "schemaVersion": "trace-1",
+  "createdAt": "2026-10-04T03:55:53.088Z",
+  "payload": {
+    "actions": [
+      {
+        "name": "type",
+        "summary": "type \"Why not keep the draft in memory?\" into textbox \"Reply to the conclusion\" in \"To be implemented\"",
+        "target": {
+          "role": "textbox",
+          "name": "Reply to the conclusion",
+          "within": "To be implemented"
+        },
+        "value": "Why not keep the draft in memory?"
+      },
+      {
+        "name": "tap",
+        "summary": "tap button \"Send the reply\" in \"To be implemented\"",
+        "target": {
+          "role": "button",
+          "name": "Send the reply",
+          "within": "To be implemented"
+        }
+      }
+    ],
+    "executor": {
+      "name": "e2e-default-agent",
+      "version": "2"
+    },
+    "recordedFor": {
+      "testId": "tests/control.e2e.ts::the%20reviewer%20replies%20to%20the%20conclusion",
+      "targetId": "desktop",
+      "instructionDigest": "1d267130a34f48ac8ce1217327a1c0bd4d2f5a8e7fc3869b69be7bb281eabf33"
+    },
+    "summary": "Submitted the reply “Why not keep the draft in memory?” The page now shows “The agent is working…”, confirming the reply was accepted and the agent took it up.",
+    "startPath": "/",
+    "endPath": "/",
+    "endAnchors": [
+      {
+        "role": "status",
+        "name": "The agent is working…"
+      },
+      {
+        "text": "After Stop waiting, Retry sends the turn again."
+      },
+      {
+        "role": "button",
+        "name": "Stop waiting"
+      }
+    ],
+    "endWaitMs": 20272
+  }
+}

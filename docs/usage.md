@@ -358,7 +358,9 @@ lines unreviewed. Reopen a hunk in Files to review Jev's lines yourself.
 ## Start, follow and answer an Explore round in the browser
 
 The **Explore page** shows the open reviewer's Explore round in a browser, and you can
-start a round, answer the agent's questions and implement its conclusion there. Run the Herdr
+run the whole round there, recoveries included, without going to the pane: start it, answer
+the agent's questions, stop waiting, retry, cancel an answer, reply to the conclusion,
+implement it, and reset the round. Run the Herdr
 action **Open the Explore page of the progressive reviewer**
 (`herdr.progressive-reviewer.explore-page`) from the workspace of an open reviewer: it
 opens the page in the default browser of the machine that runs the reviewer. Set
@@ -383,8 +385,8 @@ in the pane, as Start in the pane does. `on`, the default, opens the page. The a
 opens the page whatever this setting says.
 
 The page shows the round's current question with its explanation and choices, or that the agent is
-working, that it is no longer working on its turn (Retry it in the reviewer), that no
-round is running, or the round's conclusion. Above a question or the conclusion, it shows
+working, that it is no longer working on its turn and why, that no round is running, or the
+round's conclusion. Above a question or the conclusion, it shows
 what the agent said back to your previous answer, as the pane does: its recap of the
 answer, the follow-ups it recorded, and its reply. While no round is running, the page
 names the review it belongs to, as the pane's header does (the change's title and
@@ -418,18 +420,41 @@ answer keeps no new first pick. The agent receives the answer as
 if you had given it in the reviewer's Explore tab, which shows it under the question.
 Above **Send**, the page says how many lines your answer will mark reviewed and not
 relevant; open that line to list them. Once you send, the page shows that the agent is
-working, then its next question or its conclusion as soon as the agent posts it. When
-the reviewer cannot deliver the prompt to the agent, the page says why, and asks you to
-retry in the pane. A Cancel answer or a Reset in the reviewer shows on a page that waits for the
-agent.
+working, then its next question or its conclusion as soon as the agent posts it.
 
-An answer is recorded once. When the question already has an answer, given in the
-reviewer or in another tab, or the round moved on since the page was loaded, the page
-refuses to send yours, says so, and shows the round as it is now. In every state but the
-round starting, the agent working and an implementation request being sent, the page
-changes only when you load it again or come back to it, start a round or send an answer:
-after you answer a question in the reviewer, load the page again to follow the agent's next
-turn.
+The page offers the actions of the reviewer's Explore tab for the round's state, and they
+save the same result and send the agent the same prompt as there:
+
+- **Stop waiting**, while a round starts or the agent works: a round that is starting is
+  dropped; for the agent's turn, the page then says the agent is not working on it and
+  offers Retry. Use it when the agent never starts on a prompt that the reviewer sent.
+- **Retry**, when the agent is not working on the turn the round waits for: its prompt
+  could not be delivered or the agent did not start on it (the page says why), you stopped
+  waiting, or the reviewer was
+  reopened during the turn (when the prompt may have reached the agent already, the page
+  says so: check the agent's conversation first). Retry sends the same turn again, the
+  kickoff included.
+- **Cancel answer**, under **Your last answer**: the round goes back to the question that
+  answer answered, with the agent's turn after it and the review marks it led to taken back.
+  It is offered until an implementation request is made.
+- **Reply to the conclusion**: free text, which the agent takes up in its next turn.
+- **Reset**, at the bottom of the page, behind **Confirm reset**: it closes the round for good
+  and the page offers Start again. The round's records stay saved.
+
+An action on a state that changed meanwhile, in the reviewer or in another tab, is refused:
+the page says which action did nothing and why, and shows the round as it is now. An
+answer is recorded once: when the question already has an answer, the page refuses to send
+yours. The pane shows the result of each action taken on the page. The page follows the
+round in every state, with no reload: it asks the reviewer every second and a half (twice a second while
+a round starts, the agent works or an implementation request is being sent) whether the
+round changed, and loads itself again when it did. Text you were typing in a form comes
+back after such a load while the form is still the same; it is gone once the page shows
+another question or stage.
+
+A round that can no longer change, an earlier round or one whose saved history had to be
+repaired, says so and offers only Reset. When the reviewer cannot save Explore rounds, the
+page says why and that nothing can be done until the problem is fixed and the review pane
+is opened again.
 
 When the agent's conclusion carries a quiz, the page first asks its few questions about
 how the system works after the change, one at a time: pick an answer and press **Check**,
@@ -445,8 +470,12 @@ page then says that the request is being sent, then that the agent received it, 
 list it sent. A conclusion gets one request: once one was sent, from the reviewer or
 from another tab, the page refuses another and shows the request that was sent. When
 the request could not be sent, the page says why and offers **Implement** again with your
-list. A request saved before the reviewer was reopened, or one whose delivery is
-unknown, is handled in the reviewer.
+list. While the request is being sent, **Cancel the implementation request** stops it if it
+has not reached the agent yet. A request saved before the reviewer was reopened can be sent
+as it was saved, with **Send the saved request**, or replaced by a new one; for a request
+whose delivery is unknown, the page asks you to check the agent's conversation before you
+send a new one. When the agent did not start on the request, its list may still wait in the
+agent's prompt box: the page offers only **Retry**, which sends the same request again.
 
 The round opens with the design of the change, which the agent explains before its first
 question: what the change adds and where, its types and data flow, its algorithm and cost,
@@ -490,9 +519,8 @@ and its choices, comment and **Send** on the right, which stay in view while you
 through the explanation; a conclusion keeps its list and **Implement** on the right the same
 way.
 
-When the page shows a state that is not the agent working, it loads itself again when you
-come back to it (a phone that wakes, a tab shown again) and the round has changed in
-between.
+The page also checks the round at once when you come back to it (a phone that wakes, a tab
+shown again), and loads itself again when the round has changed in between.
 
 ### Open the page from a phone
 
@@ -505,12 +533,14 @@ scan the new code. The reviewer serves this page on a second listener, on the ad
 one network interface, over plain HTTP. Each round gets a new token. While no round is
 running, the start screen has a token of its own, and the round started next keeps it, so
 the phone that started the round stays on it. After a reset, the round's address is refused
-and the pane shows the address of the next round's page; a round started while another
-runs gets a new address too. The page answers only the address the pane shows, and the
+and the pane shows the address of the next round's page; the page that sent the Reset moves
+to that address itself, so it can start the next round. A round started while another runs
+gets a new address too. The page answers only the address the pane shows, and the
 MCP endpoint is never served on the network.
 
 Anyone who can read your network's traffic can copy the token and use the page as you until
-the round ends, and on the start screen before it ([ADR 0003](adr/0003-serve-the-explore-page-on-the-network.md)).
+the round ends, and on the start screen before it; a Reset from such a copy hands it the
+next start screen's token too ([ADR 0003](adr/0003-serve-the-explore-page-on-the-network.md)).
 Turn network access off where you do not trust the network. The settings are environment
 variables of the reviewer process, read when it starts. The reviewer pane inherits the
 environment Herdr runs in: set them before starting Herdr (for example in your shell

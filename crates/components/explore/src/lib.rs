@@ -25,6 +25,7 @@ mod flow;
 mod input;
 mod navigation;
 mod network_page;
+mod page_actions;
 mod page_round;
 mod page_start;
 mod persistence;
@@ -611,6 +612,8 @@ impl Component<Action> for ExploreComponent {
         subscriptions.subscribe(Self::page_not_opened);
         subscriptions.subscribe(Self::pane_starts_set);
         subscriptions.subscribe(Self::start_block_set);
+        subscriptions.subscribe(Self::page_stopped);
+        subscriptions.subscribe(Self::page_reset);
         Self::register_input(subscriptions);
     }
 }

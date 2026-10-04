@@ -33,6 +33,37 @@ pub(crate) enum Post {
     Implement,
     /// A pick of a quiz item, or a skip of the quiz, of the conclusion the page showed.
     Quiz,
+    /// A reply to the conclusion the page showed.
+    Reply,
+    /// An action that recovers or closes the round.
+    Recover(RecoveryPost),
+}
+
+/// An action of the page that recovers or closes the round, as the pane offers it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum RecoveryPost {
+    /// Stop waiting for the start or the agent's turn the page showed.
+    Stop,
+    /// Retry of the agent's turn the page showed as interrupted.
+    Retry,
+    /// Cancel answer of the reviewer's latest answer.
+    CancelAnswer,
+    /// Reset of the round the page showed.
+    Reset,
+    /// Cancel of the implementation request the page showed as being sent.
+    CancelImplementation,
+}
+
+impl RecoveryPost {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Stop => "stop",
+            Self::Retry => "retry",
+            Self::CancelAnswer => "cancel-answer",
+            Self::Reset => "reset",
+            Self::CancelImplementation => "cancel-implementation",
+        }
+    }
 }
 
 /// Why a post did not go through, as the templates test it.
@@ -57,12 +88,18 @@ impl From<CommandRefusal> for Problem {
 }
 
 impl Post {
-    const ALL: [Self; 5] = [
+    const ALL: [Self; 11] = [
         Self::Answer,
         Self::Start,
         Self::Pick,
         Self::Implement,
         Self::Quiz,
+        Self::Reply,
+        Self::Recover(RecoveryPost::Stop),
+        Self::Recover(RecoveryPost::Retry),
+        Self::Recover(RecoveryPost::CancelAnswer),
+        Self::Recover(RecoveryPost::Reset),
+        Self::Recover(RecoveryPost::CancelImplementation),
     ];
 
     /// The post's name in the cookie, as in the name of its template partial.
@@ -73,6 +110,8 @@ impl Post {
             Self::Pick => "pick",
             Self::Implement => "implement",
             Self::Quiz => "quiz",
+            Self::Reply => "reply",
+            Self::Recover(recovery) => recovery.name(),
         }
     }
 }

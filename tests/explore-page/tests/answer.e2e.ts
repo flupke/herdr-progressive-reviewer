@@ -67,8 +67,9 @@ test('the page says how many lines an answer marks, and lists them on request', 
 test('an answer to a question answered in the pane meanwhile is refused', async ({ explore, screen }) => {
   await explore.open();
   await explore.askQuestion();
-  // The page shows the question, and does not follow the answer given in the pane.
+  // The page shows the question, and is held there while the pane answers it.
   await expect(screen.getByRole('region', 'Question 1')).toBeVisible();
+  await explore.holdPage();
   await explore.answerInPane();
 
   // An exact action: the refusal of this send is the point of the test, which a goal to

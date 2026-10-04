@@ -1,0 +1,24 @@
+{#- The agent is not working on the turn the round waits for: why, and Retry, which sends the
+    turn again, as in the reviewer's Explore tab. -#}
+{% set interruption = interrupted.interruption %}
+{% if interruption.kind == "failed" %}
+<div class="state failure" role="alert">
+  <p>The agent is not working on its next turn.</p>
+  <p class="reason">{{ interruption.reason }}</p>
+</div>
+{% elif interruption.kind == "uncertain" %}
+<p class="state" role="status">The agent is not working on its next turn as far as the review tool knows: the review pane was reopened while it sent the turn's prompt, so whether the agent received it is unknown. Check the agent's conversation before you retry.</p>
+{% elif interrupted.request %}
+<p class="state" role="status">The agent is not working on its next turn: you stopped waiting, or the review pane was reopened before it sent the turn's prompt.</p>
+{% else %}
+<p class="state" role="status">The agent is not working on its next turn, and the round has none to send again.</p>
+{% endif %}
+{% if interrupted.request %}
+<form class="retry" method="post" action="/retry">
+  <input type="hidden" name="request" value="{{ interrupted.request }}">
+  <p class="hint">Retry sends the turn to the agent again{% if cancellable %}, with your answer{% endif %}.</p>
+  <button class="send" type="submit">Retry</button>
+</form>
+{% elif not earlier %}
+<p class="hint">Reset the round, then start a new one.</p>
+{% endif %}

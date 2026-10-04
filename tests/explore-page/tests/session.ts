@@ -83,6 +83,18 @@ export interface Session {
   reviewEverything(): Promise<void>;
   /** The reviewer unmarks a line: a round can start again. */
   unreviewLine(): Promise<void>;
+  /**
+   * The other actions the reviewer took on the page to recover or close the round, by name, in
+   * order: `stop`, `retry`, `cancel-answer`, `reset`, `reply`, `cancel-implementation`,
+   * `resend-implementation`.
+   */
+  actions(): Promise<string[]>;
+  /**
+   * The page stops following the round, as a page whose polls do not get through: it keeps
+   * showing the round as it was until the reviewer acts on it. A test of a refusal of an action
+   * on a stale page holds the page first, then moves the round.
+   */
+  holdPage(): Promise<void>;
 }
 
 async function control(baseUrl: string | undefined, path: string, body?: object): Promise<Response> {
@@ -95,7 +107,7 @@ async function control(baseUrl: string | undefined, path: string, body?: object)
 }
 
 export const test = base.extend<{ explore: Session }>({
-  explore: async ({ app }, use) => {
+  explore: async ({ app, browser }, use) => {
     const { token } = (await (await control(app.baseUrl, '/test/sessions')).json()) as { token: string };
     const step = async (name: string, body?: object) => {
       await control(app.baseUrl, `/test/sessions/${token}/${name}`, body);
@@ -128,6 +140,8 @@ export const test = base.extend<{ explore: Session }>({
       starts: () => read<SentStart[]>('starts'),
       reviewEverything: () => step('review-everything'),
       unreviewLine: () => step('unreview-line'),
+      actions: () => read<string[]>('actions'),
+      holdPage: () => browser.route('**/status', (route) => route.abort()),
     });
   },
 });

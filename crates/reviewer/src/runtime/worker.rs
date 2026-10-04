@@ -5,7 +5,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::{Receiver, Sender};
 
 use component_core::ApplicationEventSender;
-use review_explore_page::PageCommand;
+use review_explore_page::{PageCommand, Recovery};
 use review_explore_session::{self as explore_session, ExploreSession};
 use review_hunks::HunkMark;
 use review_repository::repository::{ChangeId, ChangedFile, PollResult, Repository, Snapshot};
@@ -105,7 +105,17 @@ impl Worker {
     }
 
     /// Explore work: a kickoff, from the pane or a start on the page, waits for Jev's marks.
+    /// Once an input ends the round, from the pane or from the page, the round's own marks count
+    /// for the start screen.
     fn handle_explore(&mut self, input: explore_session::Input, messages: &ApplicationEventSender) {
+        let ran = self.explore.runs_round();
+        self.route_explore(input, messages);
+        if ran && !self.explore.runs_round() {
+            self.marks_changed();
+        }
+    }
+
+    fn route_explore(&mut self, input: explore_session::Input, messages: &ApplicationEventSender) {
         match input {
             explore_session::Input::Command(review_explore::Command::Turn(request))
                 if request.answer.is_none() =>
@@ -120,8 +130,19 @@ impl Worker {
                     self.start_round(kickoff, messages);
                 }
             }
+            // Stop waiting and Reset from the page drop a kickoff that waits for Jev, as from
+            // the pane.
+            explore_session::Input::Page {
+                command: PageCommand::Recover(recovery),
+                reply,
+            } => {
+                let drops_kickoff =
+                    matches!(recovery, Recovery::Stop { .. } | Recovery::Reset { .. });
+                if self.explore.recover_from_page(recovery, reply) && drops_kickoff {
+                    self.held_kickoff = None;
+                }
+            }
             input => {
-                let ran = self.explore.runs_round();
                 if matches!(
                     input,
                     explore_session::Input::Command(
@@ -133,10 +154,6 @@ impl Worker {
                     self.held_kickoff = None;
                 }
                 self.explore.handle(input);
-                // The round's own marks count once the start screen shows again.
-                if ran && !self.explore.runs_round() {
-                    self.marks_changed();
-                }
             }
         }
     }

@@ -2,10 +2,9 @@ import { expect } from 'e2e';
 import { test, type Session } from './session.ts';
 
 // The standalone server's second question explains where a kept draft goes with a Mermaid
-// diagram, then carries a second diagram that Mermaid cannot parse. A page that shows a question
-// does not follow the round, so the agent asks both questions before the page opens. The design
-// of the change, folded above the question, draws its own diagram first: the question's two are
-// Diagram 2 and Diagram 3.
+// diagram, then carries a second diagram that Mermaid cannot parse. The agent asks both questions
+// before the page opens. The design of the change, folded above the question, draws its own
+// diagram first: the question's two are Diagram 2 and Diagram 3.
 async function openQuestion2(explore: Session) {
   await explore.askQuestion();
   await explore.askQuestion();

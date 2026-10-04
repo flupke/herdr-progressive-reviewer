@@ -1,7 +1,7 @@
 //! Prompts the agent did not start on: Herdr wrote them into its pane, and nothing happened.
 
 use review_explore::{Command, DispatchState};
-use review_explore_page::{ImplementationState, RoundStage};
+use review_explore_page::{ImplementationState, Interruption, RoundStage};
 use review_thread_service::PromptError;
 use ui_events::ExploreProgress;
 
@@ -45,7 +45,8 @@ fn a_turn_the_agent_does_not_start_on_waits_for_a_retry_of_the_same_request() {
     assert_eq!(
         harness.page.stage(),
         RoundStage::Interrupted {
-            failure: Some(failure)
+            request: Some(kickoff.request.clone()),
+            interruption: Interruption::Failed(failure),
         }
     );
 

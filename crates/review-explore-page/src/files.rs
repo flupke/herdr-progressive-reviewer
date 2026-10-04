@@ -42,7 +42,6 @@ const TEMPLATES: &[(&str, &str)] = &[
     ("comment.html", include_str!("../templates/comment.html")),
     ("choices.html", include_str!("../templates/choices.html")),
     ("marks.html", include_str!("../templates/marks.html")),
-    ("failure.html", include_str!("../templates/failure.html")),
     ("design.html", include_str!("../templates/design.html")),
     ("response.html", include_str!("../templates/response.html")),
     ("diagrams.html", include_str!("../templates/diagrams.html")),
@@ -66,6 +65,46 @@ const TEMPLATES: &[(&str, &str)] = &[
     (
         "notice-quiz.html",
         include_str!("../templates/notice-quiz.html"),
+    ),
+    (
+        "interrupted.html",
+        include_str!("../templates/interrupted.html"),
+    ),
+    ("stop.html", include_str!("../templates/stop.html")),
+    (
+        "cancel-answer.html",
+        include_str!("../templates/cancel-answer.html"),
+    ),
+    ("reset.html", include_str!("../templates/reset.html")),
+    ("earlier.html", include_str!("../templates/earlier.html")),
+    (
+        "storage-failed.html",
+        include_str!("../templates/storage-failed.html"),
+    ),
+    ("reply.html", include_str!("../templates/reply.html")),
+    (
+        "notice-stop.html",
+        include_str!("../templates/notice-stop.html"),
+    ),
+    (
+        "notice-retry.html",
+        include_str!("../templates/notice-retry.html"),
+    ),
+    (
+        "notice-cancel-answer.html",
+        include_str!("../templates/notice-cancel-answer.html"),
+    ),
+    (
+        "notice-reset.html",
+        include_str!("../templates/notice-reset.html"),
+    ),
+    (
+        "notice-reply.html",
+        include_str!("../templates/notice-reply.html"),
+    ),
+    (
+        "notice-cancel-implementation.html",
+        include_str!("../templates/notice-cancel-implementation.html"),
     ),
 ];
 

@@ -1,0 +1,63 @@
+{
+  "schemaVersion": "trace-1",
+  "createdAt": "2026-10-04T02:56:15.827Z",
+  "payload": {
+    "actions": [
+      {
+        "name": "tap",
+        "summary": "tap node \"Reset\"",
+        "target": {
+          "text": "Reset"
+        }
+      },
+      {
+        "name": "tap",
+        "summary": "tap button \"Confirm reset\" in \"Reset\"",
+        "target": {
+          "role": "button",
+          "name": "Confirm reset",
+          "within": "Reset"
+        }
+      }
+    ],
+    "executor": {
+      "name": "e2e-default-agent",
+      "version": "2"
+    },
+    "recordedFor": {
+      "testId": "tests/control.e2e.ts::the%20reviewer%20resets%20the%20round%2C%20then%20starts%20a%20new%20one",
+      "targetId": "desktop",
+      "instructionDigest": "75fd0468bedf92d636af7c55ea0307b054ebbd8f36a628b7807d68dd28aa4a42"
+    },
+    "summary": "Reset the round and confirmed the reset. The page now says “No Explore round is running” and offers Start options.",
+    "startPath": "/",
+    "endPath": "/",
+    "endAnchors": [
+      {
+        "role": "status",
+        "name": "No Explore round is running."
+      },
+      {
+        "text": "kmzqvtyx"
+      },
+      {
+        "text": "drafts-demo"
+      },
+      {
+        "text": "With the Challenger, a second agent with fresh context reviews the change beside the agent."
+      },
+      {
+        "role": "button",
+        "name": "Start"
+      },
+      {
+        "role": "button",
+        "name": "Start with Challenger"
+      },
+      {
+        "text": "Review of “Keep the reviewer's draft when a round reopens” () in the repository ."
+      }
+    ],
+    "endWaitMs": 11808
+  }
+}

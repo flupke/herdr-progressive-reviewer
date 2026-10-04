@@ -1,6 +1,7 @@
 {# The reviewer's answer to the question: a choice, an optional comment, and Send. A blind
    question asks for the first pick before (pick.html), and its comment comes back here. #}
-{% if question.recommendation == "hidden_until_pick" %}
+{% if earlier %}
+{% elif question.recommendation == "hidden_until_pick" %}
 {% include "pick.html" %}
 {% else %}
 <form class="answer" method="post" action="/answer">

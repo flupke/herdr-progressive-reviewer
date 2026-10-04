@@ -84,8 +84,9 @@ test('a two-way question shows the recommendation at once', async ({ explore, sc
 test('a pick on a question answered in the pane meanwhile is refused', async ({ explore, screen }) => {
   await explore.open();
   await explore.askQuestion(question('one_way'));
-  // The page shows the question, and does not follow the answer given in the pane.
+  // The page shows the question, and is held there while the pane answers it.
   await expect(screen.getByRole('region', 'Question 1')).toBeVisible();
+  await explore.holdPage();
   await explore.answerInPane();
 
   // An exact action: the refusal of this pick is the point of the test, which a goal to pick

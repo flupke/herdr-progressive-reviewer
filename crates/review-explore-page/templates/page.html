@@ -11,20 +11,26 @@
 <link rel="stylesheet" href="/assets/layout.css">
 </head>
 <body>
-<main id="round" data-revision="{{ revision }}" data-polls="{{ "true" if polls else "false" }}">
+<main id="round" data-revision="{{ revision }}" data-working="{{ "true" if working else "false" }}">
   <h1>Explore</h1>
   {% include "notice.html" %}
+  {% if earlier %}
+  {% include "earlier.html" %}
+  {% endif %}
   {% if stage in ["no_round", "start_failed"] %}
   {% include "start.html" %}
   {% elif stage == "starting" %}
   <p class="state working" role="status">Preparing the round…</p>
+  {% include "stop.html" %}
   {% elif stage == "working" %}
   <p class="state working" role="status">The agent is working…</p>
-  {% elif stage == "interrupted" and failure %}
-  {% include "failure.html" %}
+  {% include "stop.html" %}
   {% elif stage == "interrupted" %}
-  <p class="state" role="status">The agent is not working on its next turn. Retry in the pane, then load this page again.</p>
+  {% include "interrupted.html" %}
+  {% elif stage == "storage_failed" %}
+  {% include "storage-failed.html" %}
   {% endif %}
+  {% include "cancel-answer.html" %}
   {% include "design.html" %}
   {% include "response.html" %}
   {% if question %}
@@ -41,6 +47,7 @@
   {% elif conclusion %}
   {% include "conclusion.html" %}
   {% endif %}
+  {% include "reset.html" %}
 </main>
 <script src="/assets/page.js"></script>
 <script src="/assets/wake.js"></script>

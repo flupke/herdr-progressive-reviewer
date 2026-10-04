@@ -1,0 +1,9 @@
+{#- Stop waiting, as in the reviewer's Explore tab: for the start under way, or for the agent's
+    turn. -#}
+{% if stop %}
+<form class="stop" method="post" action="/stop">
+  {% if stop.request %}<input type="hidden" name="request" value="{{ stop.request }}">{% endif %}
+  <p class="hint">{% if stop.request and cancellable %}Stop waiting keeps your answer: Retry sends the turn again.{% elif stop.request %}After Stop waiting, Retry sends the turn again.{% else %}Stop waiting drops the round before it starts.{% endif %}</p>
+  <button class="secondary" type="submit">Stop waiting</button>
+</form>
+{% endif %}

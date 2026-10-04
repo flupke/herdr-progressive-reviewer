@@ -1,0 +1,8 @@
+{#- Why Retry did not go through. -#}
+{%- if notice.problem.kind == "stale" -%}
+Retry did nothing: the turn the page showed is no longer interrupted. It was sent again in the pane or in another tab, or the round moved on. The page shows the round as it is now.
+{%- elif notice.problem.kind == "failed" -%}
+Retry did nothing: {{ notice.problem.reason }}
+{%- else -%}
+The review tool did not reply. Load this page again to see whether it sent the turn again.
+{%- endif -%}

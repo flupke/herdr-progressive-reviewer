@@ -10,7 +10,9 @@ use review_thread_service::PinnedAgent;
 use crate::{ExploreSession, Input, dispatch::DurableDispatch, turn_log::SentTurn};
 
 impl ExploreSession {
-    pub(crate) fn retry(&mut self, request: TurnRequest) {
+    /// Sends the turn `request` again to the selected agent, and tells the front ends through
+    /// `ExplorePosted`. Errs, with the reason, only when the turn was not saved again.
+    pub(crate) fn retry(&mut self, request: TurnRequest) -> Result<(), String> {
         let retry = match self.retry_agent().and_then(|agent| {
             let pinned =
                 PinnedAgent::for_retry(agent.clone(), &*self.agents).map_err(eyre::Report::msg)?;
@@ -22,10 +24,10 @@ impl ExploreSession {
                     request,
                     result: Err(error.to_string()),
                 });
-                return;
+                return Err(error.to_string());
             }
         };
-        let _ = self.deliver_turn(request, Some((&retry.0, retry.1)));
+        self.deliver_turn(request, Some((&retry.0, retry.1)))
     }
 
     /// Saves the turn `request`, then prompts the agent with it, and tells the front ends
@@ -114,9 +116,20 @@ impl ExploreSession {
         Ok(())
     }
 
-    /// Refuses the kickoff `request` when nothing is left to review, as Jev or another reviewer
-    /// may have marked the rest since the start; otherwise selects the agent the new round saves.
+    /// Refuses the kickoff `request` when its start was stopped, or when nothing is left to
+    /// review, as Jev or another reviewer may have marked the rest since the start; otherwise
+    /// selects the agent the new round saves.
     fn admit_kickoff(&mut self, request: &TurnRequest) -> Result<(), String> {
+        // A kickoff that arrives after its start was stopped, from the page while the pane
+        // posted it, starts nothing, and leaves no failed start.
+        if !matches!(self.state.start, crate::Start::Starting) {
+            let error = "The start of this round was stopped".to_owned();
+            let _ = self.events.send(ui_events::ExplorePosted {
+                request: request.clone(),
+                result: Err(error.clone()),
+            });
+            return Err(error);
+        }
         if let Some(block) = self.kickoff_block() {
             return Err(self.turn_refused(request.clone(), &eyre::eyre!("{block}")));
         }

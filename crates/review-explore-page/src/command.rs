@@ -31,6 +31,43 @@ pub enum PageCommand {
     /// Save the reviewer's pick of a quiz item, or skip of the quiz, of the conclusion the page
     /// showed.
     Quiz(PageQuizResponse),
+    /// Reply to the conclusion the page showed, as Reply in the pane.
+    Reply(PageReply),
+    /// Recover or close the round, as the pane offers it.
+    Recover(Recovery),
+}
+
+/// What the reviewer does on the page to recover the round, or to close it, as in the pane.
+#[derive(Debug)]
+pub enum Recovery {
+    /// Stop waiting: for the start under way when `request` is `None`, which the page showed as
+    /// starting, else for the agent's turn `request`, which the page showed the agent working
+    /// on.
+    Stop { request: Option<String> },
+    /// Send again the agent's turn `request`, which the page showed as interrupted.
+    Retry { request: String },
+    /// Cancel the reviewer's latest answer, `answer`.
+    CancelAnswer { answer: String },
+    /// Close the round `round` that the page showed, and return to the start screen.
+    Reset { round: String },
+    /// Cancel the implementation request `delivery`, which the page showed as being sent.
+    CancelImplementation { delivery: String },
+    /// Send the implementation request `delivery` of the conclusion of the turn `conclusion`,
+    /// which the page showed as saved but not sent, as "Send saved implementation request" in
+    /// the pane.
+    ResendImplementation {
+        conclusion: String,
+        delivery: String,
+    },
+}
+
+/// The reviewer's reply to the conclusion the page showed: free text, with no choice. The owner
+/// builds the turn from its own round.
+#[derive(Debug)]
+pub struct PageReply {
+    /// The request of the agent's turn that posted the conclusion.
+    pub conclusion: String,
+    pub text: String,
 }
 
 /// What the reviewer did with the quiz of the conclusion the page showed. The page graded a
@@ -71,11 +108,13 @@ pub struct PageImplement {
 /// Why the round's owner did not carry out a command.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CommandRefusal {
-    /// The round moved on since the page was loaded: the question the page showed no longer
-    /// waits for an answer, as it may have one already, from the pane or from another page; or
-    /// a round started since the page showed none; or the conclusion the page showed has
-    /// another implementation request, from the pane or from another page; or its quiz item
-    /// has a pick already, from another page.
+    /// The round moved on since the page was loaded, so what the page showed no longer offers
+    /// the command: the question the page showed no longer waits for an answer, as it may have
+    /// one already, from the pane or from another page; or a round started since the page
+    /// showed none; or the conclusion the page showed has another implementation request, from
+    /// the pane or from another page; or its quiz item has a pick already, from another page;
+    /// or the agent's turn the page showed is no longer waited for or interrupted; or the
+    /// answer the page offered to cancel is no longer the latest one.
     Stale,
     /// The owner could not carry out the command, for this reason.
     Failed(String),

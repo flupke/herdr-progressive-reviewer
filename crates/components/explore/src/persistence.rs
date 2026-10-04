@@ -14,7 +14,7 @@ pub(super) struct Durability {
     sequence: u64,
     last: Option<ExploreViewState>,
     revision: u64,
-    persisted: bool,
+    pub(super) persisted: bool,
     pub(super) focus: ui_events::ReviewPane,
 }
 
@@ -364,19 +364,11 @@ impl ExploreComponent {
             .posting
             .as_ref()
             .is_some_and(|request| request.request == event.request.request);
+        let retried = self.retried_elsewhere(event);
         match &event.result {
             Ok(round) if round.revision >= self.durable.revision => {
                 self.adopt(round);
-                if current && self.progress == Progress::Waiting {
-                    if let Some(answer) = &event.request.answer {
-                        self.discard_posted_draft(answer);
-                    }
-                    self.status = "Waiting for the implementation agent…".into();
-                } else {
-                    // Retain the durable contribution without reviving a cancelled or
-                    // replaced local post. The next matching acknowledgement owns progress.
-                    self.exploration.as_mut().expect("active").pause_delivery();
-                }
+                self.follow_saved_post(event, current, retried);
             }
             Err(error) if current => {
                 self.status = format!("Answer was not posted: {error}");
@@ -386,6 +378,26 @@ impl ExploreComponent {
         }
         if current {
             self.durable.posting = None;
+        }
+    }
+
+    /// Follow the saved turn of `event`: the pane's own post (`current`), the page's Retry of
+    /// the turn the pane offered to retry (`retried`), or another front end's post.
+    fn follow_saved_post(&mut self, event: &ExplorePosted, current: bool, retried: bool) {
+        if current && self.progress == Progress::Waiting {
+            if let Some(answer) = &event.request.answer {
+                self.discard_posted_draft(answer);
+            }
+            self.status = "Waiting for the implementation agent…".into();
+        } else if retried {
+            // The page sent the turn again that the pane offered to retry: the agent works on
+            // it, as after the pane's own Retry.
+            self.progress = Progress::Waiting;
+            self.status = "Waiting for the implementation agent…".into();
+        } else {
+            // Retain the durable contribution without reviving a cancelled or replaced local
+            // post. The next matching acknowledgement owns progress.
+            self.exploration.as_mut().expect("active").pause_delivery();
         }
     }
 

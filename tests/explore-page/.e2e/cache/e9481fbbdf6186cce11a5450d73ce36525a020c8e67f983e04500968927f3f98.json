@@ -1,0 +1,42 @@
+{
+  "schemaVersion": "trace-1",
+  "createdAt": "2026-10-04T02:56:01.701Z",
+  "payload": {
+    "actions": [
+      {
+        "name": "tap",
+        "summary": "tap button \"Stop waiting\"",
+        "target": {
+          "role": "button",
+          "name": "Stop waiting"
+        }
+      }
+    ],
+    "executor": {
+      "name": "e2e-default-agent",
+      "version": "2"
+    },
+    "recordedFor": {
+      "testId": "tests/control.e2e.ts::the%20reviewer%20stops%20waiting%20for%20the%20agent%2C%20then%20retries",
+      "targetId": "desktop",
+      "instructionDigest": "b4a79a93d39607080ef09c5f5adbd1c68697acc126ae816cfd1b3e4279346d39"
+    },
+    "summary": "Selected Stop waiting. The status now confirms the agent is not working on its next turn because waiting was stopped; Retry is available.",
+    "startPath": "/",
+    "endPath": "/",
+    "endAnchors": [
+      {
+        "role": "status",
+        "name": "The agent is not working on its next turn: you stopped waiting, or the review pane was reopened before it sent the turn's prompt."
+      },
+      {
+        "text": "Retry sends the turn to the agent again."
+      },
+      {
+        "role": "button",
+        "name": "Retry"
+      }
+    ],
+    "endWaitMs": 12102
+  }
+}

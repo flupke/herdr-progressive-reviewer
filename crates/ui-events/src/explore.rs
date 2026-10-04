@@ -87,6 +87,20 @@ pub struct ExplorePageStart(pub Result<(), String>);
 #[derive(Clone, Debug)]
 pub struct ExploreStartBlock(pub Option<review_explore::StartBlock>);
 
+/// The reviewer stopped waiting on the Explore page: for the agent's turn of the round `round`,
+/// or for the start under way when `round` is `None`. The pane follows it as its own Stop
+/// waiting.
+#[derive(Clone, Debug)]
+pub struct ExplorePageStopped {
+    pub round: Option<String>,
+}
+
+/// The reviewer reset the round `round` on the Explore page: the pane shows its start screen.
+#[derive(Clone, Debug)]
+pub struct ExplorePageReset {
+    pub round: String,
+}
+
 #[derive(Clone, Debug)]
 pub struct ExploreImplementationSaved(pub review_explore::ImplementationDelivery);
 

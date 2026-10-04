@@ -14,7 +14,9 @@ and refuses a request whose origin is another site. A new round gets a new
 token; the token of a closed or replaced round opens nothing. While no round
 runs, the page has a token for its start screen, so that a phone can start a
 round; the round started next keeps that token, so the page that started it
-stays connected, and a Reset ends it with the round. The page on this
+stays connected, and a Reset ends it with the round. The page that sends the Reset receives
+the start screen's new token in the response, so that the reviewer who reset from a phone can
+start the next round there; a Reset in the pane hands it to no page. The page on this
 machine keeps its own loopback listener and its own token, for the Herdr
 action. The MCP endpoint stays on loopback: the network listener serves the
 page's routes only.
@@ -26,7 +28,10 @@ agent's questions and authorize implementation. Implement sends the list to be
 implemented as the reviewer edited it, and the page cannot tell an edit from any
 other text, so such a person could have the agent make any code change they
 write, in the reviewer's repository, with nobody at the desk. The per-round token
-bounds that window to one round and the time before it on the start screen.
+bounds that window to one round and the time before it on the start screen. A person who
+holds a round's token and resets the round from the page receives the next start screen's
+token, and can keep going round after round while nobody resets in the pane; a Reset in the
+pane ends that.
 
 Accepted risk on the same host: browsers keep cookies by host name, not by port, so
 the browser sends the page's token cookie to every server on the same address that

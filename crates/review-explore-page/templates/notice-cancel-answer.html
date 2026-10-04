@@ -1,0 +1,8 @@
+{#- Why Cancel answer did not go through. -#}
+{%- if notice.problem.kind == "stale" -%}
+Your answer was not cancelled: it is no longer your last answer, or the round no longer allows it. The round moved on, in the pane or in another tab. The page shows the round as it is now.
+{%- elif notice.problem.kind == "failed" -%}
+Your answer was not cancelled: {{ notice.problem.reason }}
+{%- else -%}
+The review tool did not reply. Load this page again to see whether it cancelled your answer.
+{%- endif -%}

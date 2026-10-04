@@ -108,7 +108,10 @@ fn a_fully_reviewed_review_cannot_start_a_round_from_the_page() {
     let unreviewed = harness.unreview_everything();
     harness.session.marks_changed(&unreviewed);
     assert_eq!(harness.start_from_page(), Ok(()));
-    assert_eq!(harness.page.stage(), RoundStage::AgentWorking);
+    assert!(matches!(
+        harness.page.stage(),
+        RoundStage::AgentWorking { .. }
+    ));
     assert!(harness.delivered_prompt().contains("Explore request: "));
 }
 

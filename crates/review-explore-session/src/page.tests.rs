@@ -3,8 +3,8 @@
 use review_explore::Command;
 use review_explore::DispatchState;
 use review_explore_page::{
-    CommandRefusal, CommandReply, ImplementationState, PageAnswer, PageCommand, PageImplement,
-    PageImplementation, ReviewName, RoundStage,
+    CommandRefusal, CommandReply, ImplementationState, Interruption, PageAnswer, PageCommand,
+    PageImplement, PageImplementation, ReviewName, RoundStage,
 };
 use review_repository::diff::DiffRow;
 
@@ -28,7 +28,10 @@ fn the_page_follows_the_round_from_its_kickoff_to_its_conclusion_and_reset() {
     harness.capture();
     let first = harness.request(None);
     let access = harness.turn(&first);
-    assert_eq!(harness.page.stage(), RoundStage::AgentWorking);
+    assert!(matches!(
+        harness.page.stage(),
+        RoundStage::AgentWorking { .. }
+    ));
 
     assert!(applied(harness.submit(&access, question(&first, 1))));
     assert_eq!(
@@ -37,7 +40,10 @@ fn the_page_follows_the_round_from_its_kickoff_to_its_conclusion_and_reset() {
     );
 
     let (answer, access) = harness.answer("Keep it.");
-    assert_eq!(harness.page.stage(), RoundStage::AgentWorking);
+    assert!(matches!(
+        harness.page.stage(),
+        RoundStage::AgentWorking { .. }
+    ));
     assert!(applied(harness.submit(&access, question(&answer, 2))));
     assert_eq!(
         shown_question(&harness.page.stage()),
@@ -80,10 +86,13 @@ fn the_page_shows_a_turn_the_agent_no_longer_works_on_as_interrupted() {
 
     harness.session.handle(Input::Command(Command::Cancel));
 
-    assert_eq!(
+    assert!(matches!(
         harness.page.stage(),
-        RoundStage::Interrupted { failure: None }
-    );
+        RoundStage::Interrupted {
+            request: Some(_),
+            interruption: Interruption::Stopped
+        }
+    ));
 }
 
 #[test]
@@ -102,9 +111,14 @@ fn a_reopened_reviewer_shows_its_restored_round_on_the_page() {
 
     harness.answer("Keep it.");
     harness.reopen();
-    assert_eq!(
-        harness.page.stage(),
-        RoundStage::Interrupted { failure: None },
+    assert!(
+        matches!(
+            harness.page.stage(),
+            RoundStage::Interrupted {
+                request: Some(_),
+                interruption: Interruption::Stopped
+            }
+        ),
         "the reopened reviewer no longer waits for the agent's turn"
     );
 }
@@ -387,7 +401,7 @@ impl Harness {
     }
 
     /// Ask the first question, as the agent.
-    fn ask_first_question(&mut self) {
+    pub(super) fn ask_first_question(&mut self) {
         self.capture();
         let first = self.request(None);
         let access = self.turn(&first);
@@ -445,7 +459,10 @@ fn an_answer_from_the_page_is_saved_and_prompted_as_one_from_the_pane() {
     assert!(prompt.contains(&format!("Explore request: {}\n", posted.request.request)));
     assert!(prompt.contains(&format!("Answer ID: {}\n", answer.id)));
     assert!(prompt.contains("Keep it, with a test."));
-    assert_eq!(harness.page.stage(), RoundStage::AgentWorking);
+    assert!(matches!(
+        harness.page.stage(),
+        RoundStage::AgentWorking { .. }
+    ));
 }
 
 #[test]
@@ -510,7 +527,10 @@ fn the_page_shows_why_the_prompt_of_its_answer_could_not_be_delivered() {
     assert!(
         matches!(
             harness.page.stage(),
-            RoundStage::Interrupted { failure: Some(_) }
+            RoundStage::Interrupted {
+                interruption: Interruption::Failed(_),
+                ..
+            }
         ),
         "the page shows {:?}",
         harness.page.stage()
@@ -555,7 +575,10 @@ fn the_page_keeps_the_design_the_first_turn_explained_for_the_rest_of_the_round(
     assert_eq!(harness.page.design().as_deref(), Some(&explained));
 
     let (answer, access) = harness.answer("Keep it.");
-    assert_eq!(harness.page.stage(), RoundStage::AgentWorking);
+    assert!(matches!(
+        harness.page.stage(),
+        RoundStage::AgentWorking { .. }
+    ));
     assert_eq!(harness.page.design().as_deref(), Some(&explained));
     assert!(applied(
         harness.submit(&access, conclusion(&answer, CONCLUSION))
@@ -568,7 +591,7 @@ fn the_page_keeps_the_design_the_first_turn_explained_for_the_rest_of_the_round(
 
 impl Harness {
     /// Start a round from the Explore page, and return the session's reply.
-    fn start_on_page(&mut self, challenger: bool) -> Result<(), CommandRefusal> {
+    pub(super) fn start_on_page(&mut self, challenger: bool) -> Result<(), CommandRefusal> {
         let (reply, replied) = CommandReply::channel();
         self.session.handle(Input::Page {
             command: PageCommand::Start { challenger },
@@ -579,7 +602,7 @@ impl Harness {
 
     /// Start a round from the Explore page as the reviewer's worker does, which sends the
     /// kickoff itself; return the reply and the kickoff.
-    fn start_as_worker(&mut self) -> (Result<(), CommandRefusal>, Option<TurnRequest>) {
+    pub(super) fn start_as_worker(&mut self) -> (Result<(), CommandRefusal>, Option<TurnRequest>) {
         let (reply, replied) = CommandReply::channel();
         let kickoff = self.session.start_from_page(false, reply);
         let reply = replied.blocking_recv().expect("the session replies");
@@ -607,7 +630,10 @@ fn a_round_started_from_the_page_is_captured_saved_and_prompted_as_one_from_the_
     harness.exploration = Some(round.exploration.clone());
     let prompt = harness.delivered_prompt();
     assert!(prompt.contains(&format!("Explore request: {}\n", posted.request.request)));
-    assert_eq!(harness.page.stage(), RoundStage::AgentWorking);
+    assert!(matches!(
+        harness.page.stage(),
+        RoundStage::AgentWorking { .. }
+    ));
     assert_eq!(
         harness.page.round().as_ref(),
         Some(&posted.request.instance)
@@ -640,7 +666,10 @@ fn the_page_shows_a_starting_round_until_its_kickoff_is_saved() {
     harness
         .session
         .handle(Input::Command(Command::Turn(Box::new(kickoff))));
-    assert_eq!(harness.page.stage(), RoundStage::AgentWorking);
+    assert!(matches!(
+        harness.page.stage(),
+        RoundStage::AgentWorking { .. }
+    ));
 
     let mut pane = Harness::start();
     pane.capture();
@@ -750,7 +779,7 @@ impl Harness {
     /// Send `text` from the Explore page as the list to implement for the conclusion of turn
     /// `conclusion`, in place of the request `replaces` the page showed, and return the
     /// session's reply.
-    fn implement_on_page(
+    pub(super) fn implement_on_page(
         &mut self,
         conclusion: &str,
         replaces: Option<&str>,
@@ -770,7 +799,7 @@ impl Harness {
     }
 
     /// The request of the turn that posted the round's conclusion.
-    fn conclusion_request(&self) -> String {
+    pub(super) fn conclusion_request(&self) -> String {
         self.saved()
             .exploration
             .conclusion_request()
@@ -779,7 +808,7 @@ impl Harness {
     }
 
     /// The implementation request the page shows for the conclusion.
-    fn shown_implementation(&self) -> Option<PageImplementation> {
+    pub(super) fn shown_implementation(&self) -> Option<PageImplementation> {
         match self.page.stage() {
             RoundStage::Conclusion { implementation, .. } => implementation,
             stage => panic!("the page shows {stage:?}"),
@@ -788,7 +817,7 @@ impl Harness {
 
     /// Wait until the implementation request is sent or fails, then pick up the outcome the
     /// prompt sender saved, as the storage watcher hands it to the session.
-    fn implementation_finished(&mut self) -> ui_events::ExploreImplementationFinished {
+    pub(super) fn implementation_finished(&mut self) -> ui_events::ExploreImplementationFinished {
         let finished = self.next::<ui_events::ExploreImplementationFinished>();
         self.session.handle(Input::StorageChanged);
         finished
@@ -858,7 +887,7 @@ fn the_page_shows_its_implementation_request_as_sending_then_sent() {
 }
 
 #[test]
-fn a_request_saved_before_a_reopening_shows_as_paused_on_the_page() {
+fn a_request_saved_before_a_reopening_shows_as_paused_and_may_be_replaced_on_the_page() {
     let mut harness = Harness::start();
     harness.conclude();
     let conclusion = harness.conclusion_request();
@@ -867,18 +896,24 @@ fn a_request_saved_before_a_reopening_shows_as_paused_on_the_page() {
 
     harness.reopen();
 
+    harness.delivery.open();
     let shown = harness.shown_implementation().expect("a request");
     assert_eq!(shown.state, ImplementationState::Paused);
     assert_eq!(
         harness.implement_on_page(&conclusion, None, EDITED),
-        Err(CommandRefusal::Stale)
+        Err(CommandRefusal::Stale),
+        "the page did not show the paused request"
     );
     assert_eq!(
-        harness.implement_on_page(&conclusion, Some(&shown.delivery), EDITED),
-        Err(CommandRefusal::Stale),
-        "the reviewer sends a paused request from the pane"
+        harness.implement_on_page(&conclusion, Some(&shown.delivery), "Only this."),
+        Ok(()),
+        "a new request in place of the paused one, as the pane offers it"
     );
-    harness.delivery.open();
+    let finished = (0..2)
+        .map(|_| harness.implementation_finished())
+        .find(|finished| finished.state == DispatchState::Delivered)
+        .expect("the new request reaches the agent");
+    assert_eq!(finished.request.text, "Only this.");
 }
 
 #[test]

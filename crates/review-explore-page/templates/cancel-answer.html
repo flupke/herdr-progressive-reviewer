@@ -1,0 +1,14 @@
+{#- The reviewer's latest answer, with Cancel answer, as in the reviewer's Explore tab: the round
+    goes back to its question, and the review marks the answer led to are given back. -#}
+{% if cancellable %}
+<section class="last-answer" aria-labelledby="last-answer-title">
+  <h2 id="last-answer-title">Your last answer</h2>
+  {% if cancellable.choice %}<p class="choice">{{ cancellable.choice }}</p>{% endif %}
+  {% if cancellable.comment %}<p class="comment">{{ cancellable.comment }}</p>{% endif %}
+  <form class="cancel-answer" method="post" action="/cancel-answer">
+    <input type="hidden" name="answer" value="{{ cancellable.id }}">
+    <p class="hint">Cancel answer takes this answer back, with the agent's turn after it and the review marks it led to: its question waits for your answer again.</p>
+    <button class="secondary" type="submit">Cancel answer</button>
+  </form>
+</section>
+{% endif %}

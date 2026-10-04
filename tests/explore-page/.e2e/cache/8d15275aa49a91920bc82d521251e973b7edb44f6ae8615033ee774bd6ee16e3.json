@@ -1,0 +1,42 @@
+{
+  "schemaVersion": "trace-1",
+  "createdAt": "2026-10-04T03:50:36.246Z",
+  "payload": {
+    "actions": [
+      {
+        "name": "tap",
+        "summary": "tap button \"Retry\"",
+        "target": {
+          "role": "button",
+          "name": "Retry"
+        }
+      }
+    ],
+    "executor": {
+      "name": "e2e-default-agent",
+      "version": "2"
+    },
+    "recordedFor": {
+      "testId": "tests/control.e2e.ts::the%20reviewer%20recovers%20a%20kickoff%20that%20could%20not%20be%20delivered%20with%20Retry",
+      "targetId": "phone",
+      "instructionDigest": "c70e24e8557746dfcd1fbd68a6181f5d0f7136b168575354319862529df10b1c"
+    },
+    "summary": "Selected Retry. The page now says “The agent is working…”, confirming the turn was sent again.",
+    "startPath": "/",
+    "endPath": "/",
+    "endAnchors": [
+      {
+        "role": "status",
+        "name": "The agent is working…"
+      },
+      {
+        "text": "After Stop waiting, Retry sends the turn again."
+      },
+      {
+        "role": "button",
+        "name": "Stop waiting"
+      }
+    ],
+    "endWaitMs": 12617
+  }
+}

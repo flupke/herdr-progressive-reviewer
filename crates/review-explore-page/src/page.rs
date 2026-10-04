@@ -21,13 +21,14 @@ use crate::access::{Hosts, TokenCookie};
 use crate::blind::{BlindQuestion, FirstPick, PickComments};
 use crate::citation::CitationContext;
 use crate::command::{PageAnswer, PageCommand, PageImplement, PageQuizResponse};
+use crate::command::{PageReply, Recovery};
 use crate::diagram::{self, Diagrams};
 use crate::files::PageFiles;
 use crate::form::TextArea;
-use crate::notice::{Notice, Post, Problem};
+use crate::notice::{Notice, Post, Problem, RecoveryPost};
 use crate::round::{
-    ImplementationState, PageImplementation, PageQuiz, PageRound, QuestionMarks, ReviewName,
-    RoundSnapshot, RoundStage, Rounds, TurnResponse,
+    ImplementationState, Interruption, LatestAnswer, PageImplementation, PageQuiz, PageRound,
+    QuestionMarks, ReviewName, RoundSnapshot, RoundStage, Rounds, TurnResponse,
 };
 
 /// Scripts, styles and form posts only from the page itself, and no inline script. Inline
@@ -105,6 +106,13 @@ impl<R: Rounds> ExplorePage<R> {
             .route("/implement", post(implement))
             .route("/quiz", post(quiz_pick))
             .route("/quiz/skip", post(quiz_skip))
+            .route("/stop", post(stop))
+            .route("/retry", post(retry))
+            .route("/cancel-answer", post(cancel_answer))
+            .route("/reset", post(reset::<R>))
+            .route("/reply", post(reply))
+            .route("/cancel-implementation", post(cancel_implementation))
+            .route("/resend-implementation", post(resend_implementation))
             .route("/assets/{name}", get(asset::<R>))
             .route("/dev/changes", get(dev_changes::<R>))
             .route(
@@ -480,6 +488,191 @@ async fn send_quiz(round: &PageRound, response: PageQuizResponse) -> Result<(), 
     round.commands.send(PageCommand::Quiz(response)).await
 }
 
+/// Hands `command` to the round's owner when the page offers it (`offered`), then shows the page
+/// again, with the notice of `post` when the command did not go through.
+async fn send_offered(
+    round: &PageRound,
+    offered: bool,
+    command: PageCommand,
+    post: Post,
+) -> Response {
+    let sent = send_if(round, offered, command).await;
+    to_page(
+        sent.err()
+            .map(|problem| Notice::new(post, problem).cookie()),
+    )
+}
+
+/// Hands `command` to the round's owner when the page offers it (`offered`), and returns why it
+/// did not go through, when it did not.
+async fn send_if(round: &PageRound, offered: bool, command: PageCommand) -> Result<(), Problem> {
+    if offered {
+        round.commands.send(command).await
+    } else {
+        Err(Problem::Stale)
+    }
+}
+
+/// Stop waiting, as its form posts it.
+#[derive(Deserialize)]
+struct StopForm {
+    /// The agent's turn the page showed the agent working on; absent while a round starts.
+    request: Option<String>,
+}
+
+/// Hands Stop waiting to the round's owner, unless the page showed a start or a turn that is no
+/// longer waited for.
+async fn stop(Admitted(round): Admitted, Form(form): Form<StopForm>) -> Response {
+    let offered = round.stages.stage().stops(form.request.as_deref());
+    let command = PageCommand::Recover(Recovery::Stop {
+        request: form.request,
+    });
+    send_offered(&round, offered, command, Post::Recover(RecoveryPost::Stop)).await
+}
+
+/// Retry, as its form posts it.
+#[derive(Deserialize)]
+struct RetryForm {
+    /// The agent's turn the page showed as interrupted.
+    request: String,
+}
+
+/// Hands Retry to the round's owner, unless the page showed a turn that is no longer
+/// interrupted.
+async fn retry(Admitted(round): Admitted, Form(form): Form<RetryForm>) -> Response {
+    let offered = round.stages.stage().retries(&form.request);
+    let command = PageCommand::Recover(Recovery::Retry {
+        request: form.request,
+    });
+    send_offered(&round, offered, command, Post::Recover(RecoveryPost::Retry)).await
+}
+
+/// Cancel answer, as its form posts it.
+#[derive(Deserialize)]
+struct CancelAnswerForm {
+    /// The reviewer's latest answer, as the page showed it.
+    answer: String,
+}
+
+/// Hands Cancel answer to the round's owner, unless the answer the page offered to cancel is no
+/// longer the latest one.
+async fn cancel_answer(Admitted(round): Admitted, Form(form): Form<CancelAnswerForm>) -> Response {
+    let offered = round
+        .stages
+        .latest()
+        .cancellable
+        .is_some_and(|answer| answer.id == form.answer);
+    let command = PageCommand::Recover(Recovery::CancelAnswer {
+        answer: form.answer,
+    });
+    send_offered(
+        &round,
+        offered,
+        command,
+        Post::Recover(RecoveryPost::CancelAnswer),
+    )
+    .await
+}
+
+/// Reset, as its confirmation's form posts it.
+#[derive(Deserialize)]
+struct ResetForm {
+    /// The round the page showed.
+    round: String,
+}
+
+/// Hands Reset to the round's owner, unless the page showed a round that is no longer running,
+/// then shows the start screen. A Reset ends the token of a round on the network: the page that
+/// sent it receives the token of the start screen, so that it can start the next round.
+async fn reset<R: Rounds>(
+    State(page): State<Arc<ExplorePage<R>>>,
+    Admitted(round): Admitted,
+    Form(form): Form<ResetForm>,
+) -> Response {
+    let offered = round.stages.round().as_deref() == Some(form.round.as_str());
+    let command = PageCommand::Recover(Recovery::Reset { round: form.round });
+    match send_if(&round, offered, command).await {
+        Ok(()) => to_page(
+            page.rounds
+                .after_reset()
+                .and_then(|token| TokenCookie::set(&token.to_string())),
+        ),
+        Err(problem) => to_page(Some(
+            Notice::new(Post::Recover(RecoveryPost::Reset), problem).cookie(),
+        )),
+    }
+}
+
+/// The reviewer's reply to the conclusion, as its form posts it.
+#[derive(Deserialize)]
+struct ReplyForm {
+    conclusion: String,
+    #[serde(default)]
+    text: TextArea,
+}
+
+/// Hands the reviewer's reply to the round's owner, unless the page showed a conclusion that the
+/// round moved past.
+async fn reply(Admitted(round): Admitted, Form(form): Form<ReplyForm>) -> Response {
+    let offered = round.stages.stage().concludes(&form.conclusion);
+    let command = PageCommand::Reply(PageReply {
+        conclusion: form.conclusion,
+        text: form.text.into_string(),
+    });
+    send_offered(&round, offered, command, Post::Reply).await
+}
+
+/// Cancel of an implementation request, as its form posts it.
+#[derive(Deserialize)]
+struct CancelImplementationForm {
+    /// The request the page showed as being sent.
+    delivery: String,
+}
+
+/// Hands the cancel of the implementation request to the round's owner, unless the page showed
+/// a request that is no longer being sent.
+async fn cancel_implementation(
+    Admitted(round): Admitted,
+    Form(form): Form<CancelImplementationForm>,
+) -> Response {
+    let offered = round.stages.stage().sends_implementation(&form.delivery);
+    let command = PageCommand::Recover(Recovery::CancelImplementation {
+        delivery: form.delivery,
+    });
+    send_offered(
+        &round,
+        offered,
+        command,
+        Post::Recover(RecoveryPost::CancelImplementation),
+    )
+    .await
+}
+
+/// Sending a saved implementation request again, as its form posts it.
+#[derive(Deserialize)]
+struct ResendImplementationForm {
+    conclusion: String,
+    /// The request the page showed as saved but not sent.
+    delivery: String,
+}
+
+/// Hands the saved implementation request to the round's owner to send, unless the page showed a
+/// request that is no longer saved but not sent.
+async fn resend_implementation(
+    Admitted(round): Admitted,
+    Form(form): Form<ResendImplementationForm>,
+) -> Response {
+    let offered = round
+        .stages
+        .stage()
+        .resends_implementation(&form.conclusion, &form.delivery);
+    let command = PageCommand::Recover(Recovery::ResendImplementation {
+        conclusion: form.conclusion,
+        delivery: form.delivery,
+    });
+    send_offered(&round, offered, command, Post::Implement).await
+}
+
 /// Redirects to the page, setting `cookie` when given (post, redirect, get).
 fn to_page(cookie: Option<HeaderValue>) -> Response {
     redirect("/", cookie)
@@ -500,18 +693,29 @@ fn redirect(address: &str, cookie: Option<HeaderValue>) -> Response {
 struct PageContext<'a> {
     revision: u64,
     stage: Stage,
-    /// Whether the page polls its status: while the agent works, or an implementation request
-    /// is being sent.
-    polls: bool,
+    /// Whether the round waits for the review tool or the agent: a round starts, the agent
+    /// works, or an implementation request is being sent. The page polls its status more often
+    /// then; it polls in every stage, to follow the round.
+    working: bool,
     question: Option<QuestionContext<'a>>,
     conclusion: Option<ConclusionContext<'a>>,
-    /// Why the turn the agent no longer works on failed, when its prompt failed.
-    failure: Option<&'a str>,
+    /// Why the agent is not working on the turn the round waits for, and the turn Retry sends.
+    interrupted: Option<InterruptedContext<'a>>,
     /// Why the reviewer's latest start of a round failed, while no round runs.
     start_failure: Option<&'a str>,
     /// Why the reviewer cannot start a round, when nothing is left to review: the start
     /// buttons are inactive.
     start_block: Option<&'static str>,
+    /// Why the review tool cannot save the reviewer's rounds.
+    storage_failure: Option<&'a str>,
+    /// What Stop waiting stops, when the page offers it.
+    stop: Option<StopContext<'a>>,
+    /// The reviewer's latest answer, when the page offers to cancel it.
+    cancellable: Option<&'a LatestAnswer>,
+    /// The round Reset closes, when the page offers it.
+    reset: Option<&'a str>,
+    /// Whether the round is an earlier one, which the reviewer can only Reset.
+    earlier: bool,
     /// Why the reviewer's latest post did not go through.
     notice: Option<&'a Notice>,
     /// The design of the change, as the round's first turn explained it.
@@ -533,6 +737,20 @@ struct PageContext<'a> {
 struct ShownPick<'p, 'a> {
     pick: &'p FirstPick,
     comment: &'a str,
+}
+
+/// An agent's turn the agent is not working on.
+#[derive(Serialize)]
+struct InterruptedContext<'a> {
+    /// The turn Retry sends again; `None` when there is none, and only Reset is left.
+    request: Option<&'a str>,
+    interruption: &'a Interruption,
+}
+
+/// What Stop waiting stops: the agent's turn `request`, or the start under way when `None`.
+#[derive(Serialize)]
+struct StopContext<'a> {
+    request: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -602,6 +820,9 @@ struct ConclusionContext<'a> {
     offers_implement: bool,
     /// The latest implementation request of the conclusion.
     implementation: Option<&'a PageImplementation>,
+    /// Whether the page offers actions on the conclusion: Implement and its recoveries, and
+    /// Reply. An earlier round offers none.
+    offers_actions: bool,
     /// The conclusion's quiz, when it has one.
     quiz: Option<QuizContext<'a>>,
 }
@@ -676,8 +897,8 @@ impl DesignContext {
     }
 }
 
-/// The stage's name, as the template tests it: `no_round`, `starting` and `working` (the page
-/// polls its status only then), `start_failed`, `question`, `interrupted` or `conclusion`.
+/// The stage's name, as the template tests it: `no_round`, `starting`, `start_failed`,
+/// `working`, `question`, `interrupted`, `conclusion` or `storage_failed`.
 #[derive(Serialize)]
 #[serde(rename_all = "snake_case")]
 enum Stage {
@@ -688,6 +909,7 @@ enum Stage {
     Question,
     Interrupted,
     Conclusion,
+    StorageFailed,
 }
 
 impl<'a> PageContext<'a> {
@@ -698,15 +920,22 @@ impl<'a> PageContext<'a> {
         answered: Option<usize>,
         dev_version: Option<u64>,
     ) -> Self {
+        // An earlier round offers Reset only.
+        let offers_actions = !round.earlier;
         let mut context = Self {
             revision: round.revision,
             stage: Stage::NoRound,
-            polls: false,
+            working: false,
             question: None,
             conclusion: None,
-            failure: None,
+            interrupted: None,
             start_failure: None,
             start_block: round.start_block.map(StartBlock::reason),
+            storage_failure: None,
+            stop: None,
+            cancellable: round.cancellable.as_ref().filter(|_| offers_actions),
+            reset: round.round.as_deref(),
+            earlier: round.earlier,
             notice,
             design: round
                 .design
@@ -721,15 +950,19 @@ impl<'a> PageContext<'a> {
             RoundStage::NoRound => {}
             RoundStage::Starting => {
                 context.stage = Stage::Starting;
-                context.polls = true;
+                context.working = true;
+                context.stop = Some(StopContext { request: None });
             }
             RoundStage::StartFailed { failure } => {
                 context.stage = Stage::StartFailed;
                 context.start_failure = Some(failure);
             }
-            RoundStage::AgentWorking => {
+            RoundStage::AgentWorking { request } => {
                 context.stage = Stage::Working;
-                context.polls = true;
+                context.working = true;
+                context.stop = offers_actions.then_some(StopContext {
+                    request: Some(request),
+                });
             }
             RoundStage::Question {
                 number,
@@ -749,9 +982,15 @@ impl<'a> PageContext<'a> {
                     first_pick,
                 ));
             }
-            RoundStage::Interrupted { failure } => {
+            RoundStage::Interrupted {
+                request,
+                interruption,
+            } => {
                 context.stage = Stage::Interrupted;
-                context.failure = failure.as_deref();
+                context.interrupted = Some(InterruptedContext {
+                    request: request.as_deref().filter(|_| offers_actions),
+                    interruption,
+                });
             }
             RoundStage::Conclusion {
                 request,
@@ -761,7 +1000,7 @@ impl<'a> PageContext<'a> {
                 ..
             } => {
                 context.stage = Stage::Conclusion;
-                context.polls = implementation.as_ref().is_some_and(|implementation| {
+                context.working = implementation.as_ref().is_some_and(|implementation| {
                     implementation.state == ImplementationState::Sending
                 });
                 context.conclusion = Some(ConclusionContext::new(
@@ -771,7 +1010,14 @@ impl<'a> PageContext<'a> {
                     implementation.as_ref(),
                     quiz,
                     answered,
+                    offers_actions,
                 ));
+            }
+            RoundStage::StorageFailed { failure } => {
+                context.stage = Stage::StorageFailed;
+                context.storage_failure = Some(failure);
+                context.cancellable = None;
+                context.reset = None;
             }
         }
         context
@@ -853,9 +1099,10 @@ impl<'a> ConclusionContext<'a> {
         implementation: Option<&'a PageImplementation>,
         quiz: &'a PageQuiz,
         answered: Option<usize>,
+        offers_actions: bool,
     ) -> Self {
         let replaces = implementation.map(|implementation| implementation.delivery.as_str());
-        let offers_implement = stage.offers_implement(request, replaces);
+        let offers_implement = offers_actions && stage.offers_implement(request, replaces);
         let quiz = (!conclusion.quiz.is_empty())
             .then(|| QuizContext::new(request, &conclusion.quiz, quiz, answered));
         Self {
@@ -868,6 +1115,7 @@ impl<'a> ConclusionContext<'a> {
             },
             offers_implement,
             implementation,
+            offers_actions,
             quiz,
         }
     }
@@ -946,7 +1194,7 @@ impl MarksContext {
     }
 }
 
-/// What the page's script polls while the agent works.
+/// What the page's script polls to follow the round: the revision of the published stage.
 async fn status(Admitted(round): Admitted) -> Response {
     let revision = round.stages.latest().revision;
     (

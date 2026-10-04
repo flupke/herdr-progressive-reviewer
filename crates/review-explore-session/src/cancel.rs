@@ -9,13 +9,17 @@ use review_explore::ExploreRound;
 use crate::ExploreSession;
 
 impl ExploreSession {
-    pub(crate) fn cancel_answer(&mut self, answer: String) {
+    /// Cancels the latest answer `answer`, tells the front ends, and returns why it could not,
+    /// when it could not.
+    pub(crate) fn cancel_answer(&mut self, answer: String) -> Result<(), String> {
         let result = self
             .cancel_latest(&answer)
             .map_err(|error| error.to_string());
+        let outcome = result.as_ref().map(|_| ()).map_err(Clone::clone);
         let _ = self
             .events
             .send(ui_events::ExploreAnswerCancelled { answer, result });
+        outcome
     }
 
     fn cancel_latest(&mut self, answer: &str) -> eyre::Result<Arc<ExploreRound>> {

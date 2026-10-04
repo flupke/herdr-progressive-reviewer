@@ -146,14 +146,15 @@ _Avoid_: cancel (which stops a pending turn), correction, undo, defer
 A browser page, served by the open review pane, that shows the current state of
 its Explore round: no round, a round starting or failing to start, the agent
 working, the agent's question with its choices, a turn the agent is no longer
-working on, or the conclusion with its quiz. The reviewer can start a round,
-answer the question and implement the conclusion there, as in the pane. Its
-address carries a token, and the page refuses requests without it. The pane
-serves it on this machine, for the Herdr action and for Start and Start with
-Challenger, which open it in the browser (Start in the pane does not), and on the
-network, behind a new
-token for each round, for the QR code in the pane; while no round runs, the start
-screen's token is the one the next round keeps.
+working on, or the conclusion with its quiz; it follows the round as it changes.
+The reviewer can run the whole round there, as in the pane: start it, answer,
+stop waiting, retry, cancel an answer, reply to the conclusion, implement it and
+reset it. Its address carries a token, and the page refuses requests without it.
+The pane serves it on this machine, for the Herdr action and for Start and Start
+with Challenger, which open it in the browser (Start in the pane does not), and on
+the network, behind a new token for each round, for the QR code in the pane; while
+no round runs, the start screen's token is the one the next round keeps, and a
+Reset from the page hands that page the next one.
 _Avoid_: web UI, Explore web, browser view
 
 **Round on the page**:

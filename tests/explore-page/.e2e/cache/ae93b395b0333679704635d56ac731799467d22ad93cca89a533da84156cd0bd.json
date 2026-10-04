@@ -1,0 +1,48 @@
+{
+  "schemaVersion": "trace-1",
+  "createdAt": "2026-10-04T02:57:39.795Z",
+  "payload": {
+    "actions": [
+      {
+        "name": "tap",
+        "summary": "tap button \"Cancel the implementation request\" in \"To be implemented\"",
+        "target": {
+          "role": "button",
+          "name": "Cancel the implementation request",
+          "within": "To be implemented"
+        }
+      }
+    ],
+    "executor": {
+      "name": "e2e-default-agent",
+      "version": "2"
+    },
+    "recordedFor": {
+      "testId": "tests/control.e2e.ts::the%20reviewer%20cancels%20an%20implementation%20request%20that%20is%20being%20sent",
+      "targetId": "phone",
+      "instructionDigest": "242f328c4ea4a6fba282b44684309e03bb35b486f01b5dc49e9ff9c953c8e682"
+    },
+    "summary": "Cancelled the implementation request. The status confirms it was cancelled before being sent, and the draft text remains in the To be implemented field.",
+    "startPath": "/",
+    "endPath": "/",
+    "endAnchors": [
+      {
+        "role": "status",
+        "name": "The implementation request was cancelled before it was sent."
+      },
+      {
+        "role": "textbox",
+        "name": "To be implemented",
+        "text": "Save the draft with the round."
+      },
+      {
+        "text": "Implement asks the agent to implement this list, and nothing else."
+      },
+      {
+        "role": "button",
+        "name": "Implement"
+      }
+    ],
+    "endWaitMs": 12487
+  }
+}

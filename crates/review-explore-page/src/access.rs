@@ -9,6 +9,7 @@ use axum::http::{HeaderMap, HeaderValue, header};
 use crate::PageEvent;
 
 /// The secret of the address that opens a round's page.
+#[derive(Clone)]
 pub struct Token(String);
 
 impl Token {

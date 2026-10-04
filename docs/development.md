@@ -75,18 +75,22 @@ See [language server setup](language-servers.md) for the server commands, and
 The Explore page is a browser page that shows an Explore round. Its routes,
 templates and assets are in
 [`crates/review-explore-page`](../crates/review-explore-page): axum serves HTML
-rendered from minijinja templates, with no client framework. While the agent
-works, and while a round starts, `assets/page.js` polls the page's
-status and loads the page again once the round has changed. The reviewer's actions are form posts that need the
+rendered from minijinja templates, with no client framework. In every stage,
+`assets/page.js` polls the page's status, which holds only the revision of the
+published stage, and loads the page again once it changed, or once the page's
+token no longer opens a round; it polls faster while a round starts, the agent
+works or an implementation request is being sent. The reviewer's actions are form posts that need the
 page's cookie: the page hands each one to the round's owner as a
 `PageCommand`, waits for its reply, then redirects to the page (post, redirect,
 get). A refusal travels to that next load in a short-lived cookie, which the
 page shows once, worded by the template partial of its post
 (`templates/notice-{post}.html`). Before it sends an answer, the page checks that the round
 still asks the question it showed; before an Implement, that the conclusion
-still offers it in place of the request the page showed, if any. The owner
-checks again against its own round. The page also polls while an
-implementation request is being sent. On a question whose Door is not two-way,
+still offers it in place of the request the page showed, if any; before Stop
+waiting, Retry, Cancel answer, Reset, a reply or a cancel of an implementation
+request, that the stage still offers it, by the identity of the turn, answer,
+round, conclusion or request the form posts. The owner checks again against its
+own round. On a question whose Door is not two-way,
 the page hides the recommendation until the reviewer's first pick
 (`src/blind.rs`), unless the reviewer answered the question before and cancelled the
 answer (`RoundStage::Question::answer_cancelled`): the pick is a form post that the
@@ -98,6 +102,39 @@ not sent keeps its comment there. A conclusion with a quiz shows it first, one i
 (`PageCommand::Quiz`), then shows the item's answer at `/?answered=N` until the
 reviewer moves on; once every item is answered or the reviewer skips the rest, the
 conclusion shows with the results folded beside it.
+
+The page offers every action of the pane's Explore tab for the round's state,
+through `PageCommand`, and the session carries each one out by the path of the
+pane's command, so that it saves the same result and sends the same prompt
+(`crates/review-explore-session/src/page_actions.rs`). The pane follows each one
+through the events it already follows (`ExplorePosted`, `ExploreAnswerCancelled`,
+`ExploreImplementationSaved`, `ExploreImplementationFinished`), and through
+`ExplorePageStopped` and `ExplorePageReset`; its own behaviour does not change.
+On the network, Reset ends the round's token, and the page that sent it receives
+the start screen's next token (`Rounds::after_reset`, ADR 0003).
+
+| State of the pane's Explore tab | Pane action | On the page (`RoundStage`) |
+| --- | --- | --- |
+| No round | Start, Start with Challenger | Start, Start with Challenger (`NoRound`) |
+| The latest start failed | Retry, which starts again | The reason, and Start again (`StartFailed`) |
+| Capturing the change, waiting for a start from the page, or a kickoff waiting for Jev | Stop waiting | Stop waiting (`Starting`) |
+| Stopped while capturing | None: waits for the capture to end | `Starting`, then `NoRound` |
+| Waiting for the agent | Stop waiting; Cancel answer on the latest answer | Stop waiting; Cancel answer under Your last answer (`AgentWorking`) |
+| Interrupted: the prompt failed, the agent did not start on it, the reviewer stopped waiting, or reopened during the turn | Retry, with the reason; Cancel answer | Retry, with the failure, an unknown delivery or a stop (`Interrupted`); Cancel answer |
+| Interrupted with no turn to send again | Reset | That only Reset is left (`Interrupted` with no request) |
+| A question | Send; Cancel answer of the previous answer | Send, after the first pick on a blind question (`Question`); Cancel answer |
+| An earlier question in the history | A free-text answer | None: the page shows the current stage only |
+| The conclusion | Implement; Reply; Cancel answer until a request is made | Implement; Reply to the conclusion; Cancel answer (`Conclusion`), after the quiz, which only the page asks |
+| An implementation request being sent | Cancel implementation | Cancel the implementation request |
+| A request saved but not sent, by an earlier process | Send saved implementation request; New implementation request | Send the saved request; Send a new request |
+| A request whose delivery is unknown | New implementation request | Send a new request, after the warning |
+| A request the agent did not start on | Retry; New implementation request | Retry only: the list may still wait in the agent's prompt box |
+| A request that was not sent or was cancelled | Implement | Implement |
+| A request the agent received | None | None |
+| Any running round | Reset, then Confirm reset | Reset, then Confirm reset |
+| An earlier round, or one whose history was repaired | Reset only | That it can no longer change, and Reset only (`earlier`) |
+| A storage error | None: the status says why | Why, and to reopen the pane once fixed (`StorageFailed`) |
+| Any | History navigation, the provisional map, marks lists, evidence windows | None: the page shows the current stage with its citations |
 
 The agent's Markdown (the design explanation, a question's Context, Door and
 Blast radius, the conclusion) is rendered to HTML on the server by
@@ -269,7 +306,11 @@ nothing to review, so the start screen offers no start, and `explore.unreviewLin
 round start again. An Implement from the page
 shows the request as being sent until `explore.deliverImplementation()`;
 `explore.implementInPane()` sends the conclusion's request from the pane, and
-`explore.implementations()` returns the lists the page sent. `explore.concludeWithQuiz()`
+`explore.implementations()` returns the lists the page sent. `explore.actions()`
+returns, by name, the other actions the page sent (Stop waiting, Retry, Cancel
+answer, Reset, a reply, a cancel of an implementation request), and
+`explore.holdPage()` stops the page from following the round, for a test of an
+action refused on a stale page. `explore.concludeWithQuiz()`
 concludes with a quiz of two items, and `explore.quiz()` returns what the reviewer
 answered of it, as the review tool saves it. The server's control
 routes are listed in

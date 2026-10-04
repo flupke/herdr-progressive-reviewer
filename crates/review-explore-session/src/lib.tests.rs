@@ -29,6 +29,8 @@ mod front_ends;
 mod not_started;
 #[path = "page.tests.rs"]
 mod page;
+#[path = "page_actions.tests.rs"]
+mod page_actions;
 #[path = "quiz.tests.rs"]
 mod quiz;
 #[path = "recovery.tests.rs"]

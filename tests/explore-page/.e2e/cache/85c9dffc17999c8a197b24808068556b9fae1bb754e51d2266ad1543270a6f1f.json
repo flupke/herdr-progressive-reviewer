@@ -1,0 +1,61 @@
+{
+  "schemaVersion": "trace-1",
+  "createdAt": "2026-10-04T04:00:20.325Z",
+  "payload": {
+    "actions": [
+      {
+        "name": "tap",
+        "summary": "tap button \"Cancel answer\" in \"Your last answer\"",
+        "target": {
+          "role": "button",
+          "name": "Cancel answer",
+          "within": "Your last answer"
+        }
+      }
+    ],
+    "executor": {
+      "name": "e2e-default-agent",
+      "version": "2"
+    },
+    "recordedFor": {
+      "testId": "tests/control.e2e.ts::the%20reviewer%20cancels%20the%20last%20answer%2C%20and%20its%20question%20waits%20again",
+      "targetId": "desktop",
+      "instructionDigest": "258059d3794566e6be6dab08b655d62ae30536f389d47bc6cfd5dff5706d4cb3"
+    },
+    "summary": "Canceled the last answer. The question is waiting for a response again, with the Send button available.",
+    "startPath": "/",
+    "endPath": "/",
+    "endAnchors": [
+      {
+        "role": "heading",
+        "name": "What it adds and where"
+      },
+      {
+        "text": "The change keeps the reviewer's unsent draft when a round is reopened. It adds a draft field to the saved editor state and restores it when the pane rebuilds its editor."
+      },
+      {
+        "text": "Nothing else moves: the answers, the marks and the round's history are saved as before, and a round saved before the change opens with an empty draft."
+      },
+      {
+        "role": "heading",
+        "name": "Types and data flow"
+      },
+      {
+        "text": "The draft is saved with the editor state, in the round record."
+      },
+      {
+        "role": "columnheader",
+        "name": "Step"
+      },
+      {
+        "role": "columnheader",
+        "name": "Holds the draft"
+      },
+      {
+        "role": "columnheader",
+        "name": "Saved where"
+      }
+    ],
+    "endWaitMs": 12434
+  }
+}

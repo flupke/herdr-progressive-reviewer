@@ -5,7 +5,10 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use herdr_client::protocol::WorkspaceId;
-use review_explore_page::{PublishedRound, RoundPublisher, RoundStage};
+use review_explore_page::{
+    CommandRefusal, CommandSender, PageCommand, PageRound, PublishedRound, Recovery,
+    RoundPublisher, RoundStage,
+};
 
 use super::*;
 use crate::{PageDirectory, PageHost};
@@ -13,7 +16,7 @@ use crate::{PageDirectory, PageHost};
 /// A page host with its page shared on the loopback interface, which stands in for a network
 /// interface, and the addresses it announces.
 struct Shared {
-    round: RoundPublisher,
+    round: Arc<RoundPublisher>,
     host: PageHost,
     address: SocketAddr,
     announced: mpsc::Receiver<String>,
@@ -25,9 +28,20 @@ struct Shared {
 impl Shared {
     fn start() -> Self {
         let state = tempfile::tempdir().unwrap();
-        let round = RoundPublisher::default();
+        let round = Arc::new(RoundPublisher::default());
+        // The round's owner: it takes a Reset, and refuses every other command.
+        let owner = Arc::downgrade(&round);
+        let commands = CommandSender::new(move |command, reply| match command {
+            PageCommand::Recover(Recovery::Reset { .. }) => {
+                if let Some(round) = owner.upgrade() {
+                    round.publish(None, RoundStage::NoRound);
+                }
+                reply.send(Ok(()));
+            }
+            _ => reply.send(Err(CommandRefusal::Stale)),
+        });
         let host = PageHost::start(
-            crate::tests::page_round(&round),
+            PageRound::new(round.subscribe(), commands),
             &PageDirectory::new(state.path()),
             &WorkspaceId("w1".into()),
         )
@@ -54,20 +68,14 @@ impl Shared {
     /// Starts the round `id`, which replaces a running round, and returns the address of its
     /// page that the host announced.
     fn replace_round(&self, id: &str) -> String {
-        self.round.publish(
-            Some(PublishedRound { id, design: None }),
-            RoundStage::AgentWorking,
-        );
+        self.round.publish(Some(published(id)), working());
         self.next_announcement()
     }
 
     /// Starts the round `id` while no round runs, and waits for the host to give it the token
     /// of the address it announced for the start screen.
     fn start_round(&self, id: &str) {
-        self.round.publish(
-            Some(PublishedRound { id, design: None }),
-            RoundStage::AgentWorking,
-        );
+        self.round.publish(Some(published(id)), working());
         assert_eq!(
             self.next_announcement(),
             self.first,
@@ -103,6 +111,22 @@ impl Shared {
     }
 }
 
+/// The round `id`, with nothing more to publish.
+fn published(id: &str) -> PublishedRound<'_> {
+    PublishedRound {
+        id,
+        design: None,
+        cancellable: None,
+        earlier: false,
+    }
+}
+
+fn working() -> RoundStage {
+    RoundStage::AgentWorking {
+        request: "turn".into(),
+    }
+}
+
 fn loopback(port: u16) -> NetworkAccess {
     NetworkAccess::On {
         interface: Some(LOOPBACK.into()),
@@ -121,6 +145,22 @@ fn path(url: &str) -> &str {
 }
 
 fn status(address: SocketAddr, method: &str, target: &str, headers: &[(&str, &str)]) -> u16 {
+    let response = request(address, method, target, headers, "");
+    response
+        .split(' ')
+        .nth(1)
+        .and_then(|code| code.parse().ok())
+        .unwrap_or_else(|| panic!("no status in {response:?}"))
+}
+
+/// The response, head and body, to a request for `target` with `body`.
+fn request(
+    address: SocketAddr,
+    method: &str,
+    target: &str,
+    headers: &[(&str, &str)],
+    body: &str,
+) -> String {
     let mut stream = TcpStream::connect(address).unwrap();
     stream
         .set_read_timeout(Some(Duration::from_secs(5)))
@@ -129,15 +169,11 @@ fn status(address: SocketAddr, method: &str, target: &str, headers: &[(&str, &st
     for (name, value) in headers {
         let _ = write!(request, "{name}: {value}\r\n");
     }
-    request.push_str("Content-Length: 0\r\n\r\n");
+    let _ = write!(request, "Content-Length: {}\r\n\r\n{body}", body.len());
     stream.write_all(request.as_bytes()).unwrap();
     let mut response = String::new();
     stream.read_to_string(&mut response).unwrap();
     response
-        .split(' ')
-        .nth(1)
-        .and_then(|code| code.parse().ok())
-        .unwrap_or_else(|| panic!("no status in {response:?}"))
 }
 
 #[test]
@@ -160,11 +196,11 @@ fn the_page_opens_on_the_network_before_any_round_and_stays_with_the_round_it_st
         "the page that started the round"
     );
     shared.round.publish(
-        Some(PublishedRound {
-            id: "r1",
-            design: None,
-        }),
-        RoundStage::Interrupted { failure: None },
+        Some(published("r1")),
+        RoundStage::Interrupted {
+            request: None,
+            interruption: review_explore_page::Interruption::Stopped,
+        },
     );
     assert_eq!(shared.open(&shared.first), 303, "the round keeps its token");
 }
@@ -198,19 +234,48 @@ fn a_reset_closes_the_rounds_page_and_opens_a_new_one_for_the_next_round() {
     assert_eq!(shared.open(&shared.first), 403);
     assert_eq!(shared.load(&shared.first), 403);
     assert_eq!(shared.load(&next), 200);
-    shared.round.publish(
-        Some(PublishedRound {
-            id: "r2",
-            design: None,
-        }),
-        RoundStage::AgentWorking,
-    );
+    shared.round.publish(Some(published("r2")), working());
     assert_eq!(shared.next_announcement(), next);
     assert_eq!(
         shared.load(&next),
         200,
         "the page that started the next round"
     );
+}
+
+#[test]
+fn a_reset_on_the_network_page_hands_that_page_the_start_screens_token() {
+    let shared = Shared::start();
+    shared.start_round("r1");
+    let token = shared.first.rsplit('=').next().unwrap();
+    let host = shared.address.to_string();
+    let cookie = format!("explore_token_{}={token}", shared.address.port());
+
+    let response = request(
+        shared.address,
+        "POST",
+        "/reset",
+        &[
+            ("Host", &host),
+            ("Cookie", &cookie),
+            ("Content-Type", "application/x-www-form-urlencoded"),
+        ],
+        "round=r1",
+    );
+
+    assert!(response.starts_with("HTTP/1.1 303"), "{response}");
+    let next = shared.next_announcement();
+    assert_ne!(next, shared.first);
+    let handed = response
+        .lines()
+        .find_map(|line| line.strip_prefix("set-cookie: "))
+        .and_then(|cookie| cookie.split(';').next())
+        .and_then(|pair| pair.split_once('='))
+        .map(|(_, token)| token)
+        .expect("a new token cookie");
+    assert_eq!(next.rsplit('=').next(), Some(handed));
+    assert_eq!(shared.load(&next), 200, "the page shows the start screen");
+    assert_eq!(shared.load(&shared.first), 403, "the round's token ended");
 }
 
 #[test]

@@ -3,24 +3,18 @@ import { test } from './session.ts';
 
 // The fixture's round starts with the agent working on its first question (question.e2e.ts checks
 // that the page says so). Each test opens the page (`explore.open()` returns once it has loaded),
-// then moves the round: the page has to follow it.
+// then moves the round as the pane or the agent would: the page has to follow it.
 
-test('the working state is replaced by the next question when it is ready', async ({ explore, screen, agent }) => {
+test('the page follows an answer given in the pane, then shows the next question', async ({ explore, screen }) => {
   await explore.open();
   await explore.askQuestion();
   await expect(screen.getByRole('region', 'Question 1')).toBeVisible();
 
-  // A page that shows a question does not poll, so it does not follow an answer given in the
-  // pane: it still shows the question, not the working state (this check alone cannot tell a
-  // page that polls slowly)...
+  // The page follows the round in every stage, with no reload by the reviewer: an answer given
+  // in the pane puts it in the working state, with the answer the reviewer may cancel.
   await explore.answerInPane();
-  await expect(screen.getByRole('status')).not.toBeVisible();
-  await expect(screen.getByRole('region', 'Question 1')).toBeVisible();
-
-  // ...until the reviewer loads it again. It then waits for the agent's next question. The page
-  // keeps its address, `/`, once it traded the token of the address it opened at for a cookie.
-  await agent.act('load the page again at "/"');
   await expect(screen.getByRole('status')).toContainText('The agent is working');
+  await expect(screen.getByRole('region', 'Your last answer')).toContainText('Keep the draft');
 
   await explore.askQuestion();
   await expect(screen.getByRole('region', 'Question 2')).toContainText('Where should the kept draft be stored?');

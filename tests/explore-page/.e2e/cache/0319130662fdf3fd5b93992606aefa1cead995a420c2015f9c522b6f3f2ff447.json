@@ -1,6 +1,6 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-04T03:43:00.870Z",
+  "createdAt": "2026-10-04T04:01:14.741Z",
   "payload": {
     "actions": [
       {
@@ -28,11 +28,11 @@
       "version": "2"
     },
     "recordedFor": {
-      "testId": "tests/implement.e2e.ts::a%20request%20the%20agent%20did%20not%20start%20on%20says%20so%2C%20and%20leaves%20Retry%20to%20the%20pane",
+      "testId": "tests/implement.e2e.ts::a%20request%20the%20agent%20did%20not%20start%20on%20says%20so%2C%20and%20the%20reviewer%20sends%20it%20again%20with%20Retry",
       "targetId": "phone",
       "instructionDigest": "df9106863ecb6ad663e95c2c77d596c03f5279454c9ca3df011e57ed952a1d6c"
     },
-    "summary": "Replaced the implementation list with the requested text and pressed Implement. The page now says it is sending the implementation request to the agent.",
+    "summary": "Replaced the implementation list with “Save the draft with the round, and test that a reopened round restores it.” and pressed Implement. The page confirms it is sending the implementation request to the agent.",
     "startPath": "/",
     "endPath": "/",
     "endAnchors": [
@@ -42,8 +42,15 @@
       },
       {
         "text": "Save the draft with the round, and test that a reopened round restores it."
+      },
+      {
+        "text": "Cancel stops the request if it has not reached the agent yet."
+      },
+      {
+        "role": "button",
+        "name": "Cancel the implementation request"
       }
     ],
-    "endWaitMs": 12964
+    "endWaitMs": 12331
   }
 }

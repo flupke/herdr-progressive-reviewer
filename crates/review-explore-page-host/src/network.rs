@@ -150,12 +150,15 @@ impl NetworkListener {
 /// The round the page on the network shows, behind a token that changes with each round. While
 /// no round runs, the page has a token too, for the start screen: the round that starts next
 /// keeps it, so the page that started the round stays connected to it. The token of a round
-/// that is no longer running opens nothing, even before the next token is made. Clones share
-/// the token.
+/// that is no longer running opens nothing, even before the next token is made. Each new token
+/// or round of the token is announced with the page's address. Clones share the token.
 #[derive(Clone)]
 pub(crate) struct RoundTokens {
     round: PageRound,
     current: Arc<Mutex<Option<RoundToken>>>,
+    /// The address the page is served at.
+    address: SocketAddr,
+    announce: Arc<dyn Fn(&str) + Send + Sync>,
 }
 
 /// The token of one round, or of the round that starts next.
@@ -174,20 +177,39 @@ impl RoundToken {
 }
 
 impl RoundTokens {
-    pub(crate) fn new(round: PageRound) -> Self {
+    /// The tokens of the page of `round` served at `address`; `announce` receives the page's
+    /// address each time its token or the token's round changes.
+    pub(crate) fn new(
+        round: PageRound,
+        address: SocketAddr,
+        announce: impl Fn(&str) + Send + Sync + 'static,
+    ) -> Self {
         Self {
             round,
             current: Arc::default(),
+            address,
+            announce: Arc::new(announce),
         }
     }
 
     /// Gives the token to the round now running: the same one while the same round runs, the
     /// token made while no round ran to the round that starts, a new one for a round that
-    /// replaces another, and a new one for the next round once no round runs. Returns the
-    /// address of the page served at `address` when the token or its round changed.
-    pub(crate) fn renew(&self, address: SocketAddr) -> Option<Renewed> {
+    /// replaces another, and a new one for the next round once no round runs. Announces the
+    /// address of the page when the token or its round changed.
+    pub(crate) fn renew(&self) {
+        let url = {
+            let mut current = self.current.lock().unwrap_or_else(PoisonError::into_inner);
+            self.renew_locked(&mut current)
+        };
+        if let Some(url) = url {
+            (self.announce)(&url);
+        }
+    }
+
+    /// Renews `current`, the locked token, and returns the address to announce when the token
+    /// or its round changed.
+    fn renew_locked(&self, current: &mut Option<RoundToken>) -> Option<String> {
         let running = self.round.stages().round();
-        let mut current = self.current.lock().unwrap_or_else(PoisonError::into_inner);
         match current.as_mut() {
             Some(token) if token.round == running => return None,
             Some(token) if token.round.is_none() => token.round = running,
@@ -200,12 +222,9 @@ impl RoundTokens {
         }
         current
             .as_ref()
-            .map(|current| Renewed(current.token.url(address)))
+            .map(|current| current.token.url(self.address))
     }
 }
-
-/// The address of the page once its token or the token's round changed.
-pub(crate) struct Renewed(pub(crate) String);
 
 impl Rounds for RoundTokens {
     fn find(&self, token: &str) -> Option<PageRound> {
@@ -215,6 +234,25 @@ impl Rounds for RoundTokens {
             .as_ref()
             .filter(|current| current.opens(running.as_ref()) && current.token.matches(token))
             .map(|_| self.round.clone())
+    }
+
+    /// A Reset from the page ended the round of its token: the page receives the token made
+    /// for the round that starts next, while no round runs. The reset round's own token opens
+    /// nothing any more.
+    fn after_reset(&self) -> Option<Token> {
+        let (url, token) = {
+            let mut current = self.current.lock().unwrap_or_else(PoisonError::into_inner);
+            let url = self.renew_locked(&mut current);
+            let token = current
+                .as_ref()
+                .filter(|current| current.round.is_none())
+                .map(|current| current.token.clone());
+            (url, token)
+        };
+        if let Some(url) = url {
+            (self.announce)(&url);
+        }
+        token
     }
 }
 

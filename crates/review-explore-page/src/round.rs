@@ -14,7 +14,7 @@ use serde::Serialize;
 use tokio::sync::watch;
 
 use crate::blind::{BlindQuestion, FirstPick};
-use crate::{CommandSender, PageQuizResponse};
+use crate::{CommandSender, PageQuizResponse, Token};
 
 /// The step of a round that the page shows.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -26,8 +26,9 @@ pub enum RoundStage {
     Starting,
     /// No round is running: the reviewer's latest start failed, for this reason.
     StartFailed { failure: String },
-    /// The agent works on its next turn.
-    AgentWorking,
+    /// The agent works on its next turn, the turn `request`. The reviewer may stop waiting for
+    /// it.
+    AgentWorking { request: String },
     /// The agent's question, waiting for the reviewer's answer.
     Question {
         /// The question's position in the round, from 1.
@@ -44,11 +45,13 @@ pub enum RoundStage {
         answer_cancelled: bool,
     },
     /// The agent is not working on the turn the round waits for: its prompt failed, the
-    /// reviewer stopped waiting, or the reviewer reopened during the turn. The reviewer
-    /// retries in the pane.
+    /// reviewer stopped waiting, or the reviewer reopened during the turn. The reviewer may
+    /// retry it.
     Interrupted {
-        /// Why the prompt of the turn could not be delivered, when it failed.
-        failure: Option<String>,
+        /// The turn that Retry sends again; `None` when the round has no turn to send again,
+        /// and only Reset is left.
+        request: Option<String>,
+        interruption: Interruption,
     },
     /// The agent concluded the round.
     Conclusion {
@@ -63,6 +66,22 @@ pub enum RoundStage {
         /// What the agent's turn that posted the conclusion said back to the previous answer.
         response: TurnResponse,
     },
+    /// The review tool cannot save the reviewer's rounds, for this reason: the page can do
+    /// nothing until the review pane opens again.
+    StorageFailed { failure: String },
+}
+
+/// Why the agent is not working on the turn the round waits for.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(tag = "kind", content = "reason", rename_all = "snake_case")]
+pub enum Interruption {
+    /// The turn's prompt could not be delivered, for this reason.
+    Failed(String),
+    /// The turn's prompt was being delivered when the reviewer reopened: whether the agent
+    /// received it is unknown.
+    Uncertain,
+    /// The reviewer stopped waiting, or reopened before the prompt was sent.
+    Stopped,
 }
 
 impl RoundStage {
@@ -104,6 +123,54 @@ impl RoundStage {
         matches!(self, Self::NoRound | Self::StartFailed { .. })
     }
 
+    /// Whether the stage waits for what Stop waiting with `request` stops: the start under way
+    /// when `request` is `None`, else the agent's turn `request`.
+    pub(crate) fn stops(&self, request: Option<&str>) -> bool {
+        match (self, request) {
+            (Self::Starting, None) => true,
+            (Self::AgentWorking { request: working }, Some(request)) => working == request,
+            _ => false,
+        }
+    }
+
+    /// Whether the stage offers Retry of the agent's turn `request`.
+    pub(crate) fn retries(&self, request: &str) -> bool {
+        matches!(self, Self::Interrupted { request: Some(retried), .. } if retried == request)
+    }
+
+    /// Whether the stage shows the conclusion of the turn `conclusion`, to which the reviewer
+    /// may reply.
+    pub(crate) fn concludes(&self, conclusion: &str) -> bool {
+        matches!(self, Self::Conclusion { request, .. } if request == conclusion)
+    }
+
+    /// Whether the stage shows the implementation request `delivery` of the conclusion as being
+    /// sent: the reviewer may cancel it.
+    pub(crate) fn sends_implementation(&self, delivery: &str) -> bool {
+        matches!(
+            self,
+            Self::Conclusion { implementation: Some(implementation), .. }
+                if implementation.delivery == delivery
+                    && implementation.state == ImplementationState::Sending
+        )
+    }
+
+    /// Whether the stage offers to send again, as it is, the implementation request `delivery`
+    /// of the conclusion of the turn `conclusion`: it was saved but not sent, or the agent did
+    /// not start on it.
+    pub(crate) fn resends_implementation(&self, conclusion: &str, delivery: &str) -> bool {
+        matches!(
+            self,
+            Self::Conclusion { request, implementation: Some(implementation), .. }
+                if request == conclusion
+                    && implementation.delivery == delivery
+                    && matches!(
+                        implementation.state,
+                        ImplementationState::Paused | ImplementationState::NotStarted
+                    )
+        )
+    }
+
     /// Whether the stage shows the quiz `response` answers, where it fits, as the round would
     /// record it: a pick of the item the quiz asks next, or of an item again with the same
     /// option, or a skip.
@@ -127,8 +194,8 @@ impl RoundStage {
     }
 
     /// Whether the stage offers Implement for the conclusion of the turn `conclusion`, in place
-    /// of its request `replaces`, which was not sent, or as its first request when `replaces` is
-    /// `None`.
+    /// of its request `replaces`, which the agent did not receive or may not have received, or
+    /// as its first request when `replaces` is `None`.
     pub(crate) fn offers_implement(&self, conclusion: &str, replaces: Option<&str>) -> bool {
         let Self::Conclusion {
             request,
@@ -243,13 +310,14 @@ pub enum ImplementationState {
     Sending,
     /// The agent received it.
     Sent,
-    /// It was saved, then not sent: the reviewer reopened first. The reviewer sends it, or a
-    /// new one, from the pane.
+    /// It was saved, then not sent: the reviewer reopened first. The reviewer may send it, or
+    /// a new one.
     Paused,
-    /// Whether the agent received it is unknown.
+    /// Whether the agent received it is unknown. The reviewer may send a new one, after
+    /// checking the agent's conversation.
     Unknown,
     /// The agent did not start on it: the text may still wait in the agent's prompt box. The
-    /// reviewer looks at the agent's pane, then sends it again from the pane.
+    /// reviewer looks at the agent's pane, then sends it again as it is.
     NotStarted,
     /// It could not be sent, for this reason. The reviewer may send another.
     NotSent(String),
@@ -258,10 +326,14 @@ pub enum ImplementationState {
 }
 
 impl ImplementationState {
-    /// Whether the reviewer may send another request: the agent cannot have received this one,
-    /// as `review_explore::DispatchState::undelivered` says of the saved request.
-    fn allows_another(&self) -> bool {
-        matches!(self, Self::NotSent(_) | Self::Cancelled)
+    /// Whether the reviewer may send another request in place of this one: the request is
+    /// neither on its way nor received by the agent, and does not wait in the agent's prompt
+    /// box, where a request the agent did not start on may still be.
+    pub fn allows_another(&self) -> bool {
+        matches!(
+            self,
+            Self::Paused | Self::Unknown | Self::NotSent(_) | Self::Cancelled
+        )
     }
 }
 
@@ -300,6 +372,22 @@ pub struct PublishedRound<'a> {
     pub id: &'a str,
     /// The design of the change, once the round's first turn explained it.
     pub design: Option<&'a Design>,
+    /// The reviewer's latest answer, while the reviewer may cancel it.
+    pub cancellable: Option<&'a LatestAnswer>,
+    /// Whether the round is an earlier one: a newer round of the review was saved since, by
+    /// another reviewer. The reviewer can only Reset it.
+    pub earlier: bool,
+}
+
+/// The reviewer's latest answer of a round, which the page offers to cancel as the pane does.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct LatestAnswer {
+    /// The answer's identity.
+    pub id: String,
+    /// The text of the choice the reviewer picked, if any.
+    pub choice: Option<String>,
+    /// The reviewer's comment; empty when there is none.
+    pub comment: String,
 }
 
 /// A stage, and a revision that changes with every published stage. A page that shows the
@@ -311,6 +399,10 @@ pub(crate) struct RoundSnapshot {
     pub(crate) round: Option<String>,
     /// The design of the change, as the round's first turn explained it.
     pub(crate) design: Option<Arc<Design>>,
+    /// The reviewer's latest answer, while the reviewer may cancel it.
+    pub(crate) cancellable: Option<LatestAnswer>,
+    /// Whether the round is an earlier one, which the reviewer can only Reset.
+    pub(crate) earlier: bool,
     pub(crate) stage: RoundStage,
     /// The review the page belongs to, once its owner named it.
     pub(crate) review: Option<ReviewName>,
@@ -330,6 +422,29 @@ impl RoundSnapshot {
         self.stage == *stage
             && self.round.as_deref() == round.map(|round| round.id)
             && self.design.as_deref() == round.and_then(|round| round.design)
+            && self.cancellable.as_ref() == round.and_then(|round| round.cancellable)
+            && self.earlier == round.is_some_and(|round| round.earlier)
+    }
+
+    /// The snapshot of `stage` of the round `round`, at `revision`, of the review `review`,
+    /// whose start `start_block` blocks.
+    fn new(
+        revision: u64,
+        round: Option<PublishedRound<'_>>,
+        stage: RoundStage,
+        review: Option<ReviewName>,
+        start_block: Option<StartBlock>,
+    ) -> Self {
+        Self {
+            revision,
+            round: round.map(|round| round.id.to_owned()),
+            design: round.and_then(|round| round.design.cloned().map(Arc::new)),
+            cancellable: round.and_then(|round| round.cancellable.cloned()),
+            earlier: round.is_some_and(|round| round.earlier),
+            stage,
+            review,
+            start_block,
+        }
     }
 }
 
@@ -340,14 +455,9 @@ impl RoundPublisher {
     /// A publisher whose first stage is `stage` of the round `round`, `None` when no round is
     /// running.
     pub fn new(round: Option<PublishedRound<'_>>, stage: RoundStage) -> Self {
-        Self(watch::Sender::new(RoundSnapshot {
-            revision: 1,
-            round: round.map(|round| round.id.to_owned()),
-            design: round.and_then(|round| round.design.cloned().map(Arc::new)),
-            stage,
-            review: None,
-            start_block: None,
-        }))
+        Self(watch::Sender::new(RoundSnapshot::new(
+            1, round, stage, None, None,
+        )))
     }
 
     /// Publishes `stage` of the round `round`, `None` when no round is running. The same stage
@@ -358,14 +468,13 @@ impl RoundPublisher {
             if snapshot.shows(round, &stage) {
                 return false;
             }
-            *snapshot = RoundSnapshot {
-                revision: snapshot.revision + 1,
-                round: round.map(|round| round.id.to_owned()),
-                design: round.and_then(|round| round.design.cloned().map(Arc::new)),
+            *snapshot = RoundSnapshot::new(
+                snapshot.revision + 1,
+                round,
                 stage,
-                review: snapshot.review.take(),
-                start_block: snapshot.start_block,
-            };
+                snapshot.review.take(),
+                snapshot.start_block,
+            );
             true
         });
     }
@@ -427,6 +536,16 @@ impl RoundFeed {
         self.0.borrow().design.clone()
     }
 
+    /// The reviewer's latest answer of the latest round, while the reviewer may cancel it.
+    pub fn cancellable(&self) -> Option<LatestAnswer> {
+        self.0.borrow().cancellable.clone()
+    }
+
+    /// Whether the latest round is an earlier one, which the reviewer can only Reset.
+    pub fn earlier(&self) -> bool {
+        self.0.borrow().earlier
+    }
+
     /// The review the page belongs to, once the owner named it.
     pub fn review(&self) -> Option<ReviewName> {
         self.0.borrow().review.clone()
@@ -471,4 +590,11 @@ pub trait Rounds: Send + Sync + 'static {
     /// The round that `token` opens, or `None` when no round has that token. Compare tokens
     /// with [`Token::matches`](crate::Token::matches).
     fn find(&self, token: &str) -> Option<PageRound>;
+
+    /// The token that opens the page once the reviewer reset the round from the page: `None`
+    /// when the token that opened the round opens the page still, or when no token opens its
+    /// start screen any more because the next round started already.
+    fn after_reset(&self) -> Option<Token> {
+        None
+    }
 }

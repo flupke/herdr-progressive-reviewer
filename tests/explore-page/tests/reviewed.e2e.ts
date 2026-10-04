@@ -16,7 +16,7 @@ const STARTING = {
 test('a fully reviewed review offers no start, and says why', async ({ explore, screen }) => {
   await explore.open();
   await explore.reviewEverything();
-  // The page follows the round while the agent works, so it shows the start screen at once.
+  // The page follows the round in every state, so it shows the start screen at once.
   await explore.reset();
   await expect(screen.getByRole('status')).toContainText('No Explore round is running');
 
@@ -31,8 +31,8 @@ test('once a line is unreviewed, the reviewer starts a round', STARTING, async (
   await explore.reset();
   await expect(screen.getByRole('button', 'Start')).toBeDisabled();
 
+  // A blocked start screen follows the unmarking with no reload.
   await explore.unreviewLine();
-  await agent.act('load the page again at "/"');
   await expect(screen.getByRole('button', 'Start')).toBeEnabled();
   await expect(screen.getByText(NOTHING_TO_REVIEW, { exact: false })).toBeHidden();
 

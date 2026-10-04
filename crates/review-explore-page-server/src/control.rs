@@ -38,6 +38,10 @@
 //!   in order: `[{"challenger"}]`.
 //! - `GET /test/sessions/{token}/implementations` lists the lists to be implemented that the
 //!   reviewer sent from the page, in order.
+//! - `GET /test/sessions/{token}/actions` lists, by name and in order, the other actions the
+//!   reviewer took on the page to recover or close the round: `"stop"`, `"retry"`,
+//!   `"cancel-answer"`, `"reset"`, `"reply"`, `"cancel-implementation"`,
+//!   `"resend-implementation"`.
 //! - `GET /test/sessions/{token}/quiz` gives what the reviewer answered of the conclusion's quiz,
 //!   as the review tool saves it: `{"picks": [{"item", "answer", "correct"}], "skipped"}`, each
 //!   field left out while empty, so `{}` when the round has no quiz.
@@ -77,6 +81,7 @@ pub(crate) fn router(sessions: Sessions) -> Router {
             "/test/sessions/{token}/unreview-line",
             post(|state, path| async move { block_starts(state, path, None) }),
         )
+        .route("/test/sessions/{token}/actions", get(actions))
         .route("/test/sessions/{token}/{step}", post(step))
         .with_state(sessions)
 }
@@ -162,6 +167,13 @@ async fn implementations(State(sessions): State<Sessions>, Path(token): Path<Str
 async fn quiz(State(sessions): State<Sessions>, Path(token): Path<String>) -> Response {
     match sessions.quiz(&token) {
         Some(quiz) => Json(quiz).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+async fn actions(State(sessions): State<Sessions>, Path(token): Path<String>) -> Response {
+    match sessions.actions(&token) {
+        Some(actions) => Json(actions).into_response(),
         None => StatusCode::NOT_FOUND.into_response(),
     }
 }

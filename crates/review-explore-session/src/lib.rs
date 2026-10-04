@@ -11,6 +11,7 @@ mod dispatch;
 mod implementation;
 mod marks;
 mod page;
+mod page_actions;
 mod page_save;
 mod quiz;
 mod records;
@@ -248,13 +249,19 @@ impl ExploreSession {
             Command::Turn(request) => {
                 let _ = self.deliver_turn(*request, None);
             }
-            Command::Retry(request) => self.retry(*request),
+            // The pane learns the outcome from the events the session sends.
+            Command::Retry(request) => {
+                let _ = self.retry(*request);
+            }
             // The pane learns the outcome from the events the session sends.
             Command::Implement(request) => {
                 let _ = self.implement(request);
             }
             Command::CancelImplementation => self.state.implementation = None,
-            Command::CancelAnswer(answer) => self.cancel_answer(answer),
+            // The pane learns the outcome from the event the session sends.
+            Command::CancelAnswer(answer) => {
+                let _ = self.cancel_answer(answer);
+            }
             Command::Cancel => {
                 self.cancel_record();
                 self.state.start = Start::Idle;

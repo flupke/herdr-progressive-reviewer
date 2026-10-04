@@ -57,8 +57,9 @@ test('a start that fails says why, and the reviewer can start again', STARTING, 
 test('a start after a round started in the reviewer meanwhile is refused', async ({ explore, screen }) => {
   await explore.open();
   await explore.reset();
-  // The page shows that no round is running, and does not follow a round started in the pane.
+  // The page shows that no round is running, and is held there while a round starts in the pane.
   await expect(screen.getByRole('button', 'Start')).toBeVisible();
+  await explore.holdPage();
   await explore.sendKickoff();
 
   // An exact action: the refusal of this start is the point of the test, which a goal to start

@@ -202,9 +202,15 @@ impl PageHost {
     /// longer running opens nothing. While no round runs, the page has a token for its start
     /// screen, which the round started next keeps. `announce` receives the address of the
     /// page each time its token or the token's round changes.
-    pub fn share(&self, listener: NetworkListener, announce: impl Fn(&str) + Send + 'static) {
+    /// The page that resets a round receives the start screen's token, so that it can start
+    /// the next round.
+    pub fn share(
+        &self,
+        listener: NetworkListener,
+        announce: impl Fn(&str) + Send + Sync + 'static,
+    ) {
         let address = listener.address();
-        let tokens = network::RoundTokens::new(self.round.clone());
+        let tokens = network::RoundTokens::new(self.round.clone(), address, announce);
         let page = ExplorePage::new(
             tokens.clone(),
             Hosts::network(address),
@@ -222,9 +228,7 @@ impl PageHost {
         let mut round = self.round.stages().clone();
         self.runtime.spawn(async move {
             loop {
-                if let Some(network::Renewed(url)) = tokens.renew(address) {
-                    announce(&url);
-                }
+                tokens.renew();
                 if !round.changed().await {
                     return;
                 }

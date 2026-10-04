@@ -10,9 +10,9 @@ use review_explore::{
 };
 use review_explore_citations::{Citation, CodeColors};
 use review_explore_page::{
-    CommandRefusal, CommandReply, ImplementationState, PageAnswer, PageCommand, PageImplement,
-    PageImplementation, PageQuiz, PublishedRound, QuestionMarks, ReviewName, RoundStage,
-    TurnResponse,
+    CommandRefusal, CommandReply, ImplementationState, Interruption, LatestAnswer, PageAnswer,
+    PageCommand, PageImplement, PageImplementation, PageQuiz, PublishedRound, QuestionMarks,
+    Recovery, ReviewName, RoundStage, TurnResponse,
 };
 use review_repository::repository::SnapshotIdentity;
 use review_source::ReviewCheckpoint;
@@ -82,11 +82,32 @@ impl ExploreSession {
     /// the stage changed.
     pub(crate) fn publish_page(&mut self) {
         let stage = self.page_stage();
+        let cancellable = self.cancellable();
         let round = self.state.round.as_ref().map(|round| PublishedRound {
             id: &round.exploration.instance,
             design: round.exploration.design(),
+            cancellable: cancellable.as_ref(),
+            earlier: self.state.historical,
         });
         self.page.publish(round, stage);
+    }
+
+    /// The reviewer's latest answer, while the reviewer may cancel it, as the pane offers it:
+    /// in a round that can still change, before any implementation request.
+    pub(crate) fn cancellable(&self) -> Option<LatestAnswer> {
+        let round = self.state.round.as_ref()?;
+        if self.state.historical
+            || self.state.storage_error.is_some()
+            || !round.implementations.is_empty()
+        {
+            return None;
+        }
+        let answer = round.exploration.answers.last()?;
+        Some(LatestAnswer {
+            id: answer.id.clone(),
+            choice: answer.option.as_ref().map(|option| option.text.clone()),
+            comment: answer.text.clone(),
+        })
     }
 
     /// The reviewer now shows the snapshot `identity`: the page names the review it belongs to,
@@ -127,12 +148,48 @@ impl ExploreSession {
                 self.publish_page();
                 reply.send(result);
             }
+            PageCommand::Reply(text) => {
+                let result = self.reply_from_page(text);
+                let _ = self.reply_to_page(reply, result);
+            }
+            PageCommand::Recover(recovery) => {
+                self.recover_from_page(recovery, reply);
+            }
         }
+    }
+
+    /// Carries out the page's action that recovers or closes the round, or refuses it, and
+    /// replies, then returns whether it went through. A reviewer's worker drops the kickoff it
+    /// holds once a Stop waiting or a Reset went through.
+    pub fn recover_from_page(&mut self, recovery: Recovery, reply: CommandReply) -> bool {
+        let result = match recovery {
+            Recovery::Stop { request } => self.stop(request.as_deref()),
+            Recovery::Reset { round } => self.reset_round(&round),
+            Recovery::Retry { request } => self.retry_from_page(&request),
+            Recovery::CancelAnswer { answer } => self.cancel_answer_from_page(answer),
+            Recovery::CancelImplementation { delivery } => {
+                self.cancel_implementation_from_page(&delivery)
+            }
+            Recovery::ResendImplementation {
+                conclusion,
+                delivery,
+            } => self.resend_from_page(&conclusion, &delivery),
+        };
+        self.reply_to_page(reply, result)
+    }
+
+    /// Replies `result` to the page once it shows the new stage: the page loads itself again
+    /// once it has the reply. Returns whether the command went through.
+    fn reply_to_page(&mut self, reply: CommandReply, result: Result<(), CommandRefusal>) -> bool {
+        self.publish_page();
+        let done = result.is_ok();
+        reply.send(result);
+        done
     }
 
     /// The latest saved copy of the round the pane shows, so that the page never acts on a
     /// stale copy.
-    fn saved_round(&self) -> Result<ExploreRound, CommandRefusal> {
+    pub(crate) fn saved_round(&self) -> Result<ExploreRound, CommandRefusal> {
         let shown = self.state.round.as_ref().ok_or(CommandRefusal::Stale)?;
         self.rounds
             .round(
@@ -164,17 +221,19 @@ impl ExploreSession {
 
     /// Implements the conclusion the page showed, as the pane would: the request comes from
     /// the latest saved round, and an empty list is refused. The page may send one only while
-    /// the conclusion has no request the agent may have received, and only in place of the request
-    /// it showed, so that a repeated or stale Implement cannot start a second implementation.
+    /// the conclusion has no request that is on its way or that the agent received, as the pane
+    /// offers it, and only in place of the request it showed, so that a repeated or stale
+    /// Implement cannot start a second implementation.
     fn implement_from_page(&mut self, implement: PageImplement) -> Result<(), CommandRefusal> {
         let round = self.saved_round()?;
         if round.exploration.conclusion_request() != Some(implement.conclusion.as_str()) {
             return Err(CommandRefusal::Stale);
         }
+        let sending = self.state.implementation.is_some();
         let offered = match round.latest_implementation(&implement.conclusion) {
             None => implement.replaces.is_none(),
             Some(latest) => {
-                latest.state.undelivered()
+                page_implementation(latest, sending).state.allows_another()
                     && implement.replaces.as_deref() == Some(latest.request.delivery.as_str())
             }
         };
@@ -189,6 +248,11 @@ impl ExploreSession {
     }
 
     fn page_stage(&mut self) -> RoundStage {
+        if let Some(failure) = &self.state.storage_error {
+            return RoundStage::StorageFailed {
+                failure: failure.clone(),
+            };
+        }
         let Some(round) = &self.state.round else {
             return match &self.state.start {
                 Start::Idle => RoundStage::NoRound,
@@ -206,15 +270,15 @@ impl ExploreSession {
                 *instance == request.instance && *id == request.request
             });
             return if delivering {
-                RoundStage::AgentWorking
+                RoundStage::AgentWorking {
+                    request: request.request.clone(),
+                }
             } else {
-                RoundStage::Interrupted { failure: None }
+                interrupted(round, request)
             };
         }
         if let Some(retry) = exploration.retry_request() {
-            return RoundStage::Interrupted {
-                failure: retry.response_error.clone(),
-            };
+            return interrupted(round, retry);
         }
         let sending = self.state.implementation.is_some();
         // What `save_from_page` refuses, the page does not ask.
@@ -226,6 +290,25 @@ impl ExploreSession {
             &mut self.citations,
             self.repository.root(),
         )
+    }
+}
+
+/// The turn `request` of `round`, which the agent is not working on, and why.
+fn interrupted(round: &ExploreRound, request: &review_explore::TurnRequest) -> RoundStage {
+    let uncertain = round.turns.get(&request.request).is_some_and(|delivery| {
+        matches!(
+            delivery.state,
+            DispatchState::Attempting | DispatchState::Unknown
+        )
+    });
+    let interruption = match &request.response_error {
+        Some(failure) => Interruption::Failed(failure.clone()),
+        None if uncertain => Interruption::Uncertain,
+        None => Interruption::Stopped,
+    };
+    RoundStage::Interrupted {
+        request: Some(request.request.clone()),
+        interruption,
     }
 }
 
@@ -249,8 +332,13 @@ fn latest_turn(
     root: &Path,
 ) -> RoundStage {
     let exploration = &round.exploration;
+    // A round with no turn to answer and none to send again: only Reset is left.
+    let nothing = || RoundStage::Interrupted {
+        request: None,
+        interruption: Interruption::Stopped,
+    };
     let Some(turn) = exploration.conversation.last() else {
-        return RoundStage::Interrupted { failure: None };
+        return nothing();
     };
     if let Some(conclusion) = &turn.update.conclusion {
         let request = &turn.update.request;
@@ -285,7 +373,7 @@ fn latest_turn(
             response: TurnResponse::of(exploration, turn),
             answer_cancelled: exploration.cancelled_since_last_turn(),
         },
-        None => RoundStage::Interrupted { failure: None },
+        None => nothing(),
     }
 }
 

@@ -49,8 +49,9 @@ test('a list of several lines is sent with the line breaks a list written in the
 test('an Implement after the pane sent the request is refused', async ({ explore, screen }) => {
   await explore.open();
   await explore.conclude();
-  // The page shows the conclusion, and does not follow the request sent from the pane.
+  // The page shows the conclusion, and is held there while the pane sends the request.
   await expect(screen.getByRole('region', 'Conclusion')).toBeVisible();
+  await explore.holdPage();
   await explore.implementInPane();
 
   // An exact action: the refusal of this Implement is the point of the test, which a goal to
@@ -83,7 +84,7 @@ test(
   },
 );
 
-test('a request the agent did not start on says so, and leaves Retry to the pane', { agentContext: SENDING }, async ({
+test('a request the agent did not start on says so, and the reviewer sends it again with Retry', { agentContext: SENDING }, async ({
   explore,
   screen,
   agent,
@@ -97,8 +98,14 @@ test('a request the agent did not start on says so, and leaves Retry to the pane
   await expect(screen.getByRole('status')).toContainText('Sending the implementation request');
 
   await explore.agentDoesNotStart();
-  // The text may still wait in the agent's prompt box: the page sends no second request.
+  // The text may still wait in the agent's prompt box: the page offers no new request, only
+  // Retry of the same one.
   await expect(screen.getByRole('alert')).toContainText('did not start on the implementation request');
   await expect(screen.getByRole('button', 'Implement')).toHaveCount(0);
   await expect(screen.getByText(TASKS)).toBeVisible();
+
+  await agent.act('send the implementation request again with Retry');
+  await expect(screen.getByRole('status')).toContainText('Sending the implementation request');
+  expect(await explore.actions()).toEqual(['resend-implementation']);
+  expect(await explore.implementations()).toEqual([TASKS]);
 });
