@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use futures::{SinkExt, StreamExt};
-use review_explore::Question;
+use review_explore::{Question, RailStep, RoundOverview, Step, StepState, TabTitle};
 use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::HeaderValue;
@@ -35,6 +35,8 @@ struct Owner {
     commands: Arc<Mutex<Vec<String>>>,
     open: Arc<Mutex<bool>>,
     latest: Arc<Mutex<Option<LatestAnswer>>>,
+    /// The round's overview, which most tests leave empty.
+    overview: Arc<Mutex<RoundOverview>>,
 }
 
 impl Owner {
@@ -44,6 +46,12 @@ impl Owner {
             commands: Arc::default(),
             open: Arc::new(Mutex::new(true)),
             latest: Arc::default(),
+            overview: Arc::new(Mutex::new(RoundOverview {
+                rail: Vec::new(),
+                decisions: Vec::new(),
+                earlier: Vec::new(),
+                title: TabTitle::AgentWorking,
+            })),
         };
         owner.publish(stage);
         owner
@@ -51,11 +59,13 @@ impl Owner {
 
     fn publish(&self, stage: RoundStage) {
         let latest = lock(&self.latest).clone();
+        let overview = lock(&self.overview).clone();
         let round = PublishedRound {
             id: ROUND,
             design: None,
             cancellable: latest.as_ref(),
             earlier: false,
+            overview: &overview,
         };
         self.publisher.publish(Some(round), stage);
     }
@@ -394,6 +404,60 @@ async fn the_socket_sends_the_round_when_it_opens_then_at_each_change() {
     let action = &third["params"]["view"]["cards"][0]["actions"][0];
     assert_eq!(action["method"], "retry");
     assert_eq!(action["fields"][0]["value"], "turn-1");
+}
+
+#[tokio::test]
+async fn a_clarified_question_keeps_the_number_of_its_step_on_the_rail() {
+    let owner = Owner::new(working("turn-1"));
+    *lock(&owner.overview) = RoundOverview {
+        rail: vec![
+            RailStep {
+                step: Step::Design,
+                state: StepState::Done,
+            },
+            RailStep {
+                step: Step::Question { number: 1 },
+                state: StepState::Done,
+            },
+            RailStep {
+                step: Step::Question { number: 2 },
+                state: StepState::Current { working: false },
+            },
+        ],
+        decisions: Vec::new(),
+        earlier: Vec::new(),
+        title: TabTitle::YourTurn { question: 2 },
+    };
+    // The round's third version of a question: a clarification of question 2.
+    let RoundStage::Question {
+        question,
+        citations,
+        marks,
+        response,
+        answer_cancelled,
+        ..
+    } = asking(question("q2", "two_way"))
+    else {
+        unreachable!()
+    };
+    owner.publish(RoundStage::Question {
+        number: 3,
+        question,
+        citations,
+        marks,
+        response,
+        answer_cancelled,
+    });
+    let address = serve(owner.clone()).await;
+    let mut socket = Upgrade::of(address).connect(address).await.unwrap();
+
+    let view = &next(&mut socket).await["params"]["view"];
+    assert_eq!(view["question"]["number"], 2);
+    assert_eq!(
+        view["rail"][2]["step"],
+        json!({ "kind": "question", "number": 2 })
+    );
+    assert_eq!(view["title"], json!({ "kind": "your_turn", "question": 2 }));
 }
 
 #[tokio::test]

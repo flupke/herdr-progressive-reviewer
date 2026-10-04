@@ -12,7 +12,8 @@ import { Link } from './socket.js';
 
 const main = /** @type {HTMLElement} */ (document.getElementById('round'));
 const line = /** @type {HTMLElement} */ (document.getElementById('connection'));
-const page = new Page(main);
+const header = /** @type {HTMLElement} */ (document.querySelector('header.masthead'));
+const page = new Page(main, header);
 /** The epoch and number of the view the page shows. @type {{ epoch: string, seq: Seq }} */
 let shown = { epoch: '', seq: { revision: -1, picks: -1 } };
 

@@ -5,6 +5,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use herdr_client::protocol::WorkspaceId;
+use review_explore::{RoundOverview, TabTitle};
 use review_explore_page::{
     CommandRefusal, CommandSender, PageCommand, PageRound, PublishedRound, Recovery,
     RoundPublisher, RoundStage,
@@ -126,8 +127,17 @@ fn published(id: &str) -> PublishedRound<'_> {
         design: None,
         cancellable: None,
         earlier: false,
+        overview: &OVERVIEW,
     }
 }
+
+/// A round's overview, which these tests do not look at.
+static OVERVIEW: RoundOverview = RoundOverview {
+    rail: Vec::new(),
+    decisions: Vec::new(),
+    earlier: Vec::new(),
+    title: TabTitle::AgentWorking,
+};
 
 fn no_round() -> RoundStage {
     RoundStage::NoRound {

@@ -1,0 +1,68 @@
+{
+  "schemaVersion": "trace-1",
+  "createdAt": "2026-10-04T14:29:14.787Z",
+  "payload": {
+    "actions": [
+      {
+        "name": "tap",
+        "summary": "tap button \"Design\"",
+        "target": {
+          "role": "button",
+          "name": "Design"
+        }
+      },
+      {
+        "name": "tap",
+        "summary": "tap link \"Types and data flow The draft is saved …\" in \"Types and data flow\"",
+        "target": {
+          "role": "link",
+          "name": "Types and data flow The draft is saved with the editor state, in the round record.",
+          "within": "Types and data flow"
+        }
+      }
+    ],
+    "executor": {
+      "name": "e2e-default-agent",
+      "version": "2"
+    },
+    "recordedFor": {
+      "testId": "tests/masthead.e2e.ts::the%20design%20map%20on%20the%20rail%20leads%20to%20a%20part%20of%20the%20design",
+      "targetId": "phone",
+      "instructionDigest": "51209d556af4317a5442a3e2ee1ee06b1ae976447eff796d544acf0052d383bb"
+    },
+    "summary": "Opened the Design menu from the round rail and selected “Types and data flow.” The page is at /#design-part-2 with the requested section visible.",
+    "startPath": "/",
+    "endPath": "/#design-part-2",
+    "endAnchors": [
+      {
+        "role": "heading",
+        "name": "What it adds and where"
+      },
+      {
+        "text": "The change keeps the reviewer's unsent draft when a round is reopened."
+      },
+      {
+        "text": "It adds a draft field to the saved editor state and restores it when the pane rebuilds its editor."
+      },
+      {
+        "text": "Nothing else moves: the answers, the marks and the round's history are saved as before, and a round saved before the change opens with an empty draft."
+      },
+      {
+        "role": "heading",
+        "name": "Types and data flow"
+      },
+      {
+        "text": "The draft is saved with the editor state, in the round record."
+      },
+      {
+        "role": "columnheader",
+        "name": "Step"
+      },
+      {
+        "role": "columnheader",
+        "name": "Holds the draft"
+      }
+    ],
+    "endWaitMs": 13281
+  }
+}

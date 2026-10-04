@@ -438,3 +438,53 @@ fn a_question_after_a_reply_to_the_conclusion_opens_a_step_before_the_quiz() {
     // The reply to the conclusion answers no question: it is no decision.
     assert_eq!(numbers(&overview), (vec![1, 2, 3, 4], vec![1, 2, 3, 4]));
 }
+
+/// The rail and the tab title of `overview`.
+fn rail_and_title(overview: &RoundOverview) -> (Vec<RailStep>, TabTitle) {
+    (overview.rail.clone(), overview.title)
+}
+
+#[test]
+fn a_round_told_as_plain_facts_has_the_rail_and_the_title_of_its_saved_state() {
+    let working = saved("working");
+    let told = RoundStanding {
+        design: true,
+        questions: 2,
+        activity: Activity::Working,
+        latest: LatestTurn::Question,
+    };
+    assert_eq!(
+        rail_and_title(&told.overview()),
+        rail_and_title(&RoundOverview::of(&working, Some(&pending(&working))))
+    );
+
+    let quiz = saved("quiz");
+    let conclusion = &quiz.exploration.conversation.last().unwrap().update;
+    let told = RoundStanding {
+        design: true,
+        questions: 4,
+        activity: Activity::Idle,
+        latest: LatestTurn::Conclusion {
+            quiz: Some(QuizProgress {
+                items: 3,
+                answers: quiz.exploration.quiz_answers(&conclusion.request),
+            }),
+        },
+    };
+    assert_eq!(
+        rail_and_title(&told.overview()),
+        rail_and_title(&RoundOverview::of(&quiz, None))
+    );
+
+    let kickoff = saved("kickoff");
+    let told = RoundStanding {
+        design: true,
+        questions: 0,
+        activity: Activity::Interrupted,
+        latest: LatestTurn::None,
+    };
+    assert_eq!(
+        rail_and_title(&told.overview()),
+        rail_and_title(&RoundOverview::of(&kickoff, None))
+    );
+}

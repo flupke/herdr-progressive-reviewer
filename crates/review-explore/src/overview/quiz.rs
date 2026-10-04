@@ -1,11 +1,12 @@
 //! A concluded round's quiz, and how far the reviewer is in it.
 
 use serde::Serialize;
+use ts_rs::TS;
 
 use crate::QuizAnswers;
 
 /// How far the reviewer is in the quiz.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum QuizStage {
     /// The round has not concluded yet.
@@ -23,12 +24,15 @@ pub enum QuizStage {
 }
 
 /// A conclusion's quiz, and what the reviewer answered of it.
-pub(super) struct Quiz<'a> {
-    pub(super) items: usize,
-    pub(super) answers: Option<&'a QuizAnswers>,
+#[derive(Clone, Copy, Debug)]
+pub struct QuizProgress<'a> {
+    /// The quiz's number of items.
+    pub items: usize,
+    /// What the reviewer answered; `None` before the first answer.
+    pub answers: Option<&'a QuizAnswers>,
 }
 
-impl Quiz<'_> {
+impl QuizProgress<'_> {
     /// Whether the reviewer has items left to answer.
     pub(super) fn running(&self) -> bool {
         self.next_item().is_some()

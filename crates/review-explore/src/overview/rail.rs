@@ -1,20 +1,20 @@
 //! The round rail: the steps of the round, and which are done, current and later.
 
 use serde::Serialize;
+use ts_rs::TS;
 
 use super::quiz::QuizStage;
-use super::steps::{Activity, Current, Position, QuestionStep};
-use crate::Exploration;
+use super::steps::{Activity, Current, Position};
 
 /// One step of the round rail and its state.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, TS)]
 pub struct RailStep {
     pub step: Step,
     pub state: StepState,
 }
 
 /// A step of the round: the design, a question, the quiz or the conclusion.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Step {
     /// The design explanation. A round saved before the first turn explained the design has
@@ -33,7 +33,7 @@ pub enum Step {
 /// Where a step stands in the round. The rail tells the round's state, not the screen the
 /// reviewer looks at: while the round waits for an answer to question 1, Design is done and
 /// question 1 current, and the page shows that the reviewer reads the design.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum StepState {
     Done,
@@ -47,24 +47,21 @@ pub enum StepState {
 }
 
 impl RailStep {
-    /// The rail of `exploration`, with its question steps `steps`, standing at `position`.
-    pub(super) fn rail(
-        exploration: &Exploration,
-        steps: &[QuestionStep<'_>],
-        position: &Position<'_>,
-    ) -> Vec<Self> {
+    /// The rail of a round with a Design step when `design`, and `questions` question steps,
+    /// standing at `position`.
+    pub(super) fn rail(design: bool, questions: usize, position: &Position<'_>) -> Vec<Self> {
         let step = |step: Step, at: Current, done: bool| Self {
             step,
             state: StepState::at(position, at, done),
         };
         let mut rail = Vec::new();
-        if exploration.design().is_some() || exploration.conversation.is_empty() {
+        if design {
             rail.push(step(Step::Design, Current::Design, true));
         }
-        rail.extend(steps.iter().map(|question| {
-            let number = question.number;
-            step(Step::Question { number }, Current::Question(number), true)
-        }));
+        rail.extend(
+            (1..=questions)
+                .map(|number| step(Step::Question { number }, Current::Question(number), true)),
+        );
         if let Some(quiz) = Step::quiz(position) {
             rail.push(step(quiz, Current::Quiz, position.concluded()));
         }

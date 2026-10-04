@@ -5,7 +5,7 @@
 
 use std::sync::{Arc, Mutex, PoisonError};
 
-use review_explore::{DiagramError, Question, QuizAnswers, QuizResponse, StartBlock};
+use review_explore::{DiagramError, Question, QuizAnswers, QuizProgress, QuizResponse, StartBlock};
 use review_explore_page::{
     Answered, CommandRefusal, CommandSender, ImplementationState, Interruption, LatestAnswer,
     PageCommand, PageImplementation, PageRound, PublishedRound, Recovery, RoundPublisher,
@@ -13,6 +13,7 @@ use review_explore_page::{
 };
 use serde::Serialize;
 
+use crate::overview::Posted;
 use crate::round_data::RoundData;
 
 #[derive(Clone)]
@@ -37,6 +38,8 @@ struct Session {
     asked: usize,
     /// The stage of the agent's latest question, which a cancelled answer brings back.
     latest_question: Option<RoundStage>,
+    /// Whether the agent's latest turn posted the conclusion.
+    concluded: bool,
     /// The answers the reviewer sent from the page, in order.
     answers: Vec<SentAnswer>,
     /// The diagram errors the page reported, each once, as the review tool saves them with
@@ -109,11 +112,22 @@ impl Session {
     fn publish(&mut self, stage: RoundStage) {
         let id = self.round_id();
         let design = self.data.design();
+        let items = self.data.quiz_items().len();
+        let overview = Posted {
+            asked: self.asked,
+            concluded: self.concluded,
+            quiz: self.quiz.as_ref().map(|answers| QuizProgress {
+                items,
+                answers: Some(answers),
+            }),
+        }
+        .overview(&stage);
         let round = self.running.then(|| PublishedRound {
             id: &id,
             design: (self.asked > 0).then_some(&design),
             cancellable: self.answered.last(),
             earlier: self.earlier,
+            overview: &overview,
         });
         if let PageLink::Held { unseen } = &mut self.page {
             *unseen = Some(Box::new(stage));
@@ -191,6 +205,7 @@ impl Session {
         self.asked = 0;
         self.answered.clear();
         self.latest_question = None;
+        self.concluded = false;
         self.earlier = false;
     }
 
@@ -256,6 +271,7 @@ impl Session {
         Some(match step {
             Step::Question => {
                 self.asked += 1;
+                self.concluded = false;
                 let stage = self.data.question_stage(self.asked, question);
                 self.latest_question = Some(stage.clone());
                 stage
@@ -265,6 +281,7 @@ impl Session {
             Step::Prompt(outcome) => self.prompt_unworked(outcome),
             Step::Interrupt => self.interrupted(Interruption::Stopped),
             Step::Conclude { quiz } => {
+                self.concluded = true;
                 self.quiz = quiz.then(QuizAnswers::default);
                 self.conclusion(None)
             }
@@ -302,6 +319,7 @@ impl Session {
     fn question_after_cancel_answer(&mut self) -> Option<RoundStage> {
         let mut stage = self.latest_question.clone()?;
         self.answered.pop();
+        self.concluded = false;
         if let RoundStage::Question {
             answer_cancelled, ..
         } = &mut stage
@@ -638,6 +656,7 @@ impl Sessions {
             running: true,
             asked,
             latest_question,
+            concluded: false,
             answers: Vec::new(),
             diagram_errors: Vec::new(),
             starts: Vec::new(),

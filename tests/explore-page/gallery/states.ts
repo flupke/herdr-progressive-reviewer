@@ -166,15 +166,16 @@ export const STATES: GalleryState[] = [
   },
   {
     name: 'working',
-    about: 'The agent works on its first turn: Stop waiting, and Reset folded.',
+    about: 'The agent works on its first turn: Stop waiting, and the rail with Design working.',
     reach: (session) => session.open(),
   },
   {
     name: 'working-reset-open',
-    about: 'Reset unfolded, with its Confirm reset.',
+    about: "Reset chosen in the masthead's menu: its hint and Confirm reset, in place of the menu.",
     async reach(session, page) {
       await session.open();
-      await page.getByText('Reset', { exact: true }).click();
+      await page.getByRole('button', { name: 'Round menu' }).click();
+      await page.getByRole('button', { name: /^Reset this round/ }).click();
     },
   },
   {
@@ -295,6 +296,22 @@ export const STATES: GalleryState[] = [
       await choose(page, DROP);
       await page.getByRole('textbox', { name: 'Comment (optional)' }).fill(COMMENT);
       await submit(page, 'Pick');
+    },
+  },
+  {
+    name: 'question-2-design-map',
+    about: 'The design map, open from "Design ▾" on the rail: the thesis, the four parts and a link to the design.',
+    async reach(session, page) {
+      await question(session, 2);
+      await page.getByRole('button', { name: 'Design', exact: true }).click();
+    },
+  },
+  {
+    name: 'question-2-menu',
+    about: "The masthead's ⋯ menu: Copy the round's link, and Reset this round.",
+    async reach(session, page) {
+      await question(session, 2);
+      await page.getByRole('button', { name: 'Round menu' }).click();
     },
   },
   {

@@ -75,7 +75,9 @@ test('the start screen names the review and the repository the page belongs to',
   await explore.reset();
   await expect(screen.getByRole('button', 'Start')).toBeVisible();
 
-  await expect(screen.getByText('drafts-demo', { exact: true })).toBeVisible();
-  await expect(screen.getByText('kmzqvtyx', { exact: true })).toBeVisible();
-  await expect(screen.getByText("Keep the reviewer's draft when a round reopens", { exact: false })).toBeVisible();
+  // The start cover names them; the masthead names the repository too.
+  const cover = screen.getByRole('main');
+  await expect(cover.getByText('drafts-demo', { exact: true })).toBeVisible();
+  await expect(cover.getByText('kmzqvtyx', { exact: true })).toBeVisible();
+  await expect(cover.getByText("Keep the reviewer's draft when a round reopens", { exact: false })).toBeVisible();
 });

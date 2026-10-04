@@ -84,7 +84,7 @@ test(
     await explore.askQuestion();
     await expect(screen.getByRole('region', 'Question 1')).toBeVisible();
 
-    await agent.act('reset the round, and confirm the reset');
+    await agent.act('reset the round from the menu, and confirm the reset');
     await expect(screen.getByRole('status')).toContainText('No round is running', { ignoreCase: true });
     expect(await explore.actions()).toEqual(['reset']);
 

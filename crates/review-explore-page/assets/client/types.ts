@@ -222,7 +222,16 @@ earlier: boolean,
 /**
  * The address of Mermaid's script, which draws the diagrams.
  */
-mermaid: string, };
+mermaid: string, 
+/**
+ * The steps of the round rail, in order; empty when no round is running.
+ */
+rail: Array<RailStep>, 
+/**
+ * What the browser tab's title says before the review's name; `None` when no round is
+ * running, and when the review tool cannot save the round, which then waits for nothing.
+ */
+title: TabTitle | null, };
 export type PickParams = { round: string | null, question: string, version: number, choice: string, };
 export type QuestionView = { 
 /**
@@ -231,7 +240,7 @@ export type QuestionView = {
  */
 round: string | null, 
 /**
- * The question's position in the round, from 1.
+ * The question's step on the round rail, from 1: a clarified question keeps its number.
  */
 number: number, id: string, version: number, text_html: string, 
 /**
@@ -298,6 +307,10 @@ item: number,
 answer: number, };
 export type QuizSkipParams = { conclusion: string, };
 /**
+ * How far the reviewer is in the quiz.
+ */
+export type QuizStage = { "kind": "later" } | { "kind": "running", item: number, items: number, } | { "kind": "scored", correct: number, answered: number, items: number, };
+/**
  * A conclusion's quiz: an item at a time before the conclusion, until the reviewer answered or
  * skipped every item, then the results beside the conclusion.
  */
@@ -315,6 +328,10 @@ correct_picks: number, picked: number,
  * Whether the reviewer skipped the items that have no pick.
  */
 skipped: boolean, };
+/**
+ * One step of the round rail and its state.
+ */
+export type RailStep = { step: Step, state: StepState, };
 /**
  * When the page shows the agent's recommendation for a question.
  */
@@ -467,6 +484,21 @@ export type StatusKind = "progress" | "info" | "warn" | "danger" | "ok";
  * How a reader is told of a card.
  */
 export type StatusRole = "status" | "alert" | "note";
+/**
+ * A step of the round: the design, a question, the quiz or the conclusion.
+ */
+export type Step = { "kind": "design" } | { "kind": "question", number: number, } | { "kind": "quiz", stage: QuizStage, } | { "kind": "conclusion" };
+/**
+ * Where a step stands in the round. The rail tells the round's state, not the screen the
+ * reviewer looks at: while the round waits for an answer to question 1, Design is done and
+ * question 1 current, and the page shows that the reviewer reads the design.
+ */
+export type StepState = { "kind": "done" } | { "kind": "current", 
+/**
+ * The agent works on the turn after the step ("Q2 · working"). False while the round
+ * waits for the reviewer, and while a turn waits for Retry.
+ */
+working: boolean, } | { "kind": "later" };
 export type StopParams = { 
 /**
  * The start the page showed under way, by its identity.
@@ -476,6 +508,11 @@ start: string | null,
  * The agent's turn the page showed the agent working on.
  */
 request: string | null, };
+/**
+ * What the tab title says before " — <review>", so that a reviewer who left the tab sees whose
+ * turn it is. The quiz belongs to the conclusion's stage.
+ */
+export type TabTitle = { "kind": "your_turn", question: number, } | { "kind": "agent_working" } | { "kind": "retry_needed" } | { "kind": "conclusion" };
 export type TokenView = { text: string, 
 /**
  * The palette role of the token's color, or `None` for the page's text color.

@@ -9,17 +9,24 @@ import { designSection } from './design.js';
 import { drawDiagrams } from './diagrams.js';
 import { keyOf, Region } from './dom.js';
 import { lastAnswer } from './last-answer.js';
+import { Masthead } from './masthead.js';
 import { QuestionScreen } from './question.js';
 import { quizSection } from './quiz.js';
-import { resetFold } from './reset.js';
 import { responseSection } from './response.js';
 import { startCover } from './start.js';
 import { statusCard } from './status.js';
 
 export class Page {
-  /** @param {HTMLElement} main */
-  constructor(main) {
+  /**
+   * @param {HTMLElement} main
+   * @param {HTMLElement} header the masthead, above `main`
+   */
+  constructor(main, header) {
     this.main = main;
+    // What only the masthead knows (what it has open) changes the page through `render` too.
+    this.masthead = new Masthead(header, () => {
+      if (this.view) this.render(this.view);
+    });
     this.cards = new Region(main, 'cards');
     this.start = new Region(main, 'start');
     this.lastAnswer = new Region(main, 'last-answer');
@@ -27,7 +34,6 @@ export class Page {
     this.response = new Region(main, 'response');
     this.question = new Region(main, 'question');
     this.conclusion = new Region(main, 'conclusion');
-    this.reset = new Region(main, 'reset');
     /** @type {PageView | null} */
     this.view = null;
     /** Why the reviewer's latest action did not go through, until the round changes.
@@ -41,6 +47,7 @@ export class Page {
   /** @param {PageView} view */
   render(view) {
     this.view = view;
+    this.masthead.update(view);
     const cards = this.notice ? [this.notice, ...view.cards] : view.cards;
     this.cards.show(keyOf(cards), () => cards.map(statusCard));
     const start = view.start;
@@ -53,8 +60,6 @@ export class Page {
     this.response.show(keyOf(response), () => (response ? responseSection(response) : null));
     this.renderQuestion(view);
     this.renderConclusion(view);
-    const reset = view.reset;
-    this.reset.show(reset, () => (reset ? resetFold(reset) : null));
     drawDiagrams(this.main);
   }
 

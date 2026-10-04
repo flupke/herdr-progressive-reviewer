@@ -5,7 +5,8 @@ use std::sync::Arc;
 
 use review_explore::{
     CodeLocation, Conclusion, ConversationTurn, Design, Exploration, Interpretation,
-    InterviewUpdate, MarkCounts, NotRelevantMark, Question, QuizAnswers, QuizResponse, StartBlock,
+    InterviewUpdate, MarkCounts, NotRelevantMark, Question, QuizAnswers, QuizResponse,
+    RoundOverview, StartBlock, Step, StepState,
 };
 use review_explore_citations::Citation;
 use review_repository::repository::SnapshotIdentity;
@@ -424,6 +425,8 @@ pub struct PublishedRound<'a> {
     /// Whether the round is an earlier one: a newer round of the review was saved since, by
     /// another reviewer. The reviewer can only Reset it.
     pub earlier: bool,
+    /// Where the round stands as a whole: its rail and the tab title.
+    pub overview: &'a RoundOverview,
 }
 
 /// The reviewer's latest answer of a round, which the page offers to cancel as the pane does.
@@ -465,6 +468,8 @@ pub(crate) struct RoundSnapshot {
     pub(crate) cancellable: Option<LatestAnswer>,
     /// Whether the round is an earlier one, which the reviewer can only Reset.
     pub(crate) earlier: bool,
+    /// Where the round stands as a whole: its rail and the tab title.
+    pub(crate) overview: Option<Arc<RoundOverview>>,
     pub(crate) stage: RoundStage,
     /// The review the page belongs to, once its owner named it.
     pub(crate) review: Option<ReviewName>,
@@ -473,6 +478,26 @@ pub(crate) struct RoundSnapshot {
 }
 
 impl RoundSnapshot {
+    /// The number of the question the stage asks, by the round's overview: a clarified
+    /// question keeps its step's number on the rail, where `RoundStage::Question` counts every
+    /// version, which stands in only for a round with no overview. `None` when the stage asks
+    /// no question.
+    pub(crate) fn question_number(&self) -> Option<usize> {
+        let RoundStage::Question { number, .. } = self.stage else {
+            return None;
+        };
+        let step = self.overview.as_deref().and_then(|overview| {
+            overview
+                .rail
+                .iter()
+                .find_map(|step| match (&step.step, step.state) {
+                    (Step::Question { number }, StepState::Current { .. }) => Some(*number),
+                    _ => None,
+                })
+        });
+        Some(step.unwrap_or(number))
+    }
+
     /// Whether the round's latest answer, which the reviewer may still cancel, is `answered`
     /// with the comment `comment`: a repeat of an answer or a reply that went through.
     pub(crate) fn repeats(&self, answered: &Answered, comment: &str) -> bool {
@@ -498,6 +523,7 @@ impl RoundSnapshot {
             && self.design.as_deref() == round.and_then(|round| round.design)
             && self.cancellable.as_ref() == round.and_then(|round| round.cancellable)
             && self.earlier == round.is_some_and(|round| round.earlier)
+            && self.overview.as_deref() == round.map(|round| round.overview)
     }
 
     /// The snapshot of `stage` of the round `round`, at `revision`, of the review `review`,
@@ -515,6 +541,7 @@ impl RoundSnapshot {
             design: round.and_then(|round| round.design.cloned().map(Arc::new)),
             cancellable: round.and_then(|round| round.cancellable.cloned()),
             earlier: round.is_some_and(|round| round.earlier),
+            overview: round.map(|round| Arc::new(round.overview.clone())),
             stage,
             review,
             start_block,
@@ -619,6 +646,11 @@ impl RoundFeed {
     /// Whether the latest round is an earlier one, which the reviewer can only Reset.
     pub fn earlier(&self) -> bool {
         self.0.borrow().earlier
+    }
+
+    /// Where the latest round stands as a whole; `None` when no round is running.
+    pub fn overview(&self) -> Option<Arc<RoundOverview>> {
+        self.0.borrow().overview.clone()
     }
 
     /// The review the page belongs to, once the owner named it.

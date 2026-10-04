@@ -71,6 +71,16 @@ h4 { font-size: 15px; line-height: 1.45; font-weight: 650; }
   text-transform: uppercase;
 }
 
+/* Read by screen readers only, not drawn. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 /* Help beside an action, and other small text: muted by its colour, so that a link or code
    inside keeps its own. */
 .hint { color: var(--muted); font-size: 14px; }

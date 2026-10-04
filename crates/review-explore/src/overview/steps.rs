@@ -1,7 +1,7 @@
 //! The question steps of a round, and where the round stands among its steps.
 
-use super::quiz::Quiz;
-use crate::{Conclusion, Exploration, Question, QuizAnswers, ReviewerAnswer};
+use super::quiz::QuizProgress;
+use crate::{Exploration, Question, ReviewerAnswer};
 
 /// One question of the round rail: the versions of one question that the agent posted one
 /// after the other. A clarification is a higher version of the question that follows the
@@ -53,7 +53,7 @@ impl<'a> QuestionStep<'a> {
 
 /// What the agent does with the turn the round waits for.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum Activity {
+pub enum Activity {
     /// The agent works on a turn the session delivers.
     Working,
     /// A turn waits for Retry: its prompt failed, the reviewer stopped waiting, or the reviewer
@@ -64,16 +64,15 @@ pub(super) enum Activity {
 }
 
 /// What the agent's latest turn posted.
-enum Ending<'a> {
+#[derive(Clone, Copy, Debug)]
+pub enum LatestTurn<'a> {
     /// No turn yet: the round waits for its first.
-    NoTurn,
+    None,
     /// A question, the round's latest step.
-    Asking,
-    /// A conclusion, with its quiz and what the reviewer answered of it.
-    Concluded {
-        conclusion: &'a Conclusion,
-        answers: Option<&'a QuizAnswers>,
-    },
+    Question,
+    /// The conclusion, with its quiz and what the reviewer answered of it; `None` for a
+    /// conclusion without a quiz.
+    Conclusion { quiz: Option<QuizProgress<'a>> },
 }
 
 /// The step the round stands at.
@@ -89,7 +88,7 @@ pub(super) enum Current {
 /// that makes current.
 pub(super) struct Position<'a> {
     pub(super) activity: Activity,
-    ending: Ending<'a>,
+    latest: LatestTurn<'a>,
     pub(super) current: Current,
 }
 
@@ -101,13 +100,27 @@ impl<'a> Position<'a> {
         steps: &[QuestionStep<'_>],
         delivering: Option<&str>,
     ) -> Self {
-        let mut position = Self {
-            activity: Self::activity(exploration, delivering),
-            ending: Self::ending(exploration),
-            current: Current::Design,
+        Self::new(
+            Self::activity(exploration, delivering),
+            Self::latest(exploration),
+            steps.len(),
+        )
+    }
+
+    /// Where a round stands whose agent does `activity`, whose latest turn posted `latest`,
+    /// with `questions` question steps.
+    pub(super) fn new(activity: Activity, latest: LatestTurn<'a>, questions: usize) -> Self {
+        let current = match latest {
+            LatestTurn::None => Current::Design,
+            LatestTurn::Question => Current::Question(questions),
+            LatestTurn::Conclusion { quiz: Some(quiz) } if quiz.running() => Current::Quiz,
+            LatestTurn::Conclusion { .. } => Current::Conclusion,
         };
-        position.current = position.find_current(steps);
-        position
+        Self {
+            activity,
+            latest,
+            current,
+        }
     }
 
     fn activity(exploration: &Exploration, delivering: Option<&str>) -> Activity {
@@ -119,46 +132,30 @@ impl<'a> Position<'a> {
         }
     }
 
-    fn ending(exploration: &'a Exploration) -> Ending<'a> {
+    fn latest(exploration: &'a Exploration) -> LatestTurn<'a> {
         let Some(turn) = exploration.conversation.last() else {
-            return Ending::NoTurn;
+            return LatestTurn::None;
         };
         match &turn.update.conclusion {
-            Some(conclusion) => Ending::Concluded {
-                conclusion,
-                answers: exploration.quiz_answers(&turn.update.request),
+            Some(conclusion) => LatestTurn::Conclusion {
+                quiz: (!conclusion.quiz.is_empty()).then(|| QuizProgress {
+                    items: conclusion.quiz.len(),
+                    answers: exploration.quiz_answers(&turn.update.request),
+                }),
             },
-            None => Ending::Asking,
-        }
-    }
-
-    /// The step the round stands at, among `steps`.
-    fn find_current(&self, steps: &[QuestionStep<'_>]) -> Current {
-        match &self.ending {
-            Ending::NoTurn => Current::Design,
-            Ending::Asking => Current::Question(steps.len()),
-            Ending::Concluded { .. } if self.quiz().is_some_and(|quiz| quiz.running()) => {
-                Current::Quiz
-            }
-            Ending::Concluded { .. } => Current::Conclusion,
+            None => LatestTurn::Question,
         }
     }
 
     /// Whether the agent's latest turn posted a conclusion.
     pub(super) fn concluded(&self) -> bool {
-        matches!(self.ending, Ending::Concluded { .. })
+        matches!(self.latest, LatestTurn::Conclusion { .. })
     }
 
     /// The conclusion's quiz, once the round concluded with one.
-    pub(super) fn quiz(&self) -> Option<Quiz<'a>> {
-        match &self.ending {
-            Ending::Concluded {
-                conclusion,
-                answers,
-            } if !conclusion.quiz.is_empty() => Some(Quiz {
-                items: conclusion.quiz.len(),
-                answers: *answers,
-            }),
+    pub(super) fn quiz(&self) -> Option<QuizProgress<'a>> {
+        match self.latest {
+            LatestTurn::Conclusion { quiz } => quiz,
             _ => None,
         }
     }

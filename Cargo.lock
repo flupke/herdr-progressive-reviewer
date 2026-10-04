@@ -3980,6 +3980,7 @@ dependencies = [
  "sha2 0.10.9",
  "tempfile",
  "test-case",
+ "ts-rs",
  "uuid",
  "zstd",
 ]
@@ -4022,6 +4023,7 @@ dependencies = [
  "axum",
  "herdr-client",
  "nix",
+ "review-explore",
  "review-explore-page",
  "review-explore-page-opening",
  "review-explore-page-settings",

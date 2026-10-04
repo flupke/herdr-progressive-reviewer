@@ -8,7 +8,7 @@ mod conclusion;
 mod question;
 
 use markdown_html::HtmlRenderer;
-use review_explore::{Design, QuestionSection};
+use review_explore::{Design, QuestionSection, RailStep, TabTitle};
 use serde::Serialize;
 use ts_rs::TS;
 
@@ -43,6 +43,11 @@ pub(crate) struct PageView {
     earlier: bool,
     /// The address of Mermaid's script, which draws the diagrams.
     mermaid: String,
+    /// The steps of the round rail, in order; empty when no round is running.
+    rail: Vec<RailStep>,
+    /// What the browser tab's title says before the review's name; `None` when no round is
+    /// running, and when the review tool cannot save the round, which then waits for nothing.
+    title: Option<TabTitle>,
 }
 
 /// The start cover, when no round is running.
@@ -130,7 +135,7 @@ impl PageView {
             design: round
                 .design
                 .as_deref()
-                .map(|design| DesignView::new(design, &round.stage)),
+                .map(|design| DesignView::new(design, round)),
             response: round.stage.response().map(ResponseView::new),
             question: QuestionView::of(round, picks),
             conclusion: ConclusionView::of(round, offers_actions),
@@ -138,6 +143,15 @@ impl PageView {
             earlier: round.earlier,
             cards,
             mermaid: crate::diagram::script_path(),
+            rail: round
+                .overview
+                .as_ref()
+                .map_or_else(Vec::new, |overview| overview.rail.clone()),
+            title: round
+                .overview
+                .as_ref()
+                .filter(|_| !storage_failed)
+                .map(|overview| overview.title),
         }
     }
 }
@@ -145,9 +159,9 @@ impl PageView {
 impl DesignView {
     /// The design as `Design::thesis` and `Design::parts` give it, which stand in for the theses
     /// of a design saved before it had any.
-    fn new(design: &Design, stage: &RoundStage) -> Self {
+    fn new(design: &Design, round: &RoundSnapshot) -> Self {
         Self {
-            open: matches!(stage, RoundStage::Question { number: 1, .. }),
+            open: round.question_number() == Some(1),
             thesis_html: markdown(&design.thesis(), 3),
             parts: design
                 .parts()

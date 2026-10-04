@@ -137,7 +137,7 @@ again with it.
 | A request the agent did not start on | Retry; New implementation request | Retry only: the list may still wait in the agent's prompt box |
 | A request that was not sent or was cancelled | Implement | Implement |
 | A request the agent received | None | None |
-| Any running round | Reset, then Confirm reset | Reset, then Confirm reset |
+| Any running round | Reset, then Confirm reset | Reset, then Confirm reset, in the masthead's ⋯ menu |
 | An earlier round, or one whose history was repaired | Reset only | That it can no longer change, and Reset only (`earlier`) |
 | A storage error | None: the status says why | Why, and to reopen the pane once fixed (`StorageFailed`) |
 | Any | History navigation, the provisional map, marks lists, evidence windows | None: the page shows the current stage with its citations |
@@ -308,8 +308,31 @@ what it names, `.hint` the muted help line. Every control has a focus ring (`:fo
     </form>
   </section>
   ```
-- **Masthead** (`masthead.css`): `<header class="masthead"><p class="product">Explore</p></header>`,
-  above `main`, with its hairline across the window.
+- **Masthead** (`masthead.css`, drawn by `assets/client/masthead.js`), above `main`: the
+  product's name and the review's title, the round rail, the chat's place and the ⋯ menu, with
+  its hairline across the window as an element of its own, which the meter draws on. The rail
+  and the tab title come from the round's overview (`review_explore::RoundOverview`, which the
+  session derives in `publish_page` and the view carries as `rail` and `title`): take every
+  question number from it, never from a count of the question's versions. "Design ▾" opens the
+  design map in place; the menu copies the page's address and holds Reset, which the page
+  offers nowhere else. On a phone the rail shows only the design and the current step, as two
+  chips, and the review's title moves into the menu.
+
+  ```html
+  <header class="masthead">
+    <div class="identity"><p class="product">Explore</p><p class="review">…</p></div>
+    <nav class="rail" aria-label="Round"><ol>
+      <li class="step done design-step"><button class="design-toggle" aria-expanded="false">…</button>
+        <div class="design-map" id="design-map" hidden>…</div></li>
+      <li class="step current" aria-current="step">Q2 · working</li>
+      <li class="step later">Quiz</li>
+    </ol></nav>
+    <div class="masthead-chat" id="masthead-chat"></div>   <!-- the chat's bubble -->
+    <div class="menu"><button class="menu-toggle" aria-label="Round menu">⋯</button>
+      <div class="menu-popover" id="round-menu" hidden>…</div></div>
+    <div class="masthead-line" id="masthead-line"></div>   <!-- the meter draws here -->
+  </header>
+  ```
 
 ### The page's client
 
@@ -345,7 +368,7 @@ only, with no `unsafe` value; its `connect-src` names the page's own `ws:` addre
 - One module per screen or region: `start.js`, `status.js` (the status card),
   `last-answer.js`, `design.js`, `response.js`, `question.js` (with the answer panel and
   the first pick), `citations.js`, `conclusion.js` (with the list to be implemented and
-  the reply), `quiz.js`, `reset.js`, and `diagrams.js`, which draws each diagram of a
+  the reply), `quiz.js`, `masthead.js` (above `main`, with Reset in its menu), and `diagrams.js`, which draws each diagram of a
   region that was built.
 
 To add a screen or a region: give the view the data it needs (a field of `PageView` or of

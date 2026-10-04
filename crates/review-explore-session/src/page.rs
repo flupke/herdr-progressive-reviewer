@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use review_explore::{
     Comparison, DispatchState, EvidenceRef, Exploration, ExploreRound, ImplementationDelivery,
-    Question, ReviewerAnswer,
+    Question, ReviewerAnswer, RoundOverview,
 };
 use review_explore_citations::{Citation, CodeColors};
 use review_explore_page::{
@@ -83,12 +83,28 @@ impl ExploreSession {
     pub(crate) fn publish_page(&mut self) {
         let stage = self.page_stage();
         let cancellable = self.cancellable();
-        let round = self.state.round.as_ref().map(|round| PublishedRound {
-            id: &round.exploration.instance,
-            design: round.exploration.design(),
-            cancellable: cancellable.as_ref(),
-            earlier: self.state.historical,
+        let overview = self.state.round.as_ref().map(|round| {
+            // The turn this process delivers to the agent now, as `page_stage` tells it.
+            let delivering = self
+                .state
+                .pending
+                .as_ref()
+                .filter(|(instance, _)| *instance == round.exploration.instance)
+                .map(|(_, request)| request.as_str());
+            RoundOverview::of(round, delivering)
         });
+        let round = self
+            .state
+            .round
+            .as_ref()
+            .zip(overview.as_ref())
+            .map(|(round, overview)| PublishedRound {
+                id: &round.exploration.instance,
+                design: round.exploration.design(),
+                cancellable: cancellable.as_ref(),
+                earlier: self.state.historical,
+                overview,
+            });
         self.page.publish(round, stage);
     }
 

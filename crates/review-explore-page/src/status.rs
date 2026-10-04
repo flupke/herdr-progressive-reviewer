@@ -289,7 +289,10 @@ impl StatusCard {
     fn earlier() -> Self {
         Self::new(StatusKind::Info, "earlier", "This is an earlier round")
             .reason("Another review pane saved a newer round of this review.")
-            .next("Reopen the review pane to see the newer round, or reset this one to start over.")
+            .next(
+                "Reopen the review pane to see the newer round, or reset this one from the ⋯ menu \
+                 to start over.",
+            )
             .role(StatusRole::Note)
     }
 
@@ -442,7 +445,7 @@ impl StatusCard {
             }
             Interruption::Stopped if !any => {
                 Self::new(Info, ID, "The round has no turn to send again")
-                    .next("Reset the round, then start a new one.")
+                    .next("Reset the round from the ⋯ menu, then start a new one.")
             }
             Interruption::Stopped => Self::new(Info, ID, "The turn is paused")
                 .reason(

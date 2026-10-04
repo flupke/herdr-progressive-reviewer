@@ -17,7 +17,7 @@ pub(crate) struct QuestionView {
     /// The identity of the round that asks the question, which the answer carries back: a
     /// question of the same ID in a later round is another question.
     round: Option<String>,
-    /// The question's position in the round, from 1.
+    /// The question's step on the round rail, from 1: a clarified question keeps its number.
     number: usize,
     id: String,
     version: u32,
@@ -116,7 +116,6 @@ impl QuestionView {
     /// The question `round` asks, with the reviewer's first pick of it from `picks`.
     pub(crate) fn of(round: &RoundSnapshot, picks: &FirstPicks) -> Option<Self> {
         let RoundStage::Question {
-            number,
             question,
             citations,
             marks,
@@ -135,7 +134,7 @@ impl QuestionView {
         Some(
             Self::new(
                 round.round.clone(),
-                *number,
+                round.question_number().unwrap_or_default(),
                 question,
                 blind.as_ref(),
                 citations,

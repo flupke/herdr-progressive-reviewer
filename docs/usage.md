@@ -438,8 +438,18 @@ save the same result and send the agent the same prompt as there:
   answer answered, with the agent's turn after it and the review marks it led to taken back.
   It is offered until an implementation request is made.
 - **Reply to the conclusion**: free text, which the agent takes up in its next turn.
-- **Reset**, at the bottom of the page, behind **Confirm reset**: it closes the round for good
-  and the page offers Start again. The round's records stay saved.
+- **Reset**, in the page's ⋯ menu at the top right ("Reset this round…"), behind
+  **Confirm reset**: it closes the round for good and the page offers Start again. The
+  round's records stay saved. The page offers Reset nowhere else.
+
+The row at the top of the page names the review and shows where the round stands: the
+design, each question asked so far, the quiz with its score once known, and the conclusion;
+done steps carry a green check, the current one is underlined and says when the agent works
+on it ("Q2 · working"). **Design ▾** opens a map of the design: its thesis and its four
+parts, each a link into the design. The ⋯ menu also copies the page's address. The
+browser tab's title says whose turn it is ("Q3 · your turn", "Agent working…", "Retry
+needed", "Conclusion"), so you can leave the tab while the agent works. On a phone the row
+shows only the design and the current step, and the review's title is in the menu.
 
 An action on a state that changed meanwhile, in the reviewer or in another tab, is refused:
 the page says which action did nothing and why, and shows the round as it is now. An

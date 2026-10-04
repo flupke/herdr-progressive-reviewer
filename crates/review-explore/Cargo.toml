@@ -13,6 +13,7 @@ review-repository = { path = "../review-repository" }
 review-source = { path = "../review-source" }
 serde.workspace = true
 serde_json.workspace = true
+ts-rs.workspace = true
 schemars.workspace = true
 sha2.workspace = true
 uuid.workspace = true

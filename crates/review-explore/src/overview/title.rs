@@ -1,12 +1,13 @@
 //! The browser tab's title, by the round's stage.
 
 use serde::Serialize;
+use ts_rs::TS;
 
 use super::steps::{Activity, Current, Position};
 
 /// What the tab title says before " — <review>", so that a reviewer who left the tab sees whose
 /// turn it is. The quiz belongs to the conclusion's stage.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TabTitle {
     /// "Q3 · your turn": a question waits for the reviewer's answer.

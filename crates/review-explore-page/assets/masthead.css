@@ -1,8 +1,12 @@
-/* The masthead: one row above every screen, with the product's name, and a hairline under it
-   across the whole window (docs/design/explore-page/README.md, "Masthead"). Its content lines
-   up with the page's column, whatever the window's width. */
+/* The masthead: one row above every screen (docs/design/explore-page/README.md, "Masthead"),
+   drawn by client/masthead.js: the product's name, the review's title, the round rail with the
+   design map behind "Design ▾", the chat's place, and the ⋯ menu. Its content lines up with the
+   page's column, whatever the window's width. Its bottom hairline is an element of its own,
+   `.masthead-line`, across the whole window: the meter draws on it. */
 .masthead {
   position: relative;
+  /* Its popovers open over the page's sticky panel. */
+  z-index: 10;
   box-sizing: border-box;
   display: flex;
   align-items: center;
@@ -10,11 +14,234 @@
   min-height: 57px;
   padding: 14px max(var(--gutter), calc((100% - var(--page)) / 2 + var(--gutter))) 15px;
 }
-.masthead::after {
-  content: "";
+.masthead-line {
   position: absolute;
   inset: auto 0 0;
   height: 1px;
   background: var(--line);
 }
-.masthead .product { margin: 0; font-size: 15px; font-weight: 700; }
+/* The product's name, then the review's title and its revision on one line, in the row's free
+   space: the rail and the menu sit at the right. */
+.masthead .identity {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: baseline;
+  gap: 11px;
+  min-width: 0;
+}
+.masthead .product { flex: none; margin: 0; font-size: 15px; font-weight: 700; }
+.masthead .review {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 15px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.masthead .review code, .menu-review code { font-size: 13px; }
+/* The chat's bubble, once there is one. */
+.masthead-chat:empty { display: none; }
+
+/* The round rail: done steps with a green check, the current step in accent and underlined,
+   later steps muted. */
+.rail { flex: none; font-size: 13px; }
+.rail > ol { display: flex; align-items: center; gap: 22px; margin: 0; padding: 0; list-style: none; }
+.rail .step { position: relative; white-space: nowrap; }
+.rail .check { color: var(--good); }
+.rail .step.current {
+  padding-bottom: 1px;
+  color: var(--accent);
+  font-weight: 650;
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+.rail .step.later { color: var(--muted); opacity: 0.7; }
+
+/* "Design ▾": a step that opens the design map. */
+.design-toggle {
+  margin: -4px -8px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition: background-color 150ms;
+}
+.design-toggle:hover, .design-toggle[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--ink) 9%, transparent);
+}
+.design-toggle .caret { margin-left: 2px; color: var(--muted); font-size: 10px; }
+
+/* The popovers of the masthead: the design map and the menu. */
+.design-map, .menu-popover {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: var(--shadow-popover);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 400;
+  text-align: left;
+  white-space: normal;
+}
+.design-map[hidden], .menu-popover[hidden] { display: none; }
+
+/* The design map: the change's thesis, its four parts with their gist, and a link to the
+   design. */
+.design-map {
+  top: calc(100% + 10px);
+  right: -8px;
+  width: 384px;
+  padding: 12px;
+}
+.design-map .eyebrow { margin: 0; padding: 8px 8px 0; }
+.design-map .map-thesis { padding: 8px 8px 4px; font-size: 14px; line-height: 1.45; font-weight: 600; }
+.design-map .markdown > :first-child { margin-top: 0; }
+.design-map .markdown > :last-child { margin-bottom: 0; }
+.map-parts { display: grid; margin: 0; padding: 0; list-style: none; }
+.map-parts a {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  column-gap: 10px;
+  padding: 8px;
+  border-radius: var(--radius);
+  color: inherit;
+  text-decoration: none;
+}
+.map-parts a:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); }
+.map-parts .disc {
+  grid-row: span 2;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 650;
+}
+.map-parts .part-name { font-weight: 650; }
+.map-parts .part-gist {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.map-parts .part-gist > * { display: inline; margin: 0; }
+.design-map .map-open {
+  display: block;
+  margin-top: 8px;
+  padding: 12px 8px 4px;
+  border-top: 1px solid var(--line);
+  font-weight: 600;
+  text-decoration: none;
+}
+.design-map .map-open:hover { text-decoration: underline; }
+
+/* The ⋯ menu: Copy the round's link, then Reset, which turns into its confirmation in place. */
+.menu { position: relative; flex: none; }
+.menu-toggle {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 16px;
+  cursor: pointer;
+  transition: background-color 150ms;
+}
+.menu-toggle:hover, .menu-toggle[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--ink) 9%, transparent);
+  color: var(--ink);
+}
+.menu-popover {
+  top: calc(100% + 10px);
+  right: 0;
+  width: 300px;
+  padding: 6px;
+  font-size: 15px;
+}
+.menu-popover hr { margin: 6px 2px; border: 0; border-top: 1px solid var(--line); }
+.menu-item {
+  box-sizing: border-box;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 40px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.menu-item:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); }
+.menu-note { color: var(--muted); font-size: 13px; }
+.menu-link {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--canvas);
+  color: var(--ink);
+  font: 13px var(--mono);
+}
+.menu-popover .reset { display: grid; gap: 12px; padding: 10px; }
+.menu-popover .reset .hint { margin: 0; }
+.menu-popover .reset .button { justify-self: start; }
+/* The review's title, in the menu on a phone only. */
+.menu-review { display: none; }
+
+/* Phone: the rail shows two chips, the design and the current step; the review's title moves
+   into the menu. */
+@media (max-width: 40rem) {
+  .masthead { gap: 10px; }
+  .masthead .review { display: none; }
+  .rail { font-size: 12px; font-weight: 650; }
+  .rail > ol { gap: 10px; }
+  .rail .step.done:not(.design-step), .rail .step.later { display: none; }
+  /* The popovers open under the masthead, across the screen. */
+  .rail .step, .menu { position: static; }
+  .rail .step.current, .design-toggle {
+    margin: 0;
+    padding: 2px 9px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-pill);
+    box-shadow: none;
+    line-height: 1.5;
+  }
+  .rail .step.current { border-color: var(--accent); }
+  .design-map, .menu-popover {
+    top: calc(100% - 4px);
+    right: var(--gutter);
+    left: var(--gutter);
+    width: auto;
+  }
+  .menu-popover { left: auto; width: min(300px, calc(100% - 2 * var(--gutter))); }
+  .menu-review {
+    display: block;
+    margin: 0 0 6px;
+    padding: 8px 10px 10px;
+    border-bottom: 1px solid var(--line);
+    color: var(--muted);
+    overflow-wrap: anywhere;
+  }
+}

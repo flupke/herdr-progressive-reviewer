@@ -1,7 +1,7 @@
 //! The stage of the round the session publishes for the Explore page.
 
 use review_explore::Command;
-use review_explore::DispatchState;
+use review_explore::{DispatchState, QuizStage, Step, StepState, TabTitle};
 use review_explore_page::{
     CommandRefusal, CommandReply, ImplementationState, Interruption, PageAnswer, PageCommand,
     PageImplement, PageImplementation, ReviewName, RoundStage,
@@ -1140,4 +1140,91 @@ fn a_pane_implement_that_missed_the_pages_request_starts_no_second_implementatio
         .filter(|prompt| prompt.text.contains("From the pane") || prompt.text.contains(EDITED))
         .count();
     assert_eq!(implement_prompts, 1);
+}
+
+/// The steps of the round rail the page shows, with their states, and the tab title.
+fn shown_rail(feed: &review_explore_page::RoundFeed) -> Option<(Vec<(Step, StepState)>, TabTitle)> {
+    let overview = feed.overview()?;
+    let rail = overview
+        .rail
+        .iter()
+        .map(|step| (step.step.clone(), step.state))
+        .collect();
+    Some((rail, overview.title))
+}
+
+#[test]
+fn the_page_shows_where_the_round_stands_on_its_rail_and_in_the_tab_title() {
+    use StepState::{Current, Done, Later};
+    let quiz = || Step::Quiz {
+        stage: QuizStage::Later,
+    };
+    let mut harness = Harness::start();
+    assert_eq!(shown_rail(&harness.page), None);
+
+    harness.capture();
+    let first = harness.request(None);
+    let access = harness.turn(&first);
+    assert_eq!(
+        shown_rail(&harness.page),
+        Some((
+            vec![
+                (Step::Design, Current { working: true }),
+                (quiz(), Later),
+                (Step::Conclusion, Later),
+            ],
+            TabTitle::AgentWorking
+        ))
+    );
+
+    assert!(applied(harness.submit(&access, question(&first, 1))));
+    assert_eq!(
+        shown_rail(&harness.page),
+        Some((
+            vec![
+                (Step::Design, Done),
+                (Step::Question { number: 1 }, Current { working: false }),
+                (quiz(), Later),
+                (Step::Conclusion, Later),
+            ],
+            TabTitle::YourTurn { question: 1 }
+        ))
+    );
+
+    let (answer, access) = harness.answer("Keep it.");
+    assert_eq!(
+        shown_rail(&harness.page).map(|(rail, title)| (rail[1].clone(), title)),
+        Some((
+            (Step::Question { number: 1 }, Current { working: true }),
+            TabTitle::AgentWorking
+        ))
+    );
+
+    assert!(applied(harness.submit(&access, question(&answer, 2))));
+    assert_eq!(
+        shown_rail(&harness.page),
+        Some((
+            vec![
+                (Step::Design, Done),
+                (Step::Question { number: 1 }, Done),
+                (Step::Question { number: 2 }, Current { working: false }),
+                (quiz(), Later),
+                (Step::Conclusion, Later),
+            ],
+            TabTitle::YourTurn { question: 2 }
+        ))
+    );
+
+    harness.answer("Keep it too.");
+    harness.session.handle(Input::Command(Command::Cancel));
+    assert_eq!(
+        shown_rail(&harness.page).map(|(rail, title)| (rail[2].clone(), title)),
+        Some((
+            (Step::Question { number: 2 }, Current { working: false }),
+            TabTitle::RetryNeeded
+        ))
+    );
+
+    harness.session.handle(Input::Command(Command::Reset));
+    assert_eq!(shown_rail(&harness.page), None);
 }

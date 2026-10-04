@@ -109,8 +109,8 @@
 .question > .text { margin: 16px 0; }
 
 /* Controlling the round, as in the reviewer's Explore tab: the latest answer with Cancel
-   answer, a reply to the conclusion, the saved implementation request, and Reset behind its
-   confirmation. Stop waiting, Retry and the cancel of an implementation request sit in the
+   answer, a reply to the conclusion and the saved implementation request; Reset is in the
+   masthead's menu. Stop waiting, Retry and the cancel of an implementation request sit in the
    actions of their status card. */
 .cancel-answer, .reply, .resend-implementation { display: grid; gap: 12px; margin: 12px 0; }
 .cancel-answer .hint, .reply .hint { margin: 0; }
@@ -120,12 +120,6 @@
 .last-answer p { margin: 0 0 6px; overflow-wrap: anywhere; }
 .last-answer .choice { border: 0; padding: 0; background: none; cursor: auto; font-weight: 600; }
 .last-answer .answer-comment { color: var(--muted); font-style: italic; }
-.reset { margin: 24px 0; }
-.reset > summary { cursor: pointer; display: inline-block; color: var(--muted); font-size: 14px; text-decoration: underline; }
-.reset > summary:hover { color: var(--ink); }
-.reset form { display: grid; gap: 12px; margin-top: 12px; }
-.reset form .hint { margin: 0; }
-.reset form button { justify-self: start; }
 
 /* The quiet line that says when the page cannot reach the review tool, and the line that says
    the page needs JavaScript. */

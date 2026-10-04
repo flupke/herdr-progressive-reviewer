@@ -53,8 +53,8 @@ pub use interview::{
 pub use named_lines::NamedLines;
 pub use not_relevant::{NotRelevantMark, NotRelevantReason, TestLocation};
 pub use overview::{
-    AgentRecord, Decision, DecisionTag, EarlierQuestion, KeptAnswer, QuizStage, RailStep,
-    RoundOverview, Step, StepState, TabTitle,
+    Activity, AgentRecord, Decision, DecisionTag, EarlierQuestion, KeptAnswer, LatestTurn,
+    QuizProgress, QuizStage, RailStep, RoundOverview, RoundStanding, Step, StepState, TabTitle,
 };
 pub use quiz::{QuizAnswers, QuizItem, QuizPick, QuizResponse};
 pub use sections::QuestionSection;

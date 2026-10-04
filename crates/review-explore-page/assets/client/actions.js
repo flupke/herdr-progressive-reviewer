@@ -114,7 +114,8 @@ export class Actions {
     this.link = link;
     this.page = page;
     this.connected = false;
-    main.addEventListener('submit', (event) => this.submit(event));
+    // The forms of the masthead (Reset, in its menu) are outside `main`.
+    main.ownerDocument.addEventListener('submit', (event) => this.submit(event));
   }
 
   /** @param {SubmitEvent} event */
@@ -163,7 +164,7 @@ export class Actions {
   sending(form, waiting) {
     form.dataset.sent = String(waiting);
     if (waiting) this.main.setAttribute('aria-busy', 'true');
-    else if (!this.main.querySelector('form[data-sent="true"]')) this.main.removeAttribute('aria-busy');
+    else if (!this.main.ownerDocument.querySelector('form[data-sent="true"]')) this.main.removeAttribute('aria-busy');
     this.enable();
   }
 
@@ -176,7 +177,7 @@ export class Actions {
   /** Enables each submit button unless its form waits, the socket is down, or the round blocks
    * it (`data-blocked`). Called after each render too. */
   enable() {
-    for (const button of this.main.querySelectorAll('button[type="submit"]')) {
+    for (const button of this.main.ownerDocument.querySelectorAll('button[type="submit"]')) {
       if (!(button instanceof HTMLButtonElement)) continue;
       const form = button.form;
       button.disabled = !this.connected || form?.dataset.sent === 'true' || button.dataset.blocked === 'true';

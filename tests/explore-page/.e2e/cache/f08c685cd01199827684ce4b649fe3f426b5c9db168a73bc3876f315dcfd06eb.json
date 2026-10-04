@@ -1,0 +1,70 @@
+{
+  "schemaVersion": "trace-1",
+  "createdAt": "2026-10-04T14:29:44.907Z",
+  "payload": {
+    "actions": [
+      {
+        "name": "tap",
+        "summary": "tap radio \"Discard the draft\" in \"Choices\"",
+        "target": {
+          "role": "radio",
+          "name": "Discard the draft",
+          "within": "Choices"
+        }
+      },
+      {
+        "name": "tap",
+        "summary": "tap button \"Send\" in \"Question 1\"",
+        "target": {
+          "role": "button",
+          "name": "Send",
+          "within": "Question 1"
+        }
+      }
+    ],
+    "executor": {
+      "name": "e2e-default-agent",
+      "version": "2"
+    },
+    "recordedFor": {
+      "testId": "tests/masthead.e2e.ts::the%20rail%20and%20the%20tab%20title%20follow%20the%20round%20through%20an%20answer",
+      "targetId": "desktop",
+      "instructionDigest": "5a52da29fb75e74a152b6de7969c601ee11918450ac414e446f706ee4dfb2580"
+    },
+    "summary": "Selected “Discard the draft” for Question 1 and sent the answer. The screen now shows “Your last answer: Discard the draft”; the agent is processing it.",
+    "startPath": "/",
+    "endPath": "/",
+    "endAnchors": [
+      {
+        "role": "listitem",
+        "name": "Q1 · working"
+      },
+      {
+        "text": "The agent is working on your answer"
+      },
+      {
+        "role": "button",
+        "name": "Stop waiting"
+      },
+      {
+        "text": "Your answer stays; Retry sends it again."
+      },
+      {
+        "role": "heading",
+        "name": "Your last answer"
+      },
+      {
+        "text": "Cancel answer takes this answer back, with the agent's turn after it and the review marks it led to: its question waits for your answer again."
+      },
+      {
+        "role": "button",
+        "name": "Cancel answer"
+      },
+      {
+        "role": "document",
+        "name": "Agent working… — Keep the reviewer's draft when a round reopens"
+      }
+    ],
+    "endWaitMs": 14204
+  }
+}

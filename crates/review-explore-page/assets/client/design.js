@@ -14,7 +14,8 @@ export function designSection(design) {
       'details',
       { open: design.open },
       h('summary', {}, h('h2', { id: 'design-title' }, 'Design of the change')),
-      design.parts.map((part) => [h('h3', {}, part.title), partText(part)]),
+      // Each part's heading is the target of its link in the masthead's design map.
+      design.parts.map((part, index) => [h('h3', { id: `design-part-${index + 1}` }, part.title), partText(part)]),
     ),
   );
 }

@@ -1,0 +1,78 @@
+{
+  "schemaVersion": "trace-1",
+  "createdAt": "2026-10-04T14:28:56.701Z",
+  "payload": {
+    "actions": [
+      {
+        "name": "tap",
+        "summary": "tap button \"Round menu\"",
+        "target": {
+          "role": "button",
+          "name": "Round menu",
+          "text": "⋯"
+        }
+      },
+      {
+        "name": "tap",
+        "summary": "tap button \"Reset this round… closes it for good\"",
+        "target": {
+          "role": "button",
+          "name": "Reset this round… closes it for good",
+          "text": "Reset this round…"
+        }
+      },
+      {
+        "name": "tap",
+        "summary": "tap button \"Confirm reset\"",
+        "target": {
+          "role": "button",
+          "name": "Confirm reset"
+        }
+      }
+    ],
+    "executor": {
+      "name": "e2e-default-agent",
+      "version": "2"
+    },
+    "recordedFor": {
+      "testId": "tests/control.e2e.ts::the%20reviewer%20resets%20the%20round%2C%20then%20starts%20a%20new%20one",
+      "targetId": "desktop",
+      "instructionDigest": "313962feda68f8f5cfa7d6cba17039cd1945b2377a3049aab7ec6f3443d5ce03"
+    },
+    "summary": "Opened the round menu, selected “Reset this round,” and confirmed the reset. The page now shows “No round is running” and offers to start a new round.",
+    "startPath": "/",
+    "endPath": "/",
+    "endAnchors": [
+      {
+        "text": "drafts-demo"
+      },
+      {
+        "role": "button",
+        "name": "Copy the page's link"
+      },
+      {
+        "role": "status",
+        "name": "No round is running"
+      },
+      {
+        "role": "heading",
+        "name": "Keep the reviewer's draft when a round reopens"
+      },
+      {
+        "role": "button",
+        "name": "Start"
+      },
+      {
+        "text": "The agent explains the design, then asks one question at a time."
+      },
+      {
+        "role": "button",
+        "name": "Start with Challenger"
+      },
+      {
+        "text": "A second agent with fresh context proposes questions too. Turns take longer."
+      }
+    ],
+    "endWaitMs": 13525
+  }
+}
