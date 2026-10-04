@@ -32,6 +32,8 @@ impl ConversationFixture {
         self.server
             .wait_for_agent((!session.is_empty()).then_some(session));
         self.server.release_agent();
+        // Herdr's own detection shows the turns the new agent starts once it sees it idle.
+        self.status(AgentStatus::Idle);
     }
 }
 

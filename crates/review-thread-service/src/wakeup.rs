@@ -21,8 +21,17 @@ impl Wakeup {
         self.notified_through = 0;
     }
 
-    pub(super) fn sent(&mut self) {
+    /// Record that the notification for the requested comments is on its way, and return the
+    /// sequence it covers.
+    pub(super) fn sent(&mut self) -> u64 {
         self.notified_through = self.requested_through;
+        self.notified_through
+    }
+
+    /// Whether nothing requested or re-armed this wakeup since a notification `sent` through
+    /// that sequence.
+    pub(super) fn unchanged_since(&self, sent: u64) -> bool {
+        self.requested_through == sent && self.notified_through == sent
     }
 
     pub(super) fn answered(&mut self) {
@@ -47,6 +56,20 @@ mod tests {
         assert!(wakeup.needs_poll());
         wakeup.sent();
         assert!(!wakeup.needs_poll());
+    }
+
+    #[test]
+    fn a_wakeup_requested_after_a_notification_was_sent_is_not_the_one_sent() {
+        let mut wakeup = Wakeup::default();
+        wakeup.request(1, false);
+        let sent = wakeup.sent();
+        assert!(wakeup.unchanged_since(sent));
+
+        wakeup.request(2, false);
+        assert!(!wakeup.unchanged_since(sent));
+        let sent = wakeup.sent();
+        wakeup.request(2, true);
+        assert!(!wakeup.unchanged_since(sent));
     }
 
     #[test]

@@ -21,6 +21,10 @@ use crate::{Error, Result};
 
 const RESPONSE_LIMIT: u64 = 16 * 1024 * 1024;
 const SOCKET_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long `agent.prompt` waits for the agent to start. Herdr gives an agent that is not
+/// working 5 seconds to show activity and then answers `agent_prompt_stalled`, so this bound
+/// is only reached when Herdr itself stalls.
+const PROMPT_START_TIMEOUT: Duration = Duration::from_secs(10);
 const EVENT_CANCELLATION_POLL_INTERVAL: Duration = Duration::from_millis(50);
 static EVENT_REQUEST_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
@@ -258,7 +262,7 @@ impl HerdrClient {
     }
 
     fn request(&self, operation: &'static str, params: &Value) -> Result<Value> {
-        match self.response(operation, params)? {
+        match self.response(operation, params, SOCKET_TIMEOUT)? {
             Ok(result) => Ok(result),
             Err(error) => Err(Error::Herdr {
                 operation,
@@ -271,8 +275,9 @@ impl HerdrClient {
         &self,
         operation: &'static str,
         params: &Value,
+        timeout: Duration,
     ) -> Result<std::result::Result<Value, ApiError>> {
-        let mut socket = self.connect(Some(SOCKET_TIMEOUT))?;
+        let mut socket = self.connect(Some(timeout))?;
         let request = json!({
             "id": "progressive-reviewer",
             "method": operation,
@@ -434,6 +439,13 @@ fn event_subscriptions() -> Vec<Value> {
     ]
 }
 
+/// Whether Herdr's error `code` for `agent.prompt` says that the agent showed no activity
+/// within the wait: `agent_prompt_stalled` after its 5 seconds, or `timeout` when the wait
+/// itself ran out.
+fn is_not_started(code: &str) -> bool {
+    matches!(code, "agent_prompt_stalled" | "timeout")
+}
+
 fn validate_response(
     response: Response,
     expected_id: &str,
@@ -467,7 +479,11 @@ impl AgentPort for HerdrClient {
     }
 
     fn get_agent(&self, pane_id: &PaneId) -> Result<Option<Agent>> {
-        match self.response(method::AGENT_GET, &json!({"target": pane_id.0}))? {
+        match self.response(
+            method::AGENT_GET,
+            &json!({"target": pane_id.0}),
+            SOCKET_TIMEOUT,
+        )? {
             Ok(result) => Self::parse(&result, "agent", method::AGENT_GET).map(Some),
             Err(error) if error.code.contains("not_found") => Ok(None),
             Err(error) => Err(Error::Herdr {
@@ -482,12 +498,30 @@ impl AgentPort for HerdrClient {
         Self::parse(&result, "process_info", "pane.process_info")
     }
 
+    /// Herdr answers once the agent is working or blocked, which an agent working already
+    /// is at once; an agent that shows neither did not start on the prompt.
     fn prompt_agent(&self, pane_id: &PaneId, text: &str) -> Result<()> {
-        self.request(
+        let wait_ms = u64::try_from(PROMPT_START_TIMEOUT.as_millis()).unwrap_or(u64::MAX);
+        let params = json!({
+            "target": pane_id.0,
+            "text": text,
+            "wait": {"until": ["working", "blocked"], "timeout_ms": wait_ms},
+        });
+        // Leave Herdr the time to answer after its own wait ends.
+        match self.response(
             method::AGENT_PROMPT,
-            &json!({"target": pane_id.0, "text": text}),
-        )?;
-        Ok(())
+            &params,
+            PROMPT_START_TIMEOUT + SOCKET_TIMEOUT,
+        )? {
+            Ok(_) => Ok(()),
+            Err(error) if is_not_started(&error.code) => Err(Error::AgentNotStarted {
+                message: error.message,
+            }),
+            Err(error) => Err(Error::Herdr {
+                operation: method::AGENT_PROMPT,
+                message: error.message,
+            }),
+        }
     }
 }
 
@@ -500,7 +534,11 @@ impl HerdrReader for HerdrClient {
         let Some(pane) = self.load_pane(workspace_id)? else {
             return Ok(Vec::new());
         };
-        match self.response(method::PANE_GET, &json!({"pane_id": pane.pane_id.0}))? {
+        match self.response(
+            method::PANE_GET,
+            &json!({"pane_id": pane.pane_id.0}),
+            SOCKET_TIMEOUT,
+        )? {
             Ok(_) => Ok(vec![pane]),
             Err(error) if error.code.contains("not_found") => {
                 self.remove_pane(&pane.pane_id)?;

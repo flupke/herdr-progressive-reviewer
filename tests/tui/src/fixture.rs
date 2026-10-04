@@ -91,21 +91,42 @@ impl ReviewWorkspace {
 
     /// Make the workspace's first pane the implementation agent Explore
     /// prompts. Herdr knows agents by their process name, so a script named
-    /// `claude` stands in: it swallows each prompt, which the reviewer
-    /// records as a turn.
+    /// `claude` stands in: it reads each prompt, which the reviewer records as
+    /// a turn, and shows Herdr that it works on it for two seconds, unless the
+    /// file at [`Self::swallow_switch`] exists: then it reads the prompt
+    /// without starting on it.
     fn start_agent(server: &HerdrTestServer, context: &PluginContext) {
         let pane = &context.focused_pane_id.as_ref().unwrap().0;
         let bin = server.root().join("agent-bin");
         fs::create_dir_all(&bin).unwrap();
         let agent = bin.join("claude");
+        let switch = Self::swallow_switch_in(server);
         fs::write(
             &agent,
-            "#!/bin/sh\nstty -echo 2>/dev/null\nwhile IFS= read -r line; do :; done\n",
+            format!(
+                "#!/bin/sh\nstty -echo 2>/dev/null\nidle=\nwhile IFS= read -r line; do\n  \
+                 [ -e '{}' ] && continue\n  \
+                 printf '\\033]0;\\342\\240\\213 Working\\007'\n  \
+                 [ -n \"$idle\" ] && kill \"$idle\" 2>/dev/null\n  \
+                 (sleep 2; printf '\\033]0;\\342\\234\\263 Ready\\007') &\n  \
+                 idle=$!\ndone\n",
+                switch.display()
+            ),
         )
         .unwrap();
         fs::set_permissions(&agent, fs::Permissions::from_mode(0o755)).unwrap();
         let command = format!("exec '{}'", agent.display());
         server.run_cli(&["pane", "run", pane, &command]);
+    }
+
+    /// The file whose presence makes the stand-in agent swallow each prompt
+    /// without starting on it.
+    pub(crate) fn swallow_switch(&self) -> PathBuf {
+        Self::swallow_switch_in(&self.server)
+    }
+
+    fn swallow_switch_in(server: &HerdrTestServer) -> PathBuf {
+        server.root().join("agent-swallows-prompts")
     }
 
     pub(crate) fn mcp_port(&self) -> u16 {

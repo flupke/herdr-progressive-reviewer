@@ -253,6 +253,51 @@ impl ExploreFlow {
         drop(self.fixture);
     }
 
+    /// Wait until the session reports that the prompt of `request` failed.
+    fn wait_for_failure(&mut self, request: &review_explore::TurnRequest) {
+        let deadline = Instant::now() + crate::runtime::tests::HERDR_WAIT;
+        loop {
+            assert!(
+                Instant::now() < deadline,
+                "the turn did not fail: {:?}",
+                self.saved().turns[&request.request].state
+            );
+            if let Some(event) = self.fixture.runtime.recv_timeout(Duration::from_millis(20))
+                && let Some(finished) = event.downcast_ref::<ui_events::ExploreFinished>()
+                && finished.request == request.request
+            {
+                assert!(finished.result.is_err(), "{:?}", finished.result);
+                return;
+            }
+        }
+    }
+
+    /// Wait until the saved round records `state` for the latest prompt of `request`.
+    fn wait_for_dispatch(
+        &self,
+        request: &review_explore::TurnRequest,
+        state: &review_explore::DispatchState,
+    ) {
+        let deadline = Instant::now() + crate::runtime::tests::HERDR_WAIT;
+        loop {
+            let saved = self.saved().turns[&request.request].state.clone();
+            if saved == *state {
+                return;
+            }
+            assert!(Instant::now() < deadline, "the turn stayed {saved:?}");
+            thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    /// Forget the prompts the agent already read, so that waiting for a prompt waits for a new
+    /// one.
+    fn skip_prompts(&mut self) {
+        self.prompt_offset =
+            fs::read_to_string(self.fixture.herdr.server.root().join("prompt.txt"))
+                .unwrap_or_default()
+                .len();
+    }
+
     fn enqueue(&mut self) -> review_explore::TurnRequest {
         let request = self.exploration.request(None, None).unwrap();
         self.fixture
@@ -282,12 +327,35 @@ impl ExploreFlow {
 #[test]
 fn explore_turn_prompts_a_working_agent_once() {
     let mut flow = ExploreFlow::start(RepoType::Git);
+    // An agent that is working already counts as started, even with no new activity.
+    flow.fixture.herdr.swallow_prompts(true);
     flow.native_status(herdr_client::protocol::AgentStatus::Working);
     let request = flow.enqueue();
     flow.wait_for_prompt(&request);
+    flow.wait_for_dispatch(&request, &review_explore::DispatchState::Delivered);
     thread::sleep(Duration::from_millis(350));
     let text = fs::read_to_string(flow.fixture.herdr.server.root().join("prompt.txt")).unwrap();
     assert_eq!(text.matches("Explore request: ").count(), 1);
+    flow.finish();
+}
+
+#[test]
+fn a_kickoff_the_agent_does_not_start_on_waits_for_a_retry_of_the_same_request() {
+    let mut flow = ExploreFlow::start(RepoType::Git);
+    flow.fixture.herdr.swallow_prompts(true);
+    let request = flow.exploration.request(None, None).unwrap();
+    flow.fixture
+        .explore(ExploreCommand::Turn(Box::new(request.clone())));
+
+    flow.wait_for_failure(&request);
+    flow.wait_for_dispatch(&request, &review_explore::DispatchState::NotStarted);
+
+    flow.skip_prompts();
+    flow.fixture.herdr.swallow_prompts(false);
+    flow.fixture
+        .explore(ExploreCommand::Retry(Box::new(request.clone())));
+    flow.wait_for_prompt(&request);
+    flow.wait_for_dispatch(&request, &review_explore::DispatchState::Delivered);
     flow.finish();
 }
 
@@ -341,7 +409,7 @@ fn late_session_detection_preserves_the_interview_and_a_new_send_selects_the_rep
     flow.fixture.herdr.stop_agent();
     flow.fixture.herdr.start_agent();
     flow.fixture.herdr.wait_for_agent(None);
-    flow.fixture.herdr.report_agent("idle");
+    flow.fixture.herdr.show_idle();
     flow.fixture
         .herdr
         .report_session("different-native-session");

@@ -28,6 +28,8 @@ pub enum ExploreProgress {
     Interrupted,
     /// A posted turn's prompt may already have reached the agent.
     DeliveryUncertain,
+    /// The agent did not start on a posted turn's prompt; Retry sends it again.
+    NotStarted,
 }
 
 #[derive(Clone, Debug)]

@@ -1,0 +1,49 @@
+{
+  "schemaVersion": "trace-1",
+  "createdAt": "2026-10-04T03:43:00.870Z",
+  "payload": {
+    "actions": [
+      {
+        "name": "type",
+        "summary": "type \"Save the draft with the round, and test…\" into textbox \"To be implemented\"",
+        "target": {
+          "role": "textbox",
+          "name": "To be implemented",
+          "text": "Save the draft with the round."
+        },
+        "value": "Save the draft with the round, and test that a reopened round restores it."
+      },
+      {
+        "name": "tap",
+        "summary": "tap button \"Implement\" in \"To be implemented\"",
+        "target": {
+          "role": "button",
+          "name": "Implement",
+          "within": "To be implemented"
+        }
+      }
+    ],
+    "executor": {
+      "name": "e2e-default-agent",
+      "version": "2"
+    },
+    "recordedFor": {
+      "testId": "tests/implement.e2e.ts::a%20request%20the%20agent%20did%20not%20start%20on%20says%20so%2C%20and%20leaves%20Retry%20to%20the%20pane",
+      "targetId": "phone",
+      "instructionDigest": "df9106863ecb6ad663e95c2c77d596c03f5279454c9ca3df011e57ed952a1d6c"
+    },
+    "summary": "Replaced the implementation list with the requested text and pressed Implement. The page now says it is sending the implementation request to the agent.",
+    "startPath": "/",
+    "endPath": "/",
+    "endAnchors": [
+      {
+        "role": "status",
+        "name": "Sending the implementation request to the agent…"
+      },
+      {
+        "text": "Save the draft with the round, and test that a reopened round restores it."
+      }
+    ],
+    "endWaitMs": 12964
+  }
+}

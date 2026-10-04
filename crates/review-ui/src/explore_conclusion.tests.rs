@@ -590,3 +590,36 @@ fn revised_conclusions_retain_each_edited_list_reply_and_draft_in_posting_order(
         assert!(!tasks.text.contains("First edited scope") && !tasks.text.contains("context"));
     }
 }
+
+#[test]
+fn an_implementation_request_the_agent_did_not_start_on_shows_in_the_state_line_of_a_page_round() {
+    let (mut fixture, kickoff) = ExploreUi::started(
+        b"pub fn policy() -> bool { false }\n",
+        b"pub fn policy() -> bool { true }\n",
+        's',
+    );
+    let conclusion = finish(&mut fixture, &kickoff);
+    let request = ImplementationRequest {
+        instance: kickoff.instance.clone(),
+        conclusion: conclusion.request.clone(),
+        delivery: "page-delivery".into(),
+        text: "Edited on the page.".into(),
+    };
+    let round = authorized_round(&fixture, &kickoff, conclusion, &request);
+    let mut saved = round.implementations[&request.delivery].clone();
+    fixture
+        .app
+        .publish(ui_events::ExploreImplementationSaved(saved.clone()));
+    assert!(fixture.text().contains("Concluded"), "{}", fixture.text());
+
+    saved.state = review_explore::DispatchState::NotStarted;
+    fixture
+        .app
+        .publish(ui_events::ExploreImplementationSaved(saved));
+
+    let text = fixture.text();
+    assert!(
+        text.contains("did not start on the implementation request"),
+        "{text}"
+    );
+}

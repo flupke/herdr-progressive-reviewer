@@ -108,6 +108,9 @@ impl ExploreComponent {
             Progress::Waiting | Progress::Capturing | Progress::DiscardingCapture => {
                 "The agent is working.".into()
             }
+            Progress::Ready if self.implementation_not_started() => {
+                "Concluded: the agent did not start on the implementation request. Look at the agent's pane, then Retry in the pane.".into()
+            }
             Progress::Ready if exploration.conclusion.is_some() => {
                 "Concluded: the conclusion is on the page.".into()
             }

@@ -1,5 +1,7 @@
 use std::collections::HashMap;
-use std::sync::mpsc::{Receiver, RecvTimeoutError};
+use std::ops::ControlFlow;
+use std::sync::Arc;
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::time::Duration;
 
 use herdr_client::protocol::{Agent, AgentPort, AgentTarget, HerdrEvent, PaneId};
@@ -8,31 +10,38 @@ use review_store::ReviewStore;
 use review_threads::{Post, Resolution, ReviewThreads, SavedDrafts, ThreadCommand};
 use review_types::ReviewUnit;
 
+use crate::delivery::{Courier, PromptError, PromptQueue};
 use crate::{Command, Event, Input, access::Access, notification::Notification, wakeup::Wakeup};
 
 pub(super) struct State {
     store: ReviewStore,
-    port: Box<dyn AgentPort>,
+    port: Arc<dyn AgentPort>,
     target: AgentTarget,
     available: bool,
     books: HashMap<ReviewUnit, ReviewThreads>,
     access: HashMap<String, Access>,
     notifications: HashMap<ReviewUnit, Notification>,
     wakeups: HashMap<String, Wakeup>,
-    prompts: crate::delivery::PromptQueue,
+    prompts: PromptQueue,
+    courier: Courier,
+    /// Where the outcomes of comment notifications come back, behind the other inputs.
+    inputs: Sender<Input>,
     publish: Box<dyn Fn(Event) + Send>,
 }
 
 impl State {
     pub(super) fn new(
         store: ReviewStore,
-        port: Box<dyn AgentPort>,
+        port: Arc<dyn AgentPort>,
         target: AgentTarget,
         available: bool,
         publish: Box<dyn Fn(Event) + Send>,
+        inputs: Sender<Input>,
     ) -> Self {
         Self {
             store,
+            courier: Courier::start(port.clone()),
+            inputs,
             port,
             target,
             available,
@@ -40,7 +49,7 @@ impl State {
             access: HashMap::new(),
             notifications: HashMap::new(),
             wakeups: HashMap::new(),
-            prompts: crate::delivery::PromptQueue::default(),
+            prompts: PromptQueue::default(),
             publish,
         }
     }
@@ -53,16 +62,50 @@ impl State {
                 receiver.recv().map_err(|_| RecvTimeoutError::Disconnected)
             };
             match input {
-                Ok(Input::Stop) | Err(RecvTimeoutError::Disconnected) => return,
-                Ok(Input::Ui(command)) => self.command(command),
-                Ok(Input::Prompt(request)) => self.prompts.push(request),
-                Ok(Input::Mcp(request)) => {
-                    let result = self.request(&request.access, &request.operation);
-                    request.respond(result);
+                Ok(input) => {
+                    if self.input(input).is_break() {
+                        return;
+                    }
                 }
+                Err(RecvTimeoutError::Disconnected) => return,
                 Err(RecvTimeoutError::Timeout) => {}
             }
             self.poll();
+        }
+    }
+
+    /// Handle one input; break once the owner stops the worker.
+    fn input(&mut self, input: Input) -> ControlFlow<()> {
+        match input {
+            Input::Ui(command) => self.command(command),
+            Input::Prompt(request) => self.prompts.push(request),
+            Input::Mcp(request) => {
+                let result = self.request(&request.access, &request.operation);
+                request.respond(result);
+            }
+            Input::Notified {
+                token,
+                through,
+                result,
+            } => self.notified(&token, through, result),
+            Input::Stop => return ControlFlow::Break(()),
+        }
+        ControlFlow::Continue(())
+    }
+
+    /// The notification sent for access `token`, for the comments `through` a sequence, has
+    /// its outcome. One that failed is not sent again until the reviewer retries or posts
+    /// another comment, which a wakeup requested since then already did.
+    fn notified(&mut self, token: &str, through: u64, result: Result<(), PromptError>) {
+        if let Err(error) = result {
+            if self
+                .wakeups
+                .get(token)
+                .is_some_and(|wakeup| wakeup.unchanged_since(through))
+            {
+                self.wakeups.remove(token);
+            }
+            (self.publish)(Event::Error(error.to_string()));
         }
     }
 
@@ -403,7 +446,7 @@ impl State {
     }
 
     fn poll(&mut self) {
-        self.prompts.poll(&*self.port);
+        self.prompts.poll(&*self.port, &self.courier);
         for unit in self.notifications.keys().cloned().collect::<Vec<_>>() {
             if let Err(error) = self.prepare_notification(&unit) {
                 self.notifications.remove(&unit);
@@ -470,12 +513,21 @@ impl State {
             self.wakeups.remove(token);
             return self.schedule(&unit, false);
         }
+        let prompt = access.prompt();
         let Some(wakeup) = self.wakeups.get_mut(token) else {
             return Ok(());
         };
         if wakeup.needs_poll() {
-            wakeup.sent();
-            crate::delivery::prompt_agent(&*self.port, &current, &access.prompt())?;
+            let through = wakeup.sent();
+            let inputs = self.inputs.clone();
+            let token = token.to_owned();
+            self.courier.send(current, prompt, None, move |result| {
+                let _ = inputs.send(Input::Notified {
+                    token,
+                    through,
+                    result,
+                });
+            });
         }
         Ok(())
     }

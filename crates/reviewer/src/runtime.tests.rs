@@ -2,6 +2,7 @@ use super::*;
 use std::fs::{self, File};
 use std::io::Write;
 use std::process::Command;
+use std::sync::Mutex;
 use std::sync::mpsc::{self, Receiver};
 
 use effects::fixture::EffectsFixture;
@@ -199,6 +200,36 @@ impl IsolatedHerdrServer {
         self.server.run_cli(arguments)
     }
 
+    /// Show the idle title, which Herdr's own detection reads, and wait until Herdr sees it.
+    /// An agent whose state is reported instead would not show the turns it starts.
+    fn show_idle(&self) {
+        fs::write(self.server.root().join("prompt.state"), "✳ Ready").unwrap();
+        let deadline = Instant::now() + HERDR_WAIT;
+        while self
+            .client()
+            .get_agent(&self.pane_id)
+            .unwrap()
+            .is_none_or(|agent| agent.agent_status != herdr_client::protocol::AgentStatus::Idle)
+        {
+            assert!(
+                Instant::now() < deadline,
+                "Herdr did not detect Idle: {:?}",
+                self.client().get_agent(&self.pane_id)
+            );
+            thread::sleep(Duration::from_millis(25));
+        }
+    }
+
+    /// Make the agent read each prompt without starting on it, or start on each prompt again.
+    fn swallow_prompts(&self, swallow: bool) {
+        let switch = self.server.root().join("prompt.swallow");
+        if swallow {
+            fs::write(switch, "").unwrap();
+        } else {
+            let _ = fs::remove_file(switch);
+        }
+    }
+
     fn report_agent(&self, state: &str) {
         self.run_cli(&[
             "pane",
@@ -291,28 +322,16 @@ fn e2e_agent_process() {
     }
     let state_path = PathBuf::from(&prompt_path).with_extension("state");
     let screen_path = PathBuf::from(&prompt_path).with_extension("screen");
-    let screen_updates = screen_path.clone();
-    thread::spawn(move || {
-        let mut previous = String::new();
-        let mut previous_screen = String::new();
-        loop {
-            if let Ok(title) = fs::read_to_string(&state_path)
-                && title != previous
-            {
-                print!("\x1b]0;{title}\x07");
-                io::stdout().flush().unwrap();
-                previous = title;
-            }
-            if let Ok(screen) = fs::read_to_string(&screen_updates)
-                && screen != previous_screen
-            {
-                print!("\x1b[2J\x1b[H{}", screen.replace('\n', "\r\n"));
-                io::stdout().flush().unwrap();
-                previous_screen = screen;
-            }
-            thread::sleep(Duration::from_millis(25));
-        }
-    });
+    let turns = AgentTurns {
+        swallow_path: PathBuf::from(&prompt_path).with_extension("swallow"),
+        busy_until: Arc::default(),
+    };
+    let display = AgentDisplay {
+        state_path,
+        screen_path: screen_path.clone(),
+        turns: turns.clone(),
+    };
+    thread::spawn(move || display.run());
     let mut prompt_file = File::options()
         .create(true)
         .append(true)
@@ -335,6 +354,7 @@ fn e2e_agent_process() {
         if let Some(prompt) = input.handle(event) {
             writeln!(prompt_file, "{prompt}").unwrap();
             prompt_file.flush().unwrap();
+            turns.prompt_read();
         }
         let screen = if input.text().is_empty() {
             fs::read_to_string(&screen_path).unwrap_or_else(|_| format!("{marker} "))
@@ -343,6 +363,78 @@ fn e2e_agent_process() {
         };
         print!("\x1b[2J\x1b[H{}", screen.replace('\n', "\r\n"));
         io::stdout().flush().unwrap();
+    }
+}
+
+/// The turns the test agent starts on the prompts it reads.
+#[derive(Clone)]
+struct AgentTurns {
+    /// While this file exists, the agent reads each prompt without starting on it.
+    swallow_path: PathBuf,
+    /// Until when the agent works on the prompt it read last.
+    busy_until: Arc<Mutex<Option<Instant>>>,
+}
+
+impl AgentTurns {
+    /// A real agent starts a turn on a prompt, which Herdr sees; this one works on it for a
+    /// moment, unless the test makes it swallow its prompts.
+    fn prompt_read(&self) {
+        if !self.swallow_path.exists() {
+            *self.busy_until.lock().unwrap() = Some(Instant::now() + Duration::from_millis(1500));
+        }
+    }
+
+    fn working(&self) -> bool {
+        self.busy_until
+            .lock()
+            .unwrap()
+            .is_some_and(|until| Instant::now() < until)
+    }
+}
+
+/// What the test agent shows Herdr: the title the test writes, or a working title while the
+/// agent works on a prompt, and the screen the test writes.
+struct AgentDisplay {
+    state_path: PathBuf,
+    screen_path: PathBuf,
+    turns: AgentTurns,
+}
+
+impl AgentDisplay {
+    fn run(self) {
+        let mut previous = None;
+        let mut previous_screen = String::new();
+        let mut shown_at = Instant::now();
+        loop {
+            let title = self.title(previous.as_ref());
+            // Shown again now and then: Herdr misses a title shown before it detects the agent.
+            if title.is_some() && (title != previous || shown_at.elapsed() > Duration::from_secs(1))
+            {
+                shown_at = Instant::now();
+                print!("\x1b]0;{}\x07", title.as_deref().unwrap_or_default());
+                io::stdout().flush().unwrap();
+                previous = title;
+            }
+            if let Ok(screen) = fs::read_to_string(&self.screen_path)
+                && screen != previous_screen
+            {
+                print!("\x1b[2J\x1b[H{}", screen.replace('\n', "\r\n"));
+                io::stdout().flush().unwrap();
+                previous_screen = screen;
+            }
+            thread::sleep(Duration::from_millis(25));
+        }
+    }
+
+    /// The title to show after `previous`: none before the test writes one, and an empty one
+    /// once a working title ends with no title written.
+    fn title(&self, previous: Option<&String>) -> Option<String> {
+        if self.turns.working() {
+            return Some("⠋ Working".to_owned());
+        }
+        fs::read_to_string(&self.state_path)
+            .ok()
+            .or_else(|| previous.map(|_| String::new()))
     }
 }
 
@@ -443,7 +535,7 @@ impl ReviewFlowFixture {
         let endpoint =
             review_mcp::Endpoint::for_repository(repository_files.root(), Some(port.number()))
                 .unwrap();
-        herdr.report_agent("idle");
+        herdr.show_idle();
         herdr.run_cli(&[
             "pane",
             "split",

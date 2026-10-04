@@ -27,6 +27,11 @@ pub enum Error {
         source: serde_json::Error,
     },
 
+    /// Herdr wrote a prompt into an agent's pane, but the agent showed no sign of starting
+    /// on it: the text may still wait in the agent's prompt box.
+    #[error("the agent did not start on the prompt: {message}")]
+    AgentNotStarted { message: String },
+
     /// Herdr rejected a socket request.
     #[error("{operation} failed: {message}")]
     Herdr {

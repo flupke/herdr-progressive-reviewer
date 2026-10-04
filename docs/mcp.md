@@ -24,7 +24,12 @@ reviewer leaves the bridge alive; a later tool call reconnects after reopening.
 
 The reviewer submits notifications through Herdr's `agent.prompt` API. Thread
 messages and acknowledgements determine pending work; delivery does not inspect
-the agent's terminal layout, focus, or lifecycle state.
+the agent's terminal layout or focus. It asks Herdr to wait until the agent is
+working or blocked: an agent that is working already counts at once, and one that
+shows neither within Herdr's 5 seconds did not start on the prompt. Herdr judges by
+the state it knows: when an integration reports the agent's state to Herdr instead of
+Herdr reading its screen, that integration must report the turns the agent starts, or
+every prompt counts as not started.
 
 User-level registration lets both clients find the bridge in every repository. It does
 not grant access to every review: each call needs a token for the selected review
@@ -120,7 +125,9 @@ agent status or revisiting the review does not repeat an already attempted one.
 The agent checks pending threads through MCP, including before finishing. Reading
 never consumes comments: a successful reply acknowledges its exact snapshot.
 
-Delivery errors are reported while comments remain saved. Use **Retry agent** on
+Delivery errors are reported while comments remain saved. When the agent did not
+start on the notification, the text may still wait in its prompt box: look at the
+agent's pane before you retry. Use **Retry agent** on
 an unresolved thread to request another attempt without adding a comment; a
 follow-up also requests work. Both use the active agent selected for the review.
 Use the Post button or `Ctrl-Enter` to post composer text; `Ctrl-s` has no reviewer

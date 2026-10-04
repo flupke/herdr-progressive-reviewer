@@ -248,6 +248,9 @@ pub enum ImplementationState {
     Paused,
     /// Whether the agent received it is unknown.
     Unknown,
+    /// The agent did not start on it: the text may still wait in the agent's prompt box. The
+    /// reviewer looks at the agent's pane, then sends it again from the pane.
+    NotStarted,
     /// It could not be sent, for this reason. The reviewer may send another.
     NotSent(String),
     /// The reviewer cancelled it before it was sent, and may send another.

@@ -25,6 +25,8 @@ mod cancel;
 mod diagram;
 #[path = "front_ends.tests.rs"]
 mod front_ends;
+#[path = "not_started.tests.rs"]
+mod not_started;
 #[path = "page.tests.rs"]
 mod page;
 #[path = "quiz.tests.rs"]

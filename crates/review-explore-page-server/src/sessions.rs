@@ -92,11 +92,7 @@ impl Session {
             }
             Step::Cancel => self.question_after_cancel_answer()?,
             Step::Answer | Step::Kickoff => RoundStage::AgentWorking,
-            Step::Fail => self
-                .finish_sending(ImplementationState::NotSent(DELIVERY_FAILURE.into()))
-                .unwrap_or(RoundStage::Interrupted {
-                    failure: Some(DELIVERY_FAILURE.into()),
-                }),
+            Step::Fail(failure) => self.prompt_failed(failure),
             Step::Interrupt => RoundStage::Interrupted { failure: None },
             Step::Conclude { quiz } => {
                 self.quiz = quiz.then(QuizAnswers::default);
@@ -144,6 +140,15 @@ impl Session {
         }
     }
 
+    /// The stage after the prompt the session sends failed with `failure`: the conclusion's
+    /// request, while the session sends one, or else the agent's next turn.
+    fn prompt_failed(&self, failure: PromptFailure) -> RoundStage {
+        self.finish_sending(failure.implementation())
+            .unwrap_or(RoundStage::Interrupted {
+                failure: Some(failure.reason().into()),
+            })
+    }
+
     /// The conclusion's request, which the session is sending, with the outcome `state`.
     fn finish_sending(&self, state: ImplementationState) -> Option<RoundStage> {
         let sending = self
@@ -159,8 +164,34 @@ impl Session {
     }
 }
 
-/// Why the standalone server's prompts fail.
-const DELIVERY_FAILURE: &str = "The selected agent is no longer available";
+/// How a prompt the session sends fails.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum PromptFailure {
+    /// It could not be delivered.
+    NotSent,
+    /// The agent did not start on it.
+    NotStarted,
+}
+
+impl PromptFailure {
+    /// What becomes of the conclusion's implementation request.
+    fn implementation(self) -> ImplementationState {
+        match self {
+            Self::NotSent => ImplementationState::NotSent(self.reason().into()),
+            Self::NotStarted => ImplementationState::NotStarted,
+        }
+    }
+
+    /// Why the agent's next turn stopped, as the review tool says it.
+    fn reason(self) -> &'static str {
+        match self {
+            Self::NotSent => "The selected agent is no longer available",
+            Self::NotStarted => {
+                "The agent did not start on the prompt. Look at the agent's pane, then Retry."
+            }
+        }
+    }
+}
 
 /// What happens next in a session's round.
 #[derive(Clone, Copy, Debug)]
@@ -169,9 +200,9 @@ pub(crate) enum Step {
     Question,
     /// The reviewer answered in the pane: the agent works on its next turn.
     Answer,
-    /// The prompt the session sends could not be delivered: the conclusion's implementation
-    /// request, while the session sends one, or else the agent's next turn.
-    Fail,
+    /// The prompt the session sends fails: the conclusion's implementation request, while the
+    /// session sends one, or else the agent's next turn.
+    Fail(PromptFailure),
     /// The reviewer cancels the latest answer in the pane: its question waits again.
     Cancel,
     /// The agent stops before its next turn.
@@ -193,10 +224,11 @@ pub(crate) enum Step {
 
 impl Step {
     /// Each step by the name of its control route.
-    const NAMES: [(&str, Self); 12] = [
+    const NAMES: [(&str, Self); 13] = [
         ("question", Self::Question),
         ("answer", Self::Answer),
-        ("fail", Self::Fail),
+        ("fail", Self::Fail(PromptFailure::NotSent)),
+        ("not-started", Self::Fail(PromptFailure::NotStarted)),
         ("cancel", Self::Cancel),
         ("interrupt", Self::Interrupt),
         ("conclude", Self::Conclude { quiz: false }),

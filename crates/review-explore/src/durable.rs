@@ -83,6 +83,9 @@ pub enum DispatchState {
     /// Written immediately before the external call; recovery must assume it may have sent.
     Attempting,
     Delivered,
+    /// Herdr wrote the prompt into the agent's pane, but the agent did not start on it: the
+    /// text may still wait in its prompt box. Retry sends the same request again.
+    NotStarted,
     NotSent(String),
     Cancelled,
     Unknown,
@@ -104,7 +107,10 @@ impl DispatchState {
     }
 
     fn may_retry(&self) -> bool {
-        matches!(self, Self::Queued | Self::NotSent(_) | Self::Cancelled)
+        matches!(
+            self,
+            Self::Queued | Self::NotStarted | Self::NotSent(_) | Self::Cancelled
+        )
     }
 }
 

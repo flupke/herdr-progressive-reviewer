@@ -82,3 +82,23 @@ test(
     expect(await explore.implementations()).toEqual([TASKS, TASKS]);
   },
 );
+
+test('a request the agent did not start on says so, and leaves Retry to the pane', { agentContext: SENDING }, async ({
+  explore,
+  screen,
+  agent,
+}) => {
+  await explore.open();
+  await explore.conclude();
+  await expect(screen.getByRole('region', 'Conclusion')).toBeVisible();
+  await agent.act('replace the list to be implemented with {tasks}, then press Implement', {
+    params: { tasks: TASKS },
+  });
+  await expect(screen.getByRole('status')).toContainText('Sending the implementation request');
+
+  await explore.agentDoesNotStart();
+  // The text may still wait in the agent's prompt box: the page sends no second request.
+  await expect(screen.getByRole('alert')).toContainText('did not start on the implementation request');
+  await expect(screen.getByRole('button', 'Implement')).toHaveCount(0);
+  await expect(screen.getByText(TASKS)).toBeVisible();
+});

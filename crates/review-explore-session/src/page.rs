@@ -300,6 +300,7 @@ fn page_implementation(delivery: &ImplementationDelivery, sending: bool) -> Page
         DispatchState::Queued => ImplementationState::Paused,
         DispatchState::Attempting | DispatchState::Unknown => ImplementationState::Unknown,
         DispatchState::Delivered => ImplementationState::Sent,
+        DispatchState::NotStarted => ImplementationState::NotStarted,
         DispatchState::NotSent(reason) => ImplementationState::NotSent(reason.clone()),
         DispatchState::Cancelled => ImplementationState::Cancelled,
     };

@@ -493,8 +493,12 @@ opens to `opened-pages` there, and fails with exit status 3 while a file
 open the page.
 
 The workspace's first pane is a stand-in implementation agent: a script named
-`claude`, which Herdr detects as an agent, swallows every prompt the reviewer
-sends. The reviewer itself records each Explore prompt, once its delivery
+`claude`, which Herdr detects as an agent, reads every prompt the reviewer
+sends and shows Herdr a working title for two seconds, so the prompt counts as
+started. Create the
+file that `session.json` names as `agent_swallows_prompts` to make it read each
+prompt without starting on it, as an agent that drops a paste does; remove the file
+to make it start again. The reviewer itself records each Explore prompt, once its delivery
 finished, as a numbered turn (`turns/turn-000001.json` in the session
 directory; `HERDR_REVIEWER_VISION_TURNS` names it). This is test tooling: the
 reviewer records turns only in a vision session (`HERDR_REVIEWER_VISION`), as
@@ -630,7 +634,11 @@ validation, durable commit and application. Invalid updates remain pending and r
 to the agent for repair. Cancelled/obsolete requests cannot apply, and an exact
 duplicate is acknowledged without replaying it. Replacing an accepted payload is
 rejected. Thread comments, Explore turns and guide requests submit directly through Herdr's
-`agent.prompt`. Delivery does not parse terminal output or wait for an idle agent,
+`agent.prompt`, which waits until Herdr sees the agent working or blocked. An agent
+working already counts at once; one that shows neither within Herdr's 5 seconds gets
+`agent_prompt_stalled`, saved as `NotStarted`, which Retry may resend with the same
+request. A courier thread sends the prompts in order, so the worker keeps serving
+while Herdr waits. Delivery does not parse terminal output or wait for an idle agent,
 unfocused pane, or empty composer. Review access binds to the native session when
 available, or the foreground process group otherwise. Cancellation removes unsent
 requests and a replaced conversation rejects them.

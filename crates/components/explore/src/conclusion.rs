@@ -17,6 +17,8 @@ enum Delivery {
     Sent(review_explore::ImplementationRequest),
     Failed(String),
     Paused(review_explore::ImplementationRequest),
+    /// The agent did not start on the request; Retry sends it again.
+    NotStarted(review_explore::ImplementationRequest),
     Unknown(review_explore::ImplementationRequest),
 }
 
@@ -28,7 +30,7 @@ impl Delivery {
             | Self::Cancelling(request)
             | Self::Sent(request)
             | Self::Unknown(request) => Some(request),
-            Self::Ready | Self::Failed(_) | Self::Paused(_) => None,
+            Self::Ready | Self::Failed(_) | Self::Paused(_) | Self::NotStarted(_) => None,
         }
     }
 
@@ -163,7 +165,7 @@ impl ExploreComponent {
         if self.editor_target == EditorTarget::Implementation
             && let Some(view) = self.conclusion_mut()
             && view.can_edit()
-            && !matches!(view.delivery, Delivery::Paused(_))
+            && !matches!(view.delivery, Delivery::Paused(_) | Delivery::NotStarted(_))
         {
             view.delivery = Delivery::Ready;
         }
@@ -184,11 +186,12 @@ impl ExploreComponent {
             return vec![];
         }
         let exploration = self.exploration.as_ref().expect("conclusion exploration");
-        let result = if let Delivery::Paused(request) = &view.delivery {
-            Ok(request.clone())
-        } else {
-            exploration.implementation(view.editor.text())
-        };
+        let result =
+            if let Delivery::Paused(request) | Delivery::NotStarted(request) = &view.delivery {
+                Ok(request.clone())
+            } else {
+                exploration.implementation(view.editor.text())
+            };
         let view = self.conclusion_mut().expect("selected conclusion");
         match result {
             Ok(request) => {
@@ -202,6 +205,12 @@ impl ExploreComponent {
                 vec![]
             }
         }
+    }
+
+    /// Whether the agent did not start on the implementation request of the shown conclusion.
+    pub(super) fn implementation_not_started(&self) -> bool {
+        self.conclusion()
+            .is_some_and(|view| matches!(view.delivery, Delivery::NotStarted(_)))
     }
 
     pub(super) fn cancel_implementation(&mut self) -> Vec<Action> {
@@ -324,6 +333,20 @@ impl ExploreComponent {
                     ),
                 ]);
             }
+            Delivery::NotStarted(_) => {
+                layout.text(
+                    "The agent did not start on the implementation request. Look at the agent's pane, then Retry.",
+                    palette.warning,
+                    None,
+                );
+                layout.controls([
+                    ("Retry".into(), Control::Implement),
+                    (
+                        "New implementation request".into(),
+                        Control::NewImplementation,
+                    ),
+                ]);
+            }
             Delivery::Unknown(request) => {
                 layout.text(
                     format!("Implementation request {}", request.delivery),
@@ -398,7 +421,7 @@ impl ExploreComponent {
                 self.edit_implementation();
                 vec![]
             }
-            Delivery::Paused(_) => {
+            Delivery::Paused(_) | Delivery::NotStarted(_) => {
                 view.delivery = Delivery::Ready;
                 self.implement()
             }
@@ -482,6 +505,7 @@ impl Delivery {
             DispatchState::Queued => Self::Paused(request.clone()),
             DispatchState::Attempting | DispatchState::Unknown => Self::Unknown(request.clone()),
             DispatchState::Delivered => Self::Sent(request.clone()),
+            DispatchState::NotStarted => Self::NotStarted(request.clone()),
             DispatchState::Cancelled => {
                 Self::Failed("Implementation request cancelled before sending.".into())
             }

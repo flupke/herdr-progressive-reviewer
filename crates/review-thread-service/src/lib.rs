@@ -35,6 +35,13 @@ enum Input {
     Ui(Command),
     Mcp(review_mcp::Request),
     Prompt(delivery::PromptRequest),
+    /// The outcome of the comment notification sent with access `token` for the comments
+    /// through sequence `through`.
+    Notified {
+        token: String,
+        through: u64,
+        result: Result<(), PromptError>,
+    },
     Stop,
 }
 
@@ -76,6 +83,7 @@ impl Worker {
     ) -> Self {
         let (sender, receiver) = mpsc::channel();
         let requests = sender.clone();
+        let inputs = sender.clone();
         let thread = thread::spawn(move || {
             let server = endpoint.and_then(|endpoint| {
                 review_mcp::Server::start(endpoint, move |request| {
@@ -91,7 +99,15 @@ impl Worker {
             if let Err(error) = &server {
                 publish(Event::Error(error.clone()));
             }
-            State::new(store, Box::new(port), target, available, Box::new(publish)).run(&receiver);
+            State::new(
+                store,
+                std::sync::Arc::new(port),
+                target,
+                available,
+                Box::new(publish),
+                inputs,
+            )
+            .run(&receiver);
             drop(server);
         });
         Self {

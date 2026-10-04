@@ -74,6 +74,7 @@ impl DurableDispatch {
         match result {
             Ok(()) => DispatchState::Delivered,
             Err(PromptError::Cancelled) => DispatchState::Cancelled,
+            Err(PromptError::NotStarted) => DispatchState::NotStarted,
             Err(PromptError::Delivery(error)) => DispatchState::NotSent(error.clone()),
             Err(PromptError::Unknown(_)) => DispatchState::Unknown,
         }

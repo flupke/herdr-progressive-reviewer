@@ -238,7 +238,10 @@ the diffs cannot be written, or the repository cannot be read, the prompt is not
 a toast says why; Retry tries again. When Jev is enabled, starting a round first marks what Jev dismisses,
 as `rf` does; the agent only sees what is left.
 The preparation state shows the actual pending status and **Stop waiting**. Delivery
-errors and Retry appear beside the affected turn.
+errors and Retry appear beside the affected turn. When the agent does not start on
+a prompt within a few seconds, the turn says so: its text may still wait in the
+agent's prompt box, so look at the agent's pane, then Retry, which sends the same
+turn again. An implementation request the agent did not start on offers Retry too.
 
 On follow-up turns, the agent's reply appears above the question. The question is
 followed by its choices and the text field for optional details.

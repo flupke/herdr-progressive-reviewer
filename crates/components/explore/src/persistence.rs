@@ -227,6 +227,10 @@ impl ExploreComponent {
                 Progress::Retryable,
                 "Previous prompt delivery is uncertain. Retry keeps the posted answer; reopening has sent nothing.",
             ),
+            ExploreProgress::NotStarted => (
+                Progress::Retryable,
+                "The agent did not start on the prompt. Look at the agent's pane, then Retry; Retry keeps the posted answer.",
+            ),
         };
         if self.durable.historical {
             (progress, "Earlier round · Reset to start a new one.")

@@ -156,6 +156,7 @@ impl VisionSession {
                 "repository_type": options.repository_type.to_string(),
                 "directory": options.directory,
                 "stream": session.frames.stream_path(),
+                "agent_swallows_prompts": session.workspace.swallow_switch(),
                 "pid": std::process::id(),
             }))?,
         )?;

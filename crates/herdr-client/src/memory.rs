@@ -1,10 +1,10 @@
 //! An in-memory agent host for tests that exercise agent delivery without Herdr.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use crate::Result;
 use crate::protocol::{Agent, AgentPort, PaneId, PaneProcessInfo, SessionSnapshot};
+use crate::{Error, Result};
 
 /// A prompt submitted to one agent pane.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -26,6 +26,8 @@ struct Host {
     agents: Vec<Agent>,
     process_groups: HashMap<PaneId, u32>,
     prompts: Vec<SentPrompt>,
+    /// Panes whose agent reads each prompt without starting on it.
+    swallowing: HashSet<PaneId>,
 }
 
 impl InMemoryAgents {
@@ -61,6 +63,17 @@ impl InMemoryAgents {
         self.host().process_groups.insert(pane_id.clone(), group);
     }
 
+    /// Make the agent in `pane_id` read each prompt without starting on it, as an agent that
+    /// drops a paste does, or start on each prompt again.
+    pub fn swallow_prompts(&self, pane_id: &PaneId, swallow: bool) {
+        let mut host = self.host();
+        if swallow {
+            host.swallowing.insert(pane_id.clone());
+        } else {
+            host.swallowing.remove(pane_id);
+        }
+    }
+
     /// Every prompt submitted so far, in submission order.
     pub fn prompts(&self) -> Vec<SentPrompt> {
         self.host().prompts.clone()
@@ -94,10 +107,16 @@ impl AgentPort for InMemoryAgents {
     }
 
     fn prompt_agent(&self, pane_id: &PaneId, text: &str) -> Result<()> {
-        self.host().prompts.push(SentPrompt {
+        let mut host = self.host();
+        host.prompts.push(SentPrompt {
             pane_id: pane_id.clone(),
             text: text.to_owned(),
         });
+        if host.swallowing.contains(pane_id) {
+            return Err(Error::AgentNotStarted {
+                message: "the agent showed no activity".into(),
+            });
+        }
         Ok(())
     }
 }

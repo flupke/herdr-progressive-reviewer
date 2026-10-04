@@ -26,6 +26,8 @@
   <p class="state working" role="status">Sending the implementation request to the agent…</p>
   {% elif implementation.state.kind == "sent" %}
   <p class="state" role="status">The implementation request was sent to the agent.</p>
+  {% elif implementation.state.kind == "not_started" %}
+  <p class="failure" role="alert">The agent did not start on the implementation request. Look at the agent's pane, then Retry in the pane, and load this page again.</p>
   {% elif implementation.state.kind == "paused" %}
   <p class="state" role="status">The implementation request was saved but not sent. Send it, or a new one, from the pane.</p>
   {% else %}

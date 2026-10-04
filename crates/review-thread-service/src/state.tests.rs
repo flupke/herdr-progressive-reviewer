@@ -16,6 +16,8 @@ const UNIT: &str = "review";
 /// One service over a temporary store and an in-memory agent host.
 struct Service {
     state: State,
+    /// The outcomes the courier sends back to the worker.
+    inputs: std::sync::mpsc::Receiver<Input>,
     agents: InMemoryAgents,
     target: AgentTarget,
     errors: Arc<Mutex<Vec<String>>>,
@@ -37,16 +39,19 @@ impl Service {
                 published.lock().unwrap().push(error);
             }
         };
+        let (sender, inputs) = std::sync::mpsc::channel();
         let mut state = State::new(
             store,
-            Box::new(agents.clone()),
+            Arc::new(agents.clone()),
             target.clone(),
             true,
             Box::new(publish),
+            sender,
         );
         state.command(Command::Thread(ThreadCommand::Load(UNIT.into())));
         Self {
             state,
+            inputs,
             agents,
             target,
             errors,
@@ -91,9 +96,13 @@ impl Service {
         });
     }
 
-    /// Run one delivery pass and return the prompts it submitted.
+    /// Run one delivery pass and return the prompts it submitted, once their outcomes are back.
     fn poll(&mut self) -> Vec<SentPrompt> {
         self.state.poll();
+        self.state.courier.flush();
+        while let Ok(input) = self.inputs.try_recv() {
+            let _ = self.state.input(input);
+        }
         let prompts = self.agents.prompts();
         let sent = prompts[self.seen_prompts..].to_vec();
         self.seen_prompts = prompts.len();
@@ -332,4 +341,167 @@ fn anchor() -> DiffRangeAnchor {
         new_content: Some(b"original\n".to_vec()),
         diff_hash: "hash".into(),
     }
+}
+
+#[test]
+fn a_notification_the_agent_does_not_start_on_is_reported_and_sent_again_on_retry() {
+    let mut service = Service::start();
+    service.agents.swallow_prompts(&pane("first"), true);
+    let thread = service.start_thread("Rename this");
+
+    let (_, first) = only_wakeup(&service.poll());
+
+    assert_eq!(service.errors(), [PromptError::NotStarted.to_string()]);
+    assert!(service.poll().is_empty());
+    service.agents.swallow_prompts(&pane("first"), false);
+    service.retry(&thread);
+    let (pane, retried) = only_wakeup(&service.poll());
+    assert_eq!((pane.as_str(), retried), ("first", first));
+    assert_eq!(service.errors().len(), 1);
+}
+
+/// The agents, with an agent that takes until the test releases it to start on a prompt.
+struct SlowAgents {
+    agents: InMemoryAgents,
+    prompting: std::sync::mpsc::Sender<()>,
+    release: Mutex<std::sync::mpsc::Receiver<()>>,
+}
+
+impl AgentPort for SlowAgents {
+    fn session_snapshot(&self) -> herdr_client::Result<herdr_client::protocol::SessionSnapshot> {
+        self.agents.session_snapshot()
+    }
+
+    fn list_agents(&self) -> herdr_client::Result<Vec<Agent>> {
+        self.agents.list_agents()
+    }
+
+    fn get_agent(&self, pane_id: &PaneId) -> herdr_client::Result<Option<Agent>> {
+        self.agents.get_agent(pane_id)
+    }
+
+    fn pane_process_info(
+        &self,
+        pane_id: &PaneId,
+    ) -> herdr_client::Result<herdr_client::protocol::PaneProcessInfo> {
+        self.agents.pane_process_info(pane_id)
+    }
+
+    fn prompt_agent(&self, pane_id: &PaneId, text: &str) -> herdr_client::Result<()> {
+        let _ = self.prompting.send(());
+        let _ = self.release.lock().unwrap().recv();
+        self.agents.prompt_agent(pane_id, text)
+    }
+}
+
+/// A worker over agents whose agent takes until the test releases it to start on each prompt.
+struct SlowWorker {
+    worker: crate::Worker,
+    agents: InMemoryAgents,
+    /// One signal for each prompt on its way to the agent.
+    prompted: std::sync::mpsc::Receiver<()>,
+    /// Lets the agent start on one prompt.
+    release: std::sync::mpsc::Sender<()>,
+    events: std::sync::mpsc::Receiver<Event>,
+    _store: TempDir,
+}
+
+impl SlowWorker {
+    fn start() -> Self {
+        let directory = tempfile::tempdir().unwrap();
+        let store = ReviewStore::open(directory.path().join("state"), directory.path()).unwrap();
+        let agents = InMemoryAgents::default();
+        agents.upsert_agent(agent("first", "session-1"));
+        let (prompting, prompted) = std::sync::mpsc::channel();
+        let (release, released) = std::sync::mpsc::channel();
+        let (published, events) = std::sync::mpsc::channel();
+        let worker = crate::Worker::start(
+            store,
+            SlowAgents {
+                agents: agents.clone(),
+                prompting,
+                release: Mutex::new(released),
+            },
+            AgentTarget::new(workspace(), Some(pane("first"))),
+            Err("No MCP listener in this test".into()),
+            |_| Err("No MCP listener in this test".into()),
+            move |event| {
+                let _ = published.send(event);
+            },
+        );
+        Self {
+            worker,
+            agents,
+            prompted,
+            release,
+            events,
+            _store: directory,
+        }
+    }
+}
+
+#[test]
+fn a_prompt_withdrawn_while_it_waits_behind_another_is_not_sent() {
+    let SlowWorker {
+        worker,
+        agents,
+        prompted,
+        release,
+        ..
+    } = SlowWorker::start();
+    let pinned = crate::PinnedAgent::new(agent("first", "session-1"));
+    let (first, _first_cancellation) = worker
+        .prompt_sender()
+        .send(pinned.clone(), "First turn".into());
+    prompted
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .expect("the first prompt is on its way");
+    let (second, second_cancellation) = worker.prompt_sender().send(pinned, "Second turn".into());
+    // Let the worker hand the second prompt to the courier, behind the first.
+    std::thread::sleep(std::time::Duration::from_millis(200));
+
+    drop(second_cancellation);
+    // Released for both, so that a second prompt sent anyway shows instead of waiting.
+    release.send(()).unwrap();
+    release.send(()).unwrap();
+
+    first.wait().unwrap();
+    assert!(matches!(second.wait(), Err(crate::PromptError::Cancelled)));
+    let texts: Vec<_> = agents
+        .prompts()
+        .into_iter()
+        .map(|prompt| prompt.text)
+        .collect();
+    assert_eq!(texts, ["First turn"]);
+}
+
+#[test]
+fn the_worker_keeps_serving_while_an_agent_takes_its_time_to_start_on_a_prompt() {
+    let SlowWorker {
+        worker,
+        prompted,
+        release,
+        events,
+        ..
+    } = SlowWorker::start();
+    let (receipt, _cancellation) = worker.prompt_sender().send(
+        crate::PinnedAgent::new(agent("first", "session-1")),
+        "Reviewer turn".into(),
+    );
+    prompted
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .expect("the prompt is on its way");
+
+    worker.send(Command::Thread(ThreadCommand::Load(UNIT.into())));
+
+    let loaded = loop {
+        match events.recv_timeout(std::time::Duration::from_secs(10)) {
+            Ok(Event::Loaded(loaded)) => break loaded,
+            Ok(_) => {}
+            Err(error) => panic!("the worker did not load the threads: {error}"),
+        }
+    };
+    assert!(loaded.result.is_ok());
+    release.send(()).unwrap();
+    receipt.wait().unwrap();
 }

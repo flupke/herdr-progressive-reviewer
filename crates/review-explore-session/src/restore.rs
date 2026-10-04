@@ -23,16 +23,16 @@ fn restored_progress(round: &ExploreRound) -> ui_events::ExploreProgress {
     let Some(request) = round.exploration.retry_request() else {
         return ui_events::ExploreProgress::Ready;
     };
-    let uncertain = round.turns.get(&request.request).is_some_and(|delivery| {
-        matches!(
-            delivery.state,
-            DispatchState::Attempting | DispatchState::Unknown
-        )
-    });
-    if uncertain {
-        ui_events::ExploreProgress::DeliveryUncertain
-    } else {
-        ui_events::ExploreProgress::Interrupted
+    match round
+        .turns
+        .get(&request.request)
+        .map(|delivery| &delivery.state)
+    {
+        Some(DispatchState::Attempting | DispatchState::Unknown) => {
+            ui_events::ExploreProgress::DeliveryUncertain
+        }
+        Some(DispatchState::NotStarted) => ui_events::ExploreProgress::NotStarted,
+        _ => ui_events::ExploreProgress::Interrupted,
     }
 }
 

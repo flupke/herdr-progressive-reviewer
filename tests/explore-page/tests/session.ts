@@ -45,6 +45,11 @@ export interface Session {
    * request, while the session sends one, or else the prompt of the agent's next turn.
    */
   failDelivery(): Promise<void>;
+  /**
+   * The agent did not start on the prompt the session sends: the conclusion's implementation
+   * request, while the session sends one, or else the prompt of its next turn.
+   */
+  agentDoesNotStart(): Promise<void>;
   /** The answers the reviewer sent from the page, in order. */
   answers(): Promise<SentAnswer[]>;
   /** The diagram errors the page reported, each once: what the tool saves with a question. */
@@ -107,6 +112,7 @@ export const test = base.extend<{ explore: Session }>({
       answerInPane: () => step('answer'),
       cancelAnswerInPane: () => step('cancel'),
       failDelivery: () => step('fail'),
+      agentDoesNotStart: () => step('not-started'),
       answers: () => read<SentAnswer[]>('answers'),
       diagramErrors: () => read<unknown[]>('diagram-errors'),
       implementInPane: () => step('implement'),
