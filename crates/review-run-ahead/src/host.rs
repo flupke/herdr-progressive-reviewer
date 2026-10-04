@@ -78,6 +78,23 @@ pub struct ForkTrace<'a> {
     pub transcripts: &'a Path,
 }
 
+/// The switch of the pane's agent to a fork's session.
+#[derive(Clone, Copy, Debug)]
+pub struct SwitchTo<'a> {
+    /// The pane whose agent switches.
+    pub pane: &'a PaneId,
+    /// The fork whose session the agent resumes.
+    pub fork: ForkTrace<'a>,
+}
+
+/// Why the pane's agent was not switched to a fork's session.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SwitchFailure {
+    pub error: String,
+    /// Whether the agent was told to resume the fork's session: it may run it then.
+    pub typed: bool,
+}
+
 /// What run-ahead needs from the agent in the pane.
 pub trait ForkHost: Send + Sync {
     /// Reports to `report` each status Herdr gives the agent of `pane`, until the returned watch
@@ -100,6 +117,22 @@ pub trait ForkHost: Send + Sync {
     /// Stops the fork `fork` if its process still runs, then deletes its transcript, on a
     /// thread of its own; `done` runs once both are done.
     fn discard(&self, fork: ForkTrace<'_>, done: Box<dyn FnOnce() + Send>);
+
+    /// Whether the input box of the agent of `pane` holds no text, as the agent's screen
+    /// shows it.
+    fn input_is_empty(&self, pane: &PaneId) -> Result<bool, String>;
+
+    /// Switches the agent of `switch.pane` to the session of the fork `switch.fork`, on a
+    /// thread of its own. Once the fork's submit has its answer, or its process ended, it stops
+    /// the fork's process and keeps its transcript; then, with the agent idle and its input box
+    /// empty, it has the agent resume the fork's session, and waits until Herdr reports the
+    /// agent on that session and ready for a prompt. `done` gets the agent as Herdr then
+    /// reports it, or why the switch failed.
+    fn switch(
+        &self,
+        switch: SwitchTo<'_>,
+        done: Box<dyn FnOnce(Result<Agent, SwitchFailure>) + Send>,
+    );
 
     /// Adds `line` to run-ahead's log, which says what the forks did.
     fn log(&self, line: &str);

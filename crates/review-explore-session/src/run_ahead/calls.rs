@@ -67,7 +67,8 @@ impl ExploreSession {
             .run_ahead
             .armed
             .as_ref()
-            .expect("the fork's question waits")
+            .expect("a fork with no turn yet answers the question that waits")
+            .asked
             .round
             .clone();
         let kept = Box::new(update.clone());

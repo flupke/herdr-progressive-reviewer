@@ -12,7 +12,7 @@ use review_run_ahead::{ForkPoint, ForkRecord, ForkStart};
 use review_types::MarkAuthor;
 use tempfile::TempDir;
 
-use super::{Event, RoundKey, RunAheadInput, Taken, TakenFork, is_idle};
+use super::{Event, RoundKey, RunAheadInput, Taken, TakenFork};
 use crate::unreviewed_diffs::UnreviewedDiffs;
 use crate::{ExploreSession, Input};
 
@@ -20,7 +20,19 @@ use crate::{ExploreSession, Input};
 /// from a copy of the review marks with the question's marks applied.
 pub(super) struct ForkFiles {
     _marks: TempDir,
-    _diffs: UnreviewedDiffs,
+    diffs: UnreviewedDiffs,
+}
+
+impl ForkFiles {
+    /// The unreviewed diffs the forks' prompts name.
+    pub(super) fn diffs(&self) -> &UnreviewedDiffs {
+        &self.diffs
+    }
+
+    /// The unreviewed diffs, which outlive the copy of the review marks they were written from.
+    pub(super) fn into_diffs(self) -> UnreviewedDiffs {
+        self.diffs
+    }
 }
 
 /// The forks to start for the question that waits.
@@ -48,13 +60,16 @@ impl ExploreSession {
     /// The forks of the question that waits, prompts included, or why none can be taken.
     fn fork_plan(&mut self) -> Result<ForkPlan, String> {
         let armed = self.run_ahead.armed.as_ref().ok_or("no question waits")?;
-        let question = armed.question.clone();
+        if self.run_ahead.switching.is_some() {
+            return Err("the agent is switching to a fork's session".into());
+        }
+        let question = armed.asked.question.clone();
         let agent = self
             .agents
-            .get_agent(&armed.pane)
+            .get_agent(&armed.asked.pane)
             .map_err(|error| error.to_string())?
             .ok_or("the agent's pane is gone")?;
-        if !is_idle(agent.agent_status) {
+        if !agent.agent_status.waits_for_prompt() {
             return Err(format!("the agent is {:?}", agent.agent_status));
         }
         let point = self.run_ahead.host.point(&agent)?;
@@ -122,7 +137,7 @@ impl ExploreSession {
             unreviewed,
             ForkFiles {
                 _marks: marks,
-                _diffs: diffs,
+                diffs,
             },
         ))
     }
@@ -130,14 +145,14 @@ impl ExploreSession {
     /// Saves the record of the forks of `plan`, then starts them.
     fn start_forks(&mut self, plan: ForkPlan) {
         let armed = self.run_ahead.armed.as_ref().expect("a question waits");
-        let round = armed.round.clone();
+        let round = armed.asked.round.clone();
         let taken_at_ms = review_explore::now_ms();
         let records: Vec<_> = plan
             .forks
             .iter()
             .map(|(fork, _)| ForkRecord {
-                question: armed.question.id.clone(),
-                version: armed.question.version,
+                question: armed.asked.question.id.clone(),
+                version: armed.asked.question.version,
                 choice: fork.choice.clone(),
                 session: fork.session.clone(),
                 transcripts: plan.point.transcripts.clone(),
@@ -149,6 +164,7 @@ impl ExploreSession {
                 usage: None,
                 discarded: None,
                 cleaned: false,
+                continued: None,
             })
             .collect();
         // Saved before the forks start, so a reviewer that dies meanwhile leaves their sessions
@@ -203,7 +219,7 @@ impl ExploreSession {
         armed.taken = Some(Taken {
             point: plan.point,
             forks,
-            _files: plan.files,
+            files: plan.files,
         });
     }
 
@@ -266,8 +282,10 @@ fn fork_turn(
         access,
         choice: choice.id.clone(),
         request,
+        prompt: prompt.clone(),
         process: None,
         kept: None,
+        ended: false,
     };
     Ok((fork, prompt))
 }

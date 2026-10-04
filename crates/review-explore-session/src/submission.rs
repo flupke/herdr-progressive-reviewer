@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use review_explore::ExploreRound;
 use review_mcp::{Operation, Request, Response};
 
 use crate::ExploreSession;
@@ -27,36 +28,18 @@ impl ExploreSession {
     }
 
     fn submit(&mut self, request: Request, update: &review_explore::InterviewUpdate) {
-        if self
-            .state
-            .round
-            .as_ref()
-            .is_none_or(|round| round.exploration.instance != update.instance)
-        {
-            request.respond(Err("Explore response belongs to another instance".into()));
-            return;
-        }
-        let committed =
-            self.rounds
-                .submit(&update.checkpoint.review_unit, &update.instance, update);
-        let super::records::Submitted { applied, round } = match committed {
-            Ok(submitted) => submitted,
+        let (applied, round) = match self.commit(update) {
+            Ok(committed) => committed,
             Err(error) => {
-                request.respond(Err(error.to_string()));
+                request.respond(Err(error));
                 return;
             }
-        };
-        let round = if applied {
-            self.apply_conclusion_marks(update, &round).unwrap_or(round)
-        } else {
-            round
         };
         let shown_as = update
             .next
             .as_ref()
             .and_then(|question| round.exploration.question_number(question))
             .map(Into::into);
-        self.state.round = Some(round.clone());
         let (response, received) = std::sync::mpsc::channel();
         if self
             .events
@@ -83,6 +66,33 @@ impl ExploreSession {
                 .map(|applied| Response::Explore { applied, shown_as });
             request.respond(result);
         });
+    }
+
+    /// Saves the agent's turn `update` in the session's round, with the marks of a
+    /// conclusion; returns whether the turn changed the round, and the round after it.
+    pub(crate) fn commit(
+        &mut self,
+        update: &review_explore::InterviewUpdate,
+    ) -> Result<(bool, ExploreRound), String> {
+        if self
+            .state
+            .round
+            .as_ref()
+            .is_none_or(|round| round.exploration.instance != update.instance)
+        {
+            return Err("Explore response belongs to another instance".into());
+        }
+        let super::records::Submitted { applied, round } = self
+            .rounds
+            .submit(&update.checkpoint.review_unit, &update.instance, update)
+            .map_err(|error| error.to_string())?;
+        let round = if applied {
+            self.apply_conclusion_marks(update, &round).unwrap_or(round)
+        } else {
+            round
+        };
+        self.state.round = Some(round.clone());
+        Ok((applied, round))
     }
 
     fn authorize(&mut self, access: &str) -> eyre::Result<()> {

@@ -2,6 +2,7 @@
 //! changed path, so it sees what is left without intersecting a full diff
 //! with a list of ranges, and cites the line numbers it reads.
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::fs::Permissions;
 use std::os::unix::fs::PermissionsExt;
@@ -72,6 +73,12 @@ impl UnreviewedDiffs {
         self.directory.path()
     }
 
+    /// Whether `other` holds the same diffs, at the same paths: the same lines are unreviewed.
+    pub(crate) fn same_lines(&self, other: &Self) -> bool {
+        files(self.directory())
+            .is_ok_and(|ours| files(other.directory()).is_ok_and(|theirs| ours == theirs))
+    }
+
     /// The file listing the displaced diffs, when there are any.
     pub(crate) fn index(&self) -> Option<PathBuf> {
         (!self.displaced.is_empty()).then(|| self.directory().join(INDEX))
@@ -136,6 +143,25 @@ impl UnreviewedDiffs {
         }
         std::fs::write(index, text)
     }
+}
+
+/// Every file under `directory`, by its path from there, with its contents.
+fn files(directory: &Path) -> std::io::Result<BTreeMap<PathBuf, Vec<u8>>> {
+    let mut found = BTreeMap::new();
+    let mut directories = vec![directory.to_owned()];
+    while let Some(current) = directories.pop() {
+        for entry in std::fs::read_dir(&current)? {
+            let path = entry?.path();
+            if path.is_dir() {
+                directories.push(path);
+            } else {
+                let contents = std::fs::read(&path)?;
+                let relative = path.strip_prefix(directory).unwrap_or(&path).to_owned();
+                found.insert(relative, contents);
+            }
+        }
+    }
+    Ok(found)
 }
 
 impl fmt::Display for FileDiff<'_> {

@@ -205,18 +205,36 @@ fn parse_stream_event(event: EventEnvelope) -> Result<Option<HerdrEvent>> {
 }
 
 impl HerdrClient {
-    fn agent_screen(&self, pane_id: &PaneId) -> Result<String> {
+    /// The visible screen of the agent of `pane_id`: plain text, or `styled` with its colours
+    /// and styles as ANSI sequences.
+    fn agent_screen(&self, pane_id: &PaneId, styled: bool) -> Result<String> {
         let result = self.request(
             method::AGENT_READ,
             &json!({
                 "target": pane_id.0,
                 "source": "visible",
-                "format": "text",
-                "strip_ansi": true,
+                "format": if styled { "ansi" } else { "text" },
+                "strip_ansi": !styled,
             }),
         )?;
         let read: PaneReadWire = Self::parse(&result, "read", method::AGENT_READ)?;
         Ok(read.text)
+    }
+
+    /// The visible screen of the agent of `pane_id`, with its colours and styles as ANSI
+    /// sequences: what an agent draws dim, such as a placeholder, tells apart from text.
+    pub fn read_agent_screen_styled(&self, pane_id: &PaneId) -> Result<String> {
+        self.agent_screen(pane_id, true)
+    }
+
+    /// Submits `text` to the agent of `pane_id` as Herdr submits a prompt, without waiting for
+    /// the agent to start working: for a command of the agent's own, which starts no turn.
+    pub fn submit_agent_command(&self, pane_id: &PaneId, text: &str) -> Result<()> {
+        self.request(
+            method::AGENT_PROMPT,
+            &json!({"target": pane_id.0, "text": text}),
+        )
+        .map(|_| ())
     }
 
     /// Build a client for an explicitly configured Herdr connection.
@@ -591,7 +609,7 @@ impl AgentPort for HerdrClient {
 
 impl HerdrReader for HerdrClient {
     fn read_agent_screen(&self, pane_id: &PaneId) -> Result<String> {
-        self.agent_screen(pane_id)
+        self.agent_screen(pane_id, false)
     }
 
     fn list_plugin_panes(&self, workspace_id: &WorkspaceId) -> Result<Vec<PluginPane>> {

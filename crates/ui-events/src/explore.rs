@@ -16,6 +16,18 @@ pub struct ExploreRestored {
     pub storage_error: Option<String>,
     /// Where the restored interview stands; reopening never sends anything itself.
     pub progress: ExploreProgress,
+    /// The turns of the restored round, by request, that run-ahead prepared while the reviewer
+    /// thought about the answer.
+    pub prepared_turns: Vec<String>,
+}
+
+/// The agent in the pane continued as the fork that prepared the turn `request` of the round
+/// `round` while the reviewer thought about the answer: the fork's turn is the round's, and the
+/// pane says, with it, that it was prepared.
+#[derive(Clone, Debug)]
+pub struct ExploreTurnPrepared {
+    pub round: String,
+    pub request: String,
 }
 
 /// Where a restored interview stands, decided by the Explore session.

@@ -1,6 +1,7 @@
 //! What the Explore page shows of the round the session owns, and the commands the reviewer
 //! sends from it.
 
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -369,8 +370,11 @@ impl ExploreSession {
         let takes_quiz_answers = !self.state.historical && self.state.storage_error.is_none();
         latest_turn(
             round,
-            sending,
-            takes_quiz_answers,
+            LatestTurn {
+                sending,
+                takes_quiz_answers,
+                prepared: self.run_ahead.prepared_turns(),
+            },
             &mut self.citations,
             root,
         )
@@ -436,13 +440,21 @@ fn waiting_question(exploration: &Exploration) -> Option<&Question> {
     exploration.waiting_turn()?.next.as_ref()
 }
 
-/// The question or conclusion the agent's latest turn posted. `sending` tells whether this
-/// process sends an implementation request, `takes_quiz_answers` whether the round can save
-/// the reviewer's answers to the conclusion's quiz.
+/// What the page shows of the agent's latest turn besides the turn itself.
+#[derive(Clone, Copy)]
+struct LatestTurn<'a> {
+    /// Whether this process sends an implementation request.
+    sending: bool,
+    /// Whether the round can save the reviewer's answers to the conclusion's quiz.
+    takes_quiz_answers: bool,
+    /// The turns, by request, that run-ahead prepared.
+    prepared: &'a HashSet<String>,
+}
+
+/// The question or conclusion the agent's latest turn posted, as `latest` says to show it.
 fn latest_turn(
     round: &ExploreRound,
-    sending: bool,
-    takes_quiz_answers: bool,
+    latest: LatestTurn<'_>,
     citations: &mut PageCitations,
     root: &Path,
 ) -> RoundStage {
@@ -457,6 +469,10 @@ fn latest_turn(
     let Some(turn) = exploration.conversation.last() else {
         return nothing();
     };
+    let response = TurnResponse {
+        prepared: latest.prepared.contains(&turn.update.request),
+        ..TurnResponse::of(exploration, turn)
+    };
     if let Some(conclusion) = &turn.update.conclusion {
         let request = &turn.update.request;
         let proofs: Vec<Vec<EvidenceRef>> = conclusion
@@ -469,16 +485,16 @@ fn latest_turn(
             conclusion: Box::new(conclusion.clone()),
             implementation: round
                 .latest_implementation(request)
-                .map(|delivery| page_implementation(delivery, sending)),
+                .map(|delivery| page_implementation(delivery, latest.sending)),
             quiz: PageQuiz {
                 proofs: citations.lists(&proofs, &exploration.comparison, root),
                 answers: exploration
                     .quiz_answers(request)
                     .cloned()
                     .unwrap_or_default(),
-                takes_answers: takes_quiz_answers,
+                takes_answers: latest.takes_quiz_answers,
             },
-            response: TurnResponse::of(exploration, turn),
+            response,
         };
     }
     match &turn.update.next {
@@ -487,7 +503,7 @@ fn latest_turn(
             question: Box::new(question.clone()),
             citations: citations.of(question, &exploration.comparison, root),
             marks: QuestionMarks::requested(&turn.update),
-            response: TurnResponse::of(exploration, turn),
+            response,
             answer_cancelled: exploration.cancelled_since_last_turn(),
         },
         None => nothing(),

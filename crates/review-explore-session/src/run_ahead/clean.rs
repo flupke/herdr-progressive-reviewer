@@ -7,9 +7,9 @@ use std::collections::HashSet;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use review_run_ahead::{DiscardReason, ForkEnd, ForkTrace};
+use review_run_ahead::{DiscardReason, ForkEnd, ForkPoint, ForkTrace};
 
-use super::{Event, RoundKey, RunAheadInput, Taken};
+use super::{Event, RoundKey, RunAheadInput, TakenFork};
 use crate::{ExploreSession, Input};
 
 /// How long a closing reviewer waits for its forks to stop: SIGTERM, three seconds, SIGKILL.
@@ -25,13 +25,6 @@ impl ExploreSession {
         self.run_ahead.armed = None;
     }
 
-    /// The reviewer's answer `request` is saved: the question it answers no longer waits.
-    pub(crate) fn run_ahead_answered(&mut self, request: &review_explore::TurnRequest) {
-        if request.answer.is_some() {
-            self.run_ahead_discard(DiscardReason::Answered);
-        }
-    }
-
     /// Discards the forks taken for the question that waits, for `reason`, and keeps watching.
     pub(super) fn discard_taken(&mut self, reason: DiscardReason) {
         let Some(armed) = self.run_ahead.armed.as_mut() else {
@@ -40,15 +33,25 @@ impl ExploreSession {
         let Some(taken) = armed.taken.take() else {
             return;
         };
-        let round = armed.round.clone();
-        self.mark_discarded(&round, &taken, reason);
-        for fork in &taken.forks {
-            self.discard_in_background(&round, fork.trace(&taken.point));
+        let round = armed.asked.round.clone();
+        self.discard_forks(&round, &taken.point, &taken.forks, reason);
+    }
+
+    /// Discards `forks` of `round`, taken from `point`, for `reason`: each is stopped and its
+    /// transcript deleted.
+    pub(super) fn discard_forks(
+        &mut self,
+        round: &RoundKey,
+        point: &ForkPoint,
+        forks: &[TakenFork],
+        reason: DiscardReason,
+    ) {
+        self.mark_discarded(round, forks, reason);
+        for fork in forks {
+            self.discard_in_background(round, fork.trace(point));
         }
-        self.run_ahead.log(&format!(
-            "{} forks discarded: {reason:?}",
-            taken.forks.len()
-        ));
+        self.run_ahead
+            .log(&format!("{} forks discarded: {reason:?}", forks.len()));
     }
 
     /// Stops the fork `fork` of `round` and deletes its transcript; its record says so once
@@ -65,13 +68,12 @@ impl ExploreSession {
         );
     }
 
-    /// Records the forks of `taken` as discarded for `reason`, and refuses their calls from
-    /// now on.
-    fn mark_discarded(&mut self, round: &RoundKey, taken: &Taken, reason: DiscardReason) {
-        let sessions: HashSet<_> = taken.forks.iter().map(|fork| &fork.session).collect();
+    /// Records `forks` as discarded for `reason`, and refuses their calls from now on.
+    fn mark_discarded(&mut self, round: &RoundKey, forks: &[TakenFork], reason: DiscardReason) {
+        let sessions: HashSet<_> = forks.iter().map(|fork| &fork.session).collect();
         self.run_ahead
             .discarded
-            .extend(taken.forks.iter().map(|fork| fork.access.clone()));
+            .extend(forks.iter().map(|fork| fork.access.clone()));
         let now = review_explore::now_ms();
         let saved = self.update_forks(round, |forks| {
             for record in &mut forks.forks {
@@ -95,7 +97,11 @@ impl ExploreSession {
         let Some(taken) = armed.taken.take() else {
             return;
         };
-        self.mark_discarded(&armed.round, &taken, DiscardReason::ReviewerClosed);
+        self.mark_discarded(
+            &armed.asked.round,
+            &taken.forks,
+            DiscardReason::ReviewerClosed,
+        );
         let (done, stopped) = mpsc::channel();
         for fork in &taken.forks {
             let done = done.clone();
@@ -117,7 +123,7 @@ impl ExploreSession {
                 Err(_) => break,
             }
         }
-        let _ = self.update_forks(&armed.round, |forks| {
+        let _ = self.update_forks(&armed.asked.round, |forks| {
             for record in &mut forks.forks {
                 record.cleaned |= cleaned.contains(&record.session);
             }
@@ -155,7 +161,10 @@ impl ExploreSession {
                 .forks
                 .iter_mut()
                 .filter(|record| {
-                    !record.cleaned && record.reviewer != reviewer && !record.reviewer.is_running()
+                    !record.cleaned
+                        && !record.is_agent_session()
+                        && record.reviewer != reviewer
+                        && !record.reviewer.is_running()
                 })
                 .map(|record| {
                     record.discard(DiscardReason::ReviewerStopped, now);
@@ -179,6 +188,9 @@ impl ExploreSession {
 
     /// The fork `session` of `round` ended: its record keeps how, and its tokens.
     pub(super) fn run_ahead_ended(&mut self, round: &RoundKey, session: &str, end: &ForkEnd) {
+        if let Some(fork) = self.run_ahead.fork_mut(session) {
+            fork.ended = true;
+        }
         let saved = self.update_forks(round, |forks| {
             let record = forks.fork_mut(session)?;
             record.exit = Some(end.exit.clone());

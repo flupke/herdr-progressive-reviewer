@@ -787,9 +787,10 @@ export type ResendImplementationParams = { conclusion: string, delivery: string,
 attempt: string, };
 export type ResetParams = { round: string, };
 /**
- * What the agent's turn said back to the reviewer's previous answer.
+ * What the agent's turn said back to the reviewer's previous answer, and whether run-ahead
+ * prepared the turn while the reviewer thought about the answer.
  */
-export type ResponseView = { interpretations: Array<InterpretationView>, reply_html: string | null, };
+export type ResponseView = { interpretations: Array<InterpretationView>, reply_html: string | null, prepared: boolean, };
 export type RetryMessagesParams = { round: string, };
 export type RetryParams = { request: string, 
 /**

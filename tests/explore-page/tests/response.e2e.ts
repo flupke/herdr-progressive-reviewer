@@ -1,9 +1,11 @@
 // The previous turn: what the reviewer answered beside what the agent recorded of it (its recap,
-// its follow-ups and its reply), in one block above the next question and above the conclusion.
+// its follow-ups and its reply), in one block above the next question and above the conclusion,
+// and whether run-ahead prepared the turn while the reviewer was thinking.
 import { expect } from 'e2e';
 import { test } from './session.ts';
 
 const RECORDED = 'The agent recorded';
+const PREPARED = 'Prepared while you were thinking';
 
 test('the previous turn shows the answer beside what the agent recorded, above the next question and the conclusion', async ({
   explore,
@@ -41,4 +43,23 @@ test('the previous turn shows the answer beside what the agent recorded, above t
   await explore.open();
   await expect(screen.getByRole('region', 'Conclusion')).toBeVisible();
   await expect(screen.getByRole('region', RECORDED)).toContainText("Recorded: store the draft in the round's record.");
+});
+
+test('a turn prepared while the reviewer was thinking says so above the question it asks', async ({
+  explore,
+  screen,
+}) => {
+  await explore.open();
+  await explore.askQuestion();
+  await explore.answerInPane();
+  await explore.askPreparedQuestion();
+  await explore.open();
+  await expect(screen.getByRole('region', 'Question 2').getByText(PREPARED)).toBeVisible();
+
+  // The next turn the agent in the pane takes itself says nothing of the kind.
+  await explore.answerInPane();
+  await explore.askQuestion();
+  await explore.open();
+  await expect(screen.getByRole('region', 'Question 3')).toBeVisible();
+  await expect(screen.getByText(PREPARED)).toHaveCount(0);
 });

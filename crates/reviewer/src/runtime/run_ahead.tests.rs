@@ -92,6 +92,13 @@ impl StandInTranscript {
         Self { path, turns: 0 }
     }
 
+    /// The agent continues the session `session`, whose transcript a fork wrote.
+    pub(super) fn resume(&mut self, session: &str) {
+        if let Some(path) = &mut self.path {
+            path.set_file_name(format!("{session}.jsonl"));
+        }
+    }
+
     /// The agent read a prompt and answered it.
     pub(super) fn turn(&mut self) {
         let Some(path) = &self.path else {
@@ -109,9 +116,25 @@ impl StandInTranscript {
     }
 }
 
+/// Records beside the test agent's prompts, at `prompt_path`, that the agent resumed the
+/// session `session`.
+pub(super) fn record_resume(prompt_path: &std::ffi::OsStr, session: &str) {
+    let mut resumes = File::options()
+        .create(true)
+        .append(true)
+        .open(resumes_path(Path::new(prompt_path)))
+        .unwrap();
+    writeln!(resumes, "{session}").unwrap();
+}
+
+fn resumes_path(prompt_path: &Path) -> PathBuf {
+    prompt_path.with_file_name("resumes.txt")
+}
+
 /// A fork of the stand-in: it records its arguments, environment and prompt beside the test
 /// agent's prompts, copies its parent's transcript, then works until the test ends its turn or
-/// the reviewer stops it.
+/// the reviewer stops it. Once the test submitted the fork's turn, the fork's output says that
+/// its submit has its answer.
 #[test]
 fn e2e_fork_process() {
     let Ok(arguments) = std::env::var("REVIEW_AGENT_E2E_FORK_ARGS") else {
@@ -162,7 +185,18 @@ fn e2e_fork_process() {
     println!(r#"{{"type":"system","subtype":"init","session_id":"{session}"}}"#);
     println!(r#"{{"type":"assistant","message":{{"id":"m1","usage":{usage}}}}}"#);
     io::stdout().flush().unwrap();
+    let mut answered = false;
     while !forks.join(format!("{session}.end")).exists() {
+        if !answered && forks.join(format!("{session}.submitted")).exists() {
+            answered = true;
+            println!(
+                r#"{{"type":"assistant","message":{{"id":"m2","content":[{{"type":"tool_use","id":"submit","name":"mcp__herdr_reviewer__submit_question","input":{{}}}}],"usage":{usage}}}}}"#
+            );
+            println!(
+                r#"{{"type":"user","message":{{"content":[{{"type":"tool_result","tool_use_id":"submit"}}]}}}}"#
+            );
+            io::stdout().flush().unwrap();
+        }
         thread::sleep(Duration::from_millis(20));
     }
     println!(r#"{{"type":"result","subtype":"success","is_error":false}}"#);
@@ -398,6 +432,177 @@ fn forks_of_the_agent_take_each_answer_s_turn_which_is_kept_and_an_answer_stops_
     }));
 }
 
+impl RunAheadFlow {
+    /// The fork `session` submits the turn its prompt asks for, with its own access; its output
+    /// then says that its submit has its answer.
+    fn fork_submits(&mut self, session: &str) {
+        let prompt = self.fork_file(session, "prompt");
+        let pane_access = std::mem::replace(
+            &mut self.flow.access,
+            prompt_line(&prompt, "Explore review access: "),
+        );
+        let kept = self.flow.submit(&fork_question(&self.flow, &prompt));
+        assert_ne!(kept.is_error, Some(true), "{kept:?}");
+        self.flow.access = pane_access;
+        fs::write(self.forks().join(format!("{session}.submitted")), "").unwrap();
+    }
+
+    /// The reviewer answers the latest question with `choice` and no comment, in the pane.
+    fn answer_bare(&mut self, choice: &str) -> review_explore::TurnRequest {
+        let question = self.flow.exploration.questions.last().cloned();
+        let request = self
+            .flow
+            .exploration
+            .request(
+                Some(AnswerInput {
+                    option: Some(choice.into()),
+                    text: String::new(),
+                    in_reply_to: None,
+                    first_pick: None,
+                }),
+                question.as_ref(),
+            )
+            .unwrap();
+        self.flow
+            .fixture
+            .explore(ExploreCommand::Turn(Box::new(request.clone())));
+        request
+    }
+
+    /// Waits until the saved round has `count` questions, and returns it.
+    fn wait_for_questions(&self, count: usize) -> review_explore::ExploreRound {
+        let deadline = Instant::now() + HERDR_WAIT;
+        loop {
+            let saved = self
+                .flow
+                .fixture
+                .runtime
+                .store
+                .load_explore(
+                    &self.flow.fixture.review_unit,
+                    &self.flow.exploration.instance,
+                )
+                .unwrap()
+                .unwrap();
+            if saved.exploration.questions.len() == count {
+                return saved;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the round has {} questions; run-ahead's log:\n{}",
+                saved.exploration.questions.len(),
+                self.log()
+            );
+            thread::sleep(Duration::from_millis(25));
+        }
+    }
+
+    /// The sessions the agent in the pane resumed, in order.
+    fn resumed(&self) -> Vec<String> {
+        fs::read_to_string(resumes_path(&self.root().join("prompt.txt")))
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_owned)
+            .collect()
+    }
+}
+
+#[test]
+fn a_bare_answer_continues_as_its_fork_and_the_next_answer_reaches_the_fork_s_session() {
+    let mut run = RunAheadFlow::start();
+    run.flow.turn(None, 1);
+    let sessions = run.wait_for_forks(2);
+    let (fork, other) = (sessions[0].clone(), sessions[1].clone());
+    run.fork_submits(&fork);
+    let gone = run.processes()[1..].to_vec();
+    let prompts = fs::read_to_string(run.root().join("prompt.txt")).unwrap();
+
+    let answered = Instant::now();
+    let request = run.answer_bare("keep");
+
+    let saved = run.wait_for_questions(2);
+    eprintln!(
+        "the prepared question was saved {:?} after the answer",
+        answered.elapsed()
+    );
+    assert_eq!(run.resumed(), std::slice::from_ref(&fork));
+    let pane = run.flow.fixture.herdr.pane_id.clone();
+    let agent = run
+        .flow
+        .fixture
+        .herdr
+        .client()
+        .get_agent(&pane)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        agent.agent_session.as_ref().map(|session| &session.value),
+        Some(&fork),
+        "Herdr reports the agent in the pane on the fork's session"
+    );
+    assert_eq!(
+        saved.last_agent_session,
+        review_explore::ConversationBinding::from_agent(&agent)
+    );
+    let turn = &saved.exploration.conversation.last().unwrap().update;
+    assert_eq!(turn.request, request.request);
+    assert_eq!(
+        turn.interpretation.as_ref().unwrap().answer,
+        request.answer.as_ref().unwrap().id
+    );
+    assert_eq!(
+        fs::read_to_string(run.root().join("prompt.txt")).unwrap(),
+        prompts,
+        "the agent in the pane got no prompt"
+    );
+    run.wait_until_gone(&gone);
+    assert!(!run.transcript(&other).exists());
+    assert!(
+        run.transcript(&fork).exists(),
+        "the fork's session is the agent's now"
+    );
+    let record = &run.saved().forks[0];
+    assert!(record.discarded.is_none() && !record.cleaned);
+
+    // The next answer goes to the agent, which runs the fork's session, and its turn is
+    // accepted from that session.
+    run.flow.exploration = saved.exploration;
+    run.flow.turn(
+        Some(AnswerInput {
+            option: Some("change".into()),
+            text: "Reopen them, and say so.".into(),
+            in_reply_to: None,
+            first_pick: None,
+        }),
+        3,
+    );
+    assert!(
+        fs::read_to_string(run.transcript(&fork))
+            .unwrap()
+            .contains("\"uuid\":\"prompt-2\""),
+        "the prompt reached the fork's session"
+    );
+    let deadline = Instant::now() + HERDR_WAIT;
+    let third = loop {
+        let saved = run.saved();
+        if let Some(fork) = saved.forks.get(4)
+            && run.forks().join(format!("{}.args", fork.session)).exists()
+        {
+            break fork.session.clone();
+        }
+        assert!(Instant::now() < deadline, "{}", run.log());
+        thread::sleep(Duration::from_millis(25));
+    };
+    assert!(
+        run.fork_file(&third, "args")
+            .lines()
+            .collect::<Vec<_>>()
+            .windows(2)
+            .any(|pair| pair == ["--resume", fork.as_str()]),
+        "forks of the next question copy the fork's session"
+    );
+}
+
 #[test]
 fn a_reset_stops_every_fork_and_deletes_its_transcript() {
     let mut run = RunAheadFlow::start();
@@ -491,6 +696,8 @@ struct RealRun {
     session: String,
     /// The agent's flags, which its forks keep.
     flags: Vec<String>,
+    /// When the stand-in in the pane started.
+    started: Instant,
 }
 
 impl RealRun {
@@ -498,6 +705,7 @@ impl RealRun {
         let session = uuid::Uuid::new_v4().to_string();
         let repository_files = repository_fixture(RepoType::Git);
         repository_files.write("reviewed.rs", REAL_CHANGE);
+        let started = Instant::now();
         let herdr = IsolatedHerdrServer::start_forkable(
             repository_files.root(),
             &session,
@@ -539,6 +747,33 @@ impl RealRun {
             }),
             session,
             flags,
+            started,
+        }
+    }
+
+    /// Draws the stand-in's empty input box again once the test harness that runs it warned,
+    /// on the pane's screen, that it has run for over 60 seconds: that line is no text of the
+    /// reviewer's.
+    fn clear_harness_warning(&mut self) {
+        let warned = self.started + Duration::from_secs(61);
+        thread::sleep(warned.saturating_duration_since(Instant::now()));
+        let run = self.run();
+        fs::write(run.root().join("prompt.screen"), "❯ ").unwrap();
+        let pane = run.flow.fixture.herdr.pane_id.clone();
+        let deadline = Instant::now() + HERDR_WAIT;
+        while run
+            .flow
+            .fixture
+            .herdr
+            .client()
+            .read_agent_screen_styled(&pane)
+            .is_ok_and(|screen| screen.trim() != "❯")
+        {
+            assert!(
+                Instant::now() < deadline,
+                "the stand-in did not draw its screen"
+            );
+            thread::sleep(Duration::from_millis(25));
         }
     }
 
@@ -555,7 +790,7 @@ impl RealRun {
         flow.wait_for_prompt(&kickoff);
         let prompt =
             fs::read_to_string(flow.fixture.herdr.server.root().join("prompt.txt")).unwrap();
-        self.agent_turn(&prompt);
+        self.agent_turn(&prompt, None);
         self.run()
             .flow
             .exploration
@@ -565,12 +800,23 @@ impl RealRun {
             .expect("the agent asked a question")
     }
 
-    /// The agent takes its turn on `prompt`, in the session the pane reports, while the test
-    /// acknowledges each saved turn as the pane does.
-    fn agent_turn(&mut self, prompt: &str) {
+    /// The agent takes its turn on `prompt`, in the session the pane reports: its own, or the
+    /// session `resumed` once it resumed one, while the test acknowledges each saved turn as
+    /// the pane does.
+    fn agent_turn(&mut self, prompt: &str, resumed: Option<&str>) {
         let repository = self.run().flow.fixture.runtime.repository.root().to_owned();
+        // The agent in the pane works while the headless agent takes its turn, as Claude Code
+        // in the pane would: forks are taken once it is idle again.
+        let root = self.run().root().to_owned();
+        fs::write(root.join("prompt.state"), "⠋ Working").unwrap();
+        let session = match resumed {
+            Some(session) => ["--resume", session],
+            None => ["--session-id", &self.session],
+        };
         let mut agent = Command::new("claude")
-            .args(["-p", "--session-id", &self.session, "--model", REAL_MODEL])
+            .arg("-p")
+            .args(session)
+            .args(["--model", REAL_MODEL])
             .args(&self.flags)
             .arg("--allowedTools")
             .args(claude_fork::SUBMITS)
@@ -602,9 +848,10 @@ impl RealRun {
                 && let Some(committed) = event.downcast_ref::<ui_events::ExploreCommitted>()
             {
                 flow.exploration = committed.round.exploration.clone();
-                committed.response.send(Ok(committed.applied)).unwrap();
+                let _ = committed.response.send(Ok(committed.applied));
             }
         }
+        flow.fixture.herdr.show_idle();
     }
 
     /// Waits until `count` forks ran to their end.
@@ -709,4 +956,132 @@ fn question_count(run: &RunAheadFlow) -> usize {
         .exploration
         .questions
         .len()
+}
+
+#[test]
+#[ignore = "real Claude Code turns on the owner's subscription (claude-sonnet-5-5); run with --ignored"]
+fn a_real_claude_code_agent_continues_as_the_fork_of_a_bare_answer() {
+    let mut real = RealRun::start();
+    let question = real.kickoff();
+    let saved = real.wait_for_forks_to_end(question.alternatives.len());
+    // A fork that asked a question, when one did, so that the agent takes a next turn.
+    let fork = saved
+        .forks
+        .iter()
+        .find(|fork| fork.turn.as_ref().is_some_and(|turn| turn.next.is_some()))
+        .or_else(|| saved.forks.iter().find(|fork| fork.turn.is_some()))
+        .expect("a fork's turn was kept")
+        .clone();
+
+    real.clear_harness_warning();
+    let run = real.run();
+    // No forks for the next questions: their real turns would cost and prove nothing more here.
+    run.flow
+        .fixture
+        .runtime
+        .store
+        .save_explore_run_ahead(RunAhead::Off)
+        .unwrap();
+    let answered = Instant::now();
+    let request = run.answer_bare(&fork.choice);
+    let round = run.wait_for_questions_or_conclusion(2);
+    eprintln!(
+        "the prepared turn was saved {:?} after the answer",
+        answered.elapsed()
+    );
+
+    assert_eq!(run.resumed(), std::slice::from_ref(&fork.session));
+    let pane = run.flow.fixture.herdr.pane_id.clone();
+    let agent = run
+        .flow
+        .fixture
+        .herdr
+        .client()
+        .get_agent(&pane)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        agent.agent_session.as_ref().map(|session| &session.value),
+        Some(&fork.session)
+    );
+    let turn = &round.exploration.conversation.last().unwrap().update;
+    assert_eq!(turn.request, request.request);
+    assert!(
+        RealRun::projects().find(&fork.session).is_some(),
+        "the fork's session, now the agent's, keeps its transcript"
+    );
+    if turn.conclusion.is_some() {
+        eprintln!("the fork concluded the round: no next answer to send");
+        return;
+    }
+
+    // The next answer, with a comment, goes to the agent, which resumes the fork's session and
+    // takes its turn from there.
+    run.flow.exploration = round.exploration.clone();
+    let prompts = run.root().join("prompt.txt");
+    let offset = fs::read_to_string(&prompts).unwrap().len();
+    let question = run.flow.exploration.questions.last().cloned().unwrap();
+    let next = run
+        .flow
+        .exploration
+        .request(
+            Some(AnswerInput {
+                option: Some(question.alternatives[0].id.clone()),
+                text: "Yes, and write down why.".into(),
+                in_reply_to: None,
+                first_pick: None,
+            }),
+            Some(&question),
+        )
+        .unwrap();
+    run.flow
+        .fixture
+        .explore(ExploreCommand::Turn(Box::new(next.clone())));
+    run.flow.wait_for_prompt(&next);
+    let prompt = fs::read_to_string(&prompts).unwrap()[offset..].to_owned();
+    real.agent_turn(&prompt, Some(&fork.session));
+
+    let run = real.run();
+    let round = run.wait_for_questions_or_conclusion(3);
+    eprintln!("run-ahead's log:\n{}", run.log());
+    assert_eq!(
+        round
+            .exploration
+            .conversation
+            .last()
+            .unwrap()
+            .update
+            .request,
+        next.request,
+        "the agent's turn on the fork's session is accepted"
+    );
+    assert_eq!(
+        round.last_agent_session,
+        review_explore::ConversationBinding::from_agent(&agent)
+    );
+}
+
+impl RunAheadFlow {
+    /// Waits until the saved round has `count` turns of the agent, and returns it.
+    fn wait_for_questions_or_conclusion(&self, count: usize) -> review_explore::ExploreRound {
+        let deadline = Instant::now() + REAL_TURN;
+        loop {
+            let saved = self
+                .flow
+                .fixture
+                .runtime
+                .store
+                .load_explore(
+                    &self.flow.fixture.review_unit,
+                    &self.flow.exploration.instance,
+                )
+                .unwrap()
+                .unwrap();
+            if saved.exploration.conversation.len() >= count {
+                return saved;
+            }
+            assert!(Instant::now() < deadline, "{}", self.log());
+            thread::sleep(Duration::from_millis(100));
+        }
+    }
 }

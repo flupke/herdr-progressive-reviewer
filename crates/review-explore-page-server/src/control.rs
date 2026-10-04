@@ -8,6 +8,8 @@
 //!   - `question`: the agent posts its next question: the JSON `Question` of the request's
 //!     body, or the fixed questions in turn when the body is empty; from the second question
 //!     on, after a fixed response to the previous answer;
+//!   - `question-prepared`: the same, as a turn that run-ahead prepared while the reviewer
+//!     thought about the answer, which the page says;
 //!   - `answer`: the reviewer answers in the pane, and the agent works on its next turn;
 //!   - `answer-after-first-pick`: the reviewer answers with the recommended choice (the first
 //!     one when none is) after a first pick of another choice, as on a blind question on the

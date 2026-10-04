@@ -345,24 +345,15 @@ fn e2e_agent_process() {
             .unwrap();
         assert!(status.success());
     }
+    let hook = SessionHook {
+        binary,
+        pane: pane_id,
+        agent: agent.clone(),
+    };
     if let Ok(session) = std::env::var("REVIEW_AGENT_E2E_AGENT_SESSION")
         && !session.is_empty()
     {
-        let status = Command::new(&binary)
-            .args([
-                "pane",
-                "report-agent-session",
-                &pane_id,
-                "--source",
-                &format!("herdr:{agent}"),
-                "--agent",
-                &agent,
-                "--agent-session-id",
-                &session,
-            ])
-            .status()
-            .unwrap();
-        assert!(status.success());
+        hook.report(&session, "startup");
     }
     let state_path = PathBuf::from(&prompt_path).with_extension("state");
     let screen_path = PathBuf::from(&prompt_path).with_extension("screen");
@@ -376,12 +367,17 @@ fn e2e_agent_process() {
         turns: turns.clone(),
     };
     thread::spawn(move || display.run());
-    let mut prompt_file = File::options()
-        .create(true)
-        .append(true)
-        .open(prompt_path)
-        .unwrap();
-    let mut transcript = run_ahead::StandInTranscript::open();
+    let mut prompts = AgentPrompts {
+        file: File::options()
+            .create(true)
+            .append(true)
+            .open(&prompt_path)
+            .unwrap(),
+        path: prompt_path,
+        transcript: run_ahead::StandInTranscript::open(),
+        turns,
+        hook,
+    };
     let marker = if agent == "claude" { "❯" } else { "›" };
     print!("\x1b[2J\x1b[H{marker} ");
     io::stdout().flush().unwrap();
@@ -397,10 +393,7 @@ fn e2e_agent_process() {
             return;
         }
         if let Some(prompt) = input.handle(event) {
-            writeln!(prompt_file, "{prompt}").unwrap();
-            prompt_file.flush().unwrap();
-            transcript.turn();
-            turns.prompt_read();
+            prompts.read(&prompt);
         }
         let screen = if input.text().is_empty() {
             fs::read_to_string(&screen_path).unwrap_or_else(|_| format!("{marker} "))
@@ -409,6 +402,70 @@ fn e2e_agent_process() {
         };
         print!("\x1b[2J\x1b[H{}", screen.replace('\n', "\r\n"));
         io::stdout().flush().unwrap();
+    }
+}
+
+/// The prompts the test agent reads, and what it does with each.
+struct AgentPrompts {
+    /// Where it records each prompt, at `path`.
+    file: File,
+    path: std::ffi::OsString,
+    transcript: run_ahead::StandInTranscript,
+    turns: AgentTurns,
+    hook: SessionHook,
+}
+
+impl AgentPrompts {
+    /// Claude Code's own `/resume <session>` continues that session; any other prompt starts a
+    /// turn.
+    fn read(&mut self, prompt: &str) {
+        if let Some(session) = prompt.trim().strip_prefix("/resume ") {
+            self.transcript.resume(session);
+            self.hook.report(session, "resume");
+            run_ahead::record_resume(&self.path, session);
+            return;
+        }
+        writeln!(self.file, "{prompt}").unwrap();
+        self.file.flush().unwrap();
+        self.transcript.turn();
+        self.turns.prompt_read();
+    }
+}
+
+/// Reports the test agent's session to Herdr as Claude Code's session hook does: from
+/// Claude Code's `startup` or `resume`, each report newer than the last.
+struct SessionHook {
+    binary: std::ffi::OsString,
+    pane: String,
+    agent: String,
+}
+
+impl SessionHook {
+    fn report(&self, session: &str, start: &str) {
+        let sequence = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+            .to_string();
+        let status = Command::new(&self.binary)
+            .args([
+                "pane",
+                "report-agent-session",
+                &self.pane,
+                "--source",
+                &format!("herdr:{}", self.agent),
+                "--agent",
+                &self.agent,
+                "--seq",
+                &sequence,
+                "--agent-session-id",
+                session,
+                "--session-start-source",
+                start,
+            ])
+            .status()
+            .unwrap();
+        assert!(status.success());
     }
 }
 

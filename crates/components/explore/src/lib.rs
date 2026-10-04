@@ -149,6 +149,9 @@ pub struct ExploreComponent {
     map: bool,
     /// The review marks each agent turn changed, by Explore request.
     marks: BTreeMap<String, review_explore::TurnMarks>,
+    /// The agent's turns, by Explore request, that run-ahead prepared while the reviewer
+    /// thought about the answer.
+    prepared: BTreeSet<String>,
     /// Requests whose marks are listed line by line.
     expanded_marks: BTreeSet<String>,
     /// The answer whose cancellation the session is working on.
@@ -202,6 +205,7 @@ impl ExploreComponent {
             front: RoundFront::Pane,
             map: false,
             marks: BTreeMap::new(),
+            prepared: BTreeSet::new(),
             expanded_marks: BTreeSet::new(),
             cancelling: None,
             implementation_requested: false,
@@ -604,6 +608,7 @@ impl Component<Action> for ExploreComponent {
         subscriptions.subscribe(Self::restored);
         subscriptions.subscribe(Self::posted);
         subscriptions.subscribe(Self::committed);
+        subscriptions.subscribe(Self::turn_prepared);
         subscriptions.subscribe(Self::answer_cancelled);
         subscriptions.subscribe(Self::storage_failed);
         subscriptions.subscribe(Self::implementation_saved);

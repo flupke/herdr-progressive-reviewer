@@ -35,6 +35,7 @@ impl Pane {
             historical: false,
             storage_error: None,
             progress: ExploreProgress::Ready,
+            prepared_turns: Vec::new(),
         })
         .unwrap();
         Self { bus, target }

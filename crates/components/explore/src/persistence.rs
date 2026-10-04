@@ -4,6 +4,7 @@ use review_explore::{Command, ExplorePage, ExploreViewState, TurnRequest, ViewSa
 use ui_actions::Action;
 use ui_events::{
     ExploreCommitted, ExplorePosted, ExploreProgress, ExploreRestored, ExploreStorageFailed,
+    ExploreTurnPrepared,
 };
 
 pub(super) struct Durability {
@@ -174,6 +175,7 @@ impl ExploreComponent {
         self.durable.posting = None;
         self.exploration = Some(round.exploration.clone());
         self.restore_round(round);
+        self.prepared = event.prepared_turns.iter().cloned().collect();
         self.turns = round
             .exploration
             .questions
@@ -427,6 +429,18 @@ impl ExploreComponent {
         }
         self.refresh_implementation_delivery(&event.round);
         let _ = event.response.send(Ok(event.applied));
+    }
+
+    /// Run-ahead prepared the turn `event.request` of the round shown: the pane says so with
+    /// the turn.
+    pub(super) fn turn_prepared(&mut self, event: &ExploreTurnPrepared) {
+        if self
+            .exploration
+            .as_ref()
+            .is_some_and(|exploration| exploration.instance == event.round)
+        {
+            self.prepared.insert(event.request.clone());
+        }
     }
 
     /// Show a newer saved revision of the displayed round, keeping the

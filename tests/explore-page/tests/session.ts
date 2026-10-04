@@ -52,6 +52,11 @@ export interface Session {
    * `review_explore`, or else the fixed questions of the standalone server in turn.
    */
   askQuestion(question?: object): Promise<void>;
+  /**
+   * The agent posts its next fixed question from a turn run-ahead prepared while the reviewer
+   * thought about the answer: the agent in the pane continued as the fork that took it.
+   */
+  askPreparedQuestion(): Promise<void>;
   /** The reviewer answers in the pane, and the agent works on its next turn. */
   answerInPane(): Promise<void>;
   /**
@@ -197,6 +202,7 @@ export async function openSession(baseUrl: string | undefined, page: SessionPage
       await page.open(`/?token=${token}#design`);
     },
     askQuestion: (question?: object) => step('question', question),
+    askPreparedQuestion: () => step('question-prepared'),
     answerInPane: () => step('answer'),
     answerAfterFirstPick: () => step('answer-after-first-pick'),
     cancelAnswerInPane: () => step('cancel'),

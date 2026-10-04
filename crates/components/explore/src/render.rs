@@ -10,10 +10,13 @@ use ratatui::{
     layout::Rect,
     widgets::{Block, Borders, Paragraph, Widget, Wrap},
 };
-use review_explore::{MarkTense, Question};
+use review_explore::{InterviewUpdate, MarkTense, Question};
 use ui_events::ExploreViewports;
 use ui_frame::Frame;
 use ui_theme::Palette;
+
+/// What the pane says of a turn run-ahead prepared, under the question or conclusion it posted.
+pub(super) const PREPARED: &str = "Prepared while you were thinking";
 
 fn format_elapsed(milliseconds: u64) -> String {
     format!("{}.{:01}s", milliseconds / 1000, milliseconds % 1000 / 100)
@@ -310,6 +313,9 @@ impl ExploreComponent {
         let composing = self.composing_answer(index, !answers.is_empty());
         let heading = layout.height;
         Self::question_heading(index, question, layout, palette);
+        if self.prepared_turn(|turn| turn.next.as_ref() == Some(question)) {
+            layout.text(PREPARED, palette.dim, None);
+        }
         if composing {
             self.composer(
                 Some(question),
@@ -331,6 +337,16 @@ impl ExploreComponent {
             layout.text(&self.status, palette.warning, None);
             self.status_controls(layout, palette);
         }
+    }
+
+    /// Whether run-ahead prepared the agent's turn that `posted` picks out.
+    pub(super) fn prepared_turn(&self, posted: impl Fn(&InterviewUpdate) -> bool) -> bool {
+        self.exploration.as_ref().is_some_and(|exploration| {
+            exploration
+                .conversation
+                .iter()
+                .any(|turn| posted(&turn.update) && self.prepared.contains(&turn.update.request))
+        })
     }
 
     fn question_heading(

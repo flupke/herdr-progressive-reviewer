@@ -105,6 +105,7 @@ fn restart_with_delivery(
         historical: false,
         storage_error: None,
         progress: ui_events::ExploreProgress::Ready,
+        prepared_turns: Vec::new(),
     });
     request
 }

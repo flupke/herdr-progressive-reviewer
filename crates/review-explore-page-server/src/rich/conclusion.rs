@@ -68,6 +68,7 @@ pub(super) fn conclusion_response() -> TurnResponse {
              needs before it can merge."
                 .into(),
         ),
+        prepared: false,
     }
 }
 

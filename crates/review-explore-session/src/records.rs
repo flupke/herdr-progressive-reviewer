@@ -10,6 +10,7 @@ use review_explore::{
 use review_explore_round_settings::{RunAhead, WritingStyle};
 use review_run_ahead::RoundForks;
 use review_store::{Error, Result, ReviewStore};
+use review_threads::{AskedUnder, Author};
 use review_types::ReviewUnit;
 
 fn explore_error(reason: &str) -> Error {
@@ -56,6 +57,11 @@ impl SavedRounds {
         Ok(self.store.explore_round_settings()?.run_ahead)
     }
 
+    /// The run-ahead forks saved beside the round `instance`, and the paths of its answers.
+    pub(crate) fn forks(&self, unit: &ReviewUnit, instance: &str) -> Result<RoundForks> {
+        self.store.load_round_forks(unit, instance)
+    }
+
     /// Change the run-ahead forks saved beside the round `instance`, closed or not.
     pub(crate) fn update_forks<T>(
         &self,
@@ -65,6 +71,32 @@ impl SavedRounds {
     ) -> Result<T> {
         let records = self.store.lock_explore(unit)?;
         Ok(records.update_round_forks(instance, update)?.0)
+    }
+
+    /// Whether the reviewer wrote in the conversation of the round `instance` under the
+    /// question `question`, in any version, or since `since_ms`, in milliseconds since the
+    /// epoch.
+    pub(crate) fn reviewer_wrote(
+        &self,
+        unit: &ReviewUnit,
+        instance: &str,
+        question: &str,
+        since_ms: u64,
+    ) -> Result<bool> {
+        let threads = self.store.load_threads(unit)?;
+        let Some(conversation) = threads.round_conversation(instance) else {
+            return Ok(false);
+        };
+        Ok(conversation.messages.iter().any(|message| {
+            let under = matches!(
+                &message.asked_under,
+                Some(AskedUnder::Question { question: asked, .. }) if asked == question
+            );
+            let since = message
+                .posted_at_ms
+                .is_some_and(|posted| posted >= since_ms);
+            message.author == Author::Reviewer && (under || since)
+        }))
     }
 
     pub(crate) fn history(&self, unit: &ReviewUnit) -> Result<ExploreHistory> {

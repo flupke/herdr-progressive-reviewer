@@ -30,6 +30,7 @@ pub(super) fn restore(
         historical: false,
         storage_error: None,
         progress: ui_events::ExploreProgress::Ready,
+        prepared_turns: Vec::new(),
     })
 }
 
@@ -155,6 +156,7 @@ fn historical_question_offers_reset_after_round_navigation_is_removed() {
         historical: true,
         storage_error: None,
         progress: ui_events::ExploreProgress::Ready,
+        prepared_turns: Vec::new(),
     }));
     let text = fixture.text();
     assert!(
@@ -445,6 +447,7 @@ fn restored_progress_from_the_session_decides_the_recovery_status() {
             historical: false,
             storage_error: None,
             progress,
+            prepared_turns: Vec::new(),
         }));
         let text = fixture.text();
         match status {
@@ -518,3 +521,31 @@ fn cancelling_the_latest_answer_brings_its_question_back_to_answer_again() {
     assert_eq!(answer.option.unwrap().id, "inspect");
     assert_eq!(answer.text, "Check the retry path.");
 }
+
+#[test]
+fn a_turn_that_run_ahead_prepared_says_so_under_the_question_it_asked() {
+    let (mut fixture, request) = ExploreUi::new();
+    let round = round(&fixture, &request);
+    restore(&mut fixture, &round, None);
+    assert!(!fixture.text().contains(PREPARED));
+
+    fixture.app.publish(ui_events::ExploreTurnPrepared {
+        round: request.instance.clone(),
+        request: request.request.clone(),
+    });
+    assert!(fixture.text().contains(PREPARED), "{}", fixture.text());
+
+    // A reopened reviewer knows it from the saved forks.
+    let saved = serde_json::from_slice(&serde_json::to_vec(&round).unwrap()).unwrap();
+    fixture.app.publish(ui_events::ExploreRestored {
+        result: Ok(Some(Arc::new(saved))),
+        view: None,
+        historical: false,
+        storage_error: None,
+        progress: ui_events::ExploreProgress::Ready,
+        prepared_turns: vec![request.request.clone()],
+    });
+    assert!(fixture.text().contains(PREPARED));
+}
+
+const PREPARED: &str = "Prepared while you were thinking";

@@ -62,6 +62,7 @@ fn the_start_screen_shows_the_address_of_the_page_that_starts_the_next_round() {
         historical: false,
         storage_error: None,
         progress: ui_events::ExploreProgress::Ready,
+        prepared_turns: Vec::new(),
     });
     assert!(
         fixture.text().contains(NEXT_URL),

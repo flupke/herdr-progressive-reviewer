@@ -445,6 +445,17 @@ export const STATES: GalleryState[] = [
     reach: (session, page) => question(session, page, 2),
   },
   {
+    name: 'question-2-prepared',
+    about:
+      'The second question from a turn run-ahead prepared while the reviewer was thinking: the previous turn says so.',
+    async reach(session) {
+      await session.askQuestion();
+      await session.answerInPane();
+      await session.askPreparedQuestion();
+      await session.open();
+    },
+  },
+  {
     name: 'question-2-blind-picked',
     about:
       "The first Send of a blind question: the recommendation shows, with the line that says the agent picked another choice, the first pick's tag, the comment kept, and Confirm answer.",

@@ -3,12 +3,21 @@
 //! gets the ordinary prompt of that answer and its own access value; the tool keeps what it
 //! submits for its choice and shows it to nobody.
 //!
-//! This crate holds what the tool saves of its forks beside each round ([`RoundForks`]) and the
-//! interface to the agent whose session it forks ([`ForkHost`]), which hides what is specific
-//! to that agent. The Explore session decides when forks start and stop.
+//! When the reviewer's answer is exactly the one a fork was told, the pane's agent continues
+//! as that fork: it resumes the fork's session, and the fork's turn becomes the round's.
+//!
+//! This crate holds what the tool saves of its forks and of the answers beside each round
+//! ([`RoundForks`]) and the interface to the agent whose session it forks ([`ForkHost`]),
+//! which hides what is specific to that agent. The Explore session decides when forks start
+//! and stop, and which answer continues as a fork.
 
+mod answer;
 mod host;
 mod record;
 
-pub use host::{ForkEnd, ForkHost, ForkPoint, ForkStart, ForkTrace, PaneWatch, StatusReport};
-pub use record::{Discard, DiscardReason, ForkRecord, RoundForks, TokenUsage};
+pub use answer::{AnswerRecord, PlainReason, TurnPath};
+pub use host::{
+    ForkEnd, ForkHost, ForkPoint, ForkStart, ForkTrace, PaneWatch, StatusReport, SwitchFailure,
+    SwitchTo,
+};
+pub use record::{Continuation, Discard, DiscardReason, ForkRecord, RoundForks, TokenUsage};

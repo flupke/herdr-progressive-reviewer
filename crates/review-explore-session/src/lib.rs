@@ -215,6 +215,20 @@ impl State {
         };
     }
 
+    /// This process delivers the turn `request` to the agent from now on.
+    fn pend(&mut self, request: &TurnRequest) {
+        self.pending = Some((request.instance.clone(), request.request.clone()));
+    }
+
+    /// Whether this process delivers the turn `request` of the round `instance` to the agent.
+    fn is_pending(&self, instance: &str, request: &str) -> bool {
+        self.pending
+            .as_ref()
+            .is_some_and(|(pending_instance, pending)| {
+                pending_instance == instance && pending == request
+            })
+    }
+
     /// Revoke the MCP access of every earlier prompt.
     fn renew_access(&mut self) {
         self.access = uuid::Uuid::new_v4().to_string();

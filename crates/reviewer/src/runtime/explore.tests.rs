@@ -158,7 +158,9 @@ impl ExploreFlow {
                 && acknowledge
             {
                 self.exploration = event.round.exploration.clone();
-                event.response.send(Ok(event.applied)).unwrap();
+                // A round committed with no submit waiting, such as a turn run-ahead prepared,
+                // has nobody to hear the acknowledgement.
+                let _ = event.response.send(Ok(event.applied));
             }
         };
         client.join().unwrap();

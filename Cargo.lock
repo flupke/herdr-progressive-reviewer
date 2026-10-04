@@ -4142,6 +4142,7 @@ dependencies = [
  "review-store",
  "review-test-support",
  "review-thread-service",
+ "review-threads",
  "review-types",
  "serde",
  "serde_json",

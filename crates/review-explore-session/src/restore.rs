@@ -14,6 +14,7 @@ fn empty_restore() -> ui_events::ExploreRestored {
         historical: false,
         storage_error: None,
         progress: ui_events::ExploreProgress::Ready,
+        prepared_turns: Vec::new(),
     }
 }
 
@@ -104,6 +105,12 @@ impl ExploreSession {
         restored.view =
             self.load_view_for_restore(unit, &instance, &mut restored.storage_error, &mut toast);
         restored.progress = restored_progress(&round);
+        // A record of forks that cannot be read takes no turn away from the round.
+        restored.prepared_turns = self
+            .rounds
+            .forks(unit, &instance)
+            .map(|forks| forks.prepared_turns().map(str::to_owned).collect())
+            .unwrap_or_default();
         restored.result = Ok(Some(Arc::new(round)));
         Ok((restored, toast))
     }
@@ -173,6 +180,8 @@ impl ExploreSession {
             .map(|round| round.exploration.comparison.clone());
         self.state.round = round.as_deref().cloned();
         self.state.last_view.clone_from(&event.view);
+        self.run_ahead
+            .prepared_again(event.prepared_turns.iter().cloned());
         event.result = Ok(round);
     }
 

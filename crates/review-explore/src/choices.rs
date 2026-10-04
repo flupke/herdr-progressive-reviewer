@@ -24,6 +24,11 @@ impl Question {
 }
 
 impl Alternative {
+    /// Whether this is the built-in None of the above, which the reviewer explains in words.
+    pub fn is_none_of_the_above(&self) -> bool {
+        self.id == NONE_OF_THE_ABOVE.id
+    }
+
     /// The parenthesised mark that ends the choice's text when the text says that the choice is
     /// recommended: "(Recommended)", or "(Recommended: ...)" with a reason after a punctuation
     /// mark. "(recommended by ...)" names someone else's advice and is no such mark. The

@@ -5,14 +5,21 @@
 //! choice the setting names. Each fork gets the prompt the agent would get after that answer,
 //! with a request, an answer and an access value of its own, and takes a normal turn. The
 //! session checks what a fork submits as it checks the agent's turns, keeps it for the fork's
-//! choice beside the round, and shows it to nobody: the reviewer's answer still goes to the
-//! agent in the pane. When that agent works on something else while the question waits and its
-//! session moves, the forks are taken again. Every fork is stopped and its transcript deleted
-//! once its question no longer waits and when the reviewer closes; a reopened reviewer does the
-//! same for the forks a stopped one left.
+//! choice beside the round, and shows it to nobody. When that agent works on something else
+//! while the question waits and its session moves, the forks are taken again.
+//!
+//! When the reviewer's answer is exactly the one a fork was told, and the fork submitted its
+//! turn, the pane's agent continues as that fork: it resumes the fork's session, then the
+//! fork's turn becomes the round's (`answer.rs`, `switch.rs`). Every other answer goes to the
+//! agent in the pane, as without run-ahead, and the session records why. Every fork the pane's
+//! agent does not continue as is stopped and its transcript deleted once its question no
+//! longer waits and when the reviewer closes; a reopened reviewer does the same for the forks a
+//! stopped one left.
 
+mod answer;
 mod calls;
 mod clean;
+mod switch;
 mod take;
 
 use std::collections::HashSet;
@@ -21,7 +28,7 @@ use std::sync::Arc;
 use agent_fork::ProcessStamp;
 use herdr_client::protocol::{Agent, AgentStatus, PaneId};
 use review_explore::{InterviewUpdate, Question, TurnRequest};
-use review_run_ahead::{DiscardReason, ForkEnd, ForkHost, ForkPoint, PaneWatch};
+use review_run_ahead::{DiscardReason, ForkEnd, ForkHost, ForkPoint, PaneWatch, SwitchFailure};
 use review_types::ReviewUnit;
 
 use crate::{ExploreSession, Input};
@@ -45,6 +52,13 @@ enum Event {
     },
     /// The fork `session` of the round `round` is stopped and its transcript deleted.
     Cleaned { round: RoundKey, session: String },
+    /// The switch of the pane's agent for the turn `request` of the round `round` ended: the
+    /// agent as Herdr reports it on the fork's session, or why it failed.
+    Switched {
+        round: RoundKey,
+        request: String,
+        result: Box<Result<Agent, SwitchFailure>>,
+    },
 }
 
 /// The round a fork belongs to: its review and its instance.
@@ -65,16 +79,22 @@ pub(crate) struct RunAheadState {
     armed: Option<Armed>,
     /// The access values of the forks discarded: their calls are refused.
     discarded: HashSet<String>,
+    /// The switch of the pane's agent to the fork an answer chose, while it runs.
+    switching: Option<switch::Switching>,
+    /// A turn saved while the switch runs, and its attempt: its prompt goes out once the
+    /// switch ends.
+    held: Option<crate::turn::SavedTurn>,
+    /// The turns of the session's round, by request, that the pane's agent took as a fork.
+    prepared: HashSet<String>,
 }
 
 /// A question that waits, and the agent watched for its forks.
 struct Armed {
     generation: u64,
-    round: RoundKey,
-    question: Question,
-    /// The question's number on the reviewer's screens, for the log.
-    number: Option<usize>,
-    pane: PaneId,
+    asked: Asked,
+    /// When the agent's turn asked the question, in milliseconds since the epoch: when the
+    /// round knows it, else when the session began to watch the question.
+    asked_at_ms: u64,
     _watch: PaneWatch,
     /// The forks taken, once the agent was idle.
     taken: Option<Taken>,
@@ -84,12 +104,35 @@ struct Armed {
     refusal: Option<String>,
 }
 
+/// A question run-ahead watches, in its round, and the agent that asked it.
+#[derive(Clone)]
+struct Asked {
+    round: RoundKey,
+    question: Question,
+    /// Its number on the reviewer's screens, for the log.
+    number: Option<usize>,
+    /// The pane of the agent that asked it.
+    pane: PaneId,
+}
+
+impl Asked {
+    /// How the log names the question.
+    fn label(&self) -> String {
+        label(self.number)
+    }
+}
+
+/// How the log names the question numbered `number` on the reviewer's screens.
+fn label(number: Option<usize>) -> String {
+    number.map_or_else(|| "Q?".to_owned(), |number| format!("Q{number}"))
+}
+
 /// The forks of one question, taken from one point of the agent's session.
 struct Taken {
     point: ForkPoint,
     forks: Vec<TakenFork>,
     /// The files the forks' prompts name, which live as long as the forks.
-    _files: take::ForkFiles,
+    files: take::ForkFiles,
 }
 
 /// One fork taken for the question that waits: it runs, or ran.
@@ -98,11 +141,14 @@ struct TakenFork {
     session: String,
     access: String,
     choice: String,
-    /// The turn the fork was told, as if the reviewer had picked its choice.
+    /// The turn the fork was told, as if the reviewer had picked its choice, and its prompt.
     request: TurnRequest,
+    prompt: String,
     process: Option<ProcessStamp>,
     /// The turn the fork submitted, kept for its choice.
     kept: Option<InterviewUpdate>,
+    /// Whether its process ended.
+    ended: bool,
 }
 
 impl RunAheadState {
@@ -113,17 +159,34 @@ impl RunAheadState {
             generation: 0,
             armed: None,
             discarded: HashSet::new(),
+            switching: None,
+            held: None,
+            prepared: HashSet::new(),
         }
     }
 
-    /// The fork that holds `access`, among those of the question that waits.
+    /// The turns of the session's round that the pane's agent took as a fork are now
+    /// `prepared`, as a restored round records them.
+    pub(crate) fn prepared_again(&mut self, prepared: impl Iterator<Item = String>) {
+        self.prepared = prepared.collect();
+    }
+
+    /// The turns of the session's round, by request, that the pane's agent took as a fork.
+    pub(crate) fn prepared_turns(&self) -> &HashSet<String> {
+        &self.prepared
+    }
+
+    /// The fork that holds `access`, among those of the question that waits and the one the
+    /// pane's agent is switching to.
     fn fork_with_access(&self, access: &str) -> Option<&TakenFork> {
-        self.armed
-            .as_ref()?
-            .taken
-            .as_ref()?
-            .forks
-            .iter()
+        let waiting = self
+            .armed
+            .as_ref()
+            .and_then(|armed| armed.taken.as_ref())
+            .into_iter()
+            .flat_map(|taken| &taken.forks);
+        waiting
+            .chain(self.switching.as_ref().map(|switching| &switching.fork))
             .find(|fork| fork.access == access)
     }
 
@@ -140,11 +203,7 @@ impl RunAheadState {
 
     /// Logs `line` about the question that waits.
     fn log(&self, line: &str) {
-        let label = self
-            .armed
-            .as_ref()
-            .and_then(|armed| armed.number)
-            .map_or_else(|| "Q?".to_owned(), |number| format!("Q{number}"));
+        let label = label(self.armed.as_ref().and_then(|armed| armed.asked.number));
         self.host.log(&format!("{label}: {line}"));
     }
 }
@@ -162,7 +221,11 @@ impl TakenFork {
 
 impl Armed {
     fn is_for(&self, round: &RoundKey, question: &Question) -> bool {
-        self.round == *round && self.question.is_version(&question.id, question.version)
+        self.asked.round == *round
+            && self
+                .asked
+                .question
+                .is_version(&question.id, question.version)
     }
 }
 
@@ -238,17 +301,20 @@ impl ExploreSession {
                 })));
             }),
         );
-        let number = self
-            .state
-            .round
-            .as_ref()
-            .and_then(|round| round.exploration.question_number(&question));
+        let saved = self.state.round.as_ref();
+        let number = saved.and_then(|round| round.exploration.question_number(&question));
+        let asked_at_ms = saved
+            .and_then(|round| asked_at_ms(round, &question))
+            .unwrap_or_else(review_explore::now_ms);
         self.run_ahead.armed = Some(Armed {
             generation,
-            round,
-            question,
-            number,
-            pane: agent.pane_id.clone(),
+            asked: Asked {
+                round,
+                question,
+                number,
+                pane: agent.pane_id.clone(),
+            },
+            asked_at_ms,
             _watch: watch,
             taken: None,
             worked: false,
@@ -262,7 +328,7 @@ impl ExploreSession {
             .get_agent(&agent.pane_id)
             .ok()
             .flatten()
-            .is_some_and(|agent| is_idle(agent.agent_status))
+            .is_some_and(|agent| agent.agent_status.waits_for_prompt())
         {
             self.run_ahead_take();
         }
@@ -291,6 +357,11 @@ impl ExploreSession {
                 end,
             } => self.run_ahead_ended(&round, &session, &end),
             Event::Cleaned { round, session } => self.run_ahead_cleaned(&round, &session),
+            Event::Switched {
+                round,
+                request,
+                result,
+            } => self.run_ahead_switched(&round, &request, *result),
         }
     }
 
@@ -309,7 +380,7 @@ impl ExploreSession {
             armed.worked |= armed.taken.is_some();
             return;
         }
-        if !is_idle(status) {
+        if !status.waits_for_prompt() {
             return;
         }
         let Some(taken) = &armed.taken else {
@@ -322,7 +393,7 @@ impl ExploreSession {
         let moved = self.run_ahead.host.last_entry(&taken.point) != taken.point.entry
             || self
                 .agents
-                .get_agent(&armed.pane)
+                .get_agent(&armed.asked.pane)
                 .ok()
                 .flatten()
                 .and_then(|agent| agent.agent_session)
@@ -336,7 +407,17 @@ impl ExploreSession {
     }
 }
 
-/// Whether an agent in `status` waits for its next prompt.
-fn is_idle(status: AgentStatus) -> bool {
-    matches!(status, AgentStatus::Idle | AgentStatus::Done)
+/// When the agent's turn that asked `question` was saved in `round`, in milliseconds since the
+/// epoch, when the round knows when its prompt went out and how long the agent took.
+fn asked_at_ms(round: &review_explore::ExploreRound, question: &Question) -> Option<u64> {
+    let request = &round
+        .exploration
+        .conversation
+        .iter()
+        .rfind(|turn| turn.update.next.as_ref() == Some(question))?
+        .update
+        .request;
+    let started = round.turns.get(request)?.started_at_ms?;
+    let elapsed = round.exploration.agent_elapsed_ms.get(request)?;
+    Some(started.saturating_add(*elapsed))
 }

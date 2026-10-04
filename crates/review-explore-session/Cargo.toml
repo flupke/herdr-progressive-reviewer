@@ -24,6 +24,7 @@ review-source = { path = "../review-source" }
 review-state = { path = "../review-state" }
 review-store = { path = "../review-store" }
 review-thread-service = { path = "../review-thread-service" }
+review-threads = { path = "../review-threads" }
 review-types = { path = "../review-types" }
 serde.workspace = true
 serde_json.workspace = true

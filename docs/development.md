@@ -1478,8 +1478,9 @@ original bindings and actual replacement conversations fail closed for continuat
 Run-ahead forks the pane agent's session while a question waits (setting `RunAhead` in
 [`crates/review-explore-round-settings`](../crates/review-explore-round-settings), pane key
 `z`, saved under `explore_round` in `settings.json`, read after each input of the session:
-turned off, it discards the forks that run). In this version
-the forks' turns are kept and never used. The pieces:
+turned off, it discards the forks that run). A bare answer continues as the fork of its
+choice, when that fork submitted its turn (below); any other answer runs the plain chain. The
+pieces:
 
 - [`crates/agent-fork`](../crates/agent-fork): a fork process that does not outlive the
   reviewer. `Launcher` starts every fork from one thread that lives as long as it, through
@@ -1523,17 +1524,58 @@ the forks' turns are kept and never used. The pieces:
   discard the forks; a reopened reviewer discards the forks of the review's rounds that a
   stopped reviewer left (forks of a reviewer that still runs stay its own). The state watcher
   ignores `.forks.json`, as it ignores editor views.
+- `review-explore-session/src/run_ahead/answer.rs` and `switch.rs`: what an answer to a watched
+  question does. `deliver_turn` saves the answer and applies its marks as always, then asks
+  `run_ahead_answer`, which records the path and its reason (`TurnPath`, `PlainReason`) in
+  `RoundForks::answers` and discards the forks the answer does not continue as.
+  - The checks. The answer continues as the fork of its choice only when that turn is exactly
+    the one the pane's agent would take for it: a choice (not None of the above) with no comment
+    (white space is none, in the prompt too), a fork that submitted, no message of the reviewer
+    in the round's conversation under the question or since it was asked, the agent idle with an
+    empty input box (`ForkHost::input_is_empty`), on the session the forks were taken from, whose
+    last entry did not move, and a prompt and unreviewed diffs that are the fork's but for their
+    identities (request, answer, access, diffs directory). Anything else runs the plain chain.
+  - The switch. The turn's dispatch begins (the page shows the agent working) and
+    `ForkHost::switch` runs on a thread of its own. `ClaudeForks` (`claude-fork/src/switch.rs`)
+    waits until the fork's stream shows the answer to its submit (at most 10 s, or until the
+    fork ends), stops the fork and keeps its transcript, checks again that the agent is idle
+    with an empty box, submits `/resume <session>` through `agent.prompt` without a wait, then
+    asks Herdr every 100 ms, for at most 20 s, until it reports the agent on that session, idle,
+    with an empty box: Herdr sends no event when a session changes.
+  - After the switch. The session pins the agent on that session (`PinnedAgent::new`) and
+    records it as `last_agent_session`, commits the fork's turn under the answer's identities
+    through the agent's own commit path, then records the dispatch as delivered. The agent's
+    access and diffs are the fork's, as after a prompt. The question shows only once the switch
+    is done; a turn saved meanwhile (after a Cancel answer, say) waits, and its prompt goes out
+    once the switch ends, to the session the agent then runs.
+  - A failure. A switch that fails, or a fork's turn that cannot be saved, marks the turn failed
+    with the reason, and Retry runs the plain chain. A fork the agent was told to resume keeps its
+    transcript (`Continuation::Failed { typed: true }`); a fork whose session may be the agent's
+    is never discarded nor cleaned up.
+  - What the reviewer sees. The page's `TurnResponse::prepared` and the pane's
+    `ExploreTurnPrepared` (and `ExploreRestored::prepared_turns`) say which turns were prepared:
+    "Prepared while you were thinking".
 
 Tests: `review-explore-session` checks the session with a fake `ForkHost` (prompts, access,
-discards, records); `reviewer` checks real forks on an isolated Herdr with a forkable Claude Code
-stand-in (`runtime/run_ahead.tests.rs`), and the parent-death signal (`tests/fork_lifetime.rs`).
-One test runs real Claude Code turns on your subscription, at `claude-sonnet-5-5`, and is
-ignored by default:
+discards, records, each reason of the plain chain, a switch, a failed one, a turn held during a
+switch); `reviewer` checks real forks on an isolated Herdr with a forkable Claude Code stand-in
+(`runtime/run_ahead.tests.rs`):
+the stand-in in the pane takes `/resume <session>` as Claude Code does, reporting the session to
+Herdr as Claude Code's session hook does (with a newer `--seq` and `--session-start-source
+resume`; without them Herdr kept reporting the first session), and a fork stand-in prints its submit's answer
+once the test submitted for it; and the parent-death signal (`tests/fork_lifetime.rs`). Two tests
+run real Claude Code turns on your subscription, at `claude-sonnet-5-5`, and are ignored by
+default:
 
 ```sh
 cargo build -p reviewer --bin reviewer-control -p review-mcp-config --bin reviewer-mcp
-cargo nextest run -p reviewer a_real_claude_code_fork --run-ignored only
+cargo nextest run -p reviewer a_real_claude_code --run-ignored only
 ```
 
-It writes the agent's and the forks' transcripts in your Claude Code configuration and deletes
+The second of them, `a_real_claude_code_agent_continues_as_the_fork_of_a_bare_answer`, answers
+the first question bare with a choice whose fork submitted, checks that the pane resumed the
+fork's session and that the fork's turn is the round's, then sends the next answer and has the
+real agent take it in the fork's session (`claude -p --resume <fork>`).
+
+They write the agent's and the forks' transcripts in your Claude Code configuration and delete
 them at the end.

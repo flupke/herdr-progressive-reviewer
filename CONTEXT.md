@@ -252,5 +252,17 @@ _Avoid_: prefetch, speculation, preparation (the earlier, discarded approaches)
 A copy of the agent's session that run-ahead starts in the background for one choice of the
 question that waits, with its own access value, which lets it submit only the turn it was
 forked for. A fork is discarded, stopped and its transcript deleted, once its question no
-longer waits.
+longer waits, unless the agent in the pane continues as it.
 _Avoid_: branch, clone, subagent
+
+**Prepared turn**:
+The turn a fork submitted for its choice. When the reviewer answers with that choice, with no
+comment, and nothing changed since the forks were taken, the agent in the pane continues as the
+fork (it resumes the fork's session), and the prepared turn becomes the round's: the pane and the
+Explore page say that it was prepared while the reviewer was thinking.
+_Avoid_: cached turn, speculative turn
+
+**Plain chain**:
+The path of a turn without run-ahead: the reviewer's answer goes to the agent in the pane, which
+takes the turn. Every answer that cannot use a prepared turn runs the plain chain.
+_Avoid_: fallback, normal path

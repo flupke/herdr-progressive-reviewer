@@ -361,14 +361,18 @@ pub struct PageQuiz {
 }
 
 /// What an agent's turn said back to the reviewer's previous answer, as the pane shows it: its
-/// interpretations of the answer, each with its recap and follow-ups, and its reply. Empty for a
-/// turn that follows no answer and replies nothing.
+/// interpretations of the answer, each with its recap and follow-ups, and its reply, and whether
+/// run-ahead prepared the turn. Empty for a turn that follows no answer, replies nothing and was
+/// not prepared.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
 pub struct TurnResponse {
     /// The agent's interpretations of the answer the turn follows, in the order it gave them.
     pub interpretations: Vec<Interpretation>,
     /// The agent's reply, in Markdown.
     pub reply: Option<String>,
+    /// Whether a fork took the turn while the reviewer thought about the answer, and the agent
+    /// continued as that fork.
+    pub prepared: bool,
 }
 
 impl TurnResponse {
@@ -390,11 +394,12 @@ impl TurnResponse {
                 .as_ref()
                 .map(|reply| reply.text.clone())
                 .filter(|text| !text.trim().is_empty()),
+            prepared: false,
         }
     }
 
     fn is_empty(&self) -> bool {
-        self.interpretations.is_empty() && self.reply.is_none()
+        self.interpretations.is_empty() && self.reply.is_none() && !self.prepared
     }
 }
 

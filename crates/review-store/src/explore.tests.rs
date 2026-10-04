@@ -502,6 +502,7 @@ fn the_forks_of_a_round_are_saved_beside_it_even_once_it_is_closed_and_are_no_ro
         usage: None,
         discarded: None,
         cleaned: false,
+        continued: None,
     };
 
     let ((), saved) = records

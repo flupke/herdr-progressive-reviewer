@@ -10,16 +10,18 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::Duration;
 
-use agent_fork::{Launcher, ProcessStamp, RunningFork, Wrapper, stop_recorded};
+use agent_fork::{Launcher, ProcessStamp, Wrapper};
 use herdr_client::client::HerdrClient;
 use herdr_client::protocol::{Agent, AgentPort, AgentStatus, PaneId, PaneProcess};
 use review_run_ahead::{
-    ForkEnd, ForkHost, ForkPoint, ForkStart, ForkTrace, PaneWatch, StatusReport,
+    ForkEnd, ForkHost, ForkPoint, ForkStart, ForkTrace, PaneWatch, StatusReport, SwitchFailure,
+    SwitchTo,
 };
 
 use crate::guard::SUBMITS;
 use crate::pane::PaneClaude;
 use crate::stream::StreamTally;
+use crate::switch::{AgentPane, ForkProcess, LiveFork, Switch};
 use crate::transcripts::Transcripts;
 
 /// How long a status watch waits before it subscribes again after Herdr dropped it.
@@ -68,7 +70,7 @@ pub struct ClaudeForks {
     /// Run-ahead's log; `None` writes none.
     log: Option<PathBuf>,
     /// The forks that run, by session.
-    live: Arc<Mutex<HashMap<String, Arc<RunningFork>>>>,
+    live: Arc<Mutex<HashMap<String, LiveFork>>>,
     /// The discards under way, which stop a fork and delete its transcript.
     discards: Mutex<Vec<thread::JoinHandle<()>>>,
 }
@@ -86,7 +88,7 @@ impl ClaudeForks {
         }
     }
 
-    fn live(&self) -> std::sync::MutexGuard<'_, HashMap<String, Arc<RunningFork>>> {
+    fn live(&self) -> std::sync::MutexGuard<'_, HashMap<String, LiveFork>> {
         self.live.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
@@ -233,12 +235,20 @@ impl ForkHost for ClaudeForks {
                 .remove(&session);
             ended(end);
         });
+        let tally = StreamTally::new(ended);
+        let answered = tally.submit_answered();
         let fork = self
             .launcher
-            .spawn(command, start.prompt, Box::new(StreamTally::new(ended)))
+            .spawn(command, start.prompt, Box::new(tally))
             .map_err(|error| format!("cannot start {program}: {error}"))?;
         let stamp = fork.stamp();
-        self.live().insert(start.session.to_owned(), Arc::new(fork));
+        self.live().insert(
+            start.session.to_owned(),
+            LiveFork {
+                process: Arc::new(fork),
+                answered,
+            },
+        );
         Ok(stamp)
     }
 
@@ -247,19 +257,46 @@ impl ForkHost for ClaudeForks {
         let (session, process) = (fork.session.to_owned(), fork.process);
         let transcripts = Transcripts::at(fork.transcripts.to_owned());
         let discard = thread::spawn(move || {
-            match (running, process) {
-                (Some(running), _) => running.terminate(),
-                (None, Some(process)) => {
-                    stop_recorded(process, &session);
-                }
-                (None, None) => {}
-            }
+            ForkProcess::of(running, process).stop(&session);
             transcripts.delete(&session);
             done();
         });
         let mut discards = self.discards.lock().unwrap_or_else(PoisonError::into_inner);
         discards.retain(|discard| !discard.is_finished());
         discards.push(discard);
+    }
+
+    fn input_is_empty(&self, pane: &PaneId) -> Result<bool, String> {
+        let pane = AgentPane {
+            herdr: &self.herdr,
+            pane,
+        };
+        pane.input_box_empty()?
+            .ok_or_else(|| "the agent's screen shows no input box".to_owned())
+    }
+
+    fn switch(
+        &self,
+        switch: SwitchTo<'_>,
+        done: Box<dyn FnOnce(Result<Agent, SwitchFailure>) + Send>,
+    ) {
+        let fork = ForkProcess::of(self.live().remove(switch.fork.session), switch.fork.process);
+        let (herdr, pane, session) = (
+            self.herdr.clone(),
+            switch.pane.clone(),
+            switch.fork.session.to_owned(),
+        );
+        thread::spawn(move || {
+            let switch = Switch {
+                pane: AgentPane {
+                    herdr: &herdr,
+                    pane: &pane,
+                },
+                session: &session,
+                fork,
+            };
+            done(switch.run());
+        });
     }
 
     fn log(&self, line: &str) {

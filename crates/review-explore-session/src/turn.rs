@@ -3,11 +3,19 @@
 use std::sync::Arc;
 
 use herdr_client::protocol::Agent;
-use review_explore::{ConversationBinding, Exploration, ExploreRound, TurnRequest};
-use review_explore_runner::EarlierDecisions;
+use review_explore::{Comparison, ConversationBinding, Exploration, ExploreRound, TurnRequest};
+use review_explore_runner::{EarlierDecisions, Unreviewed};
 use review_thread_service::PinnedAgent;
 
-use crate::{ExploreSession, Input, dispatch::DurableDispatch, turn_log::SentTurn};
+use crate::turn_log::{SentTurn, TurnLog};
+use crate::{ExploreSession, Input, dispatch::DurableDispatch};
+
+/// A turn saved in the round, and the attempt that delivers it to the agent.
+#[derive(Clone)]
+pub(crate) struct SavedTurn {
+    pub(crate) request: TurnRequest,
+    pub(crate) attempt: String,
+}
 
 impl ExploreSession {
     /// Sends the turn `request` again to the selected agent, and tells the front ends through
@@ -50,7 +58,6 @@ impl ExploreSession {
             Ok(round) => round,
             Err(error) => return Err(self.turn_refused(request, &error)),
         };
-        self.run_ahead_answered(&request);
         self.state.prompt = None;
         self.state.implementation = None;
         self.state.start.settle();
@@ -69,11 +76,26 @@ impl ExploreSession {
             request: request.clone(),
             result: Ok(Arc::new(round.clone())),
         });
-        let attempt = round.turns[&request.request].attempt.clone();
+        let turn = SavedTurn {
+            attempt: round.turns[&request.request].attempt.clone(),
+            request,
+        };
+        // A turn a fork prepared needs no prompt: the pane's agent continues as the fork. A
+        // turn saved while the agent switches to a fork waits for the switch.
+        if !self.run_ahead_answer(&turn) && !self.run_ahead_hold(&turn) {
+            self.send_turn(turn);
+        }
+        Ok(())
+    }
+
+    /// Prompts the agent with the saved turn `turn`; a prompt that fails leaves the turn
+    /// waiting for Retry.
+    pub(crate) fn send_turn(&mut self, turn: SavedTurn) {
+        let SavedTurn { request, attempt } = turn;
         let (prompt, sent, agent) = match self.prepare(&request) {
             Ok(prepared) => prepared,
             Err(error) => {
-                self.state.pending = Some((request.instance.clone(), request.request.clone()));
+                self.state.pend(&request);
                 self.prompt_finished(
                     ui_events::ExploreFinished {
                         instance: request.instance,
@@ -82,21 +104,10 @@ impl ExploreSession {
                     },
                     &attempt,
                 );
-                return Ok(());
+                return;
             }
         };
-        let observer = DurableDispatch {
-            began: std::sync::atomic::AtomicBool::default(),
-            rounds: self.rounds.clone(),
-            unit: request.checkpoint.review_unit.clone(),
-            instance: request.instance.clone(),
-            id: review_explore::DispatchId::Interview {
-                request: request.request.clone(),
-                attempt: attempt.clone(),
-            },
-            events: self.events.clone(),
-            turn: self.turns.clone().zip(sent),
-        };
+        let observer = self.dispatch_of(&request, &attempt, self.turns.clone().zip(sent));
         let (receipt, cancellation) =
             self.prompts
                 .send_observed(agent, prompt, Some(Arc::new(observer)));
@@ -114,7 +125,28 @@ impl ExploreSession {
                 });
             }
         });
-        Ok(())
+    }
+
+    /// What records the delivery of the turn `request`, as its attempt `attempt`, in the saved
+    /// round; `turn` is the prompt, for a vision session's record of what was sent.
+    pub(crate) fn dispatch_of(
+        &self,
+        request: &TurnRequest,
+        attempt: &str,
+        turn: Option<(TurnLog, SentTurn)>,
+    ) -> DurableDispatch {
+        DurableDispatch {
+            began: std::sync::atomic::AtomicBool::default(),
+            rounds: self.rounds.clone(),
+            unit: request.checkpoint.review_unit.clone(),
+            instance: request.instance.clone(),
+            id: review_explore::DispatchId::Interview {
+                request: request.request.clone(),
+                attempt: attempt.to_owned(),
+            },
+            events: self.events.clone(),
+            turn,
+        }
     }
 
     /// Refuses the kickoff `request` when its start was stopped, or when nothing is left to
@@ -159,6 +191,25 @@ impl ExploreSession {
         &mut self,
         request: &TurnRequest,
     ) -> eyre::Result<(String, Option<SentTurn>, PinnedAgent)> {
+        let comparison = self.turn_comparison(request)?;
+        let agent = self.active_agent()?;
+        let access = self.state.access.clone();
+        let (prompt, unreviewed) = self.turn_prompt(request, &comparison, &access)?;
+        let sent = self.turns.is_some().then(|| {
+            SentTurn::interview(
+                request,
+                &self.state.access,
+                unreviewed.to_string().trim().to_owned(),
+                prompt.clone(),
+            )
+        });
+        self.state.pend(request);
+        self.state.agent = Some(agent.clone());
+        Ok((prompt, sent, agent))
+    }
+
+    /// The change the round of `request` explores.
+    pub(crate) fn turn_comparison(&self, request: &TurnRequest) -> eyre::Result<Arc<Comparison>> {
         let comparison = self
             .state
             .comparison
@@ -168,8 +219,17 @@ impl ExploreSession {
             comparison.checkpoint == request.checkpoint,
             "Request does not belong to this comparison"
         );
-        let comparison = comparison.clone();
-        let agent = self.active_agent()?;
+        Ok(comparison.clone())
+    }
+
+    /// The agent's prompt for `request` of `comparison`, granting `access`, and the unreviewed
+    /// lines it lists, whose diffs the session keeps until the next prompt.
+    pub(crate) fn turn_prompt(
+        &mut self,
+        request: &TurnRequest,
+        comparison: &Comparison,
+        access: &str,
+    ) -> eyre::Result<(String, Unreviewed)> {
         let unreviewed = self.unreviewed().inspect_err(|error| {
             let _ = self.events.send(ui_events::ToastRequested {
                 text: format!("{error:#}"),
@@ -195,28 +255,18 @@ impl ExploreSession {
             .map(Into::into);
         let prompt = review_explore_runner::PreparedTurn::prepare(
             request,
-            &comparison,
-            &self.state.access,
+            comparison,
+            access,
             &unreviewed,
             &earlier,
             answered,
         )
         .prompt();
-        let sent = self.turns.is_some().then(|| {
-            SentTurn::interview(
-                request,
-                &self.state.access,
-                unreviewed.to_string().trim().to_owned(),
-                prompt.clone(),
-            )
-        });
-        self.state.pending = Some((request.instance.clone(), request.request.clone()));
-        self.state.agent = Some(agent.clone());
-        Ok((prompt, sent, agent))
+        Ok((prompt, unreviewed))
     }
 
     pub(crate) fn prompt_finished(&mut self, event: ui_events::ExploreFinished, attempt: &str) {
-        if self.state.pending.as_ref() != Some(&(event.instance.clone(), event.request.clone())) {
+        if !self.state.is_pending(&event.instance, &event.request) {
             return;
         }
         if let Some(round) = &self.state.round {

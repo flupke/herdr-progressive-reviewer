@@ -124,7 +124,8 @@ impl TurnInput<'_> {
             )?;
             writeln!(output, "\nSelected option:\n{}", option.text)?;
         }
-        if !answer.text.is_empty() {
+        // White space is no comment.
+        if !answer.text.trim().is_empty() {
             writeln!(output, "\nComment:\n{}", answer.text)?;
         }
         Ok(())

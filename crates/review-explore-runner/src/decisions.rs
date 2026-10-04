@@ -112,7 +112,7 @@ impl fmt::Display for Decision {
             Some(option) => write!(output, "Choice: {}\n{}", option.id, Quoted(&option.text))?,
             None => writeln!(output, "Choice: none")?,
         }
-        if !answer.text.is_empty() {
+        if !answer.text.trim().is_empty() {
             write!(output, "Comment:\n{}", Quoted(&answer.text))?;
         }
         match (&self.interpretation, &answer.option) {

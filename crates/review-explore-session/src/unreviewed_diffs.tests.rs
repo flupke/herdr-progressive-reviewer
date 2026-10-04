@@ -136,3 +136,26 @@ fn a_write_failure_that_is_not_a_clash_is_an_error() {
     assert!(failed.is_err());
     assert_eq!(diffs.index(), None);
 }
+
+#[test]
+fn two_directories_hold_the_same_lines_when_every_diff_is_the_same_at_the_same_path() {
+    let (mut first, mut second) = (diffs(), diffs());
+    for diffs in [&mut first, &mut second] {
+        diffs
+            .place("src/lib.rs", "src/lib.rs: unreviewed lines\n")
+            .unwrap();
+        diffs
+            .place("README.md", "README.md: unreviewed lines\n")
+            .unwrap();
+    }
+    assert!(first.same_lines(&second));
+
+    second
+        .place("src/main.rs", "src/main.rs: unreviewed lines\n")
+        .unwrap();
+    assert!(!first.same_lines(&second));
+    first
+        .place("src/main.rs", "src/main.rs: other lines\n")
+        .unwrap();
+    assert!(!first.same_lines(&second));
+}

@@ -466,10 +466,13 @@ impl Session {
     /// is being sent.
     fn stage_after(&mut self, step: Step, question: Option<Question>) -> Option<RoundStage> {
         Some(match step {
-            Step::Question => {
+            Step::Question { prepared } => {
                 self.asked += 1;
                 self.concluded = false;
-                let stage = self.data.question_stage(self.asked, question);
+                let mut stage = self.data.question_stage(self.asked, question);
+                if let RoundStage::Question { response, .. } = &mut stage {
+                    response.prepared = prepared;
+                }
                 self.latest_question = Some(stage.clone());
                 self.take_up_answers(&stage);
                 stage
@@ -774,8 +777,9 @@ pub(crate) enum PageChange {
 /// What happens next in a session's round.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Step {
-    /// The agent posts its next question.
-    Question,
+    /// The agent posts its next question; `prepared` when a fork took the turn while the
+    /// reviewer thought about the answer (run-ahead), and the agent continued as it.
+    Question { prepared: bool },
     /// The reviewer answered: the agent works on its next turn. The answer keeps the
     /// question's first choice, as one in the pane does; or, `after_first_pick`, the choice the
     /// agent recommends (its first choice when it recommends none) after a first pick of another
@@ -817,8 +821,9 @@ pub(crate) enum RoundEvent {
 
 impl Step {
     /// Each step by the name of its control route.
-    const NAMES: [(&str, Self); 18] = [
-        ("question", Self::Question),
+    const NAMES: [(&str, Self); 19] = [
+        ("question", Self::Question { prepared: false }),
+        ("question-prepared", Self::Question { prepared: true }),
         (
             "answer",
             Self::Answer {

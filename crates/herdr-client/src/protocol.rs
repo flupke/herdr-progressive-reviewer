@@ -221,6 +221,13 @@ pub enum AgentStatus {
     Unknown,
 }
 
+impl AgentStatus {
+    /// Whether an agent in this state waits for its next prompt.
+    pub fn waits_for_prompt(self) -> bool {
+        matches!(self, Self::Idle | Self::Done)
+    }
+}
+
 /// A native agent session identity reported by Herdr.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct AgentSession {

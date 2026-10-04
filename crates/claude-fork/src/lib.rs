@@ -5,13 +5,16 @@
 //! so that it reads the agent's prompt cache and Herdr never takes it for the pane's agent. A
 //! `PreToolUse` hook keeps it read-only: a hook leaves the tool list, and so the prompt cache,
 //! as the agent has them. [`ClaudeForks`] is the [`review_run_ahead::ForkHost`] that starts,
-//! follows and stops them.
+//! follows and stops them, reads the agent's input box off its screen, and switches the agent to
+//! a fork's session with Claude Code's own `/resume`.
 
 mod arguments;
 mod guard;
 mod host;
 mod pane;
+mod screen;
 mod stream;
+mod switch;
 mod transcripts;
 
 pub use guard::{SUBMITS, run_guard};

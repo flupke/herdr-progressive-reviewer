@@ -244,6 +244,21 @@ fn absent_comments_and_choices_do_not_imply_deferral_and_none_keeps_its_full_lab
 }
 
 #[test]
+fn a_comment_of_white_space_is_no_comment() {
+    let comparison = comparison();
+    let mut exploration = Exploration::new(Arc::new(comparison.clone()));
+    let mut request = exploration.request(None, None).unwrap();
+    let mut answer = answer(&request);
+    answer.text.clear();
+    request.answer = Some(answer);
+    let without = prepare(&request, &comparison);
+
+    request.answer.as_mut().unwrap().text = " \n\t".into();
+
+    assert_eq!(prepare(&request, &comparison), without);
+}
+
+#[test]
 fn retries_only_add_the_previous_error() {
     let comparison = comparison();
     let mut exploration = Exploration::new(Arc::new(comparison.clone()));
