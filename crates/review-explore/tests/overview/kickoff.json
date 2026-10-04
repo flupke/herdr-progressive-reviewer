@@ -1,0 +1,106 @@
+{
+  "value": {
+    "completion": null,
+    "exploration": {
+      "agent_elapsed_ms": {},
+      "answers": [],
+      "comparison": {
+        "base": null,
+        "checkpoint": {
+          "checkpoint": "checkpoint",
+          "review_unit": "review"
+        },
+        "diffs": "KLUv/SAAAQAA",
+        "files": [
+          {
+            "change": "Modified",
+            "display_path": "store.rs",
+            "new_kind": "File",
+            "new_path": [
+              115,
+              116,
+              111,
+              114,
+              101,
+              46,
+              114,
+              115
+            ],
+            "old_kind": "File",
+            "old_path": [
+              115,
+              116,
+              111,
+              114,
+              101,
+              46,
+              114,
+              115
+            ],
+            "statistics": {
+              "lines_added": 0,
+              "lines_removed": 0
+            }
+          }
+        ],
+        "manifest": [
+          {
+            "file": 0,
+            "hunk": null
+          }
+        ],
+        "repository_root": "/fixture/repository"
+      },
+      "conclusion": null,
+      "conversation": [],
+      "findings": [],
+      "instance": "00000000-0000-4000-8000-0000000000aa",
+      "interpretations": [],
+      "limitations": [],
+      "outstanding": {
+        "answer": null,
+        "checkpoint": {
+          "checkpoint": "checkpoint",
+          "review_unit": "review"
+        },
+        "instance": "00000000-0000-4000-8000-0000000000aa",
+        "request": "4ba378b7-b0c0-42b0-821b-c44083c44cbd",
+        "response_error": null
+      },
+      "questions": [],
+      "retry": {
+        "answer": null,
+        "checkpoint": {
+          "checkpoint": "checkpoint",
+          "review_unit": "review"
+        },
+        "instance": "00000000-0000-4000-8000-0000000000aa",
+        "request": "4ba378b7-b0c0-42b0-821b-c44083c44cbd",
+        "response_error": null
+      },
+      "topics": {}
+    },
+    "implementations": {},
+    "last_agent_session": null,
+    "revision": 1,
+    "turns": {
+      "4ba378b7-b0c0-42b0-821b-c44083c44cbd": {
+        "attempt": "27017917-2dfd-4285-a7e7-84ae8e134c62",
+        "editor_sequence": null,
+        "request": {
+          "answer": null,
+          "checkpoint": {
+            "checkpoint": "checkpoint",
+            "review_unit": "review"
+          },
+          "instance": "00000000-0000-4000-8000-0000000000aa",
+          "request": "4ba378b7-b0c0-42b0-821b-c44083c44cbd",
+          "response_error": null
+        },
+        "started_at_ms": null,
+        "state": "Delivered"
+      }
+    }
+  },
+  "version": 2
+}

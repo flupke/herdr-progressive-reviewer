@@ -27,6 +27,7 @@ mod design;
 mod diagram;
 mod interview;
 mod not_relevant;
+mod overview;
 mod path_serde;
 mod quiz;
 mod sections;
@@ -49,6 +50,10 @@ pub use interview::{
     ReviewerAnswer, Topic, TopicStatus, TurnRequest,
 };
 pub use not_relevant::{NotRelevantMark, NotRelevantReason, TestLocation};
+pub use overview::{
+    AgentRecord, Decision, DecisionTag, EarlierQuestion, KeptAnswer, QuizStage, RailStep,
+    RoundOverview, Step, StepState, TabTitle,
+};
 pub use quiz::{QuizAnswers, QuizItem, QuizPick, QuizResponse};
 pub use sections::QuestionSection;
 pub use source::{CodeLocation, EvidenceRef, Source, SourceSide};

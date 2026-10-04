@@ -89,6 +89,13 @@ pub struct ReviewerAnswer {
     pub first_pick: Option<String>,
 }
 
+impl ReviewerAnswer {
+    /// Whether the answer answers `question`, in that version.
+    pub(crate) fn answers(&self, question: &Question) -> bool {
+        self.question.as_ref() == Some(question)
+    }
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct AnswerInput {
     pub option: Option<String>,
@@ -245,9 +252,14 @@ impl Exploration {
 
     /// Whether an agent turn took up the answer `answer`.
     pub fn took_up(&self, answer: &str) -> bool {
+        self.turn_after(answer).is_some()
+    }
+
+    /// The agent's turn that took up the answer `answer`, if one did.
+    pub(crate) fn turn_after(&self, answer: &str) -> Option<&ConversationTurn> {
         self.conversation
             .iter()
-            .any(|turn| turn.answer.as_deref() == Some(answer))
+            .find(|turn| turn.answer.as_deref() == Some(answer))
     }
 
     /// How the agent interpreted the answer `answer`, the latest time, if it

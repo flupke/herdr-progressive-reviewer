@@ -461,6 +461,25 @@ impl ExploreRound {
         Ok(true)
     }
 
+    /// The review marks that the answers `applied` selects applied, in the order of the agent's
+    /// turns that asked for them.
+    pub(crate) fn marks_applied_by<'a>(
+        &'a self,
+        applied: impl Fn(&crate::ReviewerAnswer) -> bool + 'a,
+    ) -> impl Iterator<Item = &'a TurnMarks> + 'a {
+        let selected = move |id: &str| {
+            self.exploration
+                .answers
+                .iter()
+                .any(|answer| answer.id == id && applied(answer))
+        };
+        self.exploration
+            .conversation
+            .iter()
+            .filter_map(|turn| self.marks.get(&turn.update.request))
+            .filter(move |marks| marks.answer.as_deref().is_some_and(&selected))
+    }
+
     /// The latest implementation request the reviewer authorized for conclusion `conclusion`,
     /// named by the request of the turn that posted it.
     pub fn latest_implementation(&self, conclusion: &str) -> Option<&ImplementationDelivery> {

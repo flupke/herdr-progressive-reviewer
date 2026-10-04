@@ -164,6 +164,12 @@ page's address, until the reviewer chooses Continue in the pane. A round started
 with Start in the pane is a round in the pane, which shows its interview.
 _Avoid_: web session, web round
 
+**Round rail**:
+The steps of an Explore round as the Explore page lists them: the design
+explanation, each question the agent posted with its clarified versions, the
+quiz and the conclusion, each done, current or later.
+_Avoid_: stepper, breadcrumb, progress bar (the meter is the lines reviewed)
+
 **First pick**:
 The choice the reviewer picks on the Explore page before it shows the agent's
 recommendation, on a question whose Door is one-way, mixed or unknown. A question asked

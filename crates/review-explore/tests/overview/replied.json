@@ -1,0 +1,2033 @@
+{
+  "value": {
+    "completion": null,
+    "exploration": {
+      "agent_elapsed_ms": {},
+      "answers": [
+        {
+          "author": "reviewer",
+          "checkpoint": {
+            "checkpoint": "checkpoint",
+            "review_unit": "review"
+          },
+          "id": "548cabc8-6da5-42c0-b56d-3a5c99b2ce95",
+          "in_reply_to": "30ae806d-accb-4056-aa70-2c125675ddba",
+          "option": {
+            "id": "keep",
+            "outcome": "accepted",
+            "recommendation": "Fewer writes to the disk",
+            "text": "Keep the cache"
+          },
+          "question": {
+            "alternatives": [
+              {
+                "id": "keep",
+                "outcome": "accepted",
+                "recommendation": "Fewer writes to the disk",
+                "text": "Keep the cache"
+              },
+              {
+                "id": "drop",
+                "outcome": "needs_follow_up",
+                "recommendation": null,
+                "text": "Write through"
+              }
+            ],
+            "assessments": {
+              "blast_radius": {
+                "details": "",
+                "evidence": [
+                  {
+                    "lines": {
+                      "first_line": 1,
+                      "last_line": 2
+                    },
+                    "notes": "The store opens and reads here.",
+                    "path": "store.rs",
+                    "side": "old"
+                  }
+                ],
+                "summary": "Every reader.",
+                "unknowns": []
+              },
+              "door": "two_way",
+              "reversibility": {
+                "details": "",
+                "evidence": [
+                  {
+                    "lines": {
+                      "first_line": 1,
+                      "last_line": 2
+                    },
+                    "notes": "The store opens and reads here.",
+                    "path": "store.rs",
+                    "side": "old"
+                  }
+                ],
+                "summary": "Hard to undo.",
+                "unknowns": []
+              }
+            },
+            "evidence": [
+              {
+                "lines": {
+                  "first_line": 1,
+                  "last_line": 2
+                },
+                "notes": "The store opens and reads here.",
+                "path": "store.rs",
+                "side": "old"
+              }
+            ],
+            "id": "cache",
+            "rationale": "Context for cache.",
+            "text": "Keep a write cache in front of the store?",
+            "topic": "topic-cache",
+            "version": 1,
+            "visual": null
+          },
+          "text": ""
+        },
+        {
+          "author": "reviewer",
+          "checkpoint": {
+            "checkpoint": "checkpoint",
+            "review_unit": "review"
+          },
+          "first_pick": "queue",
+          "id": "3cc80e17-a932-4e69-9c66-49346492fc61",
+          "in_reply_to": "2778b6a3-b267-49b8-95ad-01169eda5680",
+          "option": {
+            "id": "mutex",
+            "outcome": "accepted",
+            "recommendation": "Writes are short",
+            "text": "One mutex"
+          },
+          "question": {
+            "alternatives": [
+              {
+                "id": "mutex",
+                "outcome": "accepted",
+                "recommendation": "Writes are short",
+                "text": "One mutex"
+              },
+              {
+                "id": "queue",
+                "outcome": "accepted",
+                "recommendation": null,
+                "text": "A queue per writer"
+              }
+            ],
+            "assessments": {
+              "blast_radius": {
+                "details": "",
+                "evidence": [
+                  {
+                    "lines": {
+                      "first_line": 1,
+                      "last_line": 2
+                    },
+                    "notes": "The store opens and reads here.",
+                    "path": "store.rs",
+                    "side": "old"
+                  }
+                ],
+                "summary": "Every reader.",
+                "unknowns": []
+              },
+              "door": "one_way",
+              "reversibility": {
+                "details": "",
+                "evidence": [
+                  {
+                    "lines": {
+                      "first_line": 1,
+                      "last_line": 2
+                    },
+                    "notes": "The store opens and reads here.",
+                    "path": "store.rs",
+                    "side": "old"
+                  }
+                ],
+                "summary": "Hard to undo.",
+                "unknowns": []
+              }
+            },
+            "evidence": [
+              {
+                "lines": {
+                  "first_line": 1,
+                  "last_line": 2
+                },
+                "notes": "The store opens and reads here.",
+                "path": "store.rs",
+                "side": "old"
+              }
+            ],
+            "id": "lock",
+            "rationale": "Context for lock.",
+            "text": "How do writers share the cache?",
+            "topic": "topic-lock",
+            "version": 1,
+            "visual": null
+          },
+          "text": ""
+        },
+        {
+          "author": "reviewer",
+          "checkpoint": {
+            "checkpoint": "checkpoint",
+            "review_unit": "review"
+          },
+          "id": "11ad72cc-e54b-4a02-85ac-d6a1aaf8e4cc",
+          "in_reply_to": "8b769004-1ca4-4cef-8159-c23392085680",
+          "option": {
+            "id": "none-of-the-above",
+            "outcome": "open",
+            "recommendation": null,
+            "text": "None of the above"
+          },
+          "question": {
+            "alternatives": [
+              {
+                "id": "size",
+                "outcome": "accepted",
+                "recommendation": "Bounded memory",
+                "text": "When the batch is full"
+              },
+              {
+                "id": "close",
+                "outcome": "needs_follow_up",
+                "recommendation": null,
+                "text": "Only on close"
+              }
+            ],
+            "assessments": null,
+            "evidence": [
+              {
+                "lines": {
+                  "first_line": 1,
+                  "last_line": 2
+                },
+                "notes": "The store opens and reads here.",
+                "path": "store.rs",
+                "side": "old"
+              }
+            ],
+            "id": "flush",
+            "rationale": "Context for flush.",
+            "text": "When does the cache flush?",
+            "topic": "topic-flush",
+            "version": 1,
+            "visual": null
+          },
+          "text": "Neither: flush on a timer."
+        },
+        {
+          "author": "reviewer",
+          "checkpoint": {
+            "checkpoint": "checkpoint",
+            "review_unit": "review"
+          },
+          "id": "1290d306-4ab6-406f-a4aa-e89b118a2860",
+          "in_reply_to": "e3ba714c-cf71-41eb-a02f-7929eae8f99f",
+          "option": null,
+          "question": {
+            "alternatives": [
+              {
+                "id": "size",
+                "outcome": "accepted",
+                "recommendation": "Bounded memory",
+                "text": "When the batch is full"
+              },
+              {
+                "id": "close",
+                "outcome": "needs_follow_up",
+                "recommendation": null,
+                "text": "Only on close"
+              }
+            ],
+            "assessments": null,
+            "evidence": [
+              {
+                "lines": {
+                  "first_line": 1,
+                  "last_line": 2
+                },
+                "notes": "The store opens and reads here.",
+                "path": "store.rs",
+                "side": "old"
+              }
+            ],
+            "id": "flush",
+            "rationale": "Context for flush.",
+            "text": "When does the cache flush: on a timer or on size?",
+            "topic": "topic-flush",
+            "version": 2,
+            "visual": null
+          },
+          "text": "A timer of five seconds, and on close."
+        },
+        {
+          "author": "reviewer",
+          "checkpoint": {
+            "checkpoint": "checkpoint",
+            "review_unit": "review"
+          },
+          "first_pick": "batch",
+          "id": "659e04bc-665b-46ca-bc1e-3fd2138f5787",
+          "in_reply_to": "ccd59e66-415d-4484-916b-605adb559062",
+          "option": {
+            "id": "none-of-the-above",
+            "outcome": "open",
+            "recommendation": null,
+            "text": "None of the above"
+          },
+          "question": {
+            "alternatives": [
+              {
+                "id": "batch",
+                "outcome": "accepted",
+                "recommendation": "The store stays consistent",
+                "text": "The current batch"
+              },
+              {
+                "id": "nothing",
+                "outcome": "needs_follow_up",
+                "recommendation": null,
+                "text": "Nothing: sync each write"
+              }
+            ],
+            "assessments": {
+              "blast_radius": {
+                "details": "",
+                "evidence": [
+                  {
+                    "lines": {
+                      "first_line": 1,
+                      "last_line": 2
+                    },
+                    "notes": "The store opens and reads here.",
+                    "path": "store.rs",
+                    "side": "old"
+                  }
+                ],
+                "summary": "Every reader.",
+                "unknowns": []
+              },
+              "door": "mixed",
+              "reversibility": {
+                "details": "",
+                "evidence": [
+                  {
+                    "lines": {
+                      "first_line": 1,
+                      "last_line": 2
+                    },
+                    "notes": "The store opens and reads here.",
+                    "path": "store.rs",
+                    "side": "old"
+                  }
+                ],
+                "summary": "Hard to undo.",
+                "unknowns": []
+              }
+            },
+            "evidence": [
+              {
+                "lines": {
+                  "first_line": 1,
+                  "last_line": 2
+                },
+                "notes": "The store opens and reads here.",
+                "path": "store.rs",
+                "side": "old"
+              }
+            ],
+            "id": "crash",
+            "rationale": "Context for crash.",
+            "text": "What may a crash lose?",
+            "topic": "topic-crash",
+            "version": 1,
+            "visual": null
+          },
+          "text": "Lose nothing that was acknowledged."
+        },
+        {
+          "author": "reviewer",
+          "checkpoint": {
+            "checkpoint": "checkpoint",
+            "review_unit": "review"
+          },
+          "id": "4d074d4a-0f3c-4fd9-b6e3-a3cb84dff9d3",
+          "in_reply_to": "0fb275e6-7139-487f-a056-bde98d345c47",
+          "option": null,
+          "question": null,
+          "text": "Check the readers too."
+        }
+      ],
+      "comparison": {
+        "base": null,
+        "checkpoint": {
+          "checkpoint": "checkpoint",
+          "review_unit": "review"
+        },
+        "diffs": "KLUv/SAAAQAA",
+        "files": [
+          {
+            "change": "Modified",
+            "display_path": "store.rs",
+            "new_kind": "File",
+            "new_path": [
+              115,
+              116,
+              111,
+              114,
+              101,
+              46,
+              114,
+              115
+            ],
+            "old_kind": "File",
+            "old_path": [
+              115,
+              116,
+              111,
+              114,
+              101,
+              46,
+              114,
+              115
+            ],
+            "statistics": {
+              "lines_added": 0,
+              "lines_removed": 0
+            }
+          }
+        ],
+        "manifest": [
+          {
+            "file": 0,
+            "hunk": null
+          }
+        ],
+        "repository_root": "/fixture/repository"
+      },
+      "conclusion": null,
+      "conversation": [
+        {
+          "answer": null,
+          "update": {
+            "agenda": [],
+            "checkpoint": {
+              "checkpoint": "checkpoint",
+              "review_unit": "review"
+            },
+            "conclusion": null,
+            "design": {
+              "algorithm": "One flush per batch: linear in the batch.",
+              "alternatives": "Writing through on each call, rejected as slow.",
+              "data_flow": "Writes go to the cache, which flushes them to the store.",
+              "overview": "The change adds a write cache in front of the store."
+            },
+            "findings": [],
+            "instance": "00000000-0000-4000-8000-0000000000aa",
+            "interpretation": null,
+            "limitations": [],
+            "next": {
+              "alternatives": [
+                {
+                  "id": "keep",
+                  "outcome": "accepted",
+                  "recommendation": "Fewer writes to the disk",
+                  "text": "Keep the cache"
+                },
+                {
+                  "id": "drop",
+                  "outcome": "needs_follow_up",
+                  "recommendation": null,
+                  "text": "Write through"
+                }
+              ],
+              "assessments": {
+                "blast_radius": {
+                  "details": "",
+                  "evidence": [
+                    {
+                      "lines": {
+                        "first_line": 1,
+                        "last_line": 2
+                      },
+                      "notes": "The store opens and reads here.",
+                      "path": "store.rs",
+                      "side": "old"
+                    }
+                  ],
+                  "summary": "Every reader.",
+                  "unknowns": []
+                },
+                "door": "two_way",
+                "reversibility": {
+                  "details": "",
+                  "evidence": [
+                    {
+                      "lines": {
+                        "first_line": 1,
+                        "last_line": 2
+                      },
+                      "notes": "The store opens and reads here.",
+                      "path": "store.rs",
+                      "side": "old"
+                    }
+                  ],
+                  "summary": "Hard to undo.",
+                  "unknowns": []
+                }
+              },
+              "evidence": [
+                {
+                  "lines": {
+                    "first_line": 1,
+                    "last_line": 2
+                  },
+                  "notes": "The store opens and reads here.",
+                  "path": "store.rs",
+                  "side": "old"
+                }
+              ],
+              "id": "cache",
+              "rationale": "Context for cache.",
+              "text": "Keep a write cache in front of the store?",
+              "topic": "topic-cache",
+              "version": 1,
+              "visual": null
+            },
+            "reply": null,
+            "request": "30ae806d-accb-4056-aa70-2c125675ddba",
+            "topics": [
+              {
+                "entries": [],
+                "id": "topic-cache",
+                "prerequisites": [],
+                "prompt": "",
+                "rank": 0,
+                "status": "open",
+                "title": "Topic cache"
+              }
+            ]
+          }
+        },
+        {
+          "answer": "548cabc8-6da5-42c0-b56d-3a5c99b2ce95",
+          "update": {
+            "agenda": [],
+            "checkpoint": {
+              "checkpoint": "checkpoint",
+              "review_unit": "review"
+            },
+            "conclusion": null,
+            "findings": [],
+            "instance": "00000000-0000-4000-8000-0000000000aa",
+            "interpretation": {
+              "answer": "548cabc8-6da5-42c0-b56d-3a5c99b2ce95",
+              "follow_ups": [],
+              "recap": "Keep the cache",
+              "status": "accepted"
+            },
+            "limitations": [],
+            "next": {
+              "alternatives": [
+                {
+                  "id": "mutex",
+                  "outcome": "accepted",
+                  "recommendation": "Writes are short",
+                  "text": "One mutex"
+                },
+                {
+                  "id": "queue",
+                  "outcome": "accepted",
+                  "recommendation": null,
+                  "text": "A queue per writer"
+                }
+              ],
+              "assessments": {
+                "blast_radius": {
+                  "details": "",
+                  "evidence": [
+                    {
+                      "lines": {
+                        "first_line": 1,
+                        "last_line": 2
+                      },
+                      "notes": "The store opens and reads here.",
+                      "path": "store.rs",
+                      "side": "old"
+                    }
+                  ],
+                  "summary": "Every reader.",
+                  "unknowns": []
+                },
+                "door": "one_way",
+                "reversibility": {
+                  "details": "",
+                  "evidence": [
+                    {
+                      "lines": {
+                        "first_line": 1,
+                        "last_line": 2
+                      },
+                      "notes": "The store opens and reads here.",
+                      "path": "store.rs",
+                      "side": "old"
+                    }
+                  ],
+                  "summary": "Hard to undo.",
+                  "unknowns": []
+                }
+              },
+              "evidence": [
+                {
+                  "lines": {
+                    "first_line": 1,
+                    "last_line": 2
+                  },
+                  "notes": "The store opens and reads here.",
+                  "path": "store.rs",
+                  "side": "old"
+                }
+              ],
+              "id": "lock",
+              "rationale": "Context for lock.",
+              "text": "How do writers share the cache?",
+              "topic": "topic-lock",
+              "version": 1,
+              "visual": null
+            },
+            "reply": {
+              "evidence": [],
+              "text": "The cache stays."
+            },
+            "request": "2778b6a3-b267-49b8-95ad-01169eda5680",
+            "topics": [
+              {
+                "entries": [],
+                "id": "topic-lock",
+                "prerequisites": [],
+                "prompt": "",
+                "rank": 0,
+                "status": "open",
+                "title": "Topic lock"
+              }
+            ]
+          }
+        },
+        {
+          "answer": "3cc80e17-a932-4e69-9c66-49346492fc61",
+          "update": {
+            "agenda": [],
+            "checkpoint": {
+              "checkpoint": "checkpoint",
+              "review_unit": "review"
+            },
+            "conclusion": null,
+            "findings": [],
+            "instance": "00000000-0000-4000-8000-0000000000aa",
+            "interpretation": {
+              "answer": "3cc80e17-a932-4e69-9c66-49346492fc61",
+              "follow_ups": [],
+              "recap": "One mutex",
+              "status": "accepted"
+            },
+            "limitations": [],
+            "next": {
+              "alternatives": [
+                {
+                  "id": "size",
+                  "outcome": "accepted",
+                  "recommendation": "Bounded memory",
+                  "text": "When the batch is full"
+                },
+                {
+                  "id": "close",
+                  "outcome": "needs_follow_up",
+                  "recommendation": null,
+                  "text": "Only on close"
+                }
+              ],
+              "assessments": null,
+              "evidence": [
+                {
+                  "lines": {
+                    "first_line": 1,
+                    "last_line": 2
+                  },
+                  "notes": "The store opens and reads here.",
+                  "path": "store.rs",
+                  "side": "old"
+                }
+              ],
+              "id": "flush",
+              "rationale": "Context for flush.",
+              "text": "When does the cache flush?",
+              "topic": "topic-flush",
+              "version": 1,
+              "visual": null
+            },
+            "reply": {
+              "evidence": [],
+              "text": "A mutex is enough."
+            },
+            "request": "8b769004-1ca4-4cef-8159-c23392085680",
+            "topics": [
+              {
+                "entries": [],
+                "id": "topic-flush",
+                "prerequisites": [],
+                "prompt": "",
+                "rank": 0,
+                "status": "open",
+                "title": "Topic flush"
+              }
+            ]
+          }
+        },
+        {
+          "answer": "11ad72cc-e54b-4a02-85ac-d6a1aaf8e4cc",
+          "update": {
+            "agenda": [],
+            "checkpoint": {
+              "checkpoint": "checkpoint",
+              "review_unit": "review"
+            },
+            "conclusion": null,
+            "findings": [],
+            "instance": "00000000-0000-4000-8000-0000000000aa",
+            "interpretation": null,
+            "limitations": [],
+            "next": {
+              "alternatives": [
+                {
+                  "id": "size",
+                  "outcome": "accepted",
+                  "recommendation": "Bounded memory",
+                  "text": "When the batch is full"
+                },
+                {
+                  "id": "close",
+                  "outcome": "needs_follow_up",
+                  "recommendation": null,
+                  "text": "Only on close"
+                }
+              ],
+              "assessments": null,
+              "evidence": [
+                {
+                  "lines": {
+                    "first_line": 1,
+                    "last_line": 2
+                  },
+                  "notes": "The store opens and reads here.",
+                  "path": "store.rs",
+                  "side": "old"
+                }
+              ],
+              "id": "flush",
+              "rationale": "Context for flush.",
+              "text": "When does the cache flush: on a timer or on size?",
+              "topic": "topic-flush",
+              "version": 2,
+              "visual": null
+            },
+            "reply": {
+              "evidence": [],
+              "text": "Do you mean a timer instead of the batch size?"
+            },
+            "request": "e3ba714c-cf71-41eb-a02f-7929eae8f99f",
+            "topics": []
+          }
+        },
+        {
+          "answer": "1290d306-4ab6-406f-a4aa-e89b118a2860",
+          "update": {
+            "agenda": [],
+            "checkpoint": {
+              "checkpoint": "checkpoint",
+              "review_unit": "review"
+            },
+            "conclusion": null,
+            "findings": [],
+            "instance": "00000000-0000-4000-8000-0000000000aa",
+            "interpretation": {
+              "answer": "1290d306-4ab6-406f-a4aa-e89b118a2860",
+              "follow_ups": [
+                "Add the timer",
+                "Flush on close"
+              ],
+              "recap": "Flush on a five second timer and on close",
+              "status": "needs_follow_up"
+            },
+            "limitations": [],
+            "next": {
+              "alternatives": [
+                {
+                  "id": "batch",
+                  "outcome": "accepted",
+                  "recommendation": "The store stays consistent",
+                  "text": "The current batch"
+                },
+                {
+                  "id": "nothing",
+                  "outcome": "needs_follow_up",
+                  "recommendation": null,
+                  "text": "Nothing: sync each write"
+                }
+              ],
+              "assessments": {
+                "blast_radius": {
+                  "details": "",
+                  "evidence": [
+                    {
+                      "lines": {
+                        "first_line": 1,
+                        "last_line": 2
+                      },
+                      "notes": "The store opens and reads here.",
+                      "path": "store.rs",
+                      "side": "old"
+                    }
+                  ],
+                  "summary": "Every reader.",
+                  "unknowns": []
+                },
+                "door": "mixed",
+                "reversibility": {
+                  "details": "",
+                  "evidence": [
+                    {
+                      "lines": {
+                        "first_line": 1,
+                        "last_line": 2
+                      },
+                      "notes": "The store opens and reads here.",
+                      "path": "store.rs",
+                      "side": "old"
+                    }
+                  ],
+                  "summary": "Hard to undo.",
+                  "unknowns": []
+                }
+              },
+              "evidence": [
+                {
+                  "lines": {
+                    "first_line": 1,
+                    "last_line": 2
+                  },
+                  "notes": "The store opens and reads here.",
+                  "path": "store.rs",
+                  "side": "old"
+                }
+              ],
+              "id": "crash",
+              "rationale": "Context for crash.",
+              "text": "What may a crash lose?",
+              "topic": "topic-crash",
+              "version": 1,
+              "visual": null
+            },
+            "reply": {
+              "evidence": [],
+              "text": "A timer bounds the loss in time."
+            },
+            "request": "ccd59e66-415d-4484-916b-605adb559062",
+            "topics": [
+              {
+                "entries": [],
+                "id": "topic-crash",
+                "prerequisites": [],
+                "prompt": "",
+                "rank": 0,
+                "status": "open",
+                "title": "Topic crash"
+              }
+            ]
+          }
+        },
+        {
+          "answer": "659e04bc-665b-46ca-bc1e-3fd2138f5787",
+          "update": {
+            "agenda": [],
+            "checkpoint": {
+              "checkpoint": "checkpoint",
+              "review_unit": "review"
+            },
+            "conclusion": {
+              "future_work": "Measure the batch size.",
+              "quiz": [
+                {
+                  "answers": [
+                    "Nothing",
+                    "The current batch",
+                    "Everything"
+                  ],
+                  "correct": 1,
+                  "level": "Data storage: what memory holds.",
+                  "proof": [
+                    {
+                      "lines": {
+                        "first_line": 1,
+                        "last_line": 2
+                      },
+                      "notes": "The store opens and reads here.",
+                      "path": "store.rs",
+                      "side": "old"
+                    }
+                  ],
+                  "question": "What does a crash lose?",
+                  "why": "Only the batch is in memory."
+                },
+                {
+                  "answers": [
+                    "Nothing",
+                    "The current batch",
+                    "Everything"
+                  ],
+                  "correct": 1,
+                  "level": "Data storage: what memory holds.",
+                  "proof": [
+                    {
+                      "lines": {
+                        "first_line": 1,
+                        "last_line": 2
+                      },
+                      "notes": "The store opens and reads here.",
+                      "path": "store.rs",
+                      "side": "old"
+                    }
+                  ],
+                  "question": "When does the cache flush?",
+                  "why": "Only the batch is in memory."
+                },
+                {
+                  "answers": [
+                    "Nothing",
+                    "The current batch",
+                    "Everything"
+                  ],
+                  "correct": 1,
+                  "level": "Data storage: what memory holds.",
+                  "proof": [
+                    {
+                      "lines": {
+                        "first_line": 1,
+                        "last_line": 2
+                      },
+                      "notes": "The store opens and reads here.",
+                      "path": "store.rs",
+                      "side": "old"
+                    }
+                  ],
+                  "question": "Who reads the store?",
+                  "why": "Only the batch is in memory."
+                }
+              ],
+              "summary": "The cache is sound; flush on close.",
+              "to_be_implemented": "- Flush on close\n- Test the batch size\n"
+            },
+            "findings": [],
+            "instance": "00000000-0000-4000-8000-0000000000aa",
+            "interpretation": {
+              "answer": "659e04bc-665b-46ca-bc1e-3fd2138f5787",
+              "follow_ups": [],
+              "recap": "Acknowledged writes must survive",
+              "status": "open"
+            },
+            "limitations": [],
+            "next": null,
+            "reply": null,
+            "request": "0fb275e6-7139-487f-a056-bde98d345c47",
+            "topics": []
+          }
+        },
+        {
+          "answer": "4d074d4a-0f3c-4fd9-b6e3-a3cb84dff9d3",
+          "update": {
+            "agenda": [],
+            "checkpoint": {
+              "checkpoint": "checkpoint",
+              "review_unit": "review"
+            },
+            "conclusion": null,
+            "findings": [],
+            "instance": "00000000-0000-4000-8000-0000000000aa",
+            "interpretation": null,
+            "limitations": [],
+            "next": {
+              "alternatives": [
+                {
+                  "id": "keep",
+                  "outcome": "accepted",
+                  "recommendation": "Fewer writes to the disk",
+                  "text": "Keep the cache"
+                },
+                {
+                  "id": "drop",
+                  "outcome": "needs_follow_up",
+                  "recommendation": null,
+                  "text": "Write through"
+                }
+              ],
+              "assessments": {
+                "blast_radius": {
+                  "details": "",
+                  "evidence": [
+                    {
+                      "lines": {
+                        "first_line": 1,
+                        "last_line": 2
+                      },
+                      "notes": "The store opens and reads here.",
+                      "path": "store.rs",
+                      "side": "old"
+                    }
+                  ],
+                  "summary": "Every reader.",
+                  "unknowns": []
+                },
+                "door": "two_way",
+                "reversibility": {
+                  "details": "",
+                  "evidence": [
+                    {
+                      "lines": {
+                        "first_line": 1,
+                        "last_line": 2
+                      },
+                      "notes": "The store opens and reads here.",
+                      "path": "store.rs",
+                      "side": "old"
+                    }
+                  ],
+                  "summary": "Hard to undo.",
+                  "unknowns": []
+                }
+              },
+              "evidence": [
+                {
+                  "lines": {
+                    "first_line": 1,
+                    "last_line": 2
+                  },
+                  "notes": "The store opens and reads here.",
+                  "path": "store.rs",
+                  "side": "old"
+                }
+              ],
+              "id": "readers",
+              "rationale": "Context for cache.",
+              "text": "Do readers see unflushed writes?",
+              "topic": "topic-readers",
+              "version": 1,
+              "visual": null
+            },
+            "reply": {
+              "evidence": [],
+              "text": "One more question, then."
+            },
+            "request": "a19b67c8-607c-44b7-8f64-63e4538482b3",
+            "topics": [
+              {
+                "entries": [],
+                "id": "topic-readers",
+                "prerequisites": [],
+                "prompt": "",
+                "rank": 0,
+                "status": "open",
+                "title": "Topic readers"
+              }
+            ]
+          }
+        }
+      ],
+      "findings": [],
+      "instance": "00000000-0000-4000-8000-0000000000aa",
+      "interpretations": [
+        {
+          "answer": "548cabc8-6da5-42c0-b56d-3a5c99b2ce95",
+          "follow_ups": [],
+          "recap": "Keep the cache",
+          "status": "accepted"
+        },
+        {
+          "answer": "3cc80e17-a932-4e69-9c66-49346492fc61",
+          "follow_ups": [],
+          "recap": "One mutex",
+          "status": "accepted"
+        },
+        {
+          "answer": "1290d306-4ab6-406f-a4aa-e89b118a2860",
+          "follow_ups": [
+            "Add the timer",
+            "Flush on close"
+          ],
+          "recap": "Flush on a five second timer and on close",
+          "status": "needs_follow_up"
+        },
+        {
+          "answer": "659e04bc-665b-46ca-bc1e-3fd2138f5787",
+          "follow_ups": [],
+          "recap": "Acknowledged writes must survive",
+          "status": "open"
+        }
+      ],
+      "limitations": [],
+      "outstanding": null,
+      "questions": [
+        {
+          "alternatives": [
+            {
+              "id": "keep",
+              "outcome": "accepted",
+              "recommendation": "Fewer writes to the disk",
+              "text": "Keep the cache"
+            },
+            {
+              "id": "drop",
+              "outcome": "needs_follow_up",
+              "recommendation": null,
+              "text": "Write through"
+            }
+          ],
+          "assessments": {
+            "blast_radius": {
+              "details": "",
+              "evidence": [
+                {
+                  "lines": {
+                    "first_line": 1,
+                    "last_line": 2
+                  },
+                  "notes": "The store opens and reads here.",
+                  "path": "store.rs",
+                  "side": "old"
+                }
+              ],
+              "summary": "Every reader.",
+              "unknowns": []
+            },
+            "door": "two_way",
+            "reversibility": {
+              "details": "",
+              "evidence": [
+                {
+                  "lines": {
+                    "first_line": 1,
+                    "last_line": 2
+                  },
+                  "notes": "The store opens and reads here.",
+                  "path": "store.rs",
+                  "side": "old"
+                }
+              ],
+              "summary": "Hard to undo.",
+              "unknowns": []
+            }
+          },
+          "evidence": [
+            {
+              "lines": {
+                "first_line": 1,
+                "last_line": 2
+              },
+              "notes": "The store opens and reads here.",
+              "path": "store.rs",
+              "side": "old"
+            }
+          ],
+          "id": "cache",
+          "rationale": "Context for cache.",
+          "text": "Keep a write cache in front of the store?",
+          "topic": "topic-cache",
+          "version": 1,
+          "visual": null
+        },
+        {
+          "alternatives": [
+            {
+              "id": "mutex",
+              "outcome": "accepted",
+              "recommendation": "Writes are short",
+              "text": "One mutex"
+            },
+            {
+              "id": "queue",
+              "outcome": "accepted",
+              "recommendation": null,
+              "text": "A queue per writer"
+            }
+          ],
+          "assessments": {
+            "blast_radius": {
+              "details": "",
+              "evidence": [
+                {
+                  "lines": {
+                    "first_line": 1,
+                    "last_line": 2
+                  },
+                  "notes": "The store opens and reads here.",
+                  "path": "store.rs",
+                  "side": "old"
+                }
+              ],
+              "summary": "Every reader.",
+              "unknowns": []
+            },
+            "door": "one_way",
+            "reversibility": {
+              "details": "",
+              "evidence": [
+                {
+                  "lines": {
+                    "first_line": 1,
+                    "last_line": 2
+                  },
+                  "notes": "The store opens and reads here.",
+                  "path": "store.rs",
+                  "side": "old"
+                }
+              ],
+              "summary": "Hard to undo.",
+              "unknowns": []
+            }
+          },
+          "evidence": [
+            {
+              "lines": {
+                "first_line": 1,
+                "last_line": 2
+              },
+              "notes": "The store opens and reads here.",
+              "path": "store.rs",
+              "side": "old"
+            }
+          ],
+          "id": "lock",
+          "rationale": "Context for lock.",
+          "text": "How do writers share the cache?",
+          "topic": "topic-lock",
+          "version": 1,
+          "visual": null
+        },
+        {
+          "alternatives": [
+            {
+              "id": "size",
+              "outcome": "accepted",
+              "recommendation": "Bounded memory",
+              "text": "When the batch is full"
+            },
+            {
+              "id": "close",
+              "outcome": "needs_follow_up",
+              "recommendation": null,
+              "text": "Only on close"
+            }
+          ],
+          "assessments": null,
+          "evidence": [
+            {
+              "lines": {
+                "first_line": 1,
+                "last_line": 2
+              },
+              "notes": "The store opens and reads here.",
+              "path": "store.rs",
+              "side": "old"
+            }
+          ],
+          "id": "flush",
+          "rationale": "Context for flush.",
+          "text": "When does the cache flush?",
+          "topic": "topic-flush",
+          "version": 1,
+          "visual": null
+        },
+        {
+          "alternatives": [
+            {
+              "id": "size",
+              "outcome": "accepted",
+              "recommendation": "Bounded memory",
+              "text": "When the batch is full"
+            },
+            {
+              "id": "close",
+              "outcome": "needs_follow_up",
+              "recommendation": null,
+              "text": "Only on close"
+            }
+          ],
+          "assessments": null,
+          "evidence": [
+            {
+              "lines": {
+                "first_line": 1,
+                "last_line": 2
+              },
+              "notes": "The store opens and reads here.",
+              "path": "store.rs",
+              "side": "old"
+            }
+          ],
+          "id": "flush",
+          "rationale": "Context for flush.",
+          "text": "When does the cache flush: on a timer or on size?",
+          "topic": "topic-flush",
+          "version": 2,
+          "visual": null
+        },
+        {
+          "alternatives": [
+            {
+              "id": "batch",
+              "outcome": "accepted",
+              "recommendation": "The store stays consistent",
+              "text": "The current batch"
+            },
+            {
+              "id": "nothing",
+              "outcome": "needs_follow_up",
+              "recommendation": null,
+              "text": "Nothing: sync each write"
+            }
+          ],
+          "assessments": {
+            "blast_radius": {
+              "details": "",
+              "evidence": [
+                {
+                  "lines": {
+                    "first_line": 1,
+                    "last_line": 2
+                  },
+                  "notes": "The store opens and reads here.",
+                  "path": "store.rs",
+                  "side": "old"
+                }
+              ],
+              "summary": "Every reader.",
+              "unknowns": []
+            },
+            "door": "mixed",
+            "reversibility": {
+              "details": "",
+              "evidence": [
+                {
+                  "lines": {
+                    "first_line": 1,
+                    "last_line": 2
+                  },
+                  "notes": "The store opens and reads here.",
+                  "path": "store.rs",
+                  "side": "old"
+                }
+              ],
+              "summary": "Hard to undo.",
+              "unknowns": []
+            }
+          },
+          "evidence": [
+            {
+              "lines": {
+                "first_line": 1,
+                "last_line": 2
+              },
+              "notes": "The store opens and reads here.",
+              "path": "store.rs",
+              "side": "old"
+            }
+          ],
+          "id": "crash",
+          "rationale": "Context for crash.",
+          "text": "What may a crash lose?",
+          "topic": "topic-crash",
+          "version": 1,
+          "visual": null
+        },
+        {
+          "alternatives": [
+            {
+              "id": "keep",
+              "outcome": "accepted",
+              "recommendation": "Fewer writes to the disk",
+              "text": "Keep the cache"
+            },
+            {
+              "id": "drop",
+              "outcome": "needs_follow_up",
+              "recommendation": null,
+              "text": "Write through"
+            }
+          ],
+          "assessments": {
+            "blast_radius": {
+              "details": "",
+              "evidence": [
+                {
+                  "lines": {
+                    "first_line": 1,
+                    "last_line": 2
+                  },
+                  "notes": "The store opens and reads here.",
+                  "path": "store.rs",
+                  "side": "old"
+                }
+              ],
+              "summary": "Every reader.",
+              "unknowns": []
+            },
+            "door": "two_way",
+            "reversibility": {
+              "details": "",
+              "evidence": [
+                {
+                  "lines": {
+                    "first_line": 1,
+                    "last_line": 2
+                  },
+                  "notes": "The store opens and reads here.",
+                  "path": "store.rs",
+                  "side": "old"
+                }
+              ],
+              "summary": "Hard to undo.",
+              "unknowns": []
+            }
+          },
+          "evidence": [
+            {
+              "lines": {
+                "first_line": 1,
+                "last_line": 2
+              },
+              "notes": "The store opens and reads here.",
+              "path": "store.rs",
+              "side": "old"
+            }
+          ],
+          "id": "readers",
+          "rationale": "Context for cache.",
+          "text": "Do readers see unflushed writes?",
+          "topic": "topic-readers",
+          "version": 1,
+          "visual": null
+        }
+      ],
+      "quiz_answers": {
+        "0fb275e6-7139-487f-a056-bde98d345c47": {
+          "picks": [
+            {
+              "answer": 1,
+              "correct": true,
+              "item": 0
+            },
+            {
+              "answer": 0,
+              "correct": false,
+              "item": 1
+            },
+            {
+              "answer": 2,
+              "correct": false,
+              "item": 2
+            }
+          ]
+        }
+      },
+      "retry": null,
+      "topics": {
+        "topic-cache": {
+          "entries": [],
+          "id": "topic-cache",
+          "prerequisites": [],
+          "prompt": "",
+          "rank": 0,
+          "status": "accepted",
+          "title": "Topic cache"
+        },
+        "topic-crash": {
+          "entries": [],
+          "id": "topic-crash",
+          "prerequisites": [],
+          "prompt": "",
+          "rank": 0,
+          "status": "open",
+          "title": "Topic crash"
+        },
+        "topic-flush": {
+          "entries": [],
+          "id": "topic-flush",
+          "prerequisites": [],
+          "prompt": "",
+          "rank": 0,
+          "status": "needs_follow_up",
+          "title": "Topic flush"
+        },
+        "topic-lock": {
+          "entries": [],
+          "id": "topic-lock",
+          "prerequisites": [],
+          "prompt": "",
+          "rank": 0,
+          "status": "accepted",
+          "title": "Topic lock"
+        },
+        "topic-readers": {
+          "entries": [],
+          "id": "topic-readers",
+          "prerequisites": [],
+          "prompt": "",
+          "rank": 0,
+          "status": "open",
+          "title": "Topic readers"
+        }
+      }
+    },
+    "implementations": {},
+    "last_agent_session": null,
+    "marks": {
+      "2778b6a3-b267-49b8-95ad-01169eda5680": {
+        "answer": "3cc80e17-a932-4e69-9c66-49346492fc61",
+        "problem": null,
+        "reopened": [],
+        "reviewed": [
+          {
+            "lines": {
+              "first_line": 3,
+              "last_line": 3
+            },
+            "path": "store.rs",
+            "side": "old"
+          }
+        ]
+      },
+      "30ae806d-accb-4056-aa70-2c125675ddba": {
+        "answer": "548cabc8-6da5-42c0-b56d-3a5c99b2ce95",
+        "problem": null,
+        "reopened": [],
+        "reviewed": [
+          {
+            "lines": {
+              "first_line": 1,
+              "last_line": 2
+            },
+            "path": "store.rs",
+            "side": "old"
+          }
+        ]
+      },
+      "8b769004-1ca4-4cef-8159-c23392085680": {
+        "answer": "11ad72cc-e54b-4a02-85ac-d6a1aaf8e4cc",
+        "problem": null,
+        "reopened": [],
+        "reviewed": [
+          {
+            "lines": {
+              "first_line": 4,
+              "last_line": 4
+            },
+            "path": "store.rs",
+            "side": "old"
+          }
+        ]
+      },
+      "e3ba714c-cf71-41eb-a02f-7929eae8f99f": {
+        "answer": "1290d306-4ab6-406f-a4aa-e89b118a2860",
+        "problem": null,
+        "reopened": [],
+        "reviewed": [
+          {
+            "lines": {
+              "first_line": 5,
+              "last_line": 5
+            },
+            "path": "store.rs",
+            "side": "old"
+          }
+        ]
+      }
+    },
+    "revision": 14,
+    "turns": {
+      "0fb275e6-7139-487f-a056-bde98d345c47": {
+        "attempt": "b1f1c34c-e4fd-4b2e-a29e-e44ef2e2ee4e",
+        "editor_sequence": null,
+        "request": {
+          "answer": {
+            "author": "reviewer",
+            "checkpoint": {
+              "checkpoint": "checkpoint",
+              "review_unit": "review"
+            },
+            "first_pick": "batch",
+            "id": "659e04bc-665b-46ca-bc1e-3fd2138f5787",
+            "in_reply_to": "ccd59e66-415d-4484-916b-605adb559062",
+            "option": {
+              "id": "none-of-the-above",
+              "outcome": "open",
+              "recommendation": null,
+              "text": "None of the above"
+            },
+            "question": {
+              "alternatives": [
+                {
+                  "id": "batch",
+                  "outcome": "accepted",
+                  "recommendation": "The store stays consistent",
+                  "text": "The current batch"
+                },
+                {
+                  "id": "nothing",
+                  "outcome": "needs_follow_up",
+                  "recommendation": null,
+                  "text": "Nothing: sync each write"
+                }
+              ],
+              "assessments": {
+                "blast_radius": {
+                  "details": "",
+                  "evidence": [
+                    {
+                      "lines": {
+                        "first_line": 1,
+                        "last_line": 2
+                      },
+                      "notes": "The store opens and reads here.",
+                      "path": "store.rs",
+                      "side": "old"
+                    }
+                  ],
+                  "summary": "Every reader.",
+                  "unknowns": []
+                },
+                "door": "mixed",
+                "reversibility": {
+                  "details": "",
+                  "evidence": [
+                    {
+                      "lines": {
+                        "first_line": 1,
+                        "last_line": 2
+                      },
+                      "notes": "The store opens and reads here.",
+                      "path": "store.rs",
+                      "side": "old"
+                    }
+                  ],
+                  "summary": "Hard to undo.",
+                  "unknowns": []
+                }
+              },
+              "evidence": [
+                {
+                  "lines": {
+                    "first_line": 1,
+                    "last_line": 2
+                  },
+                  "notes": "The store opens and reads here.",
+                  "path": "store.rs",
+                  "side": "old"
+                }
+              ],
+              "id": "crash",
+              "rationale": "Context for crash.",
+              "text": "What may a crash lose?",
+              "topic": "topic-crash",
+              "version": 1,
+              "visual": null
+            },
+            "text": "Lose nothing that was acknowledged."
+          },
+          "checkpoint": {
+            "checkpoint": "checkpoint",
+            "review_unit": "review"
+          },
+          "instance": "00000000-0000-4000-8000-0000000000aa",
+          "request": "0fb275e6-7139-487f-a056-bde98d345c47",
+          "response_error": null
+        },
+        "started_at_ms": null,
+        "state": "Delivered"
+      },
+      "2778b6a3-b267-49b8-95ad-01169eda5680": {
+        "attempt": "287292a4-d86f-4718-b5cc-8ebd91458f80",
+        "editor_sequence": null,
+        "request": {
+          "answer": {
+            "author": "reviewer",
+            "checkpoint": {
+              "checkpoint": "checkpoint",
+              "review_unit": "review"
+            },
+            "id": "548cabc8-6da5-42c0-b56d-3a5c99b2ce95",
+            "in_reply_to": "30ae806d-accb-4056-aa70-2c125675ddba",
+            "option": {
+              "id": "keep",
+              "outcome": "accepted",
+              "recommendation": "Fewer writes to the disk",
+              "text": "Keep the cache"
+            },
+            "question": {
+              "alternatives": [
+                {
+                  "id": "keep",
+                  "outcome": "accepted",
+                  "recommendation": "Fewer writes to the disk",
+                  "text": "Keep the cache"
+                },
+                {
+                  "id": "drop",
+                  "outcome": "needs_follow_up",
+                  "recommendation": null,
+                  "text": "Write through"
+                }
+              ],
+              "assessments": {
+                "blast_radius": {
+                  "details": "",
+                  "evidence": [
+                    {
+                      "lines": {
+                        "first_line": 1,
+                        "last_line": 2
+                      },
+                      "notes": "The store opens and reads here.",
+                      "path": "store.rs",
+                      "side": "old"
+                    }
+                  ],
+                  "summary": "Every reader.",
+                  "unknowns": []
+                },
+                "door": "two_way",
+                "reversibility": {
+                  "details": "",
+                  "evidence": [
+                    {
+                      "lines": {
+                        "first_line": 1,
+                        "last_line": 2
+                      },
+                      "notes": "The store opens and reads here.",
+                      "path": "store.rs",
+                      "side": "old"
+                    }
+                  ],
+                  "summary": "Hard to undo.",
+                  "unknowns": []
+                }
+              },
+              "evidence": [
+                {
+                  "lines": {
+                    "first_line": 1,
+                    "last_line": 2
+                  },
+                  "notes": "The store opens and reads here.",
+                  "path": "store.rs",
+                  "side": "old"
+                }
+              ],
+              "id": "cache",
+              "rationale": "Context for cache.",
+              "text": "Keep a write cache in front of the store?",
+              "topic": "topic-cache",
+              "version": 1,
+              "visual": null
+            },
+            "text": ""
+          },
+          "checkpoint": {
+            "checkpoint": "checkpoint",
+            "review_unit": "review"
+          },
+          "instance": "00000000-0000-4000-8000-0000000000aa",
+          "request": "2778b6a3-b267-49b8-95ad-01169eda5680",
+          "response_error": null
+        },
+        "started_at_ms": null,
+        "state": "Delivered"
+      },
+      "30ae806d-accb-4056-aa70-2c125675ddba": {
+        "attempt": "cd36d297-165f-4111-9481-afd6ff00cd52",
+        "editor_sequence": null,
+        "request": {
+          "answer": null,
+          "checkpoint": {
+            "checkpoint": "checkpoint",
+            "review_unit": "review"
+          },
+          "instance": "00000000-0000-4000-8000-0000000000aa",
+          "request": "30ae806d-accb-4056-aa70-2c125675ddba",
+          "response_error": null
+        },
+        "started_at_ms": null,
+        "state": "Delivered"
+      },
+      "8b769004-1ca4-4cef-8159-c23392085680": {
+        "attempt": "0db40400-dcf2-4684-8989-826a68b96f72",
+        "editor_sequence": null,
+        "request": {
+          "answer": {
+            "author": "reviewer",
+            "checkpoint": {
+              "checkpoint": "checkpoint",
+              "review_unit": "review"
+            },
+            "first_pick": "queue",
+            "id": "3cc80e17-a932-4e69-9c66-49346492fc61",
+            "in_reply_to": "2778b6a3-b267-49b8-95ad-01169eda5680",
+            "option": {
+              "id": "mutex",
+              "outcome": "accepted",
+              "recommendation": "Writes are short",
+              "text": "One mutex"
+            },
+            "question": {
+              "alternatives": [
+                {
+                  "id": "mutex",
+                  "outcome": "accepted",
+                  "recommendation": "Writes are short",
+                  "text": "One mutex"
+                },
+                {
+                  "id": "queue",
+                  "outcome": "accepted",
+                  "recommendation": null,
+                  "text": "A queue per writer"
+                }
+              ],
+              "assessments": {
+                "blast_radius": {
+                  "details": "",
+                  "evidence": [
+                    {
+                      "lines": {
+                        "first_line": 1,
+                        "last_line": 2
+                      },
+                      "notes": "The store opens and reads here.",
+                      "path": "store.rs",
+                      "side": "old"
+                    }
+                  ],
+                  "summary": "Every reader.",
+                  "unknowns": []
+                },
+                "door": "one_way",
+                "reversibility": {
+                  "details": "",
+                  "evidence": [
+                    {
+                      "lines": {
+                        "first_line": 1,
+                        "last_line": 2
+                      },
+                      "notes": "The store opens and reads here.",
+                      "path": "store.rs",
+                      "side": "old"
+                    }
+                  ],
+                  "summary": "Hard to undo.",
+                  "unknowns": []
+                }
+              },
+              "evidence": [
+                {
+                  "lines": {
+                    "first_line": 1,
+                    "last_line": 2
+                  },
+                  "notes": "The store opens and reads here.",
+                  "path": "store.rs",
+                  "side": "old"
+                }
+              ],
+              "id": "lock",
+              "rationale": "Context for lock.",
+              "text": "How do writers share the cache?",
+              "topic": "topic-lock",
+              "version": 1,
+              "visual": null
+            },
+            "text": ""
+          },
+          "checkpoint": {
+            "checkpoint": "checkpoint",
+            "review_unit": "review"
+          },
+          "instance": "00000000-0000-4000-8000-0000000000aa",
+          "request": "8b769004-1ca4-4cef-8159-c23392085680",
+          "response_error": null
+        },
+        "started_at_ms": null,
+        "state": "Delivered"
+      },
+      "a19b67c8-607c-44b7-8f64-63e4538482b3": {
+        "attempt": "3d6127fd-a123-4aa0-82f8-59f35b365bca",
+        "editor_sequence": null,
+        "request": {
+          "answer": {
+            "author": "reviewer",
+            "checkpoint": {
+              "checkpoint": "checkpoint",
+              "review_unit": "review"
+            },
+            "id": "4d074d4a-0f3c-4fd9-b6e3-a3cb84dff9d3",
+            "in_reply_to": "0fb275e6-7139-487f-a056-bde98d345c47",
+            "option": null,
+            "question": null,
+            "text": "Check the readers too."
+          },
+          "checkpoint": {
+            "checkpoint": "checkpoint",
+            "review_unit": "review"
+          },
+          "instance": "00000000-0000-4000-8000-0000000000aa",
+          "request": "a19b67c8-607c-44b7-8f64-63e4538482b3",
+          "response_error": null
+        },
+        "started_at_ms": null,
+        "state": "Delivered"
+      },
+      "ccd59e66-415d-4484-916b-605adb559062": {
+        "attempt": "e05aafe3-7783-4675-b307-bb3de19845d8",
+        "editor_sequence": null,
+        "request": {
+          "answer": {
+            "author": "reviewer",
+            "checkpoint": {
+              "checkpoint": "checkpoint",
+              "review_unit": "review"
+            },
+            "id": "1290d306-4ab6-406f-a4aa-e89b118a2860",
+            "in_reply_to": "e3ba714c-cf71-41eb-a02f-7929eae8f99f",
+            "option": null,
+            "question": {
+              "alternatives": [
+                {
+                  "id": "size",
+                  "outcome": "accepted",
+                  "recommendation": "Bounded memory",
+                  "text": "When the batch is full"
+                },
+                {
+                  "id": "close",
+                  "outcome": "needs_follow_up",
+                  "recommendation": null,
+                  "text": "Only on close"
+                }
+              ],
+              "assessments": null,
+              "evidence": [
+                {
+                  "lines": {
+                    "first_line": 1,
+                    "last_line": 2
+                  },
+                  "notes": "The store opens and reads here.",
+                  "path": "store.rs",
+                  "side": "old"
+                }
+              ],
+              "id": "flush",
+              "rationale": "Context for flush.",
+              "text": "When does the cache flush: on a timer or on size?",
+              "topic": "topic-flush",
+              "version": 2,
+              "visual": null
+            },
+            "text": "A timer of five seconds, and on close."
+          },
+          "checkpoint": {
+            "checkpoint": "checkpoint",
+            "review_unit": "review"
+          },
+          "instance": "00000000-0000-4000-8000-0000000000aa",
+          "request": "ccd59e66-415d-4484-916b-605adb559062",
+          "response_error": null
+        },
+        "started_at_ms": null,
+        "state": "Delivered"
+      },
+      "e3ba714c-cf71-41eb-a02f-7929eae8f99f": {
+        "attempt": "c2ebe5f5-1906-4794-abb4-52177c8eb464",
+        "editor_sequence": null,
+        "request": {
+          "answer": {
+            "author": "reviewer",
+            "checkpoint": {
+              "checkpoint": "checkpoint",
+              "review_unit": "review"
+            },
+            "id": "11ad72cc-e54b-4a02-85ac-d6a1aaf8e4cc",
+            "in_reply_to": "8b769004-1ca4-4cef-8159-c23392085680",
+            "option": {
+              "id": "none-of-the-above",
+              "outcome": "open",
+              "recommendation": null,
+              "text": "None of the above"
+            },
+            "question": {
+              "alternatives": [
+                {
+                  "id": "size",
+                  "outcome": "accepted",
+                  "recommendation": "Bounded memory",
+                  "text": "When the batch is full"
+                },
+                {
+                  "id": "close",
+                  "outcome": "needs_follow_up",
+                  "recommendation": null,
+                  "text": "Only on close"
+                }
+              ],
+              "assessments": null,
+              "evidence": [
+                {
+                  "lines": {
+                    "first_line": 1,
+                    "last_line": 2
+                  },
+                  "notes": "The store opens and reads here.",
+                  "path": "store.rs",
+                  "side": "old"
+                }
+              ],
+              "id": "flush",
+              "rationale": "Context for flush.",
+              "text": "When does the cache flush?",
+              "topic": "topic-flush",
+              "version": 1,
+              "visual": null
+            },
+            "text": "Neither: flush on a timer."
+          },
+          "checkpoint": {
+            "checkpoint": "checkpoint",
+            "review_unit": "review"
+          },
+          "instance": "00000000-0000-4000-8000-0000000000aa",
+          "request": "e3ba714c-cf71-41eb-a02f-7929eae8f99f",
+          "response_error": null
+        },
+        "started_at_ms": null,
+        "state": "Delivered"
+      }
+    }
+  },
+  "version": 2
+}
