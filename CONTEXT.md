@@ -83,9 +83,18 @@ _Avoid_: Explore pass, Explore session
 
 **Design explanation**:
 What the first turn of an Explore round explains before its first question, so the
-reviewer could explain the change at a whiteboard: what it adds and where, its types
-and data flow, its algorithm and cost, and the alternatives the implementer rejected.
+reviewer could explain the change at a whiteboard: a thesis for the change, then four
+parts, each with its own thesis: what it adds and where, its types and data flow, its
+algorithm and cost, and the alternatives the implementer rejected.
 _Avoid_: map (the provisional map of the first reply, which it replaces)
+
+**Thesis**:
+One sentence of a design explanation, the one you would say at a whiteboard: one for
+the whole change, and one that opens each of its four parts. The reviewer reads the
+five theses first; each part's text comments on its thesis. In a round saved before
+theses existed, the first paragraph of the first part stands in for the change's thesis,
+and the first paragraph of each part (the next one for the first part) for its own.
+_Avoid_: summary, lead paragraph
 
 **Challenger**:
 A subagent with fresh context that the Explore agent starts for a round, to

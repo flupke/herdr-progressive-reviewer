@@ -1,6 +1,6 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-04T04:00:20.325Z",
+  "createdAt": "2026-10-04T13:17:58.304Z",
   "payload": {
     "actions": [
       {
@@ -22,7 +22,7 @@
       "targetId": "desktop",
       "instructionDigest": "258059d3794566e6be6dab08b655d62ae30536f389d47bc6cfd5dff5706d4cb3"
     },
-    "summary": "Canceled the last answer. The question is waiting for a response again, with the Send button available.",
+    "summary": "The answer composer is visible again with the question awaiting a response, including the Keep/Discard choices and Send button; the prior answer has been canceled.",
     "startPath": "/",
     "endPath": "/",
     "endAnchors": [
@@ -31,7 +31,10 @@
         "name": "What it adds and where"
       },
       {
-        "text": "The change keeps the reviewer's unsent draft when a round is reopened. It adds a draft field to the saved editor state and restores it when the pane rebuilds its editor."
+        "text": "The change keeps the reviewer's unsent draft when a round is reopened."
+      },
+      {
+        "text": "It adds a draft field to the saved editor state and restores it when the pane rebuilds its editor."
       },
       {
         "text": "Nothing else moves: the answers, the marks and the round's history are saved as before, and a round saved before the change opens with an empty draft."
@@ -50,12 +53,8 @@
       {
         "role": "columnheader",
         "name": "Holds the draft"
-      },
-      {
-        "role": "columnheader",
-        "name": "Saved where"
       }
     ],
-    "endWaitMs": 12434
+    "endWaitMs": 29038
   }
 }

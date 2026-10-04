@@ -478,9 +478,14 @@ send a new one. When the agent did not start on the request, its list may still 
 agent's prompt box: the page offers only **Retry**, which sends the same request again.
 
 The round opens with the design of the change, which the agent explains before its first
-question: what the change adds and where, its types and data flow, its algorithm and cost,
-and the alternatives the implementer rejected. The page shows it open above question 1 and
-folded above every later stage, so you can open it again; the pane shows it before question 1.
+question: one sentence for the whole change, its thesis, then four parts, each opening with
+its own one-sentence thesis: what the change adds and where, its types and data flow, its
+algorithm and cost, and the alternatives the implementer rejected. The page shows it open
+above question 1 and folded above every later stage, so you can open it again; the pane
+shows it before question 1, the change's thesis under "Design of the change" and each part's
+thesis in bold before its text. A round saved before theses existed shows the first
+paragraph of "What it adds and where" as the change's thesis, and the first paragraph of each
+part (the next one for "What it adds and where") as that part's.
 
 A question's explanation is its Context, which the agent writes in Markdown: short
 paragraphs, lists, code, and tables whose cells can carry a good, bad or warning mark, and

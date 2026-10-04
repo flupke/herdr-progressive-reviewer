@@ -478,23 +478,39 @@ fn the_kickoff_names_the_marker_of_every_callout_and_status_mark() {
 }
 
 #[test]
-fn the_kickoff_asks_for_every_part_of_the_design() {
+fn the_kickoff_asks_for_the_theses_and_every_part_of_the_design() {
     const FIELD: &str = "design";
     let update =
         serde_json::to_value(schemars::schema_for!(review_explore::InterviewUpdate)).unwrap();
     assert!(update["properties"].get(FIELD).is_some(), "{update}");
     let design = serde_json::to_value(schemars::schema_for!(review_explore::Design)).unwrap();
-    let parts: Vec<_> = design["properties"]
-        .as_object()
-        .unwrap()
-        .keys()
-        .cloned()
-        .collect();
-    assert_eq!(parts.len(), 4, "{parts:?}");
+    let fields = |schema: &serde_json::Value| -> Vec<String> {
+        schema["properties"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect()
+    };
+    let required = |schema: &serde_json::Value| schema["required"].as_array().unwrap().len();
+    // The change's thesis, then its four parts.
+    let parts = fields(&design);
+    assert_eq!(parts.len(), 5, "{parts:?}");
+    assert_eq!(required(&design), 5, "{design}");
+    // Each part: its thesis, then its Markdown.
+    let part = &design["$defs"]["DesignPart"];
+    let part_fields = fields(part);
+    assert_eq!(part_fields.len(), 2, "{part_fields:?}");
+    assert_eq!(required(part), 2, "{part}");
 
     for challenger in [false, true] {
         let kickoff = PreparedTurn::instructions(true, challenger);
-        for name in parts.iter().map(String::as_str).chain([FIELD]) {
+        for name in parts
+            .iter()
+            .chain(&part_fields)
+            .map(String::as_str)
+            .chain([FIELD])
+        {
             assert!(kickoff.contains(&format!("`{name}`")), "{name}");
         }
     }

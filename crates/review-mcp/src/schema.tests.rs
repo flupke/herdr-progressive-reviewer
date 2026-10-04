@@ -61,6 +61,7 @@ fn explore_tool_schemas_describe_the_full_submission_without_a_kickoff_example()
         "AgendaChange",
         "Reply",
         "Design",
+        "DesignPart",
         "Interpretation",
         "Assessments",
         "Consequence",
@@ -260,4 +261,44 @@ fn both_explore_tools_take_the_challengers_proposals_with_their_results() {
             assert!(results.contains(&format!("\"{result}\"")), "{results}");
         }
     }
+}
+
+#[test]
+fn the_question_tool_asks_for_a_thesis_for_the_change_and_for_each_part_of_its_design() {
+    let tools = Handler::tools();
+    let question = tools
+        .iter()
+        .find(|tool| tool.name == "submit_question")
+        .unwrap();
+    let definitions = &question.input_schema["$defs"];
+    // A part is never a bare string, as it was in a round saved before theses.
+    for (name, required) in [
+        (
+            "Design",
+            &[
+                "thesis",
+                "overview",
+                "data_flow",
+                "algorithm",
+                "alternatives",
+            ][..],
+        ),
+        ("DesignPart", &["thesis", "body"][..]),
+    ] {
+        let mut fields: Vec<_> = definitions[name]["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|field| field.as_str().unwrap())
+            .collect();
+        fields.sort_unstable();
+        let mut expected = required.to_vec();
+        expected.sort_unstable();
+        assert_eq!(fields, expected, "{name}");
+        assert_eq!(definitions[name]["additionalProperties"], false, "{name}");
+    }
+    assert_eq!(
+        definitions["DesignPart"]["properties"]["thesis"]["type"],
+        "string"
+    );
 }

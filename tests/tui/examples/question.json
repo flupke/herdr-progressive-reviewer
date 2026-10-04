@@ -7,10 +7,11 @@
       "interpretation": null,
       "reply": null,
       "design": {
-        "overview": "The change adds notes, a sample and a math module with small helpers.",
-        "data_flow": "The helpers in `src/math.rs` take and return plain integers; nothing is stored.",
-        "algorithm": "Each helper does one arithmetic operation: constant time.",
-        "alternatives": "None stated; saturating arithmetic is a credible alternative, inferred."
+        "thesis": "The change adds a math module of small integer helpers, with notes and a sample that use them.",
+        "overview": {"thesis": "`src/math.rs` is new and holds the helpers.", "body": "The change adds notes, a sample and a math module with small helpers."},
+        "data_flow": {"thesis": "Plain integers go in and come out; nothing is stored.", "body": "The helpers in `src/math.rs` take and return plain integers; nothing is stored."},
+        "algorithm": {"thesis": "Each helper costs one arithmetic operation.", "body": "Each helper does one arithmetic operation: constant time."},
+        "alternatives": {"thesis": "No alternative is stated; saturating arithmetic is inferred.", "body": "None stated; saturating arithmetic is a credible alternative, inferred."}
       },
       "topics": [
         {

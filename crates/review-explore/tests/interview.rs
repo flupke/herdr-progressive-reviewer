@@ -96,13 +96,30 @@ fn update(request: &TurnRequest, next: Option<Question>) -> InterviewUpdate {
 }
 
 fn design() -> Design {
-    Design {
-        overview: "The change adds a resolution policy to policy.rs.".into(),
-        data_flow: "A conversation's state flows into the policy, which returns its next state."
-            .into(),
-        algorithm: "One comparison per conversation: constant time.".into(),
-        alternatives: "Reopening every conversation on each change, rejected as noisy.".into(),
-    }
+    Design::new(
+        "A resolution policy decides whether a changed conversation reopens.",
+        DesignPart::new(
+            "The policy lives in policy.rs.",
+            "The change adds a resolution policy to policy.rs.",
+        ),
+        DesignPart::new(
+            "A conversation's state flows through the policy.",
+            "A conversation's state flows into the policy, which returns its next state.",
+        ),
+        DesignPart::new(
+            "One comparison per conversation.",
+            "One comparison per conversation: constant time.",
+        ),
+        DesignPart::new(
+            "Reopening everything was rejected as noisy.",
+            "Reopening every conversation on each change, rejected as noisy.",
+        ),
+    )
+}
+
+/// The agent's design as JSON, to leave out what the tool requires.
+fn design_input() -> serde_json::Value {
+    serde_json::to_value(design()).unwrap()
 }
 
 fn started() -> Exploration {
@@ -510,11 +527,34 @@ fn the_first_question_comes_after_the_design_of_the_change() {
 
     response.design = None;
     assert!(exploration.apply(response.clone()).is_err());
-    response.design = Some(Design {
-        algorithm: " \n".into(),
-        ..design()
-    });
-    assert!(exploration.apply(response.clone()).is_err());
+    let mut refused = Vec::new();
+    for (path, value) in [
+        ("/algorithm/body", serde_json::json!(" \n")),
+        ("/thesis", serde_json::json!(" ")),
+        ("/data_flow/thesis", serde_json::json!("")),
+        (
+            "/overview/thesis",
+            serde_json::json!("Two lines\nfor one thesis."),
+        ),
+    ] {
+        let mut input = design_input();
+        *input.pointer_mut(path).unwrap() = value;
+        refused.push(input);
+    }
+    for field in ["thesis", "overview"] {
+        let mut input = design_input();
+        let object = if field == "thesis" {
+            input.as_object_mut().unwrap()
+        } else {
+            input[field].as_object_mut().unwrap()
+        };
+        object.remove("thesis");
+        refused.push(input);
+    }
+    for input in refused {
+        response.design = Some(serde_json::from_value(input.clone()).unwrap());
+        assert!(exploration.apply(response.clone()).is_err(), "{input}");
+    }
     assert!(exploration.design().is_none());
 
     response.design = Some(design());
@@ -545,10 +585,9 @@ fn only_the_first_turn_explains_the_design() {
         )
         .unwrap();
     let mut response = update(&request, Some(self::question(2)));
-    response.design = Some(Design {
-        overview: "A revised design.".into(),
-        ..design()
-    });
+    let mut revised = design_input();
+    revised["overview"]["body"] = "A revised design.".into();
+    response.design = Some(serde_json::from_value(revised).unwrap());
 
     assert!(exploration.apply(response.clone()).is_err());
     response.design = None;

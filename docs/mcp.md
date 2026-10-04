@@ -208,12 +208,18 @@ working tree, or a change without a description, shows `Change description: none
 The agent inspects the code and calls `submit_question` to post the first question,
 about the change's stated purpose, the design decision the rest builds on, or its largest
 or riskiest unreviewed area. That first call also carries `design`, the design of the
-change in four Markdown parts: `overview` (what the change adds and where), `data_flow`
-(its main types and how data flows through them), `algorithm` (the algorithm and its
-cost) and `alternatives` (the alternatives the implementer rejected). The tool refuses a
-first question without `design`, a part left blank, and `design` on any later turn. A
-change that raises no question gets `submit_conclusion` at once, with the design in its
-summary.
+change: `thesis`, the change in one sentence, the one a reviewer would say at a whiteboard,
+then four parts: `overview` (what the change adds and where), `data_flow` (its main types
+and how data flows through them), `algorithm` (the algorithm and its cost) and
+`alternatives` (the alternatives the implementer rejected). Each part is an object with its
+own one-sentence `thesis` and its `body` in Markdown. The tool refuses a first question
+without `design`, a thesis left blank or written on several lines, a part whose body is
+blank, and `design` on any later turn. A change that raises no question gets
+`submit_conclusion` at once, with the design in its summary.
+
+A round saved before designs had theses still loads, with its parts as single Markdown
+texts: the first paragraph of `overview` stands in for the change's thesis, and the first
+paragraph of each part (the next one for `overview`) for that part's thesis.
 
 When the review has earlier rounds, the kickoff then lists the questions the reviewer
 decided in them, oldest first, so a fresh reader such as a Challenger does not ask

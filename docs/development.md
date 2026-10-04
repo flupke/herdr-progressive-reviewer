@@ -823,7 +823,15 @@ available, or the foreground process group otherwise. Cancellation removes unsen
 requests and a replaced conversation rejects them.
 Delivery failures retain the literal input for Retry. The kickoff prompt carries the scope, the change description (jj only; Git has none) and the first turn identity; the agent submits
 its first question directly, after the design explanation in `design`, which only the first turn
-may carry and its question must carry. The pane shows it before the first question, and the page
+may carry and its question must carry. It opens with a thesis for the change, and each of its
+four parts opens with its own; code that shows the design reads them through `Design::thesis` and
+`Design::parts`, which give a thesis in every case: for a round saved before theses existed, the
+overview's first paragraph stands in for the change's thesis, and each part's first paragraph
+(the overview's next one) for its own, on one line and left out of the part's text. Only a
+paragraph of its own counts, not one inside a list or a quote; a part without one shows its
+first line of text and keeps all of it, and an overview of one paragraph shares the change's
+thesis. A message to the page carries those, never `Design`
+itself, which saves such a round's parts as the plain strings they were. The pane shows it before the first question, and the page
 shows it open above the first question and folded in every later stage of the round. The tools advertise complete schemas derived from the
 shared submission types; the kickoff carries behavior instructions without schema
 examples. The runner formats later wakeups as the later-turn rules (`wakeup.md`: interpretation,

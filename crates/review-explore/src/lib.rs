@@ -44,7 +44,7 @@ pub use citation::{CitedLines, CitedSource, Uncitable};
 pub use conclusion::{Conclusion, ConclusionSubmission, ImplementationRequest};
 pub use consequence::{Assessments, Consequence, Door};
 pub use conversation::{ConversationTurn, Reply};
-pub use design::Design;
+pub use design::{Design, DesignPart, DesignSection};
 pub use diagram::DiagramError;
 pub use interview::{
     Alternative, AnswerInput, Exploration, Interpretation, InterviewUpdate, Question,

@@ -234,8 +234,8 @@ fn a_reply_keeps_its_label_on_the_first_paragraph_unless_a_block_opens_it() {
     assert_eq!(labelled("3 tabs start."), "Agent: 3 tabs start.");
 }
 
-#[test]
-fn the_first_question_opens_with_the_design_of_the_change() {
+/// The rows the pane shows before the first question, when the kickoff explained `design`.
+fn design_rows(design: serde_json::Value) -> Vec<String> {
     let mut bus = ComponentEventBus::<Action>::new();
     let target = bus.mount(|events| {
         ExploreComponent::with_keymap(events, comment_editor::KeymapSetting::default())
@@ -253,12 +253,7 @@ fn the_first_question_opens_with_the_design_of_the_change() {
     .unwrap();
     let mut kickoff = turn("kickoff", None);
     kickoff.update.next = Some(question.clone());
-    kickoff.update.design = Some(review_explore::Design {
-        overview: "A cache in front of the parser.".into(),
-        data_flow: "Source text flows to the cache, then to the parser.".into(),
-        algorithm: "One hash lookup per file.".into(),
-        alternatives: "No cache, rejected as slow.".into(),
-    });
+    kickoff.update.design = Some(serde_json::from_value(design).unwrap());
     exploration.conversation.push(kickoff);
     exploration.questions.push(question);
     component.exploration = Some(exploration);
@@ -267,20 +262,86 @@ fn the_first_question_opens_with_the_design_of_the_change() {
 
     component.preceding_reply(0, &mut layout, palette);
 
-    let rows = rows(&layout);
-    let shown = |text: &str| rows.iter().position(|row| row.contains(text));
-    let order: Vec<_> = [
-        "What it adds and where",
-        "A cache in front of the parser.",
-        "Types and data flow",
-        "Source text flows to the cache, then to the parser.",
-        "Algorithm and cost",
-        "One hash lookup per file.",
-        "Rejected alternatives",
-        "No cache, rejected as slow.",
-    ]
-    .into_iter()
-    .map(|text| shown(text).unwrap_or_else(|| panic!("{text} in {rows:#?}")))
-    .collect();
+    rows(&layout)
+}
+
+/// The row of each of `texts`, which the rows must show in this order.
+fn shown_in_order(rows: &[String], texts: &[&str]) {
+    let order: Vec<_> = texts
+        .iter()
+        .map(|text| {
+            rows.iter()
+                .position(|row| row.contains(text))
+                .unwrap_or_else(|| panic!("{text} in {rows:#?}"))
+        })
+        .collect();
     assert!(order.is_sorted(), "{rows:#?}");
+}
+
+#[test]
+fn the_first_question_opens_with_the_design_of_the_change_and_its_theses() {
+    let rows = design_rows(serde_json::json!({
+        "thesis": "A cache skips files that did not change.",
+        "overview": {"thesis": "The cache sits before the parser.", "body": "It lives in cache.rs."},
+        "data_flow": {"thesis": "Text flows through the cache.", "body": "A hit returns the tree."},
+        "algorithm": {"thesis": "One hash lookup per file.", "body": "Hashing is linear."},
+        "alternatives": {"thesis": "No cache was rejected.", "body": "It was slow."},
+    }));
+
+    shown_in_order(
+        &rows,
+        &[
+            "A cache skips files that did not change.",
+            "What it adds and where",
+            "The cache sits before the parser.",
+            "It lives in cache.rs.",
+            "Types and data flow",
+            "Text flows through the cache.",
+            "A hit returns the tree.",
+            "Algorithm and cost",
+            "One hash lookup per file.",
+            "Hashing is linear.",
+            "Rejected alternatives",
+            "No cache was rejected.",
+            "It was slow.",
+        ],
+    );
+}
+
+#[test]
+fn a_design_saved_before_theses_shows_each_first_paragraph_once_as_a_thesis() {
+    let rows = design_rows(serde_json::json!({
+        "overview": "The cache sits before the parser.\n\nIt lives in cache.rs.",
+        "data_flow": "Text flows through the cache.\n\nA hit returns the tree.",
+        "algorithm": "One hash lookup per file.",
+        "alternatives": "No cache was rejected.\n\nIt was slow.",
+    }));
+
+    shown_in_order(
+        &rows,
+        &[
+            // The overview's first paragraph stands in for the change's thesis, its next one
+            // for its own.
+            "The cache sits before the parser.",
+            "What it adds and where",
+            "It lives in cache.rs.",
+            "Types and data flow",
+            "Text flows through the cache.",
+            "A hit returns the tree.",
+            "Algorithm and cost",
+            "One hash lookup per file.",
+            "Rejected alternatives",
+            "No cache was rejected.",
+            "It was slow.",
+        ],
+    );
+    for (thesis, times) in [
+        ("The cache sits before the parser.", 1),
+        ("It lives in cache.rs.", 1),
+        ("Text flows through the cache.", 1),
+        ("No cache was rejected.", 1),
+    ] {
+        let shown = rows.iter().filter(|row| row.contains(thesis)).count();
+        assert_eq!(shown, times, "{thesis} in {rows:#?}");
+    }
 }

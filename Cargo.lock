@@ -3946,6 +3946,7 @@ dependencies = [
  "base64 0.22.1",
  "eyre",
  "herdr-client",
+ "pulldown-cmark",
  "review-hunks",
  "review-repository",
  "review-source",

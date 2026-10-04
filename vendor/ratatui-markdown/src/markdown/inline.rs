@@ -5,6 +5,18 @@ use ratatui::{
 
 use crate::theme::RichTextTheme;
 
+/// `text` parsed for its own inline formatting, such as code, with `modifier` added to every
+/// span: the emphasis that encloses it.
+fn emphasized(text: &str, modifier: Modifier, theme: &impl RichTextTheme) -> Vec<Span<'static>> {
+    parse_inline_formatting(text, theme)
+        .into_iter()
+        .map(|span| {
+            let style = span.style.add_modifier(modifier);
+            span.style(style)
+        })
+        .collect()
+}
+
 pub fn parse_inline_formatting(text: &str, theme: &impl RichTextTheme) -> Vec<Span<'static>> {
     let expanded = text.replace('\t', "    ");
     let mut spans: Vec<Span<'static>> = Vec::new();
@@ -34,12 +46,7 @@ pub fn parse_inline_formatting(text: &str, theme: &impl RichTextTheme) -> Vec<Sp
             while end + 2 < len {
                 if chars[end] == '*' && chars[end + 1] == '*' && chars[end + 2] == '*' {
                     let t: String = chars[start..end].iter().collect();
-                    spans.push(Span::styled(
-                        t,
-                        Style::default()
-                            .fg(theme.get_text_color())
-                            .add_modifier(Modifier::BOLD | Modifier::ITALIC),
-                    ));
+                    spans.extend(emphasized(&t, Modifier::BOLD | Modifier::ITALIC, theme));
                     i = end + 3;
                     found = true;
                     break;
@@ -64,12 +71,7 @@ pub fn parse_inline_formatting(text: &str, theme: &impl RichTextTheme) -> Vec<Sp
             while end + 1 < len {
                 if chars[end] == delimiter && chars[end + 1] == delimiter {
                     let t: String = chars[start..end].iter().collect();
-                    spans.push(Span::styled(
-                        t,
-                        Style::default()
-                            .fg(theme.get_text_color())
-                            .add_modifier(Modifier::BOLD),
-                    ));
+                    spans.extend(emphasized(&t, Modifier::BOLD, theme));
                     i = end + 2;
                     found = true;
                     break;
@@ -104,12 +106,7 @@ pub fn parse_inline_formatting(text: &str, theme: &impl RichTextTheme) -> Vec<Sp
             while end < len {
                 if chars[end] == delimiter {
                     let t: String = chars[start..end].iter().collect();
-                    spans.push(Span::styled(
-                        t,
-                        Style::default()
-                            .fg(theme.get_text_color())
-                            .add_modifier(Modifier::ITALIC),
-                    ));
+                    spans.extend(emphasized(&t, Modifier::ITALIC, theme));
                     i = end + 1;
                     found = true;
                     break;
@@ -157,12 +154,7 @@ pub fn parse_inline_formatting(text: &str, theme: &impl RichTextTheme) -> Vec<Sp
                 if chars[end] == '~' && chars[end + 1] == '~' {
                     let t: String = chars[start..end].iter().collect();
                     flush_current!();
-                    spans.push(Span::styled(
-                        t,
-                        Style::default()
-                            .fg(theme.get_text_color())
-                            .add_modifier(Modifier::CROSSED_OUT),
-                    ));
+                    spans.extend(emphasized(&t, Modifier::CROSSED_OUT, theme));
                     i = end + 2;
                     found = true;
                     break;

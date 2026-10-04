@@ -31,9 +31,12 @@ lines and concluding. The sections below apply to every turn.
 ## Design
 
 The reviewer has to be able to explain the change at a whiteboard without having written it, so
-the round opens with its design, before any detailed question. `design` holds it in four parts,
-each Markdown (see Explanations) that covers every material area, including what appears
-correct, and keeps implementation, stated intent and inferred rationale apart:
+the round opens with its design, before any detailed question. Say it before explaining it:
+`design` opens with `thesis`, the change in one sentence, the sentence you would say first at a
+whiteboard. Then come four parts, each an object with its own `thesis`, the one sentence you
+would say at the whiteboard about that part, naming the things it talks about, and its `body`,
+Markdown (see Explanations) that covers every material area, including what appears correct,
+and keeps implementation, stated intent and inferred rationale apart:
 
 - `overview`: what the change adds and where, and how the new parts fit the code around them.
 - `data_flow`: the main types, the data they hold and store, and how data flows through them.
@@ -42,7 +45,9 @@ correct, and keeps implementation, stated intent and inferred rationale apart:
 - `alternatives`: the alternatives the implementer rejected and why, as the description or the
   code states them; an alternative you infer says so.
 
-A part that does not apply says so in a sentence. Only the first turn carries `design`.
+Each thesis is one concrete sentence on one line, under about 160 characters; the reviewer reads
+the five theses first, so a body does not repeat its thesis. A part that does not apply says so
+in its thesis and in a sentence of its body. Only the first turn carries `design`.
 
 ## Unreviewed diffs
 

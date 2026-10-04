@@ -1,4 +1,5 @@
 use super::MarkdownRenderer;
+use ratatui::style::Modifier;
 use ui_theme::Theme;
 
 #[path = "code_blocks.tests.rs"]
@@ -94,4 +95,31 @@ fn a_marked_table_cell_shows_its_symbol_in_place_of_its_marker() {
         assert!(text.contains(expected), "{expected}: {text}");
     }
     assert!(!text.contains("[!"), "{text}");
+}
+
+#[test]
+fn inline_code_inside_bold_italic_or_struck_text_shows_as_code_in_that_style() {
+    let palette = Theme::default().palette;
+    for (source, modifier) in [
+        ("**The `cache` is new.**", Modifier::BOLD),
+        ("__The `cache` is new.__", Modifier::BOLD),
+        ("*The `cache` is new.*", Modifier::ITALIC),
+        ("~~The `cache` is new.~~", Modifier::CROSSED_OUT),
+    ] {
+        let lines = MarkdownRenderer::default().render(source, 80, palette);
+        let spans: Vec<_> = lines.iter().flat_map(|line| &line.spans).collect();
+        let text: String = spans.iter().map(|span| span.content.as_ref()).collect();
+        assert_eq!(text.trim(), "The cache is new.", "{source}");
+        let code = spans
+            .iter()
+            .find(|span| span.content == "cache")
+            .unwrap_or_else(|| panic!("{source}: {spans:?}"));
+        assert!(code.style.add_modifier.contains(modifier), "{source}");
+        assert_eq!(code.style.fg, Some(palette.warning), "{source}");
+        let prose = spans
+            .iter()
+            .find(|span| span.content.contains("new"))
+            .unwrap_or_else(|| panic!("{source}: {spans:?}"));
+        assert!(prose.style.add_modifier.contains(modifier), "{source}");
+    }
 }

@@ -1,5 +1,5 @@
 use super::{ExploreComponent, flow::ConversationLayout};
-use review_explore::{Question, ReviewerAnswer};
+use review_explore::{Design, Question, ReviewerAnswer};
 use ui_theme::Palette;
 
 impl ExploreComponent {
@@ -102,9 +102,7 @@ impl ExploreComponent {
             layout.labelled_prose("Agent", &reply.text, palette);
         }
         if let Some(design) = &turn.update.design {
-            for section in design.sections() {
-                layout.section(section.title, &section.body, palette);
-            }
+            Self::design(design, layout, palette);
         }
         for change in &turn.update.agenda {
             layout.text(
@@ -117,6 +115,26 @@ impl ExploreComponent {
             );
         }
         layout.gap();
+    }
+
+    /// The change's thesis, then each part under its heading: its thesis in bold, then its text.
+    fn design(design: &Design, layout: &mut ConversationLayout, palette: Palette) {
+        let thesis = Self::strong(&design.thesis());
+        layout.section("Design of the change", &thesis, palette);
+        for part in design.parts() {
+            let body = format!("{}\n\n{}", Self::strong(&part.thesis), part.body);
+            layout.section(part.title, &body, palette);
+        }
+    }
+
+    /// `thesis` in bold, unless its own Markdown already uses bold, which a second pair would
+    /// break.
+    fn strong(thesis: &str) -> String {
+        if thesis.contains("**") {
+            thesis.to_owned()
+        } else {
+            format!("**{thesis}**")
+        }
     }
 
     pub(super) fn agenda_map(&self, layout: &mut ConversationLayout, palette: Palette) {

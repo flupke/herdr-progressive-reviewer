@@ -883,7 +883,11 @@ impl DesignContext {
     fn new(design: &Design, stage: &RoundStage) -> Self {
         Self {
             open: matches!(stage, RoundStage::Question { number: 1, .. }),
-            sections: design.sections(),
+            // Until the design screen (#100) draws them, each thesis opens its part's text.
+            sections: design.parts().map(|part| QuestionSection {
+                title: part.title,
+                body: format!("{}\n\n{}", part.thesis, part.body),
+            }),
         }
     }
 }

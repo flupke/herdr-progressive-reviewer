@@ -436,8 +436,11 @@ fn question(request: &TurnRequest, version: u32) -> Operation {
 /// The design the first turn explains, as the agent sends it.
 fn design() -> serde_json::Value {
     serde_json::json!({
-        "overview": "A policy in reviewed.rs.", "data_flow": "Nothing flows yet.",
-        "algorithm": "None.", "alternatives": "None stated."
+        "thesis": "A resolution policy decides what a changed conversation does.",
+        "overview": {"thesis": "A policy in reviewed.rs.", "body": "A policy in reviewed.rs."},
+        "data_flow": {"thesis": "Nothing flows yet.", "body": "Nothing flows yet."},
+        "algorithm": {"thesis": "None.", "body": "None."},
+        "alternatives": {"thesis": "None stated.", "body": "None stated."}
     })
 }
 

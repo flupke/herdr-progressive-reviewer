@@ -57,7 +57,7 @@ impl ExploreFlow {
             "next":{"id":format!("q{version}"),"version":1,"topic":format!("topic{version}"),"text":"Keep resolved conversations resolved?",
                 "rationale":null,"visual":null,"alternatives":[{"id":"keep","text":"Keep resolved","outcome":"accepted"},{"id":"change","text":"Reopen","outcome":"needs_follow_up"}],"evidence":[{"path":"reviewed.rs","side":"new","lines":{"first_line":1,"last_line":1},"notes":"Implements the policy that determines whether completed conversations should reopen"}]},
             "design":request.is_kickoff().then(|| serde_json::json!({
-                "overview":"A policy.","data_flow":"None.","algorithm":"None.","alternatives":"None."
+                "thesis":"A policy.","overview":{"thesis":"A policy.", "body":"A policy."},"data_flow":{"thesis":"None.", "body":"None."},"algorithm":{"thesis":"None.", "body":"None."},"alternatives":{"thesis":"None.", "body":"None."}
             })),
             "conclusion":null,"limitations":[],"findings":[]
         });

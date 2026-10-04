@@ -97,9 +97,10 @@ impl ExploreUi {
         let comparison = Arc::new(Comparison::prepare(&repository, &snapshot).unwrap());
         let mut app = ReviewApplication::new(Theme::default(), None, files.root().into());
         app.set_editor_keymap(comment_editor::EditorKeymap::Regular);
+        // Tall enough to show the design, the question and its evidence together.
         app.update(UserInput::Resize {
             width: 140,
-            height: 65,
+            height: 80,
         });
         publish_repository(
             &mut app,
@@ -156,11 +157,15 @@ impl ExploreUi {
             reopened: Vec::new(),
             not_relevant: Vec::new(),
             challenger_proposals: Vec::new(),
-            design: request.is_kickoff().then(|| review_explore::Design {
-                overview: "A resolution policy.".into(),
-                data_flow: "None.".into(),
-                algorithm: "None.".into(),
-                alternatives: "None.".into(),
+            design: request.is_kickoff().then(|| {
+                let none = || review_explore::DesignPart::new("None.", "None.");
+                review_explore::Design::new(
+                    "A resolution policy.",
+                    review_explore::DesignPart::new("A policy.", "A resolution policy."),
+                    none(),
+                    none(),
+                    none(),
+                )
             }),
             interpretation: request.answer.as_ref().map(|answer| Interpretation {
                 answer: answer.id.clone(),

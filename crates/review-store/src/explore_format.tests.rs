@@ -210,3 +210,36 @@ fn an_index_saved_when_rounds_were_called_passes_still_loads() {
 
     assert_eq!(history.rounds, vec![INSTANCE.to_owned()]);
 }
+
+#[test]
+fn a_round_saved_before_design_theses_shows_a_thesis_for_every_part_and_is_written_back_unchanged()
+{
+    const SAVED: &[u8] = include_bytes!("../testdata/explore/round-design-before-theses.json");
+    let fixture = SavedFixture::new();
+    let path = fixture.review.join(format!("{INSTANCE}.json"));
+    std::fs::write(&path, SAVED).unwrap();
+
+    let round = fixture
+        .store
+        .load_explore(&fixture.unit, INSTANCE)
+        .unwrap()
+        .unwrap();
+    let design = round.exploration.design().unwrap();
+
+    assert_eq!(design.thesis(), "The policy lives in policy.rs.");
+    let theses: Vec<_> = design.parts().map(|part| part.thesis).into_iter().collect();
+    assert_eq!(
+        theses,
+        [
+            "It returns whether a resolved thread reopens.",
+            "A thread's state flows into the policy.",
+            "One comparison per thread.",
+            "Reopen every thread",
+        ]
+    );
+    std::fs::remove_file(&path).unwrap();
+    let records = fixture.store.lock_explore(&fixture.unit).unwrap();
+    records.save_round(&round).unwrap();
+    drop(records);
+    assert_eq!(std::fs::read(&path).unwrap(), SAVED);
+}
