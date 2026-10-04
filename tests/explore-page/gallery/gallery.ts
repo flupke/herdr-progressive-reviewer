@@ -156,6 +156,8 @@ async function shoot(studio: Studio, state: GalleryState, width: number, theme: 
     viewport: { width, height: height(width) },
     colorScheme: theme,
     reducedMotion: 'reduce',
+    // Clock times read the same on every machine.
+    timezoneId: 'UTC',
   });
   try {
     // The page's clock stands still at a fixed time; its timers still run.
@@ -200,7 +202,7 @@ async function main(): Promise<void> {
   try {
     const studio: Studio = { browser, baseUrl: server.baseUrl };
     const jobs = options.states.flatMap((state) =>
-      options.widths.flatMap((width) =>
+      [...new Set([...options.widths, ...(state.extraWidths ?? [])])].flatMap((width) =>
         THEMES.map((theme) => async () => {
           try {
             return await shoot(studio, state, width, theme, options.output);

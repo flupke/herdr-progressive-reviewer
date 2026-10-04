@@ -6,7 +6,7 @@
 .masthead {
   position: relative;
   /* Its popovers open over the page's sticky panel. */
-  z-index: 10;
+  z-index: var(--layer-masthead);
   box-sizing: border-box;
   display: flex;
   align-items: center;
@@ -78,11 +78,13 @@
 .design-toggle:hover, .design-toggle[aria-expanded="true"] {
   background: color-mix(in srgb, var(--ink) 9%, transparent);
 }
-.design-toggle .caret { margin-left: 2px; color: var(--muted); font-size: 10px; }
+.design-toggle .caret { margin-left: 5px; color: var(--muted); font-size: 10px; }
 
 /* The popovers of the masthead: the design map and the menu. */
 .design-map, .menu-popover {
   position: absolute;
+  /* Over the masthead's hairline and the meter drawn on it (tokens.css, the stacking order). */
+  z-index: var(--layer-popover);
   box-sizing: border-box;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -178,7 +180,7 @@
   right: 0;
   width: 300px;
   padding: 6px;
-  font-size: 15px;
+  font-size: 14px;
 }
 .menu-popover hr { margin: 6px 2px; border: 0; border-top: 1px solid var(--line); }
 .menu-item {
@@ -219,10 +221,13 @@
 /* Phone: the rail shows two chips, the design and the current step; the review's title moves
    into the menu. */
 @media (max-width: 40rem) {
-  .masthead { gap: 10px; }
+  .masthead { gap: 8px; }
   .masthead .review { display: none; }
   .rail { font-size: 12px; font-weight: 650; }
-  .rail > ol { gap: 10px; }
+  .rail > ol { gap: 6px; }
+  /* Too little room beside the product's name (masthead.js `fit`): the chips of the screens
+     beside the one shown give way, and one comes back while a swipe heads there (swipe.css). */
+  .masthead.crowded .rail .step.near:not(.current):not(.target):not(.design-step) { display: none; }
   .rail .step.done:not(.design-step), .rail .step.later { display: none; }
   /* The popovers open under the masthead, across the screen. */
   .rail .step, .menu { position: static; }
@@ -243,7 +248,7 @@
     line-height: 1.5;
   }
   /* The design viewed: its own chip takes the accent. */
-  .rail .step.design-step.current { padding: 0; border: 0; }
+  .rail .step.design-step.current:has(.design-toggle) { padding: 0; border: 0; }
   .rail .step.design-step.current .design-toggle { border-color: var(--accent); }
   .design-map, .menu-popover {
     top: calc(100% - 4px);

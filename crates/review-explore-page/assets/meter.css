@@ -3,10 +3,12 @@
    changed lines; hovered, focused or open, an 8px bar split by who marked the lines, and a
    window with the numbers. */
 .meter {
-  --meter-track: light-dark(color-mix(in srgb, var(--ink) 8%, transparent), rgba(255, 255, 255, 0.08));
-  --meter-others: color-mix(in srgb, var(--good) 70%, transparent);
-  --meter-jev: color-mix(in srgb, var(--good) 40%, transparent);
-  --meter-hatch: repeating-linear-gradient(135deg, var(--accent) 0 5px, color-mix(in srgb, var(--accent) 35%, transparent) 5px 10px);
+  /* Every colour of the grown bar is opaque, mixed against the canvas, so that the masthead's
+     hairline never shows through it. */
+  --meter-track: color-mix(in srgb, var(--ink) 8%, var(--canvas));
+  --meter-others: color-mix(in srgb, var(--good) 70%, var(--canvas));
+  --meter-jev: color-mix(in srgb, var(--good) 40%, var(--canvas));
+  --meter-hatch: repeating-linear-gradient(135deg, var(--accent) 0 5px, color-mix(in srgb, var(--accent) 35%, var(--canvas)) 5px 10px);
   --meter-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   position: absolute;
   inset: auto 0 0;
@@ -22,7 +24,8 @@
   height: 2px;
   transition: height 180ms ease, bottom 180ms ease, background-color 180ms ease;
 }
-.meter-bar { right: 0; }
+/* The bar only shows: the strip below owns the pointer and the focus. */
+.meter-bar { right: 0; pointer-events: none; }
 .meter.grown .meter-bar, .meter.grown .meter-glow {
   bottom: -3px;
   height: 8px;
@@ -63,15 +66,17 @@
   100% { opacity: 0; }
 }
 
-/* What the pointer and the keyboard reach: an 8px strip across the window, the size of the
-   grown bar, so that the target never moves. */
+/* What the pointer and the keyboard reach: a 16px strip across the window, the same at rest and
+   grown, which holds the grown bar (3px below the masthead's edge to 5px above) with 4px to
+   spare on each side: growing the bar never moves the pointer in or out of the target. It stays
+   clear of the masthead's controls above and of the page below. */
 .meter-strip {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: -3px;
-  z-index: 1;
-  height: 8px;
+  bottom: -7px;
+  z-index: var(--layer-line);
+  height: 16px;
   margin: 0;
   padding: 0;
   border: 0;
@@ -85,7 +90,7 @@
 .meter-window {
   position: absolute;
   top: 15px;
-  z-index: 1;
+  z-index: var(--layer-meter-window);
   box-sizing: border-box;
   display: grid;
   gap: 10px;

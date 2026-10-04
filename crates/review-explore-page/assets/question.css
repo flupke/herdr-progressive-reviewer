@@ -17,7 +17,7 @@
 
 /* Door and Blast radius: hairlined rows that open (client/disclosure.js). Folded, the lead
    follows the label on one line, cut with an ellipsis; open, it wraps and the rest follows. */
-.assessments { max-width: 820px; margin: 20px 0 0; }
+.assessments { max-width: var(--figure); margin: 20px 0 0; }
 .assessment { border-top: 1px solid var(--line); }
 .assessment:last-child { border-bottom: 1px solid var(--line); }
 .assessment-toggle { gap: 10px; padding: 11px 0; }
@@ -88,4 +88,9 @@
     bottom: 0;
     box-shadow: 0 0 0 12px var(--panel), 0 16px 0 12px var(--panel);
   }
+}
+
+/* On a narrower window the answer panel follows the reading: space it from the last hairline. */
+@media not all and (min-width: 70rem) {
+  .question > .answer.panel { margin-top: 18px; }
 }

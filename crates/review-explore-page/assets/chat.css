@@ -47,7 +47,7 @@
   font-size: 10px;
   font-weight: 700;
 }
-.chat-bubble [hidden] { display: none; }
+.chat-bubble[hidden], .chat-bubble [hidden] { display: none; }
 
 /* The drawer, over the answer column: the page's panel lines up with it. */
 .chat {
@@ -55,7 +55,7 @@
      light one ("Agent chat"). */
   --chat-surface: light-dark(var(--panel), #161719);
   position: fixed;
-  z-index: 20;
+  z-index: var(--layer-chat);
   top: 81px;
   right: max(var(--gutter), calc((100vw - var(--page)) / 2 + var(--gutter)));
   bottom: 24px;
@@ -78,8 +78,10 @@
   transform: none;
   transition: opacity 280ms cubic-bezier(0.2, 0.8, 0.2, 1), transform 280ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
-/* Over the conclusion's wider panel. */
-body:has(.screen:not([hidden]) > .desk.wide) .chat { width: var(--panel-width-wide); }
+/* Over the conclusion's wider panel, while the desk has two columns. */
+@media (min-width: 70rem) {
+  body:has(.screen:not([hidden]) > .desk.wide) .chat { width: var(--panel-width-wide); }
+}
 .chat[hidden] { display: none; }
 .chat-scrim { display: none; }
 .chat-grabber { display: none; }
@@ -228,11 +230,15 @@ body:has(.screen:not([hidden]) > .desk.wide) .chat { width: var(--panel-width-wi
 }
 .chat-opener::before { content: "▸" / ""; display: inline-block; width: 1.1em; font-size: 11px; }
 .chat-opener:hover { color: var(--ink); }
+/* On a phone, centred under the panel's full-width action, as the folds beside it are. */
+@media (max-width: 40rem) {
+  .chat-opener { justify-self: center; text-align: center; }
+}
 
 /* "Add to chat", above the selected passage. */
 .chat-pick {
   position: absolute;
-  z-index: 15;
+  z-index: var(--layer-quote);
   padding: 5px 10px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -266,7 +272,7 @@ main ::selection { background: color-mix(in srgb, var(--accent) 28%, transparent
   .chat.full { height: calc(100% - 16px); }
   .chat-scrim:not([hidden]) {
     position: fixed;
-    z-index: 19;
+    z-index: var(--layer-scrim);
     inset: 0;
     display: block;
     /* The page behind dims to 45% ("Phone"). */

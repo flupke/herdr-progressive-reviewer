@@ -174,3 +174,25 @@ fn a_phrase_names_its_verb_apart_from_what_it_marks() {
             .is_empty()
     );
 }
+
+#[test]
+fn a_covered_phrase_counts_lines_not_relevant_as_reviewed() {
+    let counts = MarkCounts {
+        not_relevant_lines: 1134,
+        not_relevant_files: 2,
+        ..MarkCounts::default()
+    };
+    let phrase = counts.covered_phrase(MarkTense::Answering);
+    assert_eq!(phrase.parts, ["1134 lines and 2 whole files reviewed"]);
+
+    let mixed = MarkCounts {
+        reviewed_lines: 12,
+        not_relevant_lines: 3,
+        reopened_lines: 1,
+        ..MarkCounts::default()
+    };
+    assert_eq!(
+        mixed.covered_phrase(MarkTense::Answering).parts,
+        ["15 lines reviewed", "reopens 1 line"]
+    );
+}

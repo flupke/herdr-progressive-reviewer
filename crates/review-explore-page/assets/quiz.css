@@ -115,7 +115,7 @@
    takes the width it needs. */
 .quiz-results { margin: 28px 0 0; }
 .quiz-results > .eyebrow { margin: 0 0 8px; }
-.quiz-result { display: grid; gap: 10px; margin: 0 0 28px; }
+.quiz-result { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; margin: 0 0 28px; }
 .quiz-result > h4.eyebrow { margin: 8px 0 -4px; }
 .quiz-result-item { margin: 0; max-width: var(--measure); font-weight: 600; overflow-wrap: anywhere; }
 .quiz-result .verdict, .quiz-result .quiz-answers { box-sizing: border-box; max-width: var(--phrase); }

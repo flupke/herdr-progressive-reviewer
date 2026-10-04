@@ -336,10 +336,14 @@ function scrollToFragment(top) {
   else window.scrollTo(0, top);
 }
 
-/** The previous turn of the view: the reviewer's latest answer, while it can be cancelled, and
- * what the agent's turn said back to it.
+/** The previous turn of the view: the reviewer's latest answer, which can be cancelled until an
+ * implementation request is made, and what the agent's turn said back to it. An answer that can
+ * no longer be cancelled still shows, as the round kept it.
  * @param {PageView} view
  * @returns {import('./turn.js').Turn} */
 function turnOf(view) {
-  return { answer: view.cancellable, response: view.response, number: view.answered };
+  const kept = view.cancellable
+    ? null
+    : (view.earlier_questions.find((question) => question.number === view.answered)?.answer ?? null);
+  return { answer: view.cancellable, kept, response: view.response, number: view.answered };
 }

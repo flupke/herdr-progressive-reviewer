@@ -11,10 +11,10 @@ test('a question shows the lines it cites, in the order the agent gave', async (
 
   await agent.act('show all the citations of question 1');
   const citations = screen.getByRole('region', 'Citations').getByRole('heading', { level: 4 });
-  await expect(citations).toHaveText(['src/drafts.rs new 7-8', 'src/drafts.rs old 1-3']);
+  await expect(citations).toHaveText(['src/drafts.rs new 7–8', 'src/drafts.rs old 1–3']);
   // The first citation shows its note, and its lines as numbered rows of the diff: the removed
   // line right before the line that replaced it.
-  const first = screen.getByRole('region', 'src/drafts.rs new 7-8');
+  const first = screen.getByRole('region', 'src/drafts.rs new 7–8');
   await expect(first).toContainText('this is the decision');
   // A phone shows one number column: the new line's, or the old one's on a removed row.
   await expect(first.getByRole('row')).toHaveText([/7 pub fn reopen/, /^7 − self\.draft/, /^8 \+ /]);

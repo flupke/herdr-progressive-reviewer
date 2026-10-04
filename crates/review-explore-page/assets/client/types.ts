@@ -100,7 +100,7 @@ location: string,
  */
 path: string, 
 /**
- * The side and lines alone: `new 7-9`, or `whole file`.
+ * The side and lines alone: `new 7–9`, or `whole file`.
  */
 span: string, notes: string, rows: Array<RowView>, 
 /**
@@ -200,7 +200,11 @@ export type DecisionView = {
 /**
  * The question's number in the round rail.
  */
-number: number, question: string, 
+number: number, 
+/**
+ * The question's text, the agent's Markdown rendered.
+ */
+question_html: string, 
 /**
  * The text of the kept choice; `None` for a comment-only answer.
  */
@@ -297,6 +301,10 @@ context_html: string | null,
  */
 sections: Array<SectionView>, 
 /**
+ * The question's choices, the one the reviewer kept selected, read only.
+ */
+choices: Array<ChoiceView>, 
+/**
  * The answer the reviewer kept; `None` for a question the round left unanswered.
  */
 answer: KeptAnswer | null, 
@@ -306,7 +314,7 @@ answer: KeptAnswer | null,
 recorded: ResponseView, 
 /**
  * What the answers to the question marked, one summary for each turn that marked lines:
- * "Marked", then "12 lines reviewed", "3 lines not relevant".
+ * "Marked", then "15 lines reviewed", the lines marked not relevant counted as reviewed.
  */
 marks: Array<MarkPhrase>, 
 /**
@@ -510,7 +518,8 @@ export type Marker = "answer" | "jev" | "not_relevant" | "by_hand" | "other_roun
  */
 export type MarksView = { 
 /**
- * "Answering marks", then "12 lines reviewed", "3 lines not relevant".
+ * "Answering marks", then "15 lines reviewed": the lines marked not relevant count as
+ * reviewed, as in the meter; the lists below keep them apart.
  */
 summary: MarkPhrase, reviewed: Array<string>, 
 /**
@@ -851,8 +860,8 @@ question: QuestionView | null,
  */
 answer: KeptAnswer, 
 /**
- * What the answer marked: "Marked", then "12 lines reviewed", "3 lines not relevant";
- * `None` when it marked nothing.
+ * What the answer marked: "Marked", then "15 lines reviewed", the lines marked not
+ * relevant counted as reviewed; `None` when it marked nothing.
  */
 marked: MarkPhrase | null, };
 /**

@@ -95,10 +95,13 @@ test('a diagram that does not parse shows its source and the error, and the tool
   screen,
 }) => {
   await openQuestion2(explore);
-  // The figure keeps the source, and shows Mermaid's message.
+  // The figure says it could not be drawn and keeps the source; Mermaid's message waits behind
+  // a fold, which an exact tap opens.
   const failed = screen.getByRole('figure', 'Diagram 3');
+  await expect(failed).toContainText('This diagram could not be drawn');
   await expect(failed).toContainText('draft --> record[saved (with the answers)]');
-  await expect(failed).toContainText('Parse error');
+  await failed.getByRole('button', 'Mermaid’s message').tap();
+  await expect(failed.getByText('Parse error', { exact: false })).toBeVisible();
   await expect
     .poll(() => explore.diagramErrors(), { timeout: 10_000 })
     .toEqual([
@@ -109,4 +112,45 @@ test('a diagram that does not parse shows its source and the error, and the tool
         message: expect.stringContaining('Parse error'),
       }),
     ]);
+});
+
+test('a sequence diagram a little wider than its frame shrinks to show whole, and opens large', async ({
+  explore,
+  screen,
+  browser,
+}) => {
+  await browser.setViewport({ width: 800, height: 900 });
+  await explore.askQuestion();
+  await explore.open();
+  // The round opens on its design, whose sequence diagram is a little wider than its frame in
+  // this window, which shows one column.
+  const figure = screen.getByRole('figure', 'Diagram 1');
+  await expect(figure.getByRole('button', 'Open large')).toBeVisible();
+
+  // The frame's box comes from its locator; the drawing's natural width (its view box), what is
+  // drawn of it and what its frame scrolls have none, and are read in the page.
+  const frame = await figure.boundingBox();
+  const size = await browser.evaluate(() => {
+    const figure = document.querySelector('figure[aria-label="Diagram 1"]')!;
+    const svg = figure.querySelector('svg')!;
+    return {
+      natural: svg.viewBox.baseVal.width,
+      drawn: svg.getBoundingClientRect().width,
+      scrolls: figure.scrollWidth - figure.clientWidth,
+    };
+  });
+  // Drawn smaller than Mermaid laid it out, it shows whole: no wider than its frame, which
+  // does not scroll.
+  expect(size.drawn).toBeLessThan(size.natural);
+  expect(size.drawn).toBeLessThanOrEqual(frame!.width);
+  expect(size.scrolls).toBeLessThanOrEqual(0);
+  await expect(figure.getByText('Scroll sideways', { exact: false })).toBeHidden();
+
+  // Exact taps: the button and the key are what is under test.
+  await figure.getByRole('button', 'Open large').tap();
+  const large = screen.getByRole('dialog', 'Diagram 1 at full size');
+  await expect(large.getByText('Round record').first()).toBeVisible();
+  await large.press('Escape');
+  await expect(large).toBeHidden();
+  await expect(figure.getByRole('button', 'Open large')).toBeVisible();
 });

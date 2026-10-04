@@ -23,6 +23,10 @@
   --panel-width: 416px;
   --panel-width-wide: 480px;
   --column-gap: 40px;
+  /* The widest figure of the reading column: a table, a diagram, a block of code, the Door and
+     Blast radius rows; and a status card on the desk, as wide as the figures with its glyph. */
+  --figure: 820px;
+  --figure-card: calc(var(--figure) + 34px);
   /* A list of short lines, such as a quiz item's options: the width of the old single column. */
   --phrase: 44rem;
 }
@@ -79,5 +83,28 @@ main {
     top: 16px;
     max-height: calc(100vh - 32px);
     overflow-y: auto;
+  }
+}
+
+/* A card above a stage that reads on a desk (a refused action's notice, an earlier round's
+   card) lines up with the desk's reading column, as wide as the card of a waiting turn
+   (sent.css): the same left and right edges, never under the panel. */
+.screen:has(> .desk) > .status-card { max-width: var(--figure-card); }
+@media (min-width: 70rem) {
+  .screen:has(> .desk) > .status-card {
+    max-width: min(var(--figure-card), calc(100% - var(--panel-width) - var(--column-gap)));
+  }
+  .screen:has(> .desk.wide) > .status-card {
+    max-width: min(var(--figure-card), calc(100% - var(--panel-width-wide) - var(--column-gap)));
+  }
+}
+
+/* A stage with no panel (a round starting, the agent working on the design, an interrupted turn
+   that carries no answer, an earlier round, a storage failure, the start cover) reads in one
+   column, centred in the frame, rather than in a reading column beside an empty panel. */
+@media (min-width: 70rem) {
+  .screen:not(:has(> .desk)) > * {
+    max-width: calc(var(--measure) + 34px);
+    margin-inline: auto;
   }
 }

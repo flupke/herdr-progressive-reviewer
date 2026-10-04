@@ -34,8 +34,9 @@ export class DesignScreen {
    */
   update(design, current, question) {
     const asked = current?.kind === 'question' && question !== null ? question : null;
-    this.head.show(keyOf([design.thesis_html, design.parts.length, design.minutes, design.changed_files]), () =>
-      head(design),
+    const before = current?.kind === 'question' ? current.number : null;
+    this.head.show(keyOf([design.thesis_html, design.parts.length, design.minutes, design.changed_files, before]), () =>
+      head(design, before),
     );
     const map = this.map.show(keyOf([design.parts, current, asked?.text_html, asked?.door]), () =>
       designMap(design.parts, current, asked),
@@ -63,9 +64,11 @@ export class DesignScreen {
   }
 }
 
-/** The change's thesis as the headline, and how long the design is.
- * @param {DesignView} design */
-function head(design) {
+/** The change's thesis as the headline, and how long the design is. `before` is the question
+ * the round waits for, which the design is read before, if any.
+ * @param {DesignView} design
+ * @param {number | null} before */
+function head(design, before) {
   const thesis = h('h2', { id: 'design-title' });
   setRenderedMarkdown(thesis, design.thesis_html);
   const minutes = design.minutes === 1 ? 'about 1 minute' : `about ${design.minutes} minutes`;
@@ -74,7 +77,7 @@ function head(design) {
   return h(
     'header',
     { class: 'design-head' },
-    h('p', { class: 'eyebrow' }, 'Design of the change · read before question 1'),
+    h('p', { class: 'eyebrow' }, before === null ? 'Design of the change' : `Design of the change · read before question ${before}`),
     thesis,
     h('p', { class: 'meta' }, meta.join(' · ')),
   );
@@ -146,7 +149,7 @@ export function goTo(current) {
     'a',
     { class: 'button primary block', href: STAGE },
     `Go to ${stepName(current)}`,
-    h('span', { 'aria-hidden': 'true' }, '→'),
+    h('span', { class: 'arrow', 'aria-hidden': 'true' }, '→'),
   );
 }
 

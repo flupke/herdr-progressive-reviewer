@@ -7,16 +7,23 @@
 import { decisionTag } from './chips.js';
 import { h } from './dom.js';
 
-/** The answer the reviewer sent or kept: the choice, the comment, and how the choice relates to
- * the first pick and to the agent's recommendation.
- * @param {KeptAnswer} answer */
-export function answerCard(answer) {
+/** What an answer with neither a choice nor a comment shows in their place: in its card, and in
+ * the previous turn (turn.js). */
+export const NOTHING_ANSWERED = 'No choice, no comment';
+
+/** The answer the reviewer sent or kept: the choice, unless the choices show beside it
+ * (`withChoice`), the comment, and how the choice relates to the first pick and to the agent's
+ * recommendation; `null` when nothing is left to show.
+ * @param {KeptAnswer} answer
+ * @param {{ withChoice?: boolean }} [options] */
+export function answerCard(answer, { withChoice = true } = {}) {
+  if (!withChoice && answer.choice !== null && !answer.comment && answer.tags.length === 0) return null;
   return h(
     'div',
     { class: 'answer-card' },
-    answer.choice !== null ? h('p', { class: 'answer-choice' }, answer.choice) : null,
+    withChoice && answer.choice !== null ? h('p', { class: 'answer-choice' }, answer.choice) : null,
     answer.comment ? h('p', { class: 'answer-comment' }, `“${answer.comment}”`) : null,
-    answer.choice === null && !answer.comment ? h('p', { class: 'answer-comment' }, 'No choice, no comment') : null,
+    answer.choice === null && !answer.comment ? h('p', { class: 'answer-comment' }, NOTHING_ANSWERED) : null,
     answer.tags.length > 0 ? h('p', { class: 'answer-tags' }, answer.tags.map(decisionTag)) : null,
   );
 }

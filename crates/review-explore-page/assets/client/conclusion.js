@@ -90,7 +90,7 @@ function decisionList(decisions) {
           h(
             'div',
             { class: 'decision-body' },
-            h('p', { class: 'decision-question' }, decision.question),
+            markdown(decision.question_html, 'decision-question'),
             decision.choice !== null
               ? h(
                   'p',

@@ -10,11 +10,12 @@ let next = 0;
 /**
  * @param {import('./dom.js').Children} label the button's words, or what it shows folded
  * @param {Node | Node[]} content what the button shows
- * @param {{ open?: boolean, button?: string }} [options] whether it starts open, and the
- *   button's classes (by default the muted line with its ▸)
+ * @param {{ open?: boolean, button?: string, onToggle?: (opened: boolean) => void }} [options]
+ *   whether it starts open, the button's classes (by default the muted line with its ▸), and
+ *   what to tell when it opens or closes
  * @returns {{ element: HTMLElement, toggle: HTMLButtonElement }}
  */
-export function disclosure(label, content, { open = false, button = 'disclosure-toggle' } = {}) {
+export function disclosure(label, content, { open = false, button = 'disclosure-toggle', onToggle } = {}) {
   next += 1;
   const id = `disclosure-${next}`;
   const body = h('div', { class: 'disclosure-body', id, hidden: !open }, content);
@@ -25,7 +26,7 @@ export function disclosure(label, content, { open = false, button = 'disclosure-
       type: 'button',
       'aria-expanded': String(open),
       'aria-controls': id,
-      onclick: () => show(toggle, toggle.getAttribute('aria-expanded') !== 'true'),
+      onclick: () => show(toggle, toggle.getAttribute('aria-expanded') !== 'true', onToggle),
     },
     label,
   );
@@ -39,16 +40,19 @@ export function disclosure(label, content, { open = false, button = 'disclosure-
  */
 export function openDisclosure(element) {
   const toggle = element.querySelector(':scope > button[aria-controls]');
-  if (toggle instanceof HTMLButtonElement) show(toggle, true);
+  // A click, so that the disclosure tells what opened it as when the reviewer clicks.
+  if (toggle instanceof HTMLButtonElement && toggle.getAttribute('aria-expanded') !== 'true') toggle.click();
 }
 
 /**
- * Shows or hides what `toggle` controls.
+ * Shows or hides what `toggle` controls, and tells `onToggle`.
  * @param {HTMLButtonElement} toggle
  * @param {boolean} opened
+ * @param {((opened: boolean) => void) | undefined} onToggle
  */
-function show(toggle, opened) {
+function show(toggle, opened, onToggle) {
   toggle.setAttribute('aria-expanded', String(opened));
   const body = toggle.nextElementSibling;
   if (body instanceof HTMLElement) body.hidden = !opened;
+  onToggle?.(opened);
 }

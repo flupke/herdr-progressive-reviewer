@@ -12,7 +12,7 @@
 /** @import { QuizView, QuizItemView, QuizAnswerView, RailStep } from "./types.ts" */
 /** @import { Turn } from "./turn.js" */
 
-import { choiceCards } from './choices.js';
+import { choiceCards, plainChoices } from './choices.js';
 import { citation } from './citations.js';
 import { disclosure, openDisclosure } from './disclosure.js';
 import { h, keyOf, Region } from './dom.js';
@@ -150,12 +150,7 @@ function dots(items) {
  * @param {boolean} asks whether the quiz asks for more answers, which Skip the quiz declines
  */
 function pickPanel(item, conclusion, asks) {
-  const answers = item.answers.map((answer) => ({
-    id: String(answer.index),
-    text: answer.text,
-    recommendation: null,
-    checked: false,
-  }));
+  const answers = plainChoices(item.answers.map((answer) => ({ id: String(answer.index), text: answer.text })));
   return panel(
     item,
     h(
@@ -187,7 +182,7 @@ function answeredPanel(item, conclusion, asks, next) {
       'button',
       { class: 'button primary block', type: 'button', onclick: next },
       asks ? 'Next question' : 'Show the conclusion',
-      h('span', { 'aria-hidden': 'true' }, '→'),
+      h('span', { class: 'arrow', 'aria-hidden': 'true' }, '→'),
     ),
     asks ? skipForm(conclusion) : null,
   );

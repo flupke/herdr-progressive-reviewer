@@ -10,7 +10,7 @@ use review_explore_citations::Citation;
 use serde::Serialize;
 use ts_rs::TS;
 
-use super::question::CitationView;
+use super::question::{ChoiceView, CitationView};
 use super::{ResponseView, SectionView, markdown, markdown_if_any};
 
 /// A question the reviewer answered earlier in the round, as it was answered: read only.
@@ -26,12 +26,14 @@ pub(crate) struct EarlierQuestionView {
     context_html: Option<String>,
     /// The Door and Blast radius sections, folded to their leads.
     sections: Vec<SectionView>,
+    /// The question's choices, the one the reviewer kept selected, read only.
+    choices: Vec<ChoiceView>,
     /// The answer the reviewer kept; `None` for a question the round left unanswered.
     answer: Option<KeptAnswer>,
     /// What the agent recorded of the answer, and its reply.
     recorded: ResponseView,
     /// What the answers to the question marked, one summary for each turn that marked lines:
-    /// "Marked", then "12 lines reviewed", "3 lines not relevant".
+    /// "Marked", then "15 lines reviewed", the lines marked not relevant counted as reviewed.
     marks: Vec<MarkPhrase>,
     /// The question's citations, most decisive first.
     citations: Vec<CitationView>,
@@ -59,12 +61,19 @@ impl EarlierQuestionView {
                 .flat_map(Assessments::sections)
                 .map(|section| SectionView::new(&section, 2))
                 .collect(),
+            choices: ChoiceView::kept(
+                question,
+                record
+                    .answer
+                    .as_ref()
+                    .and_then(|answer| answer.choice.as_deref()),
+            ),
             answer: record.answer.clone(),
             recorded: ResponseView::of_record(&record.recorded),
             marks: record
                 .marks
                 .iter()
-                .map(|marks| marks.counts().phrase(MarkTense::Applied))
+                .map(|marks| marks.counts().covered_phrase(MarkTense::Applied))
                 .filter(|phrase| !phrase.parts.is_empty())
                 .collect(),
             citations: citations.iter().map(CitationView::new).collect(),

@@ -22,11 +22,12 @@ async function atQuestion2(explore: Session, screen: Screen) {
  */
 async function swipe(screen: Screen, start: Locator, direction: 'left' | 'right') {
   await start.scrollIntoView();
-  // The page may still settle (a diagram drawn, a view pushed): wait until the start is in view.
+  // The page may still settle (a diagram drawn, a view pushed, the screen a swipe turned to
+  // sliding into place): wait until the start is in view.
   await expect
     .poll(async () => {
       const box = await start.boundingBox();
-      return box !== null && box.y >= 0 && box.y + 20 < 844;
+      return box !== null && box.y >= 0 && box.y + 20 < 844 && box.x >= 0;
     })
     .toBe(true);
   const box = await start.boundingBox();
@@ -47,10 +48,11 @@ test('the reviewer reads question 1 again from the rail, then goes back to quest
 
   await agent.act('open question 1 from the round rail');
   const earlier = screen.getByRole('region', 'Question 1 · answered');
-  await expect(earlier.getByRole('region', 'Your answer to question 1')).toContainText('Keep the draft');
+  await expect(earlier.getByRole('region', 'Your answer to question 1').getByRole('radio', 'Keep the draft')).toBeChecked();
   await expect(earlier.getByRole('region', 'The agent recorded')).toContainText('the draft stays with the round');
-  // Nothing on it can change the round: no choice to pick, no comment to write, nothing to send.
-  await expect(earlier.getByRole('radio')).toHaveCount(0);
+  // Nothing on it can change the round: its choices show the kept one, read only; no comment to
+  // write, nothing to send.
+  await expect(earlier.getByRole('group', 'Choices')).toBeDisabled();
   await expect(earlier.getByRole('textbox')).toHaveCount(0);
   await expect(earlier.getByRole('button', 'Send answer')).toHaveCount(0);
 

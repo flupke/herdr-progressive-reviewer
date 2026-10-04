@@ -64,38 +64,36 @@ function tokens(row) {
   return nodes;
 }
 
+/** Whether the reviewer opened the citations after the first, for each question by its number
+ * and its citations: the question's screen and the screen of its answer, read again while
+ * the agent works, show them the same way. @type {Map<string, boolean>} */
+const opened = new Map();
+
 /**
  * The question's citations, or `null` when it has none: the first one, then the others behind a
- * fold; or, `folded`, all of them behind one fold, for a question the reviewer answered.
+ * fold, open when the reviewer left it open on another screen of the same question.
  * @param {CitationView[]} citations
  * @param {number} number the question's number
- * @param {{ folded?: boolean }} [options]
  */
-export function citationsSection(citations, number, { folded = false } = {}) {
+export function citationsSection(citations, number) {
   const [first, ...others] = citations;
   if (!first) return null;
   const id = (/** @type {number} */ index) => `question-${number}-citation-${index}`;
   const citationsOf = (/** @type {number} */ many) => `citation${many > 1 ? 's' : ''}`;
-  if (folded) {
-    return h(
-      'section',
-      { class: 'citations folded', 'aria-label': 'Citations' },
-      disclosure(
-        `${citations.length} ${citationsOf(citations.length)}`,
-        citations.map((each, index) => citation(each, id(index + 1))),
-      ).element,
-    );
-  }
+  const key = `${number}:${citations.map((each) => each.location).join(' ')}`;
+  const more =
+    others.length > 0
+      ? disclosure(
+          `${others.length} more ${citationsOf(others.length)}`,
+          others.map((other, index) => citation(other, id(index + 2))),
+          { open: opened.get(key) ?? false, onToggle: (open) => opened.set(key, open) },
+        )
+      : null;
   return h(
     'section',
     { class: 'citations', 'aria-labelledby': `question-${number}-citations` },
     h('h3', { class: 'eyebrow', id: `question-${number}-citations` }, 'Citations'),
     citation(first, id(1)),
-    others.length > 0
-      ? disclosure(
-          `${others.length} more ${citationsOf(others.length)}`,
-          others.map((other, index) => citation(other, id(index + 2))),
-        ).element
-      : null,
+    more?.element ?? null,
   );
 }

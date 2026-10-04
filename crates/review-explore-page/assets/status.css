@@ -44,6 +44,8 @@
 .status-title { font-weight: 650; line-height: 26px; }
 .status-reason { color: var(--muted); font-size: 15px; }
 .status-reason code {
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
   padding: 1px 6px;
   border-radius: 4px;
   background: var(--code-bg);

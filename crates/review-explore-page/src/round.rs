@@ -436,7 +436,7 @@ pub enum ImplementationState {
     /// a new one.
     Paused,
     /// Whether the agent received it is unknown. The reviewer may send a new one, after
-    /// checking the agent's conversation.
+    /// checking the agent's pane.
     Unknown,
     /// The agent did not start on it: the text may still wait in the agent's prompt box. The
     /// reviewer looks at the agent's pane, then sends it again as it is.
@@ -628,7 +628,13 @@ impl RoundSnapshot {
     /// threads hold it: `None` when no round is running, and when the review tool cannot save
     /// the round.
     pub(crate) fn conversation_round(&self) -> Option<(&str, &ReviewUnit)> {
-        if matches!(self.stage, RoundStage::StorageFailed { .. }) {
+        // No round runs on the start cover: there is nobody to talk to yet.
+        if matches!(
+            self.stage,
+            RoundStage::StorageFailed { .. }
+                | RoundStage::NoRound { .. }
+                | RoundStage::StartFailed { .. }
+        ) {
             return None;
         }
         self.round.as_deref().zip(self.review_unit.as_ref())

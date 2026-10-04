@@ -18,6 +18,11 @@ export interface GalleryState {
    * `page` showing it.
    */
   reach(session: Session, page: Page): Promise<void>;
+  /**
+   * Widths the state is shot at besides the run's, for a state whose layout depends on a wide
+   * window (a stage with no panel, centred in the frame).
+   */
+  extraWidths?: number[];
 }
 
 /**
@@ -255,8 +260,10 @@ export const STATES: GalleryState[] = [
   },
   {
     name: 'working',
-    about: 'The agent works on its first turn: Stop waiting, and the rail with Design working.',
+    about:
+      'The agent works on its first turn: Stop waiting, and the rail with Design working; with no panel, the card is centred in the frame, also in a 2000-pixel window.',
     reach: (session) => session.open(),
+    extraWidths: [2000],
   },
   {
     name: 'working-reset-open',
@@ -324,7 +331,7 @@ export const STATES: GalleryState[] = [
   {
     name: 'uncertain-last-answer',
     about:
-      "The review was reopened while the answer's prompt was being delivered: check the agent's conversation, and Retry as a secondary action in the panel.",
+      "The review was reopened while the answer's prompt was being delivered: check the agent's pane, and Retry as a secondary action in the panel.",
     async reach(session) {
       await session.askQuestion();
       await session.answerInPane();
@@ -338,10 +345,12 @@ export const STATES: GalleryState[] = [
   },
   {
     name: 'retry-refused',
-    about: 'A Retry posted after the round moved on in the pane: the notice.',
+    about: 'A Retry posted after the round moved on in the pane: the notice, over the question the agent asked next.',
     async reach(session, page) {
+      await ask(session, 1);
+      await session.answerInPane();
       await after(session, () => session.failDelivery());
-      await refused(session, page, () => session.answerInPane(), 'Retry');
+      await refused(session, page, () => session.askQuestion(), 'Retry');
     },
   },
   {
@@ -594,6 +603,16 @@ export const STATES: GalleryState[] = [
     },
   },
   {
+    name: 'question-wide-diagram',
+    about:
+      'A question whose sequence diagram has seven participants: shrunk to show whole, widened to the reading column, with Open large.',
+    async reach(session, page) {
+      await session.askQuestion(WIDE_DIAGRAM);
+      await session.open();
+      await submit(page, 'Go to question 1');
+    },
+  },
+  {
     name: 'quiz',
     about: 'The conclusion asks its quiz first: the first item of three, its answers and Check in the panel.',
     reach: (session) => conclusion(session, true),
@@ -735,3 +754,42 @@ export const STATES: GalleryState[] = [
     },
   },
 ];
+
+/** A question whose Context draws a sequence diagram of seven participants, wider than the
+ * reading column at its natural size. */
+const WIDE_DIAGRAM = {
+  id: 'flush-on-close',
+  version: 1,
+  topic: 'flush',
+  text: 'Who waits for whom when the pane closes with replies still queued?',
+  rationale: [
+    'Closing the pane runs through seven parts of the reviewer, one after the other:',
+    '',
+    '```mermaid',
+    'sequenceDiagram',
+    '  autonumber',
+    '  participant reviewer as Reviewer',
+    '  participant pane as Pane',
+    '  participant thread as Thread file',
+    '  participant queue as ReplyQueue',
+    '  participant policy as FlushPolicy',
+    '  participant relay as Agent link',
+    '  participant agent as Agent',
+    '  reviewer->>pane: close the pane',
+    '  pane->>queue: flush(Closing)',
+    '  queue->>policy: may it go out now?',
+    '  policy-->>queue: yes, closing',
+    '  queue->>relay: notify_batch(replies)',
+    '  relay->>agent: one notification',
+    '  pane->>thread: save every thread',
+    '  thread-->>pane: saved',
+    '```',
+  ].join('\n'),
+  visual: null,
+  alternatives: [
+    { id: 'wait', text: 'Wait for the agent link before closing', outcome: 'needs_follow_up', recommendation: null },
+    { id: 'close', text: 'Close at once, as the change does', outcome: 'accepted', recommendation: 'Nothing is lost: each reply is saved first.' },
+  ],
+  evidence: [{ path: 'src/threads/reply.rs', side: 'new', lines: { first_line: 20, last_line: 27 }, notes: 'Closing flushes the queue, then saves.' }],
+  assessments: null,
+};

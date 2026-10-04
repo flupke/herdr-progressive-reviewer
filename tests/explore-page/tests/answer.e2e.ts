@@ -63,13 +63,16 @@ test('the page says what an answer marks and the share of the change it leaves r
   await explore.askQuestion();
   await screen.getByRole('link', 'Go to question 1').tap();
   const answer = screen.getByRole('form', 'Your answer to question 1');
-  await expect(answer).toContainText('Answering marks 4 lines reviewed · 20 lines not relevant');
+  // Lines marked not relevant count as reviewed, as the meter counts them; the list of lines
+  // keeps the split.
+  await expect(answer).toContainText('Answering marks 24 lines reviewed');
   // The fixture's change has 3 changed lines, one of which Jev marked when the round started:
   // the answer marks the other two of them, which brings the share from 33% to 100%.
   await expect(answer).toContainText('33% → 100%');
 
   await agent.act('open the line that says what answering marks, to list the lines it marks');
-  await expect(screen.getByText('src/drafts.rs new 10-13', { exact: false })).toBeVisible();
+  await expect(screen.getByText('src/drafts.rs new 10-13 (reviewed)')).toBeVisible();
+  await expect(screen.getByText('tests/drafts.rs new 1-20 (not relevant', { exact: false })).toBeVisible();
 });
 
 test('an answer to a question answered in the pane meanwhile is refused', async ({ explore, screen }) => {

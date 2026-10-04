@@ -78,8 +78,9 @@ never to mark more lines.
 
 submit_conclusion takes the final answer's interpretation and marks like any turn, and:
 
-- summary: the response to the final answer, then the review outcome, decisions, outstanding or
-  reconsidered work, uncertainty and source or context limitations.
+- summary: the response to the final answer, then the review outcome, outstanding or reconsidered
+  work, uncertainty and source or context limitations. The reviewer's decisions are listed beside
+  it from the round itself: do not restate them.
 - to_be_implemented: only the agreed tasks, as a plain-text list; it fills the reviewer's
   editable task box. Empty when there is none.
 - future_work: optional or later work. Empty when there is none.

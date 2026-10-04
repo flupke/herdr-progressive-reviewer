@@ -1,6 +1,6 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-04T15:21:05.216Z",
+  "createdAt": "2026-10-04T17:08:13.452Z",
   "payload": {
     "actions": [
       {
@@ -9,7 +9,7 @@
         "target": {
           "role": "link",
           "name": "Go to question 2",
-          "within": "Design of the change · read before question 1"
+          "within": "Design of the change · read before question 2"
         }
       }
     ],
@@ -22,7 +22,7 @@
       "targetId": "desktop",
       "instructionDigest": "3236fa573bc8c94199a2e9e6d7e39f9d44808c1824769269063f56c0f85c679c"
     },
-    "summary": "The current screen shows the Question 2 region, confirming the step is already at question 2.",
+    "summary": "Returned to Question 2; the screen now shows the Question 2 region and its answer choices.",
     "startPath": "/#design",
     "endPath": "/#round",
     "endAnchors": [
@@ -52,6 +52,6 @@
         "text": "Question 2"
       }
     ],
-    "endWaitMs": 27455
+    "endWaitMs": 12748
   }
 }

@@ -6,7 +6,7 @@
    A diagram Mermaid could not draw shows its source and Mermaid's message. */
 .markdown .diagram {
   box-sizing: border-box;
-  max-width: 820px;
+  max-width: var(--figure);
   margin: 0 0 16px;
   padding: 12px;
   overflow-x: auto;
@@ -31,6 +31,38 @@
 .markdown .diagram .key.new::before { border-color: var(--good); background: color-mix(in srgb, var(--good) 18%, transparent); }
 .markdown .diagram .key.changed::before { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 18%, transparent); }
 .markdown .diagram .scroll-hint { display: none; margin-top: 10px; }
+/* A diagram too wide for the figure's width reads across the whole reading column. */
+.markdown .diagram.wide { max-width: none; }
+/* "Open large", under a diagram shown smaller than its natural size or scrolling. */
+.markdown .diagram .diagram-open {
+  margin-top: 10px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.markdown .diagram .diagram-open[hidden] { display: none; }
+/* The diagram at its natural size, over the dimmed page: the dialog scrolls both ways and
+   closes with Escape or its button. */
+.diagram-dialog {
+  box-sizing: border-box;
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 32px);
+  padding: 12px 16px 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-panel);
+  background: var(--panel);
+  box-shadow: var(--shadow-drawer);
+  color: var(--ink);
+  overflow: auto;
+}
+.diagram-dialog::backdrop { background: rgb(0 0 0 / 0.45); }
+.diagram-dialog-head { position: sticky; left: 0; display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.diagram-large > svg { display: block; height: auto; }
 .markdown .diagram.scrolls .scroll-hint { display: block; }
 .markdown .diagram.scrolls {
   background:
@@ -49,8 +81,9 @@
   }
 }
 
-.markdown .diagram.failed { max-width: none; margin-inline: 0; border: 0; border-left: 4px solid var(--bad); border-radius: 0 6px 6px 0; padding: 8px 12px; background: color-mix(in srgb, var(--bad) 8%, transparent); }
-.markdown .diagram.failed > pre { margin-bottom: 8px; }
-.markdown .diagram.failed figcaption { position: static; display: block; color: inherit; font-size: inherit; }
-.markdown .diagram figcaption > p { color: var(--bad); font-weight: 650; margin: 0 0 4px; }
-.markdown .diagram figcaption > pre { margin: 0; overflow-x: auto; background: none; padding: 0; font: 0.85em/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+/* A diagram Mermaid could not draw (design review, finding 22): the same neutral frame, a
+   muted caption, the source as code, and Mermaid's message behind a fold. */
+.markdown .diagram.failed figcaption { position: static; display: block; margin: 0 0 8px; }
+.markdown .diagram.failed > pre { margin: 0 0 8px; background: none; padding: 0; }
+.markdown .diagram.failed .disclosure-toggle { font-size: 13px; }
+.markdown .diagram .diagram-error { margin: 8px 0 0; overflow-x: auto; background: none; padding: 0; color: var(--muted); font: 0.8125rem/1.4 var(--mono); }

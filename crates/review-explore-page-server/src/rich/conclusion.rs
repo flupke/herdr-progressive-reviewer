@@ -12,12 +12,6 @@ after two seconds without a new reply, at once when twenty replies wait, and whe
 closes. Each reply is still saved to its thread before it is queued, so batching delays only \
 the notification, never the reply itself.
 
-**Decisions.** The reviewer kept the rule of the change while the pane is open: two seconds of \
-quiet or twenty replies. The reviewer also kept the flush on close, with the reason `Closing`, \
-over sending the last replies the next time the pane opens: a notification that waits for a \
-pane that may never open again could be lost without anyone noticing. The size cap stays a \
-constant until a reviewer asks for another number.
-
 **Limitations.** The idle delay is measured on the pane's tick, every 250 ms, so a lone reply \
 reaches the agent between two and two and a quarter seconds after it was written. While the \
 pane is in the background, the tick may slow down, and with it the flush; the round did not \

@@ -27,9 +27,10 @@ test('the reviewer answers, sees the sent answer while the agent works, stops wa
   });
   const working = screen.getByRole('status');
   await expect(working).toContainText('The agent is working on your answer to question 1');
-  // The panel holds what was sent; the question stays on the desk, answered.
+  // The panel holds what was sent, the choice selected among the question's choices; the
+  // question stays on the desk, answered.
   const sent = screen.getByRole('region', 'Your answer to question 1');
-  await expect(sent).toContainText('Discard the draft');
+  await expect(sent.getByRole('radio', 'Discard the draft')).toBeChecked();
   await expect(sent).toContainText(COMMENT);
   await expect(screen.getByRole('region', 'Question 1 · answered')).toContainText(
     "Should a reopened round keep the reviewer's unsent draft?",
@@ -40,7 +41,7 @@ test('the reviewer answers, sees the sent answer while the agent works, stops wa
 
   await agent.act('stop waiting for the agent');
   await expect(screen.getByRole('status')).toContainText('The turn is paused');
-  await expect(sent).toContainText('Discard the draft');
+  await expect(sent.getByRole('radio', 'Discard the draft')).toBeChecked();
   expect(await explore.actions()).toEqual(['stop']);
 
   await agent.act('send the answer to the agent again with Retry');
@@ -62,7 +63,7 @@ test('an answer whose prompt did not reach the agent shows the failure, the answ
 
   await expect(screen.getByRole('alert')).toContainText('The selected agent is no longer available');
   const sent = screen.getByRole('region', 'Your answer to question 1');
-  await expect(sent).toContainText('Keep the draft');
+  await expect(sent.getByRole('radio', 'Keep the draft')).toBeChecked();
   await expect(sent.getByRole('button', 'Retry')).toBeVisible();
   await expect(screen.getByRole('region', 'Question 1 · answered')).toBeVisible();
 });

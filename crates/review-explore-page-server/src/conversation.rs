@@ -8,6 +8,8 @@ use review_threads::{AskedUnder, MessageId, Post, ReviewThreads, ThreadCommand, 
 use review_types::ReviewUnit;
 use serde::Serialize;
 
+use crate::sessions::Clock;
+
 /// The review of every session's rounds.
 const REVIEW: &str = "standalone-review";
 
@@ -19,6 +21,8 @@ pub(crate) struct SessionThreads {
     sent: Vec<SentMessage>,
     /// The agent's replies so far, which name each reply.
     replies: usize,
+    /// The clock that stamps each message the page shows.
+    clock: Clock,
 }
 
 /// A message the reviewer sent from the page, as a test reads it back.
@@ -31,13 +35,19 @@ pub(crate) struct SentMessage {
 }
 
 impl SessionThreads {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(clock: Clock) -> Self {
         Self {
             threads: ReviewThreads::new(Self::review()),
             publisher: ThreadsPublisher::default(),
             sent: Vec::new(),
             replies: 0,
+            clock,
         }
+    }
+
+    /// Hands the page the threads as they are now, each message stamped by the session's clock.
+    fn publish(&self) {
+        self.publisher.loaded(self.clock.stamped(&self.threads));
     }
 
     /// The review the session's rounds belong to.
@@ -62,7 +72,7 @@ impl SessionThreads {
             }),
             _ => Ok(()),
         };
-        self.publisher.loaded(self.threads.clone());
+        self.publish();
         result.map_err(CommandRefusal::Failed)
     }
 
@@ -105,7 +115,7 @@ impl SessionThreads {
         if self.threads.answer(post).is_err() {
             return false;
         }
-        self.publisher.loaded(self.threads.clone());
+        self.publish();
         true
     }
 

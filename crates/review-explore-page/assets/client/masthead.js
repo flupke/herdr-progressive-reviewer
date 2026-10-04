@@ -61,6 +61,7 @@ export class Masthead {
     /** The step of the screen a swipe would turn to, whose chip fills. @type {string | null} */
     this.aimed = null;
     document.addEventListener('click', (event) => this.clickOutside(event));
+    addEventListener('resize', () => this.fit());
     document.addEventListener('keydown', (event) => {
       if (event.key === 'Escape' && this.open) this.close(true);
     });
@@ -182,6 +183,17 @@ export class Masthead {
       step.classList.toggle('near', this.near.has(step.dataset.screen));
       step.classList.toggle('target', step.dataset.screen === this.aimed);
     }
+    this.fit();
+  }
+
+  /** On a narrow window, drops the chips of the neighbours when the row has no room for them
+   * beside the product's name (class `crowded`): the design's chip and the current step stay. */
+  fit() {
+    const identity = this.header.querySelector('.identity');
+    const product = this.header.querySelector('.product');
+    if (!(identity instanceof HTMLElement) || !(product instanceof HTMLElement)) return;
+    this.header.classList.remove('crowded');
+    this.header.classList.toggle('crowded', identity.getBoundingClientRect().width < product.scrollWidth);
   }
 
   /** Replaces the menu's entries with Reset's hint and its Confirm reset. */
@@ -283,7 +295,9 @@ function railNav(rail, design, viewing, toggleMap, closeMap) {
         const viewed = isViewed(step.step, viewing);
         const state = viewed ? 'current' : step.state.kind;
         const shown = viewing && !viewed && state === 'current' ? 'next' : state;
-        const done = state === 'done';
+        // A done question keeps its check while its screen is viewed; the design viewed reads
+        // as the step in view, as on the round's first screen.
+        const done = step.state.kind === 'done' && !(isDesign && viewed);
         const name = [
           done ? h('span', { class: 'check', 'aria-hidden': 'true' }, '✓') : null,
           done ? ' ' : null,

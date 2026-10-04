@@ -10,6 +10,7 @@
 /** @import { Current } from "./design.js" */
 
 import { answerCard, markedLine } from './answer-card.js';
+import { choiceCards } from './choices.js';
 import { citationsSection } from './citations.js';
 import { goTo } from './design.js';
 import { h } from './dom.js';
@@ -48,7 +49,10 @@ function panel(question, current) {
     'section',
     { class: 'earlier-panel panel', 'aria-labelledby': title },
     h('p', { class: 'eyebrow', id: title }, `Your answer to question ${question.number}`),
-    question.answer ? answerCard(question.answer) : h('p', { class: 'hint' }, 'The round left this question unanswered.'),
+    choiceCards(question.choices, { name: `earlier-${question.number}-choice`, answered: true }),
+    question.answer
+      ? answerCard(question.answer, { withChoice: false })
+      : h('p', { class: 'hint' }, 'The round left this question unanswered.'),
     question.marks.map(markedLine),
     record(question),
     current ? goTo(current) : null,

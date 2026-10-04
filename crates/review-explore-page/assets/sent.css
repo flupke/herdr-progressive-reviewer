@@ -1,16 +1,14 @@
 /* The answer the agent's turn carries, while the agent works on it or the turn did not go
    through (docs/design/explore-page/README.md, "3. Waiting"): the turn's status card and the
-   answered question on the desk, in muted text; in the panel, the answer that was sent on the
-   page's surface and what it marked (answer-card.css), the card's action and Cancel this
-   answer. The card is in status.css, the question's head and rows in question.css, the
-   citations in citations.css, Cancel this answer's confirmation in turn.css. */
+   answered question on the desk, as it read before the answer; in the panel, its choices with
+   the one sent selected, the comment and tags on the page's surface and what it marked
+   (answer-card.css), the card's action and Cancel this answer. The card is in status.css, the
+   question's head and rows in question.css, the citations in citations.css, Cancel this
+   answer's confirmation in turn.css. */
 
 /* The card runs as wide as the question's rows under it. */
-.sent > .status-card { max-width: calc(820px + 34px); margin-bottom: 28px; }
+.sent > .status-card { max-width: var(--figure-card); margin-bottom: 28px; }
 
-/* The question the reviewer answered: read again, not acted on. */
-.answered-question .question-text,
-.answered-question .explanation { color: var(--muted); }
 
 /* The card's action, at the panel's full width, with its hint under it; then Cancel this
    answer, a quiet line. */

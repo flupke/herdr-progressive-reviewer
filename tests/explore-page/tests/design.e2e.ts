@@ -57,7 +57,7 @@ test('the reviewer opens the design again from a later question, then goes back 
   // Past question 1, the page shows the round's current stage.
   await expect(screen.getByRole('region', 'Question 2')).toBeVisible();
 
-  // The address the rail's "Design ▾" is to link to; the masthead has no rail yet.
+  // The address the design map of the rail's "Design ▾" links to.
   await explore.openDesign();
   await expect(screen.getByRole('region', 'Design of the change')).toBeVisible();
   await expect(screen.getByRole('region', 'Question 2')).toBeHidden();

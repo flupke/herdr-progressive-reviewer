@@ -90,8 +90,8 @@ round still offers it, by the identity of what the action acts on: the version o
 question, the start, the turn and its latest attempt, the answer, the round, the
 conclusion, the implementation request and its attempt. The owner checks again against
 its own round. A repeat of an action that went through (the same answer to the same
-version of a question, the same first pick, list to be implemented, quiz answer or
-reply) is answered as applied already and changes nothing; a repeat of a Start, a Stop
+version of a question, the same first pick, list to be implemented or quiz answer) is
+answered as applied already and changes nothing; a repeat of a Start, a Stop
 waiting, a Retry or a resend names a start, a turn or an attempt that is no longer the
 current one, so it cannot act twice (`CommandRefusal::AlreadyApplied`,
 `src/actions.rs`). With scripts off, the page says that it needs them.
@@ -130,21 +130,21 @@ again with it.
 | Capturing the change, waiting for a start from the page, or a kickoff waiting for Jev | Stop waiting | Stop waiting (`Starting`) |
 | Stopped while capturing | None: waits for the capture to end | `Starting`, then `NoRound` |
 | Waiting for the agent | Stop waiting; Cancel answer on the latest answer | Stop waiting; Cancel this answer, in the panel of the answer the turn carries (`AgentWorking`) |
-| Interrupted: the prompt failed, the agent did not start on it, the reviewer stopped waiting, or reopened during the turn | Retry, with the reason; Cancel answer | Retry, with the failure, an unknown delivery or a stop (`Interrupted`); Cancel answer |
+| Interrupted: the prompt failed, the agent did not start on it, the reviewer stopped waiting, or reopened during the turn | Retry, with the reason; Cancel answer | Retry, with the failure, the agent not starting, an unknown delivery or a stop (`Interrupted`), in the panel of the answer the turn carries when it carries one; Cancel this answer |
 | Interrupted with no turn to send again | Reset | That only Reset is left (`Interrupted` with no request) |
 | A question | Send; Cancel answer of the previous answer | Send answer; on a blind question, a first Send that shows the recommendation, then Confirm answer (`Question`); Cancel this answer |
 | An earlier question in the history | A free-text answer | None: the question opens read only from its step on the rail (`#question-N`), with the answer and what the agent recorded |
 | The conclusion | Implement; Reply; Cancel answer until a request is made | Implement; "Not ready? Reply to the agent instead", which opens the chat, whose message answers nothing; Cancel answer (`Conclusion`), after the quiz, which only the page asks |
 | An implementation request being sent | Cancel implementation | Cancel the implementation request |
-| A request saved but not sent, by an earlier process | Send saved implementation request; New implementation request | Send the saved request; Send a new request |
+| A request saved but not sent, by an earlier process | Send saved implementation request; New implementation request | Send the saved request; Edit before sending, then Send a new request |
 | A request whose delivery is unknown | New implementation request | Send a new request anyway, after the warning |
 | A request the agent did not start on | Retry; New implementation request | Retry only: the list may still wait in the agent's prompt box |
 | A request that was not sent or was cancelled | Implement | Implement |
-| A request the agent received | None | Start a new round… (Reset, then Confirm reset) |
+| A request the agent received | None | Start a new round… (Reset, behind Confirm: start a new round); Reply to the agent, which opens the chat |
 | Any running round | Reset, then Confirm reset | Reset, then Confirm reset, in the masthead's ⋯ menu |
 | An earlier round, or one whose history was repaired | Reset only | That it can no longer change, and Reset only (`earlier`) |
 | A storage error | None: the status says why | Why, and to reopen the pane once fixed (`StorageFailed`) |
-| Any | History navigation, the provisional map, marks lists, evidence windows | None: the page shows the current stage with its citations |
+| Any | History navigation, the provisional map, marks lists, evidence windows | The design screen (`#design`) and each earlier question, read only (`#question-N`), for history; what an answer marks in its gain line, and the marks of each file in the meter's window; the current stage's citations; no provisional map |
 
 The agent's Markdown (the design explanation, a question's Context, Door and
 Blast radius, the conclusion) is rendered to HTML on the server by
@@ -162,10 +162,13 @@ findings; "The page's components" below says where each building block lives.
 A fenced `mermaid` block is a diagram, which `assets/client/diagrams.js` draws in the
 browser with Mermaid when the region that holds it is built, every diagram of the page the
 same way (design review, finding 30): in the page's theme and font, with colours read from the
-tokens at each draw and again when the page turns dark or light; at its natural size when it
-fits its frame, shrunk to the frame down to a scale of 0.85, and otherwise at its natural size
-in a frame that scrolls sideways and says so; a `flowchart LR` that does not fit drawn again top
-to bottom; and the nodes classed `new` or `changed` in green and amber, with a legend. The
+tokens at each draw and again when the page turns dark or light; whole, as the project owner
+asked: at its natural size when it fits its frame, otherwise shrunk to fit and never enlarged;
+when that would take its 14-pixel text under 11 pixels, the figure first widens to the whole
+reading column (class `wide`), and past that a desktop still shrinks it to fit while a phone
+keeps its natural size in a frame that scrolls sideways and says so; a shrunk or scrolling
+diagram offers "Open large", a modal dialog at its natural size that scrolls and closes with
+Escape; a `flowchart LR` that does not fit drawn again top to bottom; and the nodes classed `new` or `changed` in green and amber, with a legend. The
 kickoff's diagram rules (`crates/review-explore-runner/src/diagrams.md`) name that vocabulary.
 Each table of the agent's Markdown sits in a frame of its own that scrolls sideways, with its
 first column held on a phone. Mermaid is
@@ -177,7 +180,8 @@ version. Mermaid writes inline styles into each diagram, so the page's content
 security policy allows inline styles (`style-src 'self' 'unsafe-inline'`); it
 still allows scripts only from the page itself. The tool cannot check a diagram
 when the agent submits it: when Mermaid cannot parse one, the page shows its
-source with Mermaid's message and sends the error over the socket (`diagram-failed`), and
+source under a quiet caption, with Mermaid's message behind a fold (design review, finding 22),
+and sends the error over the socket (`diagram-failed`), and
 the Explore session saves it with the question (`Exploration::diagram_errors`).
 
 In the reviewer, the Explore session publishes the stage of its round (no
@@ -290,7 +294,7 @@ what it names, `.hint` the muted help line. Every control has a focus ring (`:fo
     <p class="status-title" id="interruption-title">The agent may or may not have your answer</p>
     <p class="status-reason">The review pane was reopened while it sent the prompt.</p>
     <div class="status-bar" aria-hidden="true"></div>   <!-- progress only -->
-    <p class="status-next"><strong>Check the agent's conversation before you retry.</strong></p>
+    <p class="status-next"><strong>Check the agent's pane before you retry.</strong></p>
     <div class="status-actions">
       <form class="retry" data-method="retry">
         <input type="hidden" name="request" value="…">
@@ -316,10 +320,13 @@ what it names, `.hint` the muted help line. Every control has a focus ring (`:fo
 - **The answer the agent's turn carries** (`sent.css`, `client/sent.js`, from the view's
   `sent`, `SentView` in `src/view/sent.rs`): while the agent works on a turn that carries the
   reviewer's answer, and when that turn did not go through, the turn's status card sits on a
-  desk of its own (not above the stage), then the answered question, read again in muted text
-  (`questionReading`, "Question 2 · answered", its citations all behind one fold); the panel
-  holds the answer that was sent and what it marked (`answer-card.js`, `answer-card.css`, the
-  same card as an earlier question's panel), the card's one
+  desk of its own (not above the stage), then the answered question, read again as it read
+  before the answer, at full contrast (`questionReading`, "Question 2 · answered"; its
+  citations folded or open as the reviewer left them on the question, kept by `citations.js`;
+  the project owner's request, where the handoff's capture mutes it); the panel holds the
+  question's choices, read only with the one sent selected (`choiceCards(..., { answered })`,
+  `QuestionView::keeping`), the comment and tags and what the answer covered (`answer-card.js`,
+  `answer-card.css`, as an earlier question's panel shows them), the card's one
   action (Stop waiting, or Retry) and Cancel this answer. The panel comes right after the card
   in the markup, so a phone shows the answer and its action before the question. A turn that
   carries no answer (the kickoff) shows its card above the stage, as before:
@@ -329,13 +336,14 @@ what it names, `.hint` the muted help line. Every control has a focus ring (`:fo
     <div class="status-card progress" id="waiting" role="status">…Sent <span class="status-elapsed">0:42</span> ago…</div>
     <section class="sent-answer panel" aria-labelledby="sent-answer-title">
       <p class="eyebrow" id="sent-answer-title">Your answer to question 2</p>
-      <div class="answer-card"><p class="answer-choice">…</p><p class="answer-comment">“…”</p><p class="answer-tags"><span class="tag accent">changed after your first pick</span></p></div>
-      <p class="answer-marked"><span class="check">✓</span> Marked 12 lines reviewed · 3 lines not relevant</p>
+      <fieldset class="choices answered" disabled><legend class="sr-only">Choices</legend><label class="choice">…<input type="radio" checked>…</label>…</fieldset>
+      <div class="answer-card"><p class="answer-comment">“…”</p><p class="answer-tags"><span class="tag accent">changed after your first pick</span></p></div>
+      <p class="answer-marked"><span class="check">✓</span> Marked 15 lines reviewed</p>
       <form class="stop" data-method="stop">…<button class="button secondary block">Stop waiting</button><p class="hint">…</p></form>
       <div class="disclosure">…Cancel this answer…</div>
     </section>
     <section class="answered-question" aria-labelledby="question-2-label">…</section>
-    <section class="citations folded" aria-label="Citations">…▸ 2 citations…</section>
+    <section class="citations" aria-labelledby="question-2-citations">…▸ 1 more citation…</section>
   </div>
   ```
 - **Panel and desk** (`layout.css`): the page is capped at 90rem with a 32-pixel gutter (16 on
@@ -361,7 +369,7 @@ what it names, `.hint` the muted help line. Every control has a focus ring (`:fo
   <section class="start-cover">
     <p class="eyebrow" role="status">No round is running</p>   <!-- only without a card -->
     <h1>The review's title</h1>
-    <p class="meta"><code>revision</code> in <code>repository</code></p>
+    <p class="meta"><code>revision</code> in <code>repository</code> · +125 −10 in 4 files</p>
     <form class="start" data-method="start">
       <div class="start-choice">
         <button class="button primary block" type="submit">Start</button>
@@ -715,7 +723,8 @@ only, with no `unsafe` value; its `connect-src` names the page's own `ws:` addre
 - One module per screen or region: `start.js`, `status.js` (the status card),
   `design.js` (the design screen, with its map and the part in view), `earlier.js` (an earlier
   question, read only), `swipe.js` (the swipe between screens on a phone), `turn.js` (the
-  previous turn), `sent.js` (the answer the agent's turn carries, beside the turn's card), `chips.js` (the chip of a question's Door and the tags of a kept answer), `choices.js` (the choice cards), `question.js` (with the answer panel and the first pick), `citations.js`,
+  previous turn), `sent.js` (the answer the agent's turn carries, beside the turn's card),
+  `answer-card.js` (a kept or sent answer as a card, and what it marked), `chips.js` (the chip of a question's Door and the tags of a kept answer), `choices.js` (the choice cards), `question.js` (with the answer panel and the first pick), `citations.js`,
   `conclusion.js` (with the reviewer's decisions, the list to be implemented, each state of
   its request), `quiz.js`, `masthead.js` (above `main`, with Reset in its menu), `chat.js`
   (the chat, with its bubble in the masthead), `chat-quote.js` ("Add to chat" on a selection),
@@ -765,8 +774,9 @@ again; the open page reconnects by itself once the server is back. The token sta
 The server's own options: `--port N` (`0` picks a free port), `--token T`
 (random when omitted), `--data short|rich`, what the agent posts, `--dev DIR`, the
 page crate's directory to read the files from, and `--fixed-clock`, which stamps every start
-and turn with the same time (the gallery uses it, and holds its pages' clock 42 seconds
-later, so that a time since reads "0:42" in every run). Without `--dev`, it serves the files built
+and turn with the same time, and the chat's messages one second apart from that time (the
+gallery uses it, and holds its pages' clock 42 seconds later, so that a time since reads
+"0:42" in every run). Without `--dev`, it serves the files built
 into the binary. The `short` data set, the default, is the one the e2e tests check; the
 `rich` one is as long as a real round (a design in four full parts, questions with several
 paragraphs of Context, tables, diagrams, three citations of a change of three files, a
@@ -784,8 +794,9 @@ nix develop --command make explore-gallery
 This takes a full-page screenshot of every state of the page, at 1280 and 390
 pixels wide, in the light and the dark theme, and writes them with a contact
 sheet, `index.html`, which shows each state's screenshots side by side. It starts
-the standalone server with the rich data set and, for each screenshot, moves a fresh
-session of it to the state, in a page loaded at that width and theme, through the
+the standalone server with the rich data set and its fixed clock and, for each screenshot,
+moves a fresh session of it to the state, in a page loaded at that width and theme, in the
+UTC time zone and with its clock held still 42 seconds after the server's, through the
 e2e fixture's helpers (`openSession` in `tests/explore-page/tests/session.ts`) and
 exact actions on the page. It waits until the client has drawn the round, with its fonts
 and diagrams, and has the reply to the last action it sent, then makes the window as tall
@@ -806,7 +817,8 @@ The variables, all optional:
 - `GALLERY_WIDTHS`: other widths, separated by spaces (`GALLERY_WIDTHS='1600 1280 900 390'`).
 - `GALLERY_STATES`: only these states, by name, separated by spaces.
 
-Two runs on the same code give the same files; an image differs only where the
+Two runs on the same code give the same files, on any machine: the fixed clocks and the time
+zone make every time the page shows the same; an image differs only where the
 browser draws differently. The comparison is byte for byte, so such a difference
 also counts as a change. The states are listed once, in
 [`tests/explore-page/gallery/states.ts`](../tests/explore-page/gallery/states.ts),
@@ -815,8 +827,9 @@ a name, which never changes once given, since it names the files; a line that sa
 what the state shows; and `reach`, which moves a fresh session, whose agent works on
 its first question, to the state with the fixture's helpers, and leaves the page
 showing it; the helpers of that file cover the usual paths (`after` for a move of the
-round, `question`, `conclusion`). Before an action the round no longer offers, hold the
-page (`refused` in that file) so that it does not follow the round first. A state
+round, `question`, `conclusion`). A state whose layout depends on a wide window names the
+extra widths it is shot at in `extraWidths` (the `working` state is also shot at 2000
+pixels). Before an action the round no longer offers, hold the page (`refused` in that file) so that it does not follow the round first. A state
 that needs a new move of the round needs a control route of the server first, as
 for an e2e test.
 
@@ -870,7 +883,8 @@ answers it in the pane, `explore.answerAfterFirstPick()` answers it with the rec
 after a first pick of another, as a blind question on the page would, `explore.cancelAnswerInPane()` cancels that answer (the question
 then shows its recommendation at once),
 `explore.failDelivery()` fails the prompt the session sends (the conclusion's
-implementation request while it sends one, else the agent's next turn), and
+implementation request while it sends one, else the agent's next turn),
+`explore.agentDoesNotStart()` stands for an agent that does not start on that prompt, and
 `explore.interrupt()`, `explore.conclude()` and `explore.reset()` move the
 round to the other stages. An answer sent from the page puts the agent to work,
 and `explore.answers()` returns what the page sent; `explore.diagramErrors()`
@@ -878,7 +892,7 @@ returns the diagram errors the page reported, as the review tool saves them.
 The round opens on the design of the change, which carries a sequence diagram and a table
 that fit a desktop window but not a phone's; the design's diagram is the page's first
 (`Diagram 1`), and `explore.openDesign()` opens the design screen at a later stage, at the
-address the rail's "Design ▾" is to link to. The second
+address the design map of the rail's "Design ▾" links to (`#design`). The second
 fixed question carries a diagram that draws and one that does not parse. From the second
 question on, and with the conclusion, the agent's fixed response to the previous answer
 shows above it. The session's review has a fixed name, which the start screen shows. A start sent from the page shows the round starting,

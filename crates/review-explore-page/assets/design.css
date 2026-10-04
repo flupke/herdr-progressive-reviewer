@@ -60,7 +60,7 @@
 .design-nav .n { grid-row: 1 / span 2; width: 24px; height: 24px; font-size: 12px; }
 .design-nav .name { font-size: 15px; font-weight: 650; }
 .design-nav .gist { color: var(--muted); font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
-.design-nav .gist code, .design-head code, .design-part .thesis code { font: 0.9em/1.4 var(--mono); }
+.design-nav .gist code, .design-head code, .design-part .thesis code { font: 0.9em/1.4 var(--mono); font-weight: inherit; }
 
 .design-next { display: grid; gap: 8px; margin-top: 12px; padding: 14px 8px 4px; border-top: 1px solid var(--line); }
 .design-next > .eyebrow { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }

@@ -2,8 +2,8 @@
 //! latest stage the round's owner published, then handed to the owner as a [`PageCommand`],
 //! which checks it again against its own round: an action on something the round moved past
 //! is refused as stale, with a notice worded for it. A repeat of an action that went through
-//! (the same answer to the same version of a question, the same pick, list, quiz answer or
-//! reply) is answered as applied already, and changes nothing; a repeat of a Start, a Stop
+//! (the same answer to the same version of a question, the same pick, list or quiz answer) is
+//! answered as applied already, and changes nothing; a repeat of a Start, a Stop
 //! waiting, a Retry or a resend names a start, a turn or an attempt that is no longer the
 //! current one, so it cannot start, stop or send anything a second time. A message in the
 //! round's conversation goes to the owner of the review threads instead (`conversation`).

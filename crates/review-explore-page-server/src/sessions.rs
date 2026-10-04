@@ -17,7 +17,7 @@ use review_explore_page::{
     Waiting,
 };
 use review_explore_tally::MarkTally;
-use review_threads::ThreadCommand;
+use review_threads::{ReviewThreads, ThreadCommand};
 use serde::Serialize;
 
 use crate::conversation::{SentMessage, SessionThreads};
@@ -117,6 +117,17 @@ impl Clock {
             Self::Real => review_explore::now_ms(),
             Self::Fixed => FIXED_NOW_MS,
         }
+    }
+
+    /// `threads` with each message stamped by this clock. The review threads stamp a message
+    /// with the time it was posted; a fixed clock stamps it a second after the one before it,
+    /// starting at its fixed time, so that two runs draw the same times.
+    pub(crate) fn stamped(self, threads: &ReviewThreads) -> ReviewThreads {
+        let mut threads = threads.clone();
+        if let Self::Fixed = self {
+            threads.stamp_postings(|sequence| FIXED_NOW_MS + sequence * 1_000);
+        }
+        threads
     }
 }
 
@@ -900,7 +911,7 @@ impl Sessions {
             answer_marks: Vec::new(),
             marked_by_hand: 0,
             actions: Vec::new(),
-            threads: SessionThreads::new(),
+            threads: SessionThreads::new(self.clock),
             earlier: false,
             page: PageLink::Following,
         };

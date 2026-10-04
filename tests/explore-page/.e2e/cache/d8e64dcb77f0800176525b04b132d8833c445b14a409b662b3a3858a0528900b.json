@@ -1,6 +1,6 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-04T15:31:18.676Z",
+  "createdAt": "2026-10-04T17:07:54.046Z",
   "payload": {
     "actions": [
       {
@@ -22,7 +22,7 @@
       "targetId": "desktop",
       "instructionDigest": "5e7b7514762628473c3397f34f8010e033355a1b793fc82757de95893b7d5cc1"
     },
-    "summary": "The citations region is expanded and shows both citations: src/drafts.rs new 7–8 and src/drafts.rs old 1–3.",
+    "summary": "The Citations section shows both citations: the current src/drafts.rs new 7–8 excerpt and the expanded src/drafts.rs old 1–3 excerpt.",
     "startPath": "/#round",
     "endPath": "/#round",
     "endAnchors": [
@@ -30,7 +30,7 @@
         "text": "The round had no draft before the change."
       },
       {
-        "text": "old 1-3"
+        "text": "old 1–3"
       },
       {
         "text": "struct"
@@ -51,6 +51,6 @@
         "text": "Draft"
       }
     ],
-    "endWaitMs": 27466
+    "endWaitMs": 27903
   }
 }

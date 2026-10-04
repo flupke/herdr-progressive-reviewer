@@ -271,12 +271,12 @@ impl StatusCard {
             )
             .action(offers_actions.then(|| resend("Retry"))),
             ImplementationState::Paused => Self::new(Info, ID, "The request was never sent")
-                .reason("The pane closed before it went out. The list you authorised is saved.")
+                .reason("The pane closed before it went out. The list you authorized is saved.")
                 .action(offers_implement.then(|| resend("Send the saved request"))),
             ImplementationState::Unknown => {
                 Self::new(Warn, ID, "The agent may or may not have the request")
                     .reason("The review pane was reopened while it sent the request.")
-                    .imperative("Check the agent's conversation first.")
+                    .imperative("Check the agent's pane first.")
                     .next_if(offers_implement, "Send again only if it never arrived.")
                     .action(offers_implement.then(|| StatusAction {
                         method: "implement",
@@ -293,6 +293,11 @@ impl StatusCard {
             ImplementationState::NotSent(reason) => {
                 Self::new(Danger, ID, "The implementation request could not be sent")
                     .reason(reason.as_str())
+                    .code()
+                    .next_if(
+                        offers_implement,
+                        "Select an agent in the review pane, then Implement again.",
+                    )
                     .role(StatusRole::Alert)
             }
             ImplementationState::Cancelled => Self::new(
@@ -314,12 +319,13 @@ impl StatusCard {
         )
         .reason(error)
         .code()
+        .next(SELECT_AGENT_THEN_RETRY)
         .role(StatusRole::Alert)
         .action(Some(StatusAction {
             method: "retry-messages",
             fields: vec![Field::new("round", round)],
             label: "Retry",
-            tier: ButtonTier::Secondary,
+            tier: ButtonTier::Primary,
             hint: Some("Wakes the agent again for your waiting messages."),
         }))
     }
@@ -434,6 +440,8 @@ impl StatusCard {
                     "The round could not start",
                 )
                 .reason(failure)
+                .code()
+                .next("Fix what it says, then Start again.")
                 .role(StatusRole::Alert)
             });
         let blocked = round.start_block.map(|block| match block {
@@ -523,7 +531,7 @@ impl StatusCard {
                     .role(StatusRole::Alert)
                     .retry(
                         turn,
-                        Some("Look at the review pane, then Retry."),
+                        Some(SELECT_AGENT_THEN_RETRY),
                         ButtonTier::Primary,
                         sent.filter(|sent| sent.answers_question())
                             .map(|_| "Your answer and its marks are kept."),
@@ -543,7 +551,7 @@ impl StatusCard {
             Interruption::Uncertain => {
                 Self::new(Warn, ID, format!("The agent may or may not have {what}"))
                     .reason("The review pane was reopened while it sent the prompt.")
-                    .imperative("Check the agent's conversation before you retry.")
+                    .imperative("Check the agent's pane before you retry.")
                     .retry(
                         turn,
                         None,
@@ -806,6 +814,9 @@ impl NoticeWords {
         }
     }
 }
+
+/// The next step after a prompt that did not reach the agent (design review, finding 23).
+const SELECT_AGENT_THEN_RETRY: &str = "Select an agent in the review pane, then Retry.";
 
 /// The IDs of the start cover's cards.
 const START_FAILURE: &str = "start-failure";

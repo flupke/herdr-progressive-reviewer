@@ -23,8 +23,8 @@ pub(crate) struct SentView {
     /// The choice and the comment the reviewer sent, and how the choice relates to the first
     /// pick and to the agent's recommendation.
     answer: KeptAnswer,
-    /// What the answer marked: "Marked", then "12 lines reviewed", "3 lines not relevant";
-    /// `None` when it marked nothing.
+    /// What the answer marked: "Marked", then "15 lines reviewed", the lines marked not
+    /// relevant counted as reviewed; `None` when it marked nothing.
     marked: Option<MarkPhrase>,
 }
 
@@ -35,12 +35,14 @@ impl SentView {
     pub(crate) fn of(round: &RoundSnapshot, offers_actions: bool) -> Option<Self> {
         let sent = round.stage.sent().filter(|_| offers_actions)?;
         let number = round.sent_number();
-        let marked = sent.marked.phrase(MarkTense::Applied);
+        // What the answer covers as a whole, as the gain line said before it was sent.
+        let marked = sent.marked.covered_phrase(MarkTense::Applied);
         Some(Self {
             card: StatusCard::of_turn(round, offers_actions)?,
             number,
             question: sent.question.as_ref().map(|answered| {
                 QuestionView::answered(round.round.clone(), number.unwrap_or_default(), answered)
+                    .keeping(sent.kept.choice.as_deref())
             }),
             answer: sent.kept.clone(),
             marked: (!marked.parts.is_empty()).then_some(marked),

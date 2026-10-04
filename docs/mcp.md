@@ -399,7 +399,7 @@ Use `submit_conclusion` for the separate conclusion screen. Its top-level argume
   "request": "turn-id",
   "checkpoint": {"review_unit": "unit", "checkpoint": "commit"},
   "interpretation": null,
-  "summary": "Review outcome, decisions and remaining uncertainty.",
+  "summary": "Review outcome and remaining uncertainty.",
   "to_be_implemented": "1. First agreed task.\n2. Second agreed task.",
   "future_work": "Optional or later work outside this implementation scope.",
   "quiz": [],

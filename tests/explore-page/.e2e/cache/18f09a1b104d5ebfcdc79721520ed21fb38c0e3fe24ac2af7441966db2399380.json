@@ -1,14 +1,14 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-04T15:43:02.010Z",
+  "createdAt": "2026-10-04T17:53:49.008Z",
   "payload": {
     "actions": [
       {
         "name": "tap",
-        "summary": "tap button \"Answering marks 4 lines reviewed · 20 l…\" in \"Question 1\"",
+        "summary": "tap button \"Answering marks 24 lines reviewed 33% →…\" in \"Question 1\"",
         "target": {
           "role": "button",
-          "name": "Answering marks 4 lines reviewed · 20 lines not relevant 33% → 100%",
+          "name": "Answering marks 24 lines reviewed 33% → 100%",
           "within": "Question 1"
         }
       }
@@ -22,7 +22,7 @@
       "targetId": "desktop",
       "instructionDigest": "217c6755288dd7b4be553b31bb5bd0118254fd92173acaad3f10bf92dc839296"
     },
-    "summary": "Opened the “Answering marks” line. It lists src/drafts.rs new 10–13 as reviewed and tests/drafts.rs new 1–20 as not relevant (follows the code).",
+    "summary": "Opened “Answering marks”; it lists src/drafts.rs new 10–13 (reviewed) and tests/drafts.rs new 1–20 (not relevant: follows the code).",
     "startPath": "/#round",
     "endPath": "/#round",
     "endAnchors": [
@@ -35,6 +35,6 @@
         "name": "tests/drafts.rs new 1-20 (not relevant: follows the code)"
       }
     ],
-    "endWaitMs": 17067
+    "endWaitMs": 14530
   }
 }

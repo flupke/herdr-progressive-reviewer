@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 /// Only the agreed implementation scope is editable and sent by the Implement action.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq, schemars::JsonSchema)]
 pub struct Conclusion {
-    /// Review outcome, decisions, limitations and remaining uncertainty.
+    /// Review outcome, limitations and remaining uncertainty. The reviewer's decisions are listed
+    /// beside it from the round itself, so it does not restate them.
     pub summary: String,
     /// Only the agreed tasks to implement now, as editable plain text. Empty if none.
     pub to_be_implemented: String,

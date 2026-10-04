@@ -154,7 +154,7 @@ the reviewer's messages names the question, by identity and version, or the stag
 (the design, the conclusion) it was asked under, and may quote a passage of the round.
 A message never answers the question, which stays open; the agent answers with a
 thread reply. The round's first message starts it, and each round, including one
-started after a Reset, has its own.
+started after a Reset, has its own. The Explore page calls its view of it the chat.
 _Avoid_: chat thread, agent chat (in the domain model), Explore turn
 
 **Cancel answer**:
@@ -166,10 +166,11 @@ _Avoid_: cancel (which stops a pending turn), correction, undo, defer
 A browser page, served by the open review pane, that shows the current state of
 its Explore round: no round, a round starting or failing to start, the agent
 working, the agent's question with its choices, a turn the agent is no longer
-working on, or the conclusion with its quiz; it follows the round as it changes.
+working on, or the conclusion with its quiz; and, on screens of their own, the
+design explanation and each earlier question. It follows the round as it changes.
 The reviewer can run the whole round there, as in the pane: start it, answer,
-stop waiting, retry, cancel an answer, reply to the conclusion, implement it and
-reset it. Its address carries a token, and the page refuses requests without it.
+stop waiting, retry, cancel an answer, implement it and reset it; and write in the
+round conversation. Its address carries a token, and the page refuses requests without it.
 The pane serves it on this machine, for the Herdr action and for Start and Start
 with Challenger, which open it in the browser (Start in the pane does not), behind a
 token that the next pane of the same review keeps, so that an open page reconnects
@@ -188,18 +189,42 @@ _Avoid_: web session, web round
 **Round rail**:
 The steps of an Explore round as the Explore page lists them: the design
 explanation, each question the agent posted with its clarified versions, the
-quiz and the conclusion, each done, current or later.
+quiz and the conclusion, each done, current or later. Each done question opens its
+earlier question.
 _Avoid_: stepper, breadcrumb, progress bar (the meter is the lines reviewed)
+
+**Earlier question**:
+A question of the current Explore round that the reviewer already answered: a done
+step of the round rail. The Explore page shows it read only, with the answer kept,
+the review marks it led to, and what the agent recorded of the answer.
+_Avoid_: previous question, history, earlier round (a round that a newer round of
+the review replaced)
+
+**Meter**:
+The line under the Explore page's masthead that shows the share of the changed lines
+that review marks cover, split by who marked them, with the lines the question that
+waits marks once answered and the lines left; its window gives the numbers for the
+change and for each file.
+_Avoid_: coverage, progress bar
 
 **First pick**:
 The choice the reviewer picks on the Explore page before it shows the agent's
-recommendation, on a question whose Door is one-way, mixed or unknown. A question asked
+recommendation, on a question whose Door is one-way, mixed or unknown, which the page
+marks "Blind pick". A question asked
 again after a Cancel answer has none: the reviewer has seen its recommendation. The
-reviewer then keeps it or changes it before sending; the saved answer keeps the
+reviewer then keeps it or changes it before confirming the answer; the saved answer keeps the
 first pick beside the sent choice. A comment typed with the first pick stays in the answer's
-comment box, and is part of the answer only once the reviewer sends it. Also called the blind
+comment box, and is part of the answer only once the reviewer confirms it. Also called the blind
 first pick.
 _Avoid_: initial answer, draft choice
+
+**Decision**:
+A question the reviewer answered in an Explore round, with the answer kept (the latest
+answer to the question's latest version): its choice, or its comment when it has no
+choice, and whether the choice was the agent's recommendation ("as recommended") or not
+the reviewer's first pick ("changed after your first pick"). The conclusion lists the
+round's decisions.
+_Avoid_: verdict, outcome
 
 **Reset**:
 Closing the current Explore round and returning to the start screen. The round's

@@ -49,7 +49,7 @@ test(
     await expect(picked).toContainText(FIRST_CORRECT);
     await expect(picked).toContainText('Correct');
     // The proof is in the reading column now.
-    await expect(screen.getByRole('region', 'Proof').getByRole('heading', 'src/drafts.rs new 7-8')).toBeVisible();
+    await expect(screen.getByRole('region', 'Proof').getByRole('heading', 'src/drafts.rs new 7–8')).toBeVisible();
     // Why the agent thinks the item is at whiteboard level stays out of the page.
     await expect(screen.getByText('Data storage: what survives closing the pane.', { exact: false })).toHaveCount(0);
 

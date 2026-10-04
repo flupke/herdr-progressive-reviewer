@@ -7,16 +7,29 @@
 
 import { h } from './dom.js';
 
+/** Options with nothing of the agent's on them, such as a quiz item's answers, as choice cards
+ * take them: none recommended, none picked yet.
+ * @param {{ id: string, text: string }[]} options
+ * @returns {ChoiceView[]} */
+export function plainChoices(options) {
+  return options.map(({ id, text }) => ({ id, text, recommendation: null, checked: false }));
+}
+
 /** The choices as cards, under their legend. `name` is the radios' field, which also names
  * each card's text (`<name>-N`); `picking` requires a pick, and `revealed` tags the first pick
- * once the recommendation shows.
+ * once the recommendation shows; `answered` shows the choices of a question the reviewer
+ * answered, read only, the kept one selected.
  * @param {ChoiceView[]} choices
- * @param {{ name?: string, legend?: string, picking?: boolean, revealed?: boolean }} [options] */
-export function choiceCards(choices, { name = 'choice', legend = 'Choices', picking = false, revealed = false } = {}) {
+ * @param {{ name?: string, legend?: string, picking?: boolean, revealed?: boolean, answered?: boolean }} [options] */
+export function choiceCards(
+  choices,
+  { name = 'choice', legend = 'Choices', picking = false, revealed = false, answered = false } = {},
+) {
   return h(
     'fieldset',
-    { class: 'choices' },
-    h('legend', { class: 'eyebrow' }, legend),
+    { class: answered ? 'choices answered' : 'choices', disabled: answered },
+    // Read again under the panel's own eyebrow, an answered question's legend is for readers only.
+    h('legend', { class: answered ? 'sr-only' : 'eyebrow' }, legend),
     choices.map((choice, index) => {
       const reason = choice.recommendation !== null ? `recommendation-${index + 1}` : null;
       const text = `${name}-${index + 1}`;

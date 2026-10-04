@@ -1,6 +1,6 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-04T15:32:00.432Z",
+  "createdAt": "2026-10-04T17:08:55.959Z",
   "payload": {
     "actions": [
       {
@@ -22,7 +22,7 @@
       "targetId": "phone",
       "instructionDigest": "5e7b7514762628473c3397f34f8010e033355a1b793fc82757de95893b7d5cc1"
     },
-    "summary": "The Citations region now shows both citations: src/drafts.rs new 7–8 and src/drafts.rs old 1–3.",
+    "summary": "The Citations section shows both citations for question 1: the new `src/drafts.rs` lines 7–8 and the old `src/drafts.rs` lines 1–3.",
     "startPath": "/#round",
     "endPath": "/#round",
     "endAnchors": [
@@ -30,7 +30,7 @@
         "text": "The round had no draft before the change."
       },
       {
-        "text": "old 1-3"
+        "text": "old 1–3"
       },
       {
         "text": "struct"
@@ -51,6 +51,6 @@
         "text": "Draft"
       }
     ],
-    "endWaitMs": 26708
+    "endWaitMs": 28382
   }
 }

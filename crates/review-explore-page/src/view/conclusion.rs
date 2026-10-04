@@ -70,7 +70,8 @@ enum ListView {
 struct DecisionView {
     /// The question's number in the round rail.
     number: usize,
-    question: String,
+    /// The question's text, the agent's Markdown rendered.
+    question_html: String,
     /// The text of the kept choice; `None` for a comment-only answer.
     choice: Option<String>,
     /// The reviewer's comment; empty when there is none.
@@ -272,7 +273,7 @@ impl DecisionView {
     fn new(decision: &Decision) -> Self {
         Self {
             number: decision.number,
-            question: decision.question.clone(),
+            question_html: markdown(&decision.question, 3),
             choice: decision.answer.choice.clone(),
             comment: decision.answer.comment.clone(),
             tags: decision.answer.tags.clone(),

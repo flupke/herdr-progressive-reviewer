@@ -26,6 +26,8 @@
   --warn: light-dark(#9a6700, #d29922);
   --bad: light-dark(#cf222e, #f85149);
   --agent: light-dark(#8250df, #ab7df8);
+  /* The fill of Confirm reset, under white text: on a dark page --bad is too light for it. */
+  --bad-fill: light-dark(#cf222e, #da3633);
 
   --font: system-ui, -apple-system, "Segoe UI", "Noto Sans", sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -36,7 +38,21 @@
   --radius-status: 10px;
   --radius-pill: 999px;
 
-  --shadow-popover: 0 14px 36px rgba(0, 0, 0, 0.55);
+  /* The stacking order, from the back. The page's own layers (sticky table columns, the
+     design's sticky part heads and bottom bar, the swipe's screens and edge) stay under 10.
+     The masthead holds, in its own stack: its hairline and the meter's bar and target, then the
+     design map and the ⋯ menu, then the meter's window. Over the masthead come "Add to chat",
+     the chat's scrim, then the chat. A diagram opened large is a modal dialog, in the browser's
+     top layer, over everything. */
+  --layer-masthead: 10;
+  --layer-line: 1;
+  --layer-popover: 2;
+  --layer-meter-window: 3;
+  --layer-quote: 15;
+  --layer-scrim: 19;
+  --layer-chat: 20;
+
+  --shadow-popover: 0 14px 36px light-dark(rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.55));
   --shadow-drawer: 0 18px 48px light-dark(rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.55));
 }
 

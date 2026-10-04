@@ -50,4 +50,6 @@
     overflow: hidden;
   }
   .turn-follow-ups { display: none; }
+  /* The follow-ups are hidden: Cancel this answer… follows the clamped text at the grid's gap. */
+  .turn-foot { margin-top: 0; }
 }

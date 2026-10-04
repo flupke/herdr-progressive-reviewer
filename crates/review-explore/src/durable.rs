@@ -285,6 +285,20 @@ impl MarkCounts {
         format!("{} {}", phrase.verb, phrase.parts.join(" · "))
     }
 
+    /// The phrase of what the marks cover as a whole, as the meter counts it: the lines marked
+    /// not relevant count as reviewed with the others, then what is reopened. The page's gain
+    /// line says it; the split stays in the list of lines.
+    pub fn covered_phrase(self, tense: MarkTense) -> MarkPhrase {
+        Self {
+            reviewed_lines: self.reviewed_lines + self.not_relevant_lines,
+            reviewed_files: self.reviewed_files + self.not_relevant_files,
+            not_relevant_lines: 0,
+            not_relevant_files: 0,
+            ..self
+        }
+        .phrase(tense)
+    }
+
     /// The summary's verb, and what it marks.
     pub fn phrase(self, tense: MarkTense) -> MarkPhrase {
         let (mark, reopen, reopen_also) = match tense {

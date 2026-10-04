@@ -62,7 +62,7 @@ enum Recommendation {
 
 /// One choice of a question.
 #[derive(Debug, Serialize, TS)]
-struct ChoiceView {
+pub(super) struct ChoiceView {
     id: String,
     text: String,
     /// Why the agent recommends the choice, when it does and the page shows it.
@@ -74,7 +74,8 @@ struct ChoiceView {
 /// What an answer to the question marks: a summary, and the lines on request.
 #[derive(Debug, Serialize, TS)]
 struct MarksView {
-    /// "Answering marks", then "12 lines reviewed", "3 lines not relevant".
+    /// "Answering marks", then "15 lines reviewed": the lines marked not relevant count as
+    /// reviewed, as in the meter; the lists below keep them apart.
     summary: MarkPhrase,
     reviewed: Vec<String>,
     /// Each with why it is not relevant.
@@ -98,7 +99,7 @@ pub(crate) struct CitationView {
     location: String,
     /// The path alone: `src/main.rs`.
     path: String,
-    /// The side and lines alone: `new 7-9`, or `whole file`.
+    /// The side and lines alone: `new 7–9`, or `whole file`.
     span: String,
     notes: String,
     rows: Vec<RowView>,
@@ -238,6 +239,14 @@ impl QuestionView {
         self
     }
 
+    /// The question with the choice `kept` (its text), which the reviewer sent, selected.
+    pub(super) fn keeping(mut self, kept: Option<&str>) -> Self {
+        for choice in &mut self.choices {
+            choice.keep(kept);
+        }
+        self
+    }
+
     /// The share the answer adds, when the answer marks lines.
     fn gain(mut self, gain: Option<&Gain>) -> Self {
         self.gain = gain.filter(|_| self.marks.is_some()).map(|gain| GainView {
@@ -249,6 +258,24 @@ impl QuestionView {
 }
 
 impl ChoiceView {
+    /// The choices of `question` the reviewer answered, in the agent's order and with its
+    /// recommendation, the choice `kept` (its text) selected.
+    pub(super) fn kept(question: &Question, kept: Option<&str>) -> Vec<Self> {
+        question
+            .choices()
+            .map(|choice| {
+                let mut view = Self::new(choice, Recommendation::Shown, None);
+                view.keep(kept);
+                view
+            })
+            .collect()
+    }
+
+    /// Selects the choice when it is the one `kept`, by its text, as the round keeps an answer.
+    fn keep(&mut self, kept: Option<&str>) {
+        self.checked = kept == Some(self.text.as_str());
+    }
+
     fn new(choice: &Alternative, recommendation: Recommendation, first_pick: Option<&str>) -> Self {
         Self {
             id: choice.id.clone(),
@@ -264,7 +291,9 @@ impl ChoiceView {
 
 impl MarksView {
     fn new(marks: &QuestionMarks) -> Option<Self> {
-        let summary = marks.counts().phrase(MarkTense::Answering);
+        // What answering covers as a whole, as the meter counts it; the list of lines keeps the
+        // split between reviewed and not relevant.
+        let summary = marks.counts().covered_phrase(MarkTense::Answering);
         if summary.parts.is_empty() {
             return None;
         }
@@ -280,7 +309,10 @@ impl MarksView {
 impl CitationView {
     pub(crate) fn new(citation: &Citation) -> Self {
         let (rows, limitation) = match &citation.lines {
-            Ok(rows) => (rows.iter().filter_map(RowView::new).collect(), None),
+            Ok(rows) => (
+                RowView::dedented(rows.iter().filter_map(RowView::new).collect()),
+                None,
+            ),
             Err(limitation) => (Vec::new(), Some(limitation.to_string())),
         };
         let location = &citation.evidence.location;
@@ -289,7 +321,10 @@ impl CitationView {
             path: location.path.display().to_string(),
             span: location.lines.as_ref().map_or_else(
                 || "whole file".to_owned(),
-                |lines| format!("{} {lines}", location.side),
+                |lines| {
+                    let span = Self::span(lines.first_line, lines.last_line);
+                    format!("{} {span}", location.side)
+                },
             ),
             notes: citation.evidence.notes.clone(),
             rows,
@@ -317,6 +352,65 @@ impl RowView {
     }
 }
 
+impl CitationView {
+    /// "7", or "7–9" for the lines `first` to `last`: with an en dash, as the handoff's code frames write it.
+    fn span(first: u32, last: u32) -> String {
+        if first == last {
+            first.to_string()
+        } else {
+            format!("{first}–{last}")
+        }
+    }
+}
+
+impl RowView {
+    /// `rows` without the indentation they all share (design review, finding 15): a phone shows
+    /// the code, not the spaces before it. Blank rows do not count.
+    fn dedented(mut rows: Vec<Self>) -> Vec<Self> {
+        let shared = rows.iter().filter_map(Self::indentation).min().unwrap_or(0);
+        if shared > 0 {
+            for row in &mut rows {
+                row.strip(shared);
+            }
+        }
+        rows
+    }
+
+    /// How many spaces or tabs open the row, or `None` for a blank row.
+    fn indentation(&self) -> Option<usize> {
+        let mut count = 0;
+        for character in self.tokens.iter().flat_map(|token| token.text.chars()) {
+            match character {
+                ' ' | '\t' => count += 1,
+                '\n' | '\r' => return None,
+                _ => return Some(count),
+            }
+        }
+        None
+    }
+
+    /// Takes up to `count` leading spaces or tabs off the row.
+    fn strip(&mut self, mut count: usize) {
+        for token in &mut self.tokens {
+            if count == 0 {
+                break;
+            }
+            let blank = token
+                .text
+                .chars()
+                .take(count)
+                .take_while(|character| matches!(character, ' ' | '\t'))
+                .count();
+            token.text.drain(..blank);
+            count -= blank;
+            if !token.text.is_empty() {
+                break;
+            }
+        }
+        self.tokens.retain(|token| !token.text.is_empty());
+    }
+}
+
 impl TokenView {
     fn new(token: &Token) -> Self {
         Self {
@@ -325,3 +419,7 @@ impl TokenView {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "question.tests.rs"]
+mod tests;

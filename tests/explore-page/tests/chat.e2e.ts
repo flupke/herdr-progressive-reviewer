@@ -147,3 +147,32 @@ test('a message being typed in the chat comes back after a reload', async ({ exp
   await screen.getByRole('button', 'Talk to the agent').tap();
   await expect(chat.getByRole('textbox', 'Message to the agent')).toHaveValue('Half a thought');
 });
+
+test('on a phone, a sideways drag inside the open chat turns no page', async ({ explore, screen, browser }) => {
+  await browser.setViewport({ width: 390, height: 844 });
+  await explore.open();
+  await explore.askQuestion();
+  await screen.getByRole('link', 'Go to question 1').tap();
+  await explore.answerInPane();
+  await explore.askQuestion();
+  const question = screen.getByRole('region', 'Question 2');
+  await expect(question).toBeVisible();
+  await screen.getByRole('button', 'Talk to the agent').tap();
+  const chat = screen.getByRole('complementary', CHAT);
+  await expect(chat).toBeVisible();
+
+  // An exact drag rather than a goal: where it starts and how far it goes is the fact under
+  // test. Across the page, a drag to the right this long turns back to question 1; inside the
+  // chat's sheet it is the chat's, and turns nothing.
+  const log = chat.getByRole('log', 'Messages');
+  const box = await log.boundingBox();
+  if (!box) throw new Error('no chat log to drag in');
+  const y = Math.round(box.y + Math.min(box.height / 2, 40));
+  await screen.swipe({ from: { x: Math.round(box.x + 40), y }, to: { x: Math.round(box.x + 280), y } });
+  await expect(chat).toBeVisible();
+  await expect(screen.getByRole('region', 'Question 1 · answered')).toBeHidden();
+
+  await chat.getByRole('button', 'Close the conversation').tap();
+  await expect(question).toBeVisible();
+  await expect(screen.getByRole('region', 'Question 1 · answered')).toBeHidden();
+});

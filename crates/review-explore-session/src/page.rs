@@ -159,7 +159,7 @@ impl ExploreSession {
         match command {
             PageCommand::Answer(answer) => {
                 let result = self.answer_from_page(answer);
-                // The page loads itself again once it has the reply: it shows the new stage.
+                // The new stage reaches the page before the reply does.
                 self.publish_page();
                 reply.send(result);
             }

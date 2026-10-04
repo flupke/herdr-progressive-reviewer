@@ -4,8 +4,9 @@
 // reviewer's Explore tab: the round goes back to its question, and the review marks the answer
 // led to are given back.
 
-/** @import { LatestAnswer, ResponseView } from "./types.ts" */
+/** @import { KeptAnswer, LatestAnswer, ResponseView } from "./types.ts" */
 
+import { NOTHING_ANSWERED } from './answer-card.js';
 import { disclosure } from './disclosure.js';
 import { h, markdown } from './dom.js';
 
@@ -13,6 +14,8 @@ import { h, markdown } from './dom.js';
  * @typedef {object} Turn
  * @property {LatestAnswer | null} answer the reviewer's latest answer, when the page offers to
  *   cancel it
+ * @property {KeptAnswer | null} [kept] the reviewer's latest answer as the round kept it, when it
+ *   can no longer be cancelled
  * @property {ResponseView | null} response what the agent's turn said back to it
  * @property {number | null} number the number of the question the answer answered, when known
  */
@@ -21,13 +24,14 @@ import { h, markdown } from './dom.js';
  * The block, or `null` when the turn has nothing to show.
  * @param {Turn} turn
  */
-export function turnStrip({ answer, response, number }) {
+export function turnStrip({ answer, kept = null, response, number }) {
   if (!answer && !response) return null;
   const followUps = response ? followUpsLine(response, 'turn-follow-ups') : null;
+  const shown = answer ?? kept;
   return h(
     'div',
     { class: 'turn' },
-    answer ? answered(answer, number) : null,
+    shown ? answered(shown, number) : null,
     response ? recorded(response) : null,
     followUps || answer
       ? h(
@@ -42,7 +46,7 @@ export function turnStrip({ answer, response, number }) {
 
 /**
  * What the reviewer answered: the choice, then the comment.
- * @param {LatestAnswer} answer
+ * @param {LatestAnswer | KeptAnswer} answer
  * @param {number | null} number
  */
 function answered(answer, number) {
@@ -56,7 +60,7 @@ function answered(answer, number) {
       { class: 'turn-text' },
       answer.choice ? h('p', { class: 'turn-choice' }, answer.choice) : null,
       answer.comment ? h('p', { class: 'turn-comment' }, `“${answer.comment}”`) : null,
-      !answer.choice && !answer.comment ? h('p', { class: 'turn-comment' }, 'No choice, no comment') : null,
+      !answer.choice && !answer.comment ? h('p', { class: 'turn-comment' }, NOTHING_ANSWERED) : null,
     ),
   );
 }

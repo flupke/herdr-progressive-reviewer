@@ -4,12 +4,16 @@
 // message under it, and the page tells the tool, which saves the error with the question.
 //
 // Every diagram of the page, the design's and a question's, is drawn the same way (design
-// review, finding 30): in the page's theme and font, whose colours are read from its tokens at
-// each draw and again when the page turns dark or light; at its natural size when it fits its
-// frame, shrunk to the frame while that keeps its text at 12 pixels or more, and otherwise at its
-// natural size in a frame that scrolls sideways; a flowchart laid out left to right is drawn top
-// to bottom when it does not fit; and the nodes the agent classed `new` or `changed` take the
-// page's green and amber, with a legend under the drawing.
+// review, finding 30, with the project owner's rule that a diagram shows whole): in the page's
+// theme and font, whose colours are read from its tokens at each draw and again when the page
+// turns dark or light; at its natural size when it fits its frame, and otherwise shrunk to fit,
+// never above its natural size. When shrinking to the figure's width would take its 14-pixel
+// text under 11 pixels, the figure first widens to the whole reading column; past that, a
+// desktop still shows it whole, and a phone keeps its natural size in a frame that scrolls
+// sideways. A shrunk or scrolling diagram offers "Open large", which shows it at its natural
+// size over the page. A flowchart laid out left to right is drawn top to bottom when it does not
+// fit; and the nodes the agent classed `new` or `changed` take the page's green and amber, with
+// a legend under the drawing.
 
 /**
  * @import { DiagramParams } from "./types.ts"
@@ -24,12 +28,16 @@
  *   render(id: string, source: string): Promise<{ svg: string }> }} Mermaid
  */
 
+import { disclosure } from './disclosure.js';
 import { h, setDiagramDrawing } from './dom.js';
 
 const FENCE = 'mermaid';
 const dark = matchMedia('(prefers-color-scheme: dark)');
-/** The smallest scale a diagram is shrunk to: its 14-pixel text stays at 12 pixels or more. */
-const SMALLEST = 0.85;
+/** The smallest scale that keeps a diagram readable: its 14-pixel text stays at 11 pixels or
+ * more. */
+const SMALLEST = 11 / 14;
+/** A phone, where an unreadable diagram scrolls sideways rather than shrinking further. */
+const phone = matchMedia('(max-width: 40rem)');
 /** A flowchart laid out left to right, which can be drawn top to bottom instead. */
 const SIDEWAYS = /^(\s*(?:%%[^\n]*\n\s*)*(?:flowchart|graph)\s+)(?:LR|RL)\b/;
 /** A node classed `new` or `changed`, with `:::` or a `class` statement. */
@@ -276,6 +284,7 @@ function show(diagram, svg) {
         )
       : null,
     h('span', { class: 'scroll-hint' }, scrollHint(diagram.source)),
+    h('button', { class: 'diagram-open', type: 'button', hidden: true, onclick: () => openLarge(diagram) }, 'Open large'),
   );
   diagram.figure.replaceChildren(drawing, caption);
   if (diagram.block.isConnected) diagram.block.replaceWith(diagram.figure);
@@ -297,22 +306,26 @@ function natural(diagram) {
 }
 
 /**
- * Sizes the drawing of `diagram` for its frame: its natural size when it fits, the frame's width
- * while that keeps a scale of `SMALLEST` or more, and otherwise its natural size in a frame that
- * scrolls sideways. A frame that is not shown (on the screen the page hides) waits for the next
- * fit.
+ * Sizes the drawing of `diagram` for its frame: its natural size when it fits; shrunk to the
+ * figure's width while its text stays readable (`SMALLEST`); else shrunk to the whole reading
+ * column (class `wide`); and past that, shrunk to the column anyway on a desktop, or at its
+ * natural size in a frame that scrolls sideways on a phone. A frame that is not shown (on the
+ * screen the page hides) waits for the next fit.
  * @param {Diagram} diagram
  * @returns {boolean} false when the diagram has to be drawn again in its other direction
  */
 function fit(diagram) {
   const { figure } = diagram;
   const drawing = figure.querySelector('.drawing > svg');
-  if (!(drawing instanceof SVGSVGElement) || diagram.failed) return true;
-  const style = getComputedStyle(figure);
-  const room = figure.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+  if (!(drawing instanceof SVGSVGElement) || diagram.failed || figure.classList.contains('large')) return true;
+  figure.classList.remove('wide');
+  const room = roomOf(figure);
   if (room <= 0) return true;
+  figure.classList.add('wide');
+  const column = roomOf(figure);
+  figure.classList.remove('wide');
   if (diagram.wide > 0) {
-    const turn = diagram.wide * SMALLEST > room;
+    const turn = diagram.wide * SMALLEST > column;
     if (turn !== diagram.turned) {
       diagram.turned = turn;
       return false;
@@ -320,11 +333,62 @@ function fit(diagram) {
   }
   const width = natural(diagram);
   if (width <= 0) return true;
-  const scale = room / width;
+  const readable = width * SMALLEST <= room;
+  const widens = !readable && width > room && column > room;
+  const scrolls = width * SMALLEST > column && phone.matches;
+  const space = widens ? column : room;
+  figure.classList.toggle('wide', widens && !scrolls);
+  figure.classList.toggle('scrolls', scrolls);
   drawing.style.maxWidth = 'none';
-  drawing.style.width = `${scale >= 1 || scale < SMALLEST ? width : room}px`;
-  figure.classList.toggle('scrolls', scale < SMALLEST);
+  drawing.style.width = `${scrolls ? width : Math.min(width, space)}px`;
+  const open = figure.querySelector('.diagram-open');
+  if (open instanceof HTMLElement) open.hidden = !scrolls && width <= space;
   return true;
+}
+
+/** The width a figure gives its drawing. @param {HTMLElement} figure */
+function roomOf(figure) {
+  const style = getComputedStyle(figure);
+  return figure.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+}
+
+/** The dialog that shows a diagram at its natural size. @type {HTMLDialogElement | null} */
+let dialog = null;
+
+/**
+ * Shows the drawing of `diagram` at its natural size over the page, in a dialog that scrolls
+ * and closes with Escape or its button; the drawing goes back to its figure once it closes.
+ * @param {Diagram} diagram
+ */
+function openLarge(diagram) {
+  const drawing = diagram.figure.querySelector('.drawing > svg');
+  if (!(drawing instanceof SVGSVGElement)) return;
+  const name = diagram.figure.getAttribute('aria-label') ?? 'Diagram';
+  const frame = h('div', { class: 'diagram-large' });
+  const close = h('button', { class: 'button secondary', type: 'button' }, 'Close');
+  dialog?.remove();
+  const shown = /** @type {HTMLDialogElement} */ (
+    h('dialog', { class: 'diagram-dialog', 'aria-label': `${name} at full size` }, h('div', { class: 'diagram-dialog-head' }, h('p', { class: 'eyebrow' }, name), close), frame)
+  );
+  dialog = shown;
+  const home = drawing.parentElement;
+  const width = drawing.style.width;
+  drawing.style.width = `${natural(diagram)}px`;
+  frame.append(drawing);
+  diagram.figure.classList.add('large');
+  close.addEventListener('click', () => shown.close());
+  shown.addEventListener('close', () => {
+    drawing.style.width = width;
+    home?.append(drawing);
+    diagram.figure.classList.remove('large');
+    shown.remove();
+    if (dialog === shown) dialog = null;
+    fit(diagram);
+    const opener = diagram.figure.querySelector('.diagram-open');
+    if (opener instanceof HTMLElement) opener.focus();
+  });
+  document.body.append(shown);
+  shown.showModal();
 }
 
 /**
@@ -333,14 +397,12 @@ function fit(diagram) {
  */
 function fail(diagram, message) {
   diagram.failed = true;
-  const caption = document.createElement('figcaption');
-  const title = document.createElement('p');
-  title.textContent = 'Mermaid cannot draw this diagram:';
-  const details = document.createElement('pre');
-  details.textContent = message;
-  caption.append(title, details);
+  // The reviewer cannot fix the diagram, and its source reads as text (design review, finding
+  // 22): a quiet caption, the source, and Mermaid's message behind a fold.
+  const caption = h('figcaption', {}, 'This diagram could not be drawn; here is its source.');
+  const why = disclosure('Mermaid’s message', h('pre', { class: 'diagram-error' }, message));
   diagram.figure.classList.add('failed');
-  diagram.figure.replaceChildren(diagram.block.cloneNode(true), caption);
+  diagram.figure.replaceChildren(caption, diagram.block.cloneNode(true), why.element);
   if (diagram.block.isConnected) diagram.block.replaceWith(diagram.figure);
   const question = diagram.figure.closest('[data-question]');
   if (question instanceof HTMLElement) {

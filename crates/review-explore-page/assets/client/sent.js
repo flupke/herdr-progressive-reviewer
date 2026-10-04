@@ -1,8 +1,11 @@
 // The answer the agent's turn carries, while the agent works on the turn or the turn did not go
 // through (docs/design/explore-page/README.md, "3. Waiting"; design review, findings 6 and 13):
-// on the desk, the turn's status card, then the question the answer answers, in muted text, with
-// its Door and Blast radius and its citations folded; in the panel, the answer that was sent,
-// what it marked, the card's one action (Stop waiting, or Retry) and Cancel this answer.
+// on the desk, the turn's status card, then the question the answer answers, as it read before
+// the answer (the reviewer rereads it while the agent works: the project owner asked for it at
+// full contrast, where the handoff's capture mutes it and folds its citations), with its Door and
+// Blast radius and its citations; in the panel, its choices with the one sent selected, the
+// comment, what it marked, the card's one action (Stop waiting, or Retry) and Cancel this
+// answer.
 //
 // The parts are rebuilt only when their own data changes, so the time since the turn went out
 // keeps counting, and the reader's folds stay open, while the round moves on in the pane.
@@ -10,6 +13,7 @@
 /** @import { SentView, LatestAnswer } from "./types.ts" */
 
 import { answerCard, markedLine } from './answer-card.js';
+import { choiceCards } from './choices.js';
 import { citationsSection } from './citations.js';
 import { h, keyOf, Region } from './dom.js';
 import { questionReading } from './question.js';
@@ -49,7 +53,7 @@ export class SentScreen {
     });
     this.panel.show(keyOf([sent, cancellable]), () => panel(sent, cancellable));
     this.citations.show(keyOf(question?.citations ?? null), () =>
-      question ? citationsSection(question.citations, question.number, { folded: true }) : null,
+      question ? citationsSection(question.citations, question.number) : null,
     );
   }
 }
@@ -67,7 +71,10 @@ function panel(sent, cancellable) {
     'section',
     { class: 'sent-answer panel', 'aria-labelledby': 'sent-answer-title' },
     h('p', { class: 'eyebrow', id: 'sent-answer-title' }, title),
-    answerCard(sent.answer),
+    sent.question
+      ? choiceCards(sent.question.choices, { name: 'sent-choice', answered: true })
+      : null,
+    answerCard(sent.answer, { withChoice: !sent.question }),
     sent.marked ? markedLine(sent.marked) : null,
     panelActions(sent.card),
     cancellable ? cancelAnswer(cancellable) : null,

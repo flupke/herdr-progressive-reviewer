@@ -126,6 +126,18 @@ impl ReviewThreads {
             .count()
     }
 
+    /// Stamps each message with the time `time` gives for its sequence number, in place of the
+    /// clock it was posted by: a page drawn from fixed data shows the same times on every run.
+    pub fn stamp_postings(&mut self, time: impl Fn(u64) -> u64) {
+        for message in self
+            .threads
+            .iter_mut()
+            .flat_map(|thread| &mut thread.messages)
+        {
+            message.posted_at_ms = Some(time(message.sequence()));
+        }
+    }
+
     pub fn sequence(&self) -> u64 {
         self.sequence
     }

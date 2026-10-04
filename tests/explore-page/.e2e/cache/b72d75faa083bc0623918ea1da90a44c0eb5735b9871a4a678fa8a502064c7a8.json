@@ -1,6 +1,6 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-04T15:22:15.185Z",
+  "createdAt": "2026-10-04T17:09:08.608Z",
   "payload": {
     "actions": [
       {
@@ -9,7 +9,7 @@
         "target": {
           "role": "link",
           "name": "Go to question 2",
-          "within": "Design of the change · read before question 1"
+          "within": "Design of the change · read before question 2"
         }
       }
     ],
@@ -22,7 +22,7 @@
       "targetId": "phone",
       "instructionDigest": "3236fa573bc8c94199a2e9e6d7e39f9d44808c1824769269063f56c0f85c679c"
     },
-    "summary": "Question 2 is visible on the current screen at /#round, confirming the requested navigation to question 2 took effect.",
+    "summary": "Selected “Go to question 2”; the Question 2 region is now displayed at /#round.",
     "startPath": "/#design",
     "endPath": "/#round",
     "endAnchors": [
@@ -53,6 +53,6 @@
         "name": "Choices ↓"
       }
     ],
-    "endWaitMs": 27706
+    "endWaitMs": 13956
   }
 }

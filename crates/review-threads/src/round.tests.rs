@@ -171,3 +171,25 @@ fn a_round_message_sent_again_with_its_identity_is_posted_once() {
     assert_eq!(thread.messages.len(), 1);
     assert_eq!(thread.messages[0].id, id);
 }
+
+#[test]
+fn postings_take_the_times_given_for_their_sequence() {
+    let mut book = ReviewThreads::new("change".into());
+    for text in ["Why a lock here?", "And the design?"] {
+        book.post(Post::to_round("round-1", text.into(), None, None))
+            .unwrap();
+    }
+    book.stamp_postings(|sequence| 1_000 + sequence);
+
+    let messages = &book.round_conversation("round-1").unwrap().messages;
+    let times: Vec<_> = messages
+        .iter()
+        .map(|message| message.posted_at_ms)
+        .collect();
+    let sequences: Vec<_> = messages
+        .iter()
+        .map(|message| Some(1_000 + message.sequence()))
+        .collect();
+    assert_eq!(times, sequences);
+    assert_ne!(times[0], times[1]);
+}

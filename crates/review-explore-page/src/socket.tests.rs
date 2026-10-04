@@ -592,10 +592,7 @@ async fn a_turn_that_carries_the_answer_shows_it_beside_its_card_with_its_questi
         sent["answer"]["tags"],
         json!(["changed_after_first_pick", "as_recommended"])
     );
-    assert_eq!(
-        sent["marked"]["parts"],
-        json!(["12 lines reviewed", "3 lines not relevant"])
-    );
+    assert_eq!(sent["marked"]["parts"], json!(["15 lines reviewed"]));
 
     // The turn did not go through: the same answer, with Retry of the turn.
     owner.publish(RoundStage::Interrupted {

@@ -66,3 +66,38 @@ test('the start cover says how large the change is', async ({ explore, screen })
   await explore.reset();
   await expect(screen.getByText(/\+2 −1 in 1 file$/)).toBeVisible();
 });
+
+test('the meter keeps the same target when its bar grows, and the grown bar is opaque', async ({
+  explore,
+  screen,
+  browser,
+}) => {
+  await explore.open();
+  await explore.askQuestion();
+  await explore.markByHand();
+  const meter = screen.getByRole('button', /^Lines reviewed/);
+  const atRest = await meter.boundingBox();
+
+  // Exact keys open the window, which grows the bar, with no pointer to move it.
+  await meter.focus();
+  await meter.press('Enter');
+  await expect(meter).toBeExpanded();
+  // The target the pointer rests on is the same box at rest and grown, so growing the bar never
+  // moves the pointer out of it.
+  expect(await meter.boundingBox()).toEqual(atRest);
+  // No locator reaches a computed colour: the page reads them, once the bar's colours have
+  // finished their short transition. Every part of the grown bar is opaque, so the masthead's
+  // hairline under it does not show through.
+  await expect
+    .poll(() =>
+      browser.evaluate(() => {
+        const colours = [...document.querySelectorAll('.meter.grown .meter-bar, .meter.grown .meter-segment:not(.pending)')]
+          .filter((element) => element.getBoundingClientRect().width > 0)
+          .map((element) => getComputedStyle(element).backgroundColor);
+        // A colour with an alpha under 1 is an "rgba(…)", or ends with "/ 0.x)" or "/ 0)".
+        const translucent = /^rgba\(|\/\s*(?:0?\.\d+|0)\s*\)$/;
+        return colours.length > 1 && colours.every((colour) => !translucent.test(colour));
+      }),
+    )
+    .toBe(true);
+});

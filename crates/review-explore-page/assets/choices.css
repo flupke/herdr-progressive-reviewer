@@ -37,7 +37,8 @@
 .choice:has(input:checked) {
   border-color: var(--accent);
   box-shadow: inset 0 0 0 1px var(--accent);
-  background: color-mix(in srgb, var(--accent) 10%, var(--canvas));
+  /* Accent 10% over the panel the card sits on. */
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 .choice:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
 .choice-tags { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 6px; padding-left: 28px; }
@@ -49,3 +50,10 @@
   border-top: 1px dashed var(--line);
   font-size: 14px;
 }
+
+/* The choices of a question the reviewer answered, read only: the kept one keeps the selected
+   frame, the others stay readable (the browser would grey a disabled field's text). */
+.choices.answered .choice { cursor: default; }
+.choices.answered .choice:not(:has(input:checked)):hover { border-color: var(--line); }
+.choices.answered .choice-text { color: var(--ink); }
+.choices.answered input[type="radio"] { opacity: 1; }

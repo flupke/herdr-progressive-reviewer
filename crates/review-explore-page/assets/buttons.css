@@ -30,6 +30,8 @@
   transition: background-color 150ms, border-color 150ms;
 }
 .button.block { display: flex; width: 100%; }
+/* "Go to question 2 →": the arrow follows its words at a space's width, not the gap's. */
+.button .arrow { margin-inline-start: -3px; }
 
 .button.primary {
   min-height: 44px;
@@ -38,9 +40,11 @@
   font-weight: 600;
 }
 .button.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent-fill) 88%, #000); }
+/* Dimmed until it can act: on a dark page, a faint fill under faint white; on a light page,
+   where faint white on a pale fill cannot be read, the accent's text on its tint. */
 .button.primary:disabled {
-  background: color-mix(in srgb, var(--accent-fill) 35%, transparent);
-  color: rgb(255 255 255 / 0.6);
+  background: light-dark(color-mix(in srgb, var(--accent-fill) 14%, transparent), color-mix(in srgb, var(--accent-fill) 35%, transparent));
+  color: light-dark(color-mix(in srgb, var(--accent) 60%, transparent), rgb(255 255 255 / 0.6));
 }
 
 .button.secondary { border-color: var(--line-strong); }
@@ -60,11 +64,11 @@
 .button.quiet:hover:not(:disabled) { color: var(--ink); }
 
 .button.danger {
-  background: var(--bad);
+  background: var(--bad-fill);
   color: #fff;
   font-weight: 600;
 }
-.button.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--bad) 88%, #000); }
+.button.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--bad-fill) 88%, #000); }
 
 .button:disabled { cursor: default; }
 .button.secondary:disabled, .button.outline:disabled, .button.quiet:disabled, .button.danger:disabled {

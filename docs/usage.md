@@ -359,8 +359,8 @@ lines unreviewed. Reopen a hunk in Files to review Jev's lines yourself.
 
 The **Explore page** shows the open reviewer's Explore round in a browser, and you can
 run the whole round there, recoveries included, without going to the pane: start it, answer
-the agent's questions, stop waiting, retry, cancel an answer, reply to the conclusion,
-implement it, and reset the round. Run the Herdr
+the agent's questions, talk with the agent in a chat, stop waiting, retry, cancel an answer,
+implement the conclusion, and reset the round. Run the Herdr
 action **Open the Explore page of the progressive reviewer**
 (`herdr.progressive-reviewer.explore-page`) from the workspace of an open reviewer: it
 opens the page in the default browser of the machine that runs the reviewer. Set
@@ -384,26 +384,29 @@ If you always work in the pane, turn **Open the page on Start** off in the
 with Challenger then start the round in the pane, as Start in the pane does. On, the default,
 opens the page. The action opens the page whatever this setting says.
 
-The page shows the round's current question with its explanation and choices, or that the agent is
-working, that it is no longer working on its turn and why, that no round is running, or the
-round's conclusion. Above a question or the conclusion, it shows
-what the agent said back to your previous answer, as the pane does: its recap of the
-answer, the follow-ups it recorded, and its reply. While no round is running, the page
+The page shows the round's current stage: the design of the change, a question with its
+explanation and choices, that the agent is working, that it is no longer working on its turn
+and why, the quiz, the conclusion, or that no round is running. Above a question, the quiz or
+the conclusion, it shows your previous answer ("You answered Q1") beside what the agent said
+back to it, as the pane does: its recap of the answer ("The agent recorded"), its reply, and
+the follow-ups it recorded. While no round is running, the page
 names the review it belongs to, as the pane's header does (the change's title and
-revision), and its repository, so that the pages of two reviewers can be told apart.
+revision), its repository and the size of its change, so that the pages of two reviewers can
+be told apart.
 
 When no round is running, the page offers **Start** and **Start with Challenger**, as the
 reviewer's Explore tab does. The round starts as it does from the pane: the reviewer
 captures the change, Jev first marks what it dismisses when it is enabled, and the agent
 gets the kickoff. Meanwhile the page says that it prepares the round, then that the agent
-is working, then shows the agent's first question. The Explore tab shows the same round:
+is working, then opens the round on the design of the change, which leads to the agent's
+first question. The Explore tab shows the same round:
 while it starts, the tab says so and offers **Stop waiting**, which drops it.
 When the reviewer cannot capture the change, the page says why and offers Start again. A
 round started in the reviewer or in another tab after the page was loaded wins: the page
 refuses to start a second one, says so, and shows the round as it is now. When nothing is
-left to review, the page's Start and Start with Challenger are inactive and say why, as in
-the Explore tab; a page loaded before the last line was marked shows it once you load it
-again.
+left to review, the page's Start and Start with Challenger are inactive and a card says why
+("Every changed line is reviewed"), as in the Explore tab; they are active again as soon as
+you unmark a line, with no reload.
 
 To answer a question, pick a choice or None of the above, write an optional comment, and
 press **Send answer**; a comment without a choice works too. The choice the agent
@@ -420,10 +423,17 @@ or one with no Door, shows the recommendation at once, in the agent's order. So 
 question asked again after a Cancel answer: you have seen its recommendation, and the
 answer keeps no new first pick. The agent receives the answer as
 if you had given it in the reviewer's Explore tab, which shows it under the question.
-Above **Send answer**, the page says how many lines your answer marks reviewed and not
-relevant, and the share of the change that is reviewed before and after it; open that line
-to list the lines. Once you send, the page shows that the agent is
-working, then its next question or its conclusion as soon as the agent posts it.
+Above **Send answer**, the page says how many lines your answer marks reviewed (the lines the
+agent found not relevant count with them, as in the meter), and the share of the change that is
+reviewed before and after it; open that line to list the lines, each with how it is marked.
+
+Once you send, the page says that the agent is working on your answer to that question, with
+the time since the answer went out ("Sent 0:42 ago"), and under that the question you
+answered, read only, as you read it before you answered, its citations open or folded as you
+left them. Beside it (above it on a phone), the panel shows the question's choices with the one
+you sent selected, your comment, what the answer marked, **Stop waiting**, and **Cancel this answer…**. When the
+turn does not go through, the panel offers **Retry** instead of Stop waiting. The page shows
+the agent's next question or its conclusion as soon as the agent posts it.
 
 The page offers the actions of the reviewer's Explore tab for the round's state, and they
 save the same result and send the agent the same prompt as there:
@@ -435,35 +445,74 @@ save the same result and send the agent the same prompt as there:
   could not be delivered or the agent did not start on it (the page says why), you stopped
   waiting, or the reviewer was
   reopened during the turn (when the prompt may have reached the agent already, the page
-  says so: check the agent's conversation first). Retry sends the same turn again, the
+  says so: check the agent's pane first). Retry sends the same turn again, the
   kickoff included.
-- **Cancel this answer…**, in the previous turn above the question (what you answered,
-  beside what the agent recorded), behind **Confirm: cancel my answer**: the round goes back
+- **Cancel this answer…**, under your previous answer above the question, the quiz or the
+  conclusion, and in the panel of the answer you sent while the agent works on it or its turn
+  waits for Retry, behind **Confirm: cancel my answer**: the round goes back
   to the question that answer answered, with the agent's turn after it and the review marks
   it led to taken back. It is offered until an implementation request is made.
-- **Reply to the conclusion**: free text, which the agent takes up in its next turn.
 - **Reset**, in the page's ⋯ menu at the top right ("Reset this round…"), behind
   **Confirm reset**: it closes the round for good and the page offers Start again. The
-  round's records stay saved. The page offers Reset nowhere else.
+  round's records stay saved. Once the agent received the implementation request, **Start a
+  new round…** in the conclusion's panel does the same, behind **Confirm: start a new
+  round**. The page offers Reset nowhere else.
+
+To ask the agent something, challenge it or add context without answering, write in the chat:
+the round's conversation with the agent, which the page offers on every screen of a round.
+Open it with the speech bubble at the top right, with **Open the agent's conversation** in the
+⋯ menu, with **Not ready? Reply to the agent instead** under the conclusion's list (**Reply to
+the agent** once the agent received the implementation request), or by selecting a passage of
+what you read (the question, its explanation, its citations, the design, the conclusion) and
+choosing **Add to chat**, which quotes it in your message. Write, then press **Send** or
+`Ctrl-Enter` (`⌘↵` on a Mac). Your message names where you wrote it (the design, a question,
+an earlier question or the conclusion) and wakes the agent as a comment in a thread does: it
+answers nothing, the question stays open, and the round does not move. The chat says that the
+agent is answering, with the time since, and the agent's reply lands in the chat, not above
+the question. A reply you have not seen counts on the bubble and in the browser tab's title
+("(1) Q1 · your turn") until you open the chat. When a message did not reach the agent, the
+chat says why and offers **Retry**, which wakes the agent again for your waiting messages. On
+a desktop the chat lies over the panel and leaves what you read in view; on a phone it is a
+sheet over the page, which you drag up to the full height, or down to close it. `Esc` or ×
+closes it.
 
 The row at the top of the page names the review and shows where the round stands: the
-design, each question asked so far, the quiz with its score once known, and the conclusion;
+design, each question asked so far, the quiz (the item it shows while you take it, then its
+score), and the conclusion;
 done steps carry a green check, the current one is underlined and says when the agent works
-on it ("Q2 · working"). **Design ▾** opens a map of the design: its thesis and its four
-parts, each a link into the design. The ⋯ menu also copies the page's address. The
+on it ("Q2 · working"). Each done question opens that question again, read only (see below).
+**Design ▾** opens a map of the design: its thesis and its four
+parts, each a link into the design, and **Open the design →**. The ⋯ menu also copies the
+round's link and opens the chat. The
 browser tab's title says whose turn it is ("Q3 · your turn", "Agent working…", "Retry
-needed", "Conclusion"), so you can leave the tab while the agent works. On a phone the row
-shows only the design and the current step, and the review's title is in the menu.
+needed", "Conclusion"), after the number of chat replies you have not seen, so you can leave
+the tab while the agent works. On a phone the row shows the design and the current step, and the
+steps of the screens beside the one you read when there is room for them; the review's title
+is in the menu.
+
+The line under the row is the meter: its green part is the share of the change's changed
+lines that review marks cover. Point at it, or focus it, and it grows and splits by who
+marked the lines; a window gives the numbers: the share reviewed, the lines marked out of the
+changed lines, the size of the change, the lines your answers marked (with the questions),
+those marked by hand or in earlier rounds, by Jev and as not relevant, those the question that
+waits marks when you answer it, and those left to explore, then a row for each file with its
+lines left, "cited here" beside the files the current question cites. A click, or `Enter` on
+the focused meter, pins the window open; `Esc` or a click elsewhere closes it. When an answer
+applies its marks, the green part grows.
 
 An action on a state that changed meanwhile, in the reviewer or in another tab, is refused:
 the page says which action did nothing and why, and shows the round as it is now. An
 answer is recorded once: when the question already has an answer, the page refuses to send
 yours. The pane shows the result of each action taken on the page. The page follows the
-round in every state, with no reload: it asks the reviewer every second and a half (twice a second while
-a round starts, the agent works or an implementation request is being sent) whether the
-round changed, and loads itself again when it did. Text you were typing in a form comes
-back after such a load while the form is still the same; it is gone once the page shows
-another question or stage.
+round in every state, with no reload: it keeps a connection to the reviewer, which sends each
+change as it happens, and the page changes in place only what changed, so the text you are
+typing, where you scrolled to, the focus and what you opened stay as they are. What you type
+in a text box (a comment, the list to be implemented, a chat message) is kept for as long as
+the tab stays open: the box shows it again whenever the page shows that same question (the
+same version of it), conclusion or chat again, after a reload too; the next question starts
+with an empty box. While the page cannot reach the reviewer (the reviewer restarts, the
+network drops), a line at the top says that it reconnects, and your actions wait, their
+buttons inactive; once the reviewer is back, the page shows the round as it is now.
 
 A round that can no longer change, an earlier round or one whose saved history had to be
 repaired, says so and offers only Reset. When the reviewer cannot save Explore rounds, the
@@ -471,45 +520,76 @@ page says why and that nothing can be done until the problem is fixed and the re
 is opened again.
 
 When the agent's conclusion carries a quiz, the page first asks its few questions about
-how the system works after the change, one at a time: pick an answer and press **Check**,
-and the page says at once whether it is correct, why, and which lines prove it. **Skip the
-quiz** goes straight to the conclusion. The picks are saved with the round, and the
-conclusion then shows the result folded beside it. The pane shows no quiz.
+how the system works after the change, one at a time ("Quiz · Question 2 of 3"): pick an
+answer and press **Check**, and the page says at once whether it is correct and why, marks
+the correct answer and your pick, and shows the lines that prove it. **Next question** goes on
+(**Show the conclusion** after the last one), and **Skip the quiz** goes straight to the
+conclusion, the questions left counted as skipped. The quiz marks no lines. The picks are
+saved with the round. The conclusion's panel then opens with the score ("Quiz 1 of 3"), and
+its **See the answers** opens the results, question by question, beside the conclusion. The
+pane shows no quiz.
 
-The conclusion shows the agent's summary, the list to be implemented and the future
-work. The list is plain text that you can edit before you press **Implement**, which
+The conclusion shows the agent's summary, then **Your decisions**: each question you
+answered, with the choice you kept, tagged "as recommended" or "changed after your first
+pick" when it was, then the rest of the summary and the future work. The panel holds the list
+to be implemented, whole: plain text that you can edit before you press **Implement**
+(**Implement 3 items**, which counts the lines that are not blank), which
 authorizes the agent to implement that list and nothing else, as **Implement** in the
 reviewer does: the agent receives the same request, and an empty list is refused. The
-page then says that the request is being sent, then that the agent received it, with the
-list it sent. A conclusion gets one request: once one was sent, from the reviewer or
+page then says that the request is being sent, then that the agent received it and when, with
+the list it sent, and offers **Start a new round…** (Reset, above) and **Reply to the agent**,
+which opens the chat. A conclusion gets one request: once one was sent, from the reviewer or
 from another tab, the page refuses another and shows the request that was sent. When
 the request could not be sent, the page says why and offers **Implement** again with your
 list. While the request is being sent, **Cancel the implementation request** stops it if it
-has not reached the agent yet. A request saved before the reviewer was reopened can be sent
-as it was saved, with **Send the saved request**, or replaced by a new one; for a request
-whose delivery is unknown, the page asks you to check the agent's conversation before you
-send a new one. When the agent did not start on the request, its list may still wait in the
+has not reached the agent yet. A request saved before the reviewer was reopened, and never
+sent, can be sent as it was saved, with **Send the saved request**, or edited under **Edit
+before sending** and sent with **Send a new request**; for a request
+whose delivery is unknown, the page asks you to check the agent's pane before you
+send a new one, with **Send a new request anyway**. When the agent did not start on the request, its list may still wait in the
 agent's prompt box: the page offers only **Retry**, which sends the same request again.
 
 The round opens with the design of the change, which the agent explains before its first
 question: one sentence for the whole change, its thesis, then four parts, each opening with
 its own one-sentence thesis: what the change adds and where, its types and data flow, its
-algorithm and cost, and the alternatives the implementer rejected. The page shows it open
-above question 1 and folded above every later stage, so you can open it again; the pane
+algorithm and cost, and the alternatives the implementer rejected. The page shows it as a
+screen of its own, the first one of the round: the change's thesis as the headline, with the
+number of parts, about how long they take to read and how many files the change touches,
+then the four parts, each led by its thesis. Beside them (under the thesis on a phone), the
+design map links to each part and marks the one you read, then names the question the round
+waits for, with **Go to question 1**, which goes on to it; on a phone that button sits in a
+bar at the bottom of the screen. The round opens on its design once per tab: a reload after
+you went on shows the question, and when the round moves on in the pane while the page shows
+the design it opened, the page shows the round's new stage. Later, **Design ▾** on the row at
+the top opens the map; a part, or **Open the design →**, opens the design screen again, where
+**Go to question 2** (or **Go to the quiz**, **Go to the conclusion**) returns to where the
+round stands, and the browser's Back returns to the screen before. The pane
 shows it before question 1, the change's thesis under "Design of the change" and each part's
 thesis in bold before its text. A round saved before theses existed shows the first
 paragraph of "What it adds and where" as the change's thesis, and the first paragraph of each
 part (the next one for "What it adds and where") as that part's.
 
+Each question you answered is a done step on the row at the top ("✓ Q1"). Click it to read
+the question again as you answered it: its explanation, Door and Blast radius and citations,
+and beside them its choices with the one you kept selected, your comment and tags, what the
+answer marked, and what the agent recorded, then
+**Go to question 3** back to where the round stands. Nothing on this screen can change the
+round. On a phone, swipe sideways to turn between the design, the questions you answered and
+the round's current stage, in the order of the row at the top: drag far enough, or flick, and
+the page turns, the chip of the screen it turns to filling as the drag gets there; let go
+before and the page springs back. A drag that starts in a table, code or a diagram that
+scrolls sideways scrolls it instead.
+
 A question's explanation is its Context, which the agent writes in Markdown: short
 paragraphs, lists, code, and tables whose cells can carry a good, bad or warning mark, and
 callouts for a conclusion, a tip, a warning or an error. The **Door** and **Blast radius**
-sections are folded away until you open them. The page shows raw HTML in the agent's text as
+sections are folded to one line, their decisive reason, until you open them. The page shows
+raw HTML in the agent's text as
 text. In the pane, a callout opens with its title and a marked cell with its mark (✓, ✗ or
 !).
 
-Under a question's choices, the page shows the question's citations in the order the agent gave
-them, most decisive first: each with the agent's note and the cited lines as rows of the
+After a question's explanation (and after its choices on a phone), the page shows the
+question's citations in the order the agent gave them, most decisive first: each with the agent's note and the cited lines as rows of the
 diff, with their line numbers and syntax colors. The other citations stay folded under the
 first one until you open them. A citation of a whole file, or of a file that is not text,
 says so instead of showing lines. So does a citation of a file that is neither part of the
@@ -519,9 +599,13 @@ file's lines. On a narrow screen, scroll a long line sideways. Reading
 a citation on the page marks none of its lines reviewed.
 
 The agent may also draw a diagram, as a fenced `mermaid` block: the page draws it with Mermaid,
-which the reviewer serves itself, so the page needs no internet access. A wide diagram keeps its
-size and scrolls sideways. When Mermaid cannot read a diagram, the page shows its source with
-Mermaid's message, and the reviewer saves the error with the question. The pane shows a diagram
+which the reviewer serves itself, so the page needs no internet access. A wide diagram shrinks to
+show whole, widening to the whole reading column first when its text would get too small; on a
+phone, one that would be too small to read keeps its size and scrolls sideways, and says so.
+**Open large** shows a shrunk or scrolling diagram at its full size over the page (Escape
+closes it). A flowchart drawn left to right that does not fit is drawn top to bottom instead. When Mermaid cannot read a diagram, the page says that it could not be
+drawn and shows its source, with Mermaid's message behind a fold, and the reviewer saves the
+error with the question. The pane shows a diagram
 as its source.
 
 The action opens the page on this machine (`127.0.0.1`), on a port chosen when the reviewer
@@ -534,12 +618,14 @@ wide table, line of code or diagram scrolls sideways in its own frame. A wider w
 the explanation, its tables, the cited code and the diagrams more room, so that those that
 fit the window show whole, while paragraphs keep a readable line length. From about 1120
 pixels wide, a question reads in two columns: its explanation and citations on the left,
-and its choices, comment and **Send** on the right, which stay in view while you scroll
+and its choices, comment and **Send answer** on the right, which stay in view while you scroll
 through the explanation; a conclusion keeps its list and **Implement** on the right the same
-way.
+way, and so do the design with its map, an answered question with your answer, and the quiz
+with its answers.
 
-The page also checks the round at once when you come back to it (a phone that wakes, a tab
-shown again), and loads itself again when the round has changed in between.
+When you come back to the page (a phone that wakes, a tab shown again, the network back), it
+checks at once that its connection to the reviewer still works, and opens a new one when it
+does not; a new connection brings the round as it is now.
 
 ### Open the page from a phone
 
