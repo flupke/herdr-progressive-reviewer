@@ -65,6 +65,16 @@ pub struct ExplorePageShared(pub String);
 #[derive(Clone, Debug)]
 pub struct ExplorePageNotShared(pub String);
 
+/// What Start and Start with Challenger do in the pane, as the settings say. Sent once, when the
+/// reviewer starts.
+#[derive(Clone, Debug)]
+pub struct ExplorePaneStarts(pub review_explore_page_opening::PaneStarts);
+
+/// The browser could not open the Explore page the pane asked for: the pane says why and shows
+/// the page's address, when the page has one.
+#[derive(Clone, Debug)]
+pub struct ExplorePageNotOpened(pub review_explore_page_opening::PageNotOpened);
+
 /// A round the reviewer started on the Explore page: it is starting (`Ok`), or it could not
 /// start, for this reason. Once its kickoff is saved, `ExplorePosted` brings the round.
 #[derive(Clone, Debug)]

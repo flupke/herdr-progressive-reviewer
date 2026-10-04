@@ -208,6 +208,10 @@ impl ExploreComponent {
     }
 
     pub(super) fn navigation_bar(&self, area: Rect) -> Navigation {
+        if self.shows_page_round() {
+            // The questions are on the page: only Reset stays.
+            return Navigation::new(area, Vec::new(), self.reset_controls());
+        }
         let history = HistoryPages::new(self);
         let Some(last) = history.pages.len().checked_sub(1) else {
             return Navigation::new(area, self.execution_controls(), self.reset_controls());

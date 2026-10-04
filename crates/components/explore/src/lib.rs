@@ -1,12 +1,13 @@
 //! One interview question at a time, with retained history and native evidence windows.
 use comment_editor::{CommentEditor, KeymapSetting};
 use component_core::{Component, ComponentSubscriptions, EventPublisher};
-use review_explore::{AnswerInput, Command, Exploration, Question};
+use review_explore::{AnswerInput, Command, Exploration, Question, RoundFront};
+use review_explore_page_opening::PaneStarts;
 use std::{
     cell::{Cell, RefCell},
     collections::{BTreeMap, BTreeSet},
 };
-use ui_actions::Action;
+use ui_actions::{Action, ExplorePageAction};
 use ui_events::{
     EvidenceView, ExploreCaptured, ExploreComparisonAccepted, ExploreEvidence, ExploreFinished,
     ReviewNavigation, ReviewNavigationChanged,
@@ -24,17 +25,19 @@ mod flow;
 mod input;
 mod navigation;
 mod network_page;
+mod page_round;
 mod page_start;
 mod persistence;
 mod render;
 mod reset;
+mod start;
+mod unopened_page;
 use flow::ConversationLayout;
 
 #[derive(Clone, Copy, Debug)]
 enum Control {
-    Start,
-    /// Start a round with a challenger reviewing beside the agent.
-    StartWithChallenger,
+    /// Choose where the reviewer follows a round: on the Explore page or in the pane.
+    Front(start::FrontControl),
     /// Ask to close the round and return to the start screen.
     Reset,
     /// Confirm a Reset asked for within the last five seconds.
@@ -131,6 +134,12 @@ pub struct ExploreComponent {
     reset: reset::ResetConfirmation,
     /// The round being started has a challenger.
     challenger: bool,
+    /// The round being started opens its Explore page once its change is captured.
+    open_page: bool,
+    /// What Start and Start with Challenger do, as the settings say.
+    pane_starts: PaneStarts,
+    /// Where the reviewer follows the round being started or shown.
+    front: RoundFront,
     map: bool,
     /// The review marks each agent turn changed, by Explore request.
     marks: BTreeMap<String, review_explore::TurnMarks>,
@@ -150,6 +159,8 @@ pub struct ExploreComponent {
     pointer_view: Option<flow::Window>,
     /// The page on the network, once the page host announced it.
     network_page: Option<network_page::NetworkPage>,
+    /// Why the browser could not open the page of the round the pane started last.
+    unopened_page: Option<review_explore_page_opening::PageNotOpened>,
 }
 
 impl ExploreComponent {
@@ -177,6 +188,9 @@ impl ExploreComponent {
             progress: Progress::Ready,
             reset: reset::ResetConfirmation::default(),
             challenger: false,
+            open_page: false,
+            pane_starts: PaneStarts::default(),
+            front: RoundFront::Pane,
             map: false,
             marks: BTreeMap::new(),
             expanded_marks: BTreeSet::new(),
@@ -191,6 +205,7 @@ impl ExploreComponent {
             split_drag: false,
             pointer_view: None,
             network_page: None,
+            unopened_page: None,
         }
     }
 
@@ -252,6 +267,7 @@ impl ExploreComponent {
     }
 
     fn captured(&mut self, event: &ExploreCaptured) -> Vec<Action> {
+        let open_page = std::mem::take(&mut self.open_page);
         if self.progress == Progress::DiscardingCapture {
             self.progress = Progress::Retryable;
             self.status = "Cancelled. Your previous questions and text remain available.".into();
@@ -266,7 +282,11 @@ impl ExploreComponent {
                 let mut exploration = Exploration::new(comparison.clone());
                 exploration.challenger = self.challenger;
                 self.open_round(exploration);
-                self.request(None)
+                let mut actions = self.request(None);
+                if open_page {
+                    actions.push(Action::ExplorePage(ExplorePageAction::Open));
+                }
+                actions
             }
             Err(error) => {
                 self.status.clone_from(error);
@@ -446,8 +466,19 @@ impl ExploreComponent {
         }
     }
 
-    /// Start a round from the start screen, with a challenger beside the agent when asked.
-    fn start(&mut self, challenger: bool) -> Vec<Action> {
+    /// Start a round from the start screen as `start` asks: on the page, it opens once the
+    /// change is captured, unless the settings keep every start in the pane.
+    fn start(&mut self, start: start::RoundStart) -> Vec<Action> {
+        let front = match self.pane_starts {
+            PaneStarts::OnPage => start.front,
+            PaneStarts::InPane => RoundFront::Pane,
+        };
+        self.capture(start.challenger, front, front == RoundFront::Page)
+    }
+
+    /// Ask the session to capture the change for a new round followed at `front`, whose page
+    /// opens once the change is captured when `open_page` says so.
+    fn capture(&mut self, challenger: bool, front: RoundFront, open_page: bool) -> Vec<Action> {
         if self.exploration.is_some()
             || self.progress.awaiting_capture()
             || self.awaiting_page_start()
@@ -456,6 +487,9 @@ impl ExploreComponent {
             return Vec::new();
         }
         self.challenger = challenger;
+        self.front = front;
+        self.open_page = open_page;
+        self.unopened_page = None;
         self.progress = Progress::Capturing;
         self.status = "Preparing the complete working-copy comparison…".into();
         vec![Action::Explore(Command::Start)]
@@ -495,7 +529,8 @@ impl ExploreComponent {
             return Vec::new();
         }
         let Some(exploration) = &mut self.exploration else {
-            return self.start(self.challenger);
+            // Retry starts the same round again, without opening its page.
+            return self.capture(self.challenger, self.front, false);
         };
         match exploration.retry() {
             Ok(request) => {
@@ -559,6 +594,8 @@ impl Component<Action> for ExploreComponent {
         subscriptions.subscribe(Self::page_shared);
         subscriptions.subscribe(Self::page_not_shared);
         subscriptions.subscribe(Self::page_start);
+        subscriptions.subscribe(Self::page_not_opened);
+        subscriptions.subscribe(Self::pane_starts_set);
         Self::register_input(subscriptions);
     }
 }

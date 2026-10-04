@@ -75,6 +75,7 @@ fn active_search_replaces_the_output_status_with_match_position() {
         buffer.area,
         &mut buffer,
         Theme::default().palette,
+        &[],
     );
     let rendered = buffer
         .content
@@ -120,11 +121,21 @@ fn footer(
     target: component_core::ComponentTarget,
     width: u16,
 ) -> String {
+    footer_with(bus, target, width, &[])
+}
+
+fn footer_with(
+    bus: &ComponentEventBus<Action>,
+    target: component_core::ComponentTarget,
+    width: u16,
+    hints: &[ui_controls::KeyHint],
+) -> String {
     let mut buffer = Buffer::empty(Rect::new(0, 0, width, 1));
     bus.get::<StatusComponent>(target).unwrap().render_footer(
         buffer.area,
         &mut buffer,
         Theme::default().palette,
+        hints,
     );
     buffer
         .content
@@ -139,11 +150,35 @@ fn the_footer_points_to_help_with_its_key_in_the_accent() {
     let target = bus.mount(StatusComponent::new);
     let palette = Theme::default().palette;
     let mut buffer = Buffer::empty(Rect::new(0, 0, 40, 1));
-    bus.get::<StatusComponent>(target)
-        .unwrap()
-        .render_footer(buffer.area, &mut buffer, palette);
+    bus.get::<StatusComponent>(target).unwrap().render_footer(
+        buffer.area,
+        &mut buffer,
+        palette,
+        &[],
+    );
 
     assert_eq!(footer(&bus, target, 40).trim_end(), "? help");
     assert_eq!(buffer[(0, 0)].fg, palette.focus);
     assert_eq!(buffer[(2, 0)].fg, palette.dim);
+}
+
+#[test]
+fn the_footer_shows_the_keys_of_the_open_pane_before_help_and_leaves_out_those_that_do_not_fit() {
+    let mut bus = ComponentEventBus::<Action>::new();
+    let target = bus.mount(StatusComponent::new);
+    let hints = [
+        ui_controls::KeyHint::new("s", "start"),
+        ui_controls::KeyHint::new("p", "in the pane"),
+    ];
+
+    assert_eq!(
+        footer_with(&bus, target, 40, &hints).trim_end(),
+        "s start  p in the pane  ? help"
+    );
+    assert_eq!(
+        footer_with(&bus, target, 20, &hints).trim_end(),
+        "s start  ? help",
+        "the help key stays"
+    );
+    assert_eq!(footer_with(&bus, target, 8, &hints).trim_end(), "? help");
 }

@@ -82,6 +82,39 @@ impl NavigationLink {
     }
 }
 
+/// A key and what it does, as the footer shows it: the key stands out, its label is dim.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct KeyHint {
+    key: String,
+    label: String,
+}
+
+impl KeyHint {
+    pub fn new(key: impl Into<String>, label: impl Into<String>) -> Self {
+        Self {
+            key: key.into(),
+            label: label.into(),
+        }
+    }
+
+    /// Width in terminal cells.
+    pub fn width(&self) -> u16 {
+        label_width(&self.key).saturating_add(1 + label_width(&self.label))
+    }
+
+    pub fn spans(&self, palette: Palette) -> [Span<'static>; 2] {
+        [
+            Span::styled(
+                self.key.clone(),
+                Style::default()
+                    .fg(palette.focus)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(format!(" {}", self.label), Style::default().fg(palette.dim)),
+        ]
+    }
+}
+
 fn render_label(text: String, style: Style, area: Rect, buffer: &mut Buffer) {
     let width = label_width(&text).min(area.width);
     Paragraph::new(text)

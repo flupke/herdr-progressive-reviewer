@@ -468,6 +468,12 @@ seconds. Nearby edits share one diff hunk, as they do for Jev. The script it
 writes is kept as `jev-script.json` in the session directory. Write that file
 yourself before starting an Explore round to have Jev mark at the round's start.
 
+The reviewer's `BROWSER` is a stand-in too, so Start never opens the browser of
+your desktop: `stand-in-browser` in the session directory appends each address it
+opens to `opened-pages` there, and fails with exit status 3 while a file
+`browser-fails` exists there, to show what the pane says when the browser cannot
+open the page.
+
 The workspace's first pane is a stand-in implementation agent: a script named
 `claude`, which Herdr detects as an agent, swallows every prompt the reviewer
 sends. The reviewer itself records each Explore prompt, once its delivery

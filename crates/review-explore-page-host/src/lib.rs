@@ -7,10 +7,14 @@
 //! its Herdr workspace. The action reads that record through the [`PageDirectory`]. Unless the
 //! [`NetworkAccess`] settings turn it off, the host also [shares](PageHost::share) the page on
 //! a network interface, and announces the address of each round's page, and of the start
-//! screen's while no round runs, for the pane's QR code.
+//! screen's while no round runs, for the pane's QR code. A [`PageOpener`] opens the page of a
+//! workspace in the default browser, for the action and for the pane's Start and Start with
+//! Challenger.
 
+mod browser;
 mod network;
 
+pub use browser::{Browser, PageOpener};
 pub use network::{NetworkAccess, NetworkListener};
 
 use std::fmt::Write as _;
@@ -34,6 +38,7 @@ const ANSWER_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Where open reviewers leave the address of their Explore page: one record per Herdr
 /// workspace, readable only by the user, since the address carries the page's token.
+#[derive(Clone, Debug)]
 pub struct PageDirectory(PathBuf);
 
 /// The address of a page, as its record holds it.

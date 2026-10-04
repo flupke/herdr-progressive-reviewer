@@ -112,6 +112,7 @@ impl ExploreComponent {
                     ((*turn, *reference), *height)
                 })
                 .collect(),
+            front: self.front,
         }
     }
 
@@ -270,6 +271,7 @@ impl ExploreComponent {
         self.editing = state.editing && self.can_compose() && self.target_editable();
         self.scroll.set(state.scroll);
         self.map = state.map;
+        self.front = state.front;
         self.heights = state
             .heights
             .iter()

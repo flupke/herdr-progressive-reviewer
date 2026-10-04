@@ -1,3 +1,4 @@
+use super::start::{FrontControl, StartButton};
 use super::{
     ComposeScope, Control, EditorTarget, ExploreComponent, Progress,
     flow::{Content, ConversationLayout},
@@ -46,7 +47,9 @@ impl ExploreComponent {
         );
         let mut layout = ConversationLayout::new(body);
         layout.navigation = navigation;
-        if self
+        if self.shows_page_round() {
+            self.lay_out_page_round(&mut layout, palette);
+        } else if self
             .exploration
             .as_ref()
             .is_none_or(|exploration| exploration.conversation.is_empty())
@@ -56,6 +59,7 @@ impl ExploreComponent {
         } else {
             self.transcript(&mut layout, diff, palette);
         }
+        self.lay_out_unopened_page(&mut layout, palette);
         self.lay_out_network_page(&mut layout, palette);
         layout.position(self.scroll.get(), self.reveal.take());
         self.scroll.set(layout.scroll);
@@ -535,17 +539,24 @@ impl ExploreComponent {
         }
     }
 
+    /// Whether the pane shows its start screen with the buttons that start a round.
+    pub(super) fn offers_starts(&self) -> bool {
+        self.progress == Progress::Ready && self.exploration.is_none()
+    }
+
     pub(super) fn status_controls(&self, layout: &mut ConversationLayout) {
         layout.gap();
         if matches!(self.progress, Progress::Waiting | Progress::Capturing) {
             layout.controls([("Stop waiting".into(), Control::Cancel)]);
         } else if self.progress == Progress::Retryable {
             layout.controls([("Retry".into(), Control::Retry)]);
-        } else if self.progress == Progress::Ready && self.exploration.is_none() {
-            layout.controls([
-                ("Start".into(), Control::Start),
-                ("Start with Challenger".into(), Control::StartWithChallenger),
-            ]);
+        } else if self.offers_starts() {
+            layout.controls(StartButton::ALL.map(|button| {
+                (
+                    button.label.into(),
+                    Control::Front(FrontControl::Start(button.start)),
+                )
+            }));
         }
     }
 

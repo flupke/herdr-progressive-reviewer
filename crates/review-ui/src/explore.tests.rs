@@ -13,6 +13,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use ui_events::{ExploreCaptured, ExploreFinished, ReviewNavigation, ReviewNavigationChanged};
 
+#[path = "explore_browser.tests.rs"]
+mod browser;
 #[path = "explore_choices.tests.rs"]
 mod choices;
 #[path = "explore_conclusion.tests.rs"]
@@ -21,10 +23,17 @@ mod conclusion_tests;
 mod editor;
 #[path = "explore_flow.tests.rs"]
 mod flow;
+#[path = "explore_page_round.tests.rs"]
+mod page_round;
 #[path = "explore_phone.tests.rs"]
 mod phone;
 #[path = "explore_recovery.tests.rs"]
 mod recovery;
+
+/// The base of a short change, for the tests that start rounds from the start screen.
+const BASE: &[u8] = b"pub fn policy() -> bool { false }\n";
+/// The change from [`BASE`], three lines: the agent's questions cite lines 1 and 3.
+const POLICY: &[u8] = b"pub fn policy() -> bool { true }\n// untouched middle\n// other evidence\n";
 
 struct ExploreUi {
     app: ReviewApplication,
@@ -43,7 +52,7 @@ impl ExploreUi {
     }
 
     fn with_versions(base: &[u8], policy: &[u8]) -> (Self, TurnRequest) {
-        Self::started(base, policy, 's')
+        Self::started(base, policy, 'p')
     }
 
     /// Click Reset and confirm it, returning the confirming click's actions.
@@ -54,6 +63,17 @@ impl ExploreUi {
 
     /// A round started from the start screen with the `start` key.
     fn started(base: &[u8], policy: &[u8], start: char) -> (Self, TurnRequest) {
+        let mut fixture = Self::start_screen(base, policy);
+        fixture.app.update(UserInput::Key(Key::Char(start)));
+        let actions = fixture.app.publish(ExploreCaptured {
+            result: Ok(fixture.comparison.clone()),
+        });
+        let request = Self::request(actions);
+        (fixture, request)
+    }
+
+    /// The Explore start screen of a change from `base` to `policy`, before any round.
+    fn start_screen(base: &[u8], policy: &[u8]) -> Self {
         let files = repository_fixture(RepoType::Git);
         files.write("Cargo.toml", b"[package]\nname = \"explore_fixture\"\nversion = \"0.1.0\"\nedition = \"2024\"\n[lib]\npath = \"lib.rs\"\n");
         files.write("lib.rs", b"pub mod policy;\npub mod caller;\n");
@@ -90,20 +110,12 @@ impl ExploreUi {
                 .collect(),
         );
         app.publish(ReviewNavigationChanged(ReviewNavigation::Explore));
-        app.update(UserInput::Key(Key::Char(start)));
-        let actions = app.publish(ExploreCaptured {
-            result: Ok(comparison.clone()),
-        });
-        let request = Self::request(actions);
-        (
-            Self {
-                app,
-                comparison,
-                files,
-                _state: state,
-            },
-            request,
-        )
+        Self {
+            app,
+            comparison,
+            files,
+            _state: state,
+        }
     }
 
     fn request(actions: Vec<Action>) -> TurnRequest {
@@ -234,6 +246,16 @@ impl ExploreUi {
         ));
         self.app.frame().render(buffer.area, &mut buffer);
         buffer
+    }
+
+    /// The bottom line of the screen.
+    pub(super) fn footer(&self) -> String {
+        let buffer = self.buffer();
+        let width = usize::from(buffer.area.width);
+        buffer.content[buffer.content.len() - width..]
+            .iter()
+            .map(ratatui::buffer::Cell::symbol)
+            .collect()
     }
 
     fn text(&self) -> String {
@@ -474,16 +496,16 @@ fn reset_needs_a_second_click_within_five_seconds() {
 
 #[test]
 fn reset_returns_to_the_start_screen_where_the_challenger_is_chosen_again() {
-    for (first, second) in [('s', 'S'), ('S', 's')] {
+    for (first, second) in [('p', 'P'), ('P', 'p')] {
         let (mut fixture, request) = ExploreUi::started(
             b"pub fn policy() -> bool { false }\n",
             b"pub fn policy() -> bool { true }\n",
             first,
         );
-        assert_eq!(request.challenger, first == 'S');
+        assert_eq!(request.challenger, first == 'P');
         fixture.respond(&request, 1);
         // Start keys do nothing while a round is open.
-        for key in ['s', 'S'] {
+        for key in ['s', 'S', 'p', 'P'] {
             assert!(
                 fixture
                     .app
@@ -506,7 +528,7 @@ fn reset_returns_to_the_start_screen_where_the_challenger_is_chosen_again() {
         let kickoff = ExploreUi::request(fixture.app.publish(ExploreCaptured {
             result: Ok(fixture.comparison.clone()),
         }));
-        assert_eq!(kickoff.challenger, second == 'S');
+        assert_eq!(kickoff.challenger, second == 'P');
         assert_ne!(kickoff.instance, request.instance);
     }
 }
@@ -516,7 +538,7 @@ fn a_failed_capture_after_reset_offers_retry() {
     let (mut fixture, request) = ExploreUi::new();
     fixture.respond(&request, 1);
     fixture.reset();
-    fixture.app.update(UserInput::Key(Key::Char('s')));
+    fixture.app.update(UserInput::Key(Key::Char('p')));
     fixture.app.publish(ExploreCaptured {
         result: Err("Capture failed".into()),
     });

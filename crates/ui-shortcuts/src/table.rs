@@ -3,10 +3,10 @@
 use crate::Key;
 use crate::commands::{
     ApplicationShortcut, CommentShortcut, ConversationShortcut, DiffGlobalShortcut, DiffShortcut,
-    ExploreEvidenceShortcut, ExploreGlobalShortcut, ExploreShortcut, ExploreTurnShortcut,
-    FilesShortcut, HunkShortcut, LocationShortcut, LspShortcut, MovementShortcut, OverlayShortcut,
-    RevisionShortcut, SearchMatchShortcut, SearchShortcut, ShortcutCommand, SourceShortcut,
-    ThreadsShortcut,
+    ExploreEvidenceShortcut, ExploreGlobalShortcut, ExploreShortcut, ExploreStartShortcut,
+    ExploreTurnShortcut, FilesShortcut, HunkShortcut, LocationShortcut, LspShortcut,
+    MovementShortcut, OverlayShortcut, RevisionShortcut, SearchMatchShortcut, SearchShortcut,
+    ShortcutCommand, SourceShortcut, ThreadsShortcut,
 };
 
 const fn application(command: ApplicationShortcut) -> ShortcutCommand {
@@ -79,6 +79,10 @@ const fn explore(command: ExploreShortcut) -> ShortcutCommand {
 
 const fn explore_turn(command: ExploreTurnShortcut) -> ShortcutCommand {
     explore(ExploreShortcut::Turn(command))
+}
+
+const fn explore_start(command: ExploreStartShortcut) -> ShortcutCommand {
+    explore_turn(ExploreTurnShortcut::Start(command))
 }
 
 const fn explore_evidence(command: ExploreEvidenceShortcut) -> ShortcutCommand {
@@ -624,13 +628,43 @@ pub(crate) const SHORTCUTS: &[ShortcutDefinition] = &[
         ],
     },
     ShortcutDefinition {
+        description: Some("Explore: start a round and open its page / with Challenger"),
+        bindings: &[
+            ShortcutBinding::one(Key::Char('s'), explore_start(ExploreStartShortcut::Start)),
+            ShortcutBinding::one(
+                Key::Char('S'),
+                explore_start(ExploreStartShortcut::StartWithChallenger),
+            ),
+        ],
+    },
+    ShortcutDefinition {
+        description: Some("Explore: start a round in the pane only / with Challenger"),
+        bindings: &[
+            ShortcutBinding::one(
+                Key::Char('p'),
+                explore_start(ExploreStartShortcut::StartInPane),
+            ),
+            ShortcutBinding::one(
+                Key::Char('P'),
+                explore_start(ExploreStartShortcut::StartInPaneWithChallenger),
+            ),
+        ],
+    },
+    ShortcutDefinition {
+        description: Some(
+            "Explore: open the page of a round on the page / continue it in the pane",
+        ),
+        bindings: &[
+            ShortcutBinding::one(Key::Char('o'), explore_turn(ExploreTurnShortcut::OpenPage)),
+            ShortcutBinding::one(
+                Key::Char('i'),
+                explore_turn(ExploreTurnShortcut::ContinueInPane),
+            ),
+        ],
+    },
+    ShortcutDefinition {
         description: None,
         bindings: &[
-            ShortcutBinding::alias(Key::Char('s'), explore_turn(ExploreTurnShortcut::Start)),
-            ShortcutBinding::alias(
-                Key::Char('S'),
-                explore_turn(ExploreTurnShortcut::StartWithChallenger),
-            ),
             ShortcutBinding::alias(Key::Char('c'), explore_turn(ExploreTurnShortcut::Cancel)),
             ShortcutBinding::alias(Key::Char('r'), explore_turn(ExploreTurnShortcut::Retry)),
             ShortcutBinding::alias(Key::Char('m'), explore_turn(ExploreTurnShortcut::ToggleMap)),

@@ -167,6 +167,18 @@ fn explore_help_comes_from_the_table() {
             "Explore: fit evidence to its wrapped relevant range",
         ),
         ("[ / ]", "Explore: visit previous / next interview turn"),
+        (
+            "s / S",
+            "Explore: start a round and open its page / with Challenger",
+        ),
+        (
+            "p / P",
+            "Explore: start a round in the pane only / with Challenger",
+        ),
+        (
+            "o / i",
+            "Explore: open the page of a round on the page / continue it in the pane",
+        ),
     ] {
         assert!(
             lines.contains(&(line.0.to_owned(), line.1)),

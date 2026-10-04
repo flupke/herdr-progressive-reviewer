@@ -8,6 +8,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Paragraph, Widget};
 use ui_actions::Action;
+use ui_controls::{KeyHint, label_width};
 use ui_events::{
     CommitMessageToggleRequested, FilesOverviewChanged, PointerInput, PointerInputKind,
     RepositoryMetadataChanged, SearchStatusChanged,
@@ -19,6 +20,8 @@ const MIN_TERMINAL_WIDTH: u16 = 40;
 const MIN_TERMINAL_HEIGHT: u16 = 6;
 /// Between the change ID and the commit title.
 const TITLE_GAP: &str = "  ";
+/// Between two keys of the footer.
+const FOOTER_GAP: &str = "  ";
 const PROGRESS_BAR_CELLS: usize = 12;
 const PROGRESS_BAR_MIN_WIDTH: u16 = 72;
 
@@ -117,18 +120,30 @@ impl StatusComponent {
         Line::from(spans)
     }
 
-    pub fn render_footer(&self, area: Rect, buffer: &mut Buffer, palette: Palette) {
+    /// The search being typed, or else the keys of `hints`, those the open pane offers, then the
+    /// help key. Hints that do not fit beside the help key are left out from the last.
+    pub fn render_footer(
+        &self,
+        area: Rect,
+        buffer: &mut Buffer,
+        palette: Palette,
+        hints: &[KeyHint],
+    ) {
         let Some(query) = &self.search.query else {
-            Paragraph::new(Line::from(vec![
-                Span::styled(
-                    "?",
-                    Style::default()
-                        .fg(palette.focus)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(" help", Style::default().fg(palette.dim)),
-            ]))
-            .render(area, buffer);
+            let help = KeyHint::new("?", "help");
+            let mut room = area.width.saturating_sub(help.width());
+            let mut spans = Vec::new();
+            for hint in hints {
+                let width = hint.width().saturating_add(label_width(FOOTER_GAP));
+                if width > room {
+                    break;
+                }
+                room -= width;
+                spans.extend(hint.spans(palette));
+                spans.push(Span::raw(FOOTER_GAP));
+            }
+            spans.extend(help.spans(palette));
+            Paragraph::new(Line::from(spans)).render(area, buffer);
             return;
         };
         let status = Line::raw(format!(

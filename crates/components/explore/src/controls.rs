@@ -1,4 +1,4 @@
-use super::Control;
+use super::{Control, start::FrontControl};
 use ratatui::{
     buffer::Buffer,
     layout::Rect,
@@ -124,8 +124,7 @@ impl Control {
     pub(super) fn visual(self, label: String) -> ControlVisual {
         if matches!(
             self,
-            Self::Start
-                | Self::StartWithChallenger
+            Self::Front(_)
                 | Self::NewImplementation
                 | Self::Send
                 | Self::Cancel
@@ -137,7 +136,10 @@ impl Control {
                 | Self::ConfirmReset
         ) {
             let tone = match self {
-                Self::Start | Self::Send | Self::Implement => ButtonTone::Primary,
+                Self::Front(FrontControl::OpenPage) | Self::Send | Self::Implement => {
+                    ButtonTone::Primary
+                }
+                Self::Front(FrontControl::Start(start)) if start.is_main() => ButtonTone::Primary,
                 Self::ConfirmReset => ButtonTone::Danger,
                 _ => ButtonTone::Secondary,
             };

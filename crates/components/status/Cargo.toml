@@ -10,6 +10,7 @@ ansi-to-tui.workspace = true
 component-core = { path = "../../component-core" }
 ratatui.workspace = true
 ui-actions = { path = "../../ui-actions" }
+ui-controls = { path = "../../ui-controls" }
 ui-events = { path = "../../ui-events" }
 ui-shortcuts = { path = "../../ui-shortcuts" }
 ui-theme = { path = "../../ui-theme" }

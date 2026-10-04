@@ -1,4 +1,5 @@
 use super::navigation::History;
+use super::start::{FrontControl, StartButton};
 use super::{ComposeScope, Control, EditorTarget, ExploreComponent, Progress, Reveal};
 use component_core::{AnyInput, ComponentSubscriptions, InputMatcher, InputResolution, InputScope};
 use ui_actions::Action;
@@ -36,6 +37,9 @@ impl ExploreComponent {
             AnyInput,
             |component: &mut Self, input: TextPasted| {
                 component.reset.cancel();
+                if component.shows_page_round() {
+                    return;
+                }
                 if component.compose_scope == ComposeScope::Conclusion
                     && component.editor_target == EditorTarget::Implementation
                 {
@@ -56,9 +60,8 @@ impl ExploreComponent {
         }
         // Any other control cancels a Reset waiting for its confirmation.
         self.reset.cancel();
-        let challenger = matches!(control, Control::StartWithChallenger);
         match control {
-            Control::Start | Control::StartWithChallenger => return self.start(challenger),
+            Control::Front(control) => return self.front_control(control),
             Control::Implement => return self.implement(),
             Control::NewImplementation => return self.new_implementation(),
             Control::Send => return self.answer(control),
@@ -184,6 +187,9 @@ impl ExploreComponent {
     fn key(&mut self, input: ExploreKey, focus: ReviewPane) -> Vec<Action> {
         // Reset has no key, so any key cancels a Reset waiting for its confirmation.
         self.reset.cancel();
+        if self.shows_page_round() {
+            return self.page_round_key(input.command);
+        }
         if input.command == Some(ExploreCommand::Global(ExploreGlobalShortcut::CycleFocus)) {
             self.cycle_focus(focus);
             return Vec::new();
@@ -288,8 +294,11 @@ impl ExploreComponent {
 
     fn turn_control(command: ExploreTurnShortcut) -> Control {
         match command {
-            ExploreTurnShortcut::Start => Control::Start,
-            ExploreTurnShortcut::StartWithChallenger => Control::StartWithChallenger,
+            ExploreTurnShortcut::Start(shortcut) => {
+                Control::Front(FrontControl::Start(StartButton::of(shortcut).start))
+            }
+            ExploreTurnShortcut::OpenPage => Control::Front(FrontControl::OpenPage),
+            ExploreTurnShortcut::ContinueInPane => Control::Front(FrontControl::ContinueInPane),
             ExploreTurnShortcut::Cancel => Control::Cancel,
             ExploreTurnShortcut::Retry => Control::Retry,
             ExploreTurnShortcut::PreviousTurn => Control::History(History::Previous),

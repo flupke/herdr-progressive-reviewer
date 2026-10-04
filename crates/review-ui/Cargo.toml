@@ -43,6 +43,7 @@ review-hunks = { path = "../review-hunks" }
 review-test-support = { path = "../review-test-support" }
 
 review-explore = { path = "../review-explore" }
+review-explore-page-opening = { path = "../review-explore-page-opening" }
 
 review-threads = { path = "../review-threads" }
 tempfile.workspace = true

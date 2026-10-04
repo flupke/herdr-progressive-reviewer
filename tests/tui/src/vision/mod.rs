@@ -74,6 +74,7 @@ impl LiveReviewer {
             recording: frames.directory().join(format!("recording-{run}")),
             jev_script: jev_script(frames),
             turns: turns(frames),
+            browser: frames.directory().to_owned(),
         })?;
         let capture = (|| {
             let recording = session

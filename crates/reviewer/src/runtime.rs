@@ -43,7 +43,8 @@ use herdr_client::protocol::{AgentTarget, PaneId, PluginContext, WorkspaceId};
 use ratatui::Terminal;
 use ratatui::backend::Backend;
 use review_explore_page::{CommandSender, PageRound, RoundFeed, RoundPublisher};
-use review_explore_page_host::{NetworkAccess, PageDirectory, PageHost};
+use review_explore_page_host::{Browser, NetworkAccess, PageDirectory, PageHost, PageOpener};
+use review_explore_page_opening::PaneStarts;
 use review_explore_session as explore_session;
 use review_repository::repository::Repository;
 use review_store::ReviewStore;
@@ -142,6 +143,7 @@ impl Runtime {
         let mut terminal = TerminalGuard::new()?;
         let mut app = ReviewApplication::new(self.theme, file_pane_width, root);
         app.set_editor_keymap(settings.editor_keymap()?);
+        Self::apply_pane_starts(&mut app);
         let area = terminal.terminal.size()?;
         let _ = app.update(UserInput::Resize {
             width: area.width,
@@ -168,6 +170,7 @@ impl Runtime {
                 turns: vision_turns_from_env(),
                 source_watches: Some(watcher.source_requests()),
                 page: page_round,
+                page_opener: Some(self.page_opener()),
             },
             &Outputs {
                 background: event_sender.clone(),
@@ -262,6 +265,29 @@ impl Runtime {
             }
         }
         Some(host)
+    }
+
+    /// What opens the Explore page from the pane, as the Herdr action opens it.
+    fn page_opener(&self) -> PageOpener {
+        PageOpener::new(
+            PageDirectory::new(&self.state_dir),
+            self.workspace_id.clone(),
+            Browser::from_env(),
+        )
+    }
+
+    /// Tell the pane what Start and Start with Challenger do, as the settings say. A setting the
+    /// reviewer cannot read keeps the default, and a toast says why.
+    fn apply_pane_starts(app: &mut ReviewApplication) {
+        let setting = env::var(PaneStarts::VARIABLE).ok();
+        let starts = PaneStarts::from_setting(setting.as_deref()).unwrap_or_else(|error| {
+            let _ = app.publish(ui_events::ToastRequested {
+                text: error,
+                kind: toasts::ToastKind::Error,
+            });
+            PaneStarts::default()
+        });
+        let _ = app.publish(ui_events::ExplorePaneStarts(starts));
     }
 
     /// Saved Explore state changed by another reviewer reaches the Explore session.

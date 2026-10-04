@@ -999,6 +999,7 @@ dependencies = [
  "markdown-rendering",
  "ratatui 0.30.2",
  "review-explore",
+ "review-explore-page-opening",
  "review-repository",
  "review-source",
  "review-types",
@@ -3996,12 +3997,17 @@ dependencies = [
  "herdr-client",
  "nix",
  "review-explore-page",
+ "review-explore-page-opening",
  "serde",
  "serde_json",
  "sha2 0.10.9",
  "tempfile",
  "tokio",
 ]
+
+[[package]]
+name = "review-explore-page-opening"
+version = "0.2.0"
 
 [[package]]
 name = "review-explore-page-server"
@@ -4277,6 +4283,7 @@ dependencies = [
  "ratatui 0.30.2",
  "ratatui-markdown",
  "review-explore",
+ "review-explore-page-opening",
  "review-hunks",
  "review-lsp",
  "review-repository",
@@ -4321,6 +4328,7 @@ dependencies = [
  "review-explore",
  "review-explore-page",
  "review-explore-page-host",
+ "review-explore-page-opening",
  "review-explore-session",
  "review-explore-stats",
  "review-hunks",
@@ -4911,6 +4919,7 @@ dependencies = [
  "review-source",
  "review-state",
  "ui-actions",
+ "ui-controls",
  "ui-events",
  "ui-shortcuts",
  "ui-theme",
@@ -5590,6 +5599,7 @@ name = "ui-events"
 version = "0.2.0"
 dependencies = [
  "review-explore",
+ "review-explore-page-opening",
  "review-hunks",
  "review-lsp",
  "review-repository",

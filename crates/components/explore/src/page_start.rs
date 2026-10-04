@@ -2,7 +2,7 @@
 //! and shows the round once the session announces its saved kickoff, as if the pane had
 //! started it.
 use super::{ExploreComponent, Progress};
-use review_explore::Command;
+use review_explore::{Command, RoundFront};
 use ui_actions::Action;
 use ui_events::{ExplorePageStart, ExplorePosted};
 
@@ -13,6 +13,8 @@ impl ExploreComponent {
         }
         match &event.0 {
             Ok(()) => {
+                // A round started on the page is followed there.
+                self.front = RoundFront::Page;
                 self.progress = Progress::Waiting;
                 self.status = "Starting the round started on the Explore page…".into();
             }

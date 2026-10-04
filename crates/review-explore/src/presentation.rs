@@ -34,6 +34,27 @@ pub enum EditorFocus {
     Evidence,
 }
 
+/// Where the reviewer follows a round: in the pane, or on the Explore page, where the pane
+/// shows only the round's state and the page's address.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
+pub enum RoundFront {
+    /// The pane shows the interview. Views saved before the Explore page existed say nothing,
+    /// and show the round here.
+    #[default]
+    Pane,
+    Page,
+}
+
+impl RoundFront {
+    #[allow(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "serde's skip_serializing_if passes the field by reference"
+    )]
+    fn is_pane(&self) -> bool {
+        *self == Self::Pane
+    }
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
 pub struct EvidencePosition {
     pub turn: usize,
@@ -61,6 +82,10 @@ pub struct ExploreViewState {
     pub map: bool,
     pub heights: Vec<((usize, usize), u16)>,
     pub code: Vec<EvidencePosition>,
+    /// Left out while it is the default, so that a view saved before it existed is written
+    /// back unchanged.
+    #[serde(default, skip_serializing_if = "RoundFront::is_pane")]
+    pub front: RoundFront,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]

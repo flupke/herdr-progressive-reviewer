@@ -17,6 +17,8 @@ pub use ui_events::{RevisionHistoryLoadId, SourceLoadMode};
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Action {
     Explore(review_explore::Command),
+    /// Show the Explore page the pane serves.
+    ExplorePage(ExplorePageAction),
     /// Load or update a review conversation through its serial owner.
     Thread(review_threads::ThreadCommand),
     /// Load, color, search or watch the documents on screen.
@@ -29,6 +31,13 @@ pub enum Action {
     Repository(RepositoryAction),
     /// Work that needs the terminal the UI runs in.
     Terminal(TerminalAction),
+}
+
+/// Work on the Explore page the pane serves on this machine.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExplorePageAction {
+    /// Open the page in the default browser.
+    Open,
 }
 
 /// Work on the documents on screen.

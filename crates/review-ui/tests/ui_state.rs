@@ -1638,8 +1638,9 @@ fn shortcut_help_scrolls_on_short_terminals() {
         popup = scrolled;
     }
 
-    assert!(popup.contains("Explore: visit previous / next interview turn"));
-    assert!(popup.contains("Explore: fit evidence"));
+    // The last lines of the help.
+    assert!(popup.contains("Explore: start a round in the pane only"));
+    assert!(popup.contains("Explore: open the page of a round on the page"));
 }
 
 #[test]

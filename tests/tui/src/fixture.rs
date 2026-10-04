@@ -32,6 +32,10 @@ pub(crate) struct VisionFiles {
     /// Where the reviewer records the Explore prompts it sent, for the
     /// scripted agent.
     pub(crate) turns: PathBuf,
+    /// Where the reviewer's stand-in browser lives. It appends each address it opens to
+    /// `opened-pages` there, and fails while a file `browser-fails` exists there. A vision
+    /// session never opens the browser of the desktop it runs on.
+    pub(crate) browser: PathBuf,
 }
 
 pub(crate) struct ReviewWorkspace {
@@ -157,6 +161,13 @@ impl ReviewWorkspace {
         let defaults = OpenOptions::default();
         let mut environment = self.environment();
         environment.insert(
+            "BROWSER".into(),
+            Self::stand_in_browser(&files.browser)
+                .to_str()
+                .unwrap()
+                .into(),
+        );
+        environment.insert(
             "HERDR_REVIEWER_JEV_SCRIPT".into(),
             files.jev_script.to_str().unwrap().into(),
         );
@@ -201,6 +212,22 @@ impl ReviewWorkspace {
                 directory: Some(files.recording.clone()),
             },
         }
+    }
+
+    /// Writes the stand-in browser of [`VisionFiles::browser`] under `directory`.
+    fn stand_in_browser(directory: &Path) -> PathBuf {
+        let browser = directory.join("stand-in-browser");
+        fs::write(
+            &browser,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$1\" >> '{opened}'\n[ ! -e '{fails}' ] || exit 3\n",
+                opened = directory.join("opened-pages").display(),
+                fails = directory.join("browser-fails").display(),
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&browser, fs::Permissions::from_mode(0o755)).unwrap();
+        browser
     }
 
     fn environment(&self) -> BTreeMap<String, String> {

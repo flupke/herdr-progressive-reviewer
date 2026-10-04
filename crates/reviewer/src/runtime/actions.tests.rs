@@ -27,6 +27,11 @@ impl ActionExecutors for Recorder {
         Ok(())
     }
 
+    fn explore_page(&mut self, action: ExplorePageAction) -> eyre::Result<()> {
+        self.record("explore page", Action::ExplorePage(action));
+        Ok(())
+    }
+
     fn thread(&mut self, command: ThreadCommand) -> eyre::Result<()> {
         self.record("thread", Action::Thread(command));
         Ok(())
@@ -74,6 +79,7 @@ fn each_action_group_reaches_its_own_executor_with_its_payload() {
     let mut recorder = Recorder::default();
     let actions = vec![
         Action::Explore(review_explore::Command::Cancel),
+        Action::ExplorePage(ExplorePageAction::Open),
         Action::Thread(ThreadCommand::Load("change".into())),
         Action::Document(DocumentAction::Load(DocumentLoad::Diff {
             review_checkpoint: checkpoint(),
@@ -93,6 +99,7 @@ fn each_action_group_reaches_its_own_executor_with_its_payload() {
     assert_eq!(flow, ControlFlow::Continue(()));
     let executors = [
         "explore",
+        "explore page",
         "thread",
         "document",
         "lsp",

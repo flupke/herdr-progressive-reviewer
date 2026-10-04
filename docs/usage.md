@@ -107,14 +107,29 @@ For connection problems or delayed notifications, see
 
 ## Explore a change (experimental)
 
-Open **Explore** and click **Start** or press `s`. Explore prepares the complete
+Open **Explore** and click **Start** or press `s`: the round starts, and its
+[Explore page](#start-follow-and-answer-an-explore-round-in-the-browser) opens in the default
+browser of this machine. The round then runs on the page: the Explore tab shows no question,
+answer or conclusion, only that the round runs on the Explore page, where it stands in one
+line (starting, the agent is working, a question waits, concluded, or interrupted and why),
+**Open the Explore page** (or `o`) to open it again, **Reset**, and the page's address and QR
+code. A round started on the page shows the same way. **Continue in the pane** (or `i`) shows
+the interview in the pane instead, for when no browser is at hand; it is the same round, and the reviewer
+remembers the choice when you reopen it. When the browser cannot open the page (no browser,
+no display), the round still starts, and the pane says why and gives the page's address to
+open by hand.
+
+**Start in the pane** (or `p`) starts the round in the pane, as Start did before the page
+existed: the pane shows the interview and opens nothing. The footer lists the keys of the four
+buttons while the start screen shows them. Explore prepares the complete
 base-to-working-copy change, including reviewed and filtered files. The selected implementation agent investigates the change with you in its existing
 conversation, asking at most one next question per turn. Requests are sent through
 Herdr immediately, including while the agent is working, using the same delivery
 as thread comments. Each delivery uses the selected agent; an in-flight attempt
 remains bound to that selection until it resolves.
 
-**Start with Challenger** (or `S`) starts the same round with a second point of view. The
+**Start with Challenger** (or `S`), and **Start in the pane with Challenger** (or `P`)
+without the page, start the same round with a second point of view. The
 agent starts a subagent with fresh context, the challenger, which reads the same prompts and
 the same diffs without knowing why the change was written the way it was. Each turn the two
 each propose a question; they take turns having theirs asked, the challenger first, and the
@@ -125,7 +140,7 @@ that turns take longer. The round ends when neither has a question left. The cho
 for the round.
 
 **Reset**, in the top-right corner of the Explore pane, closes the round and returns to the
-start screen, where you choose Start or Start with Challenger again. Click it, then click
+start screen, where you choose how to start the next round. Click it, then click
 **Confirm reset** within five seconds; any other action cancels it. The closed round stays
 saved but is no longer shown, and its agent can no longer post to it. Reopening the reviewer
 after a reset shows the start screen.
@@ -260,7 +275,9 @@ cancelled turn reopened stay open.
 | `Alt-j` / `Alt-k` | Grow / shrink the selected evidence window |
 | `Alt-0` | Fit evidence automatically again |
 | `c` / `r` | Stop waiting for pending work / explicitly retry |
-| `S` | Start with a Challenger, from the start screen |
+| `s` / `S` | Start a round and open its Explore page / with a Challenger, from the start screen |
+| `p` / `P` | Start a round in the pane only / with a Challenger, from the start screen |
+| `o` / `i` | Open the Explore page again / continue in the pane, during a round on the page |
 | `Tab` | Cycle conversation, evidence and answer focus |
 
 Each accepted new question opens automatically, including after input while waiting.
@@ -336,8 +353,11 @@ action **Open the Explore page of the progressive reviewer**
 (`herdr.progressive-reviewer.explore-page`) from the workspace of an open reviewer: it
 opens the page in the default browser of the machine that runs the reviewer. Set
 `BROWSER` in Herdr's environment to choose the program; otherwise the action uses
-`xdg-open` on Linux and `open` on macOS. To run it with a key, add a shortcut as in the
-[README](../README.md#get-started):
+`xdg-open` on Linux and `open` on macOS. **Start** and **Start with Challenger** in the
+pane open the same page, with the same program, once the reviewer has captured the change,
+and so does **Open the Explore page** during a round on the page; Retry, Reset, a round
+started on the page and the pane's other buttons open nothing. To run
+the action with a key, add a shortcut as in the [README](../README.md#get-started):
 
 ```toml
 [[keys.command]]
@@ -346,6 +366,11 @@ type = "plugin_action"
 command = "herdr.progressive-reviewer.explore-page"
 description = "open the Explore page"
 ```
+
+If you always work in the pane, set `HERDR_REVIEWER_EXPLORE_BROWSER=off` in the environment
+Herdr runs in, then reopen the reviewer: Start and Start with Challenger then start the round
+in the pane, as Start in the pane does. `on`, the default, opens the page. The action
+opens the page whatever this setting says.
 
 The page shows the round's current question with its explanation and choices, or that the agent is
 working, that it is no longer working on its turn (Retry it in the reviewer), that no

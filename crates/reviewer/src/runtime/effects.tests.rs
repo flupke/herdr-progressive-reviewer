@@ -224,3 +224,109 @@ fn source_loads_prefer_frozen_content_when_a_deleted_path_is_recreated() {
     fixture.perform([load(SourceLoadMode::ThreadPeek)]);
     fixture.wait_for::<ui_events::SourceContentLoadFailed>();
 }
+
+mod explore_page {
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::Path;
+    use std::time::{Duration, Instant};
+
+    use herdr_client::protocol::WorkspaceId;
+    use review_explore_page::{CommandRefusal, CommandSender, PageRound, RoundPublisher};
+    use review_explore_page_host::{Browser, PageDirectory, PageHost, PageOpener};
+    use review_ui::ExplorePageAction;
+    use ui_events::ExplorePageNotOpened;
+
+    use super::*;
+
+    /// A reviewer's page, served for workspace `w1` under `state`.
+    fn host(state: &Path) -> PageHost {
+        let round = RoundPublisher::default();
+        let commands = CommandSender::new(|_, reply| {
+            reply.send(Err(CommandRefusal::Failed(
+                "No session in this test".into(),
+            )));
+        });
+        PageHost::start(
+            PageRound::new(round.subscribe(), commands),
+            &PageDirectory::new(state),
+            &WorkspaceId("w1".into()),
+        )
+        .unwrap()
+    }
+
+    /// Opens the page of `w1` under `state` with a browser that writes the address it opens
+    /// to `address_file`, then exits with `status`.
+    fn opener(state: &Path, address_file: &Path, status: u8) -> PageOpener {
+        let script = state.join("browser");
+        std::fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\nprintf %s \"$1\" > '{}'\nexit {status}\n",
+                address_file.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        PageOpener::new(
+            PageDirectory::new(state),
+            WorkspaceId("w1".into()),
+            Browser::command(&script.display().to_string()),
+        )
+    }
+
+    fn open() -> Action {
+        Action::ExplorePage(ExplorePageAction::Open)
+    }
+
+    #[test]
+    fn opening_the_page_runs_the_browser_with_its_address() {
+        let pages = tempfile::tempdir().unwrap();
+        let host = host(pages.path());
+        let address_file = pages.path().join("address_file");
+        let opener = opener(pages.path(), &address_file, 0);
+        let fixture = EffectsFixture::start(repository_fixture(RepoType::Git), |setup| {
+            setup.page_opener = Some(opener);
+        });
+
+        fixture.perform([open()]);
+
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !address_file.exists() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(std::fs::read_to_string(&address_file).unwrap(), host.url());
+    }
+
+    #[test]
+    fn a_browser_that_fails_tells_the_pane_why_with_the_address() {
+        let pages = tempfile::tempdir().unwrap();
+        let host = host(pages.path());
+        let address_file = pages.path().join("address_file");
+        let opener = opener(pages.path(), &address_file, 3);
+        let mut fixture = EffectsFixture::start(repository_fixture(RepoType::Git), |setup| {
+            setup.page_opener = Some(opener);
+        });
+
+        fixture.perform([open()]);
+
+        let ExplorePageNotOpened(failure) = fixture.wait_for::<ExplorePageNotOpened>();
+        assert_eq!(failure.url.as_deref(), Some(host.url()));
+        assert!(!failure.reason.is_empty());
+    }
+
+    #[test]
+    fn without_an_opener_nothing_opens_and_nothing_fails() {
+        let mut fixture = EffectsFixture::new(RepoType::Git);
+
+        fixture.perform([open()]);
+
+        let events = fixture.drain_events();
+        assert!(
+            fixture
+                .recv_timeout(Duration::from_millis(200))
+                .into_iter()
+                .chain(events)
+                .all(|event| event.downcast_ref::<ExplorePageNotOpened>().is_none())
+        );
+    }
+}

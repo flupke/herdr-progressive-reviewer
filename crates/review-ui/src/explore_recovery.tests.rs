@@ -5,7 +5,7 @@ use review_explore::{ExplorePage, ExploreRound, ExploreViewState, ViewSave};
 #[path = "explore_concurrent.tests.rs"]
 mod concurrent;
 
-fn round(fixture: &ExploreUi, request: &TurnRequest) -> ExploreRound {
+pub(super) fn round(fixture: &ExploreUi, request: &TurnRequest) -> ExploreRound {
     let mut exploration = review_explore::Exploration::new(fixture.comparison.clone());
     exploration.instance.clone_from(&request.instance);
     let mut round = ExploreRound::new(exploration);
@@ -17,7 +17,11 @@ fn round(fixture: &ExploreUi, request: &TurnRequest) -> ExploreRound {
     round
 }
 
-fn restore(fixture: &mut ExploreUi, round: &ExploreRound, view: Option<ViewSave>) -> Vec<Action> {
+pub(super) fn restore(
+    fixture: &mut ExploreUi,
+    round: &ExploreRound,
+    view: Option<ViewSave>,
+) -> Vec<Action> {
     // Serialization removes comparison buffers, preserving only history/source locators.
     let round = serde_json::from_slice(&serde_json::to_vec(round).unwrap()).unwrap();
     fixture.app.publish(ui_events::ExploreRestored {
@@ -29,7 +33,7 @@ fn restore(fixture: &mut ExploreUi, round: &ExploreRound, view: Option<ViewSave>
     })
 }
 
-fn saved(actions: Vec<Action>) -> ViewSave {
+pub(super) fn saved(actions: Vec<Action>) -> ViewSave {
     actions
         .into_iter()
         .find_map(|action| match action {

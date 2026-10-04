@@ -48,8 +48,13 @@ impl Widget for ApplicationFrame<'_> {
         self.status
             .render_header(layout.header(), buffer, self.palette);
         self.render_body(layout.body(), buffer);
+        let hints = if self.mode == ReviewNavigation::Explore {
+            self.explore.footer_hints()
+        } else {
+            Vec::new()
+        };
         self.status
-            .render_footer(layout.footer(), buffer, self.palette);
+            .render_footer(layout.footer(), buffer, self.palette, &hints);
         self.overlay.render_notifications(body, buffer);
         self.overlay.render(area, buffer);
         self.revision.render(area, buffer);

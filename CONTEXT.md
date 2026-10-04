@@ -149,10 +149,19 @@ working, the agent's question with its choices, a turn the agent is no longer
 working on, or the conclusion with its quiz. The reviewer can start a round,
 answer the question and implement the conclusion there, as in the pane. Its
 address carries a token, and the page refuses requests without it. The pane
-serves it on this machine, for the Herdr action, and on the network, behind a new
+serves it on this machine, for the Herdr action and for Start and Start with
+Challenger, which open it in the browser (Start in the pane does not), and on the
+network, behind a new
 token for each round, for the QR code in the pane; while no round runs, the start
 screen's token is the one the next round keeps.
 _Avoid_: web UI, Explore web, browser view
+
+**Round on the page**:
+An Explore round started with Start or Start with Challenger, or on the Explore
+page. The pane shows only that it runs on the page, where it stands, and the
+page's address, until the reviewer chooses Continue in the pane. A round started
+with Start in the pane is a round in the pane, which shows its interview.
+_Avoid_: web session, web round
 
 **First pick**:
 The choice the reviewer picks on the Explore page before it shows the agent's

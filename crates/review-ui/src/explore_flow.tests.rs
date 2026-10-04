@@ -893,7 +893,7 @@ fn cancelling_the_first_capture_rejects_its_late_completion() {
     fixture
         .app
         .publish(ReviewNavigationChanged(ReviewNavigation::Explore));
-    fixture.app.update(UserInput::Key(Key::Char('s')));
+    fixture.app.update(UserInput::Key(Key::Char('p')));
     fixture.app.update(UserInput::Key(Key::Char('c')));
     let retry = fixture.app.update(UserInput::Key(Key::Char('r')));
     assert!(

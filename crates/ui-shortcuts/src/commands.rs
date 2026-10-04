@@ -159,14 +159,30 @@ pub enum ExploreShortcut {
 /// Explore commands that act on the interview turn.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExploreTurnShortcut {
-    Start,
-    /// Start a round in which a challenger reviews beside the agent.
-    StartWithChallenger,
+    /// Start a round from the start screen.
+    Start(ExploreStartShortcut),
+    /// Open the Explore page of a round on the page again.
+    OpenPage,
+    /// Show the interview of a round on the page in the pane.
+    ContinueInPane,
     Cancel,
     Retry,
     PreviousTurn,
     NextTurn,
     ToggleMap,
+}
+
+/// The four ways to start a round from Explore's start screen.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExploreStartShortcut {
+    /// Start a round on the Explore page, which opens in the browser.
+    Start,
+    /// The same, with a challenger reviewing beside the agent.
+    StartWithChallenger,
+    /// Start a round in the pane.
+    StartInPane,
+    /// Start a round in the pane, with a challenger.
+    StartInPaneWithChallenger,
 }
 
 /// Explore commands that choose which evidence the conversation shows.

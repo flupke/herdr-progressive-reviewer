@@ -6,9 +6,9 @@ pub use explore::{
     EvidenceView, ExploreAnswerCancelled, ExploreAutosave, ExploreCaptured, ExploreCommitted,
     ExploreComparisonAccepted, ExploreEvidence, ExploreEvidenceInput, ExploreFinished,
     ExploreHistoryChanged, ExploreImplementationFinished, ExploreImplementationSaved,
-    ExplorePageNotShared, ExplorePageShared, ExplorePageStart, ExplorePositionsRestored,
-    ExplorePosted, ExploreProgress, ExploreRestored, ExploreStorageFailed, ExploreSubmission,
-    ExploreViewports,
+    ExplorePageNotOpened, ExplorePageNotShared, ExplorePageShared, ExplorePageStart,
+    ExplorePaneStarts, ExplorePositionsRestored, ExplorePosted, ExploreProgress, ExploreRestored,
+    ExploreStorageFailed, ExploreSubmission, ExploreViewports,
 };
 pub use threads::{
     NewRepliesRequested, ReviewNavigation, ReviewNavigationChanged, ReviewPane,

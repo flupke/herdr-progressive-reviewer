@@ -16,6 +16,7 @@ use crossbeam_channel::{Receiver as EventReceiver, Sender as EventSender};
 use herdr_client::client::HerdrClient;
 use herdr_client::protocol::{AgentTarget, HerdrEvent, PaneId};
 use review_explore_page::RoundPublisher;
+use review_explore_page_host::PageOpener;
 use review_explore_session::{self as explore_session, ExploreSession};
 use review_repository::repository::Repository;
 use review_significance::JevClassifier;
@@ -23,8 +24,8 @@ use review_state::ReviewTracker;
 use review_store::ReviewStore;
 use review_thread_service as comments;
 use review_ui::{
-    Action, DocumentAction, DocumentLoad, LspAction, RepositoryAction, SettingsAction,
-    TerminalAction, Theme,
+    Action, DocumentAction, DocumentLoad, ExplorePageAction, LspAction, RepositoryAction,
+    SettingsAction, TerminalAction, Theme,
 };
 
 use super::actions::ActionExecutors;
@@ -48,6 +49,8 @@ pub(super) struct Setup {
     pub(super) source_watches: Option<SourceWatchRequests>,
     /// Where the Explore session publishes its round for the Explore page.
     pub(super) page: RoundPublisher,
+    /// Opens the Explore page when the pane asks; `None` in tests, which never open a browser.
+    pub(super) page_opener: Option<PageOpener>,
 }
 
 /// Where effects deliver their results.
@@ -68,6 +71,9 @@ pub(super) struct Effects {
     source_watches: Option<SourceWatchRequests>,
     commands: Sender<WorkerCommand>,
     documents: Sender<document::Command>,
+    page_opener: Option<PageOpener>,
+    /// Where results of slow or unrequested work go.
+    messages: ApplicationEventSender,
     /// Taken first on drop, so agent delivery stops before repository work does.
     front: Option<FrontWorkers>,
     lsp: review_lsp::Worker,
@@ -97,6 +103,7 @@ impl Effects {
             turns,
             source_watches,
             page,
+            page_opener,
         } = setup;
         let messages = ApplicationEventSender::new(outputs.background.clone());
         let tracker = Arc::new(ReviewTracker::new(repository.clone(), store.clone()));
@@ -144,9 +151,10 @@ impl Effects {
             held_kickoff: None,
             documents: documents.clone(),
         };
+        let worker_messages = messages.clone();
         let worker_thread = thread::spawn(move || {
-            worker.run(&command_receiver, &messages);
-            let _ = messages.send(WorkerStopped);
+            worker.run(&command_receiver, &worker_messages);
+            let _ = worker_messages.send(WorkerStopped);
         });
         let highlights = outputs.background.clone();
         let search_results = outputs.interactive.clone();
@@ -157,6 +165,8 @@ impl Effects {
             source_watches,
             commands,
             documents,
+            page_opener,
+            messages,
             front: Some(FrontWorkers {
                 comments,
                 search: text_search::Worker::start(move |results| {
@@ -257,6 +267,20 @@ impl Effects {
         Ok(())
     }
 
+    /// Open the Explore page in the browser, on a thread of its own since the browser program
+    /// may take its time; the pane hears only of a failure.
+    fn open_page(&self) {
+        let Some(opener) = self.page_opener.clone() else {
+            return;
+        };
+        let messages = self.messages.clone();
+        thread::spawn(move || {
+            if let Err(failure) = opener.open() {
+                let _ = messages.send(ui_events::ExplorePageNotOpened(failure));
+            }
+        });
+    }
+
     /// Paths from the application are relative to the repository root.
     fn resolve(&self, path: PathBuf) -> PathBuf {
         if path.is_relative() {
@@ -353,6 +377,13 @@ impl ActionExecutors for Performer<'_, '_> {
             .send(WorkerCommand::Explore(explore_session::Input::Command(
                 command,
             )))?;
+        Ok(())
+    }
+
+    fn explore_page(&mut self, action: ExplorePageAction) -> eyre::Result<()> {
+        match action {
+            ExplorePageAction::Open => self.effects.open_page(),
+        }
         Ok(())
     }
 

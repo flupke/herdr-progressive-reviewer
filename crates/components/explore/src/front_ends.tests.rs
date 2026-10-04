@@ -18,6 +18,7 @@ use ui_events::{
 
 use super::rows;
 use crate::flow::ConversationLayout;
+use crate::start::StartButton;
 use crate::{Control, ExploreComponent, Progress};
 
 fn question(id: &str) -> Question {
@@ -300,13 +301,21 @@ fn a_round_started_elsewhere_shows_in_the_pane_as_one_started_there() {
     pane.bus.publish(ExplorePageStart(Ok(()))).unwrap();
     let (kickoff, round) = started_elsewhere(true);
 
-    pane.bus
+    let actions = pane
+        .bus
         .publish(ExplorePosted {
             request: kickoff.clone(),
             result: Ok(Arc::new(round.clone())),
         })
-        .unwrap();
+        .unwrap()
+        .into_iter()
+        .flat_map(component_core::DispatchResult::into_actions)
+        .collect::<Vec<_>>();
 
+    assert!(
+        !actions.contains(&Action::ExplorePage(ui_actions::ExplorePageAction::Open)),
+        "the page that started the round is open already"
+    );
     let component = pane.component();
     let shown = component
         .exploration
@@ -315,6 +324,10 @@ fn a_round_started_elsewhere_shows_in_the_pane_as_one_started_there() {
     assert_eq!(shown.instance, round.exploration.instance);
     assert!(shown.challenger);
     assert!(component.progress == Progress::Waiting);
+    assert!(
+        component.shows_page_round(),
+        "a round started on the page is followed there"
+    );
 
     let mut asked = round;
     let first = question("q1");
@@ -364,7 +377,7 @@ fn a_failed_kickoff_of_a_round_started_elsewhere_offers_retry_in_the_pane() {
 #[test]
 fn a_round_started_elsewhere_leaves_a_pane_that_is_starting_its_own() {
     let mut pane = Pane::starting();
-    let actions = pane.component().start(false);
+    let actions = pane.component().start(StartButton::START_IN_PANE.start);
     assert!(!actions.is_empty(), "the pane asks the session to capture");
     let (kickoff, round) = started_elsewhere(false);
 
@@ -389,7 +402,7 @@ fn a_round_starting_on_the_page_shows_in_the_pane_until_its_kickoff_is_saved() {
     let component = pane.component();
     assert!(component.progress == Progress::Waiting);
     assert!(
-        component.start(false).is_empty(),
+        component.start(StartButton::START_IN_PANE.start).is_empty(),
         "no second start from the pane"
     );
     let (kickoff, round) = started_elsewhere(false);

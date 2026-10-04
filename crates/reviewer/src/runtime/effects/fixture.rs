@@ -63,6 +63,7 @@ impl EffectsFixture {
             turns: None,
             source_watches: None,
             page: review_explore_page::RoundPublisher::default(),
+            page_opener: None,
         };
         configure(&mut setup);
         let offline = setup.endpoint.is_err();

@@ -4,7 +4,8 @@ use std::ops::ControlFlow;
 
 use review_threads::ThreadCommand;
 use review_ui::{
-    Action, DocumentAction, LspAction, RepositoryAction, SettingsAction, TerminalAction,
+    Action, DocumentAction, ExplorePageAction, LspAction, RepositoryAction, SettingsAction,
+    TerminalAction,
 };
 
 /// The executors that run UI actions, one method per action group.
@@ -13,6 +14,7 @@ use review_ui::{
 /// variant of its own group, so an unhandled action is a compile error.
 pub(super) trait ActionExecutors {
     fn explore(&mut self, command: review_explore::Command) -> eyre::Result<()>;
+    fn explore_page(&mut self, action: ExplorePageAction) -> eyre::Result<()>;
     fn thread(&mut self, command: ThreadCommand) -> eyre::Result<()>;
     fn document(&mut self, action: DocumentAction) -> eyre::Result<()>;
     fn lsp(&mut self, action: LspAction) -> eyre::Result<()>;
@@ -35,6 +37,7 @@ pub(super) trait ActionExecutors {
     fn run(&mut self, action: Action) -> eyre::Result<ControlFlow<()>> {
         match action {
             Action::Explore(command) => self.explore(command)?,
+            Action::ExplorePage(action) => self.explore_page(action)?,
             Action::Thread(command) => self.thread(command)?,
             Action::Document(action) => self.document(action)?,
             Action::Lsp(action) => self.lsp(action)?,
