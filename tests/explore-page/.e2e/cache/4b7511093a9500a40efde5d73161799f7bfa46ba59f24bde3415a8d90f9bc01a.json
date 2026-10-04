@@ -1,6 +1,6 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-04T03:49:25.901Z",
+  "createdAt": "2026-10-04T11:59:41.615Z",
   "payload": {
     "actions": [
       {
@@ -21,22 +21,25 @@
       "targetId": "desktop",
       "instructionDigest": "c70e24e8557746dfcd1fbd68a6181f5d0f7136b168575354319862529df10b1c"
     },
-    "summary": "Retry was already tapped in the recorded action. The current screen shows “The agent is working…,” confirming the turn was sent again.",
+    "summary": "The page currently shows “The agent is working on the design and its first question,” confirming the Retry turn is now working.",
     "startPath": "/",
     "endPath": "/",
     "endAnchors": [
       {
-        "role": "status",
-        "name": "The agent is working…"
+        "text": "The agent is working on the design and its first question"
+      },
+      {
+        "role": "button",
+        "name": "Stop waiting"
       },
       {
         "text": "After Stop waiting, Retry sends the turn again."
       },
       {
-        "role": "button",
-        "name": "Stop waiting"
+        "role": "status",
+        "name": "The agent is working on the design and its first question"
       }
     ],
-    "endWaitMs": 26142
+    "endWaitMs": 28131
   }
 }

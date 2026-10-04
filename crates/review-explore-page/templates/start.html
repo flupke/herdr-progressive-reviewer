@@ -1,24 +1,24 @@
-{# No round is running: the review the page belongs to, Start and Start with Challenger, as in
-   the reviewer's Explore tab, and why the reviewer's latest start failed. With nothing left to
-   review, the two buttons are inactive and a line says why, which a start that failed for that
-   reason does not repeat. #}
-{% if start_failure %}
-<div class="state failure" role="alert">
-  <p>The round could not be started.</p>
-  {% if start_failure != start_block %}<p class="reason">{{ start_failure }}</p>{% endif %}
-</div>
-{% endif %}
-<p class="state" role="status">No Explore round is running.</p>
-{% if review %}
-<p class="review">Review of {% if review.title %}“{{ review.title }}” (<code>{{ review.revision }}</code>){% else %}<code>{{ review.revision }}</code>{% endif %} in the repository <code>{{ review.repository }}</code>.</p>
-{% endif %}
-<form class="start" method="post" action="/start">
-  <p class="hint">With the Challenger, a second agent with fresh context reviews the change beside the agent.</p>
-  <div class="start-buttons">
-    <button class="send" type="submit"{% if start_block %} disabled aria-describedby="start-block"{% endif %}>Start</button>
-    <button class="secondary" type="submit" name="challenger" value="true"{% if start_block %} disabled aria-describedby="start-block"{% endif %}>Start with Challenger</button>
-  </div>
-  {% if start_block %}
-  <p class="start-block" id="start-block">{{ start_block }}</p>
+{# No round is running: the start cover. The review the page belongs to as the headline, where it
+   is, then Start and Start with Challenger, as in the reviewer's Explore tab, each with one line
+   that says what it does. The status cards above it say why the reviewer's latest start failed,
+   and that nothing is left to review, in place of the eyebrow; then the two buttons are
+   inactive. #}
+<section class="start-cover">
+  {% if start.idle %}
+  <p class="eyebrow" role="status">No round is running</p>
   {% endif %}
-</form>
+  {% if review %}
+  <h1>{{ review.title or review.revision }}</h1>
+  <p class="meta"><code>{{ review.revision }}</code> in <code>{{ review.repository }}</code></p>
+  {% endif %}
+  <form class="start" method="post" action="/start">
+    <div class="start-choice">
+      <button class="button primary block" type="submit" aria-describedby="{{ start.block or "start-about" }}"{% if start.block %} disabled{% endif %}>Start</button>
+      <p class="hint" id="start-about">The agent explains the design, then asks one question at a time.</p>
+    </div>
+    <div class="start-choice">
+      <button class="button secondary block" type="submit" name="challenger" value="true" aria-describedby="{{ start.block or "challenger-about" }}"{% if start.block %} disabled{% endif %}>Start with Challenger</button>
+      <p class="hint" id="challenger-about">A second agent with fresh context proposes questions too. Turns take longer.</p>
+    </div>
+  </form>
+</section>

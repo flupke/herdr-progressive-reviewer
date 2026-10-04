@@ -1,6 +1,6 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-03T22:15:06.376Z",
+  "createdAt": "2026-10-04T12:04:39.624Z",
   "payload": {
     "actions": [
       {
@@ -21,15 +21,28 @@
       "targetId": "phone",
       "instructionDigest": "3cbcefd3361bac5327d74e778550bc379eeffee0680835e00171979b92a0f585"
     },
-    "summary": "The page shows “Preparing the round…”, confirming that the Explore round started without a Challenger.",
+    "summary": "The current screen confirms the Explore round is preparing, indicating it was started without the Challenger.",
     "startPath": "/",
     "endPath": "/",
     "endAnchors": [
       {
+        "text": "Preparing the round"
+      },
+      {
+        "text": "The review tool captures the change; Jev marks the insignificant lines first when it is on."
+      },
+      {
+        "role": "button",
+        "name": "Stop waiting"
+      },
+      {
+        "text": "Stop waiting drops the round before it starts."
+      },
+      {
         "role": "status",
-        "name": "Preparing the round…"
+        "name": "Preparing the round"
       }
     ],
-    "endWaitMs": 28279
+    "endWaitMs": 26121
   }
 }

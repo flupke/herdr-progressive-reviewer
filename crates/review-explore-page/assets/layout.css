@@ -1,23 +1,45 @@
-/* The page laid out for the width of the browser. A phone gets one column at its full width.
-   Wider windows give the page up to 84rem, so that the agent's tables, diagrams and the cited
-   code show whole; text keeps a readable line length whatever the width. From 70rem, a question
-   and a conclusion read in two columns: what the reviewer reads on the left, and on the right
-   what the reviewer acts on (the choices, the comment and Send; the list and Implement), which
-   stays in view while the reviewer scrolls through the reading. */
+/* The frame of the page and the desk-and-panel grid (docs/design/explore-page/README.md, "The
+   system in one paragraph"). The page is capped at 1440 pixels, with a gutter of 32 pixels on
+   each side (16 on a phone). Text keeps a readable line length whatever the width; tables, code
+   and diagrams take the width they need.
+
+   The desk and the panel: from 70rem, a stage reads in two columns. The reading column (the
+   desk) holds what the reviewer reads; the panel, on the right, holds the one thing to do in
+   this stage, and stays in view while the reviewer scrolls through the reading. Give the
+   stage's container the class `desk` (`desk wide` for the conclusion's wider panel), and the
+   action column inside it the class `panel`: every other child of the desk stacks in the
+   reading column, in its own row, and the panel takes the second column from the first row to
+   the last. On a narrower window the panel follows the reading parts before it in the markup,
+   so a reading part placed after the panel (the question's citations) comes after the
+   reviewer's actions; on a phone the panel runs from edge to edge. */
 :root {
+  /* The widest page. */
+  --page: 90rem;
+  /* The space on each side of the page. */
+  --gutter: 16px;
   /* The longest line of text: a paragraph never runs the whole width of a wide window. */
   --measure: 72ch;
-  /* The column of the reviewer's actions, beside the reading. */
-  --actions: 24rem;
+  /* The panel beside the reading column, and the space between them. */
+  --panel-width: 416px;
+  --panel-width-wide: 480px;
+  --column-gap: 40px;
   /* A list of short lines, such as a quiz item's options: the width of the old single column. */
   --phrase: 44rem;
 }
+@media (min-width: 56rem) {
+  :root { --gutter: 32px; }
+}
 
-body { max-width: 84rem; padding: 0 16px; }
+main {
+  box-sizing: border-box;
+  max-width: var(--page);
+  margin: 0 auto;
+  padding: 24px var(--gutter) 48px;
+}
 
 /* Text keeps its measure; tables, code, diagrams and boxes take the width they need. */
 .markdown > p, .markdown > ul, .markdown > ol, .markdown > blockquote, .markdown > .callout,
-.text, .hint, .citation .notes, .review, .follow-ups, .why, .recommendation {
+.text, .hint, .citation .notes, .follow-ups, .why, .recommendation {
   max-width: var(--measure);
 }
 
@@ -26,33 +48,41 @@ body { max-width: 84rem; padding: 0 16px; }
    it needs. */
 .quiz-pick, .quiz-answers, .verdict { max-width: var(--phrase); box-sizing: border-box; }
 
-@media (min-width: 56rem) {
-  body { padding: 0 32px; }
+/* The panel: a tinted surface, no border. */
+.panel {
+  box-sizing: border-box;
+  display: grid;
+  gap: 14px;
+  align-content: start;
+  padding: 16px;
+  border-radius: var(--radius-panel);
+  background: var(--panel);
+}
+@media (max-width: 40rem) {
+  .panel { margin-inline: calc(-1 * var(--gutter)); border-radius: 0; }
 }
 
-/* Two columns. The reading parts stack in the first column; the actions take the second, from
-   the first row to the last. The last row is flexible, so a column of actions longer than the
-   reading grows that row instead of spreading the reading out. The seven rows before it hold
-   the reading parts of a question (at most six today: its title, text, Context, Door, Blast
-   radius and citations) or of a conclusion (at most four): a part past them still shows, in a
-   row below. The actions stick to the top of the window, and scroll on their own when they are
-   taller than it. */
+/* Two columns. The reading parts stack in the first column; the panel takes the second, from
+   the first row to the last. The last row is flexible, so a panel longer than the reading grows
+   that row instead of spreading the reading out. The fifteen rows before it hold the reading
+   parts: a part past them still shows, in a row below. The panel sticks to the top of the
+   window, and scrolls on its own when it is taller than the window. */
 @media (min-width: 70rem) {
-  .question, .conclusion {
+  .desk {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) var(--actions);
-    grid-template-rows: repeat(7, auto) 1fr;
-    column-gap: 32px;
+    grid-template-columns: minmax(0, 1fr) var(--panel-width);
+    grid-template-rows: repeat(15, auto) 1fr;
+    column-gap: var(--column-gap);
     align-items: start;
   }
-  .question > *, .conclusion > * { grid-column: 1; }
-  .question > .answer, .conclusion > .to-be-implemented {
+  .desk.wide { grid-template-columns: minmax(0, 1fr) var(--panel-width-wide); }
+  .desk > * { grid-column: 1; }
+  .desk > .panel {
     grid-column: 2;
     grid-row: 1 / -1;
     position: sticky;
     top: 16px;
     max-height: calc(100vh - 32px);
     overflow-y: auto;
-    margin-top: 16px;
   }
 }

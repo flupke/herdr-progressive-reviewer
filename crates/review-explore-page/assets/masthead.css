@@ -1,0 +1,20 @@
+/* The masthead: one row above every screen, with the product's name, and a hairline under it
+   across the whole window (docs/design/explore-page/README.md, "Masthead"). Its content lines
+   up with the page's column, whatever the window's width. */
+.masthead {
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  min-height: 57px;
+  padding: 14px max(var(--gutter), calc((100% - var(--page)) / 2 + var(--gutter))) 15px;
+}
+.masthead::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 1px;
+  background: var(--line);
+}
+.masthead .product { margin: 0; font-size: 15px; font-weight: 700; }

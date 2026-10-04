@@ -4,7 +4,7 @@ import { test } from './session.ts';
 // With every changed line marked as reviewed, a round has nothing to ask: the start screen keeps
 // Start and Start with Challenger, inactive, and says why.
 
-const NOTHING_TO_REVIEW = 'Nothing is left to review';
+const NOTHING_TO_REVIEW = 'Every changed line is reviewed';
 
 // What a start on the page achieves: the review tool starts the round afterwards, out of the
 // page's hands.
@@ -18,11 +18,10 @@ test('a fully reviewed review offers no start, and says why', async ({ explore, 
   await explore.reviewEverything();
   // The page follows the round in every state, so it shows the start screen at once.
   await explore.reset();
-  await expect(screen.getByRole('status')).toContainText('No Explore round is running');
+  await expect(screen.getByRole('status')).toContainText(NOTHING_TO_REVIEW);
 
   await expect(screen.getByRole('button', 'Start')).toBeDisabled();
   await expect(screen.getByRole('button', 'Start with Challenger')).toBeDisabled();
-  await expect(screen.getByText(NOTHING_TO_REVIEW, { exact: false })).toBeVisible();
 });
 
 test('once a line is unreviewed, the reviewer starts a round', STARTING, async ({ explore, screen, agent }) => {
@@ -50,7 +49,9 @@ test('a start that fails because nothing is left to review says why once', async
   await explore.reviewEverything();
 
   await explore.failStart();
-  await expect(screen.getByRole('alert')).toContainText('The round could not be started');
+  // Nothing failed but the start: the page says the good news once, and no failure.
+  await expect(screen.getByRole('status')).toContainText(NOTHING_TO_REVIEW);
   await expect(screen.getByText(NOTHING_TO_REVIEW, { exact: false })).toHaveCount(1);
+  await expect(screen.getByRole('alert')).toHaveCount(0);
   await expect(screen.getByRole('button', 'Start')).toBeDisabled();
 });

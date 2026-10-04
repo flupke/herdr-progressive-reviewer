@@ -1,8 +1,0 @@
-{#- Why the reviewer's reply to the conclusion was not sent. -#}
-{%- if notice.problem.kind == "stale" -%}
-Your reply was not sent: the round moved past this conclusion, in the pane or in another tab. The page shows the round as it is now.
-{%- elif notice.problem.kind == "failed" -%}
-Your reply was not sent: {{ notice.problem.reason }}
-{%- else -%}
-The review tool did not reply. Load this page again to see whether it took your reply.
-{%- endif -%}

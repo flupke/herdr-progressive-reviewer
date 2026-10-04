@@ -305,10 +305,7 @@ impl PromptOutcome {
     fn interruption(self) -> Interruption {
         match self {
             Self::NotSent => Interruption::Failed(NOT_DELIVERED.into()),
-            Self::NotStarted => Interruption::Failed(
-                "The agent did not start on the prompt. Look at the agent's pane, then Retry."
-                    .into(),
-            ),
+            Self::NotStarted => Interruption::NotStarted,
             Self::ReopenedBeforeSending => Interruption::Stopped,
             Self::ReopenedWhileSending => Interruption::Uncertain,
         }

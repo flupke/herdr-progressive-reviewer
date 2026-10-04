@@ -1,6 +1,6 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-04T03:56:44.436Z",
+  "createdAt": "2026-10-04T12:03:45.456Z",
   "payload": {
     "actions": [
       {
@@ -32,22 +32,25 @@
       "targetId": "phone",
       "instructionDigest": "1d267130a34f48ac8ce1217327a1c0bd4d2f5a8e7fc3869b69be7bb281eabf33"
     },
-    "summary": "Sent the reply “Why not keep the draft in memory?”; the page confirms “The agent is working…”.",
+    "summary": "The page now shows “The agent is working on the design and its first question,” confirming the reply was submitted and the agent is working.",
     "startPath": "/",
     "endPath": "/",
     "endAnchors": [
       {
-        "role": "status",
-        "name": "The agent is working…"
+        "text": "The agent is working on the design and its first question"
+      },
+      {
+        "role": "button",
+        "name": "Stop waiting"
       },
       {
         "text": "After Stop waiting, Retry sends the turn again."
       },
       {
-        "role": "button",
-        "name": "Stop waiting"
+        "role": "status",
+        "name": "The agent is working on the design and its first question"
       }
     ],
-    "endWaitMs": 13623
+    "endWaitMs": 29836
   }
 }

@@ -4,7 +4,6 @@
 use axum::http::{HeaderMap, HeaderValue};
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use serde::Serialize;
 
 use crate::access::cookie;
 use crate::command::CommandRefusal;
@@ -12,15 +11,15 @@ use crate::command::CommandRefusal;
 /// The longest reason a notice keeps, in bytes, so that its cookie stays small.
 const REASON_LIMIT: usize = 1000;
 
-/// A post that did not go through, and why, as the template `notice.html` reads it: it shows
-/// the partial `notice-{post}.html`, which words the notice for that post.
-#[derive(Debug, Eq, PartialEq, Serialize)]
+/// A post that did not go through, and why. The page shows it as a status card
+/// (`StatusCard`), which words it for the post.
+#[derive(Debug, Eq, PartialEq)]
 pub(crate) struct Notice {
-    post: Post,
-    problem: Problem,
+    pub(crate) post: Post,
+    pub(crate) problem: Problem,
 }
 
-/// What the reviewer asked for with the post. It serializes as its [name](Self::name).
+/// What the reviewer asked for with the post.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Post {
     /// An answer to the question the page showed.
@@ -66,9 +65,8 @@ impl RecoveryPost {
     }
 }
 
-/// Why a post did not go through, as the templates test it.
-#[derive(Debug, Eq, PartialEq, Serialize)]
-#[serde(tag = "kind", content = "reason", rename_all = "snake_case")]
+/// Why a post did not go through.
+#[derive(Debug, Eq, PartialEq)]
 pub(crate) enum Problem {
     /// The round moved on since the page was loaded.
     Stale,
@@ -102,7 +100,7 @@ impl Post {
         Self::Recover(RecoveryPost::CancelImplementation),
     ];
 
-    /// The post's name in the cookie, as in the name of its template partial.
+    /// The post's name in the cookie.
     fn name(self) -> &'static str {
         match self {
             Self::Answer => "answer",
@@ -113,12 +111,6 @@ impl Post {
             Self::Reply => "reply",
             Self::Recover(recovery) => recovery.name(),
         }
-    }
-}
-
-impl Serialize for Post {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        serializer.serialize_str(self.name())
     }
 }
 

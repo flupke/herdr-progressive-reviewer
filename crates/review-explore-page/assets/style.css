@@ -1,101 +1,128 @@
-:root {
-  color-scheme: light dark;
-  --accent: #3367d6;
-  --line: color-mix(in srgb, currentColor 20%, transparent);
-}
-body { font: 16px/1.5 system-ui, sans-serif; margin: 0 auto; }
-.question, .conclusion, .quiz, .response { border: 1px solid var(--line); border-radius: 8px; padding: 0 16px 16px; margin: 16px 0; }
+/* The stages of the round, each in its own block. The tokens and the type scale are in
+   tokens.css, the buttons in buttons.css, the status card in status.css, the masthead in
+   masthead.css, and the page's frame with the desk-and-panel grid in layout.css. No stage has a
+   border: space, hairlines and type weight group things; only what the reviewer acts on or
+   reads as one object (a choice, a text box, code, a table, a figure) has a frame. */
+.question, .conclusion, .quiz, .response { margin: 0 0 32px; }
 .text { font-weight: 600; }
-.choices { border: 0; padding: 0; margin: 0; display: grid; gap: 8px; }
+
+/* The question's choices: cards on the page's own surface. Hover strengthens the frame; the
+   selected choice takes the accent; the keyboard's focus rings the card. */
+.choices { border: 0; padding: 0; margin: 0; min-width: 0; display: grid; gap: 8px; }
 .choices legend { padding: 0; margin-bottom: 8px; }
-.choice { display: flex; gap: 8px; align-items: center; padding: 10px; border-radius: 6px; border: 1px solid var(--line); }
-.choice:has(input:checked) { border-color: var(--accent); }
-.hint { margin: 12px 0 0; opacity: 0.75; font-size: 0.9em; }
-.state { padding: 10px; border-radius: 6px; border: 1px solid var(--line); }
-.working { border-color: transparent; background: color-mix(in srgb, var(--accent) 15%, transparent); }
+.choice {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--canvas);
+  cursor: pointer;
+  transition: border-color 150ms;
+}
+.choice input { flex: none; width: 18px; height: 18px; margin: 3px 0 0; accent-color: var(--accent); }
+.choice input:focus-visible { outline: none; }
+.choice:hover { border-color: var(--line-strong); }
+.choice:has(input:checked) {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--canvas));
+}
+.choice:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* Phone: a long word or address wraps instead of widening the page. */
 .text, .choice { overflow-wrap: anywhere; }
 
-/* The answer form, what it marks, and the notice of a post that did not go through. */
-.answer { display: grid; gap: 12px; }
+/* The answer form and what it marks. */
+.answer { display: grid; gap: 14px; }
+.answer .hint { margin: 0; }
 .comment-label { font-weight: 600; }
-.comment { font: inherit; padding: 8px; border-radius: 6px; border: 1px solid var(--line); background: transparent; color: inherit; resize: vertical; }
+.comment, .tasks {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--canvas);
+  color: inherit;
+  font: inherit;
+  resize: vertical;
+}
 .marks summary { cursor: pointer; }
 .marks ul { margin: 8px 0 0; padding-left: 20px; font-size: 0.9em; overflow-wrap: anywhere; }
-.send { justify-self: end; font: inherit; padding: 8px 20px; border-radius: 6px; border: 0; background: var(--accent); color: white; cursor: pointer; }
-.send:disabled { opacity: 0.6; cursor: default; }
-.notice, .failure { padding: 10px; border-radius: 6px; border: 1px solid #c5221f; background: color-mix(in srgb, #c5221f 12%, transparent); }
-.failure p { margin: 0; }
-.failure .reason { margin-top: 6px; overflow-wrap: anywhere; }
+
+/* The agent's recommendation under its choice: the agent's judgement, in purple. */
+.recommendation { margin: -4px 0 0; padding: 0 12px 0 40px; font-size: 14px; overflow-wrap: anywhere; }
+.recommendation strong { color: var(--agent); }
 
 /* The design of the change, above the round's stage: its parts under their headings. */
-.design { border: 1px solid var(--line); border-radius: 8px; margin: 16px 0; }
-.design > details > summary { cursor: pointer; padding: 0 16px; }
-.design > details > summary > h2 { display: inline-block; margin: 12px 0; font-size: 1.15em; }
-.design > details[open] > summary { border-bottom: 1px solid var(--line); }
-.design h3 { font-size: 1em; margin: 16px 16px 6px; }
-.design .markdown { padding: 0 16px; }
-.design details > :last-child { padding-bottom: 16px; }
+.design { margin: 0 0 32px; }
+.design > details > summary { cursor: pointer; }
+.design > details > summary > h2 { display: inline-block; margin: 0; font-size: 17px; }
+.design > details[open] > summary { padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.design h3 { margin: 16px 0 6px; }
 
-/* The start of a round, when none is running. */
-.start .hint { margin: 12px 0; }
-.start-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
-.secondary { font: inherit; padding: 8px 20px; border-radius: 6px; border: 1px solid var(--accent); background: transparent; color: inherit; cursor: pointer; }
-
-/* Nothing is left to review: the start buttons are inactive, and a line says why. */
-.secondary:disabled { opacity: 0.6; cursor: default; }
-.start-block { margin: 10px 0 0; opacity: 0.75; font-size: 0.9em; }
-
-/* The blind first pick, and the agent's recommendation under its choice. */
-.choice.recommended { border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); }
-.recommendation { margin: -4px 0 0; padding: 0 10px 0 36px; font-size: 0.9em; overflow-wrap: anywhere; }
-.answer .hint { margin: 0; }
+/* The start cover, when no round is running: the review's title as the headline, a muted line
+   that says where it is, then Start and Start with Challenger, each with one line under it. */
+.start-cover { max-width: calc(var(--measure) + 34px); padding-top: 24px; }
+.start-cover > .eyebrow { margin-bottom: 8px; }
+/* Status cards above the cover (a failed start, nothing left to review) stand in for its eyebrow. */
+.status-card ~ .start-cover { padding-top: 0; }
+.start-cover h1 { max-width: 20em; margin: 0 0 8px; overflow-wrap: anywhere; }
+.start-cover .meta { margin: 0 0 24px; color: var(--muted); font-size: 14px; overflow-wrap: anywhere; }
+.start-cover .meta code { font-size: 13px; }
+.start { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 12px; }
+.start-choice { display: grid; gap: 8px; align-content: start; }
+.start-choice .hint { margin: 0; }
+/* Both start buttons have the height of the primary one, side by side. */
+.start .button { min-height: 44px; }
+@media (max-width: 40rem) {
+  .start .button { min-height: 48px; }
+}
 
 /* The list to be implemented, which the reviewer edits and sends with Implement. */
+.to-be-implemented > h3 { margin: 0; }
+.to-be-implemented > .status-card { margin: 0; }
 .implement { display: grid; gap: 12px; }
 .implement .hint { margin: 0; }
-.tasks { font: inherit; padding: 8px; border-radius: 6px; border: 1px solid var(--line); background: transparent; color: inherit; resize: vertical; }
-.to-be-implemented .failure { margin: 0 0 12px; }
 
 /* The conclusion's quiz, one item at a time, then its results beside the conclusion. */
 .quiz-pick { display: grid; gap: 12px; }
 .quiz-skip { margin-top: 12px; }
 .quiz-answers { list-style: none; padding: 0; display: grid; gap: 8px; }
-.quiz-answers li { padding: 10px; border-radius: 6px; border: 1px solid var(--line); overflow-wrap: anywhere; }
-.quiz-answers .correct { border-color: #1e8e3e; }
-.quiz-answers .picked:not(.correct) { border-color: #c5221f; }
-.quiz-answers .tag { font-size: 0.85em; opacity: 0.75; }
-.verdict { font-weight: 600; padding: 10px; border-radius: 6px; background: color-mix(in srgb, #c5221f 12%, transparent); }
-.verdict.good { background: color-mix(in srgb, #1e8e3e 15%, transparent); }
+.quiz-answers li { padding: 10px 12px; border-radius: var(--radius); border: 1px solid var(--line); overflow-wrap: anywhere; }
+.quiz-answers .correct { border-color: var(--good); }
+.quiz-answers .picked:not(.correct) { border-color: color-mix(in srgb, var(--bad) 60%, transparent); }
+.quiz-answers .tag { color: var(--muted); font-size: 0.85em; }
+.verdict { font-weight: 600; padding: 10px 12px; border-radius: var(--radius); background: color-mix(in srgb, var(--bad) 10%, transparent); }
+.verdict.good { background: color-mix(in srgb, var(--good) 14%, transparent); }
 .verdict.skipped { background: transparent; border: 1px solid var(--line); }
 .quiz-results summary { cursor: pointer; }
 .quiz-results summary > h3 { display: inline-block; margin: 12px 0; }
 .quiz-results h4 { margin: 16px 0 4px; }
 
 /* What the agent said back to the previous answer, above its question or conclusion. */
-.response h2 { font-size: 1.15em; margin: 12px 0 0; }
+.response h2 { font-size: 17px; margin: 0; }
 .response .markdown { margin-top: 8px; }
 .follow-ups { margin: 8px 0 0; padding: 0; list-style: none; overflow-wrap: anywhere; }
 
 /* The question, in the agent's Markdown, keeps the spacing of a paragraph. */
 .question > .text { margin: 16px 0; }
 
-/* The review the start screen belongs to. */
-.review { overflow-wrap: anywhere; }
-
-/* Controlling the round, as in the reviewer's Explore tab: Stop waiting, Retry, the latest
-   answer with Cancel answer, a reply to the conclusion, and Reset behind its confirmation. */
-.stop, .retry, .cancel-answer, .reply, .cancel-implementation, .resend-implementation { display: grid; gap: 12px; margin: 12px 0; }
-.stop .hint, .retry .hint, .cancel-answer .hint, .reply .hint, .cancel-implementation .hint { margin: 0; }
-.stop button, .retry button, .cancel-answer button, .reply button, .cancel-implementation button, .resend-implementation button { justify-self: start; }
-.last-answer { border: 1px solid var(--line); border-radius: 8px; padding: 0 16px; margin: 16px 0; }
-.last-answer h2 { font-size: 1em; margin: 12px 0 6px; }
+/* Controlling the round, as in the reviewer's Explore tab: the latest answer with Cancel
+   answer, a reply to the conclusion, the saved implementation request, and Reset behind its
+   confirmation. Stop waiting, Retry and the cancel of an implementation request sit in the
+   actions of their status card. */
+.cancel-answer, .reply, .resend-implementation { display: grid; gap: 12px; margin: 12px 0; }
+.cancel-answer .hint, .reply .hint { margin: 0; }
+.cancel-answer button, .reply button, .resend-implementation button { justify-self: start; }
+.last-answer { margin: 0 0 32px; }
+.last-answer h2 { font-size: 17px; margin: 0 0 6px; }
 .last-answer p { margin: 0 0 6px; overflow-wrap: anywhere; }
-.last-answer .choice { border: 0; padding: 0; font-weight: 600; }
-.earlier { margin: 16px 0; }
+.last-answer .choice { border: 0; padding: 0; background: none; cursor: auto; font-weight: 600; }
+.last-answer .answer-comment { color: var(--muted); font-style: italic; }
 .reset { margin: 24px 0; }
-.reset summary { cursor: pointer; display: inline-block; padding: 8px 20px; border-radius: 6px; border: 1px solid var(--line); }
+.reset > summary { cursor: pointer; display: inline-block; color: var(--muted); font-size: 14px; text-decoration: underline; }
+.reset > summary:hover { color: var(--ink); }
 .reset form { display: grid; gap: 12px; margin-top: 12px; }
-.reset .hint { margin: 0; }
-.danger { justify-self: start; font: inherit; padding: 8px 20px; border-radius: 6px; border: 0; background: #c5221f; color: white; cursor: pointer; }
+.reset form .hint { margin: 0; }
+.reset form button { justify-self: start; }

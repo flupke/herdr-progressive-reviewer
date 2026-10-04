@@ -4,7 +4,7 @@
 {% elif question.recommendation == "hidden_until_pick" %}
 {% include "pick.html" %}
 {% else %}
-<form class="answer" method="post" action="/answer">
+<form class="answer panel" method="post" action="/answer">
   {% if question.round %}<input type="hidden" name="round" value="{{ question.round }}">{% endif %}
   <input type="hidden" name="question" value="{{ question.id }}">
   <input type="hidden" name="version" value="{{ question.version }}">
@@ -14,6 +14,6 @@
   {% include "choices.html" %}
   {% include "comment.html" %}
   {% include "marks.html" %}
-  <button class="send" type="submit">Send</button>
+  <button class="button primary block" type="submit">Send</button>
 </form>
 {% endif %}

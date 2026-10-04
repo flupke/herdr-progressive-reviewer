@@ -1,8 +1,0 @@
-{#- Why Reset did not go through. -#}
-{%- if notice.problem.kind == "stale" -%}
-The round was not reset: the page showed a round that is no longer running. It was reset or replaced in the pane or in another tab. The page shows the round as it is now.
-{%- elif notice.problem.kind == "failed" -%}
-The round was not reset: {{ notice.problem.reason }}
-{%- else -%}
-The review tool did not reply. Load this page again to see whether it reset the round.
-{%- endif -%}

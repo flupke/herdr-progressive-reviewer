@@ -26,7 +26,7 @@ test('the reviewer edits the list to be implemented, sends it, then sees it sent
   expect(await explore.implementations()).toEqual([TASKS]);
 
   await explore.deliverImplementation();
-  await expect(screen.getByRole('status')).toContainText('sent to the agent');
+  await expect(screen.getByRole('status')).toContainText('The agent received the implementation request');
   await expect(screen.getByText(TASKS)).toBeVisible();
   await expect(screen.getByRole('button', 'Implement')).toHaveCount(0);
 });
@@ -57,8 +57,8 @@ test('an Implement after the pane sent the request is refused', async ({ explore
   // An exact action: the refusal of this Implement is the point of the test, which a goal to
   // implement would count as a failure.
   await screen.getByRole('button', 'Implement').tap();
-  await expect(screen.getByRole('alert')).toContainText('The implementation request was not sent');
-  await expect(screen.getByRole('status')).toContainText('sent to the agent');
+  await expect(screen.getByRole('alert')).toContainText('This conclusion no longer waits for a request');
+  await expect(screen.getByRole('status')).toContainText('The agent received the implementation request');
   expect(await explore.implementations()).toEqual([]);
 });
 

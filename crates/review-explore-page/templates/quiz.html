@@ -18,7 +18,7 @@
       <label class="choice"><input type="radio" name="answer" value="{{ answer.index }}" required> {{ answer.text }}</label>
       {% endfor %}
     </fieldset>
-    <button class="send" type="submit">Check</button>
+    <button class="button primary" type="submit">Check</button>
   </form>
   {% else %}
   <p class="text">{{ item.question }}</p>
@@ -28,7 +28,7 @@
   {% if quiz.asks %}
   <form class="quiz-skip" method="post" action="/quiz/skip">
     <input type="hidden" name="conclusion" value="{{ quiz.conclusion }}">
-    <button class="secondary" type="submit">Skip the quiz</button>
+    <button class="button quiet" type="submit">Skip the quiz</button>
   </form>
   {% endif %}
 </section>

@@ -295,16 +295,15 @@ impl ExploreSession {
 
 /// The turn `request` of `round`, which the agent is not working on, and why.
 fn interrupted(round: &ExploreRound, request: &review_explore::TurnRequest) -> RoundStage {
-    let uncertain = round.turns.get(&request.request).is_some_and(|delivery| {
-        matches!(
-            delivery.state,
-            DispatchState::Attempting | DispatchState::Unknown
-        )
-    });
-    let interruption = match &request.response_error {
-        Some(failure) => Interruption::Failed(failure.clone()),
-        None if uncertain => Interruption::Uncertain,
-        None => Interruption::Stopped,
+    let state = round
+        .turns
+        .get(&request.request)
+        .map(|delivery| &delivery.state);
+    let interruption = match (state, &request.response_error) {
+        (Some(DispatchState::NotStarted), _) => Interruption::NotStarted,
+        (_, Some(failure)) => Interruption::Failed(failure.clone()),
+        (Some(DispatchState::Attempting | DispatchState::Unknown), None) => Interruption::Uncertain,
+        (_, None) => Interruption::Stopped,
     };
     RoundStage::Interrupted {
         request: Some(request.request.clone()),

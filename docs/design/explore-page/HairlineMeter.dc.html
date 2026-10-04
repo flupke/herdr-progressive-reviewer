@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet><style>@keyframes dvGlow{0%{opacity:0}25%{opacity:1}100%{opacity:0}}</style></helmet>
+<div style="background:#121212;border:1px solid rgba(255,255,255,.1);border-radius:8px;box-shadow:0 10px 36px rgba(0,0,0,.45);width:1440px;height:460px;color:#e8e8e8;font:16px/1.55 system-ui,-apple-system,'Segoe UI','Noto Sans',sans-serif;display:grid;grid-template-rows:auto 1fr;overflow:visible">
+<header style="position:relative;display:flex;align-items:center;gap:28px;padding:14px 32px 15px;z-index:3">
+<div style="display:flex;align-items:baseline;gap:10px;min-width:0;flex:1 1 0"><span style="font-weight:700;font-size:15px">Explore</span><span style="font-size:15px;color:#a3a9b1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Batch the reviewer's replies into one agent notification <code style="font:13px ui-monospace,Menlo,monospace">wqzlpnrt</code></span></div>
+<ol style="display:flex;gap:22px;list-style:none;margin:0;padding:0;font-size:13px"><li><span style="display:inline-flex;align-items:center;gap:6px"><span style="color:#3fb950">✓</span> Design <span style="font-size:10px;color:#a3a9b1">▾</span></span></li><li><span style="color:#3fb950">✓</span> Q1</li>
+<sc-if value="{{ notAnswered }}" hint-placeholder-val="{{ true }}"><li style="color:#4493f8;font-weight:650;box-shadow:inset 0 -2px 0 #4493f8;padding-bottom:1px">Q2</li><li style="color:#a3a9b1;opacity:.7">Quiz</li></sc-if>
+<sc-if value="{{ answered }}" hint-placeholder-val="{{ false }}"><li><span style="color:#3fb950">✓</span> Q2</li><li style="color:#4493f8;font-weight:650;box-shadow:inset 0 -2px 0 #4493f8;padding-bottom:1px">Quiz</li></sc-if>
+<li style="color:#a3a9b1;opacity:.7">Conclusion</li></ol>
+<span style="display:grid;place-items:center;width:28px;height:28px;border-radius:6px;color:#a3a9b1;font-size:16px;letter-spacing:1px">⋯</span>
+<div style="position:absolute;left:0;right:0;bottom:0;height:1px;background:rgba(255,255,255,.12)"></div>
+<div style="position:absolute;left:0;right:0;bottom:{{ lineB }};height:{{ lineH }};background:rgba(255,255,255,{{ trackA }});transition:height .18s ease,bottom .18s ease,background .18s ease"></div>
+<div style="position:absolute;left:0;bottom:{{ lineB }};height:{{ lineH }};width:{{ doneW }};background:#3fb950;transition:height .18s ease,bottom .18s ease,width .8s cubic-bezier(.2,.8,.2,1)"></div>
+<div style="position:absolute;left:21.5%;bottom:{{ lineB }};height:{{ lineH }};width:17%;background:rgba(63,185,80,.4);opacity:{{ splitO }};transition:height .18s ease,bottom .18s ease,opacity .18s ease"></div>
+<div style="position:absolute;left:38.5%;bottom:{{ lineB }};height:{{ lineH }};width:11.1%;background:repeating-linear-gradient(135deg,#4493f8 0 5px,rgba(68,147,248,.35) 5px 10px);opacity:{{ gainO }};transition:height .18s ease,bottom .18s ease,opacity .5s ease"></div>
+<sc-if value="{{ pulseOn }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;left:0;bottom:{{ lineB }};height:{{ lineH }};width:49.6%;background:#3fb950;box-shadow:0 0 16px 3px rgba(63,185,80,.9);animation:dvGlow 1.2s ease-out forwards;pointer-events:none"></div></sc-if>
+<div onMouseEnter="{{ enter }}" onMouseLeave="{{ leave }}" style="position:absolute;left:0;right:0;bottom:-3px;height:8px;cursor:pointer;z-index:4"></div>
+<div onMouseEnter="{{ enter }}" onMouseLeave="{{ leave }}" style="position:absolute;left:34%;top:68px;width:520px;background:#1b1d21;border:1px solid rgba(255,255,255,.12);border-radius:10px;box-shadow:0 16px 40px rgba(0,0,0,.55);padding:14px;display:grid;gap:10px;font-size:13px;color:#e8e8e8;opacity:{{ winO }};transform:translateY({{ winY }});pointer-events:{{ winPE }};transition:opacity .22s ease .12s,transform .22s ease .12s;z-index:5">
+<div style="display:flex;align-items:baseline;gap:12px"><span style="font-size:18px;font-weight:650">{{ pct }} reviewed</span><span style="color:#a3a9b1">{{ doneN }} of 135 changed lines</span><span style="margin-left:auto;font:13px ui-monospace,SFMono-Regular,Menlo,monospace"><span style="color:#3fb950">+125</span> <span style="color:#f85149">−10</span> · 4 files</span></div>
+<div style="display:grid;grid-template-columns:auto 1fr auto;gap:5px 12px;align-items:center;padding:0 2px">
+<span style="display:inline-block;width:12px;height:8px;border-radius:2px;background:#3fb950"></span><span>Your answers · {{ yoursLabel }}</span><span style="color:#a3a9b1;font-variant-numeric:tabular-nums">{{ yoursN }}</span>
+<span style="display:inline-block;width:12px;height:8px;border-radius:2px;background:rgba(63,185,80,.4)"></span><span>Jev at the start 18 · not relevant {{ nrN }}</span><span style="color:#a3a9b1;font-variant-numeric:tabular-nums">{{ jevN }}</span>
+<sc-if value="{{ notAnswered }}" hint-placeholder-val="{{ true }}"><span style="display:inline-block;width:12px;height:8px;border-radius:2px;background:repeating-linear-gradient(135deg,#4493f8 0 3px,rgba(68,147,248,.35) 3px 6px)"></span><span>This question marks when you answer</span><span style="color:#a3a9b1;font-variant-numeric:tabular-nums">15</span></sc-if>
+<span style="display:inline-block;width:12px;height:8px;border-radius:2px;background:rgba(255,255,255,.08)"></span><span>Left to explore</span><span style="color:#a3a9b1;font-variant-numeric:tabular-nums">{{ leftN }}</span>
+</div>
+<div style="display:grid;grid-template-columns:176px 1fr auto;gap:6px 12px;align-items:center;padding:10px 2px 0;border-top:1px solid rgba(255,255,255,.12);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px">
+<span>src/notify/queue.rs</span><div style="display:flex;height:6px;width:100%;border-radius:2px;overflow:hidden;background:rgba(255,255,255,.08)"><span style="width:{{ f1Done }};background:#3fb950;transition:width .8s cubic-bezier(.2,.8,.2,1)"></span><span style="width:8%;background:rgba(63,185,80,.4)"></span><span style="width:{{ f1Gain }};background:repeating-linear-gradient(135deg,#4493f8 0 3px,rgba(68,147,248,.35) 3px 6px);transition:width .8s cubic-bezier(.2,.8,.2,1)"></span></div><span style="color:#a3a9b1;white-space:nowrap">{{ f1Left }} left · <span style="color:#4493f8">cited here</span></span>
+<span>src/notify/flush.rs</span><div style="display:flex;height:6px;width:62%;border-radius:2px;overflow:hidden;background:rgba(255,255,255,.08)"><span style="width:55%;background:#3fb950"></span><span style="width:20%;background:rgba(63,185,80,.4)"></span></div><span style="color:#a3a9b1;white-space:nowrap">10 left</span>
+<span>src/notify/link.rs</span><div style="display:flex;height:6px;width:38%;border-radius:2px;overflow:hidden;background:rgba(255,255,255,.08)"><span style="width:30%;background:rgba(63,185,80,.4)"></span></div><span style="color:#a3a9b1;white-space:nowrap">16 left</span>
+<span>src/threads/reply.rs</span><div style="display:flex;height:6px;width:21%;border-radius:2px;overflow:hidden;background:rgba(255,255,255,.08)"><span style="width:{{ f4Done }};background:#3fb950;transition:width .8s cubic-bezier(.2,.8,.2,1)"></span><span style="width:{{ f4Gain }};background:repeating-linear-gradient(135deg,#4493f8 0 3px,rgba(68,147,248,.35) 3px 6px);transition:width .8s cubic-bezier(.2,.8,.2,1)"></span></div><span style="color:#a3a9b1;white-space:nowrap">{{ f4Left }} left · <span style="color:#4493f8">cited here</span></span>
+</div>
+</div>
+</header>
+<div style="display:grid;grid-template-columns:minmax(0,1fr) 416px;column-gap:40px;align-items:start;padding:28px 32px 32px">
+<div style="font-size:13px;color:#a3a9b1;max-width:72ch;align-self:end;display:grid;gap:6px"><p style="margin:0">The question screen continues here as in <a href="#3b" style="color:#4493f8">3b</a>. The 8px hover strip sits over the line, 3px below the masthead edge to 5px above; the window opens under it.</p><p style="margin:0">Timing: grow 180ms ease · window 220ms, delayed 120ms so a pass-through doesn't flash it · advance 800ms with a 1.2s glow · the window follows the numbers at once.</p></div>
+<aside style="background:#1b1d21;border-radius:12px;padding:16px;display:grid;gap:12px">
+<p style="margin:0;font-size:12px;font-weight:650;letter-spacing:.06em;text-transform:uppercase;color:#a3a9b1">Choices</p>
+<label style="display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:8px;border:1px solid #4493f8;box-shadow:inset 0 0 0 1px #4493f8;background:rgba(68,147,248,.10)"><input type="radio" name="c9a" checked style="width:18px;height:18px;margin:3px 0 0;accent-color:#1f6feb;flex:none"><span style="flex:1 1 0;min-width:0;font-size:15px">Send them in one last notification before the pane closes, as the change does</span></label>
+<p style="margin:0;font-size:14px;color:#a3a9b1"><span style="font-size:11px">▸</span> {{ marksLine }}</p>
+<sc-if value="{{ notAnswered }}" hint-placeholder-val="{{ true }}"><button type="button" onClick="{{ send }}" style="width:100%;min-height:44px;border:0;border-radius:8px;background:#1f6feb;color:#fff;font:600 16px system-ui,sans-serif;cursor:pointer">Send answer</button></sc-if>
+<sc-if value="{{ answered }}" hint-placeholder-val="{{ false }}"><button type="button" disabled style="width:100%;min-height:44px;border:0;border-radius:8px;background:rgba(63,185,80,.18);color:#3fb950;font:600 16px system-ui,sans-serif">✓ Sent · 15 lines marked</button><p style="margin:-4px 0 0;font-size:13px;color:#a3a9b1;text-align:center"><span onClick="{{ replay }}" style="text-decoration:underline;text-underline-offset:3px;cursor:pointer">Replay the demo</span></p></sc-if>
+</aside>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1440,&quot;height&quot;:460}}">
+class Component extends DCLogic {
+  state = { hovered: false, answered: false, pulse: false };
+  enter = () => { clearTimeout(this._t); this.setState({ hovered: true }); };
+  leave = () => { clearTimeout(this._t); this._t = setTimeout(() => this.setState({ hovered: false }), 180); };
+  send = () => {
+    this.setState({ answered: true, pulse: true });
+    clearTimeout(this._p);
+    this._p = setTimeout(() => this.setState({ pulse: false }), 1300);
+  };
+  replay = () => { clearTimeout(this._p); this.setState({ answered: false, pulse: false }); };
+  componentWillUnmount() { clearTimeout(this._t); clearTimeout(this._p); }
+  renderVals() {
+    const { hovered, answered, pulse } = this.state;
+    return {
+      enter: this.enter, leave: this.leave, send: this.send, replay: this.replay,
+      answered, notAnswered: !answered, pulseOn: pulse,
+      lineH: hovered ? '8px' : '2px', lineB: hovered ? '-3px' : '0px', trackA: hovered ? '0.08' : '0',
+      doneW: answered ? '49.6%' : '38.5%',
+      splitO: hovered ? '1' : '0',
+      gainO: hovered && !answered ? '1' : '0',
+      winO: hovered ? '1' : '0', winY: hovered ? '0px' : '-6px', winPE: hovered ? 'auto' : 'none',
+      pct: answered ? '50%' : '39%', doneN: answered ? '67' : '52',
+      yoursLabel: answered ? 'Q1, Q2' : 'Q1', yoursN: answered ? '41' : '29',
+      nrN: answered ? '8' : '5', jevN: answered ? '26' : '23', leftN: answered ? '53' : '68',
+      f1Done: answered ? '58%' : '38%', f1Gain: answered ? '0%' : '20%', f1Left: answered ? '9' : '21',
+      f4Done: answered ? '60%' : '0%', f4Gain: answered ? '0%' : '60%', f4Left: answered ? '5' : '13',
+      marksLine: answered ? 'Marked 12 lines reviewed · 3 not relevant' : 'Will mark 12 lines reviewed · 3 not relevant',
+    };
+  }
+}
+</script>
+</body>
+</html>

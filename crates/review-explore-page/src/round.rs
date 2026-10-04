@@ -72,11 +72,13 @@ pub enum RoundStage {
 }
 
 /// Why the agent is not working on the turn the round waits for.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
-#[serde(tag = "kind", content = "reason", rename_all = "snake_case")]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Interruption {
     /// The turn's prompt could not be delivered, for this reason.
     Failed(String),
+    /// The turn's prompt reached the agent's pane, and the agent did not start on it: it may
+    /// still wait in the agent's prompt box.
+    NotStarted,
     /// The turn's prompt was being delivered when the reviewer reopened: whether the agent
     /// received it is unknown.
     Uncertain,

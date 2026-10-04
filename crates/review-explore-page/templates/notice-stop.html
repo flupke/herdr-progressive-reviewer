@@ -1,8 +1,0 @@
-{#- Why Stop waiting did not go through. -#}
-{%- if notice.problem.kind == "stale" -%}
-Stop waiting did nothing: the page no longer waits for what it showed. The round moved on, in the pane or in another tab. The page shows the round as it is now.
-{%- elif notice.problem.kind == "failed" -%}
-Stop waiting did nothing: {{ notice.problem.reason }}
-{%- else -%}
-The review tool did not reply. Load this page again to see whether it stopped waiting.
-{%- endif -%}

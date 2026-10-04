@@ -32,6 +32,7 @@ test('on a desktop window, the design and the question use the width of the wind
       paragraph: box('.design .markdown > p').width,
       explanation: box('.question .explanation'),
       choices: box('.question .choices'),
+      panel: box('.question .panel'),
       page: document.documentElement.scrollWidth - window.innerWidth,
     };
   });
@@ -46,5 +47,7 @@ test('on a desktop window, the design and the question use the width of the wind
   // ...and the choices sit beside the explanation, not under it.
   expect(measured.choices.left).toBeGreaterThanOrEqual(measured.explanation.right);
   expect(measured.choices.top).toBeLessThan(measured.explanation.bottom);
+  // The reviewer's actions take the panel of the design: 416 pixels wide.
+  expect(measured.panel.width).toBe(416);
   expect(measured.page).toBeLessThanOrEqual(0);
 });

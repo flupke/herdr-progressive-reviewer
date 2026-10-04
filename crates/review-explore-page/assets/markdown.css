@@ -1,14 +1,5 @@
 /* The agent's Markdown, rendered by the tool (crates/markdown-html): explanations, the Door and
-   Blast radius sections, and the conclusion. */
-:root {
-  --good: light-dark(#1a7f37, #3fb950);
-  --bad: light-dark(#cf222e, #f85149);
-  --warn: light-dark(#9a6700, #d29922);
-  --tip: light-dark(#0969da, #4493f8);
-  --conclusion: light-dark(#8250df, #ab7df8);
-  --code-bg: color-mix(in srgb, currentColor 7%, transparent);
-}
-
+   Blast radius sections, and the conclusion. Its colours are the tokens of tokens.css. */
 .markdown { overflow-wrap: anywhere; }
 .markdown > :first-child { margin-top: 0; }
 .markdown > :last-child { margin-bottom: 0; }
@@ -16,8 +7,8 @@
 .markdown ul, .markdown ol { padding-left: 1.4em; }
 .markdown li + li { margin-top: 2px; }
 .markdown h3, .markdown h4, .markdown h5, .markdown h6 { font-size: 1em; margin: 16px 0 6px; }
-.markdown code { font: 0.9em/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--code-bg); border-radius: 4px; padding: 1px 4px; }
-.markdown pre { background: var(--code-bg); border-radius: 6px; padding: 10px 12px; overflow-x: auto; }
+.markdown code { font: 0.9em/1.4 var(--mono); background: var(--code-bg); border-radius: 4px; padding: 1px 4px; }
+.markdown pre { background: var(--code-bg); border-radius: var(--radius); padding: 10px 12px; overflow-x: auto; }
 .markdown pre code { background: none; padding: 0; font-size: 0.85em; overflow-wrap: normal; }
 .markdown blockquote { border-left: 3px solid var(--line); padding-left: 12px; opacity: 0.85; }
 .markdown a { color: var(--accent); }
@@ -39,11 +30,11 @@
 .markdown .status-warning .status { background: var(--warn); }
 
 /* Callouts: a colored bar and title, by kind. */
-.markdown .callout { --kind: var(--tip); border-left: 4px solid var(--kind); background: color-mix(in srgb, var(--kind) 8%, transparent); border-radius: 0 6px 6px 0; padding: 8px 12px; margin: 0 0 12px; }
+.markdown .callout { --kind: var(--accent); border-left: 4px solid var(--kind); background: color-mix(in srgb, var(--kind) 8%, transparent); border-radius: 0 6px 6px 0; padding: 8px 12px; margin: 0 0 12px; }
 .markdown .callout > :last-child { margin-bottom: 0; }
 .markdown .callout-title { color: var(--kind); font-weight: 650; margin: 0 0 4px; }
 .markdown .callout-title::before { display: inline-block; width: 1.2em; }
-.markdown .callout-conclusion { --kind: var(--conclusion); }
+.markdown .callout-conclusion { --kind: var(--agent); }
 .markdown .callout-conclusion .callout-title::before { content: "◆"; }
 .markdown .callout-tip .callout-title::before { content: "➜"; }
 .markdown .callout-warning { --kind: var(--warn); }
@@ -53,8 +44,8 @@
 
 /* The explanation above the choices, and the folded Door and Blast radius sections. */
 .explanation { margin: 0 0 16px; }
-.assessment { border: 1px solid var(--line); border-radius: 6px; margin: 0 0 8px; }
-.assessment > summary { cursor: pointer; padding: 8px 12px; font-weight: 600; }
-.assessment[open] > summary { border-bottom: 1px solid var(--line); }
-.assessment > .markdown { padding: 10px 12px; }
-.assessment:last-of-type { margin-bottom: 16px; }
+/* The folded sections are rows between hairlines, not boxes. */
+.assessment { border-top: 1px solid var(--line); }
+.assessment:last-of-type { border-bottom: 1px solid var(--line); margin-bottom: 16px; }
+.assessment > summary { cursor: pointer; padding: 10px 0; font-weight: 650; }
+.assessment > .markdown { padding: 0 0 12px; }

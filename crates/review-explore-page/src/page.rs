@@ -12,7 +12,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use review_explore::{
     Alternative, AnswerInput, Assessments, Conclusion, Design, MarkTense, Question,
-    QuestionSection, QuizItem, QuizResponse, StartBlock,
+    QuestionSection, QuizItem, QuizResponse,
 };
 use review_explore_citations::Citation;
 use serde::{Deserialize, Serialize};
@@ -27,9 +27,10 @@ use crate::files::PageFiles;
 use crate::form::TextArea;
 use crate::notice::{Notice, Post, Problem, RecoveryPost};
 use crate::round::{
-    ImplementationState, Interruption, LatestAnswer, PageImplementation, PageQuiz, PageRound,
-    QuestionMarks, ReviewName, RoundSnapshot, RoundStage, Rounds, TurnResponse,
+    ImplementationState, LatestAnswer, PageImplementation, PageQuiz, PageRound, QuestionMarks,
+    ReviewName, RoundSnapshot, RoundStage, Rounds, TurnResponse,
 };
+use crate::status::StatusCard;
 
 /// Scripts, styles and form posts only from the page itself, and no inline script. Inline
 /// styles are allowed for Mermaid, which writes them into each diagram it draws: without them
@@ -692,32 +693,23 @@ fn redirect(address: &str, cookie: Option<HeaderValue>) -> Response {
 #[derive(Serialize)]
 struct PageContext<'a> {
     revision: u64,
-    stage: Stage,
+    /// The start cover, when no round is running.
+    start: Option<StartContext>,
     /// Whether the round waits for the review tool or the agent: a round starts, the agent
     /// works, or an implementation request is being sent. The page polls its status more often
     /// then; it polls in every stage, to follow the round.
     working: bool,
     question: Option<QuestionContext<'a>>,
     conclusion: Option<ConclusionContext<'a>>,
-    /// Why the agent is not working on the turn the round waits for, and the turn Retry sends.
-    interrupted: Option<InterruptedContext<'a>>,
-    /// Why the reviewer's latest start of a round failed, while no round runs.
-    start_failure: Option<&'a str>,
-    /// Why the reviewer cannot start a round, when nothing is left to review: the start
-    /// buttons are inactive.
-    start_block: Option<&'static str>,
-    /// Why the review tool cannot save the reviewer's rounds.
-    storage_failure: Option<&'a str>,
-    /// What Stop waiting stops, when the page offers it.
-    stop: Option<StopContext<'a>>,
     /// The reviewer's latest answer, when the page offers to cancel it.
     cancellable: Option<&'a LatestAnswer>,
     /// The round Reset closes, when the page offers it.
     reset: Option<&'a str>,
     /// Whether the round is an earlier one, which the reviewer can only Reset.
     earlier: bool,
-    /// Why the reviewer's latest post did not go through.
-    notice: Option<&'a Notice>,
+    /// The status cards above the round's stage: why the reviewer's latest post did not go
+    /// through, that the round is an earlier one, and the stage when it is not a question.
+    cards: Vec<StatusCard>,
     /// The design of the change, as the round's first turn explained it.
     design: Option<DesignContext>,
     /// What the agent's turn said back to the reviewer's previous answer, above its question
@@ -731,26 +723,23 @@ struct PageContext<'a> {
     dev_version: Option<u64>,
 }
 
+/// The start cover, when no round is running.
+#[derive(Serialize)]
+struct StartContext {
+    /// Whether no status card says the cover's state, so that the cover says that no round is
+    /// running.
+    idle: bool,
+    /// The status card that says why the reviewer cannot start a round, by its ID: the start
+    /// buttons are inactive, and it describes them.
+    block: Option<&'static str>,
+}
+
 /// The reviewer's first pick of the blind question the page shows, with the comment typed
 /// beside it.
 #[derive(Clone, Copy)]
 struct ShownPick<'p, 'a> {
     pick: &'p FirstPick,
     comment: &'a str,
-}
-
-/// An agent's turn the agent is not working on.
-#[derive(Serialize)]
-struct InterruptedContext<'a> {
-    /// The turn Retry sends again; `None` when there is none, and only Reset is left.
-    request: Option<&'a str>,
-    interruption: &'a Interruption,
-}
-
-/// What Stop waiting stops: the agent's turn `request`, or the start under way when `None`.
-#[derive(Serialize)]
-struct StopContext<'a> {
-    request: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -820,6 +809,8 @@ struct ConclusionContext<'a> {
     offers_implement: bool,
     /// The latest implementation request of the conclusion.
     implementation: Option<&'a PageImplementation>,
+    /// What became of it, as a status card with the action that recovers it.
+    implementation_card: Option<StatusCard>,
     /// Whether the page offers actions on the conclusion: Implement and its recoveries, and
     /// Reply. An earlier round offers none.
     offers_actions: bool,
@@ -897,21 +888,6 @@ impl DesignContext {
     }
 }
 
-/// The stage's name, as the template tests it: `no_round`, `starting`, `start_failed`,
-/// `working`, `question`, `interrupted`, `conclusion` or `storage_failed`.
-#[derive(Serialize)]
-#[serde(rename_all = "snake_case")]
-enum Stage {
-    NoRound,
-    Starting,
-    StartFailed,
-    Working,
-    Question,
-    Interrupted,
-    Conclusion,
-    StorageFailed,
-}
-
 impl<'a> PageContext<'a> {
     fn new(
         round: &'a RoundSnapshot,
@@ -924,19 +900,14 @@ impl<'a> PageContext<'a> {
         let offers_actions = !round.earlier;
         let mut context = Self {
             revision: round.revision,
-            stage: Stage::NoRound,
+            start: None,
             working: false,
             question: None,
             conclusion: None,
-            interrupted: None,
-            start_failure: None,
-            start_block: round.start_block.map(StartBlock::reason),
-            storage_failure: None,
-            stop: None,
             cancellable: round.cancellable.as_ref().filter(|_| offers_actions),
             reset: round.round.as_deref(),
             earlier: round.earlier,
-            notice,
+            cards: StatusCard::above_stage(round, notice, offers_actions),
             design: round
                 .design
                 .as_deref()
@@ -947,23 +918,10 @@ impl<'a> PageContext<'a> {
             dev_version,
         };
         match &round.stage {
-            RoundStage::NoRound => {}
-            RoundStage::Starting => {
-                context.stage = Stage::Starting;
-                context.working = true;
-                context.stop = Some(StopContext { request: None });
-            }
-            RoundStage::StartFailed { failure } => {
-                context.stage = Stage::StartFailed;
-                context.start_failure = Some(failure);
-            }
-            RoundStage::AgentWorking { request } => {
-                context.stage = Stage::Working;
-                context.working = true;
-                context.stop = offers_actions.then_some(StopContext {
-                    request: Some(request),
-                });
-            }
+            RoundStage::NoRound
+            | RoundStage::StartFailed { .. }
+            | RoundStage::Interrupted { .. } => {}
+            RoundStage::Starting | RoundStage::AgentWorking { .. } => context.working = true,
             RoundStage::Question {
                 number,
                 question,
@@ -971,7 +929,6 @@ impl<'a> PageContext<'a> {
                 marks,
                 ..
             } => {
-                context.stage = Stage::Question;
                 context.question = Some(QuestionContext::new(
                     round.round.as_deref(),
                     *number,
@@ -982,16 +939,6 @@ impl<'a> PageContext<'a> {
                     first_pick,
                 ));
             }
-            RoundStage::Interrupted {
-                request,
-                interruption,
-            } => {
-                context.stage = Stage::Interrupted;
-                context.interrupted = Some(InterruptedContext {
-                    request: request.as_deref().filter(|_| offers_actions),
-                    interruption,
-                });
-            }
             RoundStage::Conclusion {
                 request,
                 conclusion,
@@ -999,7 +946,6 @@ impl<'a> PageContext<'a> {
                 quiz,
                 ..
             } => {
-                context.stage = Stage::Conclusion;
                 context.working = implementation.as_ref().is_some_and(|implementation| {
                     implementation.state == ImplementationState::Sending
                 });
@@ -1013,12 +959,16 @@ impl<'a> PageContext<'a> {
                     offers_actions,
                 ));
             }
-            RoundStage::StorageFailed { failure } => {
-                context.stage = Stage::StorageFailed;
-                context.storage_failure = Some(failure);
+            RoundStage::StorageFailed { .. } => {
                 context.cancellable = None;
                 context.reset = None;
             }
+        }
+        if round.stage.can_start() {
+            context.start = Some(StartContext {
+                idle: !StatusCard::say_start(&context.cards),
+                block: StatusCard::start_block(&context.cards),
+            });
         }
         context
     }
@@ -1115,6 +1065,14 @@ impl<'a> ConclusionContext<'a> {
             },
             offers_implement,
             implementation,
+            implementation_card: implementation.map(|implementation| {
+                StatusCard::implementation(
+                    implementation,
+                    request,
+                    offers_actions,
+                    offers_implement,
+                )
+            }),
             offers_actions,
             quiz,
         }

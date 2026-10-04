@@ -46,7 +46,7 @@ fn a_turn_the_agent_does_not_start_on_waits_for_a_retry_of_the_same_request() {
         harness.page.stage(),
         RoundStage::Interrupted {
             request: Some(kickoff.request.clone()),
-            interruption: Interruption::Failed(failure),
+            interruption: Interruption::NotStarted,
         }
     );
 

@@ -24,6 +24,7 @@ mod form;
 mod notice;
 mod page;
 mod round;
+mod status;
 
 pub use access::{Hosts, Token};
 pub use command::{

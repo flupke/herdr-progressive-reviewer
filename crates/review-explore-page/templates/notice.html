@@ -1,5 +1,0 @@
-{# Why the reviewer's latest post did not go through, shown once. Each post words its notice in
-   its own partial, notice-{post}.html. #}
-{% if notice %}
-<p class="notice" role="alert">{% include "notice-" ~ notice.post ~ ".html" %}</p>
-{% endif %}

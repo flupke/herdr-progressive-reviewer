@@ -1,6 +1,6 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-04T02:56:31.509Z",
+  "createdAt": "2026-10-04T12:01:16.357Z",
   "payload": {
     "actions": [
       {
@@ -22,13 +22,12 @@
       "targetId": "desktop",
       "instructionDigest": "242f328c4ea4a6fba282b44684309e03bb35b486f01b5dc49e9ff9c953c8e682"
     },
-    "summary": "Cancelled the implementation request. The screen confirms it was cancelled before it was sent, and the draft remains in the textbox.",
+    "summary": "The implementation request is cancelled. The page displays the status “The implementation request was cancelled before it was sent,” and the draft remains in the To be implemented field.",
     "startPath": "/",
     "endPath": "/",
     "endAnchors": [
       {
-        "role": "status",
-        "name": "The implementation request was cancelled before it was sent."
+        "text": "The implementation request was cancelled before it was sent"
       },
       {
         "role": "textbox",
@@ -41,8 +40,12 @@
       {
         "role": "button",
         "name": "Implement"
+      },
+      {
+        "role": "status",
+        "name": "The implementation request was cancelled before it was sent"
       }
     ],
-    "endWaitMs": 11967
+    "endWaitMs": 26449
   }
 }

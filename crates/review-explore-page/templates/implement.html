@@ -1,23 +1,13 @@
 {#- The list to be implemented: raw text the reviewer edits, then sends with Implement; once a
-    request is on its way, what became of it and the list it sends. -#}
+    request is on its way, what became of it, as a status card, and the list it sends. -#}
 {% set implementation = conclusion.implementation %}
-<section class="to-be-implemented" aria-labelledby="to-be-implemented-title">
+<section class="to-be-implemented panel" aria-labelledby="to-be-implemented-title">
   <h3 id="to-be-implemented-title">To be implemented</h3>
+  {% if conclusion.implementation_card %}
+  {% with card = conclusion.implementation_card %}{% include "status.html" %}{% endwith %}
+  {% endif %}
   {% if conclusion.offers_implement %}
-  {% if implementation and implementation.state.kind == "not_sent" %}
-  <p class="failure" role="alert">The implementation request could not be sent: {{ implementation.state.reason }}</p>
-  {% elif implementation and implementation.state.kind == "cancelled" %}
-  <p class="state" role="status">The implementation request was cancelled before it was sent.</p>
-  {% elif implementation and implementation.state.kind == "paused" %}
-  <p class="state" role="status">The implementation request was saved but not sent: the review pane was reopened first. Send it as it was saved, or edit the list and send a new one.</p>
-  <div class="markdown">{{ implementation.text | markdown(3) }}</div>
-  <form class="resend-implementation" method="post" action="/resend-implementation">
-    <input type="hidden" name="conclusion" value="{{ conclusion.request }}">
-    <input type="hidden" name="delivery" value="{{ implementation.delivery }}">
-    <button class="secondary" type="submit">Send the saved request</button>
-  </form>
-  {% elif implementation and implementation.state.kind == "unknown" %}
-  <p class="state" role="status">Whether the agent received the implementation request is unknown. Check the agent's conversation before you send a new one.</p>
+  {% if implementation and implementation.state.kind in ["paused", "unknown"] %}
   <div class="markdown">{{ implementation.text | markdown(3) }}</div>
   {% endif %}
   <form class="implement" method="post" action="/implement">
@@ -30,43 +20,18 @@
     <textarea class="tasks" name="text" rows="6" aria-labelledby="to-be-implemented-title">
 {{ conclusion.draft }}</textarea>
     <p class="hint">Implement asks the agent to implement this list, and nothing else.</p>
-    <button class="send" type="submit">{{ "Send a new request" if implementation and implementation.state.kind in ["paused", "unknown"] else "Implement" }}</button>
+    {% if implementation and implementation.state.kind in ["paused", "unknown"] %}
+    <button class="button secondary block" type="submit">Send a new request</button>
+    {% else %}
+    <button class="button primary block" type="submit">Implement</button>
+    {% endif %}
   </form>
   {% elif implementation %}
-  {% if implementation.state.kind == "sending" %}
-  <p class="state working" role="status">Sending the implementation request to the agent…</p>
-  {% elif implementation.state.kind == "sent" %}
-  <p class="state" role="status">The implementation request was sent to the agent.</p>
-  {% elif implementation.state.kind == "not_started" %}
-  <p class="failure" role="alert">The agent did not start on the implementation request: the list may still wait in the agent's prompt box. Look at the agent's pane, then Retry, which sends the same request again.</p>
-  {% elif implementation.state.kind == "paused" %}
-  <p class="state" role="status">The implementation request was saved but not sent.</p>
-  {% elif implementation.state.kind == "unknown" %}
-  <p class="state" role="status">Whether the agent received the implementation request is unknown.</p>
-  {% elif implementation.state.kind == "not_sent" %}
-  <p class="failure" role="alert">The implementation request could not be sent: {{ implementation.state.reason }}</p>
-  {% else %}
-  <p class="state" role="status">The implementation request was cancelled before it was sent.</p>
-  {% endif %}
   <div class="markdown">{{ implementation.text | markdown(3) }}</div>
-  {% if implementation.state.kind == "not_started" and conclusion.offers_actions %}
-  <form class="resend-implementation" method="post" action="/resend-implementation">
-    <input type="hidden" name="conclusion" value="{{ conclusion.request }}">
-    <input type="hidden" name="delivery" value="{{ implementation.delivery }}">
-    <button class="send" type="submit">Retry</button>
-  </form>
-  {% endif %}
-  {% if implementation.state.kind == "sending" and conclusion.offers_actions %}
-  <form class="cancel-implementation" method="post" action="/cancel-implementation">
-    <input type="hidden" name="delivery" value="{{ implementation.delivery }}">
-    <p class="hint">Cancel stops the request if it has not reached the agent yet.</p>
-    <button class="secondary" type="submit">Cancel the implementation request</button>
-  </form>
-  {% endif %}
   {% elif not conclusion.offers_actions %}
   <div class="markdown">{{ conclusion.draft | markdown(3) }}</div>
   {% endif %}
-  {#- The reviewer's actions on the conclusion stay together, in the column of actions. #}
+  {#- The reviewer's actions on the conclusion stay together, in the panel. #}
   {% if conclusion.offers_actions %}
   {% include "reply.html" %}
   {% endif %}

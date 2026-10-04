@@ -93,7 +93,7 @@ test('a pick on a question answered in the pane meanwhile is refused', async ({ 
   // would count as a failure.
   await screen.getByRole('radio', 'Overwrite the older file').check();
   await screen.getByRole('button', 'Pick').tap();
-  await expect(screen.getByRole('alert')).toContainText('Your pick was not kept');
+  await expect(screen.getByRole('alert')).toContainText('so your pick was not kept');
   await expect(screen.getByRole('status')).toContainText('The agent is working');
 });
 

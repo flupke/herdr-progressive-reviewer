@@ -19,23 +19,6 @@ const TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/citations.html"),
     ),
     ("citation.html", include_str!("../templates/citation.html")),
-    ("notice.html", include_str!("../templates/notice.html")),
-    (
-        "notice-answer.html",
-        include_str!("../templates/notice-answer.html"),
-    ),
-    (
-        "notice-start.html",
-        include_str!("../templates/notice-start.html"),
-    ),
-    (
-        "notice-pick.html",
-        include_str!("../templates/notice-pick.html"),
-    ),
-    (
-        "notice-implement.html",
-        include_str!("../templates/notice-implement.html"),
-    ),
     ("start.html", include_str!("../templates/start.html")),
     ("answer.html", include_str!("../templates/answer.html")),
     ("pick.html", include_str!("../templates/pick.html")),
@@ -63,49 +46,13 @@ const TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/quiz-results.html"),
     ),
     (
-        "notice-quiz.html",
-        include_str!("../templates/notice-quiz.html"),
-    ),
-    (
-        "interrupted.html",
-        include_str!("../templates/interrupted.html"),
-    ),
-    ("stop.html", include_str!("../templates/stop.html")),
-    (
         "cancel-answer.html",
         include_str!("../templates/cancel-answer.html"),
     ),
     ("reset.html", include_str!("../templates/reset.html")),
-    ("earlier.html", include_str!("../templates/earlier.html")),
-    (
-        "storage-failed.html",
-        include_str!("../templates/storage-failed.html"),
-    ),
     ("reply.html", include_str!("../templates/reply.html")),
-    (
-        "notice-stop.html",
-        include_str!("../templates/notice-stop.html"),
-    ),
-    (
-        "notice-retry.html",
-        include_str!("../templates/notice-retry.html"),
-    ),
-    (
-        "notice-cancel-answer.html",
-        include_str!("../templates/notice-cancel-answer.html"),
-    ),
-    (
-        "notice-reset.html",
-        include_str!("../templates/notice-reset.html"),
-    ),
-    (
-        "notice-reply.html",
-        include_str!("../templates/notice-reply.html"),
-    ),
-    (
-        "notice-cancel-implementation.html",
-        include_str!("../templates/notice-cancel-implementation.html"),
-    ),
+    ("status.html", include_str!("../templates/status.html")),
+    ("masthead.html", include_str!("../templates/masthead.html")),
 ];
 
 /// Assets by name, with their content type.
@@ -120,6 +67,30 @@ const ASSETS: &[Asset] = &[
         name: "wake.js",
         content_type: "text/javascript",
         body: include_str!("../assets/wake.js"),
+        development: false,
+    },
+    Asset {
+        name: "tokens.css",
+        content_type: "text/css",
+        body: include_str!("../assets/tokens.css"),
+        development: false,
+    },
+    Asset {
+        name: "buttons.css",
+        content_type: "text/css",
+        body: include_str!("../assets/buttons.css"),
+        development: false,
+    },
+    Asset {
+        name: "status.css",
+        content_type: "text/css",
+        body: include_str!("../assets/status.css"),
+        development: false,
+    },
+    Asset {
+        name: "masthead.css",
+        content_type: "text/css",
+        body: include_str!("../assets/masthead.css"),
         development: false,
     },
     Asset {

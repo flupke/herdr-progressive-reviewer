@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<aside style="background:#1b1d21;border-radius:12px;padding:16px;display:grid;gap:14px;color:#e8e8e8;font:16px/1.55 system-ui,-apple-system,'Segoe UI','Noto Sans',sans-serif">
+<sc-if value="{{ unpicked }}" hint-placeholder-val="{{ true }}"><p style="margin:0;font-size:14px;color:#a3a9b1">One-way door: the agent's recommendation shows when you send, so your first read of the choices is your own. You can still change your pick after.</p></sc-if>
+<sc-if value="{{ disagree }}" hint-placeholder-val="{{ false }}"><p style="margin:0;padding:10px 12px;border-radius:8px;font-size:15px;background:rgba(171,125,248,.14)"><strong style="display:block;font-weight:650">The agent recommends another choice.</strong>Read its reason, then keep yours or change it.</p></sc-if>
+<sc-if value="{{ agree }}" hint-placeholder-val="{{ false }}"><p style="margin:0;padding:10px 12px;border-radius:8px;font-size:15px;background:rgba(63,185,80,.14)"><strong style="font-weight:650">You and the agent picked the same choice.</strong></p></sc-if>
+<p style="margin:0;font-size:12px;font-weight:650;letter-spacing:.06em;text-transform:uppercase;color:#a3a9b1">Choices</p>
+<div style="display:grid;gap:8px">
+<sc-for list="{{ choices }}" as="c" hint-placeholder-count="4">
+<label onClick="{{ c.pick }}" style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:8px;border:1px solid {{ c.border }};box-shadow:{{ c.shadow }};background:{{ c.bg }};cursor:pointer;transition:background .15s ease,border-color .15s ease"><input type="radio" name="bp" checked="{{ c.checked }}" readOnly="{{ true }}" style="width:18px;height:18px;margin:3px 0 0;accent-color:#1f6feb;flex:none;pointer-events:none"><span style="flex:1 1 0;min-width:0">{{ c.text }}</span>
+<sc-if value="{{ c.showRec }}" hint-placeholder-val="{{ false }}"><span style="flex-basis:100%;padding-left:28px"><span style="font-size:12px;font-weight:650;padding:1px 8px;border-radius:999px;color:#ab7df8;background:rgba(171,125,248,.16)">◆ Agent recommends</span></span><span style="flex-basis:100%;margin-top:2px;padding:8px 0 0 28px;border-top:1px dashed rgba(255,255,255,.12);font-size:14px">{{ c.reason }}</span></sc-if>
+</label>
+</sc-for>
+</div>
+<label style="font-size:12px;font-weight:650;letter-spacing:.06em;text-transform:uppercase;color:#a3a9b1;margin-top:2px">Comment <span style="text-transform:none;letter-spacing:0;font-weight:400">· optional</span></label>
+<textarea rows="3" style="margin-top:-8px;padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,.12);background:#121212;color:inherit;font:inherit;resize:vertical;line-height:1.5"></textarea>
+<div style="display:grid;gap:8px;padding:12px;border-radius:8px;background:#121212">
+<div style="display:flex;justify-content:space-between;align-items:baseline;font-size:14px"><span><span style="font-size:11px;color:#a3a9b1">▸</span> Answering marks <b style="font-weight:650">12 lines reviewed</b> · 3 not relevant</span><span style="font:13px ui-monospace,SFMono-Regular,Menlo,monospace;color:#a3a9b1">39% → <span style="color:#e8e8e8">50%</span></span></div>
+<div style="display:flex;height:6px;border-radius:3px;overflow:hidden;background:rgba(255,255,255,.1)"><span style="width:38.5%;background:#3fb950"></span><span style="width:11.1%;background:repeating-linear-gradient(135deg,#4493f8 0 3px,rgba(68,147,248,.35) 3px 6px)"></span></div>
+</div>
+<button type="button" onClick="{{ send }}" style="width:100%;min-height:44px;border:0;border-radius:8px;background:{{ sendBg }};color:{{ sendFg }};font:600 16px system-ui,sans-serif;cursor:pointer;transition:background .15s ease">{{ sendLabel }}</button>
+</aside>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:416,&quot;height&quot;:640}}">
+class Component extends DCLogic {
+  state = { picked: null, sent: false };
+  send = () => { if (this.state.picked !== null) this.setState({ sent: true }); };
+  renderVals() {
+    const rec = 2;
+    const texts = [
+      'Drop the waiting notifications, and show how many were dropped as the pane closes',
+      'Keep them in the thread files and tell the agent about them the next time the pane opens',
+      'Send them in one last notification before the pane closes, as the change does',
+      'None of the above',
+    ];
+    const reason = 'Every reply is already saved in its thread; sending the queue on close only makes sure the agent hears about the last ones before the reviewer leaves.';
+    const { picked: p, sent } = this.state;
+    const choices = texts.map((text, i) => ({
+      text, reason,
+      checked: p === i,
+      pick: () => this.setState({ picked: i }),
+      showRec: sent && i === rec,
+      border: p === i ? '#4493f8' : 'rgba(255,255,255,.12)',
+      shadow: p === i ? 'inset 0 0 0 1px #4493f8' : 'none',
+      bg: p === i ? 'rgba(68,147,248,.10)' : '#121212',
+    }));
+    return {
+      choices,
+      send: this.send,
+      unpicked: !sent,
+      agree: sent && p === rec,
+      disagree: sent && p !== rec,
+      sendLabel: sent ? 'Confirm answer' : 'Send answer',
+      sendBg: p === null ? 'rgba(31,111,235,.35)' : '#1f6feb',
+      sendFg: p === null ? 'rgba(255,255,255,.6)' : '#fff',
+    };
+  }
+}
+</script>
+</body>
+</html>

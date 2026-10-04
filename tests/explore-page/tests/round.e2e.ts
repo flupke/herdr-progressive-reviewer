@@ -34,11 +34,11 @@ test('the page shows the round once the agent concludes it', async ({ explore, s
 test('the page says when no round is running', async ({ explore, screen }) => {
   await explore.open();
   await explore.reset();
-  await expect(screen.getByRole('status')).toContainText('No Explore round is running');
+  await expect(screen.getByRole('status')).toContainText('No round is running', { ignoreCase: true });
 });
 
-test('the page says when the agent is not working on its next turn', async ({ explore, screen }) => {
+test("the page says when the agent's turn is paused", async ({ explore, screen }) => {
   await explore.open();
   await explore.interrupt();
-  await expect(screen.getByRole('status')).toContainText('The agent is not working on its next turn');
+  await expect(screen.getByRole('status')).toContainText('The turn is paused');
 });

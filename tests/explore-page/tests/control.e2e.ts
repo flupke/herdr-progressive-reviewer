@@ -27,19 +27,26 @@ test('the reviewer recovers a kickoff that could not be delivered with Retry', R
 test('the reviewer retries a turn the agent did not start on', RETRYING, async ({ explore, screen, agent }) => {
   await explore.open();
   await explore.agentDoesNotStart();
-  await expect(screen.getByRole('alert')).toContainText('The agent did not start on the prompt');
+  await expect(screen.getByRole('alert')).toContainText("The agent did not start on the turn's prompt");
 
   await agent.act('send the turn to the agent again with Retry');
   await expect(screen.getByRole('status')).toContainText('The agent is working');
   expect(await explore.actions()).toEqual(['retry']);
 });
 
-test('the reviewer stops waiting for the agent, then retries', RETRYING, async ({ explore, screen, agent }) => {
+// What Stop waiting, then Retry, achieve on the page: the turn is paused, then the agent works on
+// it again.
+const STOPPING = {
+  agentContext:
+    'Stop waiting on this page is done once the page says that the turn is paused. Retry is done once the page says that the agent is working.',
+};
+
+test('the reviewer stops waiting for the agent, then retries', STOPPING, async ({ explore, screen, agent }) => {
   await explore.open();
   await expect(screen.getByRole('status')).toContainText('The agent is working');
 
   await agent.act('stop waiting for the agent');
-  await expect(screen.getByRole('status')).toContainText('The agent is not working on its next turn');
+  await expect(screen.getByRole('status')).toContainText('The turn is paused');
   expect(await explore.actions()).toEqual(['stop']);
 
   await agent.act('send the turn to the agent again with Retry');
@@ -78,7 +85,7 @@ test(
     await expect(screen.getByRole('region', 'Question 1')).toBeVisible();
 
     await agent.act('reset the round, and confirm the reset');
-    await expect(screen.getByRole('status')).toContainText('No Explore round is running');
+    await expect(screen.getByRole('status')).toContainText('No round is running', { ignoreCase: true });
     expect(await explore.actions()).toEqual(['reset']);
 
     await agent.act('start an Explore round without the Challenger');

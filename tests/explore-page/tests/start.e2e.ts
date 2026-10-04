@@ -65,7 +65,7 @@ test('a start after a round started in the reviewer meanwhile is refused', async
   // An exact action: the refusal of this start is the point of the test, which a goal to start
   // a round would count as a failure.
   await screen.getByRole('button', 'Start').tap();
-  await expect(screen.getByRole('alert')).toContainText('a round was started meanwhile');
+  await expect(screen.getByRole('alert')).toContainText('A round was started meanwhile');
   await expect(screen.getByRole('status')).toContainText('The agent is working');
   expect(await explore.starts()).toEqual([]);
 });

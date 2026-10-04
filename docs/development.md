@@ -83,8 +83,8 @@ works or an implementation request is being sent. The reviewer's actions are for
 page's cookie: the page hands each one to the round's owner as a
 `PageCommand`, waits for its reply, then redirects to the page (post, redirect,
 get). A refusal travels to that next load in a short-lived cookie, which the
-page shows once, worded by the template partial of its post
-(`templates/notice-{post}.html`). Before it sends an answer, the page checks that the round
+page shows once as a status card, worded for its post by `StatusCard` in
+`src/status.rs`. Before it sends an answer, the page checks that the round
 still asks the question it showed; before an Implement, that the conclusion
 still offers it in place of the request the page showed, if any; before Stop
 waiting, Retry, Cancel answer, Reset, a reply or a cancel of an implementation
@@ -144,11 +144,10 @@ and keeps a fenced block's language as the class `language-<name>` of its
 defined once in [`crates/markdown-marks`](../crates/markdown-marks): the page,
 the pane's renderer and the kickoff prompt all read them from there.
 
-The page's layout by width is in `assets/layout.css`: one column on a phone, up to 84rem on a
-wider window with text held to a readable measure, and from 70rem two columns for a question
-and a conclusion, the reviewer's actions sticking beside the reading. It places the parts of a
-question and a conclusion on a grid, so their templates keep one order, which a phone shows
-as is.
+The page follows the reviewer's design handoff in
+[`docs/design/explore-page/`](design/explore-page/README.md): its `README.md` is the
+specification, `screenshots/` the reference captures, and `design-review.md` the detailed
+findings; "The page's components" below says where each building block lives.
 
 A fenced `mermaid` block is a diagram, which `assets/diagrams.js` draws in the
 browser with Mermaid, again with its dark theme when the page turns dark, at
@@ -227,6 +226,81 @@ test servers write a `settings.json` that turns network access off into their pr
 directory (`HerdrTestServer`); a `make vision` session sets the loopback interface and any free
 port instead (`HerdrTestServer::set_explore_page_settings`), so the pane shows a QR code that
 only this machine can open. Test sessions open no browser: they set `BROWSER` to a stand-in.
+
+### The page's components
+
+Each component is plain markup with a few classes, styled in one stylesheet of
+`crates/review-explore-page/assets`, so that a template and a script that draws the page
+produce it alike. Colours, type, radii and shadows come from the tokens in `tokens.css`
+(one meaning per colour: accent where the reviewer acts or what is selected, good for done,
+warn for "check before you act", bad for failed or destructive, agent for the agent's
+judgement); `h1` to `h4` follow the type scale, `.eyebrow` is the small uppercase label above
+what it names, `.hint` the muted help line. Every control has a focus ring (`:focus-visible`).
+
+- **Buttons** (`buttons.css`): `<button class="button primary">`, with one tier among
+  `primary` (the one thing to do in the view), `secondary`, `outline`, `quiet` (underlined
+  text) and `danger` (only Confirm reset); add `block` for the full width of a panel. A link
+  may carry the same classes.
+- **Status card** (`status.css`), for every state that is not a question:
+
+  ```html
+  <div class="status-card warn" id="interruption" role="alert" aria-labelledby="interruption-title">
+    <span class="status-glyph" aria-hidden="true"></span>
+    <p class="status-title" id="interruption-title">The agent may or may not have your answer</p>
+    <p class="status-reason">The review pane was reopened while it sent the prompt.</p>
+    <div class="status-bar" aria-hidden="true"></div>   <!-- progress only -->
+    <p class="status-next"><strong>Check the agent's conversation before you retry.</strong></p>
+    <div class="status-actions">
+      <form class="retry" method="post" action="/retry">
+        <input type="hidden" name="request" value="…">
+        <button class="button secondary" type="submit">Retry</button>
+        <p class="hint">Sends the same turn again, which could duplicate it.</p>
+      </form>
+    </div>
+  </div>
+  ```
+
+  The kind is one class among `progress`, `info`, `warn`, `danger` and `ok`; the glyph comes
+  from the stylesheet. A verbatim error in the reason is a `<code>`. Which state shows which
+  card, with its words and actions, is data: `StatusCard` in
+  [`src/status.rs`](../crates/review-explore-page/src/status.rs) maps each stage, each
+  implementation request and each refused post to its kind, title, reason, next step and
+  actions; `templates/status.html` only draws it.
+- **Panel and desk** (`layout.css`): the page is capped at 90rem with a 32-pixel gutter (16 on
+  a phone). From 70rem, a container with the class `desk` reads in two columns: its children
+  in the reading column, each in its own grid row, and its child with the class `panel` (416
+  pixels; 480 with `desk wide`) beside them from the first row to the last, sticking in view.
+  The panel is a tinted surface with no border; on a phone it runs from edge to edge. Because
+  the grid places the parts, a template keeps one order, which a phone shows as is: a reading
+  part after the panel (the question's citations) comes after the reviewer's actions there.
+
+  ```html
+  <section class="question desk" aria-labelledby="question-1-title">
+    <h2 id="question-1-title">Question 1</h2>
+    <div class="text markdown">…</div>
+    <form class="answer panel" method="post" action="/answer">…</form>
+    <section class="citations">…</section>
+  </section>
+  ```
+- **Start cover** (`style.css`, "start cover"): the status cards come first when a start
+  failed or nothing is left to review, then
+
+  ```html
+  <section class="start-cover">
+    <p class="eyebrow" role="status">No round is running</p>   <!-- only without a card -->
+    <h1>The review's title</h1>
+    <p class="meta"><code>revision</code> in <code>repository</code></p>
+    <form class="start" method="post" action="/start">
+      <div class="start-choice">
+        <button class="button primary block" type="submit">Start</button>
+        <p class="hint">The agent explains the design, then asks one question at a time.</p>
+      </div>
+      <div class="start-choice">…Start with Challenger…</div>
+    </form>
+  </section>
+  ```
+- **Masthead** (`masthead.css`): `<header class="masthead"><p class="product">Explore</p></header>`,
+  above `main`, with its hairline across the window.
 
 ### Serve the page alone
 

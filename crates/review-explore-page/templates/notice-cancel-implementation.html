@@ -1,8 +1,0 @@
-{#- Why the cancel of the implementation request did not go through. -#}
-{%- if notice.problem.kind == "stale" -%}
-The implementation request was not cancelled: it is no longer being sent. It was sent or cancelled meanwhile. The page shows the round as it is now.
-{%- elif notice.problem.kind == "failed" -%}
-The implementation request was not cancelled: {{ notice.problem.reason }}
-{%- else -%}
-The review tool did not reply. Load this page again to see whether it cancelled the implementation request.
-{%- endif -%}

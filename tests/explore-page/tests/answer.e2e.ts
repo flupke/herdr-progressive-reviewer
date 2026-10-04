@@ -78,7 +78,7 @@ test('an answer to a question answered in the pane meanwhile is refused', async 
   await screen.getByRole('button', 'Send').tap();
   // The refusal says why (not a failed delivery or a missing reply), and the page shows the round
   // as it is now.
-  await expect(screen.getByRole('alert')).toContainText('this question no longer waits for an answer');
+  await expect(screen.getByRole('alert')).toContainText('This question was already answered');
   await expect(screen.getByRole('status')).toContainText('The agent is working');
   expect(await explore.answers()).toEqual([]);
 });

@@ -1,0 +1,88 @@
+/* The status card: one component, in five kinds, for every state that is not a question
+   (docs/design/explore-page/README.md, "Start cover and status cards"; design review, findings
+   6, 13 and 23). templates/status.html renders it: a round glyph in the kind's colour, the
+   state as the title, the reason in muted text, a moving bar for progress, the next step, then
+   a row of actions. Kinds: progress and info in accent, warn, danger, ok. */
+.status-card {
+  --kind: var(--accent);
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 12px;
+  align-items: start;
+  max-width: calc(var(--measure) + 34px);
+  margin: 0 0 24px;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--kind) 45%, transparent);
+  border-radius: var(--radius-status);
+  background: color-mix(in srgb, var(--kind) 8%, transparent);
+  overflow-wrap: anywhere;
+}
+.status-card.warn { --kind: var(--warn); }
+.status-card.danger { --kind: var(--bad); }
+.status-card.ok { --kind: var(--good); }
+
+.status-card > * { grid-column: 2; margin: 0; }
+.status-card > .status-glyph {
+  grid-column: 1;
+  grid-row: 1;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--kind);
+  color: var(--canvas);
+  font: 800 14px/1 var(--font);
+}
+.status-card.progress > .status-glyph::before { content: "…"; }
+.status-card.info > .status-glyph::before { content: "i"; }
+.status-card.warn > .status-glyph::before { content: "!"; }
+.status-card.danger > .status-glyph::before { content: "✕"; }
+.status-card.ok > .status-glyph::before { content: "✓"; }
+
+.status-title { font-weight: 650; line-height: 26px; }
+.status-reason { color: var(--muted); font-size: 15px; }
+.status-reason code {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--code-bg);
+  font-size: 13px;
+}
+.status-next { font-size: 15px; }
+
+/* Progress has no end in sight: a runner slides along a track, or stands still when the reviewer
+   asked for less motion. */
+.status-bar {
+  height: 3px;
+  margin: 6px 0;
+  overflow: hidden;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--kind) 20%, transparent);
+}
+.status-bar::before {
+  content: "";
+  display: block;
+  width: 30%;
+  height: 100%;
+  background: var(--kind);
+  animation: status-run 1.6s linear infinite;
+}
+@keyframes status-run {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(334%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .status-bar::before { animation: none; transform: translateX(117%); opacity: 0.5; }
+}
+
+/* The card's actions: one row, primary first, a hint beside them. An action that posts is a
+   form, which lays its button and hint out in the same row. */
+.status-actions, .status-actions > form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+}
+.status-actions { margin-top: 8px; }
+.status-actions .hint { margin: 0; font-size: 13px; }
