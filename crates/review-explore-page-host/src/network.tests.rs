@@ -125,6 +125,7 @@ fn published(id: &str) -> PublishedRound<'_> {
     PublishedRound {
         id,
         design: None,
+        changed_files: 0,
         cancellable: None,
         earlier: false,
         overview: &OVERVIEW,

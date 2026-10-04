@@ -6,6 +6,7 @@ import { test } from './session.ts';
 test('a question shows its explanation, and its Door section on request', async ({ explore, screen, agent }) => {
   await explore.open();
   await explore.askQuestion();
+  await screen.getByRole('link', 'Go to question 1').tap();
   const question = screen.getByRole('region', 'Question 1');
   // A status mark in a cell of the table, and the callout.
   await expect(question.getByRole('cell').getByRole('image', 'Warning')).toBeVisible();

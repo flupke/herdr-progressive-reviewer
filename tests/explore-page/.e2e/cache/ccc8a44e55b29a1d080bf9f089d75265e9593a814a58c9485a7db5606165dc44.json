@@ -1,15 +1,15 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-04T14:36:34.089Z",
+  "createdAt": "2026-10-04T14:35:43.975Z",
   "payload": {
     "actions": [
       {
         "name": "tap",
-        "summary": "tap button \"Cancel answer\" in \"Your last answer\"",
+        "summary": "tap link \"Go to question 1\" in \"Design of the change · read before ques…\"",
         "target": {
-          "role": "button",
-          "name": "Cancel answer",
-          "within": "Your last answer"
+          "role": "link",
+          "name": "Go to question 1",
+          "within": "Design of the change · read before question 1"
         }
       }
     ],
@@ -18,12 +18,12 @@
       "version": "2"
     },
     "recordedFor": {
-      "testId": "tests/control.e2e.ts::the%20reviewer%20cancels%20the%20last%20answer%2C%20and%20its%20question%20waits%20again",
-      "targetId": "desktop",
-      "instructionDigest": "258059d3794566e6be6dab08b655d62ae30536f389d47bc6cfd5dff5706d4cb3"
+      "testId": "tests/design.e2e.ts::the%20round%20opens%20on%20the%20design%20of%20the%20change%2C%20then%20the%20reviewer%20goes%20on%20to%20question%201",
+      "targetId": "phone",
+      "instructionDigest": "0fed0c0a3b770534daf79db42bba03b39b6bead6548413aa9018619bf5d6d475"
     },
-    "summary": "The cached Cancel answer action returned the page to the unanswered Question 1 state. The choice controls and comment field are available again, and Send is shown.",
-    "startPath": "/#round",
+    "summary": "Opened Question 1 from the design. The screen shows the question, choices, comment field, and Send button.",
+    "startPath": "/#design",
     "endPath": "/#round",
     "endAnchors": [
       {
@@ -53,11 +53,10 @@
         "name": "Keep the draft"
       },
       {
-        "role": "image",
-        "name": "Good",
-        "text": "✓"
+        "role": "cell",
+        "name": "Discard the draft"
       }
     ],
-    "endWaitMs": 26624
+    "endWaitMs": 14880
   }
 }

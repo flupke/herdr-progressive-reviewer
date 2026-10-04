@@ -29,7 +29,8 @@ test('the reviewer starts a round on the page, then sees it prepared and its fir
   await explore.sendKickoff();
   await expect(screen.getByRole('status')).toContainText('The agent is working');
   await explore.askQuestion();
-  await expect(screen.getByRole('region', 'Question 1')).toBeVisible();
+  // The round opens on its design, which leads to question 1.
+  await expect(screen.getByRole('region', 'Design of the change')).toBeVisible();
 });
 
 test('the reviewer starts a round with the Challenger', STARTING, async ({ explore, screen, agent }) => {

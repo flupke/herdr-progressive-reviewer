@@ -2,9 +2,10 @@ import { expect } from 'e2e';
 import { test, type Session } from './session.ts';
 
 // The standalone server's second question explains where a kept draft goes with a Mermaid
-// diagram, then carries a second diagram that Mermaid cannot parse. The agent asks both questions
-// before the page opens. The design of the change, folded above the question, draws its own
-// diagram first: the question's two are Diagram 2 and Diagram 3.
+// flowchart laid out left to right, then carries a second diagram that Mermaid cannot parse. The
+// agent asks both questions before the page opens. The design of the change, a screen of its own
+// that the page keeps beside the question, draws its own diagram first: the question's two are
+// Diagram 2 and Diagram 3.
 async function openQuestion2(explore: Session) {
   await explore.askQuestion();
   await explore.askQuestion();
@@ -28,15 +29,17 @@ test('a question draws its diagram, with Mermaid served by the tool', async ({ e
   expect([...hosts]).toEqual([new URL(app.baseUrl!).host]);
 });
 
-test('at phone width, a wide diagram keeps its natural size and scrolls sideways', async ({
+test('at phone width, a flowchart too wide for the screen is drawn top to bottom and fits', async ({
   explore,
   screen,
   browser,
 }) => {
   await browser.setViewport({ width: 390, height: 844 });
   await openQuestion2(explore);
-  await expect(screen.getByRole('figure', 'Diagram 2')).toBeVisible();
+  const figure = screen.getByRole('figure', 'Diagram 2');
+  await expect(figure.getByText('Editor')).toBeVisible();
 
+  // Sizes have no locator: they are read in the page, from the figure the check above found.
   const size = await browser.evaluate(() => {
     const figure = document.querySelector('figure[aria-label="Diagram 2"]')!;
     const svg = figure.querySelector('svg')!;
@@ -48,7 +51,37 @@ test('at phone width, a wide diagram keeps its natural size and scrolls sideways
       page: document.documentElement.scrollWidth - window.innerWidth,
     };
   });
-  // The fixed diagram is wider than a phone's column...
+  // Left to right, it would scroll; top to bottom, it shows whole at the size Mermaid laid it out
+  // at, with nothing to scroll.
+  expect(Math.abs(size.drawn - size.natural)).toBeLessThan(1);
+  expect(size.scrolls).toBeLessThanOrEqual(size.frame);
+  expect(size.page).toBeLessThanOrEqual(0);
+});
+
+test('at phone width, a sequence diagram keeps its natural size and scrolls sideways, and says so', async ({
+  explore,
+  screen,
+  browser,
+}) => {
+  await browser.setViewport({ width: 390, height: 844 });
+  await explore.askQuestion();
+  await explore.open();
+  // The round opens on its design, whose sequence diagram has four participants.
+  const figure = screen.getByRole('figure', 'Diagram 1');
+  await expect(figure.getByText('Scroll sideways · 4 participants')).toBeVisible();
+
+  const size = await browser.evaluate(() => {
+    const figure = document.querySelector('figure[aria-label="Diagram 1"]')!;
+    const svg = figure.querySelector('svg')!;
+    return {
+      natural: svg.viewBox.baseVal.width,
+      drawn: svg.getBoundingClientRect().width,
+      frame: figure.clientWidth,
+      scrolls: figure.scrollWidth,
+      page: document.documentElement.scrollWidth - window.innerWidth,
+    };
+  });
+  // The diagram is wider than a phone's column...
   expect(size.natural).toBeGreaterThan(size.frame);
   // ...and is drawn at the size Mermaid laid it out at, not shrunk to the column...
   expect(Math.abs(size.drawn - size.natural)).toBeLessThan(1);

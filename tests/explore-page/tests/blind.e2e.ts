@@ -46,6 +46,7 @@ test('a question that is hard to reverse hides the recommendation until the revi
 }) => {
   await explore.open();
   await explore.askQuestion(question('one_way'));
+  await screen.getByRole('link', 'Go to question 1').tap();
   await expect(screen.getByRole('region', 'Question 1')).toBeVisible();
 
   // The agent's alternatives in a mixed order, None of the above last, and none selected.
@@ -74,6 +75,7 @@ test('a question that is hard to reverse hides the recommendation until the revi
 test('a two-way question shows the recommendation at once', async ({ explore, screen }) => {
   await explore.open();
   await explore.askQuestion(question('two_way'));
+  await screen.getByRole('link', 'Go to question 1').tap();
   await expect(screen.getByRole('region', 'Question 1')).toBeVisible();
 
   await expect(screen.getByText(RECOMMENDATION, { exact: false })).toBeVisible();
@@ -84,6 +86,7 @@ test('a two-way question shows the recommendation at once', async ({ explore, sc
 test('a pick on a question answered in the pane meanwhile is refused', async ({ explore, screen }) => {
   await explore.open();
   await explore.askQuestion(question('one_way'));
+  await screen.getByRole('link', 'Go to question 1').tap();
   // The page shows the question, and is held there while the pane answers it.
   await expect(screen.getByRole('region', 'Question 1')).toBeVisible();
   await explore.holdPage();
@@ -104,6 +107,7 @@ test('a question asked again after Cancel answer shows the recommendation at onc
 }) => {
   await explore.open();
   await explore.askQuestion(question('one_way'));
+  await screen.getByRole('link', 'Go to question 1').tap();
   // Exact actions: the setup is a pick kept on the page, then an answer in the pane, which the
   // reviewer cancels there.
   await screen.getByRole('radio', 'Overwrite the older file').check();
@@ -135,6 +139,7 @@ test('a comment written before the pick stays in the box until the answer is sen
 }) => {
   await explore.open();
   await explore.askQuestion(question('one_way'));
+  await screen.getByRole('link', 'Go to question 1').tap();
   const comment = screen.getByRole('textbox', 'Comment (optional)');
   await expect(comment).toBeVisible();
 

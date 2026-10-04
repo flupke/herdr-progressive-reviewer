@@ -54,13 +54,6 @@
 .recommendation { margin: -4px 0 0; padding: 0 12px 0 40px; font-size: 14px; overflow-wrap: anywhere; }
 .recommendation strong { color: var(--agent); }
 
-/* The design of the change, above the round's stage: its parts under their headings. */
-.design { margin: 0 0 32px; }
-.design > details > summary { cursor: pointer; }
-.design > details > summary > h2 { display: inline-block; margin: 0; font-size: 17px; }
-.design > details[open] > summary { padding-bottom: 8px; border-bottom: 1px solid var(--line); }
-.design h3 { margin: 16px 0 6px; }
-
 /* The start cover, when no round is running: the review's title as the headline, a muted line
    that says where it is, then Start and Start with Challenger, each with one line under it. */
 .start-cover { max-width: calc(var(--measure) + 34px); padding-top: 24px; }

@@ -1,16 +1,17 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-04T14:29:44.907Z",
+  "createdAt": "2026-10-04T15:01:37.151Z",
   "payload": {
     "actions": [
       {
-        "name": "tap",
-        "summary": "tap radio \"Discard the draft\" in \"Choices\"",
+        "name": "check",
+        "summary": "check radio \"Discard the draft\" in \"Choices\"",
         "target": {
           "role": "radio",
           "name": "Discard the draft",
           "within": "Choices"
-        }
+        },
+        "checked": true
       },
       {
         "name": "tap",
@@ -31,9 +32,9 @@
       "targetId": "desktop",
       "instructionDigest": "5a52da29fb75e74a152b6de7969c601ee11918450ac414e446f706ee4dfb2580"
     },
-    "summary": "Selected “Discard the draft” for Question 1 and sent the answer. The screen now shows “Your last answer: Discard the draft”; the agent is processing it.",
-    "startPath": "/",
-    "endPath": "/",
+    "summary": "Selected “Discard the draft” and sent the answer. The screen shows it as the last answer and indicates the agent is working on it.",
+    "startPath": "/#round",
+    "endPath": "/#round",
     "endAnchors": [
       {
         "role": "listitem",
@@ -65,6 +66,6 @@
         "name": "Agent working… — Keep the reviewer's draft when a round reopens"
       }
     ],
-    "endWaitMs": 14204
+    "endWaitMs": 21728
   }
 }

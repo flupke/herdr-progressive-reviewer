@@ -50,15 +50,21 @@ export class Masthead {
     });
   }
 
-  /** @param {PageView} view */
-  update(view) {
+  /**
+   * @param {PageView} view
+   * @param {boolean} viewingDesign whether the page shows the design screen, which the rail then
+   *   shows as the step in view, the round's own step next
+   */
+  update(view, viewingDesign) {
     const cover = view.start !== null;
     this.review.show(keyOf([view.review, cover]), () => reviewLine(view.review, cover));
     const rail = view.rail;
     // A new step on the rail rebuilds it: "Design ▾" keeps the focus it had.
     const focused = document.activeElement === this.toggleOf('map');
-    this.rail.show(keyOf([rail, view.design]), () =>
-      rail.length > 0 ? railNav(rail, view.design, () => this.toggle('map'), () => this.close(false)) : null,
+    this.rail.show(keyOf([rail, view.design, viewingDesign]), () =>
+      rail.length > 0
+        ? railNav(rail, view.design, viewingDesign, () => this.toggle('map'), () => this.close(false))
+        : null,
     );
     if (focused && document.activeElement !== this.toggleOf('map')) this.toggleOf('map')?.focus();
     if (view.reset !== this.resets) {
@@ -195,10 +201,12 @@ function reviewParts(review) {
  * The round rail: done steps with a check, the current step with its state, later steps muted.
  * @param {RailStep[]} rail
  * @param {DesignView | null} design
+ * @param {boolean} viewingDesign whether the page shows the design screen: the design step then
+ *   shows as current, and the round's own step as the next one
  * @param {() => void} toggleMap
  * @param {() => void} closeMap
  */
-function railNav(rail, design, toggleMap, closeMap) {
+function railNav(rail, design, viewingDesign, toggleMap, closeMap) {
   return h(
     'nav',
     { class: 'rail', 'aria-label': 'Round' },
@@ -206,7 +214,9 @@ function railNav(rail, design, toggleMap, closeMap) {
       'ol',
       {},
       rail.map((step) => {
-        const state = step.state.kind;
+        const isDesign = step.step.kind === 'design';
+        const state = viewingDesign && isDesign ? 'current' : step.state.kind;
+        const shown = viewingDesign && !isDesign && state === 'current' ? 'next' : state;
         const done = state === 'done';
         const name = [
           done ? h('span', { class: 'check', 'aria-hidden': 'true' }, '✓') : null,
@@ -214,12 +224,11 @@ function railNav(rail, design, toggleMap, closeMap) {
           stepName(step.step),
           step.state.kind === 'current' && step.state.working ? ' · working' : null,
         ];
-        const isDesign = step.step.kind === 'design';
         return h(
           'li',
           {
-            class: `step ${state}${isDesign ? ' design-step' : ''}`,
-            'aria-current': state === 'current' ? 'step' : null,
+            class: `step ${shown}${isDesign ? ' design-step' : ''}`,
+            'aria-current': step.state.kind === 'current' ? 'step' : viewingDesign && isDesign ? 'page' : null,
           },
           isDesign && design
             ? [
@@ -263,18 +272,13 @@ function stepName(step) {
 }
 
 /**
- * The design map: the change's thesis, its four parts with their gist, each a link into the
- * design, and a link to the whole design. The design is folded after the first question: a link
- * opens it before the page scrolls to its target.
+ * The design map: the change's thesis, its four parts with their gist, each a link to its part
+ * of the design screen, and a link to the whole design screen (route.js).
  * @param {DesignView} design
  * @param {() => void} close
  */
 function designMap(design, close) {
-  const follow = () => {
-    const fold = document.querySelector('section.design details');
-    if (fold instanceof HTMLDetailsElement) fold.open = true;
-    close();
-  };
+  const follow = () => close();
   return h(
     'div',
     { class: 'design-map', id: 'design-map', role: 'group', 'aria-labelledby': 'design-map-title', hidden: true },
@@ -297,7 +301,7 @@ function designMap(design, close) {
         ),
       ),
     ),
-    h('a', { class: 'map-open', href: '#design-title', onclick: follow }, 'Open the design →'),
+    h('a', { class: 'map-open', href: '#design', onclick: follow }, 'Open the design →'),
   );
 }
 

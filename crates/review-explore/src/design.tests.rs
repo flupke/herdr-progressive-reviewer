@@ -174,3 +174,46 @@ fn a_saved_part_without_a_paragraph_shows_its_first_line_as_written() {
     let part: DesignPart = serde_json::from_value(json!("First line,\\\nthen the rest.")).unwrap();
     assert_eq!(part.text().thesis, "First line, then the rest.");
 }
+
+/// A design whose parts hold `words` words of prose each, after one-word theses.
+fn design_of(words: usize, extra: &str) -> Design {
+    let body = format!("{}\n\n{extra}", "word ".repeat(words));
+    let part = || DesignPart::new("Thesis.", body.clone());
+    Design::new("Thesis.", part(), part(), part(), part())
+}
+
+#[test]
+fn the_reading_time_counts_the_words_of_the_theses_and_the_parts() {
+    // 5 theses and 4 × 280 words: 1,125 words, about 4.9 minutes at 230 words a minute.
+    assert_eq!(design_of(280, "").reading_minutes(), 5);
+    // 5 + 4 × 200 = 805 words: 3.5 minutes, rounded up.
+    assert_eq!(design_of(200, "").reading_minutes(), 4);
+}
+
+#[test]
+fn the_words_of_a_table_and_of_inline_code_are_read() {
+    // 1 + 146 + 2 words in each part's table, as many as in a paragraph of 149 words.
+    let table = format!(
+        "| `ReplyQueue` | {}|\n| --- | --- |\n| a | b |",
+        "word ".repeat(146)
+    );
+    assert_eq!(design_of(0, &table).reading_minutes(), 3);
+    assert_eq!(design_of(149, "").reading_minutes(), 3);
+}
+
+#[test]
+fn a_diagram_source_does_not_count_as_reading() {
+    let diagram = format!(
+        "```mermaid\nsequenceDiagram\n{}```",
+        "  a->>b: says one more thing\n".repeat(200)
+    );
+    assert_eq!(
+        design_of(200, &diagram).reading_minutes(),
+        design_of(200, "").reading_minutes()
+    );
+}
+
+#[test]
+fn a_short_design_takes_about_a_minute() {
+    assert_eq!(design_of(1, "").reading_minutes(), 1);
+}

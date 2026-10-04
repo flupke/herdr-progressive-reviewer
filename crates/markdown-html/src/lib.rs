@@ -36,15 +36,46 @@ impl HtmlRenderer {
     }
 
     pub fn render(self, markdown: &str) -> Html {
+        Html::of(self.rewrite(markdown))
+    }
+
+    /// Renders Markdown meant for one line, such as a thesis shown as a heading: its inline
+    /// markup only, with no block around it. A block's markers are dropped and its text kept, and
+    /// a line break becomes a space.
+    pub fn render_inline(self, markdown: &str) -> Html {
+        let inline = self
+            .rewrite(markdown)
+            .into_iter()
+            .filter_map(|event| match event {
+                Event::Start(tag) => is_inline(tag.to_end()).then_some(Event::Start(tag)),
+                Event::End(tag) => is_inline(tag).then_some(Event::End(tag)),
+                Event::SoftBreak | Event::HardBreak => Some(Event::Text(" ".into())),
+                Event::Html(_) | Event::InlineHtml(_) | Event::Rule | Event::TaskListMarker(_) => {
+                    None
+                }
+                event => Some(event),
+            });
+        let Html(html) = Html::of(inline.collect());
+        Html(html.trim_end().to_owned())
+    }
+
+    /// The events of the page's HTML for `markdown`.
+    fn rewrite(self, markdown: &str) -> Vec<Event<'_>> {
         let options =
             Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
         let events = pulldown_cmark::TextMergeStream::new(Parser::new_ext(markdown, options));
         let mut rewrite = Rewrite::new(self, events.collect());
         rewrite.run();
-        let mut html = String::new();
-        pulldown_cmark::html::push_html(&mut html, rewrite.output.into_iter());
-        Html(html)
+        rewrite.output
     }
+}
+
+/// Whether a tag marks up text inside a line rather than a block.
+fn is_inline(tag: TagEnd) -> bool {
+    matches!(
+        tag,
+        TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough | TagEnd::Link
+    )
 }
 
 /// HTML rendered from an agent's Markdown, safe to put in a page as it is.
@@ -52,6 +83,12 @@ impl HtmlRenderer {
 pub struct Html(String);
 
 impl Html {
+    fn of(events: Vec<Event<'_>>) -> Self {
+        let mut html = String::new();
+        pulldown_cmark::html::push_html(&mut html, events.into_iter());
+        Self(html)
+    }
+
     pub fn into_string(self) -> String {
         self.0
     }

@@ -13,15 +13,34 @@
 .markdown blockquote { border-left: 3px solid var(--line); padding-left: 12px; opacity: 0.85; }
 .markdown a { color: var(--accent); }
 
-/* Tables scroll sideways on a narrow screen instead of squeezing their columns. */
-.markdown table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; font-size: 0.95em; }
-.markdown th, .markdown td { border: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: top; overflow-wrap: normal; min-width: 4em; }
-.markdown th { background: var(--code-bg); font-weight: 600; }
+/* Tables (README, "1. Design screen"; design review, finding 16): hairlines between rows and
+   under the header, no vertical borders, the width of the column up to 820 pixels. A table
+   wider than its column scrolls sideways in its own frame (client/dom.js wraps each table), with
+   shadows at the edges that hide more; on a phone its columns keep a readable width and its
+   first column stays in view. */
+.markdown .table-frame { max-width: 820px; margin: 0 0 12px; overflow-x: auto; }
+.markdown > .table-frame:last-child { margin-bottom: 0; }
+.markdown table { width: 100%; margin: 0; border-collapse: collapse; font-size: 15px; }
+.markdown th, .markdown td { padding: 8px 10px; text-align: left; vertical-align: top; overflow-wrap: normal; }
+.markdown th { border-bottom: 1px solid var(--line-strong); font-weight: 600; }
+.markdown td { border-bottom: 1px solid var(--line); }
 .markdown .align-center { text-align: center; }
 .markdown .align-right { text-align: right; }
+@media (max-width: 40rem) {
+  .markdown .table-frame {
+    background:
+      linear-gradient(to right, var(--canvas) 30%, transparent) left center / 32px 100% no-repeat local,
+      linear-gradient(to left, var(--canvas) 30%, transparent) right center / 32px 100% no-repeat local,
+      radial-gradient(farthest-side at 0 50%, rgb(0 0 0 / 0.22), transparent) left center / 12px 100% no-repeat scroll,
+      radial-gradient(farthest-side at 100% 50%, rgb(0 0 0 / 0.22), transparent) right center / 12px 100% no-repeat scroll;
+  }
+  .markdown table { font-size: 14px; }
+  .markdown th, .markdown td { min-width: 8em; padding: 7px 10px; }
+  .markdown tr > :first-child { position: sticky; left: 0; z-index: 1; min-width: 7em; background: var(--canvas); }
+}
 
 /* A table cell's status: a round mark, and a tint of the same color. */
-.markdown .status { display: inline-grid; place-items: center; width: 1.3em; height: 1.3em; border-radius: 50%; color: #fff; font-size: 0.8em; font-weight: 700; line-height: 1; vertical-align: 0.05em; }
+.markdown .status { display: inline-grid; place-items: center; width: 17px; height: 17px; margin-right: 2px; border-radius: 50%; color: #fff; font-size: 11px; font-weight: 700; line-height: 1; vertical-align: -3px; }
 .markdown .status-good { background: color-mix(in srgb, var(--good) 10%, transparent); }
 .markdown .status-bad { background: color-mix(in srgb, var(--bad) 10%, transparent); }
 .markdown .status-warning { background: color-mix(in srgb, var(--warn) 12%, transparent); }

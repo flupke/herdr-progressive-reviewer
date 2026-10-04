@@ -179,3 +179,30 @@ fn only_web_links_stay_links_and_images_show_their_description() {
     assert!(html.contains(" file and a diagram</p>"), "{html}");
     assert!(!html.contains("<img"), "{html}");
 }
+
+#[test]
+fn a_line_renders_as_inline_html_with_no_block_around_it() {
+    let html = HtmlRenderer::under_heading(2)
+        .render_inline(
+            "`ReplyQueue` holds **each** reply\nuntil [the policy](https://example.com) sends it",
+        )
+        .into_string();
+    assert_eq!(
+        html,
+        "<code>ReplyQueue</code> holds <strong>each</strong> reply until \
+         <a href=\"https://example.com\">the policy</a> sends it"
+    );
+}
+
+#[test]
+fn a_line_that_looks_like_a_block_keeps_only_its_text() {
+    let render = |markdown| {
+        HtmlRenderer::under_heading(2)
+            .render_inline(markdown)
+            .into_string()
+    };
+    assert_eq!(render("# A heading"), "A heading");
+    assert_eq!(render("- an item"), "an item");
+    assert_eq!(render("> [!WARNING] careful"), "careful");
+    assert_eq!(render("<b>raw</b>"), "&lt;b&gt;raw&lt;/b&gt;");
+}

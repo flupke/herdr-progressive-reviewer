@@ -129,20 +129,32 @@ tags: Array<"changed_after_first_pick" | "as_recommended">, };
 /**
  * One part of the design, under its heading: its thesis, then the rest of its text.
  */
-export type DesignPartView = { title: string, thesis_html: string, body_html: string, };
+export type DesignPartView = { title: string, 
 /**
- * The design of the change: open above the round's first question, folded away in every later
- * stage of the round.
+ * The part's thesis, as inline HTML for one line.
  */
-export type DesignView = { open: boolean, 
+thesis_html: string, body_html: string, };
 /**
- * The change's thesis.
+ * The design of the change, which the design screen shows: it opens the round, and the
+ * reviewer can open it again at any later stage.
+ */
+export type DesignView = { 
+/**
+ * The change's thesis, as inline HTML for a heading.
  */
 thesis_html: string, 
 /**
  * The four parts, in reading order.
  */
-parts: Array<DesignPartView>, };
+parts: Array<DesignPartView>, 
+/**
+ * About how many minutes the design takes to read.
+ */
+minutes: number, 
+/**
+ * How many files the change touches.
+ */
+changed_files: number, };
 /**
  * A diagram of the question the page showed that Mermaid could not parse.
  */

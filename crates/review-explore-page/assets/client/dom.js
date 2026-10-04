@@ -62,12 +62,20 @@ function append(element, children) {
 /**
  * The one place where HTML goes into the page: the agent's Markdown, which the tool rendered
  * (and which shows raw HTML as text). A `<script>` inserted this way never runs, and the content
- * security policy forbids inline scripts anyway.
+ * security policy forbids inline scripts anyway. Each table is put in a frame that scrolls.
  * @param {Element} element
  * @param {string} html
  */
 export function setRenderedMarkdown(element, html) {
   element.innerHTML = html;
+  // Each table in a frame of its own, which scrolls sideways when the table is wider than its
+  // column (markdown.css).
+  for (const table of element.querySelectorAll('table')) {
+    const frame = document.createElement('div');
+    frame.className = 'table-frame';
+    table.replaceWith(frame);
+    frame.append(table);
+  }
 }
 
 /**

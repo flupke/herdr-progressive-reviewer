@@ -21,7 +21,8 @@ test('the reviewer recovers a kickoff that could not be delivered with Retry', R
   expect(await explore.actions()).toEqual(['retry']);
 
   await explore.askQuestion();
-  await expect(screen.getByRole('region', 'Question 1')).toBeVisible();
+  // The round opens on its design, which leads to question 1.
+  await expect(screen.getByRole('region', 'Design of the change')).toBeVisible();
 });
 
 test('the reviewer retries a turn the agent did not start on', RETRYING, async ({ explore, screen, agent }) => {
@@ -63,6 +64,7 @@ test(
   async ({ explore, screen, agent }) => {
   await explore.open();
   await explore.askQuestion();
+  await screen.getByRole('link', 'Go to question 1').tap();
   await explore.answerInPane();
   await expect(screen.getByRole('region', 'Your last answer')).toContainText('Keep the draft');
 
@@ -82,6 +84,7 @@ test(
   async ({ explore, screen, agent }) => {
     await explore.open();
     await explore.askQuestion();
+    await screen.getByRole('link', 'Go to question 1').tap();
     await expect(screen.getByRole('region', 'Question 1')).toBeVisible();
 
     await agent.act('reset the round from the menu, and confirm the reset');
@@ -143,6 +146,7 @@ test('a comment being typed comes back when the page follows the round back to i
 }) => {
   await explore.open();
   await explore.askQuestion();
+  await screen.getByRole('link', 'Go to question 1').tap();
   // Exact actions: the comment must receive this exact text, then the pane moves the round away
   // from the question and back.
   await screen.getByRole('textbox', 'Comment (optional)').fill('Keep it, but log the overflow.');

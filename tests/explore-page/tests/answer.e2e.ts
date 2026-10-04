@@ -11,6 +11,7 @@ test('the reviewer answers on the page, then sees the agent work and its next qu
 }) => {
   await explore.open();
   await explore.askQuestion();
+  await screen.getByRole('link', 'Go to question 1').tap();
 
   await agent.act(ANSWER, { params: { comment: COMMENT } });
   await expect(screen.getByRole('status')).toContainText('The agent is working');
@@ -25,6 +26,7 @@ test('the reviewer answers on the page, then sees the agent work and its next qu
 test('a comment without a choice is sent as the answer', async ({ explore, screen, agent }) => {
   await explore.open();
   await explore.askQuestion();
+  await screen.getByRole('link', 'Go to question 1').tap();
 
   await agent.act('without picking a choice, write {comment} as the comment on question 1 and send it', {
     params: { comment: COMMENT },
@@ -42,6 +44,7 @@ test('a comment of several lines keeps the line breaks a comment written in the 
 }) => {
   await explore.open();
   await explore.askQuestion();
+  await screen.getByRole('link', 'Go to question 1').tap();
 
   // Exact actions: the comment must receive this exact text, line breaks included.
   await screen.getByRole('radio', 'Keep the draft').check();
@@ -58,6 +61,7 @@ test('the page says how many lines an answer marks, and lists them on request', 
 }) => {
   await explore.open();
   await explore.askQuestion();
+  await screen.getByRole('link', 'Go to question 1').tap();
   await expect(screen.getByText('4 lines reviewed · 20 lines not relevant', { exact: false })).toBeVisible();
 
   await agent.act('open "Will mark … when you answer" to list the lines that answering the question will mark');
@@ -67,6 +71,7 @@ test('the page says how many lines an answer marks, and lists them on request', 
 test('an answer to a question answered in the pane meanwhile is refused', async ({ explore, screen }) => {
   await explore.open();
   await explore.askQuestion();
+  await screen.getByRole('link', 'Go to question 1').tap();
   // The page shows the question, and is held there while the pane answers it.
   await expect(screen.getByRole('region', 'Question 1')).toBeVisible();
   await explore.holdPage();
@@ -90,6 +95,7 @@ test('the page follows an answer cancelled in the pane, and shows a failed deliv
 }) => {
   await explore.open();
   await explore.askQuestion();
+  await screen.getByRole('link', 'Go to question 1').tap();
   await agent.act(ANSWER, { params: { comment: COMMENT } });
   await expect(screen.getByRole('status')).toContainText('The agent is working');
 

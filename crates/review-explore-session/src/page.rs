@@ -101,6 +101,7 @@ impl ExploreSession {
             .map(|(round, overview)| PublishedRound {
                 id: &round.exploration.instance,
                 design: round.exploration.design(),
+                changed_files: round.exploration.comparison.files.len(),
                 cancellable: cancellable.as_ref(),
                 earlier: self.state.historical,
                 overview,

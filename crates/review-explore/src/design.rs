@@ -3,7 +3,7 @@
 use std::borrow::Cow;
 use std::ops::Range;
 
-use pulldown_cmark::{Event, Options, Parser, Tag};
+use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::Exploration;
@@ -115,6 +115,21 @@ impl Design {
         }
     }
 
+    /// About how many minutes the design takes to read: the words of its theses and parts at
+    /// 230 a minute, rounded to the nearest minute, and never less than one. A diagram's source,
+    /// or any other block of code, is not read as text and does not count.
+    pub fn reading_minutes(&self) -> usize {
+        const WORDS_A_MINUTE: usize = 230;
+        let thesis = self.thesis();
+        let parts = self.parts();
+        let texts = parts.iter().flat_map(|part| [&part.thesis, &part.body]);
+        let words: usize = std::iter::once(&thesis)
+            .chain(texts)
+            .map(|text| words_read(text.as_ref()))
+            .sum();
+        ((words + WORDS_A_MINUTE / 2) / WORDS_A_MINUTE).max(1)
+    }
+
     /// The agent's design: a thesis for the change, and a thesis and text for every part.
     pub(crate) fn validate(&self) -> eyre::Result<()> {
         eyre::ensure!(
@@ -165,6 +180,24 @@ impl DesignPart {
             None => PartText::of(&self.body),
         }
     }
+}
+
+/// The words a reader reads in `markdown`: its text and inline code, not its blocks of code.
+fn words_read(markdown: &str) -> usize {
+    let options = Options::ENABLE_TABLES | Options::ENABLE_STRIKETHROUGH;
+    let mut in_code = false;
+    let mut words = 0;
+    for event in Parser::new_ext(markdown, options) {
+        match event {
+            Event::Start(Tag::CodeBlock(_)) => in_code = true,
+            Event::End(TagEnd::CodeBlock) => in_code = false,
+            Event::Text(text) | Event::Code(text) if !in_code => {
+                words += text.split_whitespace().count();
+            }
+            _ => {}
+        }
+    }
+    words
 }
 
 /// A part's thesis and the Markdown that follows it.

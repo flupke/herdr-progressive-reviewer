@@ -119,7 +119,8 @@ function drawn(): boolean {
     document.querySelector('main[data-seq]') !== null &&
     !document.querySelector('main[aria-busy="true"]') &&
     document.fonts.status === 'loaded' &&
-    sources === failed
+    sources === failed &&
+    document.body.dataset.diagrams !== 'drawing'
   );
 }
 

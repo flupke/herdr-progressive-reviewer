@@ -1,6 +1,6 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-04T13:18:54.763Z",
+  "createdAt": "2026-10-04T14:37:06.854Z",
   "payload": {
     "actions": [
       {
@@ -22,39 +22,42 @@
       "targetId": "phone",
       "instructionDigest": "258059d3794566e6be6dab08b655d62ae30536f389d47bc6cfd5dff5706d4cb3"
     },
-    "summary": "The recorded Cancel answer action has taken effect: the page is back to the unanswered Question 1 state, with the choices, optional comment, and Send button available.",
-    "startPath": "/",
-    "endPath": "/",
+    "summary": "The question is waiting for an answer again: the Send button is visible and the previous-answer region is gone, confirming the last answer was canceled.",
+    "startPath": "/#round",
+    "endPath": "/#round",
     "endAnchors": [
       {
         "role": "heading",
-        "name": "What it adds and where"
+        "name": "Question 1"
       },
       {
-        "text": "The change keeps the reviewer's unsent draft when a round is reopened."
+        "text": "Should a reopened round keep the reviewer's unsent draft?"
       },
       {
-        "text": "It adds a draft field to the saved editor state and restores it when the pane rebuilds its editor."
-      },
-      {
-        "text": "Nothing else moves: the answers, the marks and the round's history are saved as before, and a round saved before the change opens with an empty draft."
-      },
-      {
-        "role": "heading",
-        "name": "Types and data flow"
-      },
-      {
-        "text": "The draft is saved with the editor state, in the round record."
+        "text": "When the reviewer reopens a round, the pane rebuilds its editor from the saved round. The unsent draft lives only in memory today, so a reopen loses it."
       },
       {
         "role": "columnheader",
-        "name": "Step"
+        "name": "Choice"
       },
       {
         "role": "columnheader",
-        "name": "Holds the draft"
+        "name": "Survives a reopen"
+      },
+      {
+        "role": "columnheader",
+        "name": "Cost"
+      },
+      {
+        "role": "cell",
+        "name": "Keep the draft"
+      },
+      {
+        "role": "image",
+        "name": "Good",
+        "text": "✓"
       }
     ],
-    "endWaitMs": 27493
+    "endWaitMs": 27935
   }
 }

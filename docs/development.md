@@ -156,8 +156,15 @@ specification, `screenshots/` the reference captures, and `design-review.md` the
 findings; "The page's components" below says where each building block lives.
 
 A fenced `mermaid` block is a diagram, which `assets/client/diagrams.js` draws in the
-browser with Mermaid when the region that holds it is built, again with its dark theme when the page turns dark, at
-the diagram's natural size in a frame that scrolls sideways. Mermaid is
+browser with Mermaid when the region that holds it is built, every diagram of the page the
+same way (design review, finding 30): in the page's theme and font, with colours read from the
+tokens at each draw and again when the page turns dark or light; at its natural size when it
+fits its frame, shrunk to the frame down to a scale of 0.85, and otherwise at its natural size
+in a frame that scrolls sideways and says so; a `flowchart LR` that does not fit drawn again top
+to bottom; and the nodes classed `new` or `changed` in green and amber, with a legend. The
+kickoff's diagram rules (`crates/review-explore-runner/src/diagrams.md`) name that vocabulary.
+Each table of the agent's Markdown sits in a frame of its own that scrolls sideways, with its
+first column held on a phone. Mermaid is
 vendored, pinned and gzipped at build time in
 [`crates/mermaid-js`](../crates/mermaid-js) (its `vendor/README.md` says how to
 move to another version); the page serves it itself, loads it only when it
@@ -322,8 +329,11 @@ what it names, `.hint` the muted help line. Every control has a focus ring (`:fo
   session derives in `publish_page` and the view carries as `rail` and `title`): take every
   question number from it, never from a count of the question's versions. "Design ▾" opens the
   design map in place; the menu copies the page's address and holds Reset, which the page
-  offers nowhere else. On a phone the rail shows only the design and the current step, as two
-  chips, and the review's title moves into the menu.
+  offers nowhere else. Its map links to the design screen (`#design`, `#design-part-N`), and
+  while that screen shows, the rail shows Design as current (`aria-current="page"`) and the
+  round's own step as the next one (class `next`), which keeps `aria-current="step"`. On a
+  phone the rail shows only the design and the current step, as two chips, and the review's
+  title moves into the menu.
 
   ```html
   <header class="masthead">
@@ -339,6 +349,24 @@ what it names, `.hint` the muted help line. Every control has a focus ring (`:fo
       <div class="menu-popover" id="round-menu" hidden>…</div></div>
     <div class="masthead-line" id="masthead-line"></div>   <!-- the meter draws here -->
   </header>
+  ```
+- **Design screen** (`design.css`): the design of the change on the desk, its map in the panel.
+  The part in view carries the class `current` (and its map link `aria-current="location"`),
+  the parts above it `read`, and the section says its number in `data-part`. On a phone the map
+  sits under the thesis, part headers stick to the top, and `.design-bar` is pinned to the
+  bottom.
+
+  ```html
+  <section class="design-screen desk" aria-label="Design of the change" data-part="1">
+    <header class="design-head"><p class="eyebrow">…</p><h2>The change's thesis</h2><p class="meta">4 parts · about 4 minutes · 3 files</p></header>
+    <nav class="design-nav panel" aria-label="Design map">… <a class="button primary block" href="#round">Go to question 1</a></nav>
+    <section class="design-part" id="design-part-1" aria-labelledby="design-part-1-title">
+      <header class="part-head"><span class="n">1</span><h3 class="eyebrow" id="design-part-1-title">What it adds and where</h3><span class="part-of">1 / 4</span></header>
+      <p class="thesis">…</p>
+      <div class="markdown">…</div>
+    </section>
+    <div class="design-bar"><p>Current · Question 1</p><a class="button primary block" href="#round">Go to question 1</a></div>
+  </section>
   ```
 
 ### The page's client
@@ -368,17 +396,23 @@ only, with no `unsafe` value; its `connect-src` names the page's own `ws:` addre
   agent's Markdown the tool rendered, and `setDiagramDrawing`, for Mermaid's drawings; a text box's value set only when it is built, from
   its draft (`drafts.js`), and the focus given back to the text box of the same draft
   after a rebuild.
-- `page.js` lists the regions of `main` in the order the page shows them, and draws each
-  from its part of the view. `actions.js` turns the submit of any form into its request:
+- `page.js` holds the page's two screens, the design of the change and the round's current
+  stage, lists the regions of each in the order the page shows them, and draws each from its
+  part of the view. `route.js` says which screen the address shows: `#design` (or
+  `#design-part-N`, 1 to 4) the design screen, which a link may target, anything else the
+  stage, which `#round` names. The design opens the round: the first time a tab shows a round
+  that waits for the answer to its first question, the page shows the design screen, and goes
+  back to the stage once the round moves on unless the reviewer has navigated since. The page
+  keeps the hidden screen's nodes, so the design's diagrams are the page's first. `actions.js` turns the submit of any form into its request:
   each form names its method (`data-method`), and `CALLS` says how its fields make the
   request's params.
 - One module per screen or region: `start.js`, `status.js` (the status card),
-  `last-answer.js`, `design.js`, `response.js`, `question.js` (with the answer panel and
-  the first pick), `citations.js`, `conclusion.js` (with the reviewer's decisions, the list
-  to be implemented, each state of its request and the reply), `quiz.js`, `masthead.js`
-  (above `main`, with Reset in its menu), `disclosure.js` (a button that shows or hides an
-  action behind a fold), and `diagrams.js`, which draws each diagram of a region that was
-  built.
+  `last-answer.js`, `design.js` (the design screen, with its map and the part in view),
+  `response.js`, `question.js` (with the answer panel and the first pick), `citations.js`,
+  `conclusion.js` (with the reviewer's decisions, the list to be implemented, each state of
+  its request and the reply), `quiz.js`, `masthead.js` (above `main`, with Reset in its menu),
+  `disclosure.js` (a button that shows or hides an action behind a fold), and `diagrams.js`,
+  which draws each diagram of a region that was built.
 
 To add a screen or a region: give the view the data it needs (a field of `PageView` or of
 the type of its screen, in `src/view.rs`, built from the round's snapshot), run
@@ -530,8 +564,10 @@ implementation request while it sends one, else the agent's next turn), and
 round to the other stages. An answer sent from the page puts the agent to work,
 and `explore.answers()` returns what the page sent; `explore.diagramErrors()`
 returns the diagram errors the page reported, as the review tool saves them.
-The design of the change carries a sequence diagram and a table that fit a desktop window
-but not a phone's, and the design's diagram is the page's first (`Diagram 1`). The second
+The round opens on the design of the change, which carries a sequence diagram and a table
+that fit a desktop window but not a phone's; the design's diagram is the page's first
+(`Diagram 1`), and `explore.openDesign()` opens the design screen at a later stage, at the
+address the rail's "Design ▾" is to link to. The second
 fixed question carries a diagram that draws and one that does not parse. From the second
 question on, and with the conclusion, the agent's fixed response to the previous answer
 shows above it. The session's review has a fixed name, which the start screen shows. A start sent from the page shows the round starting,

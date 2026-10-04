@@ -1,0 +1,60 @@
+{
+  "schemaVersion": "trace-1",
+  "createdAt": "2026-10-04T14:34:34.653Z",
+  "payload": {
+    "actions": [
+      {
+        "name": "tap",
+        "summary": "tap link \"Go to question 2\" in \"Design of the change · read before ques…\"",
+        "target": {
+          "role": "link",
+          "name": "Go to question 2",
+          "within": "Design of the change · read before question 1"
+        }
+      }
+    ],
+    "executor": {
+      "name": "e2e-default-agent",
+      "version": "2"
+    },
+    "recordedFor": {
+      "testId": "tests/design.e2e.ts::the%20reviewer%20opens%20the%20design%20again%20from%20a%20later%20question%2C%20then%20goes%20back%20to%20it",
+      "targetId": "desktop",
+      "instructionDigest": "3236fa573bc8c94199a2e9e6d7e39f9d44808c1824769269063f56c0f85c679c"
+    },
+    "summary": "Followed the “Go to question 2” link. Question 2 is now visible, asking where the kept draft should be stored.",
+    "startPath": "/#design",
+    "endPath": "/#round",
+    "endAnchors": [
+      {
+        "role": "heading",
+        "name": "Your last answer"
+      },
+      {
+        "text": "Keep the draft"
+      },
+      {
+        "text": "Cancel answer takes this answer back, with the agent's turn after it and the review marks it led to: its question waits for your answer again."
+      },
+      {
+        "role": "button",
+        "name": "Cancel answer"
+      },
+      {
+        "role": "heading",
+        "name": "Reply from the agent"
+      },
+      {
+        "text": "keep"
+      },
+      {
+        "role": "listitem",
+        "name": "Follow-up: Say when a kept draft is older than a day."
+      },
+      {
+        "text": "reopen()"
+      }
+    ],
+    "endWaitMs": 12563
+  }
+}

@@ -11,6 +11,7 @@ function wake() {
 test('after the phone sleeps and wakes, the page shows the current question', async ({ explore, screen, browser }) => {
   await explore.open();
   await explore.askQuestion();
+  await screen.getByRole('link', 'Go to question 1').tap();
   await expect(screen.getByRole('region', 'Question 1')).toBeVisible();
 
   // While the phone sleeps, the reviewer answers in the pane and the agent asks the next question.
@@ -24,6 +25,7 @@ test('after the phone sleeps and wakes, the page shows the current question', as
 test('a question fits the width of the screen', async ({ explore, screen, browser }) => {
   await explore.open();
   await explore.askQuestion();
+  await screen.getByRole('link', 'Go to question 1').tap();
   await expect(screen.getByRole('region', 'Question 1')).toBeVisible();
 
   const overflow = await browser.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);

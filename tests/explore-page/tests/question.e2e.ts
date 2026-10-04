@@ -10,6 +10,7 @@ test('the page shows the question the agent posts, and the reviewer picks a choi
   await explore.open();
   await expect(screen.getByRole('status')).toContainText('The agent is working');
   await explore.askQuestion();
+  await screen.getByRole('link', 'Go to question 1').tap();
   const question = screen.getByRole('region', 'Question 1');
   await expect(question).toContainText("Should a reopened round keep the reviewer's unsent draft?");
   await expect(screen.getByRole('status')).not.toBeVisible();
@@ -36,6 +37,7 @@ test('the question shows as Markdown, with raw HTML as text', async ({ explore, 
     evidence: [],
     assessments: null,
   });
+  await screen.getByRole('link', 'Go to question 1').tap();
   const question = screen.getByRole('region', 'Question 1');
   await expect(question).toContainText('Should reopen() keep the unsent draft? <b>Yes</b>');
   await expect(question.getByText('reopen()', { exact: true })).toBeVisible();

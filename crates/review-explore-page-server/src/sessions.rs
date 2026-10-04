@@ -133,6 +133,7 @@ impl Session {
         let round = self.running.then(|| PublishedRound {
             id: &id,
             design: (self.asked > 0).then_some(&design),
+            changed_files: self.data.change().0.len(),
             cancellable: self.answered.last(),
             earlier: self.earlier,
             overview: &overview,

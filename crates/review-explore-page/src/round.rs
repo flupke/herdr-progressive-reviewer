@@ -436,6 +436,8 @@ pub struct PublishedRound<'a> {
     pub id: &'a str,
     /// The design of the change, once the round's first turn explained it.
     pub design: Option<&'a Design>,
+    /// How many files the round's change touches, which the design's meta line counts.
+    pub changed_files: usize,
     /// The reviewer's latest answer, while the reviewer may cancel it.
     pub cancellable: Option<&'a LatestAnswer>,
     /// Whether the round is an earlier one: a newer round of the review was saved since, by
@@ -480,6 +482,8 @@ pub(crate) struct RoundSnapshot {
     pub(crate) round: Option<String>,
     /// The design of the change, as the round's first turn explained it.
     pub(crate) design: Option<Arc<Design>>,
+    /// How many files the round's change touches.
+    pub(crate) changed_files: usize,
     /// The reviewer's latest answer, while the reviewer may cancel it.
     pub(crate) cancellable: Option<LatestAnswer>,
     /// Whether the round is an earlier one, which the reviewer can only Reset.
@@ -537,6 +541,7 @@ impl RoundSnapshot {
         self.stage == *stage
             && self.round.as_deref() == round.map(|round| round.id)
             && self.design.as_deref() == round.and_then(|round| round.design)
+            && self.changed_files == round.map_or(0, |round| round.changed_files)
             && self.cancellable.as_ref() == round.and_then(|round| round.cancellable)
             && self.earlier == round.is_some_and(|round| round.earlier)
             && self.overview.as_deref() == round.map(|round| round.overview)
@@ -555,6 +560,7 @@ impl RoundSnapshot {
             revision,
             round: round.map(|round| round.id.to_owned()),
             design: round.and_then(|round| round.design.cloned().map(Arc::new)),
+            changed_files: round.map_or(0, |round| round.changed_files),
             cancellable: round.and_then(|round| round.cancellable.cloned()),
             earlier: round.is_some_and(|round| round.earlier),
             overview: round.map(|round| Arc::new(round.overview.clone())),

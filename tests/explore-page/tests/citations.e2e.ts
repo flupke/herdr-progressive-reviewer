@@ -6,6 +6,7 @@ import { test } from './session.ts';
 test('a question shows the lines it cites, in the order the agent gave', async ({ explore, screen, agent }) => {
   await explore.open();
   await explore.askQuestion();
+  await screen.getByRole('link', 'Go to question 1').tap();
   await expect(screen.getByRole('region', 'Question 1')).toBeVisible();
 
   await agent.act('show all the citations of question 1');
@@ -43,6 +44,7 @@ test('a citation of a file outside the change and the tracked files shows no lin
     evidence: [{ path: '.env', side: 'new', lines: { first_line: 1, last_line: 1 }, notes: 'The settings file.' }],
     assessments: null,
   });
+  await screen.getByRole('link', 'Go to question 1').tap();
   const citation = screen.getByRole('region', '.env new 1');
   await expect(citation).toContainText("This file is not part of the repository's tracked files");
   await expect(citation.getByRole('row')).toHaveCount(0);

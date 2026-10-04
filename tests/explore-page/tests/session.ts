@@ -31,6 +31,8 @@ export interface Session {
   readonly token: string;
   /** Opens the page through the address the tool gives the reviewer, with the session's token. */
   open(): Promise<void>;
+  /** Opens the design screen, at the address the rail's "Design ▾" links to (`#design`). */
+  openDesign(): Promise<void>;
   /**
    * The agent posts its next question: `question` when given, a JSON `Question` of
    * `review_explore`, or else the fixed questions of the standalone server in turn.
@@ -157,6 +159,9 @@ export async function openSession(baseUrl: string | undefined, page: SessionPage
     token,
     open: async () => {
       await page.open(`/?token=${token}`);
+    },
+    openDesign: async () => {
+      await page.open(`/?token=${token}#design`);
     },
     askQuestion: (question?: object) => step('question', question),
     answerInPane: () => step('answer'),

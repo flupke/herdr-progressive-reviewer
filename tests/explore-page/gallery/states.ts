@@ -54,8 +54,24 @@ async function after(session: Session, move: () => Promise<void>): Promise<void>
   await session.open();
 }
 
-/** The page shows question `count`, each earlier question answered in the pane. */
-async function question(session: Session, count: number): Promise<void> {
+/**
+ * The page shows question `count`, each earlier question answered in the pane. The round opens
+ * on its design: on question 1 the reviewer goes on from it to the question.
+ */
+async function question(session: Session, page: Page, count: number): Promise<void> {
+  await ask(session, count);
+  if (count === 1) await submit(page, 'Go to question 1');
+}
+
+/** The page shows the design screen, on question `count`, each earlier question answered in the
+ * pane: the design opens the round, and later the reviewer opens it again at its address. */
+async function design(session: Session, count: number): Promise<void> {
+  await ask(session, count);
+  if (count > 1) await session.openDesign();
+}
+
+/** The agent asks question `count`, each earlier one answered in the pane, then the page opens. */
+async function ask(session: Session, count: number): Promise<void> {
   for (let asked = 1; asked <= count; asked++) {
     if (asked > 1) await session.answerInPane();
     await session.askQuestion();
@@ -63,7 +79,7 @@ async function question(session: Session, count: number): Promise<void> {
   await session.open();
 }
 
-/** Opens every folded part of the page: the design, Door, Blast radius, the other citations. */
+/** Opens every folded part of the page: Door, Blast radius, the other citations. */
 async function unfold(page: Page): Promise<void> {
   const folded = page.locator('details:not([open]) > summary:visible');
   while ((await folded.count()) > 0) await folded.first().click();
@@ -211,7 +227,7 @@ export const STATES: GalleryState[] = [
     name: 'delivery-failed-last-answer',
     about: "The prompt with the reviewer's answer could not be delivered: Retry, and Your last answer with Cancel answer.",
     async reach(session, page) {
-      await question(session, 1);
+      await question(session, page, 1);
       await choose(page, IDLE_OR_FULL);
       await page.getByRole('textbox', { name: 'Comment (optional)' }).fill(COMMENT);
       await submit(page, 'Send');
@@ -256,16 +272,27 @@ export const STATES: GalleryState[] = [
     reach: (session) => after(session, () => session.failStorage()),
   },
   {
+    name: 'design',
+    about:
+      'The round opens on the design of the change: its thesis, four parts led by their figures and tables, and the design map, which ends on question 1.',
+    reach: (session) => design(session, 1),
+  },
+  {
+    name: 'design-reopened',
+    about: 'The design opened again from question 2, a one-way question: Go to question 2.',
+    reach: (session) => design(session, 2),
+  },
+  {
     name: 'question-1',
     about:
-      'The first question, two-way: the design open above it, Context with a table, a diagram and a sketch, Door and Blast radius, four long choices, three citations.',
-    reach: (session) => question(session, 1),
+      'The first question, two-way: Context with a table, a diagram and a sketch, Door and Blast radius, four long choices, three citations.',
+    reach: (session, page) => question(session, page, 1),
   },
   {
     name: 'question-1-unfolded',
     about: 'The first question with every folded part open: Door, Blast radius and the other two citations.',
     async reach(session, page) {
-      await question(session, 1);
+      await question(session, page, 1);
       await unfold(page);
     },
   },
@@ -273,16 +300,16 @@ export const STATES: GalleryState[] = [
     name: 'question-1-answer-refused',
     about: 'An answer sent after the question was answered in the pane: the notice.',
     async reach(session, page) {
-      await question(session, 1);
+      await question(session, page, 1);
       await choose(page, MERGE);
       await refused(session, page, () => session.answerInPane(), 'Send');
     },
   },
   {
     name: 'working-after-answer',
-    about: 'The reviewer sent an answer from the page: the agent works, the design folded.',
+    about: 'The reviewer sent an answer from the page: the agent works.',
     async reach(session, page) {
-      await question(session, 1);
+      await question(session, page, 1);
       await choose(page, IDLE_OR_FULL);
       await page.getByRole('textbox', { name: 'Comment (optional)' }).fill(COMMENT);
       await submit(page, 'Send');
@@ -292,13 +319,13 @@ export const STATES: GalleryState[] = [
     name: 'question-2-blind',
     about:
       "The second question, one-way: the agent's reply to the previous answer, and the choices in a mixed order with the recommendation hidden until the first pick.",
-    reach: (session) => question(session, 2),
+    reach: (session, page) => question(session, page, 2),
   },
   {
     name: 'question-2-blind-picked',
     about: 'The reviewer picked a choice: the recommendation shows, with the comment kept.',
     async reach(session, page) {
-      await question(session, 2);
+      await question(session, page, 2);
       await choose(page, DROP);
       await page.getByRole('textbox', { name: 'Comment (optional)' }).fill(COMMENT);
       await submit(page, 'Pick');
@@ -308,7 +335,7 @@ export const STATES: GalleryState[] = [
     name: 'question-2-design-map',
     about: 'The design map, open from "Design ▾" on the rail: the thesis, the four parts and a link to the design.',
     async reach(session, page) {
-      await question(session, 2);
+      await question(session, page, 2);
       await page.getByRole('button', { name: 'Design', exact: true }).click();
     },
   },
@@ -316,7 +343,7 @@ export const STATES: GalleryState[] = [
     name: 'question-2-menu',
     about: "The masthead's ⋯ menu: Copy the round's link, and Reset this round.",
     async reach(session, page) {
-      await question(session, 2);
+      await question(session, page, 2);
       await page.getByRole('button', { name: 'Round menu' }).click();
     },
   },
@@ -324,7 +351,7 @@ export const STATES: GalleryState[] = [
     name: 'question-2-pick-refused',
     about: 'A pick sent after the question was answered in the pane: the notice.',
     async reach(session, page) {
-      await question(session, 2);
+      await question(session, page, 2);
       await choose(page, DROP);
       await refused(session, page, () => session.answerInPane(), 'Pick');
     },
@@ -332,8 +359,8 @@ export const STATES: GalleryState[] = [
   {
     name: 'question-2-answer-cancelled',
     about: 'The question asked again after Cancel answer in the pane: its recommendation shows at once.',
-    async reach(session) {
-      await question(session, 2);
+    async reach(session, page) {
+      await question(session, page, 2);
       await session.answerInPane();
       await after(session, () => session.cancelAnswerInPane());
     },
@@ -343,7 +370,7 @@ export const STATES: GalleryState[] = [
     about:
       'The third question, unfolded: a diagram Mermaid cannot parse, and a citation of a file outside the change.',
     async reach(session, page) {
-      await question(session, 3);
+      await question(session, page, 3);
       await unfold(page);
     },
   },

@@ -80,21 +80,25 @@ impl SectionView {
     }
 }
 
-/// The design of the change: open above the round's first question, folded away in every later
-/// stage of the round.
+/// The design of the change, which the design screen shows: it opens the round, and the
+/// reviewer can open it again at any later stage.
 #[derive(Debug, Serialize, TS)]
 struct DesignView {
-    open: bool,
-    /// The change's thesis.
+    /// The change's thesis, as inline HTML for a heading.
     thesis_html: String,
     /// The four parts, in reading order.
     parts: Vec<DesignPartView>,
+    /// About how many minutes the design takes to read.
+    minutes: usize,
+    /// How many files the change touches.
+    changed_files: usize,
 }
 
 /// One part of the design, under its heading: its thesis, then the rest of its text.
 #[derive(Debug, Serialize, TS)]
 struct DesignPartView {
     title: String,
+    /// The part's thesis, as inline HTML for one line.
     thesis_html: String,
     body_html: String,
 }
@@ -135,7 +139,7 @@ impl PageView {
             design: round
                 .design
                 .as_deref()
-                .map(|design| DesignView::new(design, round)),
+                .map(|design| DesignView::new(design, round.changed_files)),
             response: round.stage.response().map(ResponseView::new),
             question: QuestionView::of(round, picks),
             conclusion: ConclusionView::of(round, offers_actions),
@@ -158,20 +162,26 @@ impl PageView {
 
 impl DesignView {
     /// The design as `Design::thesis` and `Design::parts` give it, which stand in for the theses
-    /// of a design saved before it had any.
-    fn new(design: &Design, round: &RoundSnapshot) -> Self {
+    /// of a design saved before it had any, of a change of `changed_files` files.
+    fn new(design: &Design, changed_files: usize) -> Self {
+        let inline = |text: &str| {
+            HtmlRenderer::under_heading(3)
+                .render_inline(text)
+                .into_string()
+        };
         Self {
-            open: round.question_number() == Some(1),
-            thesis_html: markdown(&design.thesis(), 3),
+            thesis_html: inline(&design.thesis()),
             parts: design
                 .parts()
                 .into_iter()
                 .map(|part| DesignPartView {
                     title: part.title.to_owned(),
-                    thesis_html: markdown(&part.thesis, 3),
+                    thesis_html: inline(&part.thesis),
                     body_html: markdown(&part.body, 3),
                 })
                 .collect(),
+            minutes: design.reading_minutes(),
+            changed_files,
         }
     }
 }

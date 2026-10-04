@@ -8,6 +8,7 @@ import { test } from './session.ts';
 test('the page follows an answer given in the pane, then shows the next question', async ({ explore, screen }) => {
   await explore.open();
   await explore.askQuestion();
+  await screen.getByRole('link', 'Go to question 1').tap();
   await expect(screen.getByRole('region', 'Question 1')).toBeVisible();
 
   // The page follows the round in every stage, with no reload by the reviewer: an answer given

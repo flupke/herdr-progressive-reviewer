@@ -63,6 +63,7 @@ impl Owner {
         let round = PublishedRound {
             id: ROUND,
             design: None,
+            changed_files: 0,
             cancellable: latest.as_ref(),
             earlier: false,
             overview: &overview,

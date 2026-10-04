@@ -11,6 +11,7 @@ test("the agent's reply to the previous answer shows above the next question and
 }) => {
   await explore.open();
   await explore.askQuestion();
+  await screen.getByRole('link', 'Go to question 1').tap();
   await expect(screen.getByRole('region', 'Question 1')).toBeVisible();
   await expect(screen.getByRole('region', REPLY)).toHaveCount(0);
 

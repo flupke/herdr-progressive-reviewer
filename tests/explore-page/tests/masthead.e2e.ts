@@ -17,6 +17,7 @@ test('the rail and the tab title follow the round through an answer', async ({ e
   await expect(rail.getByRole('button', 'Design')).toBeVisible();
   await expect(browser).toHaveTitle(`Q1 · your turn — ${REVIEW}`);
 
+  await screen.getByRole('link', 'Go to question 1').tap();
   await agent.act('answer question 1 with "Discard the draft" and send it');
   await expect(rail.getByText('Q1 · working')).toHaveAttribute('aria-current', 'step');
   await expect(browser).toHaveTitle(`Agent working… — ${REVIEW}`);
@@ -29,9 +30,10 @@ test('the rail and the tab title follow the round through an answer', async ({ e
 test('the design map on the rail leads to a part of the design', async ({ explore, screen, agent }) => {
   await explore.open();
   await explore.askQuestion();
+  await screen.getByRole('link', 'Go to question 1').tap();
   await explore.answerInPane();
   await explore.askQuestion();
-  // From question 2 on, the design is folded away under the masthead.
+  // From question 2 on, the page shows the round's stage; the design is a screen of its own.
   const design = screen.getByRole('region', 'Design of the change');
   await expect(design.getByRole('heading', 'Types and data flow')).toBeHidden();
 
