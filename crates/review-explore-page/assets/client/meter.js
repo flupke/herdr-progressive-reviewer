@@ -25,6 +25,11 @@ const SEGMENTS = /** @type {const} */ (['answers', 'others', 'jev', 'pending']);
 const LEAVE_GRACE = 180;
 /** The room the window keeps from the page's panel, in pixels. */
 const PANEL_ROOM = 16;
+/**
+ * The height the window keeps on a viewport too short for it, in pixels: its totals, its legend
+ * and a few files, which the page then scrolls to.
+ */
+const LEAST_HEIGHT = 240;
 
 export class Meter {
   /** @param {HTMLElement} line the masthead's hairline, which the meter draws on */
@@ -92,6 +97,11 @@ export class Meter {
     });
     document.addEventListener('click', (event) => {
       if (this.open === 'pinned' && !event.composedPath().includes(this.root)) this.close();
+    });
+    window.addEventListener('resize', () => {
+      if (!this.open) return;
+      const line = this.root.getBoundingClientRect();
+      this.place(line.left + this.window.offsetLeft + this.window.offsetWidth / 2, true);
     });
   }
 
@@ -203,25 +213,64 @@ export class Meter {
   /**
    * Places the window under the pointer at `x`, or at the start of the page's column for the
    * keyboard, within the masthead's gutters and never over the panel beside the reading
-   * column.
+   * column. A window that opens takes the width its content needs within that room, and keeps
+   * it while it stays open, so that its numbers changing after an answer do not move its edges;
+   * only a change of the viewport's size, `resized`, sizes an open window again.
    * @param {number | null} x
+   * @param {boolean} [resized]
    */
-  place(x) {
+  place(x, resized = false) {
     const line = this.root.getBoundingClientRect();
-    const header = this.root.closest('.masthead');
-    const gutter = header ? parseFloat(getComputedStyle(header).paddingLeft) : 16;
-    // The stylesheet sizes the window; it keeps its size while hidden.
-    const width = this.window.offsetWidth;
-    let right = line.width - gutter;
+    const gutter = this.gutters();
+    // The window's least and largest widths: the stylesheet's (520 and 880 pixels on a desktop).
+    const css = getComputedStyle(this.window);
+    const least = parseFloat(css.getPropertyValue('--meter-least')) || 0;
+    const most = parseFloat(css.getPropertyValue('--meter-most')) || Infinity;
+    let right = line.width - gutter.right;
     const panel = document.querySelector('.screen:not([hidden]) .panel');
     if (panel instanceof HTMLElement) {
       const box = panel.getBoundingClientRect();
       // A panel beside the reading column, not under it as on a phone.
-      if (box.left > line.left + width) right = Math.min(right, box.left - line.left - PANEL_ROOM);
+      const room = box.left - line.left - PANEL_ROOM;
+      if (room >= gutter.left + least) right = Math.min(right, room);
     }
-    const wanted = x === null ? gutter : x - line.left - width / 2;
-    const left = Math.max(gutter, Math.min(wanted, right - width));
+    if (!this.open || resized) {
+      // The stylesheet sizes the window to its content within the room it is given (a phone's
+      // window spans the screen instead); it keeps its size while hidden. Its height is capped
+      // first, so that the width it takes counts the list's scroll bar.
+      const style = this.window.style;
+      this.fitHeight();
+      style.removeProperty('--meter-width');
+      style.setProperty('--meter-room', `${Math.max(least, Math.min(most, right - gutter.left))}px`);
+      style.setProperty('--meter-width', `${Math.ceil(this.window.getBoundingClientRect().width)}px`);
+    }
+    const width = this.window.offsetWidth;
+    const wanted = x === null ? gutter.left : x - line.left - width / 2;
+    const left = Math.max(gutter.left, Math.min(wanted, right - width));
     this.window.style.left = `${left}px`;
+  }
+
+  /**
+   * Keeps the window inside the viewport's height: past it, the list of files scrolls inside
+   * the window under its totals and legend.
+   */
+  fitHeight() {
+    const top = this.root.getBoundingClientRect().top + this.window.offsetTop;
+    const room = window.innerHeight - top - this.gutters().edge;
+    this.window.style.maxHeight = `${Math.max(LEAST_HEIGHT, room)}px`;
+  }
+
+  /**
+   * The masthead's gutters, in pixels, within which the window opens: on the left and on the
+   * right of its row (the page's column, which the chat's place may move), and the page's own
+   * gutter, which the window keeps from the bottom of the viewport.
+   */
+  gutters() {
+    const header = this.root.closest('.masthead');
+    const css = getComputedStyle(header ?? document.documentElement);
+    const edge = parseFloat(css.getPropertyValue('--gutter')) || 16;
+    if (!header) return { left: edge, right: edge, edge };
+    return { left: parseFloat(css.paddingLeft), right: parseFloat(css.paddingRight), edge };
   }
 }
 
@@ -254,19 +303,43 @@ function windowContent(tally, answered) {
     ),
     h(
       'div',
-      { class: 'meter-files' },
+      { class: 'meter-files', role: 'list', 'aria-label': 'Files of the change' },
       tally.files.map((file) => {
         const size = file.tally.share.changed;
         const whole = file.whole;
         const state = whole ? (whole.marked_by ? 'marked whole' : 'left whole') : `${file.tally.left} left`;
-        return [
-          h('span', { class: 'meter-path', title: file.path }, file.path),
+        return h(
+          'div',
+          { class: 'meter-file', role: 'listitem', title: file.path, 'aria-label': file.path },
+          filePath(file.path),
           whole ? h('span', {}) : fileBar(file.tally, (size / largest) * 100),
           h('span', { class: 'meter-file-state' }, state, file.cited ? [' · ', h('span', { class: 'cited' }, 'cited here')] : null),
-        ];
+        );
       }),
     ),
   ];
+}
+
+/**
+ * A file's path, its directory and its file's name. A path too long for its column loses its
+ * start to an ellipsis: the directory gives way from its top, so that the nearest directories
+ * and the name stay, and only a name that alone does not fit loses its own start. The path sits
+ * in a left-to-right isolate, so that cutting it from the start does not reorder a path that
+ * starts or ends with punctuation, such as `.github/…`.
+ * @param {string} path
+ */
+function filePath(path) {
+  const slash = path.lastIndexOf('/') + 1;
+  return h(
+    'span',
+    { class: 'meter-path' },
+    h(
+      'bdi',
+      { dir: 'ltr' },
+      slash > 0 ? h('span', { class: 'meter-dir' }, path.slice(0, slash)) : null,
+      h('span', { class: 'meter-name' }, path.slice(slash)),
+    ),
+  );
 }
 
 /**

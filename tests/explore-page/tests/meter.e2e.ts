@@ -1,5 +1,5 @@
-import { expect } from 'e2e';
-import { test } from './session.ts';
+import { expect, type Locator } from 'e2e';
+import { richTest, test } from './session.ts';
 
 // The meter on the masthead's hairline says how much of the change the review marks cover. The
 // fixture's change has three changed lines, one of which Jev marked when the round started; an
@@ -101,3 +101,67 @@ test('the meter keeps the same target when its bar grows, and the grown bar is o
     )
     .toBe(true);
 });
+
+// The rich round's change has 43 files, most of them under one deep directory, one with a name
+// longer than a row has room for beside its directory, and one under `.github/`.
+const LONG_PATH = 'src/notify/delivery/batching/replies_sent_after_the_pane_closed_join_the_last_batch.rs';
+
+richTest('the meter shows the name of every file of a large change', async ({ explore, screen, browser }) => {
+  await explore.open();
+  await explore.askQuestion();
+  const meter = screen.getByRole('button', /^Lines reviewed/);
+  const details = screen.getByRole('group', 'Review marks of the change');
+  // A window 2000 pixels wide gives the paths all the room the window may take; one 1280 wide
+  // gives it less than that, beside the reading column.
+  for (const { wide, ...viewport } of [
+    { width: 2000, height: 900, wide: true },
+    { width: 1280, height: 800, wide: false },
+  ]) {
+    await browser.setViewport(viewport);
+    // Exact keys open the window where the keyboard opens it, at the start of the column.
+    await meter.focus();
+    await meter.press('Enter');
+    await expect(meter).toBeExpanded();
+    await expect(details.getByRole('listitem', LONG_PATH)).toBeVisible();
+
+    // The window grows past the handoff's 520 pixels for the long paths, within the viewport,
+    // and its list of files scrolls inside it rather than running off the bottom. No locator
+    // matcher reaches a box's size or place: the test reads the boxes. The window took its
+    // width as it opened, and keeps it; its rise as it fades in only lifts it.
+    const box = await details.boundingBox();
+    if (!box) throw new Error('the window has no box');
+    if (wide) expect(box.width).toBeGreaterThan(520);
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+    expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
+    // The files do not fit either viewport's height: the window takes it, down to the page's
+    // gutter, rather than stopping short of it.
+    expect(box.y + box.height).toBeGreaterThan(viewport.height - 40);
+    if (wide) await expectNamesWhole(details);
+
+    await meter.press('Escape');
+    await expect(meter).not.toBeExpanded();
+  }
+});
+
+/**
+ * Every row's file name lies whole inside its row: a path that does not fit gives up the start
+ * of its directory, never the name. A cut name would run out of the row's box.
+ */
+async function expectNamesWhole(details: Locator): Promise<void> {
+  const rows = await details.getByRole('listitem').all();
+  expect(rows.length).toBeGreaterThan(0);
+  const cut = [];
+  for (const row of rows) {
+    const path = (await row.getAttribute('aria-label')) ?? '';
+    const rowBox = await row.boundingBox();
+    const nameBox = await row.getByText(path.slice(path.lastIndexOf('/') + 1)).boundingBox();
+    const inside =
+      rowBox !== null &&
+      nameBox !== null &&
+      nameBox.x >= rowBox.x &&
+      nameBox.x + nameBox.width <= rowBox.x + rowBox.width;
+    if (!inside) cut.push(path);
+  }
+  expect(cut).toEqual([]);
+}

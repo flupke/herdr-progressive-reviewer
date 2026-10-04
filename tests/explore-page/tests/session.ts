@@ -169,12 +169,17 @@ export interface SessionPage {
   open(path: string): Promise<unknown>;
 }
 
+/** What the agent of the standalone server posts (crates/review-explore-page-server/src/round_data.rs). */
+export type DataSet = 'short' | 'rich';
+
 /**
- * Opens a session on the server at `baseUrl`, whose page opens in `page`. The `explore`
- * fixture and the screenshot gallery (`gallery/`) both play rounds through it.
+ * Opens a session on the server at `baseUrl`, whose page opens in `page`, and whose agent posts
+ * `data`, or the server's own data set. The `explore` fixture and the screenshot gallery
+ * (`gallery/`) both play rounds through it.
  */
-export async function openSession(baseUrl: string | undefined, page: SessionPage): Promise<Session> {
-  const { token } = (await (await control(baseUrl, '/test/sessions')).json()) as { token: string };
+export async function openSession(baseUrl: string | undefined, page: SessionPage, data?: DataSet): Promise<Session> {
+  const request = data === undefined ? undefined : { data };
+  const { token } = (await (await control(baseUrl, '/test/sessions', request)).json()) as { token: string };
   const step = async (name: string, body?: object) => {
     await control(baseUrl, `/test/sessions/${token}/${name}`, body);
   };
@@ -227,9 +232,21 @@ export async function openSession(baseUrl: string | undefined, page: SessionPage
   };
 }
 
-export const test = base.extend<{ explore: Session }>({
-  explore: async ({ app }, use) => {
-    const page: SessionPage = { open: (path) => app.open(path) };
-    await use(await openSession(app.baseUrl, page));
-  },
-});
+/** The tests' `test`, whose `explore` fixture is a fresh session whose agent posts `data`. */
+function withSession(data: DataSet) {
+  return base.extend<{ explore: Session }>({
+    explore: async ({ app }, use) => {
+      const page: SessionPage = { open: (path) => app.open(path) };
+      await use(await openSession(app.baseUrl, page, data));
+    },
+  });
+}
+
+/** A test of a round of the short data set, small enough for a test to name what it checks. */
+export const test = withSession('short');
+
+/**
+ * A test of a round of the rich data set, the screenshot gallery's: as long as a real round,
+ * about a change of many files, most of them under one deep directory.
+ */
+export const richTest = withSession('rich');

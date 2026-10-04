@@ -86,15 +86,24 @@
 .meter-strip:focus-visible { outline-offset: 3px; }
 
 /* The window: under the pointer, 15px below the masthead, after a 120ms grace so that a pointer
-   passing by does not flash it. */
+   passing by does not flash it. The handoff's 520px is its least width; it grows as its longest
+   path needs, within the room client/meter.js gives it (`--meter-room`: up to `--meter-most`,
+   and never past the viewport's gutters or over the panel), and keeps the width it opened with
+   (`--meter-width`). Past the viewport's height, the list of files scrolls under the totals and
+   the legend. */
 .meter-window {
   position: absolute;
   top: 15px;
   z-index: var(--layer-meter-window);
   box-sizing: border-box;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 10px;
-  width: 520px;
+  --meter-least: 520px;
+  --meter-most: 880px;
+  width: var(--meter-width, max-content);
+  min-width: var(--meter-least);
+  max-width: var(--meter-room, var(--meter-most));
   padding: 14px;
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -139,16 +148,29 @@
   background: repeating-linear-gradient(135deg, var(--accent) 0 3px, color-mix(in srgb, var(--accent) 35%, transparent) 3px 6px);
 }
 .meter-swatch.left { background: var(--meter-track); }
+/* One row for each file, on shared columns: the path takes the room the longest path needs,
+   the bar a fixed width, the state its content, against the window's right edge. */
 .meter-files {
   display: grid;
-  grid-template-columns: 176px minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) 160px max-content;
   gap: 6px 12px;
-  align-items: center;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 10px 2px 0;
   border-top: 1px solid var(--line);
   font: 12px/1.5 var(--mono);
 }
-.meter-path { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.meter-file {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: center;
+}
+/* A path that does not fit loses its start to an ellipsis, so that its file's name and the
+   nearest directories stay: its box runs right to left, and its text sits in a left-to-right
+   isolate (client/meter.js), so that punctuation such as the dot of `.github/` stays in place. */
+.meter-path { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; direction: rtl; text-align: left; }
 .meter-file-bar {
   display: flex;
   height: 6px;
@@ -157,7 +179,7 @@
   background: var(--meter-track);
 }
 .meter-file-bar .meter-swatch { height: 6px; border-radius: 0; }
-.meter-file-state { color: var(--muted); white-space: nowrap; }
+.meter-file-state { justify-self: end; color: var(--muted); white-space: nowrap; }
 .meter-file-state .cited { color: var(--accent); }
 
 /* The size of a change, in the window and on the start cover (client/change-size.js):
@@ -166,10 +188,8 @@
 .change-size .removed { color: var(--bad); }
 
 @media (max-width: 40rem) {
-  .meter-window { width: auto; right: var(--gutter); }
-  .meter-files { grid-template-columns: minmax(0, 1fr) 64px auto; }
-  /* A path that does not fit keeps its file's name: the ellipsis takes its start. */
-  .meter-path { direction: rtl; text-align: left; }
+  .meter-window { --meter-least: 0px; --meter-most: none; width: auto; max-width: none; right: var(--gutter); }
+  .meter-files { grid-template-columns: minmax(0, 1fr) 64px max-content; }
 }
 
 @media (prefers-reduced-motion: reduce) {

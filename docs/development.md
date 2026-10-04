@@ -681,7 +681,13 @@ what it names, `.hint` the muted help line. Every control has a focus ring (`:fo
   (`RoundPublisher::tally`). At rest the bar is the marked share
   in green; hovered, focused or open it grows and splits into the reviewer's answers, marks by
   hand or from earlier rounds, Jev and not relevant, and what the waiting question marks, and a
-  window gives the totals, a legend and a row for each file. The strip is a button whose name
+  window gives the totals, a legend and a row for each file. The window is as wide as its
+  longest path needs, from the handoff's 520px up to 880px, within the viewport's gutters and
+  never over the panel beside the reading column; it keeps the width it opened with while it
+  stays open. A path that does not fit loses its start to an ellipsis, so that the file's name
+  stays (the path sits in a left-to-right `<bdi>`, so that a leading `.` stays in place); each
+  row is a list item named by its full path, which is also its title. Past the viewport's
+  height the list of files scrolls under the totals and the legend. The strip is a button whose name
   carries the share for a screen reader; Enter or a click pins the window, Escape closes it.
   The start cover takes the change's size from the same tally (`change-size.js`).
 
@@ -690,7 +696,17 @@ what it names, `.hint` the muted help line. Every control has a focus ring (`:fo
     <div class="meter-bar" aria-hidden="true"><span class="meter-segment answers"></span>…</div>
     <button class="meter-strip" aria-label="Lines reviewed: 38%, 52 of 135 changed lines"
             aria-expanded="true" aria-controls="meter-window"></button>
-    <div class="meter-window" id="meter-window" role="group" aria-label="Review marks of the change">…</div>
+    <div class="meter-window" id="meter-window" role="group" aria-label="Review marks of the change">
+      <div class="meter-totals">…</div>
+      <div class="meter-legend">…</div>
+      <div class="meter-files" role="list" aria-label="Files of the change">
+        <div class="meter-file" role="listitem" title="src/notify/queue.rs" aria-label="src/notify/queue.rs">
+          <span class="meter-path"><bdi dir="ltr"><span class="meter-dir">src/notify/</span><span class="meter-name">queue.rs</span></bdi></span>
+          <span class="meter-file-bar">…</span>
+          <span class="meter-file-state">18 left · <span class="cited">cited here</span></span>
+        </div>
+      </div>
+    </div>
   </div>
   ```
 
@@ -797,11 +813,14 @@ gallery uses it, and holds its pages' clock 42 seconds later, so that a time sin
 "0:42" in every run). Without `--dev`, it serves the files built
 into the binary. The `short` data set, the default, is the one the e2e tests check; the
 `rich` one is as long as a real round (a design in four full parts, questions with several
-paragraphs of Context, tables, diagrams, three citations of a change of three files, a
-one-way question, a diagram that does not parse, a conclusion with a ten-line list and a
+paragraphs of Context, tables, diagrams, three citations of three files of a change of 43
+files, most of them under one deep directory, a one-way question, a diagram that does not parse, a conclusion with a ten-line list and a
 quiz of three items), for the gallery below; `make explore-page
 EXPLORE_PAGE_ARGS='--data rich'` serves it. Both are in
-[`round_data.rs`](../crates/review-explore-page-server/src/round_data.rs).
+[`round_data.rs`](../crates/review-explore-page-server/src/round_data.rs). A test of the
+rich round, such as the meter's with the 43 files, is registered with `richTest` from
+`tests/explore-page/tests/session.ts` instead of `test`: its session's agent posts the rich
+data set whatever the server's `--data`.
 
 ### Screenshot gallery
 

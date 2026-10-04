@@ -583,7 +583,8 @@ export const STATES: GalleryState[] = [
   {
     name: 'question-2-meter',
     about:
-      "The meter on the masthead's hairline, open: the bar split by who marked the lines, and the window with the totals, the legend and a row for each file.",
+      "The meter on the masthead's hairline, open: the bar split by who marked the lines, and the window with the totals, the legend and a row for each of the change's 43 files, as wide as the long paths need within its limit, its list scrolling inside it.",
+    extraWidths: [1440, 2000],
     async reach(session, page) {
       await question(session, page, 2);
       await openMeter(page);
@@ -592,6 +593,7 @@ export const STATES: GalleryState[] = [
   {
     name: 'question-2-meter-by-hand',
     about: 'The meter, open after the reviewer marked lines by hand during the round: their own part and legend row.',
+    extraWidths: [1440, 2000],
     async reach(session, page) {
       await question(session, page, 2);
       await after(session, () => session.markByHand());

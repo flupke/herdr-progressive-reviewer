@@ -111,7 +111,7 @@ fn serve(options: Options) -> Result<(), String> {
         None => Token::random(),
     };
     let url = token.loopback_url(port);
-    sessions.open(token, 1);
+    sessions.open(token, 1, None);
     let page = ExplorePage::new(sessions.clone(), Hosts::loopback(port), templates, log);
     let app = page.into_router(control::router(sessions.clone())).layer(
         axum::middleware::from_fn_with_state(sessions, control::away),

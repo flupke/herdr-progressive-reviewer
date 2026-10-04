@@ -872,9 +872,10 @@ impl Sessions {
     }
 
     /// Opens a session behind `token` whose agent asked `asked` questions: it shows the latest,
-    /// or the agent works on its first one.
-    pub(crate) fn open(&self, token: Token, asked: usize) {
-        let latest_question = (asked > 0).then(|| self.data.question_stage(asked, None));
+    /// or the agent works on its first one. Its agent posts `data`, or the server's data set.
+    pub(crate) fn open(&self, token: Token, asked: usize, data: Option<&'static dyn RoundData>) {
+        let data = data.unwrap_or(self.data);
+        let latest_question = (asked > 0).then(|| data.question_stage(asked, None));
         let sent_at_ms = Some(self.clock.now_ms());
         let stage = latest_question.clone().unwrap_or(RoundStage::AgentWorking {
             request: "turn-0".into(),
@@ -882,14 +883,14 @@ impl Sessions {
             answer: None,
         });
         let round = RoundPublisher::default();
-        round.name(self.data.review());
+        round.name(data.review());
         let mut session = Session {
             id: format!("session-{}", self.lock().len() + 1),
             token,
             clock: self.clock,
             turn_answer: None,
             sent_at_ms,
-            data: self.data,
+            data,
             round,
             rounds: 1,
             running: true,

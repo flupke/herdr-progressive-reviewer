@@ -2,7 +2,8 @@
 //!
 //! - `POST /test/sessions` opens a session whose agent works on its first question, and
 //!   answers `{"token": "..."}`. The page of its round opens at `/?token=...`. Its review is a
-//!   fixed one, which the start screen names.
+//!   fixed one, which the start screen names. Its agent posts the server's data set, or the
+//!   one a `{"data": "short" | "rich"}` body names.
 //! - `POST /test/sessions/{token}/{step}` moves the session's round one step:
 //!   - `question`: the agent posts its next question: the JSON `Question` of the request's
 //!     body, or the fixed questions in turn when the body is empty; from the second question
@@ -88,6 +89,7 @@ use axum::{Json, Router};
 use review_explore::{Question, StartBlock};
 use review_explore_page::Token;
 
+use crate::round_data;
 use crate::sessions::{PageChange, Sessions, Step};
 
 pub(crate) fn router(sessions: Sessions) -> Router {
@@ -135,11 +137,41 @@ pub(crate) fn router(sessions: Sessions) -> Router {
         .with_state(sessions)
 }
 
-async fn open_session(State(sessions): State<Sessions>) -> Response {
+/// What a test may ask of the session it opens.
+#[derive(Default, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SessionRequest {
+    /// The data set its agent posts, by name.
+    data: Option<String>,
+}
+
+async fn open_session(State(sessions): State<Sessions>, body: Bytes) -> Response {
+    let request = match optional_json::<SessionRequest>(&body) {
+        Ok(request) => request.unwrap_or_default(),
+        Err(error) => {
+            return (StatusCode::BAD_REQUEST, format!("invalid session: {error}")).into_response();
+        }
+    };
+    let data = match request.data.as_deref().map(round_data::by_name) {
+        None => None,
+        Some(Some(data)) => Some(data),
+        Some(None) => return (StatusCode::BAD_REQUEST, "unknown data set").into_response(),
+    };
     let token = Token::random();
     let body = serde_json::json!({ "token": token.to_string() });
-    sessions.open(token, 0);
+    sessions.open(token, 0, data);
     Json(body).into_response()
+}
+
+/// The JSON of a request's `body`, or `None` for an empty body; a body that does not parse is
+/// refused with the reason.
+fn optional_json<T: serde::de::DeserializeOwned>(body: &[u8]) -> Result<Option<T>, String> {
+    if body.is_empty() {
+        return Ok(None);
+    }
+    serde_json::from_slice(body)
+        .map(Some)
+        .map_err(|error| error.to_string())
 }
 
 async fn step(
@@ -150,18 +182,14 @@ async fn step(
     let Some(step) = Step::parse(&step) else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    let question = if body.is_empty() {
-        None
-    } else {
-        match serde_json::from_slice::<Question>(&body) {
-            Ok(question) => Some(question),
-            Err(error) => {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    format!("invalid question: {error}"),
-                )
-                    .into_response();
-            }
+    let question = match optional_json::<Question>(&body) {
+        Ok(question) => question,
+        Err(error) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                format!("invalid question: {error}"),
+            )
+                .into_response();
         }
     };
     if sessions.step(&token, step, question) {
