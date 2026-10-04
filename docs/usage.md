@@ -137,10 +137,6 @@ with `submit_question`. Each human contribution sends a wakeup containing the ru
 selected option's full text and optional comment, plus IDs identifying the original
 question and turn. The agent uses its existing conversation and posts the next turn
 with `submit_question`, or concludes with `submit_conclusion`; evidence and assessments are not sent back to it.
-While you answer, the agent prepares the question of the next open topic that does not
-depend on your answer, so its turn after your answer is shorter. It posts nothing before
-your answer arrives, and drops the prepared question when your answer makes it wrong or
-unnecessary.
 The agent normally keeps context in its conversation. Wakeups do not include the
 full history, so a newly selected conversation may need the reviewer to supply
 missing context. No history dump, repository catalog, mailbox or file fallback

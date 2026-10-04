@@ -317,19 +317,46 @@ fn every_prompt_states_the_same_not_relevant_rules() {
     }
 }
 
-#[test]
-fn every_prompt_says_to_prepare_the_next_question_while_the_reviewer_answers() {
-    let rules = include_str!("prepare.md").trim_end();
-    let heading = rules.lines().next().unwrap();
+/// The level-two headings of `rules`, in order.
+fn sections(rules: &str) -> Vec<&str> {
+    rules
+        .lines()
+        .filter(|line| line.starts_with("## "))
+        .collect()
+}
 
+#[test]
+fn every_prompt_holds_its_turns_rules_the_quiz_and_not_relevant_then_the_challengers_script() {
     for kickoff in [true, false] {
         for challenger in [false, true] {
+            let turn: &[&str] = if kickoff {
+                &[
+                    include_str!("interview.md"),
+                    include_str!("explanation.md"),
+                    include_str!("diagrams.md"),
+                ]
+            } else {
+                &[include_str!("wakeup.md")]
+            };
+            let script: &[&str] = match (challenger, kickoff) {
+                (false, _) => &[],
+                (true, true) => &[include_str!("challenger.md")],
+                (true, false) => &[include_str!("challenger_wakeup.md")],
+            };
+            let shared = [include_str!("quiz.md"), include_str!("not_relevant.md")];
+            let expected: Vec<_> = turn
+                .iter()
+                .chain(&shared)
+                .chain(script)
+                .flat_map(|rules| sections(rules))
+                .collect();
+
             let instructions = PreparedTurn::instructions(kickoff, challenger);
-            assert!(
-                instructions.contains(rules),
+            assert_eq!(
+                sections(&instructions),
+                expected,
                 "kickoff: {kickoff}, challenger: {challenger}"
             );
-            assert_eq!(instructions.matches(heading).count(), 1);
         }
     }
 }

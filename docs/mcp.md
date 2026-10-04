@@ -259,8 +259,8 @@ guide). Rounds saved before this field existed load without proposals.
 
 After a human contribution, the shared prompt delivery sends a plain-text wakeup. It
 opens with the rules for a later turn (interpreting the answer, marking lines, agenda
-changes and concluding), followed, as in the kickoff, by the quiz rules, preparing the
-next question and the not-relevant rules, so those rules travel with each answer, then gives:
+changes and concluding), followed, as in the kickoff, by the quiz rules and the
+not-relevant rules, so those rules travel with each answer, then gives:
 
 ```text
 Explore review access: temporary-access

@@ -66,11 +66,6 @@ conclusion, as in a round without a challenger, and sends each to the challenger
 outline. The challenger may propose corrections to them like any other proposal; the
 implementer applies those the source confirms.
 
-While the reviewer answers, what the implementer prepares (see Preparing the next question) is
-its own candidate for the next turn, as an outline: its postponed candidate when it holds one,
-which it judges again once the answer arrives. The pick still decides whether that candidate
-is asked. The challenger does not work ahead.
-
 ### The challenger
 
 The challenger works from each prompt as the interviewer would, with these differences: it
