@@ -1,0 +1,7 @@
+{#- The comment of the reviewer's answer, optional: empty, or the one typed with the first pick
+    of a blind question (pick.html), which the answer's form (answer.html) shows again. The
+    parser drops the line break right after the opening tag, so a comment that starts with a
+    blank line keeps it. -#}
+<label class="comment-label" for="comment">Comment (optional)</label>
+<textarea class="comment" id="comment" name="comment" rows="3">
+{{ question.comment }}</textarea>

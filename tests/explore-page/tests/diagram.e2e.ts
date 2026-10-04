@@ -3,7 +3,9 @@ import { test, type Session } from './session.ts';
 
 // The standalone server's second question explains where a kept draft goes with a Mermaid
 // diagram, then carries a second diagram that Mermaid cannot parse. A page that shows a question
-// does not follow the round, so the agent asks both questions before the page opens.
+// does not follow the round, so the agent asks both questions before the page opens. The design
+// of the change, folded above the question, draws its own diagram first: the question's two are
+// Diagram 2 and Diagram 3.
 async function openQuestion2(explore: Session) {
   await explore.askQuestion();
   await explore.askQuestion();
@@ -21,7 +23,7 @@ test('a question draws its diagram, with Mermaid served by the tool', async ({ e
   // Mermaid drew it: only the drawing shows a box's label on its own (a diagram that fails keeps
   // its source as one block of code). The label alone would also show in a drawing with no size,
   // so the figure's own visibility is checked too.
-  const figure = screen.getByRole('figure', 'Diagram 1');
+  const figure = screen.getByRole('figure', 'Diagram 2');
   await expect(figure.getByText('Editor')).toBeVisible();
   await expect(figure).toBeVisible();
   expect([...hosts]).toEqual([new URL(app.baseUrl!).host]);
@@ -34,10 +36,10 @@ test('at phone width, a wide diagram keeps its natural size and scrolls sideways
 }) => {
   await browser.setViewport({ width: 390, height: 844 });
   await openQuestion2(explore);
-  await expect(screen.getByRole('figure', 'Diagram 1')).toBeVisible();
+  await expect(screen.getByRole('figure', 'Diagram 2')).toBeVisible();
 
   const size = await browser.evaluate(() => {
-    const figure = document.querySelector('figure[aria-label="Diagram 1"]')!;
+    const figure = document.querySelector('figure[aria-label="Diagram 2"]')!;
     const svg = figure.querySelector('svg')!;
     return {
       natural: svg.viewBox.baseVal.width,
@@ -62,7 +64,7 @@ test('a diagram that does not parse shows its source and the error, and the tool
 }) => {
   await openQuestion2(explore);
   // The figure keeps the source, and shows Mermaid's message.
-  const failed = screen.getByRole('figure', 'Diagram 2');
+  const failed = screen.getByRole('figure', 'Diagram 3');
   await expect(failed).toContainText('draft --> record[saved (with the answers)]');
   await expect(failed).toContainText('Parse error');
   await expect

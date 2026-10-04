@@ -1,6 +1,6 @@
 {
   "schemaVersion": "trace-1",
-  "createdAt": "2026-10-03T21:32:20.012Z",
+  "createdAt": "2026-10-04T02:46:10.574Z",
   "payload": {
     "actions": [
       {
@@ -25,7 +25,7 @@
       "targetId": "phone",
       "instructionDigest": "0b714f807c8d3c41e5c7333e909a9d2ecbc82eaa4424bc16153d067b90100a05"
     },
-    "summary": "Opened the Design of the change section. It now shows the design explanation, including types and data flow, algorithm and cost, a warning callout, and rejected alternatives.",
+    "summary": "The Design of the change region is open and its content, including the data-flow table, is visible.",
     "startPath": "/",
     "endPath": "/",
     "endAnchors": [
@@ -35,6 +35,9 @@
       },
       {
         "text": "The change keeps the reviewer's unsent draft when a round is reopened. It adds a draft field to the saved editor state and restores it when the pane rebuilds its editor."
+      },
+      {
+        "text": "Nothing else moves: the answers, the marks and the round's history are saved as before, and a round saved before the change opens with an empty draft."
       },
       {
         "role": "heading",
@@ -52,15 +55,10 @@
         "name": "Holds the draft"
       },
       {
-        "role": "cell",
-        "name": "The reviewer types"
-      },
-      {
-        "role": "image",
-        "name": "Good",
-        "text": "✓"
+        "role": "columnheader",
+        "name": "Saved where"
       }
     ],
-    "endWaitMs": 13131
+    "endWaitMs": 26323
   }
 }

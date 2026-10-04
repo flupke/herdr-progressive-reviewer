@@ -18,7 +18,7 @@ use review_explore_citations::Citation;
 use serde::{Deserialize, Serialize};
 
 use crate::access::{Hosts, TokenCookie};
-use crate::blind::{BlindQuestion, FirstPick};
+use crate::blind::{BlindQuestion, FirstPick, PickComments};
 use crate::citation::CitationContext;
 use crate::command::{PageAnswer, PageCommand, PageImplement, PageQuizResponse};
 use crate::diagram::{self, Diagrams};
@@ -68,6 +68,8 @@ pub struct ExplorePage<R> {
     rounds: R,
     hosts: Hosts,
     files: PageFiles,
+    /// The comments typed with the first pick of a blind question, until its answer.
+    comments: PickComments,
     log: Box<dyn Fn(PageEvent) + Send + Sync>,
 }
 
@@ -83,6 +85,7 @@ impl<R: Rounds> ExplorePage<R> {
             rounds,
             hosts,
             files,
+            comments: PickComments::default(),
             log: Box::new(log),
         }
     }
@@ -96,8 +99,8 @@ impl<R: Rounds> ExplorePage<R> {
             .route(&script_path, script)
             .route("/diagram-errors", diagram::report_route::<R>())
             .route("/status", get(status))
-            .route("/pick", post(pick))
-            .route("/answer", post(answer))
+            .route("/pick", post(pick::<R>))
+            .route("/answer", post(answer::<R>))
             .route("/start", post(start))
             .route("/implement", post(implement))
             .route("/quiz", post(quiz_pick))
@@ -143,10 +146,13 @@ impl<R: Rounds> ExplorePage<R> {
         };
         let notice = Notice::read(headers);
         let first_pick = round.first_pick(headers);
+        let comment = first_pick.as_ref().map(|pick| self.comments.of(pick));
+        let shown_pick = (first_pick.as_ref().zip(comment.as_deref()))
+            .map(|(pick, comment)| ShownPick { pick, comment });
         let context = PageContext::new(
             &round,
             notice.as_ref(),
-            first_pick.as_ref(),
+            shown_pick,
             answered,
             self.files.dev_version(),
         );
@@ -275,8 +281,10 @@ struct AnswerForm {
 
 /// Hands the reviewer's answer to the round's owner, with the reviewer's first pick of a blind
 /// question, unless the page showed a question that no longer waits for an answer, then shows
-/// the page again with what became of it.
-async fn answer(
+/// the page again with what became of it. On a blind question, an answer that was not sent
+/// keeps its comment, which the page shows again with the first pick.
+async fn answer<R: Rounds>(
+    State(page): State<Arc<ExplorePage<R>>>,
     Admitted(round): Admitted,
     headers: HeaderMap,
     Form(form): Form<AnswerForm>,
@@ -286,24 +294,28 @@ async fn answer(
         .stage
         .asks(&form.question, form.version)
         .filter(|_| form.round == shown.round);
+    // A question answered before, whose recommendation the reviewer has seen, keeps no first
+    // pick.
+    let first_pick = asked.and_then(|_| shown.first_pick(&headers));
+    let comment = form.comment.into_string();
     let sent = if asked.is_some() {
-        // A question answered before, whose recommendation the reviewer has seen, keeps no
-        // first pick.
-        let first_pick = shown.first_pick(&headers);
         let answer = PageAnswer {
             question: form.question,
             version: form.version,
             input: AnswerInput {
                 option: form.choice,
-                text: form.comment.into_string(),
+                text: comment.clone(),
                 in_reply_to: None,
-                first_pick: first_pick.map(|pick| pick.choice),
+                first_pick: first_pick.as_ref().map(|pick| pick.choice.clone()),
             },
         };
         round.commands.send(PageCommand::Answer(answer)).await
     } else {
         Err(Problem::Stale)
     };
+    if let Some(pick) = &first_pick {
+        page.comments.settle(pick, sent.is_ok(), comment);
+    }
     to_page(Some(match sent {
         Ok(()) => FirstPick::clear(),
         Err(problem) => Notice::new(Post::Answer, problem).cookie(),
@@ -342,12 +354,16 @@ struct PickForm {
     version: u32,
     /// The picked choice's ID; absent when the reviewer picked none.
     choice: Option<String>,
+    /// The comment typed with the pick, which the answer's form shows again.
+    #[serde(default)]
+    comment: TextArea,
 }
 
-/// Keeps the reviewer's first pick of a blind question, then shows the page again, now with
-/// the agent's recommendation. A pick kept already stays the first one, and a question that
-/// shows its recommendation at once keeps none.
-async fn pick(
+/// Keeps the reviewer's first pick of a blind question, with the comment typed beside it, then
+/// shows the page again, now with the agent's recommendation. A pick kept already stays the
+/// first one, and a question that shows its recommendation at once keeps none.
+async fn pick<R: Rounds>(
+    State(page): State<Arc<ExplorePage<R>>>,
     Admitted(round): Admitted,
     headers: HeaderMap,
     Form(form): Form<PickForm>,
@@ -361,7 +377,10 @@ async fn pick(
         (Some(_), Some(round)) => form
             .choice
             .zip(shown.stage.blind())
-            .and_then(|(choice, blind)| FirstPick::to_keep(&headers, round, &blind, choice))
+            .and_then(|(choice, blind)| {
+                let comment = form.comment.into_string();
+                FirstPick::to_keep(&headers, round, &blind, choice, &page.comments, comment)
+            })
             .map(|pick| pick.cookie()),
         _ => Some(Notice::new(Post::Pick, Problem::Stale).cookie()),
     })
@@ -502,6 +521,14 @@ struct PageContext<'a> {
     dev_version: Option<u64>,
 }
 
+/// The reviewer's first pick of the blind question the page shows, with the comment typed
+/// beside it.
+#[derive(Clone, Copy)]
+struct ShownPick<'p, 'a> {
+    pick: &'p FirstPick,
+    comment: &'a str,
+}
+
 #[derive(Serialize)]
 struct QuestionContext<'a> {
     /// The identity of the round that asks the question, which its forms post back: a
@@ -522,6 +549,8 @@ struct QuestionContext<'a> {
     choices: Vec<ChoiceContext<'a>>,
     /// The text of the choice the reviewer picked first, once the recommendation shows.
     first_pick: Option<&'a str>,
+    /// The comment the answer's form starts with: the one typed with the first pick.
+    comment: &'a str,
     /// The question's citations, most decisive first.
     citations: Vec<CitationContext<'a>>,
     /// The lines an answer marks, `None` when it marks none.
@@ -659,7 +688,7 @@ impl<'a> PageContext<'a> {
     fn new(
         round: &'a RoundSnapshot,
         notice: Option<&'a Notice>,
-        first_pick: Option<&FirstPick>,
+        first_pick: Option<ShownPick<'_, 'a>>,
         answered: Option<usize>,
         dev_version: Option<u64>,
     ) -> Self {
@@ -751,19 +780,20 @@ impl<'a> QuestionContext<'a> {
         blind: Option<&BlindQuestion<'a>>,
         citations: &'a [Citation],
         marks: &QuestionMarks,
-        first_pick: Option<&FirstPick>,
+        first_pick: Option<ShownPick<'_, 'a>>,
     ) -> Self {
-        let first_pick = first_pick
-            .filter(|pick| blind.is_some_and(|blind| blind.offers(&pick.choice)))
-            .map(|pick| pick.choice.as_str());
-        let (recommendation, choices) = match (blind, first_pick) {
+        let offered =
+            first_pick.filter(|shown| blind.is_some_and(|blind| blind.offers(&shown.pick.choice)));
+        let comment = offered.map_or("", |shown| shown.comment);
+        let picked = offered.map(|shown| shown.pick.choice.as_str());
+        let (recommendation, choices) = match (blind, picked) {
             (None, _) => (Recommendation::Shown, question.choices().collect()),
             (Some(blind), None) => (Recommendation::HiddenUntilPick, blind.choices()),
             (Some(blind), Some(_)) => (Recommendation::ShownAfterPick, blind.choices()),
         };
         let choices: Vec<_> = choices
             .into_iter()
-            .map(|choice| ChoiceContext::new(choice, recommendation, first_pick))
+            .map(|choice| ChoiceContext::new(choice, recommendation, picked))
             .collect();
         Self {
             round,
@@ -782,6 +812,7 @@ impl<'a> QuestionContext<'a> {
                 .iter()
                 .find(|choice| choice.checked)
                 .map(|choice| choice.text),
+            comment,
             choices,
             citations: citations.iter().map(CitationContext::new).collect(),
             marks: MarksContext::new(marks),

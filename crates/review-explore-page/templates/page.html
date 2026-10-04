@@ -8,6 +8,7 @@
 <link rel="stylesheet" href="/assets/markdown.css">
 <link rel="stylesheet" href="/assets/citations.css">
 <link rel="stylesheet" href="/assets/diagrams.css">
+<link rel="stylesheet" href="/assets/layout.css">
 </head>
 <body>
 <main id="round" data-revision="{{ revision }}" data-polls="{{ "true" if polls else "false" }}">
@@ -31,8 +32,8 @@
     <h2 id="question-{{ question.number }}-title">Question {{ question.number }}</h2>
     <div class="text markdown">{{ question.text | markdown(2) }}</div>
     {% include "explanation.html" %}
-    {% include "citations.html" %}
     {% include "answer.html" %}
+    {% include "citations.html" %}
   </section>
   {% endif %}
   {% if conclusion and conclusion.quiz and conclusion.quiz.shown is not none %}

@@ -1,0 +1,58 @@
+/* The page laid out for the width of the browser. A phone gets one column at its full width.
+   Wider windows give the page up to 84rem, so that the agent's tables, diagrams and the cited
+   code show whole; text keeps a readable line length whatever the width. From 70rem, a question
+   and a conclusion read in two columns: what the reviewer reads on the left, and on the right
+   what the reviewer acts on (the choices, the comment and Send; the list and Implement), which
+   stays in view while the reviewer scrolls through the reading. */
+:root {
+  /* The longest line of text: a paragraph never runs the whole width of a wide window. */
+  --measure: 72ch;
+  /* The column of the reviewer's actions, beside the reading. */
+  --actions: 24rem;
+  /* A list of short lines, such as a quiz item's options: the width of the old single column. */
+  --phrase: 44rem;
+}
+
+body { max-width: 84rem; padding: 0 16px; }
+
+/* Text keeps its measure; tables, code, diagrams and boxes take the width they need. */
+.markdown > p, .markdown > ul, .markdown > ol, .markdown > blockquote, .markdown > .callout,
+.text, .hint, .citation .notes, .review, .follow-ups, .why, .recommendation {
+  max-width: var(--measure);
+}
+
+/* A quiz item's options, with Check, and its verdict are short lines, which a wide row only
+   spreads apart: they keep the width of a phrase. The proof's code below them takes the width
+   it needs. */
+.quiz-pick, .quiz-answers, .verdict { max-width: var(--phrase); box-sizing: border-box; }
+
+@media (min-width: 56rem) {
+  body { padding: 0 32px; }
+}
+
+/* Two columns. The reading parts stack in the first column; the actions take the second, from
+   the first row to the last. The last row is flexible, so a column of actions longer than the
+   reading grows that row instead of spreading the reading out. The seven rows before it hold
+   the reading parts of a question (at most six today: its title, text, Context, Door, Blast
+   radius and citations) or of a conclusion (at most four): a part past them still shows, in a
+   row below. The actions stick to the top of the window, and scroll on their own when they are
+   taller than it. */
+@media (min-width: 70rem) {
+  .question, .conclusion {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) var(--actions);
+    grid-template-rows: repeat(7, auto) 1fr;
+    column-gap: 32px;
+    align-items: start;
+  }
+  .question > *, .conclusion > * { grid-column: 1; }
+  .question > .answer, .conclusion > .to-be-implemented {
+    grid-column: 2;
+    grid-row: 1 / -1;
+    position: sticky;
+    top: 16px;
+    max-height: calc(100vh - 32px);
+    overflow-y: auto;
+    margin-top: 16px;
+  }
+}

@@ -1,5 +1,5 @@
 {# The reviewer's answer to the question: a choice, an optional comment, and Send. A blind
-   question asks for the first pick before (pick.html). #}
+   question asks for the first pick before (pick.html), and its comment comes back here. #}
 {% if question.recommendation == "hidden_until_pick" %}
 {% include "pick.html" %}
 {% else %}
@@ -11,8 +11,7 @@
   <p class="hint">You picked “{{ question.first_pick }}” first. Keep your pick or change it, then send.</p>
   {% endif %}
   {% include "choices.html" %}
-  <label class="comment-label" for="comment">Comment (optional)</label>
-  <textarea class="comment" id="comment" name="comment" rows="3"></textarea>
+  {% include "comment.html" %}
   {% include "marks.html" %}
   <button class="send" type="submit">Send</button>
 </form>

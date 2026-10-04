@@ -124,3 +124,31 @@ test('a question asked again after Cancel answer shows the recommendation at onc
   await expect(screen.getByRole('status')).toContainText('The agent is working');
   expect(await explore.answers()).toEqual([{ question: 'same-name-files', version: 1, choice: 'rename', comment: '' }]);
 });
+
+const COMMENT = 'Renaming hides which file the user meant to keep.';
+
+test('a comment written before the pick stays in the box until the answer is sent', async ({
+  explore,
+  screen,
+  agent,
+}) => {
+  await explore.open();
+  await explore.askQuestion(question('one_way'));
+  const comment = screen.getByRole('textbox', 'Comment (optional)');
+  await expect(comment).toBeVisible();
+
+  await agent.act(
+    'on question 1, write {comment} as the comment, choose "Overwrite the older file" and press Pick, without sending an answer yet',
+    { params: { comment: COMMENT } },
+  );
+  await expect(screen.getByText(RECOMMENDATION, { exact: false })).toBeVisible();
+  await expect(comment).toHaveValue(COMMENT);
+  // The comment is not an answer until the reviewer sends it.
+  expect(await explore.answers()).toEqual([]);
+
+  await agent.act('send the answer to question 1 as it is; the page then says that the agent is working');
+  await expect(screen.getByRole('status')).toContainText('The agent is working');
+  expect(await explore.answers()).toEqual([
+    { question: 'same-name-files', version: 1, choice: 'overwrite', comment: COMMENT, first_pick: 'overwrite' },
+  ]);
+});

@@ -395,9 +395,10 @@ press **Send**; a comment without a choice works too. Under the choice the agent
 recommends, the page gives its reason. A question whose Door is one-way, mixed or unknown
 first hides the recommendation: the page lists the agent's choices in a mixed order, the
 same each time it shows the question, with None of the above last and none selected. Pick
-one and press **Pick**: the page then shows the recommendation, with your pick selected,
-and you keep it or change it before you send. The reviewer saves your first pick with the
-answer, for statistics; the agent receives only the answer you send. A two-way question,
+one, write your comment already if you like, and press **Pick**: the page then shows the
+recommendation, with your pick selected and your comment still in its box, and you keep or
+change them before you send. The comment is not part of an answer until you send it. The
+reviewer saves your first pick with the answer, for statistics; the agent receives only the answer you send. A two-way question,
 or one with no Door, shows the recommendation at once, in the agent's order. So does a
 question asked again after a Cancel answer: you have seen its recommendation, and the
 answer keeps no new first pick. The agent receives the answer as
@@ -446,7 +447,7 @@ sections are folded away until you open them. The page shows raw HTML in the age
 text. In the pane, a callout opens with its title and a marked cell with its mark (✓, ✗ or
 !).
 
-Under a question, the page shows the question's citations in the order the agent gave
+Under a question's choices, the page shows the question's citations in the order the agent gave
 them, most decisive first: each with the agent's note and the cited lines as rows of the
 diff, with their line numbers and syntax colors. The other citations stay folded under the
 first one until you open them. A citation of a whole file, or of a file that is not text,
@@ -466,6 +467,15 @@ The action opens the page on this machine (`127.0.0.1`), on a port chosen when t
 starts. Its address carries a token that changes each time the reviewer starts: the page
 refuses a request without it, and a request from another site. Run the action again
 after reopening the reviewer. Closing the reviewer stops the page.
+
+The page lays itself out for the width of the browser. On a phone it is one column, and a
+wide table, line of code or diagram scrolls sideways in its own frame. A wider window gives
+the explanation, its tables, the cited code and the diagrams more room, so that those that
+fit the window show whole, while paragraphs keep a readable line length. From about 1120
+pixels wide, a question reads in two columns: its explanation and citations on the left,
+and its choices, comment and **Send** on the right, which stay in view while you scroll
+through the explanation; a conclusion keeps its list and **Implement** on the right the same
+way.
 
 When the page shows a state that is not the agent working, it loads itself again when you
 come back to it (a phone that wakes, a tab shown again) and the round has changed in

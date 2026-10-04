@@ -39,6 +39,7 @@ const TEMPLATES: &[(&str, &str)] = &[
     ("start.html", include_str!("../templates/start.html")),
     ("answer.html", include_str!("../templates/answer.html")),
     ("pick.html", include_str!("../templates/pick.html")),
+    ("comment.html", include_str!("../templates/comment.html")),
     ("choices.html", include_str!("../templates/choices.html")),
     ("marks.html", include_str!("../templates/marks.html")),
     ("failure.html", include_str!("../templates/failure.html")),
@@ -110,6 +111,12 @@ const ASSETS: &[Asset] = &[
         name: "diagrams.css",
         content_type: "text/css",
         body: include_str!("../assets/diagrams.css"),
+        development: false,
+    },
+    Asset {
+        name: "layout.css",
+        content_type: "text/css",
+        body: include_str!("../assets/layout.css"),
         development: false,
     },
     Asset {

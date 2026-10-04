@@ -91,7 +91,9 @@ the page hides the recommendation until the reviewer's first pick
 (`src/blind.rs`), unless the reviewer answered the question before and cancelled the
 answer (`RoundStage::Question::answer_cancelled`): the pick is a form post that the
 page keeps in a cookie, not a command, and the answer then carries it to the owner as
-`AnswerInput::first_pick`. A conclusion with a quiz shows it first, one item at a time
+`AnswerInput::first_pick`. The comment typed with the pick stays in the page's memory
+(`PickComments`), under an ID the cookie carries, until the answer is sent; an answer that is
+not sent keeps its comment there. A conclusion with a quiz shows it first, one item at a time
 (`templates/quiz.html`): the page grades a pick itself, saves it through the owner
 (`PageCommand::Quiz`), then shows the item's answer at `/?answered=N` until the
 reviewer moves on; once every item is answered or the reviewer skips the rest, the
@@ -104,6 +106,12 @@ and keeps a fenced block's language as the class `language-<name>` of its
 `<code>`. Callouts (`> [!TIP]`) and table-cell status marks (`[!good]`) are
 defined once in [`crates/markdown-marks`](../crates/markdown-marks): the page,
 the pane's renderer and the kickoff prompt all read them from there.
+
+The page's layout by width is in `assets/layout.css`: one column on a phone, up to 84rem on a
+wider window with text held to a readable measure, and from 70rem two columns for a question
+and a conclusion, the reviewer's actions sticking beside the reading. It places the parts of a
+question and a conclusion on a grid, so their templates keep one order, which a phone shows
+as is.
 
 A fenced `mermaid` block is a diagram, which `assets/diagrams.js` draws in the
 browser with Mermaid, again with its dark theme when the page turns dark, at
@@ -242,10 +250,11 @@ implementation request while it sends one, else the agent's next turn), and
 round to the other stages. An answer sent from the page puts the agent to work,
 and `explore.answers()` returns what the page sent; `explore.diagramErrors()`
 returns the diagram errors the page reported, as the review tool saves them.
-The second fixed question carries a diagram that draws and one that does not
-parse. From the second question on, and with the conclusion, the agent's fixed response
-to the previous answer shows above it. The session's review has a fixed name, which the
-start screen shows. A start sent from the page shows the round starting,
+The design of the change carries a sequence diagram and a table that fit a desktop window
+but not a phone's, and the design's diagram is the page's first (`Diagram 1`). The second
+fixed question carries a diagram that draws and one that does not parse. From the second
+question on, and with the conclusion, the agent's fixed response to the previous answer
+shows above it. The session's review has a fixed name, which the start screen shows. A start sent from the page shows the round starting,
 `explore.sendKickoff()` puts the agent to work on it (or stands for a round
 started in the pane), `explore.failStart()` fails the start, and
 `explore.starts()` returns the starts the page sent. An Implement from the page
