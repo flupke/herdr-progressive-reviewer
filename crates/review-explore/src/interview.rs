@@ -46,7 +46,9 @@ pub struct Alternative {
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Question {
-    /// Stable question ID; use a higher version only to clarify the same question.
+    /// Stable question ID that names its subject, such as `cache-eviction`, never a number:
+    /// the reviewer's screens number the questions. Use a higher version only to clarify the
+    /// same question.
     pub id: String,
     #[schemars(range(min = 1))]
     pub version: u32,

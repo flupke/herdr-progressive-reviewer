@@ -127,9 +127,10 @@ never consumes comments: a successful reply acknowledges its exact snapshot.
 
 A round conversation, the review thread attached to one Explore round, is delivered
 the same way. Its wakeup also names the round, each waiting message and the question
-ID and version, or the stage, that message was asked under, and says that a message
-does not answer the question; `get_new_messages` returns the thread with its
-`explore_round` and each message's `asked_under` and `quote`. The agent answers with
+ID and version, or the stage, that message was asked under, with the number the Explore
+page showed that question by (`Shown as: Q2`) for a message sent from the page, and says
+that a message does not answer the question; `get_new_messages` returns the thread with its
+`explore_round` and each message's `asked_under` (with that `number`) and `quote`. The agent answers with
 `reply`, as for any thread.
 
 Delivery errors are reported while comments remain saved. When the agent did not
@@ -221,7 +222,17 @@ A round saved before designs had theses still loads, with its parts as single Ma
 texts: the first paragraph of `overview` stands in for the change's thesis, and the first
 paragraph of each part (the next one for `overview`) for that part's thesis.
 
-When the review has earlier rounds, the kickoff then lists the questions the reviewer
+A Reset starts over. When the reviewer reset earlier rounds of the review, the kickoff says
+how many (`Reset rounds: 2`), lists none of their decisions, and tells the agent that if its
+conversation still holds those rounds, their questions, answers, decisions, agreed tasks and
+question numbers are void, and that the conclusion's summary, tasks and quiz come from the new
+round only. When earlier rounds stand, a task one of their decisions agreed and the code still
+lacks may be listed, labelled with that decision's subject; the Explore page lists only the
+round's own decisions. The review's index records how many of its first rounds were
+reset when a round starts after a Reset.
+
+When the review has earlier rounds that were not reset (a round started while the latest
+was unreadable, for instance), the kickoff then lists the questions the reviewer
 decided in them, oldest first, so a fresh reader such as a Challenger does not ask
 them again. An answer decided its question when the agent interpreted it as `accepted`
 or `needs_follow_up`, or, when the round ended before the agent's turn after it, when it
@@ -248,8 +259,14 @@ Follow-up:
 Answers the agent took up without interpreting them as a decision (context, questions
 to the agent), cancelled answers and replies to a conclusion are left out, and so are
 rounds the reviewer cannot read, saved by an earlier version. The answer IDs are those
-rounds': no interpretation or agenda change of the new round can name them. The first
+rounds': no interpretation or agenda change of the new round can name them, and the agent
+names such a decision by its subject, never by a question number. The first
 round of a review has no such section, and later turns of a round do not repeat it.
+
+The reviewer's screens number a round's questions Q1, Q2 and so on, by the steps of the
+round rail, and the agent names a question by that number in every text the reviewer reads:
+`submit_question` returns it as `shown_as` (`"Q3"`), and each wakeup gives the number of the
+question its answer answers. Question IDs name the subject, never a number.
 
 The tools advertise their full input schemas, including nested questions, evidence,
 assessments, agenda changes and interpretations. The kickoff explains the review behavior
@@ -291,6 +308,7 @@ Checkpoint: commit
 
 Answer ID: answer-id
 Question: policy (version 1)
+Shown as: Q1
 Selected option ID: keep
 Selected outcome: accepted
 
@@ -386,7 +404,8 @@ current access through the existing wakeup. Each call checks the pinned native
 conversation, then validates against the latest stored round under its lock, atomically
 saves the update and deduplication record, publishes it to the UI, and waits for UI
 application before acknowledging it. Validation errors leave the request open for repair;
-transport retries must reuse the identical semantic payload (with current `review` access after reconnection). A response saved before a lost acknowledgement is restored locally; it is not regenerated. Accepted retries return
+transport retries must reuse the identical semantic payload (with current `review` access after reconnection). A response saved before a lost acknowledgement is restored locally; it is not regenerated. A question's result also gives
+`shown_as`, its number on the reviewer's screens. Accepted retries return
 `accepted: true, applied: false`. Cancelled, obsolete or changed accepted payloads
 are rejected. Explore never writes ordinary thread replies or uses response files.
 

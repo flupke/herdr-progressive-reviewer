@@ -43,6 +43,13 @@ impl<'a> QuestionStep<'a> {
             .find(|answer| answer.answers(question))
     }
 
+    /// Whether `question`, in its version, is one of the step's versions.
+    pub(super) fn holds(&self, question: &Question) -> bool {
+        self.versions
+            .iter()
+            .any(|version| version.is_version(&question.id, question.version))
+    }
+
     /// Whether `answer` answers one of the step's versions.
     pub(super) fn answered_by(&self, answer: &ReviewerAnswer) -> bool {
         self.versions

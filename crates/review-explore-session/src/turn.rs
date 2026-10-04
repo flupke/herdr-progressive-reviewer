@@ -180,16 +180,25 @@ impl ExploreSession {
             let rounds = self
                 .rounds
                 .earlier(&request.checkpoint.review_unit, &request.instance)?;
-            EarlierDecisions::new(rounds.iter().map(|round| &round.exploration))
+            EarlierDecisions::new(rounds.standing.iter().map(|round| &round.exploration))
+                .after_reset(rounds.reset_rounds)
         } else {
             EarlierDecisions::default()
         };
+        let answered = self
+            .state
+            .round
+            .as_ref()
+            .zip(request.answer.as_ref())
+            .and_then(|(round, answer)| round.exploration.answered_number(answer))
+            .map(Into::into);
         let prompt = review_explore_runner::PreparedTurn::prepare(
             request,
             &comparison,
             &self.state.access,
             &unreviewed,
             &earlier,
+            answered,
         )
         .prompt();
         let sent = self.turns.is_some().then(|| {

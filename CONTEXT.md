@@ -196,7 +196,8 @@ _Avoid_: web session, web round
 The steps of an Explore round as the Explore page lists them: the design
 explanation, each question the agent posted with its clarified versions, the
 quiz and the conclusion, each done, current or later. Each done question opens its
-earlier question.
+earlier question. Its question steps are numbered Q1, Q2 and so on, and the agent
+names each question of the round by that number.
 _Avoid_: stepper, breadcrumb, progress bar (the meter is the lines reviewed)
 
 **Earlier question**:
@@ -235,5 +236,6 @@ _Avoid_: verdict, outcome
 **Reset**:
 Closing the current Explore round and returning to the start screen. The round's
 records stay saved, but it is no longer shown or reopened, and its agent can no
-longer post to it.
+longer post to it. The next round starts over: the decisions of the rounds reset
+before it no longer stand, and its agent is told so.
 _Avoid_: new round (which is what Start begins), clear, restart

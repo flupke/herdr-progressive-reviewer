@@ -540,6 +540,7 @@ fn a_round_message_wakes_the_agent_with_its_round_and_the_question_it_was_asked_
         Some(AskedUnder::Question {
             question: "q-lock".into(),
             version: 3,
+            number: Some(2.into()),
         }),
     );
     let second = service.talk("round-7", "And in the design?", Some(AskedUnder::Design));
@@ -566,6 +567,12 @@ fn a_round_message_wakes_the_agent_with_its_round_and_the_question_it_was_asked_
     assert!(
         prompt.contains(&format!("Message: {}\nStage: design\n", second.as_str())),
         "{prompt}"
+    );
+    let asked =
+        &prompt[prompt.find(first.as_str()).unwrap()..prompt.find(second.as_str()).unwrap()];
+    assert!(
+        asked.contains("Q2"),
+        "the number the reviewer sees: {asked}"
     );
 
     service.answer(&access, &thread).unwrap();

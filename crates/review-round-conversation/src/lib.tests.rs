@@ -39,6 +39,7 @@ fn the_conversation_lists_its_messages_in_order_with_their_question_quote_and_de
         Some(AskedUnder::Question {
             question: "q-lock".into(),
             version: 2,
+            number: None,
         }),
         Some("the store takes a lock".into()),
     ))
@@ -70,7 +71,8 @@ fn the_conversation_lists_its_messages_in_order_with_their_question_quote_and_de
         asked.asked_under,
         Some(AskedUnder::Question {
             question: "q-lock".into(),
-            version: 2
+            version: 2,
+            number: None,
         })
     );
     assert_eq!(asked.delivery, Some(Delivery::Answered));

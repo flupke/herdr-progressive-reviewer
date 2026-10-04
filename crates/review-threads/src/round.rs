@@ -11,8 +11,15 @@ use crate::{Message, MessageId, Post, ReviewThread, ReviewThreads, ThreadId, Thr
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize, TS)]
 #[serde(tag = "stage", rename_all = "snake_case")]
 pub enum AskedUnder {
-    /// Version `version` of the question `question`.
-    Question { question: String, version: u32 },
+    /// Version `version` of the question `question`, which the reviewer's screens numbered
+    /// `number` (Q1 for the first) when the round knew it as the message was posted.
+    Question {
+        question: String,
+        version: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[ts(optional, as = "Option<usize>")]
+        number: Option<review_types::QuestionNumber>,
+    },
     /// The design explanation of the round's first turn.
     Design,
     /// The conclusion that the agent's turn with request `conclusion` posted.

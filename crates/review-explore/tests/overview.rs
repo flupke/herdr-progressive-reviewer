@@ -492,3 +492,28 @@ fn a_round_told_as_plain_facts_has_the_rail_and_the_title_of_its_saved_state() {
         rail_and_title(&RoundOverview::of(&kickoff, None))
     );
 }
+
+/// The number of a question is the one its step has on the rail: a clarification that follows
+/// its question keeps the number, a version asked again after another question takes its own.
+#[test]
+fn a_question_has_the_number_of_its_step_on_the_rail() {
+    let numbers = |name: &str| {
+        let exploration = saved(name).exploration;
+        exploration
+            .questions
+            .iter()
+            .map(|question| exploration.question_number(question))
+            .collect::<Vec<_>>()
+    };
+
+    // reasked: cache 1, lock 1, cache 2; quiz: cache 1, lock 1, flush 1, flush 2, crash 1.
+    assert_eq!(numbers("reasked"), [Some(1), Some(2), Some(3)]);
+    assert_eq!(
+        numbers("quiz"),
+        [Some(1), Some(2), Some(3), Some(3), Some(4)]
+    );
+    let reasked = saved("reasked").exploration;
+    let mut unposted = reasked.questions[0].clone();
+    unposted.version = 3;
+    assert_eq!(reasked.question_number(&unposted), None);
+}

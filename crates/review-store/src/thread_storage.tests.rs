@@ -121,6 +121,7 @@ fn a_round_conversation_is_stored_between_threads_on_code_and_loads_again() {
         Some(review_threads::AskedUnder::Question {
             question: "q-1".into(),
             version: 2,
+            number: None,
         }),
         Some("a quoted passage".into()),
     );

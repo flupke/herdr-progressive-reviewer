@@ -4091,6 +4091,7 @@ dependencies = [
  "review-explore-round-settings",
  "review-repository",
  "review-source",
+ "review-types",
  "schemars",
  "serde_json",
 ]
@@ -4186,6 +4187,7 @@ dependencies = [
  "review-explore",
  "review-test-support",
  "review-threads",
+ "review-types",
  "rmcp",
  "serde",
  "serde_json",

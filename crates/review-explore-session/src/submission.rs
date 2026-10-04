@@ -54,6 +54,11 @@ impl ExploreSession {
         } else {
             round
         };
+        let shown_as = update
+            .next
+            .as_ref()
+            .and_then(|question| round.exploration.question_number(question))
+            .map(Into::into);
         self.state.round = Some(round.clone());
         let (response, received) = std::sync::mpsc::channel();
         if self
@@ -78,7 +83,7 @@ impl ExploreSession {
                         .to_owned()
                 })
                 .and_then(|result| result)
-                .map(|applied| Response::Explore { applied });
+                .map(|applied| Response::Explore { applied, shown_as });
             request.respond(result);
         });
     }

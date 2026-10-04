@@ -5,6 +5,7 @@ fn question(id: &str, version: u32) -> AskedUnder {
     AskedUnder::Question {
         question: id.into(),
         version,
+        number: None,
     }
 }
 

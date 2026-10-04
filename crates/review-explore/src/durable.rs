@@ -16,6 +16,18 @@ pub struct ExploreHistory {
     /// screen, and the round no longer accepts changes.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub closed: bool,
+    /// How many of the first rounds the reviewer reset before starting a later round. A round
+    /// started after a Reset starts over: the decisions of the rounds before it no longer stand.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub reset_rounds: usize,
+}
+
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde passes the field by reference"
+)]
+fn is_zero(count: &usize) -> bool {
+    *count == 0
 }
 
 fn latest_editable() -> bool {
@@ -28,6 +40,7 @@ impl Default for ExploreHistory {
             rounds: Vec::new(),
             latest_editable: true,
             closed: false,
+            reset_rounds: 0,
         }
     }
 }
@@ -46,9 +59,33 @@ impl ExploreHistory {
         self.latest()
     }
 
+    /// The rounds started before `instance`: how many the reviewer reset before a later round
+    /// started, and those after them, oldest first, whose decisions still stand.
+    pub fn before(&self, instance: &str) -> RoundsBefore<'_> {
+        let earlier = self
+            .rounds
+            .iter()
+            .position(|saved| saved == instance)
+            .unwrap_or(self.rounds.len());
+        let reset = self.reset_rounds.min(earlier);
+        RoundsBefore {
+            reset,
+            standing: &self.rounds[reset..earlier],
+        }
+    }
+
     pub fn is_historical(&self, instance: &str) -> bool {
         self.closed || !self.latest_editable || self.latest() != Some(instance)
     }
+}
+
+/// The rounds of a review started before one of them (see [`ExploreHistory::before`]).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RoundsBefore<'a> {
+    /// How many of them the reviewer reset before a later round started.
+    pub reset: usize,
+    /// The rounds after those, oldest first, whose decisions still stand.
+    pub standing: &'a [String],
 }
 
 /// A native conversation identity observed while handling this round.

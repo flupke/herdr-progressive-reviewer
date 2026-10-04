@@ -36,8 +36,15 @@ impl fmt::Display for RoundConversations<'_> {
             }) {
                 writeln!(output, "Message: {}", message.id.as_str())?;
                 match &message.asked_under {
-                    Some(AskedUnder::Question { question, version }) => {
+                    Some(AskedUnder::Question {
+                        question,
+                        version,
+                        number,
+                    }) => {
                         writeln!(output, "Question: {question} (version {version})")?;
+                        if let Some(number) = number {
+                            writeln!(output, "Shown as: {number}")?;
+                        }
                     }
                     Some(AskedUnder::Design) => writeln!(output, "Stage: design")?,
                     Some(AskedUnder::Conclusion { conclusion }) => {

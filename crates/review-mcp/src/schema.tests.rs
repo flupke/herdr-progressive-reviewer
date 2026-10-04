@@ -1,13 +1,29 @@
 use super::Handler;
 use serde_json::json;
 
-#[test]
-fn explore_results_say_only_whether_the_turn_was_new() {
-    let result = Handler::result(super::Response::Explore { applied: false });
+fn explore_result(shown_as: Option<usize>) -> serde_json::Value {
+    let result = Handler::result(super::Response::Explore {
+        applied: false,
+        shown_as: shown_as.map(Into::into),
+    });
     let text = result.content[0].as_text().unwrap();
-    let value: serde_json::Value = serde_json::from_str(&text.text).unwrap();
+    serde_json::from_str(&text.text).unwrap()
+}
 
-    assert_eq!(value, json!({"accepted": true, "applied": false}));
+#[test]
+fn a_conclusion_result_says_only_whether_the_turn_was_new() {
+    assert_eq!(
+        explore_result(None),
+        json!({"accepted": true, "applied": false})
+    );
+}
+
+#[test]
+fn a_question_result_gives_the_number_the_reviewer_sees() {
+    assert_eq!(
+        explore_result(Some(3)),
+        json!({"accepted": true, "applied": false, "shown_as": "Q3"})
+    );
 }
 
 #[test]
@@ -19,6 +35,7 @@ fn a_round_conversation_names_its_round_and_each_message_its_question_and_quote(
         Some(review_threads::AskedUnder::Question {
             question: "q-lock".into(),
             version: 2,
+            number: None,
         }),
         Some("the store takes a lock".into()),
     ))

@@ -35,6 +35,21 @@ pub(super) fn prepare_with(
         "fresh-access",
         &Unreviewed::default(),
         earlier,
+        None,
+    )
+    .prompt()
+}
+
+/// The prompt for `request`, whose answer answers the question the reviewer's screens number
+/// `answered`.
+fn prepare_answered(request: &TurnRequest, comparison: &Comparison, answered: usize) -> String {
+    PreparedTurn::prepare(
+        request,
+        comparison,
+        "fresh-access",
+        &Unreviewed::default(),
+        &EarlierDecisions::default(),
+        Some(answered.into()),
     )
     .prompt()
 }
@@ -108,6 +123,25 @@ fn a_wakeup_names_the_unreviewed_diffs_before_the_answer() {
     for removed in ["coverage", "get_coverage_gaps", "inspection"] {
         assert!(!turn_input(&prompt).contains(removed), "{removed}");
     }
+}
+
+#[test]
+fn a_wakeup_gives_the_number_the_reviewer_sees_for_the_answered_question() {
+    let comparison = comparison();
+    let mut exploration = Exploration::new(Arc::new(comparison.clone()));
+    let mut request = exploration.request(None, None).unwrap();
+    request.answer = Some(answer(&request));
+
+    let numbered = prepare_answered(&request, &comparison, 3);
+    let unnumbered = prepare(&request, &comparison);
+
+    let answer = &turn_input(&numbered)[turn_input(&numbered).find("\nAnswer ID").unwrap()..];
+    let question = answer.find("earlier-question").unwrap();
+    assert!(
+        answer[question..].contains("Q3"),
+        "the number follows the question: {answer}"
+    );
+    assert!(!turn_input(&unnumbered).contains("Q3"), "{unnumbered}");
 }
 
 #[test]

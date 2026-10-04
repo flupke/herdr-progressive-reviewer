@@ -509,6 +509,43 @@ fn a_question_and_its_answer_reach_the_agent_and_are_saved() {
     assert_eq!(harness.agents.prompts().len(), 2);
 }
 
+fn shown_as(result: Result<Response, String>) -> Option<String> {
+    match result {
+        Ok(Response::Explore { shown_as, .. }) => shown_as.map(|number| number.to_string()),
+        other => panic!("unexpected Explore response: {other:?}"),
+    }
+}
+
+#[test]
+fn the_agent_learns_the_number_the_reviewer_sees_for_each_question() {
+    let mut harness = Harness::start();
+    harness.capture();
+    let first = harness.request(None);
+    let access = harness.turn(&first);
+
+    assert_eq!(
+        shown_as(harness.submit(&access, question(&first, 1))),
+        Some("Q1".to_owned())
+    );
+    let (answered, access) = harness.answer("Keep it.");
+    let wakeup = harness.agents.prompts().last().unwrap().text.clone();
+    assert_eq!(
+        shown_as(harness.submit(&access, question(&answered, 2))),
+        Some("Q2".to_owned())
+    );
+    let (last, access) = harness.answer("Keep it too.");
+    let second_wakeup = harness.agents.prompts().last().unwrap().text.clone();
+
+    let answer_of = |prompt: &str| prompt[prompt.rfind("\nAnswer ID:").unwrap()..].to_owned();
+    assert!(answer_of(&wakeup).contains("Q1"), "{wakeup}");
+    assert!(answer_of(&second_wakeup).contains("Q2"), "{second_wakeup}");
+    assert!(!answer_of(&second_wakeup).contains("Q1"), "{second_wakeup}");
+    assert_eq!(
+        shown_as(harness.submit(&access, conclusion(&last, CONCLUSION))),
+        None
+    );
+}
+
 /// A conclusion that marks the only changed line reviewed after `request`'s answer.
 fn marking_conclusion(request: &TurnRequest) -> Operation {
     let Operation::SubmitConclusion(mut submission) = conclusion(request, CONCLUSION) else {
@@ -832,7 +869,7 @@ fn a_reset_round_is_closed_and_reopening_shows_the_start_screen() {
 }
 
 #[test]
-fn a_new_rounds_kickoff_lists_the_earlier_rounds_decisions_without_cancelled_answers() {
+fn a_new_rounds_kickoff_lists_the_standing_earlier_decisions_without_cancelled_answers() {
     let mut harness = Harness::start();
     harness.capture();
     let first = harness.request(None);
@@ -852,8 +889,8 @@ fn a_new_rounds_kickoff_lists_the_earlier_rounds_decisions_without_cancelled_ans
             .result
             .is_ok()
     );
-    harness.session.handle(Input::Command(Command::Reset));
 
+    // A new round without a Reset, as after an unreadable latest round.
     harness.capture();
     let kickoff = harness.request(None);
     harness.turn(&kickoff);
@@ -867,6 +904,44 @@ fn a_new_rounds_kickoff_lists_the_earlier_rounds_decisions_without_cancelled_ans
         !opening.contains("\n> "),
         "the first round has no earlier decisions"
     );
+}
+
+/// The input of a kickoff `prompt`, after its fixed rules.
+fn kickoff_input(prompt: &str) -> &str {
+    &prompt[prompt.find("\nExplore review access:").unwrap()..]
+}
+
+#[test]
+fn a_round_started_after_a_reset_starts_over_without_the_earlier_decisions() {
+    let mut harness = Harness::start();
+    harness.capture();
+    let first = harness.request(None);
+    let access = harness.turn(&first);
+    assert!(applied(harness.submit(&access, question(&first, 1))));
+    let (decided, _) = harness.answer("Keep it, round one.");
+    harness.session.handle(Input::Command(Command::Reset));
+    harness.capture();
+    let second = harness.request(None);
+    harness.turn(&second);
+    let after_one = harness.agents.prompts().last().unwrap().text.clone();
+    harness.session.handle(Input::Command(Command::Reset));
+    harness.capture();
+    let third = harness.request(None);
+    harness.turn(&third);
+    let after_two = harness.agents.prompts().last().unwrap().text.clone();
+
+    let decided = decided.answer.unwrap().id;
+    for (prompt, reset) in [(&after_one, "1"), (&after_two, "2")] {
+        let input = kickoff_input(prompt);
+        assert!(!input.contains(&decided), "{input}");
+        assert!(!input.contains("Keep it, round one."), "{input}");
+        let line = input
+            .lines()
+            .find(|line| line.starts_with("Reset rounds"))
+            .unwrap_or_else(|| panic!("the reset rounds are counted: {input}"));
+        assert!(line.ends_with(&format!(" {reset}")), "{line}");
+    }
+    assert_eq!(harness.history().reset_rounds, 2);
 }
 
 #[test]

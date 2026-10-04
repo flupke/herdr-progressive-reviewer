@@ -6,7 +6,7 @@ mod recovery;
 pub use durable::{
     ConversationBinding, DispatchId, DispatchResult, DispatchState, ExploreHistory, ExploreRound,
     ImplementationDelivery, InterviewDelivery, MarkCounts, MarkPhrase, MarkTense, ReopenedLines,
-    ReviewCompletion, TurnMarks, now_ms,
+    ReviewCompletion, RoundsBefore, TurnMarks, now_ms,
 };
 pub use presentation::{
     EditorFocus, EvidencePosition, ExplorePage, ExploreViewState, QuestionReading, RoundFront,

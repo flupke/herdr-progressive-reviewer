@@ -8,6 +8,8 @@ pub(super) struct TurnInput<'a> {
     /// What only the kickoff tells the agent.
     pub(super) kickoff: Option<Kickoff<'a>>,
     pub(super) unreviewed: &'a crate::Unreviewed,
+    /// The number the reviewer's screens give the question the answer answers.
+    pub(super) answered: Option<review_types::QuestionNumber>,
 }
 
 /// Where the reviewed change is, what it says it does and what the reviewer
@@ -92,14 +94,14 @@ impl fmt::Display for TurnInput<'_> {
             }
         }
         if let Some(answer) = &request.answer {
-            Self::answer(output, answer)?;
+            self.answer(output, answer)?;
         }
         Ok(())
     }
 }
 
 impl TurnInput<'_> {
-    fn answer(output: &mut fmt::Formatter<'_>, answer: &ReviewerAnswer) -> fmt::Result {
+    fn answer(&self, output: &mut fmt::Formatter<'_>, answer: &ReviewerAnswer) -> fmt::Result {
         writeln!(output, "\nAnswer ID: {}", answer.id)?;
         if let Some(question) = &answer.question {
             writeln!(
@@ -107,6 +109,9 @@ impl TurnInput<'_> {
                 "Question: {} (version {})",
                 question.id, question.version
             )?;
+            if let Some(number) = self.answered {
+                writeln!(output, "Shown as: {number}")?;
+            }
         } else {
             writeln!(output, "Reply to conclusion: {}", answer.in_reply_to)?;
         }

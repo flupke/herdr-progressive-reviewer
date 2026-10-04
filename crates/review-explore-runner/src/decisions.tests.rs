@@ -250,3 +250,35 @@ fn a_round_saved_by_the_released_version_lists_its_decisions() {
         assert!(decision.contains(fact), "{fact} in {decision}");
     }
 }
+
+#[test]
+fn the_kickoff_says_how_many_earlier_rounds_the_reviewer_reset() {
+    let standing = round(&[("q3", Some("keep"), "")]);
+    let after_reset = |reset| kickoff(&EarlierDecisions::new([&standing]).after_reset(reset));
+    let reset_line = |prompt: &str| {
+        let input = &prompt[prompt.find("Repository root:").unwrap()..];
+        input
+            .lines()
+            .find(|line| line.starts_with("Reset rounds"))
+            .map(str::to_owned)
+    };
+
+    let two = after_reset(2);
+
+    assert!(
+        reset_line(&two).is_some_and(|line| line.ends_with(" 2")),
+        "{two}"
+    );
+    assert!(
+        two.contains("answer-q3"),
+        "a standing decision is still listed"
+    );
+    assert_eq!(reset_line(&after_reset(0)), None);
+    assert!(
+        EarlierDecisions::default()
+            .after_reset(1)
+            .to_string()
+            .contains('1'),
+        "a reset is told even with no decision standing"
+    );
+}

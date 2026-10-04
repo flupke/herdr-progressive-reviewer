@@ -640,27 +640,41 @@ impl RoundSnapshot {
         self.round.as_deref().zip(self.review_unit.as_ref())
     }
 
-    /// The number on the rail of the question `id`: a question the round went past, the one the
-    /// stage asks, or the one the reviewer's latest answer answered. `None` for another question,
-    /// and for a round with no overview.
-    pub(crate) fn number_of_question(&self, id: &str) -> Option<usize> {
+    /// The number on the rail of version `version` of the question `id`: a question the round
+    /// went past, the one the stage asks, or the one the reviewer's latest answer answered. A
+    /// question asked again after another has a step of its own, so the version decides; an
+    /// earlier version that a clarification followed has its clarification's step. `None` for
+    /// another question, and for a round with no overview.
+    pub(crate) fn number_of_question(&self, id: &str, version: u32) -> Option<usize> {
+        self.numbered_version(id, Some(version))
+            .or_else(|| self.numbered_version(id, None))
+    }
+
+    /// The number on the rail of the question `id` in version `version`, or in any version.
+    fn numbered_version(&self, id: &str, version: Option<u32>) -> Option<usize> {
+        let is = |question_id: &str, question_version: u32| {
+            question_id == id && version.is_none_or(|version| version == question_version)
+        };
         let overview = self.overview.as_deref()?;
         if let Some(earlier) = overview
             .earlier
             .iter()
-            .find(|earlier| earlier.question.id == id)
+            .rev()
+            .find(|earlier| is(&earlier.question.id, earlier.question.version))
         {
             return Some(earlier.number);
         }
         if self
             .stage
             .asked_question()
-            .is_some_and(|asked| asked.id == id)
+            .is_some_and(|asked| is(&asked.id, asked.version))
         {
             return self.question_number();
         }
         let answered = self.cancellable.as_ref()?.answered.question.as_ref()?;
-        (answered.0 == id).then(|| self.answered_number()).flatten()
+        is(&answered.0, answered.1)
+            .then(|| self.answered_number())
+            .flatten()
     }
 
     /// Whether the round's latest answer, which the reviewer may still cancel, is `answered`

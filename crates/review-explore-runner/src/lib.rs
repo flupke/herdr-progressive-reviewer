@@ -17,13 +17,16 @@ pub struct PreparedTurn {
 
 impl PreparedTurn {
     /// The prompt for `request`, listing the unreviewed lines. A kickoff
-    /// also lists the `earlier` decisions of the review.
+    /// also lists the `earlier` decisions of the review. `answered` is the
+    /// number the reviewer's screens give the question the request's answer
+    /// answers.
     pub fn prepare(
         request: &TurnRequest,
         comparison: &Comparison,
         access: &str,
         unreviewed: &Unreviewed,
         earlier: &EarlierDecisions,
+        answered: Option<review_types::QuestionNumber>,
     ) -> Self {
         let kickoff = request.is_kickoff().then(|| input::Kickoff {
             repository_root: &comparison.repository_root,
@@ -37,6 +40,7 @@ impl PreparedTurn {
             access,
             kickoff,
             unreviewed,
+            answered,
         };
         Self {
             prompt: format!("{instructions}\n\n{input}"),

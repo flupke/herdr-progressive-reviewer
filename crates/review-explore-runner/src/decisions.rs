@@ -1,14 +1,18 @@
-//! What a kickoff says about the questions the reviewer decided in the
-//! review's earlier rounds, so a fresh reader does not ask them again.
+//! What a kickoff says about the review's earlier rounds: how many the
+//! reviewer reset, whose decisions are void, and the questions the reviewer
+//! decided in the others, so a fresh reader does not ask them again.
 
 use crate::input::{Outcome, Quoted};
 use review_explore::{Exploration, Interpretation, ReviewerAnswer, TopicStatus};
 use std::fmt;
 
-/// The questions the reviewer decided in a review's earlier rounds, oldest
-/// first. A cancelled answer has left its round, so it is never here.
+/// The questions the reviewer decided in a review's earlier rounds that still
+/// stand, oldest first, and how many rounds before them were reset. A
+/// cancelled answer has left its round, so it is never here.
 #[derive(Debug, Default)]
 pub struct EarlierDecisions {
+    /// How many rounds before them the reviewer reset: their decisions are void.
+    reset_rounds: usize,
     decisions: Vec<Decision>,
 }
 
@@ -24,6 +28,7 @@ impl EarlierDecisions {
     /// The decisions of `rounds`, given oldest first (see [`Decision::of`]).
     pub fn new<'a>(rounds: impl IntoIterator<Item = &'a Exploration>) -> Self {
         Self {
+            reset_rounds: 0,
             decisions: rounds
                 .into_iter()
                 .flat_map(|round| {
@@ -33,6 +38,15 @@ impl EarlierDecisions {
                         .filter_map(|answer| Decision::of(round, answer))
                 })
                 .collect(),
+        }
+    }
+
+    /// The same decisions, in a review whose `reset_rounds` rounds before them the reviewer reset.
+    #[must_use]
+    pub fn after_reset(self, reset_rounds: usize) -> Self {
+        Self {
+            reset_rounds,
+            ..self
         }
     }
 }
@@ -63,6 +77,9 @@ impl Decision {
 
 impl fmt::Display for EarlierDecisions {
     fn fmt(&self, output: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.reset_rounds > 0 {
+            writeln!(output, "\nReset rounds: {}", self.reset_rounds)?;
+        }
         if self.decisions.is_empty() {
             return Ok(());
         }

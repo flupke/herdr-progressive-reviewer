@@ -256,17 +256,56 @@ fn the_rounds_before_one_are_its_readable_predecessors_oldest_first() {
     });
     std::fs::write(fixture.path(&unreadable), b"invalid saved round").unwrap();
 
-    let instances = |rounds: Vec<ExploreRound>| -> Vec<String> {
-        rounds
-            .into_iter()
-            .map(|round| round.exploration.instance)
-            .collect()
-    };
-    assert_eq!(
-        instances(fixture.rounds.earlier(&unit, &latest).unwrap()),
-        vec![first.clone(), third]
+    let earlier = fixture.rounds.earlier(&unit, &latest).unwrap();
+    assert_eq!(instances(earlier.standing), vec![first.clone(), third]);
+    assert_eq!(earlier.reset_rounds, 0);
+    assert!(
+        fixture
+            .rounds
+            .earlier(&unit, &first)
+            .unwrap()
+            .standing
+            .is_empty()
     );
-    assert!(fixture.rounds.earlier(&unit, &first).unwrap().is_empty());
+}
+
+fn instances(rounds: Vec<ExploreRound>) -> Vec<String> {
+    rounds
+        .into_iter()
+        .map(|round| round.exploration.instance)
+        .collect()
+}
+
+#[test]
+fn a_round_started_after_a_reset_has_no_standing_predecessor() {
+    let fixture = Investigation::new();
+    let unit = "review".into();
+    let first = fixture.round.exploration.instance.clone();
+    let new_round = || {
+        let round = ExploreRound::new(Exploration::new(
+            fixture.round.exploration.comparison.clone(),
+        ));
+        fixture.rounds.create(round).unwrap().exploration.instance
+    };
+    fixture.rounds.close(&unit, &first).unwrap();
+    let second = new_round();
+    let third = new_round();
+
+    let before_second = fixture.rounds.earlier(&unit, &second).unwrap();
+    let before_third = fixture.rounds.earlier(&unit, &third).unwrap();
+
+    assert_eq!(
+        (
+            before_second.reset_rounds,
+            instances(before_second.standing)
+        ),
+        (1, vec![])
+    );
+    assert_eq!(
+        (before_third.reset_rounds, instances(before_third.standing)),
+        (1, vec![second]),
+        "a round started without a Reset leaves its predecessor standing"
+    );
 }
 
 #[test]

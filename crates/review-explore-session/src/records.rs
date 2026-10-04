@@ -19,6 +19,14 @@ fn historical_round_error() -> Error {
     explore_error("this round is history; open the latest round to continue")
 }
 
+/// The rounds of a review started before a new one.
+pub(crate) struct EarlierRounds {
+    /// How many rounds the reviewer reset before a later round started.
+    pub(crate) reset_rounds: usize,
+    /// The rounds whose decisions still stand, oldest first.
+    pub(crate) standing: Vec<ExploreRound>,
+}
+
 /// A round after an Explore response was submitted to it.
 pub(crate) struct Submitted {
     /// False when the response was already accepted and changed nothing.
@@ -50,16 +58,20 @@ impl SavedRounds {
         self.store.load_explore(unit, instance)
     }
 
-    /// The readable rounds of `unit` started before `instance`, oldest
-    /// first. An unreadable round is left out.
-    pub(crate) fn earlier(&self, unit: &ReviewUnit, instance: &str) -> Result<Vec<ExploreRound>> {
-        Ok(self
-            .history(unit)?
-            .rounds
-            .iter()
-            .take_while(|saved| *saved != instance)
-            .filter_map(|saved| self.round(unit, saved).ok().flatten())
-            .collect())
+    /// The rounds of `unit` started before `instance`: how many the reviewer reset before a
+    /// later round started, and the readable rounds whose decisions still stand, oldest first.
+    /// An unreadable round is left out.
+    pub(crate) fn earlier(&self, unit: &ReviewUnit, instance: &str) -> Result<EarlierRounds> {
+        let history = self.history(unit)?;
+        let before = history.before(instance);
+        Ok(EarlierRounds {
+            reset_rounds: before.reset,
+            standing: before
+                .standing
+                .iter()
+                .filter_map(|saved| self.round(unit, saved).ok().flatten())
+                .collect(),
+        })
     }
 
     pub(crate) fn view(&self, unit: &ReviewUnit, instance: &str) -> Result<Option<ViewSave>> {
@@ -73,6 +85,10 @@ impl SavedRounds {
             .lock_explore(&round.exploration.comparison.checkpoint.review_unit)?;
         let mut history = records.history()?;
         records.create_round(&round)?;
+        if history.closed {
+            // The reviewer reset the latest round: this one starts over.
+            history.reset_rounds = history.rounds.len();
+        }
         history.rounds.push(round.exploration.instance.clone());
         history.latest_editable = true;
         history.closed = false;

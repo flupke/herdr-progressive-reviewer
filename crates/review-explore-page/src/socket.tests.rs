@@ -1194,8 +1194,10 @@ async fn a_message_joins_the_rounds_conversation_and_leaves_its_question_waiting
         posted.asked_under,
         Some(review_threads::AskedUnder::Question {
             question: "q1".into(),
-            version: 1
-        })
+            version: 1,
+            number: Some(1.into()),
+        }),
+        "the message carries the number the page shows its question by"
     );
     assert_eq!(posted.quote.as_deref(), Some("Keep the draft"));
     let shown = &conversation["messages"][0];
@@ -1204,6 +1206,70 @@ async fn a_message_joins_the_rounds_conversation_and_leaves_its_question_waiting
     assert_eq!(shown["quote"], "Keep the draft");
     assert_eq!(shown["delivery"]["state"], "waiting");
     assert_eq!(conversation["round"], ROUND);
+}
+
+#[tokio::test]
+async fn a_message_names_a_question_asked_again_by_the_step_of_its_version() {
+    let versioned = |id: &str, version: u32| Question {
+        version,
+        ..question(id, "two_way")
+    };
+    let earlier = |number, question| review_explore::EarlierQuestion {
+        number,
+        question,
+        answer: None,
+        recorded: review_explore::AgentRecord {
+            interpretation: None,
+            reply: None,
+        },
+        marks: Vec::new(),
+    };
+    let mut overview = at_question_2(false);
+    overview.rail[2].state = StepState::Done;
+    overview.rail.push(RailStep {
+        step: Step::Question { number: 3 },
+        state: StepState::Current { working: false },
+    });
+    overview.earlier = vec![
+        earlier(1, versioned("cache", 1)),
+        earlier(2, versioned("lock", 1)),
+    ];
+    let owner = Owner::new(working("turn-1"));
+    *lock(&owner.overview) = overview;
+    owner.publish(asking(versioned("cache", 2)));
+    let mut socket = open(&owner).await;
+
+    for (id, (version, message_id)) in [
+        (1, "4f0c3d1e-58a2-4b6e-9d61-0a9f0f7c2b12"),
+        (2, "4f0c3d1e-58a2-4b6e-9d61-0a9f0f7c2b13"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut params = message(message_id, ROUND);
+        params["asked_under"] =
+            json!({ "stage": "question", "question": "cache", "version": version });
+        request(
+            &mut socket,
+            json!({ "id": id, "method": "send-message", "params": params }),
+        )
+        .await;
+        conversation_after(&mut socket, id as u64).await;
+    }
+
+    let numbers: Vec<_> = lock(&owner.book)
+        .round_conversation(ROUND)
+        .unwrap()
+        .messages
+        .iter()
+        .map(|message| match &message.asked_under {
+            Some(review_threads::AskedUnder::Question { number, .. }) => {
+                number.map(|number| number.to_string())
+            }
+            other => panic!("asked under a question: {other:?}"),
+        })
+        .collect();
+    assert_eq!(numbers, [Some("Q1".to_owned()), Some("Q3".to_owned())]);
 }
 
 #[tokio::test]

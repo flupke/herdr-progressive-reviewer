@@ -1,9 +1,9 @@
 Continue the Explore round with the answer below. It answers the question whose ID and version
 it names, as posted earlier in this conversation, or the conclusion a Reply to conclusion
 names. The Unreviewed diffs directory this prompt names holds what is still unreviewed. The
-kickoff prompt's sections on unreviewed diffs, questions, behavior changes, citations,
-explanations, agenda, identity, source inspection, delivery and the round conversation still
-apply. Do not edit code.
+kickoff prompt's sections on reset rounds, unreviewed diffs, questions, behavior changes,
+citations, explanations, agenda, identity, question numbers, source inspection, delivery and the
+round conversation still apply. Do not edit code.
 
 ## This turn
 
@@ -82,7 +82,8 @@ submit_conclusion takes the final answer's interpretation and marks like any tur
   work, uncertainty and source or context limitations. The reviewer's decisions are listed beside
   it from the round itself: do not restate them.
 - to_be_implemented: only the agreed tasks, as a plain-text list; it fills the reviewer's
-  editable task box. Empty when there is none.
+  editable task box. Empty when there is none. A task that one of the kickoff's Earlier
+  decisions agreed and the code still lacks says so and names that decision by its subject.
 - future_work: optional or later work. Empty when there is none.
 - quiz, or quiz_empty_reason when it is empty: see Quiz.
 

@@ -187,9 +187,13 @@ impl ThreadLayout {
     /// Where in its Explore round the reviewer wrote a message of a round conversation.
     fn asked_under(asked_under: &AskedUnder) -> String {
         match asked_under {
-            AskedUnder::Question { question, version } => {
-                format!("under question {question}, version {version}")
-            }
+            AskedUnder::Question {
+                number: Some(number),
+                ..
+            } => format!("under {number}"),
+            AskedUnder::Question {
+                question, version, ..
+            } => format!("under question {question}, version {version}"),
             AskedUnder::Design => "under the design".into(),
             AskedUnder::Conclusion { .. } => "under the conclusion".into(),
         }

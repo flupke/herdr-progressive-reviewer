@@ -67,9 +67,11 @@ impl Request {
 pub enum Response {
     Threads(Vec<ReviewThread>),
     Posted(MessageId),
-    /// Whether an Explore submission was new rather than a retry.
+    /// Whether an Explore submission was new rather than a retry, and the number the reviewer's
+    /// screens give the question it posted; `None` for a conclusion.
     Explore {
         applied: bool,
+        shown_as: Option<review_types::QuestionNumber>,
     },
 }
 

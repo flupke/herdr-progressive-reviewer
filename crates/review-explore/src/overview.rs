@@ -17,7 +17,7 @@ pub use title::TabTitle;
 
 use serde::Serialize;
 
-use crate::ExploreRound;
+use crate::{Exploration, ExploreRound, Question, ReviewerAnswer};
 pub use steps::{Activity, LatestTurn};
 use steps::{Position, QuestionStep};
 
@@ -58,6 +58,25 @@ impl RoundOverview {
                 .collect(),
             title: TabTitle::of(&position),
         }
+    }
+}
+
+impl Exploration {
+    /// The number of the round rail's step that holds `question`, in its version: the number
+    /// the reviewer's screens call it by, Q1 for the first. `None` for a question the round did
+    /// not post.
+    pub fn question_number(&self, question: &Question) -> Option<usize> {
+        QuestionStep::of(self)
+            .iter()
+            .rev()
+            .find(|step| step.holds(question))
+            .map(|step| step.number)
+    }
+
+    /// The number, as [`Self::question_number`] gives it, of the question `answer` answers.
+    /// `None` for a reply to the conclusion.
+    pub fn answered_number(&self, answer: &ReviewerAnswer) -> Option<usize> {
+        self.question_number(answer.question.as_ref()?)
     }
 }
 

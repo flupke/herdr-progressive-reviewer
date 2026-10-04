@@ -11,6 +11,7 @@ impl ThreadUi {
                 Some(AskedUnder::Question {
                     question: "q-lock".into(),
                     version: 2,
+                    number: Some(2.into()),
                 }),
                 Some("the store takes a lock".into()),
             ))
@@ -45,7 +46,7 @@ fn the_threads_list_shows_a_round_conversation_and_opens_it_like_any_thread() {
     let conversation = ui.text();
     for shown in [
         "Round conversation of an Explore round",
-        "under question q-lock, version 2",
+        "under Q2",
         "> the store takes a lock",
         "It keeps two reviewers from writing at once.",
         "Write in this conversation from the Explore page.",

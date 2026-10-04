@@ -5,7 +5,7 @@
 //! the page showed: one sent after that round was reset or replaced is refused as stale. A
 //! message carries the identity the page chose for it, so that a repeat posts nothing.
 
-use review_threads::{MessageId, Post, ThreadCommand};
+use review_threads::{AskedUnder, MessageId, Post, ThreadCommand};
 use review_types::ReviewUnit;
 
 use super::{Actions, crlf_to_lf};
@@ -65,12 +65,33 @@ impl<R: Rounds> Actions<'_, R> {
             .filter(|shown| shown.writable)
             .ok_or_else(|| Notice::new(Action::Message, Problem::Stale))?;
         let quote = params.quote.filter(|quote| !quote.trim().is_empty());
-        let post = Post::to_round(&params.round, text, params.asked_under, quote).with_id(id);
+        let asked_under = params.asked_under.map(|asked| self.numbered(asked));
+        let post = Post::to_round(&params.round, text, asked_under, quote).with_id(id);
         let command = ThreadCommand::Post {
             review_unit: shown.unit,
             post,
         };
         send(shown.link, command, Action::Message).await
+    }
+
+    /// `asked` with the number the page's round gives its question, whatever number the page
+    /// sent: the agent and the pane name the question by it.
+    fn numbered(&self, asked: AskedUnder) -> AskedUnder {
+        match asked {
+            AskedUnder::Question {
+                question, version, ..
+            } => AskedUnder::Question {
+                number: self
+                    .round
+                    .stages
+                    .latest()
+                    .number_of_question(&question, version)
+                    .map(Into::into),
+                question,
+                version,
+            },
+            other => other,
+        }
     }
 
     /// Whether the review threads of the page's round hold the message `id` already.

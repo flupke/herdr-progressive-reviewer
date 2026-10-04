@@ -16,7 +16,7 @@ number: number | null, };
  * Where in its round the reviewer wrote a message: under a question, by its identity and
  * version, or at a stage that shows no question.
  */
-export type AskedUnder = { "stage": "question", question: string, version: number, } | { "stage": "design" } | { "stage": "conclusion", conclusion: string, };
+export type AskedUnder = { "stage": "question", question: string, version: number, number?: number, } | { "stage": "design" } | { "stage": "conclusion", conclusion: string, };
 /**
  * The author role of a posted thread message.
  */

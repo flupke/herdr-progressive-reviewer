@@ -106,9 +106,11 @@ impl ChatMessageView {
 /// The step of the rail that `asked` names in `round`.
 fn place(round: &RoundSnapshot, asked: &AskedUnder) -> Option<String> {
     match asked {
-        AskedUnder::Question { question, .. } => round
-            .number_of_question(question)
-            .map(|number| format!("Q{number}")),
+        AskedUnder::Question {
+            question, version, ..
+        } => round
+            .number_of_question(question, *version)
+            .map(|number| review_types::QuestionNumber::from(number).to_string()),
         AskedUnder::Design => Some("Design".to_owned()),
         AskedUnder::Conclusion { .. } => Some("Conclusion".to_owned()),
     }

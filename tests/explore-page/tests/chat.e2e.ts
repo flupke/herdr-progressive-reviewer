@@ -29,7 +29,8 @@ test('the reviewer asks the agent from a question and reads its reply, and the q
   await expect(chat.getByRole('status')).toContainText('The agent is answering');
   const [sent] = await explore.messages();
   expect(sent.text).toBe('Why keep a draft nobody sent?');
-  expect(sent.asked_under).toEqual({ stage: 'question', question: 'keep-draft', version: 1 });
+  // The message names its question with the number the page shows it by, for the agent.
+  expect(sent.asked_under).toEqual({ stage: 'question', question: 'keep-draft', version: 1, number: 1 });
 
   await explore.agentReplies();
   await expect(chat.getByRole('article', 'Reply from the agent')).toContainText(CHAT_REPLY);

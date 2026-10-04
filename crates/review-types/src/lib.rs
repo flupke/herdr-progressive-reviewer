@@ -33,6 +33,24 @@ impl From<&str> for ReviewUnit {
     }
 }
 
+/// The number the reviewer's screens give a question of an Explore round, by its step on the
+/// round rail: shown as Q1 for the first. Saved and sent as the bare number.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(transparent)]
+pub struct QuestionNumber(usize);
+
+impl From<usize> for QuestionNumber {
+    fn from(number: usize) -> Self {
+        Self(number)
+    }
+}
+
+impl std::fmt::Display for QuestionNumber {
+    fn fmt(&self, output: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(output, "Q{}", self.0)
+    }
+}
+
 /// Portable editor content and reading position; no component, cache or undo machinery.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
 pub struct TextEditorState {

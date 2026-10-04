@@ -157,7 +157,10 @@ says why. A round that already runs goes on when its last line is marked.
 start screen, where you choose how to start the next round. Click it, then click
 **Confirm reset** within five seconds; any other action cancels it. The closed round stays
 saved but is no longer shown, and its agent can no longer post to it. Reopening the reviewer
-after a reset shows the start screen.
+after a reset shows the start screen. The next round starts over: its kickoff lists none of the
+reset rounds' decisions and tells the agent that their questions, answers, decisions, tasks and
+question numbers are void, even when the agent's conversation still holds them. The review
+marks that the reset rounds applied stay; unmark files to have them asked about again.
 
 The kickoff prompt supplies the review target, the change description (jj) and the interview
 instructions, which ground every question in what the change does. The agent
@@ -328,7 +331,7 @@ Old-side references open at their old coordinates. A range outside displayed dif
 hunks opens the available full base text in the native viewer. It retains historical
 coordinates; it is never substituted with current working-copy text.
 
-A reset round stays in storage; a new round does not inherit its decisions. Invalid responses leave the last usable question and answer
+A reset round stays in storage; a new round does not inherit its decisions (see Reset above). Invalid responses leave the last usable question and answer
 available. MCP validation errors let the agent repair the same pending turn;
 an identical retry of an accepted result is acknowledged without replaying it.
 Responses are bounded to 1 MiB; exceeding that bound is

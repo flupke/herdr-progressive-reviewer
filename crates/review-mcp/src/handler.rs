@@ -123,7 +123,7 @@ impl Handler {
     }
 
     #[tool(
-        description = "Submit the next Explore question. On the first turn, design explains the design of the change before that question. After a human answer, reviewed and reopened mark or reopen the changed lines it settled. On any turn, not_relevant marks the lines read that hold no decision, each with its reason and, for tested_mechanics, the test that covers it. In a round with a challenger, challenger_proposals reports what became of each question it proposed. Returns applied: false for an identical retry of an accepted turn."
+        description = "Submit the next Explore question. On the first turn, design explains the design of the change before that question. After a human answer, reviewed and reopened mark or reopen the changed lines it settled. On any turn, not_relevant marks the lines read that hold no decision, each with its reason and, for tested_mechanics, the test that covers it. In a round with a challenger, challenger_proposals reports what became of each question it proposed. Returns shown_as, the question's number on the reviewer's screens, and applied: false for an identical retry of an accepted turn."
     )]
     async fn submit_question(
         &self,
@@ -193,7 +193,13 @@ impl Handler {
     fn result(response: Response) -> CallToolResult {
         let value = match response {
             Response::Posted(id) => json!({"message_id": id}),
-            Response::Explore { applied } => json!({"accepted":true,"applied":applied}),
+            Response::Explore { applied, shown_as } => {
+                let mut result = json!({"accepted":true,"applied":applied});
+                if let Some(number) = shown_as {
+                    result["shown_as"] = json!(number.to_string());
+                }
+                result
+            }
             Response::Threads(threads) => {
                 json!({"threads": threads.iter().map(Self::thread).collect::<Vec<_>>()})
             }

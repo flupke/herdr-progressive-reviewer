@@ -12,6 +12,7 @@ review-explore = { path = "../review-explore" }
 review-explore-round-settings = { path = "../review-explore-round-settings" }
 review-repository = { path = "../review-repository" }
 review-source = { path = "../review-source" }
+review-types = { path = "../review-types" }
 
 [dev-dependencies]
 schemars.workspace = true
