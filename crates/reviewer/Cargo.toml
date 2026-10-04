@@ -9,6 +9,8 @@ license.workspace = true
 jev-evals = ["dep:serde"]
 
 [dependencies]
+agent-fork = { path = "../agent-fork" }
+claude-fork = { path = "../claude-fork" }
 review-explore = { path = "../review-explore" }
 review-explore-page = { path = "../review-explore-page" }
 review-explore-page-host = { path = "../review-explore-page-host" }
@@ -50,6 +52,7 @@ tiktoken-rs = "0.12"
 
 [dev-dependencies]
 review-explore-round-settings = { path = "../review-explore-round-settings" }
+review-run-ahead = { path = "../review-run-ahead" }
 review-round-conversation = { path = "../review-round-conversation" }
 uuid.workspace = true
 rmcp = { workspace = true, features = ["client", "transport-streamable-http-client-reqwest"] }

@@ -3,6 +3,7 @@
 #[path = "diff_cache.rs"]
 mod diff_cache;
 
+use std::path::Path;
 use std::sync::Mutex;
 
 use diff_cache::DiffCache;
@@ -16,7 +17,7 @@ use review_repository::repository::{
     RepoPath, Repository, Snapshot, SnapshotId,
 };
 use review_store::{LoadResult, PartialReview, ReviewRecord, ReviewStore};
-use review_types::MarkAuthor;
+use review_types::{MarkAuthor, ReviewUnit};
 
 /// The review state of one changed path.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -218,6 +219,15 @@ impl ReviewTracker {
             store,
             diffs: Mutex::new(DiffCache::default()),
         }
+    }
+
+    /// A tracker of the same repository over a copy of the review marks of `review_unit`, kept
+    /// under `state_root`: what it marks changes no mark of this tracker.
+    pub fn copy_into(&self, review_unit: &ReviewUnit, state_root: &Path) -> eyre::Result<Self> {
+        Ok(Self::new(
+            self.repository.clone(),
+            self.store.copy_marks_to(review_unit, state_root)?,
+        ))
     }
 
     /// Mark one path at the current exact commit.

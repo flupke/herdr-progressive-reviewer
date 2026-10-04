@@ -50,6 +50,7 @@ impl ExploreSession {
             Ok(round) => round,
             Err(error) => return Err(self.turn_refused(request, &error)),
         };
+        self.run_ahead_answered(&request);
         self.state.prompt = None;
         self.state.implementation = None;
         self.state.start.settle();

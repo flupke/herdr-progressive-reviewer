@@ -678,17 +678,19 @@ Remove the rule with `sudo ufw delete allow from 192.168.1.0/24 to any port 8790
 
 ### Explore round settings
 
-Every screen of the Explore tab also shows the settings for the next round, above the Explore
-page settings. They are saved with the reviewer's other settings, as the page settings are, and
-a round keeps the values it started with: a change applies to the next round, not to a round
-that runs.
+Every screen of the Explore tab also shows the settings for the rounds, above the Explore
+page settings. They are saved with the reviewer's other settings, as the page settings are. A
+round keeps the writing style it started with: a change applies to the next round, not to a
+round that runs. Run-ahead applies to the question that waits at the reviewer's next action:
+turning it off then stops the forks that run.
 
 | Setting | Key | Effect |
 | --- | --- | --- |
 | **Writing style of the next round** | `W` | Simplified Technical English, the default: the prompts ask the agent to apply the writing rules of ASD-STE100 Simplified Technical English, without its controlled dictionary, to every text you read (short full sentences, one topic each, in the active voice, the ordinary technical words of the code's domain allowed, technical names kept as they are in the code), on every turn of the round, the conclusion and the quiz included. Plain: the agent writes in its own style, as before this setting existed. The style changes the wording and the length, not what the agent tells you. |
+| **Run ahead** | `z` | Off, the default. The recommended choice, or every choice: while a question waits for you, the reviewer forks the session of the agent in the pane once per such choice, as background `claude` processes, once the agent is idle. Each fork takes the turn that would follow that answer, on the prompt the agent would get, and the reviewer keeps what it submits. In this version nothing uses that turn yet: your answer still goes to the agent in the pane, and the forks are stopped and their transcripts deleted when you answer, cancel an answer, reset, or close the reviewer. Each fork costs about one agent turn (it reads the agent's prompt cache). It needs Claude Code in the agent's pane, started with options run-ahead knows and without a `--settings` of its own (a fork brings its own). What the forks do is written to `run-ahead.log` in the plugin's state directory. |
 
-Click the setting, or press `W` while you are not typing an answer, to turn it over. Rounds saved
-before this setting existed continue in the plain style.
+Click a setting, or press its key while you are not typing an answer, to change it. Rounds saved
+before the writing style existed continue in the plain style.
 
 ### Explore page settings
 

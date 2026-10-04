@@ -15,7 +15,7 @@ use review_test_support::{ReviewRepositoryFixture, repository_fixture};
 use review_ui::{Action, Theme};
 use ui_events::{RepositoryMetadataChanged, RepositoryRefreshFinished};
 
-use super::{Effects, Outputs, Setup};
+use super::{Effects, Outputs, RunAheadSetup, Setup};
 use crate::runtime::events;
 
 const EVENT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -65,6 +65,10 @@ impl EffectsFixture {
             page: review_explore_page::RoundPublisher::default(),
             page_opener: None,
             page_threads: std::sync::Arc::default(),
+            run_ahead: RunAheadSetup {
+                tools: test_fork_tools(),
+                log: Some(state.path().join("run-ahead.log")),
+            },
         };
         configure(&mut setup);
         let offline = setup.endpoint.is_err();
@@ -162,5 +166,15 @@ impl EffectsFixture {
     pub(in crate::runtime) fn wait_for<E: ApplicationEvent + Clone>(&mut self) -> E {
         let event = self.events_until::<E>().pop().unwrap();
         event.downcast_ref::<E>().unwrap().clone()
+    }
+}
+
+/// The `reviewer-control` Cargo built beside the test binary, for run-ahead's forks.
+pub(in crate::runtime) fn test_fork_tools() -> claude_fork::ForkTools {
+    let test = std::env::current_exe().unwrap();
+    // A test binary sits in `target/<profile>/deps`; the programs in `target/<profile>`.
+    let profile = test.parent().and_then(std::path::Path::parent).unwrap();
+    claude_fork::ForkTools {
+        control: profile.join("reviewer-control"),
     }
 }

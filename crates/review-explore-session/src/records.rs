@@ -7,7 +7,8 @@
 use review_explore::{
     DispatchResult, ExploreHistory, ExploreRound, InterviewUpdate, ReviewCompletion, ViewSave,
 };
-use review_explore_round_settings::WritingStyle;
+use review_explore_round_settings::{RunAhead, WritingStyle};
+use review_run_ahead::RoundForks;
 use review_store::{Error, Result, ReviewStore};
 use review_types::ReviewUnit;
 
@@ -48,6 +49,22 @@ impl SavedRounds {
     /// The writing style the reviewer's settings give the next round.
     pub(crate) fn next_writing(&self) -> Result<WritingStyle> {
         Ok(self.store.explore_round_settings()?.writing)
+    }
+
+    /// Which choices run-ahead prepares, as the reviewer's settings say now.
+    pub(crate) fn run_ahead(&self) -> Result<RunAhead> {
+        Ok(self.store.explore_round_settings()?.run_ahead)
+    }
+
+    /// Change the run-ahead forks saved beside the round `instance`, closed or not.
+    pub(crate) fn update_forks<T>(
+        &self,
+        unit: &ReviewUnit,
+        instance: &str,
+        update: impl FnOnce(&mut RoundForks) -> T,
+    ) -> Result<T> {
+        let records = self.store.lock_explore(unit)?;
+        Ok(records.update_round_forks(instance, update)?.0)
     }
 
     pub(crate) fn history(&self, unit: &ReviewUnit) -> Result<ExploreHistory> {
@@ -197,6 +214,7 @@ impl SavedRounds {
         records.save_history(&history)?;
         records.remove_round(instance)?;
         records.remove_view(instance)?;
+        records.remove_round_forks(instance)?;
         records.sync()
     }
 

@@ -9,6 +9,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
+name = "agent-fork"
+version = "0.2.0"
+dependencies = [
+ "nix",
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "aho-corasick"
 version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -382,6 +392,18 @@ dependencies = [
  "num-traits",
  "serde",
  "windows-link",
+]
+
+[[package]]
+name = "claude-fork"
+version = "0.2.0"
+dependencies = [
+ "agent-fork",
+ "herdr-client",
+ "review-run-ahead",
+ "serde_json",
+ "tempfile",
+ "time",
 ]
 
 [[package]]
@@ -4100,6 +4122,7 @@ dependencies = [
 name = "review-explore-session"
 version = "0.2.0"
 dependencies = [
+ "agent-fork",
  "component-core",
  "crossbeam-channel",
  "eyre",
@@ -4113,6 +4136,7 @@ dependencies = [
  "review-hunks",
  "review-mcp",
  "review-repository",
+ "review-run-ahead",
  "review-source",
  "review-state",
  "review-store",
@@ -4241,6 +4265,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "review-run-ahead"
+version = "0.2.0"
+dependencies = [
+ "agent-fork",
+ "herdr-client",
+ "review-explore",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "review-significance"
 version = "0.2.0"
 dependencies = [
@@ -4278,6 +4313,7 @@ dependencies = [
 name = "review-store"
 version = "0.2.0"
 dependencies = [
+ "agent-fork",
  "base64 0.22.1",
  "fs2",
  "getrandom 0.3.4",
@@ -4288,6 +4324,7 @@ dependencies = [
  "review-explore-round-settings",
  "review-hunks",
  "review-repository",
+ "review-run-ahead",
  "review-source",
  "review-threads",
  "review-types",
@@ -4411,6 +4448,8 @@ dependencies = [
 name = "reviewer"
 version = "0.2.0"
 dependencies = [
+ "agent-fork",
+ "claude-fork",
  "component-core",
  "crossbeam-channel",
  "crossterm 0.29.0",
@@ -4434,6 +4473,7 @@ dependencies = [
  "review-mcp-config",
  "review-repository",
  "review-round-conversation",
+ "review-run-ahead",
  "review-significance",
  "review-source",
  "review-state",

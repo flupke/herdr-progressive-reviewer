@@ -63,6 +63,11 @@ struct FocusEvent {
 }
 
 #[derive(Debug, Deserialize)]
+struct AgentStatusEvent {
+    agent_status: AgentStatus,
+}
+
+#[derive(Debug, Deserialize)]
 struct AgentDetectedEvent {
     pane_id: PaneId,
     workspace_id: WorkspaceId,
@@ -131,6 +136,26 @@ impl HerdrEventStream {
     }
 
     fn read_event(&mut self) -> Result<Option<HerdrEvent>> {
+        self.read_envelope()?.map_or(Ok(None), parse_stream_event)
+    }
+
+    /// The next status of a stream subscribed to one agent's status changes.
+    fn read_status(&mut self) -> Result<Option<AgentStatus>> {
+        let Some(envelope) = self.read_envelope()? else {
+            return Ok(None);
+        };
+        // Herdr names the event with a dot, as the subscription; its schema with an underscore.
+        if !matches!(
+            envelope.event.as_str(),
+            "pane.agent_status_changed" | "pane_agent_status_changed"
+        ) {
+            return Ok(None);
+        }
+        let event: AgentStatusEvent = parse_event(envelope.data, "read Herdr agent status event")?;
+        Ok(Some(event.agent_status))
+    }
+
+    fn read_envelope(&mut self) -> Result<Option<EventEnvelope>> {
         let line = match read_line(&mut self.reader, "read Herdr event") {
             Ok(line) => line,
             Err(Error::Io { source, .. }) if is_temporary_read_error(&source) => return Ok(None),
@@ -142,12 +167,12 @@ impl HerdrEventStream {
                 detail: "Herdr closed the event stream",
             });
         }
-        let envelope: EventEnvelope =
-            serde_json::from_slice(&line).map_err(|source| Error::Json {
+        serde_json::from_slice(&line)
+            .map(Some)
+            .map_err(|source| Error::Json {
                 operation: "read Herdr event",
                 source,
-            })?;
-        parse_stream_event(envelope)
+            })
     }
 }
 
@@ -231,7 +256,46 @@ impl HerdrClient {
         stream.forward_while(should_continue, send)
     }
 
+    /// Report the status of the agent of `pane_id` to `send`, then each status Herdr gives it,
+    /// until `send` returns false or the caller requests cancellation. The first report comes
+    /// once the subscription holds, so no change is missed between them.
+    pub fn forward_agent_status_while(
+        &self,
+        pane_id: &PaneId,
+        mut should_continue: impl FnMut() -> bool,
+        mut send: impl FnMut(AgentStatus) -> bool,
+    ) -> Result<()> {
+        let mut stream =
+            self.subscribe(&[json!({"type": "pane.agent_status_changed", "pane_id": pane_id.0})])?;
+        stream
+            .reader
+            .get_ref()
+            .set_read_timeout(Some(EVENT_CANCELLATION_POLL_INTERVAL))
+            .map_err(|source| Error::Io {
+                operation: "configure Herdr event cancellation",
+                path: self.socket_path.clone(),
+                source,
+            })?;
+        if let Some(agent) = self.get_agent(pane_id)?
+            && !send(agent.agent_status)
+        {
+            return Ok(());
+        }
+        while should_continue() {
+            if let Some(status) = stream.read_status()?
+                && !send(status)
+            {
+                break;
+            }
+        }
+        Ok(())
+    }
+
     fn subscribe_events(&self) -> Result<HerdrEventStream> {
+        self.subscribe(&event_subscriptions())
+    }
+
+    fn subscribe(&self, subscriptions: &[Value]) -> Result<HerdrEventStream> {
         let mut socket = self.connect(None)?;
         let request_id = format!(
             "progressive-reviewer-events-{}-{}",
@@ -241,7 +305,7 @@ impl HerdrClient {
         let request = json!({
             "id": &request_id,
             "method": "events.subscribe",
-            "params": {"subscriptions": event_subscriptions()}
+            "params": {"subscriptions": subscriptions}
         });
         write_json_line(&mut socket, &request, "subscribe to Herdr events")?;
         let mut reader = BufReader::new(socket);

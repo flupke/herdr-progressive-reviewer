@@ -55,6 +55,27 @@ pub(super) struct Setup {
     pub(super) page_opener: Option<PageOpener>,
     /// The Explore page's link to the review threads, which hold the round's conversation.
     pub(super) page_threads: Arc<PageThreads>,
+    /// How run-ahead forks the agent.
+    pub(super) run_ahead: RunAheadSetup,
+}
+
+/// How run-ahead forks the agent's session.
+pub(super) struct RunAheadSetup {
+    /// The programs the forks start through.
+    pub(super) tools: claude_fork::ForkTools,
+    /// Where run-ahead writes its log; `None` writes none.
+    pub(super) log: Option<PathBuf>,
+}
+
+impl RunAheadSetup {
+    /// The forks of the agents `agents` reports.
+    fn forks(self, agents: &HerdrClient) -> Arc<claude_fork::ClaudeForks> {
+        Arc::new(claude_fork::ClaudeForks::new(
+            agents.clone(),
+            self.tools,
+            self.log,
+        ))
+    }
 }
 
 /// Where effects deliver their results.
@@ -113,6 +134,7 @@ impl Effects {
             page,
             page_opener,
             page_threads,
+            run_ahead,
         } = setup;
         let messages = ApplicationEventSender::new(outputs.background.clone());
         let tracker = Arc::new(ReviewTracker::new(repository.clone(), store.clone()));
@@ -137,6 +159,7 @@ impl Effects {
             messages.clone(),
             Arc::clone(&page_threads),
         );
+        let forks = run_ahead.forks(&agents);
         let explore = ExploreSession::new(explore_session::Collaborators {
             repository: repository.clone(),
             store: store.clone(),
@@ -148,6 +171,7 @@ impl Effects {
             inbox: inbox_for(commands.clone()),
             turns,
             page,
+            forks,
         });
         let mut worker = Worker {
             repository: repository.clone(),
@@ -490,6 +514,13 @@ impl ActionExecutors for Performer<'_, '_> {
             }
             SettingsAction::SaveExploreWritingStyle(writing) => {
                 let saved = settings.save_explore_writing_style(writing)?;
+                let _ = self
+                    .effects
+                    .messages
+                    .send(ui_events::ExploreRoundSettingsLoaded(saved));
+            }
+            SettingsAction::SaveExploreRunAhead(run_ahead) => {
+                let saved = settings.save_explore_run_ahead(run_ahead)?;
                 let _ = self
                     .effects
                     .messages

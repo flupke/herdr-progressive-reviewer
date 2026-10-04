@@ -289,6 +289,41 @@ impl ReviewStore {
             .join(format!("{}.json", StateKey::hash(path).0))
     }
 
+    /// A store under `state_root` for the same repository, holding a copy of the review marks of
+    /// `review_unit` and nothing else: marks written to it leave this store's alone.
+    pub fn copy_marks_to(&self, review_unit: &ReviewUnit, state_root: &Path) -> Result<Self> {
+        let repository = self.repository_dir.file_name().unwrap_or_default();
+        let copy = Self {
+            state_root: state_root.to_owned(),
+            repository_dir: state_root.join(repository),
+            thread_sources: std::sync::Arc::default(),
+        };
+        let from = self.record_directory(review_unit);
+        let to = copy.record_directory(review_unit);
+        let io = |operation, path: &Path| {
+            let path = path.to_owned();
+            move |source| Error::StateIo {
+                operation,
+                path,
+                source,
+            }
+        };
+        fs::create_dir_all(&to).map_err(io("create copied review marks", &to))?;
+        let entries = match fs::read_dir(&from) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(copy),
+            Err(source) => return Err(io("read review marks", &from)(source)),
+        };
+        for entry in entries {
+            let entry = entry.map_err(io("read review marks", &from))?;
+            if entry.file_type().is_ok_and(|kind| kind.is_file()) {
+                let target = to.join(entry.file_name());
+                fs::copy(entry.path(), &target).map_err(io("copy review marks", &target))?;
+            }
+        }
+        Ok(copy)
+    }
+
     fn record_directory(&self, review_unit: &ReviewUnit) -> PathBuf {
         self.repository_dir
             .join("changes")

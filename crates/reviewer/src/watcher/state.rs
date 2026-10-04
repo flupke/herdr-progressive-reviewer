@@ -33,7 +33,10 @@ impl StateWatch {
                                     event.kind,
                                     notify::EventKind::Create(notify::event::CreateKind::Folder)
                                 ))
-                                && !path.as_os_str().as_encoded_bytes().ends_with(b".view.json")
+                                // Editor views and run-ahead's forks change no round.
+                                && ![b".view.json".as_slice(), b".forks.json"].iter().any(|suffix| {
+                                    path.as_os_str().as_encoded_bytes().ends_with(suffix)
+                                })
                         })
                 };
                 if relevant {
@@ -72,12 +75,14 @@ mod tests {
             .unwrap();
         // Drain the finite notification burst from the atomic domain write.
         while received.recv_timeout(Duration::from_millis(100)).is_ok() {}
-        fs::write(root.path().join("round.view.json.new"), b"{}").unwrap();
-        fs::rename(
-            root.path().join("round.view.json.new"),
-            root.path().join("round.view.json"),
-        )
-        .unwrap();
+        for record in ["round.view.json", "round.forks.json"] {
+            fs::write(root.path().join(format!("{record}.new")), b"{}").unwrap();
+            fs::rename(
+                root.path().join(format!("{record}.new")),
+                root.path().join(record),
+            )
+            .unwrap();
+        }
         assert!(matches!(
             received.recv_timeout(Duration::from_millis(200)),
             Err(mpsc::RecvTimeoutError::Timeout)

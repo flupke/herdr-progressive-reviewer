@@ -1,0 +1,21 @@
+[package]
+name = "claude-fork"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Forks of a Claude Code session in a Herdr pane, for run-ahead."
+
+[dependencies]
+agent-fork = { path = "../agent-fork" }
+herdr-client = { path = "../herdr-client" }
+review-run-ahead = { path = "../review-run-ahead" }
+serde_json.workspace = true
+time.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

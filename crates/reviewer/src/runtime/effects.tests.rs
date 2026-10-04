@@ -198,6 +198,21 @@ fn a_saved_writing_style_is_kept_for_the_next_round_and_shown_as_saved() {
 }
 
 #[test]
+fn a_saved_run_ahead_is_kept_and_shown_as_saved() {
+    use review_explore_round_settings::RunAhead;
+    let mut fixture = EffectsFixture::new(RepoType::Git);
+
+    fixture.perform([Action::Settings(SettingsAction::SaveExploreRunAhead(
+        RunAhead::Recommended,
+    ))]);
+
+    let ui_events::ExploreRoundSettingsLoaded(saved) =
+        fixture.wait_for::<ui_events::ExploreRoundSettingsLoaded>();
+    assert_eq!(saved.run_ahead, RunAhead::Recommended);
+    assert_eq!(saved, fixture.store.explore_round_settings().unwrap());
+}
+
+#[test]
 fn source_loads_prefer_frozen_content_when_a_deleted_path_is_recreated() {
     let files = repository_fixture(RepoType::Git);
     let deleted_content = b"fn deleted_from_worktree() {}\n";

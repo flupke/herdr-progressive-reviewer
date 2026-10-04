@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use review_explore_page_settings::{ExplorePageSetting, ExplorePageSettings};
-use review_explore_round_settings::{ExploreRoundSettings, WritingStyle};
+use review_explore_round_settings::{ExploreRoundSettings, RunAhead, WritingStyle};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -207,9 +207,24 @@ impl ReviewStore {
         &self,
         writing: WritingStyle,
     ) -> Result<ExploreRoundSettings> {
+        self.update_round_settings(|round| round.writing = writing)
+    }
+
+    /// Save which choices run-ahead prepares, keeping the other settings as saved, and return
+    /// the settings for the rounds as they are now saved.
+    pub fn save_explore_run_ahead(&self, run_ahead: RunAhead) -> Result<ExploreRoundSettings> {
+        self.update_round_settings(|round| round.run_ahead = run_ahead)
+    }
+
+    /// Change the settings for the Explore rounds with `change`, keeping the other settings as
+    /// saved, and return them as they are now saved.
+    fn update_round_settings(
+        &self,
+        change: impl FnOnce(&mut ExploreRoundSettings),
+    ) -> Result<ExploreRoundSettings> {
         let mut saved = ExploreRoundSettings::default();
         self.update_settings(|settings| {
-            settings.explore_round.writing = writing;
+            change(&mut settings.explore_round);
             saved = settings.explore_round;
         })?;
         Ok(saved)

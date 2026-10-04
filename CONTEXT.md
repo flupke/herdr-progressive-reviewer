@@ -240,3 +240,17 @@ records stay saved, but it is no longer shown or reopened, and its agent can no
 longer post to it. The next round starts over: the decisions of the rounds reset
 before it no longer stand, and its agent is told so.
 _Avoid_: new round (which is what Start begins), clear, restart
+
+**Run-ahead**:
+Preparing the agent's next turn while a question of an Explore round waits for the reviewer:
+the review tool forks the agent's session once per choice the reviewer's setting names, and
+each fork takes the turn that would follow that answer. What a fork submits is kept for its
+choice and shown to nobody. The interview stays the agent's in its pane.
+_Avoid_: prefetch, speculation, preparation (the earlier, discarded approaches)
+
+**Fork**:
+A copy of the agent's session that run-ahead starts in the background for one choice of the
+question that waits, with its own access value, which lets it submit only the turn it was
+forked for. A fork is discarded, stopped and its transcript deleted, once its question no
+longer waits.
+_Avoid_: branch, clone, subagent

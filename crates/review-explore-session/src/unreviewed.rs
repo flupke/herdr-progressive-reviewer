@@ -3,8 +3,8 @@
 
 use eyre::WrapErr;
 use review_explore_runner::Unreviewed;
-use review_repository::repository::PollResult;
-use review_state::ReviewStatus;
+use review_repository::repository::{PollResult, Snapshot};
+use review_state::{ReviewStatus, ReviewTracker};
 
 use crate::ExploreSession;
 use crate::unreviewed_diffs::UnreviewedDiffs;
@@ -15,15 +15,29 @@ impl ExploreSession {
     pub(crate) fn unreviewed(&mut self) -> eyre::Result<Unreviewed> {
         // An earlier prompt's diffs go: each prompt has a directory of its own.
         self.diffs = None;
-        self.write_unreviewed()
-            .wrap_err("Explore could not write the unreviewed diffs")
+        let (unreviewed, diffs) = self
+            .complete_snapshot()
+            .and_then(|snapshot| self.write_unreviewed(&self.tracker, &snapshot))
+            .wrap_err("Explore could not write the unreviewed diffs")?;
+        self.diffs = Some(diffs);
+        Ok(unreviewed)
     }
 
-    fn write_unreviewed(&mut self) -> eyre::Result<Unreviewed> {
+    /// The current snapshot, once the repository finished loading it.
+    pub(crate) fn complete_snapshot(&self) -> eyre::Result<Snapshot> {
         let PollResult::Complete(snapshot) = self.repository.poll()? else {
             eyre::bail!("the repository is still loading");
         };
-        let states = self.tracker.statuses(&snapshot)?;
+        Ok(snapshot)
+    }
+
+    /// Writes what no review mark of `tracker` covers in `snapshot`, in a directory of its own.
+    pub(crate) fn write_unreviewed(
+        &self,
+        tracker: &ReviewTracker,
+        snapshot: &Snapshot,
+    ) -> eyre::Result<(Unreviewed, UnreviewedDiffs)> {
+        let states = tracker.statuses(snapshot)?;
         let moved = self.state.comparison.as_ref().is_some_and(|comparison| {
             !comparison.checkpoint.matches(
                 snapshot.identity.review_unit(),
@@ -37,7 +51,7 @@ impl ExploreSession {
             .filter(|(_, state)| state.status != ReviewStatus::Reviewed)
             .map(|(file, _)| file)
             .collect();
-        let diffs = UnreviewedDiffs::write(&self.tracker, &snapshot, open.iter().copied())?;
+        let diffs = UnreviewedDiffs::write(tracker, snapshot, open.iter().copied())?;
         let unreviewed = Unreviewed {
             directory: diffs.directory().to_owned(),
             files: open.len(),
@@ -48,7 +62,6 @@ impl ExploreSession {
                     .into()
             }),
         };
-        self.diffs = Some(diffs);
-        Ok(unreviewed)
+        Ok((unreviewed, diffs))
     }
 }

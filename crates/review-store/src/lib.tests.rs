@@ -245,3 +245,25 @@ fn a_saved_writing_style_is_read_back_and_keeps_the_other_settings() {
         WritingStyle::SimplifiedTechnicalEnglish
     );
 }
+
+#[test]
+fn a_saved_run_ahead_is_read_back_and_keeps_the_writing_style() {
+    let fixture = Fixture::new();
+    fixture
+        .store()
+        .save_explore_writing_style(WritingStyle::Plain)
+        .unwrap();
+
+    let saved = fixture
+        .store()
+        .save_explore_run_ahead(review_explore_round_settings::RunAhead::Every)
+        .unwrap();
+
+    let settings = fixture.store().explore_round_settings().unwrap();
+    assert_eq!(settings, saved);
+    assert_eq!(
+        settings.run_ahead,
+        review_explore_round_settings::RunAhead::Every
+    );
+    assert_eq!(settings.writing, WritingStyle::Plain);
+}

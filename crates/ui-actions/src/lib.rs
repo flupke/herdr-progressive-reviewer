@@ -96,6 +96,8 @@ pub enum SettingsAction {
     SaveExplorePage(review_explore_page_settings::ExplorePageSetting),
     /// Save the writing style of the next Explore round.
     SaveExploreWritingStyle(review_explore_round_settings::WritingStyle),
+    /// Save which choices run-ahead prepares, from the next question on.
+    SaveExploreRunAhead(review_explore_round_settings::RunAhead),
 }
 
 /// Repository and review-mark work run by the repository worker.

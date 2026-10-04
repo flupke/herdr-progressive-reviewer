@@ -474,3 +474,54 @@ fn removing_one_round_and_its_view_keeps_other_records_and_lists_unreadable_file
     );
     assert_eq!(records.view(&kept_view.instance).unwrap(), Some(kept_view));
 }
+
+#[test]
+fn the_forks_of_a_round_are_saved_beside_it_even_once_it_is_closed_and_are_no_round() {
+    let fixture = Investigation::new();
+    let unit: ReviewUnit = "review".into();
+    let instance = fixture.round.exploration.instance.clone();
+    let records = fixture.store.lock_explore(&unit).unwrap();
+    assert_eq!(
+        records.round_forks(&instance).unwrap(),
+        RoundForks::default()
+    );
+    let mut history = records.history().unwrap();
+    history.closed = true;
+    records.save_history(&history).unwrap();
+    let fork = review_run_ahead::ForkRecord {
+        question: "cache-eviction".into(),
+        version: 1,
+        choice: "keep".into(),
+        session: "fork-session".into(),
+        transcripts: "/state/projects".into(),
+        reviewer: agent_fork::ProcessStamp { pid: 1, started: 2 },
+        process: None,
+        taken_at_ms: 3,
+        turn: None,
+        exit: None,
+        usage: None,
+        discarded: None,
+        cleaned: false,
+    };
+
+    let ((), saved) = records
+        .update_round_forks(&instance, |forks| forks.forks.push(fork.clone()))
+        .unwrap();
+    drop(records);
+
+    assert_eq!(saved.forks, [fork]);
+    assert_eq!(
+        fixture.store.load_round_forks(&unit, &instance).unwrap(),
+        saved
+    );
+    let listed: Vec<_> = fixture
+        .store
+        .lock_explore(&unit)
+        .unwrap()
+        .round_files()
+        .unwrap()
+        .into_iter()
+        .map(|(instance, _)| instance)
+        .collect();
+    assert_eq!(listed, [instance]);
+}

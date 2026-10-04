@@ -5,22 +5,26 @@ use review_explore::{AnswerInput, Command as ExploreCommand, Exploration, TopicS
 mod conclusion;
 
 impl ReviewFlowFixture {
-    fn explore(&self, command: ExploreCommand) {
+    pub(super) fn explore(&self, command: ExploreCommand) {
         self.runtime.perform([Action::Explore(command)]);
     }
 }
 
-struct ExploreFlow {
-    fixture: ReviewFlowFixture,
-    exploration: Exploration,
+pub(super) struct ExploreFlow {
+    pub(super) fixture: ReviewFlowFixture,
+    pub(super) exploration: Exploration,
     prompt_offset: usize,
     endpoint: review_mcp::Endpoint,
-    access: String,
+    pub(super) access: String,
 }
 
 impl ExploreFlow {
     fn start(kind: RepoType) -> Self {
-        let mut fixture = ReviewFlowFixture::start(kind);
+        Self::start_on(ReviewFlowFixture::start(kind))
+    }
+
+    /// Starts a round in `fixture`, and waits for its change to be captured.
+    pub(super) fn start_on(mut fixture: ReviewFlowFixture) -> Self {
         fixture.explore(ExploreCommand::Start);
         let comparison = loop {
             let event = fixture
@@ -41,7 +45,7 @@ impl ExploreFlow {
         }
     }
 
-    fn turn(&mut self, answer: Option<AnswerInput>, version: u32) {
+    pub(super) fn turn(&mut self, answer: Option<AnswerInput>, version: u32) {
         let question = self.exploration.questions.last().cloned();
         let request = self.exploration.request(answer, question.as_ref()).unwrap();
         self.fixture
@@ -93,7 +97,7 @@ impl ExploreFlow {
         );
     }
 
-    fn submit(&mut self, update: &serde_json::Value) -> rmcp::model::CallToolResult {
+    pub(super) fn submit(&mut self, update: &serde_json::Value) -> rmcp::model::CallToolResult {
         self.call(
             "submit_question",
             serde_json::json!({"review":update["instance"],"update":update}),
@@ -161,7 +165,7 @@ impl ExploreFlow {
         response
     }
 
-    fn wait_for_prompt(&mut self, request: &review_explore::TurnRequest) {
+    pub(super) fn wait_for_prompt(&mut self, request: &review_explore::TurnRequest) {
         let deadline = Instant::now() + crate::runtime::tests::HERDR_WAIT;
         loop {
             let text = fs::read_to_string(self.fixture.herdr.server.root().join("prompt.txt"))

@@ -15,6 +15,9 @@ impl ExploreSession {
         let result = self
             .cancel_latest(&answer)
             .map_err(|error| error.to_string());
+        if result.is_ok() {
+            self.run_ahead_discard(review_run_ahead::DiscardReason::AnswerCancelled);
+        }
         let outcome = result.as_ref().map(|_| ()).map_err(Clone::clone);
         let _ = self
             .events

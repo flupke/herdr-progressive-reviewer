@@ -32,6 +32,8 @@ mod mcp;
 mod agent_input;
 #[path = "runtime/explore.tests.rs"]
 mod explore_flow;
+#[path = "runtime/run_ahead.tests.rs"]
+mod run_ahead;
 
 const AGENT_E2E_AGENT_SOURCE: &str = "progressive-reviewer-e2e";
 
@@ -47,6 +49,7 @@ struct IsolatedHerdrServer {
     pane_id: PaneId,
     agent_binary: PathBuf,
     agent: String,
+    stand_in: run_ahead::StandIn,
 }
 
 impl IsolatedHerdrServer {
@@ -59,11 +62,40 @@ impl IsolatedHerdrServer {
     }
 
     fn start_native(repository_root: &Path) -> Self {
-        Self::start_with_lifecycle(repository_root, "codex", None, AgentLifecycle::Native)
+        Self::start_with_lifecycle(
+            repository_root,
+            "codex",
+            None,
+            AgentLifecycle::Native,
+            run_ahead::StandIn::Plain,
+        )
     }
 
     fn start_with_session(repository_root: &Path, agent: &str, session: Option<&str>) -> Self {
-        Self::start_with_lifecycle(repository_root, agent, session, AgentLifecycle::Reported)
+        Self::start_with_lifecycle(
+            repository_root,
+            agent,
+            session,
+            AgentLifecycle::Reported,
+            run_ahead::StandIn::Plain,
+        )
+    }
+
+    /// A Claude Code stand-in with the session `session` that run-ahead can fork, as
+    /// `stand_in` says: a script named `claude` runs the test agent, and runs a fork stand-in
+    /// instead when it is started as a fork.
+    fn start_forkable(repository_root: &Path, session: &str, stand_in: run_ahead::StandIn) -> Self {
+        let server = Self::start_with_lifecycle(
+            repository_root,
+            "claude",
+            Some(session),
+            AgentLifecycle::Reported,
+            stand_in,
+        );
+        // Herdr's own detection follows the agent's turns from here on.
+        server.release_agent();
+        server.wait_for_agent(Some(session));
+        server
     }
 
     fn start_with_lifecycle(
@@ -71,6 +103,7 @@ impl IsolatedHerdrServer {
         agent: &str,
         session: Option<&str>,
         lifecycle: AgentLifecycle,
+        stand_in: run_ahead::StandIn,
     ) -> Self {
         let server = HerdrTestServer::start(repository_root);
         let prompt_path = server.root().join("prompt.txt");
@@ -89,25 +122,28 @@ impl IsolatedHerdrServer {
                 AgentLifecycle::Native => "0",
             }
         );
-        let workspace = server.run_cli_json(&[
+        let mut environment = vec![
+            prompt_environment,
+            binary_environment,
+            agent_environment,
+            session_environment,
+            report_environment,
+        ];
+        environment.extend(stand_in.environment(server.root()));
+        let repository = repository_root.to_string_lossy();
+        let mut arguments = vec![
             "workspace",
             "create",
             "--cwd",
-            &repository_root.to_string_lossy(),
+            &repository,
             "--label",
             "review-source-e2e",
-            "--env",
-            &prompt_environment,
-            "--env",
-            &binary_environment,
-            "--env",
-            &agent_environment,
-            "--env",
-            &session_environment,
-            "--env",
-            &report_environment,
             "--no-focus",
-        ]);
+        ];
+        for variable in &environment {
+            arguments.extend(["--env", variable]);
+        }
+        let workspace = server.run_cli_json(&arguments);
         let workspace_id = WorkspaceId(
             workspace["result"]["workspace"]["workspace_id"]
                 .as_str()
@@ -122,13 +158,18 @@ impl IsolatedHerdrServer {
         );
         let current_test_binary = std::env::current_exe().unwrap();
         let agent_binary = server.root().join(agent);
-        fs::copy(current_test_binary, &agent_binary).unwrap();
+        if stand_in == run_ahead::StandIn::Plain {
+            fs::copy(current_test_binary, &agent_binary).unwrap();
+        } else {
+            run_ahead::StandIn::install(server.root(), &agent_binary);
+        }
         let server = Self {
             server,
             workspace_id,
             pane_id,
             agent_binary,
             agent: agent.into(),
+            stand_in,
         };
         server.start_agent();
         server.wait_for_agent(session);
@@ -136,15 +177,18 @@ impl IsolatedHerdrServer {
     }
 
     fn start_agent(&self) {
-        self.run_cli(&[
-            "pane",
-            "run",
-            &self.pane_id.0,
-            &self.agent_binary.to_string_lossy(),
-            "--exact",
-            "runtime::tests::e2e_agent_process",
-            "--nocapture",
-        ]);
+        let agent = self.agent_binary.to_string_lossy();
+        let mut command = vec!["pane", "run", &self.pane_id.0, &agent];
+        // A forkable stand-in's script runs the test agent itself, so that its command line
+        // holds only what Claude Code would.
+        if self.stand_in == run_ahead::StandIn::Plain {
+            command.extend([
+                "--exact",
+                "runtime::tests::e2e_agent_process",
+                "--nocapture",
+            ]);
+        }
+        self.run_cli(&command);
     }
 
     fn stop_agent(&self) {
@@ -337,6 +381,7 @@ fn e2e_agent_process() {
         .append(true)
         .open(prompt_path)
         .unwrap();
+    let mut transcript = run_ahead::StandInTranscript::open();
     let marker = if agent == "claude" { "❯" } else { "›" };
     print!("\x1b[2J\x1b[H{marker} ");
     io::stdout().flush().unwrap();
@@ -354,6 +399,7 @@ fn e2e_agent_process() {
         if let Some(prompt) = input.handle(event) {
             writeln!(prompt_file, "{prompt}").unwrap();
             prompt_file.flush().unwrap();
+            transcript.turn();
             turns.prompt_read();
         }
         let screen = if input.text().is_empty() {
@@ -531,6 +577,14 @@ impl ReviewFlowFixture {
         let repository_files = repository_fixture(repository_type);
         repository_files.write("reviewed.rs", b"pub fn reviewed() {}\n");
         let herdr = IsolatedHerdrServer::start_native(repository_files.root());
+        Self::start_on(repository_files, herdr)
+    }
+
+    /// The review of `repository_files`, whose agent runs in `herdr`.
+    fn start_on(
+        repository_files: Box<dyn review_test_support::ReviewRepositoryFixture>,
+        herdr: IsolatedHerdrServer,
+    ) -> Self {
         let port = review_test_support::TestPort::new();
         let endpoint =
             review_mcp::Endpoint::for_repository(repository_files.root(), Some(port.number()))

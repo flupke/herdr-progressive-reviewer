@@ -8,21 +8,18 @@ use crate::ExploreSession;
 
 impl ExploreSession {
     pub(crate) fn submission(&mut self, request: Request) {
+        // A fork's calls never reach the round.
+        let Some(request) = self.run_ahead_call(request) else {
+            return;
+        };
         if let Err(error) = self.authorize(&request.access) {
             request.respond(Err(error.to_string()));
             return;
         }
-        let update = match &request.operation {
-            Operation::SubmitQuestion(update)
-                if update.next.is_some() && update.conclusion.is_none() =>
-            {
-                (**update).clone()
-            }
-            Operation::SubmitConclusion(conclusion) => (**conclusion).clone().into_update(),
-            _ => {
-                request.respond(Err(
-                    "submit_question requires one question; use submit_conclusion to finish".into(),
-                ));
+        let update = match update_of(&request.operation) {
+            Ok(update) => update,
+            Err(error) => {
+                request.respond(Err(error));
                 return;
             }
         };
@@ -133,5 +130,18 @@ impl ExploreSession {
             )?;
         }
         Ok(())
+    }
+}
+
+/// The agent's turn an Explore tool call carries, or why it carries none.
+pub(crate) fn update_of(operation: &Operation) -> Result<review_explore::InterviewUpdate, String> {
+    match operation {
+        Operation::SubmitQuestion(update)
+            if update.next.is_some() && update.conclusion.is_none() =>
+        {
+            Ok((**update).clone())
+        }
+        Operation::SubmitConclusion(conclusion) => Ok((**conclusion).clone().into_update()),
+        _ => Err("submit_question requires one question; use submit_conclusion to finish".into()),
     }
 }

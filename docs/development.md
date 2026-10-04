@@ -1472,3 +1472,68 @@ to an archived round. Queued work stays paused on restore, and retries cannot al
 its authorized scope. Runtime access, connections and caches are never persisted.
 Native identity compares agent/kind/value, allowing a resumed pane; unresolved
 original bindings and actual replacement conversations fail closed for continuation.
+
+### Run-ahead
+
+Run-ahead forks the pane agent's session while a question waits (setting `RunAhead` in
+[`crates/review-explore-round-settings`](../crates/review-explore-round-settings), pane key
+`z`, saved under `explore_round` in `settings.json`, read after each input of the session:
+turned off, it discards the forks that run). In this version
+the forks' turns are kept and never used. The pieces:
+
+- [`crates/agent-fork`](../crates/agent-fork): a fork process that does not outlive the
+  reviewer. `Launcher` starts every fork from one thread that lives as long as it, through
+  `reviewer-control fork-exec <reviewer pid> <program> <arguments>`, which arms
+  `PR_SET_PDEATHSIG(SIGTERM)` (the signal fires when that thread ends), checks that the reviewer
+  still runs, then runs the program in its own place. A fork stays in the reviewer's process
+  group, so the hang-up of the pane's terminal reaches it too: never give it a process group or
+  a session of its own. `RunningFork::terminate` sends SIGTERM, then SIGKILL three seconds later.
+  `ProcessStamp` (process ID and start time) names a process across a restart;
+  `stop_recorded` stops a fork a stopped reviewer left, when its command line still holds its
+  session ID.
+- [`crates/review-run-ahead`](../crates/review-run-ahead): the records saved beside each round
+  (`RoundForks`, `ForkRecord`: question, choice, session ID chosen before the start, transcript
+  directory, the reviewer's and the fork's `ProcessStamp`, the kept turn until the fork is
+  discarded, its end and tokens, why it was discarded, whether it is cleaned up), and
+  `ForkHost`, the interface to the agent whose session is forked.
+- [`crates/claude-fork`](../crates/claude-fork): `ClaudeForks`, the `ForkHost` for Claude Code.
+  It reads the pane agent's process from `/proc` (program, arguments without those that pick a
+  session, an interactive mode or a prompt, working directory, environment without `HERDR_*`;
+  `arguments.rs` lists every option of `claude` with its values, and an option it does not know,
+  or a `--settings` of the agent's own, means no fork: a fork starts with the agent's exact flags
+  or not at all),
+  its transcript (`<config>/projects/*/<session>.jsonl`: the last `user` or `assistant` entry
+  tells that the session moved, the last assistant entry gives the model), and starts
+  `claude <pane arguments> -p --resume <session> --fork-session --session-id <new>
+  --output-format stream-json --verbose --settings <hook> --allowedTools <the two submit tools>
+  --model <model>`. The hook is `reviewer-control fork-guard`: no tool that writes, no MCP tool
+  but the two submits, and only reading shell commands; a hook keeps the tool list, and so the
+  prompt cache, as the agent's. A fork's tokens are the sum of its own assistant messages, by
+  message ID. Herdr's `pane.agent_status_changed` subscription tells when the agent is idle
+  (`HerdrClient::forward_agent_status_while` reports the current status once subscribed, then
+  each change); nothing polls. Dropping `ClaudeForks` lets the discards under way finish.
+- `review-explore-session/src/run_ahead/`: after every input, the session watches the question
+  that waits (`run_ahead_reconcile`) and discards the forks of one that no longer does. Forks are
+  taken once the agent is idle, again when it worked and its session moved; each gets the prompt
+  `PreparedTurn` writes for its choice, with its own request, answer and access value, and the
+  unreviewed lines as they will be after the answer (the question's marks applied to a copy of
+  the review marks). A fork's submit is checked on a copy of the round and kept in
+  `<round>.forks.json` beside the round; any call with a discarded fork's access is refused.
+  Answer, Cancel answer, Reset, a new round, turning run-ahead off and closing the reviewer
+  discard the forks; a reopened reviewer discards the forks of the review's rounds that a
+  stopped reviewer left (forks of a reviewer that still runs stay its own). The state watcher
+  ignores `.forks.json`, as it ignores editor views.
+
+Tests: `review-explore-session` checks the session with a fake `ForkHost` (prompts, access,
+discards, records); `reviewer` checks real forks on an isolated Herdr with a forkable Claude Code
+stand-in (`runtime/run_ahead.tests.rs`), and the parent-death signal (`tests/fork_lifetime.rs`).
+One test runs real Claude Code turns on your subscription, at `claude-sonnet-5-5`, and is
+ignored by default:
+
+```sh
+cargo build -p reviewer --bin reviewer-control -p review-mcp-config --bin reviewer-mcp
+cargo nextest run -p reviewer a_real_claude_code_fork --run-ignored only
+```
+
+It writes the agent's and the forks' transcripts in your Claude Code configuration and deletes
+them at the end.

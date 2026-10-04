@@ -10,7 +10,7 @@ use super::{
     Response, event_subscriptions, read_line, validate_response,
 };
 use crate::Error;
-use crate::protocol::{EntrypointId, HerdrEvent, PluginPane, TabId, WorkspaceId};
+use crate::protocol::{AgentStatus, EntrypointId, HerdrEvent, PluginPane, TabId, WorkspaceId};
 
 #[test]
 fn reads_the_herdr_focus_event_envelope() {
@@ -207,4 +207,18 @@ fn line_reader_accepts_the_limit_and_rejects_one_extra_byte() {
         read_line(&mut large, "test"),
         Err(Error::Protocol { .. })
     ));
+}
+
+#[test]
+fn an_agent_status_stream_reads_each_status_and_skips_other_events() {
+    let mut stream = event_stream(&[
+        r#"{"event":"pane.agent_status_changed","data":{"pane_id":"w1:p1","workspace_id":"w1","agent_status":"working"}}"#,
+        r#"{"event":"pane_focused","data":{"pane_id":"w1:p1"}}"#,
+        r#"{"event":"pane_agent_status_changed","data":{"pane_id":"w1:p1","workspace_id":"w1","agent_status":"idle"}}"#,
+    ]);
+
+    assert_eq!(stream.read_status().unwrap(), Some(AgentStatus::Working));
+    assert_eq!(stream.read_status().unwrap(), None);
+    assert_eq!(stream.read_status().unwrap(), Some(AgentStatus::Idle));
+    assert!(stream.read_status().is_err());
 }

@@ -59,7 +59,7 @@ use terminal::{CursorBackend, TerminalBackend};
 use ui_events::{AnimationTick, RepositoryRefreshStarted, ToastExpirationTick};
 
 use crate::watcher::RepositoryWatcher;
-use effects::{Effects, Outputs, Setup};
+use effects::{Effects, Outputs, RunAheadSetup, Setup};
 use route::{
     ApplicationTick, RepositoryRefreshDue, Route, StopRequested, TerminalFailed, TerminalFocused,
 };
@@ -181,6 +181,10 @@ impl Runtime {
                 page: page_round,
                 page_opener: Some(self.page_opener()),
                 page_threads: Arc::clone(&page_threads),
+                run_ahead: RunAheadSetup {
+                    tools: claude_fork::ForkTools::beside_current_exe()?,
+                    log: Some(self.state_dir.join("run-ahead.log")),
+                },
             },
             &Outputs {
                 background: event_sender.clone(),

@@ -52,6 +52,7 @@ impl ExploreSession {
         let Some(unit) = self.state.loaded_unit.clone() else {
             return;
         };
+        self.run_ahead_restore();
         let restored = self.load_for_restore(&unit);
         let (event, toast) = match restored {
             Ok((mut event, toast)) => {

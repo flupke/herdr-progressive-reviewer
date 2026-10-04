@@ -192,6 +192,8 @@ pub enum ExploreStartShortcut {
 pub enum ExploreSettingShortcut {
     /// Turn over the writing style of the next round.
     WritingStyle,
+    /// Change which choices run-ahead prepares: off, the recommended one, every one.
+    RunAhead,
     /// Change a setting of the Explore page.
     Page(ExplorePageSettingShortcut),
 }

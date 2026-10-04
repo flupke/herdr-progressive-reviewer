@@ -37,6 +37,8 @@ mod page_actions;
 mod quiz;
 #[path = "recovery.tests.rs"]
 mod recovery;
+#[path = "run_ahead.tests.rs"]
+mod run_ahead;
 #[path = "start_block.tests.rs"]
 mod start_block;
 
@@ -60,6 +62,8 @@ struct Harness {
     page: review_explore_page::RoundFeed,
     delivered: usize,
     threads: review_thread_service::Worker,
+    /// The agent's forks, as run-ahead starts them.
+    forks: run_ahead::FakeForks,
     files: Box<dyn ReviewRepositoryFixture>,
     _state: TempDir,
 }
@@ -111,6 +115,7 @@ impl Harness {
                 inbox: Inbox::new(|_| {}),
                 turns: None,
                 page: publisher,
+                forks: Arc::new(run_ahead::FakeForks::default()),
             }),
             events,
             event_sender,
@@ -126,6 +131,7 @@ impl Harness {
             page,
             delivered: 0,
             threads,
+            forks: run_ahead::FakeForks::default(),
             files,
             _state: state,
         };
@@ -157,6 +163,7 @@ impl Harness {
             }),
             turns: self.turns.clone(),
             page: publisher,
+            forks: Arc::new(self.forks.clone()),
         });
         let unit = self.unit.clone();
         self.session.checkpoint_changed(&unit);

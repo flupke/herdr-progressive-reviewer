@@ -60,6 +60,7 @@ impl ExploreComponent {
         self.editing = false;
         match setting {
             ExploreSettingShortcut::WritingStyle => self.round_settings.toggle_writing(),
+            ExploreSettingShortcut::RunAhead => self.round_settings.cycle_run_ahead(),
             ExploreSettingShortcut::Page(setting) => {
                 self.page_settings.change(setting, &self.keymap)
             }

@@ -1,11 +1,13 @@
 //! The Explore record format and exclusive, locked access to one review's records.
 //!
-//! Each review keeps a history index, one file per round and one editor view per round.
+//! Each review keeps a history index, one file per round, one editor view per round, and the
+//! record of the run-ahead forks of each round that had some.
 //! The store only reads, writes and removes them; what a change means belongs to the
 //! Explore session.
 use super::{Error, Result, ReviewStore, StateKey};
 use fs2::FileExt;
 use review_explore::{ExploreHistory, ExploreRound, ViewSave};
+use review_run_ahead::RoundForks;
 use review_types::ReviewUnit;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{
@@ -22,6 +24,8 @@ const VERSION: u32 = 2;
 // A round grows across many valid 1 MiB submissions. This is not a source archive.
 const MAX_DOMAIN: u64 = 256 * 1024 * 1024;
 const MAX_VIEW: u64 = 16 * 1024 * 1024;
+// The forks of a round: a few small records per question.
+const MAX_FORKS: u64 = 16 * 1024 * 1024;
 
 #[derive(Deserialize, Serialize)]
 struct Stored<T> {
@@ -118,9 +122,40 @@ impl ExploreRecords<'_> {
         )
     }
 
+    /// The run-ahead forks of the round `instance`; none when it never had any.
+    fn round_forks(&self, instance: &str) -> Result<RoundForks> {
+        self.store.load_round_forks(&self.unit, instance)
+    }
+
+    /// Change the record of the run-ahead forks of the round `instance`, whether or not the
+    /// round is still the editable latest one: forks are processes and files to clean up, not
+    /// decisions of the round.
+    pub fn update_round_forks<T>(
+        &self,
+        instance: &str,
+        update: impl FnOnce(&mut RoundForks) -> T,
+    ) -> Result<(T, RoundForks)> {
+        let mut forks = self.round_forks(instance)?;
+        let original = forks.clone();
+        let result = update(&mut forks);
+        if forks != original {
+            self.store.write_explore(
+                &self.store.round_forks_path(&self.unit, instance)?,
+                &forks,
+                MAX_FORKS,
+            )?;
+        }
+        Ok((result, forks))
+    }
+
     /// Remove a round file; a missing file is already removed.
     pub fn remove_round(&self, instance: &str) -> Result<()> {
         ReviewStore::remove_explore_file(&self.store.explore_path(&self.unit, instance)?)
+    }
+
+    /// Remove the record of a round's run-ahead forks; a missing file is already removed.
+    pub fn remove_round_forks(&self, instance: &str) -> Result<()> {
+        ReviewStore::remove_explore_file(&self.store.round_forks_path(&self.unit, instance)?)
     }
 
     /// Remove an editor view file; a missing file is already removed.
@@ -330,6 +365,21 @@ impl ReviewStore {
         Ok(self
             .explore_review(unit)?
             .join(format!("{instance}.view.json")))
+    }
+
+    fn round_forks_path(&self, unit: &ReviewUnit, instance: &str) -> Result<PathBuf> {
+        Self::explore_id(instance)?;
+        Ok(self
+            .explore_review(unit)?
+            .join(format!("{instance}.forks.json")))
+    }
+
+    /// The run-ahead forks of the round `instance`; none when it never had any.
+    pub fn load_round_forks(&self, unit: &ReviewUnit, instance: &str) -> Result<RoundForks> {
+        Ok(
+            Self::read_explore(&self.round_forks_path(unit, instance)?, MAX_FORKS)?
+                .unwrap_or_default(),
+        )
     }
 
     pub fn load_explore_view(&self, unit: &ReviewUnit, instance: &str) -> Result<Option<ViewSave>> {

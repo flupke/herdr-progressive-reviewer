@@ -72,6 +72,10 @@ fn main() -> eyre::Result<()> {
         Some("mcp-install") => mcp_config::install(),
         Some("stats") => stats::Stats::from_args(env::args().skip(2))?.run(),
         Some("explore-page") => explore_page::OpenExplorePage::from_env()?.run(),
+        // A run-ahead fork starts through this, which ties its life to the reviewer's.
+        Some("fork-exec") => Err(agent_fork::run_wrapper(env::args_os().skip(2)).into()),
+        // The hook of every run-ahead fork, which keeps it read-only.
+        Some("fork-guard") => std::process::exit(claude_fork::run_guard()),
         _ => Control::from_env()?.run(),
     }
 }

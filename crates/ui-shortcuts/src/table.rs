@@ -676,6 +676,15 @@ pub(crate) const SHORTCUTS: &[ShortcutDefinition] = &[
     },
     ShortcutDefinition {
         description: Some(
+            "Explore round settings: change which choices run-ahead prepares (off / recommended / every)",
+        ),
+        bindings: &[ShortcutBinding::one(
+            Key::Char('z'),
+            explore_setting(ExploreSettingShortcut::RunAhead),
+        )],
+    },
+    ShortcutDefinition {
+        description: Some(
             "Explore page settings: turn over opening the page on Start / network access",
         ),
         bindings: &[

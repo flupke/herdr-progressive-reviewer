@@ -23,6 +23,46 @@ struct FileRequest<'a> {
     reopened: Vec<&'a CodeLocation>,
 }
 
+/// One step of a turn's marks: first what an answer settled and reopened, file by file, then
+/// each line range the agent found not relevant, with its mark.
+struct MarkStep<'a> {
+    request: FileRequest<'a>,
+    not_relevant: Option<&'a NotRelevantMark>,
+}
+
+impl<'a> MarkStep<'a> {
+    fn of(snapshot: &'a Snapshot, update: &'a InterviewUpdate) -> Vec<Self> {
+        let settled = FileRequest::group(snapshot, &update.reviewed, &update.reopened)
+            .into_iter()
+            .map(|request| Self {
+                request,
+                not_relevant: None,
+            });
+        let not_relevant = update.not_relevant.iter().flat_map(|mark| {
+            FileRequest::group(snapshot, std::slice::from_ref(&mark.location), &[])
+                .into_iter()
+                .map(move |request| Self {
+                    request,
+                    not_relevant: Some(mark),
+                })
+        });
+        settled.chain(not_relevant).collect()
+    }
+}
+
+/// Applies the marks `update` asks for to `tracker`, which holds a copy of the review marks,
+/// as `author`, and tells nobody: the review marks as they will be once the reviewer answers.
+pub(crate) fn mark_copy(
+    tracker: &ReviewTracker,
+    snapshot: &Snapshot,
+    update: &InterviewUpdate,
+    author: &MarkAuthor,
+) {
+    for step in MarkStep::of(snapshot, update) {
+        let _ = step.request.apply(tracker, snapshot, author);
+    }
+}
+
 /// The marks a turn changed on one file.
 #[derive(Default)]
 struct FileChange {
@@ -233,21 +273,19 @@ impl ExploreSession {
             answer,
             ..TurnMarks::default()
         };
-        for request in FileRequest::group(snapshot, &update.reviewed, &update.reopened) {
-            let change = self.apply(snapshot, &request, &author, &mut marks);
-            marks.reviewed.extend(change.reviewed);
-        }
-        // One mark at a time, so the lines it marks keep its reason and test.
-        for mark in &update.not_relevant {
-            let location = std::slice::from_ref(&mark.location);
-            for request in FileRequest::group(snapshot, location, &[]) {
-                let change = self.apply(snapshot, &request, &author, &mut marks);
-                marks
-                    .not_relevant
-                    .extend(change.reviewed.into_iter().map(|location| NotRelevantMark {
-                        location,
-                        ..mark.clone()
-                    }));
+        for step in MarkStep::of(snapshot, update) {
+            let change = self.apply(snapshot, &step.request, &author, &mut marks);
+            match step.not_relevant {
+                // One mark at a time, so the lines it marks keep its reason and test.
+                Some(mark) => {
+                    marks
+                        .not_relevant
+                        .extend(change.reviewed.into_iter().map(|location| NotRelevantMark {
+                            location,
+                            ..mark.clone()
+                        }));
+                }
+                None => marks.reviewed.extend(change.reviewed),
             }
         }
         marks

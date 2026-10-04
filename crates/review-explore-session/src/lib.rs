@@ -17,6 +17,7 @@ mod page_save;
 mod quiz;
 mod records;
 mod restore;
+mod run_ahead;
 mod start_block;
 mod submission;
 mod turn;
@@ -24,6 +25,7 @@ mod turn_log;
 mod unreviewed;
 mod unreviewed_diffs;
 
+pub use run_ahead::RunAheadInput;
 pub use turn_log::TurnLog;
 
 use std::sync::Arc;
@@ -58,6 +60,8 @@ pub enum Input {
         command: review_explore_page::PageCommand,
         reply: review_explore_page::CommandReply,
     },
+    /// An event of run-ahead's forks, or of the agent they are forked from.
+    RunAhead(RunAheadInput),
 }
 
 /// Returns inputs the session produces later, such as prompt outcomes, to its owner's
@@ -92,6 +96,8 @@ pub struct Collaborators {
     pub turns: Option<TurnLog>,
     /// Where the session publishes the stage of its round for the Explore page.
     pub page: RoundPublisher,
+    /// The agent whose session run-ahead forks.
+    pub forks: Arc<dyn review_run_ahead::ForkHost>,
 }
 
 /// The Explore session of one reviewer process.
@@ -116,6 +122,8 @@ pub struct ExploreSession {
     diffs: Option<unreviewed_diffs::UnreviewedDiffs>,
     /// Why no round can start, as the latest review marks the session read say.
     start_block: Option<review_explore::StartBlock>,
+    /// The forks of the question that waits.
+    run_ahead: run_ahead::RunAheadState,
     state: State,
 }
 
@@ -226,6 +234,12 @@ fn publish_committed(events: &ApplicationEventSender, round: ExploreRound) -> bo
         .is_ok()
 }
 
+impl Drop for ExploreSession {
+    fn drop(&mut self) {
+        self.run_ahead_close();
+    }
+}
+
 impl std::fmt::Debug for ExploreSession {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
@@ -248,6 +262,7 @@ impl ExploreSession {
             inbox,
             turns,
             page,
+            forks,
         } = collaborators;
         Self {
             repository,
@@ -265,6 +280,7 @@ impl ExploreSession {
             earlier_citations: page::PageCitations::default(),
             diffs: None,
             start_block: None,
+            run_ahead: run_ahead::RunAheadState::new(forks),
             state: State::default(),
         }
     }
@@ -276,7 +292,9 @@ impl ExploreSession {
             Input::PromptFinished { event, attempt } => self.prompt_finished(*event, &attempt),
             Input::StorageChanged => self.storage_changed(),
             Input::Page { command, reply } => self.page_command(command, reply),
+            Input::RunAhead(input) => self.run_ahead_input(input),
         }
+        self.run_ahead_reconcile();
         self.publish_page();
     }
 
@@ -290,11 +308,13 @@ impl ExploreSession {
         if self.state.loaded_unit.as_ref() == Some(unit) {
             return;
         }
+        self.run_ahead_discard(review_run_ahead::DiscardReason::ReviewChanged);
         self.state = State {
             loaded_unit: Some(unit.clone()),
             ..State::default()
         };
         self.open();
+        self.run_ahead_reconcile();
         self.publish_page();
     }
 
@@ -410,6 +430,7 @@ impl ExploreSession {
     /// Takes `comparison`, the change a start captured, for the kickoff to come: the earlier
     /// round's agent and access no longer apply.
     fn begin_start(&mut self, comparison: Arc<Comparison>) {
+        self.run_ahead_discard(review_run_ahead::DiscardReason::NewRound);
         self.state.comparison = Some(comparison);
         self.state.agent = None;
         self.state.round = None;
@@ -421,6 +442,7 @@ impl ExploreSession {
     /// Close the round and forget it: reopening shows the start screen. A later
     /// round another reviewer started stays theirs, and out of view until reopening.
     fn reset(&mut self) {
+        self.run_ahead_discard(review_run_ahead::DiscardReason::Reset);
         self.cancel_record();
         let closed = self.state.round.as_ref().map_or(Ok(()), |round| {
             self.rounds.close(
