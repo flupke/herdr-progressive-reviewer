@@ -14,6 +14,11 @@
 //!     conclusion's implementation request, while it sends one, or else its next turn;
 //!   - `cancel`: the reviewer cancels the latest answer in the pane, and its question waits
 //!     again, with its recommendation shown at once: the reviewer has seen it;
+//!   - `reopen-unsent`: the reviewer reopens the review before the prompt the session sends
+//!     went out: the conclusion's implementation request, while it sends one, is saved but not
+//!     sent; or else the agent's next turn stopped;
+//!   - `reopen-sending`: the reviewer reopens the review while that prompt was being
+//!     delivered: whether the agent received it is unknown;
 //!   - `interrupt`: the agent stops before its next turn;
 //!   - `conclude`: the agent concludes the round, with an empty quiz, after a fixed recap of the
 //!     previous answer;
@@ -24,7 +29,11 @@
 //!   - `reset`: the reviewer resets the round, and no round is running;
 //!   - `kickoff`: the tool sent the kickoff of the round the reviewer started from the page,
 //!     and the agent works on its first turn;
-//!   - `fail-start`: that round could not start, and no round is running.
+//!   - `fail-start`: that round could not start, and no round is running; while nothing is
+//!     left to review, it failed for that reason;
+//!   - `earlier`: another reviewer saved a newer round of the review: the round stays where it
+//!     is, and offers only Reset;
+//!   - `fail-storage`: the review tool cannot save the reviewer's rounds any more.
 //! - `POST /test/sessions/{token}/review-everything`: the reviewer marks every changed line as
 //!   reviewed, and no round can start: nothing is left to review. The round stays where it is.
 //! - `POST /test/sessions/{token}/unreview-line`: the reviewer unmarks a line, and a round can

@@ -1,0 +1,27 @@
+use std::time::Instant;
+
+use crate::agent::AgentLink;
+use crate::threads::Reply;
+
+/// Hands each reply to the agent as soon as the reviewer writes it.
+pub struct ReplyQueue {
+    link: AgentLink,
+    sent: usize,
+}
+
+impl ReplyQueue {
+    pub fn new(link: AgentLink) -> Self {
+        Self { link, sent: 0 }
+    }
+
+    /// Sends `reply` to the agent at once.
+    pub fn push(&mut self, reply: Reply, _now: Instant) {
+        self.link.notify(&[reply]);
+        self.sent += 1;
+    }
+
+    /// The replies the agent was told about so far.
+    pub fn sent(&self) -> usize {
+        self.sent
+    }
+}

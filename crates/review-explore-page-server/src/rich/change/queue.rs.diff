@@ -1,0 +1,62 @@
+diff --git a/src/notify/queue.rs b/src/notify/queue.rs
+--- a/src/notify/queue.rs
++++ b/src/notify/queue.rs
+@@ -1,23 +1,51 @@
+ use std::time::Instant;
+ 
+ use crate::agent::AgentLink;
++use crate::notify::flush::{FlushPolicy, FlushReason};
+ use crate::threads::Reply;
+ 
+-/// Hands each reply to the agent as soon as the reviewer writes it.
++/// Holds the reviewer's replies until the flush policy lets them go, then hands them to the
++/// agent in one notification, oldest first.
+ pub struct ReplyQueue {
+     link: AgentLink,
++    policy: FlushPolicy,
++    waiting: Vec<Reply>,
++    last_push: Option<Instant>,
+     sent: usize,
+ }
+ 
+ impl ReplyQueue {
+-    pub fn new(link: AgentLink) -> Self {
+-        Self { link, sent: 0 }
++    pub fn new(link: AgentLink, policy: FlushPolicy) -> Self {
++        Self { link, policy, waiting: Vec::new(), last_push: None, sent: 0 }
+     }
+ 
+-    /// Sends `reply` to the agent at once.
+-    pub fn push(&mut self, reply: Reply, _now: Instant) {
+-        self.link.notify(&[reply]);
+-        self.sent += 1;
++    /// Queues `reply`, and sends the queue at once when it reached the policy's size cap.
++    pub fn push(&mut self, reply: Reply, now: Instant) {
++        self.waiting.push(reply);
++        self.last_push = Some(now);
++        if self.policy.is_full(self.waiting.len()) {
++            self.flush(FlushReason::Full);
++        }
++    }
++
++    /// Sends the queue when the reviewer has been idle for the policy's delay.
++    pub fn tick(&mut self, now: Instant) {
++        if let Some(last) = self.last_push {
++            if self.policy.is_idle(now.duration_since(last)) {
++                self.flush(FlushReason::Idle);
++            }
++        }
++    }
++
++    /// Sends every waiting reply in one notification, and empties the queue.
++    pub fn flush(&mut self, reason: FlushReason) {
++        if self.waiting.is_empty() {
++            return;
++        }
++        self.link.notify_batch(&self.waiting, reason);
++        self.sent += self.waiting.len();
++        self.waiting.clear();
++        self.last_push = None;
+     }
+ 
+     /// The replies the agent was told about so far.

@@ -1,7 +1,7 @@
 //! The explanation of the second fixed question: a Mermaid diagram that draws, wider than a
 //! phone's screen, and one that Mermaid cannot parse.
 
-pub(crate) const RATIONALE: &str = "\
+pub(super) const RATIONALE: &str = "\
 The kept draft can live in the round's record or in the editor state.
 
 ```mermaid

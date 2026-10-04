@@ -40,3 +40,17 @@ test('once a line is unreviewed, the reviewer starts a round', STARTING, async (
   await expect(screen.getByRole('status')).toContainText('Preparing the round');
   expect(await explore.starts()).toEqual([{ challenger: false }]);
 });
+
+test('a start that fails because nothing is left to review says why once', async ({ explore, screen }) => {
+  await explore.open();
+  await explore.reset();
+  // An exact action: the setup is a start under way when the last line gets reviewed.
+  await screen.getByRole('button', 'Start').tap();
+  await expect(screen.getByRole('status')).toContainText('Preparing the round');
+  await explore.reviewEverything();
+
+  await explore.failStart();
+  await expect(screen.getByRole('alert')).toContainText('The round could not be started');
+  await expect(screen.getByText(NOTHING_TO_REVIEW, { exact: false })).toHaveCount(1);
+  await expect(screen.getByRole('button', 'Start')).toBeDisabled();
+});

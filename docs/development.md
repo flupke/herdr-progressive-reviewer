@@ -237,8 +237,59 @@ again, then reload the page. The token stays `dev`, so the page opens again
 without a new address.
 
 The server's own options: `--port N` (`0` picks a free port), `--token T`
-(random when omitted), and `--dev DIR`, the page crate's directory to read the
-files from. Without `--dev`, it serves the files built into the binary.
+(random when omitted), `--data short|rich`, what the agent posts, and `--dev DIR`, the
+page crate's directory to read the files from. Without `--dev`, it serves the files built
+into the binary. The `short` data set, the default, is the one the e2e tests check; the
+`rich` one is as long as a real round (a design in four full parts, questions with several
+paragraphs of Context, tables, diagrams, three citations of a change of three files, a
+one-way question, a diagram that does not parse, a conclusion with a ten-line list and a
+quiz of three items), for the gallery below; `make explore-page
+EXPLORE_PAGE_ARGS='--data rich'` serves it. Both are in
+[`round_data.rs`](../crates/review-explore-page-server/src/round_data.rs).
+
+### Screenshot gallery
+
+```sh
+nix develop --command make explore-gallery
+```
+
+This takes a full-page screenshot of every state of the page, at 1280 and 390
+pixels wide, in the light and the dark theme, and writes them with a contact
+sheet, `index.html`, which shows each state's screenshots side by side. It starts
+the standalone server with the rich data set and, for each screenshot, moves a fresh
+session of it to the state, in a page loaded at that width and theme, through the
+e2e fixture's helpers (`openSession` in `tests/explore-page/tests/session.ts`) and
+exact actions on the page. It waits until the page shows the round's latest revision
+with its diagrams drawn, then makes the window as tall as the page, so that the
+sticky column of the reviewer's actions shows whole rather than scrolling inside
+itself, and shoots with the dev shell's headless Chromium. It calls no model, needs
+no network once the npm packages are installed, and is not part of `make check`. A
+state that fails to reach its page stops the run with its name.
+
+Each image is named `<state>-<width>-<theme>.png`, so two runs compare file by file.
+The variables, all optional:
+
+- `GALLERY_DIR`: the folder to write, new or empty. By default a new folder under the
+  system's temporary directory, which the run prints.
+- `GALLERY_COMPARE`: an earlier gallery's folder. The contact sheet then shows before
+  and after for each image that differs, marks the new ones, lists the ones that are
+  gone, and can hide the images that did not change; the run prints the counts.
+- `GALLERY_WIDTHS`: other widths, separated by spaces (`GALLERY_WIDTHS='1600 1280 900 390'`).
+- `GALLERY_STATES`: only these states, by name, separated by spaces.
+
+Two runs on the same code give the same files; an image differs only where the
+browser draws differently. The comparison is byte for byte, so such a difference
+also counts as a change. The states are listed once, in
+[`tests/explore-page/gallery/states.ts`](../tests/explore-page/gallery/states.ts),
+in the order of the contact sheet. To add a state of the page, add one entry there:
+a name, which never changes once given, since it names the files; a line that says
+what the state shows; and `reach`, which moves a fresh session, whose agent works on
+its first question, to the state with the fixture's helpers, and leaves the page
+showing it; the helpers of that file cover the usual paths (`after` for a move of the
+round, `question`, `conclusion`). Before an action the round no longer offers, hold the
+page (`refused` in that file) so that its poll does not follow the round first. A state
+that needs a new move of the round needs a control route of the server first, as
+for an e2e test.
 
 ### e2e tests
 
@@ -302,15 +353,19 @@ shows above it. The session's review has a fixed name, which the start screen sh
 `explore.sendKickoff()` puts the agent to work on it (or stands for a round
 started in the pane), `explore.failStart()` fails the start, and
 `explore.starts()` returns the starts the page sent. `explore.reviewEverything()` leaves
-nothing to review, so the start screen offers no start, and `explore.unreviewLine()` lets a
-round start again. An Implement from the page
+nothing to review, so the start screen offers no start and a start fails for that reason,
+and `explore.unreviewLine()` lets a round start again. An Implement from the page
 shows the request as being sent until `explore.deliverImplementation()`;
 `explore.implementInPane()` sends the conclusion's request from the pane, and
 `explore.implementations()` returns the lists the page sent. `explore.actions()`
 returns, by name, the other actions the page sent (Stop waiting, Retry, Cancel
 answer, Reset, a reply, a cancel of an implementation request), and
 `explore.holdPage()` stops the page from following the round, for a test of an
-action refused on a stale page. `explore.concludeWithQuiz()`
+action refused on a stale page. `explore.reopenBeforeSending()` and
+`explore.reopenWhileSending()` stand for a reopen of the review while the session sends a
+prompt (the request is then saved but not sent, or its delivery unknown; the turn stopped,
+or its delivery unknown), `explore.becomeEarlierRound()` makes the round an earlier one,
+and `explore.failStorage()` stands for a storage failure. `explore.concludeWithQuiz()`
 concludes with a quiz of two items, and `explore.quiz()` returns what the reviewer
 answered of it, as the review tool saves it. The server's control
 routes are listed in

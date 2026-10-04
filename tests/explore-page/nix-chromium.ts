@@ -8,7 +8,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { BrowserProvider } from '@e2e-dev/web';
 
-interface LocalLease {
+/** A headless Chromium this file started, which `stopChromium` stops. */
+export interface LocalLease {
   id: string;
   cdpEndpoint: string;
   pid: number;
@@ -89,47 +90,59 @@ async function stop(pid: number | undefined, profile: string): Promise<void> {
   rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
 }
 
+/**
+ * Starts a headless Chromium from `executable` with a profile of its own, and gives the address
+ * to attach to it over CDP; `signal`, when given, cancels the start. The screenshot gallery uses
+ * it directly.
+ */
+export async function startChromium(executable: string, signal?: AbortSignal): Promise<LocalLease> {
+  const profile = mkdtempSync(join(tmpdir(), 'e2e-chromium-'));
+  const child = spawn(executable, [...SWITCHES, `--user-data-dir=${profile}`, 'about:blank'], {
+    stdio: ['ignore', 'ignore', 'pipe'],
+    detached: true,
+  });
+  let timer: NodeJS.Timeout | undefined;
+  let onAbort: (() => void) | undefined;
+  try {
+    const cdpEndpoint = await new Promise<string>((resolve, reject) => {
+      let stderr = '';
+      timer = setTimeout(() => reject(new Error(`chromium did not start:\n${stderr}`)), 15_000);
+      child.stderr!.on('data', (chunk: Buffer) => {
+        stderr += chunk.toString();
+        const match = /DevTools listening on (ws:\/\/\S+)/.exec(stderr);
+        if (match) resolve(match[1]!);
+      });
+      child.on('error', reject);
+      child.on('exit', (code) => reject(new Error(`chromium exited with ${code}:\n${stderr}`)));
+      onAbort = () => reject(new Error('cancelled'));
+      if (signal?.aborted) onAbort();
+      signal?.addEventListener('abort', onAbort);
+    });
+    child.stderr!.resume();
+    child.unref();
+    return { id: `chromium-${child.pid}`, cdpEndpoint, pid: child.pid!, profile };
+  } catch (error) {
+    await stop(child.pid, profile);
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    if (onAbort) signal?.removeEventListener('abort', onAbort);
+  }
+}
+
+/** Stops a Chromium `startChromium` started, and removes its profile. */
+export async function stopChromium(lease: LocalLease): Promise<void> {
+  await stop(lease.pid, lease.profile);
+}
+
 export function nixChromium(executable: string): BrowserProvider {
   return {
     name: 'nix-chromium',
     async acquire(request) {
-      const profile = mkdtempSync(join(tmpdir(), 'e2e-chromium-'));
-      const child = spawn(executable, [...SWITCHES, `--user-data-dir=${profile}`, 'about:blank'], {
-        stdio: ['ignore', 'ignore', 'pipe'],
-        detached: true,
-      });
-      let timer: NodeJS.Timeout | undefined;
-      let onAbort: (() => void) | undefined;
-      try {
-        const cdpEndpoint = await new Promise<string>((resolve, reject) => {
-          let stderr = '';
-          timer = setTimeout(() => reject(new Error(`chromium did not start:\n${stderr}`)), 15_000);
-          child.stderr!.on('data', (chunk: Buffer) => {
-            stderr += chunk.toString();
-            const match = /DevTools listening on (ws:\/\/\S+)/.exec(stderr);
-            if (match) resolve(match[1]!);
-          });
-          child.on('error', reject);
-          child.on('exit', (code) => reject(new Error(`chromium exited with ${code}:\n${stderr}`)));
-          onAbort = () => reject(new Error('cancelled'));
-          if (request.signal.aborted) onAbort();
-          request.signal.addEventListener('abort', onAbort);
-        });
-        child.stderr!.resume();
-        child.unref();
-        const lease: LocalLease = { id: `chromium-${child.pid}`, cdpEndpoint, pid: child.pid!, profile };
-        return lease;
-      } catch (error) {
-        await stop(child.pid, profile);
-        throw error;
-      } finally {
-        clearTimeout(timer);
-        if (onAbort) request.signal.removeEventListener('abort', onAbort);
-      }
+      return startChromium(executable, request.signal);
     },
     async release(lease) {
-      const { pid, profile } = lease as unknown as LocalLease;
-      await stop(pid, profile);
+      await stopChromium(lease as unknown as LocalLease);
     },
   };
 }

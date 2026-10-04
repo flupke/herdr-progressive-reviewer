@@ -5,7 +5,7 @@
 
 use review_explore::Design;
 
-pub(crate) fn design() -> Design {
+pub(super) fn design() -> Design {
     Design {
         overview: "\
 The change keeps the reviewer's unsent draft when a round is reopened. It adds a draft field to \

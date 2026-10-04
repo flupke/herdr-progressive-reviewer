@@ -1,0 +1,11 @@
+use std::time::Duration;
+
+/// When the agent hears about new replies.
+#[derive(Clone, Copy, Debug)]
+pub struct FlushPolicy;
+
+impl FlushPolicy {
+    pub fn immediate() -> Self {
+        Self
+    }
+}

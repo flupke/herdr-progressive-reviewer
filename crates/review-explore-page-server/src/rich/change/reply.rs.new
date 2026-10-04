@@ -1,0 +1,27 @@
+use std::time::Instant;
+
+use crate::notify::flush::FlushReason;
+use crate::notify::queue::ReplyQueue;
+use crate::threads::{Reply, Thread, ThreadError};
+
+/// Saves the reviewer's reply to its thread, then queues it for the agent: the agent hears
+/// about it with the next flush, not at once.
+pub fn post_reply(
+    thread: &mut Thread,
+    queue: &mut ReplyQueue,
+    text: String,
+) -> Result<(), ThreadError> {
+    let reply = Reply::new(thread.id(), text);
+    thread.append(reply.clone())?;
+    queue.push(reply, Instant::now());
+    Ok(())
+}
+
+/// Closes the pane's threads, after the agent heard about every reply still waiting.
+pub fn close_threads(threads: &mut [Thread], queue: &mut ReplyQueue) -> Result<(), ThreadError> {
+    queue.flush(FlushReason::Closing);
+    for thread in threads {
+        thread.save()?;
+    }
+    Ok(())
+}

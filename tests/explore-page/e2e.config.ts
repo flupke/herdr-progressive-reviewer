@@ -1,19 +1,16 @@
 // e2e tests of the Explore page, run by `make e2e-explore` inside `make check`. Each target
 // starts its own standalone page server (crates/review-explore-page-server) on a free port.
-import { resolve } from 'node:path';
 import type { E2EConfig } from 'e2e';
 import { web } from '@e2e-dev/web';
 import { agent } from './model.ts';
 import { nixChromium } from './nix-chromium.ts';
-
-// Cargo's target directory, as `make e2e-explore` builds the server into it.
-const cargoTarget = resolve(import.meta.dirname, '../..', process.env.CARGO_TARGET_DIR ?? 'target');
+import { SERVER } from './server.ts';
 
 // Port 0: the runner picks a free port for each target, and starts one server for it.
 const page = (target: string) => ({
   url: 'http://127.0.0.1:0',
   command: {
-    executable: `${cargoTarget}/debug/explore-page-server`,
+    executable: SERVER,
     // The server's own round, which shows the fixed question, opens at `/?token=e2e`; it is for
     // looking at the page through e2e's MCP server (mcp-cli.mjs). Tests open rounds of their own.
     args: ['--port', '{port}', '--token', 'e2e'],

@@ -50,6 +50,21 @@ export interface Session {
    * request, while the session sends one, or else the prompt of its next turn.
    */
   agentDoesNotStart(): Promise<void>;
+  /**
+   * The reviewer reopens the review before the prompt the session sends went out: the
+   * conclusion's implementation request, while the session sends one, is saved but not sent;
+   * or else the agent's next turn stopped.
+   */
+  reopenBeforeSending(): Promise<void>;
+  /**
+   * The reviewer reopens the review while the prompt the session sends was being delivered:
+   * whether the agent received it is unknown.
+   */
+  reopenWhileSending(): Promise<void>;
+  /** Another reviewer saved a newer round of the review: this one offers only Reset. */
+  becomeEarlierRound(): Promise<void>;
+  /** The review tool cannot save the reviewer's rounds any more. */
+  failStorage(): Promise<void>;
   /** The answers the reviewer sent from the page, in order. */
   answers(): Promise<SentAnswer[]>;
   /** The diagram errors the page reported, each once: what the tool saves with a question. */
@@ -106,42 +121,70 @@ async function control(baseUrl: string | undefined, path: string, body?: object)
   return response;
 }
 
+/** The browser page a session's page opens in. */
+export interface SessionPage {
+  /** Loads `path` of the server. */
+  open(path: string): Promise<unknown>;
+  /** Aborts each request of the page to `url`, a glob. */
+  abort(url: string): Promise<unknown>;
+}
+
+/**
+ * Opens a session on the server at `baseUrl`, whose page opens in `page`. The `explore`
+ * fixture and the screenshot gallery (`gallery/`) both play rounds through it.
+ */
+export async function openSession(baseUrl: string | undefined, page: SessionPage): Promise<Session> {
+  const { token } = (await (await control(baseUrl, '/test/sessions')).json()) as { token: string };
+  const step = async (name: string, body?: object) => {
+    await control(baseUrl, `/test/sessions/${token}/${name}`, body);
+  };
+  const read = async <T>(name: string): Promise<T> => {
+    const response = await fetch(new URL(`/test/sessions/${token}/${name}`, baseUrl));
+    if (!response.ok) throw new Error(`GET ${name}: ${response.status}`);
+    return (await response.json()) as T;
+  };
+  return {
+    token,
+    open: async () => {
+      await page.open(`/?token=${token}`);
+    },
+    askQuestion: (question?: object) => step('question', question),
+    answerInPane: () => step('answer'),
+    cancelAnswerInPane: () => step('cancel'),
+    failDelivery: () => step('fail'),
+    agentDoesNotStart: () => step('not-started'),
+    reopenBeforeSending: () => step('reopen-unsent'),
+    reopenWhileSending: () => step('reopen-sending'),
+    becomeEarlierRound: () => step('earlier'),
+    failStorage: () => step('fail-storage'),
+    answers: () => read<SentAnswer[]>('answers'),
+    diagramErrors: () => read<unknown[]>('diagram-errors'),
+    implementInPane: () => step('implement'),
+    deliverImplementation: () => step('deliver'),
+    implementations: () => read<string[]>('implementations'),
+    interrupt: () => step('interrupt'),
+    conclude: () => step('conclude'),
+    concludeWithQuiz: () => step('conclude-with-quiz'),
+    quiz: () => read<QuizAnswers>('quiz'),
+    reset: () => step('reset'),
+    sendKickoff: () => step('kickoff'),
+    failStart: () => step('fail-start'),
+    starts: () => read<SentStart[]>('starts'),
+    reviewEverything: () => step('review-everything'),
+    unreviewLine: () => step('unreview-line'),
+    actions: () => read<string[]>('actions'),
+    holdPage: async () => {
+      await page.abort('**/status');
+    },
+  };
+}
+
 export const test = base.extend<{ explore: Session }>({
   explore: async ({ app, browser }, use) => {
-    const { token } = (await (await control(app.baseUrl, '/test/sessions')).json()) as { token: string };
-    const step = async (name: string, body?: object) => {
-      await control(app.baseUrl, `/test/sessions/${token}/${name}`, body);
+    const page: SessionPage = {
+      open: (path) => app.open(path),
+      abort: (url) => browser.route(url, (route) => route.abort()),
     };
-    const read = async <T>(name: string): Promise<T> => {
-      const response = await fetch(new URL(`/test/sessions/${token}/${name}`, app.baseUrl));
-      if (!response.ok) throw new Error(`GET ${name}: ${response.status}`);
-      return (await response.json()) as T;
-    };
-    await use({
-      token,
-      open: () => app.open(`/?token=${token}`),
-      askQuestion: (question?: object) => step('question', question),
-      answerInPane: () => step('answer'),
-      cancelAnswerInPane: () => step('cancel'),
-      failDelivery: () => step('fail'),
-      agentDoesNotStart: () => step('not-started'),
-      answers: () => read<SentAnswer[]>('answers'),
-      diagramErrors: () => read<unknown[]>('diagram-errors'),
-      implementInPane: () => step('implement'),
-      deliverImplementation: () => step('deliver'),
-      implementations: () => read<string[]>('implementations'),
-      interrupt: () => step('interrupt'),
-      conclude: () => step('conclude'),
-      concludeWithQuiz: () => step('conclude-with-quiz'),
-      quiz: () => read<QuizAnswers>('quiz'),
-      reset: () => step('reset'),
-      sendKickoff: () => step('kickoff'),
-      failStart: () => step('fail-start'),
-      starts: () => read<SentStart[]>('starts'),
-      reviewEverything: () => step('review-everything'),
-      unreviewLine: () => step('unreview-line'),
-      actions: () => read<string[]>('actions'),
-      holdPage: () => browser.route('**/status', (route) => route.abort()),
-    });
+    await use(await openSession(app.baseUrl, page));
   },
 });

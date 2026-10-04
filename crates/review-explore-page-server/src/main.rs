@@ -1,27 +1,28 @@
 //! Serves the Explore page alone, with no pane, no agent and no Herdr: for working on the page,
 //! and for its e2e tests (`tests/explore-page`).
 //!
-//! `explore-page-server [--port N] [--token T] [--dev DIR]`
+//! `explore-page-server [--port N] [--token T] [--data short|rich] [--dev DIR]`
 //!
 //! It listens on the loopback address and prints the address of a page that shows the fixed
 //! question.
 //!
 //! - `--port 0` picks a free port.
 //! - `--token` chooses the token of that address; it is random otherwise.
+//! - `--data` picks what the agent posts ([`round_data`]): the `short` data set of the e2e
+//!   tests, the default, or the `rich` one of the screenshot gallery, as long as a real round.
 //! - `--dev` reads the templates and assets from `DIR`, the page crate's directory, on every
 //!   request, and loads an open page again when one of them changes. A release build refuses
 //!   it.
 //!
 //! Each e2e test opens its own session through the routes of [`control`].
 
-mod cited_code;
+mod changed_source;
 mod control;
-mod fixed_design;
-mod fixed_diagrams;
-mod fixed_explanation;
-mod fixed_question;
-mod fixed_quiz;
+mod question_parts;
+mod rich;
+mod round_data;
 mod sessions;
+mod short;
 
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::PathBuf;
@@ -29,13 +30,16 @@ use std::process::ExitCode;
 
 use review_explore_page::{ExplorePage, Hosts, PageEvent, PageFiles, Token};
 
+use crate::round_data::RoundData;
 use crate::sessions::Sessions;
 
-const USAGE: &str = "usage: explore-page-server [--port N] [--token T] [--dev DIR]";
+const USAGE: &str =
+    "usage: explore-page-server [--port N] [--token T] [--data short|rich] [--dev DIR]";
 
 struct Options {
     port: u16,
     token: Option<String>,
+    data: &'static dyn RoundData,
     dev: Option<PathBuf>,
 }
 
@@ -44,6 +48,7 @@ impl Options {
         let mut options = Self {
             port: 8790,
             token: None,
+            data: &short::Short,
             dev: None,
         };
         while let Some(arg) = args.next() {
@@ -54,6 +59,11 @@ impl Options {
                     options.port = port.parse().map_err(|_| format!("invalid port {port}"))?;
                 }
                 "--token" => options.token = Some(value()?),
+                "--data" => {
+                    let name = value()?;
+                    options.data = round_data::by_name(&name)
+                        .ok_or_else(|| format!("unknown data set {name}"))?;
+                }
                 "--dev" if cfg!(debug_assertions) => options.dev = Some(value()?.into()),
                 "--dev" => return Err("--dev is only in debug builds".into()),
                 _ => return Err(format!("unknown argument {arg}")),
@@ -88,7 +98,7 @@ fn serve(options: Options) -> Result<(), String> {
         None => PageFiles::embedded(),
     };
 
-    let sessions = Sessions::default();
+    let sessions = Sessions::new(options.data);
     let token = match options.token {
         Some(token) => Token::chosen(token)?,
         None => Token::random(),

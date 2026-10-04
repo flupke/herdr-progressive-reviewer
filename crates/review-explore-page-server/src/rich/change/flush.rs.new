@@ -1,0 +1,30 @@
+use std::time::Duration;
+
+/// When the agent hears about new replies: after the reviewer stops typing for `idle`, or at
+/// once when `cap` replies wait.
+#[derive(Clone, Copy, Debug)]
+pub struct FlushPolicy {
+    idle: Duration,
+    cap: usize,
+}
+
+/// Why a queue was sent, which the agent's notification names.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FlushReason {
+    Idle,
+    Full,
+    Closing,
+}
+
+impl FlushPolicy {
+    /// Two seconds without a new reply, or twenty replies waiting.
+    pub const DEFAULT: Self = Self { idle: Duration::from_secs(2), cap: 20 };
+
+    pub fn is_idle(&self, since_last_push: Duration) -> bool {
+        since_last_push >= self.idle
+    }
+
+    pub fn is_full(&self, waiting: usize) -> bool {
+        waiting >= self.cap
+    }
+}

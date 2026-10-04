@@ -1,4 +1,4 @@
-.PHONY: build check complexity e2e-tui e2e-explore e2e-explore-deps explore-page vision install mutants uninstall
+.PHONY: build check complexity e2e-tui e2e-explore e2e-explore-deps explore-gallery explore-page vision install mutants uninstall
 
 build:
 	cargo build --release --locked --bins
@@ -40,10 +40,18 @@ e2e-explore: e2e-explore-deps
 	cargo build --locked -p review-explore-page-server
 	$(EXPLORE_E2E)/run.sh $(E2E_ARGS)
 
+# Screenshots of every state of the Explore page, at each width and theme, with a contact sheet
+# (docs/development.md, "Screenshot gallery"). GALLERY_DIR, GALLERY_COMPARE, GALLERY_WIDTHS and
+# GALLERY_STATES go to the script through the environment.
+explore-gallery: e2e-explore-deps
+	cargo build --locked -p review-explore-page-server
+	node $(EXPLORE_E2E)/gallery/gallery.ts
+
 # Serve the Explore page alone, with a fixed question. Templates and assets are read from disk,
-# and an open page reloads when one changes.
+# and an open page reloads when one changes. EXPLORE_PAGE_ARGS go to the server
+# (`EXPLORE_PAGE_ARGS='--data rich'` serves the gallery's long round).
 explore-page:
-	cargo run --locked -p review-explore-page-server -- --port 8790 --token dev --dev crates/review-explore-page
+	cargo run --locked -p review-explore-page-server -- --port 8790 --token dev --dev crates/review-explore-page $(EXPLORE_PAGE_ARGS)
 
 vision:
 	cargo build --locked -p reviewer --bin reviewer --bin reviewer-control

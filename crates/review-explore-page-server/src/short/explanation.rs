@@ -3,7 +3,7 @@
 
 use review_explore::{Assessments, Consequence, Door};
 
-pub(crate) const RATIONALE: &str = "\
+pub(super) const RATIONALE: &str = "\
 When the reviewer reopens a round, the pane rebuilds its editor from the saved round. The \
 unsent draft lives only in memory today, so a reopen loses it.
 
@@ -18,13 +18,13 @@ answer.
 
 A draft keeps what the reviewer typed, such as <b>tags</b>, as plain text.";
 
-pub(crate) const VISUAL: &str = "\
+pub(super) const VISUAL: &str = "\
 ```text
 reopen ──▶ saved round ──▶ editor
                └─ draft (proposed)
 ```";
 
-pub(crate) fn assessments() -> Assessments {
+pub(super) fn assessments() -> Assessments {
     Assessments {
         door: Door::TwoWay,
         reversibility: Consequence {
