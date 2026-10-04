@@ -55,6 +55,7 @@ pub struct Question {
     pub text: String,
     /// Context section body: short summary paragraph, then optional Markdown explanation.
     /// Explain relevant behavior and unfamiliar terms without assuming implementation knowledge.
+    /// For a behavior change, say what changes, then why, then how.
     pub rationale: Option<String>,
     /// Optional simplified/proposed sketch appended to Context; use a fenced Markdown block.
     pub visual: Option<String>,

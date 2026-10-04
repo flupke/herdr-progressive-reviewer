@@ -36,7 +36,8 @@ the round opens with its design, before any detailed question. Say it before exp
 whiteboard. Then come four parts, each an object with its own `thesis`, the one sentence you
 would say at the whiteboard about that part, naming the things it talks about, and its `body`,
 Markdown (see Explanations) that covers every material area, including what appears correct,
-and keeps implementation, stated intent and inferred rationale apart:
+keeps implementation, stated intent and inferred rationale apart, and presents each behavior
+change as Behavior changes says:
 
 - `overview`: what the change adds and where, and how the new parts fit the code around them.
 - `data_flow`: the main types, the data they hold and store, and how data flows through them.
@@ -94,8 +95,10 @@ options have outcome open. The reviewer adds None of the above (outcome open) it
 supplements a choice and may qualify its outcome.
 
 Context goes in rationale. Start with a short, concrete account of where the behavior happens,
-what is being processed and the normal sequence. Identify the failing step or proposed change,
-what the source shows happens today, and the precise decision the reviewer is asked to make.
+what is being processed and the normal sequence. For a behavior change, its what and its why
+come first, and this account is part of its how (see Behavior changes). Identify the failing
+step or proposed change, what the source shows happens today, and the precise decision the
+reviewer is asked to make.
 Name the lines of this change that raise the question and what the change does there; a
 question about unchanged code says which change makes it matter. When several objects or system
 boundaries are involved, explain their relationships and name which component performs each

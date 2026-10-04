@@ -338,6 +338,7 @@ fn rule_files(kickoff: bool, challenger: bool, writing: WritingStyle) -> Vec<&'s
     let mut files = if kickoff {
         vec![
             include_str!("interview.md"),
+            include_str!("behavior_changes.md"),
             include_str!("explanation.md"),
             include_str!("diagrams.md"),
         ]
@@ -454,6 +455,26 @@ fn only_a_round_with_a_challenger_carries_its_script() {
         assert_eq!(kickoff.contains(script), challenger);
         assert_eq!(wakeup.contains(reminder), challenger);
         assert!(!wakeup.contains(script), "the script is sent once");
+    }
+}
+
+#[test]
+fn every_kickoff_asks_for_the_why_of_a_behavior_change_whatever_the_writing_style() {
+    let rules = include_str!("behavior_changes.md").trim_end();
+    for writing in [
+        WritingStyle::Plain,
+        WritingStyle::SimplifiedTechnicalEnglish,
+    ] {
+        for challenger in [false, true] {
+            let kickoff = PreparedTurn::instructions(true, challenger, writing);
+            let wakeup = PreparedTurn::instructions(false, challenger, writing);
+
+            assert_eq!(kickoff.matches(rules).count(), 1, "{writing:?}");
+            assert!(
+                !wakeup.contains(rules),
+                "a later turn only names the section"
+            );
+        }
     }
 }
 

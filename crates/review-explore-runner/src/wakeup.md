@@ -1,9 +1,9 @@
 Continue the Explore round with the answer below. It answers the question whose ID and version
 it names, as posted earlier in this conversation, or the conclusion a Reply to conclusion
 names. The Unreviewed diffs directory this prompt names holds what is still unreviewed. The
-kickoff prompt's sections on unreviewed diffs, questions, citations, explanations, agenda,
-identity, source inspection, delivery and the round conversation still apply. Do not edit
-code.
+kickoff prompt's sections on unreviewed diffs, questions, behavior changes, citations,
+explanations, agenda, identity, source inspection, delivery and the round conversation still
+apply. Do not edit code.
 
 ## This turn
 

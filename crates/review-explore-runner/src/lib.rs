@@ -50,8 +50,9 @@ impl PreparedTurn {
     fn instructions(kickoff: bool, challenger: bool, writing: WritingStyle) -> String {
         let turn = if kickoff {
             format!(
-                "{}\n\n{}",
+                "{}\n\n{}\n\n{}",
                 include_str!("interview.md").trim_end(),
+                include_str!("behavior_changes.md").trim_end(),
                 Self::explanations()
             )
         } else {

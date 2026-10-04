@@ -142,7 +142,9 @@ for the round.
 The agent writes every text you read in the round (the design, the questions with their
 context, choices, door and blast radius, its replies, the conclusion and the quiz) in the
 [writing style](#explore-round-settings) the round started with: ASD-STE100 Simplified Technical
-English by default, or plain.
+English by default, or plain. Whatever the style, when the design or a question presents a
+behavior change, the agent says what changes, then why (the problem, what goes wrong without the
+change, and where that reason is stated, or that it infers it), and only then how.
 
 When every changed line is marked as reviewed, a round has nothing to ask: the four start
 buttons stay on the start screen, inactive, with a line that says nothing is left to review,
