@@ -254,9 +254,12 @@ impl Runtime {
                 });
             }
             Ok(None) => {}
-            Err(error) => toast(format!(
-                "Cannot serve the Explore page on the network: {error}"
-            )),
+            // Not an error toast: without a network, or with the ports busy, it would show at
+            // every start. The pane says it in place of the address.
+            Err(error) => {
+                let not_shared = ui_events::ExplorePageNotShared(error);
+                let _ = events.send(EventEnvelope::new(not_shared));
+            }
         }
         Some(host)
     }

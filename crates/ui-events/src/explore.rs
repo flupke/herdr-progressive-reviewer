@@ -60,6 +60,11 @@ pub struct ExploreStorageFailed(pub String);
 #[derive(Clone, Debug)]
 pub struct ExplorePageShared(pub String);
 
+/// The Explore page could not be served on the network, for this reason: the pane says so where
+/// the address and QR code would be. Never sent when the settings keep the page on this machine.
+#[derive(Clone, Debug)]
+pub struct ExplorePageNotShared(pub String);
+
 /// A round the reviewer started on the Explore page: it is starting (`Ok`), or it could not
 /// start, for this reason. Once its kickoff is saved, `ExplorePosted` brings the round.
 #[derive(Clone, Debug)]

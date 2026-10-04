@@ -164,7 +164,8 @@ _Avoid_: web UI, Explore web, browser view
 
 **First pick**:
 The choice the reviewer picks on the Explore page before it shows the agent's
-recommendation, on a question whose Door is one-way, mixed or unknown. The
+recommendation, on a question whose Door is one-way, mixed or unknown. A question asked
+again after a Cancel answer has none: the reviewer has seen its recommendation. The
 reviewer then keeps it or changes it before sending; the saved answer keeps the
 first pick beside the sent choice. Also called the blind first pick.
 _Avoid_: initial answer, draft choice

@@ -4,7 +4,7 @@ use review_explore::Command;
 use review_explore::DispatchState;
 use review_explore_page::{
     CommandRefusal, CommandReply, ImplementationState, PageAnswer, PageCommand, PageImplement,
-    PageImplementation, RoundStage,
+    PageImplementation, ReviewName, RoundStage,
 };
 use review_repository::diff::DiffRow;
 
@@ -53,6 +53,7 @@ fn the_page_follows_the_round_from_its_kickoff_to_its_conclusion_and_reset() {
         conclusion: shown,
         implementation,
         quiz,
+        ..
     } = harness.page.stage()
     else {
         panic!("the page shows {:?}", harness.page.stage());
@@ -128,6 +129,104 @@ fn a_cancelled_answer_brings_its_question_back_to_the_page() {
     );
 }
 
+/// The recaps and the reply of what the agent said back to the previous answer, above the
+/// question or the conclusion the page shows.
+fn shown_response(stage: &RoundStage) -> Option<(Vec<String>, Option<String>)> {
+    stage.response().map(|response| {
+        let recaps = response
+            .interpretations
+            .iter()
+            .map(|interpretation| interpretation.recap.clone())
+            .collect();
+        (recaps, response.reply.clone())
+    })
+}
+
+#[test]
+fn the_page_shows_what_the_agent_said_back_to_the_previous_answer() {
+    let mut harness = Harness::start();
+    harness.capture();
+    let first = harness.request(None);
+    let access = harness.turn(&first);
+    assert!(applied(harness.submit(&access, question(&first, 1))));
+    assert_eq!(
+        shown_response(&harness.page.stage()),
+        Some((Vec::new(), Some("I checked the policy.".into()))),
+        "the first question follows no answer, only the kickoff's reply"
+    );
+
+    let (answer, access) = harness.answer("Keep it.");
+    assert!(applied(harness.submit(&access, question(&answer, 2))));
+    assert_eq!(
+        shown_response(&harness.page.stage()),
+        Some((
+            vec!["Keep the policy.".into()],
+            Some("I checked the policy.".into())
+        ))
+    );
+
+    let (answer, access) = harness.answer("Keep it too.");
+    assert!(applied(
+        harness.submit(&access, conclusion(&answer, CONCLUSION))
+    ));
+    assert_eq!(
+        shown_response(&harness.page.stage()),
+        Some((vec!["Keep the policy.".into()], None))
+    );
+}
+
+/// Whether the question the page shows waits again because its answer was cancelled.
+fn answer_cancelled(stage: &RoundStage) -> bool {
+    match stage {
+        RoundStage::Question {
+            answer_cancelled, ..
+        } => *answer_cancelled,
+        other => panic!("the page shows {other:?}"),
+    }
+}
+
+#[test]
+fn a_question_whose_answer_was_cancelled_shows_so_until_the_next_turn() {
+    let mut harness = Harness::start();
+    harness.ask_first_question();
+    assert!(!answer_cancelled(&harness.page.stage()));
+
+    let (answer, _) = harness.answer("Keep it.");
+    harness.session.handle(Input::Command(Command::CancelAnswer(
+        answer.answer.unwrap().id,
+    )));
+    let cancelled = harness.next::<ui_events::ExploreAnswerCancelled>();
+    harness.exploration = Some(cancelled.result.unwrap().exploration.clone());
+    assert_eq!(
+        shown_question(&harness.page.stage()),
+        Some((1, "q1".into()))
+    );
+    assert!(answer_cancelled(&harness.page.stage()));
+
+    let (answer, access) = harness.answer("Keep it, again.");
+    assert!(applied(harness.submit(&access, question(&answer, 2))));
+    assert!(!answer_cancelled(&harness.page.stage()));
+}
+
+#[test]
+fn the_page_names_the_review_it_belongs_to_as_the_panes_header_does() {
+    let harness = Harness::start();
+    assert_eq!(harness.page.review(), None);
+    let snapshot = complete_repository_snapshot(&harness.repository);
+
+    harness.session.name_review(&snapshot.identity);
+
+    let repository = harness.repository.root().file_name().unwrap();
+    assert_eq!(
+        harness.page.review(),
+        Some(ReviewName {
+            repository: repository.to_string_lossy().into_owned(),
+            revision: snapshot.identity.plain_display_id(),
+            title: "Git working tree".into(),
+        })
+    );
+}
+
 #[test]
 fn the_page_tells_each_round_from_the_next() {
     let mut harness = Harness::start();
@@ -196,6 +295,72 @@ fn the_page_shows_the_lines_each_citation_of_the_question_names() {
             review_store::LoadResult::Unreviewed
         ),
         "showing a citation marks none of its lines"
+    );
+}
+
+/// The question citing `evidence`, each `(path, notes)` at line 1 of the new side.
+fn question_citing(request: &TurnRequest, evidence: &[(&str, &str)]) -> Operation {
+    let Operation::SubmitQuestion(mut update) = question(request, 1) else {
+        unreachable!("a question");
+    };
+    let next = update.next.as_mut().unwrap();
+    next.evidence = evidence
+        .iter()
+        .map(|(path, notes)| {
+            serde_json::from_value(serde_json::json!({
+                "path": path, "side": "new", "lines": {"first_line": 1, "last_line": 1},
+                "notes": notes
+            }))
+            .unwrap()
+        })
+        .collect();
+    Operation::SubmitQuestion(update)
+}
+
+#[test]
+fn the_page_shows_no_lines_of_a_file_outside_the_change_and_the_tracked_files() {
+    let mut harness = Harness::start();
+    harness.files.write(".gitignore", b".env\n");
+    harness.files.write("kept.rs", b"pub fn kept() {}\n");
+    harness.files.new_change("Track the base files");
+    harness
+        .files
+        .write("reviewed.rs", b"pub fn reviewed() -> bool { true }\n");
+    harness.files.write(".env", b"TOKEN=synthetic\n");
+    harness.capture();
+    let first = harness.request(None);
+    let access = harness.turn(&first);
+
+    let cited = [
+        ("reviewed.rs", "changed"),
+        ("kept.rs", "tracked"),
+        (".env", "ignored"),
+        (".git/config", "repository internals"),
+    ];
+    assert!(applied(
+        harness.submit(&access, question_citing(&first, &cited))
+    ));
+
+    let RoundStage::Question { citations, .. } = harness.page.stage() else {
+        panic!("the page shows {:?}", harness.page.stage());
+    };
+    let shown: Vec<_> = citations
+        .iter()
+        .map(|citation| {
+            let rows = citation.lines.as_ref().map_or(0, Vec::len);
+            let limitation = citation.lines.as_ref().err().cloned();
+            (citation.evidence.notes.as_str(), rows > 0, limitation)
+        })
+        .collect();
+    let untracked = Some(review_explore::Uncitable::Untracked);
+    assert_eq!(
+        shown,
+        [
+            ("changed", true, None),
+            ("tracked", true, None),
+            ("ignored", false, untracked.clone()),
+            ("repository internals", false, untracked),
+        ]
     );
 }
 

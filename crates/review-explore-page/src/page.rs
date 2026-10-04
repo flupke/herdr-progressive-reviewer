@@ -26,8 +26,8 @@ use crate::files::PageFiles;
 use crate::form::TextArea;
 use crate::notice::{Notice, Post, Problem};
 use crate::round::{
-    ImplementationState, PageImplementation, PageQuiz, PageRound, QuestionMarks, RoundSnapshot,
-    RoundStage, Rounds,
+    ImplementationState, PageImplementation, PageQuiz, PageRound, QuestionMarks, ReviewName,
+    RoundSnapshot, RoundStage, Rounds, TurnResponse,
 };
 
 /// Scripts, styles and form posts only from the page itself, and no inline script. Inline
@@ -142,12 +142,7 @@ impl<R: Rounds> ExplorePage<R> {
             Err(refused) => return refused.into_response(),
         };
         let notice = Notice::read(headers);
-        let first_pick = match &round.stage {
-            RoundStage::Question { question, .. } => {
-                FirstPick::read(headers, round.round.as_deref(), question)
-            }
-            _ => None,
-        };
+        let first_pick = round.first_pick(headers);
         let context = PageContext::new(
             &round,
             notice.as_ref(),
@@ -291,8 +286,10 @@ async fn answer(
         .stage
         .asks(&form.question, form.version)
         .filter(|_| form.round == shown.round);
-    let sent = if let Some(question) = asked {
-        let first_pick = FirstPick::read(&headers, shown.round.as_deref(), question);
+    let sent = if asked.is_some() {
+        // A question answered before, whose recommendation the reviewer has seen, keeps no
+        // first pick.
+        let first_pick = shown.first_pick(&headers);
         let answer = PageAnswer {
             question: form.question,
             version: form.version,
@@ -348,7 +345,8 @@ struct PickForm {
 }
 
 /// Keeps the reviewer's first pick of a blind question, then shows the page again, now with
-/// the agent's recommendation. A pick kept already stays the first one.
+/// the agent's recommendation. A pick kept already stays the first one, and a question that
+/// shows its recommendation at once keeps none.
 async fn pick(
     Admitted(round): Admitted,
     headers: HeaderMap,
@@ -360,9 +358,10 @@ async fn pick(
         .asks(&form.question, form.version)
         .filter(|_| form.round == shown.round);
     to_page(match (asked, shown.round.as_deref()) {
-        (Some(question), Some(round)) => form
+        (Some(_), Some(round)) => form
             .choice
-            .and_then(|choice| FirstPick::to_keep(&headers, round, question, choice))
+            .zip(shown.stage.blind())
+            .and_then(|(choice, blind)| FirstPick::to_keep(&headers, round, &blind, choice))
             .map(|pick| pick.cookie()),
         _ => Some(Notice::new(Post::Pick, Problem::Stale).cookie()),
     })
@@ -492,6 +491,11 @@ struct PageContext<'a> {
     notice: Option<&'a Notice>,
     /// The design of the change, as the round's first turn explained it.
     design: Option<DesignContext>,
+    /// What the agent's turn said back to the reviewer's previous answer, above its question
+    /// or conclusion; `None` when it said nothing.
+    response: Option<&'a TurnResponse>,
+    /// The review the page belongs to, once its owner named it.
+    review: Option<&'a ReviewName>,
     /// Where the page finds Mermaid, and the fence of a diagram block.
     diagrams: Diagrams,
     /// The count of file changes, in development only: the page reloads when it changes.
@@ -506,6 +510,7 @@ struct QuestionContext<'a> {
     number: usize,
     id: &'a str,
     version: u32,
+    /// The question, in Markdown.
     text: &'a str,
     /// The Context section, in Markdown; empty when the question has none.
     context: String,
@@ -671,6 +676,8 @@ impl<'a> PageContext<'a> {
                 .design
                 .as_deref()
                 .map(|design| DesignContext::new(design, &round.stage)),
+            response: round.stage.response(),
+            review: round.review.as_ref(),
             diagrams: Diagrams::new(),
             dev_version,
         };
@@ -693,12 +700,14 @@ impl<'a> PageContext<'a> {
                 question,
                 citations,
                 marks,
+                ..
             } => {
                 context.stage = Stage::Question;
                 context.question = Some(QuestionContext::new(
                     round.round.as_deref(),
                     *number,
                     question,
+                    round.stage.blind().as_ref(),
                     citations,
                     marks,
                     first_pick,
@@ -713,6 +722,7 @@ impl<'a> PageContext<'a> {
                 conclusion,
                 implementation,
                 quiz,
+                ..
             } => {
                 context.stage = Stage::Conclusion;
                 context.polls = implementation.as_ref().is_some_and(|implementation| {
@@ -733,23 +743,20 @@ impl<'a> PageContext<'a> {
 }
 
 impl<'a> QuestionContext<'a> {
+    /// `blind` is the question when it hides the agent's recommendation until the first pick.
     fn new(
         round: Option<&'a str>,
         number: usize,
         question: &'a Question,
+        blind: Option<&BlindQuestion<'a>>,
         citations: &'a [Citation],
         marks: &QuestionMarks,
         first_pick: Option<&FirstPick>,
     ) -> Self {
-        let blind = BlindQuestion::of(question);
         let first_pick = first_pick
-            .filter(|pick| {
-                blind
-                    .as_ref()
-                    .is_some_and(|blind| blind.offers(&pick.choice))
-            })
+            .filter(|pick| blind.is_some_and(|blind| blind.offers(&pick.choice)))
             .map(|pick| pick.choice.as_str());
-        let (recommendation, choices) = match (&blind, first_pick) {
+        let (recommendation, choices) = match (blind, first_pick) {
             (None, _) => (Recommendation::Shown, question.choices().collect()),
             (Some(blind), None) => (Recommendation::HiddenUntilPick, blind.choices()),
             (Some(blind), Some(_)) => (Recommendation::ShownAfterPick, blind.choices()),

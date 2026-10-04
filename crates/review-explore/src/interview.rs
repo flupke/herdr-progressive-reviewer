@@ -236,6 +236,13 @@ impl Exploration {
         self.outstanding.is_some()
     }
 
+    /// Whether the reviewer cancelled an answer since the agent's latest turn. No turn came
+    /// after the cancellation, so the round asks again what the latest cancelled answer
+    /// answered.
+    pub fn cancelled_since_last_turn(&self) -> bool {
+        !self.cancelled.is_empty()
+    }
+
     /// Whether an agent turn took up the answer `answer`.
     pub fn took_up(&self, answer: &str) -> bool {
         self.conversation

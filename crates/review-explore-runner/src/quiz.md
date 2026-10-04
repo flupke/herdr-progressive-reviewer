@@ -3,9 +3,9 @@
 The reviewer did not write this change but must still be able to explain how the system works
 after it, as they would at a whiteboard interview. submit_conclusion carries a short quiz that
 checks this, in `quiz`. Write it last, about the code at the checkpoint, which includes the
-round's agreed tasks only once they are in the code. The reviewer answers it on the Explore
-page before reading the summary, and the page grades each pick itself: no answer comes back
-to you.
+round's agreed tasks only once they are in the code. Where the reviewer follows the round on
+the Explore page, the page asks the quiz before the summary and grades each pick itself; the
+pane does not ask it. Either way, no answer comes back to you.
 
 What a question may test, and only where this change creates or alters it:
 

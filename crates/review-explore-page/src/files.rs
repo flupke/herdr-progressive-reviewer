@@ -43,6 +43,7 @@ const TEMPLATES: &[(&str, &str)] = &[
     ("marks.html", include_str!("../templates/marks.html")),
     ("failure.html", include_str!("../templates/failure.html")),
     ("design.html", include_str!("../templates/design.html")),
+    ("response.html", include_str!("../templates/response.html")),
     ("diagrams.html", include_str!("../templates/diagrams.html")),
     (
         "conclusion.html",

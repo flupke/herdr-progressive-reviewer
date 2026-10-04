@@ -239,8 +239,10 @@ A round started with a Challenger adds one section to the kickoff and a short re
 each wakeup. It is a script for the agent and for the subagent it starts: who proposes the
 turn's question, how they exchange facts and positions, and how the single question is
 written. The protocol does not change: the agent alone calls the tools, and the challenger
-only returns text to it. An agent that can continue a subagent keeps the same challenger
-for the round; one that cannot has it keep a handoff file in the system temporary directory.
+only returns text to it. The agent writes the `design` and the `quiz`, as in a round without
+a challenger, and the challenger may propose corrections to them. An agent that can continue
+a subagent keeps the same challenger for the round; one that cannot has it keep a handoff
+file in the system temporary directory.
 
 In such a round, `submit_question` and `submit_conclusion` may carry `challenger_proposals`:
 what became, on that turn, of each question the challenger proposed. Each entry has a short
@@ -395,8 +397,8 @@ correct, why, proof, level}`: two to four `answers`, the zero-based index of the
 establish it, and `level`, the agent's own reason the item is at whiteboard level, which
 the round keeps and the page does not show. An empty quiz needs `quiz_empty_reason`; a
 quiz with items leaves it null. The tool refuses an item with no correct answer or no
-proof lines. The reviewer answers the quiz on the Explore page, which grades each pick
-itself; the pane ignores it.
+proof lines. The one prompt asks for the quiz wherever the reviewer follows the round:
+the Explore page asks it and grades each pick itself; the pane does not ask it.
 Summary and future work are displayed separately. Only `to_be_implemented` seeds
 the editable task box. Submitting a conclusion does not start implementation.
 A conclusion saves its outcome before acknowledging success; it can carry `reviewed`

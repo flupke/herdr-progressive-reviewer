@@ -33,6 +33,9 @@ pub enum Uncitable {
     /// The change of the cited file has no text diff: a binary file, a conflict, or rows the
     /// diff parser does not know.
     NoTextDiff(NoticeKind),
+    /// The file is neither part of the change nor tracked by the repository, such as an ignored
+    /// `.env`: see [`Comparison::tracked_cited_lines`].
+    Untracked,
 }
 
 impl std::fmt::Display for Uncitable {
@@ -60,6 +63,10 @@ impl std::fmt::Display for Uncitable {
                     "File-level evidence · the change of this file has no text diff."
                 }
             }),
+            Self::Untracked => output.write_str(
+                "This file is not part of the repository's tracked files, so its lines do not \
+                 show here.",
+            ),
         }
     }
 }
@@ -245,6 +252,39 @@ impl Comparison {
             content,
             file,
         })
+    }
+
+    /// The lines `location` cites, as [`Self::cited_lines`] finds them, when the change touches
+    /// the cited file or the repository tracks it; [`Uncitable::Untracked`] for any other file
+    /// of the working copy, which a page open from the network must not show.
+    pub fn tracked_cited_lines(
+        &self,
+        location: &CodeLocation,
+        root: &Path,
+    ) -> Result<CitedLines, Uncitable> {
+        if !self.tracks(location, root) {
+            return Err(Uncitable::Untracked);
+        }
+        self.cited_lines(location, root)
+    }
+
+    /// Whether the change touches the path `location` names on its side, or the base of the
+    /// change has that path. A file the change leaves alone is the same at the base, so the base
+    /// has it exactly when the repository tracks it.
+    fn tracks(&self, location: &CodeLocation, root: &Path) -> bool {
+        let changed = self
+            .files
+            .iter()
+            .any(|file| location.side.path_in(file) == Some(&location.path));
+        let base = CodeLocation {
+            path: location.path.clone(),
+            side: SourceSide::Old,
+            lines: None,
+        };
+        changed
+            || self
+                .source(&base)
+                .is_some_and(|source| source.read(root).is_ok())
     }
 
     /// The lines `location` cites, read from `root`, in the rows of the change.

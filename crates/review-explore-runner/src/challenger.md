@@ -61,6 +61,11 @@ corrects only a statement the source contradicts. The rest of the call is the im
 identity, reply, agenda, interpretation and marks. It leaves unmarked the lines the challenger
 objected to.
 
+The implementer also writes the `design` of the first submit_question and the `quiz` of the
+conclusion, as in a round without a challenger, and sends each to the challenger with its
+outline. The challenger may propose corrections to them like any other proposal; the
+implementer applies those the source confirms.
+
 While the reviewer answers, what the implementer prepares (see Preparing the next question) is
 its own candidate for the next turn, as an outline: its postponed candidate when it holds one,
 which it judges again once the answer arrives. The pick still decides whether that candidate

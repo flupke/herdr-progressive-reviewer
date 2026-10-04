@@ -530,3 +530,33 @@ fn the_quiz_rules_name_every_field_a_quiz_item_takes() {
         }
     }
 }
+
+#[test]
+fn every_kickoff_states_the_same_diagram_rules() {
+    // One prompt, whether the reviewer follows the round in the pane or on the Explore page.
+    let rules = include_str!("diagrams.md").trim_end();
+    for challenger in [false, true] {
+        let kickoff = PreparedTurn::instructions(true, challenger);
+        assert!(kickoff.contains(rules), "challenger: {challenger}");
+    }
+}
+
+#[test]
+fn the_challengers_script_names_the_design_and_the_quiz_the_implementer_writes() {
+    let fields = [
+        (
+            "design",
+            serde_json::to_value(schemars::schema_for!(review_explore::InterviewUpdate)).unwrap(),
+        ),
+        (
+            "quiz",
+            serde_json::to_value(schemars::schema_for!(review_explore::ConclusionSubmission))
+                .unwrap(),
+        ),
+    ];
+    let script = include_str!("challenger.md");
+    for (field, tool) in fields {
+        assert!(tool["properties"].get(field).is_some(), "{tool}");
+        assert!(script.contains(&format!("`{field}`")), "{field}");
+    }
+}

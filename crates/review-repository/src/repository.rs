@@ -324,6 +324,16 @@ impl SnapshotIdentity {
         }
     }
 
+    /// Get the abbreviated revision identifier, without terminal colours.
+    pub fn plain_display_id(&self) -> String {
+        String::from_utf8_lossy(&strip_ansi_escapes::strip(self.display_id())).into_owned()
+    }
+
+    /// The first line of the description; empty when it has none.
+    pub fn title(&self) -> &str {
+        self.description().lines().next().unwrap_or_default()
+    }
+
     /// What the change says it does: a jj change's description, when it has
     /// one. A Git working tree has none.
     pub fn change_description(&self) -> Option<&str> {

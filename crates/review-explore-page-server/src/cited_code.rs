@@ -1,7 +1,8 @@
 //! The change the fixed questions cite: one Rust file, `src/drafts.rs`, whose `reopen` no
-//! longer clears the reviewer's draft.
+//! longer clears the reviewer's draft. Every other path stands for a file outside the change and
+//! the repository's tracked files, such as an ignored `.env`.
 
-use review_explore::{CitedLines, CodeLocation, EvidenceRef, SourceSide};
+use review_explore::{CitedLines, CodeLocation, EvidenceRef, SourceSide, Uncitable};
 use review_explore_citations::{Citation, CodeColors};
 use review_repository::diff::parse_file_diff;
 use review_repository::repository::{ChangeKind, ChangedFile, DiffStatistics, FileKind, RepoPath};
@@ -67,8 +68,12 @@ pub(crate) fn evidence(side: SourceSide, lines: Option<(u32, u32)>, notes: &str)
     }
 }
 
-/// `evidence` with the lines it cites in the change.
+/// `evidence` with the lines it cites in the change, or none for a file outside the change and
+/// the tracked files.
 pub(crate) fn cite(evidence: &EvidenceRef) -> Citation {
+    if evidence.location.path != RepoPath::from_bytes(PATH) {
+        return CodeColors::default().cite(evidence.clone(), Err(Uncitable::Untracked));
+    }
     let lines = CitedLines::in_diff(
         &evidence.location,
         &parse_file_diff(DIFF.as_bytes(), &changed_file()),

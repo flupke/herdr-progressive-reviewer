@@ -26,3 +26,24 @@ test('a citation of a whole file says so and shows no lines', async ({ explore, 
   await expect(citation).toContainText('the citation names the whole file, not lines of it');
   await expect(citation.getByRole('row')).toHaveCount(0);
 });
+
+test('a citation of a file outside the change and the tracked files shows no lines', async ({ explore, screen }) => {
+  await explore.open();
+  await explore.askQuestion({
+    id: 'secret-file',
+    version: 1,
+    topic: 'settings',
+    text: 'Should the settings be read from the environment file?',
+    rationale: null,
+    visual: null,
+    alternatives: [
+      { id: 'read', text: 'Read the file', outcome: 'accepted', recommendation: null },
+      { id: 'skip', text: 'Ignore the file', outcome: 'needs_follow_up', recommendation: null },
+    ],
+    evidence: [{ path: '.env', side: 'new', lines: { first_line: 1, last_line: 1 }, notes: 'The settings file.' }],
+    assessments: null,
+  });
+  const citation = screen.getByRole('region', '.env new 1');
+  await expect(citation).toContainText("This file is not part of the repository's tracked files");
+  await expect(citation.getByRole('row')).toHaveCount(0);
+});

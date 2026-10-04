@@ -1,17 +1,18 @@
 //! The questions and the conclusion the standalone server's agent posts.
 
 use review_explore::{
-    Alternative, CodeLocation, Conclusion, EvidenceRef, NotRelevantMark, NotRelevantReason,
-    Question, QuizAnswers, SourceSide, TopicStatus,
+    Alternative, CodeLocation, Conclusion, EvidenceRef, Interpretation, NotRelevantMark,
+    NotRelevantReason, Question, QuizAnswers, SourceSide, TopicStatus,
 };
-use review_explore_page::{PageImplementation, QuestionMarks, RoundStage};
+use review_explore_page::{PageImplementation, QuestionMarks, RoundStage, TurnResponse};
 use review_repository::repository::RepoPath;
 use review_source::SourceLineRange;
 
 use crate::{cited_code, fixed_diagrams, fixed_explanation, fixed_quiz};
 
 /// The round's question `number`, from 1: `question` when given, which marks nothing, or else
-/// the fixed questions in turn. An answer to the first fixed question marks lines.
+/// the fixed questions in turn. An answer to the first fixed question marks lines. A question
+/// after the first follows the agent's fixed response to the reviewer's previous answer.
 pub(crate) fn question_stage(number: usize, question: Option<Question>) -> RoundStage {
     let (question, marks) = match question {
         Some(question) => (question, QuestionMarks::default()),
@@ -24,6 +25,37 @@ pub(crate) fn question_stage(number: usize, question: Option<Question>) -> Round
         question: Box::new(question),
         citations,
         marks,
+        response: if number > 1 {
+            answer_response()
+        } else {
+            TurnResponse::default()
+        },
+        answer_cancelled: false,
+    }
+}
+
+/// What the agent says back to the reviewer's previous answer before its next question.
+fn answer_response() -> TurnResponse {
+    TurnResponse {
+        interpretations: vec![interpretation(
+            "Recorded: **keep** the draft.",
+            vec!["Say when a kept draft is older than a day.".into()],
+        )],
+        reply: Some("Agreed: the draft stays with the round, so `reopen()` keeps it.".into()),
+    }
+}
+
+/// The agent's interpretation of the reviewer's previous answer.
+fn interpretation(recap: &str, follow_ups: Vec<String>) -> Interpretation {
+    Interpretation {
+        answer: "previous-answer".into(),
+        status: if follow_ups.is_empty() {
+            TopicStatus::Accepted
+        } else {
+            TopicStatus::NeedsFollowUp
+        },
+        recap: recap.into(),
+        follow_ups,
     }
 }
 
@@ -52,6 +84,13 @@ pub(crate) fn conclusion_stage(
         }),
         implementation,
         quiz: quiz.map(fixed_quiz::page_quiz).unwrap_or_default(),
+        response: TurnResponse {
+            interpretations: vec![interpretation(
+                "Recorded: store the draft in the round's record.",
+                Vec::new(),
+            )],
+            reply: None,
+        },
     }
 }
 

@@ -1,0 +1,46 @@
+{
+  "schemaVersion": "trace-1",
+  "createdAt": "2026-10-04T00:20:28.828Z",
+  "payload": {
+    "actions": [
+      {
+        "name": "check",
+        "summary": "check radio \"Rename the clashing files\" in \"Choices\"",
+        "target": {
+          "role": "radio",
+          "name": "Rename the clashing files",
+          "within": "Choices"
+        },
+        "checked": true
+      },
+      {
+        "name": "tap",
+        "summary": "tap button \"Send\" in \"Question 1\"",
+        "target": {
+          "role": "button",
+          "name": "Send",
+          "within": "Question 1"
+        }
+      }
+    ],
+    "executor": {
+      "name": "e2e-default-agent",
+      "version": "2"
+    },
+    "recordedFor": {
+      "testId": "tests/blind.e2e.ts::a%20question%20asked%20again%20after%20Cancel%20answer%20shows%20the%20recommendation%20at%20once%20and%20keeps%20no%20first%20pick",
+      "targetId": "desktop",
+      "instructionDigest": "355bfe9a4d1f87289293cc618c8fa8ea9d3f8968b69f2a27f1b8aac3b9b65706"
+    },
+    "summary": "Selected the recommended choice, “Rename the clashing files,” and pressed Send. The page now shows “The agent is working…”",
+    "startPath": "/",
+    "endPath": "/",
+    "endAnchors": [
+      {
+        "role": "status",
+        "name": "The agent is working…"
+      }
+    ],
+    "endWaitMs": 12243
+  }
+}

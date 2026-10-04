@@ -25,10 +25,11 @@
   <p class="state" role="status">The agent is not working on its next turn. Retry in the pane, then load this page again.</p>
   {% endif %}
   {% include "design.html" %}
+  {% include "response.html" %}
   {% if question %}
   <section class="question" aria-labelledby="question-{{ question.number }}-title" data-question="{{ question.id }}" data-version="{{ question.version }}">
     <h2 id="question-{{ question.number }}-title">Question {{ question.number }}</h2>
-    <p class="text">{{ question.text }}</p>
+    <div class="text markdown">{{ question.text | markdown(2) }}</div>
     {% include "explanation.html" %}
     {% include "citations.html" %}
     {% include "answer.html" %}

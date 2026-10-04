@@ -68,3 +68,19 @@ fn the_start_screen_shows_the_address_of_the_page_that_starts_the_next_round() {
         "a reopened start screen keeps the address"
     );
 }
+
+#[test]
+fn a_page_that_cannot_be_shared_says_why_in_place_of_the_address() {
+    const REASON: &str = "Network is unreachable (os error 101)";
+    let (mut fixture, request) = ExploreUi::new();
+
+    fixture
+        .app
+        .publish(ui_events::ExplorePageNotShared(REASON.into()));
+    assert!(fixture.text().contains(REASON), "{}", fixture.text());
+    assert!(!fixture.shows_qr_code());
+
+    fixture.respond(&request, 1);
+    fixture.scroll_to_end();
+    assert!(fixture.text().contains(REASON), "{}", fixture.text());
+}

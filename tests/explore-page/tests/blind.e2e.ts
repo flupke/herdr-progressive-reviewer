@@ -95,3 +95,32 @@ test('a pick on a question answered in the pane meanwhile is refused', async ({ 
   await expect(screen.getByRole('alert')).toContainText('Your pick was not kept');
   await expect(screen.getByRole('status')).toContainText('The agent is working');
 });
+
+test('a question asked again after Cancel answer shows the recommendation at once and keeps no first pick', async ({
+  explore,
+  screen,
+  agent,
+}) => {
+  await explore.open();
+  await explore.askQuestion(question('one_way'));
+  // Exact actions: the setup is a pick kept on the page, then an answer in the pane, which the
+  // reviewer cancels there.
+  await screen.getByRole('radio', 'Overwrite the older file').check();
+  await screen.getByRole('button', 'Pick').tap();
+  await expect(screen.getByText(RECOMMENDATION, { exact: false })).toBeVisible();
+  await explore.answerInPane();
+  await explore.cancelAnswerInPane();
+
+  await explore.open();
+  await expect(screen.getByRole('region', 'Question 1')).toBeVisible();
+  await expect(screen.getByText(RECOMMENDATION, { exact: false })).toBeVisible();
+  await expect(screen.getByRole('button', 'Pick')).toHaveCount(0);
+  await expect(screen.getByRole('radio', { checked: true })).toHaveCount(0);
+  expect(await choiceOrder(screen)).toEqual([...POSTED, 'none-of-the-above']);
+
+  await agent.act(
+    'on question 1, select the choice the agent recommends and press Send; the page then says that the agent is working',
+  );
+  await expect(screen.getByRole('status')).toContainText('The agent is working');
+  expect(await explore.answers()).toEqual([{ question: 'same-name-files', version: 1, choice: 'rename', comment: '' }]);
+});

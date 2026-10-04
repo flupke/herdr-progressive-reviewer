@@ -353,7 +353,11 @@ description = "open the Explore page"
 
 The page shows the round's current question with its explanation and choices, or that the agent is
 working, that it is no longer working on its turn (Retry it in the reviewer), that no
-round is running, or the round's conclusion.
+round is running, or the round's conclusion. Above a question or the conclusion, it shows
+what the agent said back to your previous answer, as the pane does: its recap of the
+answer, the follow-ups it recorded, and its reply. While no round is running, the page
+names the review it belongs to, as the pane's header does (the change's title and
+revision), and its repository, so that the pages of two reviewers can be told apart.
 
 When no round is running, the page offers **Start** and **Start with Challenger**, as the
 reviewer's Explore tab does. The round starts as it does from the pane: the reviewer
@@ -373,7 +377,9 @@ same each time it shows the question, with None of the above last and none selec
 one and press **Pick**: the page then shows the recommendation, with your pick selected,
 and you keep it or change it before you send. The reviewer saves your first pick with the
 answer, for statistics; the agent receives only the answer you send. A two-way question,
-or one with no Door, shows the recommendation at once, in the agent's order. The agent receives the answer as
+or one with no Door, shows the recommendation at once, in the agent's order. So does a
+question asked again after a Cancel answer: you have seen its recommendation, and the
+answer keeps no new first pick. The agent receives the answer as
 if you had given it in the reviewer's Explore tab, which shows it under the question.
 Above **Send**, the page says how many lines your answer will mark reviewed and not
 relevant; open that line to list them. Once you send, the page shows that the agent is
@@ -423,7 +429,10 @@ Under a question, the page shows the question's citations in the order the agent
 them, most decisive first: each with the agent's note and the cited lines as rows of the
 diff, with their line numbers and syntax colors. The other citations stay folded under the
 first one until you open them. A citation of a whole file, or of a file that is not text,
-says so instead of showing lines. On a narrow screen, scroll a long line sideways. Reading
+says so instead of showing lines. So does a citation of a file that is neither part of the
+change nor tracked by the repository, such as an ignored `.env`: the page can be open
+from the network, so it shows no other file of the working copy. The pane shows such a
+file's lines. On a narrow screen, scroll a long line sideways. Reading
 a citation on the page marks none of its lines reviewed.
 
 The agent may also draw a diagram, as a fenced `mermaid` block: the page draws it with Mermaid,
@@ -470,7 +479,9 @@ profile), then reopen the reviewer.
 | `HERDR_REVIEWER_EXPLORE_PORT` | The first port tried, 8790 by default. When another reviewer holds it, the page takes the next free one of the ten ports from it. |
 
 A reviewer that cannot serve the page on the network (no network address, an unknown
-interface, all ten ports taken) says so in a toast and keeps the page on this machine.
+interface, all ten ports taken) keeps the page on this machine, and the pane says, in one
+dim line where the address and the QR code would be, that the page is not shared on the
+network and why.
 
 A firewall that drops incoming connections blocks the phone. With ufw, allow the ten ports
 from your local network, for example:

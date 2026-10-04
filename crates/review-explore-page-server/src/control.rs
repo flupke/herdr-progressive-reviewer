@@ -1,17 +1,20 @@
 //! What a test does in its own session: open it, then play its agent and the reviewer's pane.
 //!
 //! - `POST /test/sessions` opens a session whose agent works on its first question, and
-//!   answers `{"token": "..."}`. The page of its round opens at `/?token=...`.
+//!   answers `{"token": "..."}`. The page of its round opens at `/?token=...`. Its review is a
+//!   fixed one, which the start screen names.
 //! - `POST /test/sessions/{token}/{step}` moves the session's round one step:
 //!   - `question`: the agent posts its next question: the JSON `Question` of the request's
-//!     body, or the fixed questions in turn when the body is empty;
+//!     body, or the fixed questions in turn when the body is empty; from the second question
+//!     on, after a fixed response to the previous answer;
 //!   - `answer`: the reviewer answers in the pane, and the agent works on its next turn;
 //!   - `fail`: the prompt the session sends could not be delivered: the conclusion's
 //!     implementation request, while it sends one, or else the agent's next turn;
 //!   - `cancel`: the reviewer cancels the latest answer in the pane, and its question waits
-//!     again;
+//!     again, with its recommendation shown at once: the reviewer has seen it;
 //!   - `interrupt`: the agent stops before its next turn;
-//!   - `conclude`: the agent concludes the round, with an empty quiz;
+//!   - `conclude`: the agent concludes the round, with an empty quiz, after a fixed recap of the
+//!     previous answer;
 //!   - `conclude-with-quiz`: the agent concludes the round with a quiz of two items;
 //!   - `implement`: the reviewer implements the conclusion in the pane, and the agent receives
 //!     the request;

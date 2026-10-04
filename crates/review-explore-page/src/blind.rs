@@ -71,35 +71,34 @@ pub(crate) struct FirstPick {
 impl FirstPick {
     const COOKIE: &str = "explore_first_pick";
 
-    /// The reviewer's pick of `choice` on `question` in the round `round`, when it is the
-    /// first: `None` when the question is not blind, does not offer `choice`, or has a first
-    /// pick in the request's cookie already, which stays the first.
+    /// The reviewer's pick of `choice` on the blind question `blind` in the round `round`, when
+    /// it is the first: `None` when the question does not offer `choice`, or has a first pick in
+    /// the request's cookie already, which stays the first.
     pub(crate) fn to_keep(
         headers: &HeaderMap,
         round: &str,
-        question: &Question,
+        blind: &BlindQuestion<'_>,
         choice: String,
     ) -> Option<Self> {
-        let offered = BlindQuestion::of(question).is_some_and(|blind| blind.offers(&choice));
-        let picked = Self::read(headers, Some(round), question).is_some();
-        (offered && !picked).then(|| Self {
+        let picked = Self::read(headers, Some(round), blind).is_some();
+        (blind.offers(&choice) && !picked).then(|| Self {
             round: round.to_owned(),
-            question: question.id.clone(),
-            version: question.version,
+            question: blind.0.id.clone(),
+            version: blind.0.version,
             choice,
         })
     }
 
-    /// The pick a request's cookie carries, when it was made on this version of `question` in
-    /// the round `round`.
+    /// The pick a request's cookie carries, when it was made on this version of the blind
+    /// question `blind` in the round `round`.
     pub(crate) fn read(
         headers: &HeaderMap,
         round: Option<&str>,
-        question: &Question,
+        blind: &BlindQuestion<'_>,
     ) -> Option<Self> {
         let encoded = cookie(headers, Self::COOKIE)?;
         let pick: Self = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(encoded).ok()?).ok()?;
-        (Some(pick.round.as_str()) == round && question.is_version(&pick.question, pick.version))
+        (Some(pick.round.as_str()) == round && blind.0.is_version(&pick.question, pick.version))
             .then_some(pick)
     }
 

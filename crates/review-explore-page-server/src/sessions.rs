@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use review_explore::{DiagramError, Question, QuizAnswers};
 use review_explore_page::{
     CommandRefusal, CommandSender, ImplementationState, PageCommand, PageImplementation, PageRound,
-    PublishedRound, RoundPublisher, RoundStage, Rounds, Token,
+    PublishedRound, ReviewName, RoundPublisher, RoundStage, Rounds, Token,
 };
 use serde::Serialize;
 
@@ -90,7 +90,7 @@ impl Session {
                 self.latest_question = Some(stage.clone());
                 stage
             }
-            Step::Cancel => self.latest_question.clone()?,
+            Step::Cancel => self.question_after_cancel_answer()?,
             Step::Answer | Step::Kickoff => RoundStage::AgentWorking,
             Step::Fail => self
                 .finish_sending(ImplementationState::NotSent(DELIVERY_FAILURE.into()))
@@ -108,6 +108,19 @@ impl Session {
                 failure: "Repository comparison is not ready; retry Start".into(),
             },
         })
+    }
+
+    /// The agent's latest question, asked again once the reviewer cancelled its answer: the
+    /// reviewer has seen its recommendation. `None` when the agent asked none.
+    fn question_after_cancel_answer(&self) -> Option<RoundStage> {
+        let mut stage = self.latest_question.clone()?;
+        if let RoundStage::Question {
+            answer_cancelled, ..
+        } = &mut stage
+        {
+            *answer_cancelled = true;
+        }
+        Some(stage)
     }
 
     /// The conclusion with its implementation request once `step` happened to it: the pane
@@ -208,9 +221,15 @@ impl Sessions {
     pub(crate) fn open(&self, token: Token, asked: usize) {
         let latest_question = (asked > 0).then(|| question_stage(asked, None));
         let stage = latest_question.clone().unwrap_or(RoundStage::AgentWorking);
+        let round = RoundPublisher::default();
+        round.name(ReviewName {
+            repository: "drafts-demo".into(),
+            revision: "kmzqvtyx".into(),
+            title: "Keep the reviewer's draft when a round reopens".into(),
+        });
         let session = Session {
             token,
-            round: RoundPublisher::default(),
+            round,
             rounds: 1,
             running: true,
             asked,

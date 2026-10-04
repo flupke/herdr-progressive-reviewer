@@ -101,7 +101,7 @@ impl PreparedTurn {
     fn diagrams() -> String {
         format!(
             "A diagram is a fenced block that opens with ```` ```{} ````, which the Explore page \
-             draws with Mermaid {}.\n{}",
+             draws with Mermaid {}, where the reviewer follows the round on that page.\n{}",
             mermaid_js::FENCE,
             mermaid_js::VERSION,
             include_str!("diagrams.md").trim_end(),

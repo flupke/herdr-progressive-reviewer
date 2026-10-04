@@ -88,8 +88,9 @@ still offers it in place of the request the page showed, if any. The owner
 checks again against its own round. The page also polls while an
 implementation request is being sent. On a question whose Door is not two-way,
 the page hides the recommendation until the reviewer's first pick
-(`src/blind.rs`): the pick is a form post that the page keeps in a cookie, not
-a command, and the answer then carries it to the owner as
+(`src/blind.rs`), unless the reviewer answered the question before and cancelled the
+answer (`RoundStage::Question::answer_cancelled`): the pick is a form post that the
+page keeps in a cookie, not a command, and the answer then carries it to the owner as
 `AnswerInput::first_pick`. A conclusion with a quiz shows it first, one item at a time
 (`templates/quiz.html`): the page grades a pick itself, saves it through the owner
 (`PageCommand::Quiz`), then shows the item's answer at `/?answered=N` until the
@@ -121,12 +122,17 @@ Explore session saves it with the question (`Exploration::diagram_errors`).
 In the reviewer, the Explore session publishes the stage of its round (no
 round, a round starting or a failed start, the agent working, a question,
 an interrupted turn, the conclusion)
-after each input it handles, with the lines of the change that each citation of a
-question names (`Comparison::cited_lines`, on the `cited_source` lookup of the pane's
-evidence viewer), colored once per question on the session's thread by
+after each input it handles, with what the agent's turn said back to the previous answer
+(`TurnResponse`: its interpretations of the answer, with their recaps and follow-ups, and
+its reply, the data the pane shows), and with the lines of the change that each citation of a
+question names (`Comparison::tracked_cited_lines`, on the `cited_source` lookup of the pane's
+evidence viewer, for files the change touches or the repository tracks only, since the page
+may be open from the network), colored once per question on the session's thread by
 [`crates/review-explore-citations`](../crates/review-explore-citations), and
 [`crates/review-explore-page-host`](../crates/review-explore-page-host) serves
-the page of that round on a free loopback port behind a new token. The page's
+the page of that round on a free loopback port behind a new token. The worker names the
+review the page belongs to after each snapshot (`ExploreSession::name_review`,
+`RoundPublisher::name`), and the start screen shows it. The page's
 commands join the session's inputs, in the same order as the pane's. For an
 answer from the page, the session builds the turn from its latest saved round
 as the pane would, so the saved answer and the prompt are the same, and it
@@ -154,8 +160,9 @@ each round (`PageHost::share`). While no round runs, the listener has a token fo
 the start screen, which the round started next keeps, so the page that started
 it stays connected. It announces the page's address to the pane each time the
 token or its round changes, and the pane draws it with its QR code
-([`crates/ui-qr-code`](../crates/ui-qr-code)). The settings are in the
-[usage guide](usage.md#open-the-page-from-a-phone). Herdr test servers turn it
+([`crates/ui-qr-code`](../crates/ui-qr-code)). When the listener cannot start, the pane
+says why in place of the address (`ExplorePageNotShared`), with no toast. The settings
+are in the [usage guide](usage.md#open-the-page-from-a-phone). Herdr test servers turn it
 off (`HERDR_REVIEWER_EXPLORE_NETWORK=off`); a `make vision` session serves it on
 the loopback interface, so the pane shows a QR code that only this machine can
 open.
@@ -227,7 +234,8 @@ Each test gets its own round on the server, through the `explore` fixture of
 `tests/explore-page/tests/session.ts`, and plays the Explore agent and the
 reviewer's pane: the round starts with the agent working,
 `explore.askQuestion()` posts the next question, `explore.answerInPane()`
-answers it in the pane, `explore.cancelAnswerInPane()` cancels that answer,
+answers it in the pane, `explore.cancelAnswerInPane()` cancels that answer (the question
+then shows its recommendation at once),
 `explore.failDelivery()` fails the prompt the session sends (the conclusion's
 implementation request while it sends one, else the agent's next turn), and
 `explore.interrupt()`, `explore.conclude()` and `explore.reset()` move the
@@ -235,7 +243,9 @@ round to the other stages. An answer sent from the page puts the agent to work,
 and `explore.answers()` returns what the page sent; `explore.diagramErrors()`
 returns the diagram errors the page reported, as the review tool saves them.
 The second fixed question carries a diagram that draws and one that does not
-parse. A start sent from the page shows the round starting,
+parse. From the second question on, and with the conclusion, the agent's fixed response
+to the previous answer shows above it. The session's review has a fixed name, which the
+start screen shows. A start sent from the page shows the round starting,
 `explore.sendKickoff()` puts the agent to work on it (or stands for a round
 started in the pane), `explore.failStart()` fails the start, and
 `explore.starts()` returns the starts the page sent. An Implement from the page

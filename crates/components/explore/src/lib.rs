@@ -557,6 +557,7 @@ impl Component<Action> for ExploreComponent {
         subscriptions.subscribe(Self::implementation_finished);
         subscriptions.subscribe(Self::expiration_tick);
         subscriptions.subscribe(Self::page_shared);
+        subscriptions.subscribe(Self::page_not_shared);
         subscriptions.subscribe(Self::page_start);
         Self::register_input(subscriptions);
     }

@@ -19,3 +19,26 @@ test('the page shows the question the agent posts, and the reviewer picks a choi
   await agent.act('pick "Discard the draft" as the answer to question 1');
   await expect(screen.getByRole('radio', 'Discard the draft')).toBeChecked();
 });
+
+test('the question shows as Markdown, with raw HTML as text', async ({ explore, screen }) => {
+  await explore.open();
+  await explore.askQuestion({
+    id: 'reopen-draft',
+    version: 1,
+    topic: 'drafts',
+    text: 'Should `reopen()` keep the **unsent** draft? <b>Yes</b>',
+    rationale: null,
+    visual: null,
+    alternatives: [
+      { id: 'keep', text: 'Keep the draft', outcome: 'accepted', recommendation: null },
+      { id: 'discard', text: 'Discard the draft', outcome: 'needs_follow_up', recommendation: null },
+    ],
+    evidence: [],
+    assessments: null,
+  });
+  const question = screen.getByRole('region', 'Question 1');
+  await expect(question).toContainText('Should reopen() keep the unsent draft? <b>Yes</b>');
+  await expect(question.getByText('reopen()', { exact: true })).toBeVisible();
+  await expect(question.getByText('unsent', { exact: true })).toBeVisible();
+  await expect(question).not.toContainText('`');
+});

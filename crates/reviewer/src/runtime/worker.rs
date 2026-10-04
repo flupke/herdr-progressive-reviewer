@@ -230,6 +230,7 @@ impl Worker {
             files,
         });
         let review_unit = snapshot.identity.review_unit().clone();
+        self.explore.name_review(&snapshot.identity);
         self.explore.checkpoint_changed(&review_unit);
         self.snapshot = Some(snapshot);
         true

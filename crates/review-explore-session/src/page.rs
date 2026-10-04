@@ -11,8 +11,10 @@ use review_explore::{
 use review_explore_citations::{Citation, CodeColors};
 use review_explore_page::{
     CommandRefusal, CommandReply, ImplementationState, PageAnswer, PageCommand, PageImplement,
-    PageImplementation, PageQuiz, PublishedRound, QuestionMarks, RoundStage,
+    PageImplementation, PageQuiz, PublishedRound, QuestionMarks, ReviewName, RoundStage,
+    TurnResponse,
 };
+use review_repository::repository::SnapshotIdentity;
 use review_source::ReviewCheckpoint;
 
 use crate::{ExploreSession, Start};
@@ -58,7 +60,9 @@ impl PageCitations {
             .map(|list| {
                 list.iter()
                     .map(|evidence| {
-                        let lines = comparison.cited_lines(&evidence.location, root);
+                        // The page may be open from the network: it shows no file outside the
+                        // change and the repository's tracked files.
+                        let lines = comparison.tracked_cited_lines(&evidence.location, root);
                         self.colors.cite(evidence.clone(), lines)
                     })
                     .collect()
@@ -83,6 +87,13 @@ impl ExploreSession {
             design: round.exploration.design(),
         });
         self.page.publish(round, stage);
+    }
+
+    /// The reviewer now shows the snapshot `identity`: the page names the review it belongs to,
+    /// as the pane's header does.
+    pub fn name_review(&self, identity: &SnapshotIdentity) {
+        self.page
+            .name(ReviewName::of(self.repository.root(), identity));
     }
 
     /// Carries out `command` from the page, or refuses it, and replies.
@@ -262,6 +273,7 @@ fn latest_turn(
                     .unwrap_or_default(),
                 takes_answers: takes_quiz_answers,
             },
+            response: TurnResponse::of(exploration, turn),
         };
     }
     match &turn.update.next {
@@ -270,6 +282,8 @@ fn latest_turn(
             question: Box::new(question.clone()),
             citations: citations.of(question, &exploration.comparison, root),
             marks: QuestionMarks::requested(&turn.update),
+            response: TurnResponse::of(exploration, turn),
+            answer_cancelled: exploration.cancelled_since_last_turn(),
         },
         None => RoundStage::Interrupted { failure: None },
     }

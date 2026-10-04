@@ -1,15 +1,19 @@
 //! What the page shows of an Explore round, as the session that owns the round publishes it.
 
+use std::path::Path;
 use std::sync::Arc;
 
+use axum::http::HeaderMap;
 use review_explore::{
-    CodeLocation, Conclusion, Design, InterviewUpdate, MarkCounts, NotRelevantMark, Question,
-    QuizAnswers,
+    CodeLocation, Conclusion, ConversationTurn, Design, Exploration, Interpretation,
+    InterviewUpdate, MarkCounts, NotRelevantMark, Question, QuizAnswers,
 };
 use review_explore_citations::Citation;
+use review_repository::repository::SnapshotIdentity;
 use serde::Serialize;
 use tokio::sync::watch;
 
+use crate::blind::{BlindQuestion, FirstPick};
 use crate::{CommandSender, PageQuizResponse};
 
 /// The step of a round that the page shows.
@@ -33,6 +37,11 @@ pub enum RoundStage {
         citations: Arc<[Citation]>,
         /// The lines an answer to the question marks.
         marks: QuestionMarks,
+        /// What the agent's turn that posted the question said back to the previous answer.
+        response: TurnResponse,
+        /// Whether the question waits again because the reviewer cancelled its answer: the
+        /// reviewer has seen the agent's recommendation already.
+        answer_cancelled: bool,
     },
     /// The agent is not working on the turn the round waits for: its prompt failed, the
     /// reviewer stopped waiting, or the reviewer reopened during the turn. The reviewer
@@ -51,6 +60,8 @@ pub enum RoundStage {
         implementation: Option<PageImplementation>,
         /// The lines of the proofs of the conclusion's quiz, and what the reviewer answered.
         quiz: PageQuiz,
+        /// What the agent's turn that posted the conclusion said back to the previous answer.
+        response: TurnResponse,
     },
 }
 
@@ -59,6 +70,31 @@ impl RoundStage {
     pub(crate) fn asks(&self, id: &str, version: u32) -> Option<&Question> {
         match self {
             Self::Question { question, .. } if question.is_version(id, version) => Some(question),
+            _ => None,
+        }
+    }
+
+    /// The question the stage waits for an answer to, when it hides the agent's recommendation
+    /// until the reviewer's first pick. A question the reviewer answered before, then cancelled
+    /// the answer of, shows the recommendation at once: the reviewer has seen it.
+    pub(crate) fn blind(&self) -> Option<BlindQuestion<'_>> {
+        match self {
+            Self::Question {
+                question,
+                answer_cancelled: false,
+                ..
+            } => BlindQuestion::of(question),
+            _ => None,
+        }
+    }
+
+    /// What the agent's turn said back to the reviewer's previous answer, above the question or
+    /// the conclusion the stage shows; `None` in another stage, or when it said nothing.
+    pub fn response(&self) -> Option<&TurnResponse> {
+        match self {
+            Self::Question { response, .. } | Self::Conclusion { response, .. } => {
+                Some(response).filter(|response| !response.is_empty())
+            }
             _ => None,
         }
     }
@@ -135,6 +171,70 @@ pub struct PageQuiz {
     pub takes_answers: bool,
 }
 
+/// What an agent's turn said back to the reviewer's previous answer, as the pane shows it: its
+/// interpretations of the answer, each with its recap and follow-ups, and its reply. Empty for a
+/// turn that follows no answer and replies nothing.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
+pub struct TurnResponse {
+    /// The agent's interpretations of the answer the turn follows, in the order it gave them.
+    pub interpretations: Vec<Interpretation>,
+    /// The agent's reply, in Markdown.
+    pub reply: Option<String>,
+}
+
+impl TurnResponse {
+    /// What `turn` of `exploration` said back: every interpretation of the answer the turn
+    /// follows, as the pane lists them under the answer, and the turn's reply.
+    pub fn of(exploration: &Exploration, turn: &ConversationTurn) -> Self {
+        Self {
+            interpretations: turn.answer.as_deref().map_or_else(Vec::new, |answer| {
+                exploration
+                    .interpretations
+                    .iter()
+                    .filter(|interpretation| interpretation.answer == answer)
+                    .cloned()
+                    .collect()
+            }),
+            reply: turn
+                .update
+                .reply
+                .as_ref()
+                .map(|reply| reply.text.clone())
+                .filter(|text| !text.trim().is_empty()),
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.interpretations.is_empty() && self.reply.is_none()
+    }
+}
+
+/// The review a page belongs to, as the pane's header names it, with the repository: two
+/// reviewers' pages can be told apart.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
+pub struct ReviewName {
+    /// The name of the repository's directory.
+    pub repository: String,
+    /// The abbreviated revision identifier, without colors.
+    pub revision: String,
+    /// The first line of the change's description; empty when it has none.
+    pub title: String,
+}
+
+impl ReviewName {
+    /// The review of the repository at `root`, at the snapshot `identity`.
+    pub fn of(root: &Path, identity: &SnapshotIdentity) -> Self {
+        Self {
+            repository: root.file_name().map_or_else(
+                || root.display().to_string(),
+                |name| name.to_string_lossy().into_owned(),
+            ),
+            revision: identity.plain_display_id(),
+            title: identity.title().to_owned(),
+        }
+    }
+}
+
 /// What became of an implementation request, as the page shows it.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(tag = "kind", content = "reason", rename_all = "snake_case")]
@@ -209,9 +309,18 @@ pub(crate) struct RoundSnapshot {
     /// The design of the change, as the round's first turn explained it.
     pub(crate) design: Option<Arc<Design>>,
     pub(crate) stage: RoundStage,
+    /// The review the page belongs to, once its owner named it.
+    pub(crate) review: Option<ReviewName>,
 }
 
 impl RoundSnapshot {
+    /// The reviewer's first pick of the blind question the snapshot asks, as the request's
+    /// cookie carries it; `None` when the question shows its recommendation at once.
+    pub(crate) fn first_pick(&self, headers: &HeaderMap) -> Option<FirstPick> {
+        let blind = self.stage.blind()?;
+        FirstPick::read(headers, self.round.as_deref(), &blind)
+    }
+
     fn shows(&self, round: Option<PublishedRound<'_>>, stage: &RoundStage) -> bool {
         self.stage == *stage
             && self.round.as_deref() == round.map(|round| round.id)
@@ -231,6 +340,7 @@ impl RoundPublisher {
             round: round.map(|round| round.id.to_owned()),
             design: round.and_then(|round| round.design.cloned().map(Arc::new)),
             stage,
+            review: None,
         }))
     }
 
@@ -247,7 +357,20 @@ impl RoundPublisher {
                 round: round.map(|round| round.id.to_owned()),
                 design: round.and_then(|round| round.design.cloned().map(Arc::new)),
                 stage,
+                review: snapshot.review.take(),
             };
+            true
+        });
+    }
+
+    /// Names the review the page belongs to. The same name again changes nothing.
+    pub fn name(&self, review: ReviewName) {
+        self.0.send_if_modified(|snapshot| {
+            if snapshot.review.as_ref() == Some(&review) {
+                return false;
+            }
+            snapshot.revision += 1;
+            snapshot.review = Some(review);
             true
         });
     }
@@ -282,6 +405,11 @@ impl RoundFeed {
     /// The design of the change, as the latest round's first turn explained it.
     pub fn design(&self) -> Option<Arc<Design>> {
         self.0.borrow().design.clone()
+    }
+
+    /// The review the page belongs to, once the owner named it.
+    pub fn review(&self) -> Option<ReviewName> {
+        self.0.borrow().review.clone()
     }
 
     /// Waits for the next published stage. Returns false once the publisher is gone.

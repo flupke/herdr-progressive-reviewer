@@ -1,5 +1,5 @@
-{# No round is running: Start and Start with Challenger, as in the reviewer's Explore tab, and
-   why the reviewer's latest start failed. #}
+{# No round is running: the review the page belongs to, Start and Start with Challenger, as in
+   the reviewer's Explore tab, and why the reviewer's latest start failed. #}
 {% if start_failure %}
 <div class="state failure" role="alert">
   <p>The round could not be started.</p>
@@ -7,6 +7,9 @@
 </div>
 {% endif %}
 <p class="state" role="status">No Explore round is running.</p>
+{% if review %}
+<p class="review">Review of {% if review.title %}“{{ review.title }}” (<code>{{ review.revision }}</code>){% else %}<code>{{ review.revision }}</code>{% endif %} in the repository <code>{{ review.repository }}</code>.</p>
+{% endif %}
 <form class="start" method="post" action="/start">
   <p class="hint">With the Challenger, a second agent with fresh context reviews the change beside the agent.</p>
   <div class="start-buttons">

@@ -68,3 +68,13 @@ test('a start after a round started in the reviewer meanwhile is refused', async
   await expect(screen.getByRole('status')).toContainText('The agent is working');
   expect(await explore.starts()).toEqual([]);
 });
+
+test('the start screen names the review and the repository the page belongs to', async ({ explore, screen }) => {
+  await explore.open();
+  await explore.reset();
+  await expect(screen.getByRole('button', 'Start')).toBeVisible();
+
+  await expect(screen.getByText('drafts-demo', { exact: true })).toBeVisible();
+  await expect(screen.getByText('kmzqvtyx', { exact: true })).toBeVisible();
+  await expect(screen.getByText("Keep the reviewer's draft when a round reopens", { exact: false })).toBeVisible();
+});

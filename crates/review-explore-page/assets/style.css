@@ -4,7 +4,7 @@
   --line: color-mix(in srgb, currentColor 20%, transparent);
 }
 body { font: 16px/1.5 system-ui, sans-serif; margin: 0 auto; max-width: 44rem; padding: 0 16px; }
-.question, .conclusion, .quiz { border: 1px solid var(--line); border-radius: 8px; padding: 0 16px 16px; margin: 16px 0; }
+.question, .conclusion, .quiz, .response { border: 1px solid var(--line); border-radius: 8px; padding: 0 16px 16px; margin: 16px 0; }
 .text { font-weight: 600; }
 .choices { border: 0; padding: 0; margin: 0; display: grid; gap: 8px; }
 .choices legend { padding: 0; margin-bottom: 8px; }
@@ -68,3 +68,14 @@ body { font: 16px/1.5 system-ui, sans-serif; margin: 0 auto; max-width: 44rem; p
 .quiz-results summary { cursor: pointer; }
 .quiz-results summary > h3 { display: inline-block; margin: 12px 0; }
 .quiz-results h4 { margin: 16px 0 4px; }
+
+/* What the agent said back to the previous answer, above its question or conclusion. */
+.response h2 { font-size: 1.15em; margin: 12px 0 0; }
+.response .markdown { margin-top: 8px; }
+.follow-ups { margin: 8px 0 0; padding: 0; list-style: none; overflow-wrap: anywhere; }
+
+/* The question, in the agent's Markdown, keeps the spacing of a paragraph. */
+.question > .text { margin: 16px 0; }
+
+/* The review the start screen belongs to. */
+.review { overflow-wrap: anywhere; }
