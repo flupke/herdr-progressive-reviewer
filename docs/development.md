@@ -350,7 +350,11 @@ what it names, `.hint` the muted help line. Every control has a focus ring (`:fo
   a phone). From 70rem, a container with the class `desk` reads in two columns: its children
   in the reading column, each in its own grid row, and its child with the class `panel` (416
   pixels; 480 with `desk wide`) beside them from the first row to the last, sticking in view.
-  The panel is a tinted surface with no border; on a phone it runs from edge to edge. Because
+  The panel is a tinted surface with no border; on a phone it runs from edge to edge. From
+  89rem (1424 pixels), the open chat stands as a third column at the window's left gutter, and
+  the page starts after it (`--chat-room`): the reading column narrows, down to 448 pixels
+  (384 beside the conclusion's wider panel), and the panel keeps its width and its place;
+  between 70 and 89rem the chat lies over the left of the page and nothing moves. Because
   the grid places the parts, a template keeps one order, which a phone shows as is: a reading
   part after the panel (the question's citations) comes after the reviewer's actions there.
 
@@ -380,7 +384,7 @@ what it names, `.hint` the muted help line. Every control has a focus ring (`:fo
   </section>
   ```
 - **Masthead** (`masthead.css`, drawn by `assets/client/masthead.js`), above `main`: the
-  product's name and the review's title, the round rail, the chat's place and the ⋯ menu, with
+  chat's place, the product's name and the review's title, the round rail and the ⋯ menu, with
   its hairline across the window as an element of its own, which the meter draws on. The rail
   and the tab title come from the round's overview (`review_explore::RoundOverview`, which the
   session derives in `publish_page` and the view carries as `rail` and `title`): take every
@@ -396,10 +400,16 @@ what it names, `.hint` the muted help line. Every control has a focus ring (`:fo
   `data-screen` (`design`, `question-N`, `round`), for the swipe. On a
   phone the rail shows the design and the current step as chips, with the screen in view and
   the screens beside it, which a swipe turns to (class `near`), and the chip a swipe heads to
-  fills (class `target`); the review's title moves into the menu.
+  fills (class `target`); the review's title moves into the menu. The chat's place is first in
+  the row from 70rem, where the bubble stands at the window's left gutter, above the chat it
+  opens, and the product's name begins after it (or, with the chat open beside the page, where
+  the reading column begins); below 70rem `masthead.js` moves it beside the menu, so that the
+  keyboard meets the bubble where the row shows it.
 
   ```html
   <header class="masthead">
+    <div class="masthead-chat" id="masthead-chat">          <!-- the chat's bubble; beside the menu below 70rem -->
+      <button class="chat-bubble" aria-label="Talk to the agent" aria-controls="chat"><span class="bubble-shape"></span><span class="chat-badge">1</span></button></div>
     <div class="identity"><p class="product">Explore</p><p class="review">…</p></div>
     <nav class="rail" aria-label="Round"><ol>
       <li class="step done design-step"><button class="design-toggle" aria-expanded="false">…</button>
@@ -407,17 +417,24 @@ what it names, `.hint` the muted help line. Every control has a focus ring (`:fo
       <li class="step current" aria-current="step">Q2 · working</li>
       <li class="step later">Quiz</li>
     </ol></nav>
-    <div class="masthead-chat" id="masthead-chat">          <!-- the chat's bubble -->
-      <button class="chat-bubble" aria-label="Talk to the agent" aria-controls="chat"><span class="bubble-shape"></span><span class="chat-badge">1</span></button></div>
     <div class="menu"><button class="menu-toggle" aria-label="Round menu">⋯</button>
       <div class="menu-popover" id="round-menu" hidden>…</div></div>
     <div class="masthead-line" id="masthead-line"></div>   <!-- the meter draws here -->
   </header>
   ```
 - **Chat** (`chat.css`, `client/chat.js`, `client/chat-quote.js`): the round's conversation
-  with the agent, after `main`. On a desktop it lies over the answer column, under the
-  masthead; below the desk's two columns it is a bottom sheet over the dimmed page, whose
-  grabber drags it to the full height or closes it. It opens from the bubble, from the menu,
+  with the agent, after `main`. On a desktop (from 70rem) it stands at the window's left gutter,
+  under its bubble, as wide as the panel and drawn as the panel is; it starts under the
+  masthead, rises with it to the panel's height as the page scrolls (a scroll timeline, or
+  `rise()` in a browser without one), and
+  reaches the bottom of the window, its messages scrolling on their own above the composer.
+  From 89rem the page makes room for it (`layout.css`, "Panel and desk"); between 70 and 89rem
+  it lies over the left of the page, with a shadow and no scrim; it never covers the panel. It
+  sits under the masthead's layer (`--layer-chat-beside`), so the design map, the ⋯ menu and
+  the meter's window open over it, and an Escape that closes the map, the menu, the meter's
+  pinned window or a diagram opened large leaves the chat open (the chat hears Escape on the
+  window, after every listener of the document). Below the desk's two columns it is a bottom sheet over the
+  dimmed page, whose grabber drags it to the full height or closes it. It opens from the bubble, from the menu,
   from "Not ready? Reply to the agent instead" (`requestChat()`), and from "Add to chat", which
   a passage selected in the reading offers and which it quotes. The composer is a form of
   `actions.js` (`send-message`); its draft and quote are kept for the tab. A reply the reviewer
@@ -728,6 +745,7 @@ only, with no `unsafe` value; its `connect-src` names the page's own `ws:` addre
   `conclusion.js` (with the reviewer's decisions, the list to be implemented, each state of
   its request), `quiz.js`, `masthead.js` (above `main`, with Reset in its menu), `chat.js`
   (the chat, with its bubble in the masthead), `chat-quote.js` ("Add to chat" on a selection),
+  `desk.js` (the windows where the page reads in two columns, for the chat and its bubble),
   `meter.js` (the meter on the masthead's hairline), `change-size.js` ("+125 −10", "4 files"),
   `disclosure.js` (a button that shows or hides an action behind a fold), and `diagrams.js`,
   which draws each diagram of a region that was built.

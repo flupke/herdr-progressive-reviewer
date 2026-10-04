@@ -30,7 +30,7 @@ Pixel values are at 1440px wide. Every screen shares the masthead (below) and, f
 - Left: **Explore** 15px/700, then the review title 15px `--muted`, one line, ellipsis, with the revision id in 13px mono.
 - Rail (13px): done steps `✓ Design ▾`, `✓ Q1` with the check in `--good`; the current step in `--accent` 650 with a 2px underline (`box-shadow: inset 0 -2px 0 accent`, `padding-bottom:1px`); later steps `--muted` at 70% opacity. Steps: Design · Q1…Qn · Quiz (with score once known, "Quiz 1/3") · Conclusion. The current step may carry a state: "Q2 · working".
 - **Design ▾** opens the design map in place (popover 384px, `--panel`, 1px line, radius 10, shadow `0 14px 36px rgba(0,0,0,.55)`, padding 12): eyebrow "Design of the change", the thesis 14px/600, the four parts as rows (22px numbered disc, name 650, gist 12.5px muted), footer link "Open the design →" in accent. Each part links to the design screen at that part.
-- Chat icon: 30×28, a 16×12 rounded speech bubble drawn with a 2px border (radius `6px 6px 6px 1px`), `--muted`; when the chat is open: `accent` on `accent 16%` background. Unread badge: 16px disc, accent, 10px/700 count, at top-right (-4px).
+- Chat icon (on a desktop, at the left of the row since the project owner's request; see "Agent chat"): 30×28, a 16×12 rounded speech bubble drawn with a 2px border (radius `6px 6px 6px 1px`), `--muted`; when the chat is open: `accent` on `accent 16%` background. Unread badge: 16px disc, accent, 10px/700 count, at top-right (-4px).
 - `⋯` (28×28, muted, 16px): menu 300px with "Copy the round's link", "Open the agent's conversation", a hairline, "Reset this round… · closes it for good". Choosing Reset replaces the menu with the hint and the red **Confirm reset**. Reset lives nowhere else.
 - Tab title by stage: "Q3 · your turn — <review>", "Agent working… — <review>", "Retry needed — <review>", "Conclusion — <review>".
 
@@ -106,7 +106,9 @@ The round's first screen, and the screen "Design ▾" opens later. Nothing but t
 
 One conversation per round, available on every screen; it is the "ask the agent" of the question screens and the "Reply" of the conclusion.
 
-- Opens from the masthead bubble (and from "Not ready? Reply…"). Desktop: a **416px panel over the answer column** — `position:absolute; top:81px (under the masthead + 24px); right:32px; bottom:24px`, `#161719`-ish surface (`--panel` slightly darker in dark; `--panel` in light), 1px line, radius 12, shadow `0 18px 48px rgba(0,0,0,.55)`. Slides in 24px → 0 and fades over 280ms; the reading column is never covered; the choices wait underneath until the chat closes.
+> **Departure from this handoff, at the project owner's request (2026-10):** on a desktop the chat no longer lies over the answer column, which hid the choices or the list to implement exactly when the reviewer discussed them with the agent. It is a column at the **window's left gutter**, 416px wide, drawn as the answer panel is (`--panel` surface in both themes, no border, radius 12, sticky under the masthead, then at the panel's 16px while the page scrolls), its messages scrolling above the composer, and its bubble moves to the **left of the masthead**, above it. From 1424px the page makes room for it: the reading column starts after it and the 40px gap, narrowing down to 448px (384px beside the conclusion's 480px panel), while the panel keeps its width and place; on a window wide enough (2352px) it fits in the margin of the centred page. From 1120px to 1424px it lies over the page's left margin and the left of the reading column as a drawer with a shadow and no scrim, and never covers the panel. The phone sheet and its bubble beside `⋯` are unchanged. `15a-chat.png` shows the chat as first designed.
+
+- Opens from the masthead bubble (and from "Not ready? Reply…"). Desktop, as first designed: a **416px panel over the answer column** — `position:absolute; top:81px (under the masthead + 24px); right:32px; bottom:24px`, `#161719`-ish surface (`--panel` slightly darker in dark; `--panel` in light), 1px line, radius 12, shadow `0 18px 48px rgba(0,0,0,.55)`. Slides in 24px → 0 and fades over 280ms; the reading column is never covered; the choices wait underneath until the chat closes.
 - Header: "Agent" 15px/650, "this round · 3 messages" 13px muted, × at the right. Body: messages 15px; yours as eyebrow "YOU · Q2 · 14:21" + text 600, with an optional **quote** (blockquote: 3px accent 60% left rule, accent 6% fill, 13px muted); the agent's in a `--panel` block with eyebrow "AGENT · 14:22", citations as accent links that open the citation in place. Pending reply: an info-styled row "… The agent is answering · 0:31". Composer: optional quote chip (same style, × removes it), textarea "Ask, challenge, or add context…", a secondary-accent **Send** (1px accent border, accent text) with "The question stays open. ⌘↵" 12px muted.
 - **Selection → quote**: selecting text in the reading column (question, context, Door, citations, design) shows one popup option, **Add to chat** (13px/650 accent on accent 14%, in a `--panel` pill with shadow). It opens the chat if closed and attaches the passage as the composer's quote. Selected text is highlighted `accent 28%`.
 - Mechanics: a chat message is a free-text wakeup that does not answer (today's "None of the above" + text); the question stays open; the agent's reply lands in the chat, not above the question. Messages carry the question they were asked under. Unread reply: badge on the bubble and the tab title.
@@ -120,7 +122,7 @@ One conversation per round, available on every screen; it is the "ask the agent"
 | Blind pick | first Send | reveal line + tag + reason; button → Confirm answer | instant |
 | Blind pick | Confirm | post `/answer`, redirect `/#answer` | — |
 | Choice card | hover / focus | `line-strong` border / 2px accent outline | 150ms |
-| Chat | bubble, Reply, Add to chat | panel slides in over the answer column | 280ms `cubic-bezier(.2,.8,.2,1)` |
+| Chat | bubble, Reply, Add to chat | panel slides in over the answer column (since the owner's request: column slides in at the window's left, the page makes room) | 280ms `cubic-bezier(.2,.8,.2,1)` |
 | Chat | Esc, ×, bubble | closes; unread badge resets | 220ms |
 | Design ▾ | click | map popover; parts link into the design screen | — |
 | ⋯ | click | menu; Reset → confirmation in place | — |
@@ -170,7 +172,7 @@ None: no images or icon fonts. The chat bubble is a CSS shape; status marks and 
 
 - Stages: `10a-design.png`, `10b-question.png`, `10c-waiting.png`, `10d-quiz.png`, `10e-conclusion.png`
 - Masthead details: `3b-rail-map-open.png` (Design ▾ popover), `5a-menu.png` (⋯ menu), `8b-meter-hover.png` (meter grown, window open), `9a-meter-live.png`
-- Chat: `15a-chat.png` (over the answer column), `15b-phone-chat.png`
+- Chat: `15a-chat.png` (over the answer column, as first designed; the desktop place now departs from it, see "Agent chat"), `15b-phone-chat.png`
 - Phone: `11a-phone-design.png`, `11b-phone-question.png`, `11c-phone-conclusion.png`, `12a-phone-swipe.png`
 - States: `13a-start-cover.png`, `13b-status-cards.png`, `13c-implementation.png`
 - Light theme: `16a-question-light.png`, `16c-design-light.png`, `16b-status-light.png`

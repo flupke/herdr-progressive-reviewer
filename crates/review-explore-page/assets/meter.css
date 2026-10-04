@@ -9,7 +9,7 @@
   --meter-others: color-mix(in srgb, var(--good) 70%, var(--canvas));
   --meter-jev: color-mix(in srgb, var(--good) 40%, var(--canvas));
   --meter-hatch: repeating-linear-gradient(135deg, var(--accent) 0 5px, color-mix(in srgb, var(--accent) 35%, var(--canvas)) 5px 10px);
-  --meter-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --meter-ease: var(--ease-settle);
   position: absolute;
   inset: auto 0 0;
   height: 1px;

@@ -1,8 +1,9 @@
 // The masthead, one row above every screen (docs/design/explore-page/README.md, "Masthead"):
-// the product's name, the review's title, the round rail, a place for the chat's bubble, and the
-// ⋯ menu. "Design ▾" on the rail opens the design map in place; the menu copies the round's
-// link, opens the agent's conversation (chat.js), and holds Reset, behind its confirmation,
-// which the page offers nowhere else. The masthead's bottom hairline is an element of its own,
+// the chat's bubble at its left on a desktop, the product's name, the review's title, the round
+// rail, and the ⋯ menu, with the bubble beside it below the desk's two columns. "Design ▾" on
+// the rail opens the design map in place; the menu copies the round's link, opens the agent's
+// conversation (chat.js), and holds Reset, behind its confirmation, which the page offers
+// nowhere else. The masthead's bottom hairline is an element of its own,
 // which the meter draws on. On a phone the rail shows chips: the design, the current step, the
 // screen in view and the screens beside it, and the review's title moves into the menu
 // (masthead.css, swipe.css). The browser tab's title says whose turn it is, after the count of
@@ -19,6 +20,7 @@
 /** @import { DesignView, PageView, RailStep, ReviewName, Step, TabTitle } from "./types.ts" */
 
 import { requestChat } from './chat.js';
+import { DESK } from './desk.js';
 import { h, keyOf, markdown, Region } from './dom.js';
 import { earlierQuestion, STAGE } from './route.js';
 
@@ -44,9 +46,11 @@ export class Masthead {
     header.replaceChildren(identity);
     this.review = new Region(identity, 'review');
     this.rail = new Region(header, 'rail');
-    // The chat's bubble goes here, beside the menu.
-    header.append(h('div', { class: 'masthead-chat', id: 'masthead-chat' }));
     this.menu = new Region(header, 'menu');
+    // The chat's bubble goes here: first in the row on a desktop, beside the menu below.
+    this.chatPlace = h('div', { class: 'masthead-chat', id: 'masthead-chat' });
+    this.placeChat();
+    DESK.addEventListener('change', () => this.placeChat());
     // The hairline under the masthead, across the window: the meter draws on it.
     header.append(h('div', { class: 'masthead-line', id: 'masthead-line' }));
     /** @type {Open} */
@@ -63,7 +67,10 @@ export class Masthead {
     document.addEventListener('click', (event) => this.clickOutside(event));
     addEventListener('resize', () => this.fit());
     document.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape' && this.open) this.close(true);
+      if (event.key !== 'Escape' || !this.open) return;
+      // Escape closes the popover, and nothing else: the chat stays open (chat.js).
+      event.preventDefault();
+      this.close(true);
     });
   }
 
@@ -194,6 +201,15 @@ export class Masthead {
     if (!(identity instanceof HTMLElement) || !(product instanceof HTMLElement)) return;
     this.header.classList.remove('crowded');
     this.header.classList.toggle('crowded', identity.getBoundingClientRect().width < product.scrollWidth);
+  }
+
+  /** Puts the chat's place where the window's width draws it, so that the keyboard reaches the
+   * bubble in the order the row shows it; the bubble keeps the focus it had. */
+  placeChat() {
+    const focused = document.activeElement;
+    if (DESK.matches) this.header.prepend(this.chatPlace);
+    else this.rail.anchor.after(this.chatPlace);
+    if (focused instanceof HTMLElement && this.chatPlace.contains(focused)) focused.focus();
   }
 
   /** Replaces the menu's entries with Reset's hint and its Confirm reset. */

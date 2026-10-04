@@ -84,7 +84,11 @@ export class Meter {
      */
     this.previous = null;
     document.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape' && this.open) this.close();
+      if (event.key !== 'Escape' || !this.open) return;
+      // Escape closes the window; a window the reviewer pinned, and nothing else: the chat stays
+      // open (chat.js). One that opened under a resting pointer lets Escape close the chat too.
+      if (this.open === 'pinned') event.preventDefault();
+      this.close();
     });
     document.addEventListener('click', (event) => {
       if (this.open === 'pinned' && !event.composedPath().includes(this.root)) this.close();

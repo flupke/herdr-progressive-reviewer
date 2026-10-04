@@ -127,11 +127,22 @@ function queue(some) {
     });
 }
 
+// The diagrams fit again once the page's column has a new width: the window resized, or the
+// open chat made room beside the page (layout.css), over a short transition.
+/** How long the column's width stays the same before the diagrams fit it, in milliseconds. */
+const REFIT_DELAY = 100;
 let resizing = 0;
-addEventListener('resize', () => {
-  cancelAnimationFrame(resizing);
-  resizing = requestAnimationFrame(fitDiagrams);
-});
+let columnWidth = 0;
+const column = document.querySelector('main');
+if (column) {
+  new ResizeObserver(([entry]) => {
+    // Only the width counts: the column grows taller with every part the page draws.
+    if (entry.contentRect.width === columnWidth) return;
+    columnWidth = entry.contentRect.width;
+    clearTimeout(resizing);
+    resizing = setTimeout(fitDiagrams, REFIT_DELAY);
+  }).observe(column);
+}
 
 /** Mermaid, loaded once; it redraws every diagram when the page's theme changes. */
 function load() {

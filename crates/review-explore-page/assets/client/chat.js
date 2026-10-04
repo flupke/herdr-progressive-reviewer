@@ -3,8 +3,10 @@
 // wakes the agent as a thread's comment does, never answers the question, and the agent's reply
 // lands here. It opens from the masthead's bubble, from the ⋯ menu, from "Not ready? Reply to
 // the agent instead" on the conclusion, and from "Add to chat" on a passage the reviewer selected
-// (chat-quote.js), which it quotes. On a desktop it lies over the answer column, never over the
-// reading column; below the desk's two columns it is a bottom sheet over the dimmed page.
+// (chat-quote.js), which it quotes. On a desktop it stands at the window's left, under its bubble
+// at the left of the masthead: beside the reading column when the window has room for three
+// columns, over the left of the page when it has not, and never over the panel (chat.css,
+// layout.css); below the desk's two columns it is a bottom sheet over the dimmed page.
 //
 // The drawer, its composer and its draft stay while the page shows the same round; the messages
 // are rebuilt when they change. A reply the reviewer has not seen shows on the bubble and in the
@@ -12,6 +14,7 @@
 
 /** @import { AskedUnder, ChatMessageView, ConversationView, PageView, Call, Reply } from "./types.ts" */
 
+import { DESK } from './desk.js';
 import { h, keyOf, markdown, Region } from './dom.js';
 import { keep, keepDraft, kept } from './drafts.js';
 import { clockTime, statusCard } from './status.js';
@@ -19,8 +22,14 @@ import { clockTime, statusCard } from './status.js';
 /** The event that asks the chat to open, with an optional quote (`requestChat`). */
 const OPEN = 'explore:chat';
 
-/** How long the drawer takes to fade out when it closes, in milliseconds (chat.css). */
-const CLOSING = 220;
+/** The page's token `name` (tokens.css, layout.css) as a number of pixels or milliseconds.
+ * @param {string} name */
+function token(name) {
+  return parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name)) || 0;
+}
+
+/** Whether the browser lets the chat rise with the masthead by itself (chat.css). */
+const RISES = CSS.supports('animation-timeline: scroll()');
 
 /** How far a drag of the phone sheet's grabber goes before it changes the sheet. */
 const DRAG = 60;
@@ -94,8 +103,13 @@ export class Chat {
       const quote = /** @type {CustomEvent<{ quote: string | null }>} */ (event).detail.quote;
       this.show(quote);
     });
-    document.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape' && this.open) this.close(true);
+    // On the window, which hears a key after every listener of the document: an Escape that
+    // closed something else (a popover of the masthead, the meter's pinned window, a diagram
+    // opened large) leaves the chat open.
+    addEventListener('keydown', (event) => {
+      if (event.key !== 'Escape' || !this.open || event.defaultPrevented) return;
+      if (event.target instanceof Element && event.target.closest('dialog')) return;
+      this.close(true);
     });
     // A reply that came while the tab was hidden is seen once the tab shows again.
     document.addEventListener('visibilitychange', () => {
@@ -103,6 +117,22 @@ export class Chat {
       this.redraw();
     });
     this.timer = 0;
+    if (!RISES) {
+      addEventListener('scroll', () => this.rise(), { passive: true });
+      addEventListener('resize', () => this.rise());
+    }
+  }
+
+  /** Where the browser has no scroll timeline: on a desktop, the chat rises with the masthead as
+   * the page scrolls, to where the panel is held, as `chat-rise` in chat.css does with one:
+   * change both together. */
+  rise() {
+    if (this.element.hidden) return;
+    this.element.style.top = '';
+    if (!DESK.matches) return;
+    const top = parseFloat(getComputedStyle(this.element).top);
+    const held = token('--sticky-top');
+    this.element.style.top = `${Math.max(held, top - scrollY)}px`;
   }
 
   /**
@@ -156,6 +186,7 @@ export class Chat {
     const opened = !this.open;
     this.open = true;
     this.element.hidden = false;
+    if (!RISES) this.rise();
     this.scrim.hidden = false;
     this.bubble.setAttribute('aria-expanded', 'true');
     // The next frame, so that the drawer slides in from where it was drawn closed.
@@ -175,7 +206,7 @@ export class Chat {
     // Hidden once it faded out (chat.css), unless it opened again meanwhile.
     setTimeout(() => {
       if (!this.open) this.element.hidden = true;
-    }, CLOSING);
+    }, token('--drawer-out'));
     this.scrim.hidden = true;
     this.bubble.setAttribute('aria-expanded', 'false');
     if (refocus) this.bubble.focus();

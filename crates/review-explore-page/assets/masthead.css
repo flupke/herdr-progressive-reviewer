@@ -3,6 +3,13 @@
    design map behind "Design ▾", the chat's place, and the ⋯ menu. Its content lines up with the
    page's column, whatever the window's width. Its bottom hairline is an element of its own,
    `.masthead-line`, across the whole window: the meter draws on it. */
+:root {
+  /* The row's height, under which the chat begins on a desktop (chat.css). */
+  --masthead-height: 57px;
+  /* The chat's bubble's room at the left of the row on a desktop: its width (chat.css) and the
+     space after it. */
+  --bubble-room: calc(var(--bubble-width) + 14px);
+}
 .masthead {
   position: relative;
   /* Its popovers open over the page's sticky panel. */
@@ -11,8 +18,8 @@
   display: flex;
   align-items: center;
   gap: 28px;
-  min-height: 57px;
-  padding: 14px max(var(--gutter), calc((100% - var(--page)) / 2 + var(--gutter))) 15px;
+  min-height: var(--masthead-height);
+  padding: 14px max(var(--gutter), var(--column-start)) 15px;
 }
 .masthead-line {
   position: absolute;
@@ -40,8 +47,35 @@
   text-overflow: ellipsis;
 }
 .masthead .review code, .menu-review code { font-size: 13px; }
-/* The chat's bubble, once there is one. */
+/* The chat's bubble, once there is one: beside the menu, and on a desktop at the left of the
+   row, at the window's gutter, above the chat it opens (chat.css), which stands there too.
+   masthead.js puts it first in the row there, so that it is first to the keyboard as well. The
+   product's name then begins after it, or where the page's column begins when that is further:
+   with the chat open beside the page (from 89rem, layout.css), where the reading column begins. */
 .masthead-chat:empty { display: none; }
+@media (min-width: 70rem) {
+  .masthead-chat {
+    position: absolute;
+    inset-block: 0;
+    left: var(--gutter);
+    display: flex;
+    align-items: center;
+  }
+  .masthead:has(.chat-bubble:not([hidden])) {
+    padding-left: max(calc(var(--gutter) + var(--bubble-room)), var(--column-start));
+  }
+}
+/* It moves with the chat only, never when the bubble first shows. */
+@media (min-width: 89rem) {
+  body:has(> .chat:not([hidden])) .masthead { transition: padding-left var(--drawer-out) ease; }
+  body:has(> .chat.open) .masthead {
+    padding-left: max(var(--chat-room), var(--column-start));
+    transition: padding-left var(--drawer-in) var(--ease-settle);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  body:has(> .chat:not([hidden])) .masthead, body:has(> .chat.open) .masthead { transition: none; }
+}
 
 /* The round rail: done steps with a green check, the current step in accent and underlined,
    later steps muted. */

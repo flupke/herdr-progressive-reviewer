@@ -29,6 +29,18 @@
   --figure-card: calc(var(--figure) + 34px);
   /* A list of short lines, such as a quiz item's options: the width of the old single column. */
   --phrase: 44rem;
+  /* The space above the page's first part, under the masthead; and where a column that stays
+     in view (the panel, the chat) is held from the top of the window while the page scrolls. */
+  --page-top: 24px;
+  --sticky-top: 16px;
+  /* The margin of a page centred in a wider window, and where the page's column begins after
+     it: percentages of the window's width, for an element as wide as the window. */
+  --page-margin: max(0px, (100% - var(--page)) / 2);
+  --column-start: calc(var(--page-margin) + var(--gutter));
+  /* The chat beside the page on a desktop (chat.css): as wide as the panel, at the window's
+     left gutter; and the room it takes, from the window's left edge to the reading column. */
+  --chat-width: var(--panel-width);
+  --chat-room: calc(var(--gutter) + var(--chat-width) + var(--column-gap));
 }
 @media (min-width: 56rem) {
   :root { --gutter: 32px; }
@@ -38,7 +50,27 @@ main {
   box-sizing: border-box;
   max-width: var(--page);
   margin: 0 auto;
-  padding: 24px var(--gutter) 48px;
+  padding: var(--page-top) var(--gutter) 48px;
+}
+
+/* Room for the open chat (chat.css). From 89rem, the chat stands at the window's left gutter as
+   a column of its own, and the page's content starts after it and the column gap: the reading
+   column gives up the width the chat needs, while the panel keeps its width and its place. On
+   a window wide enough (2352 pixels), the chat fits in the margin of the centred page and
+   nothing moves. 89rem is the narrowest window with room for the three columns: the chat's
+   room (32 + 416 + 40), the narrowest reading column (448 pixels, about 56 characters of
+   text), the gap and the panel (40 + 416), and the right gutter (32), 1424 pixels. Below it,
+   the chat lies over the left of the page and nothing moves. The conclusion's wider panel
+   takes its reading column down to 384 pixels at 89rem. */
+@media (min-width: 89rem) {
+  body:has(> .chat:not([hidden])) main { transition: padding-left var(--drawer-out) ease; }
+  body:has(> .chat.open) main {
+    padding-left: max(var(--gutter), calc(var(--chat-room) - var(--page-margin)));
+    transition: padding-left var(--drawer-in) var(--ease-settle);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  body:has(> .chat:not([hidden])) main, body:has(> .chat.open) main { transition: none; }
 }
 
 /* Text keeps its measure; tables, code, diagrams and boxes take the width they need. */
@@ -80,8 +112,8 @@ main {
     grid-column: 2;
     grid-row: 1 / -1;
     position: sticky;
-    top: 16px;
-    max-height: calc(100vh - 32px);
+    top: var(--sticky-top);
+    max-height: calc(100vh - 2 * var(--sticky-top));
     overflow-y: auto;
   }
 }

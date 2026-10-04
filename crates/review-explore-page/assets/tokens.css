@@ -39,11 +39,14 @@
   --radius-pill: 999px;
 
   /* The stacking order, from the back. The page's own layers (sticky table columns, the
-     design's sticky part heads and bottom bar, the swipe's screens and edge) stay under 10.
+     design's sticky part heads and bottom bar, the swipe's screens and edge) stay under 5. On a
+     desktop the chat, beside the page or over its left side, comes over them and under the
+     masthead, so that the masthead's popovers and the meter's window open over it.
      The masthead holds, in its own stack: its hairline and the meter's bar and target, then the
      design map and the ⋯ menu, then the meter's window. Over the masthead come "Add to chat",
-     the chat's scrim, then the chat. A diagram opened large is a modal dialog, in the browser's
-     top layer, over everything. */
+     then, below the desk's two columns, the chat's scrim and the chat's sheet. A diagram opened
+     large is a modal dialog, in the browser's top layer, over everything. */
+  --layer-chat-beside: 5;
   --layer-masthead: 10;
   --layer-line: 1;
   --layer-popover: 2;
@@ -54,6 +57,13 @@
 
   --shadow-popover: 0 14px 36px light-dark(rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.55));
   --shadow-drawer: 0 18px 48px light-dark(rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.55));
+
+  /* A motion that settles: fast, then slowing to rest (the meter, a drawer). A drawer, and the
+     room the page makes for it, come in and go out in these ("Interactions & behaviour", the
+     chat). */
+  --ease-settle: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --drawer-in: 280ms;
+  --drawer-out: 220ms;
 }
 
 body {

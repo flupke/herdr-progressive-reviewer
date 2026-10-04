@@ -1,4 +1,4 @@
-import { expect } from 'e2e';
+import { expect, type Locator } from 'e2e';
 import { CHAT_REPLY, test } from './session.ts';
 
 // The chat: the round's conversation with the agent, a review thread attached to the round. The
@@ -9,6 +9,26 @@ import { CHAT_REPLY, test } from './session.ts';
 
 /** The chat, by the name of its region. */
 const CHAT = 'Conversation with the agent';
+
+/** A box on the page, as a locator's `boundingBox()` reads it. */
+type Box = NonNullable<Awaited<ReturnType<Locator['boundingBox']>>>;
+
+/** The box of something the page shows. */
+async function boxOf(locator: Locator): Promise<Box> {
+  const box = await locator.boundingBox();
+  if (!box) throw new Error('nothing drawn to measure');
+  return box;
+}
+
+/** Whether two boxes share no point. */
+function apart(a: Box, b: Box): boolean {
+  return leftOf(a, b) || leftOf(b, a) || a.y + a.height <= b.y || b.y + b.height <= a.y;
+}
+
+/** Whether box `a` ends where box `b` begins, or before. */
+function leftOf(a: Box, b: Box): boolean {
+  return a.x + a.width <= b.x;
+}
 
 // What sending a message achieves: it shows in the chat, waiting for the agent.
 const ASKING = {
@@ -147,6 +167,75 @@ test('a message being typed in the chat comes back after a reload', async ({ exp
 
   await screen.getByRole('button', 'Talk to the agent').tap();
   await expect(chat.getByRole('textbox', 'Message to the agent')).toHaveValue('Half a thought');
+});
+
+// On a desktop the chat stands at the left of the window, under its bubble at the left of the
+// masthead. From 1424 pixels the page makes room for it: the reviewer reads the question, sees its
+// choices and talks to the agent at once. 2000 pixels is a wide window, where the centred page has
+// a margin on its left; 1440 is the width of the design handoff.
+for (const width of [1440, 2000]) {
+  test(`on a window ${width} pixels wide, the open chat stands left of the question and its choices`, async ({
+    explore,
+    screen,
+    browser,
+  }) => {
+    await browser.setViewport({ width, height: 900 });
+    await explore.open();
+    await explore.askQuestion();
+    await screen.getByRole('link', 'Go to question 1').tap();
+    const bubble = screen.getByRole('button', 'Talk to the agent');
+    const choices = screen.getByRole('form', 'Your answer to question 1');
+    await expect(choices).toBeVisible();
+    // The bubble is the first thing at the left of the masthead, before the product's name and
+    // the review's title.
+    const name = screen.getByRole('banner').getByText('Explore', { exact: true });
+    const leftOfName = async () => leftOf(await boxOf(bubble), await boxOf(name));
+    expect(await leftOfName()).toBe(true);
+    const before = await boxOf(choices);
+
+    // An exact tap: the bubble is the control under test.
+    await bubble.tap();
+    const chat = screen.getByRole('complementary', CHAT);
+    await expect(chat).toBeVisible();
+    // The question's region holds the reading column and the panel beside it. The chat comes in,
+    // and the page makes room for it, over a short transition: the boxes settle.
+    const question = screen.getByRole('region', 'Question 1');
+    const reading = question.getByRole('heading', { level: 2 });
+    await expect
+      .poll(async () => {
+        const drawn = await boxOf(chat);
+        return {
+          reading: leftOf(drawn, await boxOf(reading)) && leftOf(drawn, await boxOf(question)),
+          choices: leftOf(drawn, await boxOf(choices)),
+          // The panel keeps its width and its place.
+          panel: await boxOf(choices),
+        };
+      })
+      .toEqual({ reading: true, choices: true, panel: before });
+    expect(await leftOfName()).toBe(true);
+  });
+}
+
+test('on a desktop window too narrow for three columns, the open chat leaves the choices in view', async ({
+  explore,
+  screen,
+  browser,
+}) => {
+  await browser.setViewport({ width: 1280, height: 800 });
+  await explore.open();
+  await explore.askQuestion();
+  await screen.getByRole('link', 'Go to question 1').tap();
+  const choices = screen.getByRole('form', 'Your answer to question 1');
+  await expect(choices).toBeVisible();
+  const before = await boxOf(choices);
+
+  await screen.getByRole('button', 'Talk to the agent').tap();
+  const chat = screen.getByRole('complementary', CHAT);
+  await expect(chat).toBeVisible();
+  // The chat lies over the left of the page; the panel does not move and nothing covers it.
+  await expect
+    .poll(async () => ({ choices: apart(await boxOf(chat), await boxOf(choices)), panel: await boxOf(choices) }))
+    .toEqual({ choices: true, panel: before });
 });
 
 test('on a phone, a sideways drag inside the open chat turns no page', async ({ explore, screen, browser }) => {

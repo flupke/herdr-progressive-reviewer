@@ -59,6 +59,23 @@ async function choose(page: Page, name: string): Promise<void> {
 }
 
 /**
+ * Waits until the open chat has come in and the page has made room for it: no transition runs
+ * (the chat's rise with the masthead runs on the page's scroll, not in time), and a diagram has
+ * fitted the column again.
+ */
+async function chatSettled(page: Page): Promise<void> {
+  await page.getByRole('complementary', { name: 'Conversation with the agent' }).waitFor();
+  await page.waitForFunction(
+    () =>
+      document.querySelector('.chat.open') !== null &&
+      document.getAnimations().every((animation) => animation.timeline !== document.timeline || animation.playState !== 'running') &&
+      [...document.querySelectorAll('figure:not(.scrolls) .drawing > svg')].every(
+        (drawing) => drawing.getBoundingClientRect().width <= (drawing.closest('figure')?.clientWidth ?? Infinity),
+      ),
+  );
+}
+
+/**
  * Sends `text` from the chat, which opens first when it is closed, and waits until the chat shows
  * the message.
  */
@@ -516,7 +533,8 @@ export const STATES: GalleryState[] = [
   {
     name: 'question-2-chat',
     about:
-      "The chat over the answer column: a message under Q2 and the agent's reply, a message quoting a passage that the agent is answering, and a quote waiting in the composer.",
+      "The chat, opened from its bubble at the left of the masthead: a message under Q2 and the agent's reply, a message quoting a passage that the agent is answering, and a quote waiting in the composer. From 1424 pixels (here 1440 and 2000) it is a column of its own at the window's left, beside the question and its panel; at 1280 it lies over the left of the page and leaves the panel in view; on a phone it is a sheet.",
+    extraWidths: [1440, 2000],
     async reach(session, page) {
       await question(session, page, 2);
       await chatTo(page, 'Who else calls `flush`?');
@@ -525,11 +543,13 @@ export const STATES: GalleryState[] = [
       await quote(page, 0);
       await chatTo(page, 'Why not wait? What is lost if the notification never arrives?');
       await quote(page, 1);
+      await chatSettled(page);
     },
   },
   {
     name: 'question-2-chat-select',
     about: 'A passage of the question selected: the one option above it, Add to chat.',
+    extraWidths: [1440, 2000],
     async reach(session, page) {
       await question(session, page, 2);
       await selectPassage(page, 1);
@@ -538,7 +558,9 @@ export const STATES: GalleryState[] = [
   },
   {
     name: 'question-2-chat-unread',
-    about: "The agent replied while the chat was closed: the unread count on the bubble and in the tab's title.",
+    about:
+      "The agent replied while the chat was closed: the unread count on the bubble, at the left of the masthead on a desktop, and in the tab's title.",
+    extraWidths: [1440, 2000],
     async reach(session, page) {
       await question(session, page, 2);
       await chatTo(page, 'Who else calls `flush`?');
@@ -550,6 +572,7 @@ export const STATES: GalleryState[] = [
   {
     name: 'question-2-chat-not-delivered',
     about: 'A message of the chat did not reach the agent: the failure, with Retry.',
+    extraWidths: [1440, 2000],
     async reach(session, page) {
       await question(session, page, 2);
       await chatTo(page, 'Who else calls `flush`?');
@@ -610,6 +633,19 @@ export const STATES: GalleryState[] = [
       await session.askQuestion(WIDE_DIAGRAM);
       await session.open();
       await submit(page, 'Go to question 1');
+    },
+  },
+  {
+    name: 'question-wide-diagram-chat',
+    about:
+      'The same question with the chat open: beside the page from 1424 pixels, the diagram shrinks again to the narrower reading column, with Open large.',
+    extraWidths: [1440, 2000],
+    async reach(session, page) {
+      await session.askQuestion(WIDE_DIAGRAM);
+      await session.open();
+      await submit(page, 'Go to question 1');
+      await page.getByRole('button', { name: 'Talk to the agent' }).click();
+      await chatSettled(page);
     },
   },
   {
@@ -689,11 +725,13 @@ export const STATES: GalleryState[] = [
   },
   {
     name: 'conclusion-reply-open',
-    about: 'The conclusion after "Not ready? Reply to the agent instead": the chat, open over the panel.',
+    about:
+      'The conclusion after "Not ready? Reply to the agent instead": the chat, open at the left of the window, beside the conclusion and its list from 1424 pixels (here 1440 and 2000).',
+    extraWidths: [1440, 2000],
     async reach(session, page) {
       await conclusion(session, false);
       await page.getByRole('button', { name: 'Not ready? Reply to the agent instead' }).click();
-      await page.getByRole('complementary', { name: 'Conversation with the agent' }).waitFor();
+      await chatSettled(page);
     },
   },
   {

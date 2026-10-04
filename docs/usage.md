@@ -470,11 +470,12 @@ save the same result and send the agent the same prompt as there:
 
 To ask the agent something, challenge it or add context without answering, write in the chat:
 the round's conversation with the agent, which the page offers on every screen of a round.
-Open it with the speech bubble at the top right, with **Open the agent's conversation** in the
-⋯ menu, with **Not ready? Reply to the agent instead** under the conclusion's list (**Reply to
-the agent** once the agent received the implementation request), or by selecting a passage of
-what you read (the question, its explanation, its citations, the design, the conclusion) and
-choosing **Add to chat**, which quotes it in your message. Write, then press **Send** or
+Open it with the speech bubble at the top left (at the top right on a phone), with **Open the
+agent's conversation** in the ⋯ menu, with **Not ready? Reply to the agent instead** under the
+conclusion's list (**Reply to the agent** once the agent received the implementation
+request), or by selecting a passage of what you read (the question, its explanation, its
+citations, the design, the conclusion) and choosing **Add to chat**, which quotes it in your
+message. Write, then press **Send** or
 `Ctrl-Enter` (`⌘↵` on a Mac). Your message names where you wrote it (the design, a question,
 an earlier question or the conclusion) and wakes the agent as a comment in a thread does: it
 answers nothing, the question stays open, and the round does not move. The chat says that the
@@ -482,9 +483,11 @@ agent is answering, with the time since, and the agent's reply lands in the chat
 the question. A reply you have not seen counts on the bubble and in the browser tab's title
 ("(1) Q1 · your turn") until you open the chat. When a message did not reach the agent, the
 chat says why and offers **Retry**, which wakes the agent again for your waiting messages. On
-a desktop the chat lies over the panel and leaves what you read in view; on a phone it is a
-sheet over the page, which you drag up to the full height, or down to close it. `Esc` or ×
-closes it.
+a desktop the chat is a column at the left of the window, under its bubble: on a window wide
+enough (1424 pixels and more), what you read moves over to make room, so you read the
+question, see its choices and talk to the agent at once; on a narrower window it lies over
+the left of the page and leaves the choices in view. On a phone it is a sheet over the page,
+which you drag up to the full height, or down to close it. `Esc` or × closes it.
 
 The row at the top of the page names the review and shows where the round stands: the
 design, each question asked so far, the quiz (the item it shows while you take it, then its

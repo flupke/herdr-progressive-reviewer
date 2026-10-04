@@ -1,14 +1,17 @@
 /* The chat: the round's conversation with the agent (docs/design/explore-page/README.md, "Agent
    chat"), drawn by client/chat.js, with "Add to chat" from client/chat-quote.js. On a desktop it
-   lies over the answer column, under the masthead, and never over the reading column; below the
-   desk's two columns it is a bottom sheet over the dimmed page. */
+   stands at the window's left, under the masthead: a column beside the reading column from 89rem,
+   a drawer over the left of the page below that; it never covers the panel. Below the desk's two
+   columns it is a bottom sheet over the dimmed page. */
 
-/* The bubble in the masthead: a speech bubble drawn with a border, with the unread count. */
+/* The bubble in the masthead (at its left on a desktop, beside the ⋯ menu below the desk's two
+   columns): a speech bubble drawn with a border, with the unread count. */
+:root { --bubble-width: 30px; }
 .chat-bubble {
   position: relative;
   display: grid;
   place-items: center;
-  width: 30px;
+  width: var(--bubble-width);
   height: 28px;
   padding: 0;
   border: 0;
@@ -49,38 +52,72 @@
 }
 .chat-bubble[hidden], .chat-bubble [hidden] { display: none; }
 
-/* The drawer, over the answer column: the page's panel lines up with it. */
+/* The chat's frame. Below the desk's two columns it is a sheet from the bottom of the window
+   (below); on a desktop it stands at the window's left, under the masthead (after). */
 .chat {
   /* The handoff's chat surface: a shade under the panel in the dark theme, the panel in the
-     light one ("Agent chat"). */
+     light one ("Agent chat"); and the agent's messages apart from it. */
   --chat-surface: light-dark(var(--panel), #161719);
+  --chat-card: light-dark(var(--canvas), var(--panel));
   position: fixed;
   z-index: var(--layer-chat);
-  top: 81px;
-  right: max(var(--gutter), calc((100vw - var(--page)) / 2 + var(--gutter)));
-  bottom: 24px;
   box-sizing: border-box;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  width: var(--panel-width);
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: var(--radius-panel);
   background: var(--chat-surface);
   box-shadow: var(--shadow-drawer);
   opacity: 0;
-  transform: translateX(24px);
-  /* Closing fades out over 220ms (chat.js hides the drawer after it). */
-  transition: opacity 220ms ease, transform 220ms ease;
+  /* Closing fades out (chat.js hides the chat after it). */
+  transition: opacity var(--drawer-out) ease, transform var(--drawer-out) ease;
 }
 .chat.open {
   opacity: 1;
   transform: none;
-  transition: opacity 280ms cubic-bezier(0.2, 0.8, 0.2, 1), transform 280ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition: opacity var(--drawer-in) var(--ease-settle), transform var(--drawer-in) var(--ease-settle);
 }
-/* Over the conclusion's wider panel, while the desk has two columns. */
+
+/* A desktop: the chat is a column at the window's left gutter, as the panel is on the right,
+   with the panel's surface, radius and cards: under the masthead, then held at the top of the
+   window as the panel is while the page scrolls, as tall as the window below that, with its
+   messages scrolling on their own and the composer at its bottom. It slides in from the left.
+   The bubble that opens it sits above it, at the left of the masthead (masthead.css). */
 @media (min-width: 70rem) {
-  body:has(.screen:not([hidden]) > .desk.wide) .chat { width: var(--panel-width-wide); }
+  .chat {
+    --chat-surface: var(--panel);
+    --chat-card: var(--canvas);
+    z-index: var(--layer-chat-beside);
+    top: calc(var(--masthead-height) + var(--page-top));
+    bottom: var(--sticky-top);
+    left: var(--gutter);
+    width: var(--chat-width);
+    transform: translateX(-24px);
+  }
+  /* As the masthead scrolls away, the chat rises with it to where the panel is held, near the
+     top of the window. In a browser without scroll timelines, `rise()` in chat.js does the
+     same: change both together. */
+  @supports (animation-timeline: scroll()) {
+    .chat {
+      animation: chat-rise auto linear both;
+      animation-timeline: scroll(root block);
+      animation-range: 0px calc(var(--masthead-height) + var(--page-top) - var(--sticky-top));
+    }
+  }
+}
+@keyframes chat-rise {
+  to { top: var(--sticky-top); }
+}
+/* From 89rem the page makes room for it (layout.css): beside the page, it is drawn as the panel
+   is, with no border and no shadow. Between 70 and 89rem there is no room for a third column:
+   it lies over the page's left margin and the left of the reading column, with its border and
+   its shadow and no scrim, and leaves the panel and its actions in view. */
+@media (min-width: 89rem) {
+  .chat { border: 0; box-shadow: none; }
+}
+@media (min-width: 70rem) and (prefers-reduced-motion: reduce) {
+  .chat, .chat.open { transform: none; transition: none; }
 }
 .chat[hidden] { display: none; }
 .chat-scrim { display: none; }
@@ -130,9 +167,7 @@
   gap: 4px;
   padding: 10px 12px;
   border-radius: var(--radius);
-  /* Apart from the chat's surface: the panel on the darker dark surface, the page's surface on
-     the light theme's panel. */
-  background: light-dark(var(--canvas), var(--panel));
+  background: var(--chat-card);
 }
 /* A quote: in a message, and in the composer. */
 .chat-quote-shown, .chat-quote {
