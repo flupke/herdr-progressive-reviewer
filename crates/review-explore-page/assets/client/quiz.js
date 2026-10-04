@@ -15,7 +15,7 @@
 import { choiceCards, plainChoices } from './choices.js';
 import { citation } from './citations.js';
 import { disclosure, openDisclosure } from './disclosure.js';
-import { h, keyOf, Region } from './dom.js';
+import { codeSpans, h, keyOf, Region } from './dom.js';
 import { turnStrip } from './turn.js';
 
 export class QuizScreen {
@@ -100,7 +100,7 @@ function head(quiz, item) {
       h('span', { id: 'quiz-label' }, `Quiz · Question ${item.number} of ${quiz.items.length}`),
       dots(quiz.items),
     ),
-    h('h2', { class: 'quiz-item', tabindex: -1 }, item.question),
+    h('h2', { class: 'quiz-item', tabindex: -1 }, codeSpans(item.question)),
     h(
       'p',
       { class: 'hint' },
@@ -218,7 +218,7 @@ function verdict(item, props = {}, unanswered = OUTCOMES.open.verdict) {
   const kind = outcomeOf(item);
   const outcome = OUTCOMES[kind];
   const words = kind === 'open' ? unanswered : outcome.verdict;
-  return h('p', { class: `verdict ${outcome.tone}`, ...props }, h('span', {}, h('strong', {}, words), ` ${item.why}`));
+  return h('p', { class: `verdict ${outcome.tone}`, ...props }, h('span', {}, h('strong', {}, words), ' ', codeSpans(item.why)));
 }
 
 /**
@@ -242,7 +242,7 @@ function answerCard(answer) {
     'li',
     { class: `choice quiz-answer ${tone}` },
     h('span', { class: 'mark', 'aria-hidden': 'true' }),
-    h('span', { class: 'choice-text' }, answer.text),
+    h('span', { class: 'choice-text' }, codeSpans(answer.text)),
     answer.picked || answer.correct
       ? h(
           'span',
@@ -284,7 +284,7 @@ export function quizResults(quiz) {
         'section',
         { class: 'quiz-result', 'aria-labelledby': id },
         h('h4', { class: 'eyebrow', id }, `Question ${item.number}`),
-        h('p', { class: 'quiz-result-item' }, item.question),
+        h('p', { class: 'quiz-result-item' }, codeSpans(item.question)),
         verdict(item, {}, quiz.skipped ? 'Skipped.' : undefined),
         answerList(item, `${id}-answers`),
         item.proof.map((each, index) => citation(each, `${id}-proof-${index + 1}`)),

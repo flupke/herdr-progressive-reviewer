@@ -141,8 +141,8 @@ for the round.
 
 The agent writes every text you read in the round (the design, the questions with their
 context, choices, door and blast radius, its replies, the conclusion and the quiz) in the
-[writing style](#explore-round-settings) the round started with: ASD-STE100 Simplified Technical
-English by default, or plain. Whatever the style, when the design or a question presents a
+[writing style](#explore-round-settings) the round started with: Simplified Technical English
+by default, or plain. Whatever the style, when the design or a question presents a
 behavior change, the agent says what changes, then why (the problem, what goes wrong without the
 change, and where that reason is stated, or that it infers it), and only then how.
 
@@ -685,7 +685,7 @@ that runs.
 
 | Setting | Key | Effect |
 | --- | --- | --- |
-| **Writing style of the next round** | `W` | Simplified Technical English, the default: the prompts ask the agent to write every text you read in ASD-STE100 Simplified Technical English (short sentences, one topic each, in the active voice, technical names kept as they are in the code), on every turn of the round, the conclusion and the quiz included. Plain: the agent writes in its own style, as before this setting existed. The style changes the wording and the length, not what the agent tells you. |
+| **Writing style of the next round** | `W` | Simplified Technical English, the default: the prompts ask the agent to apply the writing rules of ASD-STE100 Simplified Technical English, without its controlled dictionary, to every text you read (short full sentences, one topic each, in the active voice, the ordinary technical words of the code's domain allowed, technical names kept as they are in the code), on every turn of the round, the conclusion and the quiz included. Plain: the agent writes in its own style, as before this setting existed. The style changes the wording and the length, not what the agent tells you. |
 
 Click the setting, or press `W` while you are not typing an answer, to turn it over. Rounds saved
 before this setting existed continue in the plain style.

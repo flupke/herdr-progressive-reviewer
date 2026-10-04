@@ -403,6 +403,41 @@ fn agent_choices_cannot_duplicate_the_builtin_none_choice() {
     }
 }
 
+#[test]
+fn a_choice_whose_text_says_it_is_recommended_is_refused() {
+    // A started round, after the agent posts its question again with its first choice's text
+    // `text`, the recommended choice.
+    let submit = |text: &str| {
+        let mut exploration = started();
+        let request = exploration.request(None, None).unwrap();
+        let mut question = question(2);
+        question.alternatives[0].text = text.into();
+        question.alternatives[0].recommendation = Some("Least surprise.".into());
+        let applied = exploration.apply(update(&request, Some(question)));
+        (exploration, applied)
+    };
+    for text in [
+        "Keep resolved (Recommended)",
+        "Keep resolved (recommended).",
+        "Keep resolved ( Recommended: least surprise )",
+    ] {
+        let (exploration, applied) = submit(text);
+        let error = applied.unwrap_err().to_string();
+        assert!(error.contains("\"keep\""), "{text}: {error}");
+        assert_eq!(exploration.questions.len(), 1, "{text}");
+    }
+    for text in [
+        "Keep resolved, as the policy recommended",
+        "Keep resolved (the recommendation of RFC 9110)",
+        "Keep resolved (recommended by RFC 9110)",
+        "Keep resolved (recommendedly)",
+        "Keep the recommended (default) state",
+        "Keep resolved (the default)",
+    ] {
+        assert!(submit(text).1.unwrap(), "{text}");
+    }
+}
+
 /// A conclusion with `summary`, and an empty quiz.
 fn conclusion(summary: &str) -> review_explore::Conclusion {
     review_explore::Conclusion {

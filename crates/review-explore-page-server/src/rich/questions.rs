@@ -38,7 +38,8 @@ pub(super) fn answer_response(number: usize) -> TurnResponse {
                     replies**, as the change does."
                 .into(),
             follow_ups: vec![
-                "Check that the pane's tick still runs while the pane is in the background.".into(),
+                "Check that `ReplyQueue::tick` still runs while the pane is in the background."
+                    .into(),
                 "Say in the agent's notification how many replies it carries.".into(),
             ],
         }],
@@ -157,15 +158,15 @@ fn flush_rule() -> Question {
             vec![
                 Alternative {
                     recommendation: Some(
-                        "It batches a quick run of answers into one agent turn and still sends a \
-                         lone reply within two seconds, so a reviewer who reads between answers \
-                         sees no delay."
+                        "It batches a quick run of answers into one agent turn, and \
+                         `ReplyQueue::tick` still sends a lone reply within two seconds, so a \
+                         reviewer who reads between answers sees no delay."
                             .into(),
                     ),
                     ..question_parts::alternative(
                         "idle-or-full",
                         "Send the queue after two seconds without a new reply, or at once when \
-                         twenty replies wait, as the change does",
+                         twenty replies wait, as `FlushPolicy::DEFAULT` does",
                         TopicStatus::Accepted,
                     )
                 },
@@ -183,8 +184,8 @@ fn flush_rule() -> Question {
                 ),
                 question_parts::alternative(
                     "settings",
-                    "Make the idle delay and the size cap settings of the reviewer, with two \
-                     seconds and twenty replies as their defaults",
+                    "Make the `idle` delay and the `cap` of `FlushPolicy` settings of the \
+                     reviewer, with two seconds and twenty replies as their defaults",
                     TopicStatus::NeedsFollowUp,
                 ),
             ],

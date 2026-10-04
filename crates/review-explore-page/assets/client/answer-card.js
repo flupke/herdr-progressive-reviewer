@@ -5,7 +5,7 @@
 /** @import { KeptAnswer, MarkPhrase } from "./types.ts" */
 
 import { decisionTag } from './chips.js';
-import { h } from './dom.js';
+import { codeSpans, h } from './dom.js';
 
 /** What an answer with neither a choice nor a comment shows in their place: in its card, and in
  * the previous turn (turn.js). */
@@ -21,7 +21,7 @@ export function answerCard(answer, { withChoice = true } = {}) {
   return h(
     'div',
     { class: 'answer-card' },
-    withChoice && answer.choice !== null ? h('p', { class: 'answer-choice' }, answer.choice) : null,
+    withChoice && answer.choice !== null ? h('p', { class: 'answer-choice' }, codeSpans(answer.choice)) : null,
     answer.comment ? h('p', { class: 'answer-comment' }, `“${answer.comment}”`) : null,
     answer.choice === null && !answer.comment ? h('p', { class: 'answer-comment' }, NOTHING_ANSWERED) : null,
     answer.tags.length > 0 ? h('p', { class: 'answer-tags' }, answer.tags.map(decisionTag)) : null,

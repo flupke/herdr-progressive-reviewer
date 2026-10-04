@@ -387,6 +387,12 @@ starting with a short summary paragraph and adding detail only when useful. Asse
 by valid evidence or explicit unknowns. All supplied reasoning and unknowns are visible
 without an expansion button. Explain unfamiliar implementation concepts in Context, adapting
 to the reviewer's demonstrated knowledge, while keeping questions and choices in plain language.
+A choice's `text` never says that the choice is recommended, preferred or the default: the
+recommendation goes only in its `recommendation` field, which the Explore page hides until the
+reviewer's first pick on a question whose Door is not two-way. The tool refuses a question with
+a choice whose text ends with such a mark, `(Recommended)` or `(Recommended: the safest)`, and
+names the choice; `(recommended by RFC 9110)` names someone else's advice and passes. Choices, their recommendations and follow-ups are plain
+text; on the Explore page their Markdown code spans show as code.
 
 Send each complete structured turn with `submit_question`, using the supplied review
 value and the result in `update`. Refresh an already-running agent's MCP tool catalog

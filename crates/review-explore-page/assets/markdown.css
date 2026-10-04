@@ -7,7 +7,11 @@
 .markdown ul, .markdown ol { padding-left: 1.4em; }
 .markdown li + li { margin-top: 2px; }
 .markdown h3, .markdown h4, .markdown h5, .markdown h6 { font-size: 1em; margin: 16px 0 6px; }
-.markdown code { font: 0.9em/1.4 var(--mono); background: var(--code-bg); border-radius: 4px; padding: 1px 4px; }
+.markdown code, .inline-code { font: 0.9em/1.4 var(--mono); background: var(--code-bg); border-radius: 4px; padding: 1px 4px; }
+/* The code spans of the agent's plain texts (a choice, its reason, a follow-up; client/dom.js
+   `codeSpans`) look like the Markdown's, keep the weight of the text around them, and wrap as
+   one chip per line. */
+.inline-code { font-weight: inherit; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
 .markdown pre { box-sizing: border-box; max-width: var(--figure); background: var(--code-bg); border-radius: var(--radius); padding: 10px 12px; overflow-x: auto; }
 .markdown pre code { background: none; padding: 0; font-size: 0.85em; overflow-wrap: normal; }
 .markdown blockquote { border-left: 3px solid var(--line); padding-left: 12px; opacity: 0.85; }

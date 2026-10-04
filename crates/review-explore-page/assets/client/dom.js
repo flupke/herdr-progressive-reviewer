@@ -8,7 +8,9 @@
 //    nodes the reviewer uses (a text box, a selection, an open fold) survive every push.
 // 3. Text from the data goes in with `textContent` (through `h`); HTML only through two named
 //    functions: `setRenderedMarkdown`, for the agent's Markdown the tool rendered, and
-//    `setDiagramDrawing`, for the SVG Mermaid drew in strict mode.
+//    `setDiagramDrawing`, for the SVG Mermaid drew in strict mode. The agent's plain texts
+//    (a choice, its reason, a follow-up) go through `codeSpans`, which draws their backtick
+//    spans as code, still as text nodes.
 // 4. A text box's value is set only when it is built, from the reviewer's draft (drafts.js), and
 //    never on a push. A rebuild that takes the focus from a text box gives it back to the text
 //    box of the same draft in the new nodes, with its selection.
@@ -57,6 +59,65 @@ function append(element, children) {
   } else if (children !== null && children !== undefined && children !== false) {
     element.append(typeof children === 'number' ? String(children) : children);
   }
+}
+
+/**
+ * The agent's plain `text`, such as a choice or its reason, with each Markdown code span
+ * (`` `name` ``) drawn as code: text nodes and `<code class="inline-code">` elements, never
+ * HTML. A span follows Markdown's rule: a run of backticks opens it and the next run of as many
+ * closes it, a line break inside is a space, and one space inside each end goes when both ends
+ * have one. A run that nothing closes stays as it is written, and so does other Markdown.
+ * @param {string} text
+ * @returns {(string | HTMLElement)[]}
+ */
+export function codeSpans(text) {
+  /** @type {(string | HTMLElement)[]} */
+  const nodes = [];
+  let written = 0;
+  let at = text.indexOf('`');
+  while (at >= 0) {
+    const width = runLength(text, at);
+    const close = closingRun(text, at + width, width);
+    if (close < 0) {
+      at = text.indexOf('`', at + width);
+      continue;
+    }
+    if (at > written) nodes.push(text.slice(written, at));
+    nodes.push(h('code', { class: 'inline-code' }, spanText(text.slice(at + width, close))));
+    written = close + width;
+    at = text.indexOf('`', written);
+  }
+  if (written < text.length) nodes.push(text.slice(written));
+  return nodes;
+}
+
+/** How many backticks run from `at`, a run's length.
+ * @param {string} text
+ * @param {number} at */
+function runLength(text, at) {
+  let end = at;
+  while (text[end] === '`') end += 1;
+  return end - at;
+}
+
+/** Where the first run of exactly `width` backticks from `from` starts, or -1.
+ * @param {string} text
+ * @param {number} from
+ * @param {number} width */
+function closingRun(text, from, width) {
+  for (let at = text.indexOf('`', from); at >= 0; ) {
+    const run = runLength(text, at);
+    if (run === width) return at;
+    at = text.indexOf('`', at + run);
+  }
+  return -1;
+}
+
+/** The text of a code span between its backticks.
+ * @param {string} inside */
+function spanText(inside) {
+  const line = inside.replace(/\r\n|\r|\n/g, ' ');
+  return line.startsWith(' ') && line.endsWith(' ') && /[^ ]/.test(line) ? line.slice(1, -1) : line;
 }
 
 /**

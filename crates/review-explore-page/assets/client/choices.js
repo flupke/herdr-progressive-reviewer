@@ -5,7 +5,7 @@
 
 /** @import { ChoiceView } from "./types.ts" */
 
-import { h } from './dom.js';
+import { codeSpans, h } from './dom.js';
 
 /** Options with nothing of the agent's on them, such as a quiz item's answers, as choice cards
  * take them: none recommended, none picked yet.
@@ -31,12 +31,13 @@ export function choiceCards(
     // Read again under the panel's own eyebrow, an answered question's legend is for readers only.
     h('legend', { class: answered ? 'sr-only' : 'eyebrow' }, legend),
     choices.map((choice, index) => {
-      const reason = choice.recommendation !== null ? `recommendation-${index + 1}` : null;
+      const { recommendation } = choice;
+      const reason = recommendation !== null ? `recommendation-${index + 1}` : null;
       const text = `${name}-${index + 1}`;
       const firstPick = revealed && choice.checked;
       return h(
         'label',
-        { class: choice.recommendation !== null ? 'choice recommended' : 'choice' },
+        { class: reason ? 'choice recommended' : 'choice' },
         h('input', {
           type: 'radio',
           name,
@@ -47,7 +48,7 @@ export function choiceCards(
           'aria-labelledby': text,
           'aria-describedby': reason,
         }),
-        h('span', { class: 'choice-text', id: text }, choice.text),
+        h('span', { class: 'choice-text', id: text }, codeSpans(choice.text)),
         firstPick || reason
           ? h(
               'span',
@@ -56,7 +57,7 @@ export function choiceCards(
               reason ? h('span', { class: 'tag agent' }, '◆ Agent recommends') : null,
             )
           : null,
-        reason ? h('span', { class: 'choice-reason', id: reason }, choice.recommendation) : null,
+        recommendation !== null ? h('span', { class: 'choice-reason', id: reason }, codeSpans(recommendation)) : null,
       );
     }),
   );

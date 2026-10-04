@@ -107,10 +107,12 @@ of the same question ID, and give a distinct question a new ID.
 Write for a reviewer who has not read the implementation: the question and its Context are
 understood without reading code. Adapt depth to the knowledge the reviewer has shown.
 
-Offer brief, distinct alternatives, a justified recommendation first with its reason. When
-context is missing, offer credible context answers and an option to investigate. Explanatory
-options have outcome open. The reviewer adds None of the above (outcome open) itself; free text
-supplements a choice and may qualify its outcome.
+Offer brief, distinct alternatives, a justified recommendation first with its reason. A
+choice's text never says that it is recommended, preferred or the default: the recommendation
+goes only in its recommendation field, which the reviewer may see only after a first pick of
+their own. When context is missing, offer credible context answers and an option to
+investigate. Explanatory options have outcome open. The reviewer adds None of the above (outcome
+open) itself; free text supplements a choice and may qualify its outcome.
 
 Context goes in rationale. Start with a short, concrete account of where the behavior happens,
 what is being processed and the normal sequence. For a behavior change, its what and its why

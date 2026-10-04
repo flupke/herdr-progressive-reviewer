@@ -734,7 +734,10 @@ only, with no `unsafe` value; its `connect-src` names the page's own `ws:` addre
   view, one entry point; stable regions, each rebuilt only when its key (its data) changes,
   so that the nodes the reviewer uses survive every push; text from the data through
   `textContent` (the helper `h`), and HTML only through `setRenderedMarkdown`, for the
-  agent's Markdown the tool rendered, and `setDiagramDrawing`, for Mermaid's drawings; a text box's value set only when it is built, from
+  agent's Markdown the tool rendered, and `setDiagramDrawing`, for Mermaid's drawings; the
+  agent's plain texts (a choice and its reason, a kept answer, a follow-up, a quiz item and
+  its answers) through `codeSpans`, which draws their Markdown code spans as `<code>`
+  elements, with no HTML; a text box's value set only when it is built, from
   its draft (`drafts.js`), and the focus given back to the text box of the same draft
   after a rebuild.
 - `page.js` holds the page's screens, the design of the change, each earlier question and the

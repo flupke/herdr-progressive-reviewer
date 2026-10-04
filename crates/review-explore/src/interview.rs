@@ -38,8 +38,13 @@ pub struct Topic {
 #[serde(deny_unknown_fields)]
 pub struct Alternative {
     pub id: String,
+    /// The choice as the reviewer reads it. It never says that the choice is recommended,
+    /// preferred or the default: that goes only in `recommendation`.
     pub text: String,
     pub outcome: TopicStatus,
+    /// Why you recommend this choice, on the recommended choice only. The reviewer sees it as
+    /// your recommendation; on a question whose Door is not two-way, only after a first pick of
+    /// their own.
     pub recommendation: Option<String>,
 }
 

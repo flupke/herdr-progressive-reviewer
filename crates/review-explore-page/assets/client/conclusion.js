@@ -12,7 +12,7 @@
 
 import { decisionTag } from './chips.js';
 import { requestChat } from './chat.js';
-import { h, keyOf, markdown, Region } from './dom.js';
+import { codeSpans, h, keyOf, markdown, Region } from './dom.js';
 import { keepDraft } from './drafts.js';
 import { openQuizResults, quizResults } from './quiz.js';
 import { disclosure } from './disclosure.js';
@@ -95,7 +95,7 @@ function decisionList(decisions) {
               ? h(
                   'p',
                   { class: 'decision-kept' },
-                  h('strong', {}, decision.choice),
+                  h('strong', {}, codeSpans(decision.choice)),
                   decision.tags.map((tag) => [' ', decisionTag(tag)]),
                 )
               : null,

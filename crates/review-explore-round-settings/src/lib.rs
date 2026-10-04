@@ -19,8 +19,9 @@ pub struct ExploreRoundSettings {
 pub enum WritingStyle {
     /// The agent's own style, as the prompts asked before writing styles existed.
     Plain,
-    /// ASD-STE100 Simplified Technical English: short sentences, one topic each, in the
-    /// active voice, with technical names kept as they are in the code.
+    /// The writing rules of ASD-STE100 Simplified Technical English, without its controlled
+    /// dictionary: short full sentences, one topic each, in the active voice, with technical
+    /// names kept as they are in the code.
     #[default]
     SimplifiedTechnicalEnglish,
 }

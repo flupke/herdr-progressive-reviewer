@@ -8,7 +8,7 @@
 
 import { NOTHING_ANSWERED } from './answer-card.js';
 import { disclosure } from './disclosure.js';
-import { h, markdown } from './dom.js';
+import { codeSpans, h, markdown } from './dom.js';
 
 /**
  * @typedef {object} Turn
@@ -58,7 +58,7 @@ function answered(answer, number) {
     h(
       'div',
       { class: 'turn-text' },
-      answer.choice ? h('p', { class: 'turn-choice' }, answer.choice) : null,
+      answer.choice ? h('p', { class: 'turn-choice' }, codeSpans(answer.choice)) : null,
       answer.comment ? h('p', { class: 'turn-comment' }, `“${answer.comment}”`) : null,
       !answer.choice && !answer.comment ? h('p', { class: 'turn-comment' }, NOTHING_ANSWERED) : null,
     ),
@@ -73,7 +73,9 @@ function answered(answer, number) {
  */
 export function followUpsLine(response, className) {
   const followUps = response.interpretations.flatMap((interpretation) => interpretation.follow_ups);
-  return followUps.length > 0 ? h('p', { class: className }, ['Follow-ups', ...followUps].join(' · ')) : null;
+  return followUps.length > 0
+    ? h('p', { class: className }, 'Follow-ups', followUps.map((followUp) => [' · ', codeSpans(followUp)]))
+    : null;
 }
 
 /**

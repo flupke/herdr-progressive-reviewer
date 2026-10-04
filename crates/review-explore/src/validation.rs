@@ -245,6 +245,18 @@ impl Exploration {
                     && texts.insert(option.text.trim().to_lowercase())),
             "Every question needs two to five distinct choices with unique IDs and text; None of the above is provided by the reviewer"
         );
+        if let Some((choice, mark)) = question
+            .alternatives
+            .iter()
+            .find_map(|choice| choice.recommended_mark().map(|mark| (choice, mark)))
+        {
+            eyre::bail!(
+                "Choice \"{}\" says in its text that it is recommended: remove \"{mark}\" from \
+                 its text. A choice's text never says that it is recommended, preferred or the \
+                 default; the recommendation goes only in its recommendation field",
+                choice.id
+            );
+        }
         if let Some(assessments) = &question.assessments {
             assessments.validate(comparison)?;
         }
