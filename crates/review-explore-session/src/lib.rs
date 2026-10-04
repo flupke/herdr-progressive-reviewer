@@ -108,6 +108,8 @@ pub struct ExploreSession {
     page: RoundPublisher,
     /// The citations of the question the page shows.
     citations: page::PageCitations,
+    /// The citations of the earlier questions the page shows from the round rail.
+    earlier_citations: page::PageCitations,
     /// The review marks of the reviewer's snapshot, as the session read them last.
     marks: review_explore_tally::ChangeMarks,
     /// The unreviewed lines of the latest prompt, as files.
@@ -258,6 +260,7 @@ impl ExploreSession {
             turns,
             page,
             citations: page::PageCitations::default(),
+            earlier_citations: page::PageCitations::default(),
             diffs: None,
             start_block: None,
             state: State::default(),

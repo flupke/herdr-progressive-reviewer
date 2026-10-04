@@ -23,17 +23,17 @@ import { h, markdown } from './dom.js';
  */
 export function turnStrip({ answer, response, number }) {
   if (!answer && !response) return null;
-  const followUps = response?.interpretations.flatMap((interpretation) => interpretation.follow_ups) ?? [];
+  const followUps = response ? followUpsLine(response, 'turn-follow-ups') : null;
   return h(
     'div',
     { class: 'turn' },
     answer ? answered(answer, number) : null,
     response ? recorded(response) : null,
-    followUps.length > 0 || answer
+    followUps || answer
       ? h(
           'div',
           { class: 'turn-foot' },
-          followUps.length > 0 ? h('p', { class: 'turn-follow-ups' }, ['Follow-ups', ...followUps].join(' · ')) : null,
+          followUps,
           answer ? cancelAnswer(answer) : null,
         )
       : null,
@@ -62,18 +62,31 @@ function answered(answer, number) {
 }
 
 /**
- * What the agent recorded of the answer, its recap, then its reply.
+ * "Follow-ups · …", the follow-ups the agent noted of the answer, or `null` when it noted none: in
+ * the previous turn, and on the screen of an earlier question.
  * @param {ResponseView} response
+ * @param {string} className
  */
-function recorded(response) {
+export function followUpsLine(response, className) {
+  const followUps = response.interpretations.flatMap((interpretation) => interpretation.follow_ups);
+  return followUps.length > 0 ? h('p', { class: className }, ['Follow-ups', ...followUps].join(' · ')) : null;
+}
+
+/**
+ * What the agent recorded of the answer, its recap, then its reply: in the previous turn, and on
+ * the screen of an earlier question.
+ * @param {ResponseView} response
+ * @param {string} [id] the ID of its eyebrow, which names it
+ */
+export function recorded(response, id = 'turn-record-title') {
   const recaps = response.interpretations.flatMap((interpretation) =>
     interpretation.recap_html ? [interpretation.recap_html] : [],
   );
   const title = recaps.length > 0 ? 'The agent recorded' : 'The agent replied';
   return h(
     'section',
-    { class: 'turn-record', 'aria-labelledby': 'turn-record-title' },
-    h('p', { class: 'eyebrow', id: 'turn-record-title' }, title),
+    { class: 'turn-record', 'aria-labelledby': id },
+    h('p', { class: 'eyebrow', id }, title),
     h(
       'div',
       { class: 'turn-text' },

@@ -114,6 +114,10 @@ reply_label: string | null,
  */
 quiz: QuizView | null, };
 /**
+ * How the kept choice relates to the reviewer's first pick and to the agent's recommendation.
+ */
+export type DecisionTag = "changed_after_first_pick" | "as_recommended";
+/**
  * A question the reviewer answered, and the answer kept: a line of "Your decisions".
  */
 export type DecisionView = { 
@@ -188,6 +192,47 @@ lines_added: number,
  */
 lines_removed: number, };
 export type Door = "one_way" | "two_way" | "mixed" | "unknown";
+/**
+ * A question the reviewer answered earlier in the round, as it was answered: read only.
+ */
+export type EarlierQuestionView = { 
+/**
+ * The question's step on the round rail, from 1.
+ */
+number: number, 
+/**
+ * The question's latest version, as the reviewer answered it.
+ */
+text_html: string, 
+/**
+ * How hard the decision is to reverse, as the agent assessed it; `None` when it did not.
+ */
+door: Door | null, 
+/**
+ * The Context section; `None` when the question has none.
+ */
+context_html: string | null, 
+/**
+ * The Door and Blast radius sections, folded to their leads.
+ */
+sections: Array<SectionView>, 
+/**
+ * The answer the reviewer kept; `None` for a question the round left unanswered.
+ */
+answer: KeptAnswer | null, 
+/**
+ * What the agent recorded of the answer, and its reply.
+ */
+recorded: ResponseView, 
+/**
+ * What the answers to the question marked, one summary for each turn that marked lines:
+ * "Marked", then "12 lines reviewed", "3 lines not relevant".
+ */
+marks: Array<MarkPhrase>, 
+/**
+ * The question's citations, most decisive first.
+ */
+citations: Array<CitationView>, };
 export type Field = { name: string, value: string, };
 /**
  * One changed file's review marks.
@@ -258,6 +303,27 @@ items: number, };
  * The agent's recap of the answer, and the follow-ups it recorded.
  */
 export type InterpretationView = { recap_html: string | null, follow_ups: Array<string>, };
+/**
+ * The answer the reviewer kept on a question: the latest answer to its latest version.
+ *
+ * "None of the above" is a choice: `choice` names it, and it is never "as recommended". A
+ * comment-only answer has no `choice`, only its `comment`, and no tag unless the reviewer
+ * had made a first pick.
+ */
+export type KeptAnswer = { 
+/**
+ * The text of the choice the reviewer sent; `None` for a comment-only answer.
+ */
+choice: string | null, 
+/**
+ * The reviewer's comment; empty when there is none.
+ */
+comment: string, 
+/**
+ * Each tag that applies, in the order of [`DecisionTag`]: none, one, or both when the
+ * reviewer moved to the recommendation after a first pick of another choice.
+ */
+tags: Array<DecisionTag>, };
 /**
  * The reviewer's latest answer of a round, which the page offers to cancel as the pane does.
  */
@@ -443,7 +509,11 @@ title: TabTitle | null,
  * How much of the change the review marks cover, for the meter on the masthead's hairline
  * and the start cover's size of the change; `None` until the owner counted them.
  */
-tally: MarkTally | null, };
+tally: MarkTally | null, 
+/**
+ * The questions the reviewer answered before, each a done step of the rail, in its order.
+ */
+earlier_questions: Array<EarlierQuestionView>, };
 /**
  * The open lines that answering the question the round waits for marks.
  */

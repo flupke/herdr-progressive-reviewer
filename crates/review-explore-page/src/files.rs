@@ -38,6 +38,8 @@ const ASSETS: &[Asset] = &[
     asset!("citations.css", "text/css"),
     asset!("diagrams.css", "text/css"),
     asset!("design.css", "text/css"),
+    asset!("earlier.css", "text/css"),
+    asset!("swipe.css", "text/css"),
     asset!("layout.css", "text/css"),
     asset!("client/main.js", "text/javascript"),
     asset!("client/actions.js", "text/javascript"),
@@ -53,6 +55,7 @@ const ASSETS: &[Asset] = &[
     asset!("client/diagrams.js", "text/javascript"),
     asset!("client/dom.js", "text/javascript"),
     asset!("client/drafts.js", "text/javascript"),
+    asset!("client/earlier.js", "text/javascript"),
     asset!("client/masthead.js", "text/javascript"),
     asset!("client/meter.js", "text/javascript"),
     asset!("client/page.js", "text/javascript"),
@@ -62,6 +65,7 @@ const ASSETS: &[Asset] = &[
     asset!("client/socket.js", "text/javascript"),
     asset!("client/start.js", "text/javascript"),
     asset!("client/status.js", "text/javascript"),
+    asset!("client/swipe.js", "text/javascript"),
     asset!("client/turn.js", "text/javascript"),
 ];
 

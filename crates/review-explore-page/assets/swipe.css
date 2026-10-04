@@ -1,0 +1,72 @@
+/* The swipe between screens on a phone (client/swipe.js; docs/design/explore-page/README.md,
+   "Swipe between screens"). The page leaves the vertical pan and the pinch to the browser and
+   takes the sideways drag; a frame that scrolls sideways is a scroll container of its own, so
+   it keeps its pan. While a drag moves the screens, the neighbours show beside the screen,
+   fixed under the window's top, and the page does not scroll sideways. */
+@media (max-width: 40rem) {
+  main { touch-action: pan-y pinch-zoom; }
+}
+main.swiping { overflow-x: clip; user-select: none; }
+.screen.swipe-neighbour {
+  position: fixed;
+  bottom: 0;
+  z-index: 1;
+  overflow: hidden;
+  background: var(--canvas);
+}
+main.swiping > .screen { will-change: transform; }
+
+/* The 3-pixel accent edge on the side the reviewer heads to, once the drag passed the
+   threshold. */
+.swipe-edge {
+  position: fixed;
+  bottom: 0;
+  z-index: 4;
+  width: 3px;
+  background: var(--accent);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+.swipe-edge.left { left: 0; }
+.swipe-edge.right { right: 0; }
+.swipe-edge.lit { opacity: 1; }
+
+/* The design's bar, pinned to the bottom of the window, would follow the dragged screen to its
+   end: it waits for the swipe to end. */
+main.swiping .design-bar { visibility: hidden; }
+
+/* The chips of the screens beside the one the page shows, which a swipe turns to, show on the
+   rail as the reference capture draws them (12a-phone-swipe.png): "✓ Design ▾ · ✓ Q1 · Q2". */
+@media (max-width: 40rem) {
+  .rail .step.near:not(.design-step):not(.current) {
+    display: block;
+    margin: 0;
+    padding: 2px 9px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius-pill);
+    color: var(--ink);
+    line-height: 1.5;
+    opacity: 1;
+  }
+}
+
+/* The chip of the screen the page would turn to fills, even one the phone's rail hides (a done
+   question: the selector outweighs the rule that hides it in masthead.css). */
+@media (max-width: 40rem) {
+  .rail .step.target:not(.design-step) {
+    display: block;
+    margin: 0;
+    padding: 2px 9px;
+    border: 1px solid var(--accent-fill);
+    border-radius: var(--radius-pill);
+    background: var(--accent-fill);
+    color: #fff;
+    line-height: 1.5;
+    opacity: 1;
+    transition: background-color 150ms ease, color 150ms ease;
+  }
+  .rail .step.target .check, .rail .step.target .caret { color: inherit; }
+  .rail .step.design-step.target { padding: 0; border: 0; background: none; }
+  .rail .step.design-step.target .design-toggle { border-color: var(--accent-fill); background: var(--accent-fill); color: #fff; }
+}

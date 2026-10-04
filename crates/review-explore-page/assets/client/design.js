@@ -139,8 +139,9 @@ function bar(current, door) {
   return h('div', { class: 'design-bar' }, h('p', {}, state.join(' · ')), goTo(current));
 }
 
-/** @param {Current} current */
-function goTo(current) {
+/** The way to the step the round stands at, from the design or from an earlier question.
+ * @param {Current} current */
+export function goTo(current) {
   return h(
     'a',
     { class: 'button primary block', href: STAGE },

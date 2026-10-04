@@ -1,6 +1,7 @@
 //! The reviewer's answer to a question step, and the decisions of a round.
 
 use serde::Serialize;
+use ts_rs::TS;
 
 use super::steps::QuestionStep;
 use crate::{Alternative, Exploration, ReviewerAnswer};
@@ -10,7 +11,7 @@ use crate::{Alternative, Exploration, ReviewerAnswer};
 /// "None of the above" is a choice: `choice` names it, and it is never "as recommended". A
 /// comment-only answer has no `choice`, only its `comment`, and no tag unless the reviewer
 /// had made a first pick.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, TS)]
 pub struct KeptAnswer {
     /// The text of the choice the reviewer sent; `None` for a comment-only answer.
     pub choice: Option<String>,
@@ -22,7 +23,7 @@ pub struct KeptAnswer {
 }
 
 /// How the kept choice relates to the reviewer's first pick and to the agent's recommendation.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum DecisionTag {
     /// "changed after your first pick": the reviewer's saved first pick is not the kept

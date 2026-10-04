@@ -69,6 +69,7 @@ impl Owner {
             cancellable: latest.as_ref(),
             earlier: false,
             overview: &overview,
+            earlier_citations: &[],
         };
         self.publisher.publish(Some(round), stage);
     }
@@ -516,6 +517,7 @@ async fn the_socket_sends_the_round_again_when_only_its_review_marks_change() {
         earlier: false,
         overview: &overview,
         changed_files: 1,
+        earlier_citations: &[],
     };
     owner
         .publisher

@@ -5,15 +5,17 @@
 //! (`crate::typescript`), so that the client is checked against them.
 
 mod conclusion;
+mod earlier;
 mod question;
 
 use markdown_html::HtmlRenderer;
-use review_explore::{Design, QuestionSection, RailStep, TabTitle};
+use review_explore::{AgentRecord, Design, QuestionSection, RailStep, TabTitle};
 use review_explore_tally::MarkTally;
 use serde::Serialize;
 use ts_rs::TS;
 
 pub(crate) use self::conclusion::ConclusionView;
+use self::earlier::EarlierQuestionView;
 pub(crate) use self::question::QuestionView;
 use crate::blind::FirstPicks;
 use crate::round::{LatestAnswer, ReviewName, RoundSnapshot, RoundStage, TurnResponse};
@@ -54,6 +56,8 @@ pub(crate) struct PageView {
     /// How much of the change the review marks cover, for the meter on the masthead's hairline
     /// and the start cover's size of the change; `None` until the owner counted them.
     tally: Option<MarkTally>,
+    /// The questions the reviewer answered before, each a done step of the rail, in its order.
+    earlier_questions: Vec<EarlierQuestionView>,
 }
 
 /// The start cover, when no round is running.
@@ -167,6 +171,9 @@ impl PageView {
                 .as_ref()
                 .filter(|_| !storage_failed)
                 .map(|overview| overview.title),
+            earlier_questions: round.overview.as_ref().map_or_else(Vec::new, |overview| {
+                EarlierQuestionView::all(&overview.earlier, &round.earlier_citations)
+            }),
             tally: round.tally.as_deref().cloned(),
         }
     }
@@ -199,6 +206,15 @@ impl DesignView {
 }
 
 impl ResponseView {
+    /// What the agent recorded of an earlier answer: its latest interpretation, and the reply
+    /// of the turn that took the answer up.
+    fn of_record(record: &AgentRecord) -> Self {
+        Self::new(&TurnResponse {
+            interpretations: record.interpretation.iter().cloned().collect(),
+            reply: record.reply.clone().filter(|text| !text.trim().is_empty()),
+        })
+    }
+
     fn new(response: &TurnResponse) -> Self {
         Self {
             interpretations: response

@@ -73,7 +73,8 @@ export function drawDiagrams(root) {
   const found = [];
   for (const code of blocks) {
     const block = code.parentElement;
-    if (!block || diagrams.some((diagram) => diagram.block === block)) continue;
+    // A diagram that failed shows its source in its figure: that copy is not another diagram.
+    if (!block || block.closest('figure.diagram') || diagrams.some((diagram) => diagram.block === block)) continue;
     const figure = document.createElement('figure');
     figure.className = 'diagram';
     const diagram = { source: code.textContent ?? '', block, figure, failed: false, turned: false, wide: 0 };

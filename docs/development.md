@@ -133,7 +133,7 @@ again with it.
 | Interrupted: the prompt failed, the agent did not start on it, the reviewer stopped waiting, or reopened during the turn | Retry, with the reason; Cancel answer | Retry, with the failure, an unknown delivery or a stop (`Interrupted`); Cancel answer |
 | Interrupted with no turn to send again | Reset | That only Reset is left (`Interrupted` with no request) |
 | A question | Send; Cancel answer of the previous answer | Send answer; on a blind question, a first Send that shows the recommendation, then Confirm answer (`Question`); Cancel this answer |
-| An earlier question in the history | A free-text answer | None: the page shows the current stage only |
+| An earlier question in the history | A free-text answer | None: the question opens read only from its step on the rail (`#question-N`), with the answer and what the agent recorded |
 | The conclusion | Implement; Reply; Cancel answer until a request is made | Implement; Reply to the conclusion; Cancel answer (`Conclusion`), after the quiz, which only the page asks |
 | An implementation request being sent | Cancel implementation | Cancel the implementation request |
 | A request saved but not sent, by an earlier process | Send saved implementation request; New implementation request | Send the saved request; Send a new request |
@@ -335,9 +335,14 @@ what it names, `.hint` the muted help line. Every control has a focus ring (`:fo
   design map in place; the menu copies the page's address and holds Reset, which the page
   offers nowhere else. Its map links to the design screen (`#design`, `#design-part-N`), and
   while that screen shows, the rail shows Design as current (`aria-current="page"`) and the
-  round's own step as the next one (class `next`), which keeps `aria-current="step"`. On a
-  phone the rail shows only the design and the current step, as two chips, and the review's
-  title moves into the menu.
+  round's own step as the next one (class `next`), which keeps `aria-current="step"`. Each done
+  question is a link to its earlier question (`#question-N`), which shows the same way; the
+  round's own step is then a link back to the stage (`#round`), and a step that is a link
+  carries its `aria-current` on the link. Each step names the screen it leads to in
+  `data-screen` (`design`, `question-N`, `round`), for the swipe. On a
+  phone the rail shows the design and the current step as chips, with the screen in view and
+  the screens beside it, which a swipe turns to (class `near`), and the chip a swipe heads to
+  fills (class `target`); the review's title moves into the menu.
 
   ```html
   <header class="masthead">
@@ -370,6 +375,30 @@ what it names, `.hint` the muted help line. Every control has a focus ring (`:fo
       <div class="markdown">…</div>
     </section>
     <div class="design-bar"><p>Current · Question 1</p><a class="button primary block" href="#round">Go to question 1</a></div>
+  </section>
+  ```
+- **Earlier question** (`earlier.css`, `client/earlier.js`, `earlierScreen(question,
+  current)`): a question the reviewer answered before, from `PageView.earlier_questions`
+  (the overview's `earlier` records, with their citations resolved by the session): on the desk
+  the question head ("Question 1 · answered" and its Door chip), Context, the Door and Blast
+  radius rows and the citations, as the question screen draws them; in the panel the kept
+  answer in a card with its decision tags, what the answers marked, what the agent recorded
+  (the previous turn's `recorded` block) and the way back to the round's step (`goTo` of
+  `design.js`). It holds no form: nothing on it can change the round.
+
+  ```html
+  <section class="earlier-question desk" aria-labelledby="earlier-1-label">
+    <header class="question-head"><p class="eyebrow question-eyebrow"><span id="earlier-1-label">Question 1 · answered</span> <span class="chip good">Two-way door</span></p><h2 class="question-text">…</h2></header>
+    <section class="earlier-panel panel" aria-labelledby="earlier-1-answer">
+      <p class="eyebrow" id="earlier-1-answer">Your answer to question 1</p>
+      <div class="answer-card"><p class="answer-choice">…</p><p class="answer-comment">“…”</p><p class="answer-tags"><span class="tag agent">as recommended</span></p></div>
+      <p class="answer-marked"><span class="check">✓</span> Marked 12 lines reviewed · 3 lines not relevant</p>
+      <div class="earlier-record"><section class="turn-record">…</section><p class="earlier-follow-ups">Follow-ups · …</p></div>
+      <a class="button primary block" href="#round">Go to question 3 →</a>
+    </section>
+    <div class="markdown explanation">…</div>
+    <div class="assessments">…</div>
+    <section class="citations">…</section>
   </section>
   ```
 - **Chips and tags** (`tags.css`): a pill of 12 pixels. A chip names what a thing is, outlined
@@ -596,19 +625,26 @@ only, with no `unsafe` value; its `connect-src` names the page's own `ws:` addre
   agent's Markdown the tool rendered, and `setDiagramDrawing`, for Mermaid's drawings; a text box's value set only when it is built, from
   its draft (`drafts.js`), and the focus given back to the text box of the same draft
   after a rebuild.
-- `page.js` holds the page's two screens, the design of the change and the round's current
-  stage, lists the regions of each in the order the page shows them, and draws each from its
-  part of the view. `route.js` says which screen the address shows: `#design` (or
-  `#design-part-N`, 1 to 4) the design screen, which a link may target, anything else the
-  stage, which `#round` names. The design opens the round: the first time a tab shows a round
+- `page.js` holds the page's screens, the design of the change, each earlier question and the
+  round's current stage, lists the regions of each in the order the page shows them, and draws
+  each from its part of the view. `route.js` says which screen the address shows: `#design` (or
+  `#design-part-N`, 1 to 4) the design screen, which a link may target, `#question-N` earlier
+  question N while the round has it, anything else the stage, which `#round` names. On a phone,
+  `swipe.js` turns between the same screens, in the rail's order, with a sideways drag past 48
+  pixels or a flick (README, "Swipe between screens"); a drag that starts in a frame that
+  scrolls sideways, or in a text box, is left to it. The earlier questions' screens come after
+  the stage, so the stage's diagrams keep their numbers; they are the one list of regions that
+  grows with the round, one region for each earlier question, each rebuilt only when its data
+  changes. The design opens the round: the first time a tab shows a round
   that waits for the answer to its first question, the page shows the design screen, and goes
   back to the stage once the round moves on unless the reviewer has navigated since. The page
   keeps the hidden screen's nodes, so the design's diagrams are the page's first. `actions.js` turns the submit of any form into its request:
   each form names its method (`data-method`), and `CALLS` says how its fields make the
   request's params.
 - One module per screen or region: `start.js`, `status.js` (the status card),
-  `design.js` (the design screen, with its map and the part in view), `turn.js` (the
-  previous turn), `chips.js` (the chip of a question's Door), `choices.js` (the choice cards), `question.js` (with the answer panel and the first pick), `citations.js`,
+  `design.js` (the design screen, with its map and the part in view), `earlier.js` (an earlier
+  question, read only), `swipe.js` (the swipe between screens on a phone), `turn.js` (the
+  previous turn), `chips.js` (the chip of a question's Door and the tags of a kept answer), `choices.js` (the choice cards), `question.js` (with the answer panel and the first pick), `citations.js`,
   `conclusion.js` (with the reviewer's decisions, the list to be implemented, each state of
   its request and the reply), `quiz.js`, `masthead.js` (above `main`, with Reset in its menu),
   `meter.js` (the meter on the masthead's hairline), `change-size.js` ("+125 −10", "4 files"),

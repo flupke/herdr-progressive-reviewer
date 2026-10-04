@@ -3,20 +3,26 @@
 // ⋯ menu. "Design ▾" on the rail opens the design map in place; the menu copies the round's
 // link and holds Reset, behind its confirmation, which the page offers nowhere else. The
 // masthead's bottom hairline is an element of its own, which the meter draws on. On a phone the
-// rail shows two chips, the design and the current step, and the review's title moves into the
-// menu (masthead.css). The browser tab's title says whose turn it is.
+// rail shows chips: the design, the current step, the screen in view and the screens beside it,
+// and the review's title moves into the menu (masthead.css, swipe.css). The browser tab's title says whose turn it is.
 //
 // The rail and the tab title come from the round's overview, which the tool derives: every
 // question number here is a step of the rail, never a count of the question's versions. While
 // the quiz shows an item, the page hands over a rail whose quiz step names it (railShowing in
-// quiz.js).
+// quiz.js). Each done question step opens its earlier question (route.js); while the page shows
+// the design or an earlier question, the rail shows that step as the one in view and the round's
+// own step as the next one, a link back to it. On a phone a swipe toward a screen fills its chip
+// (swipe.js).
 
 /** @import { DesignView, PageView, RailStep, ReviewName, Step, TabTitle } from "./types.ts" */
 
 import { h, keyOf, markdown, Region } from './dom.js';
+import { earlierQuestion, STAGE } from './route.js';
 
 /** What the masthead has open: the design map, the menu, or nothing. */
 /** @typedef {'map' | 'menu' | null} Open */
+/** The screen the page shows other than the round's stage: the design, or an earlier question.
+ * @typedef {{ kind: 'design' } | { kind: 'question', number: number } | null} Viewing */
 
 const RESET_HINT =
   'Reset closes this round for good: it is no longer shown, its agent can no longer post to it, and the page offers to start a new round. Its records stay saved.';
@@ -46,6 +52,11 @@ export class Masthead {
     this.confirming = false;
     /** The round Reset closes, as the latest view offers it. @type {string | null} */
     this.resets = null;
+    /** The steps of the screens beside the one the page shows, whose chips a phone shows.
+     * @type {Set<string | undefined>} */
+    this.near = new Set();
+    /** The step of the screen a swipe would turn to, whose chip fills. @type {string | null} */
+    this.aimed = null;
     document.addEventListener('click', (event) => this.clickOutside(event));
     document.addEventListener('keydown', (event) => {
       if (event.key === 'Escape' && this.open) this.close(true);
@@ -54,21 +65,22 @@ export class Masthead {
 
   /**
    * @param {PageView} view
-   * @param {boolean} viewingDesign whether the page shows the design screen, which the rail then
+   * @param {Viewing} viewing the screen the page shows, other than the stage, which the rail then
    *   shows as the step in view, the round's own step next
    */
-  update(view, viewingDesign) {
+  update(view, viewing) {
     const cover = view.start !== null;
     this.review.show(keyOf([view.review, cover]), () => reviewLine(view.review, cover));
     const rail = view.rail;
     // A new step on the rail rebuilds it: "Design ▾" keeps the focus it had.
     const focused = document.activeElement === this.toggleOf('map');
-    this.rail.show(keyOf([rail, view.design, viewingDesign]), () =>
+    this.rail.show(keyOf([rail, view.design, viewing]), () =>
       rail.length > 0
-        ? railNav(rail, view.design, viewingDesign, () => this.toggle('map'), () => this.close(false))
+        ? railNav(rail, view.design, viewing, () => this.toggle('map'), () => this.close(false))
         : null,
     );
     if (focused && document.activeElement !== this.toggleOf('map')) this.toggleOf('map')?.focus();
+    this.markChips();
     if (view.reset !== this.resets) {
       this.resets = view.reset;
       this.confirming = false;
@@ -120,6 +132,36 @@ export class Masthead {
         ),
       ),
     );
+  }
+
+  /**
+   * Marks the step of the screen a swipe would turn to, or unmarks it: its chip fills.
+   * @param {string} step the step's screen: `design`, `question-N` or `round`
+   * @param {boolean} on
+   */
+  target(step, on) {
+    if (on) this.aimed = step;
+    else if (this.aimed === step) this.aimed = null;
+    this.markChips();
+  }
+
+  /**
+   * Names the steps of the screens beside the one the page shows, which a swipe turns to: a
+   * phone shows their chips.
+   * @param {(string | undefined)[]} steps
+   */
+  neighbours(steps) {
+    this.near = new Set(steps);
+    this.markChips();
+  }
+
+  /** Marks the chips of the neighbours and of the swipe's target, again after any redraw. */
+  markChips() {
+    for (const step of this.header.querySelectorAll('.rail .step[data-screen]')) {
+      if (!(step instanceof HTMLElement)) continue;
+      step.classList.toggle('near', this.near.has(step.dataset.screen));
+      step.classList.toggle('target', step.dataset.screen === this.aimed);
+    }
   }
 
   /** Replaces the menu's entries with Reset's hint and its Confirm reset. */
@@ -201,14 +243,15 @@ function reviewParts(review) {
 
 /**
  * The round rail: done steps with a check, the current step with its state, later steps muted.
+ * Each done question opens its earlier question.
  * @param {RailStep[]} rail
  * @param {DesignView | null} design
- * @param {boolean} viewingDesign whether the page shows the design screen: the design step then
- *   shows as current, and the round's own step as the next one
+ * @param {Viewing} viewing the screen the page shows other than the stage: its step then shows
+ *   as current, and the round's own step as the next one, which leads back to the stage
  * @param {() => void} toggleMap
  * @param {() => void} closeMap
  */
-function railNav(rail, design, viewingDesign, toggleMap, closeMap) {
+function railNav(rail, design, viewing, toggleMap, closeMap) {
   return h(
     'nav',
     { class: 'rail', 'aria-label': 'Round' },
@@ -217,8 +260,9 @@ function railNav(rail, design, viewingDesign, toggleMap, closeMap) {
       {},
       rail.map((step) => {
         const isDesign = step.step.kind === 'design';
-        const state = viewingDesign && isDesign ? 'current' : step.state.kind;
-        const shown = viewingDesign && !isDesign && state === 'current' ? 'next' : state;
+        const viewed = isViewed(step.step, viewing);
+        const state = viewed ? 'current' : step.state.kind;
+        const shown = viewing && !viewed && state === 'current' ? 'next' : state;
         const done = state === 'done';
         const name = [
           done ? h('span', { class: 'check', 'aria-hidden': 'true' }, '✓') : null,
@@ -226,11 +270,16 @@ function railNav(rail, design, viewingDesign, toggleMap, closeMap) {
           stepName(step.step),
           step.state.kind === 'current' && step.state.working ? ' · working' : null,
         ];
+        const current = step.state.kind === 'current' ? 'step' : viewed ? 'page' : null;
+        const link = isDesign && design ? null : stepLink(step, viewing, name);
+        // A step that is a link says it is the current one on its link.
+        if (link && current) link.setAttribute('aria-current', current);
         return h(
           'li',
           {
             class: `step ${shown}${isDesign ? ' design-step' : ''}`,
-            'aria-current': step.state.kind === 'current' ? 'step' : viewingDesign && isDesign ? 'page' : null,
+            'aria-current': link ? null : current,
+            'data-screen': screenOf(step),
           },
           isDesign && design
             ? [
@@ -248,11 +297,45 @@ function railNav(rail, design, viewingDesign, toggleMap, closeMap) {
                 ),
                 designMap(design, closeMap),
               ]
-            : name,
+            : (link ?? name),
         );
       }),
     ),
   );
+}
+
+/**
+ * A link for a step that leads to a screen: a done question to its earlier question, and the
+ * round's own step back to the stage while the page shows another screen; `null` for another.
+ * @param {RailStep} step
+ * @param {Viewing} viewing
+ * @param {(Node | string | null)[]} name
+ */
+function stepLink(step, viewing, name) {
+  if (step.step.kind === 'question' && step.state.kind === 'done' && !isViewed(step.step, viewing)) {
+    return h('a', { class: 'step-link', href: earlierQuestion(step.step.number) }, name);
+  }
+  if (step.state.kind === 'current' && viewing) return h('a', { class: 'step-link', href: STAGE }, name);
+  return null;
+}
+
+/** Whether `step` is the screen the page shows other than the stage.
+ * @param {Step} step
+ * @param {Viewing} viewing */
+function isViewed(step, viewing) {
+  if (!viewing) return false;
+  if (viewing.kind === 'design') return step.kind === 'design';
+  return step.kind === 'question' && step.number === viewing.number;
+}
+
+/** The screen a step leads to, which a swipe names to fill the step's chip: `design`, an earlier
+ * question's `question-N`, `round` for the round's own step, or `null`.
+ * @param {RailStep} step */
+function screenOf(step) {
+  if (step.state.kind === 'current') return 'round';
+  if (step.step.kind === 'design') return 'design';
+  if (step.step.kind === 'question' && step.state.kind === 'done') return `question-${step.step.number}`;
+  return null;
 }
 
 /** @param {Step} step */

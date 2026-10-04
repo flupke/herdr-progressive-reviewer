@@ -4,6 +4,8 @@
 // - `#design` shows the design screen at its top, and `#design-part-N` at its part N (from 1):
 //   the targets of the links that open the design (its own map, and the rail's "Design ▾" once
 //   the masthead has one);
+// - `#question-N` shows question N as the reviewer answered it, read only, while it is an earlier
+//   question of the round: the target of its done step on the rail;
 // - any other fragment, or none, shows the round's current stage; `#round` names it, for a link
 //   back from the design.
 //
@@ -18,6 +20,7 @@ export const DESIGN = '#design';
 export const STAGE = '#round';
 
 const PART = /^#design-part-([1-9][0-9]*)$/;
+const QUESTION = /^#question-([1-9][0-9]*)$/;
 
 /** The address of part `number` of the design screen.
  * @param {number} number */
@@ -25,13 +28,25 @@ export function designPart(number) {
   return `#design-part-${number}`;
 }
 
-/** The screen the address asks for: the design, at one of its parts or at its top, or the stage.
- * @returns {{ design: true, part: number | null } | { design: false }} */
+/** The address of earlier question `number`, as the reviewer answered it.
+ * @param {number} number */
+export function earlierQuestion(number) {
+  return `#question-${number}`;
+}
+
+/**
+ * The screen the address asks for: the design, at one of its parts or at its top, an earlier
+ * question, or the stage.
+ * @typedef {{ screen: 'design', part: number | null } | { screen: 'question', number: number }
+ *   | { screen: 'stage' }} Route
+ * @returns {Route} */
 export function route() {
   const hash = location.hash;
-  if (hash === DESIGN) return { design: true, part: null };
+  if (hash === DESIGN) return { screen: 'design', part: null };
   const part = PART.exec(hash);
-  return part ? { design: true, part: Number(part[1]) } : { design: false };
+  if (part) return { screen: 'design', part: Number(part[1]) };
+  const question = QUESTION.exec(hash);
+  return question ? { screen: 'question', number: Number(question[1]) } : { screen: 'stage' };
 }
 
 const storage = (() => {
@@ -71,7 +86,7 @@ export function openRound(view, waitingFor) {
   } catch {
     // The browser keeps nothing for this page: the round opens on its design at each reload.
   }
-  if (!route().design) history.replaceState(history.state, '', DESIGN);
+  if (route().screen !== 'design') history.replaceState(history.state, '', DESIGN);
   shownBySelf = round;
 }
 

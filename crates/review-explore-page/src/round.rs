@@ -446,6 +446,9 @@ pub struct PublishedRound<'a> {
     pub earlier: bool,
     /// Where the round stands as a whole: its rail and the tab title.
     pub overview: &'a RoundOverview,
+    /// The citations of each earlier question of the overview, in the same order, with the
+    /// lines of the change they name.
+    pub earlier_citations: &'a [Arc<[Citation]>],
 }
 
 /// The reviewer's latest answer of a round, which the page offers to cancel as the pane does.
@@ -491,6 +494,8 @@ pub(crate) struct RoundSnapshot {
     pub(crate) earlier: bool,
     /// Where the round stands as a whole: its rail and the tab title.
     pub(crate) overview: Option<Arc<RoundOverview>>,
+    /// The citations of each earlier question of the overview, in the same order.
+    pub(crate) earlier_citations: Arc<[Arc<[Citation]>]>,
     pub(crate) stage: RoundStage,
     /// The review the page belongs to, once its owner named it.
     pub(crate) review: Option<ReviewName>,
@@ -570,6 +575,7 @@ impl RoundSnapshot {
             && self.cancellable.as_ref() == round.and_then(|round| round.cancellable)
             && self.earlier == round.is_some_and(|round| round.earlier)
             && self.overview.as_deref() == round.map(|round| round.overview)
+            && *self.earlier_citations == *round.map_or(&[][..], |round| round.earlier_citations)
     }
 
     /// The snapshot of `stage` of the round `round`, at `revision`, of the review `review`,
@@ -589,6 +595,8 @@ impl RoundSnapshot {
             cancellable: round.and_then(|round| round.cancellable.cloned()),
             earlier: round.is_some_and(|round| round.earlier),
             overview: round.map(|round| Arc::new(round.overview.clone())),
+            earlier_citations: round
+                .map_or_else(|| Arc::from([]), |round| round.earlier_citations.into()),
             stage,
             review,
             start_block,
@@ -749,6 +757,11 @@ impl RoundFeed {
     /// Where the latest round stands as a whole; `None` when no round is running.
     pub fn overview(&self) -> Option<Arc<RoundOverview>> {
         self.0.borrow().overview.clone()
+    }
+
+    /// The citations of each earlier question of the overview, in the same order.
+    pub fn earlier_citations(&self) -> Arc<[Arc<[Citation]>]> {
+        self.0.borrow().earlier_citations.clone()
     }
 
     /// The review the page belongs to, once the owner named it.

@@ -129,6 +129,7 @@ fn published(id: &str) -> PublishedRound<'_> {
         cancellable: None,
         earlier: false,
         overview: &OVERVIEW,
+        earlier_citations: &[],
     }
 }
 

@@ -29,7 +29,7 @@
 .decision-kept { margin: 2px 0 0; }
 .decision-kept strong, .decision-kept.comment-only { font-weight: 600; }
 .decision-comment { margin: 2px 0 0; color: var(--muted); font-size: 14px; font-style: italic; }
-/* A tag after the choice: the agent's judgement in purple, the reviewer's change in accent. */
+/* A tag after the choice (chips.js, `decisionTag`). */
 .decision-kept .tag {
   padding: 1px 8px;
   border-radius: var(--radius-pill);
@@ -39,8 +39,6 @@
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
 }
-.decision-kept .tag.recommended { color: var(--agent); background: color-mix(in srgb, var(--agent) 16%, transparent); }
-.decision-kept .tag.changed { color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
 
 /* The panel opens with the quiz's score: warn below two-thirds, good from there. */
 .quiz-banner {

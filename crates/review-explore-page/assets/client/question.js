@@ -13,7 +13,8 @@
 // the reading, the panel, the citations) are rebuilt only when their own data changes, so a
 // first pick rebuilds the panel alone and leaves the reader's folds and scroll as they are.
 
-/** @import { QuestionView, ChoiceView, MarksView, GainView, SectionView } from "./types.ts" */
+/** @import { Door, QuestionView, ChoiceView, MarksView, GainView, SectionView } from "./types.ts" */
+/** @import { Children } from "./dom.js" */
 /** @import { Turn } from "./turn.js" */
 
 import { DOORS, doorChip } from './chips.js';
@@ -61,35 +62,48 @@ export class QuestionScreen {
   }
 }
 
-/** The question's head, its Context, then Door and Blast radius, folded to their leads.
+/** The question's head, its Context, then Door and Blast radius, folded to their leads. "Blind
+ * pick" follows the door's chip while the question is blind; on a phone, a link leads past the
+ * reading to the choices.
  * @param {QuestionView} question */
 function reading(question) {
+  return questionReading(
+    { ...question, label: `question-${question.number}-label`, name: `Question ${question.number}` },
+    [
+      question.recommendation !== 'shown' ? h('span', { class: 'chip agent' }, 'Blind pick') : null,
+      question.answerable ? h('a', { class: 'choices-link', href: '#answer' }, 'Choices ↓') : null,
+    ],
+  );
+}
+
+/**
+ * What the reader reads of a question, on the question screen and on an earlier question's: the
+ * eyebrow that names it ("QUESTION 2"), with the door's chip and `more`, the question as the
+ * headline, then its Context, and Door and Blast radius folded to their leads.
+ * @param {{ label: string, name: string, door: Door | null, text_html: string,
+ *   context_html: string | null, sections: SectionView[] }} question `label` is the ID of the
+ *   eyebrow's name, which names the question's region
+ * @param {Children} more what follows the door's chip in the eyebrow
+ */
+export function questionReading(question, more) {
+  const headline = h('h2', { class: 'question-text' });
+  setRenderedMarkdown(headline, question.text_html);
   return [
-    head(question),
+    h(
+      'header',
+      { class: 'question-head' },
+      h(
+        'p',
+        { class: 'eyebrow question-eyebrow' },
+        h('span', { id: question.label }, question.name),
+        question.door ? doorChip(question.door) : null,
+        more,
+      ),
+      headline,
+    ),
     question.context_html !== null ? markdown(question.context_html, 'explanation') : null,
     question.sections.length > 0 ? h('div', { class: 'assessments' }, question.sections.map(assessment)) : null,
   ].filter((node) => node !== null);
-}
-
-/** "QUESTION 2", the door's chip and "Blind pick", then the question as the headline. On a
- * phone, a link leads past the reading to the choices.
- * @param {QuestionView} question */
-function head(question) {
-  const headline = h('h2', { class: 'question-text' });
-  setRenderedMarkdown(headline, question.text_html);
-  return h(
-    'header',
-    { class: 'question-head' },
-    h(
-      'p',
-      { class: 'eyebrow question-eyebrow' },
-      h('span', { id: `question-${question.number}-label` }, `Question ${question.number}`),
-      question.door ? doorChip(question.door) : null,
-      question.recommendation !== 'shown' ? h('span', { class: 'chip agent' }, 'Blind pick') : null,
-      question.answerable ? h('a', { class: 'choices-link', href: '#answer' }, 'Choices ↓') : null,
-    ),
-    headline,
-  );
 }
 
 /** A section of the question folded to one row, its lead beside its title; open, the lead wraps

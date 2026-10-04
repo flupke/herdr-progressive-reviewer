@@ -322,6 +322,41 @@ fn the_page_shows_the_lines_each_citation_of_the_question_names() {
     );
 }
 
+#[test]
+fn the_page_shows_each_earlier_question_with_the_lines_its_citations_name() {
+    let mut harness = Harness::start();
+    harness.ask_first_question();
+    assert!(harness.page.earlier_citations().is_empty());
+
+    let (answer, access) = harness.answer("Keep it.");
+    assert!(
+        harness.page.earlier_citations().is_empty(),
+        "the question the agent works on is not an earlier one yet"
+    );
+    assert!(applied(harness.submit(&access, question(&answer, 2))));
+
+    let overview = harness.page.overview().expect("an overview");
+    let numbers: Vec<_> = overview
+        .earlier
+        .iter()
+        .map(|record| record.number)
+        .collect();
+    assert_eq!(numbers, [1]);
+    let citations = harness.page.earlier_citations();
+    let [list] = &citations[..] else {
+        panic!(
+            "the page has citations for {} earlier questions",
+            citations.len()
+        );
+    };
+    let [citation] = &list[..] else {
+        panic!("the earlier question shows {} citations", list.len());
+    };
+    assert_eq!(citation.evidence.location.to_string(), "reviewed.rs new 1");
+    let rows = citation.lines.as_ref().expect("the cited lines");
+    assert_eq!(rows.len(), 1);
+}
+
 /// The question citing `evidence`, each `(path, notes)` at line 1 of the new side.
 fn question_citing(request: &TurnRequest, evidence: &[(&str, &str)]) -> Operation {
     let Operation::SubmitQuestion(mut update) = question(request, 1) else {

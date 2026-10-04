@@ -6,9 +6,10 @@
 use std::sync::{Arc, Mutex, PoisonError};
 
 use review_explore::{
-    Decision, DiagramError, KeptAnswer, Question, QuizAnswers, QuizProgress, QuizResponse,
-    RoundOverview, StartBlock,
+    AgentRecord, Decision, DiagramError, EarlierQuestion, KeptAnswer, Question, QuizAnswers,
+    QuizProgress, QuizResponse, RoundOverview, StartBlock, TurnMarks,
 };
+use review_explore_citations::Citation;
 use review_explore_page::{
     Answered, CommandRefusal, CommandSender, ImplementationState, Interruption, LatestAnswer,
     PageCommand, PageImplementation, PageRound, PublishedRound, QuestionMarks, Recovery,
@@ -68,6 +69,12 @@ struct Session {
     answered: Vec<LatestAnswer>,
     /// The same answers, as the conclusion lists them in "Your decisions".
     decisions: Vec<Decision>,
+    /// The questions of the same answers, as the rail opens them once the agent took each
+    /// answer up, with their citations.
+    answered_questions: Vec<(EarlierQuestion, Arc<[Citation]>)>,
+    /// How many of `answered_questions` the agent took up: it posted its next question or the
+    /// conclusion after them, so they are done steps of the rail.
+    taken_up: usize,
     /// The lines each of the same answers marked.
     answer_marks: Vec<QuestionMarks>,
     /// The lines the reviewer marked by hand in the change.
@@ -124,8 +131,14 @@ impl Session {
         let id = self.round_id();
         let design = self.data.design();
         let items = self.data.quiz_items().len();
+        let (earlier, earlier_citations): (Vec<_>, Vec<_>) = self.answered_questions
+            [..self.taken_up]
+            .iter()
+            .cloned()
+            .unzip();
         let overview = RoundOverview {
             decisions: self.decisions.clone(),
+            earlier,
             ..Posted {
                 asked: self.asked,
                 concluded: self.concluded,
@@ -143,6 +156,7 @@ impl Session {
             cancellable: self.answered.last(),
             earlier: self.earlier,
             overview: &overview,
+            earlier_citations: &earlier_citations,
         });
         if let PageLink::Held { unseen } = &mut self.page {
             *unseen = Some(Box::new(stage));
@@ -242,12 +256,33 @@ impl Session {
                 first_pick,
             ),
         };
-        if let Some(RoundStage::Question { question, .. }) = &self.latest_question {
+        if let Some(RoundStage::Question {
+            question,
+            citations,
+            marks,
+            ..
+        }) = &self.latest_question
+        {
+            let number = self.decisions.len() + 1;
+            let answer = KeptAnswer::new(picked, &comment, first_pick);
             self.decisions.push(Decision {
-                number: self.decisions.len() + 1,
+                number,
                 question: question.text.clone(),
-                answer: KeptAnswer::new(picked, &comment, first_pick),
+                answer: answer.clone(),
             });
+            let record = EarlierQuestion {
+                number,
+                question: (**question).clone(),
+                answer: Some(answer),
+                // What the agent records, once it takes the answer up.
+                recorded: AgentRecord::default(),
+                marks: vec![TurnMarks {
+                    reviewed: marks.reviewed.clone(),
+                    not_relevant: marks.not_relevant.clone(),
+                    ..TurnMarks::default()
+                }],
+            };
+            self.answered_questions.push((record, citations.clone()));
         }
         self.answer_marks.push(match &self.latest_question {
             Some(RoundStage::Question { marks, .. }) => marks.clone(),
@@ -265,11 +300,27 @@ impl Session {
         });
     }
 
+    /// The agent's turn that posted `stage` took up the answers it follows: their questions
+    /// are done steps of the rail, with what the agent recorded of each.
+    fn take_up_answers(&mut self, stage: &RoundStage) {
+        let response = stage.response();
+        for (record, _) in &mut self.answered_questions[self.taken_up..] {
+            record.recorded = AgentRecord {
+                interpretation: response
+                    .and_then(|response| response.interpretations.last().cloned()),
+                reply: response.and_then(|response| response.reply.clone()),
+            };
+        }
+        self.taken_up = self.answered_questions.len();
+    }
+
     /// Forgets the questions and answers of the round that no longer runs.
     fn forget_round(&mut self) {
         self.asked = 0;
         self.answered.clear();
         self.decisions.clear();
+        self.answered_questions.clear();
+        self.taken_up = 0;
         self.answer_marks.clear();
         self.latest_question = None;
         self.concluded = false;
@@ -347,6 +398,7 @@ impl Session {
                 self.concluded = false;
                 let stage = self.data.question_stage(self.asked, question);
                 self.latest_question = Some(stage.clone());
+                self.take_up_answers(&stage);
                 stage
             }
             Step::Cancel => self.question_after_cancel_answer()?,
@@ -356,7 +408,9 @@ impl Session {
             Step::Conclude { quiz } => {
                 self.concluded = true;
                 self.quiz = quiz.then(QuizAnswers::default);
-                self.conclusion(None)
+                let stage = self.conclusion(None);
+                self.take_up_answers(&stage);
+                stage
             }
             Step::Implement | Step::Deliver => self.implementation_stage(step)?,
             Step::Round(event) => self.after_round_event(event),
@@ -394,6 +448,8 @@ impl Session {
         self.answered.pop();
         self.concluded = false;
         self.decisions.pop();
+        self.answered_questions.pop();
+        self.taken_up = self.taken_up.min(self.answered_questions.len());
         self.answer_marks.pop();
         if let RoundStage::Question {
             answer_cancelled, ..
@@ -775,6 +831,8 @@ impl Sessions {
             offers: 0,
             answered: Vec::new(),
             decisions: Vec::new(),
+            answered_questions: Vec::new(),
+            taken_up: 0,
             answer_marks: Vec::new(),
             marked_by_hand: 0,
             actions: Vec::new(),

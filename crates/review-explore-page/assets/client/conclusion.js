@@ -9,6 +9,7 @@
 /** @import { ConclusionView, DecisionView, ImplementationView, QuizView } from "./types.ts" */
 /** @import { Turn } from "./turn.js" */
 
+import { decisionTag } from './chips.js';
 import { h, keyOf, markdown, Region } from './dom.js';
 import { keepDraft } from './drafts.js';
 import { openQuizResults, quizResults } from './quiz.js';
@@ -16,12 +17,6 @@ import { disclosure } from './disclosure.js';
 import { resetConfirmation } from './masthead.js';
 import { panelActions, panelCard } from './status.js';
 import { turnStrip } from './turn.js';
-
-/** The words of each tag of a decision, and its colour. */
-const TAGS = {
-  changed_after_first_pick: { words: 'changed after your first pick', tone: 'changed' },
-  as_recommended: { words: 'as recommended', tone: 'recommended' },
-};
 
 /** A request's list shows this many items before "… N more". */
 const SHOWN_ITEMS = 3;
@@ -99,7 +94,7 @@ function decisionList(decisions) {
                   'p',
                   { class: 'decision-kept' },
                   h('strong', {}, decision.choice),
-                  decision.tags.map((tag) => [' ', h('span', { class: `tag ${TAGS[tag].tone}` }, TAGS[tag].words)]),
+                  decision.tags.map((tag) => [' ', decisionTag(tag)]),
                 )
               : null,
             decision.comment

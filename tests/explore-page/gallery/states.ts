@@ -385,6 +385,35 @@ export const STATES: GalleryState[] = [
     },
   },
   {
+    name: 'question-1-earlier',
+    about:
+      'Question 1 opened again from the rail at question 3, read only: the question as it was asked, the answer, what it marked, what the agent recorded, and the way back.',
+    async reach(session, page) {
+      await question(session, page, 3);
+      // The rail's link to question 1, which a phone's rail hides: the address it goes to.
+      await page.evaluate(() => {
+        location.hash = '#question-1';
+      });
+      await page.getByRole('region', { name: 'Question 1 · answered' }).waitFor();
+    },
+  },
+  {
+    name: 'question-2-swipe',
+    about:
+      'On a phone, a drag to the right past the threshold, held: question 1 slides in beside question 2, its chip fills and the left edge lights.',
+    async reach(session, page) {
+      await question(session, page, 2);
+      const headline = page.getByRole('region', { name: 'Question 2' }).getByRole('heading').first();
+      const box = await headline.boundingBox();
+      if (!box) return;
+      const y = box.y + Math.min(box.height / 2, 20);
+      await page.mouse.move(box.x + 40, y);
+      await page.mouse.down();
+      await page.mouse.move(box.x + 80, y);
+      await page.mouse.move(box.x + 160, y);
+    },
+  },
+  {
     name: 'question-2-meter',
     about:
       "The meter on the masthead's hairline, open: the bar split by who marked the lines, and the window with the totals, the legend and a row for each file.",

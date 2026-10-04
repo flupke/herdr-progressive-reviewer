@@ -19,9 +19,9 @@ use review_source::ReviewCheckpoint;
 
 use crate::{ExploreSession, Start};
 
-/// The citations the page shows, those of a question or the proofs of a conclusion's quiz,
-/// found in the change and colored once per stage rather than on every input the session
-/// handles.
+/// The citations the page shows, those of a question, the proofs of a conclusion's quiz or those
+/// of the earlier questions, found in the change and colored once per stage rather than on
+/// every input the session handles.
 #[derive(Default)]
 pub(crate) struct PageCitations {
     colors: CodeColors,
@@ -93,6 +93,23 @@ impl ExploreSession {
                 .map(|(_, request)| request.as_str());
             RoundOverview::of(round, delivering)
         });
+        let earlier_citations = self
+            .state
+            .round
+            .as_ref()
+            .zip(overview.as_ref())
+            .map_or_else(Vec::new, |(round, overview)| {
+                let lists: Vec<Vec<EvidenceRef>> = overview
+                    .earlier
+                    .iter()
+                    .map(|record| record.question.evidence.clone())
+                    .collect();
+                self.earlier_citations.lists(
+                    &lists,
+                    &round.exploration.comparison,
+                    self.repository.root(),
+                )
+            });
         let round = self
             .state
             .round
@@ -105,6 +122,7 @@ impl ExploreSession {
                 cancellable: cancellable.as_ref(),
                 earlier: self.state.historical,
                 overview,
+                earlier_citations: &earlier_citations,
             });
         self.page.publish_counted(round, stage, self.mark_tally());
     }
