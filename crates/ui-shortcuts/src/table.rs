@@ -676,7 +676,7 @@ pub(crate) const SHORTCUTS: &[ShortcutDefinition] = &[
     },
     ShortcutDefinition {
         description: Some(
-            "Explore round settings: change which choices run-ahead prepares (off / recommended / every)",
+            "Explore round settings: change which choices run-ahead prepares (experimental)",
         ),
         bindings: &[ShortcutBinding::one(
             Key::Char('z'),

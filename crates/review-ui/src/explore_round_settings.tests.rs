@@ -82,15 +82,23 @@ fn saved_run_ahead(actions: &[Action]) -> Option<RunAhead> {
 #[test]
 fn run_ahead_is_off_until_the_reviewer_turns_it_on_with_its_key() {
     let mut fixture = ExploreUi::start_screen(BASE, POLICY);
-    assert!(fixture.text().contains("Run ahead: off"));
+    assert!(fixture.text().contains("Run ahead (experimental): off"));
 
     let actions = fixture.app.update(UserInput::Key(Key::Char('z')));
 
     assert_eq!(saved_run_ahead(&actions), Some(RunAhead::Recommended));
-    assert!(fixture.text().contains("Run ahead: the recommended choice"));
+    assert!(
+        fixture
+            .text()
+            .contains("Run ahead (experimental): the recommended choice")
+    );
     let actions = fixture.app.update(UserInput::Key(Key::Char('z')));
     assert_eq!(saved_run_ahead(&actions), Some(RunAhead::Every));
-    assert!(fixture.text().contains("Run ahead: every choice"));
+    assert!(
+        fixture
+            .text()
+            .contains("Run ahead (experimental): every choice")
+    );
 }
 
 #[test]
@@ -103,7 +111,7 @@ fn the_pane_shows_run_ahead_as_saved_and_its_button_moves_it_on() {
             run_ahead: RunAhead::Every,
             ..ExploreRoundSettings::default()
         }));
-    let actions = fixture.click_actions(" Run ahead: every choice ");
+    let actions = fixture.click_actions(" Run ahead (experimental): every choice ");
 
     assert_eq!(saved_run_ahead(&actions), Some(RunAhead::Off));
 }

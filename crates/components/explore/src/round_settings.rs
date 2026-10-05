@@ -62,7 +62,7 @@ impl RoundSettings {
                 Control::Setting(ExploreSettingShortcut::WritingStyle),
             ),
             (
-                format!("Run ahead: {run_ahead}"),
+                format!("Run ahead (experimental): {run_ahead}"),
                 Control::Setting(ExploreSettingShortcut::RunAhead),
             ),
         ]);
