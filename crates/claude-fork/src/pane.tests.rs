@@ -53,15 +53,20 @@ fn an_agent_run_as_a_script_keeps_its_script_and_loses_its_prompt() {
         .spawn()
         .unwrap();
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-    let pane = loop {
-        let pane = PaneClaude::read(child.id()).unwrap();
-        if !pane.command.arguments.is_empty() || std::time::Instant::now() > deadline {
-            break pane;
+    // Right after the spawn, the child's command line can still be empty, or this test's own.
+    let read = loop {
+        let read = PaneClaude::read(child.id());
+        let started = read
+            .as_ref()
+            .is_ok_and(|pane| pane.command.arguments == [script.as_os_str()]);
+        if started || std::time::Instant::now() > deadline {
+            break read;
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
     };
     child.kill().unwrap();
     child.wait().unwrap();
+    let pane = read.unwrap();
 
     assert_eq!(pane.command.arguments, [script.as_os_str()]);
     assert_eq!(pane.model.as_deref(), Some("opus"));
