@@ -6,7 +6,10 @@
 [profile.default]
 status-level = "fail"
 final-status-level = "slow"
-slow-timeout = { period = "10s" }
+# A test waits on events, never on the clock (.agents/wiki/unit-tests.md), so one still
+# running after two minutes is stuck: nextest ends it and reports it as failed, instead of
+# leaving the whole run waiting. This is every test's hang guard.
+slow-timeout = { period = "10s", terminate-after = 12 }
 
 [profile.default.junit]
 path = "junit.xml"

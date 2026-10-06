@@ -59,8 +59,10 @@ the same path and wait for it; what did not arrive before it did not happen.
 
 This holds for the tests that drive real processes too (a private Herdr, a stand-in agent,
 jj or git, a language server, a spawned binary): they wait on what those report, such as a
-stand-in's event socket or Herdr's event stream. Their only clock is a guard against a
-hang, which fires on a failure and never delays a test that passes. Every Rust test runs
+stand-in's event socket or Herdr's event stream. A test may block on an event without a
+timeout of its own: nextest ends any test still running after two minutes
+(`.config/nextest.toml`) and reports it, so a regression that loses the event fails
+instead of hanging. A local guard is worth it only to say what was awaited. Every Rust test runs
 in `make test`; the Explore page's browser tests are the one suite apart.
 
 ## Auditing a crate
