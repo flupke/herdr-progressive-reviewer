@@ -21,9 +21,13 @@ when the current public behaviors and their existing tests are known.
 Run all mutations in the file:
 
 ```sh
-cargo mutants --workspace --test-workspace=true --test-tool=nextest \
+cargo mutants --workspace --test-workspace=true --test-tool=nextest -j2 \
   --file <filename>
 ```
+
+`-j2` runs two mutants at a time: more jobs can cause false timeouts and flakes
+in tests that share state. Raise `--timeout` only for a test that really needs
+longer than the default, five times the baseline and at least 20 seconds.
 
 Read all missed mutants from `mutants.out/missed.txt` and process them in the
 next step.
@@ -60,8 +64,15 @@ Prefer one test that catches a related class of mutations. Keep production
 code unchanged. If a mutant reveals a separate real defect, report it; do not
 change production code only to kill a mutant.
 
-Run the file mutation test with `--iterate` after each edit. Continue until all
-useful misses are caught or the remaining misses have no stable oracle.
+Keep each test deterministic: it depends on time, order or external state only
+when that dependency is the behavior under test.
+
+Run the file mutation test with `--iterate` after each edit. Give each group at
+most four attempts: most tests that succeed appear in the first three or four.
+Continue until every useful miss is caught, has no stable
+oracle, or has used its four attempts; a group that used them goes to the report,
+for a person to decide whether its oracle is weak, its mutants are equivalent, or
+the test boundary is wrong.
 
 ## 5. Verify and report
 
@@ -76,8 +87,9 @@ Report:
 - each missed mutant and its classification;
 - the product rules protected by new tests;
 - equivalent or low-value mutants that need human confirmation;
+- groups still missed after four attempts;
 - the full file mutation result and the gate's result.
 
-The invocation is complete when every miss is caught or classified, all useful
-caught results are confirmed by a non-iterative full file run, and the
-repository checks pass.
+The invocation is complete when every miss is caught, classified, or reported
+at its attempt limit, all useful caught results are confirmed by a non-iterative
+full file run, and the repository checks pass.

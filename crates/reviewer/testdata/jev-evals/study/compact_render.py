@@ -5,9 +5,9 @@ import json
 from pathlib import Path
 
 
-def publish(result, output, docs, arms):
-    docs = Path(docs)
-    docs.mkdir(parents=True, exist_ok=True)
+def publish(result, output, arms):
+    report = Path(output)
+    report.mkdir(parents=True, exist_ok=True)
     price_per_million = 0.042
     result["pricing"] = {"checked_date": "2026-09-23", "model": "jev-1.13.0",
                          "usd_per_million_input_tokens": price_per_million,
@@ -35,7 +35,7 @@ def publish(result, output, docs, arms):
                    f'Observed whole-arm API wall was {previous["wall_ms"] / 1000:.1f}s versus {compact["wall_ms"] / 1000:.1f}s.')
     else:
         outcome = "The run is incomplete or includes failures; not-evaluated lines remain required."
-    (docs / "jev-compact-query-results.json").write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n")
+    (report / "jev-compact-query-results.json").write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n")
     columns = ("Arm", "Cases", "Evaluated / changed lines", "False hidden lines/cases",
                "Useful excluded", "Not evaluated", "Calls", "Wall time", "Lines/s",
                "Provider input tokens", "Provider output tokens", "Estimated input tokens", "Median/p95 request")
@@ -111,7 +111,7 @@ def publish(result, output, docs, arms):
         markdown += ["", f'### False-hidden example: {arm}, {example["case"]} chunk {example["chunk"]}', "", "```json", json.dumps(example, indent=2, ensure_ascii=False), "```"]
     provenance = result["provenance"]
     markdown += ["", "## Protocol and reproduction", "", "The exact previous-winner requests were checked against the frozen export, and both arms use the same audited history corpus. Changed old/new line coordinates are disjoint; context and overlapping rows do not enter throughput denominators. Provider failures and oversized chunks stay required and count as not evaluated. Corrected h054 labels affect scoring only; the original-label false-hidden counts remain in the JSON. Compact target-row indexing was unused here because all 652 compact windows covered full hunks at the 16k budget.", "", f'Corpus SHA-256: `{provenance["corpus_sha256"]}`. Plan SHA-256: `{next(iter(provenance["plan_sha256"].values()))}`. Exact question hashes and response/timing hashes are in [the result JSON](jev-compact-query-results.json).', "", "```sh", "PYTHONDONTWRITEBYTECODE=1 python3 -B crates/reviewer/testdata/jev-evals/study/compact.py audit \\", "  --plan target/jev-compact-two-arm-plan/planned.jsonl \\", "  --previous-plan /tmp/herdr-jev-request-export/planned.jsonl", "PYTHONDONTWRITEBYTECODE=1 python3 -B crates/reviewer/testdata/jev-evals/study/compact.py run \\", "  --plan target/jev-compact-two-arm-plan/planned.jsonl \\", f"  --output {output}", "PYTHONDONTWRITEBYTECODE=1 python3 -B crates/reviewer/testdata/jev-evals/study/compact.py report \\", "  --plan target/jev-compact-two-arm-plan/planned.jsonl \\", f"  --output {output}", "```", "", "Fresh runs require an empty output directory and `TYPESAFE_API_KEY`; the manifest permits resuming only the same exact plan. The measured run used one HTTP worker per arm. Request latency percentiles include failures and retries; whole-arm wall time is measured separately from request-time sums."]
-    (docs / "jev-compact-query.md").write_text("\n".join(markdown) + "\n")
+    (report / "jev-compact-query.md").write_text("\n".join(markdown) + "\n")
     def cell(value, tag="td"):
         return f"<{tag}>{html.escape(str(value))}</{tag}>"
 
@@ -174,4 +174,4 @@ def publish(result, output, docs, arms):
             "<h2>Every measured file diff</h2>", html_table(("File diff and path", "Changed lines", "Previous calls", "Compact calls", "Previous wall", "Compact wall"), cases),
             "<h2>Exact request examples</h2>", examples,
             "<p>The <a href='jev-compact-query.md'>Markdown report</a> includes split scores, typical file diffs, methods, and reproduction commands. The <a href='jev-compact-query-results.json'>JSON result</a> contains hashes, original-label sensitivity, and raw per-case measurements.</p></body></html>"]
-    (docs / "jev-compact-query.html").write_text("".join(page))
+    (report / "jev-compact-query.html").write_text("".join(page))

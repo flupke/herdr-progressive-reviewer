@@ -1,42 +1,11 @@
 # History-based Jev evaluation
 
-This is an opt-in experiment. Production review planning and exclusions remain
-unchanged. The interactive report is [jev-history-study.html](jev-history-study.html).
-
-## Measured result
-
-The timed full rerun compared 3,045 configurations using 2,882 fresh physical Jev
-calls. API execution took 172.773 seconds for development and 80.424 seconds for
-validation (253.197 seconds combined), with four concurrent workers. Loading and
-verifying the existing plans added 9.997 seconds. Median/p95 request latency was
-349/476 ms for development and 324/401 ms for validation. Every call took one
-attempt; no local response cache was reused.
-
-The development winner was the structured checklist with path, language and
-old/new file headers, a 16,000-estimated-token window, and exclusion probability
-of at least 0.85. With the documented annotation erratum applied, validation
-excluded 1,393 of 1,688 out-of-scope lines (82.5%) using 238 distinct requests,
-with no observed false exclusions among 2,602 significant lines. Against the
-original labels it had one false case / two lines, explained by the erratum below.
-All ten newly frozen finalists have zero observed validation false exclusions
-with that correction. This is provisional evidence on the same corpus, not a
-new independent holdout or a production safety guarantee.
-
-The first run selected the same prompt, metadata and window, but a margin rule
-of at least 0.70, and excluded 1,437 validation lines (85.1%). Fresh responses
-changed the selected threshold rule and several finalists; rankings should not
-be treated as a unique optimum. The original artifacts and report are preserved
-under `target/jev-history-study`; the timed rerun is under
-`target/jev-history-timed-repeat`.
-
-The weakest complete development configuration in the rerun used clipped-sum
-category probabilities at 0.50 with rows only and an 8k window: it hid 131
-significant lines across 12 cases. Its displayed examples have the same 31
-audited significant coordinates as the first run. Increasing the window from
-8k to 16k reduced checklist/headers development requests from 434 to 417; 20k
-hit Jev's token limit on three inputs per study cell. There were 12 physical
-development failures, all `max_tokens_exceeded`, and no validation failures.
-Successful responses reported 14,367,507 input tokens in total.
+This opt-in study compares prompts, metadata, exclusion rules and token windows
+for Jev's significance judgement, on an audited corpus of this repository's own
+commits. It needs the `jev-evals` Cargo feature ([Jev evaluations](jev-evals.md))
+and never runs during `make check`. Every result it produces (raw responses,
+scores, the interactive HTML report and its JSON) is written to the run directory
+under `target/`; do not commit results.
 
 ## Corpus and annotations
 
@@ -162,7 +131,8 @@ justify an independent-line confidence interval.
 
 ### Runtime measurements
 
-The HTML and JSON reports include median/p95 request latency for the finalists
+The HTML and JSON reports (`jev-history-study.html` and
+`jev-history-results.json` in the run directory) include median/p95 request latency for the finalists
 and token-window comparisons, plus measured API execution wall time for each
 phase. Four HTTP requests can run concurrently. Request-time sums overlap and
 must not be read as wall time; development requests can also contain questions
@@ -185,9 +155,11 @@ supports server retry-delay headers. The experimental runner currently retries
 429 and selected 5xx responses, but lacks 529 and retry-header handling. A future
 concurrency sweep should add request/token pacing and these retry behaviors first.
 
-Use a new output directory for fresh requests. After the original plans exist,
-these commands rerun the full grid, freeze a new top ten, validate it and rebuild
-the report (requires `TYPESAFE_API_KEY`):
+Use a new output directory for fresh requests. Once the request plans exist
+(see [Corpus and request generation](#corpus-and-request-generation); here under
+`target/jev-history-study/plans`), these commands rerun the full grid, freeze a
+new top ten, validate it and build the report in `$JEV_RUN` (requires
+`TYPESAFE_API_KEY`):
 
 ```sh
 export PYTHONDONTWRITEBYTECODE=1
@@ -245,3 +217,47 @@ Offline annotation/rule checks:
 python -m unittest discover -s crates/reviewer/testdata/jev-evals/study -p 'test_*.py'
 cargo test -p reviewer --features jev-evals runtime::jev::evals
 ```
+
+## Compact query comparison
+
+`compact.py` compares two request formats under the fixed production policy
+(checklist prompt, headers metadata, 16,000-token window, exclusion probability of
+at least 0.85) on the same history corpus: `rows_legacy`, one JSON row per diff
+line, and `unified_compact`, a unified diff with the rows to judge listed in
+`target_rows`. Each arm runs with one sequential HTTP worker, in a fixed order, so
+whole-arm wall time includes provider-load drift.
+
+Changed old/new line coordinates are counted once; context and overlapping rows
+do not enter the throughput denominators. Provider failures and oversized chunks
+stay required and count as not evaluated. Useful excluded lines count only wholly
+insignificant chunks. The h054 erratum affects scoring only; the original-label
+counts stay in the JSON.
+
+Write the two-arm configuration, export its requests offline, and keep the two
+arms in one plan:
+
+```sh
+python3 -B crates/reviewer/testdata/jev-evals/study/compact.py config \
+  --output /tmp/jev-compact.json --plan-output "$PWD/target/jev-compact-export"
+JEV_STUDY_CONFIG=/tmp/jev-compact.json cargo test -p reviewer --features jev-evals export_study_requests -- --ignored
+python3 -B crates/reviewer/testdata/jev-evals/study/compact.py two-arm-plan \
+  --plan target/jev-compact-export/planned.jsonl --output target/jev-compact-two-arm-plan
+```
+
+Check the plan for free, run it (requires `TYPESAFE_API_KEY`), and build the
+report:
+
+```sh
+python3 -B crates/reviewer/testdata/jev-evals/study/compact.py audit \
+  --plan target/jev-compact-two-arm-plan/planned.jsonl
+python3 -B crates/reviewer/testdata/jev-evals/study/compact.py run \
+  --plan target/jev-compact-two-arm-plan/planned.jsonl --output target/jev-compact-run
+python3 -B crates/reviewer/testdata/jev-evals/study/compact.py report \
+  --plan target/jev-compact-two-arm-plan/planned.jsonl --output target/jev-compact-run
+```
+
+`audit --previous-plan <planned.jsonl>` also checks that the `rows_legacy` requests
+are byte-identical to the checklist/headers/16k requests of an earlier history
+study export. A fresh `run` requires an empty output directory; its manifest
+permits resuming only the same exact plan. `report` writes
+`jev-compact-query.md`, `.html` and `-results.json` into the output directory.

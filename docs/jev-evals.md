@@ -1,5 +1,31 @@
 # Jev significance and splitting evaluations
 
+Three opt-in evaluations measure how Jev judges whether changed lines need the
+reviewer's attention: the splitting comparison and the prompt experiment below,
+and the [history study](jev-history-study.md) with its compact query comparison.
+All of them write their results under `target/`. Results are temporary: do not
+commit them.
+
+## Production settings
+
+Production (`crates/reviewer/src/runtime/jev.rs` and `jev/optimized.rs`) asks one
+checklist Choice question per hunk window, with the path, the language and the
+first twelve lines of the old and new file as metadata, a window of 16,000
+estimated tokens, and keeps an exclusion only when its probability is at least
+0.85. Rows are sent one JSON row per diff line, without omission notes
+(`Format::RowsNoOmissions`).
+
+The prompt, metadata, window and threshold are the development winner of the
+[history study](jev-history-study.md) of 2026-09-23: on its validation split,
+with the h054 erratum applied, it excluded 1,393 of 1,688 out-of-scope lines and
+no significant line. The corpus is this repository's own history with
+agent-authored labels, so this is provisional evidence, not a safety guarantee.
+The compact unified-diff format stays an evaluation arm: in the same study's
+comparison it used 55.6% fewer input tokens and excluded 978 validation lines
+where rows excluded 1,390.
+
+## Splitting comparison
+
 The `reviewer` Cargo feature `jev-evals` enables an experimental evaluator and
 its labelled corpus. It is absent from default builds and `make check`. The live
 test is also ignored, including under `--all-features`: requesting live calls
@@ -21,7 +47,7 @@ JEV_EVAL_BUDGETS=14000 JEV_EVAL_REPEATS=1 \
 
 This writes `planned.jsonl` with request bodies, target units and token
 estimates. It does not write label text into the requests. The
-[prompt experiment](jev-prompt-experiment-results.md) consumes that export.
+[prompt experiment](#prompt-and-threshold-experiment) consumes that export.
 
 Run the comparison against Jev, using `TYPESAFE_API_KEY` from the environment:
 
@@ -39,7 +65,7 @@ The four strategies are:
 
 | Strategy | Target and context |
 | --- | --- |
-| `LegacyBlocks` | Production candidate preparation: consecutive added/deleted rows, three unchanged rows on each side, current 32-candidate and 10 KiB limits. |
+| `LegacyBlocks` | The candidate preparation production used before the history study, kept for this comparison: consecutive added/deleted rows, three unchanged rows on each side, 32-candidate and 10 KiB limits. |
 | `WholeHunk` | One judgment for every changed line in a complete hunk; retain it as oversized if it cannot fit. |
 | `Recursive` | Recursively divide an oversized hunk near its token midpoint. Keep each fitting leaf's local context. |
 | `RecursiveOverlap` | Use exactly the same target leaves as `Recursive`, then extend their context into the original hunk within the token budget. |
@@ -137,9 +163,6 @@ Scores expose trade-offs separately:
 - Request count, reported input/output tokens and request latency. Compare reported
   tokens with local estimates before treating the tokenizer margin as adequate.
 
-The [initial live results](jev-evals-results.md) record the first complete
-comparison and the observed tokenizer underestimate.
-
 Missing predictions remain visible in the denominator. A test pass means the
 experiment completed without provider failures and accounting errors; it does
 not assert a quality threshold or that overlap wins. Inspect per-case results,
@@ -147,6 +170,31 @@ especially mixed and boundary-dependent cases. Lines from a common change and
 repeats of the same case are correlated; pooled line counts are not independent
 statistical samples. Independent relabelling and a held-out corpus are needed
 before choosing production policy or claiming general superiority.
+
+## Prompt and threshold experiment
+
+`crates/reviewer/testdata/jev-evals/prompt_experiment.py` compares three prompts
+on the recursive export of the fixture corpus: the earlier Choice rubric, a
+scope-aware Choice, and three yes/no category questions (comment-only,
+import/module-only, formatting-only) whose exclusion score is the maximum of
+their probabilities. A candidate is positive when any of its target lines
+requires review; mixed candidates stay required.
+`crates/reviewer/testdata/jev-evals/curation.json` records which cases are
+development, holdout, or left out of prompt tuning.
+
+Plan it without calling Jev:
+
+```sh
+JEV_EVAL_BUDGETS=14000 JEV_EVAL_REPEATS=1 \
+  JEV_EVAL_OUTPUT="$(pwd)/target/jev-prompt-evals/offline-plan" \
+  cargo test -p reviewer --features jev-evals export_recursive_requests -- --ignored
+python3 crates/reviewer/testdata/jev-evals/prompt_experiment.py \
+  --plan target/jev-prompt-evals/offline-plan/planned.jsonl --dry-run
+```
+
+Without `--dry-run` the script sends paid requests (`TYPESAFE_API_KEY`), three
+repeats by default, and writes to a new directory under `target/jev-prompt-evals/`.
+`--score-existing <responses.jsonl>` scores a saved run without provider calls.
 
 ## Research datasets
 

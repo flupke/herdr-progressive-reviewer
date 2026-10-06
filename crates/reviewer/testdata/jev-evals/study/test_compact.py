@@ -85,15 +85,14 @@ class CompactTests(unittest.TestCase):
                 self.assertEqual(row["measured_input_tokens"], 160)
                 self.assertEqual(len({r["key"] for r in map(json.loads, (run / f"{arm}-responses.jsonl").read_text().splitlines())}), 2)
                 self.assertIsNotNone(row["wall_ms"])
-            docs = Path(tmp) / "docs"
-            publish(result, run, docs, ARMS)
-            page = (docs / "jev-compact-query.html").read_text()
+            publish(result, run, ARMS)
+            page = (run / "jev-compact-query.html").read_text()
             self.assertIn("False-hidden significant lines", page)
             self.assertIn("Provider input tokens", page)
             self.assertIn("one.rs", page)
             self.assertIn("API seconds per 1,000", page)
             self.assertIn("https://docs.typesafe.ai/models", page)
-            self.assertIn("Protocol and reproduction", (docs / "jev-compact-query.md").read_text())
+            self.assertIn("Protocol and reproduction", (run / "jev-compact-query.md").read_text())
 
     def test_failed_request_keeps_lines_required(self):
         with tempfile.TemporaryDirectory() as tmp:

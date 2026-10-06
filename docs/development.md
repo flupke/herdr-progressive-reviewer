@@ -77,10 +77,17 @@ test uses real rust-analyzer to navigate working-copy sources and reject a
 delayed result for another evidence window. Unchanged sources are resolved on demand without a repository catalog or capture. Explore assumes code stays unchanged during review;
 it does not check freshness or suspend decisions after edits. The real-agent acceptance demo
 is a separate manual check in a disposable repository and private Herdr server.
-See the [slice 2 recovery report](explore-slice-2-recovery.md) for current acceptance evidence. The archived [adaptive demo](explore-adaptive-demo.md) predates durable resumption.
 
-See [language server setup](language-servers.md) for the server commands, and
-[mutation testing](llm-mutation-testing.md) for mutation-test guidance.
+See [language server setup](language-servers.md) for the server commands.
+
+Mutation testing has three run levels. For one file, use the
+`cover-missed-mutations` skill (`.agents/skills/cover-missed-mutations`). For
+changed code, `cargo mutants --workspace --test-workspace=true --test-tool=nextest
+--in-diff <diff>` tests only the mutants that overlap the diff: it misses coverage
+lost outside the diff, and a test-only change selects no mutants. `make mutants`
+runs the whole workspace; run it on a schedule or before a high-risk release, and
+read `mutants.out/` for its results. A mutation score of 100% is not the goal:
+equivalent and low-value mutants stay missed.
 
 ### Parallel workspaces
 

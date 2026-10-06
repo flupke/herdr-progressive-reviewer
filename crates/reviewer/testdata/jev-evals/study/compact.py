@@ -16,7 +16,7 @@ from pathlib import Path
 
 from compact_render import publish
 from corpus import Corpus, digest
-from design import DATASET, ROOT, Prompts
+from design import DATASET, Prompts
 from execute import Transport
 from score import Rule
 from timing import Latency
@@ -439,7 +439,6 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=Path)
     parser.add_argument("--plan-output", type=Path, help="Exporter directory for config command")
     parser.add_argument("--previous-plan", type=Path)
-    parser.add_argument("--docs", type=Path, default=ROOT / "docs")
     parser.add_argument("--max-new-calls", type=int)
     args = parser.parse_args()
     if args.command == "config":
@@ -462,4 +461,4 @@ if __name__ == "__main__":
             study.run(args.output, args.max_new_calls)
         else:
             assert args.output
-            publish(study.report(args.output), args.output, args.docs, ARMS)
+            publish(study.report(args.output), args.output, ARMS)

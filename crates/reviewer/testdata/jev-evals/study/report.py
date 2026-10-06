@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import os
 from collections import Counter
 from pathlib import Path
 
@@ -77,10 +78,10 @@ class Report:
                              "input_tokens": sum(r.get("response", {}).get("usage", {}).get("input_tokens", 0) for r in records)},
                    "artifacts": artifacts, "run_path": str(self.run.relative_to(ROOT))}
         data = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).replace("<", "\\u003c")
-        template = (HERE / "report.html").read_text()
-        output = ROOT / "docs/jev-history-study.html"
+        template = (HERE / "report.html").read_text().replace("__ROOT__", os.path.relpath(ROOT, self.run))
+        output = self.run / "jev-history-study.html"
         output.write_text(template.replace("__STUDY_DATA__", data))
-        (ROOT / "docs/jev-history-results.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
+        (self.run / "jev-history-results.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
         print(output)
 
     def plan_lines(self):
