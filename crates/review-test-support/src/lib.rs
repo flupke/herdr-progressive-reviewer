@@ -8,7 +8,8 @@
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Child, Command, Output};
+use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -18,10 +19,18 @@ mod port;
 pub use port::TestPort;
 mod detection_rules;
 mod herdr;
+mod herdr_events;
+pub mod stand_in;
 pub use herdr::HerdrTestServer;
+pub use herdr_events::{AgentStatusWatch, HerdrEventWatch};
+
+/// How long a test waits for a process or a thread before it fails: a guard that fires only
+/// on a failure, and never delays a test that passes.
+pub const GUARD: Duration = Duration::from_secs(30);
 
 /// Check `condition` until it holds, for at most `timeout`; return whether it
-/// held.
+/// held. It polls: a test waits on an event instead (`.agents/wiki/unit-tests.md`). Its last
+/// user is `tests/tui/tests/live_viewer.rs`.
 pub fn eventually(timeout: Duration, mut condition: impl FnMut() -> bool) -> bool {
     let deadline = Instant::now() + timeout;
     loop {
@@ -35,12 +44,26 @@ pub fn eventually(timeout: Duration, mut condition: impl FnMut() -> bool) -> boo
     }
 }
 
-/// Whether `address` refuses TCP connections within five seconds: a listener closes on the thread
-/// that serves it, soon after it is told to.
+/// Whether `address` refuses TCP connections now. A stopped listener is closed once the stop
+/// returns, since the stop waits for the thread that serves it.
 pub fn refuses_connections(address: std::net::SocketAddr) -> bool {
-    eventually(Duration::from_secs(5), || {
-        std::net::TcpStream::connect(address).is_err()
-    })
+    std::net::TcpStream::connect(address).is_err()
+}
+
+/// Waits for `child` to exit and returns its output; kills it once `guard` ran out, which
+/// only a failing test reaches.
+pub fn wait_with_output_within(child: Child, guard: Duration) -> Output {
+    let pid = child.id().to_string();
+    let (finished, done) = mpsc::channel::<()>();
+    let killer = thread::spawn(move || {
+        if done.recv_timeout(guard) == Err(mpsc::RecvTimeoutError::Timeout) {
+            let _ = Command::new("kill").args(["-KILL", &pid]).status();
+        }
+    });
+    let output = child.wait_with_output().unwrap();
+    drop(finished);
+    killer.join().unwrap();
+    output
 }
 
 /// The repository layout for a jj integration fixture.

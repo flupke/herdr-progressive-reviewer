@@ -25,7 +25,8 @@ the main checkout with `jj log` and `jj diff -r <bookmark>`:
 - The agent closes each slice that works with `jj new`, so progress shows as
   described commits.
 
-The Herdr integration tests copy their test binary, about 400 MB, into a
-private directory under `/tmp` for each test. When several gates run at once, a
-test that talks to the Herdr socket can fail with `WouldBlock`, and pass when
-run alone.
+Each Herdr test server keeps its sockets, state and the links to the test binary
+its stand-ins run in a private directory under `TMPDIR`; the server's shell removes
+it once the server stops, even when the test process was killed. When several
+gates run at once, a test that talks to the Herdr socket can fail with
+`WouldBlock`, and pass when run alone.

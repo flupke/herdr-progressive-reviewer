@@ -25,20 +25,7 @@ impl StateWatch {
                         return;
                     }
                 };
-                let relevant = {
-                    !matches!(event.kind, notify::EventKind::Access(_))
-                        && event.paths.iter().any(|path| {
-                            (path.extension().is_some_and(|ext| ext == "json")
-                                || matches!(
-                                    event.kind,
-                                    notify::EventKind::Create(notify::event::CreateKind::Folder)
-                                ))
-                                // Editor views and run-ahead's forks change no round.
-                                && ![b".view.json".as_slice(), b".forks.json"].iter().any(|suffix| {
-                                    path.as_os_str().as_encoded_bytes().ends_with(suffix)
-                                })
-                        })
-                };
+                let relevant = changes_a_round(&event);
                 if relevant {
                     changed(Ok(()));
                 }
@@ -50,13 +37,30 @@ impl StateWatch {
     }
 }
 
+/// Whether `event` changes a round: a JSON record other than an editor view or run-ahead's
+/// forks, or a new directory.
+fn changes_a_round(event: &notify::Event) -> bool {
+    !matches!(event.kind, notify::EventKind::Access(_))
+        && event.paths.iter().any(|path| {
+            (path.extension().is_some_and(|ext| ext == "json")
+                || matches!(
+                    event.kind,
+                    notify::EventKind::Create(notify::event::CreateKind::Folder)
+                ))
+                // Editor views and run-ahead's forks change no round.
+                && ![b".view.json".as_slice(), b".forks.json"]
+                    .iter()
+                    .any(|suffix| path.as_os_str().as_encoded_bytes().ends_with(suffix))
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{fs, sync::mpsc, time::Duration};
+    use std::{fs, sync::mpsc};
 
     #[test]
-    fn atomic_domain_updates_notify_but_editor_autosaves_do_not() {
+    fn an_atomic_domain_update_notifies() {
         let root = tempfile::tempdir().unwrap();
         let (sent, received) = mpsc::channel();
         let observer: StateObserver = Arc::new(move |event| {
@@ -69,23 +73,45 @@ mod tests {
             root.path().join("round.json"),
         )
         .unwrap();
+        // A guard: the notification ends the wait.
         received
-            .recv_timeout(Duration::from_secs(3))
+            .recv_timeout(review_test_support::GUARD)
             .unwrap()
             .unwrap();
-        // Drain the finite notification burst from the atomic domain write.
-        while received.recv_timeout(Duration::from_millis(100)).is_ok() {}
+    }
+
+    /// The events of renaming `from` to `to` in `root`, as inotify reports them.
+    fn renamed(root: &Path, from: &str, to: &str) -> [notify::Event; 2] {
+        use notify::event::{ModifyKind, RenameMode};
+        let event = |mode, name: &str| {
+            notify::Event::new(notify::EventKind::Modify(ModifyKind::Name(mode)))
+                .add_path(root.join(name))
+        };
+        [event(RenameMode::From, from), event(RenameMode::To, to)]
+    }
+
+    #[test]
+    fn domain_records_change_a_round_but_editor_autosaves_and_forks_do_not() {
+        let root = Path::new("/state");
+        assert!(
+            renamed(root, "round.json.new", "round.json")
+                .iter()
+                .any(changes_a_round)
+        );
         for record in ["round.view.json", "round.forks.json"] {
-            fs::write(root.path().join(format!("{record}.new")), b"{}").unwrap();
-            fs::rename(
-                root.path().join(format!("{record}.new")),
-                root.path().join(record),
-            )
-            .unwrap();
+            assert!(
+                !renamed(root, &format!("{record}.new"), record)
+                    .iter()
+                    .any(changes_a_round),
+                "{record}"
+            );
         }
-        assert!(matches!(
-            received.recv_timeout(Duration::from_millis(200)),
-            Err(mpsc::RecvTimeoutError::Timeout)
-        ));
+        let read = notify::Event::new(notify::EventKind::Access(notify::event::AccessKind::Any))
+            .add_path(root.join("round.json"));
+        assert!(!changes_a_round(&read));
+        let folder =
+            notify::Event::new(notify::EventKind::Create(notify::event::CreateKind::Folder))
+                .add_path(root.join("review"));
+        assert!(changes_a_round(&folder));
     }
 }

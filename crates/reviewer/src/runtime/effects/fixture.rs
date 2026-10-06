@@ -1,7 +1,7 @@
 //! The one way tests start [`Effects`]: against a temporary repository, with results
 //! collected from the same channels the runtime reads.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use component_core::{ApplicationEvent, EventEnvelope};
 use crossbeam_channel::{Sender as EventSender, unbounded};
@@ -17,8 +17,6 @@ use ui_events::{RepositoryMetadataChanged, RepositoryRefreshFinished};
 
 use super::{Effects, Outputs, RunAheadSetup, Setup};
 use crate::runtime::events;
-
-const EVENT_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub(in crate::runtime) struct EffectsFixture {
     // Declared first so the workers stop before their repository disappears.
@@ -68,6 +66,7 @@ impl EffectsFixture {
             run_ahead: RunAheadSetup {
                 tools: test_fork_tools(),
                 log: Some(state.path().join("run-ahead.log")),
+                waits: claude_fork::ForkWaits::default(),
             },
         };
         configure(&mut setup);
@@ -128,16 +127,7 @@ impl EffectsFixture {
 
     /// The next event, or `None` after `timeout`.
     pub(in crate::runtime) fn recv_timeout(&mut self, timeout: Duration) -> Option<EventEnvelope> {
-        let deadline = Instant::now() + timeout;
-        loop {
-            if let Some(event) = self.inbox.try_recv() {
-                return Some(event);
-            }
-            if Instant::now() >= deadline {
-                return None;
-            }
-            std::thread::sleep(Duration::from_millis(5));
-        }
+        self.inbox.recv_within(timeout)
     }
 
     /// Every event already delivered.
@@ -146,7 +136,8 @@ impl EffectsFixture {
     }
 
     pub(in crate::runtime) fn next_event(&mut self) -> EventEnvelope {
-        self.recv_timeout(EVENT_TIMEOUT).expect("no event arrived")
+        self.recv_timeout(review_test_support::GUARD)
+            .expect("no event arrived")
     }
 
     /// Every event up to and including the first `E`.

@@ -4377,6 +4377,7 @@ dependencies = [
  "herdr-client",
  "review-explore-page-settings",
  "review-repository",
+ "serde",
  "serde_json",
  "tempfile",
 ]

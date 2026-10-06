@@ -5,13 +5,12 @@ use std::ffi::OsString;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::Duration;
 
 use agent_fork::{Launcher, ProcessStamp, Wrapper};
-use herdr_client::client::HerdrClient;
+use herdr_client::client::{EventCanceller, HerdrClient};
 use herdr_client::protocol::{Agent, AgentPort, AgentStatus, PaneId, PaneProcess};
 use review_run_ahead::{
     ForkEnd, ForkHost, ForkPoint, ForkStart, ForkTrace, PaneWatch, StatusReport, SwitchFailure,
@@ -24,8 +23,33 @@ use crate::stream::StreamTally;
 use crate::switch::{AgentPane, ForkProcess, LiveFork, Resume, Switch};
 use crate::transcripts::Transcripts;
 
-/// How long a status watch waits before it subscribes again after Herdr dropped it.
-const RESUBSCRIBE_DELAY: Duration = Duration::from_secs(1);
+/// How long the host waits for Herdr and for its forks. Production uses the defaults; tests set
+/// them small.
+#[derive(Clone, Copy, Debug)]
+pub struct ForkWaits {
+    /// How long a switch waits for the answer to the fork's submit to reach the fork, which
+    /// then writes it in its transcript, before it stops the fork anyway.
+    pub answer: Duration,
+    /// How long a switch waits for Herdr to report the agent on the fork's session, ready for
+    /// a prompt, once the agent was told to resume it.
+    pub resume: Duration,
+    /// How often a switch asks Herdr where the agent stands while it waits: Herdr sends no
+    /// event when an agent's session changes.
+    pub resume_poll: Duration,
+    /// How long a status watch waits before it subscribes again after Herdr dropped it.
+    pub resubscribe: Duration,
+}
+
+impl Default for ForkWaits {
+    fn default() -> Self {
+        Self {
+            answer: Duration::from_secs(10),
+            resume: Duration::from_secs(20),
+            resume_poll: Duration::from_millis(100),
+            resubscribe: Duration::from_secs(1),
+        }
+    }
+}
 
 /// The programs forks need from the reviewer's installation: `reviewer-control`, whose
 /// `fork-exec` ties a fork's life to the reviewer's and whose `fork-guard` is the forks' hook.
@@ -70,6 +94,7 @@ pub struct ClaudeForks {
     launcher: Launcher,
     /// Run-ahead's log; `None` writes none.
     log: Option<PathBuf>,
+    waits: ForkWaits,
     /// The forks that run, by session.
     live: Arc<Mutex<HashMap<String, LiveFork>>>,
     /// The discards under way, which stop a fork and delete its transcript.
@@ -77,13 +102,20 @@ pub struct ClaudeForks {
 }
 
 impl ClaudeForks {
-    /// Forks of the agents `herdr` reports, started through `tools`, logged to `log`.
-    pub fn new(herdr: HerdrClient, tools: ForkTools, log: Option<PathBuf>) -> Self {
+    /// Forks of the agents `herdr` reports, started through `tools`, logged to `log`, waiting
+    /// on Herdr and on the forks as `waits` say.
+    pub fn new(
+        herdr: HerdrClient,
+        tools: ForkTools,
+        log: Option<PathBuf>,
+        waits: ForkWaits,
+    ) -> Self {
         Self {
             launcher: Launcher::start(tools.wrapper()),
             herdr,
             tools,
             log,
+            waits,
             live: Arc::default(),
             discards: Mutex::default(),
         }
@@ -116,42 +148,45 @@ fn is_claude(process: &PaneProcess) -> bool {
 }
 
 /// Ends a status watch when dropped.
-struct StopOnDrop(Arc<AtomicBool>);
+struct CancelOnDrop(EventCanceller);
 
-impl Drop for StopOnDrop {
+impl Drop for CancelOnDrop {
     fn drop(&mut self) {
-        self.0.store(true, Ordering::Release);
+        self.0.cancel();
     }
 }
 
 impl ForkHost for ClaudeForks {
     fn watch(&self, pane: &PaneId, report: StatusReport) -> PaneWatch {
-        let stopped = Arc::new(AtomicBool::new(false));
-        let (herdr, pane, flag) = (self.herdr.clone(), pane.clone(), Arc::clone(&stopped));
+        let canceller = EventCanceller::default();
+        let (herdr, pane, stop) = (self.herdr.clone(), pane.clone(), canceller.clone());
+        let resubscribe = self.waits.resubscribe;
         thread::spawn(move || {
             let mut dropped = false;
-            while !flag.load(Ordering::Acquire) {
+            while !stop.is_cancelled() {
                 // The agent may have worked while the subscription was down: say so, and the
                 // status that follows tells where it stands now.
                 if std::mem::take(&mut dropped) {
                     report(AgentStatus::Working);
                 }
-                let watched = herdr.forward_agent_status_while(
-                    &pane,
-                    || !flag.load(Ordering::Acquire),
-                    |status| {
-                        report(status);
-                        true
-                    },
-                );
-                if watched.is_ok() {
-                    return;
+                let watched = herdr
+                    .subscribe_agent_status(&pane, &stop)
+                    .and_then(|statuses| {
+                        statuses.forward(|status| {
+                            report(status);
+                            true
+                        })
+                    });
+                match watched {
+                    Ok(()) | Err(herdr_client::Error::Cancelled) => return,
+                    Err(_) => {
+                        dropped = true;
+                        thread::sleep(resubscribe);
+                    }
                 }
-                dropped = true;
-                thread::sleep(RESUBSCRIBE_DELAY);
             }
         });
-        PaneWatch::new(StopOnDrop(stopped))
+        PaneWatch::new(CancelOnDrop(canceller))
     }
 
     fn point(&self, agent: &Agent) -> Result<ForkPoint, String> {
@@ -292,6 +327,7 @@ impl ForkHost for ClaudeForks {
             switch.pane.clone(),
             switch.fork.session.to_owned(),
         );
+        let waits = self.waits;
         thread::spawn(move || {
             let switch = Switch {
                 pane: AgentPane {
@@ -300,6 +336,7 @@ impl ForkHost for ClaudeForks {
                 },
                 session: &session,
                 fork,
+                waits,
             };
             done(switch.run());
         });
@@ -312,6 +349,7 @@ impl ForkHost for ClaudeForks {
         done: Box<dyn FnOnce(Result<Agent, SwitchFailure>) + Send>,
     ) {
         let (herdr, pane, session) = (self.herdr.clone(), pane.clone(), session.to_owned());
+        let waits = self.waits;
         thread::spawn(move || {
             let resume = Resume {
                 pane: AgentPane {
@@ -319,6 +357,7 @@ impl ForkHost for ClaudeForks {
                     pane: &pane,
                 },
                 session: &session,
+                waits,
             };
             done(resume.run());
         });

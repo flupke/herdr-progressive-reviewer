@@ -5,25 +5,16 @@
 
 use std::sync::Arc;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use agent_fork::{ProcessStamp, RunningFork, stop_recorded};
 use herdr_client::client::HerdrClient;
 use herdr_client::protocol::{Agent, AgentPort, PaneId};
 use review_run_ahead::SwitchFailure;
 
+use crate::host::ForkWaits;
 use crate::screen::input_box_text;
 use crate::stream::Signal;
-
-/// How long a switch waits for the answer to the fork's submit to reach the fork, which then
-/// writes it in its transcript, before it stops the fork anyway.
-const ANSWER_WAIT: Duration = Duration::from_secs(10);
-/// How long a switch waits for Herdr to report the agent on the fork's session, ready for a
-/// prompt, once the agent was told to resume it.
-const RESUME_WAIT: Duration = Duration::from_secs(20);
-/// How often a switch asks Herdr where the agent stands while it waits: Herdr sends no event
-/// when an agent's session changes.
-const RESUME_POLL: Duration = Duration::from_millis(100);
 
 /// A fork that runs, and the signal of the answer to its submit.
 pub(crate) struct LiveFork {
@@ -62,10 +53,10 @@ impl ForkProcess {
         }
     }
 
-    /// Waits, at most [`ANSWER_WAIT`], until the answer to the fork's submit reached it.
-    fn wait_for_answer(&self) {
+    /// Waits, at most `waits.answer`, until the answer to the fork's submit reached it.
+    fn wait_for_answer(&self, waits: ForkWaits) {
         if let Self::Live(live) = self {
-            live.answered.wait(ANSWER_WAIT);
+            live.answered.wait(waits.answer);
         }
     }
 }
@@ -112,6 +103,7 @@ pub(crate) struct Switch<'a> {
     pub(crate) pane: AgentPane<'a>,
     pub(crate) session: &'a str,
     pub(crate) fork: ForkProcess,
+    pub(crate) waits: ForkWaits,
 }
 
 impl Switch<'_> {
@@ -120,11 +112,12 @@ impl Switch<'_> {
     pub(crate) fn run(self) -> Result<Agent, SwitchFailure> {
         // From here on, only the agent writes the fork's transcript, which ends with the
         // answer to its submit.
-        self.fork.wait_for_answer();
+        self.fork.wait_for_answer(self.waits);
         self.fork.stop(self.session);
         Resume {
             pane: self.pane,
             session: self.session,
+            waits: self.waits,
         }
         .run()
     }
@@ -134,6 +127,7 @@ impl Switch<'_> {
 pub(crate) struct Resume<'a> {
     pub(crate) pane: AgentPane<'a>,
     pub(crate) session: &'a str,
+    pub(crate) waits: ForkWaits,
 }
 
 impl Resume<'_> {
@@ -157,7 +151,7 @@ impl Resume<'_> {
             .herdr
             .submit_agent_command(self.pane.pane, &format!("/resume {}", self.session))
             .map_err(|error| failed(error.to_string()))?;
-        let deadline = Instant::now() + RESUME_WAIT;
+        let deadline = Instant::now() + self.waits.resume;
         loop {
             if let Some(agent) = self.pane.ready_on(self.session) {
                 return Ok(agent);
@@ -168,12 +162,12 @@ impl Resume<'_> {
                         "Herdr did not report the agent on the session {}, ready for a \
                          prompt, within {} s",
                         self.session,
-                        RESUME_WAIT.as_secs()
+                        self.waits.resume.as_secs_f64()
                     ),
                     typed: true,
                 });
             }
-            thread::sleep(RESUME_POLL);
+            thread::sleep(self.waits.resume_poll);
         }
     }
 }

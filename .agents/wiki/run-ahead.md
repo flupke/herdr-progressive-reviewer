@@ -39,10 +39,15 @@ any other answer runs the plain chain. The module headers of `agent-fork`, `clau
 ## How Herdr and Claude Code behave
 
 - Herdr's `pane.agent_status_changed` subscription tells when the agent is idle
-  (`HerdrClient::forward_agent_status_while` reports the current status once subscribed, then
-  each change); nothing polls.
-- Herdr sends no event when a session changes, so the switch asks Herdr every 100 ms, for at
-  most 20 s, until it reports the agent on the fork's session, idle, with an empty box.
+  (`HerdrClient::subscribe_agent_status` holds once it returns; `AgentStatuses::forward`
+  reports the current status, then each change); nothing polls. An `EventCanceller` ends the
+  stream at once by shutting its socket down.
+- Herdr sends no event when a session changes (checked in Herdr 0.9.3: a session report emits
+  `pane.updated` only when the agent's name changes), so the switch asks Herdr every 100 ms,
+  for at most 20 s, until it reports the agent on the fork's session, idle, with an empty box.
+  `claude_fork::ForkWaits` holds these durations, the 10 s wait for a submit's answer and the
+  1 s before a dropped status watch subscribes again; the reviewer's `RunAheadSetup` passes
+  the defaults, and lets a test pass small ones.
 - Settling rests on Claude Code taking what is typed while it loads a session after it, in
   order: once a settling `/resume` is typed and Herdr reports the agent there, an earlier late
   resume cannot move it. This is not checked.

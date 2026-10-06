@@ -32,6 +32,10 @@ pub enum Error {
     #[error("the agent did not start on the prompt: {message}")]
     AgentNotStarted { message: String },
 
+    /// An event stream was cancelled before or while it subscribed.
+    #[error("the Herdr event stream was cancelled")]
+    Cancelled,
+
     /// Herdr rejected a socket request.
     #[error("{operation} failed: {message}")]
     Herdr {

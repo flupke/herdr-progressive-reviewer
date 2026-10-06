@@ -257,9 +257,10 @@ fn source_loads_prefer_frozen_content_when_a_deleted_path_is_recreated() {
 }
 
 mod explore_page {
+    use std::io::Read as _;
     use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
-    use std::time::{Duration, Instant};
+    use std::sync::mpsc;
 
     use herdr_client::protocol::WorkspaceId;
     use review_explore_page::{CommandRefusal, CommandSender, PageRound, RoundPublisher};
@@ -272,6 +273,8 @@ mod explore_page {
         ExplorePageNotOpened, ExplorePageNotShared, ExplorePageOffNetwork,
         ExplorePageSettingsLoaded, ExplorePageShared, ExplorePageTunnel,
     };
+
+    use review_test_support::GUARD;
 
     use crate::runtime::effects::fixture::test_fork_tools;
     use crate::runtime::page_sharing::PageSharing;
@@ -293,6 +296,28 @@ mod explore_page {
             std::path::Path::new("/repositories/drafts"),
         )
         .unwrap()
+    }
+
+    /// A named pipe at `path`, and what its writers write until the last one closes it, read
+    /// on another thread.
+    fn read_pipe(path: &Path) -> mpsc::Receiver<String> {
+        let made = std::process::Command::new("mkfifo")
+            .arg(path)
+            .status()
+            .unwrap();
+        assert!(made.success());
+        let (sender, received) = mpsc::channel();
+        let path = path.to_owned();
+        std::thread::spawn(move || {
+            // Opening a pipe for reading waits for its first writer.
+            let mut text = String::new();
+            std::fs::File::open(path)
+                .unwrap()
+                .read_to_string(&mut text)
+                .unwrap();
+            let _ = sender.send(text);
+        });
+        received
     }
 
     /// Opens the page of `w1` under `state` with a browser that writes the address it opens
@@ -324,6 +349,7 @@ mod explore_page {
         let pages = tempfile::tempdir().unwrap();
         let host = host(pages.path());
         let address_file = pages.path().join("address_file");
+        let addresses = read_pipe(&address_file);
         let opener = opener(pages.path(), &address_file, 0);
         let fixture = EffectsFixture::start(repository_fixture(RepoType::Git), |setup| {
             setup.page_opener = Some(opener);
@@ -331,11 +357,7 @@ mod explore_page {
 
         fixture.perform([open()]);
 
-        let deadline = Instant::now() + Duration::from_secs(10);
-        while !address_file.exists() && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        assert_eq!(std::fs::read_to_string(&address_file).unwrap(), host.url());
+        assert_eq!(addresses.recv_timeout(GUARD).unwrap(), host.url());
     }
 
     #[test]
@@ -359,14 +381,14 @@ mod explore_page {
     fn without_an_opener_nothing_opens_and_nothing_fails() {
         let mut fixture = EffectsFixture::new(RepoType::Git);
 
+        // Without an opener, opening starts no thread that could fail later: what it says,
+        // it says before `perform` returns.
         fixture.perform([open()]);
 
-        let events = fixture.drain_events();
         assert!(
             fixture
-                .recv_timeout(Duration::from_millis(200))
-                .into_iter()
-                .chain(events)
+                .drain_events()
+                .iter()
                 .all(|event| event.downcast_ref::<ExplorePageNotOpened>().is_none())
         );
     }
@@ -502,14 +524,16 @@ mod explore_page {
     const TUNNEL_HOST: &str = "quiet-river-stone-lamp.trycloudflare.com";
 
     /// A stand-in for `cloudflared` under `state`, started through the reviewer's own
-    /// `fork-exec`: it writes its process ID, prints the tunnel's address as `cloudflared` does,
-    /// and runs until it is stopped.
+    /// `fork-exec`: it holds the named pipe `cloudflared.alive` open for writing, writes its
+    /// process ID, prints the tunnel's address as `cloudflared` does, and runs until it is
+    /// stopped, when the pipe's reader sees its end.
     fn stand_in_tunnel(state: &Path) -> TunnelProgram {
         let program = state.join("cloudflared");
         std::fs::write(
             &program,
             format!(
-                "#!/bin/sh\necho $$ > '{}'\necho 'INF |  https://{TUNNEL_HOST}  |' >&2\nexec sleep 600\n",
+                "#!/bin/sh\nexec 3>'{}'\necho $$ > '{}'\necho 'INF |  https://{TUNNEL_HOST}  |' >&2\nexec sleep 600\n",
+                state.join("cloudflared.alive").display(),
                 state.join("cloudflared.pid").display()
             ),
         )
@@ -567,6 +591,7 @@ mod explore_page {
             },
         );
         let mut fixture = EffectsFixture::new(RepoType::Git);
+        let ended = read_pipe(&pages.path().join("cloudflared.alive"));
         let sharing = PageSharing::new(
             host.network(),
             fixture.background.clone(),
@@ -592,11 +617,7 @@ mod explore_page {
         fixture.perform([Action::ExplorePage(ExplorePageAction::CloseTunnel)]);
 
         assert_eq!(tunnel_state(&mut fixture), TunnelState::Off);
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while process.exists() && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        assert!(!process.exists(), "cloudflared ended");
+        ended.recv_timeout(GUARD).expect("cloudflared ended");
     }
 
     #[test]

@@ -1,11 +1,11 @@
 //! Watch the displayed source even when ignore rules exclude its directory.
 
 use std::path::{Path, PathBuf};
-use std::sync::{atomic::Ordering, mpsc::Sender};
+use std::sync::mpsc::Sender;
 
-use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{Event, RecommendedWatcher, RecursiveMode};
 
-use super::{WatchCommand, WatchState, should_process};
+use super::{WatchCommand, WatchState, should_process, watch_present};
 
 pub(super) struct SourceWatch {
     root: PathBuf,
@@ -36,7 +36,7 @@ impl SourceWatch {
         self.path = Some(path);
         self.install()?;
         // Close the gap between the first read and installing these watches.
-        state.notified.store(true, Ordering::Relaxed);
+        state.notify(&[]);
         Ok(())
     }
 
@@ -50,7 +50,7 @@ impl SourceWatch {
         if !Self::includes(path, event) {
             return Ok(());
         }
-        state.notified.store(true, Ordering::Relaxed);
+        state.notify(&event.paths);
         if event
             .paths
             .iter()
@@ -58,7 +58,10 @@ impl SourceWatch {
         {
             // An ancestor disappeared or was recreated; follow the new directory
             // identities without watching unrelated ignored subtrees.
+            let path = path.clone();
             self.install()?;
+            // What changed between this event and the new watches, they did not see.
+            state.notify(&[path]);
         }
         Ok(())
     }
@@ -85,13 +88,18 @@ impl SourceWatch {
             let _ = commands.send(command);
         })?;
         // Parent watches survive atomic replacement. Ancestor watches discover
-        // recreated parents, including when the source is initially absent.
+        // recreated parents, including when the source is initially absent. They start from
+        // the root down: a parent that goes and comes back meanwhile, its parent's watch sees.
+        let mut parents = Vec::new();
         for parent in path.ancestors().skip(1) {
-            if parent.is_dir() {
-                watcher.watch(parent, RecursiveMode::NonRecursive)?;
-            }
+            parents.push(parent);
             if parent == self.root {
                 break;
+            }
+        }
+        for parent in parents.into_iter().rev() {
+            if parent.is_dir() {
+                watch_present(&mut watcher, parent, RecursiveMode::NonRecursive)?;
             }
         }
         self.watcher = Some(watcher);

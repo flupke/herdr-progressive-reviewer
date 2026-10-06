@@ -1,10 +1,15 @@
-"""Exercise reviewer-control with a real, privately attached Herdr server."""
+"""Exercise reviewer-control with a real, privately attached Herdr server.
+
+Every wait waits on an event: a line Herdr prints, an event Herdr sends, a paint the probe
+pane reports on a socket. Its only clock is a guard that ends a wait that failed.
+"""
 
 import fcntl
 import json
 import os
 import pathlib
 import pty
+import queue
 import select
 import signal
 import socket
@@ -13,19 +18,25 @@ import subprocess
 import sys
 import termios
 import textwrap
-import time
+import threading
+
+# How long a wait lasts before it fails: a guard that never delays a check that passes.
+GUARD = 30
 
 
 class ProbePane:
-    """Paint width-dependent reply rows and expose the dimensions used for them."""
+    """Paint width-dependent reply rows on start and on each resize, and report the
+    dimensions used for each paint to the test's socket."""
 
     @staticmethod
-    def run(snapshot):
+    def run(address):
+        report = socket.socket(socket.AF_UNIX)
+        report.connect(str(address))
+        signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGWINCH})
         previous = None
         sys.stdout.write("\033[?1049h\033[?25l")
         sys.stdout.flush()
-        deadline = time.monotonic() + 20
-        while time.monotonic() < deadline:
+        while True:
             width, height = os.get_terminal_size()
             if (width, height) != previous:
                 words = " ".join(f"word{index:03}" for index in range(60))
@@ -35,11 +46,31 @@ class ProbePane:
                 sys.stdout.write("\033[2J" + "".join(
                     f"\033[{index + 1};1H{row}" for index, row in enumerate(lines)))
                 sys.stdout.flush()
-                temporary = snapshot.with_suffix(".pending")
-                temporary.write_text(json.dumps(dict(width=width, height=height, lines=lines)))
-                temporary.replace(snapshot)
+                report.sendall((json.dumps(dict(width=width, height=height,
+                                                lines=lines)) + "\n").encode())
                 previous = (width, height)
-            time.sleep(0.02)
+            # The pane runs until Herdr closes it.
+            signal.sigwait({signal.SIGWINCH})
+
+
+class Lines:
+    """The lines a socket or a pipe delivers, read within the guard."""
+
+    def __init__(self, source):
+        self.source = source
+        self.buffer = b""
+
+    def next(self, description):
+        while b"\n" not in self.buffer:
+            if not select.select([self.source], [], [], GUARD)[0]:
+                raise AssertionError(f"Timed out waiting for {description}")
+            chunk = (self.source.recv(65536) if isinstance(self.source, socket.socket)
+                     else os.read(self.source.fileno(), 65536))
+            if not chunk:
+                raise AssertionError(f"Closed while waiting for {description}")
+            self.buffer += chunk
+        line, self.buffer = self.buffer.split(b"\n", 1)
+        return line.decode()
 
 
 class IsolatedHerdr:
@@ -71,9 +102,9 @@ class IsolatedHerdr:
         assert result.returncode == 0, (arguments, result.stdout, result.stderr)
         return result.stdout
 
-    def request(self, method, params=None):
+    def request(self, method, params=None, timeout=2):
         with socket.socket(socket.AF_UNIX) as connection:
-            connection.settimeout(2)
+            connection.settimeout(timeout)
             connection.connect(self.env["HERDR_SOCKET_PATH"])
             connection.sendall((json.dumps(dict(id="geometry", method=method,
                                                 params=params or {})) + "\n").encode())
@@ -86,27 +117,19 @@ class IsolatedHerdr:
             assert "error" not in result, result
             return result["result"]
 
-    def wait_until(self, predicate, description):
-        deadline = time.monotonic() + 5
-        while time.monotonic() < deadline:
-            if self.master is not None:
-                while select.select([self.master], [], [], 0)[0]:
-                    os.read(self.master, 65536)
-            if self.server.poll() is not None:
-                raise AssertionError((self.root / "server.log").read_text())
-            result = predicate()
-            if result:
-                return result
-            time.sleep(0.02)
-        raise AssertionError(f"Timed out waiting for {description}")
-
     def start(self):
         self.command(["git", "init", "--quiet"])
         self.log = (self.root / "server.log").open("wb")
         self.server = subprocess.Popen([self.binary, "server"], cwd=self.root / "work",
                                        env=self.env, stdin=subprocess.DEVNULL,
-                                       stdout=self.log, stderr=self.log)
-        self.wait_until(lambda: (self.root / "api.sock").exists(), "private server socket")
+                                       stdout=self.log, stderr=subprocess.PIPE)
+        output = Lines(self.server.stderr)
+        while "herdr server running" not in (line := output.next("the private server")):
+            self.log.write((line + "\n").encode())
+        self.log.write(output.buffer)
+        self.log.flush()
+        threading.Thread(target=self.copy_to_log, args=(self.server.stderr,),
+                         daemon=True).start()
         workspace = self.request("workspace.create", dict(cwd=str(self.root / "work"),
                                                           label="pane-geometry", focus=True))
         self.workspace = workspace["workspace"]["workspace_id"]
@@ -116,8 +139,27 @@ class IsolatedHerdr:
             fcntl.ioctl(0, termios.TIOCSWINSZ, struct.pack("HHHH", 60, 220, 0, 0))
             os.chdir(self.root / "work")
             os.execvpe(self.binary, [self.binary], self.env)
-        self.wait_until(lambda: self.layout()["area"]["height"] > 50,
-                        "attached client's terminal geometry")
+        # The attached client draws on its terminal, which must be read for it to go on. Herdr
+        # sends no event when a client's terminal sizes the layout, but draws a frame after.
+        frames = queue.Queue()
+        threading.Thread(target=self.drain, args=(frames,), daemon=True).start()
+        while self.layout()["area"]["height"] <= 50:
+            try:
+                frames.get(timeout=GUARD)
+            except queue.Empty:
+                raise AssertionError("Timed out waiting for attached client's terminal geometry")
+
+    def copy_to_log(self, stream):
+        for line in stream:
+            self.log.write(line)
+            self.log.flush()
+
+    def drain(self, frames):
+        try:
+            while os.read(self.master, 65536):
+                frames.put(None)
+        except OSError:
+            pass
 
     def layout(self):
         return self.request("pane.layout", dict(pane_id=self.original))["layout"]
@@ -130,8 +172,11 @@ class IsolatedHerdr:
         before = self.layout()
         known = {pane["pane_id"] for pane in before["panes"]}
         plugin = self.root / "plugin"
-        snapshot = plugin / "paint.json"
-        command = [sys.executable, str(pathlib.Path(__file__).resolve()), "--pane", str(snapshot)]
+        paints = socket.socket(socket.AF_UNIX)
+        paints.bind(str(self.root / "paints.sock"))
+        paints.listen(1)
+        command = [sys.executable, str(pathlib.Path(__file__).resolve()), "--pane",
+                   str(self.root / "paints.sock")]
         (plugin / "herdr-plugin.toml").write_text(
             'id = "herdr.progressive-reviewer"\nname = "Geometry probe"\n'
             'version = "0.1.0"\nmin_herdr_version = "0.7.5"\n'
@@ -158,19 +203,23 @@ class IsolatedHerdr:
         assert beside if expected_direction == "right" else below, layout
         assert layout["focused_pane_id"] == pane["pane_id"], layout
         expected = (pane["rect"]["width"] - 2, pane["rect"]["height"] - 2)
-
-        def settled_paint():
-            if not snapshot.exists():
-                return None
-            paint = json.loads(snapshot.read_text())
-            return paint if (paint["width"], paint["height"]) == expected else None
-
-        paint = self.wait_until(settled_paint, f"initial reply layout at {expected}")
+        if not select.select([paints], [], [], GUARD)[0]:
+            raise AssertionError("Timed out waiting for the probe pane")
+        probe, _ = paints.accept()
+        painted = Lines(probe)
+        description = f"initial reply layout at {expected}"
+        while (paint := json.loads(painted.next(description))) and \
+                (paint["width"], paint["height"]) != expected:
+            pass
         assert all(len(line) == expected[0] and line.endswith("|") for line in paint["lines"])
         expected_text = "\n".join(paint["lines"])
-        self.wait_until(lambda: self.request("pane.read", dict(pane_id=pane["pane_id"],
-                                                               source="visible"))["read"]["text"]
-                        .startswith(expected_text), "unclipped reply rows in Herdr")
+        # Herdr matches one line at a time: wait for the last row, painted with the others.
+        self.request("pane.wait_for_output", dict(
+            pane_id=pane["pane_id"], source="visible", timeout_ms=GUARD * 1000,
+            match=dict(type="substring", value=paint["lines"][-1])), timeout=GUARD + 5)
+        visible = self.request("pane.read", dict(pane_id=pane["pane_id"],
+                                                 source="visible"))["read"]["text"]
+        assert visible.startswith(expected_text), ("unclipped reply rows in Herdr", visible)
         assert self.layout() == layout, "Startup synchronization changed layout or focus"
         print(f"Review split paints all 60 words at {expected}, without further input or resize")
 

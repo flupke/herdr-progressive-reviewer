@@ -18,5 +18,5 @@ mod switch;
 mod transcripts;
 
 pub use guard::{SUBMITS, run_guard};
-pub use host::{ClaudeForks, ForkTools};
+pub use host::{ClaudeForks, ForkTools, ForkWaits};
 pub use transcripts::Transcripts;

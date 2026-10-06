@@ -40,7 +40,7 @@ use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
-use herdr_client::client::HerdrClient;
+use herdr_client::client::{EventCanceller, HerdrClient};
 use herdr_client::protocol::{AgentTarget, PaneId, PluginContext, WorkspaceId};
 use ratatui::Terminal;
 use ratatui::backend::Backend;
@@ -91,8 +91,13 @@ struct TerminalEventProducer {
     thread: Option<JoinHandle<()>>,
 }
 
+/// The threads that produce the runtime's events, which stop together: the stop disconnects
+/// the channel they wait on, and ends the Herdr event stream they read.
 struct RuntimeEventProducers {
-    stop_requested: Arc<AtomicBool>,
+    /// Dropped on stop, which disconnects `stopped`.
+    stop: Option<EventSender<()>>,
+    stopped: EventReceiver<()>,
+    herdr_events: EventCanceller,
     threads: Vec<JoinHandle<()>>,
 }
 
@@ -104,6 +109,8 @@ struct RuntimeEventLoop<'a, B: Backend> {
     events: &'a mut events::Inbox,
     timings: &'a timing::Recorder,
     last_frame: Instant,
+    /// How long a cycle takes the next queued event before it draws: `EVENT_BATCH_BUDGET`.
+    batch_budget: Duration,
 }
 
 #[derive(Default)]
@@ -184,6 +191,7 @@ impl Runtime {
                 run_ahead: RunAheadSetup {
                     tools: claude_fork::ForkTools::beside_current_exe()?,
                     log: Some(self.state_dir.join("run-ahead.log")),
+                    waits: claude_fork::ForkWaits::default(),
                 },
             },
             &Outputs {
@@ -199,25 +207,20 @@ impl Runtime {
             &mut effects,
             &event_sender,
         );
-        let producer_stop_requested = Arc::new(AtomicBool::new(false));
-        let mut event_producers = RuntimeEventProducers::new(Arc::clone(&producer_stop_requested));
-        event_producers.push(Self::start_herdr_events(
-            self.client.clone(),
-            event_sender.clone(),
-            Arc::clone(&producer_stop_requested),
-        ));
+        let mut event_producers = RuntimeEventProducers::new();
+        event_producers.forward_herdr_events(self.client.clone(), event_sender.clone());
         let mut terminal_events = TerminalEventProducer::start(input_sender);
         Self::watch_explore_storage(&watcher, &settings, &effects, event_sender.clone());
         event_producers.push(Self::start_periodic_events(
             event_sender.clone(),
             Arc::clone(&stopped),
-            Arc::clone(&producer_stop_requested),
+            event_producers.stopped(),
             watcher,
         ));
         event_producers.push(Self::start_lsp_events(
             effects.lsp_events(),
             event_sender,
-            producer_stop_requested,
+            event_producers.stopped(),
         ));
         let _ = app.publish(RepositoryRefreshStarted);
         effects.refresh()?;
@@ -229,6 +232,7 @@ impl Runtime {
             events: &mut events::Inbox::new(events, inputs),
             timings: &timings,
             last_frame: Instant::now(),
+            batch_budget: EVENT_BATCH_BUDGET,
         }
         .run();
         terminal_events.stop();
@@ -316,55 +320,68 @@ impl Runtime {
         Ok(())
     }
 
+    /// Forwards Herdr's events until `canceller` ends the stream; subscribes again after
+    /// Herdr dropped it, unless `stopped` disconnects meanwhile.
     fn start_herdr_events(
         event_client: HerdrClient,
         events: EventSender<EventEnvelope>,
-        stop_requested: Arc<AtomicBool>,
+        canceller: EventCanceller,
+        stopped: EventReceiver<()>,
     ) -> JoinHandle<()> {
         thread::spawn(move || {
-            while !stop_requested.load(Ordering::Relaxed) {
-                match event_client.forward_events_while(
-                    || !stop_requested.load(Ordering::Relaxed),
-                    |event| events.send(EventEnvelope::new(event)).is_ok(),
-                ) {
-                    Ok(()) => return,
-                    Err(_) => thread::sleep(HERDR_EVENT_RECONNECT_DELAY),
-                }
-            }
-        })
-    }
-
-    fn start_lsp_events(
-        lsp_events: EventReceiver<review_lsp::Event>,
-        events: EventSender<EventEnvelope>,
-        stop_requested: Arc<AtomicBool>,
-    ) -> JoinHandle<()> {
-        thread::spawn(move || {
-            while !stop_requested.load(Ordering::Relaxed) {
-                match lsp_events.recv_timeout(TIMER_INTERVAL) {
-                    Ok(event) => {
-                        if events.send(EventEnvelope::new(event)).is_err() {
+            loop {
+                let forwarded = event_client
+                    .subscribe_events(&canceller)
+                    .and_then(|stream| {
+                        stream.forward(|event| events.send(EventEnvelope::new(event)).is_ok())
+                    });
+                match forwarded {
+                    Ok(()) | Err(herdr_client::Error::Cancelled) => return,
+                    Err(_) => {
+                        if let Err(crossbeam_channel::RecvTimeoutError::Disconnected) =
+                            stopped.recv_timeout(HERDR_EVENT_RECONNECT_DELAY)
+                        {
                             return;
                         }
                     }
-                    Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
-                    Err(crossbeam_channel::RecvTimeoutError::Disconnected) => return,
                 }
             }
         })
     }
 
+    /// Forwards the language server's events until `stopped` disconnects.
+    fn start_lsp_events(
+        lsp_events: EventReceiver<review_lsp::Event>,
+        events: EventSender<EventEnvelope>,
+        stopped: EventReceiver<()>,
+    ) -> JoinHandle<()> {
+        thread::spawn(move || {
+            loop {
+                crossbeam_channel::select! {
+                    recv(lsp_events) -> event => match event {
+                        Ok(event) => {
+                            if events.send(EventEnvelope::new(event)).is_err() {
+                                return;
+                            }
+                        }
+                        Err(_) => return,
+                    },
+                    recv(stopped) -> _ => return,
+                }
+            }
+        })
+    }
+
+    /// Sends a tick and the refreshes the watcher calls for every `TIMER_INTERVAL`, until
+    /// `producers_stopped` disconnects, or a signal sets `stopped`.
     fn start_periodic_events(
         events: EventSender<EventEnvelope>,
         stopped: Arc<AtomicBool>,
-        producer_stop_requested: Arc<AtomicBool>,
+        producers_stopped: EventReceiver<()>,
         mut watcher: RepositoryWatcher,
     ) -> JoinHandle<()> {
         thread::spawn(move || {
             loop {
-                if producer_stop_requested.load(Ordering::Relaxed) {
-                    return;
-                }
                 let now = Instant::now();
                 if stopped.load(Ordering::Relaxed) {
                     let _ = events.send(EventEnvelope::new(StopRequested));
@@ -389,7 +406,11 @@ impl Runtime {
                 {
                     return;
                 }
-                thread::sleep(TIMER_INTERVAL);
+                if let Err(crossbeam_channel::RecvTimeoutError::Disconnected) =
+                    producers_stopped.recv_timeout(TIMER_INTERVAL)
+                {
+                    return;
+                }
             }
         })
     }
@@ -422,7 +443,7 @@ where
                 ControlFlow::Continue(needs_frame) => redraw |= needs_frame,
             }
             remaining -= 1;
-            next = if remaining > 0 && started.elapsed() < EVENT_BATCH_BUDGET {
+            next = if remaining > 0 && started.elapsed() < self.batch_budget {
                 self.events.try_recv()
             } else {
                 None
@@ -663,13 +684,16 @@ fn normalize_mouse(mouse: MouseEvent) -> Option<UserInput> {
 
 impl TerminalEventProducer {
     fn start(events: EventSender<EventEnvelope>) -> Self {
-        Self::start_with_reader(events, |timeout| {
+        Self::start_with_reader(events, TIMER_INTERVAL, |timeout| {
             event::poll(timeout)?.then(event::read).transpose()
         })
     }
 
+    /// Reads terminal events with `read_event` until stopped. It gets how long to wait for an
+    /// event, `wait`; the producer sees that it is told to stop once a wait ends.
     fn start_with_reader(
         events: EventSender<EventEnvelope>,
+        wait: Duration,
         mut read_event: impl FnMut(Duration) -> io::Result<Option<Event>> + Send + 'static,
     ) -> Self {
         let stop_requested = Arc::new(AtomicBool::new(false));
@@ -678,7 +702,7 @@ impl TerminalEventProducer {
         let thread = thread::spawn(move || {
             let mut mouse_clicks = MouseClicks::default();
             while !reader_stop_requested.load(Ordering::Relaxed) {
-                let event = match read_event(TIMER_INTERVAL) {
+                let event = match read_event(wait) {
                     Ok(Some(event)) => event,
                     Ok(None) => continue,
                     Err(error) => {
@@ -736,9 +760,12 @@ impl TerminalEventProducer {
 }
 
 impl RuntimeEventProducers {
-    fn new(stop_requested: Arc<AtomicBool>) -> Self {
+    fn new() -> Self {
+        let (stop, stopped) = crossbeam_channel::bounded(0);
         Self {
-            stop_requested,
+            stop: Some(stop),
+            stopped,
+            herdr_events: EventCanceller::default(),
             threads: Vec::new(),
         }
     }
@@ -747,12 +774,28 @@ impl RuntimeEventProducers {
         self.threads.push(thread);
     }
 
+    /// Forwards the Herdr events of `client` to `events`, until stopped.
+    fn forward_herdr_events(&mut self, client: HerdrClient, events: EventSender<EventEnvelope>) {
+        self.threads.push(Runtime::start_herdr_events(
+            client,
+            events,
+            self.herdr_events.clone(),
+            self.stopped(),
+        ));
+    }
+
+    /// A receiver that disconnects once the producers are told to stop.
+    fn stopped(&self) -> EventReceiver<()> {
+        self.stopped.clone()
+    }
+
     fn stop(mut self) {
         self.stop_and_join();
     }
 
     fn stop_and_join(&mut self) {
-        self.stop_requested.store(true, Ordering::Relaxed);
+        drop(self.stop.take());
+        self.herdr_events.cancel();
         for thread in self.threads.drain(..) {
             let _ = thread.join();
         }

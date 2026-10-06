@@ -42,8 +42,10 @@ fn classification_uses_at_most_32_workers_and_records_every_window() {
     let (started, observed) = mpsc::channel();
     let gate = Arc::new((Mutex::new(false), Condvar::new()));
     let in_flight = Arc::new(AtomicUsize::new(0));
+    let peak = Arc::new(AtomicUsize::new(0));
     let gate_for_workers = Arc::clone(&gate);
     let in_flight_for_workers = Arc::clone(&in_flight);
+    let peak_for_workers = Arc::clone(&peak);
     let handle = std::thread::spawn(move || {
         let mut recorded = Vec::new();
         let finished = classify_with(
@@ -53,7 +55,8 @@ fn classification_uses_at_most_32_workers_and_records_every_window() {
                 true
             },
             |window| {
-                in_flight_for_workers.fetch_add(1, Ordering::SeqCst);
+                let running = in_flight_for_workers.fetch_add(1, Ordering::SeqCst) + 1;
+                peak_for_workers.fetch_max(running, Ordering::SeqCst);
                 started.send(()).unwrap();
                 let (lock, released) = &*gate_for_workers;
                 let mut open = lock.lock().unwrap();
@@ -67,15 +70,18 @@ fn classification_uses_at_most_32_workers_and_records_every_window() {
         (finished, recorded)
     });
     for _ in 0..32 {
-        observed.recv_timeout(Duration::from_secs(2)).unwrap();
+        observed.recv_timeout(review_test_support::GUARD).unwrap();
     }
-    assert_eq!(in_flight.load(Ordering::SeqCst), 32);
-    assert!(observed.recv_timeout(Duration::from_millis(30)).is_err());
     let (lock, released) = &*gate;
     *lock.lock().unwrap() = true;
     released.notify_all();
     let (finished, recorded) = handle.join().unwrap();
     assert!(finished);
+    assert_eq!(
+        peak.load(Ordering::SeqCst),
+        32,
+        "32 requests ran at once, and no more"
+    );
     assert_eq!(recorded.len(), 64);
     recorded.iter().enumerate().for_each(|(index, id)| {
         assert!(recorded[..index].iter().all(|earlier| earlier != id));
@@ -107,14 +113,14 @@ fn completed_results_are_recorded_while_other_requests_are_in_flight() {
         )
     });
     assert_eq!(
-        observed.recv_timeout(Duration::from_secs(2)).unwrap(),
+        observed.recv_timeout(review_test_support::GUARD).unwrap(),
         "window-1"
     );
     let (lock, released) = &*gate;
     *lock.lock().unwrap() = true;
     released.notify_all();
     assert_eq!(
-        observed.recv_timeout(Duration::from_secs(2)).unwrap(),
+        observed.recv_timeout(review_test_support::GUARD).unwrap(),
         "window-0"
     );
     assert!(handle.join().unwrap());

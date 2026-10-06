@@ -3,10 +3,12 @@
 use std::env;
 use std::fs::{self, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Write};
+use std::net::Shutdown;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use serde::Deserialize;
@@ -21,11 +23,10 @@ use crate::{Error, Result};
 
 const RESPONSE_LIMIT: u64 = 16 * 1024 * 1024;
 const SOCKET_TIMEOUT: Duration = Duration::from_secs(5);
-/// How long `agent.prompt` waits for the agent to start. Herdr gives an agent that is not
-/// working 5 seconds to show activity and then answers `agent_prompt_stalled`, so this bound
-/// is only reached when Herdr itself stalls.
+/// How long `agent.prompt` waits for the agent to start, unless the client says otherwise.
+/// Herdr gives an agent that is not working 5 seconds to show activity and then answers
+/// `agent_prompt_stalled`, so this bound is only reached when Herdr itself stalls.
 const PROMPT_START_TIMEOUT: Duration = Duration::from_secs(10);
-const EVENT_CANCELLATION_POLL_INTERVAL: Duration = Duration::from_millis(50);
 static EVENT_REQUEST_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 /// A synchronous client for the local Herdr socket.
@@ -34,6 +35,111 @@ pub struct HerdrClient {
     socket_path: PathBuf,
     plugin_id: String,
     state_dir: PathBuf,
+    /// How long `agent.prompt` waits for the agent to start.
+    prompt_start_timeout: Duration,
+}
+
+/// Stops event streams from another thread at once: it shuts down the sockets of the streams
+/// tied to it, which ends the reads they wait in, and refuses the subscriptions that follow.
+#[derive(Clone, Debug, Default)]
+pub struct EventCanceller(Arc<Mutex<Cancellation>>);
+
+#[derive(Debug, Default)]
+struct Cancellation {
+    cancelled: bool,
+    /// The sockets of the streams tied to the canceller, by tie.
+    sockets: Vec<(u64, UnixStream)>,
+    next_tie: u64,
+}
+
+impl EventCanceller {
+    /// Ends the streams tied to this canceller, and every stream tied to it later.
+    pub fn cancel(&self) {
+        let mut cancellation = self.lock();
+        cancellation.cancelled = true;
+        for (_, socket) in cancellation.sockets.drain(..) {
+            let _ = socket.shutdown(Shutdown::Both);
+        }
+    }
+
+    /// Whether [`Self::cancel`] ran.
+    pub fn is_cancelled(&self) -> bool {
+        self.lock().cancelled
+    }
+
+    /// Ties `socket` to this canceller until the tie drops; `None` when it was cancelled
+    /// already.
+    fn tie(&self, socket: &UnixStream) -> std::io::Result<Option<Tie>> {
+        let mut cancellation = self.lock();
+        if cancellation.cancelled {
+            return Ok(None);
+        }
+        let id = cancellation.next_tie;
+        cancellation.next_tie += 1;
+        cancellation.sockets.push((id, socket.try_clone()?));
+        Ok(Some(Tie {
+            canceller: self.clone(),
+            id,
+        }))
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, Cancellation> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+/// A socket tied to a canceller; dropping it lets go of the socket.
+#[derive(Debug)]
+struct Tie {
+    canceller: EventCanceller,
+    id: u64,
+}
+
+impl Drop for Tie {
+    fn drop(&mut self) {
+        self.canceller
+            .lock()
+            .sockets
+            .retain(|(id, _)| *id != self.id);
+    }
+}
+
+/// The events the reviewer follows, from a subscription Herdr acknowledged.
+#[derive(Debug)]
+pub struct HerdrEvents(HerdrEventStream);
+
+impl HerdrEvents {
+    /// Hands each event to `send` until `send` returns false or the stream is cancelled.
+    pub fn forward(mut self, send: impl FnMut(HerdrEvent) -> bool) -> Result<()> {
+        self.0.forward_while(send)
+    }
+}
+
+/// The status changes of one agent, from a subscription Herdr acknowledged.
+#[derive(Debug)]
+pub struct AgentStatuses {
+    stream: HerdrEventStream,
+    client: HerdrClient,
+    pane_id: PaneId,
+}
+
+impl AgentStatuses {
+    /// Reports the status of the agent to `send`, then each status Herdr gives it, until `send`
+    /// returns false or the stream is cancelled. The subscription holds already, so no change
+    /// is missed between the first report and the next.
+    pub fn forward(mut self, mut send: impl FnMut(AgentStatus) -> bool) -> Result<()> {
+        if let Some(agent) = self.client.get_agent(&self.pane_id)?
+            && !send(agent.agent_status)
+        {
+            return Ok(());
+        }
+        while let Some(status) = self.stream.next_status()? {
+            if !send(status) {
+                break;
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -114,54 +220,51 @@ struct PaneReadWire {
 #[derive(Debug)]
 struct HerdrEventStream {
     reader: BufReader<UnixStream>,
+    /// Ties the stream to what ends it: a read it ends is no error.
+    tie: Tie,
 }
 
 impl HerdrEventStream {
-    fn forward_while(
-        &mut self,
-        mut should_continue: impl FnMut() -> bool,
-        mut send: impl FnMut(HerdrEvent) -> bool,
-    ) -> Result<()> {
-        loop {
-            if !should_continue() {
-                return Ok(());
-            }
-            let Some(event) = self.read_event()? else {
-                continue;
-            };
-            if !send(event) {
-                return Ok(());
+    fn forward_while(&mut self, mut send: impl FnMut(HerdrEvent) -> bool) -> Result<()> {
+        while let Some(envelope) = self.read_envelope()? {
+            if let Some(event) = parse_stream_event(envelope)?
+                && !send(event)
+            {
+                break;
             }
         }
+        Ok(())
     }
 
-    fn read_event(&mut self) -> Result<Option<HerdrEvent>> {
-        self.read_envelope()?.map_or(Ok(None), parse_stream_event)
-    }
-
-    /// The next status of a stream subscribed to one agent's status changes.
-    fn read_status(&mut self) -> Result<Option<AgentStatus>> {
-        let Some(envelope) = self.read_envelope()? else {
-            return Ok(None);
-        };
-        // Herdr names the event with a dot, as the subscription; its schema with an underscore.
-        if !matches!(
-            envelope.event.as_str(),
-            "pane.agent_status_changed" | "pane_agent_status_changed"
-        ) {
-            return Ok(None);
+    /// The next status of a stream subscribed to one agent's status changes, skipping other
+    /// events; `None` once the stream is cancelled.
+    fn next_status(&mut self) -> Result<Option<AgentStatus>> {
+        while let Some(envelope) = self.read_envelope()? {
+            // Herdr names the event with a dot, as the subscription; its schema with an
+            // underscore.
+            if matches!(
+                envelope.event.as_str(),
+                "pane.agent_status_changed" | "pane_agent_status_changed"
+            ) {
+                let event: AgentStatusEvent =
+                    parse_event(envelope.data, "read Herdr agent status event")?;
+                return Ok(Some(event.agent_status));
+            }
         }
-        let event: AgentStatusEvent = parse_event(envelope.data, "read Herdr agent status event")?;
-        Ok(Some(event.agent_status))
+        Ok(None)
     }
 
+    /// The next event; `None` once the stream is cancelled.
     fn read_envelope(&mut self) -> Result<Option<EventEnvelope>> {
         let line = match read_line(&mut self.reader, "read Herdr event") {
             Ok(line) => line,
-            Err(Error::Io { source, .. }) if is_temporary_read_error(&source) => return Ok(None),
+            Err(_) if self.tie.canceller.is_cancelled() => return Ok(None),
             Err(error) => return Err(error),
         };
         if line.is_empty() {
+            if self.tie.canceller.is_cancelled() {
+                return Ok(None);
+            }
             return Err(Error::Protocol {
                 operation: "read Herdr event".to_owned(),
                 detail: "Herdr closed the event stream",
@@ -174,13 +277,6 @@ impl HerdrEventStream {
                 source,
             })
     }
-}
-
-fn is_temporary_read_error(error: &std::io::Error) -> bool {
-    matches!(
-        error.kind(),
-        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-    )
 }
 
 fn parse_stream_event(event: EventEnvelope) -> Result<Option<HerdrEvent>> {
@@ -243,7 +339,17 @@ impl HerdrClient {
             socket_path,
             plugin_id,
             state_dir,
+            prompt_start_timeout: PROMPT_START_TIMEOUT,
         }
+    }
+
+    /// This client, whose `agent.prompt` waits `timeout` for the agent to start in place of
+    /// 10 seconds. Herdr answers `timeout` when the wait ends, which is
+    /// [`Error::AgentNotStarted`].
+    #[must_use]
+    pub fn with_prompt_start_timeout(mut self, timeout: Duration) -> Self {
+        self.prompt_start_timeout = timeout;
+        self
     }
 
     /// Build a client from the values injected into a plugin process.
@@ -255,66 +361,45 @@ impl HerdrClient {
         ))
     }
 
-    /// Stream reviewer events until the caller requests cancellation.
-    pub fn forward_events_while(
-        &self,
-        should_continue: impl FnMut() -> bool,
-        send: impl FnMut(HerdrEvent) -> bool,
-    ) -> Result<()> {
-        let mut stream = self.subscribe_events()?;
-        stream
-            .reader
-            .get_ref()
-            .set_read_timeout(Some(EVENT_CANCELLATION_POLL_INTERVAL))
-            .map_err(|source| Error::Io {
-                operation: "configure Herdr event cancellation",
-                path: self.socket_path.clone(),
-                source,
-            })?;
-        stream.forward_while(should_continue, send)
+    /// Subscribes to the events the reviewer follows: focus and agent detection. The
+    /// subscription holds once this returns; `canceller` ends it.
+    pub fn subscribe_events(&self, canceller: &EventCanceller) -> Result<HerdrEvents> {
+        self.subscribe(&event_subscriptions(), canceller)
+            .map(HerdrEvents)
     }
 
-    /// Report the status of the agent of `pane_id` to `send`, then each status Herdr gives it,
-    /// until `send` returns false or the caller requests cancellation. The first report comes
-    /// once the subscription holds, so no change is missed between them.
-    pub fn forward_agent_status_while(
+    /// Subscribes to the status changes of the agent of `pane_id`. The subscription holds once
+    /// this returns; `canceller` ends it.
+    pub fn subscribe_agent_status(
         &self,
         pane_id: &PaneId,
-        mut should_continue: impl FnMut() -> bool,
-        mut send: impl FnMut(AgentStatus) -> bool,
-    ) -> Result<()> {
-        let mut stream =
-            self.subscribe(&[json!({"type": "pane.agent_status_changed", "pane_id": pane_id.0})])?;
-        stream
-            .reader
-            .get_ref()
-            .set_read_timeout(Some(EVENT_CANCELLATION_POLL_INTERVAL))
+        canceller: &EventCanceller,
+    ) -> Result<AgentStatuses> {
+        let stream = self.subscribe(
+            &[json!({"type": "pane.agent_status_changed", "pane_id": pane_id.0})],
+            canceller,
+        )?;
+        Ok(AgentStatuses {
+            stream,
+            client: self.clone(),
+            pane_id: pane_id.clone(),
+        })
+    }
+
+    fn subscribe(
+        &self,
+        subscriptions: &[Value],
+        canceller: &EventCanceller,
+    ) -> Result<HerdrEventStream> {
+        let mut socket = self.connect(None)?;
+        let tie = canceller
+            .tie(&socket)
             .map_err(|source| Error::Io {
                 operation: "configure Herdr event cancellation",
                 path: self.socket_path.clone(),
                 source,
-            })?;
-        if let Some(agent) = self.get_agent(pane_id)?
-            && !send(agent.agent_status)
-        {
-            return Ok(());
-        }
-        while should_continue() {
-            if let Some(status) = stream.read_status()?
-                && !send(status)
-            {
-                break;
-            }
-        }
-        Ok(())
-    }
-
-    fn subscribe_events(&self) -> Result<HerdrEventStream> {
-        self.subscribe(&event_subscriptions())
-    }
-
-    fn subscribe(&self, subscriptions: &[Value]) -> Result<HerdrEventStream> {
-        let mut socket = self.connect(None)?;
+            })?
+            .ok_or(Error::Cancelled)?;
         let request_id = format!(
             "progressive-reviewer-events-{}-{}",
             std::process::id(),
@@ -325,22 +410,31 @@ impl HerdrClient {
             "method": "events.subscribe",
             "params": {"subscriptions": subscriptions}
         });
-        write_json_line(&mut socket, &request, "subscribe to Herdr events")?;
+        let or_cancellation = |error| {
+            if canceller.is_cancelled() {
+                Error::Cancelled
+            } else {
+                error
+            }
+        };
+        write_json_line(&mut socket, &request, "subscribe to Herdr events")
+            .map_err(or_cancellation)?;
         let mut reader = BufReader::new(socket);
-        let response: Response =
-            serde_json::from_slice(&read_line(&mut reader, "subscribe to Herdr events")?).map_err(
-                |source| Error::Json {
-                    operation: "subscribe to Herdr events",
-                    source,
-                },
-            )?;
+        let line = read_line(&mut reader, "subscribe to Herdr events").map_err(or_cancellation)?;
+        if line.is_empty() && canceller.is_cancelled() {
+            return Err(Error::Cancelled);
+        }
+        let response: Response = serde_json::from_slice(&line).map_err(|source| Error::Json {
+            operation: "subscribe to Herdr events",
+            source,
+        })?;
         if let Err(error) = validate_response(response, &request_id, "subscribe to Herdr events")? {
             return Err(Error::Herdr {
                 operation: "subscribe to Herdr events",
                 message: error.message,
             });
         }
-        Ok(HerdrEventStream { reader })
+        Ok(HerdrEventStream { reader, tie })
     }
 
     fn request(&self, operation: &'static str, params: &Value) -> Result<Value> {
@@ -583,7 +677,7 @@ impl AgentPort for HerdrClient {
     /// Herdr answers once the agent is working or blocked, which an agent working already
     /// is at once; an agent that shows neither did not start on the prompt.
     fn prompt_agent(&self, pane_id: &PaneId, text: &str) -> Result<()> {
-        let wait_ms = u64::try_from(PROMPT_START_TIMEOUT.as_millis()).unwrap_or(u64::MAX);
+        let wait_ms = u64::try_from(self.prompt_start_timeout.as_millis()).unwrap_or(u64::MAX);
         let params = json!({
             "target": pane_id.0,
             "text": text,
@@ -593,7 +687,7 @@ impl AgentPort for HerdrClient {
         match self.response(
             method::AGENT_PROMPT,
             &params,
-            PROMPT_START_TIMEOUT + SOCKET_TIMEOUT,
+            self.prompt_start_timeout + SOCKET_TIMEOUT,
         )? {
             Ok(_) => Ok(()),
             Err(error) if is_not_started(&error.code) => Err(Error::AgentNotStarted {

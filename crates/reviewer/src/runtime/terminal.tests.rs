@@ -68,6 +68,7 @@ impl Fixture {
             events: &mut fixture.inbox,
             timings: &timing::Recorder::default(),
             last_frame: std::time::Instant::now(),
+            batch_budget: std::time::Duration::MAX,
         }
         .handle_event(event)
         .unwrap();
@@ -165,10 +166,19 @@ fn clicks_and_focus_hide_an_exposed_cursor_without_a_changed_frame() {
 fn terminal_focus_reaches_the_event_loop() {
     let (sender, receiver) = crossbeam_channel::unbounded();
     let mut input = Some(crossterm::event::Event::FocusGained);
-    let producer = TerminalEventProducer::start_with_reader(sender, move |_| Ok(input.take()));
-    let event = receiver
-        .recv_timeout(std::time::Duration::from_secs(30))
-        .unwrap();
+    let producer = TerminalEventProducer::start_with_reader(
+        sender,
+        std::time::Duration::from_millis(1),
+        move |wait| {
+            let next = input.take();
+            if next.is_none() {
+                // No more input: wait, as a terminal does.
+                std::thread::sleep(wait);
+            }
+            Ok(next)
+        },
+    );
+    let event = receiver.recv().unwrap();
     producer.stop();
     assert!(event.downcast_ref::<TerminalFocused>().is_some());
 }

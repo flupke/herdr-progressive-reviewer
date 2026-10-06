@@ -136,7 +136,8 @@ fn resumes_path(prompt_path: &Path) -> PathBuf {
 /// A fork of the stand-in: it records its arguments, environment and prompt beside the test
 /// agent's prompts, copies its parent's transcript, then works until the test ends its turn or
 /// the reviewer stops it. Once the test submitted the fork's turn, the fork's output says that
-/// its submit has its answer.
+/// its submit has its answer. It reports each step on the test's event socket, if the test named
+/// one, and takes the test's commands there; without one, it reads them from files.
 #[test]
 #[ignore = "runs as the fork of a stand-in agent in a run-ahead test"]
 fn e2e_fork_process() {
@@ -168,6 +169,11 @@ fn e2e_fork_process() {
         panic!("could not run {program}: {error}");
     }
     let (session, parent) = (value("--session-id"), value("--resume"));
+    let (connection, commands) = StandInConnection::from_env(StandInRole::Fork {
+        session: session.clone(),
+    })
+    .unzip();
+    let report = stand_in_agent::Report::new(connection);
     let mut prompt = String::new();
     io::stdin().read_to_string(&mut prompt).unwrap();
     let forks = forks_directory(&PathBuf::from(
@@ -183,14 +189,21 @@ fn e2e_fork_process() {
         .collect();
     fs::write(forks.join(format!("{session}.args")), arguments.join("\n")).unwrap();
     fs::write(forks.join(format!("{session}.env")), names.join("\n")).unwrap();
-    fs::write(forks.join(format!("{session}.prompt")), prompt).unwrap();
+    fs::write(forks.join(format!("{session}.prompt")), &prompt).unwrap();
+    report.send(&StandInEvent::ForkStarted { parent, prompt });
     let usage = r#"{"input_tokens":3,"cache_creation_input_tokens":20,"cache_read_input_tokens":1000,"output_tokens":7}"#;
     println!(r#"{{"type":"system","subtype":"init","session_id":"{session}"}}"#);
     println!(r#"{{"type":"assistant","message":{{"id":"m1","usage":{usage}}}}}"#);
     io::stdout().flush().unwrap();
     let mut answered = false;
-    while !forks.join(format!("{session}.end")).exists() {
-        if !answered && forks.join(format!("{session}.submitted")).exists() {
+    let files = forks.join(&session);
+    loop {
+        let command = next_fork_command(commands.as_ref(), &files);
+        if command == Some(StandInCommand::End) {
+            break;
+        }
+        let submit = command == Some(StandInCommand::Submit);
+        if !answered && submit {
             answered = true;
             println!(
                 r#"{{"type":"assistant","message":{{"id":"m2","content":[{{"type":"tool_use","id":"submit","name":"mcp__herdr_reviewer__submit_question","input":{{}}}}],"usage":{usage}}}}}"#
@@ -199,10 +212,39 @@ fn e2e_fork_process() {
                 r#"{{"type":"user","message":{{"content":[{{"type":"tool_result","tool_use_id":"submit"}}]}}}}"#
             );
             io::stdout().flush().unwrap();
+            report.send(&StandInEvent::ForkSubmitted);
         }
-        thread::sleep(Duration::from_millis(20));
     }
     println!(r#"{{"type":"result","subtype":"success","is_error":false}}"#);
+    io::stdout().flush().unwrap();
+    report.send(&StandInEvent::ForkFinished);
+}
+
+/// What the test tells the fork whose files are `files` (`<session>` in the forks
+/// directory) next, if anything. A test that names no event socket writes files, which this
+/// reads again; a test that closed the socket is done with the fork.
+fn next_fork_command(
+    commands: Option<&mpsc::Receiver<StandInCommand>>,
+    files: &Path,
+) -> Option<StandInCommand> {
+    let command = if let Some(commands) = commands {
+        match commands.recv_timeout(Duration::from_millis(20)) {
+            Ok(command) => Some(command),
+            Err(mpsc::RecvTimeoutError::Timeout) => None,
+            Err(mpsc::RecvTimeoutError::Disconnected) => Some(StandInCommand::End),
+        }
+    } else {
+        thread::sleep(Duration::from_millis(20));
+        None
+    };
+    if command == Some(StandInCommand::End) || files.with_extension("end").exists() {
+        Some(StandInCommand::End)
+    } else if command == Some(StandInCommand::Submit) || files.with_extension("submitted").exists()
+    {
+        Some(StandInCommand::Submit)
+    } else {
+        command
+    }
 }
 
 fn forks_directory(prompt_path: &Path) -> PathBuf {
@@ -243,7 +285,9 @@ impl RunAheadFlow {
         forks_directory(&self.root().join("prompt.txt"))
     }
 
-    /// Waits until `count` forks have their prompt, and returns their sessions.
+    /// Waits until `count` forks have their prompt and their process recorded, and returns
+    /// their sessions. Run-ahead saves a fork, starts its process, which writes its prompt, and
+    /// only then records the process.
     fn wait_for_forks(&self, count: usize) -> Vec<String> {
         let deadline = Instant::now() + HERDR_WAIT;
         loop {
@@ -251,6 +295,7 @@ impl RunAheadFlow {
             let ready: Vec<_> = saved
                 .forks
                 .iter()
+                .filter(|fork| fork.process.is_some())
                 .map(|fork| fork.session.clone())
                 .filter(|session| self.forks().join(format!("{session}.prompt")).exists())
                 .collect();

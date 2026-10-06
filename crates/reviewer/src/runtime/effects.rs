@@ -65,6 +65,8 @@ pub(super) struct RunAheadSetup {
     pub(super) tools: claude_fork::ForkTools,
     /// Where run-ahead writes its log; `None` writes none.
     pub(super) log: Option<PathBuf>,
+    /// How long the forks' host waits on Herdr and on the forks.
+    pub(super) waits: claude_fork::ForkWaits,
 }
 
 impl RunAheadSetup {
@@ -74,6 +76,7 @@ impl RunAheadSetup {
             agents.clone(),
             self.tools,
             self.log,
+            self.waits,
         ))
     }
 }

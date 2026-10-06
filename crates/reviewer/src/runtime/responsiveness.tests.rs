@@ -10,7 +10,9 @@ use ratatui::backend::TestBackend;
 use review_repository::diff::DiffRow;
 use review_repository::repository::RepoType;
 use review_source::ReviewCheckpoint;
-use ui_events::{DiffContentLoadFailed, DiffContentLoaded, HighlightingFinished};
+use review_test_support::GUARD;
+use review_ui::DocumentAction;
+use ui_events::{DiffContentLoaded, HighlightingFinished};
 
 #[test]
 fn file_selection_loads_on_the_next_tick_without_further_activity() {
@@ -18,22 +20,25 @@ fn file_selection_loads_on_the_next_tick_without_further_activity() {
     scenario.fixture.files.write("first.txt", b"first file\n");
     scenario.fixture.files.write("second.txt", b"second file\n");
     scenario.fixture.effects.refresh().unwrap();
-    scenario.wait_for_repository_screen("first file");
+    scenario.wait_for_screen("first file");
 
-    scenario.deliver(UserInput::Key(Key::Down));
-    let pending = scenario.pending_events(Duration::from_millis(200));
+    let moved = scenario.app.update(UserInput::Key(Key::Down));
     assert!(
-        !pending.iter().any(|event| {
-            event.downcast_ref::<DiffContentLoaded>().is_some()
-                || event.downcast_ref::<DiffContentLoadFailed>().is_some()
-        }),
-        "moving the selection alone loads nothing"
+        !moved
+            .iter()
+            .any(|action| matches!(action, Action::Document(DocumentAction::Load(_)))),
+        "moving the selection alone loads nothing: {moved:?}"
     );
-    for event in pending {
-        scenario.fixture.background.send(event).unwrap();
-    }
+    scenario.fixture.perform(moved);
+    let tick = scenario.app.publish(AnimationTick);
+    assert!(
+        tick.iter()
+            .any(|action| matches!(action, Action::Document(DocumentAction::Load(_)))),
+        "the next tick loads the selected file: {tick:?}"
+    );
+    scenario.fixture.perform(tick);
 
-    scenario.wait_for_repository_screen("second file");
+    scenario.wait_for_screen("second file");
 }
 
 #[test]
@@ -185,6 +190,7 @@ impl Scenario {
             events: &mut self.fixture.inbox,
             timings: &self.timings,
             last_frame: Instant::now(),
+            batch_budget: Duration::MAX,
         }
     }
 
@@ -196,16 +202,6 @@ impl Scenario {
         assert!(flow.is_continue());
     }
 
-    /// Events that arrive within `timeout`, taken before the event loop sees them.
-    fn pending_events(&mut self, timeout: Duration) -> Vec<EventEnvelope> {
-        let deadline = Instant::now() + timeout;
-        std::iter::from_fn(|| {
-            self.fixture
-                .recv_timeout(deadline.saturating_duration_since(Instant::now()))
-        })
-        .collect()
-    }
-
     fn prepare(&mut self) {
         let lines = ["prefix needle".to_owned(), "second needle".to_owned()]
             .into_iter()
@@ -215,21 +211,16 @@ impl Scenario {
             .files
             .write("source.rs", format!("{}\n", lines.join("\n")).as_bytes());
         self.fixture.effects.refresh().unwrap();
-        self.wait_for_repository_screen("prefix needle");
+        self.wait_for_screen("prefix needle");
         let startup = self
             .fixture
             .effects
             .lsp_events()
-            .recv_timeout(Duration::from_secs(3))
+            .recv_timeout(GUARD)
             .unwrap();
         assert!(matches!(startup, review_lsp::Event::Initializing(_)));
         self.deliver(startup);
-        self.highlighting
-            .started
-            // Cold syntax initialization is setup, not part of the measured
-            // input/frame latency. Allow it to finish on a loaded test host.
-            .recv_timeout(Duration::from_secs(10))
-            .unwrap();
+        self.highlighting.started.recv_timeout(GUARD).unwrap();
     }
 
     fn flood_background(&self) {
@@ -267,28 +258,23 @@ impl Scenario {
             .collect()
     }
 
+    /// Runs the event loop until the screen shows `text`. Each cycle starts with a tick, as
+    /// the runtime's timer sends them, and the next waits for another event to arrive.
     fn wait_for_screen(&mut self, text: &str) {
-        self.wait_for_screen_within(text, Duration::from_secs(2));
-    }
-
-    /// Wait for repository work, which is setup rather than measured latency.
-    fn wait_for_repository_screen(&mut self, text: &str) {
-        self.wait_for_screen_within(text, Duration::from_secs(10));
-    }
-
-    fn wait_for_screen_within(&mut self, text: &str, timeout: Duration) {
-        let deadline = Instant::now() + timeout;
-        while !self.screen().contains(text) {
-            assert!(
-                Instant::now() < deadline,
-                "missing {text}: {}",
-                self.screen()
-            );
+        loop {
             self.fixture
                 .background
                 .send(EventEnvelope::new(ApplicationTick(Instant::now())))
                 .unwrap();
             assert!(!self.event_loop().cycle().unwrap());
+            if self.screen().contains(text) {
+                return;
+            }
+            assert!(
+                self.fixture.inbox.wait_until_queued(GUARD),
+                "missing {text}: {}",
+                self.screen()
+            );
         }
     }
 
@@ -335,7 +321,7 @@ fn search_and_frames_progress_while_lsp_startup_and_highlights_are_stalled() {
     let inherited_path = env::var_os("PATH").unwrap_or_default();
     let path =
         env::join_paths(std::iter::once(bin).chain(env::split_paths(&inherited_path))).unwrap();
-    let mut child = Command::new(env::current_exe().unwrap())
+    let child = Command::new(env::current_exe().unwrap())
         .args([
             "--exact",
             "runtime::responsiveness::stalled_startup_process",
@@ -352,14 +338,7 @@ fn search_and_frames_progress_while_lsp_startup_and_highlights_are_stalled() {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    let deadline = Instant::now() + Duration::from_secs(15);
-    while child.try_wait().unwrap().is_none() && Instant::now() < deadline {
-        thread::sleep(Duration::from_millis(20));
-    }
-    if child.try_wait().unwrap().is_none() {
-        let _ = child.kill();
-    }
-    let output = child.wait_with_output().unwrap();
+    let output = review_test_support::wait_with_output_within(child, GUARD);
     assert!(
         output.status.success(),
         "{}\n{}",

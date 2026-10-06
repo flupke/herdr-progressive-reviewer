@@ -168,6 +168,23 @@ struct WatchState {
     notified: AtomicBool,
     failed: AtomicBool,
     watching: AtomicBool,
+    /// What notified, for the tests to wait on.
+    #[cfg(test)]
+    notifications: tests::Notifications,
+}
+
+impl WatchState {
+    /// A change of `paths` calls for a refresh; no paths when the watches start.
+    fn notify(&self, paths: &[PathBuf]) {
+        #[cfg(test)]
+        self.notifications
+            .record(paths, || self.notified.store(true, Ordering::Relaxed));
+        #[cfg(not(test))]
+        {
+            let _ = paths;
+            self.notified.store(true, Ordering::Relaxed);
+        }
+    }
 }
 
 struct ActiveWatcher {
@@ -290,11 +307,8 @@ impl ActiveWatcher {
                 Ok(_) => {}
             })
             .and_then(|mut watcher| {
-                for directory in &rules.directories {
-                    watcher.watch(directory, RecursiveMode::NonRecursive)?;
-                }
-                for directory in &external_directories {
-                    watcher.watch(directory, RecursiveMode::NonRecursive)?;
+                for directory in rules.directories.iter().chain(&external_directories) {
+                    watch_present(&mut watcher, directory, RecursiveMode::NonRecursive)?;
                 }
                 for target in &metadata.watches {
                     let mode = match target.scope {
@@ -308,7 +322,7 @@ impl ActiveWatcher {
         if let Ok(watcher) = watcher {
             state.watching.store(true, Ordering::Relaxed);
             // Close the initial scan/watch setup gap with one event-driven refresh.
-            state.notified.store(true, Ordering::Relaxed);
+            state.notify(&[]);
             Some(Self {
                 watcher,
                 rules,
@@ -328,7 +342,7 @@ impl ActiveWatcher {
         }
         let changes_external_rules = self.changes_external_rules(event);
         if self.metadata.includes(event) && !changes_external_rules {
-            state.notified.store(true, Ordering::Relaxed);
+            state.notify(&event.paths);
             return Ok(());
         }
         let changes_ignore_rules = event
@@ -338,7 +352,7 @@ impl ActiveWatcher {
         if !changes_external_rules && !changes_ignore_rules && !self.rules.includes_event(event) {
             return Ok(());
         }
-        state.notified.store(true, Ordering::Relaxed);
+        state.notify(&event.paths);
 
         if changes_external_rules {
             self.refresh_external_rules()?;
@@ -365,8 +379,7 @@ impl ActiveWatcher {
             if self.external_directories.contains(&directory) {
                 continue;
             }
-            self.watcher
-                .watch(&directory, RecursiveMode::NonRecursive)?;
+            watch_present(&mut self.watcher, &directory, RecursiveMode::NonRecursive)?;
             self.external_directories.push(directory);
         }
         Ok(())
@@ -425,7 +438,7 @@ impl ActiveWatcher {
             self.rules.git_excludes.as_deref(),
         );
         for directory in &discovered.directories {
-            self.watcher.watch(directory, RecursiveMode::NonRecursive)?;
+            watch_present(&mut self.watcher, directory, RecursiveMode::NonRecursive)?;
         }
         self.rules.directories.extend(discovered.directories);
         self.rules.gitignores.extend(
@@ -456,6 +469,28 @@ impl MetadataWatches {
             .paths
             .iter()
             .any(|path| self.watches.iter().any(|target| target.includes(path)))
+    }
+}
+
+/// Watches `directory` unless it is gone already: the watch of the directory above it sees it
+/// go, and come back.
+fn watch_present(
+    watcher: &mut RecommendedWatcher,
+    directory: &Path,
+    mode: RecursiveMode,
+) -> notify::Result<()> {
+    match watcher.watch(directory, mode) {
+        Err(error) if is_missing(&error) => Ok(()),
+        result => result,
+    }
+}
+
+/// Whether `error` says that the path to watch does not exist.
+fn is_missing(error: &notify::Error) -> bool {
+    match &error.kind {
+        notify::ErrorKind::PathNotFound => true,
+        notify::ErrorKind::Io(error) => error.kind() == std::io::ErrorKind::NotFound,
+        _ => false,
     }
 }
 

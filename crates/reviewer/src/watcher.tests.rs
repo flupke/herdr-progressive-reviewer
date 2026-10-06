@@ -1,8 +1,135 @@
 use std::fs;
+use std::sync::{Condvar, Mutex, PoisonError};
 
 use tempfile::tempdir;
 
 use super::*;
+
+/// What notified a watcher, in order, and the wake of a test that waits for it.
+#[derive(Default)]
+pub(super) struct Notifications {
+    recorded: Mutex<Vec<Vec<PathBuf>>>,
+    changed: Condvar,
+}
+
+impl Notifications {
+    /// Records `paths` and runs `notify`, which raises the flag, under one lock: a
+    /// notification a test sees after [`Observer::skip_to_now`] raised the flag after it.
+    pub(super) fn record(&self, paths: &[PathBuf], notify: impl FnOnce()) {
+        let mut recorded = self.recorded.lock().unwrap_or_else(PoisonError::into_inner);
+        notify();
+        recorded.push(paths.to_vec());
+        self.changed.notify_all();
+    }
+}
+
+/// Follows the notifications of a watcher's state.
+struct Observer {
+    state: Arc<WatchState>,
+    /// How many notifications it has seen.
+    seen: usize,
+}
+
+impl Observer {
+    fn of(watcher: &RepositoryWatcher) -> Self {
+        Self {
+            state: Arc::clone(&watcher.state),
+            seen: 0,
+        }
+    }
+
+    /// Leaves out the notifications so far, the late ones of an earlier change among them:
+    /// called before a change, the next wait is about what follows it.
+    fn skip_to_now(&mut self) {
+        self.seen = self
+            .state
+            .notifications
+            .recorded
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .len();
+    }
+
+    /// Waits for the next notification that `matches`, and returns it and every one before it
+    /// that this had not seen.
+    fn wait_for(&mut self, matches: impl Fn(&[PathBuf]) -> bool) -> Vec<Vec<PathBuf>> {
+        self.wait_for_each(&[&matches])
+    }
+
+    /// Waits until each of `sentinels` matched a notification, and returns every notification
+    /// up to the last of these that this had not seen.
+    fn wait_for_each(&mut self, sentinels: &[Sentinel<'_>]) -> Vec<Vec<PathBuf>> {
+        let notifications = &self.state.notifications;
+        let recorded = notifications
+            .recorded
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let seen = self.seen;
+        let first_match = |recorded: &[Vec<PathBuf>], matches: &dyn Fn(&[PathBuf]) -> bool| {
+            recorded[seen..].iter().position(|paths| matches(paths))
+        };
+        let (recorded, timeout) = notifications
+            .changed
+            .wait_timeout_while(recorded, review_test_support::GUARD, |recorded| {
+                !sentinels
+                    .iter()
+                    .all(|matches| first_match(recorded, *matches).is_some())
+            })
+            .unwrap_or_else(PoisonError::into_inner);
+        assert!(
+            !timeout.timed_out(),
+            "no notification came after the first {seen}: {recorded:#?}"
+        );
+        let last = seen
+            + sentinels
+                .iter()
+                .filter_map(|matches| first_match(&recorded, *matches))
+                .max()
+                .unwrap();
+        self.seen = last + 1;
+        recorded[seen..=last].to_vec()
+    }
+}
+
+/// What a test looks for in a notification: the paths it is about.
+type Sentinel<'a> = &'a dyn Fn(&[PathBuf]) -> bool;
+
+/// Whether a notification is about `path`: a change of it or of a directory above it.
+fn about(path: &Path) -> impl Fn(&[PathBuf]) -> bool {
+    let path = path.to_owned();
+    move |paths| paths.iter().any(|changed| path.starts_with(changed))
+}
+
+/// Whether a notification is the one of watches that start.
+fn started(paths: &[PathBuf]) -> bool {
+    paths.is_empty()
+}
+
+/// Waits for the notification `matches` and returns the notifications up to it, then checks
+/// that it calls for a refresh once the debounce passed.
+fn wait_for_refresh(
+    watcher: &mut RepositoryWatcher,
+    observer: &mut Observer,
+    matches: impl Fn(&[PathBuf]) -> bool,
+) -> Vec<Vec<PathBuf>> {
+    let notified = observer.wait_for(matches);
+    assert!(!watcher.take_failure(), "the watcher failed");
+    assert!(refresh_comes_due(watcher), "the change calls for a refresh");
+    notified
+}
+
+/// Whether a refresh comes due, on a clock this advances by hand: a notification that
+/// arrives meanwhile starts the debounce again, and the clock follows it.
+fn refresh_comes_due(watcher: &mut RepositoryWatcher) -> bool {
+    let mut now = Instant::now();
+    for _ in 0..100 {
+        if watcher.refresh_due(now) {
+            return true;
+        }
+        now += DEBOUNCE;
+    }
+    false
+}
 
 /// A jj-style plan: only working-tree `.gitignore` files hide paths.
 fn working_tree_plan(root: &Path) -> WatchPlan {
@@ -33,67 +160,71 @@ fn displayed_ignored_tracked_source_refreshes_on_edit_delete_and_recreation() {
     let path = files.root().join("ignored/nested/source.rs");
     let mut watcher =
         RepositoryWatcher::new(Repository::discover(files.root()).unwrap().watch_plan());
+    let mut observer = Observer::of(&watcher);
+    // The watches of the repository start, then those of the source.
+    observer.wait_for(started);
     watcher.source_requests().watch(Some(&path));
-    wait_for_source_refresh(&mut watcher);
+    wait_for_refresh(&mut watcher, &mut observer, started);
 
-    fs::write(
-        files.root().join("ignored/nested/noise.log"),
-        "ignored output",
-    )
-    .unwrap();
-    let deadline = Instant::now() + DEBOUNCE * 3;
-    while Instant::now() < deadline {
-        assert!(
-            !watcher.refresh_due(Instant::now()),
-            "unrelated ignored output caused a refresh"
-        );
-        thread::sleep(Duration::from_millis(10));
-    }
-
+    let noise = files.root().join("ignored/nested/noise.log");
+    // A change that each watch reports, after the change it must not report: the source's
+    // watch reports the source, the repository's watch this file at its root. Each watch
+    // reports in order, so what it reported of the earlier change came before.
+    let sentinel = files.root().join("sentinel.txt");
+    observer.skip_to_now();
+    fs::write(&noise, "ignored output").unwrap();
     fs::write(&path, "edited\n").unwrap();
-    wait_for_source_refresh(&mut watcher);
-    fs::write(path.with_extension("tmp"), "atomic replacement\n").unwrap();
-    fs::rename(path.with_extension("tmp"), &path).unwrap();
-    wait_for_source_refresh(&mut watcher);
-    fs::remove_file(&path).unwrap();
-    wait_for_source_refresh(&mut watcher);
-    fs::write(&path, "recreated\n").unwrap();
-    wait_for_source_refresh(&mut watcher);
-    fs::remove_dir_all(files.root().join("ignored")).unwrap();
-    wait_for_source_refresh(&mut watcher);
-    fs::create_dir_all(path.parent().unwrap()).unwrap();
-    fs::write(&path, "new parent directories\n").unwrap();
-    wait_for_source_refresh(&mut watcher);
-    fs::write(&path, "still watched\n").unwrap();
-    wait_for_source_refresh(&mut watcher);
+    fs::write(&sentinel, "after the noise\n").unwrap();
+    let notified = observer.wait_for_each(&[&about(&path), &about(&sentinel)]);
+    assert!(
+        refresh_comes_due(&mut watcher),
+        "the edit calls for a refresh"
+    );
+    assert!(
+        notified.iter().flatten().all(|changed| *changed != noise),
+        "unrelated ignored output caused a refresh: {notified:?}"
+    );
+    let changes: [&dyn Fn(); 6] = [
+        &|| {
+            fs::write(path.with_extension("tmp"), "atomic replacement\n").unwrap();
+            fs::rename(path.with_extension("tmp"), &path).unwrap();
+        },
+        &|| fs::remove_file(&path).unwrap(),
+        &|| fs::write(&path, "recreated\n").unwrap(),
+        &|| fs::remove_dir_all(files.root().join("ignored")).unwrap(),
+        &|| {
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(&path, "new parent directories\n").unwrap();
+        },
+        &|| fs::write(&path, "still watched\n").unwrap(),
+    ];
+    for change in changes {
+        observer.skip_to_now();
+        change();
+        wait_for_refresh(&mut watcher, &mut observer, about(&path));
+    }
 
     let definition = files.root().join("ignored/definition.rs");
     fs::write(&definition, "definition\n").unwrap();
+    observer.skip_to_now();
     watcher.source_requests().watch(Some(&definition));
-    wait_for_source_refresh(&mut watcher);
-    fs::write(&definition, "edited definition\n").unwrap();
-    wait_for_source_refresh(&mut watcher);
+    wait_for_refresh(&mut watcher, &mut observer, started);
+    observer.skip_to_now();
     fs::write(&path, "old source is no longer displayed\n").unwrap();
-    let deadline = Instant::now() + DEBOUNCE * 3;
-    while Instant::now() < deadline {
-        assert!(
-            !watcher.refresh_due(Instant::now()),
-            "previously displayed ignored source is still watched"
-        );
-        thread::sleep(Duration::from_millis(10));
-    }
-}
-
-fn wait_for_source_refresh(watcher: &mut RepositoryWatcher) {
-    let deadline = Instant::now() + Duration::from_secs(3);
-    while !watcher.refresh_due(Instant::now()) {
-        assert!(!watcher.take_failure(), "source watcher failed");
-        assert!(
-            Instant::now() < deadline,
-            "source change did not cause a refresh"
-        );
-        thread::sleep(Duration::from_millis(10));
-    }
+    // The watch of the old source is gone, and what it reported before is no longer about the
+    // displayed source: the definition's watch and the repository's are the ones that could
+    // report the old source.
+    fs::write(&definition, "edited definition\n").unwrap();
+    fs::write(&sentinel, "after the old source\n").unwrap();
+    let notified = observer.wait_for_each(&[&about(&definition), &about(&sentinel)]);
+    assert!(
+        refresh_comes_due(&mut watcher),
+        "the edit calls for a refresh"
+    );
+    assert!(
+        notified.iter().flatten().all(|changed| *changed != path),
+        "previously displayed ignored source is still watched: {notified:?}"
+    );
 }
 
 #[test]
@@ -141,25 +272,16 @@ fn disk_content_change_schedules_a_repository_poll() {
     let path = root.join("source.rs");
     fs::write(&path, "fn before() {}\n").unwrap();
     let mut watcher = RepositoryWatcher::new(working_tree_plan(root));
-    let ready_deadline = Instant::now() + Duration::from_secs(1);
-    while !watcher.state.watching.load(Ordering::Relaxed) {
-        assert!(Instant::now() < ready_deadline, "watcher did not start");
-        thread::sleep(Duration::from_millis(10));
-    }
+    let mut observer = Observer::of(&watcher);
+    observer.wait_for(started);
 
-    fs::write(path, "fn after() {}\n").unwrap();
+    fs::write(&path, "fn after() {}\n").unwrap();
 
-    let poll_deadline = Instant::now() + Duration::from_secs(1);
-    loop {
-        if watcher.refresh_due(Instant::now()) {
-            break;
-        }
-        assert!(
-            Instant::now() < poll_deadline,
-            "content change did not schedule a poll"
-        );
-        thread::sleep(Duration::from_millis(10));
-    }
+    observer.wait_for(about(&path));
+    assert!(
+        refresh_comes_due(&mut watcher),
+        "content change did not schedule a poll"
+    );
 }
 
 #[test]
@@ -423,4 +545,23 @@ fn ignored_gitignore_changes_refresh_its_subtree() {
     watcher.update(&event, &state).unwrap();
 
     assert!(watcher.rules.directories.contains(&ignored));
+}
+
+#[test]
+fn a_directory_gone_before_its_watch_starts_is_skipped_and_other_errors_are_kept() {
+    let directory = tempdir().unwrap();
+    let gone = directory.path().join("gone");
+    let (commands, _events) = mpsc::channel::<WatchCommand>();
+    let mut watcher = notify::recommended_watcher(move |_: notify::Result<Event>| {
+        let _ = commands.send(WatchCommand::Failed);
+    })
+    .unwrap();
+
+    let missing = watcher
+        .watch(&gone, RecursiveMode::NonRecursive)
+        .unwrap_err();
+
+    assert!(is_missing(&missing), "{missing:?}");
+    watch_present(&mut watcher, &gone, RecursiveMode::NonRecursive).unwrap();
+    assert!(!is_missing(&notify::Error::generic("the watcher failed")));
 }
