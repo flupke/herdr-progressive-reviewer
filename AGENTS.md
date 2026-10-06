@@ -59,9 +59,12 @@ of overriding `-Dwarnings`. With the current `eyre` version, use
 `eyre::bail!(...);` in a statement block, to avoid the trailing-semicolon
 macro warning.
 
-When you work in a jj workspace or run gates in parallel, read
-`docs/development.md#parallel-workspaces`: how to enter the dev shell there,
-and what several gates at once need.
+Build a feature the user asks for yourself, in the current workspace, so the
+user sees each change live. Supervise subagents in separate jj workspaces only
+for a large feature planned as a graph of tickets, or for many independent
+changes at once. When you work in a jj workspace, supervise agents there, or run
+gates in parallel, read `docs/development.md#parallel-workspaces`: how to enter
+the dev shell, keep work visible, and run several gates at once.
 
 # Sandbox E2E Tests
 
