@@ -97,10 +97,14 @@ fn dropping_a_worker_sends_shutdown_and_joins_its_thread() {
 fn worker_waits_for_an_open_document_before_starting_rust_analyzer() {
     let directory = tempfile::tempdir().unwrap();
     let worker = Worker::start(directory.path().to_owned());
+    let events = worker.event_receiver();
+
+    // Dropping the worker ends its thread, which reports all it would before it ends.
+    drop(worker);
 
     assert_eq!(
-        worker.events.recv_timeout(Duration::from_millis(100)),
-        Err(crossbeam_channel::RecvTimeoutError::Timeout)
+        events.try_recv(),
+        Err(crossbeam_channel::TryRecvError::Disconnected)
     );
 }
 
@@ -126,30 +130,22 @@ fn rust_analyzer_finds_definitions_and_type_definitions() {
         worker.events.recv_timeout(timeout),
         Ok(Event::Initializing(_))
     ));
-    assert!(matches!(
-        worker.events.recv_timeout(timeout),
-        Ok(Event::Ready(_))
-    ));
-    thread::sleep(Duration::from_millis(500));
+    let ready = worker.events.recv_timeout(timeout);
+    assert!(matches!(ready, Ok(Event::Ready(_))), "{ready:?}");
     let text = "pub fn use_it() { let value = answer(); }";
     for (operation, symbol, target_line) in [
         (Operation::Definition, "answer", 1),
         (Operation::TypeDefinition, "value", 0),
     ] {
-        worker
-            .request(
-                operation,
-                Query {
-                    toast_id: toasts::ToastId::generate(),
-                    path: source.clone(),
-                    line: 2,
-                    byte_column: text.find(symbol).unwrap(),
-                    expected_line: text.to_owned(),
-                    snapshot_id: "test".to_owned(),
-                },
-            )
-            .unwrap();
-        let event = worker.events.recv_timeout(timeout).unwrap();
+        let query = Query {
+            toast_id: toasts::ToastId::generate(),
+            path: source.clone(),
+            line: 2,
+            byte_column: text.find(symbol).unwrap(),
+            expected_line: text.to_owned(),
+            snapshot_id: "test".to_owned(),
+        };
+        let event = locations_once_indexed(&worker, operation, &query);
         let Event::Locations {
             operation: returned_operation,
             locations,
@@ -165,5 +161,27 @@ fn rust_analyzer_finds_definitions_and_type_definitions() {
                 .any(|location| location.path == source && location.line == target_line),
             "{locations:?}"
         );
+    }
+}
+
+/// Asks `operation` at `query` until the language server finds locations: rust-analyzer finds
+/// none while it still indexes the crate after it became ready. Each attempt waits for the
+/// answer to the one before.
+fn locations_once_indexed(worker: &Worker, operation: Operation, query: &Query) -> Event {
+    loop {
+        worker
+            .request(
+                operation,
+                Query {
+                    toast_id: toasts::ToastId::generate(),
+                    ..query.clone()
+                },
+            )
+            .unwrap();
+        let event = worker.events.recv().unwrap();
+        let none = matches!(&event, Event::Locations { locations, .. } if locations.is_empty());
+        if !none {
+            return event;
+        }
     }
 }

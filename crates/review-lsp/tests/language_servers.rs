@@ -130,11 +130,11 @@ impl Fixture {
                 Event::Hover { markdown, .. } => markdown.is_none(),
                 _ => false,
             };
+            // Expert indexes the project after replying to initialize: ask again once it
+            // answered, until it finds something. The deadline guards against a hang.
             if !empty || Instant::now() >= deadline {
                 return event;
             }
-            // Expert indexes the project after replying to initialize.
-            std::thread::sleep(Duration::from_millis(100));
         }
     }
 }

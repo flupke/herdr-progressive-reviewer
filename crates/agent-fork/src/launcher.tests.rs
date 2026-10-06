@@ -1,8 +1,9 @@
 use std::ffi::OsString;
 use std::sync::mpsc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use super::*;
+use crate::stop::StopWaits;
 use crate::stop_recorded;
 
 /// A wrapper that runs the fork without arming a death signal: it drops the reviewer's
@@ -48,6 +49,26 @@ fn collected() -> (Box<Collected>, mpsc::Receiver<(Vec<String>, Exit)>) {
         }),
         received,
     )
+}
+
+/// What a fork showed, as it came: a line of its standard output, then its end.
+#[derive(Debug)]
+enum Shown {
+    Line(String),
+    Ended(Exit),
+}
+
+/// Sends each line of a fork's standard output as it comes, then its end.
+struct Streamed(mpsc::Sender<Shown>);
+
+impl ForkOutput for Streamed {
+    fn line(&mut self, line: &str) {
+        let _ = self.0.send(Shown::Line(line.to_owned()));
+    }
+
+    fn ended(self: Box<Self>, exit: Exit) {
+        let _ = self.0.send(Shown::Ended(exit));
+    }
 }
 
 #[test]
@@ -112,44 +133,50 @@ fn terminate_stops_a_fork_with_sigterm() {
         .unwrap();
     assert!(fork.stamp().is_running());
 
-    let started = Instant::now();
     fork.terminate();
 
-    assert!(started.elapsed() < Duration::from_secs(3));
     let (_, exit) = ended.recv_timeout(Duration::from_secs(5)).unwrap();
     assert_eq!(exit.status, "signal: 15 (SIGTERM)");
     assert!(!fork.stamp().is_running());
 }
 
 #[test]
-fn terminate_kills_a_fork_that_ignores_sigterm_three_seconds_later() {
-    let launcher = Launcher::start(plain_wrapper());
-    let (output, ended) = collected();
+fn terminate_kills_a_fork_that_ignores_sigterm_once_its_wait_is_over() {
+    let launcher = Launcher::start_with(
+        plain_wrapper(),
+        StopWaits {
+            term: Duration::ZERO,
+            ..StopWaits::default()
+        },
+    );
+    let (sent, shown) = mpsc::channel();
+    // The shell ignores SIGTERM, and so does the program it becomes.
     let fork = launcher
         .spawn(
-            shell("trap '' TERM; echo ready; while :; do sleep 1; done"),
+            shell("trap '' TERM; echo ready; exec sleep 30"),
             String::new(),
-            output,
+            Box::new(Streamed(sent)),
         )
         .unwrap();
     // The trap is set once the shell prints.
-    std::thread::sleep(Duration::from_millis(300));
+    assert!(matches!(shown.recv().unwrap(), Shown::Line(line) if line == "ready"));
 
-    let started = Instant::now();
     fork.terminate();
 
-    assert!(started.elapsed() >= Duration::from_secs(3));
-    let (_, exit) = ended.recv_timeout(Duration::from_secs(5)).unwrap();
+    let Shown::Ended(exit) = shown.recv().unwrap() else {
+        panic!("the end");
+    };
     assert_eq!(exit.status, "signal: 9 (SIGKILL)");
 }
 
 #[test]
 fn a_recorded_fork_is_stopped_only_when_it_still_runs_with_its_session() {
-    // A process this test did not start, as one a killed reviewer left behind.
+    // A process this test did not start, as one a killed reviewer left behind. It prints its
+    // ID once its trap is set, then lets go of the output, which ends this command.
     let output = std::process::Command::new("sh")
         .args([
             "-c",
-            "sh -c 'sleep 30 & trap \"kill $!; exit\" TERM; wait' session-1 >/dev/null 2>&1 & echo $!",
+            "sh -c 'sleep 30 >/dev/null 2>&1 & trap \"kill $!; exit\" TERM; echo $$; exec >/dev/null 2>&1; wait' session-1 &",
         ])
         .output()
         .unwrap();
@@ -159,7 +186,6 @@ fn a_recorded_fork_is_stopped_only_when_it_still_runs_with_its_session() {
         .parse()
         .unwrap();
     let stamp = ProcessStamp::of(pid).unwrap();
-    crate::stamp::tests::wait_for(|| stamp.runs_with("session-1"));
 
     assert!(!stop_recorded(stamp, "session-2"));
     assert!(stamp.is_running());

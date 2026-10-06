@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use crate::output::{Exit, ForkOutput};
 use crate::stamp::ProcessStamp;
-use crate::stop::{KILL_WAIT, TERM_WAIT, signal};
+use crate::stop::{StopWaits, signal};
 use crate::wrapper::Wrapper;
 
 /// How much of a fork's standard error its [`Exit`] keeps.
@@ -39,6 +39,8 @@ fn stopped() -> io::Error {
 /// the launcher ends that thread, which sends every fork it started its parent-death signal.
 pub struct Launcher {
     wrapper: Wrapper,
+    /// How long a stop of each fork waits for it to end after each signal.
+    waits: StopWaits,
     requests: Option<mpsc::Sender<Spawn>>,
     thread: Option<JoinHandle<()>>,
 }
@@ -56,6 +58,11 @@ impl Launcher {
     ///
     /// When the system cannot start the launcher's thread.
     pub fn start(wrapper: Wrapper) -> Self {
+        Self::start_with(wrapper, StopWaits::default())
+    }
+
+    /// A launcher whose forks start through `wrapper`, and whose stops wait as `waits` says.
+    pub(crate) fn start_with(wrapper: Wrapper, waits: StopWaits) -> Self {
         let (requests, received) = mpsc::channel::<Spawn>();
         let thread = thread::Builder::new()
             .name("fork launcher".into())
@@ -67,6 +74,7 @@ impl Launcher {
             .expect("the fork launcher thread starts");
         Self {
             wrapper,
+            waits,
             requests: Some(requests),
             thread: Some(thread),
         }
@@ -99,7 +107,7 @@ impl Launcher {
             .send(Spawn { command, reply })
             .map_err(|_| stopped())?;
         let child = answer.recv().map_err(|_| stopped())??;
-        Ok(RunningFork::follow(child, input, output))
+        Ok(RunningFork::follow(child, input, output, self.waits))
     }
 }
 
@@ -118,6 +126,7 @@ impl Drop for Launcher {
 pub struct RunningFork {
     stamp: ProcessStamp,
     exit: Arc<ExitSignal>,
+    waits: StopWaits,
 }
 
 /// Set once the fork's process ended and was reaped.
@@ -157,7 +166,12 @@ impl ExitSignal {
 }
 
 impl RunningFork {
-    fn follow(mut child: Child, input: String, output: Box<dyn ForkOutput>) -> Self {
+    fn follow(
+        mut child: Child,
+        input: String,
+        output: Box<dyn ForkOutput>,
+        waits: StopWaits,
+    ) -> Self {
         let stamp = ProcessStamp::read(child.id());
         let exit = Arc::new(ExitSignal::default());
         if let Some(mut stdin) = child.stdin.take() {
@@ -229,7 +243,7 @@ impl RunningFork {
                 output.ended(Exit { status, stderr });
             }
         });
-        Self { stamp, exit }
+        Self { stamp, exit, waits }
     }
 
     /// The fork's process, as a later reviewer can recognise it.
@@ -249,11 +263,11 @@ impl RunningFork {
             return;
         }
         signal(self.stamp, nix::sys::signal::Signal::SIGTERM);
-        if self.exit.wait(TERM_WAIT) {
+        if self.exit.wait(self.waits.term) {
             return;
         }
         signal(self.stamp, nix::sys::signal::Signal::SIGKILL);
-        self.exit.wait(KILL_WAIT);
+        self.exit.wait(self.waits.kill);
     }
 }
 

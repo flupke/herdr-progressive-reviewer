@@ -56,4 +56,4 @@ fn state_and_start_time(stat: &str) -> Option<(&str, u64)> {
 
 #[cfg(test)]
 #[path = "stamp.tests.rs"]
-pub(crate) mod tests;
+mod tests;

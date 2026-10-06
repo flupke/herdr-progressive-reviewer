@@ -18,13 +18,14 @@ fn plain_wrapper() -> agent_fork::Wrapper {
 }
 
 /// A stand-in for `cloudflared` in `directory`, which runs `script` after writing its process
-/// ID and its arguments to `pid` and `arguments` there.
+/// ID and its arguments to `pid` and `arguments` there. The process ID file appears whole.
 fn stand_in(directory: &Path, script: &str) -> TunnelProgram {
     let program = directory.join("cloudflared");
     std::fs::write(
         &program,
         format!(
-            "#!/bin/sh\necho $$ > '{dir}/pid'\necho \"$@\" > '{dir}/arguments'\n{script}\n",
+            "#!/bin/sh\necho $$ > '{dir}/pid.new'\nmv '{dir}/pid.new' '{dir}/pid'\n\
+             echo \"$@\" > '{dir}/arguments'\n{script}\n",
             dir = directory.display()
         ),
     )
@@ -72,6 +73,7 @@ fn next(events: &mpsc::Receiver<TunnelEvent>) -> TunnelEvent {
     events.recv_timeout(Duration::from_secs(10)).unwrap()
 }
 
+/// Whether the stand-in in `directory`, which wrote its process ID, still runs.
 fn runs(directory: &Path) -> bool {
     let pid = std::fs::read_to_string(directory.join("pid")).unwrap();
     Path::new(&format!("/proc/{}", pid.trim())).exists()
@@ -101,8 +103,10 @@ fn the_tunnel_to_the_local_address_reports_its_public_host_and_stops_with_its_pr
     assert!(runs(directory.path()));
     tunnel.stop();
     assert!(!runs(directory.path()));
-    assert!(
-        events.recv_timeout(Duration::from_millis(300)).is_err(),
+    // The tunnel lets go of the events once it saw the end of its process.
+    assert_eq!(
+        events.recv(),
+        Err(mpsc::RecvError),
         "nothing is reported once stopped"
     );
 }
@@ -170,15 +174,19 @@ fn a_cloudflared_that_ends_before_its_address_says_why_in_one_line() {
 fn a_cloudflared_that_prints_no_address_in_time_is_stopped() {
     let directory = tempfile::tempdir().unwrap();
     let mut program = stand_in(directory.path(), "exec sleep 30");
-    program.address_wait = Duration::from_millis(300);
+    program.address_wait = Duration::ZERO;
 
-    let (_tunnel, events) = start(&program);
+    let (tunnel, events) = start(&program);
+    // The tunnel's process, whether it is still the wrapper or already the stand-in, which
+    // takes the wrapper's place: with no wait, the tunnel may stop it before the stand-in runs.
+    let process = tunnel.fork.stamp();
+    assert_ne!(process.started, 0, "the process was read while it ran");
 
     assert_eq!(
         next(&events),
-        TunnelEvent::Failed(TunnelFailure::NoAddress(Duration::from_millis(300)))
+        TunnelEvent::Failed(TunnelFailure::NoAddress(Duration::ZERO))
     );
-    assert!(!runs(directory.path()));
+    assert!(!process.is_running());
 }
 
 #[test]
@@ -187,7 +195,7 @@ fn a_tunnel_that_goes_down_after_its_address_reports_its_end() {
     let program = stand_in(
         directory.path(),
         &format!(
-            "{}\nsleep 0.2\necho 'ERR connection to the edge lost' >&2\nexit 1",
+            "{}\necho 'ERR connection to the edge lost' >&2\nexit 1",
             prints_address()
         ),
     );

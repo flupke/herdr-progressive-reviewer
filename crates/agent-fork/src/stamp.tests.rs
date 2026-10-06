@@ -23,27 +23,37 @@ fn this_process_runs_and_its_stamp_names_it() {
 
 #[test]
 fn a_process_runs_with_an_argument_only_when_its_command_line_holds_it_whole() {
-    let mut child = std::process::Command::new("sleep")
-        .arg("30")
+    use nix::sys::wait::{Id, WaitPidFlag, waitid};
+
+    use std::io::BufRead;
+    use std::process::{Command, Stdio};
+
+    // The start may return before the kernel shows the new command line; the shell prints once
+    // it runs its script.
+    let mut child = Command::new("sh")
+        .args(["-c", "echo ready; read line", "30"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
         .spawn()
         .unwrap();
+    let mut ready = String::new();
+    std::io::BufReader::new(child.stdout.take().unwrap())
+        .read_line(&mut ready)
+        .unwrap();
+    assert_eq!(ready, "ready\n");
     let stamp = ProcessStamp::of(child.id()).unwrap();
-    // The command line shows once the program is loaded, a moment after the start.
-    wait_for(|| stamp.runs_with("30"));
 
     assert!(stamp.runs_with("30"));
     assert!(!stamp.runs_with("3"));
     child.kill().unwrap();
-    // Killed but not reaped: a zombie no longer runs.
-    std::thread::sleep(std::time::Duration::from_millis(100));
+    // Wait until it ended, but leave it unreaped: a zombie no longer runs.
+    waitid(
+        Id::Pid(nix::unistd::Pid::from_raw(
+            i32::try_from(child.id()).unwrap(),
+        )),
+        WaitPidFlag::WEXITED | WaitPidFlag::WNOWAIT,
+    )
+    .unwrap();
     assert!(!stamp.is_running());
     child.wait().unwrap();
-}
-
-/// Waits up to two seconds for `ready`.
-pub(crate) fn wait_for(ready: impl Fn() -> bool) {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-    while !ready() && std::time::Instant::now() < deadline {
-        std::thread::sleep(std::time::Duration::from_millis(10));
-    }
 }
