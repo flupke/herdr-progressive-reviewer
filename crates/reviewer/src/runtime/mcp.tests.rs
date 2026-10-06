@@ -1,5 +1,6 @@
-use super::{IsolatedHerdrServer, fs, mpsc, thread};
-use std::time::{Duration, Instant};
+use super::{
+    GUARD, IsolatedHerdrServer, StandInCommand, StandInEvent, StandInRole, fs, mpsc, prompts_of,
+};
 
 use herdr_client::protocol::{
     AgentPort, AgentStatus, AgentTarget, HerdrEvent, HerdrReader, HerdrWriter,
@@ -49,7 +50,6 @@ impl ConversationFixture {
         let server = IsolatedHerdrServer::start_with_session(repository.path(), agent, session);
         // Native status detection must own the pane after session registration.
         server.release_agent();
-        server.wait_for_agent(session);
         server.run_cli(&[
             "pane",
             "split",
@@ -131,11 +131,7 @@ impl ConversationFixture {
             .unwrap()
             .send(Command::Thread(ThreadCommand::Load(unit.into())));
         loop {
-            match self
-                .events
-                .recv_timeout(crate::runtime::tests::HERDR_WAIT)
-                .unwrap()
-            {
+            match self.events.recv_timeout(GUARD).unwrap() {
                 Event::Loaded(event) if event.review_unit.as_str() == unit => {
                     event.result.unwrap();
                     return event.drafts;
@@ -157,9 +153,11 @@ impl ConversationFixture {
             .to_owned()
     }
 
+    /// A second agent, on the session `session`, in a pane of its own, whose state Herdr
+    /// reads from its title.
     fn second_agent(&self) -> herdr_client::protocol::Agent {
-        let prompt_path = self.server.server.root().join("second-prompt.txt");
-        let split = self.server.server.run_cli_json(&[
+        let from = self.server.events().received().len();
+        let mut arguments = vec![
             "pane",
             "split",
             &self.server.pane_id.0,
@@ -167,17 +165,14 @@ impl ConversationFixture {
             "right",
             "--no-focus",
             "--env",
-            &format!("REVIEW_AGENT_E2E_PROMPT_PATH={}", prompt_path.display()),
-            "--env",
-            &format!(
-                "REVIEW_AGENT_E2E_HERDR_BIN={}",
-                self.server.server.binary().display()
-            ),
-            "--env",
-            &format!("REVIEW_AGENT_E2E_AGENT={}", self.server.agent),
+            "REVIEW_AGENT_E2E_ROLE=second",
             "--env",
             "REVIEW_AGENT_E2E_AGENT_SESSION=session",
-        ]);
+        ];
+        for variable in &self.server.environment {
+            arguments.extend(["--env", variable]);
+        }
+        let split = self.server.server.run_cli_json(&arguments);
         let pane = split["result"]["pane"]["pane_id"]
             .as_str()
             .unwrap_or_else(|| panic!("split: {split}"));
@@ -191,23 +186,72 @@ impl ConversationFixture {
             "--ignored",
             "--nocapture",
         ]);
-        let deadline = Instant::now() + crate::runtime::tests::HERDR_WAIT;
-        loop {
-            if let Some(agent) = self
-                .server
+        self.server
+            .events()
+            .wait_until("the second agent's session", |received| {
+                received[from..].iter().any(|reported| {
+                    reported.from == StandInRole::SecondAgent
+                        && matches!(reported.event, StandInEvent::SessionReported { .. })
+                })
+            });
+        // Herdr's own detection shows the turns the agent starts once it saw the agent idle.
+        let pane = herdr_client::protocol::PaneId(pane.to_owned());
+        self.server.run_cli(&[
+            "pane",
+            "release-agent",
+            &pane.0,
+            "--source",
+            super::AGENT_E2E_AGENT_SOURCE,
+            "--agent",
+            &self.server.agent,
+        ]);
+        // Herdr says that it released an agent only when it did not detect it by name yet.
+        let from = self.server.events().received().len();
+        self.server
+            .events()
+            .send(&StandInRole::SecondAgent, &StandInCommand::Release);
+        self.server
+            .events()
+            .wait_until("the second agent's release", |received| {
+                received[from..].iter().any(|reported| {
+                    reported.from == StandInRole::SecondAgent
+                        && reported.event == StandInEvent::Released
+                })
+            });
+        // A released agent that Herdr did not detect by name yet is gone until it detects it:
+        // its first status says that it is back.
+        let statuses = self.server.server.agent_statuses(&pane);
+        self.server.events().send(
+            &StandInRole::SecondAgent,
+            &StandInCommand::ShowTitle {
+                title: "✳ Ready".into(),
+            },
+        );
+        statuses.wait_for(AgentStatus::Idle);
+        self.server
+            .client()
+            .get_agent(&pane)
+            .unwrap()
+            .expect("the second agent")
+    }
+
+    /// The prompts the second agent read once the reviewer sent every prompt it was to send by
+    /// now.
+    fn settled_second_prompts(&self, second: &herdr_client::protocol::Agent) -> Vec<String> {
+        self.flush_prompts();
+        self.server.events().mark(|marker| {
+            self.server
                 .client()
-                .list_agents()
-                .unwrap()
-                .into_iter()
-                .find(|agent| agent.pane_id.0 == pane && agent.agent_session.is_some())
-            {
-                return agent;
-            }
-            assert!(
-                Instant::now() < deadline,
-                "the second agent did not register"
-            );
-            thread::sleep(Duration::from_millis(25));
+                .submit_agent_command(&second.pane_id, marker)
+                .unwrap();
+        });
+        prompts_of(&StandInRole::SecondAgent, &self.server.events().received())
+    }
+
+    /// Returns once every prompt the worker got by now is sent, withdrawn or failed.
+    fn flush_prompts(&self) {
+        if let Some(worker) = &self.worker {
+            worker.prompt_sender().flush();
         }
     }
 
@@ -222,11 +266,7 @@ impl ConversationFixture {
                 post,
             }));
         loop {
-            match self
-                .events
-                .recv_timeout(crate::runtime::tests::HERDR_WAIT)
-                .unwrap()
-            {
+            match self.events.recv_timeout(GUARD).unwrap() {
                 Event::Posted(event) if event.message_id == message => {
                     event.result.unwrap();
                     return id;
@@ -259,69 +299,47 @@ impl ConversationFixture {
         )
     }
 
+    /// Shows the agent `status`, and waits until Herdr sees it.
     fn status(&self, status: AgentStatus) {
-        let title = if status == AgentStatus::Working {
-            "⠋ Working"
+        if status == AgentStatus::Working {
+            self.server.show_working();
         } else {
-            "✳ Ready"
-        };
-        fs::write(self.server.server.root().join("prompt.state"), title).unwrap();
-        let deadline = Instant::now() + crate::runtime::tests::HERDR_WAIT;
-        loop {
-            if self
-                .server
-                .client()
-                .get_agent(&self.server.pane_id)
-                .unwrap()
-                .unwrap()
-                .agent_status
-                == status
-            {
-                break;
-            }
-            assert!(Instant::now() < deadline, "Herdr did not detect {status:?}");
-            thread::sleep(Duration::from_millis(25));
+            self.server.show_idle();
         }
     }
 
+    /// The prompts the agent read, as far as the test received its reports, each on its lines.
     fn prompts(&self) -> String {
-        fs::read_to_string(self.server.server.root().join("prompt.txt")).unwrap_or_default()
+        super::prompts_text(&self.server.prompts())
     }
 
-    fn wait_for_screen(&self, matches: impl Fn(&str) -> bool) -> String {
-        let deadline = Instant::now() + crate::runtime::tests::HERDR_WAIT;
-        loop {
-            let screen = self
-                .server
-                .client()
-                .read_agent_screen(&self.server.pane_id)
-                .unwrap();
-            if matches(&screen) {
-                return screen;
-            }
-            assert!(
-                Instant::now() < deadline,
-                "unexpected agent screen: {screen:?}"
-            );
-            thread::sleep(Duration::from_millis(25));
-        }
+    /// The prompts the agent read once the reviewer sent every prompt it was to send by now,
+    /// each on its lines.
+    fn settled_prompts(&self) -> String {
+        self.flush_prompts();
+        self.server.mark();
+        self.prompts()
     }
 
+    /// How many comment notifications the agent read once the reviewer sent every prompt it was
+    /// to send by now.
+    fn settled_wakeups(&self) -> usize {
+        self.settled_prompts().matches("Logical review: ").count()
+    }
+
+    /// The prompts the agent read, once `count` of them were comment notifications, each on
+    /// its lines.
     fn wait_for_wakeups(&self, count: usize) -> String {
-        let deadline = Instant::now() + crate::runtime::tests::HERDR_WAIT;
-        while Instant::now() < deadline {
-            let prompts = self.prompts();
-            if prompts.matches("Logical review: ").count() >= count {
-                return prompts;
-            }
-            thread::sleep(Duration::from_millis(25));
-        }
-        panic!(
-            "expected {count} wakeups, got: {}; agent screen: {:?}; agent: {:?}",
-            self.prompts(),
-            self.server.client().read_agent_screen(&self.server.pane_id),
-            self.server.client().get_agent(&self.server.pane_id),
-        );
+        super::prompts_text(&self.server.wait_for_prompts(
+            &format!("{count} comment notifications"),
+            |prompts| {
+                prompts
+                    .iter()
+                    .map(|prompt| prompt.matches("Logical review: ").count())
+                    .sum::<usize>()
+                    >= count
+            },
+        ))
     }
 }
 
@@ -351,32 +369,22 @@ fn multiline_prompts_are_captured_whole_only_after_submission(agent: &str) {
     let fixture = ConversationFixture::start(agent);
     let client = fixture.server.client();
     let body = "éreview ".repeat(800);
-    let mut expected = String::new();
+    let mut expected = Vec::new();
     for index in 0..12 {
         let prompt = format!("Prompt {index}\n\n{body}\nLast line {index}");
         client
             .prompt_agent(&fixture.server.pane_id, &prompt)
             .unwrap();
-        expected.push_str(&prompt);
-        expected.push('\n');
-        let deadline = Instant::now() + crate::runtime::tests::HERDR_WAIT;
-        loop {
-            let captured = fixture.prompts();
-            if captured == expected {
-                break;
-            }
-            assert!(
-                expected.starts_with(&captured),
-                "Prompt {index} was corrupted"
-            );
-            assert!(
-                Instant::now() < deadline,
-                "Prompt {index} was truncated: captured {} of {} bytes",
-                captured.len(),
-                expected.len()
-            );
-            thread::sleep(Duration::from_millis(10));
-        }
+        expected.push(prompt);
+        let captured = fixture
+            .server
+            .wait_for_prompts(&format!("prompt {index}"), |prompts| {
+                prompts.len() == expected.len()
+            });
+        assert!(
+            captured == expected,
+            "Prompt {index} was corrupted or truncated"
+        );
     }
 }
 
@@ -385,14 +393,20 @@ fn multiline_prompts_are_captured_whole_only_after_submission(agent: &str) {
 fn mcp_posts_notify_a_working_focused_agent_without_recognizing_its_composer(agent: &str) {
     let fixture = ConversationFixture::start(agent);
     let client = fixture.server.client();
-    fixture.status(AgentStatus::Working);
     client.focus_agent(&fixture.server.pane_id).unwrap();
-    fs::write(
-        fixture.server.server.root().join("prompt.screen"),
-        "An unfamiliar agent input layout",
-    )
-    .unwrap();
-    fixture.wait_for_screen(|screen| screen.contains("An unfamiliar agent input layout"));
+    fixture.server.events().send(
+        &StandInRole::Agent,
+        &StandInCommand::ShowScreen {
+            text: "An unfamiliar agent input layout".into(),
+        },
+    );
+    // The agent draws its screen before the working title Herdr then reads.
+    fixture.status(AgentStatus::Working);
+    let screen = client.read_agent_screen(&fixture.server.pane_id).unwrap();
+    assert!(
+        screen.contains("An unfamiliar agent input layout"),
+        "{screen:?}"
+    );
     let id = fixture.new_thread("review", "src/lib.rs", "First comment");
     let access = fixture.access(1);
     assert!(
@@ -408,8 +422,7 @@ fn mcp_posts_notify_a_working_focused_agent_without_recognizing_its_composer(age
     assert_eq!(fixture.access(2), access);
     fixture.status(AgentStatus::Idle);
     fixture.reload("review");
-    thread::sleep(Duration::from_millis(250));
-    assert_eq!(fixture.prompts().matches("Logical review: ").count(), 2);
+    assert_eq!(fixture.settled_wakeups(), 2);
 }
 
 async fn call(client: &Peer<RoleClient>, tool: &'static str, arguments: Value) -> CallToolResult {
@@ -483,8 +496,7 @@ fn mcp_threads_exchange_through_an_isolated_herdr_agent(agent: &str) {
         fixture.status(AgentStatus::Idle);
         fixture.wait_for_wakeups(4);
         value(&client, "get_new_messages", json!({"review": access})).await;
-        thread::sleep(Duration::from_millis(250));
-        assert_eq!(fixture.prompts().matches("Logical review: ").count(), 4);
+        assert_eq!(fixture.settled_wakeups(), 4);
 
         fixture.status(AgentStatus::Working);
         let other = fixture.new_thread("other-review", "private.rs", "Different logical review");
@@ -533,9 +545,8 @@ fn mcp_reopening_sends_fresh_access_only_for_unread_comments(agent: &str) {
     });
     fixture.reopen("review");
     fixture.status(AgentStatus::Idle);
-    thread::sleep(Duration::from_millis(250));
     assert_eq!(
-        fixture.prompts().matches("Logical review: ").count(),
+        fixture.settled_wakeups(),
         2,
         "already answered comments must not restart the agent"
     );
@@ -619,20 +630,18 @@ fn mcp_agent_detection_does_not_reassign_retrieved_comments() {
         let second = fixture.second_agent();
         let worker = fixture.worker.as_ref().unwrap();
         worker.send(Command::Observe(HerdrEvent::AgentDetected {
-            pane_id: second.pane_id,
-            workspace_id: second.workspace_id,
-            agent: second.agent,
+            pane_id: second.pane_id.clone(),
+            workspace_id: second.workspace_id.clone(),
+            agent: second.agent.clone(),
             released: false,
             final_status: None,
         }));
-        // Round-trip through the worker, then give an incorrect idle wakeup time to arrive.
+        // Round-trip through the worker, then let any wakeup it sent arrive.
         value(&client, "list_threads", json!({"review": access})).await;
-        thread::sleep(Duration::from_millis(350));
-        let prompt =
-            fs::read_to_string(fixture.server.server.root().join("second-prompt.txt")).unwrap();
+        let prompts = fixture.settled_second_prompts(&second);
         assert!(
-            prompt.is_empty(),
-            "agent detection reassigned old comments: {prompt}"
+            prompts.is_empty(),
+            "agent detection reassigned old comments: {prompts:?}"
         );
         assert_eq!(
             value(&client, "get_new_messages", json!({"review": access})).await["threads"]

@@ -369,6 +369,16 @@ impl Effects {
         hold
     }
 
+    /// Returns once the repository worker handled every command sent before, and every prompt
+    /// the thread worker got by then is sent, withdrawn or failed.
+    #[cfg(test)]
+    pub(super) fn flush(&self) {
+        self.hold_repository_work()
+            .send(())
+            .expect("the repository worker is running");
+        self.front().comments.prompt_sender().flush();
+    }
+
     #[cfg(test)]
     pub(super) fn replace_highlighting(&mut self, highlighting: highlighting::Worker) {
         self.front.as_mut().unwrap().highlighting = highlighting;

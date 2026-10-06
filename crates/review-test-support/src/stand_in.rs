@@ -42,6 +42,8 @@ pub fn marker_of(prompt: &str) -> Option<u64> {
 pub enum StandInRole {
     /// The stand-in agent in the agent's pane.
     Agent,
+    /// A second stand-in agent, in a pane of its own.
+    SecondAgent,
     /// A stand-in fork, which takes the session `session`.
     Fork { session: String },
 }
@@ -61,10 +63,16 @@ pub enum StandInEvent {
     /// The agent reported its session to Herdr as Claude Code's session hook does, from
     /// `start`: `startup` or `resume`.
     SessionReported { session: String, start: String },
+    /// Herdr released the agent, whose state it reads from its title from now on, or the test
+    /// said it did.
+    Released,
     /// The agent started a turn on a prompt, and shows it working.
     TurnStarted,
     /// The agent ended its turn, and shows the title the test gave it.
     TurnFinished,
+    /// The agent ends each turn only when the test ends it (`hold`), or as soon as Herdr saw
+    /// it start, from now on.
+    TurnsHeld { hold: bool },
     /// The agent read the marker `id` in its pane: it read what Herdr wrote there before.
     Marker { id: u64 },
     /// The agent exits, on Ctrl-D.
@@ -89,6 +97,9 @@ pub enum StandInCommand {
     HoldTurns { hold: bool },
     /// Agent: end the turn under way.
     EndTurn,
+    /// Agent: Herdr reads your title from now on, since the test released you. Herdr says so
+    /// only when it did not detect the agent by name yet.
+    Release,
     /// Agent: show `title`, which Herdr's detection reads, outside its turns.
     ShowTitle { title: String },
     /// Agent: show `text` as its screen.
@@ -174,12 +185,23 @@ struct Connections {
 }
 
 /// The test's end of the socket: every stand-in's events, in the order each reported them.
+///
+/// It keeps every event it received, so that a test may wait on the events in turn
+/// ([`Self::events_until`]) and on what all of them say together ([`Self::wait_until`]).
 pub struct StandInEvents {
     path: PathBuf,
     /// Each event, or why a stand-in's line was not one.
-    events: mpsc::Receiver<Result<Reported, String>>,
+    events: Mutex<mpsc::Receiver<Result<Reported, String>>>,
+    /// Every event received, and how many of them [`Self::events_until`] went through.
+    received: Mutex<Received>,
     connections: Arc<Connections>,
     markers: AtomicU64,
+}
+
+#[derive(Default)]
+struct Received {
+    events: Vec<Reported>,
+    read: usize,
 }
 
 impl StandInEvents {
@@ -200,7 +222,8 @@ impl StandInEvents {
         });
         Self {
             path: path.to_owned(),
-            events,
+            events: Mutex::new(events),
+            received: Mutex::default(),
             connections,
             markers: AtomicU64::new(0),
         }
@@ -217,28 +240,70 @@ impl StandInEvents {
         self.events_until(what, matches).pop().unwrap()
     }
 
-    /// Every event up to and including the first that `matches`; fails after
-    /// [`crate::GUARD`], when none came, with `what` it waited for.
+    /// Every event after those an earlier call went through, up to and including the first
+    /// that `matches`; fails after [`crate::GUARD`], when none came, with `what` it waited for.
     pub fn events_until(
         &self,
         what: &str,
         mut matches: impl FnMut(&Reported) -> bool,
     ) -> Vec<Reported> {
-        let mut events = Vec::new();
+        let mut checked = self.lock_received().read;
         loop {
-            let event = self
-                .events
-                .recv_timeout(crate::GUARD)
-                .unwrap_or_else(|error| {
-                    panic!("no stand-in reported {what} ({error}); before it: {events:#?}")
-                })
-                .unwrap_or_else(|error| panic!("{error}; before it: {events:#?}"));
-            let found = matches(&event);
-            events.push(event);
-            if found {
+            let mut received = self.lock_received();
+            if let Some(found) = received.events[checked..].iter().position(&mut matches) {
+                let end = checked + found + 1;
+                let events = received.events[received.read..end].to_vec();
+                received.read = end;
                 return events;
             }
+            checked = received.events.len();
+            drop(received);
+            self.receive(what);
         }
+    }
+
+    /// Every event received, once `holds` holds for them; fails after [`crate::GUARD`], when
+    /// it does not, with `what` it waited for.
+    pub fn wait_until(
+        &self,
+        what: &str,
+        mut holds: impl FnMut(&[Reported]) -> bool,
+    ) -> Vec<Reported> {
+        loop {
+            let received = self.lock_received();
+            if holds(&received.events) {
+                return received.events.clone();
+            }
+            drop(received);
+            self.receive(what);
+        }
+    }
+
+    /// Every event received so far.
+    pub fn received(&self) -> Vec<Reported> {
+        self.lock_received().events.clone()
+    }
+
+    /// Receives the next event; fails after [`crate::GUARD`], when none came, with `what` the
+    /// test waited for.
+    fn receive(&self, what: &str) {
+        let next = self
+            .events
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .recv_timeout(crate::GUARD);
+        let mut received = self.lock_received();
+        let before = &received.events[received.read..];
+        let event = next
+            .unwrap_or_else(|error| {
+                panic!("no stand-in reported {what} ({error}); since the last wait: {before:#?}")
+            })
+            .unwrap_or_else(|error| panic!("{error}; since the last wait: {before:#?}"));
+        received.events.push(event);
+    }
+
+    fn lock_received(&self) -> std::sync::MutexGuard<'_, Received> {
+        self.received.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Submits a new marker with `submit`, which types the prompt it gets into the agent's

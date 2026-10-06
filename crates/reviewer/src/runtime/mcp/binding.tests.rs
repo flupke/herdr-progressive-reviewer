@@ -122,8 +122,7 @@ fn resolution_stops_mcp_work_and_wakeups_but_preserves_late_answers() {
             );
             fixture.status(AgentStatus::Working);
             fixture.status(AgentStatus::Idle);
-            thread::sleep(Duration::from_millis(200));
-            assert_eq!(fixture.prompts().matches("Logical review: ").count(), 1);
+            assert_eq!(fixture.settled_wakeups(), 1);
             let book = fixture.store.load_threads(&"review".into()).unwrap();
             assert_eq!(
                 book.thread(&thread).unwrap().resolution,
@@ -150,25 +149,22 @@ fn resolution_stops_mcp_work_and_wakeups_but_preserves_late_answers() {
 }
 
 impl ConversationFixture {
-    fn second_prompts(&self) -> String {
-        fs::read_to_string(self.server.server.root().join("second-prompt.txt")).unwrap()
-    }
-
+    /// The access value of the latest of the comment notifications the second agent read, once
+    /// it read `wakeups` of them.
     fn second_access(&self, wakeups: usize) -> String {
-        let deadline = Instant::now() + crate::runtime::tests::HERDR_WAIT;
-        loop {
-            let prompts = self.second_prompts();
-            if prompts.matches("Logical review: ").count() >= wakeups
-                && let Some((_, tail)) = prompts.rsplit_once("review access value `")
-            {
-                return tail.split('`').next().unwrap().to_owned();
-            }
-            assert!(
-                Instant::now() < deadline,
-                "the active agent did not receive the pending comments"
-            );
-            thread::sleep(Duration::from_millis(25));
-        }
+        let received = self.server.events().wait_until(
+            "the second agent's comment notifications",
+            |received| {
+                prompts_of(&StandInRole::SecondAgent, received)
+                    .iter()
+                    .map(|prompt| prompt.matches("Logical review: ").count())
+                    .sum::<usize>()
+                    >= wakeups
+            },
+        );
+        let prompts = prompts_of(&StandInRole::SecondAgent, &received).concat();
+        let (_, tail) = prompts.rsplit_once("review access value `").unwrap();
+        tail.split('`').next().unwrap().to_owned()
     }
 }
 
@@ -246,7 +242,7 @@ fn comments_follow_the_active_agent(retrieved: bool) {
                     thread_id: first.clone(),
                 }));
             assert_eq!(fixture.second_access(3), second_access);
-            assert_eq!(fixture.prompts().matches("Logical review: ").count(), 1);
+            assert_eq!(fixture.settled_wakeups(), 1);
             client.cancel().await.unwrap();
         });
 }
@@ -280,7 +276,7 @@ fn changing_focus_hands_pending_comments_to_a_second_agent() {
                 .unwrap();
             let updated = value(&client, "get_new_messages", json!({"review": access})).await;
             assert_eq!(updated["threads"][0]["thread_id"], json!(first));
-            assert_eq!(fixture.prompts().matches("Logical review: ").count(), 1);
+            assert_eq!(fixture.settled_wakeups(), 1);
             assert_eq!(
                 call(&client, "get_new_messages", json!({"review": first_access}))
                     .await

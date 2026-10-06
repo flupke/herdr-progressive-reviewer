@@ -13,28 +13,34 @@ impl ReviewFlowFixture {
 pub(super) struct ExploreFlow {
     pub(super) fixture: ReviewFlowFixture,
     pub(super) exploration: Exploration,
+    /// How many of the agent's prompts the test went through.
     prompt_offset: usize,
     endpoint: review_mcp::Endpoint,
     pub(super) access: String,
+    /// What the reviewer saved.
+    pub(super) state: SavedState,
+    /// Whether the agent holds each turn until the test submitted it, as an agent does that
+    /// calls the reviewer's tools during its turn.
+    pub(super) holds_turns: bool,
 }
+
+/// Says that an MCP call of the test has its answer.
+struct McpAnswered;
 
 impl ExploreFlow {
     fn start(kind: RepoType) -> Self {
-        Self::start_on(ReviewFlowFixture::start(kind))
+        Self::start_on(ReviewFlowFixture::start(kind, |_| {}))
     }
 
     /// Starts a round in `fixture`, and waits for its change to be captured.
     pub(super) fn start_on(mut fixture: ReviewFlowFixture) -> Self {
+        let state = SavedState::watch(fixture.runtime.state.path());
         fixture.explore(ExploreCommand::Start);
-        let comparison = loop {
-            let event = fixture
-                .runtime
-                .recv_timeout(crate::runtime::tests::HERDR_WAIT)
-                .unwrap();
-            if let Some(event) = event.downcast_ref::<ui_events::ExploreCaptured>() {
-                break event.result.clone().unwrap();
-            }
-        };
+        let comparison = fixture
+            .runtime
+            .wait_for::<ui_events::ExploreCaptured>()
+            .result
+            .unwrap();
         let endpoint = fixture.endpoint;
         Self {
             endpoint,
@@ -42,15 +48,33 @@ impl ExploreFlow {
             fixture,
             exploration: Exploration::new(comparison),
             prompt_offset: 0,
+            state,
+            holds_turns: false,
         }
     }
 
     pub(super) fn turn(&mut self, answer: Option<AnswerInput>, version: u32) {
         let question = self.exploration.questions.last().cloned();
         let request = self.exploration.request(answer, question.as_ref()).unwrap();
+        let from = self.fixture.herdr.events().received().len();
         self.fixture
             .explore(ExploreCommand::Turn(Box::new(request.clone())));
         self.wait_for_prompt(&request);
+        let statuses = self.holds_turns.then(|| {
+            // The agent submits during its turn, which Herdr saw start.
+            self.fixture.herdr.wait_for_agent_event(
+                from,
+                "the agent's turn",
+                &StandInEvent::TurnStarted,
+            );
+            let statuses = self
+                .fixture
+                .herdr
+                .server
+                .agent_statuses(&self.fixture.herdr.pane_id);
+            statuses.wait_for(herdr_client::protocol::AgentStatus::Working);
+            statuses
+        });
         let interpretation = request.answer.as_ref().map(|answer| serde_json::json!({
             "answer":answer.id,"status":"needs_follow_up","recap":"Recorded: keep resolved; add regression test — follow-up.","follow_ups":["Add regression test"]
         }));
@@ -95,6 +119,13 @@ impl ExploreFlow {
                 .text
                 .contains("\"applied\":false")
         );
+        if let Some(statuses) = statuses {
+            self.fixture
+                .herdr
+                .events()
+                .send(&StandInRole::Agent, &StandInCommand::EndTurn);
+            statuses.wait_for(herdr_client::protocol::AgentStatus::Idle);
+        }
     }
 
     pub(super) fn submit(&mut self, update: &serde_json::Value) -> rmcp::model::CallToolResult {
@@ -121,6 +152,7 @@ impl ExploreFlow {
         arguments["review"] = self.access.clone().into();
         let endpoint = self.endpoint;
         let (sent, result) = mpsc::channel();
+        let answered = self.fixture.runtime.background.clone();
         let client = thread::spawn(move || {
             use rmcp::{
                 ServiceExt,
@@ -145,16 +177,17 @@ impl ExploreFlow {
                         .unwrap();
                     client.cancel().await.unwrap();
                     sent.send(result).unwrap();
+                    answered
+                        .send(component_core::EventEnvelope::new(McpAnswered))
+                        .unwrap();
                 });
         });
-        let deadline = Instant::now() + crate::runtime::tests::HERDR_WAIT;
-        let response = loop {
-            if let Ok(result) = result.try_recv() {
-                break result;
+        loop {
+            let event = self.fixture.runtime.next_event();
+            if event.downcast_ref::<McpAnswered>().is_some() {
+                break;
             }
-            assert!(Instant::now() < deadline, "MCP response timed out");
-            if let Some(event) = self.fixture.runtime.recv_timeout(Duration::from_millis(20))
-                && let Some(event) = event.downcast_ref::<ui_events::ExploreCommitted>()
+            if let Some(event) = event.downcast_ref::<ui_events::ExploreCommitted>()
                 && acknowledge
             {
                 self.exploration = event.round.exploration.clone();
@@ -162,58 +195,49 @@ impl ExploreFlow {
                 // has nobody to hear the acknowledgement.
                 let _ = event.response.send(Ok(event.applied));
             }
-        };
-        client.join().unwrap();
-        response
-    }
-
-    pub(super) fn wait_for_prompt(&mut self, request: &review_explore::TurnRequest) {
-        let deadline = Instant::now() + crate::runtime::tests::HERDR_WAIT;
-        loop {
-            let text = fs::read_to_string(self.fixture.herdr.server.root().join("prompt.txt"))
-                .unwrap_or_default();
-            if let Some(prompt) = text.get(self.prompt_offset..)
-                && let Some(access) = prompt
-                    .lines()
-                    .find_map(|line| line.strip_prefix("Explore review access: "))
-            {
-                assert!(prompt.contains(&format!("Explore request: {}\n", request.request)));
-                assert!(prompt.contains(&format!("Explore round: {}\n", request.instance)));
-                assert!(
-                    prompt.contains(&format!("Checkpoint: {}\n", request.checkpoint.checkpoint))
-                );
-                assert!(prompt.contains(&format!(
-                    "Review unit: {}\n",
-                    request.checkpoint.review_unit.as_str()
-                )));
-                self.access = access.to_owned();
-                if let Some(answer) = &request.answer {
-                    assert!(prompt.contains(&format!("Answer ID: {}\n", answer.id)));
-                    assert!(!prompt.contains("Repository root:"));
-                } else {
-                    assert!(prompt.contains(&request.checkpoint.checkpoint));
-                    assert!(
-                        prompt.contains(self.fixture.runtime.repository.root().to_str().unwrap())
-                    );
-                }
-                self.prompt_offset = text.len();
-                return;
-            }
-            assert!(
-                Instant::now() < deadline,
-                "Explore prompt was not delivered: {:?}",
-                self.fixture
-                    .runtime
-                    .drain_events()
-                    .iter()
-                    .filter_map(|event| event.downcast_ref::<ui_events::ExploreFinished>().cloned())
-                    .collect::<Vec<_>>()
-            );
-            thread::sleep(Duration::from_millis(20));
         }
+        client.join().unwrap();
+        result.recv().unwrap()
     }
 
-    fn saved(&self) -> review_explore::ExploreRound {
+    /// Waits for the prompt of `request`, the first prompt with an access value among those
+    /// the agent read after the ones the test went through, and goes through them.
+    pub(super) fn wait_for_prompt(&mut self, request: &review_explore::TurnRequest) {
+        let offset = self.prompt_offset;
+        let has_access = |prompts: &[String]| {
+            prompts.get(offset..).is_some_and(|new| {
+                new.iter()
+                    .any(|prompt| prompt.contains("Explore review access: "))
+            })
+        };
+        let prompts = self
+            .fixture
+            .herdr
+            .wait_for_prompts("the Explore prompt", has_access);
+        let prompt = prompts_text(&prompts[offset..]);
+        let access = prompt
+            .lines()
+            .find_map(|line| line.strip_prefix("Explore review access: "))
+            .unwrap();
+        assert!(prompt.contains(&format!("Explore request: {}\n", request.request)));
+        assert!(prompt.contains(&format!("Explore round: {}\n", request.instance)));
+        assert!(prompt.contains(&format!("Checkpoint: {}\n", request.checkpoint.checkpoint)));
+        assert!(prompt.contains(&format!(
+            "Review unit: {}\n",
+            request.checkpoint.review_unit.as_str()
+        )));
+        self.access = access.to_owned();
+        if let Some(answer) = &request.answer {
+            assert!(prompt.contains(&format!("Answer ID: {}\n", answer.id)));
+            assert!(!prompt.contains("Repository root:"));
+        } else {
+            assert!(prompt.contains(&request.checkpoint.checkpoint));
+            assert!(prompt.contains(self.fixture.runtime.repository.root().to_str().unwrap()));
+        }
+        self.prompt_offset = prompts.len();
+    }
+
+    pub(super) fn saved(&self) -> review_explore::ExploreRound {
         ReviewStore::open(
             self.fixture.runtime.state.path(),
             self.fixture.runtime.repository.root(),
@@ -226,32 +250,10 @@ impl ExploreFlow {
 
     fn native_status(&self, status: herdr_client::protocol::AgentStatus) {
         self.fixture.herdr.release_agent();
-        fs::write(
-            self.fixture.herdr.server.root().join("prompt.state"),
-            if status == herdr_client::protocol::AgentStatus::Working {
-                "⠋ Working"
-            } else {
-                "✳ Ready"
-            },
-        )
-        .unwrap();
-        let deadline = Instant::now() + crate::runtime::tests::HERDR_WAIT;
-        loop {
-            let current = self
-                .fixture
-                .herdr
-                .client()
-                .get_agent(&self.fixture.herdr.pane_id)
-                .unwrap()
-                .unwrap();
-            if current.agent_status == status {
-                return;
-            }
-            assert!(
-                Instant::now() < deadline,
-                "Native lifecycle did not become {status:?}: {current:?}"
-            );
-            thread::sleep(Duration::from_millis(20));
+        if status == herdr_client::protocol::AgentStatus::Working {
+            self.fixture.herdr.show_working();
+        } else {
+            self.fixture.herdr.show_idle();
         }
     }
 
@@ -261,15 +263,9 @@ impl ExploreFlow {
 
     /// Wait until the session reports that the prompt of `request` failed.
     fn wait_for_failure(&mut self, request: &review_explore::TurnRequest) {
-        let deadline = Instant::now() + crate::runtime::tests::HERDR_WAIT;
         loop {
-            assert!(
-                Instant::now() < deadline,
-                "the turn did not fail: {:?}",
-                self.saved().turns[&request.request].state
-            );
-            if let Some(event) = self.fixture.runtime.recv_timeout(Duration::from_millis(20))
-                && let Some(finished) = event.downcast_ref::<ui_events::ExploreFinished>()
+            let event = self.fixture.runtime.next_event();
+            if let Some(finished) = event.downcast_ref::<ui_events::ExploreFinished>()
                 && finished.request == request.request
             {
                 assert!(finished.result.is_err(), "{:?}", finished.result);
@@ -284,24 +280,25 @@ impl ExploreFlow {
         request: &review_explore::TurnRequest,
         state: &review_explore::DispatchState,
     ) {
-        let deadline = Instant::now() + crate::runtime::tests::HERDR_WAIT;
-        loop {
-            let saved = self.saved().turns[&request.request].state.clone();
-            if saved == *state {
-                return;
-            }
-            assert!(Instant::now() < deadline, "the turn stayed {saved:?}");
-            thread::sleep(Duration::from_millis(20));
-        }
+        let saved = || self.saved().turns[&request.request].state.clone();
+        self.state.wait_until(
+            "the turn's dispatch",
+            || (saved() == *state).then_some(()),
+            || format!("the turn stayed {:?}", saved()),
+        );
     }
 
     /// Forget the prompts the agent already read, so that waiting for a prompt waits for a new
     /// one.
     fn skip_prompts(&mut self) {
-        self.prompt_offset =
-            fs::read_to_string(self.fixture.herdr.server.root().join("prompt.txt"))
-                .unwrap_or_default()
-                .len();
+        self.fixture.herdr.mark();
+        self.prompt_offset = self.fixture.herdr.prompts().len();
+    }
+
+    /// The prompts the agent read once the reviewer sent every prompt it was to send by now.
+    fn settled_prompts(&self) -> Vec<String> {
+        self.fixture.settle();
+        self.fixture.herdr.prompts()
     }
 
     fn enqueue(&mut self) -> review_explore::TurnRequest {
@@ -339,15 +336,24 @@ fn explore_turn_prompts_a_working_agent_once() {
     let request = flow.enqueue();
     flow.wait_for_prompt(&request);
     flow.wait_for_dispatch(&request, &review_explore::DispatchState::Delivered);
-    thread::sleep(Duration::from_millis(350));
-    let text = fs::read_to_string(flow.fixture.herdr.server.root().join("prompt.txt")).unwrap();
-    assert_eq!(text.matches("Explore request: ").count(), 1);
+    let explore_prompts = flow
+        .settled_prompts()
+        .iter()
+        .filter(|prompt| prompt.contains("Explore request: "))
+        .count();
+    assert_eq!(explore_prompts, 1);
     flow.finish();
 }
 
 #[test]
 fn a_kickoff_the_agent_does_not_start_on_waits_for_a_retry_of_the_same_request() {
-    let mut flow = ExploreFlow::start(RepoType::Git);
+    // Herdr gives up on the agent at once, in place of its own 5 seconds.
+    let mut flow = ExploreFlow::start_on(ReviewFlowFixture::start(RepoType::Git, |setup| {
+        setup.agents = setup
+            .agents
+            .clone()
+            .with_prompt_start_timeout(Duration::from_millis(200));
+    }));
     flow.fixture.herdr.swallow_prompts(true);
     let request = flow.exploration.request(None, None).unwrap();
     flow.fixture
@@ -358,6 +364,8 @@ fn a_kickoff_the_agent_does_not_start_on_waits_for_a_retry_of_the_same_request()
 
     flow.skip_prompts();
     flow.fixture.herdr.swallow_prompts(false);
+    // An agent that works already starts on the prompt at once, within Herdr's short wait.
+    flow.native_status(herdr_client::protocol::AgentStatus::Working);
     flow.fixture
         .explore(ExploreCommand::Retry(Box::new(request.clone())));
     flow.wait_for_prompt(&request);
@@ -413,8 +421,7 @@ fn late_session_detection_preserves_the_interview_and_a_new_send_selects_the_rep
     );
     assert_eq!(flow.exploration.answers.len(), 1);
     flow.fixture.herdr.stop_agent();
-    flow.fixture.herdr.start_agent();
-    flow.fixture.herdr.wait_for_agent(None);
+    flow.fixture.herdr.start_agent(None, AgentLifecycle::Native);
     flow.fixture.herdr.show_idle();
     flow.fixture
         .herdr

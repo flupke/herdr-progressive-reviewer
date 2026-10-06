@@ -110,6 +110,37 @@ fn a_stand_in_that_connects_again_takes_the_commands_of_its_role() {
 }
 
 #[test]
+fn a_wait_on_every_event_sees_those_a_wait_in_turn_went_through() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("events.sock");
+    let events = StandInEvents::listen(&path);
+    let (agent, _) = StandInConnection::connect(&path, StandInRole::Agent).unwrap();
+    agent.report(&StandInEvent::TurnStarted);
+    agent.report(&StandInEvent::TurnFinished);
+    events.wait_for("the end of the turn", |reported| {
+        reported.event == StandInEvent::TurnFinished
+    });
+    agent.report(&StandInEvent::Exited);
+
+    let received = events.wait_until("the agent's exit", |received| {
+        received
+            .iter()
+            .any(|reported| reported.event == StandInEvent::Exited)
+    });
+
+    assert!(
+        received
+            .iter()
+            .any(|reported| reported.event == StandInEvent::TurnStarted)
+    );
+    // A wait in turn goes on after the events the previous one went through.
+    assert_eq!(
+        events.wait_for("the exit", |_| true).event,
+        StandInEvent::Exited
+    );
+}
+
+#[test]
 #[should_panic(expected = "a stand-in wrote")]
 fn a_line_that_is_no_event_fails_the_test() {
     let directory = tempfile::tempdir().unwrap();

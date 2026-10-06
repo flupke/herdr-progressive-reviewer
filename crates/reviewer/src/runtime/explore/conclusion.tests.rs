@@ -34,16 +34,9 @@ impl ExploreFlow {
     }
 
     fn wait_for_implementation(&mut self) -> ui_events::ExploreImplementationFinished {
-        loop {
-            let event = self
-                .fixture
-                .runtime
-                .recv_timeout(crate::runtime::tests::HERDR_WAIT)
-                .unwrap();
-            if let Some(event) = event.downcast_ref::<ui_events::ExploreImplementationFinished>() {
-                return event.clone();
-            }
-        }
+        self.fixture
+            .runtime
+            .wait_for::<ui_events::ExploreImplementationFinished>()
     }
 }
 
@@ -75,10 +68,9 @@ fn conclusion_uses_its_own_mcp_contract_and_implement_prompts_a_working_agent() 
     let mut invalid = payload.clone();
     invalid["to_be_implemented"] = "changed".into();
     assert_eq!(flow.call("submit_conclusion", invalid).is_error, Some(true));
-    let before = fs::read_to_string(flow.fixture.herdr.server.root().join("prompt.txt")).unwrap();
+    let before = flow.settled_prompts().len();
     assert_eq!(
-        before.len(),
-        flow.prompt_offset,
+        before, flow.prompt_offset,
         "conclusion cannot start implementation itself"
     );
     flow.native_status(AgentStatus::Working);
@@ -91,8 +83,13 @@ fn conclusion_uses_its_own_mcp_contract_and_implement_prompts_a_working_agent() 
     let delivered = flow.wait_for_implementation();
     assert_eq!(delivered.request, request);
     assert_eq!(delivered.state, review_explore::DispatchState::Delivered);
-    let text = fs::read_to_string(flow.fixture.herdr.server.root().join("prompt.txt")).unwrap();
-    let prompt = &text[before.len()..];
+    let prompts = flow
+        .fixture
+        .herdr
+        .wait_for_prompts("the implementation prompt", |prompts| {
+            prompts.len() > before
+        });
+    let prompt = &prompts_text(&prompts[before..]);
     assert!(prompt.contains(&request.text));
     assert!(
         !prompt.contains("Revisit notifications") && !prompt.contains("Add regression coverage")
@@ -114,12 +111,9 @@ fn cancelling_after_implementation_delivery_does_not_repeat_the_prompt() {
         flow.wait_for_implementation().state,
         review_explore::DispatchState::Delivered
     );
-    let prompts = fs::read(flow.fixture.herdr.server.root().join("prompt.txt")).unwrap();
+    let prompts = flow.settled_prompts();
     flow.fixture.explore(ExploreCommand::CancelImplementation);
     flow.call("submit_conclusion", payload);
-    assert_eq!(
-        fs::read(flow.fixture.herdr.server.root().join("prompt.txt")).unwrap(),
-        prompts
-    );
+    assert_eq!(flow.settled_prompts(), prompts);
     flow.finish();
 }

@@ -33,9 +33,8 @@ fn legacy_answers_do_not_wake_an_idle_agent_after_reopening() {
         .unwrap();
     fixture.reload("review");
     fixture.reopen("review");
-    thread::sleep(Duration::from_millis(350));
     assert!(
-        fixture.prompts().is_empty(),
+        fixture.settled_prompts().is_empty(),
         "Answered history must not wake the agent"
     );
     fixture.post("review", Post::reply(thread, "New follow-up".into()));
@@ -84,8 +83,7 @@ fn partial_answers_and_reviewer_navigation_do_not_repeat_notifications() {
             let remaining = value(&client, "get_new_messages", json!({"review": access})).await;
             assert_eq!(remaining["threads"].as_array().unwrap().len(), 1);
             assert_eq!(remaining["threads"][0]["thread_id"], json!(pending));
-            thread::sleep(Duration::from_millis(350));
-            assert_eq!(fixture.prompts().matches("Logical review: ").count(), 2);
+            assert_eq!(fixture.settled_wakeups(), 2);
             client.cancel().await.unwrap();
         });
 }
@@ -127,8 +125,7 @@ fn unread_work_survives_a_lost_fetch_and_reopening_until_its_exact_snapshot_is_a
     });
     fixture.status(AgentStatus::Working);
     fixture.status(AgentStatus::Idle);
-    thread::sleep(Duration::from_millis(250));
-    assert_eq!(fixture.prompts().matches("Logical review: ").count(), 1);
+    assert_eq!(fixture.settled_wakeups(), 1);
     fixture.reopen("review");
     let access = fixture.access(2);
     runtime.block_on(async {
@@ -198,8 +195,7 @@ fn an_interrupted_answer_can_be_retried_without_posting_another_comment_or_loopi
             );
             fixture.status(AgentStatus::Working);
             fixture.status(AgentStatus::Idle);
-            thread::sleep(Duration::from_millis(250));
-            assert_eq!(fixture.prompts().matches("Logical review: ").count(), 2);
+            assert_eq!(fixture.settled_wakeups(), 2);
             client.cancel().await.unwrap();
         });
 }

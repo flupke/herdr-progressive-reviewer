@@ -1,38 +1,14 @@
 use super::*;
 
 impl ConversationFixture {
+    /// Ends the agent, and runs another on the session `session`, or on none when it is
+    /// empty, which Herdr's own detection follows, shown idle.
     pub(super) fn replace_session(&self, session: &str) {
-        self.server
-            .run_cli(&["pane", "send-keys", &self.server.pane_id.0, "ctrl+d"]);
-        let deadline = Instant::now() + crate::runtime::tests::HERDR_WAIT;
-        while self
-            .server
-            .client()
-            .get_agent(&self.server.pane_id)
-            .unwrap()
-            .is_some()
-        {
-            assert!(
-                Instant::now() < deadline,
-                "the previous test agent did not exit"
-            );
-            thread::sleep(Duration::from_millis(25));
-        }
-        self.server.run_cli(&[
-            "pane",
-            "run",
-            &self.server.pane_id.0,
-            "env",
-            &format!("REVIEW_AGENT_E2E_AGENT_SESSION={session}"),
-            &self.server.agent_binary.to_string_lossy(),
-            "--exact",
-            "runtime::tests::e2e_agent_process",
-            "--ignored",
-            "--nocapture",
-        ]);
-        self.server
-            .wait_for_agent((!session.is_empty()).then_some(session));
-        self.server.release_agent();
+        self.server.stop_agent();
+        self.server.start_agent(
+            (!session.is_empty()).then_some(session),
+            super::super::AgentLifecycle::Native,
+        );
         // Herdr's own detection shows the turns the new agent starts once it sees it idle.
         self.status(AgentStatus::Idle);
     }
@@ -58,9 +34,9 @@ fn mcp_notifies_agents_without_native_sessions_and_retries_with_the_same_access(
     let second = fixture.second_agent();
     let worker = fixture.worker.as_ref().unwrap();
     worker.send(Command::Observe(HerdrEvent::AgentDetected {
-        pane_id: second.pane_id,
-        workspace_id: second.workspace_id,
-        agent: second.agent,
+        pane_id: second.pane_id.clone(),
+        workspace_id: second.workspace_id.clone(),
+        agent: second.agent.clone(),
         released: false,
         final_status: None,
     }));
@@ -92,10 +68,8 @@ fn mcp_notifies_agents_without_native_sessions_and_retries_with_the_same_access(
         assert!(value(&client, "get_new_messages", json!({"review": access})).await["threads"].as_array().unwrap().is_empty());
         client.cancel().await.unwrap();
     });
-    let second_prompts =
-        fs::read_to_string(fixture.server.server.root().join("second-prompt.txt")).unwrap();
-    assert!(second_prompts.is_empty());
-    assert_eq!(fixture.prompts().matches("Logical review: ").count(), 2);
+    assert!(fixture.settled_second_prompts(&second).is_empty());
+    assert_eq!(fixture.settled_wakeups(), 2);
 }
 
 #[test]
@@ -149,9 +123,8 @@ fn mcp_retry_uses_the_active_session_without_repeating_a_failed_notification() {
     let expired = fixture.access(1);
     fixture.status(AgentStatus::Working);
     fixture.status(AgentStatus::Idle);
-    thread::sleep(Duration::from_millis(350));
     assert_eq!(
-        fixture.prompts().matches("Logical review: ").count(),
+        fixture.settled_wakeups(),
         1,
         "an agent that cannot retrieve comments must not enter a notification loop"
     );

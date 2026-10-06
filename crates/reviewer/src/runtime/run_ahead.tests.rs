@@ -118,26 +118,11 @@ impl StandInTranscript {
     }
 }
 
-/// Records beside the test agent's prompts, at `prompt_path`, that the agent resumed the
-/// session `session`.
-pub(super) fn record_resume(prompt_path: &std::ffi::OsStr, session: &str) {
-    let mut resumes = File::options()
-        .create(true)
-        .append(true)
-        .open(resumes_path(Path::new(prompt_path)))
-        .unwrap();
-    writeln!(resumes, "{session}").unwrap();
-}
-
-fn resumes_path(prompt_path: &Path) -> PathBuf {
-    prompt_path.with_file_name("resumes.txt")
-}
-
-/// A fork of the stand-in: it records its arguments, environment and prompt beside the test
-/// agent's prompts, copies its parent's transcript, then works until the test ends its turn or
-/// the reviewer stops it. Once the test submitted the fork's turn, the fork's output says that
-/// its submit has its answer. It reports each step on the test's event socket, if the test named
-/// one, and takes the test's commands there; without one, it reads them from files.
+/// A fork of the stand-in: it records its arguments, environment and prompt in the test's
+/// directory, copies its parent's transcript, then works until the test ends its turn or the
+/// reviewer stops it. Once the test submitted the fork's turn, the fork's output says that its
+/// submit has its answer. It reports each step on the test's event socket, and takes the test's
+/// commands there.
 #[test]
 #[ignore = "runs as the fork of a stand-in agent in a run-ahead test"]
 fn e2e_fork_process() {
@@ -152,9 +137,8 @@ fn e2e_fork_process() {
             .unwrap();
         arguments[at + 1].to_owned()
     };
-    let real = PathBuf::from(std::env::var_os("REVIEW_AGENT_E2E_PROMPT_PATH").unwrap())
-        .with_file_name("real-claude");
-    if let Ok(real) = fs::read_to_string(real) {
+    let directory = PathBuf::from(std::env::var_os("REVIEW_AGENT_E2E_DIRECTORY").unwrap());
+    if let Ok(real) = fs::read_to_string(directory.join("real-claude")) {
         // The real Claude Code takes the fork's turn, with the pane's flags the test gives it.
         let mut real = real.lines();
         let program = real.next().unwrap();
@@ -169,95 +153,81 @@ fn e2e_fork_process() {
         panic!("could not run {program}: {error}");
     }
     let (session, parent) = (value("--session-id"), value("--resume"));
-    let (connection, commands) = StandInConnection::from_env(StandInRole::Fork {
+    let (report, commands) = StandInConnection::from_env(StandInRole::Fork {
         session: session.clone(),
     })
-    .unzip();
-    let report = stand_in_agent::Report::new(connection);
+    .expect("the test's event socket");
     let mut prompt = String::new();
     io::stdin().read_to_string(&mut prompt).unwrap();
-    let forks = forks_directory(&PathBuf::from(
-        std::env::var_os("REVIEW_AGENT_E2E_PROMPT_PATH").unwrap(),
-    ));
+    let forks = forks_directory(&directory);
     fs::create_dir_all(&forks).unwrap();
-    let directory = transcripts().unwrap().join("standin");
-    let mut history = fs::read_to_string(directory.join(format!("{parent}.jsonl"))).unwrap();
+    let transcripts = transcripts().unwrap().join("standin");
+    let mut history = fs::read_to_string(transcripts.join(format!("{parent}.jsonl"))).unwrap();
     history.push_str("{\"type\":\"user\",\"uuid\":\"fork-prompt\"}\n");
-    fs::write(directory.join(format!("{session}.jsonl")), history).unwrap();
+    fs::write(transcripts.join(format!("{session}.jsonl")), history).unwrap();
     let names: Vec<_> = std::env::vars_os()
         .map(|(name, _)| name.to_string_lossy().into_owned())
         .collect();
     fs::write(forks.join(format!("{session}.args")), arguments.join("\n")).unwrap();
     fs::write(forks.join(format!("{session}.env")), names.join("\n")).unwrap();
     fs::write(forks.join(format!("{session}.prompt")), &prompt).unwrap();
-    report.send(&StandInEvent::ForkStarted { parent, prompt });
+    report.report(&StandInEvent::ForkStarted { parent, prompt });
     let usage = r#"{"input_tokens":3,"cache_creation_input_tokens":20,"cache_read_input_tokens":1000,"output_tokens":7}"#;
     println!(r#"{{"type":"system","subtype":"init","session_id":"{session}"}}"#);
     println!(r#"{{"type":"assistant","message":{{"id":"m1","usage":{usage}}}}}"#);
     io::stdout().flush().unwrap();
     let mut answered = false;
-    let files = forks.join(&session);
-    loop {
-        let command = next_fork_command(commands.as_ref(), &files);
-        if command == Some(StandInCommand::End) {
-            break;
-        }
-        let submit = command == Some(StandInCommand::Submit);
-        if !answered && submit {
-            answered = true;
-            println!(
-                r#"{{"type":"assistant","message":{{"id":"m2","content":[{{"type":"tool_use","id":"submit","name":"mcp__herdr_reviewer__submit_question","input":{{}}}}],"usage":{usage}}}}}"#
-            );
-            println!(
-                r#"{{"type":"user","message":{{"content":[{{"type":"tool_result","tool_use_id":"submit"}}]}}}}"#
-            );
-            io::stdout().flush().unwrap();
-            report.send(&StandInEvent::ForkSubmitted);
+    // A test that closed the socket is done with the fork.
+    for command in commands {
+        match command {
+            StandInCommand::End => break,
+            StandInCommand::Submit if !answered => {
+                answered = true;
+                println!(
+                    r#"{{"type":"assistant","message":{{"id":"m2","content":[{{"type":"tool_use","id":"submit","name":"mcp__herdr_reviewer__submit_question","input":{{}}}}],"usage":{usage}}}}}"#
+                );
+                println!(
+                    r#"{{"type":"user","message":{{"content":[{{"type":"tool_result","tool_use_id":"submit"}}]}}}}"#
+                );
+                io::stdout().flush().unwrap();
+                report.report(&StandInEvent::ForkSubmitted);
+            }
+            StandInCommand::Submit => {}
+            command => panic!("a fork got the agent's command {command:?}"),
         }
     }
     println!(r#"{{"type":"result","subtype":"success","is_error":false}}"#);
     io::stdout().flush().unwrap();
-    report.send(&StandInEvent::ForkFinished);
+    report.report(&StandInEvent::ForkFinished);
 }
 
-/// What the test tells the fork whose files are `files` (`<session>` in the forks
-/// directory) next, if anything. A test that names no event socket writes files, which this
-/// reads again; a test that closed the socket is done with the fork.
-fn next_fork_command(
-    commands: Option<&mpsc::Receiver<StandInCommand>>,
-    files: &Path,
-) -> Option<StandInCommand> {
-    let command = if let Some(commands) = commands {
-        match commands.recv_timeout(Duration::from_millis(20)) {
-            Ok(command) => Some(command),
-            Err(mpsc::RecvTimeoutError::Timeout) => None,
-            Err(mpsc::RecvTimeoutError::Disconnected) => Some(StandInCommand::End),
-        }
-    } else {
-        thread::sleep(Duration::from_millis(20));
-        None
-    };
-    if command == Some(StandInCommand::End) || files.with_extension("end").exists() {
-        Some(StandInCommand::End)
-    } else if command == Some(StandInCommand::Submit) || files.with_extension("submitted").exists()
-    {
-        Some(StandInCommand::Submit)
-    } else {
-        command
-    }
+/// Where the forks of the stand-in in the test's directory `directory` record what they got.
+fn forks_directory(directory: &Path) -> PathBuf {
+    directory.join("forks")
 }
 
-fn forks_directory(prompt_path: &Path) -> PathBuf {
-    prompt_path.with_file_name("forks")
-}
-
-/// A round whose agent is the forkable stand-in, with run-ahead on for every choice.
+/// A round whose agent is the forkable stand-in, with run-ahead on for every choice. The agent
+/// holds each turn until the test submitted it.
 struct RunAheadFlow {
     flow: ExploreFlow,
 }
 
+/// How long the forks' host waits in a test: as in production, but it asks Herdr where the
+/// agent stands more often.
+fn test_waits() -> claude_fork::ForkWaits {
+    claude_fork::ForkWaits {
+        resume_poll: Duration::from_millis(10),
+        ..claude_fork::ForkWaits::default()
+    }
+}
+
 impl RunAheadFlow {
     fn start() -> Self {
+        Self::start_with(test_waits())
+    }
+
+    /// The flow, whose forks' host waits as `waits` say.
+    fn start_with(waits: claude_fork::ForkWaits) -> Self {
         let repository_files = repository_fixture(RepoType::Git);
         repository_files.write("reviewed.rs", b"pub fn reviewed() {}\n");
         let herdr = IsolatedHerdrServer::start_forkable(
@@ -265,51 +235,60 @@ impl RunAheadFlow {
             "session",
             StandIn::Forkable,
         );
-        herdr.show_idle();
-        let fixture = ReviewFlowFixture::start_on(repository_files, herdr);
+        herdr.hold_turns(true);
+        let fixture = ReviewFlowFixture::start_on(repository_files, herdr, |setup| {
+            setup.run_ahead.waits = waits;
+        });
         fixture
             .runtime
             .store
             .save_explore_run_ahead(RunAhead::Every)
             .unwrap();
-        Self {
-            flow: ExploreFlow::start_on(fixture),
-        }
+        let mut flow = ExploreFlow::start_on(fixture);
+        flow.holds_turns = true;
+        Self { flow }
+    }
+
+    fn herdr(&self) -> &IsolatedHerdrServer {
+        &self.flow.fixture.herdr
     }
 
     fn root(&self) -> &Path {
-        self.flow.fixture.herdr.server.root()
+        self.herdr().server.root()
     }
 
     fn forks(&self) -> PathBuf {
-        forks_directory(&self.root().join("prompt.txt"))
+        forks_directory(self.root())
     }
 
-    /// Waits until `count` forks have their prompt and their process recorded, and returns
-    /// their sessions. Run-ahead saves a fork, starts its process, which writes its prompt, and
-    /// only then records the process.
+    /// Waits until `count` forks started, and returns the sessions of the forks whose process
+    /// run-ahead recorded.
     fn wait_for_forks(&self, count: usize) -> Vec<String> {
-        let deadline = Instant::now() + HERDR_WAIT;
-        loop {
-            let saved = self.saved();
-            let ready: Vec<_> = saved
-                .forks
-                .iter()
-                .filter(|fork| fork.process.is_some())
-                .map(|fork| fork.session.clone())
-                .filter(|session| self.forks().join(format!("{session}.prompt")).exists())
-                .collect();
-            if ready.len() >= count {
-                return ready;
-            }
-            assert!(
-                Instant::now() < deadline,
-                "{} forks started; run-ahead's log:\n{}",
-                ready.len(),
-                self.log()
-            );
-            thread::sleep(Duration::from_millis(25));
-        }
+        self.herdr()
+            .events()
+            .wait_until(&format!("{count} forks"), |received| {
+                received
+                    .iter()
+                    .filter(|reported| matches!(reported.event, StandInEvent::ForkStarted { .. }))
+                    .count()
+                    >= count
+            });
+        // Run-ahead records the process of each fork it starts before it takes another input.
+        self.flow.fixture.runtime.effects.flush();
+        let ready: Vec<_> = self
+            .saved()
+            .forks
+            .iter()
+            .filter(|fork| fork.process.is_some())
+            .map(|fork| fork.session.clone())
+            .collect();
+        assert!(
+            ready.len() >= count,
+            "{} forks started; run-ahead's log:\n{}",
+            ready.len(),
+            self.log()
+        );
+        ready
     }
 
     fn log(&self) -> String {
@@ -329,6 +308,15 @@ impl RunAheadFlow {
             .unwrap()
     }
 
+    /// What `check` finds in the saved forks, once it finds something.
+    fn wait_for_saved<T>(&self, what: &str, check: impl Fn(&RoundForks) -> Option<T>) -> T {
+        self.flow.state.wait_until(
+            what,
+            || check(&self.saved()),
+            || format!("run-ahead's log:\n{}", self.log()),
+        )
+    }
+
     fn fork_file(&self, session: &str, kind: &str) -> String {
         fs::read_to_string(self.forks().join(format!("{session}.{kind}"))).unwrap()
     }
@@ -339,15 +327,25 @@ impl RunAheadFlow {
             .join(format!("{session}.jsonl"))
     }
 
-    /// Waits until no fork process runs and no fork transcript is left.
+    /// Waits until run-ahead stopped the forks `forks` and deleted their transcripts.
     fn wait_until_gone(&self, forks: &[(String, ProcessStamp)]) {
-        let deadline = Instant::now() + HERDR_WAIT;
-        while forks
-            .iter()
-            .any(|(session, process)| process.is_running() || self.transcript(session).exists())
-        {
-            assert!(Instant::now() < deadline, "a fork outlived its question");
-            thread::sleep(Duration::from_millis(25));
+        self.wait_for_saved("the forks' end", |saved| {
+            forks
+                .iter()
+                .all(|(session, _)| {
+                    saved
+                        .forks
+                        .iter()
+                        .any(|fork| fork.session == *session && fork.cleaned)
+                })
+                .then_some(())
+        });
+        for (session, process) in forks {
+            assert!(
+                !process.is_running(),
+                "the fork {session} outlived its question"
+            );
+            assert!(!self.transcript(session).exists());
         }
     }
 
@@ -450,13 +448,14 @@ fn forks_of_the_agent_take_each_answer_s_turn_which_is_kept_and_an_answer_stops_
     run.flow.access = pane_access;
 
     // Its turn done, it ends; the reviewer keeps how and its tokens.
-    fs::write(run.forks().join(format!("{}.end", sessions[0])), "").unwrap();
-    let deadline = Instant::now() + HERDR_WAIT;
-    while run.saved().forks[0].usage.is_none() {
-        assert!(Instant::now() < deadline, "the fork's end was not saved");
-        thread::sleep(Duration::from_millis(25));
-    }
-    assert_eq!(run.saved().forks[0].usage.unwrap().cache_read, 1000);
+    run.herdr().events().send(
+        &StandInRole::Fork {
+            session: sessions[0].clone(),
+        },
+        &StandInCommand::End,
+    );
+    let usage = run.wait_for_saved("the fork's end", |saved| saved.forks[0].usage);
+    assert_eq!(usage.cache_read, 1000);
 
     let processes = run.processes();
     run.flow.turn(
@@ -492,7 +491,17 @@ impl RunAheadFlow {
         let kept = self.flow.submit(&fork_question(&self.flow, &prompt));
         assert_ne!(kept.is_error, Some(true), "{kept:?}");
         self.flow.access = pane_access;
-        fs::write(self.forks().join(format!("{session}.submitted")), "").unwrap();
+        let fork = StandInRole::Fork {
+            session: session.to_owned(),
+        };
+        self.herdr().events().send(&fork, &StandInCommand::Submit);
+        self.herdr()
+            .events()
+            .wait_until("the fork's submit", |received| {
+                received.iter().any(|reported| {
+                    reported.from == fork && reported.event == StandInEvent::ForkSubmitted
+                })
+            });
     }
 
     /// The reviewer answers the latest question with `choice` and no comment, in the pane.
@@ -519,60 +528,27 @@ impl RunAheadFlow {
 
     /// Waits until the saved round has `count` questions, and returns it.
     fn wait_for_questions(&self, count: usize) -> review_explore::ExploreRound {
-        let deadline = Instant::now() + HERDR_WAIT;
-        loop {
-            let saved = self
-                .flow
-                .fixture
-                .runtime
-                .store
-                .load_explore(
-                    &self.flow.fixture.review_unit,
-                    &self.flow.exploration.instance,
+        self.flow.state.wait_until(
+            &format!("{count} questions"),
+            || {
+                let saved = self.flow.saved();
+                (saved.exploration.questions.len() == count).then_some(saved)
+            },
+            || {
+                format!(
+                    "the round has {} questions; run-ahead's log:\n{}",
+                    self.flow.saved().exploration.questions.len(),
+                    self.log()
                 )
-                .unwrap()
-                .unwrap();
-            if saved.exploration.questions.len() == count {
-                return saved;
-            }
-            assert!(
-                Instant::now() < deadline,
-                "the round has {} questions; run-ahead's log:\n{}",
-                saved.exploration.questions.len(),
-                self.log()
-            );
-            thread::sleep(Duration::from_millis(25));
-        }
+            },
+        )
     }
 
-    /// Waits until the stand-in in the pane is done with the prompt it read last, which it
-    /// works on for a moment after the agent's turn was already submitted, and Herdr reports it
-    /// idle.
-    fn wait_until_idle(&self) {
-        thread::sleep(Duration::from_secs(2));
-        let pane = self.flow.fixture.herdr.pane_id.clone();
-        let deadline = Instant::now() + HERDR_WAIT;
-        while !self
-            .flow
-            .fixture
-            .herdr
-            .client()
-            .get_agent(&pane)
-            .unwrap()
-            .is_some_and(|agent| agent.agent_status.waits_for_prompt())
-        {
-            assert!(Instant::now() < deadline, "the agent stays busy");
-            thread::sleep(Duration::from_millis(25));
-        }
-    }
-
-    /// The sessions the agent in the pane resumed, in order.
+    /// The sessions the agent in the pane resumed, in order, once it read what was typed in
+    /// its pane so far.
     fn resumed(&self) -> Vec<String> {
-        fs::read_to_string(resumes_path(&self.root().join("prompt.txt")))
-            .unwrap_or_default()
-            .lines()
-            .map(str::to_owned)
-            .collect()
+        self.herdr().mark();
+        self.herdr().resumed()
     }
 }
 
@@ -584,24 +560,16 @@ fn a_bare_answer_continues_as_its_fork_and_the_next_answer_reaches_the_fork_s_se
     let (fork, other) = (sessions[0].clone(), sessions[1].clone());
     run.fork_submits(&fork);
     let gone = run.processes()[1..].to_vec();
-    let prompts = fs::read_to_string(run.root().join("prompt.txt")).unwrap();
+    let prompts = run.herdr().prompts();
 
-    let answered = Instant::now();
     let request = run.answer_bare("keep");
 
     let saved = run.wait_for_questions(2);
-    eprintln!(
-        "the prepared question was saved {:?} after the answer",
-        answered.elapsed()
-    );
     assert_eq!(run.resumed(), std::slice::from_ref(&fork));
-    let pane = run.flow.fixture.herdr.pane_id.clone();
     let agent = run
-        .flow
-        .fixture
-        .herdr
+        .herdr()
         .client()
-        .get_agent(&pane)
+        .get_agent(&run.herdr().pane_id)
         .unwrap()
         .unwrap();
     assert_eq!(
@@ -620,7 +588,7 @@ fn a_bare_answer_continues_as_its_fork_and_the_next_answer_reaches_the_fork_s_se
         request.answer.as_ref().unwrap().id
     );
     assert_eq!(
-        fs::read_to_string(run.root().join("prompt.txt")).unwrap(),
+        run.herdr().prompts(),
         prompts,
         "the agent in the pane got no prompt"
     );
@@ -651,17 +619,8 @@ fn a_bare_answer_continues_as_its_fork_and_the_next_answer_reaches_the_fork_s_se
             .contains("\"uuid\":\"prompt-2\""),
         "the prompt reached the fork's session"
     );
-    let deadline = Instant::now() + HERDR_WAIT;
-    let third = loop {
-        let saved = run.saved();
-        if let Some(fork) = saved.forks.get(4)
-            && run.forks().join(format!("{}.args", fork.session)).exists()
-        {
-            break fork.session.clone();
-        }
-        assert!(Instant::now() < deadline, "{}", run.log());
-        thread::sleep(Duration::from_millis(25));
-    };
+    // The forks of the second question, then the first of the third's.
+    let third = run.wait_for_forks(5)[4].clone();
     assert!(
         run.fork_file(&third, "args")
             .lines()
@@ -674,29 +633,27 @@ fn a_bare_answer_continues_as_its_fork_and_the_next_answer_reaches_the_fork_s_se
 
 #[test]
 fn a_switch_herdr_never_confirms_puts_the_agent_back_and_retry_reaches_its_own_session_once() {
-    let mut run = RunAheadFlow::start();
+    // The switch waits for Herdr a short while, in place of 20 seconds.
+    let mut run = RunAheadFlow::start_with(claude_fork::ForkWaits {
+        resume: Duration::from_secs(2),
+        ..test_waits()
+    });
     run.flow.turn(None, 1);
     let sessions = run.wait_for_forks(2);
     let fork = sessions[0].clone();
     run.fork_submits(&fork);
-    fs::write(run.root().join("prompt.unreported-resumes"), "").unwrap();
-    let prompts = fs::read_to_string(run.root().join("prompt.txt")).unwrap();
-    run.wait_until_idle();
+    fs::write(run.root().join("unreported-resumes"), "").unwrap();
+    let prompts = run.herdr().prompts().len();
 
     let request = run.answer_bare("keep");
 
     // The switch waits for Herdr in vain, then the agent goes back to its own session.
-    let deadline = Instant::now() + Duration::from_secs(60);
-    while !matches!(
-        run.saved().forks[0].continued,
-        Some(Continuation::Undone { .. })
-    ) {
-        assert!(Instant::now() < deadline, "{}", run.log());
-        thread::sleep(Duration::from_millis(100));
-    }
+    run.wait_for_saved("the switch undone", |saved| {
+        matches!(saved.forks[0].continued, Some(Continuation::Undone { .. })).then_some(())
+    });
     assert_eq!(run.resumed(), [fork.clone(), "session".to_owned()]);
     assert_eq!(
-        fs::read_to_string(run.root().join("prompt.txt")).unwrap(),
+        run.herdr().prompts().len(),
         prompts,
         "the agent in the pane got no prompt yet"
     );
@@ -704,35 +661,29 @@ fn a_switch_herdr_never_confirms_puts_the_agent_back_and_retry_reaches_its_own_s
     let saved = run.wait_for_questions(1);
     assert_eq!(saved.exploration.conversation.len(), 1);
 
-    fs::remove_file(run.root().join("prompt.unreported-resumes")).unwrap();
+    fs::remove_file(run.root().join("unreported-resumes")).unwrap();
     run.flow
         .fixture
         .explore(ExploreCommand::Retry(Box::new(request.clone())));
 
-    let deadline = Instant::now() + HERDR_WAIT;
-    let delivered = loop {
-        let delivered = fs::read_to_string(run.root().join("prompt.txt")).unwrap();
-        if delivered.len() > prompts.len() {
-            break delivered[prompts.len()..].to_owned();
-        }
-        assert!(Instant::now() < deadline, "{}", run.log());
-        thread::sleep(Duration::from_millis(25));
-    };
-    assert!(
-        delivered.contains(&format!("Explore request: {}\n", request.request)),
-        "{delivered}"
-    );
+    let delivered = run
+        .herdr()
+        .wait_for_prompts("the retried answer", |delivered| delivered.len() > prompts);
+    let delivered = &delivered[prompts..];
+    let explore_request = format!("Explore request: {}", request.request);
+    assert!(delivered[0].contains(&explore_request), "{delivered:?}");
     assert!(
         fs::read_to_string(run.transcript("session"))
             .unwrap()
             .contains("\"uuid\":\"prompt-2\""),
         "the answer reached the agent's own session"
     );
-    thread::sleep(Duration::from_millis(500));
+    run.flow.fixture.settle();
     assert_eq!(
-        fs::read_to_string(run.root().join("prompt.txt"))
-            .unwrap()
-            .matches(&format!("Explore request: {}\n", request.request))
+        run.herdr()
+            .prompts()
+            .iter()
+            .filter(|prompt| prompt.contains(&explore_request))
             .count(),
         1,
         "the answer reached the agent once"
@@ -832,8 +783,6 @@ struct RealRun {
     session: String,
     /// The agent's flags, which its forks keep.
     flags: Vec<String>,
-    /// When the stand-in in the pane started.
-    started: Instant,
 }
 
 impl RealRun {
@@ -841,15 +790,13 @@ impl RealRun {
         let session = uuid::Uuid::new_v4().to_string();
         let repository_files = repository_fixture(RepoType::Git);
         repository_files.write("reviewed.rs", REAL_CHANGE);
-        let started = Instant::now();
         let herdr = IsolatedHerdrServer::start_forkable(
             repository_files.root(),
             &session,
             StandIn::ForkedForReal,
         );
-        herdr.show_idle();
         let root = herdr.server.root().to_owned();
-        let fixture = ReviewFlowFixture::start_on(repository_files, herdr);
+        let fixture = ReviewFlowFixture::start_on(repository_files, herdr, |_| {});
         fixture
             .runtime
             .store
@@ -883,33 +830,6 @@ impl RealRun {
             }),
             session,
             flags,
-            started,
-        }
-    }
-
-    /// Draws the stand-in's empty input box again once the test harness that runs it warned,
-    /// on the pane's screen, that it has run for over 60 seconds: that line is no text of the
-    /// reviewer's.
-    fn clear_harness_warning(&mut self) {
-        let warned = self.started + Duration::from_secs(61);
-        thread::sleep(warned.saturating_duration_since(Instant::now()));
-        let run = self.run();
-        fs::write(run.root().join("prompt.screen"), "❯ ").unwrap();
-        let pane = run.flow.fixture.herdr.pane_id.clone();
-        let deadline = Instant::now() + HERDR_WAIT;
-        while run
-            .flow
-            .fixture
-            .herdr
-            .client()
-            .read_agent_screen_styled(&pane)
-            .is_ok_and(|screen| screen.trim() != "❯")
-        {
-            assert!(
-                Instant::now() < deadline,
-                "the stand-in did not draw its screen"
-            );
-            thread::sleep(Duration::from_millis(25));
         }
     }
 
@@ -924,8 +844,7 @@ impl RealRun {
         flow.fixture
             .explore(ExploreCommand::Turn(Box::new(kickoff.clone())));
         flow.wait_for_prompt(&kickoff);
-        let prompt =
-            fs::read_to_string(flow.fixture.herdr.server.root().join("prompt.txt")).unwrap();
+        let prompt = super::prompts_text(&flow.fixture.herdr.prompts());
         self.agent_turn(&prompt, None);
         self.run()
             .flow
@@ -943,8 +862,7 @@ impl RealRun {
         let repository = self.run().flow.fixture.runtime.repository.root().to_owned();
         // The agent in the pane works while the headless agent takes its turn, as Claude Code
         // in the pane would: forks are taken once it is idle again.
-        let root = self.run().root().to_owned();
-        fs::write(root.join("prompt.state"), "⠋ Working").unwrap();
+        self.run().herdr().show_working();
         let session = match resumed {
             Some(session) => ["--resume", session],
             None => ["--session-id", &self.session],
@@ -974,39 +892,47 @@ impl RealRun {
             .write_all(prompt.as_bytes())
             .unwrap();
         let flow = &mut self.run().flow;
-        let deadline = Instant::now() + REAL_TURN;
-        while agent.try_wait().unwrap().is_none() {
-            assert!(Instant::now() < deadline, "the agent's turn did not end");
-            if let Some(event) = flow
+        let ended = flow.fixture.runtime.background.clone();
+        let waiting = thread::spawn(move || {
+            let status = agent.wait().unwrap();
+            ended
+                .send(component_core::EventEnvelope::new(RealTurnEnded))
+                .unwrap();
+            status
+        });
+        loop {
+            let event = flow
                 .fixture
                 .runtime
-                .recv_timeout(Duration::from_millis(100))
-                && let Some(committed) = event.downcast_ref::<ui_events::ExploreCommitted>()
-            {
+                .recv_timeout(REAL_TURN)
+                .expect("the agent's turn did not end");
+            if event.downcast_ref::<RealTurnEnded>().is_some() {
+                break;
+            }
+            if let Some(committed) = event.downcast_ref::<ui_events::ExploreCommitted>() {
                 flow.exploration = committed.round.exploration.clone();
                 let _ = committed.response.send(Ok(committed.applied));
             }
         }
+        waiting.join().unwrap();
         flow.fixture.herdr.show_idle();
     }
 
     /// Waits until `count` forks ran to their end.
     fn wait_for_forks_to_end(&mut self, count: usize) -> RoundForks {
         let run = self.run();
-        let deadline = Instant::now() + REAL_TURN;
-        loop {
-            let saved = run.saved();
-            if saved.forks.len() == count && saved.forks.iter().all(|fork| fork.exit.is_some()) {
-                eprintln!("run-ahead's log:\n{}", run.log());
-                return saved;
-            }
-            assert!(
-                Instant::now() < deadline,
-                "the forks did not end: {}",
-                run.log()
-            );
-            thread::sleep(Duration::from_secs(1));
-        }
+        let saved = run.flow.state.wait_within(
+            REAL_TURN,
+            "the forks' end",
+            || {
+                let saved = run.saved();
+                (saved.forks.len() == count && saved.forks.iter().all(|fork| fork.exit.is_some()))
+                    .then_some(saved)
+            },
+            || run.log(),
+        );
+        eprintln!("run-ahead's log:\n{}", run.log());
+        saved
     }
 
     /// The transcripts of the owner's Claude Code configuration.
@@ -1062,20 +988,24 @@ fn a_real_claude_code_fork_takes_its_answer_s_turn_and_the_reviewer_keeps_it() {
     // A Reset stops the forks and deletes their transcripts; the agent's own stays.
     let processes = run.processes();
     run.flow.fixture.explore(ExploreCommand::Reset);
+    run.wait_for_saved("the forks' end", |saved| {
+        saved.forks.iter().all(|fork| fork.cleaned).then_some(())
+    });
     let projects = RealRun::projects();
-    let deadline = Instant::now() + HERDR_WAIT;
-    while processes
-        .iter()
-        .any(|(fork, process)| process.is_running() || projects.find(fork).is_some())
-    {
-        assert!(Instant::now() < deadline, "a fork outlived its round");
-        thread::sleep(Duration::from_millis(100));
-    }
+    assert!(
+        processes
+            .iter()
+            .all(|(fork, process)| !process.is_running() && projects.find(fork).is_none()),
+        "a fork outlived its round"
+    );
     assert!(
         projects.find(&real.session).is_some(),
         "the agent's own transcript stays"
     );
 }
+
+/// Says that the real agent's turn ended.
+struct RealTurnEnded;
 
 /// How many questions the saved round has: forks never add one.
 fn question_count(run: &RunAheadFlow) -> usize {
@@ -1109,7 +1039,6 @@ fn a_real_claude_code_agent_continues_as_the_fork_of_a_bare_answer() {
         .expect("a fork's turn was kept")
         .clone();
 
-    real.clear_harness_warning();
     let run = real.run();
     // No forks for the next questions: their real turns would cost and prove nothing more here.
     run.flow
@@ -1118,7 +1047,7 @@ fn a_real_claude_code_agent_continues_as_the_fork_of_a_bare_answer() {
         .store
         .save_explore_run_ahead(RunAhead::Off)
         .unwrap();
-    let answered = Instant::now();
+    let answered = std::time::Instant::now();
     let request = run.answer_bare(&fork.choice);
     let round = run.wait_for_questions_or_conclusion(2);
     eprintln!(
@@ -1154,8 +1083,7 @@ fn a_real_claude_code_agent_continues_as_the_fork_of_a_bare_answer() {
     // The next answer, with a comment, goes to the agent, which resumes the fork's session and
     // takes its turn from there.
     run.flow.exploration = round.exploration.clone();
-    let prompts = run.root().join("prompt.txt");
-    let offset = fs::read_to_string(&prompts).unwrap().len();
+    let offset = run.herdr().prompts().len();
     let question = run.flow.exploration.questions.last().cloned().unwrap();
     let next = run
         .flow
@@ -1174,7 +1102,7 @@ fn a_real_claude_code_agent_continues_as_the_fork_of_a_bare_answer() {
         .fixture
         .explore(ExploreCommand::Turn(Box::new(next.clone())));
     run.flow.wait_for_prompt(&next);
-    let prompt = fs::read_to_string(&prompts).unwrap()[offset..].to_owned();
+    let prompt = super::prompts_text(&run.herdr().prompts()[offset..]);
     real.agent_turn(&prompt, Some(&fork.session));
 
     let run = real.run();
@@ -1200,24 +1128,14 @@ fn a_real_claude_code_agent_continues_as_the_fork_of_a_bare_answer() {
 impl RunAheadFlow {
     /// Waits until the saved round has `count` turns of the agent, and returns it.
     fn wait_for_questions_or_conclusion(&self, count: usize) -> review_explore::ExploreRound {
-        let deadline = Instant::now() + REAL_TURN;
-        loop {
-            let saved = self
-                .flow
-                .fixture
-                .runtime
-                .store
-                .load_explore(
-                    &self.flow.fixture.review_unit,
-                    &self.flow.exploration.instance,
-                )
-                .unwrap()
-                .unwrap();
-            if saved.exploration.conversation.len() >= count {
-                return saved;
-            }
-            assert!(Instant::now() < deadline, "{}", self.log());
-            thread::sleep(Duration::from_millis(100));
-        }
+        self.flow.state.wait_within(
+            REAL_TURN,
+            &format!("{count} turns"),
+            || {
+                let saved = self.flow.saved();
+                (saved.exploration.conversation.len() >= count).then_some(saved)
+            },
+            || self.log(),
+        )
     }
 }

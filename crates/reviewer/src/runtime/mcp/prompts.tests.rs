@@ -21,14 +21,9 @@ impl ConversationFixture {
     }
 
     fn wait_for_prompt_text(&self, text: &str) {
-        let deadline = Instant::now() + crate::runtime::tests::HERDR_WAIT;
-        while !self.prompts().contains(text) {
-            assert!(
-                Instant::now() < deadline,
-                "prompt was not delivered: {text}"
-            );
-            thread::sleep(Duration::from_millis(25));
-        }
+        self.server.wait_for_prompts(text, |prompts| {
+            prompts.iter().any(|prompt| prompt.contains(text))
+        });
     }
 }
 
@@ -45,8 +40,7 @@ fn structured_prompts_submit_once_while_the_agent_is_working_and_focused() {
     receipt.wait().unwrap();
     fixture.wait_for_prompt_text("Reviewer turn");
     fixture.status(AgentStatus::Idle);
-    thread::sleep(Duration::from_millis(250));
-    assert_eq!(fixture.prompts(), "Reviewer turn\n");
+    assert_eq!(fixture.settled_prompts(), "Reviewer turn\n");
 }
 
 #[test]
@@ -57,7 +51,7 @@ fn structured_prompts_reject_a_replaced_conversation() {
     let (receipt, _cancellation) = fixture.queue_prompt(original, "For the original conversation");
     let error = receipt.wait().unwrap_err().to_string();
     assert!(error.contains("different agent conversation"), "{error}");
-    assert!(fixture.prompts().is_empty());
+    assert!(fixture.settled_prompts().is_empty());
 }
 
 #[test]
@@ -123,5 +117,6 @@ fn cancelling_or_closing_delivery_waiting_for_session_identity_sends_nothing() {
             .contains("dispatcher closed")
     );
     fixture.server.report_session("session");
+    fixture.server.mark();
     assert!(fixture.prompts().is_empty());
 }

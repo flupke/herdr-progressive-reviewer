@@ -51,6 +51,10 @@ serde = { workspace = true, optional = true }
 tiktoken-rs = "0.12"
 
 [dev-dependencies]
+# The tests learn that the thread worker sent every prompt it was asked to.
+review-thread-service = { path = "../review-thread-service", features = ["flush"] }
+# The stand-in agent takes its pane from the standard output the test harness writes to.
+rustix = { version = "1.1", default-features = false, features = ["std", "stdio"] }
 review-explore-round-settings = { path = "../review-explore-round-settings" }
 review-run-ahead = { path = "../review-run-ahead" }
 review-round-conversation = { path = "../review-round-conversation" }

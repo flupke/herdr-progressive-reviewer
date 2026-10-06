@@ -1,45 +1,21 @@
 //! What the stand-in agent shows Herdr and reports on the test's event socket
 //! (`review_test_support::stand_in`): its turns, its title and its screen.
 //!
-//! A test that names an event socket controls the agent's turns: a turn ends once Herdr saw it
-//! start, or, while the test holds turns, when the test ends it. Herdr sees a turn through the
-//! agent's title, so a turn of an agent whose state is reported to Herdr instead, until the
-//! test releases it, ends at once. Without an event socket, a turn lasts 1.5 seconds: the
-//! tests that name none still count on it.
+//! The test controls the agent's turns: a turn ends once Herdr saw it start, or, while the
+//! test holds turns, when the test ends it. Herdr sees a turn through the agent's title, so a
+//! turn of an agent whose state is reported to Herdr instead, until the test releases it, ends
+//! at once.
 
-use std::fs;
+use std::fs::File;
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
-use std::time::{Duration, Instant};
 
 use herdr_client::client::{EventCanceller, HerdrClient};
 use herdr_client::protocol::{AgentStatus, HerdrEvent, PaneId};
 use review_test_support::stand_in::{StandInCommand, StandInConnection, StandInEvent};
-
-/// How long a turn lasts for a test that names no event socket.
-const LEGACY_TURN: Duration = Duration::from_millis(1500);
-
-/// The test's event socket, if it named one.
-pub(super) struct Report(Option<StandInConnection>);
-
-impl Report {
-    pub(super) fn new(connection: Option<StandInConnection>) -> Self {
-        Self(connection)
-    }
-
-    pub(super) fn send(&self, event: &StandInEvent) {
-        if let Some(connection) = &self.0 {
-            connection.report(event);
-        }
-    }
-
-    fn controls_turns(&self) -> bool {
-        self.0.is_some()
-    }
-}
 
 /// The agent's turn.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -53,7 +29,7 @@ enum Turn {
     Seen,
 }
 
-/// Where the agent's turns stand.
+/// Where the agent's turns stand, and what the test gave it to show.
 #[derive(Default)]
 struct TurnState {
     turn: Turn,
@@ -63,18 +39,21 @@ struct TurnState {
     status: Option<AgentStatus>,
     /// Herdr reads the agent's title: its state is not reported, or the test released it.
     title_read: bool,
-    /// For a test that names no event socket: until when the agent works.
-    legacy_until: Option<Instant>,
+    /// The title the test gave the agent, shown outside its turns.
+    title: Option<String>,
+    /// The screen the test gave the agent, shown while nothing is typed in it.
+    screen: Option<String>,
 }
 
 /// The turns the agent starts on the prompts it reads.
 #[derive(Clone)]
 pub(super) struct AgentTurns {
-    /// While this file exists, the agent reads each prompt without starting on it.
+    /// While this file exists, the agent reads each prompt without starting on it. The test
+    /// writes it before the prompt it concerns, so the agent reads it in order.
     swallow_path: PathBuf,
     state: Arc<Mutex<TurnState>>,
     display: Sender<()>,
-    report: Arc<Report>,
+    report: Arc<StandInConnection>,
 }
 
 impl AgentTurns {
@@ -83,7 +62,7 @@ impl AgentTurns {
     pub(super) fn new(
         swallow_path: PathBuf,
         title_read: bool,
-        report: Arc<Report>,
+        report: Arc<StandInConnection>,
     ) -> (Self, Receiver<()>) {
         let (display, wakes) = mpsc::channel();
         let state = TurnState {
@@ -110,12 +89,6 @@ impl AgentTurns {
             return;
         }
         let mut state = self.lock();
-        if !self.report.controls_turns() {
-            state.legacy_until = Some(Instant::now() + LEGACY_TURN);
-            drop(state);
-            let _ = self.display.send(());
-            return;
-        }
         if state.turn == Turn::None {
             // Herdr that reports the agent working already answers the prompt at once.
             state.turn = if state.status == Some(AgentStatus::Working) {
@@ -123,13 +96,14 @@ impl AgentTurns {
             } else {
                 Turn::Unseen
             };
-            self.report.send(&StandInEvent::TurnStarted);
+            self.report.report(&StandInEvent::TurnStarted);
         }
         self.settle(&mut state);
     }
 
     /// Ends the turn under way if it may end now.
     fn settle(&self, state: &mut TurnState) {
+        // Herdr does not see the turns of an agent whose state is reported.
         let ends = match state.turn {
             Turn::None => false,
             Turn::Unseen => !state.title_read,
@@ -144,17 +118,26 @@ impl AgentTurns {
 
     fn finish(&self, state: &mut TurnState) {
         state.turn = Turn::None;
-        self.report.send(&StandInEvent::TurnFinished);
+        self.report.report(&StandInEvent::TurnFinished);
         let _ = self.display.send(());
     }
 
-    /// Whether the agent shows a turn under way.
-    pub(super) fn working(&self) -> bool {
+    /// The title to show after `previous`: a working title during a turn, none before the
+    /// test gives one, and an empty one once a working title ends with no title given.
+    fn title(&self, previous: Option<&String>) -> Option<String> {
         let state = self.lock();
-        state.turn != Turn::None
-            || state
-                .legacy_until
-                .is_some_and(|until| Instant::now() < until)
+        if state.turn != Turn::None {
+            return Some("⠋ Working".to_owned());
+        }
+        state
+            .title
+            .clone()
+            .or_else(|| previous.map(|_| String::new()))
+    }
+
+    /// The screen the test gave the agent, if any.
+    pub(super) fn screen(&self) -> Option<String> {
+        self.lock().screen.clone()
     }
 
     /// Herdr reported the agent `status`.
@@ -171,21 +154,14 @@ impl AgentTurns {
     fn released(&self) {
         let mut state = self.lock();
         state.title_read = true;
+        self.report.report(&StandInEvent::Released);
         drop(state);
         let _ = self.display.send(());
     }
 
     /// Follows what the test says, and what Herdr reports of the agent of `pane`, for as long
     /// as the agent runs.
-    pub(super) fn follow(
-        &self,
-        commands: Option<Receiver<StandInCommand>>,
-        display: &DisplayFiles,
-        pane: &PaneId,
-    ) {
-        let Some(commands) = commands else {
-            return;
-        };
+    pub(super) fn follow(&self, commands: Receiver<StandInCommand>, pane: &PaneId) {
         let client = HerdrClient::new(
             std::env::var_os("HERDR_SOCKET_PATH").unwrap().into(),
             "stand-in".into(),
@@ -212,39 +188,43 @@ impl AgentTurns {
                     if released {
                         turns.released();
                     }
-                    // Herdr misses a title shown before it detected the agent.
+                    // Herdr misses a title shown before it detected the agent: shown again.
                     let _ = turns.display.send(());
                 }
                 true
             })
         });
-        let (turns, display) = (self.clone(), display.clone());
+        let turns = self.clone();
         thread::spawn(move || {
             for command in commands {
-                turns.obey(command, &display);
+                turns.obey(command);
             }
         });
     }
 
-    fn obey(&self, command: StandInCommand, display: &DisplayFiles) {
+    fn obey(&self, command: StandInCommand) {
+        let mut state = self.lock();
         match command {
             StandInCommand::HoldTurns { hold } => {
-                let mut state = self.lock();
                 state.held = hold;
+                self.report.report(&StandInEvent::TurnsHeld { hold });
                 self.settle(&mut state);
             }
             StandInCommand::EndTurn => {
-                let mut state = self.lock();
                 if state.turn != Turn::None {
                     self.finish(&mut state);
                 }
             }
+            StandInCommand::Release => {
+                drop(state);
+                self.released();
+            }
             StandInCommand::ShowTitle { title } => {
-                fs::write(&display.title, title).unwrap();
+                state.title = Some(title);
                 let _ = self.display.send(());
             }
             StandInCommand::ShowScreen { text } => {
-                fs::write(&display.screen, text).unwrap();
+                state.screen = Some(text);
                 let _ = self.display.send(());
             }
             StandInCommand::Submit | StandInCommand::End => {
@@ -254,64 +234,61 @@ impl AgentTurns {
     }
 }
 
-/// The files that hold what the agent shows: the title the test gave it, and its screen.
+/// The agent's pane, which it draws in. The test harness that runs the agent writes on the
+/// process's standard output, which goes nowhere: a warning that the agent ran for over a
+/// minute is no text of the agent's.
 #[derive(Clone)]
-pub(super) struct DisplayFiles {
-    pub(super) title: PathBuf,
-    pub(super) screen: PathBuf,
+pub(super) struct Pane(Arc<Mutex<File>>);
+
+impl Pane {
+    /// Takes the pane from the standard output, which then goes to `/dev/null`.
+    pub(super) fn take() -> Self {
+        let pane = rustix::io::dup(io::stdout()).unwrap();
+        let nowhere = File::options().write(true).open("/dev/null").unwrap();
+        rustix::stdio::dup2_stdout(&nowhere).unwrap();
+        Self(Arc::new(Mutex::new(File::from(pane))))
+    }
+
+    /// Writes `text` to the pane.
+    pub(super) fn draw(&self, text: &str) {
+        let mut pane = self.lock();
+        pane.write_all(text.as_bytes()).unwrap();
+        pane.flush().unwrap();
+    }
+
+    pub(super) fn lock(&self) -> std::sync::MutexGuard<'_, File> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
 }
 
-/// What the test agent shows Herdr: the title the test gave it, or a working title while the
-/// agent works on a prompt, and the screen the test gave it.
+/// What the test agent shows Herdr: the screen the test gave it, then the title the test gave
+/// it, or a working title while the agent works on a prompt. The screen goes first, so that
+/// once Herdr reports the status a title shows, it shows the screen drawn before.
 pub(super) struct AgentDisplay {
-    pub(super) files: DisplayFiles,
+    pub(super) pane: Pane,
     pub(super) turns: AgentTurns,
-    /// Wakes the display when what it shows changed.
+    /// Wakes the display when what it shows changed, or when Herdr detected the agent.
     pub(super) wakes: Receiver<()>,
 }
 
 impl AgentDisplay {
     pub(super) fn run(self) {
-        let mut previous = None;
-        let mut previous_screen = String::new();
-        let mut shown_at = Instant::now();
-        let mut again = false;
-        loop {
-            let title = self.title(previous.as_ref());
-            // Shown again now and then: Herdr misses a title shown before it detects the agent.
-            if title.is_some()
-                && (title != previous
-                    || std::mem::take(&mut again)
-                    || shown_at.elapsed() > Duration::from_secs(1))
-            {
-                shown_at = Instant::now();
-                print!("\x1b]0;{}\x07", title.as_deref().unwrap_or_default());
-                io::stdout().flush().unwrap();
-                previous = title;
-            }
-            if let Ok(screen) = fs::read_to_string(&self.files.screen)
-                && screen != previous_screen
-            {
-                print!("\x1b[2J\x1b[H{}", screen.replace('\n', "\r\n"));
-                io::stdout().flush().unwrap();
+        let mut previous_title = None;
+        let mut previous_screen = None;
+        // Shown again on each wake: the wake may be Herdr detecting the agent.
+        while let Ok(()) = self.wakes.recv() {
+            let screen = self.turns.screen();
+            if screen.is_some() && screen != previous_screen {
+                let text = screen.as_deref().unwrap_or_default();
+                self.pane
+                    .draw(&format!("\x1b[2J\x1b[H{}", text.replace('\n', "\r\n")));
                 previous_screen = screen;
             }
-            // A test that names no event socket writes the files, which this reads again.
-            if let Ok(()) = self.wakes.recv_timeout(Duration::from_millis(25)) {
-                // Shown again: the wake may be Herdr detecting the agent.
-                again = true;
+            let title = self.turns.title(previous_title.as_ref());
+            if let Some(shown) = &title {
+                self.pane.draw(&format!("\x1b]0;{shown}\x07"));
+                previous_title = title;
             }
         }
-    }
-
-    /// The title to show after `previous`: none before the test gives one, and an empty one
-    /// once a working title ends with no title given.
-    fn title(&self, previous: Option<&String>) -> Option<String> {
-        if self.turns.working() {
-            return Some("⠋ Working".to_owned());
-        }
-        fs::read_to_string(&self.files.title)
-            .ok()
-            .or_else(|| previous.map(|_| String::new()))
     }
 }
