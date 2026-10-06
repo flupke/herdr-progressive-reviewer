@@ -5,6 +5,10 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+# Lets a test wait until every prompt sent so far went out, was withdrawn or is held.
+flush = []
+
 [dependencies]
 herdr-client = { path = "../herdr-client" }
 review-mcp = { path = "../review-mcp" }

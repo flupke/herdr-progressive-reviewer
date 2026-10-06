@@ -37,6 +37,7 @@ uuid.workspace = true
 crossbeam-channel.workspace = true
 herdr-client = { path = "../herdr-client", features = ["memory"] }
 review-test-support = { path = "../review-test-support" }
+review-thread-service = { path = "../review-thread-service", features = ["flush"] }
 
 [lints]
 workspace = true

@@ -13,7 +13,7 @@ use super::{Event, RoundKey, RunAheadInput, TakenFork};
 use crate::{ExploreSession, Input};
 
 /// How long a closing reviewer waits for its forks to stop: SIGTERM, three seconds, SIGKILL.
-const CLOSE_WAIT: Duration = Duration::from_secs(6);
+pub(super) const CLOSE_WAIT: Duration = Duration::from_secs(6);
 
 impl ExploreSession {
     /// Stops watching the question that waits, and discards its forks for `reason`.
@@ -112,7 +112,7 @@ impl ExploreSession {
             );
         }
         drop(done);
-        let deadline = Instant::now() + CLOSE_WAIT;
+        let deadline = Instant::now() + self.run_ahead.close_wait;
         let mut cleaned = HashSet::new();
         while cleaned.len() < taken.forks.len() {
             let left = deadline.saturating_duration_since(Instant::now());

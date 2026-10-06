@@ -106,6 +106,8 @@ pub(crate) struct RunAheadState {
     /// The path each turn of the session's round took after an answer to a question run-ahead
     /// watched, by request, as the reviewer is shown it.
     paths: BTreeMap<String, TurnPath>,
+    /// How long a closing reviewer waits for its forks to stop.
+    close_wait: std::time::Duration,
 }
 
 /// A question that waits, and the agent watched for its forks.
@@ -188,6 +190,7 @@ impl RunAheadState {
             left_unrecorded: HashSet::new(),
             held: None,
             paths: BTreeMap::new(),
+            close_wait: clean::CLOSE_WAIT,
         }
     }
 
@@ -284,6 +287,19 @@ impl ExploreSession {
         {
             self.run_ahead_arm(round, question);
         }
+    }
+
+    /// Whether the session moves the pane's agent to another session: a switch or a settling
+    /// runs.
+    #[cfg(test)]
+    pub(crate) fn moves_agent(&self) -> bool {
+        self.run_ahead.switching.is_some() || self.run_ahead.settling.is_some()
+    }
+
+    /// A closing reviewer waits `wait` for its forks to stop, in place of six seconds.
+    #[cfg(test)]
+    pub(crate) fn wait_on_close(&mut self, wait: std::time::Duration) {
+        self.run_ahead.close_wait = wait;
     }
 
     /// Shows the reviewer the path `path` the turn `request` of `round` took: the pane and the

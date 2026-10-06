@@ -80,6 +80,10 @@ impl State {
         match input {
             Input::Ui(command) => self.command(command),
             Input::Prompt(request) => self.prompts.push(request),
+            #[cfg(any(test, feature = "flush"))]
+            Input::Flush(done) => {
+                let _ = done.send(());
+            }
             Input::Mcp(request) => {
                 let result = self.request(&request.access, &request.operation);
                 request.respond(result);

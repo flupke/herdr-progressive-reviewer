@@ -38,6 +38,10 @@ enum Input {
     Ui(Command),
     Mcp(review_mcp::Request),
     Prompt(delivery::PromptRequest),
+    /// Answers once every earlier input is handled: each of their prompts whose agent is known
+    /// is with the courier.
+    #[cfg(any(test, feature = "flush"))]
+    Flush(Sender<()>),
     /// The outcome of the comment notification sent with access `token` for the comments
     /// through sequence `through`.
     Notified {

@@ -69,6 +69,8 @@ struct GateState {
     holds: usize,
     /// Whether the courier is sending a prompt.
     sending: bool,
+    /// The prompts handed to the courier that it has not sent, withdrawn or failed yet.
+    queued: usize,
 }
 
 impl PromptGate {
@@ -87,14 +89,42 @@ impl PromptGate {
         let _sent = Sent(self);
         delivery.send(port);
     }
+
+    /// A prompt for the courier to send, after those it holds already.
+    fn queue(&self) {
+        self.lock().queued += 1;
+    }
+
+    /// The courier will never send a prompt it was handed: it stopped.
+    fn unqueue(&self) {
+        self.lock().queued -= 1;
+        self.changed.notify_all();
+    }
+
+    /// Waits until the courier sent, withdrew or failed every prompt it was handed, but those
+    /// a [`PromptHold`] holds.
+    #[cfg(any(test, feature = "flush"))]
+    fn settle(&self) {
+        drop(
+            self.changed
+                .wait_while(self.lock(), |state| {
+                    state.sending || (state.queued > 0 && state.holds == 0)
+                })
+                .unwrap_or_else(PoisonError::into_inner),
+        );
+    }
 }
 
-/// Marks the courier's prompt sent once dropped, even when sending it panicked.
+/// Marks the courier's prompt sent, and its outcome reported, once dropped, even when sending it
+/// panicked.
 struct Sent<'a>(&'a PromptGate);
 
 impl Drop for Sent<'_> {
     fn drop(&mut self) {
-        self.0.lock().sending = false;
+        let mut state = self.0.lock();
+        state.sending = false;
+        state.queued -= 1;
+        drop(state);
         self.0.changed.notify_all();
     }
 }
@@ -109,6 +139,8 @@ pub struct PromptHold(Arc<PromptGate>);
 impl PromptHold {
     fn new(gate: &Arc<PromptGate>) -> Self {
         gate.lock().holds += 1;
+        // A flush waits for the prompts that no hold holds.
+        gate.changed.notify_all();
         Self(Arc::clone(gate))
     }
 
@@ -149,11 +181,18 @@ impl std::fmt::Debug for PromptHold {
 
 /// Sends prompts on a thread of its own, one at a time and in order, so that the worker keeps
 /// serving the reviewer and the agents while Herdr waits for an agent to start on a prompt.
-pub(super) struct Courier(Sender<Parcel>);
+pub(super) struct Courier {
+    parcels: Sender<Parcel>,
+    gate: Arc<PromptGate>,
+}
 
 impl Courier {
     pub(super) fn start(port: Arc<dyn AgentPort>, gate: Arc<PromptGate>) -> Self {
         let (sender, parcels) = mpsc::channel();
+        let courier = Self {
+            parcels: sender,
+            gate: Arc::clone(&gate),
+        };
         // Not joined: a prompt in flight may wait for its agent for seconds, and its outcome
         // still reaches its owner after the worker stops.
         thread::spawn(move || {
@@ -167,7 +206,7 @@ impl Courier {
                 }
             }
         });
-        Self(sender)
+        courier
     }
 
     /// Send `text` to `agent` after the prompts sent before it, unless `cancelled` is set by
@@ -185,10 +224,12 @@ impl Courier {
             cancelled,
             outcome: Box::new(outcome),
         }));
-        if let Err(mpsc::SendError(Parcel::Prompt(delivery))) = self.0.send(parcel) {
+        self.gate.queue();
+        if let Err(mpsc::SendError(Parcel::Prompt(delivery))) = self.parcels.send(parcel) {
             (delivery.outcome)(Err(PromptError::Delivery(
                 "The reviewer prompt courier stopped; nothing was sent".into(),
             )));
+            self.gate.unqueue();
         }
     }
 
@@ -196,7 +237,7 @@ impl Courier {
     #[cfg(test)]
     pub(super) fn flush(&self) {
         let (done, flushed) = mpsc::channel();
-        self.0.send(Parcel::Flush(done)).unwrap();
+        self.parcels.send(Parcel::Flush(done)).unwrap();
         flushed.recv().unwrap();
     }
 }
@@ -265,6 +306,20 @@ impl PromptSender {
 
     pub fn send(&self, agent: PinnedAgent, text: String) -> (PromptReceipt, PromptCancellation) {
         self.send_observed(agent, text, None)
+    }
+
+    /// Waits until the worker took every prompt sent before, and the courier sent, withdrew or
+    /// failed each one it was handed, but those a [`PromptHold`] holds: a test learns that a
+    /// prompt it did not see by then was not sent. A prompt whose pinned agent is not known yet
+    /// stays with the worker, unsent. A prompt sent with a [`DispatchObserver`] has its outcome
+    /// reported to it once this returns.
+    #[cfg(any(test, feature = "flush"))]
+    pub fn flush(&self) {
+        let (done, taken) = mpsc::channel();
+        if self.sender.send(Input::Flush(done)).is_ok() {
+            let _ = taken.recv();
+        }
+        self.gate.settle();
     }
 
     pub fn send_observed(
@@ -414,6 +469,63 @@ mod tests {
         );
         assert_eq!(outcome.recv().unwrap(), ("first", true));
         assert_eq!(outcome.recv().unwrap(), ("withdrawn", false));
+    }
+
+    /// Records whether the outcome of a prompt was saved.
+    struct SavedOutcome(AtomicBool);
+
+    impl DispatchObserver for SavedOutcome {
+        fn before_attempt(&self, _: &herdr_client::protocol::Agent) -> Result<(), String> {
+            Ok(())
+        }
+
+        fn finished(&self, _: &Result<(), PromptError>) -> Result<(), String> {
+            self.0.store(true, Ordering::Release);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_flush_passes_a_held_prompt_and_returns_once_a_sent_one_has_its_outcome_saved() {
+        let directory = tempfile::tempdir().unwrap();
+        let store =
+            review_store::ReviewStore::open(directory.path().join("state"), directory.path())
+                .unwrap();
+        let agents = herdr_client::memory::InMemoryAgents::default();
+        let agent: Agent = serde_json::from_value(serde_json::json!({"pane_id":"pane", "tab_id":"tab", "workspace_id":"workspace", "agent_status":"idle"})).unwrap();
+        agents.upsert_agent(agent.clone());
+        let worker = crate::Worker::start(
+            store,
+            agents.clone(),
+            herdr_client::protocol::AgentTarget::new(
+                agent.workspace_id.clone(),
+                Some(agent.pane_id.clone()),
+            ),
+            Err("No MCP listener in this test".into()),
+            |_| Err("No MCP listener in this test".into()),
+            |_| {},
+        );
+        let prompts = worker.prompt_sender();
+        let hold = prompts.hold();
+        let saved = Arc::new(SavedOutcome(AtomicBool::new(false)));
+        let (_receipt, _cancellation) =
+            prompts.send_observed(PinnedAgent::new(agent), "Held".into(), Some(saved.clone()));
+
+        prompts.flush();
+        assert!(agents.prompts().is_empty(), "the held prompt is not sent");
+        assert!(!saved.0.load(Ordering::Acquire));
+
+        drop(hold);
+        prompts.flush();
+        assert_eq!(
+            agents
+                .prompts()
+                .iter()
+                .map(|prompt| prompt.text.as_str())
+                .collect::<Vec<_>>(),
+            ["Held"]
+        );
+        assert!(saved.0.load(Ordering::Acquire), "its outcome is saved");
     }
 
     #[test]

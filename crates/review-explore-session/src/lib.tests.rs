@@ -217,22 +217,17 @@ impl Harness {
             .to_owned()
     }
 
+    /// The next prompt the agent in the pane got, once every prompt sent so far went out, its
+    /// outcome saved, or is held.
     fn delivered_prompt(&mut self) -> String {
-        let deadline = Instant::now() + Duration::from_secs(10);
-        loop {
-            let prompts = self.agents.prompts();
-            if let Some(prompt) = prompts.get(self.delivered) {
-                self.delivered += 1;
-                assert_eq!(prompt.pane_id, PaneId(PANE.into()));
-                return prompt.text.clone();
-            }
-            assert!(
-                self.inbox.try_recv().is_err(),
-                "the prompt was not delivered"
-            );
-            assert!(Instant::now() < deadline, "no prompt was delivered");
-            std::thread::sleep(Duration::from_millis(10));
-        }
+        self.threads.prompt_sender().flush();
+        let prompts = self.agents.prompts();
+        let Some(prompt) = prompts.get(self.delivered) else {
+            panic!("no prompt was delivered: {:?}", self.inbox.try_recv().ok());
+        };
+        self.delivered += 1;
+        assert_eq!(prompt.pane_id, PaneId(PANE.into()));
+        prompt.text.clone()
     }
 
     /// Submit as the agent and acknowledge each committed round as the UI does.
@@ -247,22 +242,19 @@ impl Harness {
         operation: Operation,
         acknowledge: bool,
     ) -> Result<Response, String> {
-        let (request, mut pending) = Request::new(access.to_owned(), operation);
+        let (request, pending) = Request::new(access.to_owned(), operation);
         self.session.handle(Input::Submission(Box::new(request)));
-        let deadline = Instant::now() + Duration::from_secs(20);
-        loop {
-            if let Ok(result) = pending.try_recv() {
-                return result;
-            }
-            assert!(Instant::now() < deadline, "the session did not respond");
-            if let Ok(event) = self.events.recv_timeout(Duration::from_millis(10))
-                && let Some(committed) = event.downcast_ref::<ui_events::ExploreCommitted>()
+        // The session published the round it committed while it handled the submission; its
+        // response waits for the acknowledgement, at most fifteen seconds.
+        while let Ok(event) = self.events.try_recv() {
+            if let Some(committed) = event.downcast_ref::<ui_events::ExploreCommitted>()
                 && acknowledge
             {
                 self.exploration = Some(committed.round.exploration.clone());
                 committed.response.send(Ok(committed.applied)).unwrap();
             }
         }
+        pending.blocking_recv().expect("the session responds")
     }
 
     /// Answer the latest question as the reviewer, then post it.
@@ -628,11 +620,8 @@ fn a_vision_session_records_each_prompt_it_sent_as_a_numbered_turn() {
     let first = harness.request(None);
     let access = harness.turn(&first);
     let turn = |number: u32| -> serde_json::Value {
+        // Recorded with the outcome of the prompt, which the harness waited for.
         let path = directory.path().join(format!("turn-{number:06}.json"));
-        assert!(review_test_support::eventually(
-            Duration::from_secs(10),
-            || path.exists()
-        ));
         serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
     };
 
