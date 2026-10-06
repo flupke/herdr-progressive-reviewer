@@ -1,3 +1,11 @@
+# Eyes and hands
+
+Give yourself eyes and hands on what you build: run it, look at it, act on it as its user
+would, and fix what you see. Tests prove what you thought of; eyes show what you did not.
+`make vision` drives the review pane (`.agents/wiki/tui-vision.md`); `make explore-page`
+and `make explore-gallery` show the Explore page (`.agents/wiki/explore-page-standalone.md`).
+When a part of the product has no such tool, build one before you rely on tests alone.
+
 # Standards
 
 - Name things with the terms of `CONTEXT.md`, in code, docs and UI text, and use
@@ -96,9 +104,8 @@ Follow these steps for every change: a feature, a fix, or a change to docs.
    false, and add a line only when it earns its place (see Wiki). Record a
    decision that the change made, when the decision passes the test in
    Decisions.
-3. For a change the user can see, explore the affected paths in the real UI
-   with `make vision` (see `.agents/wiki/tui-vision.md`) and
-   fix what it finds.
+3. For a change the user can see, explore the affected paths with the tools of
+   Eyes and hands, in the pane or on the Explore page, and fix what you find.
 4. Invoke the `code-review` skill against the fixed point; the subagents it
    starts are authorized. Fix its findings, by your judgement for a judgement
    call, and review again until a round finds nothing that you fix, for at most
