@@ -51,8 +51,6 @@
 //!   `POST /test/sessions/{token}/back`. The round stays where it is, and may move meanwhile.
 //! - `POST /test/sessions/{token}/review-everything`: the reviewer marks every changed line as
 //!   reviewed, and no round can start: nothing is left to review. The round stays where it is.
-//! - `POST /test/sessions/{token}/unreview-line`: the reviewer unmarks a line, and a round can
-//!   start again.
 //! - `POST /test/sessions/{token}/mark-by-hand`: the reviewer marks three more lines of the
 //!   change's first file by hand, which the page's meter shows at once. The round stays where
 //!   it is.
@@ -113,10 +111,6 @@ pub(crate) fn router(sessions: Sessions) -> Router {
             post(|state, path| async move {
                 block_starts(state, path, Some(StartBlock::NothingToReview))
             }),
-        )
-        .route(
-            "/test/sessions/{token}/unreview-line",
-            post(|state, path| async move { block_starts(state, path, None) }),
         )
         .route("/test/sessions/{token}/mark-by-hand", post(mark_by_hand))
         .route("/test/sessions/{token}/actions", get(actions))

@@ -22,6 +22,13 @@ test('the page follows an answer given in the pane, the next question, then the 
   await explore.askQuestion();
   await expect(screen.getByRole('region', 'Question 2')).toContainText('Where should the kept draft be stored?');
   await expect(screen.getByRole('status')).toBeHidden();
+  // Question 2 carries a diagram Mermaid cannot parse: the page reports it to the tool, which
+  // keeps it with the question.
+  await expect
+    .poll(() => explore.diagramErrors())
+    .toEqual([
+      expect.objectContaining({ question: 'draft-storage', version: 1, message: expect.stringContaining('Parse error') }),
+    ]);
 
   await explore.answerInPane();
   await explore.conclude();

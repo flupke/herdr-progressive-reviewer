@@ -68,6 +68,22 @@ test('a passage selected in the question goes to the chat as a quote', async ({ 
   expect(sent.quote).toBe("Should a reopened round keep the reviewer's unsent draft?");
 });
 
+test('a message that did not reach the agent is sent again with Retry', async ({ explore, screen }) => {
+  await explore.open();
+  await explore.askQuestion();
+  await screen.getByRole('button', 'Talk to the agent').tap();
+  const chat = screen.getByRole('complementary', CHAT);
+  await chat.getByRole('textbox', 'Message to the agent').fill('Who reads the draft?');
+  await chat.getByRole('button', 'Send').tap();
+  await expect(chat.getByRole('status')).toContainText('The agent is answering');
+  await explore.messagesNotDelivered();
+  await expect(chat.getByRole('alert')).toContainText('Your message did not reach the agent');
+
+  await chat.getByRole('button', 'Retry').tap();
+  await expect(chat.getByRole('status')).toContainText('The agent is answering');
+  expect(await explore.actions()).toEqual(['retry-messages']);
+});
+
 test('a message being typed in the chat comes back after a reload', async ({ explore, screen }) => {
   await explore.open();
   await explore.askQuestion();

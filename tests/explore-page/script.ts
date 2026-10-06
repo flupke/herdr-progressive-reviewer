@@ -71,7 +71,8 @@ async function main(): Promise<void> {
   const options = new Options(process.env);
   const run = (await import(pathToFileURL(options.script).href)).default;
   if (typeof run !== 'function') throw new Error(`${options.script} has no default export to run`);
-  const output = mkdtempSync(join(tmpdir(), 'explore-script-'));
+  // The folder of the screenshots, made at the first one.
+  let output: string | undefined;
   const shots: string[] = [];
   const server = await StandaloneServer.start(['--data', options.data]);
   const { browser, close } = await launch();
@@ -84,6 +85,7 @@ async function main(): Promise<void> {
       openSession(server.baseUrl, { open: (path) => on.goto(new URL(path, server.baseUrl).href) }, data);
     const shot = async (name: string) => {
       await settle(page);
+      output ??= mkdtempSync(join(tmpdir(), 'explore-script-'));
       const file = join(output, `${String(shots.length + 1).padStart(2, '0')}-${name}.png`);
       await page.screenshot({ path: file, fullPage: true, animations: 'disabled' });
       shots.push(file);

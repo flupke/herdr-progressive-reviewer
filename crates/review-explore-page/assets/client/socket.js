@@ -17,9 +17,12 @@
 const SILENCE = 25_000;
 /** How long a check of a socket that should be alive waits for the tool's reply. */
 const CHECK = 3_000;
+/** A delay in milliseconds that the page's address may set for every reconnection, in place of
+ * the back-off: the e2e tests set 0, so that a page reconnects at once. */
+const CHOSEN_DELAY = new URLSearchParams(location.search).get('reconnect-delay');
 /** The back-off: the first delay, and the longest. */
-const FIRST_DELAY = 250;
-const LONGEST_DELAY = 10_000;
+const FIRST_DELAY = CHOSEN_DELAY === null ? 250 : Number(CHOSEN_DELAY);
+const LONGEST_DELAY = CHOSEN_DELAY === null ? 10_000 : Number(CHOSEN_DELAY);
 /** A socket that stayed open this long resets the back-off. */
 const STABLE = 5_000;
 /** The close code of a socket whose token no longer opens a round (crate::socket::TOKEN_ENDED). */

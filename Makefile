@@ -9,8 +9,9 @@ build:
 	done
 
 # The checks come in levels, cheapest first; AGENTS.md says when to run which.
-# They all build with the same flags, so they share one build cache.
-lint test check check-changed check-with-e2e e2e-tui e2e-explore explore-script: export RUSTFLAGS = -Dwarnings
+# They all build with the same flags, so they share one build cache, and so do the Explore page's
+# standalone tools, which build the server the page's e2e tests run.
+lint test check check-changed check-with-e2e e2e-tui e2e-explore explore-script explore-gallery explore-page: export RUSTFLAGS = -Dwarnings
 
 # Level 1: types and lints of every target, the Explore page's client included, and the
 # complexity gate.

@@ -55,8 +55,7 @@ Gotchas of e2e 0.16:
 nix develop --command make e2e-explore
 ```
 
-It runs every test at a desktop size, against its own server, in about 10 seconds;
-the reconnection journey waits for the client's back-off, at most 10 seconds.
+It runs every test at a desktop size, against its own server, in about 10 seconds.
 `E2E_ARGS` go to `e2e run`, with paths relative to `tests/explore-page`:
 `make e2e-explore E2E_ARGS=tests/round.e2e.ts` runs one file.
 The first run in a checkout installs the npm packages from the committed

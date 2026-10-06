@@ -30,20 +30,14 @@ EXPLORE_PAGE_ARGS='--data rich'` serves it.
 nix develop --command make explore-script SCRIPT=path/to/script.ts
 ```
 
-This starts a fresh standalone server, opens a session of it in the dev shell's headless
-Chromium, and runs the script's default export with the Playwright page, the session
-(`tests/explore-page/tests/session.ts`, which moves the round as the agent and the pane
-would) and `shot(name)`, a full-page screenshot once the page has drawn. It prints what
-the script prints, then the path of each screenshot, under a new folder of the system
-temporary directory. Keep the script outside the repository, in a scratch folder: it is a
-throwaway, and the run stores nothing in the repository. The script imports only types:
-the packages resolve from `tests/explore-page`, not from the script's folder. The header
-of [`script.ts`](../../tests/explore-page/script.ts) shows a script and lists the
-variables: `SCRIPT_DATA=rich` plays the gallery's long round, `SCRIPT_WIDTH=390` a
-phone's width.
+This runs a throwaway Playwright script against a fresh session of the standalone
+server, in the dev shell's headless Chromium: the header of
+[`script.ts`](../../tests/explore-page/script.ts) shows a script and lists what it gets
+and the variables. Keep the script in a scratch folder outside the repository: it is a
+throwaway.
 
-Use it to see what a change does to a state the gallery has no entry for, or to check a
-behaviour of the client by hand before deciding whether it earns a journey in the
+Use it to see a state the gallery has no entry for, or to try a behaviour of the client
+by hand before deciding whether it earns a journey in the
 [e2e tests](explore-page-e2e.md).
 
 ## Screenshot gallery

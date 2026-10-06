@@ -43,8 +43,11 @@ export interface SentMessage {
 export interface Session {
   /** The token of the page's address. */
   readonly token: string;
-  /** Opens the page through the address the tool gives the reviewer, with the session's token. */
-  open(): Promise<void>;
+  /**
+   * Opens the page through the address the tool gives the reviewer, with the session's token,
+   * then, when given, at `/?{query}`, such as `reconnect-delay=0` (client/socket.js).
+   */
+  open(query?: string): Promise<void>;
   /** Opens the design screen, at the address the rail's "Design ▾" links to (`#design`). */
   openDesign(): Promise<void>;
   /**
@@ -127,8 +130,6 @@ export interface Session {
   starts(): Promise<SentStart[]>;
   /** The reviewer marks every changed line as reviewed: nothing is left to review. */
   reviewEverything(): Promise<void>;
-  /** The reviewer unmarks a line: a round can start again. */
-  unreviewLine(): Promise<void>;
   /** The reviewer marks three more lines of the change by hand; the round stays where it is. */
   markByHand(): Promise<void>;
   /**
@@ -139,8 +140,9 @@ export interface Session {
   actions(): Promise<string[]>;
   /**
    * The page stops following the round, as a page whose socket does not get the tool's
-   * messages: it keeps showing the round as it was until the reviewer acts on it. A test of a
-   * refusal of an action on a stale page holds the page first, then moves the round.
+   * messages: it keeps showing the round as it was until the reviewer acts on it. The gallery
+   * holds the page, then moves the round, to show the refusal of an action the round moved past
+   * (`refused` in gallery/states.ts).
    */
   holdPage(): Promise<void>;
   /**
@@ -200,8 +202,9 @@ export async function openSession(baseUrl: string | undefined, page: SessionPage
   };
   return {
     token,
-    open: async () => {
+    open: async (query?: string) => {
       await page.open(`/?token=${token}`);
+      if (query) await page.open(`/?${query}`);
     },
     openDesign: async () => {
       await page.open(`/?token=${token}#design`);
@@ -232,7 +235,6 @@ export async function openSession(baseUrl: string | undefined, page: SessionPage
     failStart: () => step('fail-start'),
     starts: () => read<SentStart[]>('starts'),
     reviewEverything: () => step('review-everything'),
-    unreviewLine: () => step('unreview-line'),
     markByHand: () => step('mark-by-hand'),
     actions: () => read<string[]>('actions'),
     holdPage: () => step('hold'),
