@@ -709,7 +709,6 @@ fn working_copy_navigation_preserves_outlines_and_allows_interview_answers() {
 #[test]
 #[ignore = "requires a working rust-analyzer and Rust toolchain"]
 fn real_rust_lsp_navigates_working_copy_sources_and_rejects_other_view_results() {
-    use std::time::{Duration, Instant};
     let (mut fixture, request) = ExploreUi::new();
     fixture.respond(&request, 1);
     let path = fixture.files.root().join("caller.rs");
@@ -741,32 +740,23 @@ fn real_rust_lsp_navigates_working_copy_sources_and_rejects_other_view_results()
     let worker = review_lsp::Worker::start(fixture.files.root().into());
     let events = worker.event_receiver();
     worker.open_document(path).unwrap();
-    let deadline = Instant::now() + Duration::from_secs(45);
+    // rust-analyzer is ready once it reports itself quiescent: it indexed the crate. The guard
+    // fires only on a hang.
+    let guard = Duration::from_secs(45);
     loop {
-        let event = events.recv_timeout(Duration::from_secs(45)).unwrap();
+        let event = events.recv_timeout(guard).unwrap();
         if matches!(event, LspEvent::Ready(_)) {
             break;
         }
         assert!(!matches!(event, LspEvent::Failed { .. }), "{event:?}");
     }
-    let event = loop {
-        worker
-            .request(Operation::Definition, query.clone())
-            .unwrap();
-        let event = events.recv_timeout(Duration::from_secs(45)).unwrap();
-        if let LspEvent::Locations { locations, .. } = &event
-            && !locations.is_empty()
-        {
-            break event;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "Rust indexing did not produce a definition: {event:?}"
-        );
-        std::thread::sleep(Duration::from_millis(100));
-    };
+    worker
+        .request(Operation::Definition, query.clone())
+        .unwrap();
+    let event = events.recv_timeout(guard).unwrap();
     assert!(
-        matches!(&event, LspEvent::Locations { locations, .. } if locations.iter().any(|location| location.path.ends_with("policy.rs")))
+        matches!(&event, LspEvent::Locations { locations, .. } if locations.iter().any(|location| location.path.ends_with("policy.rs"))),
+        "{event:?}"
     );
     fixture.app.publish(event.clone());
     assert!(fixture.text().contains("resolved()"));

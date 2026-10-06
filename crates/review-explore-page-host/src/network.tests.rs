@@ -1,4 +1,5 @@
 use std::net::TcpStream;
+use std::sync::mpsc;
 use std::time::Duration;
 
 use review_explore_page::RoundStage;
@@ -194,14 +195,12 @@ fn unsharing_closes_the_page_on_the_network_and_announces_nothing_more() {
 
     shared.host.network().unshare();
 
-    assert!(review_test_support::refuses_connections(shared.address));
+    assert!(TcpStream::connect(shared.address).is_err());
     shared.round.publish(Some(published("r2")), working());
-    assert!(
-        shared
-            .announced
-            .recv_timeout(Duration::from_millis(300))
-            .is_err(),
-        "no address after the page left the network"
+    assert_eq!(
+        shared.announced.try_recv(),
+        Err(mpsc::TryRecvError::Disconnected),
+        "the page left the network with what announced its address"
     );
 }
 
@@ -219,7 +218,7 @@ fn sharing_again_moves_the_page_to_the_new_listener() {
         url.starts_with(&format!("http://{address}/?token=")),
         "{url}"
     );
-    assert!(review_test_support::refuses_connections(shared.address));
+    assert!(TcpStream::connect(shared.address).is_err());
     let host = address.to_string();
     assert_eq!(status(address, "GET", path(&url), &[("Host", &host)]), 303);
 }

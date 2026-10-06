@@ -40,10 +40,18 @@ struct LongToast {
 }
 
 /// Active short and long toasts.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct ToastState {
     toasts: Vec<Toast>,
     long_toasts: VecDeque<LongToast>,
+    /// How long a long toast waits before it appears.
+    long_toast_delay: Duration,
+}
+
+impl Default for ToastState {
+    fn default() -> Self {
+        Self::with_long_toast_delay(LONG_TOAST_DELAY)
+    }
 }
 
 /// Visual severity of a toast.
@@ -63,20 +71,35 @@ impl ToastKind {
 }
 
 impl ToastState {
+    /// Toasts whose long toasts appear `delay` after they start, in place of the long-toast
+    /// delay (250 ms by default).
+    pub fn with_long_toast_delay(delay: Duration) -> Self {
+        Self {
+            toasts: Vec::new(),
+            long_toasts: VecDeque::new(),
+            long_toast_delay: delay,
+        }
+    }
+
     /// Whether a toast appears or expires since the previous frame.
     pub fn changes_between(&self, previous: Instant, now: Instant) -> bool {
         self.toasts.iter().any(|toast| toast.expires <= now)
             || self.long_toasts.front().is_some_and(|toast| {
-                let appears = toast.started + LONG_TOAST_DELAY;
+                let appears = toast.started + self.long_toast_delay;
                 previous < appears && appears <= now
             })
     }
 
     /// Add a short toast.
     pub fn push(&mut self, text: impl Into<String>, kind: ToastKind) {
+        self.push_at(text, kind, Instant::now());
+    }
+
+    /// Add a short toast shown from `now`.
+    fn push_at(&mut self, text: impl Into<String>, kind: ToastKind, now: Instant) {
         self.toasts.push(Toast {
             text: text.into(),
-            expires: Instant::now() + kind.duration(),
+            expires: now + kind.duration(),
             kind,
         });
     }
@@ -86,13 +109,19 @@ impl ToastState {
         self.toasts.retain(|toast| toast.expires > now);
     }
 
-    /// Add a toast that appears after 250 ms and remains until finished.
+    /// Add a toast that appears after the long-toast delay (250 ms by default) and remains until
+    /// finished.
     pub fn start_long_toast(&mut self, text: impl Into<String>) -> ToastId {
+        self.start_long_toast_at(text, Instant::now())
+    }
+
+    /// Add a long toast started at `now`.
+    fn start_long_toast_at(&mut self, text: impl Into<String>, now: Instant) -> ToastId {
         let id = ToastId::generate();
         self.long_toasts.push_back(LongToast {
             id,
             text: text.into(),
-            started: Instant::now(),
+            started: now,
         });
         id
     }
@@ -113,7 +142,7 @@ impl ToastState {
         let long_toast = self
             .long_toasts
             .front()
-            .filter(|toast| now.saturating_duration_since(toast.started) >= LONG_TOAST_DELAY);
+            .filter(|toast| now.saturating_duration_since(toast.started) >= self.long_toast_delay);
         if let Some(toast) = long_toast {
             ToastView {
                 text: &toast.text,

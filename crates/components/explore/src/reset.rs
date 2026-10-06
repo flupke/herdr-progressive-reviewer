@@ -15,9 +15,11 @@ pub(super) struct ResetConfirmation {
 }
 
 impl ResetConfirmation {
-    /// Whether this click confirms a waiting one; otherwise it starts waiting.
+    /// Whether this click confirms a waiting one; otherwise it starts waiting until
+    /// [`CONFIRMATION`] after `now`. A first click waits until the tick past its deadline cancels
+    /// it: the click that confirms is the one on the Confirm reset the screen shows.
     fn confirms(&mut self, now: Instant) -> bool {
-        if self.deadline.take().is_some_and(|deadline| now < deadline) {
+        if self.deadline.take().is_some() {
             return true;
         }
         self.deadline = Some(now + CONFIRMATION);
@@ -98,3 +100,7 @@ impl ExploreComponent {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "reset.tests.rs"]
+mod tests;

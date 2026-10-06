@@ -204,6 +204,9 @@ fn stale_lsp_failures_do_not_create_toasts() {
 fn server_startup_toasts_finish_independently() {
     let mut bus = ComponentEventBus::<Action>::new();
     let target = bus.mount(|_| OverlayComponent::new(ui_theme::Theme::default()));
+    // Long toasts show at once, as they would 250 ms after they start.
+    bus.get_mut::<OverlayComponent>(target).unwrap().toasts =
+        toasts::ToastState::with_long_toast_delay(std::time::Duration::ZERO);
     let expert = review_lsp::ServerStartup {
         id: ToastId::generate(),
         name: "expert",
@@ -214,7 +217,6 @@ fn server_startup_toasts_finish_independently() {
     };
     bus.publish(LspEvent::Initializing(expert)).unwrap();
     bus.publish(LspEvent::Initializing(typescript)).unwrap();
-    std::thread::sleep(std::time::Duration::from_millis(260));
     bus.publish(LspEvent::Ready(expert)).unwrap();
     let screen = rendered_screen(&bus, target);
     assert!(screen.contains("expert ready"));

@@ -19,9 +19,8 @@ use quick_tunnel::{QuickTunnel, TunnelEvent, TunnelProgram};
 use review_explore_page::{ExplorePage, Hosts, PageFiles, PageRound, Rounds, Token};
 pub use review_explore_page_tunnel::TunnelState;
 use tokio::runtime::Handle;
-use tokio::task::JoinHandle;
 
-use super::{PageNetwork, RoundTokens, Shares, wait_for_end};
+use super::{PageNetwork, PageTask, RoundTokens, Shares};
 
 /// Receives each state of the tunnel, in order.
 pub type TunnelReport = Arc<dyn Fn(TunnelState) + Send + Sync>;
@@ -38,6 +37,25 @@ pub(super) struct Tunnels {
     opened: u64,
     /// The threads that stop closed tunnels, away from the page's thread and the reviewer's.
     stopping: Vec<thread::JoinHandle<()>>,
+    watcher: Watcher,
+}
+
+/// Tells the tests each stage through which the task that ends a tunnel with its round kept the
+/// tunnel; tells nothing outside the tests.
+#[derive(Clone, Default)]
+struct Watcher(#[cfg(test)] Option<std::sync::mpsc::Sender<review_explore_page::RoundStage>>);
+
+impl Watcher {
+    #[cfg(test)]
+    fn kept(&self, stages: &review_explore_page::RoundFeed) {
+        if let Some(kept) = &self.0 {
+            let _ = kept.send(stages.stage());
+        }
+    }
+
+    #[cfg(not(test))]
+    #[allow(clippy::unused_self)]
+    fn kept(&self, _stages: &review_explore_page::RoundFeed) {}
 }
 
 impl Tunnels {
@@ -167,7 +185,7 @@ impl PageNetwork {
             report: Arc::clone(report),
             listener: Some(listener),
             process: Some(process),
-            tasks: vec![self.watch_round(number, round)],
+            tasks: vec![self.watch_round(number, round, shares.tunnels.watcher.clone())],
         })
     }
 
@@ -190,11 +208,16 @@ impl PageNetwork {
     /// Ends the tunnel `number` once its round no longer runs: a new round, a Reset, or the end
     /// of the reviewer's session. The page's thread runs this task, and the end waits for that
     /// thread: it runs on a thread of its own.
-    fn watch_round(&self, number: u64, round: String) -> JoinHandle<()> {
+    fn watch_round(&self, number: u64, round: String, watcher: Watcher) -> PageTask {
         let mut stages = self.round.stages().clone();
         let network = self.downgrade();
-        self.runtime.spawn(async move {
-            while stages.round().as_deref() == Some(round.as_str()) && stages.changed().await {}
+        PageTask::spawn(&self.runtime, async move {
+            while stages.round().as_deref() == Some(round.as_str()) {
+                watcher.kept(&stages);
+                if !stages.changed().await {
+                    break;
+                }
+            }
             if let Some(network) = network.upgrade() {
                 thread::spawn(move || network.lock().end_tunnel(Some(number), TunnelState::Off));
             }
@@ -215,7 +238,7 @@ struct TunnelShare {
     listener: Option<TcpListener>,
     process: Option<QuickTunnel>,
     /// The task that ends the tunnel with its round, then the server.
-    tasks: Vec<JoinHandle<()>>,
+    tasks: Vec<PageTask>,
 }
 
 impl TunnelShare {
@@ -232,7 +255,7 @@ impl TunnelShare {
             |_| {},
         );
         let app = page.into_router(axum::Router::new());
-        self.tasks.push(runtime.spawn(async move {
+        self.tasks.push(PageTask::spawn(runtime, async move {
             let Ok(listener) = tokio::net::TcpListener::from_std(listener) else {
                 return;
             };
@@ -259,7 +282,7 @@ impl Drop for TunnelShare {
             task.abort();
         }
         for task in &self.tasks {
-            wait_for_end(task);
+            task.wait_for_end();
         }
         drop(self.listener.take());
         drop(self.process.take());

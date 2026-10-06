@@ -40,6 +40,8 @@ const REVIEW: &str = "review-1";
 struct Owner {
     publisher: Arc<RoundPublisher>,
     commands: Arc<Mutex<Vec<String>>>,
+    /// Signalled each time a command arrives.
+    command_arrived: Arc<tokio::sync::Notify>,
     open: Arc<Mutex<bool>>,
     latest: Arc<Mutex<Option<LatestAnswer>>>,
     /// The round's overview, which most tests leave empty.
@@ -58,6 +60,7 @@ impl Owner {
         let owner = Self {
             publisher: Arc::new(RoundPublisher::default()),
             commands: Arc::default(),
+            command_arrived: Arc::default(),
             open: Arc::new(Mutex::new(true)),
             latest: Arc::default(),
             overview: Arc::new(Mutex::new(RoundOverview {
@@ -95,6 +98,13 @@ impl Owner {
     /// The commands the page sent, by kind, in order.
     fn commands(&self) -> Vec<String> {
         lock(&self.commands).clone()
+    }
+
+    /// Waits until the page sent a command.
+    async fn first_command(&self) {
+        while self.commands().is_empty() {
+            self.command_arrived.notified().await;
+        }
     }
 
     fn take(&self, command: PageCommand) {
@@ -186,6 +196,7 @@ impl Owner {
             _ => ("other", None),
         };
         lock(&self.commands).push(kind.to_owned());
+        self.command_arrived.notify_one();
         if let Some(next) = next {
             self.publish(next);
         }
@@ -358,6 +369,11 @@ async fn serve(owner: Owner) -> SocketAddr {
         |_| {},
     );
     let app = page.into_router(axum::Router::new());
+    // Without Nagle's algorithm, a reply is sent at once instead of after the delayed
+    // acknowledgement of the view before it.
+    let listener = axum::serve::ListenerExt::tap_io(listener, |stream| {
+        let _ = stream.set_nodelay(true);
+    });
     tokio::spawn(async move { axum::serve(listener, app).await });
     address
 }
@@ -810,11 +826,9 @@ async fn a_request_after_the_token_ended_is_refused_while_another_waits_for_its_
         json!({ "id": 6, "method": "answer", "params": answer }),
     )
     .await;
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-    while owner.commands().is_empty() {
-        assert!(tokio::time::Instant::now() < deadline);
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
+    tokio::time::timeout(Duration::from_secs(5), owner.first_command())
+        .await
+        .expect("the answer reaches the owner within 5 s");
 
     *lock(&owner.open) = false;
     request(

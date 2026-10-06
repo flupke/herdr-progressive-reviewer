@@ -3,11 +3,13 @@
 //! reviewer's [`NetworkAccess`] settings say whether, and on which interface and port. The
 //! tunnel that shares the running round ([`tunnel`]) takes the same tokens.
 
+use std::future::Future;
 use std::io;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, UdpSocket};
-use std::sync::{Arc, Mutex, PoisonError, Weak};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::pin::Pin;
+use std::sync::{Arc, Mutex, PoisonError, Weak, mpsc};
+use std::task::{Context, Poll};
+use std::time::Duration;
 
 use review_explore_page::{ExplorePage, Hosts, PageFiles, PageRound, Rounds, Token};
 pub use review_explore_page_settings::NetworkAccess;
@@ -118,7 +120,7 @@ impl PageNetwork {
         );
         let app = page.into_router(axum::Router::new());
         let listener = listener.into_std();
-        let server = self.runtime.spawn(async move {
+        let server = PageTask::spawn(&self.runtime, async move {
             let Ok(listener) = tokio::net::TcpListener::from_std(listener) else {
                 return;
             };
@@ -190,7 +192,7 @@ impl Drop for TokenRenewal {
 struct NetworkShare {
     tokens: RoundTokens,
     /// The server, which owns the listener.
-    server: JoinHandle<()>,
+    server: PageTask,
 }
 
 impl Drop for NetworkShare {
@@ -200,15 +202,49 @@ impl Drop for NetworkShare {
     fn drop(&mut self) {
         self.tokens.announce_to(None);
         self.server.abort();
-        wait_for_end(&self.server);
+        self.server.wait_for_end();
     }
 }
 
-/// Waits, at most [`STOP_TIMEOUT`], for the page's thread to drop the aborted `task`.
-fn wait_for_end(task: &JoinHandle<()>) {
-    let deadline = Instant::now() + STOP_TIMEOUT;
-    while !task.is_finished() && Instant::now() < deadline {
-        thread::sleep(Duration::from_millis(1));
+/// A task on the page's thread, which says when that thread dropped it.
+struct PageTask {
+    handle: JoinHandle<()>,
+    /// Disconnected once the task's future, and all it owns, dropped.
+    ended: mpsc::Receiver<()>,
+}
+
+impl PageTask {
+    fn spawn(runtime: &Handle, future: impl Future<Output = ()> + Send + 'static) -> Self {
+        let (sender, ended) = mpsc::channel();
+        let handle = runtime.spawn(Signalled {
+            future: Box::pin(future),
+            _ended: sender,
+        });
+        Self { handle, ended }
+    }
+
+    fn abort(&self) {
+        self.handle.abort();
+    }
+
+    /// Waits, at most [`STOP_TIMEOUT`], for the page's thread to drop the task.
+    fn wait_for_end(&self) {
+        let _ = self.ended.recv_timeout(STOP_TIMEOUT);
+    }
+}
+
+/// A future that drops `_ended` after `future`, once it completes or is dropped: fields drop in
+/// order.
+struct Signalled {
+    future: Pin<Box<dyn Future<Output = ()> + Send>>,
+    _ended: mpsc::Sender<()>,
+}
+
+impl Future for Signalled {
+    type Output = ();
+
+    fn poll(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<()> {
+        self.future.as_mut().poll(context)
     }
 }
 

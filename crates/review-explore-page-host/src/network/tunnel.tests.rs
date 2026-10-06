@@ -2,7 +2,7 @@ use std::net::{SocketAddr, TcpStream};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use review_explore_page::RoundStage;
 
@@ -12,8 +12,8 @@ use crate::test_page::{Shared, no_round, page_host, path, published, request, st
 const HOST: &str = "quiet-river-stone-lamp.trycloudflare.com";
 
 /// A stand-in for `cloudflared` in a directory of its own: it writes its process ID and its
-/// arguments there, prints the box with the tunnel's address on its standard error after
-/// `before`, then runs until it is stopped.
+/// arguments there, prints the box with the tunnel's address on its standard error, then runs
+/// until it is stopped.
 struct StandIn {
     directory: tempfile::TempDir,
     program: TunnelProgram,
@@ -65,17 +65,14 @@ impl StandIn {
         let pid = std::fs::read_to_string(self.file("pid")).unwrap();
         Path::new(&format!("/proc/{}", pid.trim())).exists()
     }
+}
 
-    /// Waits until the stand-in's process ended; whether it did within five seconds.
-    fn ends(&self) -> bool {
-        let deadline = Instant::now() + Duration::from_secs(5);
-        while self.runs() {
-            if Instant::now() > deadline {
-                return false;
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
-        true
+/// Waits until the tunnels of `network` closed so far stopped: their listeners closed, and
+/// `cloudflared` ended.
+fn stopped(network: &PageNetwork) {
+    let stopping = std::mem::take(&mut network.lock().tunnels.stopping);
+    for stop in stopping {
+        stop.join().unwrap();
     }
 }
 
@@ -121,16 +118,9 @@ fn cookie(url: &str) -> String {
     format!("explore_token_80={}", token(url))
 }
 
-/// Waits until nothing listens at `address` any more; whether it happened within five seconds.
-fn closes(address: SocketAddr) -> bool {
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while TcpStream::connect(address).is_ok() {
-        if Instant::now() > deadline {
-            return false;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    true
+/// Whether nothing listens at `address`.
+fn closed(address: SocketAddr) -> bool {
+    TcpStream::connect(address).is_err()
 }
 
 #[test]
@@ -274,8 +264,9 @@ fn turning_the_tunnel_off_closes_its_page_and_ends_cloudflared() {
     network.close_tunnel();
 
     assert_eq!(next(&reported), TunnelState::Off);
-    assert!(stand_in.ends());
-    assert!(closes(target));
+    stopped(&network);
+    assert!(!stand_in.runs());
+    assert!(closed(target));
     assert_eq!(
         shared.load(&shared.first),
         200,
@@ -289,7 +280,8 @@ fn a_new_round_or_a_reset_stops_the_tunnel() {
         let shared = Shared::start();
         shared.start_round("r1");
         let stand_in = StandIn::new();
-        let reported = open(&shared.host.network(), &stand_in);
+        let network = shared.host.network();
+        let reported = open(&network, &stand_in);
         let url = opened(&reported);
         let target = stand_in.target();
 
@@ -299,8 +291,9 @@ fn a_new_round_or_a_reset_stops_the_tunnel() {
         }
 
         assert_eq!(next(&reported), TunnelState::Off, "{next_round:?}");
-        assert!(stand_in.ends(), "{next_round:?}");
-        assert!(closes(target), "{next_round:?}");
+        stopped(&network);
+        assert!(!stand_in.runs(), "{next_round:?}");
+        assert!(closed(target), "{next_round:?}");
         assert_eq!(shared.load(&url), 403, "the round's token ended");
     }
 }
@@ -356,19 +349,28 @@ fn a_missing_cloudflared_is_reported_in_one_line_with_how_to_install_it() {
 fn a_cloudflared_that_fails_closes_the_tunnels_page_and_says_why() {
     let shared = Shared::start();
     shared.start_round("r1");
+    // The stand-in fails once the test writes to its FIFO.
+    let fifo = tempfile::tempdir().unwrap();
+    let fail = fifo.path().join("fail");
+    nix::unistd::mkfifo(&fail, nix::sys::stat::Mode::S_IRWXU).unwrap();
     let stand_in = StandIn::printing(&format!(
-        "echo 'INF |  https://{HOST}  |' >&2\nsleep 0.3\necho 'ERR lost the edge' >&2\nexit 1"
+        "echo 'INF |  https://{HOST}  |' >&2\nread line < '{}'\necho 'ERR lost the edge' >&2\nexit 1",
+        fail.display()
     ));
-    let reported = open(&shared.host.network(), &stand_in);
-    opened(&reported);
+    let network = shared.host.network();
+    let reported = open(&network, &stand_in);
+    let url = opened(&reported);
     let target = stand_in.target();
+    assert_eq!(forwarded(target, "GET", &url, &[]), 303, "the page is open");
+
+    std::fs::write(&fail, "\n").unwrap();
 
     let TunnelState::Failed(reason) = next(&reported) else {
         panic!("the tunnel went down");
     };
-
     assert!(reason.contains("ERR lost the edge"), "{reason}");
-    assert!(closes(target));
+    stopped(&network);
+    assert!(closed(target));
 }
 
 #[test]
@@ -417,19 +419,24 @@ fn a_stage_of_the_same_round_keeps_the_tunnel() {
     let shared = Shared::start();
     shared.start_round("r1");
     let stand_in = StandIn::new();
-    let reported = open(&shared.host.network(), &stand_in);
+    let network = shared.host.network();
+    let (kept, watched) = mpsc::channel();
+    network.lock().tunnels.watcher = Watcher(Some(kept));
+    let reported = open(&network, &stand_in);
     let url = opened(&reported);
+    let interrupted = RoundStage::Interrupted {
+        request: None,
+        attempt: None,
+        interruption: review_explore_page::Interruption::Stopped,
+        answer: None,
+    };
 
-    shared.round.publish(
-        Some(published("r1")),
-        RoundStage::Interrupted {
-            request: None,
-            attempt: None,
-            interruption: review_explore_page::Interruption::Stopped,
-            answer: None,
-        },
-    );
+    shared
+        .round
+        .publish(Some(published("r1")), interrupted.clone());
 
-    assert!(reported.recv_timeout(Duration::from_millis(300)).is_err());
+    // The task that ends the tunnel with its round saw the new stage and kept the tunnel.
+    while watched.recv_timeout(Duration::from_secs(10)).unwrap() != interrupted {}
+    assert!(reported.try_recv().is_err(), "nothing more reported");
     assert_eq!(forwarded(stand_in.target(), "GET", &url, &[]), 303);
 }
