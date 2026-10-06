@@ -33,7 +33,7 @@ pub enum TunnelEvent {
     Failed(TunnelFailure),
 }
 
-/// A running quick tunnel. Stopping or dropping it ends `cloudflared`, and reports nothing more.
+/// A running quick tunnel. Stopping or dropping it ends `cloudflared`, whose end is not reported.
 pub struct QuickTunnel {
     fork: Arc<RunningFork>,
     /// Set once the tunnel is stopped: no event is reported after.
@@ -90,7 +90,8 @@ impl QuickTunnel {
     }
 
     /// Ends `cloudflared`: SIGTERM, then SIGKILL three seconds later. Returns once it ended, at
-    /// most five seconds later. No event is reported after this starts.
+    /// most five seconds later. Its end is not reported; an event that the tunnel was reporting
+    /// as this started may still arrive.
     pub fn stop(&self) {
         self.stopped.store(true, Ordering::SeqCst);
         self.fork.terminate();

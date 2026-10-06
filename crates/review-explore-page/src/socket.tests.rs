@@ -19,10 +19,10 @@ use review_threads::{MessageId, Post, ReviewThreads, ThreadCommand, WakeupFailur
 use review_types::ReviewUnit;
 
 use crate::{
-    Answered, CommandRefusal, CommandSender, ExplorePage, Hosts, ImplementationState, Interruption,
-    LatestAnswer, PageCommand, PageConversation, PageFiles, PageImplementation, PageRound,
-    PublishedRound, Recovery, RoundPublisher, RoundStage, Rounds, ThreadSender, ThreadsPublisher,
-    Token, Waiting,
+    Answered, CommandRefusal, CommandReply, CommandSender, ExplorePage, Hosts, ImplementationState,
+    Interruption, LatestAnswer, PageCommand, PageConversation, PageFiles, PageImplementation,
+    PageRound, PublishedRound, Recovery, RoundPublisher, RoundStage, Rounds, ThreadSender,
+    ThreadsPublisher, Token, Waiting,
 };
 
 type Socket =
@@ -49,6 +49,8 @@ struct Owner {
     threads: Arc<ThreadsPublisher>,
     /// The thread commands the page sent, by kind, in order.
     thread_commands: Arc<Mutex<Vec<String>>>,
+    /// While set, the owner keeps its replies here and sends none, as an owner still at work.
+    held: Arc<Mutex<Option<Vec<CommandReply>>>>,
 }
 
 impl Owner {
@@ -67,6 +69,7 @@ impl Owner {
             book: Arc::new(Mutex::new(ReviewThreads::new(REVIEW.into()))),
             threads: Arc::default(),
             thread_commands: Arc::default(),
+            held: Arc::default(),
         };
         owner.publish(stage);
         owner
@@ -244,7 +247,10 @@ impl Rounds for Owner {
         let owner = self.clone();
         let commands = CommandSender::new(move |command, reply| {
             owner.take(command);
-            reply.send(Ok(()));
+            match lock(&owner.held).as_mut() {
+                Some(held) => held.push(reply),
+                None => reply.send(Ok(())),
+            }
         });
         let owner = self.clone();
         let threads = ThreadSender::new(move |command, reply| {
@@ -762,6 +768,69 @@ async fn a_socket_whose_token_no_longer_opens_the_round_is_closed() {
         panic!("the socket is not closed: {closed:?}");
     };
     assert_eq!(u16::from(frame.code), super::TOKEN_ENDED);
+}
+
+#[tokio::test]
+async fn a_request_after_the_token_ended_is_not_carried_out_and_closes_the_socket() {
+    let owner = Owner::new(asking(question("q1", "two_way")));
+    let address = serve(owner.clone()).await;
+    let mut socket = Upgrade::of(address).connect(address).await.unwrap();
+    next(&mut socket).await;
+
+    *lock(&owner.open) = false;
+    let answer =
+        json!({ "round": ROUND, "question": "q1", "version": 1, "choice": "keep", "comment": "" });
+    request(
+        &mut socket,
+        json!({ "id": 7, "method": "answer", "params": answer }),
+    )
+    .await;
+
+    let closed = tokio::time::timeout(Duration::from_secs(5), socket.next())
+        .await
+        .unwrap();
+    let Some(Ok(Message::Close(Some(frame)))) = closed else {
+        panic!("the socket is not closed: {closed:?}");
+    };
+    assert_eq!(u16::from(frame.code), super::TOKEN_ENDED);
+    assert!(owner.commands().is_empty());
+}
+
+#[tokio::test]
+async fn a_request_after_the_token_ended_is_refused_while_another_waits_for_its_reply() {
+    let owner = Owner::new(asking(question("q1", "two_way")));
+    let address = serve(owner.clone()).await;
+    let mut socket = Upgrade::of(address).connect(address).await.unwrap();
+    next(&mut socket).await;
+    *lock(&owner.held) = Some(Vec::new());
+    let answer =
+        json!({ "round": ROUND, "question": "q1", "version": 1, "choice": "keep", "comment": "" });
+    request(
+        &mut socket,
+        json!({ "id": 6, "method": "answer", "params": answer }),
+    )
+    .await;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while owner.commands().is_empty() {
+        assert!(tokio::time::Instant::now() < deadline);
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+
+    *lock(&owner.open) = false;
+    request(
+        &mut socket,
+        json!({ "id": 7, "method": "answer", "params": answer }),
+    )
+    .await;
+
+    let reply = loop {
+        let message = next(&mut socket).await;
+        if message["id"] == 7 {
+            break message;
+        }
+    };
+    assert_eq!(reply["error"]["code"], super::RpcError::STALE);
+    assert_eq!(owner.commands(), ["answer"]);
 }
 
 #[tokio::test]

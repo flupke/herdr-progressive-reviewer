@@ -701,10 +701,16 @@ What the link gives:
   and between Cloudflare and `cloudflared`, but Cloudflare forwards the page's content: the
   agent's questions, your code as the page shows it, and the answers.
 
+The link can take a few seconds to answer after it shows: Cloudflare first has to register the
+tunnel. Until then, a browser that opens it may show a Cloudflare error page; load it again.
+
 The tunnel lasts one round. It stops, and the link stops working, when you press `O` again,
 when a new round starts, when the round is reset, and when the reviewer closes; the
 `cloudflared` process never outlives the reviewer. Press `O` in the next round to share it
-again, with a new link. Only the pane has this switch: the page has none.
+again, with a new link. Turning the tunnel off closes the link, but not the round's token: the
+phone's page keeps working on your network, and a tunnel turned on again in the same round gives a
+new address with the same token. A new round, or a Reset, ends the token. Only the pane has this
+switch: the page has none.
 
 When `cloudflared` is not installed, fails to start, stops, or prints no address within 30
 seconds, the pane says so in one line where the link would be, with where to install it when it

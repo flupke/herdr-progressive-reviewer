@@ -19,10 +19,11 @@ use crate::files::PageFiles;
 use crate::round::Rounds;
 
 /// Scripts and styles only from the page itself, and no inline script; the page's requests go
-/// only to itself, its socket included (named in full, `ws:`, or `wss:` through a tunnel: older
-/// browsers do not count it to the page's own address as `'self'`). Inline styles are allowed for Mermaid, which writes them into
-/// each diagram it draws: without them its boxes and labels are misplaced. The page posts no
-/// form. The browser reports what the policy blocks to `/csp-report`.
+/// only to itself, its socket included. The socket is named in full, `ws:`, or `wss:` through a
+/// tunnel: older browsers do not count it to the page's own address as `'self'`. Inline styles
+/// are allowed for Mermaid, which writes them into each diagram it draws: without them its boxes
+/// and labels are misplaced. The page posts no form. The browser reports what the policy blocks
+/// to `/csp-report`.
 fn content_security_policy(socket: &str) -> String {
     format!(
         "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; \

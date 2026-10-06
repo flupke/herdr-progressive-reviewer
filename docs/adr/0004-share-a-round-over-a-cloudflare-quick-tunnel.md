@@ -22,6 +22,10 @@ on a Reset, and when the reviewer closes. `cloudflared` runs as a fork of the re
 `reviewer-control fork-exec` like run-ahead's forks, so it stays in the reviewer's process group
 and gets its parent-death signal.
 
+Turning the tunnel off closes its listener and its page, and the coworker's open page refuses
+any further request, but it does not end the round's token, which the network listener keeps
+serving: a tunnel turned on again in the same round has a new address and the same token.
+
 Accepted risks: anyone with the link has the reviewer's full rights on the round, Implement
 included, which has the agent change code in the reviewer's repository; there are no roles and
 no read-only mode for now. The page's content (the agent's questions, cited code, answers)

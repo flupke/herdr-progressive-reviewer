@@ -17,12 +17,10 @@
 
 mod browser;
 mod network;
-mod tunnel;
 
 pub use browser::{Browser, PageOpener};
-pub use network::{NetworkAccess, NetworkListener, PageNetwork};
+pub use network::{NetworkAccess, NetworkListener, PageNetwork, TunnelReport, TunnelState};
 pub use quick_tunnel::TunnelProgram;
-pub use tunnel::{TunnelReport, TunnelState};
 
 use std::fmt::Write as _;
 use std::fs::{self, DirBuilder, OpenOptions};

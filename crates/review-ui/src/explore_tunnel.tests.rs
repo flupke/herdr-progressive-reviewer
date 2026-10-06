@@ -56,6 +56,24 @@ fn the_reviewer_shares_the_running_round_and_gets_its_link_and_qr_code() {
 }
 
 #[test]
+fn what_the_switch_did_shows_right_under_the_settings_before_the_phones_page() {
+    const PHONE: &str = "http://192.168.1.23:8790/?token=0123456789abcdef0123456789abcdef";
+    let (mut fixture, _) = ExploreUi::new();
+    fixture
+        .app
+        .publish(ui_events::ExplorePageShared(PHONE.into()));
+    fixture.share_key();
+
+    fixture.report(TunnelState::Open { url: LINK.into() });
+
+    let text = fixture.end();
+    let switch = text.find("Share over a tunnel: on").unwrap();
+    let link = text.find(LINK).unwrap();
+    let phone = text.find(PHONE).unwrap();
+    assert!(switch < link && link < phone, "{text}");
+}
+
+#[test]
 fn turning_the_tunnel_off_stops_it_and_takes_its_link_away() {
     let (mut fixture, _) = ExploreUi::new();
     fixture.share_key();
@@ -75,7 +93,7 @@ fn turning_the_tunnel_off_stops_it_and_takes_its_link_away() {
 #[test]
 fn a_tunnel_that_did_not_open_says_why_and_can_be_tried_again() {
     const REASON: &str =
-        "cloudflared is not installed: install cloudflared from your package manager";
+        "cloudflared is not installed, install cloudflared from your package manager";
     let (mut fixture, _) = ExploreUi::new();
     fixture.share_key();
 

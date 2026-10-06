@@ -1639,8 +1639,8 @@ fn shortcut_help_scrolls_on_short_terminals() {
     }
 
     // The last lines of the help.
-    assert!(popup.contains("Explore page settings: turn over opening the page"));
     assert!(popup.contains("Explore page settings: edit the network interface"));
+    assert!(popup.contains("Explore page: share the running round over a tunnel"));
 }
 
 #[test]

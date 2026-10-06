@@ -367,7 +367,7 @@ fn a_cloudflared_that_fails_closes_the_tunnels_page_and_says_why() {
         panic!("the tunnel went down");
     };
 
-    assert!(reason.ends_with("ERR lost the edge"), "{reason}");
+    assert!(reason.contains("ERR lost the edge"), "{reason}");
     assert!(closes(target));
 }
 
@@ -396,18 +396,18 @@ fn without_the_network_listener_the_tunnel_takes_a_round_token_of_its_own() {
 }
 
 #[test]
-fn a_second_open_while_the_tunnel_runs_changes_nothing() {
+fn a_second_open_while_the_tunnel_runs_says_where_it_stands_and_starts_nothing() {
     let shared = Shared::start();
     shared.start_round("r1");
     let stand_in = StandIn::new();
     let network = shared.host.network();
     let reported = open(&network, &stand_in);
-    opened(&reported);
+    let url = opened(&reported);
 
     let second = StandIn::new();
     let again = open(&network, &second);
 
-    assert!(again.recv_timeout(Duration::from_millis(300)).is_err());
+    assert_eq!(next(&again), TunnelState::Open { url });
     assert!(!second.file("pid").exists());
     assert!(stand_in.runs());
 }

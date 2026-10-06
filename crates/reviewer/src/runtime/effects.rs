@@ -329,28 +329,20 @@ impl Effects {
         });
     }
 
-    /// Shares the running round over a tunnel; without a page, says there is none to share.
-    fn open_tunnel(&self) {
-        match &self.page_sharing {
-            Some(sharing) => sharing.open_tunnel(),
-            None => {
-                let _ = self.messages.send(ui_events::ExplorePageTunnel(
-                    review_explore_page_host::TunnelState::Failed(
-                        "the Explore page is not served".into(),
-                    ),
-                ));
-            }
-        }
-    }
-
-    /// Stops the tunnel that shares the running round, if any.
-    fn close_tunnel(&self) {
-        match &self.page_sharing {
-            Some(sharing) => sharing.close_tunnel(),
-            None => {
-                let _ = self.messages.send(ui_events::ExplorePageTunnel(
-                    review_explore_page_host::TunnelState::Off,
-                ));
+    /// Shares the running round over a tunnel, or stops the tunnel. Without a page, there is
+    /// none to share: the pane hears why, or that no tunnel runs.
+    fn share_round(&self, on: bool) {
+        use review_explore_page_host::TunnelState;
+        match (&self.page_sharing, on) {
+            (Some(sharing), true) => sharing.open_tunnel(),
+            (Some(sharing), false) => sharing.close_tunnel(),
+            (None, on) => {
+                let state = if on {
+                    TunnelState::Failed("the Explore page is not served".into())
+                } else {
+                    TunnelState::Off
+                };
+                let _ = self.messages.send(ui_events::ExplorePageTunnel(state));
             }
         }
     }
@@ -476,8 +468,8 @@ impl ActionExecutors for Performer<'_, '_> {
     fn explore_page(&mut self, action: ExplorePageAction) -> eyre::Result<()> {
         match action {
             ExplorePageAction::Open => self.effects.open_page(),
-            ExplorePageAction::OpenTunnel => self.effects.open_tunnel(),
-            ExplorePageAction::CloseTunnel => self.effects.close_tunnel(),
+            ExplorePageAction::OpenTunnel => self.effects.share_round(true),
+            ExplorePageAction::CloseTunnel => self.effects.share_round(false),
         }
         Ok(())
     }

@@ -161,7 +161,7 @@ fn a_cloudflared_that_ends_before_its_address_says_why_in_one_line() {
     assert!(matches!(failure, TunnelFailure::Exited(_)), "{failure:?}");
     let line = failure.to_string();
     assert!(
-        line.ends_with("ERR failed to request quick Tunnel: no such host"),
+        line.contains("ERR failed to request quick Tunnel: no such host"),
         "{line}"
     );
 }
@@ -202,6 +202,6 @@ fn a_tunnel_that_goes_down_after_its_address_reports_its_end() {
     assert!(
         failure
             .to_string()
-            .ends_with("ERR connection to the edge lost")
+            .contains("ERR connection to the edge lost")
     );
 }

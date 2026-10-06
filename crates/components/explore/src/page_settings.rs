@@ -21,7 +21,7 @@ use ui_theme::Palette;
 
 use super::flow::{Content, ConversationLayout};
 use super::input::ExploreKey;
-use super::network_page::SharedRound;
+use super::network_page::TunnelView;
 use super::{Control, ExploreComponent};
 
 /// The settings of the Explore page, as the pane shows and changes them.
@@ -31,7 +31,7 @@ pub(super) struct PageSettings {
     /// The setting being typed, if any.
     field: Option<FieldEdit>,
     /// The tunnel that shares the running round, as the page host last reported it.
-    tunnel: SharedRound,
+    tunnel: TunnelView,
 }
 
 /// A setting typed in a text editor, until Enter saves it or Tab leaves it.
@@ -84,7 +84,7 @@ impl PageSettings {
     }
 
     /// The tunnel that shares the running round.
-    pub(super) fn tunnel(&self) -> &SharedRound {
+    pub(super) fn tunnel(&self) -> &TunnelView {
         &self.tunnel
     }
 
@@ -137,7 +137,7 @@ impl PageSettings {
         } else {
             (TunnelState::Opening, ExplorePageAction::OpenTunnel)
         };
-        self.tunnel = SharedRound::new(state);
+        self.tunnel = TunnelView::new(state);
         vec![Action::ExplorePage(action)]
     }
 
@@ -262,7 +262,7 @@ impl ExploreComponent {
 
     /// Shows where the tunnel that shares the running round stands.
     pub(super) fn tunnel_reported(&mut self, event: &ExplorePageTunnel) {
-        self.page_settings.tunnel = SharedRound::new(event.0.clone());
+        self.page_settings.tunnel = TunnelView::new(event.0.clone());
     }
 
     /// Leaves the setting being typed unsaved: another control of the pane was used.

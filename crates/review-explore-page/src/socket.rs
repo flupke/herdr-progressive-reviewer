@@ -5,7 +5,8 @@
 //! notice a socket that died without closing.
 //!
 //! The upgrade passes the page's host and origin checks like any request, and needs the token's
-//! cookie. A socket whose token no longer opens a round is closed with [`TOKEN_ENDED`].
+//! cookie. A socket whose token no longer opens a round is closed with [`TOKEN_ENDED`], at the
+//! latest when the page sends a request, which is not carried out.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -130,7 +131,13 @@ impl<R: Rounds> Connection<R> {
             let sent = tokio::select! {
                 incoming = socket.recv() => match incoming {
                     Some(Ok(Message::Text(text))) => {
-                        self.receive(text.as_str(), &done);
+                        // A token can end with no change of the round, as when the tunnel the
+                        // page came through stops: its requests are not carried out.
+                        match self.admission() {
+                            Admission::Open => self.receive(text.as_str(), &done),
+                            Admission::Waiting => self.refuse(text.as_str(), &done),
+                            Admission::Ended => return End::TokenEnded,
+                        }
                         Ok(())
                     }
                     Some(Ok(Message::Close(_)) | Err(_)) | None => return End::Closed,
@@ -194,21 +201,7 @@ impl<R: Rounds> Connection<R> {
         let request = match serde_json::from_str::<Request>(text) {
             Ok(request) => request,
             Err(error) => {
-                // Answer a request whose ID can be read; drop anything else.
-                if let Some(id) = serde_json::from_str::<serde_json::Value>(text)
-                    .ok()
-                    .and_then(|value| value.get("id")?.as_u64())
-                {
-                    self.pending += 1;
-                    let _ = done.send(Reply::Error {
-                        id,
-                        error: RpcError {
-                            code: RpcError::INVALID_REQUEST,
-                            message: error.to_string(),
-                            data: None,
-                        },
-                    });
-                }
+                self.answer_error(text, RpcError::INVALID_REQUEST, error.to_string(), done);
                 return;
             }
         };
@@ -223,6 +216,38 @@ impl<R: Rounds> Connection<R> {
             };
             let result = actions.call(request.call).await;
             let _ = done.send(reply(request.id, result));
+        });
+    }
+
+    /// Refuses a request sent while the page's token opens no round any more, but an earlier
+    /// request waits for its reply, which may hand the page another token.
+    fn refuse(&mut self, text: &str, done: &mpsc::UnboundedSender<Reply>) {
+        let message = "The token no longer opens a round".to_owned();
+        self.answer_error(text, RpcError::STALE, message, done);
+    }
+
+    /// Answers the request `text` with an error, when its ID can be read; drops anything else.
+    fn answer_error(
+        &mut self,
+        text: &str,
+        code: i32,
+        message: String,
+        done: &mpsc::UnboundedSender<Reply>,
+    ) {
+        let Some(id) = serde_json::from_str::<serde_json::Value>(text)
+            .ok()
+            .and_then(|value| value.get("id")?.as_u64())
+        else {
+            return;
+        };
+        self.pending += 1;
+        let _ = done.send(Reply::Error {
+            id,
+            error: RpcError {
+                code,
+                message,
+                data: None,
+            },
         });
     }
 

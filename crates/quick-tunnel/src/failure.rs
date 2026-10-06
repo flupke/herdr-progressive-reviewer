@@ -30,13 +30,13 @@ impl fmt::Display for TunnelFailure {
         match self {
             Self::Missing { program } => write!(
                 formatter,
-                "{program} is not installed: install cloudflared from your package manager or \
+                "{program} is not installed, install cloudflared from your package manager or \
                  {INSTALL}"
             ),
-            Self::NotStarted(error) => write!(formatter, "cloudflared did not start: {error}"),
+            Self::NotStarted(error) => write!(formatter, "cloudflared did not start ({error})"),
             Self::Exited(exit) => write!(
                 formatter,
-                "cloudflared stopped before it gave an address: {}",
+                "cloudflared stopped before it gave an address ({})",
                 last_words(exit)
             ),
             Self::NoAddress(wait) => write!(
@@ -44,7 +44,7 @@ impl fmt::Display for TunnelFailure {
                 "cloudflared gave no address within {} seconds",
                 wait.as_secs()
             ),
-            Self::Ended(exit) => write!(formatter, "cloudflared stopped: {}", last_words(exit)),
+            Self::Ended(exit) => write!(formatter, "cloudflared stopped ({})", last_words(exit)),
         }
     }
 }

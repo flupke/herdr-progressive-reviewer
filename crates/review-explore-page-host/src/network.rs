@@ -1,11 +1,11 @@
 //! The page on the network, for a phone or a tablet: served on the address of one network
 //! interface, behind a new token for each round and for the start screen before it. The
 //! reviewer's [`NetworkAccess`] settings say whether, and on which interface and port. The
-//! tunnel that shares the running round (`crate::tunnel`) takes the same tokens.
+//! tunnel that shares the running round ([`tunnel`]) takes the same tokens.
 
 use std::io;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, UdpSocket};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError, Weak};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -14,44 +14,62 @@ pub use review_explore_page_settings::NetworkAccess;
 use tokio::runtime::Handle;
 use tokio::task::JoinHandle;
 
-use crate::tunnel::TunnelShare;
+mod tunnel;
+
+use tunnel::Tunnels;
+pub use tunnel::{TunnelReport, TunnelState};
 
 /// How many ports, from the first one, the page tries: a firewall rule can open them all.
 const PORTS_TRIED: u16 = 10;
 
 /// How long taking the page off the network waits for its listener to close.
-pub(crate) const STOP_TIMEOUT: Duration = Duration::from_secs(1);
+const STOP_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// The page on the network of one [`PageHost`](crate::PageHost), shared on one listener at a
 /// time, and over one [tunnel](PageNetwork::open_tunnel) at a time, until the host drops. Clones
 /// share it.
 #[derive(Clone)]
 pub struct PageNetwork {
-    pub(crate) round: PageRound,
+    round: PageRound,
     /// The runtime of the page's thread.
-    pub(crate) runtime: Handle,
-    pub(crate) shares: Arc<Mutex<Shares>>,
+    runtime: Handle,
+    shares: Arc<Mutex<Shares>>,
+}
+
+/// A [`PageNetwork`] that does not keep the page host's shares alive, for the tasks and threads
+/// that report to it.
+#[derive(Clone)]
+struct WeakNetwork {
+    round: PageRound,
+    runtime: Handle,
+    shares: Weak<Mutex<Shares>>,
+}
+
+impl WeakNetwork {
+    /// The page on the network, unless the page host dropped.
+    fn upgrade(&self) -> Option<PageNetwork> {
+        Some(PageNetwork {
+            round: self.round.clone(),
+            runtime: self.runtime.clone(),
+            shares: self.shares.upgrade()?,
+        })
+    }
 }
 
 /// What serves the page beyond this machine: the listener on a network interface, the tunnel,
 /// and the round tokens both take.
 #[derive(Default)]
-pub(crate) struct Shares {
+struct Shares {
     /// The tokens, while the listener or the tunnel serves the page.
     tokens: Option<TokenRenewal>,
     listener: Option<NetworkShare>,
-    pub(crate) tunnel: Option<TunnelShare>,
-    /// How many tunnels were opened: each tunnel's number, so that what a tunnel closed since
-    /// reports changes nothing.
-    pub(crate) tunnels: u64,
-    /// The tunnels being stopped, away from the page's thread and from the reviewer's.
-    pub(crate) stopping: Vec<thread::JoinHandle<()>>,
+    tunnels: Tunnels,
 }
 
 impl Shares {
     /// The tokens of the page beyond this machine, made with the task that renews them when
     /// neither the listener nor the tunnel serves the page yet.
-    pub(crate) fn tokens(&mut self, round: &PageRound, runtime: &Handle) -> RoundTokens {
+    fn tokens(&mut self, round: &PageRound, runtime: &Handle) -> RoundTokens {
         self.tokens
             .get_or_insert_with(|| TokenRenewal::start(round, runtime))
             .tokens
@@ -60,8 +78,8 @@ impl Shares {
 
     /// Closes the tokens once neither the listener nor the tunnel serves the page: they open
     /// nothing any more, and the next share makes new ones.
-    pub(crate) fn release_tokens(&mut self) {
-        if self.listener.is_none() && self.tunnel.is_none() {
+    fn release_tokens(&mut self) {
+        if self.listener.is_none() && !self.tunnels.running() {
             self.tokens = None;
         }
     }
@@ -123,8 +141,16 @@ impl PageNetwork {
         shares.release_tokens();
     }
 
-    pub(crate) fn lock(&self) -> std::sync::MutexGuard<'_, Shares> {
+    fn lock(&self) -> std::sync::MutexGuard<'_, Shares> {
         self.shares.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn downgrade(&self) -> WeakNetwork {
+        WeakNetwork {
+            round: self.round.clone(),
+            runtime: self.runtime.clone(),
+            shares: Arc::downgrade(&self.shares),
+        }
     }
 }
 
@@ -179,7 +205,7 @@ impl Drop for NetworkShare {
 }
 
 /// Waits, at most [`STOP_TIMEOUT`], for the page's thread to drop the aborted `task`.
-pub(crate) fn wait_for_end(task: &JoinHandle<()>) {
+fn wait_for_end(task: &JoinHandle<()>) {
     let deadline = Instant::now() + STOP_TIMEOUT;
     while !task.is_finished() && Instant::now() < deadline {
         thread::sleep(Duration::from_millis(1));
@@ -268,7 +294,7 @@ fn default_address() -> io::Result<Ipv4Addr> {
 /// token or round of the token is announced with the address of the page on the network
 /// interface, while it is served there. Clones share the token.
 #[derive(Clone)]
-pub(crate) struct RoundTokens {
+struct RoundTokens {
     round: PageRound,
     current: Arc<Mutex<Current>>,
 }
@@ -331,13 +357,13 @@ impl RoundTokens {
     }
 
     /// The round that runs now, if any.
-    pub(crate) fn running(&self) -> Option<String> {
+    fn running(&self) -> Option<String> {
         self.round.stages().round()
     }
 
     /// The token of the running round `round`, renewed first; `None` when another round runs, or
     /// none, or the tokens are closed.
-    pub(crate) fn token_of(&self, round: &str) -> Option<Token> {
+    fn token_of(&self, round: &str) -> Option<Token> {
         let mut current = self.lock();
         self.renew_locked(&mut current);
         current
