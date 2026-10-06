@@ -17,10 +17,6 @@ pub(crate) enum Check {
     UnitTests(BTreeSet<String>),
     /// `make test` for the whole workspace, its doc tests included.
     AllUnitTests,
-    /// `make integration` for these crates only: their tests that drive real processes.
-    IntegrationTests(BTreeSet<String>),
-    /// `make integration` for the whole workspace.
-    AllIntegrationTests,
     /// An end-to-end suite.
     EndToEnd(Suite),
 }
@@ -31,20 +27,16 @@ impl Check {
         match self {
             Self::Lint => vec!["lint".into()],
             Self::AllUnitTests => vec!["test".into()],
-            Self::UnitTests(crates) => vec!["test".into(), crates_argument(crates)],
-            Self::AllIntegrationTests => vec!["integration".into()],
-            Self::IntegrationTests(crates) => vec!["integration".into(), crates_argument(crates)],
+            Self::UnitTests(crates) => vec![
+                "test".into(),
+                format!(
+                    "CRATES={}",
+                    crates.iter().cloned().collect::<Vec<_>>().join(" ")
+                ),
+            ],
             Self::EndToEnd(suite) => vec![suite.make_target().into()],
         }
     }
-}
-
-/// The `CRATES` argument of `make` that names `crates`.
-fn crates_argument(crates: &BTreeSet<String>) -> String {
-    format!(
-        "CRATES={}",
-        crates.iter().cloned().collect::<Vec<_>>().join(" ")
-    )
 }
 
 /// An end-to-end suite.
@@ -215,7 +207,7 @@ impl Workspace {
     pub(crate) fn plan(&self, changes: &Changes) -> Plan {
         let owners = Owners::of(self, changes);
         if !owners.run_everything.is_empty() {
-            let mut checks = vec![Check::Lint, Check::AllUnitTests, Check::AllIntegrationTests];
+            let mut checks = vec![Check::Lint, Check::AllUnitTests];
             checks.extend(Suite::ALL.map(Check::EndToEnd));
             return Plan {
                 checks,
@@ -235,8 +227,7 @@ impl Workspace {
                     .collect::<Vec<_>>()
                     .join(", ")
             ));
-            plan.checks.push(Check::UnitTests(tested.clone()));
-            plan.checks.push(Check::IntegrationTests(tested));
+            plan.checks.push(Check::UnitTests(tested));
         }
         for suite in Suite::ALL {
             let built = self.built.get(&suite);

@@ -7,7 +7,7 @@ Elsewhere: the glossary is [CONTEXT.md](../../CONTEXT.md); decisions are in [.ag
 ## Working in the repository
 
 - [Checks](checks.md): gotchas of the check commands, the Herdr release the tests run, the opt-in tests, mutation runs.
-- [Unit tests](unit-tests.md): tautological tests, which code review removes, what makes a test go red on a bug, unit or integration and how each waits.
+- [Unit tests](unit-tests.md): tautological tests, which code review removes, what makes a test go red on a bug, how a test waits.
 - [Parallel workspaces](parallel-workspaces.md): running a gate or an agent in a second jj workspace.
 - [Terminal UI exploration](tui-vision.md): driving the real pane with `make vision`, the gotchas of its commands and stand-ins, turning findings into regression tests.
 - [Explore page: e2e tests](explore-page-e2e.md): writing and running the page's e2e tests: checks by locator, the replay cache and the model, writing a test with an agent.

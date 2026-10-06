@@ -52,7 +52,6 @@ fn every_check() -> Vec<Check> {
     vec![
         Check::Lint,
         Check::AllUnitTests,
-        Check::AllIntegrationTests,
         Check::EndToEnd(Suite::Pane),
         Check::EndToEnd(Suite::Page),
     ]
@@ -65,7 +64,6 @@ fn a_crate_change_tests_it_and_its_dependents_and_the_suites_that_build_one_of_t
         [
             Check::Lint,
             Check::UnitTests(set(&["app", "ui"])),
-            Check::IntegrationTests(set(&["app", "ui"])),
             Check::EndToEnd(Suite::Pane),
         ]
     );
@@ -74,7 +72,6 @@ fn a_crate_change_tests_it_and_its_dependents_and_the_suites_that_build_one_of_t
         [
             Check::Lint,
             Check::UnitTests(set(&["app", "core", "server", "ui"])),
-            Check::IntegrationTests(set(&["app", "core", "server", "ui"])),
             Check::EndToEnd(Suite::Pane),
             Check::EndToEnd(Suite::Page),
         ]
@@ -89,17 +86,12 @@ fn a_file_belongs_to_the_innermost_package_whatever_its_kind() {
         [
             Check::Lint,
             Check::UnitTests(set(&["server"])),
-            Check::IntegrationTests(set(&["server"])),
             Check::EndToEnd(Suite::Page),
         ]
     );
     assert_eq!(
         checks(&["crates/server/nested/prompts/rules.md"]),
-        [
-            Check::Lint,
-            Check::UnitTests(set(&["nested"])),
-            Check::IntegrationTests(set(&["nested"])),
-        ]
+        [Check::Lint, Check::UnitTests(set(&["nested"]))]
     );
 }
 
@@ -110,7 +102,6 @@ fn a_vendored_change_tests_the_members_that_use_it() {
         [
             Check::Lint,
             Check::UnitTests(set(&["app", "ui"])),
-            Check::IntegrationTests(set(&["app", "ui"])),
             Check::EndToEnd(Suite::Pane),
         ]
     );
@@ -128,7 +119,6 @@ fn a_locked_package_that_changed_reaches_the_crates_that_use_it() {
         [
             Check::Lint,
             Check::UnitTests(set(&["app", "core", "server", "ui"])),
-            Check::IntegrationTests(set(&["app", "core", "server", "ui"])),
             Check::EndToEnd(Suite::Pane),
             Check::EndToEnd(Suite::Page),
         ]
