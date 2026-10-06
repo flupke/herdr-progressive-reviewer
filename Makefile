@@ -1,4 +1,4 @@
-.PHONY: build check complexity e2e-tui e2e-explore e2e-explore-deps e2e-explore-judgements explore-gallery explore-page explore-types vision install mutants uninstall
+.PHONY: build check complexity fmt lint test e2e-tui e2e-explore e2e-explore-deps e2e-explore-judgements explore-gallery explore-page explore-types vision install mutants uninstall
 
 build:
 	cargo build --release --locked --bins
@@ -8,19 +8,38 @@ build:
 		mv -f "bin/$$binary.new" "bin/$$binary"; \
 	done
 
-check: export RUSTFLAGS = -Dwarnings
-check: complexity
-	cargo fmt --all --check
-	cargo check --workspace
+# The checks come in levels, cheapest first; AGENTS.md says when to run which.
+# They all build with the same flags, so they share one build cache.
+lint test check e2e-tui e2e-explore: export RUSTFLAGS = -Dwarnings
+
+# Level 1: types and lints of every target, and the complexity gate.
+lint: complexity
 	cargo clippy --workspace --all-targets
+
+# Level 2, with CRATES: the unit tests of those crates (`make test CRATES="quick-tunnel"`).
+# Level 3, without: every unit test of the workspace, doc tests included.
+CRATES ?=
+test:
+ifeq ($(strip $(CRATES)),)
 	cargo test --workspace --doc
 	cargo nextest run --workspace
+else
+	cargo nextest run $(foreach crate,$(CRATES),-p $(crate))
+endif
+
+# Formats the code, once a feature is complete. No check fails on formatting.
+fmt:
+	cargo fmt --all
+	cargo fmt --manifest-path tests/tui/Cargo.toml
+
+# Every level but `make vision`, in one run.
+check: lint
+	$(MAKE) test CRATES=
 	$(MAKE) e2e-tui
 	$(MAKE) e2e-explore
 
 e2e-tui:
 	cargo build --locked -p reviewer --bin reviewer
-	cargo fmt --manifest-path tests/tui/Cargo.toml --check
 	cargo clippy --locked --manifest-path tests/tui/Cargo.toml --all-targets
 	REVIEWER_BIN_PATH="$(CURDIR)/target/debug/reviewer" cargo nextest run --locked --manifest-path tests/tui/Cargo.toml
 

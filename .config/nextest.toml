@@ -1,5 +1,12 @@
 # Print failures and the summary only: a full run has more than a thousand
 # tests, and their PASS lines bury what went wrong.
+#
+# The summary also names each test slower than 10 s, with its time, and every
+# test's time is kept in target/nextest/default/junit.xml.
 [profile.default]
 status-level = "fail"
-final-status-level = "flaky"
+final-status-level = "slow"
+slow-timeout = { period = "10s" }
+
+[profile.default.junit]
+path = "junit.xml"

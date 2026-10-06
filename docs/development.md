@@ -5,9 +5,19 @@ Repository conventions and the feature workflow are in [AGENTS.md](../AGENTS.md)
 
 ## Checks
 
-```sh
-make check
-```
+The checks come in levels, cheapest first. Run the ones that fit the change
+([AGENTS.md](../AGENTS.md) says when):
+
+| Level | Command | What it runs |
+|---|---|---|
+| 1 | `make lint` | clippy on every target, and the complexity gate |
+| 2 | `make test CRATES="quick-tunnel"` | the unit tests of the named crates |
+| 3 | `make test` | every unit test of the workspace, doc tests included |
+| 4 | `make e2e-tui`, `make e2e-explore`, `make vision` | the pane, the Explore page, the real UI |
+
+`make check` runs levels 1 to 4 but `make vision`. No check fails on formatting:
+run `make fmt` once a feature is complete. The test summary names each test
+slower than 10 s, and `target/nextest/default/junit.xml` keeps every test's time.
 
 In addition to the build dependencies, the checks use Herdr, Codex, Claude Code,
 Python 3, `cargo-nextest`, `cccc`, and `jq`. Herdr integration tests run private
@@ -96,9 +106,9 @@ the main checkout with `jj log` and `jj diff -r <bookmark>`:
   described commits.
 
 The Herdr integration tests copy their test binary, about 400 MB, into a
-private directory under `/tmp` for each test. Run several `make check` at once
-with `NEXTEST_TEST_THREADS=6` each. Under that load, a test that talks to the
-Herdr socket can fail with `WouldBlock`, and pass when run alone.
+private directory under `/tmp` for each test. When several gates run at once, a
+test that talks to the Herdr socket can fail with `WouldBlock`, and pass when
+run alone.
 
 ## Explore page
 

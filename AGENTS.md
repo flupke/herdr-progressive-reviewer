@@ -34,7 +34,17 @@ For each small feature:
 
 1. Create a fresh jj change before implementation. Use the previous change as
    the fixed point for this feature.
-2. Implement and validate the feature with `make check`.
+2. Implement the feature, and check it as you go with the levels that fit the
+   change, cheapest first:
+   1. `make lint`: clippy on every target, and the complexity gate.
+   2. `make test CRATES="crate-a crate-b"`: the unit tests of the crates the
+      feature touches.
+   3. `make test`: every unit test of the workspace.
+   4. The end-to-end tests of what the feature touches: `make e2e-tui` for the
+      pane, `make e2e-explore` for the Explore page.
+   Choose the levels at your discretion: a pane-only change needs no Explore
+   page tests. Once the feature is complete, run `make fmt`. `make check` runs
+   every level in one go.
 3. For a change the user can see, explore the affected paths in the real UI
    with `make vision` (see `docs/development.md#llm-directed-exploration`) and
    fix what it finds.
@@ -50,10 +60,10 @@ For each small feature:
 7. Keep later user-feedback fixes in the same change. Create another change
    only when the user requests the next feature.
 
-Run `make check` through `nix develop --command` so the pinned Rust toolchain,
-`cccc`, and `cargo-nextest` are available, and `make install` through it too so
-the installed build uses the same toolchain. Keep the
-`make check` warning gate enabled; fix warnings in the current change instead
+Run the make targets through `nix develop --command` so the pinned Rust
+toolchain, `cccc`, and `cargo-nextest` are available, and `make install` through
+it too so the installed build uses the same toolchain. Keep the warning gate of
+the checks (`-Dwarnings`) enabled; fix warnings in the current change instead
 of overriding `-Dwarnings`. With the current `eyre` version, use
 `Err(eyre::eyre!(...))` in expression-position match arms, or put
 `eyre::bail!(...);` in a statement block, to avoid the trailing-semicolon
