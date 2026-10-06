@@ -58,7 +58,7 @@ $(EXPLORE_E2E)/node_modules/.installed: $(EXPLORE_E2E)/package-lock.json
 	cd $(EXPLORE_E2E) && npm ci --no-audit --no-fund
 	touch $@
 
-# Installs the npm packages only: for the client type check in `make lint`, and for the MCP server
+# Installs the npm packages only: for the e2e tests, the gallery and the MCP server
 # (tests/explore-page/mcp.sh).
 e2e-explore-deps: $(EXPLORE_E2E)/node_modules/.installed
 
@@ -67,13 +67,13 @@ e2e-explore-judgements:
 	node --test --test-reporter=dot $(EXPLORE_E2E)/judgements.test.ts
 	node $(EXPLORE_E2E)/judgements.ts
 
-# Checks the page's client against the TypeScript declarations of its socket's messages; part
-# of `make lint`.
-explore-client-check: e2e-explore-deps
-	cd $(EXPLORE_E2E) && node_modules/.bin/tsc -p tsconfig.client.json
+# Checks the page's client against the TypeScript declarations of its socket's messages, with
+# the Nix shell's TypeScript; part of `make lint`.
+explore-client-check:
+	tsc -p $(EXPLORE_E2E)/tsconfig.client.json
 
 # Checks the page's client, then runs the e2e tests.
-e2e-explore: e2e-explore-judgements explore-client-check
+e2e-explore: e2e-explore-judgements explore-client-check e2e-explore-deps
 	cargo build --locked -p review-explore-page-server
 	$(EXPLORE_E2E)/run.sh $(E2E_ARGS)
 

@@ -92,9 +92,11 @@
               pkgs.cargo-mutants
               pkgs.jq
               rustComplexityAnalyzer
-              # The Explore page client's type check in `make lint`, and its e2e tests (tests/explore-page),
-              # need Node 22.12 or later.
+              # The e2e tests of the Explore page (tests/explore-page) need Node 22.12 or later.
               pkgs.nodejs_22
+              # The type check of the Explore page's client in `make lint`: TypeScript 7, the
+              # native compiler.
+              pkgs.typescript
             ];
             # Not on PATH: `herdr` there stays the installed Herdr, which
             # `make install` and the live server use.

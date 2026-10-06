@@ -75,8 +75,8 @@ The client's types come from the Rust types of the socket's messages: ts-rs gene
 `assets/client/types.ts` from them (`src/typescript.rs`), and each module names them in
 its JSDoc (`/** @import { PageView } from "./types.ts" */`). The file is committed. A
 Rust test fails once it no longer matches the Rust types (`make explore-types` writes it
-again), and `make lint` runs `tsc` over the client (`tests/explore-page/tsconfig.client.json`,
-with the `typescript` package of that project), which fails on a field or a variant that one
+again), and `make lint` runs the Nix shell's `tsc` over the client
+(`tests/explore-page/tsconfig.client.json`), which fails on a field or a variant that one
 side no longer has. `tsc` emits
 nothing: the browser loads the modules as they are.
 
