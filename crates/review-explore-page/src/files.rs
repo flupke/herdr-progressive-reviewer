@@ -1,5 +1,5 @@
-//! The page's shell, client modules, styles and scripts: built into the binary, or read from
-//! disk in development.
+//! The page's shell, client modules, styles, scripts and icons: built into the binary, or read
+//! from disk in development.
 
 use std::path::{Path, PathBuf};
 
@@ -11,7 +11,7 @@ macro_rules! asset {
         Asset {
             name: $name,
             content_type: $content_type,
-            body: include_str!(concat!("../assets/", $name)),
+            body: include_bytes!(concat!("../assets/", $name)),
         }
     };
 }
@@ -44,6 +44,12 @@ const ASSETS: &[Asset] = &[
     asset!("swipe.css", "text/css"),
     asset!("chat.css", "text/css"),
     asset!("layout.css", "text/css"),
+    asset!("favicon.svg", "image/svg+xml"),
+    asset!("favicon.ico", "image/x-icon"),
+    asset!("apple-touch-icon.png", "image/png"),
+    asset!("icon-192.png", "image/png"),
+    asset!("icon-512.png", "image/png"),
+    asset!("site.webmanifest", "application/manifest+json"),
     asset!("client/main.js", "text/javascript"),
     asset!("client/actions.js", "text/javascript"),
     asset!("client/change-size.js", "text/javascript"),
@@ -62,6 +68,8 @@ const ASSETS: &[Asset] = &[
     asset!("client/dom.js", "text/javascript"),
     asset!("client/drafts.js", "text/javascript"),
     asset!("client/earlier.js", "text/javascript"),
+    asset!("client/favicon.js", "text/javascript"),
+    asset!("client/favicon-ticker.js", "text/javascript"),
     asset!("client/masthead.js", "text/javascript"),
     asset!("client/meter.js", "text/javascript"),
     asset!("client/page.js", "text/javascript"),
@@ -80,7 +88,7 @@ const ASSETS: &[Asset] = &[
 struct Asset {
     name: &'static str,
     content_type: &'static str,
-    body: &'static str,
+    body: &'static [u8],
 }
 
 /// Where the page's files come from.
@@ -131,12 +139,12 @@ impl PageFiles {
     }
 
     /// The content type and body of the asset `name`, a path under `assets/`.
-    pub(crate) fn asset(&self, name: &str) -> Option<(&'static str, String)> {
+    pub(crate) fn asset(&self, name: &str) -> Option<(&'static str, Vec<u8>)> {
         let asset = ASSETS.iter().find(|asset| asset.name == name)?;
         match &self.0 {
-            Source::Embedded => Some((asset.content_type, asset.body.to_owned())),
+            Source::Embedded => Some((asset.content_type, asset.body.to_vec())),
             Source::Disk { root, .. } => {
-                let body = std::fs::read_to_string(root.join("assets").join(asset.name)).ok()?;
+                let body = std::fs::read(root.join("assets").join(asset.name)).ok()?;
                 Some((asset.content_type, body))
             }
         }

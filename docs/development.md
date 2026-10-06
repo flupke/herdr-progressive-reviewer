@@ -826,7 +826,9 @@ only, with no `unsafe` value; its `connect-src` names the page's own `ws:` addre
   its request), `quiz.js`, `masthead.js` (above `main`, with Reset in its menu), `chat.js`
   (the chat, with its bubble in the masthead), `chat-quote.js` ("Add to chat" on a selection),
   `desk.js` (the windows where the page reads in two columns, for the chat and its bubble),
-  `meter.js` (the meter on the masthead's hairline), `change-size.js` ("+125 −10", "4 files"),
+  `meter.js` (the meter on the masthead's hairline), `favicon.js` (the tab's icon, which shows
+  the meter's share or the agent at work, with its timer in the worker `favicon-ticker.js`;
+  `docs/logo/README.md`), `change-size.js` ("+125 −10", "4 files"),
   `disclosure.js` (a button that shows or hides an action behind a fold), and `diagrams.js`,
   which draws each diagram of a region that was built.
 
@@ -1032,8 +1034,9 @@ test's own. The server's log of each
 target is in
 `tests/explore-page/.e2e/logs/`; a failed run prints its end. The run also
 fails when the browser reports that the page broke its content security policy,
-which allows scripts and styles only from the page itself, inline styles for
-Mermaid's diagrams, requests to the page and its socket only, and no form post. A
+which allows scripts, styles, workers and the manifest only from the page itself, inline
+styles for Mermaid's diagrams, images from the page and `data:` URLs (the tab's icon),
+requests to the page and its socket only, and no form post. A
 failing test
 leaves the accessibility tree of the page and a Playwright trace under
 `tests/explore-page/.e2e/artifacts/`.

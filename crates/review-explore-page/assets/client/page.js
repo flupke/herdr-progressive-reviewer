@@ -13,6 +13,7 @@ import { ConclusionScreen } from './conclusion.js';
 import { DesignScreen } from './design.js';
 import { earlierScreen } from './earlier.js';
 import { drawDiagrams, fitDiagrams } from './diagrams.js';
+import { Favicon } from './favicon.js';
 import { h, keyOf, Region } from './dom.js';
 import { Masthead } from './masthead.js';
 import { Meter } from './meter.js';
@@ -38,6 +39,8 @@ export class Page {
       if (this.view) this.render(this.view);
     });
     this.meter = new Meter(/** @type {HTMLElement} */ (header.querySelector('#masthead-line')));
+    // The tab's icon, which shows the meter's share, or the agent at work, in small.
+    this.favicon = new Favicon();
     // The round's conversation with the agent, whose bubble sits in the masthead.
     this.chat = new Chat(/** @type {HTMLElement} */ (header.querySelector('#masthead-chat')), call, () => {
       if (this.view) this.render(this.view);
@@ -123,6 +126,7 @@ export class Page {
     const { screens, shown } = this.track();
     this.masthead.neighbours([screens[shown - 1]?.step, screens[shown + 1]?.step]);
     this.meter.update(view);
+    this.favicon.update(view);
     drawDiagrams(this.main);
   }
 

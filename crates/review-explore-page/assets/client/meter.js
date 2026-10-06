@@ -15,6 +15,16 @@
 import { changeSize, fileCount } from './change-size.js';
 import { h, keyOf, Region } from './dom.js';
 
+/**
+ * The tally the meter shows: a round's, with changed files; `null` when the meter hides. The tab's
+ * icon shows the same share (favicon.js).
+ * @param {PageView} view
+ */
+export function measured(view) {
+  const tally = view.tally;
+  return view.rail.length > 0 && tally !== null && tally.files.length > 0 ? tally : null;
+}
+
 /** How the window is open: under the pointer or the focus, pinned, or closed. */
 /** @typedef {'hover' | 'pinned' | null} Open */
 
@@ -107,10 +117,9 @@ export class Meter {
 
   /** @param {PageView} view */
   update(view) {
-    const tally = view.tally;
-    const shows = view.rail.length > 0 && tally !== null && tally.files.length > 0;
-    this.root.hidden = !shows;
-    if (!shows || !tally) {
+    const tally = measured(view);
+    this.root.hidden = !tally;
+    if (!tally) {
       this.previous = null;
       if (this.open) this.close();
       return;

@@ -33,6 +33,7 @@ Pixel values are at 1440px wide. Every screen shares the masthead (below) and, f
 - Chat icon (on a desktop, at the left of the row since the project owner's request; see "Agent chat"): 30×28, a 16×12 rounded speech bubble drawn with a 2px border (radius `6px 6px 6px 1px`), `--muted`; when the chat is open: `accent` on `accent 16%` background. Unread badge: 16px disc, accent, 10px/700 count, at top-right (-4px).
 - `⋯` (28×28, muted, 16px): menu 300px with "Copy the round's link", "Open the agent's conversation", a hairline, "Reset this round… · closes it for good". Choosing Reset replaces the menu with the hint and the red **Confirm reset**. Reset lives nowhere else.
 - Tab title by stage: "Q3 · your turn — <review>", "Agent working… — <review>", "Retry needed — <review>", "Conclusion — <review>".
+- Tab icon: the logo's mark (`docs/logo/`), whose bar is the meter in small: the share of changed lines reviewed, in quarters, full only once every line is; while the agent works, the blue runner, 4 frames of 400ms, still under reduced motion. Without a round, the plain mark.
 
 ### Meter: lines covered by the exploration (masthead hairline)
 
@@ -131,6 +132,7 @@ One conversation per round, available on every screen; it is the "ask the agent"
 | Swipe (phone) | drag ≥48px or flick | page turns; chip fills at threshold | snap 280ms |
 | Progress bar | working states | indeterminate runner | 1.6s loop; static under reduced motion |
 | Tab title | stage change | "Q3 · your turn", "Agent working…", "Retry needed", "Conclusion" | — |
+| Tab icon | marks change; agent works | meter in quarters; runner while working | 4 × 400ms loop; still under reduced motion |
 
 ## State
 

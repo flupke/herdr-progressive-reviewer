@@ -1,4 +1,9 @@
-# Progressive reviewer
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo/logo-horizontal-dark.svg">
+    <img alt="Progressive reviewer" src="docs/logo/logo-horizontal-light.svg" height="64">
+  </picture>
+</h1>
 
 Review code with your coding agent inside Herdr, one file at a time.
 Works with Git and jj repositories, Codex and Claude Code.

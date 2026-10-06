@@ -22,13 +22,15 @@ use crate::round::Rounds;
 /// only to itself, its socket included. The socket is named in full, `ws:`, or `wss:` through a
 /// tunnel: older browsers do not count it to the page's own address as `'self'`. Inline styles
 /// are allowed for Mermaid, which writes them into each diagram it draws: without them its boxes
-/// and labels are misplaced. The page posts no form. The browser reports what the policy blocks
-/// to `/csp-report`.
+/// and labels are misplaced. Images may also be `data:` URLs, which the tab's icon draws its
+/// states with (client/favicon.js); its timer runs in a worker of the page's own. The page posts
+/// no form. The browser reports what the policy blocks to `/csp-report`.
 fn content_security_policy(socket: &str) -> String {
     format!(
         "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; \
-         connect-src 'self' {socket}; img-src 'self'; form-action 'none'; base-uri 'none'; \
-         frame-ancestors 'none'; report-uri /csp-report"
+         connect-src 'self' {socket}; img-src 'self' data:; worker-src 'self'; \
+         manifest-src 'self'; form-action 'none'; base-uri 'none'; frame-ancestors 'none'; \
+         report-uri /csp-report"
     )
 }
 
@@ -105,7 +107,13 @@ impl<R: Rounds> ExplorePage<R> {
                 post(csp_report::<R>).layer(DefaultBodyLimit::max(CSP_REPORT_LIMIT)),
             )
             .route("/health", get(|| async { StatusCode::NO_CONTENT }))
-            .route("/favicon.ico", get(|| async { StatusCode::NO_CONTENT }))
+            // Where a browser looks for the icon of a page that names none.
+            .route(
+                "/favicon.ico",
+                get(|State(page): State<Arc<Self>>| async move {
+                    serve_asset(&page.files, "favicon.ico")
+                }),
+            )
             .with_state(page.clone())
             .merge(routes)
             .layer(middleware::from_fn_with_state(page, admit_host::<R>))
