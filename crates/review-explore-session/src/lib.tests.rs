@@ -143,6 +143,10 @@ impl Harness {
     /// Replace the session as a restarted reviewer would, keeping only saved state,
     /// the agents and the prompts already delivered.
     fn reopen(&mut self) -> ui_events::ExploreRestored {
+        // A restarted reviewer is another process: the earlier one records nothing once the
+        // new one has read the round. Dropping the session withdraws its prompts, so each one
+        // must have been sent, or be held at the closed gate, before it goes.
+        self.delivery.settle(self.threads.prompt_sender());
         while self.events.try_recv().is_ok() {}
         let inbox = self.inbox_sender.clone();
         let publisher = review_explore_page::RoundPublisher::default();
@@ -334,22 +338,54 @@ impl Harness {
 /// Holds up the delivery of prompts while closed: the prompt sender sees the agent only once
 /// the gate opens, after it checked whether its prompt was cancelled.
 #[derive(Clone, Default)]
-struct DeliveryGate(Arc<(std::sync::Mutex<bool>, std::sync::Condvar)>);
+struct DeliveryGate(Arc<(std::sync::Mutex<GateState>, std::sync::Condvar)>);
+
+#[derive(Default)]
+struct GateState {
+    closed: bool,
+    /// The prompts waiting for the gate to open.
+    held: usize,
+}
 
 impl DeliveryGate {
     fn close(&self) {
-        *self.0.0.lock().unwrap() = true;
+        self.0.0.lock().unwrap().closed = true;
     }
 
     fn open(&self) {
-        *self.0.0.lock().unwrap() = false;
+        self.0.0.lock().unwrap().closed = false;
         self.0.1.notify_all();
     }
 
     fn pass(&self) {
-        let (closed, opened) = &*self.0;
-        let _closed = opened
-            .wait_while(closed.lock().unwrap(), |closed| *closed)
+        let (state, changed) = &*self.0;
+        let mut state = state.lock().unwrap();
+        if state.closed {
+            state.held += 1;
+            changed.notify_all();
+            state = changed.wait_while(state, |state| state.closed).unwrap();
+            state.held -= 1;
+        }
+    }
+
+    /// Waits until the prompt sender took every prompt sent through `prompts`, and either
+    /// recorded its outcome or holds it at this closed gate, where it already checked that it
+    /// was not cancelled; a prompt it holds holds back those sent after it.
+    fn settle(&self, prompts: review_thread_service::PromptSender) {
+        let flushed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (gate, done) = (self.clone(), flushed.clone());
+        // A flush returns only once the gate lets the held prompt through.
+        std::thread::spawn(move || {
+            prompts.flush();
+            done.store(true, std::sync::atomic::Ordering::Release);
+            let _state = gate.0.0.lock().unwrap();
+            gate.0.1.notify_all();
+        });
+        let (state, changed) = &*self.0;
+        let _state = changed
+            .wait_while(state.lock().unwrap(), |state| {
+                state.held == 0 && !flushed.load(std::sync::atomic::Ordering::Acquire)
+            })
             .unwrap();
     }
 }
