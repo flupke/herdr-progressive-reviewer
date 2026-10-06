@@ -32,7 +32,7 @@ export interface SentMessage {
   text: string;
   /** Where in the round it was written, or `null`. */
   asked_under:
-    | { stage: 'question'; question: string; version: number }
+    | { stage: 'question'; question: string; version: number; number: number }
     | { stage: 'design' }
     | { stage: 'conclusion'; conclusion: string }
     | null;
@@ -244,21 +244,11 @@ export async function openSession(baseUrl: string | undefined, page: SessionPage
   };
 }
 
-/** The tests' `test`, whose `explore` fixture is a fresh session whose agent posts `data`. */
-function withSession(data: DataSet) {
-  return base.extend<{ explore: Session }>({
-    explore: async ({ app }, use) => {
-      const page: SessionPage = { open: (path) => app.open(path) };
-      await use(await openSession(app.baseUrl, page, data));
-    },
-  });
-}
-
-/** A test of a round of the short data set, small enough for a test to name what it checks. */
-export const test = withSession('short');
-
-/**
- * A test of a round of the rich data set, the screenshot gallery's: as long as a real round,
- * about a change of many files, most of them under one deep directory.
- */
-export const richTest = withSession('rich');
+/** The tests' `test`, whose `explore` fixture is a fresh session of a round of the short data
+ * set, small enough for a test to name what it checks. */
+export const test = base.extend<{ explore: Session }>({
+  explore: async ({ app }, use) => {
+    const page: SessionPage = { open: (path) => app.open(path) };
+    await use(await openSession(app.baseUrl, page, 'short'));
+  },
+});

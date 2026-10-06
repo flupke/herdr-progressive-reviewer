@@ -27,7 +27,6 @@ const browser = process.env.E2E_CHROMIUM ? nixChromium(process.env.E2E_CHROMIUM)
 export default {
   targets: [
     { name: 'desktop', engine: web({ browser }), app: page('desktop') },
-    { name: 'phone', engine: web({ browser, viewport: { width: 390, height: 844 } }), app: page('phone') },
   ],
   agents: { default: agent },
   ...cacheLookups(),

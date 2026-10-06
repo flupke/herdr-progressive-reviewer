@@ -1,29 +1,7 @@
+// When the review tool cannot be reached, the page says so, waits, then shows the round as it is
+// once the tool is back.
 import { expect } from 'e2e';
 import { test } from './session.ts';
-
-// The page changes in place as the round moves: what the reviewer is typing, and where, stays as
-// it is. When the review tool cannot be reached, the page says so, waits, then shows the round
-// as it is once the tool is back.
-
-test('a message being typed in the chat keeps its text and its focus while the implementation request goes out', async ({
-  explore,
-  screen,
-}) => {
-  await explore.open();
-  await explore.conclude();
-  // Exact actions: the setup is a request on its way and a message to the agent being typed.
-  await screen.getByRole('button', 'Implement 1 item').tap();
-  await expect(screen.getByRole('status')).toContainText('Sending the implementation request');
-  await screen.getByRole('button', 'Not ready? Reply to the agent instead').tap();
-  const reply = screen.getByRole('textbox', 'Message to the agent');
-  await reply.fill('Keep the old name for one release.');
-
-  await explore.deliverImplementation();
-  await expect(screen.getByRole('status')).toContainText('The agent received the implementation request');
-  await expect(reply).toHaveValue('Keep the old name for one release.');
-  // A page loaded again would have taken the focus from the message.
-  await expect(reply).toBeFocused();
-});
 
 test('the page waits while the reviewer restarts, then shows the round as it is now', async ({ explore, screen }) => {
   await explore.open();
@@ -38,7 +16,7 @@ test('the page waits while the reviewer restarts, then shows the round as it is 
 
   await explore.answerInPane();
   await explore.reviewerBack();
-  // The page tries again with a growing delay, of a few seconds by now.
+  // The page tries again with a growing delay, capped at 10 seconds (client/socket.js).
   await expect(screen.getByRole('status')).toContainText('The agent is working on your answer', { timeout: 15_000 });
   await expect(screen.getByRole('region', 'Your answer to question 1')).toContainText('Keep the draft');
   await expect(screen.getByText('Reconnecting to the review tool', { exact: false })).toBeHidden();

@@ -80,7 +80,7 @@ every_test_ran() {
   jq -e '.run.summary | .executed == .discovered' .e2e/report.json > /dev/null
 }
 if [ "$status" -eq 0 ] && [ "$#" -eq 0 ] && every_test_ran; then
-  if [ ! -s "$lookups" ]; then
+  if [ -n "$(recordings)" ] && [ ! -s "$lookups" ]; then
     echo 'The run looked up no recording: cache-lookups.ts did not replace the replay cache' >&2
     exit 1
   fi

@@ -22,10 +22,7 @@ again; the open page reconnects by itself once the server is back. The token sta
 The server's options are listed at the top of
 [`main.rs`](../../crates/review-explore-page-server/src/main.rs). `--data rich` serves a
 round as long as a real one, for the gallery below; `make explore-page
-EXPLORE_PAGE_ARGS='--data rich'` serves it. A test of the
-rich round, such as the meter's with the 43 files, is registered with `richTest` from
-`tests/explore-page/tests/session.ts` instead of `test`: its session's agent posts the rich
-data set whatever the server's `--data`.
+EXPLORE_PAGE_ARGS='--data rich'` serves it.
 
 ## Screenshot gallery
 

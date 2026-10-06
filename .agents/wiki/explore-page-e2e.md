@@ -35,7 +35,7 @@ its heading, a `<fieldset>` with a `<legend>`, `role="status"`).
 nix develop --command make e2e-explore
 ```
 
-It runs every test at a desktop and at a phone size, each against its own server.
+It runs every test at a desktop size, against its own server.
 `E2E_ARGS` go to `e2e run`, with paths relative to `tests/explore-page`:
 `make e2e-explore E2E_ARGS=tests/round.e2e.ts` runs one file, and
 `E2E_ARGS=--no-cache` runs without the replay cache.
