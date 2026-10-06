@@ -15,8 +15,10 @@
   already have this attribute.
 - Always use the smallest visibility level that permits the required use. Do
   not make an item `pub` when private or `pub(crate)` visibility is sufficient.
-- Test what the code puts into a prompt (identity, answers, paths, ordering),
-  never the wording of its instructions: a rewording must not break a test.
+- Make every unit test go red on a plausible bug in the code it calls; a test
+  that cannot is tautological. Before writing or code-reviewing a unit test,
+  read `.agents/wiki/unit-tests.md`: the kinds of tautological test, and what
+  to assert in a prompt test.
 - Refresh filesystem-driven views through filesystem events (inotify on Linux),
   not periodic polling. Reuse the repository watcher and event pipeline so idle
   views do not spend CPU checking for file changes.

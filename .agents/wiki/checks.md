@@ -12,6 +12,11 @@ change runs (step 5). What it leaves out:
   `make vision`.
 - `make check-with-e2e` runs `make check`, then `make e2e-explore`.
 
+`tests/tui` is a separate Cargo workspace, with its own `Cargo.lock`, that uses the
+workspace's crates: a search or a `cargo` command at the root misses it. Before removing
+a public item, a derive or a dependency of a crate, search `tests/tui` for its uses
+too.
+
 No check fails on formatting. The test summary
 names each test slower than 10 s, and `target/nextest/default/junit.xml` keeps every
 test's time.
