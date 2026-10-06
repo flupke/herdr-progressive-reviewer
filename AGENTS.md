@@ -43,8 +43,7 @@ For each small feature:
    4. The end-to-end tests of what the feature touches: `make e2e-tui` for the
       pane, `make e2e-explore` for the Explore page.
    Choose the levels at your discretion: a pane-only change needs no Explore
-   page tests. Once the feature is complete, run `make fmt`. `make check` runs
-   every level in one go.
+   page tests. Once the feature is complete, run `make fmt`.
 3. For a change the user can see, explore the affected paths in the real UI
    with `make vision` (see `docs/development.md#llm-directed-exploration`) and
    fix what it finds.
@@ -52,13 +51,18 @@ For each small feature:
    starts are authorized. Fix its findings and repeat the review until it
    passes. Follow the skill's repair-loop limit and report any findings that
    remain when the limit is reached.
-5. After the review passes, describe the change with `jj describe`: a plain
-   imperative subject, then what changed for the user and why.
-6. Run `make install` once the checks of step 2 and the review pass, unless
-   the user deferred installing; say so when you skip it. It builds and
-   installs only; it does not run the checks.
-7. Keep later user-feedback fixes in the same change. Create another change
-   only when the user requests the next feature.
+5. Once the implementation is done and the review passes, run `make check`:
+   every level of step 2 in one go, across the whole workspace. Fix whatever
+   fails, even outside the feature, run `make fmt`, review those fixes as in
+   step 4, and run `make check` again until it passes.
+6. Describe the change with `jj describe`: a plain imperative subject, then
+   what changed for the user and why.
+7. Run `make install` once `make check` and the review pass, unless the user
+   deferred installing; say so when you skip it. It builds and installs only;
+   it does not run the checks.
+8. Keep later user-feedback fixes in the same change, and run `make check`
+   again once each set of them is done. Create another change only when the
+   user requests the next feature.
 
 Run the make targets through `nix develop --command` so the pinned Rust
 toolchain, `cccc`, and `cargo-nextest` are available, and `make install` through

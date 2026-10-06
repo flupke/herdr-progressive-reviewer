@@ -1,6 +1,7 @@
 use super::*;
 use std::fs::{self, File};
 use std::io::Write;
+use std::os::unix::fs::symlink;
 use std::process::Command;
 use std::sync::Mutex;
 use std::sync::mpsc::{self, Receiver};
@@ -158,8 +159,10 @@ impl IsolatedHerdrServer {
         );
         let current_test_binary = std::env::current_exe().unwrap();
         let agent_binary = server.root().join(agent);
+        // The test binary is large, and every test running at once would copy it into its
+        // server's directory; the agent runs through a link, whose name Herdr detects.
         if stand_in == run_ahead::StandIn::Plain {
-            fs::copy(current_test_binary, &agent_binary).unwrap();
+            symlink(current_test_binary, &agent_binary).unwrap();
         } else {
             run_ahead::StandIn::install(server.root(), &agent_binary);
         }

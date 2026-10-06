@@ -202,7 +202,9 @@ impl Harness {
     fn turn(&mut self, request: &TurnRequest) -> String {
         self.session
             .handle(Input::Command(Command::Turn(Box::new(request.clone()))));
-        assert!(self.next::<ui_events::ExplorePosted>().result.is_ok());
+        self.next::<ui_events::ExplorePosted>()
+            .result
+            .expect("the turn is posted");
         let prompt = self.delivered_prompt();
         assert!(prompt.contains(&format!("Explore request: {}\n", request.request)));
         if let Some(answer) = &request.answer {

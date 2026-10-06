@@ -2,7 +2,7 @@
 //! reviewer as a real process through `reviewer-control fork-exec`, with the guard as its hook.
 
 use std::io::Read as _;
-use std::os::unix::fs::PermissionsExt;
+use std::os::unix::fs::{PermissionsExt, symlink};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -47,8 +47,10 @@ impl StandIn {
 
     /// Installs the stand-in as `script`: a shell script named `claude`, the process Herdr
     /// detects, which runs the test agent, or the fork stand-in when it is started as a fork.
+    /// `standin` links to the test binary rather than copying it, for the reason
+    /// `IsolatedHerdrServer` links the plain agent.
     pub(super) fn install(root: &Path, script: &Path) {
-        fs::copy(std::env::current_exe().unwrap(), root.join("standin")).unwrap();
+        symlink(std::env::current_exe().unwrap(), root.join("standin")).unwrap();
         fs::write(
             script,
             "#!/bin/sh\n\
