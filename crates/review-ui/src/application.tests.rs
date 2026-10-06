@@ -378,6 +378,48 @@ fn lsp_startup_does_not_close_the_revision_selector() {
 }
 
 #[test]
+fn clicking_the_change_id_opens_the_revision_selector_and_the_title_the_commit_message() {
+    let mut application = application();
+    publish_repository(
+        &mut application,
+        ReviewCheckpoint::new(ReviewUnit::from("change"), "commit".to_owned()),
+        "Commit title\n\nCommit body\n".to_owned(),
+        vec![FileSummary::new("src/lib.rs", ReviewStatus::Unreviewed)],
+    );
+
+    // The header reads " abcd1234  Commit title": the change ID from column 1. A click falls
+    // on a drawn header.
+    rendered_application(&application);
+    let actions = application.update(UserInput::MouseClick { column: 1, row: 0 });
+    assert!(actions.iter().any(|action| matches!(
+        action,
+        Action::Repository(RepositoryAction::LoadRevisionHistory { .. })
+    )));
+    application.publish(RevisionHistoryLoaded {
+        load_id: RevisionHistoryLoadId::new(0),
+        result: Ok(vec![RevisionHistoryLine {
+            text: "change current revision".to_owned(),
+            plain_text: "change current revision".to_owned(),
+            short_change_id: Some("change".to_owned()),
+            change_id: Some(ChangeId::from("change".to_owned())),
+            is_current: true,
+            is_immutable: false,
+        }]),
+    });
+    assert!(rendered_application(&application).contains("Select revision"));
+    assert!(!rendered_application(&application).contains("Commit message"));
+    application.update(UserInput::Key(Key::Escape));
+    assert!(!rendered_application(&application).contains("Select revision"));
+
+    // The gap between them opens neither; the title opens the commit message.
+    application.update(UserInput::MouseClick { column: 10, row: 0 });
+    assert!(!rendered_application(&application).contains("Commit message"));
+    application.update(UserInput::MouseClick { column: 11, row: 0 });
+    assert!(rendered_application(&application).contains("Commit message"));
+    assert!(!rendered_application(&application).contains("Select revision"));
+}
+
+#[test]
 fn clicking_outside_the_revision_selector_closes_it() {
     let mut application = application();
     publish_repository(

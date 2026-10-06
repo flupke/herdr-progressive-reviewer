@@ -15,7 +15,7 @@ use ui_events::{
     CurrentReviewLocationChanged, RepositoryFilesChanged, RepositoryRefreshFinished,
     RepositoryRefreshStarted, ReviewLocation, ReviewLocationJumped, ReviewLocationRestoreRequested,
     RevisionCandidatesLoaded, RevisionEditFailed, RevisionHistoryLoadId, RevisionHistoryLoaded,
-    ToastRequested, ViewportChanged,
+    RevisionSelectorRequested, ToastRequested, ViewportChanged,
 };
 use ui_shortcuts::{
     ApplicationShortcut, Key, RevisionShortcut, ShortcutMatcher, ShortcutSubscription,
@@ -263,20 +263,7 @@ impl RevisionComponent {
         let direction = match input {
             RevisionInput::Selector(key) => return self.selector_key(key),
             RevisionInput::Navigate(direction) => direction,
-            RevisionInput::OpenSelector => {
-                if self.state.is_some() {
-                    return Vec::new();
-                }
-                let load_id = RevisionHistoryLoadId::new(self.next_history_load_id);
-                self.next_history_load_id = self.next_history_load_id.wrapping_add(1);
-                self.state = Some(RevisionNavigationState::LoadingHistory {
-                    load_id,
-                    origin: self.current_location.clone(),
-                });
-                return vec![Action::Repository(RepositoryAction::LoadRevisionHistory {
-                    load_id,
-                })];
-            }
+            RevisionInput::OpenSelector => return self.open_selector(),
         };
         let Some(origin) = self.current_location.clone() else {
             return Vec::new();
@@ -288,6 +275,28 @@ impl RevisionComponent {
         vec![Action::Repository(
             RepositoryAction::LoadRevisionCandidates(direction),
         )]
+    }
+
+    /// Opens the selector of the revision history, unless a selector is open or loading.
+    fn open_selector(&mut self) -> Vec<Action> {
+        if self.state.is_some() {
+            return Vec::new();
+        }
+        let load_id = RevisionHistoryLoadId::new(self.next_history_load_id);
+        self.next_history_load_id = self.next_history_load_id.wrapping_add(1);
+        self.state = Some(RevisionNavigationState::LoadingHistory {
+            load_id,
+            origin: self.current_location.clone(),
+        });
+        vec![Action::Repository(RepositoryAction::LoadRevisionHistory {
+            load_id,
+        })]
+    }
+
+    /// Opens the selector on request, as its shortcut does.
+    #[allow(clippy::trivially_copy_pass_by_ref)]
+    fn selector_requested(&mut self, _event: &RevisionSelectorRequested) -> Vec<Action> {
+        self.open_selector()
     }
 
     /// Whether `key` closes a candidate selector. The selector keeps every
@@ -398,6 +407,7 @@ impl Component<Action> for RevisionComponent {
         subscriptions.subscribe(Self::candidates_loaded);
         subscriptions.subscribe(Self::history_loaded);
         subscriptions.subscribe(Self::edit_failed);
+        subscriptions.subscribe(Self::selector_requested);
         subscriptions.subscribe_input(
             InputScope::Focused,
             RevisionInputMatcher::new(),

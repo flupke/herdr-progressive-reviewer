@@ -97,6 +97,10 @@ pub struct PointerInput {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CommitMessageToggleRequested;
 
+/// Ask the revision component to open its selector, as its shortcut does.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RevisionSelectorRequested;
+
 /// The current terminal dimensions used to place modal overlays.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ViewportChanged {

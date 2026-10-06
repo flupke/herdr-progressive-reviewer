@@ -34,6 +34,10 @@ metadata changes remain for review. Changing the comparison or manually changing
 review marks cancels the run. Automatic marks use the classified checkpoint, so
 later edits need review again. `Space` can undo an automatic mark.
 
+The header names the revision under review: its change ID, then its title. Click
+the change ID, or press `vv`, to select another revision; `[v` and `]v` go to a
+parent or a child. Click the title, or press `c`, to read the whole commit message.
+
 Press `rU` (lowercase `r`, then uppercase `U`) to set all files in the current
 change to unreviewed. The confirmation dialog accepts `y` to confirm and `n` or
 `Esc` to cancel. Confirming cancels any running Jev autoreview and clears file

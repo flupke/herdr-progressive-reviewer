@@ -595,7 +595,23 @@ fn commit_message_opens_and_closes_from_mouse_or_keyboard() {
     app.update(UserInput::MouseClick { column: 0, row: 11 });
     assert!(!screen(&app, 80, 12).join("\n").contains("Commit body"));
 
-    app.update(UserInput::MouseClick { column: 2, row: 0 });
+    app.update(click_on_text(&screen(&app, 80, 12), "Commit title"));
+    assert!(screen(&app, 80, 12).join("\n").contains("Commit body"));
+}
+
+#[test]
+fn a_click_on_the_summary_beside_a_long_title_opens_no_commit_message() {
+    let mut app = ReviewApplication::default();
+    publish_repository(
+        &mut app,
+        ReviewCheckpoint::new("qpvuntsm", "11111111"),
+        format!("{}\n\nCommit body\n", "A very long commit title ".repeat(8)),
+        Vec::new(),
+    );
+
+    app.update(click_on_text(&screen(&app, 80, 12), "% reviewed"));
+    assert!(!screen(&app, 80, 12).join("\n").contains("Commit body"));
+    app.update(click_on_text(&screen(&app, 80, 12), "A very long"));
     assert!(screen(&app, 80, 12).join("\n").contains("Commit body"));
 }
 
