@@ -4272,6 +4272,7 @@ dependencies = [
  "futures",
  "ignore",
  "jj-lib",
+ "nix",
  "review-test-support",
  "review-types",
  "serde",

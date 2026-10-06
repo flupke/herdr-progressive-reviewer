@@ -4,11 +4,17 @@ use std::ffi::{OsStr, OsString};
 use std::io::Read;
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
-use std::sync::Arc;
+use std::process::{Child, Command, ExitStatus, Output, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::thread;
-use std::time::Duration;
+
+#[cfg(target_os = "linux")]
+use nix::{
+    errno::Errno,
+    sys::wait::{Id, WaitPidFlag, waitid},
+    unistd::Pid,
+};
 
 use crate::{Error, Result};
 use review_types::ReviewUnit;
@@ -26,22 +32,87 @@ const COMMAND_OUTPUT_LIMIT: usize = 256 * 1024 * 1024;
 #[derive(Clone, Copy, Debug)]
 struct RepositoryProcess<'a> {
     program: &'static str,
+    /// The options that keep the program's output plain, before the command's arguments.
+    options: &'static [&'static str],
+    /// The most output the command may print, stdout and stderr together.
+    output_limit: usize,
     cwd: &'a Path,
     operation: &'static str,
     cancellation: &'a Cancellation,
     environment: &'a [(OsString, OsString)],
 }
 
+/// Cancels a repository's commands, and wakes the commands that wait on a child.
+///
+/// A command waits on the condition variable until its child exits, its output passes the
+/// size limit, or the repository is cancelled; its threads wake it through
+/// [`Cancellation::wake`].
 #[derive(Clone, Debug, Default)]
-struct Cancellation(Arc<AtomicBool>);
+struct Cancellation(Arc<CancellationSignal>);
+
+#[derive(Debug, Default)]
+struct CancellationSignal {
+    cancelled: Mutex<bool>,
+    changed: Condvar,
+}
 
 impl Cancellation {
     fn cancel(&self) {
-        self.0.store(true, Ordering::Relaxed);
+        *self.lock() = true;
+        self.0.changed.notify_all();
     }
 
     fn is_cancelled(&self) -> bool {
-        self.0.load(Ordering::Relaxed)
+        *self.lock()
+    }
+
+    /// Wake the commands that wait, so each checks whether it is over.
+    fn wake(&self) {
+        let _cancelled = self.lock();
+        self.0.changed.notify_all();
+    }
+
+    /// Wait until `settled` holds or the repository is cancelled, and say whether it was.
+    #[cfg(target_os = "linux")]
+    fn wait_until(&self, settled: impl Fn() -> bool) -> bool {
+        let mut cancelled = self.lock();
+        while !*cancelled && !settled() {
+            cancelled = self
+                .0
+                .changed
+                .wait(cancelled)
+                .unwrap_or_else(PoisonError::into_inner);
+        }
+        *cancelled
+    }
+
+    fn lock(&self) -> MutexGuard<'_, bool> {
+        self.0
+            .cancelled
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+/// What the threads of one command tell the command that waits on them: how much output its
+/// readers took, and whether its child exited.
+#[derive(Debug, Default)]
+struct CommandProgress {
+    bytes: AtomicUsize,
+    exceeded: AtomicBool,
+    #[cfg(target_os = "linux")]
+    exited: AtomicBool,
+}
+
+impl CommandProgress {
+    fn exceeded(&self) -> bool {
+        self.exceeded.load(Ordering::SeqCst)
+    }
+
+    /// Whether the command is over: its child exited, or its output passed the size limit.
+    #[cfg(target_os = "linux")]
+    fn settled(&self) -> bool {
+        self.exceeded() || self.exited.load(Ordering::SeqCst)
     }
 }
 
@@ -697,6 +768,12 @@ impl<'a> RepositoryProcess<'a> {
     ) -> Self {
         Self {
             program,
+            options: if program == "jj" {
+                &["--color=never", "--no-pager"]
+            } else {
+                &["--no-pager", "-c", "color.ui=false"]
+            },
+            output_limit: COMMAND_OUTPUT_LIMIT,
             cwd,
             operation,
             cancellation,
@@ -714,13 +791,8 @@ impl<'a> RepositoryProcess<'a> {
         I: IntoIterator<Item = S>,
         S: AsRef<OsStr>,
     {
-        let mut command = Command::new(self.program);
-        if self.program == "jj" {
-            command.args(["--color=never", "--no-pager"]);
-        } else {
-            command.args(["--no-pager", "-c", "color.ui=false"]);
-        }
-        let mut child = command
+        let mut child = Command::new(self.program)
+            .args(self.options)
             .args(arguments)
             .envs(self.environment.iter().cloned())
             .current_dir(self.cwd)
@@ -734,38 +806,19 @@ impl<'a> RepositoryProcess<'a> {
                 current_dir: Some(self.cwd.to_owned()),
                 source,
             })?;
-        let bytes = Arc::new(AtomicUsize::new(0));
-        let exceeded = Arc::new(AtomicBool::new(false));
-        let stdout = Self::capture(
+        let progress = Arc::<CommandProgress>::default();
+        let stdout = self.capture(
             child.stdout.take().expect("stdout is piped"),
-            Arc::clone(&bytes),
-            Arc::clone(&exceeded),
+            Arc::clone(&progress),
         );
-        let stderr = Self::capture(
+        let stderr = self.capture(
             child.stderr.take().expect("stderr is piped"),
-            bytes,
-            Arc::clone(&exceeded),
+            Arc::clone(&progress),
         );
-        let mut cancelled = false;
-        let status = loop {
-            if exceeded.load(Ordering::Relaxed) {
-                let _ = child.kill();
-                break child.wait();
-            }
-            if self.cancellation.is_cancelled() {
-                cancelled = true;
-                let _ = child.kill();
-                break child.wait();
-            }
-            match child.try_wait() {
-                Ok(Some(status)) => break Ok(status),
-                Ok(None) => thread::sleep(Duration::from_millis(10)),
-                Err(error) => break Err(error),
-            }
-        }
-        .map_err(|source| Error::Spawn {
+        let (status, cancelled) = self.wait(&mut child, &progress);
+        let status = status.map_err(|source| Error::Spawn {
             operation: self.operation.to_owned(),
-            program: OsString::from("jj"),
+            program: OsString::from(self.program),
             current_dir: Some(self.cwd.to_owned()),
             source,
         })?;
@@ -793,7 +846,7 @@ impl<'a> RepositoryProcess<'a> {
                 path: self.cwd.to_owned(),
             });
         }
-        if exceeded.load(Ordering::Relaxed) {
+        if progress.exceeded() {
             return Err(Error::CommandOutputTooLarge {
                 operation: self.operation.to_owned(),
                 path: self.cwd.to_owned(),
@@ -806,11 +859,64 @@ impl<'a> RepositoryProcess<'a> {
         })
     }
 
+    /// Wait until the child exits, its output passes the size limit, or the repository is
+    /// cancelled; kill the child in the last two cases. Return its status, and whether the
+    /// cancellation stopped it: the size limit wins, as it reports the command's own failure.
+    #[cfg(target_os = "linux")]
+    fn wait(
+        &self,
+        child: &mut Child,
+        progress: &Arc<CommandProgress>,
+    ) -> (std::io::Result<ExitStatus>, bool) {
+        let exit = Self::watch_exit(child, Arc::clone(progress), self.cancellation.clone());
+        let cancelled = self.cancellation.wait_until(|| progress.settled()) && !progress.exceeded();
+        if cancelled || progress.exceeded() {
+            let _ = child.kill();
+        }
+        // The watcher returns once the child exits, and never reaps it: its process ID stays
+        // the child's until `wait` below.
+        exit.join().expect("exit watcher did not panic");
+        (child.wait(), cancelled)
+    }
+
+    /// Wait until the child exits, its output passes the size limit, or the repository is
+    /// cancelled; kill the child in the last two cases. Return its status, and whether the
+    /// cancellation stopped it: the size limit wins, as it reports the command's own failure.
+    ///
+    /// Without `waitid`, nothing wakes the command when its child exits, so it checks every
+    /// 10 ms.
+    #[cfg(not(target_os = "linux"))]
+    fn wait(
+        &self,
+        child: &mut Child,
+        progress: &Arc<CommandProgress>,
+    ) -> (std::io::Result<ExitStatus>, bool) {
+        loop {
+            if progress.exceeded() {
+                let _ = child.kill();
+                return (child.wait(), false);
+            }
+            if self.cancellation.is_cancelled() {
+                let _ = child.kill();
+                return (child.wait(), true);
+            }
+            match child.try_wait() {
+                Ok(Some(status)) => return (Ok(status), false),
+                Ok(None) => thread::sleep(std::time::Duration::from_millis(10)),
+                Err(error) => return (Err(error), false),
+            }
+        }
+    }
+
+    /// Read one pipe on its own thread, and wake the command once the output passes the size
+    /// limit.
     fn capture(
+        &self,
         mut pipe: impl Read + Send + 'static,
-        bytes: Arc<AtomicUsize>,
-        exceeded: Arc<AtomicBool>,
+        progress: Arc<CommandProgress>,
     ) -> thread::JoinHandle<std::io::Result<Vec<u8>>> {
+        let cancellation = self.cancellation.clone();
+        let limit = self.output_limit;
         thread::spawn(move || {
             let mut output = Vec::new();
             let mut buffer = [0; 8192];
@@ -819,13 +925,34 @@ impl<'a> RepositoryProcess<'a> {
                 if count == 0 {
                     return Ok(output);
                 }
-                let previous = bytes.fetch_add(count, Ordering::Relaxed);
-                if previous.saturating_add(count) > COMMAND_OUTPUT_LIMIT {
-                    exceeded.store(true, Ordering::Relaxed);
+                let previous = progress.bytes.fetch_add(count, Ordering::Relaxed);
+                if previous.saturating_add(count) > limit {
+                    progress.exceeded.store(true, Ordering::SeqCst);
+                    cancellation.wake();
                     return Ok(output);
                 }
                 output.extend_from_slice(&buffer[..count]);
             }
+        })
+    }
+
+    /// Wake the command once its child exits, on a thread of its own. The thread leaves the
+    /// child unreaped, so the command can still kill it by its process ID and must reap it.
+    #[cfg(target_os = "linux")]
+    fn watch_exit(
+        child: &Child,
+        progress: Arc<CommandProgress>,
+        cancellation: Cancellation,
+    ) -> thread::JoinHandle<()> {
+        let pid = Pid::from_raw(i32::try_from(child.id()).expect("a process ID fits an i32"));
+        thread::spawn(move || {
+            // Any error other than an interruption means the child cannot be waited for any
+            // more; the command's own `wait` then reports it.
+            while let Err(Errno::EINTR) =
+                waitid(Id::Pid(pid), WaitPidFlag::WEXITED | WaitPidFlag::WNOWAIT)
+            {}
+            progress.exited.store(true, Ordering::SeqCst);
+            cancellation.wake();
         })
     }
 }
