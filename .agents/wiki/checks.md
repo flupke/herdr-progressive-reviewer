@@ -22,6 +22,12 @@ run that binary. `herdr` on the `PATH` stays the installed Herdr, which
 the `PATH`. Set `TEST_HERDR_BIN_PATH` inside the shell to try another binary:
 `nix develop --command env TEST_HERDR_BIN_PATH=/path/to/herdr make check`.
 
+Herdr's documentation leaves much of its behaviour out, such as what it does with a
+pane's OSC 52 clipboard write. Read its source at the pinned release instead (`herdrVersion`
+in `flake.nix`): `git clone --depth 1 --branch v<version>
+https://github.com/herdrdev/herdr`. `src/pane.rs` handles what a pane's program writes,
+and `src/selection.rs` the clipboard.
+
 Each test server also detects agents with the rules in
 [`crates/review-test-support/agent-detection`](../../crates/review-test-support/agent-detection),
 copies of Herdr's published Codex and Claude rules. It installs them as local
