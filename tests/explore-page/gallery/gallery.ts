@@ -16,13 +16,10 @@ import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { Browser, Page } from 'playwright';
-import { launch, settle, StandaloneServer } from '../standalone.ts';
+import { launch, settle, StandaloneServer, THEMES, type Theme, windowHeight } from '../standalone.ts';
 import { openSession } from '../tests/session.ts';
-import { contactSheet, type Shot, THEMES, type Theme } from './contact-sheet.ts';
+import { contactSheet, type Shot } from './contact-sheet.ts';
 import { type GalleryState, STATES } from './states.ts';
-
-/** The height of the window, which a full-page screenshot extends to the whole page. */
-const height = (width: number) => (width < 600 ? 844 : 900);
 
 /** The states, widths and folders of a run, from the environment. */
 class Options {
@@ -65,7 +62,7 @@ async function showWhole(page: Page, width: number): Promise<void> {
   for (let tries = 0; tries < 3; tries++) {
     const whole = await page.evaluate(() => document.documentElement.scrollHeight);
     if (whole <= page.viewportSize()!.height) return;
-    await page.setViewportSize({ width, height: Math.max(whole, height(width)) });
+    await page.setViewportSize({ width, height: Math.max(whole, windowHeight(width)) });
   }
 }
 
@@ -78,7 +75,7 @@ interface Studio {
 /** Takes the screenshot of `state` at `width` in `theme`, into `output`. */
 async function shoot(studio: Studio, state: GalleryState, width: number, theme: Theme, output: string): Promise<Shot> {
   const context = await studio.browser.newContext({
-    viewport: { width, height: height(width) },
+    viewport: { width, height: windowHeight(width) },
     colorScheme: theme,
     reducedMotion: 'reduce',
     // Clock times read the same on every machine.

@@ -88,11 +88,17 @@ explore-gallery: e2e-explore-deps
 	node $(EXPLORE_E2E)/gallery/gallery.ts
 
 # Runs a throwaway Playwright script, SCRIPT, against a fresh session of the standalone server,
-# and prints its output and the paths of its screenshots (.agents/wiki/explore-page-standalone.md).
-# SCRIPT_DATA (short or rich) and SCRIPT_WIDTH go to the runner through the environment.
+# and prints its output and the paths of its screenshots (.agents/wiki/explore-page-standalone.md);
+# without SCRIPT, prints how to write one, the runner's header, and fails without building. SCRIPT_DATA,
+# SCRIPT_WIDTH, SCRIPT_THEME and SCRIPT_OUT go to the runner through the environment.
+ifeq ($(SCRIPT),)
+explore-script:
+	@awk '!/^\/\//{exit} {sub(/^\/\/ ?/, ""); print}' $(EXPLORE_E2E)/script.ts; exit 2
+else
 explore-script: e2e-explore-deps
 	cargo build --locked -p review-explore-page-server
 	SCRIPT='$(SCRIPT)' node $(EXPLORE_E2E)/script.ts
+endif
 
 # Serve the Explore page alone, with a fixed question. Templates and assets are read from disk,
 # and an open page reloads when one changes. EXPLORE_PAGE_ARGS go to the server

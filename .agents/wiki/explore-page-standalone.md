@@ -30,11 +30,15 @@ EXPLORE_PAGE_ARGS='--data rich'` serves it.
 nix develop --command make explore-script SCRIPT=path/to/script.ts
 ```
 
+In a jj workspace, enter the dev shell with `scripts/dev-shell make explore-script ...`
+instead ([parallel workspaces](parallel-workspaces.md)).
+
 This runs a throwaway Playwright script against a fresh session of the standalone
-server, in the dev shell's headless Chromium: the header of
-[`script.ts`](../../tests/explore-page/script.ts) shows a script and lists what it gets
-and the variables. Keep the script in a scratch folder outside the repository: it is a
-throwaway.
+server, in the dev shell's headless Chromium. The header of
+[`script.ts`](../../tests/explore-page/script.ts), which `make explore-script` prints
+without `SCRIPT`, shows a script and says what it gets, how screenshots are named, what a
+failure prints, and the variables. Keep the script in a scratch folder outside the
+repository: it is a throwaway.
 
 Use it to see a state the gallery has no entry for, or to try a behaviour of the client
 by hand before deciding whether it earns a journey in the

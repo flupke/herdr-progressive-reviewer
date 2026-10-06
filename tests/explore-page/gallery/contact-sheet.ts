@@ -2,11 +2,8 @@
 // and, given an earlier gallery to compare with, before and after for each image that differs.
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
+import type { Theme } from '../standalone.ts';
 import type { GalleryState } from './states.ts';
-
-/** The themes each state is shot in, in the order of the contact sheet. */
-export const THEMES = ['light', 'dark'] as const;
-export type Theme = (typeof THEMES)[number];
 
 /** One screenshot of a gallery. */
 export interface Shot {

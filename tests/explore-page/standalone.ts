@@ -1,10 +1,23 @@
-// The standalone page server and a headless Chromium, started outside the e2e runner: for the
-// screenshot gallery (gallery/gallery.ts) and throwaway scripts (script.ts).
+// The standalone page server and a headless Chromium, started outside the e2e runner, with the
+// themes and window sizes they shoot the page in: for the screenshot gallery (gallery/gallery.ts)
+// and throwaway scripts (script.ts).
 import { type ChildProcess, spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { type Browser, chromium, type Page } from 'playwright';
 import { startChromium, stopChromium } from './nix-chromium.ts';
 import { SERVER } from './server.ts';
+
+/** The page's themes, in the order of the gallery's contact sheet. */
+export const THEMES = ['light', 'dark'] as const;
+export type Theme = (typeof THEMES)[number];
+
+/**
+ * The height of a window `width` CSS pixels wide: a phone's below 600 pixels. A full-page
+ * screenshot extends it to the whole page.
+ */
+export function windowHeight(width: number): number {
+  return width < 600 ? 844 : 900;
+}
 
 /** The standalone page server, on a free port. */
 export class StandaloneServer {
