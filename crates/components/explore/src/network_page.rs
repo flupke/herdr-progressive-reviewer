@@ -118,7 +118,7 @@ impl ExploreComponent {
             TunnelState::Off => return,
             TunnelState::Opening => ("Opening a tunnel with cloudflared…".into(), palette.dim),
             TunnelState::Failed(reason) => (
-                format!("Cannot share the round over a tunnel: {reason}."),
+                format!("Cannot share the round over a tunnel: {reason}"),
                 palette.warning,
             ),
             TunnelState::Open { .. } => (

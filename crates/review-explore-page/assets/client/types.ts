@@ -830,7 +830,8 @@ export type RowView = { kind: RowKind, old_line: number | null, new_line: number
 export type RpcError = { code: number, message: string, 
 /**
  * The notice the page shows, worded for the action, as a status card; `None` for a request
- * the page could not have sent.
+ * the page could not have sent, and for one sent after the page's token stopped opening the
+ * round, which the socket closes once the replies it waits for are sent.
  */
 data: StatusCard | null, };
 /**

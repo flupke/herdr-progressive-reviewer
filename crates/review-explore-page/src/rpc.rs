@@ -282,7 +282,8 @@ pub(crate) struct RpcError {
     pub(crate) code: i32,
     pub(crate) message: String,
     /// The notice the page shows, worded for the action, as a status card; `None` for a request
-    /// the page could not have sent.
+    /// the page could not have sent, and for one sent after the page's token stopped opening the
+    /// round, which the socket closes once the replies it waits for are sent.
     pub(crate) data: Option<StatusCard>,
 }
 

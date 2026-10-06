@@ -830,6 +830,10 @@ async fn a_request_after_the_token_ended_is_refused_while_another_waits_for_its_
         }
     };
     assert_eq!(reply["error"]["code"], super::RpcError::STALE);
+    assert!(
+        reply["error"]["data"].is_null(),
+        "refused by the socket, not by the action's own check: {reply}"
+    );
     assert_eq!(owner.commands(), ["answer"]);
 }
 
