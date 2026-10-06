@@ -33,11 +33,15 @@ pub enum Action {
     Terminal(TerminalAction),
 }
 
-/// Work on the Explore page the pane serves on this machine.
+/// Work on the Explore page the pane serves.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExplorePageAction {
     /// Open the page in the default browser.
     Open,
+    /// Share the running round over a tunnel, until the round ends.
+    OpenTunnel,
+    /// Stop the tunnel that shares the running round.
+    CloseTunnel,
 }
 
 /// Work on the documents on screen.

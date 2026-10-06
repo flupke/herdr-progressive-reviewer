@@ -1,7 +1,7 @@
 //! Starting forks from one long-lived thread, and following each until it ends.
 
 use std::ffi::OsString;
-use std::io::{self, BufRead, BufReader, Read, Write};
+use std::io::{self, BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
@@ -183,11 +183,30 @@ impl RunningFork {
             });
             finished
         });
-        let stderr = child.stderr.take().map(|mut stderr| {
+        let stderr = child.stderr.take().map(|stderr| {
+            let output = Arc::clone(&output);
             let (tail, read) = mpsc::channel::<String>();
             thread::spawn(move || {
+                let mut stderr = BufReader::new(stderr);
                 let mut text = Vec::new();
-                let _ = stderr.read_to_end(&mut text);
+                let mut line = Vec::new();
+                while stderr
+                    .read_until(b'\n', &mut line)
+                    .is_ok_and(|read| read > 0)
+                {
+                    if let Some(output) = output
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .as_mut()
+                    {
+                        let read = String::from_utf8_lossy(&line);
+                        output.error_line(read.trim_end_matches(['\n', '\r']));
+                    }
+                    text.append(&mut line);
+                    if text.len() > 2 * STDERR_TAIL {
+                        text.drain(..text.len() - STDERR_TAIL);
+                    }
+                }
                 let start = text.len().saturating_sub(STDERR_TAIL);
                 let _ = tail.send(String::from_utf8_lossy(&text[start..]).into_owned());
             });

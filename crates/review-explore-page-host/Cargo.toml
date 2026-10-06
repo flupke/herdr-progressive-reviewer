@@ -10,15 +10,18 @@ publish = false
 axum.workspace = true
 herdr-client = { path = "../herdr-client" }
 nix = { version = "0.29", default-features = false, features = ["net"] }
+quick-tunnel = { path = "../quick-tunnel" }
 review-explore-page = { path = "../review-explore-page" }
 review-explore-page-opening = { path = "../review-explore-page-opening" }
 review-explore-page-settings = { path = "../review-explore-page-settings" }
+review-explore-page-tunnel = { path = "../review-explore-page-tunnel" }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
+agent-fork = { path = "../agent-fork" }
 review-explore = { path = "../review-explore" }
 review-test-support = { path = "../review-test-support" }
 review-types = { path = "../review-types" }

@@ -19,14 +19,14 @@ use crate::files::PageFiles;
 use crate::round::Rounds;
 
 /// Scripts and styles only from the page itself, and no inline script; the page's requests go
-/// only to itself, its socket included (named in full: older browsers do not count `ws:` to the
-/// page's own address as `'self'`). Inline styles are allowed for Mermaid, which writes them into
+/// only to itself, its socket included (named in full, `ws:`, or `wss:` through a tunnel: older
+/// browsers do not count it to the page's own address as `'self'`). Inline styles are allowed for Mermaid, which writes them into
 /// each diagram it draws: without them its boxes and labels are misplaced. The page posts no
 /// form. The browser reports what the policy blocks to `/csp-report`.
-fn content_security_policy(host: &str) -> String {
+fn content_security_policy(socket: &str) -> String {
     format!(
         "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; \
-         connect-src 'self' ws://{host}; img-src 'self'; form-action 'none'; base-uri 'none'; \
+         connect-src 'self' {socket}; img-src 'self'; form-action 'none'; base-uri 'none'; \
          frame-ancestors 'none'; report-uri /csp-report"
     )
 }
@@ -152,7 +152,8 @@ impl<R: Rounds> ExplorePage<R> {
             .get(header::HOST)
             .and_then(|host| host.to_str().ok())
             .unwrap_or_default();
-        let Ok(policy) = HeaderValue::from_str(&content_security_policy(host)) else {
+        let socket = self.hosts.socket(host);
+        let Ok(policy) = HeaderValue::from_str(&content_security_policy(&socket)) else {
             return StatusCode::BAD_REQUEST.into_response();
         };
         let policy = (header::CONTENT_SECURITY_POLICY, policy);

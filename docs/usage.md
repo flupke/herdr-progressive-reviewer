@@ -676,6 +676,40 @@ sudo ufw allow from 192.168.1.0/24 to any port 8790:8799 proto tcp
 
 Remove the rule with `sudo ufw delete allow from 192.168.1.0/24 to any port 8790:8799 proto tcp`.
 
+### Share a round over a tunnel
+
+To let a coworker who is not on your network follow and run the round, share it over a
+Cloudflare quick tunnel: press `O` (or click **Share over a tunnel** in the
+[Explore page settings](#explore-page-settings)) while a round runs. The reviewer runs
+`cloudflared tunnel --url` with a listener of its own on this machine; this needs
+[`cloudflared`](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/)
+on your `PATH`, and no Cloudflare account. Once `cloudflared` prints the tunnel's public
+`https://….trycloudflare.com` address, the end of the Explore tab shows the share link and its
+QR code. Send the link to your coworker: it opens the round's page in their browser, live, as
+it opens on your phone.
+
+What the link gives:
+
+- **Full rights.** Anyone with the link uses the round's page as you do: they can answer the
+  agent's questions, write in the chat, cancel answers, reset the round, and **Implement**,
+  which has the agent change code in your repository with the list they send. There are no
+  roles and no read-only mode. Share the link only with people you trust that far.
+- **The round's network token.** The link carries the token of the phone's QR code, which
+  opens only the running round. The token of the page on this machine, which the pane keeps
+  across rounds and restarts, never goes through the tunnel.
+- **Cloudflare sees the page.** The traffic is encrypted between the browser and Cloudflare,
+  and between Cloudflare and `cloudflared`, but Cloudflare forwards the page's content: the
+  agent's questions, your code as the page shows it, and the answers.
+
+The tunnel lasts one round. It stops, and the link stops working, when you press `O` again,
+when a new round starts, when the round is reset, and when the reviewer closes; the
+`cloudflared` process never outlives the reviewer. Press `O` in the next round to share it
+again, with a new link. Only the pane has this switch: the page has none.
+
+When `cloudflared` is not installed, fails to start, stops, or prints no address within 30
+seconds, the pane says so in one line where the link would be, with where to install it when it
+is missing ([ADR 0004](adr/0004-share-a-round-over-a-cloudflare-quick-tunnel.md)).
+
 ### Explore round settings
 
 Every screen of the Explore tab also shows the settings for the rounds, above the Explore
@@ -710,8 +744,9 @@ changed. Turn network access off in each open reviewer, or reopen them.
 | **Serve on the network** | `n` | On, the default: the page is also served to the network, and the pane shows its address and QR code. Off: the page stays on this machine; the network listener stops, a phone's page stops working, and the address and QR code leave the pane. |
 | **Interface** | `N` | The interface whose IPv4 address the page listens on, such as `wlan0` or a VPN's `tailscale0`. Empty, the default (shown as "default route"): the interface of the route to the internet. |
 | **First port** | `#` | The first port tried, 8790 by default. When another reviewer holds it, the page takes the next free one of the ten ports from it. |
+| **Share over a tunnel** | `O` | Off when the reviewer starts, and not saved. On: shares the running round over a Cloudflare quick tunnel, and the pane shows its link and QR code; it goes off with the round. See [Share a round over a tunnel](#share-a-round-over-a-tunnel). |
 
-Click a setting, or press its key while you are not typing an answer, to change it. The two
+Click a setting, or press its key while you are not typing an answer, to change it. The three
 switches turn over at once. Interface and First port open a one-line editor under the
 buttons, with the current value: `Enter` saves it, `Tab` or any other button leaves it
 unchanged, and a first port that is not a number from 1 to 65535 is refused with the reason. A new interface or port moves the page to a new address,

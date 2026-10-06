@@ -262,14 +262,17 @@ mod explore_page {
 
     use herdr_client::protocol::WorkspaceId;
     use review_explore_page::{CommandRefusal, CommandSender, PageRound, RoundPublisher};
-    use review_explore_page_host::{Browser, NetworkAccess, PageDirectory, PageHost, PageOpener};
+    use review_explore_page_host::{
+        Browser, NetworkAccess, PageDirectory, PageHost, PageOpener, TunnelProgram, TunnelState,
+    };
     use review_explore_page_settings::{ExplorePageSetting, PaneStarts};
     use review_ui::ExplorePageAction;
     use ui_events::{
         ExplorePageNotOpened, ExplorePageNotShared, ExplorePageOffNetwork,
-        ExplorePageSettingsLoaded, ExplorePageShared,
+        ExplorePageSettingsLoaded, ExplorePageShared, ExplorePageTunnel,
     };
 
+    use crate::runtime::effects::fixture::test_fork_tools;
     use crate::runtime::page_sharing::PageSharing;
 
     use super::*;
@@ -396,7 +399,11 @@ mod explore_page {
         ] {
             fixture.store.save_explore_page_setting(setting).unwrap();
         }
-        let sharing = PageSharing::new(host.network(), fixture.background.clone());
+        let sharing = PageSharing::new(
+            host.network(),
+            fixture.background.clone(),
+            missing_tunnel(fixture.state.path()),
+        );
         sharing.apply(&access);
         let ExplorePageShared(url) = fixture.wait_for::<ExplorePageShared>();
         fixture.effects.share_page(sharing);
@@ -482,5 +489,132 @@ mod explore_page {
                 && event.downcast_ref::<ExplorePageOffNetwork>().is_none()
         }));
         assert!(std::net::TcpStream::connect(socket(&url)).is_ok());
+    }
+
+    /// A tunnel whose `cloudflared` is not installed, for tests that open none.
+    fn missing_tunnel(state: &Path) -> TunnelProgram {
+        let mut tunnel = TunnelProgram::cloudflared(test_fork_tools().wrapper());
+        tunnel.program = state.join("no-cloudflared").into_os_string();
+        tunnel
+    }
+
+    const TUNNEL_HOST: &str = "quiet-river-stone-lamp.trycloudflare.com";
+
+    /// A stand-in for `cloudflared` under `state`, started through the reviewer's own
+    /// `fork-exec`: it writes its process ID, prints the tunnel's address as `cloudflared` does,
+    /// and runs until it is stopped.
+    fn stand_in_tunnel(state: &Path) -> TunnelProgram {
+        let program = state.join("cloudflared");
+        std::fs::write(
+            &program,
+            format!(
+                "#!/bin/sh\necho $$ > '{}'\necho 'INF |  https://{TUNNEL_HOST}  |' >&2\nexec sleep 600\n",
+                state.join("cloudflared.pid").display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let mut tunnel = missing_tunnel(state);
+        tunnel.program = program.into_os_string();
+        tunnel
+    }
+
+    /// The tunnel state the pane hears next.
+    fn tunnel_state(fixture: &mut EffectsFixture) -> TunnelState {
+        let ExplorePageTunnel(state) = fixture.wait_for::<ExplorePageTunnel>();
+        state
+    }
+
+    #[test]
+    fn the_pane_shares_the_running_round_over_a_tunnel_and_stops_it() {
+        let pages = tempfile::tempdir().unwrap();
+        let round = RoundPublisher::default();
+        let commands = CommandSender::new(|_, reply| {
+            reply.send(Err(CommandRefusal::Failed(
+                "No session in this test".into(),
+            )));
+        });
+        let host = PageHost::start(
+            PageRound::new(round.subscribe(), commands),
+            &PageDirectory::new(pages.path()),
+            &WorkspaceId("w1".into()),
+            Path::new("/repositories/drafts"),
+        )
+        .unwrap();
+        let review = review_types::ReviewUnit::from("review");
+        let overview = review_explore::RoundOverview {
+            rail: Vec::new(),
+            decisions: Vec::new(),
+            earlier: Vec::new(),
+            title: review_explore::TabTitle::AgentWorking,
+        };
+        round.publish(
+            Some(review_explore_page::PublishedRound {
+                id: "r1",
+                review_unit: &review,
+                design: None,
+                changed_files: 0,
+                cancellable: None,
+                earlier: false,
+                overview: &overview,
+                earlier_citations: &[],
+            }),
+            review_explore_page::RoundStage::AgentWorking {
+                request: "turn".into(),
+                sent_at_ms: None,
+                answer: None,
+            },
+        );
+        let mut fixture = EffectsFixture::new(RepoType::Git);
+        let sharing = PageSharing::new(
+            host.network(),
+            fixture.background.clone(),
+            stand_in_tunnel(pages.path()),
+        );
+        fixture.effects.share_page(sharing);
+
+        fixture.perform([Action::ExplorePage(ExplorePageAction::OpenTunnel)]);
+
+        assert_eq!(tunnel_state(&mut fixture), TunnelState::Opening);
+        let TunnelState::Open { url } = tunnel_state(&mut fixture) else {
+            panic!("the tunnel's link");
+        };
+        assert!(
+            url.starts_with(&format!("https://{TUNNEL_HOST}/?token=")),
+            "{url}"
+        );
+        assert!(!url.contains(host.url().rsplit('=').next().unwrap()));
+        let pid = std::fs::read_to_string(pages.path().join("cloudflared.pid")).unwrap();
+        let process = PathBuf::from(format!("/proc/{}", pid.trim()));
+        assert!(process.exists());
+
+        fixture.perform([Action::ExplorePage(ExplorePageAction::CloseTunnel)]);
+
+        assert_eq!(tunnel_state(&mut fixture), TunnelState::Off);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while process.exists() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(!process.exists(), "cloudflared ended");
+    }
+
+    #[test]
+    fn a_missing_cloudflared_reaches_the_pane_in_one_line() {
+        let pages = tempfile::tempdir().unwrap();
+        let host = host(pages.path());
+        let mut fixture = EffectsFixture::new(RepoType::Git);
+        let sharing = PageSharing::new(
+            host.network(),
+            fixture.background.clone(),
+            missing_tunnel(pages.path()),
+        );
+        fixture.effects.share_page(sharing);
+
+        fixture.perform([Action::ExplorePage(ExplorePageAction::OpenTunnel)]);
+
+        let TunnelState::Failed(reason) = tunnel_state(&mut fixture) else {
+            panic!("why there is no tunnel");
+        };
+        assert!(!reason.contains('\n'), "{reason}");
     }
 }

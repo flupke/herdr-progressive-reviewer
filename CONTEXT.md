@@ -183,7 +183,9 @@ with Challenger, which open it in the browser (Start in the pane does not), behi
 token that the next pane of the same review keeps, so that an open page reconnects
 after a restart, and on the network, behind a new token for each round, for the QR code in the pane; while
 no round runs, the start screen's token is the one the next round keeps, and a
-Reset from the page hands that page the next one.
+Reset from the page hands that page the next one. While the reviewer shares the running round
+over a tunnel, the page is also served at the tunnel's public address, behind the round's
+network token, until the round ends.
 _Avoid_: web UI, Explore web, browser view
 
 **Round on the page**:

@@ -7,6 +7,11 @@ pub trait ForkOutput: Send + 'static {
     /// One line of the fork's standard output, without its line end.
     fn line(&mut self, line: &str);
 
+    /// One line of the fork's standard error, without its line end, for a fork that reports
+    /// there what it does. Ignored unless the output reads it; the [`Exit`] keeps the end of
+    /// the standard error either way.
+    fn error_line(&mut self, _line: &str) {}
+
     /// The fork ended, as `exit` says. Called once, after the lines that could still be read.
     fn ended(self: Box<Self>, exit: Exit);
 }

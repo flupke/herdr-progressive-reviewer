@@ -307,6 +307,27 @@ directory (`HerdrTestServer`); a `make vision` session sets the loopback interfa
 port instead (`HerdrTestServer::set_explore_page_settings`), so the pane shows a QR code that
 only this machine can open. Test sessions open no browser: they set `BROWSER` to a stand-in.
 
+The pane's `O` shares the running round over a Cloudflare quick tunnel
+([ADR 0004](adr/0004-share-a-round-over-a-cloudflare-quick-tunnel.md)):
+`ExplorePageAction::OpenTunnel` and `CloseTunnel` reach `PageSharing`, which calls
+`PageNetwork::open_tunnel` and `close_tunnel`; the pane hears `ExplorePageTunnel` with a
+`TunnelState` ([`crates/review-explore-page-tunnel`](../crates/review-explore-page-tunnel)):
+opening, open with the link, failed with one line, or off. The tunnel's process lives in
+[`crates/quick-tunnel`](../crates/quick-tunnel): `QuickTunnel` runs `cloudflared tunnel
+--no-autoupdate --url http://127.0.0.1:<port>` as an `agent-fork` fork, through
+`reviewer-control fork-exec`, reads the `….trycloudflare.com` host name from its log on the
+standard error (`ForkOutput::error_line`), and gives up after 30 seconds. The host
+(`crates/review-explore-page-host/src/tunnel.rs`) binds the loopback listener the tunnel
+forwards to, and serves the page there only once the host name is known, with `Hosts::tunnel`,
+which admits that name with an `https://` origin and a `wss:` socket; its rounds
+(`TunnelRounds`) are the network listener's `RoundTokens` limited to the round the tunnel
+shares, and a Reset from the tunnel's page hands it no token. The network listener and the
+tunnel share the tokens, made when either starts and closed when both stopped. A task stops the
+tunnel when the published round changes; a tunnel is stopped on a thread of its own, which the
+page host waits for when it drops. Tests use a stand-in script for `cloudflared` that prints the
+address as the real one does; requests reach the tunnel's listener directly, with the headers
+`cloudflared` forwards (the public `Host`, an `https://` `Origin`).
+
 ### The page's components
 
 Each component is plain markup with a few classes, styled in one stylesheet of

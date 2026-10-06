@@ -33,6 +33,8 @@ mod phone;
 mod recovery;
 #[path = "explore_round_settings.tests.rs"]
 mod round_settings;
+#[path = "explore_tunnel.tests.rs"]
+mod tunnel;
 
 /// The base of a short change, for the tests that start rounds from the start screen.
 const BASE: &[u8] = b"pub fn policy() -> bool { false }\n";

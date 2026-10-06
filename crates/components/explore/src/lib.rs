@@ -625,6 +625,7 @@ impl Component<Action> for ExploreComponent {
         subscriptions.subscribe(Self::page_settings_loaded);
         subscriptions.subscribe(Self::round_settings_loaded);
         subscriptions.subscribe(Self::page_off_network);
+        subscriptions.subscribe(Self::tunnel_reported);
         subscriptions.subscribe(Self::start_block_set);
         subscriptions.subscribe(Self::page_stopped);
         subscriptions.subscribe(Self::page_reset);

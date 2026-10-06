@@ -1,4 +1,5 @@
-//! Agent processes that the reviewer forks and that must not outlive it.
+//! Processes that the reviewer forks and that must not outlive it: agents, and the tunnel that
+//! shares the Explore page.
 //!
 //! A fork is a plain child of the reviewer: it stays in the reviewer's process group, so the
 //! hang-up of the reviewer's terminal reaches it when the reviewer dies in its pane. It also

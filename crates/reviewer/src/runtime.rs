@@ -47,7 +47,7 @@ use ratatui::backend::Backend;
 use review_explore_page::{
     CommandSender, PageConversation, PageRound, RoundFeed, RoundPublisher, ThreadsFeed,
 };
-use review_explore_page_host::{Browser, PageDirectory, PageHost, PageOpener};
+use review_explore_page_host::{Browser, PageDirectory, PageHost, PageOpener, TunnelProgram};
 use review_explore_page_settings::ExplorePageSettings;
 use review_explore_session as explore_session;
 use review_repository::repository::Repository;
@@ -195,6 +195,7 @@ impl Runtime {
             page_stages,
             page_threads.subscribe(),
             &explore_page,
+            TunnelProgram::cloudflared(claude_fork::ForkTools::beside_current_exe()?.wrapper()),
             &mut effects,
             &event_sender,
         );
@@ -247,6 +248,7 @@ impl Runtime {
         stages: RoundFeed,
         threads: ThreadsFeed,
         settings: &ExplorePageSettings,
+        tunnel: TunnelProgram,
         effects: &mut Effects,
         events: &EventSender<EventEnvelope>,
     ) -> Option<PageHost> {
@@ -268,7 +270,7 @@ impl Runtime {
                 return None;
             }
         };
-        let sharing = page_sharing::PageSharing::new(host.network(), events.clone());
+        let sharing = page_sharing::PageSharing::new(host.network(), events.clone(), tunnel);
         sharing.apply(&settings.network);
         effects.share_page(sharing);
         Some(host)

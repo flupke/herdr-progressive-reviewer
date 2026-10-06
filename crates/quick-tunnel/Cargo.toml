@@ -1,0 +1,17 @@
+[package]
+name = "quick-tunnel"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "A Cloudflare quick tunnel to a local address, run by cloudflared, that lives no longer than the reviewer."
+
+[dependencies]
+agent-fork = { path = "../agent-fork" }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

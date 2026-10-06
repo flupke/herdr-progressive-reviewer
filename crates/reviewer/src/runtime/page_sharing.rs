@@ -1,30 +1,54 @@
 //! The Explore page on the network, as the settings say: shared on the listener they choose
 //! when the reviewer starts, moved when they change, and taken off the network when they turn
 //! network access off. The pane hears of each: the page's address, why it is not on the
-//! network, or that it left it.
+//! network, or that it left it. The pane also shares the running round over a tunnel, and stops
+//! it, and hears where the tunnel stands.
 
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use component_core::EventEnvelope;
 use crossbeam_channel::Sender as EventSender;
-use review_explore_page_host::{NetworkAccess, NetworkListener, PageNetwork};
+use review_explore_page_host::{
+    NetworkAccess, NetworkListener, PageNetwork, TunnelProgram, TunnelReport,
+};
 
-/// Applies the network settings to the page of one reviewer.
+/// Applies the network settings to the page of one reviewer, and runs its tunnel.
 pub(super) struct PageSharing {
     network: PageNetwork,
     /// Where the pane hears of the page on the network.
     events: EventSender<EventEnvelope>,
     /// The settings applied last; `None` before the first, and after settings that failed.
     applied: Mutex<Option<NetworkAccess>>,
+    /// What runs the tunnel.
+    tunnel: TunnelProgram,
 }
 
 impl PageSharing {
-    pub(super) fn new(network: PageNetwork, events: EventSender<EventEnvelope>) -> Self {
+    pub(super) fn new(
+        network: PageNetwork,
+        events: EventSender<EventEnvelope>,
+        tunnel: TunnelProgram,
+    ) -> Self {
         Self {
             network,
             events,
             applied: Mutex::new(None),
+            tunnel,
         }
+    }
+
+    /// Shares the running round over a tunnel, unless one runs; the pane hears where it stands.
+    pub(super) fn open_tunnel(&self) {
+        let events = self.events.clone();
+        let report: TunnelReport = Arc::new(move |state| {
+            let _ = events.send(EventEnvelope::new(ui_events::ExplorePageTunnel(state)));
+        });
+        self.network.open_tunnel(&self.tunnel, &report);
+    }
+
+    /// Stops the tunnel, if any; the pane hears that it is off.
+    pub(super) fn close_tunnel(&self) {
+        self.network.close_tunnel();
     }
 
     /// Serves the page on the network as `access` says, unless it already does: on a new

@@ -70,6 +70,39 @@ fn a_fork_reads_its_input_sees_only_its_environment_and_reports_its_lines_and_en
     assert!(fork.has_exited());
 }
 
+/// Sends each line of a fork's standard error as it comes.
+struct Errors(mpsc::Sender<String>);
+
+impl ForkOutput for Errors {
+    fn line(&mut self, _line: &str) {}
+
+    fn error_line(&mut self, line: &str) {
+        let _ = self.0.send(line.to_owned());
+    }
+
+    fn ended(self: Box<Self>, _exit: Exit) {}
+}
+
+#[test]
+fn a_fork_reports_each_line_of_its_standard_error_while_it_runs_and_keeps_its_end() {
+    let launcher = Launcher::start(plain_wrapper());
+    let (sent, received) = mpsc::channel();
+    let fork = launcher
+        .spawn(
+            shell("echo first >&2; printf 'second\\r\\n' >&2; exec sleep 30"),
+            String::new(),
+            Box::new(Errors(sent)),
+        )
+        .unwrap();
+
+    let lines: Vec<String> = (0..2)
+        .map(|_| received.recv_timeout(Duration::from_secs(5)).unwrap())
+        .collect();
+    assert_eq!(lines, ["first", "second"]);
+    assert!(!fork.has_exited(), "the lines came while the fork ran");
+    fork.terminate();
+}
+
 #[test]
 fn terminate_stops_a_fork_with_sigterm() {
     let launcher = Launcher::start(plain_wrapper());

@@ -703,6 +703,17 @@ pub(crate) const SHORTCUTS: &[ShortcutDefinition] = &[
         ],
     },
     ShortcutDefinition {
+        description: Some(
+            "Explore page: share the running round over a Cloudflare tunnel / stop sharing it",
+        ),
+        bindings: &[ShortcutBinding::one(
+            Key::Char('O'),
+            explore_setting(ExploreSettingShortcut::Page(
+                ExplorePageSettingShortcut::Tunnel,
+            )),
+        )],
+    },
+    ShortcutDefinition {
         description: Some("Explore page settings: edit the network interface / first port"),
         bindings: &[
             ShortcutBinding::one(

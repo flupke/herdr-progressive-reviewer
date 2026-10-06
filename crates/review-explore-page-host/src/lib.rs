@@ -9,15 +9,20 @@
 //! [`NetworkAccess`] settings turn it off, the host also [shares](PageNetwork::share) the page
 //! on a network interface, and announces the address of each round's page, and of the start
 //! screen's while no round runs, for the pane's QR code; a change of the settings moves it to
-//! another listener or [takes it off](PageNetwork::unshare) the network. A [`PageOpener`] opens
+//! another listener or [takes it off](PageNetwork::unshare) the network. The reviewer can also
+//! [share the running round over a tunnel](PageNetwork::open_tunnel), behind the same token on
+//! the network, until the round ends. A [`PageOpener`] opens
 //! the page of a workspace in the default browser, for the action and for the pane's Start and
 //! Start with Challenger.
 
 mod browser;
 mod network;
+mod tunnel;
 
 pub use browser::{Browser, PageOpener};
 pub use network::{NetworkAccess, NetworkListener, PageNetwork};
+pub use quick_tunnel::TunnelProgram;
+pub use tunnel::{TunnelReport, TunnelState};
 
 use std::fmt::Write as _;
 use std::fs::{self, DirBuilder, OpenOptions};
@@ -235,10 +240,12 @@ impl PageHost {
 }
 
 impl Drop for PageHost {
-    /// Stops serving the page. Its record stays, for the next reviewer of the review: the action
-    /// finds no page there, since nothing answers at its address.
+    /// Stops serving the page, and ends the tunnel that shares it. Its record stays, for the
+    /// next reviewer of the review: the action finds no page there, since nothing answers at its
+    /// address.
     fn drop(&mut self) {
         self.network.unshare();
+        self.network.end_tunnels();
         if let Some(stop) = self.stop.take() {
             let _ = stop.send(());
         }
@@ -260,5 +267,7 @@ impl Rounds for OneRound {
     }
 }
 
+#[cfg(test)]
+mod test_page;
 #[cfg(test)]
 mod tests;

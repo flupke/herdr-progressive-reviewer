@@ -209,6 +209,8 @@ pub enum ExplorePageSettingShortcut {
     Interface,
     /// Edit the first port the page tries.
     FirstPort,
+    /// Share the running round over a tunnel, or stop sharing it.
+    Tunnel,
 }
 
 /// Explore commands that choose which evidence the conversation shows.

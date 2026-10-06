@@ -1,6 +1,7 @@
 //! The page on the network, for a phone or a tablet: served on the address of one network
 //! interface, behind a new token for each round and for the start screen before it. The
-//! reviewer's [`NetworkAccess`] settings say whether, and on which interface and port.
+//! reviewer's [`NetworkAccess`] settings say whether, and on which interface and port. The
+//! tunnel that shares the running round (`crate::tunnel`) takes the same tokens.
 
 use std::io;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, UdpSocket};
@@ -13,20 +14,57 @@ pub use review_explore_page_settings::NetworkAccess;
 use tokio::runtime::Handle;
 use tokio::task::JoinHandle;
 
+use crate::tunnel::TunnelShare;
+
 /// How many ports, from the first one, the page tries: a firewall rule can open them all.
 const PORTS_TRIED: u16 = 10;
 
 /// How long taking the page off the network waits for its listener to close.
-const STOP_TIMEOUT: Duration = Duration::from_secs(1);
+pub(crate) const STOP_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// The page on the network of one [`PageHost`](crate::PageHost), shared on one listener at a
-/// time until the host drops. Clones share it.
+/// time, and over one [tunnel](PageNetwork::open_tunnel) at a time, until the host drops. Clones
+/// share it.
 #[derive(Clone)]
 pub struct PageNetwork {
-    round: PageRound,
+    pub(crate) round: PageRound,
     /// The runtime of the page's thread.
-    runtime: Handle,
-    current: Arc<Mutex<Option<NetworkShare>>>,
+    pub(crate) runtime: Handle,
+    pub(crate) shares: Arc<Mutex<Shares>>,
+}
+
+/// What serves the page beyond this machine: the listener on a network interface, the tunnel,
+/// and the round tokens both take.
+#[derive(Default)]
+pub(crate) struct Shares {
+    /// The tokens, while the listener or the tunnel serves the page.
+    tokens: Option<TokenRenewal>,
+    listener: Option<NetworkShare>,
+    pub(crate) tunnel: Option<TunnelShare>,
+    /// How many tunnels were opened: each tunnel's number, so that what a tunnel closed since
+    /// reports changes nothing.
+    pub(crate) tunnels: u64,
+    /// The tunnels being stopped, away from the page's thread and from the reviewer's.
+    pub(crate) stopping: Vec<thread::JoinHandle<()>>,
+}
+
+impl Shares {
+    /// The tokens of the page beyond this machine, made with the task that renews them when
+    /// neither the listener nor the tunnel serves the page yet.
+    pub(crate) fn tokens(&mut self, round: &PageRound, runtime: &Handle) -> RoundTokens {
+        self.tokens
+            .get_or_insert_with(|| TokenRenewal::start(round, runtime))
+            .tokens
+            .clone()
+    }
+
+    /// Closes the tokens once neither the listener nor the tunnel serves the page: they open
+    /// nothing any more, and the next share makes new ones.
+    pub(crate) fn release_tokens(&mut self) {
+        if self.listener.is_none() && self.tunnel.is_none() {
+            self.tokens = None;
+        }
+    }
 }
 
 impl PageNetwork {
@@ -34,7 +72,7 @@ impl PageNetwork {
         Self {
             round,
             runtime,
-            current: Arc::default(),
+            shares: Arc::default(),
         }
     }
 
@@ -43,7 +81,8 @@ impl PageNetwork {
     /// is no longer running opens nothing. While no round runs, the page has a token for its
     /// start screen, which the round started next keeps. `announce` receives the address of
     /// the page each time its token or the token's round changes. The page that resets a
-    /// round receives the start screen's token, so that it can start the next round.
+    /// round receives the start screen's token, so that it can start the next round. The
+    /// tunnel, while it runs, takes the same tokens.
     pub fn share(
         &self,
         listener: NetworkListener,
@@ -51,7 +90,8 @@ impl PageNetwork {
     ) {
         self.unshare();
         let address = listener.address();
-        let tokens = RoundTokens::new(self.round.clone(), address, announce);
+        let mut shares = self.lock();
+        let tokens = shares.tokens(&self.round, &self.runtime);
         let page = ExplorePage::new(
             tokens.clone(),
             Hosts::network(address),
@@ -66,54 +106,83 @@ impl PageNetwork {
             };
             let _ = axum::serve(listener, app).await;
         });
-        let mut round = self.round.stages().clone();
+        tokens.announce_to(Some(Announcer {
+            address,
+            announce: Box::new(announce),
+        }));
+        shares.listener = Some(NetworkShare { tokens, server });
+    }
+
+    /// Stops serving the page on the network interface: no address is announced after this
+    /// returns, and the listener is closed by then (it waits for the page's thread up to a
+    /// second). Its tokens open nothing any more, unless the tunnel still serves the page with
+    /// them.
+    pub fn unshare(&self) {
+        let mut shares = self.lock();
+        drop(shares.listener.take());
+        shares.release_tokens();
+    }
+
+    pub(crate) fn lock(&self) -> std::sync::MutexGuard<'_, Shares> {
+        self.shares.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+/// The tokens of the page beyond this machine, and the task that renews them as rounds change,
+/// until it drops.
+struct TokenRenewal {
+    tokens: RoundTokens,
+    task: JoinHandle<()>,
+}
+
+impl TokenRenewal {
+    fn start(round: &PageRound, runtime: &Handle) -> Self {
+        let tokens = RoundTokens::new(round.clone());
+        let mut stages = round.stages().clone();
         let renewing = tokens.clone();
-        let renewal = self.runtime.spawn(async move {
+        let task = runtime.spawn(async move {
             loop {
                 renewing.renew();
-                if !round.changed().await {
+                if !stages.changed().await {
                     return;
                 }
             }
         });
-        *self.lock() = Some(NetworkShare {
-            tokens,
-            tasks: [server, renewal],
-        });
-    }
-
-    /// Stops serving the page on the network: its tokens open nothing any more, no address is
-    /// announced after this returns, and the listener is closed by then (it waits for the
-    /// page's thread up to a second).
-    pub fn unshare(&self) {
-        drop(self.lock().take());
-    }
-
-    fn lock(&self) -> std::sync::MutexGuard<'_, Option<NetworkShare>> {
-        self.current.lock().unwrap_or_else(PoisonError::into_inner)
+        Self { tokens, task }
     }
 }
 
-/// The page served on one listener, until it drops.
+impl Drop for TokenRenewal {
+    /// Closes the tokens, which open nothing any more, and stops renewing them.
+    fn drop(&mut self) {
+        self.tokens.close();
+        self.task.abort();
+    }
+}
+
+/// The page served on one listener of a network interface, until it drops.
 struct NetworkShare {
     tokens: RoundTokens,
-    /// The server, which owns the listener, and the task that renews the token.
-    tasks: [JoinHandle<()>; 2],
+    /// The server, which owns the listener.
+    server: JoinHandle<()>,
 }
 
 impl Drop for NetworkShare {
-    /// Closes the tokens, then stops both tasks and waits, briefly, for the page's thread to
-    /// drop them: the listener is closed once this returns, so that the next listener can take
-    /// its port.
+    /// Stops announcing the page's address, then stops the server and waits, briefly, for the
+    /// page's thread to drop it: the listener is closed once this returns, so that the next
+    /// listener can take its port.
     fn drop(&mut self) {
-        self.tokens.close();
-        for task in &self.tasks {
-            task.abort();
-        }
-        let deadline = Instant::now() + STOP_TIMEOUT;
-        while !self.tasks.iter().all(JoinHandle::is_finished) && Instant::now() < deadline {
-            thread::sleep(Duration::from_millis(1));
-        }
+        self.tokens.announce_to(None);
+        self.server.abort();
+        wait_for_end(&self.server);
+    }
+}
+
+/// Waits, at most [`STOP_TIMEOUT`], for the page's thread to drop the aborted `task`.
+pub(crate) fn wait_for_end(task: &JoinHandle<()>) {
+    let deadline = Instant::now() + STOP_TIMEOUT;
+    while !task.is_finished() && Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(1));
     }
 }
 
@@ -192,26 +261,40 @@ fn default_address() -> io::Result<Ipv4Addr> {
     }
 }
 
-/// The round the page on the network shows, behind a token that changes with each round. While
-/// no round runs, the page has a token too, for the start screen: the round that starts next
-/// keeps it, so the page that started the round stays connected to it. The token of a round
-/// that is no longer running opens nothing, even before the next token is made. Each new token
-/// or round of the token is announced with the page's address. Clones share the token.
+/// The round the page beyond this machine shows, behind a token that changes with each round.
+/// While no round runs, the page has a token too, for the start screen: the round that starts
+/// next keeps it, so the page that started the round stays connected to it. The token of a
+/// round that is no longer running opens nothing, even before the next token is made. Each new
+/// token or round of the token is announced with the address of the page on the network
+/// interface, while it is served there. Clones share the token.
 #[derive(Clone)]
-struct RoundTokens {
+pub(crate) struct RoundTokens {
     round: PageRound,
     current: Arc<Mutex<Current>>,
-    /// The address the page is served at.
-    address: SocketAddr,
-    announce: Arc<dyn Fn(&str) + Send + Sync>,
 }
 
-/// The token the page on the network opens with, if any.
+/// The token the page beyond this machine opens with, if any.
 #[derive(Default)]
 struct Current {
     token: Option<RoundToken>,
-    /// The page left the network: no token opens it any more, and none is made.
+    /// The page left the network and the tunnel: no token opens it any more, and none is made.
     closed: bool,
+    /// Where the address of the page on the network interface is announced, while it is served
+    /// there.
+    announcer: Option<Announcer>,
+}
+
+/// Announces the address of the page on a network interface.
+struct Announcer {
+    /// The address the page is served at.
+    address: SocketAddr,
+    announce: Box<dyn Fn(&str) + Send + Sync>,
+}
+
+impl Announcer {
+    fn announce(&self, token: &Token) {
+        (self.announce)(&token.url(self.address));
+    }
 }
 
 /// The token of one round, or of the round that starts next.
@@ -230,18 +313,11 @@ impl RoundToken {
 }
 
 impl RoundTokens {
-    /// The tokens of the page of `round` served at `address`; `announce` receives the page's
-    /// address each time its token or the token's round changes.
-    fn new(
-        round: PageRound,
-        address: SocketAddr,
-        announce: impl Fn(&str) + Send + Sync + 'static,
-    ) -> Self {
+    /// The tokens of the page of `round`.
+    fn new(round: PageRound) -> Self {
         Self {
             round,
             current: Arc::default(),
-            address,
-            announce: Arc::new(announce),
         }
     }
 
@@ -254,12 +330,41 @@ impl RoundTokens {
         self.renew_locked(&mut current);
     }
 
-    /// Opens the page with no token any more, and makes none: the page left the network. No
-    /// address is announced after this returns, since announcements hold the lock.
+    /// The round that runs now, if any.
+    pub(crate) fn running(&self) -> Option<String> {
+        self.round.stages().round()
+    }
+
+    /// The token of the running round `round`, renewed first; `None` when another round runs, or
+    /// none, or the tokens are closed.
+    pub(crate) fn token_of(&self, round: &str) -> Option<Token> {
+        let mut current = self.lock();
+        self.renew_locked(&mut current);
+        current
+            .token
+            .as_ref()
+            .filter(|token| token.round.as_deref() == Some(round))
+            .map(|token| token.token.clone())
+    }
+
+    /// Announces the address of the page on a network interface through `announcer` from now
+    /// on, at once with the current token if there is one; `None` announces nothing more, once
+    /// this returns, since announcements hold the lock.
+    fn announce_to(&self, announcer: Option<Announcer>) {
+        let mut current = self.lock();
+        if let (Some(announcer), Some(token)) = (&announcer, &current.token) {
+            announcer.announce(&token.token);
+        }
+        current.announcer = announcer;
+    }
+
+    /// Opens the page with no token any more, and makes none: the page left the network and the
+    /// tunnel. No address is announced after this returns.
     fn close(&self) {
         let mut current = self.lock();
         current.closed = true;
         current.token = None;
+        current.announcer = None;
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Current> {
@@ -272,20 +377,20 @@ impl RoundTokens {
         if current.closed {
             return;
         }
-        let current = &mut current.token;
         let running = self.round.stages().round();
-        match current.as_mut() {
+        let token = &mut current.token;
+        match token.as_mut() {
             Some(token) if token.round == running => return,
             Some(token) if token.round.is_none() => token.round = running,
             _ => {
-                *current = Some(RoundToken {
+                *token = Some(RoundToken {
                     round: running,
                     token: Token::random(),
                 });
             }
         }
-        if let Some(current) = current {
-            (self.announce)(&current.token.url(self.address));
+        if let (Some(token), Some(announcer)) = (token, &current.announcer) {
+            announcer.announce(&token.token);
         }
     }
 }

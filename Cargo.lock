@@ -1032,6 +1032,7 @@ dependencies = [
  "review-explore",
  "review-explore-page-opening",
  "review-explore-page-settings",
+ "review-explore-page-tunnel",
  "review-explore-round-settings",
  "review-repository",
  "review-source",
@@ -3580,6 +3581,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d68782463e408eb1e668cf6152704bd856c78c5b6417adaee3203d8f4c1fc9ec"
 
 [[package]]
+name = "quick-tunnel"
+version = "0.2.0"
+dependencies = [
+ "agent-fork",
+ "tempfile",
+]
+
+[[package]]
 name = "quinn"
 version = "0.11.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4050,13 +4059,16 @@ dependencies = [
 name = "review-explore-page-host"
 version = "0.2.0"
 dependencies = [
+ "agent-fork",
  "axum",
  "herdr-client",
  "nix",
+ "quick-tunnel",
  "review-explore",
  "review-explore-page",
  "review-explore-page-opening",
  "review-explore-page-settings",
+ "review-explore-page-tunnel",
  "review-test-support",
  "review-types",
  "serde",
@@ -4097,6 +4109,10 @@ dependencies = [
  "serde",
  "serde_json",
 ]
+
+[[package]]
+name = "review-explore-page-tunnel"
+version = "0.2.0"
 
 [[package]]
 name = "review-explore-round-settings"
@@ -4428,6 +4444,7 @@ dependencies = [
  "review-explore",
  "review-explore-page-opening",
  "review-explore-page-settings",
+ "review-explore-page-tunnel",
  "review-explore-round-settings",
  "review-hunks",
  "review-lsp",
@@ -5842,6 +5859,7 @@ dependencies = [
  "review-explore",
  "review-explore-page-opening",
  "review-explore-page-settings",
+ "review-explore-page-tunnel",
  "review-explore-round-settings",
  "review-hunks",
  "review-lsp",

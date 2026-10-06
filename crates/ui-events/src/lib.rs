@@ -8,7 +8,7 @@ pub use explore::{
     ExploreHistoryChanged, ExploreImplementationFinished, ExploreImplementationSaved,
     ExplorePageNotOpened, ExplorePageNotShared, ExplorePageOffNetwork, ExplorePageReset,
     ExplorePageSettingsLoaded, ExplorePageShared, ExplorePageStart, ExplorePageStopped,
-    ExplorePositionsRestored, ExplorePosted, ExploreProgress, ExploreRestored,
+    ExplorePageTunnel, ExplorePositionsRestored, ExplorePosted, ExploreProgress, ExploreRestored,
     ExploreRoundSettingsLoaded, ExploreStartBlock, ExploreStorageFailed, ExploreSubmission,
     ExploreTurnPath, ExploreViewports,
 };

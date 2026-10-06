@@ -3,13 +3,16 @@
 //! network. The two switches change at once; the interface and the first port are typed in the
 //! shared text editor and saved with Enter. Each change is saved alone with the reviewer's other
 //! settings, the reviewer applies it at once, and the pane then shows the settings as saved.
+//! With them, a switch that shares the running round over a tunnel, which is not saved: it
+//! starts off, and goes off with the round.
 
 use comment_editor::{CommentEditor, KeymapSetting};
 use review_explore_page_settings::{
     ExplorePageSetting, ExplorePageSettings, NetworkAccess, PaneStarts,
 };
-use ui_actions::{Action, SettingsAction};
-use ui_events::ExplorePageSettingsLoaded;
+use review_explore_page_tunnel::TunnelState;
+use ui_actions::{Action, ExplorePageAction, SettingsAction};
+use ui_events::{ExplorePageSettingsLoaded, ExplorePageTunnel};
 use ui_shortcuts::{
     ExploreCommand, ExploreGlobalShortcut, ExplorePageSettingShortcut, ExploreSettingShortcut,
     ExploreShortcut,
@@ -18,6 +21,7 @@ use ui_theme::Palette;
 
 use super::flow::{Content, ConversationLayout};
 use super::input::ExploreKey;
+use super::network_page::SharedRound;
 use super::{Control, ExploreComponent};
 
 /// The settings of the Explore page, as the pane shows and changes them.
@@ -26,6 +30,8 @@ pub(super) struct PageSettings {
     saved: ExplorePageSettings,
     /// The setting being typed, if any.
     field: Option<FieldEdit>,
+    /// The tunnel that shares the running round, as the page host last reported it.
+    tunnel: SharedRound,
 }
 
 /// A setting typed in a text editor, until Enter saves it or Tab leaves it.
@@ -77,6 +83,11 @@ impl PageSettings {
         self.saved.pane_starts
     }
 
+    /// The tunnel that shares the running round.
+    pub(super) fn tunnel(&self) -> &SharedRound {
+        &self.tunnel
+    }
+
     /// Whether a setting is being typed: its editor takes every key.
     pub(super) fn editing(&self) -> bool {
         self.field.is_some()
@@ -106,6 +117,7 @@ impl PageSettings {
                 let enabled = !self.saved.network.enabled;
                 return self.save(ExplorePageSetting::NetworkEnabled(enabled));
             }
+            ExplorePageSettingShortcut::Tunnel => return self.toggle_tunnel(),
             ExplorePageSettingShortcut::Interface => TextField::Interface,
             ExplorePageSettingShortcut::FirstPort => TextField::FirstPort,
         };
@@ -115,6 +127,18 @@ impl PageSettings {
             error: None,
         });
         Vec::new()
+    }
+
+    /// Stops the tunnel that runs or opens, or opens one for the running round. Shows the change
+    /// at once; the page host then reports where the tunnel stands.
+    fn toggle_tunnel(&mut self) -> Vec<Action> {
+        let (state, action) = if self.tunnel.state().is_on() {
+            (TunnelState::Off, ExplorePageAction::CloseTunnel)
+        } else {
+            (TunnelState::Opening, ExplorePageAction::OpenTunnel)
+        };
+        self.tunnel = SharedRound::new(state);
+        vec![Action::ExplorePage(action)]
     }
 
     /// Saves the typed setting, or keeps its editor open with the reason it cannot.
@@ -206,6 +230,19 @@ impl PageSettings {
                     ExplorePageSettingShortcut::FirstPort,
                 )),
             ),
+            (
+                format!(
+                    "Share over a tunnel: {}",
+                    match self.tunnel.state() {
+                        TunnelState::Off | TunnelState::Failed(_) => "off",
+                        TunnelState::Opening => "opening",
+                        TunnelState::Open { .. } => "on",
+                    }
+                ),
+                Control::Setting(ExploreSettingShortcut::Page(
+                    ExplorePageSettingShortcut::Tunnel,
+                )),
+            ),
         ]);
         let Some(edit) = &self.field else {
             return;
@@ -221,6 +258,11 @@ impl ExploreComponent {
     /// Shows the settings as saved, keeping the setting being typed.
     pub(super) fn page_settings_loaded(&mut self, event: &ExplorePageSettingsLoaded) {
         self.page_settings.saved = event.0.clone();
+    }
+
+    /// Shows where the tunnel that shares the running round stands.
+    pub(super) fn tunnel_reported(&mut self, event: &ExplorePageTunnel) {
+        self.page_settings.tunnel = SharedRound::new(event.0.clone());
     }
 
     /// Leaves the setting being typed unsaved: another control of the pane was used.

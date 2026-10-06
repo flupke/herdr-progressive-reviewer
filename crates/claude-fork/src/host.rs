@@ -42,7 +42,8 @@ impl ForkTools {
         })
     }
 
-    fn wrapper(&self) -> Wrapper {
+    /// What starts a process that must not outlive the reviewer: `fork-exec`.
+    pub fn wrapper(&self) -> Wrapper {
         Wrapper {
             program: self.control.clone(),
             arguments: vec!["fork-exec".into()],

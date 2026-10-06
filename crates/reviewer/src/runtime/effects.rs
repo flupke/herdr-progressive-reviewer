@@ -329,6 +329,32 @@ impl Effects {
         });
     }
 
+    /// Shares the running round over a tunnel; without a page, says there is none to share.
+    fn open_tunnel(&self) {
+        match &self.page_sharing {
+            Some(sharing) => sharing.open_tunnel(),
+            None => {
+                let _ = self.messages.send(ui_events::ExplorePageTunnel(
+                    review_explore_page_host::TunnelState::Failed(
+                        "the Explore page is not served".into(),
+                    ),
+                ));
+            }
+        }
+    }
+
+    /// Stops the tunnel that shares the running round, if any.
+    fn close_tunnel(&self) {
+        match &self.page_sharing {
+            Some(sharing) => sharing.close_tunnel(),
+            None => {
+                let _ = self.messages.send(ui_events::ExplorePageTunnel(
+                    review_explore_page_host::TunnelState::Off,
+                ));
+            }
+        }
+    }
+
     /// Paths from the application are relative to the repository root.
     fn resolve(&self, path: PathBuf) -> PathBuf {
         if path.is_relative() {
@@ -450,6 +476,8 @@ impl ActionExecutors for Performer<'_, '_> {
     fn explore_page(&mut self, action: ExplorePageAction) -> eyre::Result<()> {
         match action {
             ExplorePageAction::Open => self.effects.open_page(),
+            ExplorePageAction::OpenTunnel => self.effects.open_tunnel(),
+            ExplorePageAction::CloseTunnel => self.effects.close_tunnel(),
         }
         Ok(())
     }

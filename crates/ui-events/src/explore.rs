@@ -88,6 +88,11 @@ pub struct ExplorePageNotShared(pub String);
 #[derive(Clone, Copy, Debug)]
 pub struct ExplorePageOffNetwork;
 
+/// Where the tunnel that shares the running round stands, each time it changes: opening, its
+/// public address with the round's token for the pane's link and QR code, why it failed, or off.
+#[derive(Clone, Debug)]
+pub struct ExplorePageTunnel(pub review_explore_page_tunnel::TunnelState);
+
 /// The settings of the Explore page as they are saved: read when the reviewer starts, and again
 /// after each change the pane saves, with the changes another reviewer saved in between.
 #[derive(Clone, Debug)]
