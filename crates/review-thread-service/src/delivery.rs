@@ -71,6 +71,9 @@ struct GateState {
     sending: bool,
     /// The prompts handed to the courier that it has not sent, withdrawn or failed yet.
     queued: usize,
+    /// Whether the courier waits for the holds to end before it sends a prompt.
+    #[cfg(test)]
+    held: bool,
 }
 
 impl PromptGate {
@@ -80,10 +83,20 @@ impl PromptGate {
 
     /// Sends `delivery` once no hold lives; no hold begins while it is sent.
     fn send(&self, delivery: QueuedPrompt, port: &dyn AgentPort) {
-        let mut state = self
+        let mut state = self.lock();
+        #[cfg(test)]
+        if state.holds > 0 {
+            state.held = true;
+            self.changed.notify_all();
+        }
+        state = self
             .changed
-            .wait_while(self.lock(), |state| state.holds > 0)
+            .wait_while(state, |state| state.holds > 0)
             .unwrap_or_else(PoisonError::into_inner);
+        #[cfg(test)]
+        {
+            state.held = false;
+        }
         state.sending = true;
         drop(state);
         let _sent = Sent(self);
@@ -111,6 +124,20 @@ impl PromptGate {
                     state.sending || (state.queued > 0 && state.holds == 0)
                 })
                 .unwrap_or_else(PoisonError::into_inner),
+        );
+    }
+
+    /// Waits until the courier holds a prompt back for a hold, and fails after `guard`.
+    #[cfg(test)]
+    fn wait_until_held(&self, guard: std::time::Duration) {
+        let (state, waited) = self
+            .changed
+            .wait_timeout_while(self.lock(), guard, |state| !state.held)
+            .unwrap_or_else(PoisonError::into_inner);
+        drop(state);
+        assert!(
+            !waited.timed_out(),
+            "the courier sent a prompt while a hold lived, or never got one"
         );
     }
 }
@@ -453,7 +480,7 @@ mod tests {
             });
         }
 
-        thread::sleep(std::time::Duration::from_millis(100));
+        gate.wait_until_held(std::time::Duration::from_secs(10));
         assert!(agents.prompts().is_empty(), "nothing is sent while held");
         withdrawn.store(true, Ordering::Release);
         drop(hold);

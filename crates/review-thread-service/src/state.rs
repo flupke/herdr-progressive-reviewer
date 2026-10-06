@@ -13,6 +13,11 @@ use review_types::ReviewUnit;
 use crate::delivery::{Courier, PromptError, PromptGate, PromptQueue};
 use crate::{Command, Event, Input, access::Access, notification::Notification, wakeup::Wakeup};
 
+/// How often the worker checks Herdr again while a prompt or wakeup waits. A prompt bound to
+/// a native session waits while the pane reports none, and Herdr publishes no event when an
+/// agent reports its session again: only asking shows it.
+const RECHECK_INTERVAL: Duration = Duration::from_millis(100);
+
 pub(super) struct State {
     store: ReviewStore,
     port: Arc<dyn AgentPort>,
@@ -58,7 +63,7 @@ impl State {
     pub(super) fn run(mut self, receiver: &Receiver<Input>) {
         loop {
             let input = if self.has_pending_notifications() {
-                receiver.recv_timeout(Duration::from_millis(100))
+                receiver.recv_timeout(RECHECK_INTERVAL)
             } else {
                 receiver.recv().map_err(|_| RecvTimeoutError::Disconnected)
             };

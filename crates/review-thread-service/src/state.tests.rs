@@ -466,6 +466,18 @@ impl SlowWorker {
     }
 }
 
+/// The threads the worker loaded next, skipping its other events. The guard fires only when
+/// the worker hangs.
+fn loaded(events: &std::sync::mpsc::Receiver<Event>) -> ui_events::ReviewThreadsLoaded {
+    loop {
+        match events.recv_timeout(std::time::Duration::from_secs(10)) {
+            Ok(Event::Loaded(loaded)) => return loaded,
+            Ok(_) => {}
+            Err(error) => panic!("the worker did not load the threads: {error}"),
+        }
+    }
+}
+
 #[test]
 fn a_prompt_withdrawn_while_it_waits_behind_another_is_not_sent() {
     let SlowWorker {
@@ -473,6 +485,7 @@ fn a_prompt_withdrawn_while_it_waits_behind_another_is_not_sent() {
         agents,
         prompted,
         release,
+        events,
         ..
     } = SlowWorker::start();
     let pinned = crate::PinnedAgent::new(agent("first", "session-1"));
@@ -483,8 +496,10 @@ fn a_prompt_withdrawn_while_it_waits_behind_another_is_not_sent() {
         .recv_timeout(std::time::Duration::from_secs(10))
         .expect("the first prompt is on its way");
     let (second, second_cancellation) = worker.prompt_sender().send(pinned, "Second turn".into());
-    // Let the worker hand the second prompt to the courier, behind the first.
-    std::thread::sleep(std::time::Duration::from_millis(200));
+    // The worker hands each prompt to the courier before it takes its next input: once it
+    // loads the threads, the second prompt waits behind the first.
+    worker.send(Command::Thread(ThreadCommand::Load(UNIT.into())));
+    loaded(&events);
 
     drop(second_cancellation);
     // Released for both, so that a second prompt sent anyway shows instead of waiting.
@@ -520,14 +535,7 @@ fn the_worker_keeps_serving_while_an_agent_takes_its_time_to_start_on_a_prompt()
 
     worker.send(Command::Thread(ThreadCommand::Load(UNIT.into())));
 
-    let loaded = loop {
-        match events.recv_timeout(std::time::Duration::from_secs(10)) {
-            Ok(Event::Loaded(loaded)) => break loaded,
-            Ok(_) => {}
-            Err(error) => panic!("the worker did not load the threads: {error}"),
-        }
-    };
-    assert!(loaded.result.is_ok());
+    assert!(loaded(&events).result.is_ok());
     release.send(()).unwrap();
     receipt.wait().unwrap();
 }
