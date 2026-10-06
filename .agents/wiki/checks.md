@@ -6,7 +6,11 @@ Gotchas of the check commands, the Herdr release the tests run, the opt-in tests
 change runs (step 5); the `Makefile` says what each target runs. What neither says:
 
 - nextest runs no doc test, so `make test` with `CRATES` runs none: only `make test`
-  without it runs the doc tests.
+  without it runs the doc tests, and `make check-changed` runs them only when it runs
+  every check.
+- `make check-changed` cannot tell a comment from code: a comment edited in a crate runs
+  that crate's checks. `make lint` fails on a tracked file outside every crate that no
+  table of `crates/check-changed/src/plan.rs` names, such as a stray file jj tracked.
 
 `tests/tui` is a separate Cargo workspace, with its own `Cargo.lock`, that uses the
 workspace's crates: a search or a `cargo` command at the root misses it. Before removing

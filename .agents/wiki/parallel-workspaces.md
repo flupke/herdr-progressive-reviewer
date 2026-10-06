@@ -12,7 +12,7 @@ A jj workspace has no `.git`, so `nix develop` there copies the whole directory,
 alone, a changed flake included:
 
 ```sh
-scripts/dev-shell make check
+scripts/dev-shell make check-changed
 ```
 
 Work in another workspace must stay visible to the user, who follows it from

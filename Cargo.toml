@@ -1,6 +1,7 @@
 [workspace]
 exclude = ["vendor/ratatui-markdown", "tests/tui"]
 members = [
+    "crates/check-changed",
     "crates/agent-fork",
     "crates/quick-tunnel",
     "crates/claude-fork",

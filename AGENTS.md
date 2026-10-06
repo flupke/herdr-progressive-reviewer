@@ -89,7 +89,9 @@ Follow these steps for every change: a feature, a fix, or a change to docs.
    4. The end-to-end tests of what the change touches: `make e2e-tui` for the
       pane, `make e2e-explore` for the Explore page.
    Choose the levels at your discretion: run the Explore page tests only for a
-   change that reaches the page (step 5). Once the change is complete, run
+   change that reaches the page, which
+   `make check-changed CHECK_CHANGED_ARGS=--dry-run` lists with the other checks
+   a change reaches. Once the change is complete, run
    `make fmt` and bring the wiki up to date: edit each line the change made
    false, and add a line only when it earns its place (see Wiki). Record a
    decision that the change made, when the decision passes the test in
@@ -102,16 +104,12 @@ Follow these steps for every change: a feature, a fix, or a change to docs.
    call, and review again until a round finds nothing that you fix, for at most
    two rounds. After the second round, fix what it found, and report any
    finding you leave unfixed, with the reason.
-5. Once step 4 is over, run the gate across the whole workspace:
-   `make check-with-e2e` when the change reaches the Explore page, else
-   `make check`, which leaves out the page's e2e tests. A change reaches the
-   page when it touches `tests/explore-page/`, the `Makefile`, `Cargo.toml`,
-   `Cargo.lock`, `flake.nix`, `flake.lock`, or a crate whose directory
-   `cargo tree -q -p review-explore-page-server -e normal --prefix none` lists.
-   A change to prose only (Markdown that is not compiled into a binary, and
-   comments in code) does not reach it, whatever files it touches. Fix whatever
-   fails, even outside the change, run `make fmt`, review those fixes with one
-   round of step 4, and run the gate again until it passes.
+5. Once step 4 is over, run the gate, with the change as the working copy:
+   `make check-changed`. It runs only the checks that the files changed since
+   the change's parent reach, and says why; for a stack of changes, set
+   `CHECK_BASE` to the revision below the first. Fix whatever fails, even outside the change, run
+   `make fmt`, review those fixes with one round of step 4, and run the gate
+   again until it passes.
 6. Check the wiki against the change once more, since the fixes of steps 4 and
    5 count too. Then describe the change with `jj describe`: a plain imperative
    subject, then what changed for the user and why.

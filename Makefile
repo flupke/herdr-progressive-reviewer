@@ -1,7 +1,7 @@
-.PHONY: build check check-with-e2e complexity fmt lint test e2e-tui e2e-explore explore-client-check e2e-explore-deps e2e-explore-judgements explore-gallery explore-page explore-types vision install mutants uninstall
+.PHONY: build check check-changed check-with-e2e complexity fmt lint test e2e-tui e2e-explore explore-client-check e2e-explore-deps e2e-explore-judgements explore-gallery explore-page explore-types vision install mutants uninstall
 
 build:
-	cargo build --release --locked --bins
+	cargo build --release --locked -p reviewer -p review-mcp-config --bins
 	mkdir -p bin
 	for binary in reviewer reviewer-control reviewer-mcp; do \
 		cp "target/release/$$binary" "bin/$$binary.new"; \
@@ -10,12 +10,13 @@ build:
 
 # The checks come in levels, cheapest first; AGENTS.md says when to run which.
 # They all build with the same flags, so they share one build cache.
-lint test check check-with-e2e e2e-tui e2e-explore: export RUSTFLAGS = -Dwarnings
+lint test check check-changed check-with-e2e e2e-tui e2e-explore: export RUSTFLAGS = -Dwarnings
 
 # Level 1: types and lints of every target, the Explore page's client included, and the
 # complexity gate.
 lint: complexity explore-client-check
 	cargo clippy --workspace --all-targets
+	cargo run --quiet --locked -p check-changed -- --check-map
 
 # Level 2, with CRATES: the unit tests of those crates (`make test CRATES="quick-tunnel"`).
 # Level 3, without: every unit test of the workspace, doc tests included.
@@ -39,6 +40,13 @@ fmt:
 check: lint e2e-explore-judgements
 	$(MAKE) test CRATES=
 	$(MAKE) e2e-tui
+
+# Only the checks that the files changed since CHECK_BASE, a jj revision (the change's parent
+# by default), reach: crates/check-changed says which. CHECK_CHANGED_ARGS=--dry-run lists them.
+# Its unit tests run with nextest, without doc tests, unless every check runs.
+CHECK_BASE ?= @-
+check-changed:
+	MAKE='$(MAKE)' cargo run --quiet --locked -p check-changed -- --base '$(CHECK_BASE)' $(CHECK_CHANGED_ARGS)
 
 # `make check`, then the Explore page's e2e tests.
 check-with-e2e: check

@@ -1,0 +1,15 @@
+[package]
+name = "check-changed"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Runs the checks that the files a change modified reach, from the workspace's dependency graph."
+
+[dependencies]
+eyre.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true
