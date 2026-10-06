@@ -1054,7 +1054,10 @@ async fn the_page_asks_whether_the_tool_is_there() {
 
     request(&mut socket, json!({ "id": 9, "method": "ping" })).await;
 
-    assert_eq!(next(&mut socket).await["id"], 9);
+    let reply = next(&mut socket).await;
+    assert_eq!(reply["id"], 9);
+    assert_eq!(reply["result"]["applied"], false);
+    assert!(reply["error"].is_null());
 }
 
 /// Opens a socket to the page of `owner`, past its first view.

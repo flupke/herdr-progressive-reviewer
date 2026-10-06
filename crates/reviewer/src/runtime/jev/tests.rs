@@ -12,9 +12,8 @@ use review_significance::Significance;
 use serde_json::Value;
 
 use super::{
-    Candidate, MAX_RATE_LIMIT_RETRIES, ProviderRequestError, RATE_LIMIT_BACKOFF_BASE,
-    RATE_LIMIT_BACKOFF_CAP, classify_with, optimized, rate_limit_backoff, retry_rate_limited,
-    retryable_status,
+    Candidate, MAX_RATE_LIMIT_RETRIES, ProviderRequestError, RATE_LIMIT_BACKOFF_CAP, classify_with,
+    optimized, rate_limit_backoff, retry_rate_limited, retryable_status,
 };
 
 fn prepared(index: usize) -> optimized::Prepared {
@@ -154,7 +153,6 @@ fn provider_rate_limit_statuses_use_capped_exponential_backoff() {
     assert_eq!(rate_limit_backoff(2), Duration::from_secs(1));
     assert_eq!(rate_limit_backoff(3), RATE_LIMIT_BACKOFF_CAP);
     assert_eq!(rate_limit_backoff(u32::MAX), RATE_LIMIT_BACKOFF_CAP);
-    assert_eq!(RATE_LIMIT_BACKOFF_BASE, Duration::from_millis(250));
 }
 
 #[test]

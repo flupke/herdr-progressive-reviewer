@@ -188,6 +188,7 @@ impl IsolatedHerdrServer {
             command.extend([
                 "--exact",
                 "runtime::tests::e2e_agent_process",
+                "--ignored",
                 "--nocapture",
             ]);
         }
@@ -320,6 +321,7 @@ impl IsolatedHerdrServer {
 }
 
 #[test]
+#[ignore = "runs as the stand-in agent in a pane of a test Herdr server"]
 fn e2e_agent_process() {
     let Some(prompt_path) = std::env::var_os("REVIEW_AGENT_E2E_PROMPT_PATH") else {
         return;

@@ -156,7 +156,6 @@ fn bounded_reads_accept_the_limit_and_reject_one_extra_byte() {
     let fixture = Fixture::new();
     let target = fixture.temporary.path().join("bounded");
     let limit: usize = MAX_STATE_FILE_BYTES.try_into().unwrap();
-    assert_eq!(limit, 1_048_576);
     fs::write(&target, vec![b'x'; limit]).unwrap();
 
     assert_eq!(

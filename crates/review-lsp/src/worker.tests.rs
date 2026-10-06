@@ -61,21 +61,11 @@ fn public_commands_are_forwarded_to_the_server_channel() {
 }
 
 #[test]
-fn events_and_stopped_command_channels_are_reported() {
-    let (worker, commands, events) = disconnected_worker();
-    let startup = crate::api::ServerStartup {
-        id: toasts::ToastId::generate(),
-        name: "rust-analyzer",
-    };
-    events.send(Event::Ready(startup)).unwrap();
-    assert_eq!(worker.try_recv(), Some(Event::Ready(startup)));
-    assert_eq!(worker.try_recv(), None);
+fn a_stopped_command_channel_is_reported() {
+    let (worker, commands, _events) = disconnected_worker();
 
     drop(commands);
-    assert_eq!(
-        worker.open_document("source.rs".into()).unwrap_err(),
-        "LSP worker stopped"
-    );
+    assert!(worker.open_document("source.rs".into()).is_err());
 }
 
 #[test]

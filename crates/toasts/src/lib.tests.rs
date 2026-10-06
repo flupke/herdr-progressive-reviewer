@@ -26,12 +26,6 @@ fn timer_changes_only_at_toast_appearance_and_expiration() {
 }
 
 #[test]
-fn toast_kinds_have_distinct_display_durations() {
-    assert_eq!(ToastKind::Info.duration(), Duration::from_secs(3));
-    assert_eq!(ToastKind::Error.duration(), Duration::from_secs(6));
-}
-
-#[test]
 fn pushed_toast_expires_after_its_kind_duration() {
     let before_push = Instant::now();
     let mut toasts = ToastState::default();

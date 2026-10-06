@@ -197,20 +197,6 @@ fn a_pane_splits_across_the_side_that_looks_longer() {
 }
 
 #[test]
-fn a_pane_size_reads_from_a_herdr_layout_rect() {
-    let size: PaneSize =
-        serde_json::from_str(r#"{"height": 40, "width": 60, "x": 60, "y": 0}"#).unwrap();
-
-    assert_eq!(
-        size,
-        PaneSize {
-            width: 60,
-            height: 40
-        }
-    );
-}
-
-#[test]
 fn split_direction_names_match_the_wire() {
     for direction in [SplitDirection::Right, SplitDirection::Down] {
         assert_eq!(serde_json::to_value(direction).unwrap(), direction.as_str());

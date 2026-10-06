@@ -9,12 +9,16 @@ fn resolves_dark_and_light_palettes() {
 
 #[test]
 fn missing_plugin_config_uses_the_default() {
-    // The test process normally has no Herdr plugin environment.
-    if std::env::var_os("HERDR_PLUGIN_CONFIG_DIR").is_none() {
-        assert_eq!(
-            Theme::from_env().unwrap().palette.text,
-            Theme::resolve("catppuccin").unwrap().palette.text
-        );
+    let directory = tempfile::tempdir().unwrap();
+    let default = Theme::resolve("catppuccin").unwrap().palette.text;
+
+    // No config file, then a config file without a theme.
+    for config in [None, Some("other = 1\n")] {
+        if let Some(config) = config {
+            std::fs::write(directory.path().join("config.toml"), config).unwrap();
+        }
+        let theme = Theme::from_config_dir(directory.path()).unwrap();
+        assert_eq!(theme.palette.text, default, "{config:?}");
     }
 }
 

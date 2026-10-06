@@ -1,14 +1,6 @@
 use super::*;
 
 #[test]
-fn the_next_round_is_written_in_simplified_technical_english_by_default() {
-    assert_eq!(
-        ExploreRoundSettings::default().writing,
-        WritingStyle::SimplifiedTechnicalEnglish
-    );
-}
-
-#[test]
 fn settings_saved_without_a_value_take_its_default() {
     let empty: ExploreRoundSettings = serde_json::from_str("{}").unwrap();
 
@@ -17,19 +9,23 @@ fn settings_saved_without_a_value_take_its_default() {
 
 #[test]
 fn settings_read_back_as_they_were_saved() {
-    for writing in [
-        WritingStyle::Plain,
-        WritingStyle::SimplifiedTechnicalEnglish,
+    for (writing, run_ahead, saved) in [
+        (
+            WritingStyle::Plain,
+            RunAhead::Every,
+            r#"{"writing":"plain","run_ahead":"every"}"#,
+        ),
+        (
+            WritingStyle::SimplifiedTechnicalEnglish,
+            RunAhead::Recommended,
+            r#"{"writing":"simplified_technical_english","run_ahead":"recommended"}"#,
+        ),
     ] {
-        let settings = ExploreRoundSettings {
-            writing,
-            run_ahead: RunAhead::Every,
-        };
+        let settings = ExploreRoundSettings { writing, run_ahead };
 
-        let saved = serde_json::to_string(&settings).unwrap();
-
+        assert_eq!(serde_json::to_string(&settings).unwrap(), saved);
         assert_eq!(
-            serde_json::from_str::<ExploreRoundSettings>(&saved).unwrap(),
+            serde_json::from_str::<ExploreRoundSettings>(saved).unwrap(),
             settings
         );
     }
@@ -49,7 +45,6 @@ fn turning_the_writing_style_over_gives_the_other_style() {
 fn run_ahead_is_off_by_default_and_in_settings_saved_before_it_existed() {
     let saved: ExploreRoundSettings = serde_json::from_str(r#"{"writing":"plain"}"#).unwrap();
 
-    assert_eq!(ExploreRoundSettings::default().run_ahead, RunAhead::Off);
     assert_eq!(saved.run_ahead, RunAhead::Off);
     assert_eq!(saved.writing, WritingStyle::Plain);
 }

@@ -199,14 +199,29 @@ fn accepted_lines_name_their_author_and_keep_it_on_a_new_base() {
 }
 
 #[test]
-fn reopening_a_hunk_drops_its_authors() {
-    let attribution = Attribution::uniform(MarkAuthor::Jev);
-    let reviewed = b"a\nB\nc\nd\ne\nf\ng\nh\ni\nj\n";
-    let review = HunkReview::new(BASE, reviewed, CURRENT).attributed(&attribution);
+fn reopening_a_hunk_drops_its_authors_and_keeps_those_of_the_others() {
+    // Jev accepted "B", the reviewer accepted "I".
+    let attribution = Attribution {
+        default: MarkAuthor::Jev,
+        removed: vec![AuthoredLines {
+            lines: 8..9,
+            author: MarkAuthor::Reviewer,
+        }],
+        added: vec![AuthoredLines {
+            lines: 8..9,
+            author: MarkAuthor::Reviewer,
+        }],
+    };
+    let review = HunkReview::new(BASE, CURRENT, CURRENT).attributed(&attribution);
 
+    let Some(ReviewedVersion::Partial(reopened)) = review.unreview(&span(1..2, 1..2)) else {
+        panic!("one hunk stays reviewed");
+    };
+
+    assert_eq!(reopened.text, b"a\nb\nc\nd\ne\nf\ng\nh\nI\nj\n");
     assert_eq!(
-        review.unreview(&span(1..2, 1..2)),
-        Some(ReviewedVersion::Base)
+        reopened.attribution.uniform_author(),
+        Some(&MarkAuthor::Reviewer)
     );
 }
 

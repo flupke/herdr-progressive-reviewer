@@ -29,7 +29,7 @@ fn paths_round_trip_and_keys_are_stable() {
 
     assert_eq!(
         StateKey::hash(b"src/lib.rs").0,
-        StateKey::hash(b"src/lib.rs").0
+        "b1a35a68f14e696205874893c07fd24fdb88882b47c23cc0e0c80a30c7d53759"
     );
 }
 

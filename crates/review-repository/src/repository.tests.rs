@@ -1,16 +1,7 @@
 use std::path::Path;
 
-use super::{Cancellation, ChangeKind, ChangedFile, RepoPath, RepoType, RepositoryProcess};
+use super::{Cancellation, ChangeKind, ChangedFile, RepoPath, RepositoryProcess};
 use crate::Error;
-
-#[test]
-fn repository_type_converts_to_and_from_lowercase_text() {
-    assert_eq!(RepoType::Git.to_string(), "git");
-    assert_eq!(RepoType::Jj.to_string(), "jj");
-    assert_eq!("git".parse(), Ok(RepoType::Git));
-    assert_eq!("jj".parse(), Ok(RepoType::Jj));
-    assert!("unknown".parse::<RepoType>().is_err());
-}
 
 #[test]
 fn repository_paths_display_valid_utf8() {
@@ -37,7 +28,6 @@ fn repository_paths_preserve_ascii_escaping() {
 fn repository_paths_preserve_non_utf8_bytes() {
     let path = RepoPath::from_bytes(b"invalid-\xff.txt");
 
-    assert_eq!(path.0, b"invalid-\xff.txt");
     assert_eq!(path.display(), r"invalid-\xff.txt");
 }
 

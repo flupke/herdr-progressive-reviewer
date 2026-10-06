@@ -825,7 +825,6 @@ fn current_source_peek_highlights_only_a_verified_range() {
         "+original".into(),
         "Highlight the current range".into(),
     );
-    let id = post.thread_id().clone();
     ui.book.post(post).unwrap();
     ui.publish_book();
     ui.key(Key::Char('t'));
@@ -862,10 +861,6 @@ fn current_source_peek_highlights_only_a_verified_range() {
         .collect::<String>();
     assert!(highlighted.contains("original"), "{highlighted}");
     assert!(!highlighted.contains("inserted"));
-    assert_eq!(
-        ui.book.thread(&id).unwrap().code().unwrap().excerpt,
-        "+original"
-    );
 }
 
 #[test]

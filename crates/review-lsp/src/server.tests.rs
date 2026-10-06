@@ -37,22 +37,30 @@ fn shutdown_without_a_session_stops_the_command_loop() {
 
 #[test]
 fn open_document_is_queued_until_the_session_is_ready() {
-    let (event_sender, _events) = unbounded();
+    let directory = tempfile::tempdir().unwrap();
+    let document = directory.path().join("source.rs");
+    std::fs::write(&document, "fn main() {}\n").unwrap();
+    let (event_sender, events) = unbounded();
     let mut server = Server::new(
         crate::language::Project {
-            root: PathBuf::from("/repository"),
+            root: directory.path().to_owned(),
             server: crate::language::LanguageServer::RustAnalyzer,
         },
         event_sender,
     );
-    server.session = Some(crate::session::tests::ready_session());
+    server.session = Some(crate::session::tests::quiescing_session());
 
-    let document = PathBuf::from("source.rs");
     assert_eq!(
         server.command(Command::OpenDocument(document.clone())),
         ServerLoopControl::Continue
     );
+    server.dispatch_pending_commands();
     assert_eq!(server.pending, [Command::OpenDocument(document)]);
+
+    server.session = Some(crate::session::tests::ready_session());
+    server.dispatch_pending_commands();
+    assert!(server.pending.is_empty());
+    assert!(events.try_recv().is_err());
 }
 
 #[test]

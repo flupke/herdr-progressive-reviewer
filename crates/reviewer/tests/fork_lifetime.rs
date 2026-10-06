@@ -20,6 +20,7 @@ impl ForkOutput for Ignored {
 /// A stand-in reviewer: it starts one fork, prints the fork's process ID, then waits to be
 /// killed.
 #[test]
+#[ignore = "runs in a child process of a_fork_ends_when_its_reviewer_is_killed"]
 fn stand_in_reviewer() {
     if std::env::var_os("FORK_LIFETIME_REVIEWER").is_none() {
         return;
@@ -49,7 +50,7 @@ fn stand_in_reviewer() {
 #[test]
 fn a_fork_ends_when_its_reviewer_is_killed() {
     let mut reviewer = Command::new(std::env::current_exe().unwrap())
-        .args(["--exact", "stand_in_reviewer", "--nocapture"])
+        .args(["--exact", "stand_in_reviewer", "--ignored", "--nocapture"])
         .env("FORK_LIFETIME_REVIEWER", "1")
         .stdout(Stdio::piped())
         .stderr(Stdio::null())

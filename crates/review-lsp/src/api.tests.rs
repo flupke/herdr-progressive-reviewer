@@ -13,16 +13,6 @@ fn location(path: &str) -> SourceLocation {
 }
 
 #[test]
-fn operations_have_distinct_titles_and_progress_text() {
-    assert_eq!(Operation::Hover.title(), "Documentation");
-    assert_eq!(Operation::Definition.title(), "Definitions");
-    assert_eq!(Operation::References.title(), "References");
-    assert_eq!(Operation::Hover.progress_text(), "Loading documentation…");
-    assert_eq!(Operation::Definition.progress_text(), "Finding definition…");
-    assert_eq!(Operation::References.progress_text(), "Finding references…");
-}
-
-#[test]
 fn references_keep_only_repository_locations() {
     let root = Path::new("/repository");
     let inside = location("/repository/src/lib.rs");

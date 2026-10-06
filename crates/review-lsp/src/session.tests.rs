@@ -49,6 +49,12 @@ pub(crate) fn ready_session() -> Session {
     session(State::Ready)
 }
 
+pub(crate) fn quiescing_session() -> Session {
+    session(State::Quiescing {
+        deadline: Instant::now() + Duration::from_secs(60),
+    })
+}
+
 #[test]
 fn startup_reports_setup_diagnostics_when_the_child_exits_before_initialize() {
     let mut session = session(State::Stopped);

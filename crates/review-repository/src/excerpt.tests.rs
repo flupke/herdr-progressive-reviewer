@@ -59,7 +59,6 @@ fn exact_excerpts_preserve_selected_row_counts_and_headers() {
     ] {
         let excerpt = DiffExcerpt::build(&rows(), selection).unwrap();
         assert_eq!(excerpt.as_str(), format!("{headers}\n{expected_hunk}"));
-        assert_eq!(excerpt.clone().into_string(), excerpt.as_str());
     }
 }
 

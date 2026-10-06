@@ -3,7 +3,6 @@ use crate::repository::{ChangeKind, ChangedFile, DiffStatistics, FileKind, RepoP
 
 #[test]
 fn rejects_a_line_above_the_parse_limit() {
-    assert_eq!(MAX_LINE_BYTES, 16_777_216);
     let rows = DiffParser::parse(&vec![b'x'; MAX_LINE_BYTES + 1]);
 
     assert!(matches!(

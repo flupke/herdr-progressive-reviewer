@@ -57,9 +57,9 @@ impl StandIn {
              case \" $* \" in\n\
              *\" --fork-session \"*)\n  \
              REVIEW_AGENT_E2E_FORK_ARGS=$(printf '%s\\n' \"$@\") exec \"$REVIEW_AGENT_E2E_STANDIN\" \
-             --exact runtime::tests::run_ahead::e2e_fork_process --nocapture ;;\n\
+             --exact runtime::tests::run_ahead::e2e_fork_process --ignored --nocapture ;;\n\
              esac\n\
-             \"$REVIEW_AGENT_E2E_STANDIN\" --exact runtime::tests::e2e_agent_process --nocapture\n",
+             \"$REVIEW_AGENT_E2E_STANDIN\" --exact runtime::tests::e2e_agent_process --ignored --nocapture\n",
         )
         .unwrap();
         fs::set_permissions(script, fs::Permissions::from_mode(0o755)).unwrap();
@@ -138,6 +138,7 @@ fn resumes_path(prompt_path: &Path) -> PathBuf {
 /// the reviewer stops it. Once the test submitted the fork's turn, the fork's output says that
 /// its submit has its answer.
 #[test]
+#[ignore = "runs as the fork of a stand-in agent in a run-ahead test"]
 fn e2e_fork_process() {
     let Ok(arguments) = std::env::var("REVIEW_AGENT_E2E_FORK_ARGS") else {
         return;

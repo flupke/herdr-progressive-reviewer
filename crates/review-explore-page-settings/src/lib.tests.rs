@@ -1,16 +1,6 @@
 use super::*;
 
 #[test]
-fn the_defaults_open_the_page_and_serve_it_on_the_interface_of_the_route_to_the_internet() {
-    let settings = ExplorePageSettings::default();
-
-    assert_eq!(settings.pane_starts, PaneStarts::OnPage);
-    assert!(settings.network.enabled);
-    assert_eq!(settings.network.interface, None);
-    assert_eq!(settings.network.first_port, 8790);
-}
-
-#[test]
 fn settings_saved_without_a_value_take_its_default() {
     let empty: ExplorePageSettings = serde_json::from_str("{}").unwrap();
     assert_eq!(empty, ExplorePageSettings::default());
@@ -24,6 +14,7 @@ fn settings_saved_without_a_value_take_its_default() {
 
 #[test]
 fn settings_read_back_as_they_were_saved() {
+    let saved = r#"{"pane_starts":"in_pane","network":{"enabled":false,"interface":"tailscale0","first_port":9000}}"#;
     let settings = ExplorePageSettings {
         pane_starts: PaneStarts::InPane,
         network: NetworkAccess {
@@ -33,10 +24,9 @@ fn settings_read_back_as_they_were_saved() {
         },
     };
 
-    let saved = serde_json::to_string(&settings).unwrap();
-
+    assert_eq!(serde_json::to_string(&settings).unwrap(), saved);
     assert_eq!(
-        serde_json::from_str::<ExplorePageSettings>(&saved).unwrap(),
+        serde_json::from_str::<ExplorePageSettings>(saved).unwrap(),
         settings
     );
 }

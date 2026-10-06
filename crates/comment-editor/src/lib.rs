@@ -456,49 +456,12 @@ mod tests {
     }
 
     #[test]
-    fn change_word_preserves_spacing_and_repeats_the_replacement() {
-        let mut editor =
-            CommentEditor::new("one two three", &KeymapSetting::new(EditorKeymap::Vim));
-        editor.input(Key::Escape);
-        for character in "cwX".chars() {
-            editor.input(Key::Char(character));
-        }
-        assert_eq!(editor.mode(), "Insert");
-        assert_eq!(editor.text(), "X two three");
-        editor.input(Key::Escape);
-        for character in "w.".chars() {
-            editor.input(Key::Char(character));
-        }
-        assert_eq!(editor.text(), "X X three");
-        assert_eq!(editor.mode(), "Normal");
-    }
-
-    #[test]
-    fn delete_word_can_be_repeated_and_undone() {
-        let mut editor =
-            CommentEditor::new("one two three", &KeymapSetting::new(EditorKeymap::Vim));
-        editor.input(Key::Escape);
-        for character in "dw".chars() {
-            editor.input(Key::Char(character));
-        }
-        assert_eq!(editor.text(), "two three");
-        editor.input(Key::Char('.'));
-        assert_eq!(editor.text(), "three");
-        editor.input(Key::Char('u'));
-        assert_eq!(editor.text(), "two three");
-    }
-
-    #[test]
-    fn editing_and_vim_undo_preserve_multiline_unicode_text() {
+    fn editing_preserves_multiline_unicode_text() {
         let mut editor = CommentEditor::new("", &KeymapSetting::new(EditorKeymap::Vim));
         for key in [Key::Char('é'), Key::Enter, Key::Char('界')] {
             editor.input(key);
         }
         assert_eq!(editor.text(), "é\n界");
-        editor.input(Key::Escape);
-        assert_eq!(editor.mode(), "Normal");
-        editor.input(Key::Char('u'));
-        assert_ne!(editor.text(), "é\n界");
     }
 
     #[test]

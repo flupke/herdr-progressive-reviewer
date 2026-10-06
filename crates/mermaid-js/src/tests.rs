@@ -4,7 +4,6 @@ use super::*;
 fn the_script_is_the_pinned_version() {
     let script = std::str::from_utf8(script()).unwrap();
     assert!(script.contains(&format!(r#"version:"{VERSION}""#)));
-    assert_eq!(FILE_NAME, "mermaid-11.17.2.min.js");
 }
 
 #[test]

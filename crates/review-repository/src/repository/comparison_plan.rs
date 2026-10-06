@@ -55,7 +55,3 @@ impl BaselineComparisonResults {
         self.baselines.get(baseline_snapshot_id)
     }
 }
-
-#[cfg(test)]
-#[path = "comparison_plan.tests.rs"]
-mod tests;

@@ -298,15 +298,10 @@ fn unreviewed_file_navigation_help_uses_file_shortcuts() {
     let file_navigation = SHORTCUTS
         .iter()
         .find(|definition| definition.description == Some("Go to previous / next unreviewed file"))
-        .and_then(ShortcutDefinition::help_line);
+        .and_then(ShortcutDefinition::help_line)
+        .map(|(keys, _)| keys);
 
-    assert_eq!(
-        file_navigation,
-        Some((
-            "[f / ]f".to_owned(),
-            "Go to previous / next unreviewed file"
-        ))
-    );
+    assert_eq!(file_navigation.as_deref(), Some("[f / ]f"));
 }
 
 #[test]
@@ -314,12 +309,10 @@ fn modified_hunk_navigation_help_uses_hunk_shortcuts() {
     let hunk_navigation = SHORTCUTS
         .iter()
         .find(|definition| definition.description == Some("Go to previous / next modified hunk"))
-        .and_then(ShortcutDefinition::help_line);
+        .and_then(ShortcutDefinition::help_line)
+        .map(|(keys, _)| keys);
 
-    assert_eq!(
-        hunk_navigation,
-        Some(("[h / ]h".to_owned(), "Go to previous / next modified hunk"))
-    );
+    assert_eq!(hunk_navigation.as_deref(), Some("[h / ]h"));
 }
 
 #[test]

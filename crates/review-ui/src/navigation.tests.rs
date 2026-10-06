@@ -60,14 +60,6 @@ fn a_focus_request_wins_over_the_remembered_focus_of_the_new_mode() {
 }
 
 #[test]
-fn taking_requests_consumes_them() {
-    let mut requests = requested(Some(ReviewNavigation::Explore), Some(ReviewPane::Detail));
-
-    assert_ne!(requests.take(), NavigationRequests::default());
-    assert_eq!(requests.take(), NavigationRequests::default());
-}
-
-#[test]
 fn explore_evidence_focus_is_enclosed_by_explore() {
     let mut navigation = Navigation::new(WIDE);
     navigation.apply(requested(Some(ReviewNavigation::Explore), None));

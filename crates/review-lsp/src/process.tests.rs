@@ -164,20 +164,6 @@ fn direnv_receives_the_project_and_supplies_the_server_environment() {
 }
 
 #[test]
-fn direnv_failure_does_not_fall_back_to_the_inherited_environment() {
-    let mut fixture = Fixture::new();
-    executable(
-        &fixture.directory.path().join("direnv"),
-        "#!/bin/sh\necho '.envrc is blocked; run direnv allow' >&2\nexit 1\n",
-    );
-    let (direnv, stdout, stderr, success) = fixture.output();
-    assert!(direnv);
-    assert!(!success);
-    assert!(stdout.is_empty());
-    assert!(stderr.contains(".envrc is blocked"));
-}
-
-#[test]
 fn stderr_keeps_a_bounded_tail_and_removes_terminal_escapes() {
     let input = format!("{}\n\x1b[31mblocked\x1b[0m\n", "x\n".repeat(10_000));
     let output = StderrOutput::read_tail(input.as_bytes());

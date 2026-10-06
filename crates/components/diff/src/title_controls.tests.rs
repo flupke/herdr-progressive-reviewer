@@ -2,12 +2,6 @@ use super::TitleControls;
 use crate::DiffControl;
 
 #[test]
-fn the_title_lists_the_padded_labels_in_order() {
-    assert_eq!(TitleControls::DIFF.title(), " ←→  →←  👁  ");
-    assert_eq!(TitleControls::FILE.title(), " ✕ ");
-}
-
-#[test]
 fn each_label_and_its_padding_select_its_control() {
     let controls = TitleControls::DIFF;
     // The title ends against the right corner of a 40-cell pane.

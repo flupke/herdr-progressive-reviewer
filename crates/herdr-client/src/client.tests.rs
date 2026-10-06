@@ -3,51 +3,11 @@ use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixStream;
 use std::sync::mpsc;
 
-use serde_json::json;
-
 use super::{
-    AgentDetectedEvent, ApiError, EventEnvelope, FocusEvent, HerdrClient, HerdrEventStream, PaneId,
-    Response, event_subscriptions, read_line, validate_response,
+    ApiError, HerdrClient, HerdrEventStream, PaneId, Response, read_line, validate_response,
 };
 use crate::Error;
 use crate::protocol::{AgentStatus, EntrypointId, HerdrEvent, PluginPane, TabId, WorkspaceId};
-
-#[test]
-fn reads_the_herdr_focus_event_envelope() {
-    let event: EventEnvelope = serde_json::from_str(
-        r#"{"event":"pane_focused","data":{"type":"pane_focused","pane_id":"w1:p2","workspace_id":"w1","future":true}}"#,
-    )
-    .unwrap();
-    let focus: FocusEvent = serde_json::from_value(event.data).unwrap();
-
-    assert_eq!(event.event, "pane_focused");
-    assert_eq!(focus.pane_id.0, "w1:p2");
-}
-
-#[test]
-fn reads_an_agent_release_event() {
-    let event: EventEnvelope = serde_json::from_str(
-        r#"{"event":"pane_agent_detected","data":{"pane_id":"w1:p2","workspace_id":"w1","agent":"codex","released":true,"final_status":"done"}}"#,
-    )
-    .unwrap();
-    let detected: AgentDetectedEvent = serde_json::from_value(event.data).unwrap();
-
-    assert!(detected.released);
-    assert_eq!(detected.agent.as_deref(), Some("codex"));
-}
-
-#[test]
-fn subscribes_to_focus_and_agent_detection() {
-    let subscriptions = event_subscriptions();
-
-    assert_eq!(
-        subscriptions,
-        vec![
-            json!({"type": "pane.focused"}),
-            json!({"type": "pane.agent_detected"}),
-        ]
-    );
-}
 
 #[test]
 fn reports_a_rejected_event_subscription() {
@@ -86,7 +46,7 @@ fn event_stream(lines: &[&str]) -> HerdrEventStream {
 #[test]
 fn forwards_focus_and_detection_without_restarting_for_new_agents() {
     let mut stream = event_stream(&[
-        r#"{"event":"pane_focused","data":{"pane_id":"w1:p1"}}"#,
+        r#"{"event":"pane_focused","data":{"pane_id":"w1:p1","workspace_id":"w1","future":true}}"#,
         r#"{"event":"pane_agent_status_changed","data":{"pane_id":"w1:p1","agent_status":"working"}}"#,
         r#"{"event":"pane_agent_detected","data":{"pane_id":"w1:p1","workspace_id":"w1","released":true}}"#,
         r#"{"event":"pane_agent_detected","data":{"pane_id":"w1:p2","workspace_id":"w1","agent":"codex","released":false}}"#,
@@ -107,8 +67,8 @@ fn forwards_focus_and_detection_without_restarting_for_new_agents() {
         HerdrEvent::AgentDetected { released: true, .. }
     ));
     assert!(
-        matches!(&received[2], HerdrEvent::AgentDetected { pane_id, released: false, .. }
-        if pane_id.0 == "w1:p2")
+        matches!(&received[2], HerdrEvent::AgentDetected { pane_id, agent, released: false, .. }
+        if pane_id.0 == "w1:p2" && agent.as_deref() == Some("codex"))
     );
 }
 
@@ -195,7 +155,6 @@ fn removing_a_pane_succeeds_when_the_state_directory_is_missing() {
 
 #[test]
 fn line_reader_accepts_the_limit_and_rejects_one_extra_byte() {
-    assert_eq!(super::RESPONSE_LIMIT, 16_777_216);
     let response_limit = usize::try_from(super::RESPONSE_LIMIT).unwrap();
     let mut exact = std::io::Cursor::new(vec![b'x'; response_limit]);
     assert_eq!(

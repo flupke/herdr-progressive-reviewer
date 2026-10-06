@@ -27,6 +27,7 @@ impl ConversationFixture {
             &self.server.agent_binary.to_string_lossy(),
             "--exact",
             "runtime::tests::e2e_agent_process",
+            "--ignored",
             "--nocapture",
         ]);
         self.server

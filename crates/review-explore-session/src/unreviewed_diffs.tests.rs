@@ -38,29 +38,29 @@ fn rows_show_the_line_numbers_marks_and_citations_use() {
         row(RowChange::Added, None, Some(101), "    new();"),
     ]];
 
-    assert_eq!(
-        diff("src/lib.rs", &hunks),
-        concat!(
-            "src/lib.rs: unreviewed lines\n",
-            "old = line in the base, new = line in the current file. A - row without a number\n",
-            "rewrites a reviewed line: mark it with the numbered rows of its change, or the\n",
-            "whole file when its change has none.\n",
-            "\n",
-            "old new\n",
+    let text = diff("src/lib.rs", &hunks);
+
+    assert!(text.starts_with("src/lib.rs"), "{text}");
+    assert!(
+        text.ends_with(concat!(
+            "\nold new\n",
             " 98 100   fn keep() {\n",
             " 99     -     old();\n",
             "        -     reviewed_then_rewritten();\n",
             "    101 +     new();\n",
-        )
+        )),
+        "{text}"
     );
 }
 
 #[test]
-fn a_change_without_text_hunks_says_so() {
-    assert_eq!(
-        diff("logo.png", &[]),
-        "logo.png: unreviewed lines\nNo text lines to show: a binary, mode or whole-file change.\n"
-    );
+fn a_change_without_text_hunks_has_no_rows() {
+    let text = diff("logo.png", &[]);
+
+    assert!(text.starts_with("logo.png"), "{text}");
+    // A line tells the agent there is nothing to show, in place of the rows.
+    assert!(text.lines().count() > 1, "{text}");
+    assert!(!text.contains("old new"), "{text}");
 }
 
 #[test]
@@ -113,13 +113,14 @@ fn a_path_that_is_a_file_and_a_directory_displaces_one_diff_and_the_index_says_w
         "the new file of that name"
     );
     assert_eq!(diffs.index(), Some(diffs.directory().join(INDEX)));
-    assert_eq!(
-        read(&diffs, INDEX),
-        "These diffs are not at their repository path: another diff uses it as a file or as a \
-         directory, or its name is the reviewer's own:\n\
-         docs/guide.md -> __herdr_reviewer_displaced_1__\n\
-         src/lib.rs -> __herdr_reviewer_displaced_2__\n\
-         __herdr_reviewer_index__ -> __herdr_reviewer_displaced_3__\n"
+    let index = read(&diffs, INDEX);
+    assert!(
+        index.ends_with(
+            "\ndocs/guide.md -> __herdr_reviewer_displaced_1__\n\
+             src/lib.rs -> __herdr_reviewer_displaced_2__\n\
+             __herdr_reviewer_index__ -> __herdr_reviewer_displaced_3__\n"
+        ),
+        "{index}"
     );
 }
 
