@@ -2,7 +2,7 @@
   "name": "explore-page-e2e",
   "private": true,
   "type": "module",
-  "description": "e2e tests of the Explore page, run by make e2e-explore",
+  "description": "e2e tests of the Explore page, run by make e2e-explore, and the type check of its client, run by make lint",
   "devDependencies": {
     "@ai-sdk/anthropic": "4.0.71",
     "@ai-sdk/openai": "4.0.83",

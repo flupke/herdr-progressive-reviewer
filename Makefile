@@ -1,4 +1,4 @@
-.PHONY: build check check-with-e2e complexity fmt lint test e2e-tui e2e-explore e2e-explore-deps e2e-explore-judgements explore-gallery explore-page explore-types vision install mutants uninstall
+.PHONY: build check check-with-e2e complexity fmt lint test e2e-tui e2e-explore explore-client-check e2e-explore-deps e2e-explore-judgements explore-gallery explore-page explore-types vision install mutants uninstall
 
 build:
 	cargo build --release --locked --bins
@@ -12,8 +12,9 @@ build:
 # They all build with the same flags, so they share one build cache.
 lint test check check-with-e2e e2e-tui e2e-explore: export RUSTFLAGS = -Dwarnings
 
-# Level 1: types and lints of every target, and the complexity gate.
-lint: complexity
+# Level 1: types and lints of every target, the Explore page's client included, and the
+# complexity gate.
+lint: complexity explore-client-check
 	cargo clippy --workspace --all-targets
 
 # Level 2, with CRATES: the unit tests of those crates (`make test CRATES="quick-tunnel"`).
@@ -57,7 +58,8 @@ $(EXPLORE_E2E)/node_modules/.installed: $(EXPLORE_E2E)/package-lock.json
 	cd $(EXPLORE_E2E) && npm ci --no-audit --no-fund
 	touch $@
 
-# Installs the npm packages only, for the MCP server (tests/explore-page/mcp.sh).
+# Installs the npm packages only: for the client type check in `make lint`, and for the MCP server
+# (tests/explore-page/mcp.sh).
 e2e-explore-deps: $(EXPLORE_E2E)/node_modules/.installed
 
 # The rule on judgements in the e2e tests (.agents/wiki/explore-page-e2e.md).
@@ -65,10 +67,13 @@ e2e-explore-judgements:
 	node --test --test-reporter=dot $(EXPLORE_E2E)/judgements.test.ts
 	node $(EXPLORE_E2E)/judgements.ts
 
-# Checks the page's client against the TypeScript declarations of its socket's messages, then
-# runs the e2e tests.
-e2e-explore: e2e-explore-judgements e2e-explore-deps
+# Checks the page's client against the TypeScript declarations of its socket's messages; part
+# of `make lint`.
+explore-client-check: e2e-explore-deps
 	cd $(EXPLORE_E2E) && node_modules/.bin/tsc -p tsconfig.client.json
+
+# Checks the page's client, then runs the e2e tests.
+e2e-explore: e2e-explore-judgements explore-client-check
 	cargo build --locked -p review-explore-page-server
 	$(EXPLORE_E2E)/run.sh $(E2E_ARGS)
 

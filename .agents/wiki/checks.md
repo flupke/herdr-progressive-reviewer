@@ -5,6 +5,9 @@ What each check command runs, the Herdr release the tests run, the opt-in tests,
 [AGENTS.md](../../AGENTS.md) lists the check levels (step 2) and says which gate a
 change runs (step 5). What it leaves out:
 
+- `make lint` also type-checks the Explore page's client with `tsc`, from the npm packages
+  of `tests/explore-page`: the first run on a checkout installs them with `npm ci`, which
+  needs the network.
 - `make test` runs the doc tests of the workspace, then every unit test with nextest,
   which runs no doc test itself. With `CRATES`, it runs nextest alone.
 - `make check` runs `make lint`, the static rule on judgements in the Explore page's
@@ -22,10 +25,10 @@ names each test slower than 10 s, and `target/nextest/default/junit.xml` keeps e
 test's time.
 
 In addition to the build dependencies, the checks use Herdr, Codex, Claude Code,
-Python 3, `cargo-nextest`, `cccc`, and `jq`. Herdr integration tests run private
-servers with isolated configuration, state and agent paths. The
-[Explore page tests](explore-page-e2e.md) also use Node and a headless Chromium, which
-the Nix shell provides.
+Python 3, `cargo-nextest`, `cccc`, `jq` and Node, which `make lint` uses for the client's
+type check. Herdr integration tests run private servers with isolated configuration,
+state and agent paths. The [Explore page tests](explore-page-e2e.md) also use a headless
+Chromium, which the Nix shell provides.
 
 ## The Herdr the tests run
 

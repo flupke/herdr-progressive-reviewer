@@ -67,7 +67,8 @@ Follow these steps for every change: a feature, a fix, or a change to docs.
    records of the area you will change.
 2. Implement the change, and check it as you go with the levels that fit it,
    cheapest first:
-   1. `make lint`: clippy on every target, and the complexity gate.
+   1. `make lint`: clippy on every target, the Explore page client's types, and
+      the complexity gate.
    2. `make test CRATES="crate-a crate-b"`: the unit tests of the crates the
       change touches.
    3. `make test`: every unit test of the workspace.
