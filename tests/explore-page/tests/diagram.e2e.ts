@@ -29,6 +29,31 @@ test('a question draws its diagram, with Mermaid served by the tool', async ({ e
   expect([...hosts]).toEqual([new URL(app.baseUrl!).host]);
 });
 
+test("a function's name too long for one line shows whole inside its box", async ({
+  explore,
+  screen,
+  browser,
+}) => {
+  await openQuestion2(explore);
+  const figure = screen.getByRole('figure', 'Diagram 2');
+  await expect(figure.getByText('restore_reviewer_draft_on_reopened_round')).toBeVisible();
+
+  // Whether the box clips its label has no locator: the label's text and its box are read in
+  // the page, as the overflow of the text past each side of the box.
+  const overflow = await browser.evaluate(() => {
+    const figure = document.querySelector('figure[aria-label="Diagram 2"]')!;
+    const label = [...figure.querySelectorAll('foreignObject')].find(
+      (box) => box.textContent === 'restore_reviewer_draft_on_reopened_round',
+    )!;
+    const range = document.createRange();
+    range.selectNodeContents(label);
+    const text = range.getBoundingClientRect();
+    const box = label.getBoundingClientRect();
+    return Math.max(box.left - text.left, text.right - box.right, box.top - text.top, text.bottom - box.bottom);
+  });
+  expect(overflow).toBeLessThan(1);
+});
+
 test('at phone width, a flowchart too wide for the screen is drawn top to bottom and fits', async ({
   explore,
   screen,

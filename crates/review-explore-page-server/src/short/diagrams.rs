@@ -1,5 +1,6 @@
 //! The explanation of the second fixed question: a Mermaid diagram that draws, wider than a
-//! phone's screen, and one that Mermaid cannot parse.
+//! phone's screen, with a box whose label is a function's name too long for one line of Mermaid's
+//! wrapping width, and one that Mermaid cannot parse.
 
 pub(super) const RATIONALE: &str = "\
 The kept draft can live in the round's record or in the editor state.
@@ -10,6 +11,7 @@ flowchart LR
   editor -->|\"each answer\"| record[\"Round record\"]
   record --> reopened[\"Reopened round\"]
   state --> reopened
+  reopened --> restore[\"restore_reviewer_draft_on_reopened_round\"]
 ```
 
 The round's record would hold it as follows; this sketch does not parse, because a label with \

@@ -15,6 +15,10 @@
   background: var(--panel);
 }
 .markdown .diagram .drawing > svg { display: block; height: auto; }
+/* Mermaid measures each label away from the page, then sizes its box to that measure: a label
+   that broke anywhere, as the Markdown's text does (markdown.css), would wrap past its box's
+   height, which clips its second line. A long name keeps to one line, as measured. */
+.markdown .diagram .drawing { overflow-wrap: normal; }
 .markdown .diagram figcaption { position: sticky; left: 0; display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--muted); font-size: 13px; }
 .markdown .diagram .legend { display: flex; gap: 14px; margin-top: 10px; }
 .markdown .diagram .key::before {
