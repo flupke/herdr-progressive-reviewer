@@ -1,14 +1,20 @@
 use std::io::{self, Write};
 
 use crossterm::QueueableCommand;
+use crossterm::clipboard::CopyToClipboard;
 use crossterm::terminal::{BeginSynchronizedUpdate, EndSynchronizedUpdate};
 use ratatui::backend::{Backend, ClearType, CrosstermBackend, WindowSize};
 use ratatui::buffer::Cell;
 use ratatui::layout::{Position, Size};
 
-/// A backend that can discard cursor visibility cached before input or focus changes.
-pub(super) trait CursorBackend: Backend {
+/// The backend of the pane's terminal: draws frames, discards the cursor visibility cached before
+/// input or focus changes, and writes to the clipboard.
+pub(super) trait PaneBackend: Backend {
     fn invalidate_cursor_visibility(&mut self);
+
+    /// Puts `text` on the clipboard with an OSC 52 write: Herdr takes a pane's write to the
+    /// clipboard of the client in the foreground, as the outer terminal does without Herdr.
+    fn copy_to_clipboard(&mut self, text: &str) -> io::Result<()>;
 }
 
 /// Avoid terminal traffic for unchanged frames, including repeated cursor hides.
@@ -35,16 +41,26 @@ impl<W: Write> TerminalBackend<W> {
     }
 }
 
-impl<W: Write> CursorBackend for TerminalBackend<W> {
+impl<W: Write> PaneBackend for TerminalBackend<W> {
     fn invalidate_cursor_visibility(&mut self) {
         self.cursor_hidden = None;
+    }
+
+    fn copy_to_clipboard(&mut self, text: &str) -> io::Result<()> {
+        self.inner.queue(CopyToClipboard::to_clipboard_from(text))?;
+        Write::flush(&mut self.inner)
     }
 }
 
 #[cfg(test)]
-impl CursorBackend for ratatui::backend::TestBackend {
+impl PaneBackend for ratatui::backend::TestBackend {
     // TestBackend does not cache cursor visibility commands.
     fn invalidate_cursor_visibility(&mut self) {}
+
+    // TestBackend holds cells only: it has no output for an escape sequence.
+    fn copy_to_clipboard(&mut self, _text: &str) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 impl<W: Write> Backend for TerminalBackend<W> {

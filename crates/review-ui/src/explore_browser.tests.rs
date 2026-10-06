@@ -158,3 +158,26 @@ fn a_page_the_browser_could_not_open_shows_why_and_its_address_until_the_next_st
     fixture.start_with(Trigger::Key('p'));
     assert!(!fixture.text().contains(REASON), "a new start forgets it");
 }
+
+#[test]
+fn a_click_on_the_address_of_a_page_the_browser_could_not_open_copies_it() {
+    let (mut fixture, _) = ExploreUi::started(BASE, POLICY, 's');
+    fixture
+        .app
+        .publish(ui_events::ExplorePageNotOpened(PageNotOpened {
+            url: Some(PAGE.into()),
+            reason: "xdg-open failed (exit status: 3)".into(),
+        }));
+
+    assert_eq!(
+        fixture.click_actions("http://127.0.0.1:41234"),
+        [Action::Terminal(crate::TerminalAction::CopyToClipboard(
+            PAGE.into()
+        ))]
+    );
+    assert!(
+        fixture.text().contains("Copied the page's address"),
+        "{}",
+        fixture.text()
+    );
+}

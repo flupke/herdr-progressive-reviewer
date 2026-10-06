@@ -22,6 +22,7 @@ ui-controls = { path = "../../ui-controls" }
 ui-panes = { path = "../../ui-panes" }
 ui-events = { path = "../../ui-events" }
 ui-theme = { path = "../../ui-theme" }
+toasts = { path = "../../toasts" }
 ui-qr-code = { path = "../../ui-qr-code" }
 ui-shortcuts = { path = "../../ui-shortcuts" }
 comment-editor = { path = "../../comment-editor" }

@@ -1,11 +1,11 @@
 //! The Explore page the browser could not open, for Start, Start with Challenger or Open the
 //! Explore page: the pane says why and gives the page's address to open by hand, until the next
-//! start or the next try.
+//! start or the next try. A click on the address copies it to the clipboard.
 
 use ui_events::ExplorePageNotOpened;
 use ui_theme::Palette;
 
-use super::{ExploreComponent, flow::ConversationLayout};
+use super::{Control, ExploreComponent, flow::ConversationLayout, network_page::SharedLink};
 
 impl ExploreComponent {
     pub(super) fn page_not_opened(&mut self, event: &ExplorePageNotOpened) {
@@ -21,7 +21,11 @@ impl ExploreComponent {
         layout.text(page.to_string(), palette.warning, None);
         if let Some(url) = &page.url {
             layout.text("Open it in a browser on this machine:", palette.dim, None);
-            layout.text(url.clone(), palette.text, None);
+            layout.link(
+                url.clone(),
+                palette.text,
+                Control::CopyLink(SharedLink::Local),
+            );
         }
     }
 }

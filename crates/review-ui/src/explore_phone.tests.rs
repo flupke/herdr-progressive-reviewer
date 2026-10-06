@@ -85,3 +85,22 @@ fn a_page_that_cannot_be_shared_says_why_in_place_of_the_address() {
     fixture.scroll_to_end();
     assert!(fixture.text().contains(REASON), "{}", fixture.text());
 }
+
+#[test]
+fn a_click_on_the_address_or_its_qr_code_copies_the_address() {
+    let (mut fixture, _) = ExploreUi::new();
+    fixture
+        .app
+        .publish(ui_events::ExplorePageShared(URL.into()));
+    let copy = [Action::Terminal(crate::TerminalAction::CopyToClipboard(
+        URL.into(),
+    ))];
+
+    assert_eq!(fixture.click_actions("http://192.168.1.23"), copy);
+    assert!(
+        fixture.text().contains("Copied the page's address"),
+        "{}",
+        fixture.text()
+    );
+    assert_eq!(fixture.click_actions(&"▀".repeat(30)), copy);
+}

@@ -66,6 +66,8 @@ enum Control {
     EditImplementation,
     Implement,
     CancelImplementation,
+    /// Copy the address of the Explore page that `SharedLink` names to the clipboard.
+    CopyLink(network_page::SharedLink),
 }
 
 use review_explore::{ExplorePage as DraftKey, QuestionReading as TurnView};

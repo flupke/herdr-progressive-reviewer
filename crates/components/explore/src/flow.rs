@@ -8,7 +8,7 @@ use diff_component::ClippedViewport;
 use markdown_rendering::MarkdownRenderer;
 use ratatui::{
     layout::Rect,
-    style::Color,
+    style::{Color, Style},
     text::Text,
     widgets::{Paragraph, Wrap},
 };
@@ -86,6 +86,14 @@ impl ConversationLayout {
         self.paragraph(Text::styled(text.into(), color), control);
     }
 
+    /// An address, underlined as a link, that `control` acts on when clicked.
+    pub(super) fn link(&mut self, url: impl Into<String>, color: Color, control: Control) {
+        self.paragraph(
+            Text::styled(url.into(), Style::new().fg(color).underlined()),
+            Some(control),
+        );
+    }
+
     fn paragraph(&mut self, text: Text<'static>, control: Option<Control>) {
         let height = Paragraph::new(text.clone())
             .wrap(Wrap { trim: false })
@@ -97,8 +105,8 @@ impl ConversationLayout {
     }
 
     /// `text` of `height` lines that fit the width, drawn as they are.
-    pub(super) fn picture(&mut self, text: Text<'static>, height: u16) {
-        self.push(Content::Text(text, None), height);
+    pub(super) fn picture(&mut self, text: Text<'static>, height: u16, control: Option<Control>) {
+        self.push(Content::Text(text, control), height);
     }
 
     pub(super) fn push(&mut self, content: Content, height: u16) {

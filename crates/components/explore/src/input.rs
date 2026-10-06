@@ -72,9 +72,9 @@ impl ExploreComponent {
             return self.reset(std::time::Instant::now());
         }
         // Any other control cancels a Reset waiting for its confirmation, and any control but a
-        // setting's leaves the setting being typed.
+        // setting's or a copy leaves the setting being typed.
         self.reset.cancel();
-        if !matches!(control, Control::Setting(_)) {
+        if !matches!(control, Control::Setting(_) | Control::CopyLink(_)) {
             self.leave_page_setting();
         }
         match control {
@@ -84,12 +84,23 @@ impl ExploreComponent {
                 return self.implementation_control(control);
             }
             Control::Send => return self.answer(control),
-            Control::Cancel => return self.cancel(),
-            Control::Retry => return self.retry(),
-            Control::CancelAnswer(index) => return self.cancel_answer(index),
+            Control::Cancel | Control::Retry | Control::CancelAnswer(_) => {
+                return self.recovery_control(control);
+            }
+            Control::CopyLink(link) => return self.copy_link(link),
             control => self.navigate(control),
         }
         Vec::new()
+    }
+
+    /// Stops waiting for the agent, sends the turn again, or cancels the latest answer.
+    fn recovery_control(&mut self, control: Control) -> Vec<Action> {
+        match control {
+            Control::Cancel => self.cancel(),
+            Control::Retry => self.retry(),
+            Control::CancelAnswer(index) => self.cancel_answer(index),
+            _ => Vec::new(),
+        }
     }
 
     pub(super) fn cancel(&mut self) -> Vec<Action> {

@@ -222,3 +222,17 @@ fn resize_and_cursor_transitions_still_reach_the_terminal() {
     fixture.draw("Review", Style::default());
     assert!(fixture.bytes_written() > raw_output);
 }
+
+#[test]
+fn a_copy_writes_the_text_to_the_clipboard_selection_with_osc_52() {
+    let output = CapturedOutput::default();
+    let mut backend = TerminalBackend::new(output.clone());
+
+    PaneBackend::copy_to_clipboard(&mut backend, "http://10.0.0.2:8790/").unwrap();
+
+    // Herdr takes OSC 52 writes to the `c` selection from a pane; the text is in base64.
+    assert_eq!(
+        String::from_utf8(output.0.borrow().clone()).unwrap(),
+        "\u{1b}]52;c;aHR0cDovLzEwLjAuMC4yOjg3OTAv\u{1b}\\"
+    );
+}

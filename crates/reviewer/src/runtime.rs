@@ -55,7 +55,7 @@ use review_store::ReviewStore;
 use review_ui::{Action, Key, ReviewApplication, TerminalAction, Theme, UserInput};
 use signal_hook::consts::signal::{SIGHUP, SIGINT, SIGTERM};
 use signal_hook::flag;
-use terminal::{CursorBackend, TerminalBackend};
+use terminal::{PaneBackend, TerminalBackend};
 use ui_events::{AnimationTick, RepositoryRefreshStarted, ToastExpirationTick};
 
 use crate::watcher::RepositoryWatcher;
@@ -395,7 +395,7 @@ impl Runtime {
     }
 }
 
-impl<B: CursorBackend> RuntimeEventLoop<'_, B>
+impl<B: PaneBackend> RuntimeEventLoop<'_, B>
 where
     B::Error: Send + Sync + 'static,
 {
@@ -514,6 +514,10 @@ where
                 open_in_editor(terminal, terminal_events.as_deref_mut(), app, &path, line)?;
                 Ok(ControlFlow::Continue(()))
             }
+            TerminalAction::CopyToClipboard(text) => {
+                terminal.backend_mut().copy_to_clipboard(&text)?;
+                Ok(ControlFlow::Continue(()))
+            }
             TerminalAction::Quit => Ok(ControlFlow::Break(())),
         })
     }
@@ -545,7 +549,7 @@ fn vision_turns_from_env() -> Option<explore_session::TurnLog> {
 }
 
 /// Hand the terminal to the user's editor, then take it back.
-fn open_in_editor<B: CursorBackend>(
+fn open_in_editor<B: PaneBackend>(
     terminal: &mut Terminal<B>,
     terminal_events: Option<&mut TerminalEventProducer>,
     app: &mut ReviewApplication,

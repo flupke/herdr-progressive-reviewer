@@ -121,3 +121,22 @@ fn the_link_goes_when_the_tunnel_ends_with_its_round() {
     assert!(!text.contains(LINK), "{text}");
     assert!(text.contains("Share over a tunnel: off"), "{text}");
 }
+
+#[test]
+fn a_click_on_the_tunnels_link_or_its_qr_code_copies_the_link() {
+    let (mut fixture, _) = ExploreUi::new();
+    fixture.share_key();
+    fixture.report(TunnelState::Open { url: LINK.into() });
+    fixture.end();
+    let copy = [Action::Terminal(crate::TerminalAction::CopyToClipboard(
+        LINK.into(),
+    ))];
+
+    assert_eq!(fixture.click_actions("https://quiet-river"), copy);
+    assert!(
+        fixture.text().contains("Copied the tunnel's link"),
+        "{}",
+        fixture.text()
+    );
+    assert_eq!(fixture.click_actions(&"▀".repeat(30)), copy);
+}

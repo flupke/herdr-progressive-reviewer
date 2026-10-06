@@ -172,6 +172,7 @@ fn settings_save_and_terminal_actions_run_in_order_until_quit() {
                     opened.push((path, line));
                     Ok(ControlFlow::Continue(()))
                 }
+                TerminalAction::CopyToClipboard(_) => Ok(ControlFlow::Continue(())),
                 TerminalAction::Quit => Ok(ControlFlow::Break(())),
             },
         )

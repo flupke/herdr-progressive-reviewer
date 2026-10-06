@@ -132,6 +132,8 @@ pub enum RepositoryAction {
 pub enum TerminalAction {
     /// Suspend the UI and open a file in the user's editor at a zero-based line.
     OpenInEditor { path: PathBuf, line: Option<u32> },
+    /// Put this text on the reviewer's clipboard.
+    CopyToClipboard(String),
     /// Stop the application.
     Quit,
 }

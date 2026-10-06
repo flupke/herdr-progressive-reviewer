@@ -63,7 +63,9 @@ impl ActionExecutors for Recorder {
     fn terminal(&mut self, action: TerminalAction) -> eyre::Result<ControlFlow<()>> {
         let flow = match action {
             TerminalAction::Quit => ControlFlow::Break(()),
-            TerminalAction::OpenInEditor { .. } => ControlFlow::Continue(()),
+            TerminalAction::OpenInEditor { .. } | TerminalAction::CopyToClipboard(_) => {
+                ControlFlow::Continue(())
+            }
         };
         self.record("terminal", Action::Terminal(action));
         Ok(flow)
