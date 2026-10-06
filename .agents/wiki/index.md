@@ -11,7 +11,7 @@ Elsewhere: the glossary is [CONTEXT.md](../../CONTEXT.md); decisions are in [.ag
 - [Parallel workspaces](parallel-workspaces.md): running a gate or an agent in a second jj workspace.
 - [Terminal UI exploration](tui-vision.md): driving the real pane with `make vision`, the gotchas of its commands and stand-ins, turning findings into regression tests.
 - [Explore page: e2e tests](explore-page-e2e.md): what the page's journeys cover and what goes to Rust tests, writing and running them, writing one with an agent.
-- [Explore page: standalone server and screenshot gallery](explore-page-standalone.md): `make explore-page` and `make explore-gallery`.
+- [Explore page: standalone server and screenshot gallery](explore-page-standalone.md): `make explore-page`, `make explore-script` and `make explore-gallery`.
 
 ## Reviewing files and threads
 

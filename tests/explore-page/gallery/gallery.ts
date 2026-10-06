@@ -12,14 +12,11 @@
 // - GALLERY_WIDTHS: the widths in CSS pixels, separated by spaces (default "1280 390").
 // - GALLERY_STATES: only the states of these names, separated by spaces.
 // - E2E_CHROMIUM: the Chromium the dev shell provides; Playwright's own download without it.
-import { type ChildProcess, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { createInterface } from 'node:readline';
-import { type Browser, chromium, type Page } from 'playwright';
-import { startChromium, stopChromium } from '../nix-chromium.ts';
-import { SERVER } from '../server.ts';
+import type { Browser, Page } from 'playwright';
+import { launch, settle, StandaloneServer } from '../standalone.ts';
 import { openSession } from '../tests/session.ts';
 import { contactSheet, type Shot, THEMES, type Theme } from './contact-sheet.ts';
 import { type GalleryState, STATES } from './states.ts';
@@ -59,78 +56,6 @@ class Options {
  */
 const SERVER_CLOCK_MS = 1_791_000_000_000;
 const PAGE_CLOCK_MS = SERVER_CLOCK_MS + 42_000;
-
-/** The standalone page server, with the rich data set and its fixed clock, on a free port. */
-class Server {
-  private readonly child: ChildProcess;
-  readonly baseUrl: string;
-
-  private constructor(child: ChildProcess, baseUrl: string) {
-    this.child = child;
-    this.baseUrl = baseUrl;
-  }
-
-  static async start(): Promise<Server> {
-    const child = spawn(SERVER, ['--port', '0', '--data', 'rich', '--fixed-clock'], {
-      stdio: ['ignore', 'pipe', 'inherit'],
-    });
-    const lines = createInterface({ input: child.stdout! });
-    const baseUrl = await new Promise<string>((resolve, reject) => {
-      child.on('error', reject);
-      child.on('exit', (code) => reject(new Error(`explore-page-server exited with ${code}`)));
-      lines.on('line', (line) => {
-        const match = /^Explore page: (http:\/\/[^/]+)\//.exec(line);
-        if (match) resolve(match[1]!);
-        else if (line.startsWith('csp violation') || line.startsWith('template error')) console.error(line);
-      });
-    });
-    return new Server(child, baseUrl);
-  }
-
-  stop(): void {
-    this.child.kill();
-  }
-}
-
-/** The headless Chromium: the dev shell's when it names one, attached over CDP. */
-async function launch(): Promise<{ browser: Browser; close: () => Promise<void> }> {
-  const executable = process.env.E2E_CHROMIUM;
-  if (!executable) {
-    const browser = await chromium.launch();
-    return { browser, close: () => browser.close() };
-  }
-  const lease = await startChromium(executable);
-  const browser = await chromium.connectOverCDP(lease.cdpEndpoint);
-  return {
-    browser,
-    close: async () => {
-      await browser.close();
-      await stopChromium(lease);
-    },
-  };
-}
-
-/**
- * Waits until the client has drawn the round, with its fonts loaded and every diagram drawn or
- * failed. A state's moves leave the page showing the round's latest view: the page was opened
- * after the round moved, or the action it sent has its reply, which follows the view.
- */
-async function settle(page: Page): Promise<void> {
-  await page.waitForFunction(drawn);
-}
-
-/** In the page: whether the client drew a view, its fonts and diagrams included. */
-function drawn(): boolean {
-  const sources = document.querySelectorAll('.markdown pre > code.language-mermaid').length;
-  const failed = document.querySelectorAll('figure.diagram.failed').length;
-  return (
-    document.querySelector('main[data-seq]') !== null &&
-    !document.querySelector('main[aria-busy="true"]') &&
-    document.fonts.status === 'loaded' &&
-    sources === failed &&
-    document.body.dataset.diagrams !== 'drawing'
-  );
-}
 
 /**
  * Makes the window as tall as the page, so that a part sized to the window, such as the sticky
@@ -197,7 +122,7 @@ async function main(): Promise<void> {
     throw new Error(`${options.output} is not empty: choose a new or empty folder`);
   }
   mkdirSync(options.output, { recursive: true });
-  const server = await Server.start();
+  const server = await StandaloneServer.start(['--data', 'rich', '--fixed-clock']);
   const { browser, close } = await launch();
   try {
     const studio: Studio = { browser, baseUrl: server.baseUrl };

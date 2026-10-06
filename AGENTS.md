@@ -3,7 +3,8 @@
 Give yourself eyes and hands on what you build: run it, look at it, act on it as its user
 would, and fix what you see. Tests prove what you thought of; eyes show what you did not.
 `make vision` drives the review pane (`.agents/wiki/tui-vision.md`); `make explore-page`
-and `make explore-gallery` show the Explore page (`.agents/wiki/explore-page-standalone.md`).
+and `make explore-gallery` show the Explore page, and `make explore-script` acts on it with a
+throwaway script (`.agents/wiki/explore-page-standalone.md`).
 When a part of the product has no such tool, build one before you rely on tests alone.
 
 # Standards

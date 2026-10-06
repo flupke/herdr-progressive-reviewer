@@ -1,4 +1,4 @@
-.PHONY: build check check-changed check-with-e2e complexity fmt lint test e2e-tui e2e-explore explore-client-check e2e-explore-deps explore-gallery explore-page explore-types vision install mutants uninstall
+.PHONY: build check check-changed check-with-e2e complexity fmt lint test e2e-tui e2e-explore explore-client-check e2e-explore-deps explore-gallery explore-page explore-script explore-types vision install mutants uninstall
 
 build:
 	cargo build --release --locked -p reviewer -p review-mcp-config --bins
@@ -10,7 +10,7 @@ build:
 
 # The checks come in levels, cheapest first; AGENTS.md says when to run which.
 # They all build with the same flags, so they share one build cache.
-lint test check check-changed check-with-e2e e2e-tui e2e-explore: export RUSTFLAGS = -Dwarnings
+lint test check check-changed check-with-e2e e2e-tui e2e-explore explore-script: export RUSTFLAGS = -Dwarnings
 
 # Level 1: types and lints of every target, the Explore page's client included, and the
 # complexity gate.
@@ -85,6 +85,13 @@ e2e-explore: explore-client-check e2e-explore-deps
 explore-gallery: e2e-explore-deps
 	cargo build --locked -p review-explore-page-server
 	node $(EXPLORE_E2E)/gallery/gallery.ts
+
+# Runs a throwaway Playwright script, SCRIPT, against a fresh session of the standalone server,
+# and prints its output and the paths of its screenshots (.agents/wiki/explore-page-standalone.md).
+# SCRIPT_DATA (short or rich) and SCRIPT_WIDTH go to the runner through the environment.
+explore-script: e2e-explore-deps
+	cargo build --locked -p review-explore-page-server
+	SCRIPT='$(SCRIPT)' node $(EXPLORE_E2E)/script.ts
 
 # Serve the Explore page alone, with a fixed question. Templates and assets are read from disk,
 # and an open page reloads when one changes. EXPLORE_PAGE_ARGS go to the server

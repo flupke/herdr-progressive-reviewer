@@ -18,8 +18,8 @@ What a journey does not hold, and why:
   request's states) is a Rust test, in memory: `crates/review-explore-page/src/socket.tests.rs`
   and `page.tests.rs`, and the tests of `crates/review-explore-session`.
 - How the page draws a state (Markdown, diagrams, citations, the meter, the tab icon,
-  layouts at each width, swipes) is not tested: look at it with the
-  [gallery](explore-page-standalone.md).
+  layouts at each width, swipes) is not tested: look at it with the gallery, or act on
+  it with `make explore-script` ([standalone server](explore-page-standalone.md)).
 
 ## Write a test
 

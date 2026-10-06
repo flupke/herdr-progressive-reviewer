@@ -1,6 +1,6 @@
 # Explore page: standalone server and screenshot gallery
 
-How to serve the page with no pane, agent or Herdr, and how to shoot every state of it for a before/after comparison.
+How to serve the page with no pane, agent or Herdr, act on it with a throwaway script, and shoot every state of it for a before/after comparison.
 
 ## Serve the page alone
 
@@ -23,6 +23,28 @@ The server's options are listed at the top of
 [`main.rs`](../../crates/review-explore-page-server/src/main.rs). `--data rich` serves a
 round as long as a real one, for the gallery below; `make explore-page
 EXPLORE_PAGE_ARGS='--data rich'` serves it.
+
+## Act on the page with a script
+
+```sh
+nix develop --command make explore-script SCRIPT=path/to/script.ts
+```
+
+This starts a fresh standalone server, opens a session of it in the dev shell's headless
+Chromium, and runs the script's default export with the Playwright page, the session
+(`tests/explore-page/tests/session.ts`, which moves the round as the agent and the pane
+would) and `shot(name)`, a full-page screenshot once the page has drawn. It prints what
+the script prints, then the path of each screenshot, under a new folder of the system
+temporary directory. Keep the script outside the repository, in a scratch folder: it is a
+throwaway, and the run stores nothing in the repository. The script imports only types:
+the packages resolve from `tests/explore-page`, not from the script's folder. The header
+of [`script.ts`](../../tests/explore-page/script.ts) shows a script and lists the
+variables: `SCRIPT_DATA=rich` plays the gallery's long round, `SCRIPT_WIDTH=390` a
+phone's width.
+
+Use it to see what a change does to a state the gallery has no entry for, or to check a
+behaviour of the client by hand before deciding whether it earns a journey in the
+[e2e tests](explore-page-e2e.md).
 
 ## Screenshot gallery
 
