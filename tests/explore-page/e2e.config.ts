@@ -1,9 +1,8 @@
-// e2e tests of the Explore page, run by `make e2e-explore` inside `make check-with-e2e`. Each target
-// starts its own standalone page server (crates/review-explore-page-server) on a free port.
+// e2e tests of the Explore page, run by `make e2e-explore`. Every step is an exact action on a
+// locator: no agent, no model. The target starts its own standalone page server
+// (crates/review-explore-page-server) on a free port.
 import type { E2EConfig } from 'e2e';
 import { web } from '@e2e-dev/web';
-import { cacheLookups } from './cache-lookups.ts';
-import { agent } from './model.ts';
 import { nixChromium } from './nix-chromium.ts';
 import { SERVER } from './server.ts';
 
@@ -28,8 +27,6 @@ export default {
   targets: [
     { name: 'desktop', engine: web({ browser }), app: page('desktop') },
   ],
-  agents: { default: agent },
-  ...cacheLookups(),
   retries: 0,
   // A failed test keeps a Playwright trace, beside the page's accessibility tree at the failure.
   trace: 'retain-on-failure',

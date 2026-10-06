@@ -6,8 +6,9 @@
 //! as typed data, whole, when it opens and at each change, and carries the reviewer's actions
 //! (start a round, answer a question, answer the conclusion's quiz, implement it, and every
 //! recovery the pane offers) back, which the page hands to the round's owner as
-//! [`PageCommand`]s through a [`CommandSender`]. The page is tested with the e2e tests in
-//! `tests/explore-page`, against the standalone server (`review-explore-page-server`).
+//! [`PageCommand`]s through a [`CommandSender`]. The page's routes and socket are tested here;
+//! the reviewer's journeys through the page's client with the e2e tests in `tests/explore-page`,
+//! against the standalone server (`review-explore-page-server`).
 //!
 //! Every request must name one of the page's own [`Hosts`], against DNS rebinding. The address
 //! the reviewer opens carries a [`Token`], which the page trades for a cookie; every read of a

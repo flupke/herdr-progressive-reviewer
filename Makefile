@@ -1,4 +1,4 @@
-.PHONY: build check check-changed check-with-e2e complexity fmt lint test e2e-tui e2e-explore explore-client-check e2e-explore-deps e2e-explore-judgements explore-gallery explore-page explore-types vision install mutants uninstall
+.PHONY: build check check-changed check-with-e2e complexity fmt lint test e2e-tui e2e-explore explore-client-check e2e-explore-deps explore-gallery explore-page explore-types vision install mutants uninstall
 
 build:
 	cargo build --release --locked -p reviewer -p review-mcp-config --bins
@@ -34,10 +34,9 @@ fmt:
 	cargo fmt --all
 	cargo fmt --manifest-path tests/tui/Cargo.toml
 
-# Every level in one run but the Explore page's e2e tests and `make vision`. The rule on
-# judgements in those tests is static, and runs here. AGENTS.md, step 5, says which gate a change
-# runs.
-check: lint e2e-explore-judgements
+# Every level in one run but the Explore page's e2e tests and `make vision`. AGENTS.md, step 5,
+# says which gate a change runs.
+check: lint
 	$(MAKE) test CRATES=
 	$(MAKE) e2e-tui
 
@@ -57,9 +56,9 @@ e2e-tui:
 	cargo clippy --locked --manifest-path tests/tui/Cargo.toml --all-targets
 	REVIEWER_BIN_PATH="$(CURDIR)/target/debug/reviewer" cargo nextest run --locked --manifest-path tests/tui/Cargo.toml
 
-# The e2e tests of the Explore page (https://github.com/tester-army/e2e). Agent steps replay
-# their recordings under tests/explore-page/.e2e/cache; a new or stale step goes to the model and
-# the cache is updated (.agents/wiki/explore-page-e2e.md). E2E_ARGS go to `e2e run`.
+# The e2e tests of the Explore page (https://github.com/tester-army/e2e): the reviewer's journeys,
+# each step an exact action, with no model (.agents/wiki/explore-page-e2e.md). E2E_ARGS go to
+# `e2e run`.
 EXPLORE_E2E = tests/explore-page
 
 $(EXPLORE_E2E)/node_modules/.installed: $(EXPLORE_E2E)/package-lock.json
@@ -70,18 +69,13 @@ $(EXPLORE_E2E)/node_modules/.installed: $(EXPLORE_E2E)/package-lock.json
 # (tests/explore-page/mcp.sh).
 e2e-explore-deps: $(EXPLORE_E2E)/node_modules/.installed
 
-# The rule on judgements in the e2e tests (.agents/wiki/explore-page-e2e.md).
-e2e-explore-judgements:
-	node --test --test-reporter=dot $(EXPLORE_E2E)/judgements.test.ts
-	node $(EXPLORE_E2E)/judgements.ts
-
 # Checks the page's client against the TypeScript declarations of its socket's messages, with
 # the Nix shell's TypeScript; part of `make lint`.
 explore-client-check:
 	tsc -p $(EXPLORE_E2E)/tsconfig.client.json
 
 # Checks the page's client, then runs the e2e tests.
-e2e-explore: e2e-explore-judgements explore-client-check e2e-explore-deps
+e2e-explore: explore-client-check e2e-explore-deps
 	cargo build --locked -p review-explore-page-server
 	$(EXPLORE_E2E)/run.sh $(E2E_ARGS)
 

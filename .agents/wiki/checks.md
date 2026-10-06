@@ -55,9 +55,8 @@ To change the pinned release:
 ## Tests that call no model
 
 Explore's tests in `make check` use deterministic responses and call no model API; the
-real Claude Code run-ahead tests are opt-in (Opt-in tests). (The Explore page's
-e2e tests in `make check-with-e2e` call a model only for a goal with no valid recording:
-see [Agent steps and the model](explore-page-e2e.md#agent-steps-and-the-model).) A check
+real Claude Code run-ahead tests are opt-in (Opt-in tests). The Explore page's
+[e2e tests](explore-page-e2e.md) call no model either. A check
 of Explore with a real agent is manual, in a disposable repository and a private Herdr
 server.
 

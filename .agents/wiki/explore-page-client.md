@@ -28,5 +28,6 @@ again), and `make lint` runs the Nix shell's `tsc` over the client
 side no longer has. `tsc` emits
 nothing: the browser loads the modules as they are.
 
-The socket is tested in Rust (`src/socket.tests.rs`), and what the reviewer does on the page
-with the [e2e tests](explore-page-e2e.md); the client has no unit tests.
+The socket and the page's routes are tested in Rust (`src/socket.tests.rs`,
+`src/page.tests.rs`), and the reviewer's journeys on the page with the
+[e2e tests](explore-page-e2e.md); the client has no unit tests.
