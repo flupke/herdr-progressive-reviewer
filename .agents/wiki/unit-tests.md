@@ -48,6 +48,24 @@ or, for a harness, marks it ignored. The kinds:
 Code review also deletes a unit test of behaviour an e2e test already covers, when the
 unit test adds no edge case and no faster or more precise failure.
 
+## Unit or integration
+
+A unit test lives in a crate's `src/`, outside any module named `integration`, and runs
+in `make test`. It never waits on the wall clock: no sleep, no production timeout or poll
+interval sat through, no loop that polls until a deadline, no window that proves nothing
+happened. Give the code under test its durations or its clock as values the test sets
+(zero, or advanced by hand), and wake the test with an event: a channel, a condvar, or an
+event the code already publishes. Prove that nothing happened by ordering: send a marker
+through the same path and wait for it; what did not arrive before it did not happen.
+
+An integration test drives real processes: a private Herdr, a stand-in agent, jj or git,
+a language server, a spawned binary. It lives in a crate's `tests/`, or under a module
+named `integration` when it needs the crate's internals, and runs in `make integration`;
+`make check-changed` runs both kinds for the crates a change reaches. It waits on events
+too: what a stand-in reports on its event socket, Herdr's event stream, the events of the
+reviewer under test. Its only clock is a guard against a hang, which fires on a failure
+and never delays a test that passes.
+
 ## Auditing a crate
 
 Read each test next to the production code it calls, since the bug that turns it red

@@ -84,8 +84,9 @@ Follow these steps for every change: a feature, a fix, or a change to docs.
    1. `make lint`: clippy on every target, the Explore page client's types, and
       the complexity gate.
    2. `make test CRATES="crate-a crate-b"`: the unit tests of the crates the
-      change touches.
-   3. `make test`: every unit test of the workspace.
+      change touches; `make integration CRATES=…`, their integration tests.
+   3. `make test` and `make integration`: every unit and integration test of the
+      workspace.
    4. The end-to-end tests of what the change touches: `make e2e-tui` for the
       pane, `make e2e-explore` for the Explore page.
    Choose the levels at your discretion: run the Explore page tests only for a

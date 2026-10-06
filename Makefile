@@ -1,4 +1,4 @@
-.PHONY: build check check-changed check-with-e2e complexity fmt lint test e2e-tui e2e-explore explore-client-check e2e-explore-deps e2e-explore-judgements explore-gallery explore-page explore-types vision install mutants uninstall
+.PHONY: build check check-changed integration check-with-e2e complexity fmt lint test e2e-tui e2e-explore explore-client-check e2e-explore-deps e2e-explore-judgements explore-gallery explore-page explore-types vision install mutants uninstall
 
 build:
 	cargo build --release --locked -p reviewer -p review-mcp-config --bins
@@ -10,7 +10,7 @@ build:
 
 # The checks come in levels, cheapest first; AGENTS.md says when to run which.
 # They all build with the same flags, so they share one build cache.
-lint test check check-changed check-with-e2e e2e-tui e2e-explore: export RUSTFLAGS = -Dwarnings
+lint test integration check check-changed check-with-e2e e2e-tui e2e-explore: export RUSTFLAGS = -Dwarnings
 
 # Level 1: types and lints of every target, the Explore page's client included, and the
 # complexity gate.
@@ -18,16 +18,25 @@ lint: complexity explore-client-check
 	cargo clippy --workspace --all-targets
 	cargo run --quiet --locked -p check-changed -- --check-map
 
+# A unit test lives in a crate's src/, outside any module named `integration`, and never waits on
+# the wall clock. An integration test lives in a crate's tests/ or in a module named
+# `integration`; it drives real processes (Herdr, jj, git, a language server) and waits on their
+# events (.agents/wiki/unit-tests.md).
+UNIT_TESTS = (kind(lib) | kind(bin) | kind(proc-macro)) - test(/(^|::)integration::/)
+INTEGRATION_TESTS = kind(test) | test(/(^|::)integration::/)
+CRATE_ARGS = $(if $(strip $(CRATES)),$(foreach crate,$(CRATES),-p $(crate)),--workspace)
+
 # Level 2, with CRATES: the unit tests of those crates (`make test CRATES="quick-tunnel"`).
 # Level 3, without: every unit test of the workspace, doc tests included.
-CRATES ?=
 test:
 ifeq ($(strip $(CRATES)),)
 	cargo test --workspace --doc
-	cargo nextest run --workspace
-else
-	cargo nextest run $(foreach crate,$(CRATES),-p $(crate))
 endif
+	cargo nextest run $(CRATE_ARGS) --no-tests=pass -E '$(UNIT_TESTS)'
+
+# The integration tests of CRATES, or of the whole workspace.
+integration:
+	cargo nextest run $(CRATE_ARGS) --no-tests=pass -E '$(INTEGRATION_TESTS)'
 
 # Formats the code, once a feature is complete. No check fails on formatting.
 fmt:
@@ -39,11 +48,12 @@ fmt:
 # runs.
 check: lint e2e-explore-judgements
 	$(MAKE) test CRATES=
+	$(MAKE) integration CRATES=
 	$(MAKE) e2e-tui
 
 # Only the checks that the files changed since CHECK_BASE, a jj revision (the change's parent
 # by default), reach: crates/check-changed says which. CHECK_CHANGED_ARGS=--dry-run lists them.
-# Its unit tests run with nextest, without doc tests, unless every check runs.
+# Its unit and integration tests run with nextest, without doc tests, unless every check runs.
 CHECK_BASE ?= @-
 check-changed:
 	MAKE='$(MAKE)' cargo run --quiet --locked -p check-changed -- --base '$(CHECK_BASE)' $(CHECK_CHANGED_ARGS)
