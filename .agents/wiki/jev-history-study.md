@@ -196,16 +196,9 @@ JEV_STUDY_CONFIG=/tmp/NAME.json cargo test -p reviewer --features jev-evals expo
 ```
 
 After all four exports (`terse`, `checklist`, `contrast`, `categories`) complete,
-run the stages below. `TYPESAFE_API_KEY` must be set for execution. Add `--dry-run`
-to `execute.py` to check ownership, corpus hashes and planned call counts for free.
-
-```sh
-python crates/reviewer/testdata/jev-evals/study/execute.py --plan /absolute/run/plans --output /absolute/run --split development
-python crates/reviewer/testdata/jev-evals/study/score.py --plan /absolute/run/plans --output /absolute/run --split development
-python crates/reviewer/testdata/jev-evals/study/execute.py --plan /absolute/run/plans --output /absolute/run --split validation --shortlist /absolute/run/shortlist.json
-python crates/reviewer/testdata/jev-evals/study/score.py --plan /absolute/run/plans --output /absolute/run --split validation
-python crates/reviewer/testdata/jev-evals/study/report.py --run /absolute/run
-```
+run the five stages of [Runtime measurements](#runtime-measurements) on those plans.
+Add `--dry-run` to `execute.py` to check ownership, corpus hashes and planned call
+counts for free.
 
 The runner resumes only the same frozen experiment. Completed successes and
 failures are retained. It makes at most three attempts for transient errors, using

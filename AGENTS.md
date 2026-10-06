@@ -30,18 +30,32 @@
 
 # Wiki
 
-`.agents/wiki/index.md` lists what is known about how this repository works, one
-topic per page: the checks and the test tooling, review marks and Jev, threads
-and their store, MCP, language servers, Explore rounds and the Explore page.
-Read the page for a tool (the checks, `make vision`, the e2e tests, the Jev
-evaluations) before you run or debug it. The workflow says when to read the
-pages of an area (step 1) and when to update them (step 2).
+The wiki is a playbook for working in this repository, one topic per page,
+listed in `.agents/wiki/index.md`. Read the page for a tool (the checks,
+`make vision`, the e2e tests, the Jev evaluations) before you run or debug it.
+The workflow says when to read the pages of an area (step 1) and when to update
+them (step 2).
+
+A line earns its place when an agent working here needs it and cannot get it
+cheaply from the code, the tests or a `--help`:
+
+- how to run a tool, and its gotchas;
+- the conclusions of expensive runs, such as evaluations and studies, and the
+  commands that run them again;
+- how an outside tool behaves, such as Herdr, jj, e2e, Claude Code, Codex and
+  the language servers;
+- the reason for a choice, or a guarantee that spans several files, which no
+  single file can state.
+
+What a module does, its files, its classes and markup, and the behaviour a test
+checks stay in the code and the tests.
 
 The rules for a page:
 
 - Give a new topic its own page, and add its line to the index.
-- A page says how the system works now, and why. The account of a past run goes
-  in the change description, and its result files under `target/`.
+- A page says how things work now. The account of a past run goes in the change
+  description, and its result files under `target/`: the page keeps only its
+  conclusions.
 - `docs/` is for people: design handoffs and the README's assets. Knowledge for
   agents goes in the wiki, and decisions in `.agents/adr/`.
 
@@ -76,9 +90,10 @@ Follow these steps for every change: a feature, a fix, or a change to docs.
       pane, `make e2e-explore` for the Explore page.
    Choose the levels at your discretion: run the Explore page tests only for a
    change that reaches the page (step 5). Once the change is complete, run
-   `make fmt` and bring the wiki up to date: every page that states something
-   the change altered is edited. Record a decision that the change made, when
-   the decision passes the test in Decisions.
+   `make fmt` and bring the wiki up to date: edit each line the change made
+   false, and add a line only when it earns its place (see Wiki). Record a
+   decision that the change made, when the decision passes the test in
+   Decisions.
 3. For a change the user can see, explore the affected paths in the real UI
    with `make vision` (see `.agents/wiki/tui-vision.md`) and
    fix what it finds.

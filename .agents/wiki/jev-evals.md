@@ -65,17 +65,12 @@ overlap policy. Comparisons with legacy also change representation and prompt sc
 strategies, not a causal measurement of chunk size alone. The eval does not apply
 the production 30-second job deadline; it measures all planned requests.
 
-Cuts prefer unchanged-row boundaries. A coarse Rust replacement with matching
-function names on both sides is first arranged into paired function sections,
-preserving every old/new line coordinate. Each function's removal and addition
-stay together; pure addition or deletion runs may also split on blank lines.
-These are textual heuristics, not an AST parser. Unrecognized or unmatched
-replacements remain paired as one edit. An indivisible oversized edit
-remains required and is scored as oversized. Context expansion uses a balanced
-window followed by remaining space on either side, stopping at allowed cut
-points. It seeks a locally maximal window, not a globally optimal request count
-or a guarantee that all dependencies are present. No merge pass is applied, so
-both recursive variants retain identical targets.
+The cuts (`SplitPlan` and `Sections` in `crates/reviewer/src/runtime/jev/`) are
+textual heuristics, not an AST parser. An indivisible oversized edit
+remains required and is scored as oversized. Context expansion seeks a locally
+maximal window, not a globally optimal request count or a guarantee that all
+dependencies are present. No merge pass is applied, so both recursive variants
+retain identical targets.
 
 `tiktoken-rs` with `o200k_base` counts the complete serialized request as a local
 estimate. It is not Jev's exact input encoding. In a live run of this corpus,

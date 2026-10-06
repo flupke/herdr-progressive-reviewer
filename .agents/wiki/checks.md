@@ -1,33 +1,17 @@
 # Checks
 
-What each check command runs, the Herdr release the tests run, the opt-in tests, and mutation runs.
+Gotchas of the check commands, the Herdr release the tests run, the opt-in tests, and mutation runs.
 
 [AGENTS.md](../../AGENTS.md) lists the check levels (step 2) and says which gate a
-change runs (step 5). What it leaves out:
+change runs (step 5); the `Makefile` says what each target runs. What neither says:
 
-- `make lint` also type-checks the Explore page's client with the Nix shell's `tsc`
-  (TypeScript 7, the native compiler): it needs no npm package.
-- `make test` runs the doc tests of the workspace, then every unit test with nextest,
-  which runs no doc test itself. With `CRATES`, it runs nextest alone.
-- `make check` runs `make lint`, the static rule on judgements in the Explore page's
-  tests, `make test` and `make e2e-tui`. It runs neither `make e2e-explore` nor
-  `make vision`.
-- `make check-with-e2e` runs `make check`, then `make e2e-explore`.
+- nextest runs no doc test, so `make test` with `CRATES` runs none: only `make test`
+  without it runs the doc tests.
 
 `tests/tui` is a separate Cargo workspace, with its own `Cargo.lock`, that uses the
 workspace's crates: a search or a `cargo` command at the root misses it. Before removing
 a public item, a derive or a dependency of a crate, search `tests/tui` for its uses
 too.
-
-No check fails on formatting. The test summary
-names each test slower than 10 s, and `target/nextest/default/junit.xml` keeps every
-test's time.
-
-In addition to the build dependencies, the checks use Herdr, Codex, Claude Code,
-Python 3, `cargo-nextest`, `cccc`, `jq` and TypeScript. Herdr integration tests run
-private servers with isolated configuration, state and agent paths. The
-[Explore page tests](explore-page-e2e.md) also use Node, their npm packages and a headless
-Chromium; the Nix shell provides Node and Chromium.
 
 ## The Herdr the tests run
 
@@ -60,13 +44,12 @@ To change the pinned release:
 
 ## Tests that call no model
 
-Explore's domain, Git/jj comparison, durable inputs and isolated selected-agent MCP
-tests use deterministic responses and call no model API. (The Explore page's e2e
-tests in `make check-with-e2e` call a model only for a goal with no valid recording: see
-[Agent steps and the model](explore-page-e2e.md#agent-steps-and-the-model).) Explore's optional UI
-test uses real rust-analyzer to navigate working-copy sources and reject a
-delayed result for another evidence window. A check of Explore with a real agent is manual,
-in a disposable repository and a private Herdr server.
+Explore's tests in `make check` use deterministic responses and call no model API; the
+real Claude Code run-ahead tests are opt-in (Opt-in tests). (The Explore page's
+e2e tests in `make check-with-e2e` call a model only for a goal with no valid recording:
+see [Agent steps and the model](explore-page-e2e.md#agent-steps-and-the-model).) A check
+of Explore with a real agent is manual, in a disposable repository and a private Herdr
+server.
 
 ## Opt-in tests
 
@@ -82,8 +65,7 @@ cargo test -p review-ui real_rust_lsp -- --ignored --nocapture
 [Language servers](language-servers.md) lists the server commands.
 
 The [`jev-evals` suite](jev-evals.md) compares Jev hunk-splitting strategies
-against frozen line-level labels. Offline checks and paid live runs are separate;
-neither runs during `make check`. The [history-based study](jev-history-study.md)
+against frozen line-level labels. Offline checks and paid live runs are separate. The [history-based study](jev-history-study.md)
 jointly compares prompts, metadata, exclusion rules and token windows on an
 audited corpus from repository commits.
 
@@ -100,7 +82,5 @@ runs the whole workspace; run it on a schedule or before a high-risk release, an
 read `mutants.out/` for its results. A mutation score of 100% is not the goal:
 equivalent and low-value mutants stay missed.
 
-`cargo mutants --list --diff --file <file>` shows the mutants of a file and their source
-changes without running a test; `--re` and `--exclude-re` select mutants by function or
-description. The mutation runs use nextest, which runs no doc test: the gate's doc tests
-stay the only check of those.
+The mutation runs use nextest, which runs no doc test: the gate's doc tests stay the only
+check of those.

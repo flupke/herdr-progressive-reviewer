@@ -1,17 +1,15 @@
 # Terminal UI exploration (make vision)
 
-How to drive the real reviewer pane in a private session: the `reviewer-vision` driver, its commands, what a session records, and turning findings into regression tests.
+How to drive the real reviewer pane in a private session with the `reviewer-vision` driver, the gotchas of its commands and stand-ins, and turning findings into regression tests.
 
 The Rust harness in [`tests/tui`](../../tests/tui) runs the real reviewer in a
 `tui-test` PTY. It reuses the Git/jj repository and Herdr fixtures from
 `review-test-support`, with private sockets, config, state, workspaces, and MCP
 ports. Use LLM explorations to discover cases for the regression suite.
 
-The pinned `tui-test-rs` beta requires Rust 1.90, provided by the Nix shell.
 The harness has its own Cargo workspace and lockfile because `tui-test` requires
 `unicode-width` 0.2.2 while the existing Ratatui 0.29 adapter pins 0.2.0.
-`make vision` builds the reviewer first and supplies `REVIEWER_BIN_PATH` to the
-driver. Its private Herdr server runs the [pinned release](checks.md#the-herdr-the-tests-run).
+Its private Herdr server runs the [pinned release](checks.md#the-herdr-the-tests-run).
 
 ## LLM-directed exploration
 
@@ -26,7 +24,10 @@ nix develop --command make vision VISION_ARGS='--repo git'
 The Rust `reviewer-vision` driver starts a private Herdr server and a temporary
 repository containing several changes, including Unicode and a long line. It
 prints the actual terminal text and stays alive, accepting one JSON command per
-stdin line. Each interaction returns the latest completed screen and frame ID.
+stdin line. Each interaction returns the latest completed screen and frame ID. A screen that
+showed only between two interactions is still in the session directory: `frames/`
+keeps the last 64 distinct screens, and `recording-*/` the asciinema recordings,
+kept across `reopen`.
 
 An agent whose shell has no persistent stdin runs the driver in the background
 with `--commands PIPE`: the driver creates that named pipe, reads commands from
@@ -49,40 +50,18 @@ file, which may span several lines: `vision-send $DIR @tests/tui/examples/questi
 
 Send `stop` when the exploration is done: it closes the live viewer and frees
 the private server. A driver left behind stops by itself after 30 minutes
-without a command; `--stop-after-idle MINUTES` changes that, and `0` waits
-forever. An idle stop answers with `"reason": "idle"`.
+without a command, and answers with `"reason": "idle"`.
 
-```json
-{"action":"observe"}
-{"action":"press","key":"?"}
-{"action":"press","key":"Escape"}
-{"action":"type","text":"A comment with café and 日本語"}
-{"action":"click","x":5,"y":3}
-{"action":"click","text":"notes.md"}
-{"action":"resize","cols":70,"rows":20}
-{"action":"observe","after":12,"timeout_ms":3000}
-{"action":"wait","text":"Jev: marked","timeout_ms":5000}
-{"action":"cells","x":0,"y":0,"width":10,"height":1}
-{"action":"screenshot"}
-{"action":"note","kind":"checked","text":"Help closes with Escape and restores the diff"}
-{"action":"jev","path":"src/math.rs","lines":[2]}
-{"action":"turn","timeout_ms":15000}
-{"action":"reply","turn":1,"tool":"submit_question","arguments":{"update":{...}}}
-{"action":"explore_page"}
-{"action":"reopen"}
-{"action":"stop"}
-```
+`make vision VISION_ARGS=--help` lists the driver's options and commands.
 
 Coordinates are zero-based terminal cells. `click` with `text` clicks the first
 place the screen shows it, so no column needs counting across wide characters. `type` sends bracketed paste, including
-newlines, through the application's editor. `observe` can wait up to 30 seconds
-for a frame newer than `after`; `unchanged` explicitly reports a wait without a
-new frame. An interaction waits up to one second and allows 100 ms for a changed
-screen to settle. A changed frame is evidence to inspect, not proof that the
+newlines, through the application's editor. `unchanged` explicitly reports a wait
+without a new frame. An interaction waits up to one second and allows 100 ms for a
+changed screen to settle. A changed frame is evidence to inspect, not proof that the
 requested action has finished. For asynchronous work, `wait` for the text the
 finished screen shows: it returns as soon as the screen shows it, with status
-`shown`, or after `timeout_ms` (default 5000, at most 30000) with status
-`timeout`. It checks the current screen first, so wait for text the screen
+`shown`, or after `timeout_ms` with status `timeout`. It checks the current screen first, so wait for text the screen
 before the command did not show. Waiting on text instead of a fixed delay keeps
 a fast, scripted exploration in step with the UI.
 `cells` reports the captured cells' styles when focus or selection is conveyed by
@@ -109,15 +88,12 @@ started. Create the
 file that `session.json` names as `agent_swallows_prompts` to make it read each
 prompt without starting on it, as an agent that drops a paste does; remove the file
 to make it start again. The reviewer itself records each Explore prompt, once its delivery
-finished, as a numbered turn (`turns/turn-000001.json` in the session
-directory; `HERDR_REVIEWER_VISION_TURNS` names it). This is test tooling: the
+finished, as a numbered turn in the session directory. This is test tooling: the
 reviewer records turns only in a vision session (`HERDR_REVIEWER_VISION`), as
-the files hold access values, and a normal reviewer ignores the variable. `turn` waits for the next
-turn and returns it: its number, `kind` (`kickoff`, `wakeup` or `implement`),
-whether it was `delivered`, the access value and identity a reply needs, the
-reviewer's `answer`, the cancelled answers, the `unreviewed` line naming the diffs directory, and the full
-prompt `text`. Each call returns the turn after the last one it returned;
-`after` asks from another number. `reply` answers a turn by calling an MCP tool
+the files hold access values. `turn` waits for the next
+turn and returns it, with the access value and identity a reply needs. Each call
+returns the turn after the last one it returned; `after` asks from another number.
+`reply` answers a turn by calling an MCP tool
 on the reviewer's real endpoint as that agent: it fills in the turn's access and
 the `instance`, `request` and `checkpoint` (inside `update` for
 `submit_question`) unless `arguments` sets them, gives an `interpretation`
@@ -156,52 +132,20 @@ returns that address, with its token, as `page`. Open it with curl
 
 `reopen` starts
 the reviewer again in the same private workspace and state, at its initial
-100×30 size. `stop`, SIGINT, SIGHUP, and SIGTERM clean up the reviewer, private
-server, and temporary repository; so does EOF on stdin when the driver reads
-commands from it.
+100×30 size.
 
 When the driver runs inside Herdr, it splits its own pane and runs a live viewer
-there: every frame it captures is painted in the viewer the moment it is
-published, so a person can watch the agent explore. The viewer splits the
-driver's pane the way the reviewer splits the pane it opens from, across the
-side that looks longer (beside a pane at least two and a half times as wide as
-it is tall, below any other), and takes the share that shows the whole 100×30
-session, at most three quarters of the pane. `--viewer right|down|none` picks
-the direction or turns the viewer off, and `--viewer-ratio` the viewer's share
-of the split. The viewer shows the session at its own size: a narrower pane cuts
-rows at its right edge, and a shorter one paints the rows that do not fit over
-its last row. Keys typed in the viewer do not reach the session; `q` closes the
-viewer and its pane and leaves the session running. The pane closes when the
-driver exits, however it exits: the viewer closes its own pane once the stream
-ends, and the system ends the stream of a killed driver too. Outside Herdr,
-watch the same stream from any terminal with `reviewer-vision --view SOCKET`,
-using the `stream` socket that `session.json` names.
+there, so a person can watch the agent explore. Keys typed in the viewer do not
+reach the session; `q` closes the viewer and its pane and leaves the session
+running. Outside Herdr, watch the same stream from any terminal with
+`reviewer-vision --view SOCKET`, using the `stream` socket that `session.json` names.
 
 Every session gets a new directory under `tests/tui/target/vision/`, printed with
-the observations. `--output NEW_DIRECTORY` selects another location and `--json`
-returns JSON lines for automated clients. The directory retains:
-
-- `latest.txt`: an atomically replaced text screen with its frame ID, dimensions,
-  and cursor metadata, refreshed even while the agent is thinking.
-- `frames/`: the most recent 64 distinct text screens. Style and cursor changes
-  count as distinct frames even when the characters stay the same.
-- `actions.jsonl`: commands, observations, errors, and agent notes. Note kinds are
-  `checked`, `finding`, and `untested`; findings should include expected behavior,
-  observed behavior, and reproduction steps.
-- `recording-*/`: `tui-test`'s textual asciinema recordings, retained across reopen.
-- `screenshots/`: the PNGs `screenshot` saved, named after their frame.
-- `session.json`: the private repository path, the live `stream` socket and
-  session details. An agent can
-  edit files in that repository to exercise filesystem-driven updates.
-
-The driver sets `HERDR_REVIEWER_VISION=1` on its child. In that mode the reviewer
-marks completed paints with terminal synchronized-update sequences. A filesystem
-watcher follows `tui-test`'s recording and replays it through the library's terminal
-emulator, publishing text only at those boundaries. This preserves complete frames
-even when one paint spans several PTY reads, or several paints share one read.
-Unchanged paints are deduplicated. Capture uses filesystem events rather than
-periodic screenshot polling. The private child clears `NO_COLOR` so style
-inspection includes the UI's normal selection and focus colors.
+the observations, or the one `--output` names. Read the screen in `latest.txt`,
+refreshed even while the agent is thinking, and the commands, errors and notes in
+`actions.jsonl`; findings should include expected behavior, observed behavior, and
+reproduction steps. `session.json` names the private repository: an agent can
+edit files in that repository to exercise filesystem-driven updates.
 
 Give the agent a feature contract and an exploration objective. Let it choose
 actions from what it sees, record checks and findings with `note`, and finish with
@@ -221,6 +165,5 @@ Run the harness checks and any added regression cases with:
 nix develop --command make e2e-tui
 ```
 
-This target also runs during `make check`. It builds the reviewer, checks the
-Rust harness, and runs its tests. Its tests cover the frame-capture plumbing and the
-live viewer; UI scenarios come from explorations.
+Its own tests cover the frame-capture plumbing and the live viewer; UI scenarios
+come from explorations.

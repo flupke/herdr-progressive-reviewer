@@ -1,6 +1,6 @@
 # Explore page: architecture
 
-How the Explore page works: the socket and its requests, the actions it offers for each state of a round, the agent's Markdown and diagrams, how the session publishes a round, and the chat.
+Why the Explore page is built as it is: the socket and the checks on each action, the actions for each state of a round, the agent's Markdown and diagrams, what the session publishes, the page's address, and the chat.
 
 The Explore page is a browser page that shows an Explore round. Its routes,
 socket and client are in
@@ -10,48 +10,28 @@ page that loads a small JavaScript client (`assets/client`, see
 package manager. Each open page holds one WebSocket at `/ws`: the tool sends the round
 as typed data (`PageView` in `src/view.rs`), whole, when the socket opens and at each
 change, and the client draws every screen from it and changes in place what changed,
-so the reader's scroll, focus, selection and typed text stay. The reviewer's actions go
-back over the same socket as requests in the shape of JSON-RPC 2.0 (`src/rpc.rs`); the
-page hands each one to the round's owner as a `PageCommand`, waits for its reply, sends
-the view it changed, then the reply. A refusal carries its notice, a status card
-worded for the action by `StatusCard` in `src/status.rs`, which the page shows until
-the round changes. Before it hands an action to the owner, the page checks that the
-round still offers it, by the identity of what the action acts on: the version of the
-question, the start, the turn and its latest attempt, the answer, the round, the
-conclusion, the implementation request and its attempt. The owner checks again against
-its own round. A repeat of an action that went through (the same answer to the same
-version of a question, the same first pick, list to be implemented or quiz answer) is
-answered as applied already and changes nothing; a repeat of a Start, a Stop
-waiting, a Retry or a resend names a start, a turn or an attempt that is no longer the
-current one, so it cannot act twice (`CommandRefusal::AlreadyApplied`,
-`src/actions.rs`). With scripts off, the page says that it needs them.
+so the reader's scroll, focus, selection and typed text stay. Before it hands an action
+to the owner, the page checks that the round still offers it, by the identity of what the
+action acts on; the owner checks again against its own round. A repeat of an action that
+went through is answered as applied already and changes nothing; a repeat of a Start, a
+Stop waiting, a Retry or a resend names a start, a turn or an attempt that is no longer the
+current one, so it cannot act twice (`CommandRefusal::AlreadyApplied`, `src/actions.rs`).
 
 On a question whose Door is not two-way, the page hides the recommendation until the
 reviewer's first pick (`src/blind.rs`), unless the reviewer answered the question
-before and cancelled the answer (`RoundStage::Question::answer_cancelled`): the view the
-page holds before that pick carries neither the agent's reason nor any mark of the
-recommended choice, and the choices come in a mixed order. The reviewer's first Send is
-the pick, and sends no answer: a request that the owner accepts while the round asks the
-question (`PageCommand::Pick`), after which the page keeps it (`FirstPicks`) and shows
-every tab the recommendation, with the line that says whether the reviewer and the agent
-picked the same choice; the button becomes Confirm answer, and the answer it sends carries
-the first pick to the owner as `AnswerInput::first_pick`. The comment typed before the
-first Send stays in the answer's comment box, which keeps the same draft. A conclusion with a quiz shows it
-first, one item at a time (`assets/client/quiz.js`): the page grades a pick itself,
-saves it through the owner (`PageCommand::Quiz`), then shows the item's answer until the
-reviewer moves on; once every item is answered or the reviewer skips the rest, the
-conclusion shows with the results folded beside it.
+before and cancelled the answer: the view the page holds before that pick carries
+neither the agent's reason nor any mark of the recommended choice, and the choices come
+in a mixed order. The first pick is a request of its own (`PageCommand::Pick`), which the
+page keeps (`FirstPicks`), and the answer carries it to the owner as
+`AnswerInput::first_pick`.
 
 The page offers every action of the pane's Explore tab for the round's state,
 through `PageCommand`, and the session carries each one out by the path of the
 pane's command, so that it saves the same result and sends the same prompt
-(`crates/review-explore-session/src/page_actions.rs`). The pane follows each one
-through the events it already follows (`ExplorePosted`, `ExploreAnswerCancelled`,
-`ExploreImplementationSaved`, `ExploreImplementationFinished`), and through
-`ExplorePageStopped` and `ExplorePageReset`; its own behaviour does not change.
-On the network, Reset ends the round's token, and the page that sent it receives
-the start screen's next token in the reply (`Rounds::after_reset`, ADR 0003), and opens
-again with it.
+(`crates/review-explore-session/src/page_actions.rs`); the pane's own behaviour does
+not change. On the network, Reset ends the round's token, and the page that sent it
+receives the start screen's next token in the reply (`Rounds::after_reset`, ADR 0003), and
+opens again with it.
 
 | State of the pane's Explore tab | Pane action | On the page (`RoundStage`) |
 | --- | --- | --- |
@@ -87,71 +67,40 @@ the pane's renderer and the kickoff prompt all read them from there.
 The page follows the reviewer's design handoff in
 [`docs/design/explore-page/`](../../docs/design/explore-page/README.md): its `README.md` is the
 specification, `screenshots/` the reference captures, and `design-review.md` the detailed
-findings; [Explore page: components](explore-page-components.md) says where each building
-block lives.
+findings.
 
 A fenced `mermaid` block is a diagram, which `assets/client/diagrams.js` draws in the
-browser with Mermaid when the region that holds it is built, every diagram of the page the
-same way (design review, finding 30): in the page's theme and font, with colours read from the
-tokens at each draw and again when the page turns dark or light; whole, as the project owner
-asked: at its natural size when it fits its frame, otherwise shrunk to fit and never enlarged;
-when that would take its 14-pixel text under 11 pixels, the diagram's frame first widens to the whole
-reading column (class `wide`), and past that a desktop still shrinks it to fit while a phone
-keeps its natural size in a frame that scrolls sideways and says so; a shrunk or scrolling
-diagram offers "Open large", a modal dialog at its natural size that scrolls and closes with
-Escape; a `flowchart LR` that does not fit drawn again top to bottom; and the nodes classed `new` or `changed` in green and amber, with a legend. The
-kickoff's diagram rules (`crates/review-explore-runner/src/diagrams.md`) name that vocabulary.
-Each table of the agent's Markdown sits in a frame of its own that scrolls sideways, with its
-first column held on a phone. Mermaid is
+browser with Mermaid, every diagram of the page the same way (design review, finding 30):
+whole, as the project owner asked, shrunk to fit and never enlarged. Its nodes classed
+`new` or `changed` are drawn in green and amber; the kickoff's diagram rules
+(`crates/review-explore-runner/src/diagrams.md`) name that vocabulary. Mermaid is
 vendored, pinned and gzipped at build time in
 [`crates/mermaid-js`](../../crates/mermaid-js) (its `vendor/README.md` says how to
 move to another version); the page serves it itself, loads it only when it
 shows a diagram, and lets the browser keep it, since its address names its
-version. Mermaid writes inline styles into each diagram, so the page's content
-security policy allows inline styles (`style-src 'self' 'unsafe-inline'`); it
-still allows scripts only from the page itself. The tool cannot check a diagram
-when the agent submits it: when Mermaid cannot parse one, the page shows its
-source under a quiet caption, with Mermaid's message behind a fold (design review, finding 22),
-and sends the error over the socket (`diagram-failed`), and
-the session (`ExploreSession`) saves it with the question (`Exploration::diagram_errors`).
+version. The tool cannot check a diagram when the agent submits it: when Mermaid
+cannot parse one, the page shows its source and sends the error over the socket
+(`diagram-failed`), and the session (`ExploreSession`) saves it with the question
+(`Exploration::diagram_errors`).
 
-In the reviewer, the session (`ExploreSession`) publishes the stage of its round (no
-round, a round starting or a failed start, the agent working, a question,
-an interrupted turn, the conclusion)
-after each input it handles, with what the agent's turn said back to the previous answer
-(`TurnResponse`: its interpretations of the answer, with their recaps and follow-ups, and
-its reply, the data the pane shows), and with the lines of the change that each citation of a
-question names (`Comparison::tracked_cited_lines`, on the `cited_source` lookup of the pane's
-evidence viewer, for files the change touches or the repository tracks only, since the page
-may be open from the network), colored once per question on the session's thread by
-[`crates/review-explore-citations`](../../crates/review-explore-citations), and
+In the reviewer, the session (`ExploreSession`) publishes the stage of its round after
+each input it handles, with the lines of the change that each citation of a question names
+(`Comparison::tracked_cited_lines`, for files the change touches or the repository tracks
+only, since the page may be open from the network), and
 [`crates/review-explore-page-host`](../../crates/review-explore-page-host) serves
-the page of that round on a loopback port behind a token (below). The worker names the
-review the page belongs to after each snapshot (`ExploreSession::name_review`,
-`RoundPublisher::name`), and the start screen shows it. Whether a round can start follows
+the page of that round on a loopback port behind a token. Whether a round can start follows
 one rule, `review_explore::StartBlock`: not once every changed line is marked as reviewed.
-The worker hands the session the review states after each snapshot, each mark the reviewer
-sets, and each Explore input that ends a round (`ExploreSession::marks_changed`); the
-session tells the pane (`ExploreStartBlock`) and the page (`RoundPublisher::block_starts`),
-which show the start buttons inactive with the reason, and it reads the marks again as it
-captures the change and before it sends a kickoff, so a start that finds nothing left to
-review fails without one. The page's
-commands join the session's inputs, in the same order as the pane's. For an
-answer from the page, the session builds the turn from its latest saved round
-as the pane would, so the saved answer and the prompt are the same, and it
-refuses an answer to a question that has one already. A start from the page
-replies at once, then captures the change and returns the kickoff to the
-reviewer's worker (`ExploreSession::start_from_page`), which lets Jev mark
-first as for a kickoff from the pane; the pane shows the round once the session
-announces the saved kickoff. An Implement from the page builds the request as
-the pane's does. Once the conclusion has a request that this process sends or
-that the agent received, the session refuses another, from the page or from the
-pane, so a repeated or stale Implement cannot start a second implementation; a
+The session tells the pane (`ExploreStartBlock`) and the page (`RoundPublisher::block_starts`),
+and it reads the marks again as it captures the change and before it sends a kickoff, so a
+start that finds nothing left to review fails without one. The page's
+commands join the session's inputs, in the same order as the pane's. A start from the page
+returns the kickoff to the reviewer's worker (`ExploreSession::start_from_page`), which lets
+Jev mark first as for a kickoff from the pane. Once the conclusion has a request that this
+process sends or that the agent received, the session refuses another, from the page or from
+the pane, so a repeated or stale Implement cannot start a second implementation; a
 request an earlier process left paused or unknown stays the pane's to resolve.
-The session's stage tells a request this process is sending from one an earlier
-process left paused or unknown, and follows its delivery through the storage
-watcher. The pane shows a request the page sent as its own. It records
-the page's address, readable only by the user, under
+
+The reviewer records the page's address, readable only by the user, under
 `$HERDR_PLUGIN_STATE_DIR/explore-page/`, one record per Herdr workspace. The
 Herdr action `explore-page` (`reviewer-control explore-page`) reads the record
 of its workspace, checks that the page answers, and opens it with `$BROWSER`,
@@ -164,14 +113,7 @@ The page also shows the round's conversation with the agent, the chat: a review 
 attached to the round (`Post::to_round` in `crates/review-threads`, read through
 `review_round_conversation::RoundConversation`), never an Explore turn. The page reads it from
 the review threads, which their owner publishes (`ThreadsPublisher`, `ThreadsFeed`), and writes
-it with the pane's thread commands (`ThreadSender`): `PageRound::with_conversation` gives a
-page both (`PageConversation`). In the reviewer, the thread worker's events publish the threads and the
-latest wakeup of each review, and a post from the page gets its reply once the worker reports
-it (`crates/reviewer/src/runtime/page_threads.rs`); the round names its review
-(`PublishedRound::review_unit`), whose threads hold its conversation. A message carries the
-identity the page chose for it, so that a repeat posts it once; the place in the round the page
-showed (`AskedUnder`: the question and its version, the design, the conclusion) and the
-passage it quotes; it wakes the agent with the threads' usual prompt, which names the round
-and the question and says that it is no answer. The view's `conversation` holds the messages
-with their Markdown rendered and their place named as the rail names it, the unread count, and
-a status card with Retry when a wakeup did not reach the agent.
+it with the pane's thread commands (`ThreadSender`); the reviewer's side is in
+`crates/reviewer/src/runtime/page_threads.rs`. A message carries the identity the page chose
+for it, so that a repeat posts it once; it wakes the agent with the threads' usual prompt,
+which names the round and the question and says that it is no answer.

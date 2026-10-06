@@ -1,6 +1,6 @@
 # Explore page: e2e tests
 
-How the page's e2e tests are written and run: the fixture that plays the agent and the pane, the replay cache and the model behind agent steps, and the tools for writing a test with an agent.
+How the page's e2e tests are written and run: checks by locator, the replay cache and the model behind agent steps, and the tools for writing a test with an agent.
 
 ## Write and run a test
 
@@ -35,8 +35,7 @@ its heading, a `<fieldset>` with a `<legend>`, `role="status"`).
 nix develop --command make e2e-explore
 ```
 
-This target also runs during `make check-with-e2e`. It builds the standalone server and
-runs every test at a desktop and at a phone size, each against its own server.
+It runs every test at a desktop and at a phone size, each against its own server.
 `E2E_ARGS` go to `e2e run`, with paths relative to `tests/explore-page`:
 `make e2e-explore E2E_ARGS=tests/round.e2e.ts` runs one file, and
 `E2E_ARGS=--no-cache` runs without the replay cache.
@@ -47,62 +46,14 @@ Playwright's own download, and turns e2e's telemetry off
 (`E2E_TELEMETRY_DISABLED`).
 
 Each test gets its own round on the server, through the `explore` fixture of
-`tests/explore-page/tests/session.ts`, and plays the Explore agent and the
-reviewer's pane: the round starts with the agent working,
-`explore.askQuestion()` posts the next question, `explore.answerInPane()`
-answers it in the pane, `explore.answerAfterFirstPick()` answers it with the recommended choice
-after a first pick of another, as a blind question on the page would, `explore.cancelAnswerInPane()` cancels that answer (the question
-then shows its recommendation at once),
-`explore.failDelivery()` fails the prompt the session sends (the conclusion's
-implementation request while it sends one, else the agent's next turn),
-`explore.agentDoesNotStart()` stands for an agent that does not start on that prompt, and
-`explore.interrupt()`, `explore.conclude()` and `explore.reset()` move the
-round to the other stages. An answer sent from the page puts the agent to work,
-and `explore.answers()` returns what the page sent; `explore.diagramErrors()`
-returns the diagram errors the page reported, as the review tool saves them.
-The round opens on the design of the change, which carries a sequence diagram and a table
-that fit a desktop window but not a phone's; the design's diagram is the page's first
-(`Diagram 1`), and `explore.openDesign()` opens the design screen at a later stage, at the
-address the design map of the rail's "Design ▾" links to (`#design`). The second
-fixed question carries a diagram that draws and one that does not parse. From the second
-question on, and with the conclusion, the agent's fixed response to the previous answer
-shows above it. The session's review has a fixed name, which the start screen shows. A start sent from the page shows the round starting,
-`explore.sendKickoff()` puts the agent to work on it (or stands for a round
-started in the pane), `explore.failStart()` fails the start, and
-`explore.starts()` returns the starts the page sent. `explore.reviewEverything()` leaves
-nothing to review, so the start screen offers no start and a start fails for that reason,
-and `explore.unreviewLine()` lets a round start again. The change's review marks follow the
-round: Jev marks a line of it once a round runs, each answer marks what its question said it
-would, and `explore.markByHand()` marks more lines by hand, which the meter shows at once. An Implement from the page
-shows the request as being sent until `explore.deliverImplementation()`;
-`explore.implementInPane()` sends the conclusion's request from the pane, and
-`explore.implementations()` returns the lists the page sent. `explore.actions()`
-returns, by name, the other actions the page sent (Stop waiting, Retry, Cancel
-answer, Reset, a cancel of an implementation request, the chat's Retry), and
-`explore.holdPage()` stops the page from following the round until it sends an action,
-which is then refused, for a test of an action refused on a stale page.
-In the chat, `explore.messages()` returns the messages the review threads saved, with the
-place in the round each was written at and its quote, `explore.agentReplies()` plays the
-agent's fixed reply to the latest one, and `explore.messagesNotDelivered()` stands for a wakeup
-that did not reach the agent.
-`explore.restartReviewer()` closes the page's socket and refuses a new one until
-`explore.reviewerBack()`, as a reviewer that restarts. `explore.reopenBeforeSending()` and
-`explore.reopenWhileSending()` stand for a reopen of the review while the session sends a
-prompt (the request is then saved but not sent, or its delivery unknown; the turn stopped,
-or its delivery unknown), `explore.becomeEarlierRound()` makes the round an earlier one,
-and `explore.failStorage()` stands for a storage failure. `explore.concludeWithQuiz()`
-concludes with a quiz of two items, and `explore.quiz()` returns what the reviewer
-answered of it, as the review tool saves it. The server's control
-routes are listed in
-[`control.rs`](../../crates/review-explore-page-server/src/control.rs); a
-`question` step takes an optional JSON `Question` body for a question of the
-test's own. The server's log of each
+`tests/explore-page/tests/session.ts`, which plays the Explore agent and the
+reviewer's pane; its `Session` interface documents each helper. A move of the round
+that no helper makes needs a control route of the server first, in
+[`control.rs`](../../crates/review-explore-page-server/src/control.rs). The server's log of each
 target is in
 `tests/explore-page/.e2e/logs/`; a failed run prints its end. The run also
 fails when the browser reports that the page broke its content security policy,
-which allows scripts, styles, workers and the manifest only from the page itself, inline
-styles for Mermaid's diagrams, images from the page and `data:` URLs (the tab's icon),
-requests to the page and its socket only, and no form post. A
+set in `crates/review-explore-page/src/page.rs`. A
 failing test
 leaves the accessibility tree of the page and a Playwright trace under
 `tests/explore-page/.e2e/artifacts/`.
@@ -192,23 +143,9 @@ root:
 claude mcp add e2e -- "$PWD/tests/explore-page/mcp.sh"
 ```
 
-`tests/explore-page/mcp.sh` enters the Nix dev shell when it is not already in
-it, then starts the server with this project's e2e and
-`tests/explore-page/e2e.config.ts`, so it works from any directory. Install e2e
-once first with `nix develop --command make e2e-explore-deps`.
+Install e2e once first with `nix develop --command make e2e-explore-deps`.
 
 An agent whose session has no server registered can drive the same server from
-the shell: `tests/explore-page/mcp-cli.mjs` starts `mcp.sh`, runs the tool calls
-given as arguments in one session, prints each result, then closes the session:
-
-```sh
-nix develop --command node tests/explore-page/mcp-cli.mjs \
-  '{"tool":"open_session","args":{"target":"desktop"}}' \
-  '{"tool":"call","args":{"tool":"navigate","args":{"url":"/?token=e2e"}}}' \
-  '{"tool":"call","args":{"tool":"locate","args":{"role":"radio","name":"Keep the draft"}}}'
-```
-
-`locate` answers with the locator a test would use, such as
-`screen.getByRole("radio", "Keep the draft")`. `/?token=e2e` opens the server's
-own round, which shows the fixed question. Each run of `mcp-cli.mjs` starts a
-new page server, and nothing it does is recorded.
+the shell with `tests/explore-page/mcp-cli.mjs`, whose header shows how.
+`/?token=e2e` opens the server's own round, which shows the fixed question. Each
+run of `mcp-cli.mjs` starts a new page server, and nothing it does is recorded.
